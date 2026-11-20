@@ -11,6 +11,7 @@ import { getRuntimeLifecycleRegistry, type RuntimeLifecycleRegistry } from "./ru
 export type DurableJobStatus = "queued" | "running" | "completed" | "failed";
 
 const DEFAULT_DURABLE_JOB_MAX_ATTEMPTS = 10;
+const DURABLE_JOB_CLAIM_EXHAUSTION_REASON = "Durable job retry attempts exhausted.";
 const DEFAULT_DURABLE_JOB_RETRY_BACKOFF_BASE_MS = 1_000;
 const DEFAULT_DURABLE_JOB_RETRY_BACKOFF_MAX_MS = 60_000;
 const MAX_POSTGRES_INTEGER = 2_147_483_647;
@@ -298,6 +299,11 @@ export function createPostgresDurableJobStore<
   tables: DurableJobTables,
   options: {
     eventSnapshot?: (job: DurableJobRecord<TPayload, TProgress, TResult>) => TSnapshot;
+    onClaimExhausted?: (
+      queryable: PgQueryable,
+      job: DurableJobRecord<TPayload, TProgress, TResult>,
+      reason: string,
+    ) => Promise<void>;
     notificationWaiterPool?: PgTransactionalPool;
     notificationRetryCooldownMs?: number;
     lifecycle?: RuntimeLifecycleRegistry;
@@ -440,7 +446,7 @@ export function createPostgresDurableJobStore<
            )
            UPDATE ${jobsTable} AS job
            SET status = 'failed',
-               error_message = COALESCE(error_message, 'Durable job retry attempts exhausted.'),
+               error_message = COALESCE(error_message, $3::text),
                claim_owner_id = NULL,
                claimed_until = NULL,
                completed_at = COALESCE(completed_at, now()),
@@ -448,10 +454,13 @@ export function createPostgresDurableJobStore<
            FROM exhausted
            WHERE job.job_id = exhausted.job_id
            RETURNING ${DURABLE_JOB_COLUMNS_FOR_JOB_ALIAS}`,
-          [jobKinds, maxAttempts],
+          [jobKinds, maxAttempts, DURABLE_JOB_CLAIM_EXHAUSTION_REASON],
         );
         for (const row of exhausted.rows) {
-          await appendEvent(queryable, mapJobRow<TPayload, TProgress, TResult>(row));
+          const job = mapJobRow<TPayload, TProgress, TResult>(row);
+          await appendEvent(queryable, job);
+          // Use the same writer so a failed context write rolls back exhaustion on pooled stores.
+          await options.onClaimExhausted?.(queryable, job, DURABLE_JOB_CLAIM_EXHAUSTION_REASON);
         }
 
         const claimed = await queryable.query<DurableJobRow>(

@@ -39,6 +39,7 @@ import {
   catalogProviderProfileEditableSectionMetadata,
   toCatalogProviderProfileSectionPatch,
   type CatalogProviderProfileEditableSectionMetadata,
+  type CatalogProviderProfileMigrationEvidenceRecording,
   type CatalogProviderProfileSectionUpdateCommand,
   type CatalogProviderProfileVersionUpdatePatch,
 } from "./provider-profile-section-registry";
@@ -398,18 +399,7 @@ export async function getCatalogProviderProfileAuthoringModel(input: {
   const selector = profileVersionSelectorFromInput(input);
   const version = await requireProfileVersion(input.store, input.providerKey, input.profileVersion, selector);
   const referenceCount = await input.store.countProfileVersionReferences(version.providerKey, version.profileVersion);
-  const versions = await input.store.listProfileVersions(version.providerKey);
-  const activeVersion =
-    versions.find(
-      (candidate) =>
-        candidate.active &&
-        candidate.lifecycle === "active" &&
-        catalogProviderProfileVersionsCompete(candidate, version),
-    ) ??
-    (await input.store.getActiveProfileVersion(version.providerKey, {
-      profileKey: version.profileKey,
-      ingestionUnitKey: catalogProviderProfileVersionIngestionUnitKey(version),
-    }));
+  const activeVersion = await findCompetingActiveProfileVersion(input.store, version);
   const fixtureCases = authoringFixtureCasesForVersion(
     version,
     input.fixtureCases ?? catalogProviderProfileFixtureCases(),
@@ -714,7 +704,12 @@ export async function updateCatalogProviderProfileSectionForReview(input: {
     input.profileVersion,
     profileVersionSelectorFromInput(input),
   );
-  const patch = toCatalogProviderProfileSectionPatch(existing, input.command);
+  const patch = toCatalogProviderProfileSectionPatch(existing, input.command, {
+    migrationEvidenceRecording:
+      input.command.section === "migration-evidence"
+        ? await migrationEvidenceRecording(input.store, existing, input.audit ?? null)
+        : null,
+  });
   return updateCatalogProviderProfileVersionForReview({
     store: input.store,
     providerKey: input.providerKey,
@@ -725,6 +720,40 @@ export async function updateCatalogProviderProfileSectionForReview(input: {
     audit: input.audit,
     activeJobs: input.activeJobs,
   });
+}
+
+async function findCompetingActiveProfileVersion(
+  store: CatalogProviderIntegrationProfileVersionStore,
+  version: CatalogProviderIntegrationProfileVersionRecord,
+): Promise<CatalogProviderIntegrationProfileVersionRecord | null> {
+  const versions = await store.listProfileVersions(version.providerKey);
+  return (
+    versions.find(
+      (candidate) =>
+        candidate.active &&
+        candidate.lifecycle === "active" &&
+        catalogProviderProfileVersionsCompete(candidate, version),
+    ) ??
+    (await store.getActiveProfileVersion(version.providerKey, {
+      profileKey: version.profileKey,
+      ingestionUnitKey: catalogProviderProfileVersionIngestionUnitKey(version),
+    }))
+  );
+}
+
+async function migrationEvidenceRecording(
+  store: CatalogProviderIntegrationProfileVersionStore,
+  version: CatalogProviderIntegrationProfileVersionRecord,
+  audit: CatalogProviderIntegrationProfileAuthoringAudit | null,
+): Promise<CatalogProviderProfileMigrationEvidenceRecording> {
+  const active = await findCompetingActiveProfileVersion(store, version);
+  return {
+    recordedAt: audit?.updatedAt ?? new Date().toISOString(),
+    recordedByUserId: audit?.updatedByUserId ?? null,
+    recordedForAccountId: audit?.updatedForAccountId ?? null,
+    mappingFingerprintBefore: active ? sourceMappingFingerprint(active) : null,
+    mappingFingerprintAfter: sourceMappingFingerprint(version),
+  };
 }
 
 export async function rollbackCatalogProviderProfileVersionForReview(input: {
