@@ -454,12 +454,8 @@ pub(crate) async fn command(
         }
     };
     match outcome {
-        Ok((connection, Some(receipt))) => req.redirect(&connection_url(&connection.connection_id, Some(&receipt))),
-        // Disconnect sends no receipt to read after (chase-sets/chase-sets#10779): the page is the
-        // connection the write returned, as marketplace's action draws it.
-        Ok((connection, None)) => {
-            render_connection(&req, &viewer, &config, &headers, id, &here, Some(connection), None, StatusCode::OK).await
-        }
+        // A write that changed nothing (a repeat Disconnect) has no receipt and nothing to wait for.
+        Ok((connection, receipt)) => req.redirect(&connection_url(&connection.connection_id, receipt.as_ref())),
         Err(error) => match error.status() {
             Some(StatusCode::UNAUTHORIZED) => sign_in(&req),
             Some(status @ (StatusCode::FORBIDDEN | StatusCode::NOT_FOUND)) => Err(corten::Error::new(error).with_status(status)),

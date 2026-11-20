@@ -20879,8 +20879,7 @@ const CHANNELS_SCREEN: &str = "/account/channels";
 /// first page with a next page holding a paused one; no paused connection on the paused filter's
 /// first page; the disconnected filter fails on Channels' side; `conn_gone` is not found. Connect
 /// makes `conn_new`; Pause, Resume and Disconnect follow the connection's status and refuse any
-/// other with a 409; Activate makes it active. Every write but Disconnect answers with a receipt, as
-/// Channels does (chase-sets/chase-sets#10779). One publication summary, and `conn_active`'s
+/// other with a 409; Activate makes it active. Every write answers with a receipt. One publication summary, and `conn_active`'s
 /// publication (`channel_publication_api`). `conn_active`'s manual sync has run `run_1` composed
 /// at revision 2 (`manual_sync_api`); `conn_pending`'s is unavailable.
 fn channels_api(method: &Method, uri: &Uri, body: &str) -> Option<Response> {
@@ -20911,8 +20910,6 @@ fn channels_api(method: &Method, uri: &Uri, body: &str) -> Option<Response> {
     let transition = |refused: bool, id: &str, to: &str| {
         if refused {
             refusal(StatusCode::CONFLICT, "invalid_transition", "invalid_transition")
-        } else if to == "disconnected" {
-            Json(connection(id, to)).into_response()
         } else {
             committed(StatusCode::OK, "channels", "50", connection(id, to))
         }
@@ -21744,11 +21741,10 @@ async fn channels_connects_pauses_activates_and_says_what_was_refused() {
     assert_eq!(serde_json::from_str::<Value>(&sent.unwrap()).unwrap(), json!({ "storageLocationIds": ["loc_main"] }));
     let (status, _, _) = pilot.send(post("/account/channels/conn_active", "channel_reader", "intent=pause", false)).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
-    // Disconnect has no receipt to read after: the page is the connection it returned.
-    let (status, _, html) = pilot.send(post("/account/channels/conn_paused", "channeler", "intent=disconnect", false)).await;
-    assert_eq!(status, StatusCode::OK, "{html}");
-    let words = text(&html);
-    assert!(words.contains("Disconnected") && words.contains("No actions are available for this connection."), "{words}");
+    // Disconnect goes to the connection with its receipt, as Pause does.
+    let (status, headers, _) = pilot.send(post("/account/channels/conn_paused", "channeler", "intent=disconnect", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/channels/conn_paused?after_write="));
 }
 
 const CONNECTION: &str = "/account/channels/conn_active";
