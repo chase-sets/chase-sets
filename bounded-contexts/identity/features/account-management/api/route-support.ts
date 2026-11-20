@@ -4,6 +4,7 @@ import { parseAttemptKey, type MutationAction } from "../domain/contract";
 import type { AccountManagementServices, MutationResult } from "./runtime";
 import { SHIPPING_ADDRESS_REQUIRED_MESSAGES } from "../../shipping-addresses/domain/errors";
 import { ACCOUNT_PROFILE_REQUIRED_MESSAGES } from "../../accounts/domain/errors";
+import { USER_PROFILE_REQUIRED_MESSAGES } from "../../users/domain/errors";
 import { t } from "@chase-sets/localization";
 
 export async function submitAccountManagement(
@@ -70,6 +71,15 @@ function requiredFieldRefusal(action: MutationAction, result: MutationResult) {
   ) {
     const field = profileField as keyof typeof ACCOUNT_PROFILE_REQUIRED_MESSAGES;
     return refused(field, t(ACCOUNT_PROFILE_REQUIRED_MESSAGES[field]));
+  }
+  const userField = result.userProfileField;
+  if (
+    action === "update-user" &&
+    typeof userField === "string" &&
+    Object.hasOwn(USER_PROFILE_REQUIRED_MESSAGES, userField)
+  ) {
+    const field = userField as keyof typeof USER_PROFILE_REQUIRED_MESSAGES;
+    return refused(field, t(USER_PROFILE_REQUIRED_MESSAGES[field]));
   }
   return null;
 }

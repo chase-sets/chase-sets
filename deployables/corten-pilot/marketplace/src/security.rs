@@ -260,12 +260,15 @@ pub(crate) async fn write(
         _ => None,
     };
     let attempt = attempt_text(&input.attempt).to_owned();
-    let refuse = |message: &'static str| {
-        let mut errors = Errors::new();
-        errors.add_form(message);
+    let refuse_with = |errors: Errors| {
         let posted = which.map(|which| Draft { which, input: input.clone(), errors });
         let said = if posted.is_some() { Said::Editing } else { Said::NotSaved };
         render(req, viewer, config, headers, None, Shown::said(said), posted, StatusCode::UNPROCESSABLE_ENTITY)
+    };
+    let refuse = |message: &'static str| {
+        let mut errors = Errors::new();
+        errors.add_form(message);
+        refuse_with(errors)
     };
     let Some(action) = action else { return refuse(t.manage_state_failed_safe()).await };
     if !valid_attempt(&attempt) {
@@ -321,6 +324,14 @@ pub(crate) async fn write(
                 render(req, viewer, config, headers, after_write.as_deref(), shown, None, StatusCode::OK).await
             }
         },
+        // Identity names the blank display name it refused.
+        AccountAnswer::NotRecorded { code, field, .. }
+            if code == "validation-failed" && field.as_deref() == Some("displayName") =>
+        {
+            let mut errors = Errors::new();
+            errors.add(SecurityInput::FIELDS.display_name, t.errors_display_name_required());
+            refuse_with(errors).await
+        }
         AccountAnswer::NotRecorded { code, .. } if code == "validation-failed" => refuse(t.action_validation()).await,
         AccountAnswer::NotRecorded { .. } => refuse(t.manage_state_failed_safe()).await,
         AccountAnswer::Conflict => {

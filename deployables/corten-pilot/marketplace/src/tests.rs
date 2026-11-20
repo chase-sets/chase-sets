@@ -9320,7 +9320,8 @@ fn key_committed(id: &str, secret: bool) -> Response {
 /// matches too. A read that waits for 45 is still catching up. A write's attempt decides an answer
 /// as an address write's does: `NO_RECORD`, `APPLIED_BEFORE` and `CHECK_DOWN` are answered
 /// `indeterminate`, and the lookup says nothing was recorded, that it was (its secret lost), or
-/// cannot say. A display name `Refused` is refused; a key named `Taken` is a conflict.
+/// cannot say. A display name `Refused` is refused; a blank one is refused as Identity refuses it,
+/// naming the field; a key named `Taken` is a conflict.
 fn identity_security(method: &Method, uri: &Uri, headers: &HeaderMap, attempt: &str, body: &str) -> Option<Response> {
     let path = uri.path();
     let indeterminate = || {
@@ -9360,6 +9361,15 @@ fn identity_security(method: &Method, uri: &Uri, headers: &HeaderMap, attempt: &
             }))
             .into_response(),
             "PUT" if matches!(attempt, NO_RECORD | APPLIED_BEFORE | CHECK_DOWN) => indeterminate(),
+            "PUT" if sent["displayName"].as_str().is_some_and(|v| v.trim().is_empty()) => {
+                let message = "Display name is required.";
+                let details = json!([{ "field": "displayName", "code": "required", "message": message }]);
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({ "error": { "code": "validation_failed", "message": message, "details": details } })),
+                )
+                    .into_response()
+            }
             "PUT" if sent["displayName"] == "Refused" => {
                 (StatusCode::BAD_REQUEST, Json(json!({ "outcome": "not-recorded", "code": "validation-failed" }))).into_response()
             }
@@ -9432,7 +9442,7 @@ async fn the_security_page_shows_the_user_its_own_keys_and_their_controls() {
     assert_eq!(status, StatusCode::OK, "{html}");
     let shown = text(&html);
     assert!(html.contains("<title>Security | Marketplace</title>"), "{html}");
-    assert!(html.contains(r#"name="display_name" value="Synthetic Seller" required pattern=".*\S.*""#), "{html}");
+    assert!(html.contains(r#"name="display_name" value="Synthetic Seller" required autocomplete="nickname""#), "{html}");
     assert!(html.contains(r#"name="given_name" value="Syn""#) && html.contains(r#"name="family_name" value="Seller""#), "{html}");
     assert!(
         shown.contains("Enabled Methods 3 Password, Passkey, Unrecognized authentication method: Hardware Token"),
@@ -9536,6 +9546,19 @@ async fn a_refused_security_write_says_so_and_sends_nothing_it_cannot_name() {
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
     }
     assert_eq!(security_writes(&pilot).len(), sent, "none of them is sent");
+}
+
+#[tokio::test]
+async fn a_blank_display_name_is_refused_on_its_own_field() {
+    let pilot = Pilot::new().await;
+    let sent = security_writes(&pilot).len();
+    let body = format!("intent=update-user&attempt={ATTEMPT}&display_name=+++&given_name=Syn&family_name=");
+    let (status, _, html) = pilot.send(post(SECURITY, "guard", &body, true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Display name is required."), "{}", text(&html));
+    let input = html.split(r#"name="display_name""#).nth(1).unwrap().split('>').next().unwrap();
+    assert!(input.contains(r#"aria-invalid="true""#), "the refused field is marked: {input}");
+    assert_eq!(security_writes(&pilot).len(), sent + 1, "the blank name is sent for Identity to refuse");
 }
 
 #[tokio::test]

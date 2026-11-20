@@ -122,6 +122,32 @@ describe("issue-7168-ac3-atomic-replay", () => {
     expect(f.memory.allEvents).toHaveLength(before);
     expect(await f.runtime.lookup(input)).not.toMatchObject({ outcome: "committed" });
   });
+  it.each(["", "   "])(
+    "refuses a user profile update with display name %j without a receipt or event",
+    async (displayName) => {
+      await f.seed(`identity.user-${actor.userId}`, "identity.user.created", {
+        userId: actor.userId,
+        displayName: "Old",
+        givenName: "",
+        familyName: "",
+        primaryEmail: "old@example.com",
+      });
+      const userInput: MutationInput = {
+        ...input,
+        action: "update-user",
+        target: actor.userId,
+        body: { displayName, givenName: "Given", familyName: "Family" },
+      };
+      const before = f.memory.allEvents.length;
+      expect(await f.runtime.submit(userInput)).toEqual({
+        outcome: "not-recorded",
+        code: "validation-failed",
+        userProfileField: "displayName",
+      });
+      expect(f.memory.allEvents).toHaveLength(before);
+      expect(await f.runtime.lookup(userInput)).not.toMatchObject({ outcome: "committed" });
+    },
+  );
   it("rejects the receipt-only bypass mutant", async () => {
     await f.runtime.submit(input);
     f.memory.streams.set(
