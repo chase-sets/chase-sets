@@ -182,6 +182,7 @@ export function marketplaceListingCanonicalRequest(
         reasonCategory: canonicalSellerFormText(input.reasonCategory),
         availableAgainOn: canonicalSellerFormText(input.availableAgainOn),
         availableAgainAt: canonicalSellerFormText(input.availableAgainAt),
+        ...(input.scope === "offers" || input.scope === "both" ? { scope: input.scope } : {}),
       };
     case "seller.away":
       return {
@@ -189,6 +190,7 @@ export function marketplaceListingCanonicalRequest(
         startsAt: canonicalSellerFormText(input.startsAt),
         endsAt: canonicalSellerFormText(input.endsAt),
         reasonCategory: canonicalSellerFormText(input.reasonCategory),
+        ...(input.scope === "offers" || input.scope === "both" ? { scope: input.scope } : {}),
       };
     case "seller.order-capacity":
       return { maxOpenOrders: input.maxOpenOrders ?? null };
