@@ -38,7 +38,7 @@ function membership(id: string, name: string, status = "active"): Membership {
   };
 }
 
-function invitation(id: string, email: string, status = "pending"): Invitation {
+function invitation(id: string, email: string, status = "pending", expiresAt = "2099-12-15T12:00:00.000Z"): Invitation {
   return {
     invitation_id: id,
     account_id: actor.accountId,
@@ -47,7 +47,7 @@ function invitation(id: string, email: string, status = "pending"): Invitation {
     email,
     role_key: "viewer",
     status,
-    expires_at: "2026-12-15T12:00:00.000Z",
+    expires_at: expiresAt,
     accepted_by_user_id: null,
     accepted_by_user_display_name: null,
     accepted_by_user_primary_email: null,
@@ -382,5 +382,30 @@ describe("account team page invitation delivery", () => {
       "/account/team",
     );
     expect(screen.queryByText("Invitation saved but not emailed")).toBeNull();
+  });
+
+  it("offers neither Resend nor the unsent warning for a pending invitation past its expiry", () => {
+    render(
+      <TeamPage
+        invitations={[
+          invitation("ivt_1", "expired@example.test", "pending", "2000-01-01T00:00:00.000Z"),
+          invitation("ivt_2", "open@example.test"),
+        ]}
+        memberships={[]}
+        unsentInvitationId="ivt_1"
+      />,
+      "/account/team",
+    );
+    expect(screen.queryByText("Invitation saved but not emailed")).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Resend" })).toHaveLength(1);
+    expect(screen.getByText(/Expired/)).toBeTruthy();
+    cleanup();
+
+    render(
+      <TeamPage invitations={[invitation("ivt_2", "open@example.test")]} memberships={[]} unsentInvitationId="ivt_2" />,
+      "/account/team",
+    );
+    expect(screen.getByText("Invitation saved but not emailed")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Resend" })).toHaveLength(1);
   });
 });

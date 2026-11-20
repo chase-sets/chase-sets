@@ -27,26 +27,35 @@ const actionErrors = createAccountActionErrorHandling();
 const INVITATION_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
- * Asks Auth to email an invitation this write newly recorded. A link that cannot be asked for leaves
- * the invitation saved, and the page it returns to says so, so the owner can send it again. A
- * replayed write already had its one chance and is never emailed again.
+ * Asks Auth to email an invitation this write newly recorded, and answers the invitation it could not
+ * ask for. A link that cannot be asked for leaves the invitation saved, and the page it returns to
+ * says so, so the owner can send it again. A replayed write already had its one chance and is never
+ * emailed again.
  */
-async function teamDestination(request: Request, result: MutationResult): Promise<string> {
-  if (result.outcome !== "committed" || !result.newlyCommitted) return "/account/team";
+async function unsentInvitation(request: Request, result: MutationResult): Promise<string | null> {
+  if (result.outcome !== "committed" || !result.newlyCommitted) return null;
   const invitationId = result.receipt.result.id;
   const emailed = await requestInvitationAcceptanceLink(request, invitationId, result).then(
     () => true,
     () => false,
   );
-  return emailed ? "/account/team" : `/account/team?${new URLSearchParams({ unsent: invitationId })}`;
+  return emailed ? null : invitationId;
 }
 
-function invitationResponse(result: MutationResult, destination: string) {
-  return accountMutationResponse(
-    result.outcome === "committed" ? { ...result, delivery: "unknown" } : result,
-    destination,
-    navigateAfterWrite(result, destination),
-  );
+/** The destination with the unsent invitation named on it, keeping its path and fresh-write token. */
+function withUnsent(destination: string, invitationId: string) {
+  const url = new URL(destination, "https://destination.invalid");
+  url.searchParams.set("unsent", invitationId);
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
+function invitationResponse(result: MutationResult, unsent: string | null) {
+  const fresh = navigateAfterWrite(result, "/account/team");
+  if (result.outcome !== "committed") return accountMutationResponse(result, "/account/team", fresh);
+  // Identity's own destination wins, and an unsent invitation is named on whichever one it is.
+  const base = result.destination ?? fresh;
+  const destination = unsent ? withUnsent(base, unsent) : base;
+  return accountMutationResponse({ ...result, delivery: "unknown", destination }, destination);
 }
 
 function unsentInvitationId(request: Request): string | null {
@@ -94,7 +103,7 @@ export const action = requireInterruptionSafeClient(
           expiresAt: new Date(Date.now() + INVITATION_LIFETIME_MS).toISOString(),
         });
         if (result.outcome === "committed" && result.newlyCommitted) actionErrors.markCommitted(context);
-        return invitationResponse(result, await teamDestination(request, result));
+        return invitationResponse(result, await unsentInvitation(request, result));
       },
       "resend-invitation": async (context) => {
         const { request, formData } = context;
@@ -103,7 +112,7 @@ export const action = requireInterruptionSafeClient(
           new Date(Date.now() + INVITATION_LIFETIME_MS).toISOString(),
         );
         if (result.outcome === "committed" && result.newlyCommitted) actionErrors.markCommitted(context);
-        return invitationResponse(result, await teamDestination(request, result));
+        return invitationResponse(result, await unsentInvitation(request, result));
       },
       "change-role": async ({ request, formData }) => {
         const result = await createIdentityRequestApiClient(request).changeMembershipRole<MutationResult>(

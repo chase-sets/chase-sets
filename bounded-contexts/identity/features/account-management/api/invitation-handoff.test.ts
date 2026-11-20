@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { navigateAfterWrite, readFreshWriteToken } from "@chase-sets/http/responses";
 import { action } from "../../../routes/marketplace/account-team";
 import { syntheticMutationResult } from "./test-support";
 
@@ -110,6 +111,82 @@ describe("issue-7168-ac8-invitation-handoff", () => {
       expect(await link!.json()).toMatchObject({ invitationId: "ivt_pending" });
     },
   );
+
+  it.each(["create-invitation", "resend-invitation"] as const)(
+    "names the unsent invitation on Identity's own destination and keeps its fresh-write token (%s)",
+    async (intent) => {
+      const ownerDestination = navigateAfterWrite(
+        { commitPositions: [{ sourceContextName: "identity", maxGlobalPosition: "42", eventIds: ["evt_synthetic"] }] },
+        "/account/team",
+      );
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const request = input instanceof Request ? input : new Request(input, init);
+          if (request.url.includes("/api/auth/session")) return Response.json({ actor });
+          if (request.url.includes("/acceptance-link/request"))
+            return Response.json({ error: { code: "projection_freshness_timeout" } }, { status: 503 });
+          return Response.json({
+            ...syntheticMutationResult(
+              intent,
+              binding,
+              intent === "resend-invitation" ? { target: "ivt_pending" } : {},
+            ),
+            destination: ownerDestination,
+          });
+        }),
+      );
+      const fields: Record<string, string> =
+        intent === "create-invitation"
+          ? { email: "synthetic@example.test", roleKey: "viewer" }
+          : { invitationId: "ivt_pending" };
+      const result = await action({
+        request: new Request("https://marketplace.test/account/team", {
+          method: "POST",
+          headers: { "Idempotency-Key": key, Accept: "text/x-script" },
+          body: new URLSearchParams({ intent, ...fields }),
+        }),
+        params: {},
+        context: undefined,
+      });
+      if (!(result instanceof Response)) throw new Error("Expected mutation response");
+      const { destination } = (await result.json()) as { destination: string };
+      const url = new URL(destination, "https://marketplace.test");
+      expect(url.pathname).toBe("/account/team");
+      expect(url.searchParams.get("unsent")).toBe(intent === "create-invitation" ? "ivt_synthetic" : "ivt_pending");
+      expect(readFreshWriteToken(url)?.sources[0]?.maxGlobalPosition).toBe("42");
+    },
+  );
+
+  it("keeps Identity's own destination unchanged when the link was asked for", async () => {
+    const ownerDestination = navigateAfterWrite(
+      { commitPositions: [{ sourceContextName: "identity", maxGlobalPosition: "42", eventIds: ["evt_synthetic"] }] },
+      "/account/team",
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = input instanceof Request ? input : new Request(input, init);
+        if (request.url.includes("/api/auth/session")) return Response.json({ actor });
+        if (request.url.includes("/acceptance-link/request")) return Response.json({ ok: true });
+        return Response.json({
+          ...syntheticMutationResult("resend-invitation", binding, { target: "ivt_pending" }),
+          destination: ownerDestination,
+        });
+      }),
+    );
+    const result = await action({
+      request: new Request("https://marketplace.test/account/team", {
+        method: "POST",
+        headers: { "Idempotency-Key": key, Accept: "text/x-script" },
+        body: new URLSearchParams({ intent: "resend-invitation", invitationId: "ivt_pending" }),
+      }),
+      params: {},
+      context: undefined,
+    });
+    if (!(result instanceof Response)) throw new Error("Expected mutation response");
+    expect(((await result.json()) as { destination: string }).destination).toBe(ownerDestination);
+  });
 
   it("refuses a resend from a form that is not the interruption-safe client", async () => {
     vi.stubGlobal("fetch", vi.fn());

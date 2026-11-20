@@ -406,7 +406,7 @@ export const englishTranslations = {
   "auth.support.apiSupport.invitationRoutes.choose.a.password.or.passkey": "Choose a password or passkey to accept this invitation.",
   "auth.support.apiSupport.invitationRoutes.invitation.acceptance.token.invalid.or.expired": "Invitation acceptance token is invalid or expired.",
   "auth.support.apiSupport.invitationRoutes.invitation.is.unavailable": "Invitation is unavailable.",
-  "auth.support.apiSupport.invitationRoutes.invitation.not.ready": "The invitation was saved but cannot be sent yet. Try again in a moment.",
+  "auth.support.apiSupport.invitationRoutes.invitation.not.ready": "This invitation cannot be sent yet. Try again in a moment.",
   "auth.support.apiSupport.invitationRoutes.password.is.incorrect": "The password is incorrect.",
   "auth.support.apiSupport.magicLinkRoutes.magic.link.is.invalid.or.has": "Magic link is invalid or has expired.",
   "auth.support.apiSupport.passkeyRoutes.passkey.challenge.is.invalid.or.expired": "Passkey challenge is invalid or expired.",

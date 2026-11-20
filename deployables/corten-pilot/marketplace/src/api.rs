@@ -5084,6 +5084,30 @@ pub struct Invitation {
     pub account_name: Option<String>,
     pub role_key: String,
     pub status: String,
+    pub expires_at: String,
+    /// Pending as recorded, but past its expiry when the page was read: Identity no longer sends it.
+    #[serde(skip_deserializing)]
+    pub lapsed: bool,
+}
+
+impl Invitation {
+    /// Marks a pending invitation whose expiry is at or before `now` as lapsed. An expiry that does
+    /// not parse leaves it as recorded.
+    pub fn mark_lapsed(&mut self, now: time::OffsetDateTime) {
+        use time::format_description::well_known::Rfc3339;
+        self.lapsed = self.status == "pending"
+            && time::OffsetDateTime::parse(&self.expires_at, &Rfc3339).is_ok_and(|expires| expires <= now);
+    }
+
+    /// Its status as it stands now: a lapsed invitation is expired before Identity records it.
+    pub fn effective_status(&self) -> &str {
+        if self.lapsed { "expired" } else { &self.status }
+    }
+
+    /// Pending and not lapsed: the only invitation Identity sends again.
+    pub fn open(&self) -> bool {
+        self.status == "pending" && !self.lapsed
+    }
 }
 
 #[derive(Deserialize)]

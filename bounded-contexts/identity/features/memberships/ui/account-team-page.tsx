@@ -23,11 +23,19 @@ function invitationAccountLabel(invitation: Invitation) {
   return invitation.account_display_name ?? invitation.account_name ?? invitation.account_id;
 }
 
-function unsentDescription(invitations: readonly Invitation[], unsentInvitationId: string) {
+/**
+ * The invitation's status as it stands now: a pending invitation past its expiry is expired even
+ * before Identity records it, and Identity refuses to send it again.
+ */
+function effectiveInvitationStatus(invitation: Invitation, nowMs: number) {
+  return invitation.status === "pending" && Date.parse(invitation.expires_at) <= nowMs ? "expired" : invitation.status;
+}
+
+function unsentDescription(invitations: readonly Invitation[], unsentInvitationId: string, nowMs: number) {
   const unsent = invitations.find((invitation) => invitation.invitation_id === unsentInvitationId);
   if (!unsent) return t("identity.features.memberships.ui.accountTeamPage.invitation.unsent.unlisted");
-  // A notice about an invitation no longer pending has nothing left to send.
-  if (unsent.status !== "pending") return null;
+  // A notice about an invitation no longer open has nothing left to send.
+  if (effectiveInvitationStatus(unsent, nowMs) !== "pending") return null;
   return t("identity.features.memberships.ui.accountTeamPage.invitation.unsent.description", { email: unsent.email });
 }
 
@@ -43,7 +51,8 @@ export function TeamPage({
   /** An invitation the last write saved but could not email. */
   unsentInvitationId?: string | null;
 }) {
-  const unsent = unsentInvitationId ? unsentDescription(invitations, unsentInvitationId) : null;
+  const nowMs = Date.now();
+  const unsent = unsentInvitationId ? unsentDescription(invitations, unsentInvitationId, nowMs) : null;
   return (
     <CustomerSummaryPage
       title={t("identity.features.memberships.ui.accountTeamPage.team")}
@@ -141,18 +150,20 @@ export function TeamPage({
           title: invitation.email,
           body: t("identity.features.memberships.ui.accountTeamPage.invitation.summary", {
             role: membershipRoleLabel(invitation.role_key),
-            status: invitationStatusLabel(invitation.status),
+            status: invitationStatusLabel(effectiveInvitationStatus(invitation, nowMs)),
           }),
           action:
             invitation.status === "pending" ? (
               <Stack direction="row" gap={2}>
-                <Form spacing="none" method="post">
-                  <HiddenInput type="hidden" name="intent" value="resend-invitation" readOnly />
-                  <HiddenInput type="hidden" name="invitationId" value={invitation.invitation_id} readOnly />
-                  <Button type="submit" tone="secondary">
-                    {t("identity.features.memberships.ui.accountTeamPage.resend")}
-                  </Button>
-                </Form>
+                {effectiveInvitationStatus(invitation, nowMs) === "pending" ? (
+                  <Form spacing="none" method="post">
+                    <HiddenInput type="hidden" name="intent" value="resend-invitation" readOnly />
+                    <HiddenInput type="hidden" name="invitationId" value={invitation.invitation_id} readOnly />
+                    <Button type="submit" tone="secondary">
+                      {t("identity.features.memberships.ui.accountTeamPage.resend")}
+                    </Button>
+                  </Form>
+                ) : null}
                 <ModalDialog
                   title={t("identity.features.memberships.ui.accountTeamPage.cancel.confirm.title", {
                     email: invitation.email,

@@ -643,7 +643,7 @@ describe("invitation auth routes", () => {
     await expect(response.json()).resolves.toEqual({
       error: {
         code: "projection_freshness_timeout",
-        message: "The invitation was saved but cannot be sent yet. Try again in a moment.",
+        message: "This invitation cannot be sent yet. Try again in a moment.",
       },
     });
     expect(identityMutations.issueInvitationAcceptanceToken).not.toHaveBeenCalled();

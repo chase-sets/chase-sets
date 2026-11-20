@@ -192,7 +192,7 @@ async fn render(
 ) -> HtmlResult {
     let receipt = Receipt::from_param(read.after_write);
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
-    let ((memberships, invitations), pending) = match caller.team().await {
+    let ((memberships, mut invitations), pending) = match caller.team().await {
         Ok(team) => (team, false),
         // The write's projection is not readable yet: the team as it was, marked as updating.
         Err(error) if receipt.is_some() && error.catching_up() => {
@@ -204,6 +204,8 @@ async fn render(
         }
         Err(error) => return read_failed(req, Some(viewer), error, None),
     };
+    let now = time::OffsetDateTime::now_utc();
+    invitations.iter_mut().for_each(|invitation| invitation.mark_lapsed(now));
     let screen = TeamScreen { memberships, invitations, pending, said, unsent: read.unsent, posted };
     let t: TeamMsg = req.t();
     let head = html! {
