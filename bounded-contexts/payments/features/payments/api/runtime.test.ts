@@ -1386,31 +1386,63 @@ describe("payment runtime", () => {
     expect(processorGateway.retrievePaymentResultByPaymentId).toHaveBeenCalledTimes(1);
   });
 
-  it.each(["402", "failed", "cancelled"] as const)(
-    "lets a new token retry after a deferred decline (%s)",
-    async (decline) => {
+  it.each([
+    { scenario: "402", providerStatus: 402, hit: null, expected: "decline" },
+    {
+      scenario: "failed search hit",
+      providerStatus: null,
+      hit: { processorStatus: "requires_payment_method", outcome: "failed" },
+      expected: "decline",
+    },
+    {
+      scenario: "cancelled search hit",
+      providerStatus: null,
+      hit: { processorStatus: "canceled", outcome: "cancelled" },
+      expected: "decline",
+    },
+    {
+      scenario: "pending search hit",
+      providerStatus: null,
+      hit: { processorStatus: "processing", outcome: "pending" },
+      expected: "pending",
+    },
+    {
+      scenario: "requires_action search hit",
+      providerStatus: null,
+      hit: { processorStatus: "requires_action", outcome: "pending" },
+      expected: "pending",
+    },
+    { scenario: "500 with a search miss", providerStatus: 500, hit: null, expected: "ambiguous" },
+    { scenario: "429 with a search miss", providerStatus: 429, hit: null, expected: "ambiguous" },
+  ] as const)(
+    "lets a new token retry only after a deferred decline ($scenario)",
+    async ({ providerStatus, hit, expected }) => {
       const { eventStore, readAllEvents } = createInMemoryEventStore();
       const message = "Your card was declined.";
+      const processorPaymentReference = "pi_synthetic_recovered";
       const processorGateway = {
         ...createProcessorGateway(),
         retrievePaymentResultByPaymentId: vi.fn(
           async (paymentId: PaymentId): Promise<ProcessorPaymentReconciliationResult | null> =>
-            decline === "402"
-              ? null
-              : {
+            hit
+              ? {
                   processorName: "stripe",
                   processorPaymentKind: "payment-intent",
-                  processorPaymentReference: "pi_declined",
+                  processorPaymentReference,
                   internalPaymentId: paymentId,
-                  processorStatus: decline === "failed" ? "requires_payment_method" : "canceled",
-                  outcome: decline,
-                  failureMessage: decline === "failed" ? message : null,
+                  ...hit,
+                  failureMessage: hit.outcome === "failed" ? message : null,
                   occurredAt: "2026-11-20T00:00:00.000Z",
-                },
+                }
+              : null,
         ),
       };
       processorGateway.createPaymentSession.mockRejectedValueOnce(
-        decline === "402" ? new ProviderAdapterError("provider_declined", message, 402) : new Error("response lost"),
+        providerStatus === 402
+          ? new ProviderAdapterError("provider_declined", message, providerStatus)
+          : providerStatus
+            ? new ProviderAdapterError("provider_unavailable", "Create request failed", providerStatus)
+            : new Error("response lost"),
       );
       const balanceCreditResolver = {
         resolveBalanceCredit: vi.fn(async () => ({
@@ -1450,14 +1482,59 @@ describe("payment runtime", () => {
         marketplaceCheckoutFeeQuoteFingerprint: status.marketplace_checkout_fee.quote_fingerprint,
       };
 
-      const declineMessage = decline === "cancelled" ? "Payment failed" : message;
-      await expect(services.createAccountPayment(input, context)).rejects.toMatchObject({
+      const replay = { ...input, confirmationTokenId: "ctoken_new" };
+      const start = services.createAccountPayment(input, context);
+      if (expected !== "decline") {
+        const pending =
+          expected === "pending"
+            ? {
+                status: "pending-confirmation",
+                processor_status: hit.processorStatus,
+                processor_payment_reference: processorPaymentReference,
+                failure_code: null,
+              }
+            : null;
+        if (pending) {
+          await expect(start).resolves.toMatchObject(pending);
+        } else {
+          await expect(start).rejects.toMatchObject({ code: "payment_start_ambiguous" });
+          expect(readAllEvents()).toHaveLength(0);
+        }
+
+        const [first] = processorGateway.createPaymentSession.mock.calls[0]!;
+        if (pending) {
+          await expect(services.getCheckoutPaymentStart("chk_1", accountId)).resolves.toEqual({
+            state: "recorded",
+            paymentId: first.paymentId,
+          });
+          await expect(services.createAccountPayment(replay, context)).resolves.toMatchObject({
+            ...pending,
+            payment_id: first.paymentId,
+          });
+        } else {
+          await expect(services.getCheckoutPaymentStart("chk_1", accountId)).resolves.toEqual({ state: "ambiguous" });
+          await expect(services.createAccountPayment(replay, context)).rejects.toMatchObject({
+            code: "payment_start_ambiguous",
+          });
+        }
+        expect(processorGateway.retrievePaymentResultByPaymentId).toHaveBeenCalledExactlyOnceWith(first.paymentId);
+        expect(processorGateway.createPaymentSession).toHaveBeenCalledTimes(1);
+        expect(balanceCreditResolver.placeSpendHold).toHaveBeenCalledExactlyOnceWith(
+          { paymentId: first.paymentId, buyerAccountId: accountId, currencyCode: "usd", requestedAmount: "10.00" },
+          context,
+        );
+        expect(balanceCreditResolver.releaseSpendHold).not.toHaveBeenCalled();
+        return;
+      }
+
+      const declineMessage = hit?.outcome === "cancelled" ? "Payment failed" : message;
+      await expect(start).rejects.toMatchObject({
         code: "payment_declined",
         message: declineMessage,
       });
       await expect(services.getCheckoutPaymentStart("chk_1", accountId)).resolves.toEqual({ state: "not-started" });
       expect(readAllEvents()).toHaveLength(0);
-      expect(processorGateway.retrievePaymentResultByPaymentId).toHaveBeenCalledTimes(decline === "402" ? 0 : 1);
+      expect(processorGateway.retrievePaymentResultByPaymentId).toHaveBeenCalledTimes(providerStatus === 402 ? 0 : 1);
 
       const first = processorGateway.createPaymentSession.mock.calls[0]![0];
       expect(db.query).toHaveBeenCalledWith(expect.stringContaining("SET status = 'failed'"), [
@@ -1469,7 +1546,7 @@ describe("payment runtime", () => {
         { paymentId: first.paymentId, buyerAccountId: accountId, reason: "payment-cancelled" },
         context,
       );
-      await services.createAccountPayment({ ...input, confirmationTokenId: "ctoken_new" }, context);
+      await services.createAccountPayment(replay, context);
       expect(processorGateway.createPaymentSession).toHaveBeenCalledTimes(2);
       const second = processorGateway.createPaymentSession.mock.calls[1]![0];
       expect(second.paymentId).not.toBe(first.paymentId);
