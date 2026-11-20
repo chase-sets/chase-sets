@@ -496,7 +496,12 @@ async function emitSellerListingPatches(
   });
 }
 
-async function emitOfferPatch(db: PgQueryable, event: Parameters<ProjectorHandlerMap[string]>[0], offerId: string) {
+async function emitOfferPatch(
+  db: PgQueryable,
+  event: Parameters<ProjectorHandlerMap[string]>[0],
+  offerId: string,
+  patchKey = `offer:${offerId}`,
+) {
   const offer = await loadRealtimeOffer(db, offerId);
   if (!offer) {
     return;
@@ -505,7 +510,7 @@ async function emitOfferPatch(db: PgQueryable, event: Parameters<ProjectorHandle
   await emitRealtimeChanges(
     db,
     event,
-    `offer:${offerId}`,
+    patchKey,
     createDiscoveryOfferPatch(
       [discoveryRealtimeTopics.publicMarket(), discoveryRealtimeTopics.item(offer.catalog_catalog_item_id)],
       offer,
@@ -1948,6 +1953,7 @@ export async function emitBuyerOfferPatches(
   db: PgQueryable,
   event: Parameters<ProjectorHandlerMap[string]>[0],
   accountId: string,
+  patchKeyPrefix = "offer",
 ) {
   let offerCursor = "";
   for (;;) {
@@ -1962,7 +1968,7 @@ export async function emitBuyerOfferPatches(
       [accountId, offerCursor],
     );
     if (offers.rows.length === 0) break;
-    for (const row of offers.rows) await emitOfferPatch(db, event, row.offer_id);
+    for (const row of offers.rows) await emitOfferPatch(db, event, row.offer_id, `${patchKeyPrefix}:${row.offer_id}`);
     offerCursor = offers.rows[offers.rows.length - 1]!.offer_id;
     if (offers.rows.length < 100) break;
   }

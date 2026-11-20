@@ -59,7 +59,12 @@ async function loadInterestedSellerAccountIds(db: PgQueryable, productId: string
   return result.rows.map((row) => row.account_id);
 }
 
-async function emitOfferPatch(db: PgQueryable, event: Parameters<ProjectorHandlerMap[string]>[0], offerId: string) {
+async function emitOfferPatch(
+  db: PgQueryable,
+  event: Parameters<ProjectorHandlerMap[string]>[0],
+  offerId: string,
+  suffix = "",
+) {
   const offer = await loadRealtimeOffer(db, offerId);
   if (!offer) {
     return;
@@ -70,7 +75,7 @@ async function emitOfferPatch(db: PgQueryable, event: Parameters<ProjectorHandle
   await recordRealtimeProjectionPatch(db, {
     sourceGlobalPosition: event.globalPosition,
     projectionName: "marketplace-offer-projection",
-    patchKey: `offer:${offerId}`,
+    patchKey: `offer${suffix}:${offerId}`,
     topics: buyerTopics,
     recordedAt: event.timing.recordedAt,
     patch: createMarketplaceOfferPatch(buyerTopics, offer),
@@ -90,7 +95,7 @@ async function emitOfferPatch(db: PgQueryable, event: Parameters<ProjectorHandle
       return {
         sourceGlobalPosition: event.globalPosition,
         projectionName: "marketplace-offer-projection",
-        patchKey: `offer-match:${offerId}:${sellerAccountId}`,
+        patchKey: `offer-match${suffix}:${offerId}:${sellerAccountId}`,
         topics: [topic],
         recordedAt: event.timing.recordedAt,
         patch: createMarketplaceOfferMatchPatch([topic], offerId, offerMatch ?? null),
@@ -104,6 +109,7 @@ export async function emitBuyerAccountOfferMatchPatches(
   db: PgQueryable,
   event: Parameters<ProjectorHandlerMap[string]>[0],
   buyerAccountId: string,
+  patchKeySuffix = "",
 ) {
   let cursor = "";
   for (;;) {
@@ -118,7 +124,7 @@ export async function emitBuyerAccountOfferMatchPatches(
       [buyerAccountId, cursor],
     );
     if (result.rows.length === 0) return;
-    for (const row of result.rows) await emitOfferPatch(db, event, row.offer_id);
+    for (const row of result.rows) await emitOfferPatch(db, event, row.offer_id, patchKeySuffix);
     cursor = result.rows[result.rows.length - 1]!.offer_id;
     if (result.rows.length < 100) return;
   }

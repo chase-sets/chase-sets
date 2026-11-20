@@ -706,7 +706,7 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
         [accountId, reasonCategory, availableAgainAt, event.timing.recordedAt],
       );
       if (previous.rows[0]?.offers_status !== "unavailable") {
-        await emitBuyerAccountOfferMatchPatches(projectionDb, event, accountId);
+        await emitBuyerAccountOfferMatchPatches(projectionDb, event, accountId, "-away");
       }
     },
     "marketplace.seller-listing-availability.offers-enabled": async (event, context) => {
@@ -723,7 +723,7 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
            updated_at = EXCLUDED.updated_at`,
         [accountId, event.timing.recordedAt],
       );
-      await emitBuyerAccountOfferMatchPatches(projectionDb, event, accountId);
+      await emitBuyerAccountOfferMatchPatches(projectionDb, event, accountId, "-away");
     },
     "marketplace.seller-order-capacity.cleared": async (event) => {
       const data = event.data as {

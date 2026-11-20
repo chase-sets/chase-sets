@@ -23,7 +23,7 @@ export function buildDiscoveryBuyerOfferStandingHandlers(db: PgQueryable): Proje
        WHERE offers_away <> COALESCE((SELECT offers_away FROM previous), FALSE)`,
         [accountId, offersAway, event.streamVersion],
       );
-      if (updated.rows.length > 0) await emitBuyerOfferPatches(projectionDb, event, accountId);
+      if (updated.rows.length > 0) await emitBuyerOfferPatches(projectionDb, event, accountId, "offer-away");
     };
   return {
     "marketplace.seller-listing-availability.offers-disabled": project(true),
