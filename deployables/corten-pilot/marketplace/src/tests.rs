@@ -138,13 +138,6 @@ fn listings(stand: &Stand, session: &str, method: &Method, uri: &Uri, headers: &
     }
     if path == ENSURE {
         let attempt = headers.get("inventory-mutation-attempt").and_then(|v| v.to_str().ok()).unwrap_or_default().to_owned();
-        if sent["selectedOptions"].to_string().contains("chc_graded") {
-            return Some(refusal(
-                StatusCode::BAD_REQUEST,
-                "validation_failed",
-                "Graded listing stock requires graded card details.",
-            ));
-        }
         if session == "starter" {
             return Some(refusal(
                 StatusCode::BAD_REQUEST,
@@ -6322,17 +6315,25 @@ async fn a_listing_the_input_or_the_api_refuses_says_why_in_its_form() {
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(text(&html).contains("Listings require a resolved shipping measure before publication. Manage listing"), "{html}");
     assert_eq!(hrefs(&html, "Manage listing"), [format!("/account/listings/{DRAFTED}")]);
-    // A graded product's stock is refused, as on marketplace (chase-sets/chase-sets#10598).
+    // A graded product's stock is ensured from its options alone: Inventory takes the grading company
+    // and grade from them, so the form sends no graded card's details.
     let address = "market=sell&dimension.dim_form=chc_graded&dimension.dim_grade=chc_grade_7";
     let (_, _, html) = pilot.send(get(&format!("/items/charizard?{address}"), Some("lister"))).await;
     let form = html.split(r#"action="/items/charizard/list""#).nth(1).expect("the listing form");
     let product = form.split(r#"name="product" value=""#).nth(1).and_then(|s| s.split('"').next()).unwrap().replace("&amp;", "&");
     assert!(product.contains("chc_graded"), "{product}");
-    let graded =
-        format!("{address}&product={}&attempt={ATTEMPT}&price=700&currency=USD&quantity=1", crate::api::segment(&product));
+    let graded_attempt = "2c7e4d2f-5e3b-4c9f-8a11-234567890abc";
+    let graded = format!(
+        "{address}&product={}&attempt={graded_attempt}&price=700&currency=USD&quantity=1",
+        crate::api::segment(&product)
+    );
     let (status, _, html) = pilot.send(post(LIST, "lister", &graded, false)).await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
-    assert!(text(&html).contains("Graded listing stock requires graded card details."), "{html}");
+    assert_ne!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    let ensure = calls.iter().rfind(|c| c.path == ENSURE).expect("the graded stock is ensured");
+    let sent: serde_json::Value = serde_json::from_str(&ensure.body).unwrap();
+    assert!(sent["selectedOptions"].to_string().contains("chc_graded"), "{sent}");
+    assert!(matches!(sent.get("gradedCard"), None | Some(serde_json::Value::Null)), "{sent}");
 }
 
 #[tokio::test]
