@@ -11122,6 +11122,7 @@ export const englishTranslations = {
   "publicPresence.promoBar.action.deactivated": "Promo bar message deactivated.",
   "publicPresence.promoBar.action.deleted": "Promo bar message deleted.",
   "publicPresence.promoBar.action.failed": "Promo bar action failed.",
+  "publicPresence.promoBar.action.invalidTime": "Enter each start and end as a date and time, or leave it blank. Nothing was saved.",
   "publicPresence.promoBar.action.noop": "No promo bar change was applied.",
   "publicPresence.promoBar.action.updated": "Promo bar message updated.",
   "publicPresence.promoBar.activate.action": "Activate",
