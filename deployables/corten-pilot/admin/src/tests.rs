@@ -326,7 +326,7 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
         return csat_dashboard(uri.query().unwrap_or_default());
     }
     if uri.path() == "/api/customer-feedback/attention" {
-        return feedback_attention(cookie);
+        return feedback_attention(cookie, uri.query().unwrap_or_default());
     }
     if let Some(reference) = uri.path().strip_prefix("/api/platform/support-reference-lookup/") {
         return support_lookup(reference);
@@ -742,10 +742,15 @@ fn platform_feedback(method: &Method, rest: &str, body: &str) -> Response {
 
 /// Customer Feedback's attention queue: an urgent case the API says is overdue, a triaged one
 /// due in 2099 with an owner, and the metrics; `attention-down` fails. Each item's `sla` is the
-/// API's, so the page draws it as given whatever the clock says.
-fn feedback_attention(cookie: &str) -> Response {
+/// API's, so the page draws it as given whatever the clock says. A `caseId` keeps only that
+/// case's items; one that is not a case ID is refused with a 400, as the API refuses it.
+fn feedback_attention(cookie: &str, query: &str) -> Response {
     if cookie.contains("attention-down") {
         return refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal_error", "Internal server error.");
+    }
+    let case = query.strip_prefix("caseId=");
+    if case.is_some_and(|id| !id.starts_with("fbcase_")) {
+        return refusal(StatusCode::BAD_REQUEST, "invalid_id", "caseId is not a valid identifier.");
     }
     let item = |id: &str,
                 priority: &str,
@@ -765,14 +770,18 @@ fn feedback_attention(cookie: &str) -> Response {
             },
         })
     };
+    let items: Vec<Value> = [
+        item("fbcase_1", "urgent", 1, None, None, None, true),
+        item("fbcase_2", "high", 2, Some("usr_ops"), Some("2026-05-07T10:30:00.000Z"), Some("2099-01-01T12:00:00.000Z"), false),
+        // Past its due date by the clock, but the API says it is not overdue: the page shows
+        // the API's answer, not its own.
+        item("fbcase_3", "normal", 3, None, Some("2026-05-07T10:30:00.000Z"), Some("2026-05-08T12:00:00.000Z"), false),
+    ]
+    .into_iter()
+    .filter(|item| case.is_none_or(|id| item["caseId"] == id))
+    .collect();
     Json(json!({
-        "items": [
-            item("fbcase_1", "urgent", 1, None, None, None, true),
-            item("fbcase_2", "high", 2, Some("usr_ops"), Some("2026-05-07T10:30:00.000Z"), Some("2099-01-01T12:00:00.000Z"), false),
-            // Past its due date by the clock, but the API says it is not overdue: the page shows
-            // the API's answer, not its own.
-            item("fbcase_3", "normal", 3, None, Some("2026-05-07T10:30:00.000Z"), Some("2026-05-08T12:00:00.000Z"), false),
-        ],
+        "items": items,
         "metrics": {
             "activeCount": 4, "overdueCount": 1, "medianTimeToTriageMs": 5_400_000.0, "medianTimeToCloseMs": null, "oldestOverdueMs": 1,
             "deliverySuccesses": 2, "deliveryFailures": 3, "digestPending": 0, "digestFailures": 0, "latestDigestAt": null,
@@ -6594,12 +6603,34 @@ async fn the_feedback_attention_queue_shows_its_figures_and_each_cases_sla() {
         "the queue stacks on a phone: {html}"
     );
     assert!(html.contains("May 8, 2026, 12:00 PM UTC"), "a case past its date by the clock is the API's not overdue: {html}");
-    assert!(!html.contains("caseId="), "no link to the same queue (chase-sets/chase-sets#10854): {html}");
+    assert!(
+        html.contains(r#"href="/support/customer-feedback/attention?caseId=fbcase_2">"#),
+        "each case links to its own queue: {html}"
+    );
+    assert!(!html.contains("Show all cases"), "the whole queue needs no way back: {html}");
     assert!(marks_current(&html, "/support/customer-feedback/attention"), "the nav serves it: {html}");
     assert_eq!(pilot.calls_to("/api/customer-feedback/attention").len(), 1);
 
     assert_eq!(pilot.send(get(at, Some("attention-down"))).await.0, StatusCode::BAD_GATEWAY);
     assert_eq!(pilot.send(get(at, Some("support-agent"))).await.0, StatusCode::FORBIDDEN, "admin-web's route needs support.view");
+}
+
+#[tokio::test]
+async fn a_cases_link_opens_the_attention_queue_for_that_case_alone() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/support/customer-feedback/attention?caseId=fbcase_2", Some("support-viewer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Showing attention for case fbcase_2."), "{html}");
+    assert!(html.contains(r#"href="/support/customer-feedback/attention">Show all cases</a>"#), "{html}");
+    assert!(html.contains("usr_ops") && !html.contains("fbcase_1"), "only that case's items: {html}");
+    assert_eq!(pilot.calls_to("/api/customer-feedback/attention?caseId=fbcase_2").len(), 1, "the API reads the case");
+
+    let (status, _, html) = pilot.send(get("/support/customer-feedback/attention?caseId=fbcase_9", Some("support-viewer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Case fbcase_9 has no active attention."), "{html}");
+
+    let at = "/support/customer-feedback/attention?caseId=case_1";
+    assert_eq!(pilot.send(get(at, Some("support-viewer"))).await.0, StatusCode::BAD_REQUEST, "a malformed case ID is the API's 400");
 }
 
 const RETURN_INTAKE: &str = "/api/marketplace/operations/return-intake";
