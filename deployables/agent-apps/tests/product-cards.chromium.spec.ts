@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 import { LATEST_PROTOCOL_VERSION, McpUiInitializeRequestSchema } from "@modelcontextprotocol/ext-apps";
 import { mcpWidgetResourceContent } from "@chase-sets/platform-runtime/mcp-widget-resources";
 import { UCP_MCP_PRODUCT_CARDS_RESOURCE_URI } from "@chase-sets/platform-runtime/ucp";
-import captured from "./fixtures/staging-search-catalog.json";
+import captured from "./fixtures/staging-search-catalog.json" with { type: "json" };
 
 test("renders recorded catalog results in a sandboxed MCP App @agent-apps", async ({ page }) => {
   const host = "https://host.example.test/";
