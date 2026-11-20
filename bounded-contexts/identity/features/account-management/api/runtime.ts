@@ -30,6 +30,7 @@ import {
 import { IdentityDomainError } from "../../../support/runtime-support/common";
 import { ShippingAddressFieldError, ShippingAddressUndeliverableError } from "../../shipping-addresses/domain/errors";
 import { AccountProfileFieldError } from "../../accounts/domain/errors";
+import { UserProfileFieldError } from "../../users/domain/errors";
 import type { ShippingAddressSnapshot } from "../../shipping-addresses/domain/domain";
 
 const RECEIPT_EVENT = "identity.account-management-mutation-attempt.committed";
@@ -65,6 +66,7 @@ export type MutationResult =
       suggestedAddress?: ShippingAddressSnapshot;
       shippingAddressField?: string;
       accountProfileField?: string;
+      userProfileField?: string;
     }>;
 export type MutationInput = Readonly<{
   actor: ResolvedActor;
@@ -404,6 +406,8 @@ export function createAccountManagementRuntime(
         };
       if (error instanceof AccountProfileFieldError)
         return { outcome: "not-recorded", code: "validation-failed", accountProfileField: error.field };
+      if (error instanceof UserProfileFieldError)
+        return { outcome: "not-recorded", code: "validation-failed", userProfileField: error.field };
       if (error instanceof IdentityDomainError) return conflictResult("owner-state-conflict");
       return { outcome: "indeterminate", code: "INDETERMINATE" };
     }

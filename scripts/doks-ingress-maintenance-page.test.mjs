@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 import { describe, expect, it } from "vitest";
 import { classifyBrandFoilContent } from "./check-structure/brand-foil-sites.mjs";
-import { pinned } from "./doks-cluster-addons.mjs";
+import { pinned, planClusterAddons } from "./doks-cluster-addons.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const valuesPath = path.join(root, "infrastructure/helm/doks-ingress/ingress-nginx-values.yaml");
@@ -225,6 +225,13 @@ function assertMaintenanceConfig(candidate) {
 }
 
 describe("ingress maintenance default backend contract", () => {
+  it("enables the ratified backend in the production add-ons plan", () => {
+    const ingress = planClusterAddons({ environment: "production" }).find((step) =>
+      step.name.startsWith("install ingress-nginx"),
+    );
+    expect(ingress.command).toContain("defaultBackend.enabled=true");
+  });
+
   it("pins controller policy, worker, files, negotiation, headers, and safe mounts", () => {
     assertMaintenanceConfig(values);
   });

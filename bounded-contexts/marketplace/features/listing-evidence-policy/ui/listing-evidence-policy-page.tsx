@@ -255,7 +255,7 @@ export function ListingEvidencePolicyPage({
                     {document.hash}
                   </Text>
                   <Stack direction="row" gap={2}>
-                    {canValidate && document.lifecycle === "draft" ? (
+                    {canValidate && ["draft", "validated"].includes(document.lifecycle) ? (
                       <Form method="post">
                         <HiddenInput name="intent" value="validate" readOnly />
                         <HiddenInput name="policyId" value={document.policyId} readOnly />

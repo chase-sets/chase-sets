@@ -1,8 +1,8 @@
 // Credential inventory: one entry per GitHub Actions secret name set in the
 // repository or any environment, plus the names workflows reference but
-// deliberately leave unset (`optional`). Terms and rotation kinds are defined
-// in docs/runbooks/credential-rotation.md. This module only reads names and
-// inventory metadata; it never handles a secret value.
+// deliberately leave unset (`optional`), plus agent-only names (empty GitHub
+// scope). Terms are defined in docs/runbooks/credential-rotation.md. This module
+// reads only names and inventory metadata, never secret values.
 import { readFileSync, readdirSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import process from "node:process";
@@ -147,6 +147,12 @@ export function validateCredentialInventory(value) {
     }
   }
   const agentTier = value.agentTier === undefined ? null : validateAgentTier(value.agentTier, byName, errors);
+  const agentNames = new Set(agentTier?.keys.map(({ name }) => name));
+  for (const entry of byName.values()) {
+    if (Array.isArray(entry.scope) && entry.scope.length === 0 && !agentNames.has(entry.name)) {
+      errors.push(`${entry.name}: an empty scope requires agent-tier membership`);
+    }
+  }
   if (errors.length > 0) return { errors, inventory: null };
   const entries = value.secrets.map((entry) => {
     const scope = normalizedScope(entry.scope);
@@ -339,12 +345,7 @@ function validateEntry(entry, label, knownScopes, errors) {
   const scope = entry.scope;
   if (
     !(scope === REPOSITORY_SCOPE) &&
-    !(
-      Array.isArray(scope) &&
-      scope.length > 0 &&
-      scope.every((member) => knownScopes.has(member)) &&
-      new Set(scope).size === scope.length
-    )
+    !(Array.isArray(scope) && scope.every((member) => knownScopes.has(member)) && new Set(scope).size === scope.length)
   ) {
     errors.push(`${label}: scope must be "repository" or a list of inventoried environments`);
   }
@@ -434,10 +435,12 @@ export function checkInventoryAgainstWorkflowSources(inventory, files) {
     }
   }
   for (const [name, referencedBy] of [...referencing].sort(([left], [right]) => left.localeCompare(right))) {
-    if (!inventory.byName.has(name)) {
-      errors.push(
-        `${name}: referenced by ${[...referencedBy].sort().join(", ")} but has no credential inventory entry`,
-      );
+    const entry = inventory.byName.get(name);
+    const files = [...referencedBy].sort().join(", ");
+    if (!entry) {
+      errors.push(`${name}: referenced by ${files} but has no credential inventory entry`);
+    } else if (entry.scope.length === 0) {
+      errors.push(`${name}: agent-only entries cannot be referenced by ${files}`);
     }
   }
   for (const entry of inventory.entries) {
