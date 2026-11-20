@@ -187,7 +187,7 @@ pub(crate) async fn render(
     };
     let screen = CoverageScreen { scope_record_id: id.to_owned(), matrix };
     let (t, p): (Cat, Pilot) = (req.t(), req.t());
-    let notice = at.done.map(|done| done.notice(t, p, at.count.unwrap_or(0)));
+    let notice = at.done.map(|done| done.notice(t, at.count.unwrap_or(0)));
     let refused = matches!(back, ScopeBack::Refused(_) | ScopeBack::Propose(..));
     let page = views::coverage_page(t, p, &screen, notice, back, manages(viewer));
     let html = html! {

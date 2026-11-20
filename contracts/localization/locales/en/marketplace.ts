@@ -11,6 +11,8 @@ export const marketplaceEnglishTranslations = {
   "marketplace.reviewRecovery.changedRequest": "This attempt was used for a different request.",
   "marketplace.reviewRecovery.reportNotSent": "The report was not sent. Reload the form before submitting.",
   "marketplace.reviewRecovery.reportFailed": "The report could not be submitted.",
+  "marketplace.reviewRecovery.reportLimited":
+    "You have sent several reports in a short time. Try again in a few minutes.",
   "marketplace.recovery.receiptMismatch": "Attempt receipt does not match the first result.",
   "marketplace.recovery.acceptanceBindingInvalid": "Invalid Offer acceptance binding.",
   "marketplace.recovery.acceptanceBindingUnexpected": "Unexpected acceptance binding.",

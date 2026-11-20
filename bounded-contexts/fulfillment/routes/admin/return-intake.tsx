@@ -5,6 +5,7 @@ import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { defineFormAction, type FormActionContext } from "@chase-sets/platform-runtime/http";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useNavigation, useSearchParams } from "react-router";
+import { returnIntakeHref } from "../../features/return-shipments/ui/admin-paths";
 import { FacilityIntakePage } from "../../features/return-shipments/ui/facility-intake-page";
 import { createFulfillmentRequestApiClient, FulfillmentApiError } from "../../support/request-support/api-client";
 
@@ -119,7 +120,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 async function handleAction(intent: string, { request, formData }: FormActionContext) {
   const api = createFulfillmentRequestApiClient(request);
   const facilityId = value(formData, "facilityId");
-  const redirectBase = `/return-intake?facilityId=${encodeURIComponent(facilityId)}`;
+  const resultHref = (result: string) => returnIntakeHref(facilityId, { result });
 
   try {
     if (intent === "complete") {
@@ -154,7 +155,7 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
         idempotencyKey: value(formData, "idempotencyKey"),
         expectedVersion: Number(value(formData, "expectedVersion")),
       })) as { duplicate?: boolean };
-      return redirect(`${redirectBase}&result=${result.duplicate ? "duplicate" : "completed"}`);
+      return redirect(resultHref(result.duplicate ? "duplicate" : "completed"));
     }
     if (intent === "unidentified") {
       const receiptTime = receivedAt(formData);
@@ -175,14 +176,14 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
         owner: value(formData, "owner"),
         nextAction: value(formData, "nextAction"),
       });
-      return redirect(`${redirectBase}&result=unidentified`);
+      return redirect(resultHref("unidentified"));
     }
     if (intent === "reconcile") {
       await api.reconcileUnidentifiedReturnPackage(value(formData, "unidentifiedPackageId"), {
         returnShipmentId: value(formData, "returnShipmentId"),
         reason: value(formData, "reason"),
       });
-      return redirect(`${redirectBase}&result=reconciled`);
+      return redirect(resultHref("reconciled"));
     }
     if (intent === "correct") {
       await api.correctReturnIntake(value(formData, "returnShipmentId"), {
@@ -194,7 +195,7 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
         nextAction: value(formData, "nextAction") || null,
         custodyIdentifier: value(formData, "custodyIdentifier") || null,
       });
-      return redirect(`${redirectBase}&result=corrected`);
+      return redirect(resultHref("corrected"));
     }
     return { error: t("fulfillment.returnIntake.route.chooseAction") };
   } catch (error) {

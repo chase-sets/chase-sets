@@ -367,7 +367,7 @@ export function createSourceObservationProviderImportRuntime({
     context: EventStoreContext;
     onProgress?: (progress: ProviderAdapterImportProgress) => void | Promise<void>;
     beforeRecordObservation?: () => Promise<void>;
-    runRecordObservation?: DurableSideEffectRunner;
+    runImportSideEffect?: DurableSideEffectRunner;
     adapterOverride?: ProviderAdapter;
     observedAtForEnvelope?: (envelope: ProviderPayloadEnvelope) => string;
   }): Promise<SourceObservationIntegrationJobOutcome> {
@@ -428,8 +428,8 @@ export function createSourceObservationProviderImportRuntime({
         }
         const writeObservation = () =>
           recordObservation({ ...observation, syncRunId: input.syncRunId ?? null }, input.context);
-        if (input.runRecordObservation) {
-          await input.runRecordObservation(writeObservation);
+        if (input.runImportSideEffect) {
+          await input.runImportSideEffect(writeObservation);
         } else {
           await writeObservation();
         }
@@ -453,11 +453,17 @@ export function createSourceObservationProviderImportRuntime({
       });
 
       if (input.syncRunId && recordedObservations.length > 0) {
-        await persistCatalogMergeCandidatesFromObservations(
-          recordedObservations.map((recorded) => sourceObservationRecordToCandidateRow(recorded.observation)),
-          input.context,
-          { preserveTerminalProviderReplays: true },
-        );
+        const reconcile = (signal?: AbortSignal) =>
+          persistCatalogMergeCandidatesFromObservations(
+            recordedObservations.map((recorded) => sourceObservationRecordToCandidateRow(recorded.observation)),
+            input.context,
+            { preserveTerminalProviderReplays: true, signal },
+          );
+        if (input.runImportSideEffect) {
+          await input.runImportSideEffect(reconcile);
+        } else {
+          await reconcile();
+        }
       }
 
       return {

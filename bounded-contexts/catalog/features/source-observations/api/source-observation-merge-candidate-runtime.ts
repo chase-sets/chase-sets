@@ -114,8 +114,11 @@ export function createSourceObservationMergeCandidateRuntime({
     options: Readonly<{
       preserveUnchangedTerminalCandidates?: boolean;
       preserveTerminalProviderReplays?: boolean;
+      signal?: AbortSignal;
     }> = {},
   ): Promise<CatalogMergeCandidateMatchBatch> {
+    const { signal } = options;
+    signal?.throwIfAborted();
     const addedAt = new Date().toISOString();
     const providerKeys = [
       ...new Set(observations.map((observation) => observation.provider_key.trim().toLowerCase())),
@@ -157,6 +160,7 @@ export function createSourceObservationMergeCandidateRuntime({
     const generatedCandidateIds = generated.candidates.map((candidate) => candidate.candidateId);
     const loaded = new Map<string, Awaited<ReturnType<typeof catalogMergeCandidateRepository.load>>>();
     for (const candidateId of [...new Set([...discoveredCandidateIds, ...generatedCandidateIds])].sort()) {
+      signal?.throwIfAborted();
       // Loads are deliberately sequential: candidate discovery is bounded to
       // the touched scopes and never creates an unbounded Promise.all fan-out.
       loaded.set(candidateId, await catalogMergeCandidateRepository.load(catalogMergeCandidateStreamId(candidateId)));
@@ -166,6 +170,7 @@ export function createSourceObservationMergeCandidateRuntime({
     let existing: Array<Awaited<ReturnType<typeof catalogMergeCandidateRepository.load>>> = [];
     let allRows: Map<string, SourceObservationListRow>;
     for (;;) {
+      signal?.throwIfAborted();
       existing = [...loaded.values()].filter(
         ({ state }) =>
           state.snapshot !== null &&
@@ -243,6 +248,7 @@ export function createSourceObservationMergeCandidateRuntime({
         break;
       }
       for (const candidateId of candidateIdsToLoad.sort()) {
+        signal?.throwIfAborted();
         loaded.set(candidateId, await catalogMergeCandidateRepository.load(catalogMergeCandidateStreamId(candidateId)));
       }
     }
@@ -251,6 +257,7 @@ export function createSourceObservationMergeCandidateRuntime({
     if (options.preserveTerminalProviderReplays) {
       const candidates = [];
       for (const candidate of completeGenerated.candidates) {
+        signal?.throwIfAborted();
         const state = loaded.get(candidate.candidateId)?.state;
         if (
           state?.snapshot &&
@@ -295,6 +302,7 @@ export function createSourceObservationMergeCandidateRuntime({
     }
 
     for (const candidate of completeGenerated.candidates) {
+      signal?.throwIfAborted();
       const streamId = catalogMergeCandidateStreamId(candidate.candidateId);
       const loadedCandidate = loaded.get(candidate.candidateId);
       if (!loadedCandidate) {
@@ -323,6 +331,7 @@ export function createSourceObservationMergeCandidateRuntime({
       ) {
         continue;
       }
+      signal?.throwIfAborted();
       const now = new Date().toISOString();
       await catalogMergeCandidateCommandHandler({
         streamId,
