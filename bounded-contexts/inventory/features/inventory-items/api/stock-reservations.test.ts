@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { PgQueryable, PgTransactionalPool, PostgresEventStore } from "@chase-sets/event-core-postgres";
+import {
+  ownerPredicateKey,
+  type PgQueryable,
+  type PgTransactionalPool,
+  type PostgresEventStore,
+} from "@chase-sets/event-core-postgres";
 import { createInventoryStockReservations, stockOwnerStreams } from "./stock-reservations";
 
 describe("Inventory physical stock enrollment", () => {
@@ -18,7 +23,7 @@ describe("Inventory physical stock enrollment", () => {
     });
     const db = { query } as PgQueryable;
     const store = {
-      readStreamInTransaction: vi.fn(async () => [{ payload: { itemId: "item" } }]),
+      readStreamInTransaction: vi.fn(async () => [{ payload: { itemId: "item", accountId: "acc_stock_owner" } }]),
     } as unknown as PostgresEventStore;
     const stock = createInventoryStockReservations(db as PgTransactionalPool, store);
     for (const [streamId, eventType, payload] of [
@@ -32,7 +37,10 @@ describe("Inventory physical stock enrollment", () => {
       const locks = query.mock.calls
         .filter(([sql]) => sql.includes("'owner_stream:'"))
         .map((call) => (call as unknown as [string, string[]])[1][0]);
-      expect([...new Set(locks)]).toEqual(stockOwnerStreams("item"));
+      expect([...new Set(locks)]).toEqual([
+        ownerPredicateKey("repricing-stock", "acc_stock_owner", "item"),
+        ...stockOwnerStreams("item"),
+      ]);
     }
   });
 

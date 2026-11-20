@@ -78,8 +78,8 @@ fn StatusPill<'a>(t: Sup, value: &'a str) -> impl Render {
     }
 }
 
-/// A rating as five stars (admin-web's `Rating`), and as a number, which admin-web's stars do not
-/// say to a screen reader (chase-sets/chase-sets#10848).
+/// A rating as five stars (admin-web's `Rating`) and as a number: the stars are hidden from a
+/// screen reader, which reads the number.
 #[component(css = FeedbackPage)]
 fn Stars(value: u8) -> impl Render {
     let filled = usize::from(value.min(5));

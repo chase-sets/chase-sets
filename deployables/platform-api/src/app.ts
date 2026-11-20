@@ -732,6 +732,7 @@ export function createPlatformApiHost(
       inventoryDraftListingConsumer,
       draftListingDelivery: inventoryDraftListingConsumer,
       ...options.hostPorts,
+      ...(marketplacePool ? { pricingPredicateConsumerPool: marketplacePool } : {}),
       ...(listingTargets
         ? {
             listingTargetAuthority: listingTargets.authority,

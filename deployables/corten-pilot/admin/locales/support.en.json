@@ -70,6 +70,7 @@
   "fb.operator_note_attribution": "{user} at {timestamp}",
   "fb.operator_notes": "Operator notes",
   "fb.rating": "Rating",
+  "fb.rating_value": "Rating: {value} out of {max}",
   "fb.record_note": "Record note",
   "fb.related_entities": "Related entities",
   "fb.related_entity_label": "{type}: {id}",

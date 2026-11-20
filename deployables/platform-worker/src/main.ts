@@ -287,6 +287,7 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
     hostPorts: {
       inventoryDraftListingConsumer,
       draftListingDelivery: inventoryDraftListingConsumer,
+      ...(pools.marketplace ? { pricingPredicateConsumerPool: pools.marketplace } : {}),
       ...identityHostPorts,
       ...(listingConsumer
         ? {

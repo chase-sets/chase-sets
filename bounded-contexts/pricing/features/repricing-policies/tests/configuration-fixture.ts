@@ -92,13 +92,30 @@ export function createConfigurationPoolFixture(
     { requested_revision: number; installed_revision: number; creation_revision: number }
   >();
   const control = { pending: false };
+  const invalidations = new Map<string, { generation: string; status: string; affected_reservation_ids: string[] }>();
   const query =
     (fallback: PgQueryable): PgQueryable["query"] =>
     async <T>(sql: string, values: readonly unknown[] = []) => {
       const key = String(values[0]);
       let result: unknown[] = [];
       if (sql.includes("pg_advisory_xact_lock") || sql.startsWith("SET LOCAL")) return { rows: [] };
-      if (sql.includes("INSERT INTO pricing_repricing_configuration_heads")) {
+      if (sql.startsWith("INSERT INTO event_owner_stream_invalidations")) {
+        const row = { generation: String(values[1]), status: "PENDING", affected_reservation_ids: [] };
+        invalidations.set(key, row);
+        result = [row];
+      } else if (sql.startsWith("SELECT generation::text, status, affected_reservation_ids")) {
+        if (invalidations.has(key)) result = [invalidations.get(key)];
+      } else if (sql.startsWith("UPDATE event_owner_stream_invalidations SET status = 'APPLIED'")) {
+        invalidations.get(key)!.status = "APPLIED";
+      } else if (
+        sql.startsWith("SELECT reservation_id FROM event_owner_stream_reservations WHERE owner_stream_id = $1") ||
+        sql.startsWith(
+          "SELECT reservation_id FROM event_owner_stream_reservations WHERE reservation_id = ANY($1::text[])",
+        )
+      ) {
+        // This fixture has no consumer reservations, open or released.
+        result = [];
+      } else if (sql.startsWith("INSERT INTO pricing_repricing_configuration_heads")) {
         if (!heads.has(key))
           heads.set(key, {
             requested_revision: Number(values[2]),

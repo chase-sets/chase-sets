@@ -15,6 +15,22 @@ const manifest = JSON.parse(
 const sourcePaths = ownerWriterSourcePaths();
 const sourceScopes = Map.groupBy(sourcePaths, (file) => file.split("/").slice(0, 2).join("/"));
 describe("owner writer enrollment census", () => {
+  it("binds Pricing predicate writers to the shared append adapters and their omission controls", () => {
+    const source = (file) => readFileSync(path.join(repoRoot, file), "utf8");
+    const adapter = source("infrastructure/event-core-postgres/event-store.ts");
+    const proof = source("deployables/platform-api/__tests__/owner-predicate-enrollment.db.test.ts");
+    expect(proof).toContain('"detects omission of %s enrollment"');
+    for (const [kind, { boundary, selection, sink }] of Object.entries(manifest.pricingPredicateWriters)) {
+      expect(source(boundary), kind).toContain(selection);
+      if (sink.startsWith("appendTo")) {
+        const start = adapter.indexOf(`${sink} (`);
+        expect(start, kind).toBeGreaterThan(0);
+        const next = adapter.indexOf("\n    appendTo", start + 1);
+        expect(adapter.slice(start, next < 0 ? undefined : next), kind).toContain("await enrollPredicates");
+      } else expect(source(boundary), kind).toContain(sink);
+      expect(proof, kind).toContain(JSON.stringify(kind));
+    }
+  });
   it("discovers stock streams through aliases, computed appends and SQL dataflow and rejects an unenrolled writer", () => {
     expect(manifest.owners).toContain("inventory");
     expect(manifest.keys).toContain("stock/<accountId>/<inventoryItemId>");

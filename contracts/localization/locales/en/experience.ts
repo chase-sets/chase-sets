@@ -62,6 +62,7 @@ export const experienceEnglishTranslations = {
   "experience.platformFeedbackAdmin.operatorNoteAttribution": "{user} at {timestamp}",
   "experience.platformFeedbackAdmin.operatorNotes": "Operator notes",
   "experience.platformFeedbackAdmin.rating": "Rating",
+  "experience.platformFeedbackAdmin.ratingValue": "Rating: {value} out of {max}",
   "experience.platformFeedbackAdmin.recordNote": "Record note",
   "experience.platformFeedbackAdmin.relatedEntities": "Related entities",
   "experience.platformFeedbackAdmin.relatedEntityLabel": "{type}: {id}",

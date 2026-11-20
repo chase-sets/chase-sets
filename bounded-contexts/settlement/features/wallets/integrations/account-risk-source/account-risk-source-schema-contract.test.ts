@@ -58,7 +58,7 @@ const composedSources = {
     "a26c692a86936b80f95347e6039a7ca7ebece7433ba3fe10a54bdb35a2946658",
   "bounded-contexts/settlement/features/payout-readiness/read-model/schema.ts":
     "18c137e6be5fcd9492b53deb24631ad64542e1126e96acbc1e7a928ff8b2ddc2",
-  "infrastructure/event-core-postgres/index.ts": "1e175ba3a06a6c262e45f7048ee1c52235f77efde90298c2a4fcc53c27a16a6d",
+  "infrastructure/event-core-postgres/index.ts": "f573ef2f50ac4717ea37bf8098b92a3e4ece6c8405a4c794af0592a2c9111924",
   "infrastructure/event-core-postgres/schema.ts": "8fb05cb27f304dc5c43b0992f3b3ad1e98e2891407d15abec8139c63048551dc",
   "infrastructure/notification-outbox/index.ts": "24ff5dd032a3c3fa6b2b91efb97ec06e4a73e28bb1e615de9a771a90c8b1e537",
   "infrastructure/platform-policy/schema.ts": "dd1923a1b8ebd4d8e562e5f9198655f01569c5c145441f682a3edd0af92e46b2",
