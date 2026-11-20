@@ -856,6 +856,18 @@
               "readModelTable": "marketplace_review_pages"
             }
           ]
+        },
+        {
+          "routePath": "/listing-evidence-policy",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "platform_policy_documents"
+            },
+            {
+              "readModelTable": "platform_policy_document_history"
+            }
+          ]
         }
       ]
     },
@@ -1561,7 +1573,7 @@
         "route-action:bounded-contexts/marketplace/routes/admin/listing-evidence-policy.tsx"
       ],
       "visibleDestination": {
-        "description": "Policy draft, validation, rejection, activation, and rollback commands return the committed platform-policy document version or validation snapshot. The admin route redirects to a direct same-database policy read after mutating actions; validation stays on the command response so the exact diff and impact preview hash are available for activation confirmation."
+        "description": "Policy draft, validation, rejection, activation, and rollback commands return the committed platform-policy document version or validation snapshot. The admin route redirects to the policy overview after mutating actions, and that read waits on the receipt for marketplace's platform-policy document projection, which the writes name as their commit source; validation stays on the command response so the exact diff and impact preview hash are available for activation confirmation."
       },
       "proof": {
         "authoritativeResponse": "Listing Evidence Policy commands return document id/version and validation/activation hashes from the shared platform-policy command result without waiting for a subscription.",
