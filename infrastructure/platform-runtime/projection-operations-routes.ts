@@ -34,6 +34,11 @@ const PROJECTION_STATUS_SNAPSHOT_FRESH_MAX_AGE_MS = 2 * 60_000;
 // Authenticated setup polls once per second. Share the database fan-out within
 // that interval so concurrent callers observe the same live status snapshot.
 const PROJECTION_STATUS_REFRESH_CACHE_TTL_MS = 1_000;
+// Details are read only for projection keys whose counts say something is
+// stuck, so a healthy runtime reads none. The cap keeps an incident's read
+// bounded; the counts beside each list say how many there are in total.
+const BLOCKED_PROJECTION_DETAILS_CONCURRENCY = 4;
+const BLOCKED_PROJECTION_POISON_EVENT_LIMIT = 10;
 
 type ProjectionOperationsRouteEnv = {
   Variables: {
@@ -66,7 +71,10 @@ export async function loadBlockedProjectionState(
   const snapshotOverlay = overlayProjectionGroupSnapshots(listProjectionGroupStatuses(runtime), snapshots);
   return {
     projectionGroups: snapshotOverlay.projectionGroups,
-    blockedProjections: summarizeBlockedProjectionKeys(snapshotOverlay.projectionGroups),
+    blockedProjections: await listBlockedProjectionDetails(
+      runtime,
+      summarizeBlockedProjectionKeys(snapshotOverlay.projectionGroups),
+    ),
     projectionStatusSource: snapshotOverlay.source,
   } as const;
 }
@@ -632,7 +640,7 @@ function requireProjectionOperationsActor(actor: ResolvedActor | null, permissio
 
 function summarizeBlockedProjectionKeys(
   projectionGroups: readonly ContextProjectionGroupStatus[],
-): readonly Readonly<{ projectionKey: string; blockedStreamCount: number; poisonEventCount: number }>[] {
+): readonly BlockedProjectionCounts[] {
   const activeProjectionKeys = [
     ...projectionGroups.flatMap((group) =>
       group.subscriptions
@@ -646,6 +654,43 @@ function summarizeBlockedProjectionKeys(
   ];
 
   return activeProjectionKeys;
+}
+
+type BlockedProjectionCounts = Readonly<{
+  projectionKey: string;
+  blockedStreamCount: number;
+  poisonEventCount: number;
+}>;
+type BlockedProjectionDetailsRead = BlockedProjectionCounts &
+  Readonly<{ blockedStreams: readonly unknown[]; poisonEvents: readonly unknown[] }>;
+
+async function readBlockedProjectionDetails(
+  runtime: ApiHostRuntime,
+  counts: BlockedProjectionCounts,
+): Promise<BlockedProjectionDetailsRead> {
+  const details = await listProjectionBlockedStreamDetails(runtime, counts.projectionKey, {
+    poisonEventLimit: BLOCKED_PROJECTION_POISON_EVENT_LIMIT,
+  });
+  return { ...counts, blockedStreams: details.blockedStreams, poisonEvents: details.poisonEvents };
+}
+
+async function listBlockedProjectionDetails(runtime: ApiHostRuntime, blocked: readonly BlockedProjectionCounts[]) {
+  const results = new Array<BlockedProjectionDetailsRead>(blocked.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < blocked.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      const counts = blocked[index] as BlockedProjectionCounts;
+      results[index] = await readBlockedProjectionDetails(runtime, counts);
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(BLOCKED_PROJECTION_DETAILS_CONCURRENCY, blocked.length) }, () => worker()),
+  );
+  return results;
 }
 
 function classifyWorkerHeartbeats(
