@@ -9642,11 +9642,8 @@ async fn provider_detail_draws_validation_readiness_and_its_activation_decision(
     let evidence = html.find(r#"data-catalog-validation-evidence-form="true""#).unwrap();
     let form = &html[html[..evidence].rfind("<form").unwrap()..evidence + html[evidence..].find("</form>").unwrap()];
     assert!(form.contains(r#"action="/catalog/providers/tcgplayer/evidence?profileVersion=2026.07.13""#), "{form}");
-    assert!(form.contains(r#"value="fp_old""#) && form.contains(r#"value="fp_new""#), "{form}");
-    assert!(
-        form.contains(r#"name="migrationRecordedAt" value="2026-11-05T12:00:00.000Z""#),
-        "the read's time, as admin-web sends it (chase-sets/chase-sets#11068): {form}"
-    );
+    // Only the text and the fixture run: Catalog stamps the time, the author and the fingerprints.
+    assert!(!form.contains("migrationRecordedAt") && !form.contains("migrationFingerprint"), "{form}");
     assert!(form.contains("required") && !form.contains("disabled"), "{form}");
     let activate = html.find(r#"data-catalog-activate-profile-form="true""#).unwrap();
     let form = &html[activate..activate + html[activate..].find("</form>").unwrap()];
@@ -9667,8 +9664,7 @@ async fn the_activation_decision_saves_evidence_and_activates_and_draws_the_apis
     let pilot = Pilot::new().await;
     let at = "profileVersion=2026.07.13";
     let landed = |headers: &HeaderMap| headers[header::LOCATION].to_str().unwrap().to_owned();
-    let form = "profileVersion=2026.07.13&migrationEvidenceText=Replayed+the+changed+fixtures.&migrationFixtureRunId=\
-                &migrationFingerprintBefore=fp_old&migrationFingerprintAfter=fp_new&migrationRecordedAt=2026-11-05T12%3A00%3A00.000Z";
+    let form = "profileVersion=2026.07.13&migrationEvidenceText=Replayed+the+changed+fixtures.&migrationFixtureRunId=";
     let (status, headers, _) = pilot.send(post(&format!("/catalog/providers/tcgplayer/evidence?{at}"), form, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert!(
@@ -9681,8 +9677,7 @@ async fn the_activation_decision_saves_evidence_and_activates_and_draws_the_apis
     assert_eq!(
         serde_json::from_str::<Value>(&sent.body).unwrap(),
         json!({ "command": { "section": "migration-evidence", "migrationEvidence": {
-            "evidenceText": "Replayed the changed fixtures.", "fixtureRunId": null, "mappingFingerprintBefore": "fp_old",
-            "mappingFingerprintAfter": "fp_new", "recordedAt": "2026-11-05T12:00:00.000Z" } } })
+            "evidenceText": "Replayed the changed fixtures.", "fixtureRunId": null } } })
     );
     let (status, headers, _) =
         pilot.send(post(&format!("/catalog/providers/tcgplayer/activate?{at}"), "profileVersion=2026.07.13", false)).await;
@@ -9700,8 +9695,8 @@ async fn the_activation_decision_saves_evidence_and_activates_and_draws_the_apis
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("Migration evidence saved"), "{html}");
 
-    // A blank text is the API's to refuse, in its words (chase-sets/chase-sets#11068: admin-web sends a
-    // fixed sentence instead), and so is an activation it will not run.
+    // A blank text is the API's to refuse, in its words (chase-sets/chase-sets#11068), and so is an
+    // activation it will not run.
     let (status, _, html) = pilot
         .send(post(
             &format!("/catalog/providers/tcgplayer/evidence?{at}"),
