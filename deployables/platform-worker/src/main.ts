@@ -166,11 +166,12 @@ let projectionWakeRunnerLoop: WorkerRunnerLoop | null = null;
 let projectionRunnerLoop: WorkerRunnerLoop | null = null;
 const projectionWakeKey = createProjectionGroupRunnerName;
 const requestProjectionWakeLeaseHandoff = (event: Partial<ProjectionWakeIntentWorkSignalPayload>): void => {
+  const maxAttempts = Math.max(1, Math.floor(config.projectionWakeScheduler.maxAttempts));
   const remainingAttempts =
     typeof event.attemptCount === "number" &&
     Number.isInteger(event.attemptCount) &&
     event.attemptCount >= 0 &&
-    event.attemptCount < config.projectionWakeScheduler.maxAttempts;
+    event.attemptCount < maxAttempts;
   const liveClaimUntil =
     event.state === "claimed" && typeof event.claimedUntil === "string" ? Date.parse(event.claimedUntil) : NaN;
   if (

@@ -16,7 +16,7 @@ import type { ProjectionWakeIntentEnqueuedEvent } from "@chase-sets/platform-run
 
 const mainSource = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
 
-function createWiring(text: string, loop?: WorkerRunnerLoop, disabled = false) {
+function createWiring(text: string, loop?: WorkerRunnerLoop, disabled = false, maxAttempts = 3) {
   const source = ts.createSourceFile("main.ts", text, ts.ScriptTarget.ES2022, true);
   const declarations = new Map<string, ts.VariableDeclaration>();
   let observerFactory: ts.FunctionDeclaration | undefined;
@@ -77,7 +77,7 @@ function createWiring(text: string, loop?: WorkerRunnerLoop, disabled = false) {
     projectionWakeRunnerLoop: null,
     config: {
       projectionWakeDisabledProjections: disabled ? [`auth:${completed.projectionName}`] : [],
-      projectionWakeScheduler: { enabled: true, hotLaneRunnerCount: 1, maxAttempts: 3, pushDispatchEnabled: false },
+      projectionWakeScheduler: { enabled: true, hotLaneRunnerCount: 1, maxAttempts, pushDispatchEnabled: false },
     },
     runtime: {
       projectionGroups: [completed, { targetContextName: "auth", projectionName: enabledSibling }],
@@ -123,7 +123,13 @@ async function duringProductivePass(
     yields,
     finish,
     disabled,
-  }: { yields: boolean; finish?: (wiring: ReturnType<typeof createWiring>) => void; disabled?: boolean },
+    maxAttempts,
+  }: {
+    yields: boolean;
+    finish?: (wiring: ReturnType<typeof createWiring>) => void;
+    disabled?: boolean;
+    maxAttempts?: number;
+  },
 ) {
   vi.useFakeTimers();
   let runs = 0;
@@ -173,7 +179,7 @@ async function duringProductivePass(
     pollIntervalMs: 1_000,
   });
   try {
-    const wiring = createWiring(mainSource, loop, disabled);
+    const wiring = createWiring(mainSource, loop, disabled, maxAttempts);
     loop.start();
     await vi.advanceTimersByTimeAsync(1);
     expect(runs).toBe(1);
@@ -278,12 +284,13 @@ describe("projection wake handoff production wiring", () => {
     });
 
     it.each([
-      ["expired at cap", -10_000, 3, false],
-      ["live at cap", 10_000, 3, true],
-      ["expired below cap", -10_000, 2, true],
+      ["expired at cap", -10_000, 3, false, 3],
+      ["live at cap", 10_000, 3, true, 3],
+      ["expired below cap", -10_000, 2, true, 3],
+      ["expired at fractional cap", -10_000, 3, false, 3.5],
     ] as const)(
       "hands off a same-position claim only when runnable: %s",
-      async (_label, claimOffset, attemptCount, yields) => {
+      async (_label, claimOffset, attemptCount, yields, maxAttempts) => {
         await duringProductivePass(
           (wiring) =>
             sendWake(wiring, ingress, {
@@ -291,7 +298,7 @@ describe("projection wake handoff production wiring", () => {
               attemptCount,
               claimedUntil: new Date(Date.now() + claimOffset).toISOString(),
             }),
-          { yields },
+          { yields, maxAttempts },
         );
       },
     );
