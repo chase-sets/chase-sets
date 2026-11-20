@@ -87,6 +87,23 @@ export function createBulkRepriceIngestionRoutes(services: BulkRepriceIngestionS
     await next();
   });
 
+  // Whether bulk reprice is on: the tree answers this only while the flag is on (404 otherwise),
+  // so a surface can hide its links and its page instead of offering a form that fails.
+  app.get("/", (c) => {
+    if (!c.get("actor")) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("pricing.features.bulkRepriceIngestion.api.route.authentication.required"),
+          },
+        },
+        401,
+      );
+    }
+    return c.json({ enabled: true });
+  });
+
   app.get("/template.csv", (c) =>
     c.body(buildBulkRepriceCsvTemplate(), 200, {
       "Content-Type": "text/csv; charset=utf-8",

@@ -6,6 +6,7 @@ import { ItemDetailPage } from "../features/item-detail/ui/item-detail-page";
 import type { DiscoveryMarketListing, ProductSchema } from "../support/client-support/contracts";
 import {
   alternateListing,
+  PAGE_VIEW_ENTRY_KEY,
   baseAccountOfferMatch,
   baseListing,
   baseOffer,
@@ -172,6 +173,11 @@ describe("item detail commerce panel market intents and listing selection", () =
     expect(await screen.findByLabelText("Maximum listing price")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Set listing alert" })).toBeTruthy();
     expect(screen.queryByLabelText("Minimum offer price")).toBeNull();
+    // The server HTML carries the page view's key, so a resubmitted Set alert is the same create.
+    const listingAlertForm = screen.getByRole("button", { name: "Set listing alert" }).closest("form");
+    expect(listingAlertForm?.querySelector<HTMLInputElement>('input[name="attemptId"]')?.value).toBe(
+      PAGE_VIEW_ENTRY_KEY,
+    );
 
     fireEvent.click(screen.getByRole("button", { name: /Watch offers/ }));
 

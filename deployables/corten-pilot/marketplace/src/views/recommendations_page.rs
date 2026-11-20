@@ -138,7 +138,9 @@ fn Part<'a>(t: RepricingMsg, p: Pilot, screen: &'a RecommendationsScreen) -> imp
                         </form>
                     }
                     <a class={(Button, Secondary)} href={url::SellerListings::default()}>{t.recs_listings()}</a>
-                    <a class={(Button, Secondary)} href={url::BulkReprice::default()}>{t.recs_bulk_reprice()}</a>
+                    if screen.bulk_reprice {
+                        <a class={(Button, Secondary)} href={url::BulkReprice::default()}>{t.recs_bulk_reprice()}</a>
+                    }
                     <a class={(Button, Ghost)} href={url::Imports::default()}>{t.recs_import()}</a>
                 </nav>
             </header>
