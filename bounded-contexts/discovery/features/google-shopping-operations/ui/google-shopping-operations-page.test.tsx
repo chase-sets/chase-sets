@@ -85,6 +85,31 @@ describe("GoogleShoppingOperationsPage", () => {
     expect(markup).not.toContain("secret-token");
   });
 
+  it("keeps the filters when a row is inspected or its detail is closed", () => {
+    render(
+      <GoogleShoppingOperationsPage
+        data={feedRows()}
+        filters={{ filter: "failed", search: "surging lst", limit: 25, refreshWindowDays: 30, selected: "" }}
+      />,
+    );
+
+    const filtered = "/growth/google-shopping?search=surging+lst&filter=failed&limit=25&refreshWindowDays=30";
+    const inspected = `${filtered}&selected=google-shopping%3Alisting%3Alst_1`;
+    expect(hrefs("Inspect")).toEqual(new Set([inspected]));
+    expect(hrefs("lst_1")).toEqual(new Set([inspected]));
+    expect(hrefs("Close")).toEqual(new Set([`${filtered}&selected=none`]));
+  });
+
+  it("leaves the detail closed once Close was selected, even with a blocked row", () => {
+    render(<GoogleShoppingOperationsPage data={feedRows()} filters={{ ...defaultFilters, selected: "none" }} />);
+
+    expect(screen.queryByRole("link", { name: "Close" })).toBeNull();
+    expect(screen.queryByText("Targeted retry gated")).toBeNull();
+    expect(hrefs("Inspect")).toEqual(
+      new Set(["/growth/google-shopping?limit=25&refreshWindowDays=30&selected=google-shopping%3Alisting%3Alst_1"]),
+    );
+  });
+
   it("subscribes to latest Google Shopping sync job events and renders terminal progress", async () => {
     Object.defineProperty(globalThis, "EventSource", {
       value: FakeEventSource,
@@ -326,6 +351,11 @@ describe("GoogleShoppingOperationsPage", () => {
     expect(noticeSurfaces[0]?.className).toBe(tintedSurfaceClassName);
   });
 });
+
+// The table and its narrow-screen cards each render a row's links.
+function hrefs(name: string) {
+  return new Set(screen.getAllByRole("link", { name }).map((link) => link.getAttribute("href")));
+}
 
 const defaultFilters = { filter: "all", search: "", limit: 25, refreshWindowDays: 30, selected: "" } as const;
 
