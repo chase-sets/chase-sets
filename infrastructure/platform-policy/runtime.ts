@@ -66,6 +66,14 @@ export type PolicyRuntimeDeps = Readonly<{
   db: PgQueryable;
   cache?: PolicyCache;
   now?: () => Date;
+  /**
+   * The adopting context, named as the source of each policy document write's
+   * commit receipt and wake. Its document projection subscribes under that
+   * name, so a read that carries the receipt waits for it; without it the
+   * receipt names the stream's `platform-policy` prefix, which no subscription
+   * answers to.
+   */
+  commitSourceContextName?: string;
 }>;
 
 /**
@@ -184,6 +192,7 @@ export function createPolicyRuntime(deps: PolicyRuntimeDeps): PolicyRuntime {
     initialState: () => initialPolicyDocumentState,
     evolve: evolvePolicyDocument,
     decide: decidePolicyDocument,
+    commitSourceContextName: deps.commitSourceContextName,
   });
   const resolver = createPolicyResolver({ db: deps.db, cache, now: deps.now });
   const now = deps.now ?? (() => new Date());
