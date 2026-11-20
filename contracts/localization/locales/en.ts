@@ -9676,6 +9676,7 @@ export const englishTranslations = {
   "platformOperations.policyConsole.detail.historyEvent": "Event",
   "platformOperations.policyConsole.detail.historyRecordedAt": "Recorded at",
   "platformOperations.policyConsole.detail.historyTitle": "Revision history",
+  "platformOperations.policyConsole.detail.invalidEffectiveTime": "Enter each effective time as a date and time, or leave it blank. Nothing was saved.",
   "platformOperations.policyConsole.detail.invalidJson": "The value must be valid JSON.",
   "platformOperations.policyConsole.detail.notSet": "Not set",
   "platformOperations.policyConsole.detail.noUpcoming": "No scheduled revisions.",
