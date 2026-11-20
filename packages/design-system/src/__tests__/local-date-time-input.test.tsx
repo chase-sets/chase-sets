@@ -1,7 +1,8 @@
 import { act, fireEvent, render } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { LocalDateTimeInput, instantToLocalDateTime, localDateTimeToInstant } from "../components/forms";
+import { LocalDateTimeInput } from "../components/forms";
+import { instantToLocalDateTime, localDateTimeToInstant } from "../components/forms/local-date-time-input";
 import { ChaseRoot } from "../theme/provider";
 
 function renderInRoot(ui: ReactNode) {
