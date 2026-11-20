@@ -86,3 +86,53 @@ describe("public Listing report recovery", () => {
     expect(JSON.stringify([...sent[0]!.headers])).not.toContain(anonymousReportId);
   });
 });
+
+function answer(status: number, code: string, message: string) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response(JSON.stringify({ error: { code, message } }), { status })),
+  );
+}
+
+async function report() {
+  return (await action({ request: request(), params: { listingSlug: "one" }, context: undefined } as never)) as {
+    data: Record<string, unknown>;
+    init: { status: number } | null;
+  };
+}
+
+describe("public Listing report refusals", () => {
+  it("answers a repeat report with 409 and says it was already reported", async () => {
+    answer(409, "report_already_submitted", "This reporter has already reported this content.");
+    const result = await report();
+    expect(result.init?.status).toBe(409);
+    expect(result.data).toMatchObject({ attemptId, alreadyReported: true });
+  });
+
+  it("answers a rate-limited report with 429, says to try again later and keeps the report", async () => {
+    answer(429, "rate_limited", "Too many requests.");
+    const result = await report();
+    expect(result.init?.status).toBe(429);
+    expect(result.data).toMatchObject({
+      mutationPhase: "failed-safe",
+      error: "You have sent several reports in a short time. Try again in a few minutes.",
+      values: { reason: "other", details: "Please check" },
+    });
+  });
+
+  it("answers a refused report with the API's message and keeps the reason and details", async () => {
+    answer(400, "validation_failed", "Sellers cannot report their own listings.");
+    const result = await report();
+    expect(result.init?.status).toBe(400);
+    expect(result.data).toMatchObject({
+      mutationPhase: "failed-safe",
+      error: "Sellers cannot report their own listings.",
+      values: { reason: "other", details: "Please check" },
+    });
+  });
+
+  it("leaves an unexpected failure to the error page", async () => {
+    answer(503, "unavailable", "Down for maintenance.");
+    await expect(report()).rejects.toMatchObject({ status: 503 });
+  });
+});
