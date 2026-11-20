@@ -7686,7 +7686,7 @@ async fn pay_now_is_offered_only_to_a_buyer_who_may_pay_and_the_others_are_told_
     let (_, _, html) = pilot.send(get("/account/purchases/ord_open", Some("shopper"))).await;
     assert!(html.contains(pay), "{html}");
     assert!(!text(&html).contains("cannot pay"), "{html}");
-    // Without orders.manage: no Pay now, and a line that says so (chase-sets/chase-sets#11170).
+    // Without orders.manage: no Pay now, and a line that says so.
     let (status, _, html) = pilot.send(get("/account/purchases/ord_open", Some("looker"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(!html.contains(pay) && !text(&html).contains("Pay now"), "{html}");

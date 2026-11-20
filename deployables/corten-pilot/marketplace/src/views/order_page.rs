@@ -572,7 +572,7 @@ fn OrderFacts<'a>(t: OrdersMsg, p: Pilot, facts: &'a Known<'a>) -> impl Render {
     };
     let deadline = facts.payment_deadline().map(|at| t.detail_payment_deadline_description(&date_time(t, at)).to_string());
     // Pay now needs orders.manage, as Payments' start does; a buyer without it is told why
-    // instead of being sent to a refusal (chase-sets/chase-sets#11170).
+    // instead of being sent to a refusal (account-purchase's `paymentAuthority`).
     let awaiting_payment = facts.awaiting_payment();
     let pay = (awaiting_payment && facts.may_manage).then(|| {
         let place = crate::payment_start::StartPlace::of(std::slice::from_ref(&order.order_id));
