@@ -183,11 +183,12 @@ pub fn PaymentContent<'a>(t: PaymentMsg, screen: &'a PaymentScreen) -> impl Patc
                             <p>{says}</p>
                         </div>
                     </section>
-                    // Save this order (`guestClaimSection`): the claim, read after the write this page was.
+                    // The claim's options (`guestClaimSection`), read after the write this page was. The
+                    // page cannot tell whether Auth can claim the order, so the link promises nothing.
                     if screen.guest && payment.status == "captured" {
                         <p>
                             <a class={Button} href={url::GuestClaim { id: &payment.payment_id, place: claim_place(screen) }}>
-                                {t.save_this_order()}
+                                {t.account_options()}
                             </a>
                         </p>
                     }
