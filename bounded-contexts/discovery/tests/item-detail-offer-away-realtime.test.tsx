@@ -34,6 +34,8 @@ type Scenario = {
   event: "remove" | "upsert";
   initial: ReturnType<typeof view>;
   immediate: ReturnType<typeof view>;
+  whileBPending: ReturnType<typeof view>;
+  publishedA?: ReturnType<typeof view>;
   snapshotB: ReturnType<typeof view>;
   afterB: ReturnType<typeof view>;
   guest?: boolean;
@@ -49,16 +51,18 @@ const scenarios: Scenario[] = [
     event: "remove",
     initial: initialMatch,
     immediate: away,
+    whileBPending: away,
     snapshotB: newerMatch,
     afterB: newerMatch,
     unchangedBook: true,
   },
   {
-    name: "upsert before A does not enter either request's buffer",
+    name: "upsert before A is not replayed onto either snapshot",
     phase: "before A",
     event: "upsert",
     initial: away,
     immediate: publicOnly,
+    whileBPending: publicOnly,
     snapshotB: away,
     afterB: away,
   },
@@ -68,6 +72,7 @@ const scenarios: Scenario[] = [
     event: "remove",
     initial: initialMatch,
     immediate: away,
+    whileBPending: away,
     snapshotB: cappedMatch,
     afterB: cappedMatch,
   },
@@ -77,7 +82,19 @@ const scenarios: Scenario[] = [
     event: "upsert",
     initial: initialMatch,
     immediate: initialMatch,
+    whileBPending: initialMatch,
     snapshotB: away,
+    afterB: away,
+  },
+  {
+    name: "F13: removal during B overrides A published before B but rendered during B",
+    phase: "during B",
+    event: "remove",
+    initial: initialMatch,
+    immediate: away,
+    whileBPending: away,
+    publishedA: view(1, "quote_published_a"),
+    snapshotB: newerMatch,
     afterB: away,
   },
   {
@@ -86,6 +103,7 @@ const scenarios: Scenario[] = [
     event: "remove",
     initial: initialMatch,
     immediate: away,
+    whileBPending: away,
     snapshotB: newerMatch,
     afterB: away,
     resume: true,
@@ -96,6 +114,7 @@ const scenarios: Scenario[] = [
     event: "remove",
     initial: initialMatch,
     immediate: away,
+    whileBPending: away,
     snapshotB: newerMatch,
     afterB: away,
     changedListingIds: true,
@@ -107,6 +126,7 @@ const scenarios: Scenario[] = [
     event: "upsert",
     initial: away,
     immediate: publicOnly,
+    whileBPending: publicOnly,
     snapshotB: away,
     afterB: publicOnly,
     guest: true,
@@ -117,6 +137,7 @@ const scenarios: Scenario[] = [
     event: "remove",
     initial: initialMatch,
     immediate: away,
+    whileBPending: initialMatch,
     snapshotB: newerMatch,
     afterB: newerMatch,
   },
@@ -126,6 +147,7 @@ const scenarios: Scenario[] = [
     event: "upsert",
     initial: initialMatch,
     immediate: publicOnly,
+    whileBPending: initialMatch,
     snapshotB: away,
     afterB: away,
     resume: true,
@@ -216,17 +238,26 @@ it.each(scenarios)("$name", async (scenario) => {
 
   const loadA = deferred<ReturnType<typeof routeData>>();
   const loadB = deferred<ReturnType<typeof routeData>>();
+  const bStarted = deferred<void>();
+  const signals: AbortSignal[] = [];
   const loader = vi
     .fn()
     .mockResolvedValueOnce(routeData(scenario.initial))
     .mockReturnValueOnce(loadA.promise)
-    .mockReturnValueOnce(loadB.promise)
+    .mockImplementationOnce(() => {
+      bStarted.resolve();
+      return loadB.promise;
+    })
     .mockResolvedValueOnce(routeData(resumedMatch, true));
   const router = createMemoryRouter(
     [
       {
+        id: "item",
         path: "/items/:id",
-        loader: (args) => clientLoader({ ...args, serverLoader: loader }),
+        loader: (args) => {
+          signals.push(args.request.signal);
+          return clientLoader({ ...args, serverLoader: loader });
+        },
         Component: DiscoveryItemDetailRoute,
         HydrateFallback: () => null,
       },
@@ -252,24 +283,26 @@ it.each(scenarios)("$name", async (scenario) => {
     expect(Boolean(form), checkpoint).toBe(expected.quote !== null);
   }
 
-  function send(op: Scenario["event"]) {
+  function dispatchPatch(op: Scenario["event"]) {
     const change: RealtimeProjectionPatchChange =
       op === "upsert"
         ? { entity: "discovery.buyerOffer", op, id: baseOffer.offer_id, value: resumedOffer }
         : { entity: "discovery.buyerOffer", op, id: baseOffer.offer_id };
-    act(() => {
-      sources[0]!.dispatchEvent(
-        new MessageEvent("projection.patch", {
-          data: JSON.stringify({
-            kind: "projection.patch",
-            context: "discovery",
-            projection: "discovery-market-projection",
-            topics: [`item:${item.catalog_item_id}`],
-            changes: [change],
-          }),
+    sources[0]!.dispatchEvent(
+      new MessageEvent("projection.patch", {
+        data: JSON.stringify({
+          kind: "projection.patch",
+          context: "discovery",
+          projection: "discovery-market-projection",
+          topics: [`item:${item.catalog_item_id}`],
+          changes: [change],
         }),
-      );
-    });
+      }),
+    );
+  }
+
+  function send(op: Scenario["event"]) {
+    act(() => dispatchPatch(op));
   }
 
   function revalidate() {
@@ -286,28 +319,54 @@ it.each(scenarios)("$name", async (scenario) => {
   }
 
   expectView(scenario.initial, "initial snapshot");
-  const removesDuringB = scenario.phase === "during B" && scenario.event === "remove";
+  const removesDuringB = scenario.phase === "during B" && scenario.event === "remove" && !scenario.publishedA;
   if (removesDuringB) {
     send("remove");
     expectView(away, "first removal");
   }
-  if (!sendAt("before A")) revalidate();
-  await waitFor(() => expect(loader).toHaveBeenCalledTimes(2));
-
-  if (removesDuringB) {
-    send("upsert");
-  } else if (!sendAt("during A")) {
+  let aPublished: Promise<void> | undefined;
+  if (scenario.publishedA) {
+    act(() => {
+      aPublished = router.revalidate();
+    });
+  } else if (!sendAt("before A")) {
     revalidate();
   }
-  await waitFor(() => expect(loader).toHaveBeenCalledTimes(3));
+  await waitFor(() => expect(loader).toHaveBeenCalledTimes(2));
 
-  sendAt("during B");
+  if (scenario.publishedA) {
+    const snapshotA = routeData(scenario.publishedA, true);
+    await act(async () => {
+      loadA.resolve(snapshotA);
+      await aPublished;
+      expect(router.state.loaderData.item).toEqual(snapshotA);
+      expectView(scenario.initial, "A published but React has not rendered it");
+      void router.revalidate();
+      await bStarted.promise;
+      expect(signals[1]!.aborted).toBe(false);
+      dispatchPatch(scenario.event);
+    });
+  } else {
+    if (removesDuringB) {
+      send("upsert");
+    } else if (!sendAt("during A")) {
+      revalidate();
+    }
+    await waitFor(() => expect(loader).toHaveBeenCalledTimes(3));
+    expect(signals[1]!.aborted).toBe(true);
+    sendAt("during B");
+  }
+
+  expect(router.state.revalidation).toBe("loading");
+  expectView(scenario.whileBPending, "B pending");
   await act(async () => loadB.resolve(routeData(scenario.snapshotB, true)));
   expect(router.state.revalidation).toBe("idle");
   expectView(scenario.afterB, "B committed");
 
-  await act(async () => loadA.resolve(routeData(scenario.initial)));
-  expectView(scenario.afterB, "superseded A returned");
+  if (!scenario.publishedA) {
+    await act(async () => loadA.resolve(routeData(scenario.initial)));
+    expectView(scenario.afterB, "superseded A returned");
+  }
 
   sendAt("after B");
   if (scenario.resume) {

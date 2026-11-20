@@ -4,7 +4,7 @@ import { EntryAttemptKeyScope } from "../support/ui-support/entry-attempt-key";
 import { MutationFormProvider } from "../support/ui-support/mutation-form";
 import type { ClientLoaderFunctionArgs, MetaFunction } from "react-router";
 import { useActionData, useLoaderData } from "react-router";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useState, useSyncExternalStore } from "react";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import type { RealtimeProjectionPatch } from "@chase-sets/platform-runtime/realtime";
 import { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
@@ -147,36 +147,100 @@ export const meta: MetaFunction<typeof loader> = ({ data }) => [
   ...(data?.canonicalUrl ? [{ tagName: "link", rel: "canonical", href: data.canonicalUrl }] : []),
 ];
 
-type ItemDetailLoad = {
+type OfferPatchStart = {
+  index: number;
   signal: AbortSignal;
-  itemId?: string;
-  offerPatches: RealtimeProjectionPatch[];
+  forget: () => void;
 };
 
-const itemDetailLoadStarts = new Set<(load: ItemDetailLoad) => void>();
-const itemDetailLoads = new WeakMap<DiscoveryItemDetailRouteData, ItemDetailLoad>();
+function createOfferPatchLog(itemId: string | undefined) {
+  const patches: RealtimeProjectionPatch[] = [];
+  const starts = new WeakMap<DiscoveryItemDetailRouteData, OfferPatchStart>();
+  const pending = new Set<WeakRef<OfferPatchStart>>();
+  const listeners = new Set<() => void>();
+  let offset = 0;
+  let renderedStart = 0;
+  const endIndex = () => offset + patches.length;
+
+  function trim() {
+    let first = renderedStart;
+    for (const ref of pending) {
+      const start = ref.deref();
+      if (!start || start.signal.aborted) pending.delete(ref);
+      else first = Math.min(first, start.index);
+    }
+    if (first > offset) {
+      patches.splice(0, first - offset);
+      offset = first;
+    }
+  }
+
+  return {
+    itemId,
+    endIndex,
+    start(signal: AbortSignal): OfferPatchStart {
+      trim();
+      // The loader, or its returned snapshot, keeps this position alive. A
+      // response the router drops without rendering must not pin it forever.
+      const start = { index: endIndex(), signal, forget: () => pending.delete(ref) };
+      const ref = new WeakRef(start);
+      pending.add(ref);
+      return start;
+    },
+    bind(data: DiscoveryItemDetailRouteData, start: OfferPatchStart) {
+      starts.set(data, start);
+    },
+    startOf(data: DiscoveryItemDetailRouteData) {
+      const start = starts.get(data);
+      return start?.signal.aborted ? undefined : start;
+    },
+    commit(start: OfferPatchStart | undefined) {
+      start?.forget();
+      renderedStart = start?.index ?? 0;
+      trim();
+    },
+    append(patch: RealtimeProjectionPatch) {
+      patches.push(patch);
+      for (const listener of listeners) listener();
+    },
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    replay(item: DiscoveryItemRealtimeSnapshot | null, start: OfferPatchStart | undefined, end: number) {
+      let next = item;
+      for (let index = Math.max(start?.index ?? 0, offset); index < end; index++) {
+        next = applyDiscoveryItemPatch(next, patches[index - offset]!);
+      }
+      return next;
+    },
+  };
+}
+
+const activeOfferPatchLogs = new Set<ReturnType<typeof createOfferPatchLog>>();
 
 export async function clientLoader({ request, serverLoader }: ClientLoaderFunctionArgs) {
-  const load: ItemDetailLoad = { signal: request.signal, offerPatches: [] };
-  if (!load.signal.aborted) {
-    load.signal.addEventListener(
-      "abort",
-      () => {
-        load.offerPatches.length = 0;
-      },
-      { once: true },
-    );
-    for (const start of itemDetailLoadStarts) start(load);
+  const starts = request.signal.aborted
+    ? []
+    : Array.from(activeOfferPatchLogs, (log) => ({ log, start: log.start(request.signal) }));
+  try {
+    // Each response needs its own identity, even when its book is unchanged.
+    const data = { ...(await serverLoader<typeof loader>()) };
+    for (const { log, start } of starts) {
+      if (!request.signal.aborted && log.itemId === data.item?.catalog_item_id) log.bind(data, start);
+      else start.forget();
+    }
+    return data;
+  } catch (error) {
+    for (const { start } of starts) start.forget();
+    throw error;
   }
-  // Bind the buffer to this response, even when its public book equals a prior one.
-  const data = { ...(await serverLoader<typeof loader>()) };
-  if (!load.signal.aborted) itemDetailLoads.set(data, load);
-  return data;
 }
 
 export default function DiscoveryItemDetailRoute() {
   const data = useLoaderData<typeof loader>() ?? EMPTY_ITEM_DETAIL_RESULT;
   const actionData = useActionData<DiscoveryItemDetailActionData>();
+  const realtimeItem = useItemDetailRealtime(data);
 
   const view = (
     <EntryAttemptKeyScope
@@ -185,7 +249,7 @@ export default function DiscoveryItemDetailRoute() {
       actionKey={actionData && "entryAttemptKey" in actionData ? actionData.entryAttemptKey : null}
       actionDraft={actionData && "buyDraft" in actionData ? actionData.buyDraft : null}
     >
-      <DiscoveryItemDetailRealtimeView data={data} actionData={actionData} />
+      <DiscoveryItemDetailView data={data} actionData={actionData} realtimeItem={realtimeItem} />
     </EntryAttemptKeyScope>
   );
   const authority = "recoveryAuthority" in data ? data.recoveryAuthority : null;
@@ -198,73 +262,65 @@ export default function DiscoveryItemDetailRoute() {
   );
 }
 
-function reconcileLoadedItem(data: DiscoveryItemDetailRouteData) {
-  const load = itemDetailLoads.get(data);
-  if (!load || load.itemId !== data.item?.catalog_item_id) return data.item;
-  return load.offerPatches.reduce<DiscoveryItemRealtimeSnapshot | null>(applyDiscoveryItemPatch, data.item);
-}
-
 function useItemDetailRealtime(data: DiscoveryItemDetailRouteData) {
   const reload = useDiscoveryRealtimeRevalidation();
   const itemId = data.item?.catalog_item_id;
   const hasViewer = Boolean(data.viewerAccountId);
-  const pendingLoad = useRef<ItemDetailLoad | null>(null);
-  const [state, setState] = useState(() => ({ data, visibleItem: reconcileLoadedItem(data) }));
-
-  let visibleItem = state.visibleItem;
-  if (state.data !== data) {
-    visibleItem = reconcileLoadedItem(data);
-    setState({ data, visibleItem });
-  }
+  const [state, setState] = useState(() => ({ data, item: data.item, log: createOfferPatchLog(itemId) }));
+  const log = state.log.itemId === itemId ? state.log : createOfferPatchLog(itemId);
+  const item = state.data === data ? state.item : data.item;
+  if (state.data !== data) setState({ data, item, log });
+  const start = log.startOf(data);
+  const end = useSyncExternalStore(log.subscribe, log.endIndex, () => 0);
 
   useLayoutEffect(() => {
-    // Keep recording until this response is visible, including between the
-    // loader resolving and React committing the snapshot.
-    if (itemDetailLoads.get(data) === pendingLoad.current) pendingLoad.current = null;
-  }, [data]);
+    if (!itemId) return;
+    activeOfferPatchLogs.add(log);
+    return () => {
+      activeOfferPatchLogs.delete(log);
+    };
+  }, [itemId, log]);
+
+  useLayoutEffect(() => {
+    log.commit(start);
+  }, [data, log, start]);
 
   useEffect(() => {
     if (!itemId) return;
-    const start = (load: ItemDetailLoad) => {
-      load.itemId = itemId;
-      pendingLoad.current = load;
-    };
-    itemDetailLoadStarts.add(start);
     const subscription = subscribeRealtimePatches({
       topics: discoveryRealtimeRouteTopics.itemDetail(itemId).topics,
       onPatch: (patch) => {
         const offerChanges = patch.changes.filter((change) => change.entity === "discovery.buyerOffer");
-        const load = pendingLoad.current;
-        if (load && !load.signal.aborted && offerChanges.length > 0) {
-          load.offerPatches.push({ ...patch, changes: offerChanges });
+        const otherChanges = patch.changes.filter((change) => change.entity !== "discovery.buyerOffer");
+        if (otherChanges.length > 0) {
+          setState((current) =>
+            current.log === log
+              ? { ...current, item: applyDiscoveryItemPatch(current.item, { ...patch, changes: otherChanges }) }
+              : current,
+          );
         }
-        setState((current) => ({
-          ...current,
-          visibleItem: applyDiscoveryItemPatch(current.visibleItem, patch),
-        }));
+        if (offerChanges.length > 0) log.append({ ...patch, changes: offerChanges });
         // Public patches do not carry the seller's account-scoped terms.
         if (hasViewer && offerChanges.some((change) => change.op === "upsert")) reload();
       },
       onSyncRequired: reload,
     });
-    return () => {
-      itemDetailLoadStarts.delete(start);
-      subscription.close();
-    };
-  }, [hasViewer, itemId, reload]);
+    return () => subscription.close();
+  }, [hasViewer, itemId, log, reload]);
 
-  return visibleItem;
+  return log.replay(item, start, end);
 }
 
-function DiscoveryItemDetailRealtimeView({
+function DiscoveryItemDetailView({
   data,
   actionData,
+  realtimeItem,
 }: {
   data: DiscoveryItemDetailRouteData;
   actionData: DiscoveryItemDetailActionData;
+  realtimeItem: DiscoveryItemRealtimeSnapshot | null;
 }) {
   const actionErrorMessage = getActionErrorMessage(actionData);
-  const realtimeItem = useItemDetailRealtime(data);
   const productJsonLd = realtimeItem
     ? buildItemDetailProductJsonLd({ item: realtimeItem, canonicalUrl: data.canonicalUrl })
     : null;
