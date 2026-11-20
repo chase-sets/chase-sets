@@ -194,7 +194,7 @@ impl Shown {
 
 /// The user and its keys, read after `receipt`; `None` when either has not caught up with it.
 async fn read(caller: &crate::api::Caller<'_>, user: &str) -> Result<(SecurityUser, Vec<ApiKey>), ApiError> {
-    let (found, keys) = tokio::join!(caller.user(user), caller.api_keys(user));
+    let (found, keys) = tokio::join!(caller.user(user), caller.api_keys());
     Ok((found?, keys?))
 }
 
