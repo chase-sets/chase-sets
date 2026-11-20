@@ -215,6 +215,7 @@ describe("source observation runtime: import claim exhaustion", () => {
     "records a linked %s as a terminal failure when its claims are exhausted",
     async (link) => {
       const { services, coverage, scope, exhaustedAt, markLastClaimExpired } = createClaimExhaustionHarness();
+      Object.assign(coverage, { observed_count: 12, changed_count: 2, failed_count: 0 });
       let standalone;
       if (link === "reused standalone import") {
         const preview = await services.previewCatalogSyncScope({ scope, context });
@@ -254,6 +255,9 @@ describe("source observation runtime: import claim exhaustion", () => {
           lastJobId: childId,
           errorMessage,
           lastCompletedAt: exhaustedAt,
+          observedCount: 12,
+          changedCount: 2,
+          failedCount: 0,
         },
       ]);
       const unit = { providerKey: state[0].providerKey, unitKey: state[0].unitKey };
@@ -265,7 +269,17 @@ describe("source observation runtime: import claim exhaustion", () => {
           providerUnits: [{ ...unit, productionClass: "production", lifecycle: "active", active: true }],
           scopes: [{ scopeRecordId: BASE_SET_SCOPE_RECORD_ID, eligible: true, acceptedMappings: [unit] }],
           expectedUnits: [expectedUnit],
-          observedUnits: [{ ...manifest.observedUnits[0], ...expectedUnit, ...state[0] }],
+          observedUnits: [
+            {
+              ...expectedUnit,
+              state: state[0].state,
+              lastCompletedAt: state[0].lastCompletedAt,
+              syncRunId: state[0].lastSyncRunId,
+              observedCount: Number(state[0].observedCount),
+              changedCount: Number(state[0].changedCount),
+              failedCount: Number(state[0].failedCount),
+            },
+          ],
           providerUsage: [],
         },
         { generatedAt: exhaustedAt },
