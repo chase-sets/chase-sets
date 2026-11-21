@@ -85,6 +85,31 @@ describe("Channels account connection route contribution", () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
+  it.each([200, 503])("loads setup locations for a pending-setup manager when Inventory returns %i", async (status) => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({ actor: { ...actor(), permissions: ["channels.view", "channels.manage"] } }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({ ...actorConnection(), status: "pending-setup", allowedActions: ["disconnect"] }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({ items: [{ storage_location_id: "location-a", name: "Shelf A" }] }, { status }),
+      )
+      .mockResolvedValue(new Response(null, { status: 503 }));
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(loader(loaderArgs(routeRequest()))).resolves.toMatchObject({
+      kind: "ready",
+      setupLocations:
+        status === 200
+          ? { kind: "loaded", items: [{ storageLocationId: "location-a", name: "Shelf A" }] }
+          : { kind: "read-error" },
+    });
+    expect(fetch.mock.calls[2]![0]).toContain("/api/inventory/storage-locations?includeArchived=false&limit=200");
+  });
+
   it("declares the canonical authenticated account contribution and separate download resource", () => {
     const manifest = JSON.parse(readFileSync(path.resolve(import.meta.dirname, "../../context.json"), "utf8"));
     expect(
