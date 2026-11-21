@@ -255,7 +255,7 @@ registered files.
 
 ## Corten pin
 
-`Cargo.toml` pins Corten to `6045710b` (Corten `main` on 2026-11-20), whose framework package is
+`Cargo.toml` pins Corten to `42b47401` (Corten `main` on 2026-11-20), whose framework package is
 `corten-run` (the library is still `corten`). Corten 0.2.0 is released (tag `v0.2.0`, `a833b4e3`), and the pin is a git revision past it. The
 pin follows Corten's latest `main` (Todd, 2026-11-02), and each move is its own commit that says
 what changed; the workarounds a move lets go follow it in commits of their own. The history of every move is in the
@@ -345,7 +345,6 @@ instead. Remove the workaround when the issue closes.
 | [chase-sets/chase-sets#10682 [pricing] Compile Repricing Presets in the Pricing API now that a second client authors policies from them](https://github.com/chase-sets/chase-sets/issues/10682) | [marketplace/src/repricing.rs](marketplace/src/repricing.rs) |
 | [chase-sets/chase-sets#10683 [checkout] Read the checkout fee quote from Payments instead of quoting the compiled default policy in the web loader](https://github.com/chase-sets/chase-sets/issues/10683) | [marketplace/src/api.rs](marketplace/src/api.rs), [marketplace/src/checkout.rs](marketplace/src/checkout.rs) |
 | [chase-sets/chase-sets#10697 [auth] A user's session list shows other users' sessions whose name, email or account mentions the user's id](https://github.com/chase-sets/chase-sets/issues/10697) | [marketplace/src/api.rs](marketplace/src/api.rs) |
-| [chase-sets/chase-sets#10699 [auth] Marketplace's sessions page ignores its status filter, search and pages, always showing the first 50](https://github.com/chase-sets/chase-sets/issues/10699) | [marketplace/src/sessions.rs](marketplace/src/sessions.rs) |
 | [chase-sets/chase-sets#10703 [catalog] Return a scope's language-edition link states and journey from the Catalog API instead of deriving them in admin-web](https://github.com/chase-sets/chase-sets/issues/10703) | [admin/src/catalog/scope.rs](admin/src/catalog/scope.rs) |
 | [chase-sets/chase-sets#11024 [catalog] The alias review's Auto-accept eligible (N) accepts every selected candidate, not only the N eligible](https://github.com/chase-sets/chase-sets/issues/11024) | [admin/src/catalog/attention.rs](admin/src/catalog/attention.rs) (the scopes list's and the daily workbench's alias review) |
 | [chase-sets/chase-sets#10245 [auth] Make registration non-committal: create accounts on a verified email link](https://github.com/chase-sets/chase-sets/issues/10245) | [marketplace/src/register.rs](marketplace/src/register.rs) |
