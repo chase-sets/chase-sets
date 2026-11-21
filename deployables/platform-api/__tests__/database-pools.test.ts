@@ -129,11 +129,11 @@ describe("Pending Registration lock pool", () => {
   const optionsOf = (pool: unknown) => (pool as { options: PoolOptions }).options;
   const end = (pool: unknown) => (pool as { end: () => Promise<void> }).end();
   // Pod URLs verify TLS against the pod's managed Postgres CA mount.
-  const podManagedUrl = (url: string) => {
+  const podManagedUrl = (url: string, caPath = managedPostgresPodCaPath) => {
     const managed = new URL(url);
     managed.searchParams.set("sslmode", "verify-full");
     managed.searchParams.set("uselibpqcompat", "true");
-    managed.searchParams.set("sslrootcert", managedPostgresPodCaPath);
+    managed.searchParams.set("sslrootcert", caPath);
     return managed.toString();
   };
   const runtimeAuthUrl = podManagedUrl("postgresql://auth_runtime:synthetic-secret@db.example.test:25061/auth_pool");
@@ -196,11 +196,7 @@ describe("Pending Registration lock pool", () => {
       });
       try {
         expect(locks.refusal).toBeNull();
-        expect(optionsOf(locks.pool).max).toBe(2);
-        const lockUrl = new URL(optionsOf(locks.pool).connectionString);
-        expect(lockUrl.port).toBe("25060");
-        expect(lockUrl.searchParams.get("sslmode")).toBe("verify-full");
-        expect(lockUrl.searchParams.get("sslrootcert")).toBe(managedPostgresPodCaPath);
+        expect(optionsOf(locks.pool)).toMatchObject({ max: 2, connectionString: directAuthUrl });
       } finally {
         if (locks.pool) await end(locks.pool);
       }
@@ -237,9 +233,9 @@ describe("Pending Registration lock pool", () => {
       "BOOTSTRAP_DATABASE_URL_AUTH does not use the Auth runtime user",
     ],
     [
-      "other TLS settings",
+      "a different TLS CA path",
       managed("staging"),
-      directAuthUrl.replace("sslmode=verify-full", "sslmode=require"),
+      podManagedUrl(directAuthUrl, "/tmp/other-ca.crt"),
       "BOOTSTRAP_DATABASE_URL_AUTH does not use the Auth runtime TLS settings",
     ],
     [
