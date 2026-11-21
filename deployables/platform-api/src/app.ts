@@ -106,6 +106,8 @@ import {
   normalizeProjectionOperationsSnapshot,
   normalizeWakeStatusSnapshot,
   type OfferEconomicsCrossContextPort,
+  platformOperationsRealtimeManifest,
+  platformOperationsRealtimeTopicPolicyManifest,
   rateLimitPolicy,
   type OpsMarketAnalyticsCrossContextPort,
   type PolicyConsoleCrossContextPort,
@@ -1070,6 +1072,7 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
         entry.contextName === "catalog" ||
         entry.contextName === "discovery" ||
         entry.contextName === "marketplace" ||
+        entry.contextName === "platform-operations" ||
         entry.contextName === "pricing",
     )
     .map((entry) => ({
@@ -1079,7 +1082,9 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
           ? discoveryRealtimeManifest
           : entry.contextName === "marketplace"
             ? marketplaceRealtimeManifest
-            : pricingRealtimeManifest),
+            : entry.contextName === "platform-operations"
+              ? platformOperationsRealtimeManifest
+              : pricingRealtimeManifest),
       contextName: entry.contextName,
       db: entry.pool,
     }));
@@ -1087,6 +1092,7 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     catalogRealtimeTopicPolicyManifest,
     discoveryRealtimeTopicPolicyManifest,
     marketplaceRealtimeTopicPolicyManifest,
+    platformOperationsRealtimeTopicPolicyManifest,
   ]);
   const identityServices = {
     auth: runtime.services.auth as ReturnType<typeof authModule.createServices>,

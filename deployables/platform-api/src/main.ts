@@ -393,7 +393,10 @@ await runtime.initializeListingAuthority();
 const realtimeStores = runtime.mountedContexts
   .filter(
     (entry) =>
-      entry.contextName === "catalog" || entry.contextName === "discovery" || entry.contextName === "marketplace",
+      entry.contextName === "catalog" ||
+      entry.contextName === "discovery" ||
+      entry.contextName === "marketplace" ||
+      entry.contextName === "platform-operations",
   )
   .map((entry) => ({
     contextName: entry.contextName,
