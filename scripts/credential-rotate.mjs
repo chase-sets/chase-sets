@@ -70,6 +70,9 @@ export function parseRotateArgs(argv) {
 }
 
 function refuseUnlessAssisted(entry) {
+  if (entry.scope.length === 0) {
+    throw new RotationError(`${entry.name} has no GitHub scope, so credential:rotate refuses it`);
+  }
   if (entry.rotation === "automatic") {
     throw new RotationError(
       `${entry.name} has rotation automatic; its owner is the automatic rotation tooling, so credential:rotate refuses it`,

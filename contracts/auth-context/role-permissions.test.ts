@@ -25,21 +25,43 @@ function gitGrep(args: readonly string[]): readonly string[] {
   return result.stdout.split("\n").filter(Boolean);
 }
 
+function assertHistoricalPermissionsWithHold(roles: Readonly<Record<string, readonly string[]>>) {
+  expect({
+    ...roles,
+    "platform-admin": roles["platform-admin"]!.filter(
+      (key) => key !== "customer-feedback.privacy.export-sensitive-feedback",
+    ),
+  }).toEqual({
+    ...preMove.rolePermissions,
+    "platform-admin": ["payout-review-holds.manage", ...preMove.rolePermissions["platform-admin"]!],
+  });
+}
+
 describe("canonical role-to-permission table", () => {
-  it("canonical role table preserves the pre-move Auth table except the authorized staff export addition", () => {
+  it("canonical role table preserves the pre-move Auth table plus the authorized platform-admin additions", () => {
     expect(preMove.source).toEqual({
       commit: "15e1e56fc71665b8aabb699c8f00688233136be8",
       path: "bounded-contexts/auth/support/auth-support/constants.ts",
       blob: "0c4214790c27b9937e91f09e565c5c9f298bd8b1",
       export: "AUTH_ROLE_PERMISSIONS",
     });
-    expect({
-      ...ROLE_PERMISSIONS,
-      "platform-admin": ROLE_PERMISSIONS["platform-admin"].filter(
-        (key) => key !== "customer-feedback.privacy.export-sensitive-feedback",
-      ),
-    }).toEqual(preMove.rolePermissions);
+    assertHistoricalPermissionsWithHold(ROLE_PERMISSIONS);
   });
+
+  it.each(["deleted hold", "owner hold", "unrelated grant"] as const)(
+    "rejects an unauthorized historical permission delta: %s",
+    (change) => {
+      const roles: Record<keyof typeof ROLE_PERMISSIONS, readonly string[]> = { ...ROLE_PERMISSIONS };
+      if (change === "deleted hold") {
+        roles["platform-admin"] = roles["platform-admin"].filter((key) => key !== "payout-review-holds.manage");
+      } else if (change === "owner hold") {
+        roles.owner = [...roles.owner, "payout-review-holds.manage"];
+      } else {
+        roles["platform-admin"] = [...roles["platform-admin"], "unrelated.manage"];
+      }
+      expect(() => assertHistoricalPermissionsWithHold(roles)).toThrow();
+    },
+  );
 
   it("is the only role-to-permission table and PermissionKey declaration", () => {
     expect(
@@ -70,6 +92,20 @@ describe("canonical role-to-permission table", () => {
 });
 
 describe("role permission grants", () => {
+  it("declares payout review hold management once and grants it only once to platform-admin, never a preset", () => {
+    expect(PERMISSION_KEYS.filter((key) => key === "payout-review-holds.manage")).toEqual([
+      "payout-review-holds.manage",
+    ]);
+    for (const [role, permissions] of Object.entries(ROLE_PERMISSIONS)) {
+      expect(permissions.filter((permission) => permission === "payout-review-holds.manage")).toEqual(
+        role === "platform-admin" ? ["payout-review-holds.manage"] : [],
+      );
+    }
+    for (const permissions of Object.values(PERMISSION_PRESETS)) {
+      expect(permissions).not.toContain("payout-review-holds.manage");
+    }
+  });
+
   it("grants canonical sensitive feedback export once to platform-admin only, never through presets", () => {
     const capability = "customer-feedback.privacy.export-sensitive-feedback";
     expect(PERMISSION_KEYS.filter((key) => key === capability)).toEqual([capability]);
@@ -322,7 +358,7 @@ describe("pricing preset contract", () => {
   };
   // Sorted non-pricing sets, including the platform-admin-only reported-content grant.
   const predecessor = {
-    "platform-admin": "209c0bd015d367f005d7ea75f15101c0273c9bf0266e7b42005d8326aad3310c",
+    "platform-admin": "783c68e9b946919206e54caa8767d024561c343adfc28b9752cffadb1083995f",
     owner: "2f44a3531ad460bb8c0e8813515adfccb5299c697e75d0c66afa5880566344d4",
     manager: "4f7bafd3ac8326d8486dcdc7ddeb5c4fe63c76f8615ce4c307f1438af27332c1",
     fulfillment: "968211cfdf02d5d689838226c846197ac9c41fdd96806aa5fe84bfb32b551248",

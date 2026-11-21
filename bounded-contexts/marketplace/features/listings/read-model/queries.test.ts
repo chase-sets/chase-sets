@@ -366,6 +366,9 @@ describe("marketplace listing read-model queries", () => {
     expect(calls[0]?.sql).toContain("available_again_at IS NOT NULL");
     expect(calls[0]?.sql).toContain("available_again_at <= $1::timestamptz");
     expect(calls[0]?.sql).toContain("ORDER BY available_again_at ASC, account_id ASC");
+    expect(calls[0]?.sql).toContain("offers_status = 'unavailable' AND offers_available_again_at IS NOT NULL");
+    expect(calls[0]?.sql).toContain("offers_available_again_at <= $1::timestamptz");
+    expect(calls[0]?.sql).toContain("ORDER BY offers_available_again_at ASC, account_id ASC");
     // Batch limit clamps to the documented ceiling regardless of caller input.
     expect(calls[0]?.params).toEqual(["2026-07-13T12:00:00.000Z", 500]);
   });

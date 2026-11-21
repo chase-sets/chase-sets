@@ -126,7 +126,12 @@ ALTER TABLE marketplace_seller_listing_availability_pages
 ALTER TABLE marketplace_seller_listing_availability_pages
   ADD COLUMN IF NOT EXISTS away_window_starts_at timestamptz NULL,
   ADD COLUMN IF NOT EXISTS away_window_ends_at timestamptz NULL,
-  ADD COLUMN IF NOT EXISTS away_window_reason_category text NULL;
+  ADD COLUMN IF NOT EXISTS away_window_reason_category text NULL,
+  ADD COLUMN IF NOT EXISTS away_window_scope text NOT NULL DEFAULT 'listings',
+  ADD COLUMN IF NOT EXISTS offers_status text NOT NULL DEFAULT 'available',
+  ADD COLUMN IF NOT EXISTS offers_stream_version integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS offers_available_again_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS offers_reason_category text NULL;
 
 -- Order Capacity is the seller-set cap on concurrently Open Orders. Absent
 -- row (or a NULL max_open_orders) means unlimited, the default. Inert until
@@ -216,6 +221,16 @@ $migration$`,
 ];
 
 export const marketplaceListingReadModelSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20261120_marketplace_offers_due_restore_index",
+    description: "Index authoritative Offers Resume Instants for the existing restore sweep.",
+    statements: [
+      "SET lock_timeout = '5s'",
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS marketplace_offers_due_restore_idx
+  ON marketplace_seller_listing_availability_pages (offers_available_again_at)
+  WHERE offers_status = 'unavailable' AND offers_available_again_at IS NOT NULL`,
+    ],
+  },
   {
     migrationId: "20260713_marketplace_seller_away_window_due_start_index",
     description:

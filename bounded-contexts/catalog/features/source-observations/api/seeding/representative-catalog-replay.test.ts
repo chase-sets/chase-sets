@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -6,6 +6,7 @@ import type { ObservationPackManifestV1 } from "./observation-pack";
 import {
   createPackBackedProviderAdapter,
   foldRepresentativeCatalogObservationHistory,
+  replayRepresentativeCatalogPacks,
 } from "./representative-catalog-replay";
 import { decideSourceObservation, evolveSourceObservation, initialSourceObservationState } from "../../domain/domain";
 import { requireCatalogProviderSourceObservation } from "../promotion/provider-source-observation-normalizer";
@@ -38,6 +39,23 @@ const request = {
 };
 
 describe("pack-backed replay target", () => {
+  it("refuses an already aborted replay before any storage, provider or receipt work", async () => {
+    const abort = new AbortController();
+    abort.abort(new Error("cancelled replay"));
+    const fetch = vi.fn();
+    const query = vi.fn();
+    await expect(
+      replayRepresentativeCatalogPacks({
+        services: { db: { query } } as unknown as Parameters<typeof replayRepresentativeCatalogPacks>[0]["services"],
+        source: "https://synthetic.invalid/pack",
+        context: {} as Parameters<typeof replayRepresentativeCatalogPacks>[0]["context"],
+        signal: abort.signal,
+        fetch,
+      }),
+    ).rejects.toThrow("cancelled replay");
+    expect(fetch).not.toHaveBeenCalled();
+    expect(query).not.toHaveBeenCalled();
+  });
   it("replays legacy and normalized-evidence-chunked histories with complete evidence", () => {
     const inline = requireCatalogProviderSourceObservation({
       contract: tcgdexPokemonCardSourceObservationMappingContract,

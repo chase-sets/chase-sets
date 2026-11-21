@@ -6,7 +6,104 @@ import { describe, expect, it, vi } from "vitest";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { PgQueryable, PgQueryResult } from "@chase-sets/event-core-postgres";
-import { buildOrderingMarketplaceSupplyProjectionHandlers } from "./supply-projection";
+import {
+  buildOrderingInventorySupplyProjectionHandlers,
+  buildOrderingMarketplaceSupplyProjectionHandlers,
+} from "./supply-projection";
+
+describe("ordering inventory supply projection", () => {
+  const holdClaim = {
+    ...event("inventory.item.stock-authority-claimed", "inventory.item-inv_1", {
+      itemId: "inv_1",
+      authorityRef: "inh_1",
+      operation: "hold-placement",
+      quantity: 2,
+    }),
+    streamVersion: 4,
+  };
+
+  it.each([
+    event("inventory.item.stock-authority-claimed", "inventory.item-inv_1", {
+      itemId: "inv_1",
+      authorityRef: "sale_1",
+      operation: "stock-reduction",
+      quantity: 1,
+    }),
+    event("inventory.item.offline-sale-recorded", "inventory.item-inv_1", { itemId: "inv_1", quantity: 1 }),
+  ])("advances only the item watermark monotonically for $type", async (fact) => {
+    const query = vi.fn(async () => ({ rows: [], rowCount: 1 }));
+    const handlers = buildOrderingInventorySupplyProjectionHandlers({ query });
+    await handlers[fact.type]!({ ...fact, streamVersion: 4 });
+
+    expect(query).toHaveBeenCalledExactlyOnceWith(
+      expect.stringMatching(
+        /^UPDATE ordering_inventory_item_inputs\s+SET last_stream_version = \$2\s+WHERE item_id = \$1\s+AND last_stream_version < \$2$/,
+      ),
+      ["inv_1", 4],
+    );
+  });
+
+  it("defers a hold claim until the matching placement in the target transaction", async () => {
+    const query = vi.fn(async () => ({ rows: [], rowCount: 0 }));
+    const fallbackQuery = vi.fn(async () => ({ rows: [], rowCount: 0 }));
+    const handlers = buildOrderingInventorySupplyProjectionHandlers({ query: fallbackQuery });
+    const context = { db: { query } };
+
+    await handlers[holdClaim.type]!(holdClaim, context);
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(query).toHaveBeenNthCalledWith(
+      1,
+      expect.stringMatching(/FROM ordering_inventory_hold_inputs\s+WHERE hold_id = \$1 AND item_id = \$2/),
+      ["inh_1", "inv_1"],
+    );
+    expect(query).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining("INSERT INTO ordering_inventory_pending_hold_claims"),
+      ["inh_1", "inv_1", 4],
+    );
+    query.mockClear();
+
+    await handlers["inventory.hold.placed"]!(
+      event("inventory.hold.placed", "inventory.hold-inh_1", {
+        holdId: "inh_1",
+        accountId: "acc_1",
+        itemId: "inv_1",
+        quantity: 2,
+      }),
+      context,
+    );
+    expect(query).toHaveBeenNthCalledWith(1, expect.stringContaining("INSERT INTO ordering_inventory_hold_inputs"), [
+      "inh_1",
+      "inv_1",
+      "acc_1",
+      2,
+      "2026-05-09T00:00:00.000Z",
+      1,
+    ]);
+    expect(query).toHaveBeenNthCalledWith(
+      2,
+      expect.stringMatching(
+        /DELETE FROM ordering_inventory_pending_hold_claims[\s\S]+WHERE hold_id = \$1 AND item_id = \$2[\s\S]+last_stream_version < claim.item_stream_version/,
+      ),
+      ["inh_1", "inv_1"],
+    );
+    expect(fallbackQuery).not.toHaveBeenCalled();
+  });
+
+  it("advances a replayed hold claim when the matching hold already exists", async () => {
+    const query = vi.fn<PgQueryable["query"]>().mockResolvedValueOnce({ rows: [{ "?column?": 1 }], rowCount: 1 });
+    query.mockResolvedValueOnce({ rows: [], rowCount: 1 });
+    const handlers = buildOrderingInventorySupplyProjectionHandlers({ query });
+
+    await handlers[holdClaim.type]!(holdClaim);
+
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(query).toHaveBeenLastCalledWith(
+      expect.stringMatching(/UPDATE ordering_inventory_item_inputs[\s\S]+last_stream_version < \$2/),
+      ["inv_1", 4],
+    );
+  });
+});
 
 type ListingInputRow = {
   listing_id: string;
@@ -389,7 +486,8 @@ describe("ordering marketplace supply projection", () => {
     const onOfferAccepted = vi.fn(async () => undefined);
     const handlers = buildOrderingMarketplaceSupplyProjectionHandlers(db, { onOfferAccepted });
 
-    await handlers["marketplace.offer.accepted"]!(offerAcceptedEvent());
+    const event = offerAcceptedEvent({ inventoryItemVersion: 2 });
+    await handlers["marketplace.offer.accepted"]!(event);
 
     expect(db.acceptedOffers.get("off_1")).toMatchObject({
       offer_id: "off_1",
@@ -410,6 +508,8 @@ describe("ordering marketplace supply projection", () => {
         sellerAccountId: "acc_seller",
         listingId: "lst_1",
         inventoryItemId: "inv_1",
+        inventoryItemVersion: 2,
+        recordedAt: event.timing.recordedAt,
         priceAmount: "120.00",
         marketplaceSalesFeeUnitAmount: "6.00",
         sellerNetUnitAmount: "114.00",
@@ -420,7 +520,22 @@ describe("ordering marketplace supply projection", () => {
           audit: expect.objectContaining({ forAccountId: "acc_1" }),
         }),
       }),
+      db,
     );
+  });
+
+  it("rejects malformed Inventory Item versions instead of treating them as missing", async () => {
+    const db = new ProjectionDb();
+    const onOfferAccepted = vi.fn(async () => undefined);
+    const handlers = buildOrderingMarketplaceSupplyProjectionHandlers(db, { onOfferAccepted });
+
+    for (const inventoryItemVersion of [null, "2", 0, 1.5]) {
+      await expect(
+        handlers["marketplace.offer.accepted"]!(offerAcceptedEvent({ inventoryItemVersion })),
+      ).rejects.toThrow("Inventory Item version must be a positive integer");
+    }
+    expect(db.acceptedOffers.size).toBe(0);
+    expect(onOfferAccepted).not.toHaveBeenCalled();
   });
 });
 

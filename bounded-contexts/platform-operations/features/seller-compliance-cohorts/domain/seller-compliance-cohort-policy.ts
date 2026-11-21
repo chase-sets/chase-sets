@@ -114,7 +114,7 @@ function nullableCents(record: Record<string, unknown>, key: string): string | n
   const cents = BigInt(text);
   if (cents > MONEY_AMOUNT_MAX_CENTS)
     throw new SellerComplianceCohortPolicyDomainError(`${key} exceeds the money bound.`);
-  return text;
+  return cents.toString();
 }
 
 function nullableTreatment<T extends string>(

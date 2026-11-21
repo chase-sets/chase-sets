@@ -22,10 +22,19 @@ export type InvitationRow = Readonly<{
   updated_at: string;
 }>;
 
-export async function listInvitations(db: PgQueryable, params: ListParams = {}) {
+/** `accountId` lists exactly that account's invitations; `search` is a staff search across them. */
+export type InvitationListParams = ListParams & Readonly<{ accountId?: string }>;
+
+export async function listInvitations(db: PgQueryable, params: InvitationListParams = {}) {
   const conditions: string[] = [];
   const values: unknown[] = [];
   let paramIndex = 1;
+
+  if (params.accountId !== undefined) {
+    conditions.push(`invitations.account_id = $${paramIndex}`);
+    values.push(params.accountId);
+    paramIndex += 1;
+  }
 
   if (params.status) {
     conditions.push(`invitations.status = $${paramIndex}`);
