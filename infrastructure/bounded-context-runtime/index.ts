@@ -62,6 +62,7 @@ export {
   drainLocalProjectionHandlerSets,
   rebuildLocalProjectionHandlerSets,
   drainContextRuntime,
+  createProjectionDependencyWaitError,
   drainSubscriptionRunners,
   listProjectionBlockedStreamDetails,
   localProjectionCheckpointKey,

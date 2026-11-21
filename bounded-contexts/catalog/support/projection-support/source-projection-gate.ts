@@ -1,9 +1,9 @@
-import { hasProjectionAppliedEvent, localProjectionCheckpointKey } from "@chase-sets/bounded-context-runtime";
 import {
-  createTransientProjectionError,
-  resolveProjectionDb,
-  type ProjectorHandlerMap,
-} from "@chase-sets/event-core/projector";
+  createProjectionDependencyWaitError,
+  hasProjectionAppliedEvent,
+  localProjectionCheckpointKey,
+} from "@chase-sets/bounded-context-runtime";
+import { resolveProjectionDb, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 // The Catalog projection that writes the table an admin page reads for each
@@ -29,9 +29,9 @@ export function catalogSourceProjectionFor(eventType: string): string {
  * An admin page projection builds its rows from tables other Catalog
  * projections write, and the subscriptions run independently. Each handler
  * here first waits for the projection that writes the event's table to have
- * applied the event; until then it fails as transient, so the subscription
- * retries the event instead of building the page from a row that is missing or
- * behind.
+ * applied the event; until then it fails as a dependency wait, so the
+ * subscription retries the event instead of building the page from a row that
+ * is missing or behind.
  */
 export function afterCatalogSourceProjections(handlers: ProjectorHandlerMap, db: PgQueryable): ProjectorHandlerMap {
   return Object.fromEntries(
@@ -48,8 +48,9 @@ export function afterCatalogSourceProjections(handlers: ProjectorHandlerMap, db:
             globalPosition: String(event.globalPosition),
           });
           if (!applied) {
-            throw createTransientProjectionError(
+            throw createProjectionDependencyWaitError(
               `${sourceProjectionName} has not applied ${eventType} ${event.id} yet.`,
+              String(event.id),
             );
           }
           await handler(event, context);

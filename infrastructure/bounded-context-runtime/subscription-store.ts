@@ -494,11 +494,14 @@ export async function readReceiptApplicationOutputs(
 }
 
 /**
- * Whether a projection has applied one event: its ledger row says applied, or
- * its checkpoint has passed the event (applied rows behind the checkpoint are
- * compacted away) with no failed row for the event and the event's stream not
- * blocked for the projection. A projection that reads tables another
- * projection writes uses this to wait until the writer has seen the event.
+ * Whether a projection has applied one event and still holds what it wrote:
+ * its checkpoint has reached the event and the checkpoint's recovery marker
+ * covers it, with no failed row for the event and the event's stream not
+ * blocked for the projection. The marker table is unlogged like the tables a
+ * projection may write, so after crash recovery a checkpoint without its
+ * marker is not taken as evidence until the projection has rebuilt past the
+ * event. A projection that reads tables another projection writes uses this
+ * to wait until the writer has seen the event.
  */
 export async function hasProjectionAppliedEvent(
   db: PgQueryable,
@@ -509,33 +512,28 @@ export async function hasProjectionAppliedEvent(
     `SELECT
        EXISTS (
          SELECT 1
+         FROM ${SUBSCRIPTION_CHECKPOINTS_TABLE} AS checkpoint
+         JOIN ${PROJECTION_RECOVERY_MARKERS_TABLE} AS recovery
+           ON recovery.projection_kind = 'subscription'
+          AND recovery.projection_key = checkpoint.checkpoint_key
+         WHERE checkpoint.checkpoint_key = $1
+           AND checkpoint.last_global_position >= $4::bigint
+           AND recovery.last_global_position >= checkpoint.last_global_position
+       )
+       AND NOT EXISTS (
+         SELECT 1
          FROM event_subscription_applications
          WHERE projection_key = $1
            AND event_id = $2
-           AND status = 'applied'
+           AND status <> 'applied'
        )
-       OR (
-         EXISTS (
-           SELECT 1
-           FROM ${SUBSCRIPTION_CHECKPOINTS_TABLE}
-           WHERE checkpoint_key = $1
-             AND last_global_position >= $4::bigint
-         )
-         AND NOT EXISTS (
-           SELECT 1
-           FROM event_subscription_applications
-           WHERE projection_key = $1
-             AND event_id = $2
-             AND status <> 'applied'
-         )
-         AND NOT EXISTS (
-           SELECT 1
-           FROM event_projection_blocked_streams
-           WHERE projection_key = $1
-             AND stream_id = $3
-             AND state IN ('blocked', 'retrying')
-             AND first_blocked_global_position <= $4::bigint
-         )
+       AND NOT EXISTS (
+         SELECT 1
+         FROM event_projection_blocked_streams
+         WHERE projection_key = $1
+           AND stream_id = $3
+           AND state IN ('blocked', 'retrying')
+           AND first_blocked_global_position <= $4::bigint
        ) AS applied`,
     [projectionKey, event.id, event.streamId, event.globalPosition],
   );
