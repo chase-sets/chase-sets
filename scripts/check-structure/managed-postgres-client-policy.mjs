@@ -307,7 +307,8 @@ function resolveSpecifier(specifier, fromDirectory, context) {
     if (star < 0 ? key !== specifier : !specifier.startsWith(key.slice(0, star))) continue;
     const rest = star < 0 ? "" : specifier.slice(star, specifier.length - (key.length - star - 1));
     for (const target of targets) {
-      const resolved = resolveFile(target.replace("*", rest), context.tracked);
+      // split/join substitutes every wildcard and never expands `$` patterns from the specifier.
+      const resolved = resolveFile(target.split("*").join(rest), context.tracked);
       if (resolved) return resolved;
     }
   }

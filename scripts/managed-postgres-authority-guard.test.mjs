@@ -181,6 +181,35 @@ process.stderr.write(${JSON.stringify(`${spreadOverflowMarker}\n`)});
     expect(result.stdout).not.toContain("postgresql://");
   });
 
+  it("treats only the exact Compose preview alias as a local Postgres URL", async () => {
+    const composeUrl =
+      "postgresql://postgres:postgres@chase-sets-platform-chase-sets-platform-preview-postgres:5432/chase_sets?sslmode=disable";
+    const otherReleaseUrl =
+      "postgresql://postgres:postgres@chase-sets-pr-7-chase-sets-platform-preview-postgres:5432/chase_sets?sslmode=disable";
+    const root = await createFixture({
+      additionalSteps: [
+        { name: "Compose smoke", run: "node ./compose/smoke.mjs" },
+        { name: "Other release", run: "node ./compose/other-release.mjs" },
+      ],
+      files: {
+        "compose/smoke.mjs": `export const url = ${JSON.stringify(composeUrl)};\n`,
+        "compose/other-release.mjs": `export const url = ${JSON.stringify(otherReleaseUrl)};\n`,
+      },
+    });
+
+    const result = await runGuard(root);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.report.violations).toEqual([
+      {
+        code: "connection-material",
+        file: "compose/other-release.mjs",
+        jobId: "probe",
+        stepAnchor: "name:Other release#4",
+      },
+    ]);
+  });
+
   it("N6 rejects a Docker action in a boundary-authorized job without a CA path mapping", async () => {
     const root = await createFixture({
       additionalSteps: [{ name: "Containerized consumer", uses: "docker://postgres:17" }],
@@ -703,6 +732,37 @@ process.stderr.write(${JSON.stringify(`${spreadOverflowMarker}\n`)});
       }),
     );
   });
+
+  it("terminates on an import cycle and keeps each context's findings for every file in it", async () => {
+    const root = await createFixture({
+      additionalSteps: [
+        { name: "Cycle entry", run: "node ./cycle/entry.mjs" },
+        { name: "Cycle member", run: "node ./cycle/member.mjs" },
+      ],
+      files: {
+        "cycle/entry.mjs": 'import { member } from "./member.mjs";\nexport const entry = () => member();\n',
+        "cycle/member.mjs":
+          'import { entry } from "./entry.mjs";\nimport "./absent-cycle-helper.mjs";\nexport const member = () => entry;\n',
+      },
+    });
+
+    // A small heap bounds a non-terminating traversal to a failure instead of a multi-gigabyte run.
+    const result = await runGuard(root, { heapLimitMegabytes: 64 });
+
+    const missing = (stepAnchor) => ({
+      code: "referenced-executable-missing",
+      file: "cycle/member.mjs",
+      jobId: "probe",
+      stepAnchor,
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.report).toEqual(
+      baseFixtureReport({
+        scannedExecutableSurfaceCount: 6,
+        violations: [missing("name:Cycle entry#3"), missing("name:Cycle member#4")],
+      }),
+    );
+  });
 });
 
 async function createFixture(options = {}) {
@@ -877,6 +937,7 @@ function grant(overrides = {}) {
 async function runGuard(root, options = {}) {
   const nodeArguments = [
     ...(options.stackSize ? [`--stack-size=${options.stackSize}`] : []),
+    ...(options.heapLimitMegabytes ? [`--max-old-space-size=${options.heapLimitMegabytes}`] : []),
     ...(options.preload ? ["--require", options.preload] : []),
     guardEntrypoint,
     "--repository-root",

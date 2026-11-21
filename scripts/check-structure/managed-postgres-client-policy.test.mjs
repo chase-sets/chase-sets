@@ -462,6 +462,19 @@ describe("managed Postgres client policy inventory (#7313)", () => {
     });
   });
 
+  it("follows a tsconfig wildcard alias literally, even when the specifier holds `$` patterns", () => {
+    const root = fixtureRepo({
+      "tsconfig.json": JSON.stringify({ compilerOptions: { paths: { "@fixture/*": ["drivers/*"] } } }),
+      "drivers/$&raw.mjs":
+        'import pg from "pg";\nawait new pg.Pool({ connectionString: process.env.DATABASE_URL }).query("select 1");',
+      "tools/runner-client.mjs": 'import "@fixture/$&raw.mjs";',
+    });
+    expect(member(runGuard(root).report, "drivers/$&raw.mjs")).toMatchObject({
+      class: "unsafe",
+      reasons: ["seam-bypass-driver"],
+    });
+  });
+
   it("fails instead of passing vacuously when a trust anchor disappears", () => {
     const withoutProducer = runGuard(fixtureRepo({}, { removals: ["lib/url-producer.mjs"] }));
     expect(withoutProducer.status).toBe(1);

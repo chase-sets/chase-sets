@@ -169,6 +169,13 @@ describe("admitPostgresClientConnection", () => {
     );
   });
 
+  it.each([
+    ["absent", null],
+    ["disable", "disable"],
+  ])("refuses TLS parameters on a loopback URL whose %s sslmode selects plaintext", (_label, sslmode) => {
+    expect(refusal(managedUrl(runnerCaPath, { sslmode }, "localhost"), runnerEnv)).toBe("postgres-url-invalid");
+  });
+
   it("admits preview plaintext only for the release's exact preview service under preview with disable", () => {
     const preview = `postgresql://cs_preview_catalog:secret-password@${previewHost}:5432/chase_sets_preview_catalog?sslmode=disable`;
     const previewEnv = {

@@ -281,11 +281,13 @@ describeDb("managed Postgres client TLS against real PostgreSQL", () => {
     await writeFile(caPath, await readFile(certificates.caA));
     const start = proxyA.connections();
     const cases: Array<[Record<string, string | null>, string]> = [
-      [{ sslmode: null }, "remote-postgres-sslmode-missing"],
+      // These URLs name loopback, where an absent or disable mode selects local plaintext, so the TLS
+      // parameters make them malformed. pool.test.ts pins the remote classifications on a DNS host.
+      [{ sslmode: null }, "postgres-url-invalid"],
+      [{ sslmode: "disable" }, "postgres-url-invalid"],
       [{ sslmode: "prefer" }, "remote-postgres-sslmode-downgraded"],
       [{ sslmode: "require" }, "remote-postgres-sslmode-downgraded"],
       [{ sslmode: "verify-ca" }, "remote-postgres-sslmode-downgraded"],
-      [{ sslmode: "disable" }, "remote-postgres-sslmode-downgraded"],
       [{ sslrootcert: null }, "remote-postgres-rootcert-missing"],
       [{ sslrootcert: certificates.caA }, "remote-postgres-rootcert-path-unexpected"],
       [{ sslrootcert: managedPostgresPodCaPath }, "remote-postgres-rootcert-path-unexpected"],
