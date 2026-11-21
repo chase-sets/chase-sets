@@ -28,8 +28,11 @@ export function useCatalogIntegrationCommandActionPath(): string {
   return actionPath;
 }
 
-export function useCatalogIntegrationCommandHref(context: CatalogPrimaryWorkbenchRouteContext): string {
-  return useCatalogIntegrationSurfaceHref(context, "import-to-promotion");
+// The owning page's command target with the context its forms keep. A page with
+// no journey context yet posts to its bare path.
+export function useCatalogIntegrationCommandHref(context: CatalogPrimaryWorkbenchRouteContext | null): string {
+  const actionPath = useCatalogIntegrationCommandActionPath();
+  return context ? ownerHref(actionPath, context, "import-to-promotion") : actionPath;
 }
 
 // The read model's links are daily paths. The same query goes to the owning
@@ -46,7 +49,14 @@ export function useCatalogIntegrationSurfaceHref(
   context: CatalogPrimaryWorkbenchRouteContext,
   section: NonNullable<CatalogPrimaryWorkbenchRouteContext["section"]>,
 ): string {
-  const actionPath = useCatalogIntegrationCommandActionPath();
+  return ownerHref(useCatalogIntegrationCommandActionPath(), context, section);
+}
+
+function ownerHref(
+  actionPath: string,
+  context: CatalogPrimaryWorkbenchRouteContext,
+  section: NonNullable<CatalogPrimaryWorkbenchRouteContext["section"]>,
+): string {
   const query = serializeCatalogPrimaryWorkbenchRouteContext({
     ...context,
     section,

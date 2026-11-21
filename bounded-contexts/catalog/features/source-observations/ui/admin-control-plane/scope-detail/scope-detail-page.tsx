@@ -80,92 +80,93 @@ export function CatalogScopeDetailPage({
   // A result kept as action data, else the feedback a queued-job redirect carried.
   const journeyFeedback = commandFeedback ?? journey?.commandFeedback ?? null;
 
+  // Every command control on this page, the journey's and the language editions',
+  // targets this Scope through one owner.
   return (
-    <Page>
-      <PageHeader
-        eyebrow={t("catalog.features.sourceObservations.ui.scopeDetail.eyebrow", {
-          productDomain: scope.productDomain,
-          scopeKind: scope.scopeKind,
-        })}
-        title={scope.name}
-        description={t("catalog.features.sourceObservations.ui.scopeDetail.description")}
-        actions={<Badge tone={lifecycleTone(scope.lifecycleStatus)}>{scope.lifecycleStatus}</Badge>}
-      />
-
-      <PageSection>
-        <CatalogScopeJourneyOverviewPanel readModel={journeyOverview} loading={loading} />
-      </PageSection>
-
-      <PageSection>
-        <CatalogScopeCoverageMatrixPanel
-          key={scope.scopeRecordId}
-          scopeRecordId={scope.scopeRecordId}
-          matrix={coverageMatrix}
-          loading={loading}
-          failed={coverageMatrixFailed}
+    <CatalogIntegrationCommandActionProvider actionPath={actionHref}>
+      <Page>
+        <PageHeader
+          eyebrow={t("catalog.features.sourceObservations.ui.scopeDetail.eyebrow", {
+            productDomain: scope.productDomain,
+            scopeKind: scope.scopeKind,
+          })}
+          title={scope.name}
+          description={t("catalog.features.sourceObservations.ui.scopeDetail.description")}
+          actions={<Badge tone={lifecycleTone(scope.lifecycleStatus)}>{scope.lifecycleStatus}</Badge>}
         />
-      </PageSection>
 
-      {journey ? (
         <PageSection>
-          <ScopeHealth
-            readModel={journey.readModel}
+          <CatalogScopeJourneyOverviewPanel readModel={journeyOverview} loading={loading} />
+        </PageSection>
+
+        <PageSection>
+          <CatalogScopeCoverageMatrixPanel
+            key={scope.scopeRecordId}
             scopeRecordId={scope.scopeRecordId}
-            requestUrl={journey.requestUrl}
-            actionHref={actionHref}
+            matrix={coverageMatrix}
             loading={loading}
+            failed={coverageMatrixFailed}
           />
-          <WorkbenchLinkList>
-            <CatalogEntityEvidenceLink
-              location={journey.requestUrl}
-              reference={{ kind: "scope", id: scope.scopeRecordId }}
+        </PageSection>
+
+        {journey ? (
+          <PageSection>
+            <ScopeHealth
+              readModel={journey.readModel}
+              scopeRecordId={scope.scopeRecordId}
+              requestUrl={journey.requestUrl}
+              actionHref={actionHref}
+              loading={loading}
             />
-            {journey.readModel.mergeCandidateReview.rows.map((row) => (
+            <WorkbenchLinkList>
               <CatalogEntityEvidenceLink
-                key={row.candidateId}
                 location={journey.requestUrl}
-                reference={{ kind: "candidate", id: row.candidateId }}
+                reference={{ kind: "scope", id: scope.scopeRecordId }}
               />
-            ))}
-            {[
-              ...new Set(
-                journey.readModel.mergeCandidateReview.rows.flatMap((row) =>
-                  row.proposedMapping.catalogItemId ? [row.proposedMapping.catalogItemId] : [],
+              {journey.readModel.mergeCandidateReview.rows.map((row) => (
+                <CatalogEntityEvidenceLink
+                  key={row.candidateId}
+                  location={journey.requestUrl}
+                  reference={{ kind: "candidate", id: row.candidateId }}
+                />
+              ))}
+              {[
+                ...new Set(
+                  journey.readModel.mergeCandidateReview.rows.flatMap((row) =>
+                    row.proposedMapping.catalogItemId ? [row.proposedMapping.catalogItemId] : [],
+                  ),
                 ),
-              ),
-            ].map((id) => (
-              <CatalogEntityEvidenceLink
-                key={id}
-                location={journey.requestUrl}
-                reference={{ kind: "catalog-item", id }}
+              ].map((id) => (
+                <CatalogEntityEvidenceLink
+                  key={id}
+                  location={journey.requestUrl}
+                  reference={{ kind: "catalog-item", id }}
+                />
+              ))}
+              {journey.readModel.sourceObservationReview.rows.map((row) => (
+                <CatalogEntityEvidenceLink
+                  key={row.observationId}
+                  location={journey.requestUrl}
+                  reference={{ kind: "source-observation", id: row.observationId }}
+                />
+              ))}
+              {journey.readModel.importJobs.jobs.map((row) => (
+                <CatalogEntityEvidenceLink
+                  key={row.jobId}
+                  location={journey.requestUrl}
+                  reference={{ kind: "import-job", id: row.jobId }}
+                />
+              ))}
+            </WorkbenchLinkList>
+            {journey.readModel.routeContext.evidenceRef ? (
+              <CatalogControlPlaneEvidenceDrawer
+                key={journey.readModel.routeContext.evidenceRef}
+                auditEvidence={journey.readModel.auditEvidence}
               />
-            ))}
-            {journey.readModel.sourceObservationReview.rows.map((row) => (
-              <CatalogEntityEvidenceLink
-                key={row.observationId}
-                location={journey.requestUrl}
-                reference={{ kind: "source-observation", id: row.observationId }}
-              />
-            ))}
-            {journey.readModel.importJobs.jobs.map((row) => (
-              <CatalogEntityEvidenceLink
-                key={row.jobId}
-                location={journey.requestUrl}
-                reference={{ kind: "import-job", id: row.jobId }}
-              />
-            ))}
-          </WorkbenchLinkList>
-          {journey.readModel.routeContext.evidenceRef ? (
-            <CatalogControlPlaneEvidenceDrawer
-              key={journey.readModel.routeContext.evidenceRef}
-              auditEvidence={journey.readModel.auditEvidence}
-            />
-          ) : null}
-          {journeyFeedback ? <CatalogCommandFeedbackBanner feedback={journeyFeedback} /> : null}
-          {/* Every selection, workset and command control below targets this
-              Scope: the import context keeps the record's hierarchy fixed and
-              carries the provider/unit/profile choice in the Scope's address. */}
-          <CatalogIntegrationCommandActionProvider actionPath={actionHref}>
+            ) : null}
+            {journeyFeedback ? <CatalogCommandFeedbackBanner feedback={journeyFeedback} /> : null}
+            {/* The import context keeps the record's hierarchy fixed and carries
+              the provider/unit/profile choice in the Scope's address. */}
             <CatalogImportContextBar
               readModel={journey.readModel}
               deferredSourceOptions={journey.deferredSourceOptions ?? null}
@@ -180,34 +181,34 @@ export function CatalogScopeDetailPage({
               deferredScopeSyncState={journey.deferredScopeSyncState ?? null}
               showSourceScopeWorkset
             />
-          </CatalogIntegrationCommandActionProvider>
-        </PageSection>
-      ) : null}
+          </PageSection>
+        ) : null}
 
-      {candidateReviewJobs ? (
-        <PageSection>
-          <CatalogScopeCandidateReviewJobsPanel
-            jobs={candidateReviewJobs}
-            nextPageHref={
-              candidateReviewJobs.completed.cursor
-                ? candidateReviewJobsPageHref(actionHref, candidateReviewJobs.completed.cursor)
-                : null
-            }
-            firstPageHref={candidateReviewJobsCursor ? actionHref : null}
-          />
-        </PageSection>
-      ) : null}
+        {candidateReviewJobs ? (
+          <PageSection>
+            <CatalogScopeCandidateReviewJobsPanel
+              jobs={candidateReviewJobs}
+              nextPageHref={
+                candidateReviewJobs.completed.cursor
+                  ? candidateReviewJobsPageHref(actionHref, candidateReviewJobs.completed.cursor)
+                  : null
+              }
+              firstPageHref={candidateReviewJobsCursor ? actionHref : null}
+            />
+          </PageSection>
+        ) : null}
 
-      {hasLanguageEditions && languageEditionsReadModel ? (
-        <PageSection>
-          <CatalogIntegrationLanguageEditionsPanel
-            readModel={languageEditionsReadModel}
-            actionHref={actionHref}
-            canManageAliases={canManageAliases}
-          />
-        </PageSection>
-      ) : null}
-    </Page>
+        {hasLanguageEditions && languageEditionsReadModel ? (
+          <PageSection>
+            <CatalogIntegrationLanguageEditionsPanel
+              readModel={languageEditionsReadModel}
+              routeContext={journey?.readModel.routeContext ?? null}
+              canManageAliases={canManageAliases}
+            />
+          </PageSection>
+        ) : null}
+      </Page>
+    </CatalogIntegrationCommandActionProvider>
   );
 }
 

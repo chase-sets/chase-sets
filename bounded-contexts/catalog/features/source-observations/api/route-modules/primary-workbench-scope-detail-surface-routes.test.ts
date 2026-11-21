@@ -284,6 +284,36 @@ describe("Catalog daily surface for a Scope Detail location", () => {
     });
   });
 
+  it("keeps the record's hierarchy when the address restates it as a set alias or review filter", async () => {
+    const source = services();
+    const target = buildApp(source, mutableProfileStore(), manageActor, undefined, async () => paldeanFates);
+    const address = `/catalog/scopes/scope_expansion_paldean_fates?${new URLSearchParams({
+      providerKey: "tcgdex",
+      setId: "base1",
+      setName: "Base Set",
+      "filter.expansionId": "base1",
+      "filter.setId": "base1",
+      "filter.seriesId": "base",
+      "filter.status": "eligible",
+    })}`;
+
+    const { status, body } = await read(target, surfacePath("daily", address));
+
+    expect(status).toBe(200);
+    expect(body.readModel.routeContext.scope).toMatchObject({
+      expansionId: "scope_expansion_paldean_fates",
+      expansionName: "Paldean Fates",
+      seriesId: "scope_series_scarlet_violet",
+    });
+    expect(body.readModel.routeContext.sourceObservationFilters).toMatchObject({ status: "eligible" });
+    for (const key of ["expansionId", "setId", "seriesId"]) {
+      expect(body.readModel.routeContext.sourceObservationFilters, key).not.toHaveProperty(key);
+    }
+    const reviewReads = JSON.stringify(vi.mocked(source.listSourceObservations).mock.calls);
+    expect(reviewReads).toContain("scope_expansion_paldean_fates");
+    expect(reviewReads).not.toContain("base1");
+  });
+
   it.each([
     ["names a Scope Record that does not exist", async () => null],
     ["cannot be read without the Scope Record read", undefined],

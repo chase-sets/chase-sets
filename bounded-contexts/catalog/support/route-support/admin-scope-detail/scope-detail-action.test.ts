@@ -3,16 +3,21 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError as CatalogApiError } from "../../shell-support/api/client";
 import { syntheticPromotionPreviewResponse } from "../../../features/source-observations/ui/primary-workbench-test-fixtures";
 
-const { createApi } = vi.hoisted(() => ({ createApi: vi.fn() }));
+const { createApi, getCatalogScopeRecord } = vi.hoisted(() => ({
+  createApi: vi.fn(),
+  getCatalogScopeRecord: vi.fn(),
+}));
 
 // The real dispatcher and entity handlers run; only the Catalog API is stubbed,
 // with the surface reads the promotion descriptor needs composed over the stub.
+// Every client reads the Scope Record the action binds its command to.
 vi.mock("../../request-support/api-client", async () => {
   const { withCatalogSurfaceReads } = await vi.importActual<
     typeof import("../../../features/source-observations/tests/integrations-surface-read-test-client")
   >("../../../features/source-observations/tests/integrations-surface-read-test-client");
   return {
-    createCatalogRequestApiClient: (request: Request) => withCatalogSurfaceReads(createApi(request), request),
+    createCatalogRequestApiClient: (request: Request) =>
+      withCatalogSurfaceReads({ getCatalogScopeRecord, ...createApi(request) }, request),
   };
 });
 
@@ -24,10 +29,20 @@ vi.mock("@chase-sets/platform-runtime/auth", () => ({
 const { action } = await import("./scope-detail-action");
 
 const SCOPE_ID = "scope_expansion_paldean_fates";
+const SCOPE_RECORD = {
+  scopeRecordId: SCOPE_ID,
+  productDomain: "pokemon",
+  scopeKind: "expansion",
+  name: "Paldean Fates",
+  productLineScopeRecordId: "scope_product_line_pokemon",
+  seriesScopeRecordId: "scope_series_scarlet_violet",
+  languageEditions: ["en", "ja"],
+};
+// A compact import scope that names the record's expansion: a selection inside it.
 const SELECTION = {
   providerKey: "tcgdex",
   unitKey: "tcgdex:pokemon:card:import",
-  importScope: "en:3:base:base1",
+  importScope: `en:${SCOPE_ID}`,
   profileVersion: "2026.06.04",
 };
 // Scope-mounted forms post to the Scope's own address, which carries its selection.
@@ -62,6 +77,7 @@ function asData(response: unknown) {
 describe("Catalog scope-detail route action", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getCatalogScopeRecord.mockResolvedValue(SCOPE_RECORD);
   });
 
   it.each([
@@ -196,5 +212,77 @@ describe("Catalog scope-detail route action", () => {
     expect(stale.feedback).toMatchObject({ status: "error", result: "preview-required" });
     expect(stale.context.promotionPreviewId).toBeNull();
     for (const data of [preview, stale]) expect(data).not.toHaveProperty("section");
+  });
+
+  // The path's Scope Record decides the hierarchy a command runs against. An
+  // address or form naming another one is refused here and reaches no API.
+  it("refuses conflicting hierarchy in the address or form and runs an in-Scope command on the record", async () => {
+    const enqueueSourceObservationIntegrationJob = vi.fn().mockResolvedValue({ jobId: "job_import", status: "queued" });
+    createApi.mockReturnValue({ enqueueSourceObservationIntegrationJob });
+
+    for (const [label, fields, query] of [
+      ["form expansion", { expansionId: "base1" }, ""],
+      ["form set alias", { setId: "base1" }, ""],
+      ["form Scope Record", { scopeRecordId: "scope_expansion_base_set" }, ""],
+      ["address series", {}, "&seriesId=base"],
+      ["address review filter", {}, "&filter.expansionId=base1"],
+    ] as const) {
+      const refused = asData(await runAction({ _intent: "scope.import", ...fields }, query));
+      expect(refused.feedback, label).toMatchObject({
+        status: "error",
+        intent: "scope.import",
+        result: "invalid-intent",
+      });
+      expect(refused.context.providerKey, label).toBe("tcgdex");
+    }
+    expect(enqueueSourceObservationIntegrationJob).not.toHaveBeenCalled();
+
+    // The page's own form restates the record's hierarchy, which binds it.
+    const target = redirectTarget(
+      await runAction({
+        _intent: "scope.import",
+        seriesId: SCOPE_RECORD.seriesScopeRecordId,
+        expansionId: SCOPE_ID,
+        expansionName: SCOPE_RECORD.name,
+      }),
+    );
+    expect(target.searchParams.get("jobId")).toBe("job_import");
+    expect(enqueueSourceObservationIntegrationJob).toHaveBeenCalledExactlyOnceWith(
+      "import",
+      expect.objectContaining({
+        productLineId: SCOPE_RECORD.productLineScopeRecordId,
+        seriesId: SCOPE_RECORD.seriesScopeRecordId,
+        setId: SCOPE_ID,
+      }),
+    );
+  });
+
+  it("refuses a command for a Scope Record it cannot read", async () => {
+    getCatalogScopeRecord.mockRejectedValue(new CatalogApiError(404, { error: { code: "not_found" } }));
+    const enqueueSourceObservationIntegrationJob = vi.fn();
+    createApi.mockReturnValue({ enqueueSourceObservationIntegrationJob });
+
+    const refused = asData(await runAction({ _intent: "scope.import" }));
+
+    expect(refused.feedback).toMatchObject({ status: "error", result: "invalid-intent" });
+    expect(enqueueSourceObservationIntegrationJob).not.toHaveBeenCalled();
+  });
+
+  // An import scope is a selection inside the Scope and keeps the form the page
+  // read it in; one that names another expansion yields to the record's own.
+  it("keeps a compact in-Scope import scope and replaces an unrelated provider coordinate", async () => {
+    const enqueueSourceObservationIntegrationJob = vi.fn().mockResolvedValue({ jobId: "job_import", status: "queued" });
+    createApi.mockReturnValue({ enqueueSourceObservationIntegrationJob });
+
+    const compact = redirectTarget(await runAction({ _intent: "scope.import", importScope: SELECTION.importScope }));
+    const unrelated = redirectTarget(await runAction({ _intent: "scope.import", importScope: "en:3:base:base1" }));
+
+    expect(compact.searchParams.get("importScope")).toBe(SELECTION.importScope);
+    expect(unrelated.searchParams.get("importScope")).toBe(
+      `en:${SCOPE_RECORD.productLineScopeRecordId}:${SCOPE_RECORD.seriesScopeRecordId}:${SCOPE_ID}`,
+    );
+    for (const [, scope] of enqueueSourceObservationIntegrationJob.mock.calls) {
+      expect(scope).toMatchObject({ seriesId: SCOPE_RECORD.seriesScopeRecordId, setId: SCOPE_ID });
+    }
   });
 });

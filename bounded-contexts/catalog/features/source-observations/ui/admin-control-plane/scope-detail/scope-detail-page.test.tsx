@@ -18,6 +18,8 @@ import type {
 } from "../../../../alias-equivalence/api/alias-review-admin-contracts";
 import type { CatalogScopeRecordDetail } from "../../../../scope-registry/ui/contracts";
 import { CATALOG_SCOPE_RECORD_QUERY_KEYS } from "../../../api/admin/scope-detail-workbench-location";
+import { commandSuccessTitle } from "../../primary-workbench-command-feedback";
+import { parseCatalogPrimaryWorkbenchRouteContext } from "../../primary-workbench-route-context";
 
 // The mocks record what the page hands them and read the owning path from the
 // real provider, so the test sees which page each control would post to.
@@ -423,6 +425,54 @@ describe("CatalogScopeDetailPage", () => {
       commandFeedback: { status: "success", intent: "scope.import", result: "job-queued" },
     });
   });
+
+  // Both language-edition form branches post to this Scope with the journey's
+  // current context, so the next load keeps the selection, filters and paging,
+  // and the alias result renders on this page.
+  it.each([true, false])(
+    "posts language-edition accept and reject to this Scope with its journey context (manage %s)",
+    (canManageAliases) => {
+      const journey = journeyFixture();
+      const routeContext = {
+        ...journey.readModel.routeContext,
+        providerKey: "tcgdex",
+        unitKey: "tcgdex:pokemon:card:import" as const,
+        reviewOffset: 25,
+        sourceObservationFilters: { status: "eligible" },
+        selectedObservationIds: ["obs_001"],
+      };
+      const feedback = { status: "success", intent: "alias.accept", result: "alias-accepted" } as const;
+      render(
+        <CatalogScopeDetailPage
+          scope={paldeanFatesScope()}
+          languageEditionAliasReview={aliasReview([candidate()])}
+          actionHref={ACTION_HREF}
+          canManageAliases={canManageAliases}
+          journey={{ ...journey, readModel: { ...journey.readModel, routeContext } }}
+          commandFeedback={feedback}
+        />,
+      );
+
+      for (const command of ["alias.accept", "alias.reject"]) {
+        const form = document.querySelector<HTMLFormElement>(`form[data-language-edition-command="${command}"]`);
+        const action = new URL(form?.getAttribute("action") ?? "", "https://admin.example");
+        expect(action.pathname, command).toBe(ACTION_HREF);
+        expect(parseCatalogPrimaryWorkbenchRouteContext(action), command).toMatchObject({
+          providerKey: "tcgdex",
+          unitKey: "tcgdex:pokemon:card:import",
+          scopeRecordId: "scope_expansion_paldean_fates",
+          reviewOffset: 25,
+          sourceObservationFilters: { status: "eligible" },
+          selectedObservationIds: ["obs_001"],
+          promotionPreviewId: null,
+        });
+        expect(within(form!).getByRole<HTMLButtonElement>("button").disabled, command).toBe(!canManageAliases);
+      }
+      const reason = document.querySelector('form[data-language-edition-command="alias.reject"] input[name="reason"]');
+      expect(reason?.hasAttribute("required")).toBe(true);
+      expect(screen.getByText(commandSuccessTitle(feedback.result))).toBeTruthy();
+    },
+  );
 
   it("omits the language-editions section for a single-edition scope", () => {
     render(
