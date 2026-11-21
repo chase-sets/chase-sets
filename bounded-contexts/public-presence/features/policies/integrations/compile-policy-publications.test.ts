@@ -501,7 +501,7 @@ describe("public policy corpus compiler", () => {
     // Re-derived after the payout review hold moves the Settlement and Identity source citations.
     expect(
       fingerprint(baseline.find(({ relativePath }) => relativePath === "terms-of-service-publication.ts")?.content),
-    ).toBe("sha256:6d6069c4139241a072a39e34b3475fd8a5b7b2131f327b853328b3e387a5914c");
+    ).toBe("sha256:621defa372e79025faee83fa1d12496c8a2c367032cb29d8d12f352e2bc87f8e");
 
     for (const module of changed) {
       const before = baseline.find((candidate) => candidate.relativePath === module.relativePath)?.content;
