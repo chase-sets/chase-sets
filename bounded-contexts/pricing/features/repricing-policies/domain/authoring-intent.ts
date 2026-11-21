@@ -9,7 +9,7 @@ type ResolveAuthoringGoal = (
 export type RepricingPreset = "track-market" | "beat-lowest" | "premium" | "slow-stock";
 export type RepricingPresetRange = Readonly<{ min: number; max: number; defaultValue: number }>;
 
-/** How far each preset's one knob may go and where it starts (#7905). */
+/** How far each preset's one knob may go and where it starts. */
 export const repricingPresetKnobs: Readonly<Record<RepricingPreset, RepricingPresetRange>> = {
   "track-market": { min: -25, max: 25, defaultValue: 0 },
   "beat-lowest": { min: 0, max: 15, defaultValue: 2 },
