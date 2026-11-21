@@ -426,10 +426,14 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
       );
     }
 
-    const definition = await services.resolveSupportFlowDefinition(normalizeFlowType(supportRequest.flow_type));
+    const [definition, remedyOffer] = await Promise.all([
+      services.resolveSupportFlowDefinition(normalizeFlowType(supportRequest.flow_type)),
+      services.describeSupportRemedyOffer(supportRequest, access.actor),
+    ]);
     return c.json({
       ...supportRequest,
       flow: projectSupportFlow(definition, "support", supportRequest),
+      remedy_offer: remedyOffer,
     });
   });
 
