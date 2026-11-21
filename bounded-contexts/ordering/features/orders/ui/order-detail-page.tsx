@@ -99,7 +99,9 @@ export function OrderingOrderDetailPage({
   order,
   errorMessage,
   cancelAuthority = "allowed",
+  paymentAuthority = "allowed",
   verifyEmailHref = null,
+  verifyEmailToPayHref = null,
   supplementarySection,
   supplementarySectionTitle = t("ordering.features.orders.ui.orderDetailPage.next.steps"),
 }: {
@@ -111,7 +113,10 @@ export function OrderingOrderDetailPage({
   order: PurchaseDetail | SaleDetail;
   errorMessage?: string | null;
   cancelAuthority?: OrderCancelAuthority;
+  /** Pay now needs the same authority as cancel; see `OrderCancelAuthority`. */
+  paymentAuthority?: OrderCancelAuthority;
   verifyEmailHref?: string | null;
+  verifyEmailToPayHref?: string | null;
   supplementarySection?: ReactNode;
   supplementarySectionTitle?: string;
 }) {
@@ -119,7 +124,10 @@ export function OrderingOrderDetailPage({
     role === "buyer"
       ? (order.seller_display_name ?? order.seller_account_id)
       : (order.buyer_display_name ?? order.buyer_account_id);
-  const canPay = order.status === "pending-payment" && paymentHref;
+  const payable = order.status === "pending-payment" && Boolean(paymentHref);
+  const canPay = payable && paymentAuthority === "allowed";
+  const showVerifyEmailToPay = payable && paymentAuthority === "verify-email" && Boolean(verifyEmailToPayHref);
+  const paymentAuthorityUnavailable = payable && paymentAuthority === "unavailable";
   const deliverySummary = role === "buyer" && "delivery_summary" in order ? order.delivery_summary : undefined;
   const fullyDelivered = Boolean(
     deliverySummary &&
@@ -128,7 +136,10 @@ export function OrderingOrderDetailPage({
   );
   const cancellable = !fullyDelivered && canSelfServiceCancel(order);
   const canCancel = cancellable && cancelAuthority === "allowed";
-  const showVerifyEmailToCancel = cancellable && cancelAuthority === "verify-email" && Boolean(verifyEmailHref);
+  const verifyEmailToCancel = cancellable && cancelAuthority === "verify-email" && Boolean(verifyEmailHref);
+  // One verified email unlocks both, so a purchase that can be paid for or
+  // cancelled shows one notice.
+  const showVerifyEmailToCancel = verifyEmailToCancel && !showVerifyEmailToPay;
   const paymentUnresolved = order.cancellation_unavailable_reason === "payment-unresolved";
   const sellerCancellationIntentRef = useRef<HTMLInputElement>(null);
   const projectionLabel =
@@ -366,6 +377,29 @@ export function OrderingOrderDetailPage({
                   })}
                 />
               ) : null}
+              {showVerifyEmailToPay ? (
+                <MarketplaceNotice
+                  tone="info"
+                  title={t(
+                    verifyEmailToCancel
+                      ? "ordering.features.orders.ui.orderDetailPage.verify.email.to.pay.or.cancel.title"
+                      : "ordering.features.orders.ui.orderDetailPage.verify.email.to.pay.title",
+                    { projectionLabel: projectionLabel.toLowerCase() },
+                  )}
+                  description={t("ordering.features.orders.ui.orderDetailPage.verify.email.to.pay.description")}
+                  action={
+                    <LinkButton href={verifyEmailToPayHref!} leadingIcon="message" tone="secondary">
+                      {t("ordering.features.orders.ui.orderDetailPage.verify.email")}
+                    </LinkButton>
+                  }
+                />
+              ) : null}
+              {paymentAuthorityUnavailable ? (
+                <MarketplaceNotice
+                  tone="info"
+                  title={t("ordering.features.orders.ui.orderDetailPage.payment.authority.unavailable")}
+                />
+              ) : null}
               {showVerifyEmailToCancel ? (
                 <MarketplaceNotice
                   tone="info"
@@ -382,7 +416,9 @@ export function OrderingOrderDetailPage({
               ) : null}
               <Stack gap={3} direction={{ base: "column", sm: "row" }}>
                 {canPay ? (
-                  <LinkButton href={paymentHref}>{t("ordering.features.orders.ui.orderDetailPage.pay.now")}</LinkButton>
+                  <LinkButton href={paymentHref!}>
+                    {t("ordering.features.orders.ui.orderDetailPage.pay.now")}
+                  </LinkButton>
                 ) : null}
                 {supportHref && !(fullyDelivered && order.cancellation_unavailable_reason === "fulfillment-started") ? (
                   <LinkButton href={supportHref} tone="secondary">
