@@ -739,28 +739,27 @@ export async function updateCatalogProviderProfileSectionForReview(input: {
       input.profileVersion,
       profileVersionSelectorFromInput(input),
     );
-    assertCatalogProviderProfileEditableSectionFingerprint(
-      existing,
-      input.command.section,
-      input.expectedSectionFingerprint,
-    );
     const patch = toCatalogProviderProfileSectionPatch(existing, input.command, {
       migrationEvidenceRecording:
         input.command.section === "migration-evidence"
           ? await migrationEvidenceRecording(input.store, existing, input.audit ?? null)
           : null,
     });
+    // A version that cannot change, or a command it would refuse, says so before the revision does.
+    const next = patchedProfileVersion(existing, patch, input.audit);
+    assertCatalogProviderProfileEditableSectionFingerprint(
+      existing,
+      input.command.section,
+      input.expectedSectionFingerprint,
+    );
     const read = profileVersionContent(existing);
     try {
-      const saved = await input.store.upsertProfileVersion(
-        patchedProfileVersion(existing, patch, input.audit),
-        (persisted) => {
-          refuseImmutableDestination(persisted);
-          if (!persisted || profileVersionContent(persisted) !== read) {
-            throw new ProfileVersionMovedError();
-          }
-        },
-      );
+      const saved = await input.store.upsertProfileVersion(next, (persisted) => {
+        refuseImmutableDestination(persisted);
+        if (!persisted || profileVersionContent(persisted) !== read) {
+          throw new ProfileVersionMovedError();
+        }
+      });
       return toProfileVersionReview(saved);
     } catch (error) {
       if (!(error instanceof ProfileVersionMovedError)) {

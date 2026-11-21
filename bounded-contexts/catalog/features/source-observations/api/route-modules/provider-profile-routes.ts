@@ -653,6 +653,10 @@ function lifecycleConsistencyErrorResponse(c: Context<CatalogAuthoringEnv>, erro
 // The section fingerprint travels as an entity tag, so a quoted value and a bare one name the same revision.
 // A wildcard names no revision, so it cannot stand in for the one the operator read.
 function sectionFingerprintFromIfMatch(header: string | undefined): string | undefined {
-  const value = header?.trim().replace(/^W\//, "").replace(/^"(.*)"$/, "$1").trim();
+  const value = header
+    ?.trim()
+    .replace(/^W\//, "")
+    .replace(/^"(.*)"$/, "$1")
+    .trim();
   return value && value !== "*" ? value : undefined;
 }
