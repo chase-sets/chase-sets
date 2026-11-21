@@ -66,6 +66,7 @@ import {
   type AgentWebhookOutbox,
   type AgentWebhookTarget,
 } from "../ucp-support/agent-webhooks";
+import type { ReadConsistencyWorkSignalGateway } from "@chase-sets/bounded-context-runtime";
 import {
   createAuthIdentityInvitationProjectionPositionReader,
   createInvitationProjectionFreshnessWaiter,
@@ -121,10 +122,10 @@ export type AuthServices = Readonly<{
   auth: ReturnType<typeof createAuthSecretAdapters>;
   identity: AuthIdentityReadServices;
   /**
-   * Bounded, best-effort read-your-write settle for Auth's invitation
-   * projection. The acceptance-link handler consumes a forwarded fresh-write
-   * receipt through this before reading the invitation so a just-created or
-   * resent invitation is observed. Always populated by `createAuthServices`;
+   * Bounded read-your-write settle for Auth's invitation projection. The
+   * acceptance-link handler consumes a forwarded fresh-write receipt through
+   * this before reading the invitation so a just-created or resent invitation
+   * is observed, and learns whether the projection reached it. Always populated by `createAuthServices`;
    * optional on the type only so unit-test service doubles that stub a handful
    * of fields keep typechecking (a missing waiter degrades to today's
    * no-wait behavior).
@@ -173,6 +174,11 @@ export type AuthHostPorts = Readonly<{
   operatorAuthority?: OperatorAuthority;
   /** Staging-only SHA-256 verifier; never the raw bearer secret. */
   stagingPersonaMagicLinkVerifierSha256?: string;
+  /**
+   * The host's projection wake gateway, the one its read-after-write middleware
+   * uses, so the acceptance-link wait wakes Auth's invitation projection.
+   */
+  readConsistencyWorkSignalGateway?: ReadConsistencyWorkSignalGateway;
 }>;
 
 export type AgentWebhookOrderResolvers = Readonly<{
@@ -254,6 +260,7 @@ export function createAuthServices(pool: PgTransactionalPool, ports: AuthHostPor
     },
     awaitInvitationProjectionFreshness: createInvitationProjectionFreshnessWaiter({
       readInvitationProjectionPosition: createAuthIdentityInvitationProjectionPositionReader(db),
+      workSignalGateway: ports.readConsistencyWorkSignalGateway,
     }),
     sessions,
     sessionEpochs,

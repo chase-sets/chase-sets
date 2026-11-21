@@ -17968,7 +17968,10 @@ fn team_api(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Opti
     }
     if path == "/api/identity/account-management/attempts" {
         let action = uri.query().unwrap_or_default().split('&').find_map(|p| p.strip_prefix("action=")).unwrap_or_default();
-        if !matches!(action, "create-invitation" | "cancel-invitation" | "change-role" | "revoke" | "reinstate") {
+        if !matches!(
+            action,
+            "create-invitation" | "resend-invitation" | "cancel-invitation" | "change-role" | "revoke" | "reinstate"
+        ) {
             return None;
         }
         return Some(match attempt {
@@ -17984,9 +17987,9 @@ fn team_api(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Opti
                 "account_id": account, "account_display_name": "Synthetic Shop", "account_name": "synthetic-shop",
                 "role_key": role, "role_permissions": [], "status": status, "updated_at": "2026-10-24T03:53:46.180Z" })
     };
-    let invitation = |id: &str, email: &str, account: &str, role: &str, status: &str| {
+    let invitation = |id: &str, email: &str, account: &str, role: &str, status: &str, expires: &str| {
         json!({ "invitation_id": id, "email": email, "account_id": account, "account_display_name": "Synthetic Shop",
-                "account_name": "synthetic-shop", "role_key": role, "status": status, "expires_at": "2026-11-04T00:00:00.000Z" })
+                "account_name": "synthetic-shop", "role_key": role, "status": status, "expires_at": expires })
     };
     if let Some(rest) = path.strip_prefix("/api/identity/memberships") {
         return Some(match (method.as_str(), rest) {
@@ -18020,10 +18023,12 @@ fn team_api(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Opti
     Some(match (method.as_str(), rest) {
         ("GET", "") => {
             let items = [
-                invitation("ivt_pending", "new@chasesets.test", "acc_seller", "viewer", "pending"),
-                invitation("ivt_gone", "old@chasesets.test", "acc_seller", "manager", "cancelled"),
+                invitation("ivt_pending", "new@chasesets.test", "acc_seller", "viewer", "pending", "2099-11-04T00:00:00.000Z"),
+                invitation("ivt_gone", "old@chasesets.test", "acc_seller", "manager", "cancelled", "2099-11-04T00:00:00.000Z"),
+                // Still recorded pending, past its expiry: Identity refuses to send it again.
+                invitation("ivt_lapsed", "late@chasesets.test", "acc_seller", "viewer", "pending", "2000-01-01T00:00:00.000Z"),
             ];
-            Json(json!({ "items": items, "total": 2, "count": 2 })).into_response()
+            Json(json!({ "items": items, "total": 3, "count": 3 })).into_response()
         }
         _ if matches!(attempt, NO_RECORD | APPLIED_BEFORE | CHECK_DOWN) => indeterminate(),
         // Identity's `isInstant`: to the millisecond at most, or the attempt is indeterminate.
@@ -18044,6 +18049,9 @@ fn team_api(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Opti
         ("POST", "") if sent["email"] == "linkdown@chasesets.test" => done("ivt_linkdown", true),
         ("POST", "") => done(sent["invitationId"].as_str().unwrap_or_default(), attempt != REPLAYED),
         ("POST", "/ivt_pending/cancel") => done("ivt_pending", true),
+        ("POST", "/ivt_pending/resend" | "/ivt_linkdown/resend") => {
+            done(rest.split('/').nth(1).unwrap_or_default(), attempt != REPLAYED)
+        }
         _ => StatusCode::NOT_FOUND.into_response(),
     })
 }
@@ -18097,7 +18105,10 @@ async fn the_team_page_shows_only_the_accounts_members_and_invitations() {
     assert!(html.contains("packer@chasesets.test") && html.contains("Fulfillment · Revoked"), "no name: the email: {html}");
     assert!(html.contains("new@chasesets.test") && html.contains("Viewer invitation · Pending"), "{html}");
     assert!(html.contains("Manager invitation · Cancelled"), "{html}");
-    // The owner may be revoked (behind its dialog), the packer reinstated; only a pending invitation is cancelled.
+    // Recorded pending but past its expiry: shown as expired, not resent, and still cancellable.
+    assert!(html.contains("late@chasesets.test") && html.contains("Viewer invitation · Expired"), "{html}");
+    assert!(html.contains(r#"commandfor="cancel-invitation-dialog-ivt_lapsed""#), "{html}");
+    // The owner may be revoked (behind its dialog), the packer reinstated; only a pending invitation is resent or cancelled.
     assert!(html.contains(r#"commandfor="revoke-member-dialog-mbr_owner""#), "{html}");
     assert!(html.contains(r#"<input type="hidden" name="intent" value="reinstate"><input type="hidden" name="membership_id" value="mbr_packer">"#), "{html}");
     assert!(
@@ -18105,6 +18116,10 @@ async fn the_team_page_shows_only_the_accounts_members_and_invitations() {
             && !html.contains("cancel-invitation-dialog-ivt_gone"),
         "{html}"
     );
+    let resend =
+        r#"<input type="hidden" name="intent" value="resend-invitation"><input type="hidden" name="invitation_id" value="#;
+    assert_eq!(html.matches(resend).count(), 1, "{html}");
+    assert!(html.contains(&format!(r#"{resend}"ivt_pending">"#)), "{html}");
     assert!(
         html.contains("Revoke Synthetic Seller&#39;s membership?") || html.contains("Revoke Synthetic Seller's membership?"),
         "{html}"
@@ -18114,7 +18129,8 @@ async fn the_team_page_shows_only_the_accounts_members_and_invitations() {
     let (_, _, body) = pilot.send(req).await;
     let body: Value = serde_json::from_str(&body).unwrap();
     assert_eq!(body["data"]["memberships"].as_array().map(Vec::len), Some(2), "{body}");
-    assert_eq!(body["data"]["invitations"].as_array().map(Vec::len), Some(2), "{body}");
+    assert_eq!(body["data"]["invitations"].as_array().map(Vec::len), Some(3), "{body}");
+    assert_eq!(body["data"]["invitations"][2]["lapsed"], json!(true), "{body}");
 }
 
 #[tokio::test]
@@ -18159,7 +18175,55 @@ async fn an_invite_sends_its_attempt_then_asks_auth_for_the_link_and_a_replay_do
     let body = "intent=create-invitation&attempt=0b6f3c1e-4d2a-4b8e-9f00-aaaaaaaaaaaa&email=linkdown%40chasesets.test";
     let (status, headers, _) = pilot.send(post(TEAM, "teamer", body, true)).await;
     assert_eq!(status, StatusCode::NO_CONTENT, "a link Auth cannot send leaves the invitation saved");
-    assert!(headers["corten-location"].to_str().unwrap().contains("saved="), "{headers:?}");
+    let to = headers["corten-location"].to_str().unwrap().to_owned();
+    assert!(to.contains("saved=") && to.contains("unsent=ivt_linkdown"), "and the page says it was not emailed: {to}");
+    let (_, _, html) = pilot.send(get(&to, Some("teamer"))).await;
+    assert!(html.contains("Invitation saved but not emailed"), "{html}");
+    assert!(
+        html.contains("The invitation could not be emailed. Use Resend on it once it appears below."),
+        "not listed yet: {html}"
+    );
+    let (_, _, html) = pilot.send(get(&format!("{TEAM}?unsent=ivt_pending"), Some("teamer"))).await;
+    assert!(html.contains("The invitation to new@chasesets.test could not be emailed. Use Resend to email it."), "{html}");
+    let (_, _, html) = pilot.send(get(&format!("{TEAM}?unsent=ivt_gone"), Some("teamer"))).await;
+    assert!(!html.contains("Invitation saved but not emailed"), "a cancelled invitation has nothing to send: {html}");
+    let (_, _, html) = pilot.send(get(&format!("{TEAM}?unsent=ivt_lapsed"), Some("teamer"))).await;
+    assert!(!html.contains("Invitation saved but not emailed"), "one past its expiry cannot be sent again: {html}");
+    let (_, _, html) = pilot.send(get(&format!("{TEAM}?unsent=mbr_owner"), Some("teamer"))).await;
+    assert!(!html.contains("Invitation saved but not emailed"), "only an invitation's id: {html}");
+}
+
+#[tokio::test]
+async fn a_resend_gives_a_pending_invitation_a_new_expiry_and_emails_it_once() {
+    let pilot = Pilot::new().await;
+    let body = format!("intent=resend-invitation&attempt={ATTEMPT}&invitation_id=ivt_pending");
+    let (status, headers, _) = pilot.send(post(TEAM, "teamer", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers["location"].to_str().unwrap();
+    assert!(to.contains(&format!("saved={ATTEMPT}")) && !to.contains("unsent="), "{to}");
+    let writes = team_writes(&pilot);
+    assert_eq!(writes.len(), 2, "{writes:?}");
+    let (method, path, attempt, sent) = &writes[0];
+    assert_eq!(
+        (method, path.as_str(), attempt.as_str()),
+        (&Method::POST, "/api/identity/invitations/ivt_pending/resend", ATTEMPT)
+    );
+    let expires = sent["expiresAt"].as_str().unwrap();
+    let expires = time::OffsetDateTime::parse(expires, &time::format_description::well_known::Rfc3339).unwrap();
+    assert!(expires > time::OffsetDateTime::now_utc() + time::Duration::days(6), "seven days from now: {sent}");
+    assert_eq!(writes[1].1, LINK_API);
+    assert_eq!(writes[1].3["invitationId"], "ivt_pending");
+
+    let body = format!("intent=resend-invitation&attempt={REPLAYED}&invitation_id=ivt_pending");
+    pilot.send(post(TEAM, "teamer", &body, true)).await;
+    assert_eq!(team_writes(&pilot).iter().filter(|w| w.1 == LINK_API).count(), 1, "a replayed resend is not emailed again");
+
+    let body = "intent=resend-invitation&attempt=0b6f3c1e-4d2a-4b8e-9f00-bbbbbbbbbbbb&invitation_id=ivt_linkdown";
+    let (_, headers, _) = pilot.send(post(TEAM, "teamer", body, true)).await;
+    assert!(headers["corten-location"].to_str().unwrap().contains("unsent=ivt_linkdown"), "{headers:?}");
+    let body = format!("intent=resend-invitation&attempt={ATTEMPT}&invitation_id=");
+    let (status, _, _) = pilot.send(post(TEAM, "teamer", &body, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "a resend names its invitation");
 }
 
 #[tokio::test]

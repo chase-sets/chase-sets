@@ -388,7 +388,7 @@ describe("checkout web routes: signed-in buy checkout", () => {
 
     expect(mockGetCheckoutSession).toHaveBeenCalledWith("chk_signed_in");
     expect(mockPreviewCheckoutFulfillment).not.toHaveBeenCalled();
-    expect(mockPreviewCheckoutStatus).not.toHaveBeenCalled();
+    expect(mockPreviewCheckoutStatus).toHaveBeenCalledTimes(1);
     expect(mockListCheckoutSavedPaymentInstruments).toHaveBeenCalled();
     expect(mockListSavedCheckoutInstruments).not.toHaveBeenCalled();
     expect(checkoutReview).toEqual(
@@ -410,9 +410,10 @@ describe("checkout web routes: signed-in buy checkout", () => {
             payment_method_category: "card",
           }),
         ],
+        // The quote Payments answers, the same fingerprint Pay now sends below.
         paymentPreview: expect.objectContaining({
           marketplace_checkout_fee: expect.objectContaining({
-            quote_fingerprint: "marketplace-checkout-fee-v1|card|26.19|0.00|26.19|1.10|27.29|27.29",
+            quote_fingerprint: "quote_card_1",
           }),
         }),
       }),
@@ -583,7 +584,7 @@ describe("checkout web routes: signed-in buy checkout", () => {
       context: undefined,
     } as never);
     expect(mockGetCheckoutStatus).not.toHaveBeenCalled();
-    expect(mockPreviewCheckoutStatus).not.toHaveBeenCalled();
+    expect(mockPreviewCheckoutStatus).toHaveBeenCalledTimes(1);
     expect(recoveredReview).toEqual(
       expect.objectContaining({
         isSignedInBuyer: true,
