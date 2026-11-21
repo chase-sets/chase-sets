@@ -16,6 +16,9 @@ const renderedCopySweep = process.argv.some(
   (argument, index) => argument === "--grep" && process.argv[index + 1] === "@rendered-copy",
 );
 const skipWebServer = process.env.PLAYWRIGHT_SKIP_WEB_SERVER === "true";
+const seedOnly = /@browser-e2e-(?:seed|dev-source)/;
+const mobile = /(?:^|\s)@mobile(?:\s|$)/;
+const tablet = /(?:^|\s)@tablet(?:\s|$)/;
 const includeAdminWebProject = !skipWebServer || Boolean(process.env.ADMIN_WEB_URL);
 // The browser-e2e dev-system targets boot platform-api, platform-worker,
 // admin-web, and marketplace — not public-web. So the public-web project exists
@@ -28,14 +31,38 @@ const projects = [
   {
     name: "marketplace-chromium",
     testMatch: "deployables/marketplace/e2e/**/*.spec.ts",
+    grepInvert: skipWebServer ? [mobile, seedOnly] : mobile,
     use: { ...devices["Desktop Chrome"], baseURL: marketplaceBaseUrl },
+  },
+  {
+    name: "marketplace-mobile",
+    testMatch: "deployables/marketplace/e2e/**/*.spec.ts",
+    grep: mobile,
+    use: {
+      ...devices["iPhone 13"],
+      defaultBrowserType: "chromium",
+      viewport: { width: 390, height: 844 },
+      baseURL: marketplaceBaseUrl,
+    },
   },
   ...(includeAdminWebProject
     ? [
         {
           name: "admin-web-chromium",
           testMatch: "deployables/admin-web/e2e/**/*.spec.ts",
+          grepInvert: skipWebServer ? [tablet, seedOnly] : tablet,
           use: { ...devices["Desktop Chrome"], baseURL: adminWebBaseUrl },
+        },
+        {
+          name: "admin-web-tablet",
+          testMatch: "deployables/admin-web/e2e/**/*.spec.ts",
+          grep: tablet,
+          use: {
+            ...devices["Desktop Chrome"],
+            viewport: { width: 768, height: 1024 },
+            hasTouch: true,
+            baseURL: adminWebBaseUrl,
+          },
         },
       ]
     : []),
@@ -58,7 +85,7 @@ export default defineConfig({
     identityDatabaseUrl: sandbox.contextDatabaseUrls.identity,
     channelsDatabaseUrl: sandbox.contextDatabaseUrls.channels,
   },
-  grepInvert: skipWebServer ? /@browser-e2e-(?:seed|dev-source)/ : undefined,
+  grepInvert: skipWebServer ? seedOnly : undefined,
   outputDir: "artifacts/playwright/test-results",
   fullyParallel: !renderedCopySweep,
   forbidOnly: isCi,

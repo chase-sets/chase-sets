@@ -541,6 +541,25 @@ describe("run e2e suite", () => {
     expect(buildSuiteGrep(suites)).toBe("@marketplace-checkout|@marketplace-seller");
   });
 
+  it("selects the tagged responsive journeys in the existing Chromium suites", () => {
+    const manifest = JSON.parse(
+      readFileSync(
+        new URL("../infrastructure/playwright-evidence/responsive-evidence-manifest.json", import.meta.url),
+        "utf8",
+      ),
+    );
+    for (const [claimId, suiteId, deviceTag] of [
+      ["mobile-buy-cart-quantity", "marketplace_checkout", "@mobile"],
+      ["tablet-import-review-bulk-actions", "catalog_admin_integrations", "@tablet"],
+    ]) {
+      const { file, testTitle } = manifest.claims.find((claim) => claim.id === claimId);
+      expect(e2eSuiteIdsForChangedFile(file)).toEqual([suiteId]);
+      expect(testTitle.split(" ")).toContain(deviceTag);
+      expect(testTitle).toMatch(new RegExp(buildSuiteGrep(parseSuiteArgs([suiteId]))));
+      expect(testTitle).not.toMatch(new RegExp(buildSuiteGrep(parseSuiteArgs(["rendered_copy"]))));
+    }
+  });
+
   it("balances selected suites for CI by estimated duration", () => {
     expect(
       batchE2eSuiteIds([
