@@ -1,12 +1,7 @@
 #!/usr/bin/env node
 import { readFileSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
-import pg from "pg";
-import {
-  normalizePgPoolConnectionString,
-  resolvePgPoolSslConfig,
-  type PgTransactionalPool,
-} from "../infrastructure/event-core-postgres/index.ts";
+import { createPgPool, type PgTransactionalPool } from "../infrastructure/event-core-postgres/index.ts";
 import {
   createPostgresProviderSendLedger,
   validateProviderSendInstallation,
@@ -58,6 +53,10 @@ export async function runProviderSendWindowCommand(pool: PgTransactionalPool, co
   };
 }
 
+export function createProviderSendWindowPool(databaseUrl: string): PgTransactionalPool {
+  return createPgPool(databaseUrl, { max: 1 });
+}
+
 async function main(argv: readonly string[]) {
   const values = new Map<string, string>();
   for (const argument of argv) {
@@ -86,11 +85,7 @@ async function main(argv: readonly string[]) {
     installation: installationPath ? JSON.parse(readFileSync(installationPath, "utf8")) : undefined,
     expected: phase ? { windowId: values.get("window") ?? "", phase, pass: Number(values.get("pass")) } : undefined,
   };
-  const pool = new pg.Pool({
-    connectionString: normalizePgPoolConnectionString(databaseUrl),
-    ssl: resolvePgPoolSslConfig(databaseUrl),
-    max: 1,
-  });
+  const pool = createProviderSendWindowPool(databaseUrl);
   try {
     const report = await runProviderSendWindowCommand(pool, command);
     const output = `${JSON.stringify(report, null, 2)}\n`;
@@ -98,7 +93,7 @@ async function main(argv: readonly string[]) {
     if (destination) writeFileSync(destination, output, "utf8");
     else process.stdout.write(output);
   } finally {
-    await pool.end();
+    await (pool as PgTransactionalPool & { end: () => Promise<void> }).end();
   }
 }
 

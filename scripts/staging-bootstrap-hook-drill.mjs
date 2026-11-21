@@ -19,6 +19,9 @@ export const DEFAULT_FAILURE_RUNTIME_PROFILE = "bootstrap-hook-drill-invalid-run
 export const HELD_LOCK_READY_MARKER = "CHASE_SETS_HELD_LOCK_READY";
 export const HELD_LOCK_TIMEOUT_MARKER = "CHASE_SETS_HELD_LOCK_TIMEOUT";
 export const HELD_LOCK_SETUP_FAILED_MARKER = "CHASE_SETS_HELD_LOCK_SETUP_FAILED";
+// The worker image's deployable directory: tsx resolves from here and the
+// injector imports the runtime pool seam relative to it.
+export const HELD_LOCK_INJECTOR_WORKDIR = "/app/deployables/platform-worker";
 const MAX_CAPTURE_BYTES = 200_000;
 const DEFAULT_HELD_LOCK_TIMEOUT_SECONDS = 1_200;
 const DEFAULT_HELD_LOCK_READY_TIMEOUT_MS = 60_000;
@@ -258,11 +261,9 @@ export function buildHeldLockInjectorExecArgs(options, podName) {
 }
 
 export function buildHeldLockInjectorShell(options) {
-  return `CHASE_SETS_HELD_LOCK_TIMEOUT_SECONDS=${Number(options.heldLockTimeoutSeconds)} node --input-type=module <<'NODE'
-import { readFileSync } from "node:fs";
-import pg from "pg";
+  return `cd ${HELD_LOCK_INJECTOR_WORKDIR} && CHASE_SETS_HELD_LOCK_TIMEOUT_SECONDS=${Number(options.heldLockTimeoutSeconds)} node --import tsx --input-type=module <<'NODE'
+import { createPgClient } from "../../infrastructure/event-core-postgres/pool.ts";
 
-const { Client } = pg;
 const timeoutSeconds = Number(process.env.CHASE_SETS_HELD_LOCK_TIMEOUT_SECONDS || "1200");
 const databaseUrl = process.env.DATABASE_URL_CATALOG;
 const schemaMigrationsTable = "bounded_context_schema_migrations";
@@ -272,68 +273,20 @@ if (!databaseUrl) {
   process.exit(2);
 }
 
-function normalizeConnectionString(connectionString) {
-  try {
-    const url = new URL(connectionString);
-    const sslMode = url.searchParams.get("sslmode")?.toLowerCase();
-    if (sslMode && sslMode !== "disable" && !url.searchParams.has("uselibpqcompat")) {
-      url.searchParams.set("uselibpqcompat", "true");
-      return url.toString();
-    }
-  } catch {
-    return connectionString;
-  }
-  return connectionString;
-}
-
-function resolveSslConfig(connectionString, env) {
-  const parsed = parseConnectionString(connectionString);
-  if (!parsed) {
-    return undefined;
-  }
-
-  const sslMode = parsed.searchParams.get("sslmode")?.toLowerCase();
-  if (sslMode === "disable") {
-    return undefined;
-  }
-  if (sslMode === "require") {
-    return { rejectUnauthorized: false };
-  }
-  if (sslMode === "verify-ca" || sslMode === "verify-full") {
-    return verifyingSslConfig(parsed, env);
-  }
-  if (!isLocalDatabaseHost(parsed.hostname)) {
-    return verifyingSslConfig(parsed, env);
-  }
-  return undefined;
-}
-
-function verifyingSslConfig(connectionString, env) {
-  const caPath = connectionString.searchParams.get("sslrootcert") ?? env.PGSSLROOTCERT;
-  const ca = caPath ? readFileSync(caPath, "utf8") : undefined;
-  return ca ? { rejectUnauthorized: true, ca } : { rejectUnauthorized: true };
-}
-
-function parseConnectionString(connectionString) {
-  try {
-    return new URL(connectionString);
-  } catch {
-    return null;
-  }
-}
-
-function isLocalDatabaseHost(hostname) {
-  const normalized = hostname.toLowerCase();
-  return normalized === "localhost" || normalized === "127.0.0.1" || normalized === "::1";
-}
-
 function summarizeSafeError(error) {
   const code =
-    error && typeof error === "object" && "code" in error && typeof error.code === "string" ? error.code : undefined;
+    error && typeof error === "object" && "code" in error && typeof error.code === "string" && /^[A-Z0-9_]{1,40}$/.test(error.code)
+      ? error.code
+      : undefined;
+  const classification =
+    error && typeof error === "object" && "classification" in error && /^[a-z0-9-]{1,80}$/.test(String(error.classification))
+      ? String(error.classification)
+      : undefined;
   return {
     reason: "injector-error",
     name: error instanceof Error ? error.name : typeof error,
     code,
+    classification,
   };
 }
 
@@ -380,14 +333,11 @@ async function discoverSchemaMigrationsRelation(client) {
   };
 }
 
-const connectionString = normalizeConnectionString(databaseUrl);
-const client = new Client({
-  connectionString,
-  ssl: resolveSslConfig(connectionString, process.env),
-  application_name: "staging-bootstrap-hook-drill-held-lock",
-});
-
+let client;
 try {
+  // The worker pod's canonical verify-full URL is admitted (or refused) by the
+  // runtime seam, which binds its CA to the pod CA mount.
+  client = createPgClient(databaseUrl, { application_name: "staging-bootstrap-hook-drill-held-lock" });
   await client.connect();
   try {
     const relationDiscovery = await discoverSchemaMigrationsRelation(client);

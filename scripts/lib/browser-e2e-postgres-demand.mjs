@@ -1,4 +1,5 @@
 import { readFileSync, readdirSync } from "node:fs";
+import { isIP } from "node:net";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { runInNewContext } from "node:vm";
@@ -7,7 +8,11 @@ import { repoRoot } from "./repo.mjs";
 import { resolveWorktreeSandbox, getContextDatabaseEnvName } from "./sandbox.mjs";
 import { buildPreviewPostgresConnectionSnapshotCommands } from "../platform-kubernetes-deployment.mjs";
 import { buildPlatformSecretBundle, collectPlatformSecretKeys } from "../platform-kubernetes-secret.mjs";
-import { isDatabaseSecretKey, runtimeValuesRelativePath } from "../render-platform-helm-values.mjs";
+import {
+  isDatabaseSecretKey,
+  platformHelmPreviewPostgresName,
+  runtimeValuesRelativePath,
+} from "../render-platform-helm-values.mjs";
 
 const apiPoolsPath = "deployables/platform-api/src/database-pools.ts";
 const workerPoolsPath = "deployables/platform-worker/src/database-pools.ts";
@@ -155,8 +160,10 @@ export function browserE2ePostgresDemand({ readSource = defaultReadSource } = {}
   const workerContexts = contextRegistry(readSource, "worker");
   const sandbox = resolveWorktreeSandbox({ env: {} });
   const postgresFactory = module("infrastructure/event-core-postgres/pool.ts", {
-    "node:fs": { readFileSync },
+    "node:net": { isIP },
+    "node:path": { isAbsolute: path.isAbsolute, join: path.join },
     pg: {
+      Client: class {},
       Pool: function (options) {
         const row = createPgPool(options.connectionString, options);
         row.on = () => row;
@@ -353,12 +360,13 @@ export function previewPostgresDemand({ readSource = defaultReadSource } = {}) {
   }
   const envOverrides = { ...values.global?.envOverrides, DEPLOYMENT_ENVIRONMENT: "preview" };
   const secretKeys = collectPlatformSecretKeys(values, { deploymentEnvironment: "preview" });
+  const previewRelease = "chase-sets-pr-1";
   const { runtimeSecret } = buildPlatformSecretBundle({
     values,
     secretKeys,
     deploymentEnvironment: "preview",
-    release: "chase-sets-pr-1",
-    namespace: "chase-sets-pr-1",
+    release: previewRelease,
+    namespace: previewRelease,
     superuserPassword: "synthetic",
     applicationPassword: "synthetic",
     env: Object.fromEntries(secretKeys.filter((key) => !isDatabaseSecretKey(key)).map((key) => [key, "synthetic"])),
@@ -366,8 +374,11 @@ export function previewPostgresDemand({ readSource = defaultReadSource } = {}) {
   const secret = Object.fromEntries(
     Object.entries(runtimeSecret.data).map(([key, value]) => [key, Buffer.from(value, "base64").toString("utf8")]),
   );
-  const renderedEnv = (name, component) =>
-    Object.fromEntries(
+  // The chart also renders this release's preview Service host into every
+  // preview pod; the runtime pool admits plaintext only for that host.
+  const previewPostgresHost = platformHelmPreviewPostgresName({ releaseName: previewRelease });
+  const renderedEnv = (name, component) => ({
+    ...Object.fromEntries(
       component.env.map((entry) => {
         if (!entry.secret) {
           return [entry.name, component.envOverrides?.[entry.name] ?? envOverrides[entry.name] ?? entry.value ?? ""];
@@ -377,7 +388,9 @@ export function previewPostgresDemand({ readSource = defaultReadSource } = {}) {
         }
         return [entry.name, secret[entry.secretKey ?? entry.name]];
       }),
-    );
+    ),
+    CHASE_SETS_PREVIEW_POSTGRES_HOST: previewPostgresHost,
+  });
   const components = Object.entries(values.components).flatMap(([name, component]) =>
     component.enabled ? [{ name, component, env: renderedEnv(name, component) }] : [],
   );
@@ -431,8 +444,10 @@ export function previewPostgresDemand({ readSource = defaultReadSource } = {}) {
   };
   const load = (file, dependencies) => loadSourceModule(readSource, file, dependencies, processEnv);
   const postgresFactory = load("infrastructure/event-core-postgres/pool.ts", {
-    "node:fs": { readFileSync },
+    "node:net": { isIP },
+    "node:path": { isAbsolute: path.isAbsolute, join: path.join },
     pg: {
+      Client: class {},
       Pool: function (options) {
         const row = createPgPool(options.connectionString, options);
         row.on = () => row;
@@ -537,6 +552,8 @@ export function previewPostgresDemand({ readSource = defaultReadSource } = {}) {
       );
     }
     if (component.kind === "service" && env.PLATFORM_CONTROL_DATABASE_URL) {
+      // The pool seam admits a URL against its own pod's environment.
+      useEnv(env);
       tokenStore.resetDefaultPostWriteTokenStoreForTests();
       hold(name, "runtime", constructedAt(tokenStorePath), "default post-write token store", () =>
         tokenStore.getDefaultPostWriteTokenStore(env),
