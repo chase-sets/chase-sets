@@ -105,6 +105,27 @@ function hasGlobalDeclaration(file, content) {
   return Boolean(visit(source));
 }
 
+function hasGlobalContext(file, content, references = ts.preProcessFile(content, false)) {
+  const { referencedFiles, typeReferenceDirectives, libReferenceDirectives } = references;
+  return Boolean(
+    hasGlobalDeclaration(file, content) ||
+    referencedFiles.length ||
+    typeReferenceDirectives.length ||
+    libReferenceDirectives.length,
+  );
+}
+
+function mergeBaseFileReader(root) {
+  const hasGit = existsSync(path.join(root, ".git"));
+  const git = (...args) => execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: "pipe" });
+  let base;
+  return (file) => {
+    if (!hasGit) return;
+    base ??= git("merge-base", "origin/main", "HEAD").trim();
+    if (git("--literal-pathspecs", "ls-tree", "-z", base, "--", file)) return git("show", `${base}:${file}`);
+  };
+}
+
 function ambientAssetTarget(specifier, relativeTarget, root, options, ambientPatterns) {
   if (
     !ambientPatterns.some((pattern) =>
@@ -122,7 +143,7 @@ function ambientAssetTarget(specifier, relativeTarget, root, options, ambientPat
       candidates = options.paths[key].map((target) =>
         path.resolve(
           ts.getPathsBasePath(options, ts.sys),
-          target.replace("*", () => matched),
+          target.replaceAll("*", () => matched),
         ),
       );
     }
@@ -154,20 +175,10 @@ function readGraph(root, fullPrograms, ownerOf) {
     const owner = ownerOf(file);
     forward.set(file, new Set());
     const content = readFileSync(absolute, "utf8");
-    const { importedFiles, referencedFiles, typeReferenceDirectives, libReferenceDirectives } = ts.preProcessFile(
-      content,
-      true,
-      true,
-    );
+    const preprocessed = ts.preProcessFile(content, true, true);
     // References can supply globals to other roots even when nothing imports the referring file.
-    if (
-      hasGlobalDeclaration(file, content) ||
-      referencedFiles.length ||
-      typeReferenceDirectives.length ||
-      libReferenceDirectives.length
-    ) {
-      globalContextRoots.add(file);
-    }
+    if (hasGlobalContext(file, content, preprocessed)) globalContextRoots.add(file);
+    const { importedFiles, referencedFiles } = preprocessed;
     if (fullRoots.has(file) && declarationPath.test(file)) {
       const source = ts.createSourceFile(file, content, ts.ScriptTarget.Latest);
       if (!ts.isExternalModule(source)) {
@@ -213,7 +224,7 @@ function readGraph(root, fullPrograms, ownerOf) {
     if (!workspaceFiles.has(owner)) workspaceFiles.set(owner, []);
     workspaceFiles.get(owner).push(file);
   }
-  return { forward, reverse, workspaceFiles, globalContextRoots, fallbacks };
+  return { forward, reverse, workspaceFiles, fullRoots, globalContextRoots, fallbacks };
 }
 
 function reverseConsumers(direct, { reverse, workspaceFiles }, ownerOf) {
@@ -256,6 +267,7 @@ export function createTypecheckScope({ root = repoRoot } = {}) {
   function plan({ changedFiles = [], workspaceNames = [] } = {}) {
     const direct = new Set(workspaceNames);
     const fallbacks = [];
+    const changedTypeScript = [];
     for (const name of direct) {
       if (!names.has(name)) {
         throw new TypecheckInputError("TYPECHECK_SCOPE_INVALID_SELECTOR", `unknown workspace: ${name}`);
@@ -278,9 +290,26 @@ export function createTypecheckScope({ root = repoRoot } = {}) {
       else if (owner && workspaceConfigPath.test(path.posix.basename(file))) reason = "workspace-config";
       else if (!owner && typecheckRoots.has(topLevel) && typeScriptPath.test(file)) reason = "unmapped-typescript";
       if (reason) fallbacks.push({ reason, path: file });
+      else if (typeScriptPath.test(file)) changedTypeScript.push({ file, owner });
       if (owner) direct.add(owner);
     }
     if (fallbacks.length) return { mode: "full", fallbacks };
+
+    if (changedTypeScript.length) {
+      const { fullRoots, globalContextRoots } = loadGraph();
+      const readBaseFile = mergeBaseFileReader(root);
+      for (const { file, owner } of changedTypeScript) {
+        // The current graph cannot see deleted files or removed declarations and references.
+        const isCurrentGlobal = globalContextRoots.has(file);
+        const baseContent = isCurrentGlobal ? undefined : readBaseFile(file);
+        if (isCurrentGlobal || (baseContent !== undefined && hasGlobalContext(file, baseContent))) {
+          fallbacks.push({ reason: "global-declaration", path: file });
+        } else if (!owner && fullRoots.has(file)) {
+          fallbacks.push({ reason: "unmapped-typescript", path: file });
+        }
+      }
+      if (fallbacks.length) return { mode: "full", fallbacks };
+    }
     if (!direct.size) return { mode: "none" };
 
     const currentGraph = loadGraph();
