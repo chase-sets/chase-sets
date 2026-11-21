@@ -18,25 +18,21 @@ vi.mock("./services", async () => {
   const payments = await import("../../features/payments/domain/domain");
   const refunds = await import("../../features/refunds/domain/domain");
   // Appends the domain's own events under the command's tenant, as the event store would.
-  const handler =
-    (
-      decide: (state: never, command: never) => readonly Readonly<{ type: string; data: unknown }>[],
-      evolve: (state: never, event: never) => never,
-      initial: unknown,
-    ) =>
-    async (input: SentCommand) => {
-      store.sent.push(input);
-      const rows = (store.streams[input.streamId] ??= []);
-      let state = rows.reduce(
-        (current, row) => evolve(current as never, { type: row.event_type, data: row.payload } as never),
-        initial as never,
-      );
-      for (const event of decide(state, input.command as never)) {
-        state = evolve(state, event as never);
-        rows.push({ event_type: event.type, tenant_id: input.context.tenantId, payload: event.data });
-      }
-      return { storedEvents: [] };
-    };
+  type Decide = (state: unknown, command: unknown) => readonly Readonly<{ type: string; data: unknown }>[];
+  type Evolve = (state: unknown, event: unknown) => unknown;
+  const handler = (decide: Decide, evolve: Evolve, initial: unknown) => async (input: SentCommand) => {
+    store.sent.push(input);
+    const rows = (store.streams[input.streamId] ??= []);
+    let state = initial;
+    for (const row of rows) {
+      state = evolve(state, { type: row.event_type, data: row.payload });
+    }
+    for (const event of decide(state, input.command)) {
+      state = evolve(state, event);
+      rows.push({ event_type: event.type, tenant_id: input.context.tenantId, payload: event.data });
+    }
+    return { storedEvents: [] };
+  };
   return {
     createPaymentsServices: (pool: unknown) => ({
       db: pool,
