@@ -1,4 +1,5 @@
 import { sendCatalogProviderRequest, ProviderSendStoppedError } from "./provider-send-admission";
+import { CatalogProviderOptionQueryUnavailableError } from "./provider-option-query-cache";
 import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
 import type { SourceObservationPokemonCardNormalized } from "../../domain/domain";
 import type { CatalogAssetStorage } from "../seeding/asset-storage";
@@ -135,7 +136,7 @@ export async function fetchTcgdexSeriesOptions(input: {
   const fetcher = input.fetch ?? globalThis.fetch;
   const connector = requireTcgdexConnector(input.profile);
   const url = tcgdexUrl(connector, connector.endpoints.seriesList, { language: languageCode });
-  const series = await fetchJson<readonly Omit<TcgdexSeries, "sets">[]>(fetcher, url);
+  const series = await fetchJson<readonly Omit<TcgdexSeries, "sets">[]>(fetcher, url, "option-query");
 
   return series
     .map((item) => ({
@@ -159,13 +160,13 @@ export async function fetchTcgdexExpansionOptions(input: {
 
   if (seriesId) {
     const url = tcgdexUrl(connector, connector.endpoints.seriesDetail, { language: languageCode, seriesId });
-    const series = await fetchJson<TcgdexSeries>(fetcher, url);
+    const series = await fetchJson<TcgdexSeries>(fetcher, url, "option-query");
 
     return series.sets.map((item) => toExpansionOption(item, series));
   }
 
   const url = tcgdexUrl(connector, connector.endpoints.expansionList, { language: languageCode });
-  const sets = await fetchJson<readonly TcgdexSetBrief[]>(fetcher, url);
+  const sets = await fetchJson<readonly TcgdexSetBrief[]>(fetcher, url, "option-query");
 
   return sets.map((item) => toExpansionOption(item, null));
 }
@@ -723,9 +724,18 @@ function toJsonValue(value: unknown): JsonValue {
   return String(value);
 }
 
-async function fetchJson<T>(fetcher: typeof globalThis.fetch, url: string): Promise<T> {
+async function fetchJson<T>(
+  fetcher: typeof globalThis.fetch,
+  url: string,
+  purpose: "import" | "option-query" = "import",
+): Promise<T> {
   const response = await sendCatalogProviderRequest("tcgdex", fetcher, url);
   if (!response.ok) {
+    if (purpose === "option-query" && response.status >= 500 && response.status <= 599) {
+      throw new CatalogProviderOptionQueryUnavailableError(
+        `TCGdex option query failed with upstream HTTP ${response.status}.`,
+      );
+    }
     throw new Error(`TCGdex request failed with ${response.status} for ${url}.`);
   }
 

@@ -12,6 +12,8 @@ const verificationContractFiles = [
   "docs/runbooks/digitalocean-platform-deployment.md",
 ].map((relativePath) => ({ relativePath, text: readProse(relativePath) }));
 const scopedVerifierCommand = ["node", "./scripts/verify-static", "scoped.mjs"].join(" ");
+const scopedExitContract =
+  "Exit 3 from `typecheck:changed` means full Typecheck is required and no local compiler ran; disclose it as not executed, not a pass.";
 const planningSkill = readProse(".agents/skills/planning/SKILL.md");
 const backlogModel = readProse("docs/contributing/backlog-model.md");
 const codexDeliveryPrompt = parseYaml(
@@ -231,6 +233,7 @@ function assertScopedMirrorContract(text) {
   expect(text).toContain(
     "The scoped `typecheck:changed` runs without heavy admission; hosted exact-head `Typecheck` remains authoritative.",
   );
+  expect(text).toContain(scopedExitContract);
   expect(text).toContain("Prettier is `--write` on committed changed files.");
   expect(text).toContain(
     "Lanes run no `verify:*` gate (including `verify:static:scoped`), local DB test, workspace-wide or full battery, or other unadmitted heavy command",
@@ -268,6 +271,7 @@ describe("delivery verification contract", () => {
       [relativePath, "local database command", `${text}\nRun pnpm run test:db before push.\n`],
       [relativePath, "whole verify command", `${text}\nRun pnpm run verify before push.\n`],
       [relativePath, "typecheck removed from ordinary set", text.replace("`pnpm run typecheck:changed`, ", "")],
+      [relativePath, "exit 3 relabeled as a pass", text.replace(scopedExitContract, "Exit 3 counts as a scoped pass.")],
     ]),
   )("rejects the $relativePath $1 mutant", (_relativePath, _name, mutant) => {
     expect(() => assertScopedMirrorContract(mutant)).toThrow();
