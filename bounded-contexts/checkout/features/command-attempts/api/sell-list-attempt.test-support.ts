@@ -23,8 +23,8 @@ export const catalogDb = {
     rows: [
       {
         catalog_item_id: "cat_attempt",
-        title: "Synthetic Item",
-        subtitle: null,
+        title: fixtureLine.item_title,
+        subtitle: fixtureLine.item_subtitle,
         status: "active",
         product_schema: null,
       },
