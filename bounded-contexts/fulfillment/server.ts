@@ -1,10 +1,3 @@
-import { createFulfillmentApiClient } from "./client";
-import { fulfillmentRequestOptions } from "./support/request-support/request-options";
-
-export function createFulfillmentRequestApiClient(request: Request, headers?: HeadersInit) {
-  return createFulfillmentApiClient(fulfillmentRequestOptions(request, headers));
-}
-
 export {
   createSellerShippingSetupServices,
   createSellerCheckoutReadinessReader,
