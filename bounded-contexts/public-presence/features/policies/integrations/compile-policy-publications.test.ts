@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -25,8 +25,25 @@ const siblingPublicationModules = [
 /** Runs the real compiler entrypoint in a fresh process, so the Privacy
  *  cited-source digest is re-resolved from the working tree rather than
  *  reusing this process's memoized value. */
-function runCompilerCheck() {
-  return spawnSync(process.execPath, [compilerScript, "--check"], {
+function runCompilerCheck(citedSource?: { path: string; content: string }) {
+  const nodeArgs = [];
+  if (citedSource) {
+    // Override one UTF-8 read in this child only. Parallel inventory readers
+    // still read the original file from the Git-indexed working tree.
+    const preload = `
+      import fs from "node:fs";
+      import { syncBuiltinESMExports } from "node:module";
+
+      const { readFileSync } = fs;
+      fs.readFileSync = (path, options) =>
+        path === ${JSON.stringify(citedSource.path)} && options === "utf8"
+          ? ${JSON.stringify(citedSource.content)}
+          : readFileSync(path, options);
+      syncBuiltinESMExports();
+    `;
+    nodeArgs.push("--import", `data:text/javascript,${encodeURIComponent(preload)}`);
+  }
+  return spawnSync(process.execPath, [...nodeArgs, compilerScript, "--check"], {
     cwd: packageRoot,
     encoding: "utf8",
   });
@@ -671,21 +688,20 @@ describe("public policy corpus compiler", () => {
     expect(original).toContain(marker);
 
     expect(runCompilerCheck().status).toBe(0);
-    try {
-      writeFileSync(citedModule, original.replace(marker, `${marker.slice(0, -1)}  ;`), "utf8");
-      const stale = runCompilerCheck();
-      expect(stale.status).not.toBe(0);
-      const staleModules = `${stale.stdout}${stale.stderr}`
-        .split(/\r?\n/)
-        .filter((line) => line.includes("stale generated module:"))
-        .map((line) => line.slice(line.lastIndexOf("stale generated module:")).trim());
-      expect(staleModules).toHaveLength(1);
-      expect(staleModules[0]).toContain("privacy-policy-publication.ts");
-      for (const sibling of [...siblingPublicationModules, "index.ts"]) {
-        expect(staleModules[0], sibling).not.toContain(sibling);
-      }
-    } finally {
-      writeFileSync(citedModule, original, "utf8");
+    const stale = runCompilerCheck({
+      path: citedModule,
+      content: original.replace(marker, `${marker.slice(0, -1)}  ;`),
+    });
+    expect(readFileSync(citedModule, "utf8")).toBe(original);
+    expect(stale.status).not.toBe(0);
+    const staleModules = `${stale.stdout}${stale.stderr}`
+      .split(/\r?\n/)
+      .filter((line) => line.includes("stale generated module:"))
+      .map((line) => line.slice(line.lastIndexOf("stale generated module:")).trim());
+    expect(staleModules).toHaveLength(1);
+    expect(staleModules[0]).toContain("privacy-policy-publication.ts");
+    for (const sibling of [...siblingPublicationModules, "index.ts"]) {
+      expect(staleModules[0], sibling).not.toContain(sibling);
     }
     expect(runCompilerCheck().status).toBe(0);
   }, 120_000);
