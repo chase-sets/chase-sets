@@ -5,6 +5,7 @@ import {
   csatAnalyticsMaximumRangeDays,
   csatAnalyticsTimezone,
   csatTrendGranularities,
+  CsatQueryRefusal,
   type CsatAnalyticsQuery,
   type CsatAnalyticsSnapshot,
   type CsatMetricAvailability,
@@ -189,29 +190,49 @@ function normalizeQuery(query: CsatAnalyticsQuery): NormalizedQuery {
   const asOf = timestamp(query.asOf, "asOf");
   const trendTo = timestamp(query.trendTo ?? asOf, "trendTo");
   const trendFrom = timestamp(query.trendFrom ?? addDays(trendTo, -30), "trendFrom");
-  if (Date.parse(trendFrom) >= Date.parse(trendTo)) throw new Error("CSAT trendFrom must be before trendTo.");
-  if (Date.parse(trendTo) > Date.parse(asOf)) throw new Error("CSAT trendTo cannot be after asOf.");
+  if (Date.parse(trendFrom) >= Date.parse(trendTo)) {
+    throw new CsatQueryRefusal("range-order", "CSAT trendFrom must be before trendTo.");
+  }
+  if (Date.parse(trendTo) > Date.parse(asOf)) {
+    throw new CsatQueryRefusal("range-after-as-of", "CSAT trendTo cannot be after asOf.");
+  }
   if (Date.parse(trendTo) - Date.parse(trendFrom) > csatAnalyticsMaximumRangeDays * dayMs) {
-    throw new Error(`CSAT analytics ranges cannot exceed ${csatAnalyticsMaximumRangeDays} days.`);
+    throw new CsatQueryRefusal(
+      "range-too-long",
+      `CSAT analytics ranges cannot exceed ${csatAnalyticsMaximumRangeDays} days.`,
+    );
   }
   if (Date.parse(asOf) - Date.parse(trendFrom) > csatAnalyticsMaximumRangeDays * dayMs) {
-    throw new Error(`CSAT analytics history cannot begin more than ${csatAnalyticsMaximumRangeDays} days before asOf.`);
+    throw new CsatQueryRefusal(
+      "history-too-long",
+      `CSAT analytics history cannot begin more than ${csatAnalyticsMaximumRangeDays} days before asOf.`,
+    );
   }
 
   const surveyVersion = query.surveyVersion ?? transactionalCsatV1.id;
   const definition = findSurveyDefinition(surveyVersion);
-  if (!definition?.csatEligible) throw new Error("CSAT analytics require a registered CSAT-compatible survey version.");
+  if (!definition?.csatEligible) {
+    throw new CsatQueryRefusal(
+      "survey-version-unregistered",
+      "CSAT analytics require a registered CSAT-compatible survey version.",
+    );
+  }
   const trendGranularity = query.trendGranularity ?? "day";
-  if (!csatTrendGranularities.includes(trendGranularity)) throw new Error("Unsupported CSAT trend granularity.");
+  if (!csatTrendGranularities.includes(trendGranularity)) {
+    throw new CsatQueryRefusal("granularity-unsupported", "Unsupported CSAT trend granularity.");
+  }
   const limit = query.limit ?? csatAnalyticsDefaultPageSize;
   if (!Number.isInteger(limit) || limit < 1 || limit > csatAnalyticsMaximumPageSize) {
-    throw new Error(`CSAT trend page size must be between 1 and ${csatAnalyticsMaximumPageSize}.`);
+    throw new CsatQueryRefusal(
+      "page-size-invalid",
+      `CSAT trend page size must be between 1 and ${csatAnalyticsMaximumPageSize}.`,
+    );
   }
   if (
     query.minimumSampleSize !== undefined &&
     (!Number.isInteger(query.minimumSampleSize) || query.minimumSampleSize < 1)
   ) {
-    throw new Error("CSAT minimum sample size must be a positive integer.");
+    throw new CsatQueryRefusal("minimum-sample-size-invalid", "CSAT minimum sample size must be a positive integer.");
   }
 
   return {
@@ -377,7 +398,7 @@ function inRange(value: string | null, from: string, to: string): boolean {
 
 function timestamp(value: string, field: string): string {
   const parsed = Date.parse(value);
-  if (!Number.isFinite(parsed)) throw new Error(`Invalid CSAT ${field} timestamp.`);
+  if (!Number.isFinite(parsed)) throw new CsatQueryRefusal("timestamp-invalid", `Invalid CSAT ${field} timestamp.`);
   return new Date(parsed).toISOString();
 }
 
@@ -414,7 +435,7 @@ function cursorOffset(
   try {
     decoded = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
   } catch {
-    throw new Error("Invalid CSAT trend cursor.");
+    throw new CsatQueryRefusal("cursor-invalid", "Invalid CSAT trend cursor.");
   }
   if (
     typeof decoded !== "object" ||
@@ -426,16 +447,16 @@ function cursorOffset(
     !("granularity" in decoded) ||
     decoded.granularity !== granularity
   ) {
-    throw new Error("Invalid CSAT trend cursor.");
+    throw new CsatQueryRefusal("cursor-invalid", "Invalid CSAT trend cursor.");
   }
   const index = buckets.findIndex((bucket) => bucket.bucketStart === decoded.bucketStart);
-  if (index < 0) throw new Error("CSAT trend cursor is outside the requested range.");
+  if (index < 0) throw new CsatQueryRefusal("cursor-invalid", "CSAT trend cursor is outside the requested range.");
   return index + 1;
 }
 
 function requiredText(value: string, label: string): string {
   const normalized = value.trim();
-  if (!normalized) throw new Error(`CSAT ${label} cannot be empty.`);
+  if (!normalized) throw new CsatQueryRefusal("filter-empty", `CSAT ${label} cannot be empty.`);
   return normalized;
 }
 

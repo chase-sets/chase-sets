@@ -22,6 +22,7 @@ import type {
 } from "./features/payout-readiness/domain/setup-progress";
 import type { PayoutOperationsAttention } from "./features/payouts/read-model/payout-operations";
 import type { PayoutOperationsRow } from "./features/payouts/read-model/payout-operations";
+import type { PayoutReviewHoldView } from "./features/wallets/domain/payout-review-hold";
 
 export type SettlementPayoutReadinessRow = PayoutReadinessProjection & PayoutSetupDecision;
 
@@ -141,6 +142,7 @@ export type SettlementReverseWalletAdjustmentResult = Readonly<{
   original: SettlementWalletAdjustment;
   reversal: SettlementWalletAdjustment;
 }>;
+export type SettlementPayoutReviewHold = PayoutReviewHoldView;
 
 export class SettlementApiError extends Error {
   public constructor(
@@ -437,11 +439,44 @@ export function createSettlementApiClient({
         }),
       );
     },
+    async getPayoutReviewHold(accountId: string): Promise<SettlementPayoutReviewHold> {
+      return parseJsonResponse(
+        await client.accounts[":accountId"]["payout-review-hold"].$get({
+          param: { accountId },
+          header: headers,
+        }),
+      );
+    },
+    async placePayoutReviewHold(
+      accountId: string,
+      body: Readonly<{ reason: string; sourceReference?: string | null }>,
+    ): Promise<{ outcome: "placed" | "noop"; version: number }> {
+      return parseJsonResponse(
+        await client.accounts[":accountId"]["payout-review-hold"].$post({
+          param: { accountId },
+          json: body,
+          header: headers,
+        }),
+      );
+    },
+    async releasePayoutReviewHold(
+      accountId: string,
+      body: Readonly<{ reason: string; sourceReference?: string | null }>,
+    ): Promise<{ outcome: "released" | "noop"; version: number }> {
+      return parseJsonResponse(
+        await client.accounts[":accountId"]["payout-review-hold"].$delete({
+          param: { accountId },
+          json: body,
+          header: headers,
+        }),
+      );
+    },
   };
 }
 
 export type { SettlementWalletRow, SettlementLedgerEntryRow } from "./features/wallets/read-model/queries";
 export type { SettlementWalletAdjustmentRow } from "./features/wallets/read-model/wallet-adjustment-queries";
+export type { PayoutReviewHoldView } from "./features/wallets/domain/payout-review-hold";
 export type { WalletAdjustmentPreview } from "./features/wallets/api/wallet-adjustment-preview";
 export type {
   SettlementPayoutRow,

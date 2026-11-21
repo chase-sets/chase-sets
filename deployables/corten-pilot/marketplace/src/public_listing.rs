@@ -7,9 +7,8 @@
 //! | Report listing | `/listings/{slug}/report` | the page, saying the report was received (`?reported=1`) |
 //!
 //! An old slug moves to the listing's own for good, with the address's query. A listing the API
-//! does not have is a 404 and a failed read a 502. Where marketplace's page shows its 500 page for
-//! a second report (chase-sets/chase-sets#10615), the pilot says it was already reported, or to
-//! try again later.
+//! does not have is a 404 and a failed read a 502. A second report says it was already reported
+//! (409) and a rate-limited one to try again later (429), as marketplace's page does.
 //!
 //! A report is sent as its form's attempt, and an answer lost on the way is settled as
 //! `marketplace_attempt` says: sent once more as the same attempt, as the same reporter, and a

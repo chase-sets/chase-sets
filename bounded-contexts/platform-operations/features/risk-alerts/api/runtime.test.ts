@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
+import { getEventCommitMetadata, runWithEventCommitMetadata } from "@chase-sets/event-core/consistency";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { PayoutReviewHoldCrossContextPort } from "./cross-context";
 import { createRiskAlertRuntime } from "./runtime";
 
 const context = Object.freeze({
@@ -11,6 +13,9 @@ const context = Object.freeze({
 
 function createDeps(options: Readonly<{ candidate?: boolean; missing?: boolean; lookupError?: Error }> = {}) {
   const appendToStream = vi.fn().mockResolvedValue([]);
+  const placeRiskAlertHold = vi
+    .fn<PayoutReviewHoldCrossContextPort["placeRiskAlertHold"]>()
+    .mockResolvedValue({ outcome: "placed", version: 1 });
   const eventStore = { appendToStream } as unknown as EventStore;
   const query = vi.fn().mockImplementation(async () => {
     if (options.lookupError) throw options.lookupError;
@@ -20,13 +25,21 @@ function createDeps(options: Readonly<{ candidate?: boolean; missing?: boolean; 
         : [
             {
               alert_id: "risk_synthetic_alert",
+              account_id: "acc_synthetic_flagged_seller",
               manual_payout_review_candidate: options.candidate ?? false,
             },
           ],
     };
   });
   const db = { query } as unknown as PgQueryable;
-  return { eventStore, db, appendToStream, query };
+  return {
+    eventStore,
+    db,
+    appendToStream,
+    query,
+    placeRiskAlertHold,
+    payoutReviewHoldCrossContext: { placeRiskAlertHold },
+  };
 }
 
 describe("risk alert action runtime", () => {
@@ -43,11 +56,27 @@ describe("risk alert action runtime", () => {
           action,
           note: "Synthetic operator evidence",
           operatorUserId: "usr_synthetic_operator",
+          actorPermissions: ["payout-review-holds.manage"],
         },
         context,
       );
 
       expect(deps.query).toHaveBeenCalledTimes(1);
+      if (action === "request-manual-payout-review") {
+        expect(deps.placeRiskAlertHold).toHaveBeenCalledExactlyOnceWith(
+          {
+            accountId: "acc_synthetic_flagged_seller",
+            reason: "Synthetic operator evidence",
+            sourceReference: "risk_synthetic_alert",
+            actorPermissions: ["payout-review-holds.manage"],
+          },
+          context,
+        );
+        expect(deps.query).toHaveBeenCalledBefore(deps.placeRiskAlertHold);
+        expect(deps.placeRiskAlertHold).toHaveBeenCalledBefore(deps.appendToStream);
+      } else {
+        expect(deps.placeRiskAlertHold).not.toHaveBeenCalled();
+      }
       expect(deps.appendToStream).toHaveBeenCalledTimes(1);
       expect(deps.appendToStream.mock.calls[0]![0]).toMatchObject({
         streamId: "platform-operations.risk-alert-risk_synthetic_alert",
@@ -84,6 +113,7 @@ describe("risk alert action runtime", () => {
         context,
       ),
     ).rejects.toMatchObject({ name: "RiskAlertActionRejectedError", code: "action-not-allowed" });
+    expect(deps.placeRiskAlertHold).not.toHaveBeenCalled();
     expect(deps.appendToStream).not.toHaveBeenCalled();
   });
 
@@ -102,8 +132,29 @@ describe("risk alert action runtime", () => {
           context,
         ),
       ).rejects.toMatchObject({ name: "RiskAlertActionRejectedError", code: "alert-not-found" });
+      expect(deps.placeRiskAlertHold).not.toHaveBeenCalled();
       expect(deps.appendToStream).not.toHaveBeenCalled();
     }
+  });
+
+  it("does not record the action if Settlement rejects the hold", async () => {
+    const deps = createDeps({ candidate: true });
+    const rejection = new Error("synthetic hold rejection");
+    deps.placeRiskAlertHold.mockRejectedValue(rejection);
+
+    await expect(
+      createRiskAlertRuntime(deps).recordRiskAlertAction(
+        {
+          alertId: "risk_synthetic_alert",
+          action: "request-manual-payout-review",
+          note: null,
+          operatorUserId: "usr_synthetic_operator",
+        },
+        context,
+      ),
+    ).rejects.toBe(rejection);
+    expect(deps.placeRiskAlertHold).toHaveBeenCalledTimes(1);
+    expect(deps.appendToStream).not.toHaveBeenCalled();
   });
 
   it("risk alert action appends nothing when the alert lookup fails", async () => {
@@ -122,5 +173,36 @@ describe("risk alert action runtime", () => {
       ),
     ).rejects.toBe(lookupError);
     expect(deps.appendToStream).not.toHaveBeenCalled();
+  });
+
+  it("risk alert action answers its commit receipt, so a read after it waits for it", async () => {
+    const deps = createDeps();
+    deps.appendToStream.mockImplementation(async ({ streamId, events }) =>
+      events.map((event: { eventType: string }) => ({
+        ...event,
+        eventId: "evt_risk",
+        streamId,
+        streamVersion: 1,
+        globalPosition: "77",
+      })),
+    );
+
+    const metadata = await runWithEventCommitMetadata(async () => {
+      await createRiskAlertRuntime(deps).recordRiskAlertAction(
+        {
+          alertId: "risk_synthetic_alert",
+          action: "acknowledge",
+          note: null,
+          operatorUserId: "usr_synthetic_operator",
+        },
+        context,
+      );
+      return getEventCommitMetadata();
+    });
+
+    expect(deps.appendToStream.mock.calls[0]![0].wakeSourceContextName).toBe("platform-operations");
+    expect(metadata.sources).toEqual([
+      { sourceContextName: "platform-operations", eventIds: ["evt_risk"], maxGlobalPosition: "77" },
+    ]);
   });
 });

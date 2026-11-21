@@ -1,6 +1,6 @@
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
-import { createPgPool, createPostgresEventStore } from "@chase-sets/event-core-postgres";
+import { createPgPool, createPostgresEventStore, isPgConnectionLevelError } from "@chase-sets/event-core-postgres";
 import { getContextDatabaseEnvName } from "@chase-sets/platform-runtime/config-schema";
 import { closeContextPools } from "@chase-sets/platform-runtime/context-pools";
 import {
@@ -20,6 +20,17 @@ const FAILURE_CATEGORIES = new Set([
   "schema_permission",
   "application",
   "unknown",
+]);
+const ACTIVATION_REFUSAL_CODES = new Set([
+  "revocation_activation_arguments_invalid",
+  "revocation_activation_authority_required",
+  "revocation_activation_conflict",
+  "revocation_activation_database_missing",
+  "revocation_activation_environment_mismatch",
+  "revocation_activation_proof_missing",
+  "revocation_dormant_request_unresolved",
+  "revocation_membership_changed",
+  "revocation_support_floor",
 ]);
 type ActivationDiagnosticProof = Readonly<{ environment: string; releaseCommit: string; imageDigest: string }>;
 const activationDiagnosticProof = Symbol("activationDiagnosticProof");
@@ -44,14 +55,31 @@ function attachDiagnosticProof(error: unknown, proof: Partial<RevocationActivati
   }
 }
 
-// Only a bounded code crosses this boundary; raw errors can carry connection strings.
+// Only an allowlisted code crosses this boundary; raw errors can carry connection strings.
 export function activationRefusalCode(error: unknown): string {
-  return error instanceof Error && /^revocation_[a-z_]{1,64}$/.test(error.message)
+  return error instanceof Error && ACTIVATION_REFUSAL_CODES.has(error.message)
     ? error.message
     : "revocation_activation_refused";
 }
 
-export function activationDiagnostic(error: unknown, proof?: Partial<RevocationActivationProof>) {
+function statusFailure(error: unknown, databaseCode: unknown) {
+  const code = activationRefusalCode(error);
+  if (code === "revocation_activation_database_missing") return { code, failureCategory: "database_connectivity" };
+  if (code !== "revocation_activation_refused") return { code, failureCategory: "application" };
+  if (databaseCode === "42501")
+    return { code: "revocation_status_database_permission_denied", failureCategory: "schema_permission" };
+  if (databaseCode === "42P01" || databaseCode === "42703" || databaseCode === "3F000")
+    return { code: "revocation_status_database_schema_missing", failureCategory: "schema_permission" };
+  if (databaseCode === "28000" || databaseCode === "28P01")
+    return { code: "revocation_status_database_auth_failed", failureCategory: "database_connectivity" };
+  if (isPgConnectionLevelError({ code: databaseCode }))
+    return { code: "revocation_status_database_connection_failed", failureCategory: "database_connectivity" };
+  if (databaseCode === "57014")
+    return { code: "revocation_status_database_query_cancelled", failureCategory: "application" };
+  return { code: "revocation_status_database_read_failed", failureCategory: "unknown" };
+}
+
+export function activationDiagnostic(error: unknown, proof?: Partial<RevocationActivationProof>, command = "activate") {
   const inheritedProof =
     error && typeof error === "object"
       ? (error as { [activationDiagnosticProof]?: ActivationDiagnosticProof })[activationDiagnosticProof]
@@ -70,9 +98,13 @@ export function activationDiagnostic(error: unknown, proof?: Partial<RevocationA
     releaseCommit: /^[a-f0-9]{40}$/.test(context?.releaseCommit ?? "") ? context?.releaseCommit : "unknown",
     imageDigest: /^sha256:[a-f0-9]{64}$/.test(context?.imageDigest ?? "") ? context?.imageDigest : "unknown",
     identity: { state: "unknown" },
-    code: activationRefusalCode(error),
     sqlstateClass: typeof code === "string" && /^[0-9A-Z]{5}$/.test(code) ? code.slice(0, 2) : "unknown",
-    failureCategory: typeof candidate === "string" && FAILURE_CATEGORIES.has(candidate) ? candidate : "unknown",
+    ...(command === "status"
+      ? statusFailure(error, code)
+      : {
+          code: activationRefusalCode(error),
+          failureCategory: typeof candidate === "string" && FAILURE_CATEGORIES.has(candidate) ? candidate : "unknown",
+        }),
   };
 }
 
@@ -152,8 +184,9 @@ async function main() {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((error: unknown) => {
-    process.stderr.write(`${activationRefusalCode(error)}\n`);
-    process.stderr.write(`${JSON.stringify(activationDiagnostic(error))}\n`);
+    const diagnostic = activationDiagnostic(error, undefined, process.argv[2] === "--status" ? "status" : "activate");
+    process.stderr.write(`${diagnostic.code}\n`);
+    process.stderr.write(`${JSON.stringify(diagnostic)}\n`);
     process.exitCode = 1;
   });
 }

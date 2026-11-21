@@ -11,6 +11,8 @@ export const marketplaceEnglishTranslations = {
   "marketplace.reviewRecovery.changedRequest": "This attempt was used for a different request.",
   "marketplace.reviewRecovery.reportNotSent": "The report was not sent. Reload the form before submitting.",
   "marketplace.reviewRecovery.reportFailed": "The report could not be submitted.",
+  "marketplace.reviewRecovery.reportLimited":
+    "You have sent several reports in a short time. Try again in a few minutes.",
   "marketplace.recovery.receiptMismatch": "Attempt receipt does not match the first result.",
   "marketplace.recovery.acceptanceBindingInvalid": "Invalid Offer acceptance binding.",
   "marketplace.recovery.acceptanceBindingUnexpected": "Unexpected acceptance binding.",
@@ -395,15 +397,28 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.ui.listingListPage.availability.unavailable.description":
     "Active listings are hidden from buyer flows. Reason: {reason}. Planned return: {date}.",
   "marketplace.features.listings.ui.listingListPage.available.again.on": "Available again on",
+  "marketplace.features.listings.ui.listingListPage.away.end": "End Away",
+  "marketplace.features.listings.ui.listingListPage.away.offers.available": "Offers visible",
+  "marketplace.features.listings.ui.listingListPage.away.offers.keep.date":
+    "Leave blank to keep your Offers' current return date.",
+  "marketplace.features.listings.ui.listingListPage.away.offers.preview":
+    "Your submitted Offers will be hidden from sellers. Your Listings stay visible.",
+  "marketplace.features.listings.ui.listingListPage.away.offers.reason.with.return.date": "{reason} · {date}",
+  "marketplace.features.listings.ui.listingListPage.away.offers.unavailable": "Offers away",
+  "marketplace.features.listings.ui.listingListPage.away.scope.both": "Listings and Offers",
+  "marketplace.features.listings.ui.listingListPage.away.scope.label": "What does Away cover?",
+  "marketplace.features.listings.ui.listingListPage.away.scope.listings": "Listings",
+  "marketplace.features.listings.ui.listingListPage.away.scope.offers": "Offers",
+  "marketplace.features.listings.ui.listingListPage.away.start": "Go Away",
   "marketplace.features.listings.ui.listingListPage.away.window": "Away window",
   "marketplace.features.listings.ui.listingListPage.away.window.description":
-    "Book time off in advance. Listings turn off automatically when the window starts and back on when it ends.",
+    "Book time off in advance. The selected Listings or Offers will be hidden at the start and shown again at the end.",
   "marketplace.features.listings.ui.listingListPage.away.window.ends.on": "Ends on",
   "marketplace.features.listings.ui.listingListPage.away.window.scheduled.description":
     "Scheduled away for {reason} starting {startDate}. Returning {endDate}.",
   "marketplace.features.listings.ui.listingListPage.away.window.starts.on": "Starts on",
   "marketplace.features.listings.ui.listingListPage.away.window.unavailable.while.away":
-    "Scheduling a new away window requires listings to currently be available. Update your away settings above instead.",
+    "End Away before scheduling a new window, or update your current Away settings above.",
   "marketplace.features.listings.ui.listingListPage.cancel.away.window": "Cancel scheduled away window",
   "marketplace.features.listings.ui.listingListPage.schedule.away.window": "Schedule away window",
   "marketplace.features.listings.ui.listingListPage.agreement.override": "Agreement override: ",
@@ -877,6 +892,7 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.offers.ui.submittedOfferDetailPage.this.submitted.offer.is.marketplace.wide":
     "This submitted offer is marketplace-wide. Accounts can review it when they publish matching active supply.",
   "marketplace.features.offers.ui.submittedOfferListPage.actions": "Actions",
+  "marketplace.features.offers.ui.submittedOfferListPage.away": "Away",
   "marketplace.features.offers.ui.submittedOfferListPage.browse.marketplace": "Browse marketplace",
   "marketplace.features.offers.ui.submittedOfferListPage.item": "Item",
   "marketplace.features.offers.ui.submittedOfferListPage.no.seller.feedback.yet": "No account feedback yet",

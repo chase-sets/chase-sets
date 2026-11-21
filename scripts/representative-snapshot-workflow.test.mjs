@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { parse } from "yaml";
 
 import { releaseQualificationScopeRegistry } from "./release-qualification-scope.mjs";
 import { checkWorkflowSpacesEvidenceCredentials } from "./workflow-provider-credentials.mjs";
@@ -28,6 +29,16 @@ describe("representative Catalog snapshot publish workflow", () => {
     expect(workflow).toContain("inputs.confirm != 'publish representative snapshot'");
     expect(workflow).toContain('--confirm "publish representative snapshot"');
     expect(releaseQualificationScopeRegistry.workflows["representative-catalog-snapshot.yml"]).toBe("release");
+  });
+
+  it("allows the four-hour replay inside a five-hour snapshot job without raising PR DB ceilings", () => {
+    expect(workflow).toMatch(
+      /name: Publish Coordinated Representative Snapshot\r?\n    runs-on: ubuntu-latest\r?\n    timeout-minutes: 300/,
+    );
+    const platformPr = readFileSync(resolve(".github/workflows/platform-pr.yml"), "utf8");
+    expect(parse(platformPr).jobs["db-tests"]["timeout-minutes"]).toBe(
+      "${{ matrix.db-workspace-group == 'api' && 30 || 45 }}",
+    );
   });
 
   it("threads only the scoped seed-pack credential pair into the provider-touching publish step", () => {
@@ -65,8 +76,13 @@ describe("representative snapshot dev-system wiring", () => {
     expect(packageJson.scripts["dev:db:refresh"]).toBe("node ./scripts/dev-system.mjs refresh");
     expect(devSystem).toContain('modeArguments.includes("--representative")');
     expect(devSystem).toContain('modeArguments.includes("--replay")');
-    expect(devSystem).toContain("--replay requires --representative.");
+    expect(devSystem).toContain("--replay requires --representative and refresh mode.");
     expect(devSystem).toContain('"./representative-snapshot.mjs"');
     expect(devSystem).toContain("critical-bootstrap,catalog-integration-bootstrap,representative-catalog");
+    expect(devSystem).toContain('mode !== "refresh" || !representativeRefresh');
+    expect(devSystem).toContain("await runBootstrap(targetName, null, true)");
+    const snapshot = readFileSync(resolve("scripts/representative-snapshot.mjs"), "utf8");
+    expect(snapshot).toContain('"refresh", "--representative", "--replay"');
+    expect(snapshot).toContain('"./dev-system.mjs", import.meta.url)), "bootstrap"');
   });
 });

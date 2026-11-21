@@ -1,3 +1,4 @@
+import { attachResponseMetadata } from "@chase-sets/http/responses";
 import { createForwardedAuthHeaders, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
 import type {
   ListingEvidencePolicyOverview,
@@ -27,7 +28,7 @@ async function read<T>(response: Response): Promise<T> {
       body?.error?.message ?? `Listing Evidence Policy request failed (${response.status}).`,
     );
   }
-  return (await response.json()) as T;
+  return attachResponseMetadata(await response.json(), response) as T;
 }
 
 export class ListingEvidencePolicyRequestError extends Error {
@@ -49,14 +50,16 @@ export async function loadListingEvidencePolicySelectors(request: Request) {
   );
 }
 
+function send(request: Request, segments: readonly string[], body?: unknown) {
+  return fetch(url(request, ...segments), {
+    method: "POST",
+    headers: createForwardedAuthHeaders(request, { "content-type": "application/json" }),
+    body: JSON.stringify(body ?? {}),
+  });
+}
+
 async function post<T>(request: Request, segments: readonly string[], body?: unknown) {
-  return read<T>(
-    await fetch(url(request, ...segments), {
-      method: "POST",
-      headers: createForwardedAuthHeaders(request, { "content-type": "application/json" }),
-      body: JSON.stringify(body ?? {}),
-    }),
-  );
+  return read<T>(await send(request, segments, body));
 }
 
 export function createListingEvidencePolicyDraft(
@@ -66,12 +69,13 @@ export function createListingEvidencePolicyDraft(
   return post<Readonly<{ policyId: string; version: number; lifecycle: "draft" }>>(request, ["drafts"], body);
 }
 
-export function validateListingEvidencePolicyDraft(request: Request, policyId: string) {
-  return post<ListingEvidencePolicyValidation & Readonly<{ documentId: string; version: number }>>(request, [
-    "drafts",
-    policyId,
-    "validate",
-  ]);
+export async function validateListingEvidencePolicyDraft(request: Request, policyId: string) {
+  type Answer = ListingEvidencePolicyValidation & Readonly<{ documentId: string; version: number }>;
+  const response = await send(request, ["drafts", policyId, "validate"]);
+  // An invalid draft is answered 422 with the validation itself as the body, so its diagnostics
+  // can be shown; every other failure is an error.
+  if (response.status === 422) return (await response.json()) as Answer;
+  return read<Answer>(response);
 }
 
 export function rejectListingEvidencePolicyDraft(request: Request, policyId: string) {
