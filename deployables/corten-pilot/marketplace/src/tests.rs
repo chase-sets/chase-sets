@@ -12373,7 +12373,7 @@ async fn the_offer_matches_show_the_snapshot_and_each_match_with_its_actions() {
         "Offer Matches Compare each best buyer offer",
         "Active matches 2 Ready to accept 1 At or above ask 0 Best match 88.79%",
         "Pikachu Jungle 60/64 Raw Excellent submitted Can fulfill",
-        "Your Listing $19.99 2 visible of 2 listed Best Offer $17.75 Collector Zero",
+        "Your Listing or inventory $19.99 2 visible of 2 listed Best Offer $17.75 Collector Zero",
         "Offer vs Ask 88.79% $2.24 below ask Quantity 2 requested 2 available",
         "Needs supply",
     ] {
