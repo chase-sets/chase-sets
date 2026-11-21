@@ -967,7 +967,7 @@ const expectedConsumers: Record<string, readonly [number, number, number, number
   "inventory-recovery.spec.ts": [0, 4, 0, 0, "configured/seeded seller recovery"],
   "market-following-offers.spec.ts": [0, 2, 0, 0, "seeded buyer/seller; receipted Identity-to-Auth session"],
   "support-case-detail.spec.ts": [0, 2, 0, 0, "seeded"],
-  "buyer-purchase-journey.spec.ts": [0, 0, 2, 0, "seeded-form"],
+  "buyer-purchase-journey.spec.ts": [1, 0, 2, 1, "synthetic phone buyer; seeded-form desktop buyer"],
   "saved-list-addition.spec.ts": [0, 0, 2, 0, "seeded-form"],
   "channel-publication-freshness.spec.ts": [0, 0, 1, 0, "seeded-form"],
   "channel-connection-connect.spec.ts": [0, 0, 1, 0, "seeded-form"],
@@ -1358,7 +1358,7 @@ function discoverAuthCallers(files: ReadonlyMap<string, string>, roots = censusR
   return {
     scanned: files.size,
     totalRuntime: consumers.size,
-    synthetic: 7,
+    synthetic: 8,
     direct: 10,
     receiptedSessionReads,
     form: 10,
@@ -1374,7 +1374,7 @@ describe("auth-caller-census", () => {
     const census = discoverAuthCallers(sources);
     expect(census).toMatchObject({
       totalRuntime: 31,
-      synthetic: 7,
+      synthetic: 8,
       direct: 10,
       receiptedSessionReads: 1,
       form: 10,
@@ -1385,7 +1385,7 @@ describe("auth-caller-census", () => {
     expect(census.scanned).toBe(trackedMarketplaceSources.length);
     expect(readFileSync(`${root}/${launcher}`, "utf8")).toContain("AUTH_TRACE_ARTIFACT_PROBE");
     console.log(
-      `auth caller census scanned=${census.scanned} runtime=32 synthetic=7 direct=10 receipted-session=1 seeded-form=10 helper=1 unit=1 launcher=1`,
+      `auth caller census scanned=${census.scanned} runtime=${census.totalRuntime} synthetic=${census.synthetic} direct=10 receipted-session=1 seeded-form=10 helper=1 unit=1 launcher=1`,
     );
   });
   it("resolves named aliases, namespace imports, local aliases and re-exports without filename assumptions", () => {
@@ -1502,6 +1502,7 @@ const expectedFreshReadRouteCallers = {
   "account-form-pending.spec.ts": 1,
   "account-management-interruption.spec.ts": 2,
   "agent-grant-revocation-real-route.spec.ts": 2,
+  "buyer-purchase-journey.spec.ts": 1,
 };
 /** Every `freshReadRoute:` option outside the helper and this test, by file, with its route literal. */
 function freshReadRouteCallers(files: ReadonlyMap<string, string>) {
