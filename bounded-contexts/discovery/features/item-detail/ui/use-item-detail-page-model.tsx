@@ -3,11 +3,11 @@ import { tryMoneyToCents } from "@chase-sets/primitives/money";
 import { useState } from "react";
 import { Badge, Banner, Inline, Stack } from "@chase-sets/design-system";
 import type {
-  DiscoveryItemDetail,
   DiscoveryOffer,
   DiscoveryAccountOfferMatch,
   DiscoveryReferenceRecordRef,
 } from "../../../support/client-support/contracts";
+import type { DiscoveryItemRealtimeSnapshot } from "../../../support/client-support/realtime-market";
 import { discoveryAssetUrls } from "../../../support/client-support/assets";
 import { uniqueDisplayValues } from "./unique-display-values";
 import {
@@ -38,7 +38,7 @@ import type { ItemDetailCommerceSections, ItemDetailMarketplaceSectionContext } 
 import { useItemDetailMarketState } from "./use-item-detail-market-state";
 
 export type LoadedItemDetailPageProps = {
-  data: DiscoveryItemDetail;
+  data: DiscoveryItemRealtimeSnapshot;
   accountOfferMatches: readonly DiscoveryAccountOfferMatch[];
   viewerAccountId: string | null;
   initialMarketIntent: MarketIntent;
@@ -157,7 +157,10 @@ export function useItemDetailPageModel({
         ? matchesSelectedOptions(offer, selections)
         : true,
   );
+  // The public book is capped; absence is not a removal from the seller overlay.
+  const removedOfferIds = new Set(data.removedOfferIds);
   const matchingAccountOfferMatches = accountOfferMatches
+    .filter((offer) => !removedOfferIds.has(offer.offer_id))
     .filter((offer) => offer.catalog_catalog_item_id === data.catalog_item_id)
     .filter((offer) =>
       explicitSelectedProductId

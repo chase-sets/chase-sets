@@ -92,7 +92,7 @@ Notes:
 - Account Badges must be assigned through Identity-owned account behavior so replay preserves the same visible account markers.
 - A **Founding Account Badge** is a permanent, numbered Account Badge claimed by an admitted Account's first Qualifying Act, while one of the 500 Founder Numbers remains.
 - A **Trusted Seller Account Badge** marks an Account that operations has approved for standard high-dollar listing and payout-release policies.
-- A **Manual Payout Review Account Badge** marks an Account whose payout release requires enhanced review because Stripe, support, fulfillment, or operations found seller-risk signals.
+- A **Manual Payout Review Account Badge** is frozen history: Identity refuses new assignment and removal, and existing badge events stay replayable only so Settlement can migrate them once. The live mechanism is Settlement's [Payout Review Hold](../settlement/GLOSSARY.md#payout-review-hold).
 
 ### Account Enforcement Action
 
