@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { expectUcpCapture } from "@chase-sets/platform-runtime/ucp-schema-test-support";
 import { AgentCheckoutHandoffView } from "./agent-checkout-handoff-view";
 import fixtures from "./agent-checkout-fixtures.json";
 import requiresAction from "./requires_action.negative.json";
@@ -8,6 +9,17 @@ import requiresAction from "./requires_action.negative.json";
 const result = (structuredContent: unknown) => ({ kind: "result" as const, result: { structuredContent } });
 const continueButton = () => screen.queryByRole("button", { name: "Continue on Chase Sets" });
 const continueUrl = fixtures.unpaid.continue_url;
+// Checkout emits no discount rows today; the pinned UCP total.json requires any it sends to be negative.
+const discounted = {
+  ...fixtures.unpaid,
+  totals: [
+    { type: "subtotal", amount: 2000 },
+    { type: "discount", amount: -500 },
+    { type: "fulfillment", amount: 499 },
+    { type: "tax", amount: 150 },
+    { type: "total", amount: 2149 },
+  ],
+};
 
 function renderHandoff(structuredContent: unknown, openLink = vi.fn(async (_url: string) => {})) {
   const view = render(<AgentCheckoutHandoffView state={result(structuredContent)} openLink={openLink} />);
@@ -41,7 +53,9 @@ describe("agent checkout handoff states", () => {
     ["pending confirmation", fixtures.pendingConfirmation, "Buyer confirmation is required to continue payment."],
     ["failed payment", fixtures.failedPayment, "Payment is required to continue checkout."],
     ["cancelled payment", fixtures.cancelledPayment, "Payment is required to continue checkout."],
+    ["discounted", discounted, "Payment is required to continue checkout."],
   ])("hands a %s escalation to Chase Sets through openLink", (_row, fixture, warning) => {
+    expectUcpCapture(fixture, { operation: "complete_checkout", kind: "resource" });
     const { openLink } = renderHandoff(fixture);
     expect(screen.getByText("Finish checkout on Chase Sets")).toBeTruthy();
     expect(screen.getByText(warning)).toBeTruthy();
@@ -50,7 +64,8 @@ describe("agent checkout handoff states", () => {
     expect(fixture.continue_url).toBe(continueUrl);
   });
 
-  it("refuses message-less, URL-less and non-https escalations without opening anything", () => {
+  it("refuses message-less, continue_url-less and non-https escalations without opening anything", () => {
+    // `urlless` still carries https `links`; only `continue_url` may supply the handoff.
     const urlless: Record<string, unknown> = { ...fixtures.unpaid };
     delete urlless.continue_url;
     const messageless: Record<string, unknown> = { ...fixtures.unpaid };
@@ -59,8 +74,12 @@ describe("agent checkout handoff states", () => {
       messageless,
       { ...fixtures.unpaid, messages: [] },
       urlless,
+      { ...urlless, continueUrl },
+      { ...urlless, checkout_url: continueUrl },
+      { ...urlless, order: { id: "ord_1", permalink_url: continueUrl } },
       { ...fixtures.unpaid, continue_url: continueUrl.replace(/^https:/, "http:") },
       { ...fixtures.unpaid, continue_url: "javascript:alert(1)" },
+      { ...fixtures.unpaid, continue_url: "data:text/html,<script>alert(1)</script>" },
       { ...fixtures.unpaid, continue_url: continueUrl.replace("https://", "https://buyer:secret@") },
     ]) {
       const { openLink } = renderHandoff(structuredContent);

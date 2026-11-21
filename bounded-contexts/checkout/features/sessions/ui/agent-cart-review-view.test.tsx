@@ -1,12 +1,28 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { expectUcpCapture } from "@chase-sets/platform-runtime/ucp-schema-test-support";
 import { AgentCartReviewView } from "./agent-cart-review-view";
 import fixtures from "./agent-checkout-fixtures.json";
 import requiresAction from "./requires_action.negative.json";
 
 const result = (structuredContent: unknown) => ({ kind: "result" as const, result: { structuredContent } });
 const continueButton = () => screen.queryByRole("button", { name: "Continue checkout" });
+// Checkout emits no discount rows today; the pinned UCP total.json requires any it sends to be negative.
+const discounted = {
+  ...fixtures.unpaid,
+  totals: [
+    { type: "subtotal", amount: 2000 },
+    { type: "discount", amount: -500 },
+    { type: "fulfillment", amount: 499 },
+    { type: "tax", amount: 150 },
+    { type: "total", amount: 2149 },
+  ],
+};
+const withTotal = (type: string, amount: number) => ({
+  ...fixtures.unpaid,
+  totals: [...fixtures.unpaid.totals, { type, amount }],
+});
 
 afterEach(cleanup);
 
@@ -30,6 +46,9 @@ describe("agent cart review states", () => {
           totals: fixtures.unpaid.totals.filter((entry) => entry.type !== "total"),
         },
       },
+      // Signs the pinned total.json forbids.
+      { structuredContent: withTotal("discount", 500) },
+      { structuredContent: withTotal("tax", -150) },
     ]) {
       view.rerender(<AgentCartReviewView state={{ kind: "result", result: toolResult }} onContinue={onContinue} />);
       expect(screen.getByRole("alert").textContent).toContain("Checkout could not be displayed");
@@ -71,6 +90,28 @@ describe("agent cart review states", () => {
     const totals = fixtures.unpaid.totals.map((entry) => (entry.type === "total" ? { ...entry, amount: 9999 } : entry));
     view.rerender(<AgentCartReviewView theme={theme} state={result({ ...fixtures.unpaid, totals })} />);
     expect(screen.getByText("Total").nextElementSibling?.textContent).toContain("$99.99");
+  });
+
+  it("shows a schema-valid negative discount signed, keeping the server total and the continue action", () => {
+    expectUcpCapture(discounted, { operation: "get_checkout", kind: "resource" });
+    const onContinue = vi.fn(async () => {});
+    render(<AgentCartReviewView state={result(discounted)} onContinue={onContinue} />);
+    for (const [label, amount] of [
+      ["Subtotal", "$20.00"],
+      ["Discount", "-$5.00"],
+      ["Shipping", "$4.99"],
+      ["Tax", "$1.50"],
+      ["Total", "$21.49"],
+    ]) {
+      expect(screen.getByText(label).nextElementSibling?.textContent).toContain(amount);
+    }
+    fireEvent.click(continueButton()!);
+    expect(onContinue).toHaveBeenCalledOnce();
+    for (const invalid of [withTotal("discount", 500), withTotal("tax", -150)]) {
+      expect(() => expectUcpCapture(invalid, { operation: "get_checkout", kind: "resource" })).toThrow(
+        /Pinned UCP schema failed/,
+      );
+    }
   });
 
   it("offers continue only for non-terminal checkouts when it is supplied", () => {

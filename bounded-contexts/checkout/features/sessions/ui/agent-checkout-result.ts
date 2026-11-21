@@ -48,8 +48,20 @@ function fields(value: unknown): Record<string, unknown> {
   return record(value) ?? {};
 }
 
+function isSignedAmount(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value);
+}
+
 function isAmount(value: unknown): value is number {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+  return isSignedAmount(value) && value >= 0;
+}
+
+/** UCP `total.json` signs: discounts are negative, these charges are nonnegative, any other category is signed. */
+function isTotalAmount(type: string, amount: unknown): amount is number {
+  if (!isSignedAmount(amount)) return false;
+  if (type === "discount" || type === "items_discount") return amount < 0;
+  if (type === "subtotal" || type === "fulfillment" || type === "tax" || type === "fee") return amount >= 0;
+  return true;
 }
 
 function isOptionalString(value: unknown): value is string | undefined {
@@ -77,7 +89,7 @@ function message(value: unknown): AgentCheckoutMessage | undefined {
 
 function total(value: unknown): AgentCheckoutTotal | undefined {
   const { type, amount, display_text: displayText } = fields(value);
-  if (typeof type !== "string" || !isAmount(amount) || !isOptionalString(displayText)) return;
+  if (typeof type !== "string" || !isTotalAmount(type, amount) || !isOptionalString(displayText)) return;
   return { type, amount, ...(displayText === undefined ? {} : { displayText }) };
 }
 
