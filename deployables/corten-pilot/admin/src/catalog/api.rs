@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Map, Value};
 
-use corten::prelude::ToJson;
+use corten::{http::header, prelude::ToJson};
 
 use crate::api::{ApiError, Caller, Method, segment};
 use platform::receipt::Receipt;
@@ -1293,6 +1293,10 @@ pub trait Catalog {
     /// A command: `POST` or `PUT` to `/api/catalog/{kind}{rest}` with `body` (`rest` starts with
     /// `/`, or is empty for a create).
     async fn command(&self, method: Method, kind: Kind, rest: &str, body: Option<&Value>) -> Result<Written, ApiError>;
+    /// A command checked against the revision its form was drawn from, sent as `If-Match`: the API
+    /// refuses it when that revision has been replaced.
+    async fn command_at(&self, method: Method, kind: Kind, rest: &str, body: &Value, revision: &str)
+    -> Result<Written, ApiError>;
     /// What a bulk change of `kind` would do: `body` is `{ action, selection }`.
     async fn bulk_preview(&self, kind: Kind, body: &Value) -> Result<Preview, ApiError>;
     /// Starts a bulk change of `kind`: its job (202), which runs it.
@@ -1322,6 +1326,22 @@ impl Catalog for Caller<'_> {
         if let Some(body) = body {
             req = req.json(body);
         }
+        let (_, receipt): (Value, _) = self.write(req).await?;
+        Ok(Written { receipt })
+    }
+
+    async fn command_at(
+        &self,
+        method: Method,
+        kind: Kind,
+        rest: &str,
+        body: &Value,
+        revision: &str,
+    ) -> Result<Written, ApiError> {
+        let req = self
+            .request(method, &format!("{API}/{}{rest}", kind.path()), CATALOG)
+            .header(header::IF_MATCH, format!("\"{revision}\""))
+            .json(body);
         let (_, receipt): (Value, _) = self.write(req).await?;
         Ok(Written { receipt })
     }

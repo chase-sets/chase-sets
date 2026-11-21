@@ -11,14 +11,18 @@
 //! refusal. Which fields a section has, their values, options and whether each may be edited come
 //! from the read model, so the form is drawn from it rather than written here.
 //!
+//! Each form carries its section's revision as the page read it (`sectionFingerprint`), and the save
+//! sends it as `If-Match`: the API refuses a save drawn from a revision another save has replaced,
+//! and takes one after a change to another section.
+//!
 //! Workaround, to remove when its issue lands: chase-sets/chase-sets#11074. The section command takes
 //! the whole section, so the save reads the version's authoring model
 //! (`GET .../provider-profiles/{key}/{version}/authoring`) and merges the posted fields over the
 //! stored ones as admin-web's `profileSectionCommandFromFormData` does, with its defaults and fixed
 //! values (fixtures never call the provider live, promotion is always reviewed, a retired profile is
-//! removed once its executable mapping contract is active, and the rest named in that issue). There
-//! is no revision check, as there. Migration evidence is not merged: it sends only the text and the
-//! fixture run, and Catalog stamps the rest (chase-sets/chase-sets#11068).
+//! removed once its executable mapping contract is active, and the rest named in that issue).
+//! Migration evidence is not merged: it sends only the text and the fixture run, and Catalog stamps
+//! the rest (chase-sets/chase-sets#11068).
 use std::collections::BTreeMap;
 
 use corten::{
@@ -30,7 +34,7 @@ use serde_json::{Map, Value, json};
 
 use super::{
     api::{Catalog as _, Kind, under},
-    command, daily,
+    command_at, daily,
     provider::{self, Done, again, answer},
 };
 use crate::{
@@ -64,6 +68,8 @@ pub struct Workspace {
     pub dirty_state: String,
     pub stale_state: String,
     pub save_outcome: String,
+    /// The section's revision as the page read it, which its save is checked against.
+    pub section_fingerprint: String,
     pub fields: Vec<Field>,
     pub diagnostics: Vec<Diagnostic>,
     pub semantic_change_count: u64,
@@ -122,6 +128,9 @@ pub const EDITABLE: [&str; 15] = [
 
 /// The version the form is for; the hidden field every section form carries.
 pub const PROFILE_VERSION: &str = "profileVersion";
+
+/// The section's revision as the page read it; the other hidden field every section form carries.
+pub const SECTION_FINGERPRINT: &str = "sectionFingerprint";
 
 /// What a section form posted: each field it sent, by name. A field the form left out (disabled, or
 /// a checkbox not checked) is missing, which keeps the stored value; one sent blank is blank.
@@ -489,7 +498,9 @@ pub(crate) async fn save(
         return again(&req, &staff, &config, &headers, &route.key, &context, super::not_offered(req.t())).await;
     };
     let rest = format!("/provider-profiles{}", under(&route.key, &[&version, "sections", section]));
-    let sent = command(&caller, Method::PATCH, Kind::SourceObservations, &rest, Some(&json!({ "command": command_body }))).await;
+    let revision = form.get(SECTION_FINGERPRINT).map_or("", |v| v.trim());
+    let body = json!({ "command": command_body });
+    let sent = command_at(&caller, Method::PATCH, Kind::SourceObservations, &rest, &body, revision).await;
     let changes = [("profileVersion", Some(version.as_str()))];
     answer(&req, &staff, &config, &headers, &route.key, &context, sent, &changes, Done::SectionSaved).await
 }

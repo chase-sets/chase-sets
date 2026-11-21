@@ -1868,6 +1868,8 @@ export const englishTranslations = {
   "catalog.features.sourceObservations.api.route.profile.review.invalid.json.valid.object": "Expected a valid JSON object request body.",
   "catalog.features.sourceObservations.api.route.profile.review.raw.patch.quarantined": "Broad Provider Integration Profile patching is quarantined; use section-scoped typed commands for normal authoring.",
   "catalog.features.sourceObservations.api.route.profile.review.unavailable": "Provider profile review is not available.",
+  "catalog.features.sourceObservations.api.route.profile.section.changed": "This section changed after the page read it. Read the profile again before saving.",
+  "catalog.features.sourceObservations.api.route.profile.section.fingerprint.required": "Saving a profile section needs the section revision it was read at. Read the profile again and resend the change.",
   "catalog.features.sourceObservations.api.route.rejection.requires.reason": "Rejection requires a reason.",
   "catalog.features.sourceObservations.api.route.source.observation.not.found": "Source observation not found.",
   "catalog.features.sourceObservations.api.route.telemetry.invalid.event": "Unknown Catalog control plane telemetry event.",
