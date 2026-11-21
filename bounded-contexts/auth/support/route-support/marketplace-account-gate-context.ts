@@ -47,6 +47,16 @@ export function marketplaceAccountGateContextMessage(returnTo: string): Marketpl
   }
 
   if (
+    PURCHASE_DETAIL_PATH.test(url.pathname) &&
+    url.searchParams.get(EMAIL_VERIFICATION_RETURN_PARAMETER) === ("pay-purchase" satisfies EmailVerificationPurpose)
+  ) {
+    return {
+      title: t("auth.routes.marketplace.accountGate.purchase.pay.verify.title"),
+      description: t("auth.routes.marketplace.accountGate.purchase.pay.verify.description"),
+    };
+  }
+
+  if (
     BUY_CHECKOUT_SESSION_PATH.test(url.pathname) &&
     url.searchParams.get(EMAIL_VERIFICATION_RETURN_PARAMETER) === ("pay-checkout" satisfies EmailVerificationPurpose)
   ) {
