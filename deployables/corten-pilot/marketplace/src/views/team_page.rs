@@ -1,7 +1,8 @@
 //! The account's team (Identity's `TeamPage`, a `CustomerSummaryPage`): the title and what the
 //! page is for; what the last write did; Invite (an email and a role); then each member, with its
 //! role and status, Change Role and Revoke (behind a dialog that asks first) or Reinstate, and each
-//! invitation, with Cancel (behind a dialog) while it is pending. One column on a phone, every
+//! invitation, with Resend and Cancel (behind a dialog) while it is pending. An invitation the last
+//! write saved but could not email is named in a warning that points to its Resend. One column on a phone, every
 //! control at least 2.75rem tall; from 48rem the invite form's fields sit side by side and each
 //! row's controls sit beside its words.
 use corten::prelude::*;
@@ -95,6 +96,7 @@ pub fn TeamPage<'a>(t: TeamMsg, p: Pilot, screen: &'a TeamScreen) -> impl Render
         Said::Unconfirmed { .. } => Some(("warning", t.manage_state_ambiguous())),
         Said::Denied => Some(("danger", t.manage_state_route_denied())),
     };
+    let unsent = screen.unsent.as_deref().and_then(|id| unsent_words(t, &screen.invitations, id));
     let again = match &screen.said {
         Said::Unconfirmed { attempt, action, target } => Some(
             url::Team {
@@ -121,6 +123,12 @@ pub fn TeamPage<'a>(t: TeamMsg, p: Pilot, screen: &'a TeamScreen) -> impl Render
                     }
                 </div>
             }
+            if let Some(words) = &unsent {
+                <div class={Banner} data-tone="warning">
+                    <p class={Strong}>{t.page_invitation_unsent()}</p>
+                    <p>{words}</p>
+                </div>
+            }
             if screen.pending {
                 <div class={Banner} data-tone="warning">
                     <p>{p.team_pending()}</p>
@@ -135,6 +143,17 @@ pub fn TeamPage<'a>(t: TeamMsg, p: Pilot, screen: &'a TeamScreen) -> impl Render
                 <InvitationRow t={t} p={p} invitation={invitation} said={&screen.said} />
             }
         </ul>
+    }
+}
+
+/// What the warning says of the invitation the last write could not email: its email while it is
+/// listed and open, nothing once it is not pending or is past its expiry, and that it will appear
+/// below until it is listed.
+fn unsent_words(t: TeamMsg, invitations: &[Invitation], id: &str) -> Option<String> {
+    match invitations.iter().find(|invitation| invitation.invitation_id == id) {
+        None => Some(t.page_invitation_unsent_unlisted().to_owned()),
+        Some(invitation) if invitation.open() => Some(t.page_invitation_unsent_description(&invitation.email).to_string()),
+        Some(_) => None,
     }
 }
 
@@ -246,8 +265,8 @@ fn MemberRow<'a>(t: TeamMsg, p: Pilot, member: &'a Membership, said: &'a Said) -
     }
 }
 
-/// An invitation: its email, role and status, and Cancel (a dialog that asks first) while it is
-/// pending.
+/// An invitation: its email, role and status, and Resend and Cancel (a dialog that asks first)
+/// while it is pending.
 #[component(css = TeamPage)]
 fn InvitationRow<'a>(t: TeamMsg, p: Pilot, invitation: &'a Invitation, said: &'a Said) -> impl Render {
     let f = TeamInput::FIELDS;
@@ -257,14 +276,14 @@ fn InvitationRow<'a>(t: TeamMsg, p: Pilot, invitation: &'a Invitation, said: &'a
     let summary = t
         .page_invitation_summary(crate::text::team_msg::PageInvitationSummary {
             role: role(t, &invitation.role_key),
-            status: invitation_status(t, &invitation.status),
+            status: invitation_status(t, invitation.effective_status()),
         })
         .to_string();
     let title = t.page_cancel_confirm_title(email).to_string();
     let description =
         t.page_cancel_confirm_description(crate::text::team_msg::PageCancelConfirmDescription { email, account }).to_string();
     let (title_id, text_id) = (format!("cancel-title-{id}"), format!("cancel-text-{id}"));
-    let pending = invitation.status == "pending";
+    let (pending, open) = (invitation.status == "pending", invitation.open());
     html! {
         <li class={Row} data-invitation={id}>
             <div class={Words}>
@@ -273,6 +292,20 @@ fn InvitationRow<'a>(t: TeamMsg, p: Pilot, invitation: &'a Invitation, said: &'a
             </div>
             if pending {
                 <div class={Controls}>
+                    if open {
+                        <form method="post" action={url::Team::default()}>
+                            <input type="hidden" name={f.intent} value="resend-invitation">
+                            <input type="hidden" name={f.invitation_id} value={id}>
+                            {SubmitKey::field(f.attempt)}
+                            <button
+                                type="submit"
+                                class={Secondary}
+                                disabled={said.holds(AccountAction::ResendInvitation, Some(id))}
+                            >
+                                {t.page_resend()}
+                            </button>
+                        </form>
+                    }
                     <button type="button" class={Danger} command="show-modal" commandfor={CancelInvitationDialogId(id)}>
                         {t.page_cancel()}
                     </button>

@@ -367,6 +367,7 @@ export function TimeSeriesChart({
     return (
       <div {...nativeProps}>
         <EmptyState
+          heading={false}
           icon="chart"
           title={hasAnyData ? insufficientTitle : emptyTitle}
           description={hasAnyData ? resolvedInsufficientDescription : emptyDescription}
@@ -592,7 +593,7 @@ export function NumericSeriesChart({
     return (
       <div {...nativeProps} role="alert">
         {titleNode}
-        <EmptyState icon="chart" title={errorTitle} description={error} />
+        <EmptyState heading={false} icon="chart" title={errorTitle} description={error} />
       </div>
     );
   }
@@ -601,6 +602,7 @@ export function NumericSeriesChart({
       <div {...nativeProps}>
         {titleNode}
         <EmptyState
+          heading={false}
           icon="chart"
           title={hasAnyData ? insufficientTitle : emptyTitle}
           description={hasAnyData ? resolvedInsufficientDescription : emptyDescription}

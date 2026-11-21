@@ -2,12 +2,8 @@
 // - Read, on a shipment awaiting its package: the shipment's page offers Start packing as
 //   marketplace's does, and the packing page says Ready to start; at 390 px nothing scrolls
 //   sideways and every control is at least 40 px tall.
-// - Start packing, with JavaScript. The sandbox's API refuses every packing write on the seeded
-//   shipments and cannot say what came of them, so while it does the
-//   page must say it could not confirm the write, with every write off; Discard forgets the
-//   browser's record and the page's writes are on again. Nothing is applied.
-// - Once the API applies a start, the rest WRITES and cannot be undone, using up
-//   the sandbox's shipments that await their package: checking the line, unchecking it and
+// - The rest WRITES and cannot be undone, using up the sandbox's shipments that await their
+//   package. Start packing, with JavaScript, applies; checking the line, unchecking it and
 //   scanning its title change the line, the progress and Finish in place with no navigation;
 //   Finish records one package and loads the shipment's page. Without JavaScript, on another
 //   shipment, the same as pages. At 390 px Finish stays on screen. No console errors.
@@ -112,53 +108,16 @@ async function begin(page, shipment) {
   await ctx.close();
 }
 
-// Start packing with JavaScript; while the API cannot say what came of it, the page says so.
-let blocked = false;
+// With JavaScript: Start packing applies, then the whole flow, in place.
 {
-  const shipment = open[0];
-  const { ctx, page, problems } = await context();
-  await begin(page, shipment);
-  const status = (await read(`/${shipment.shipment_id}`)).status;
-  if (status === "packing") {
-    console.log(`ok   Start packing applied on ${shipment.shipment_id}`);
-  } else {
-    blocked = true;
-    await page.getByText("We could not confirm your last packing change").waitFor();
-    check(
-      new URL(page.url()).searchParams.has("check"),
-      `the API refused it and cannot say what came of it: the page asks (${page.url()})`,
-    );
-    const off = await page.evaluate(() => [...document.querySelectorAll("main fieldset")].every((f) => f.disabled));
-    check(off, "every write is off");
-    const remembered = () =>
-      page.evaluate(() => Object.keys(sessionStorage).filter((k) => k.startsWith("shipment-mutation/")).length);
-    check((await remembered()) === 1, "the browser keeps its record of the write");
-    await page.getByRole("link", { name: "Check again" }).click();
-    await page.getByText("We could not confirm your last packing change").waitFor();
-    check(true, "Check again asks the API again, which still cannot say");
-    page.once("dialog", (d) => d.accept());
-    await page.getByRole("button", { name: "Discard recovery metadata" }).click();
-    await page.waitForURL((url) => !url.searchParams.has("check"));
-    await page.getByText("We could not confirm your last packing change").waitFor({ state: "detached" });
-    check((await remembered()) === 0, "Discard forgets the record");
-    check(await page.getByRole("button", { name: "Start packing" }).isEnabled(), "and the page's writes are on again");
-    check((await read(`/${shipment.shipment_id}`)).status === "awaiting-package", "nothing was applied");
-    console.log("BLOCKED the packing writes: chase-sets/chase-sets#10645 (the seeded shipments' tenant)");
-  }
-  check(
-    problems.filter((p) => !p.includes("502")).length === 0,
-    `no console errors but the refused write's ${problems.join(" | ")}`,
-  );
-  await ctx.close();
-}
-
-// With JavaScript, once the API applies a start: the whole flow, in place.
-if (!blocked) {
   const shipment = open.shift();
   const { ctx, page, problems } = await context();
   await begin(page, shipment);
   const detail = await read(`/${shipment.shipment_id}`);
-  check(detail.status === "packing", `the API says ${shipment.shipment_id} is packing (${detail.status})`);
+  check(
+    detail.status === "packing",
+    `Start packing applies: the API says ${shipment.shipment_id} is packing (${detail.status})`,
+  );
   const ours = await main(page);
   // Marketplace's packing page for the same shipment, in the same state.
   const theirs = await (async () => {
@@ -232,9 +191,7 @@ if (!blocked) {
 }
 
 // Without JavaScript, on another shipment, and the layout at 390 px.
-if (blocked) {
-  console.log("SKIP the rest: chase-sets/chase-sets#10645");
-} else if (open.length === 0) {
+if (open.length === 0) {
   console.log("SKIP without JavaScript: no second shipment to pack");
 } else {
   const shipment = open.shift();

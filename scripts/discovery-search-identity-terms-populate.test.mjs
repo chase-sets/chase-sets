@@ -15,46 +15,65 @@ const args = [
   "--authorization=synthetic-test",
 ];
 
-test.each(["require", "verify-full"])(
-  "population pools use the shared TLS seam for sslmode=%s without connecting",
-  (mode) => {
-    const resolver = new URL("../infrastructure/platform-runtime/typescript-resolver.mjs", import.meta.url).href;
-    const entrypoint = new URL("./discovery-search-identity-terms-populate.mjs", import.meta.url).href;
-    const result = spawnSync(
-      process.execPath,
-      [
-        "--input-type=module",
-        "--eval",
-        `import { register } from "node:module";
+test.each([
+  ["verify-full", "admitted"],
+  ["require", "remote-postgres-sslmode-downgraded"],
+])("population pools use the shared TLS seam for sslmode=%s without connecting", (mode, outcome) => {
+  const resolver = new URL("../infrastructure/platform-runtime/typescript-resolver.mjs", import.meta.url).href;
+  const entrypoint = new URL("./discovery-search-identity-terms-populate.mjs", import.meta.url).href;
+  const caPath = encodeURIComponent("/var/run/secrets/chase-sets/managed-postgres/ca.crt");
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "--eval",
+      `import { register } from "node:module";
        import assert from "node:assert/strict";
        import pg from "pg";
        register(${JSON.stringify(resolver)});
        const { createIdentityTermsPopulationPools } = await import(${JSON.stringify(entrypoint)});
-       const connectionString = "postgresql://synthetic:synthetic@managed.invalid/discovery?sslmode=${mode}";
-       const { pool, controlPool } = await createIdentityTermsPopulationPools({
-         DATABASE_URL_DISCOVERY: connectionString,
-         PLATFORM_CONTROL_DATABASE_URL: connectionString.replace("/discovery?", "/control?"),
-       });
+       const connectionString = "postgresql://synthetic:synthetic@managed.invalid/discovery?sslmode=${mode}&sslrootcert=${caPath}&uselibpqcompat=true";
+       let pools;
+       try {
+         pools = await createIdentityTermsPopulationPools({
+           DATABASE_URL_DISCOVERY: connectionString,
+           PLATFORM_CONTROL_DATABASE_URL: connectionString.replace("/discovery?", "/control?"),
+         });
+       } catch (error) {
+         assert.equal(error.classification, "${outcome}");
+         process.exit(0);
+       }
+       assert.equal("${outcome}", "admitted");
+       const { pool, controlPool } = pools;
        try {
          for (const [actual, max, database] of [[pool, 1, "/discovery"], [controlPool, 2, "/control"]]) {
            const url = new URL(actual.options.connectionString);
            assert.equal(url.pathname, database);
-           assert.equal(url.searchParams.get("sslmode"), "${mode}");
+           assert.equal(url.searchParams.get("sslmode"), "verify-full");
            assert.equal(url.searchParams.get("uselibpqcompat"), "true");
-           assert.deepEqual(actual.options.ssl, { rejectUnauthorized: ${mode === "verify-full"} });
-           assert.deepEqual(new pg.Client(actual.options).ssl, ${mode === "verify-full" ? "{}" : "{ rejectUnauthorized: false }"});
+           assert.equal(actual.options.ssl, undefined);
+           assert.notEqual(actual.options.Client, undefined);
+           assert.notEqual(actual.options.Client, pg.Client);
            assert.equal(actual.options.max, max);
            assert.equal(actual.totalCount, 0);
          }
        } finally {
          await Promise.all([pool.end(), controlPool.end()]);
        }`,
-      ],
-      { encoding: "utf8", env: { ...process.env, PGSSLROOTCERT: "" } },
-    );
-    assert.equal(result.status, 0, result.error?.message ?? result.stderr);
-  },
-);
+    ],
+    {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        DEPLOYMENT_ENVIRONMENT: "production",
+        GITHUB_ACTIONS: "",
+        KUBERNETES_SERVICE_HOST: "10.245.0.1",
+        PGSSLROOTCERT: "",
+      },
+    },
+  );
+  assert.equal(result.status, 0, result.error?.message ?? result.stderr);
+});
 
 test("population dependencies load in native Node without opening database connections", () => {
   const resolver = new URL("../infrastructure/platform-runtime/typescript-resolver.mjs", import.meta.url).href;

@@ -79,6 +79,11 @@ import {
   type PlatformRemedyPolicyValue,
 } from "../domain/platform-remedy-policy";
 import {
+  describeSupportRemedyOffer,
+  type SupportRemedyOffer,
+  type SupportRemedyOfferRequest,
+} from "../domain/remedy-offer";
+import {
   buildSupportRequestTransactionalEmailProjectionHandlers,
   SUPPORT_REQUEST_TRANSACTIONAL_EMAIL_PROJECTION,
 } from "../integrations/transactional-email/transactional-email-projector";
@@ -499,6 +504,11 @@ export type SupportRequestServices = Readonly<{
     supportRequestId: string,
     now?: string,
   ) => ReturnType<typeof getSupportOperationsRequest>;
+  /** The remedy choices and actions the active policy offers this actor on a support request. */
+  describeSupportRemedyOffer: (
+    supportRequest: SupportRemedyOfferRequest,
+    actor: Readonly<{ accountId: string; permissions: readonly string[] }>,
+  ) => Promise<SupportRemedyOffer>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
@@ -2246,6 +2256,16 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
     getAccountSupportRequest: (supportRequestId, accountId) =>
       getAccountSupportRequest(deps.db, supportRequestId, accountId),
     getSupportOperationsRequest: (supportRequestId, now) => getSupportOperationsRequest(deps.db, supportRequestId, now),
+    describeSupportRemedyOffer: async (supportRequest, actor) => {
+      const { value: policy, version: policyVersion } = await resolvePlatformRemedyPolicy();
+      return describeSupportRemedyOffer({
+        request: supportRequest,
+        policy,
+        policyVersion,
+        actor,
+        now: deps.now?.() ?? new Date().toISOString(),
+      });
+    },
     projectors: [
       createProjectionHandlerSet({
         projectionName: "support-request-projection",

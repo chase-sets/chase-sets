@@ -540,7 +540,7 @@ describe("invitation auth routes", () => {
 
   it("waits for the forwarded invitation projection version before reading, then emails", async () => {
     const services = createServices();
-    const awaitInvitationProjectionFreshness = vi.fn(async (_receipt: FreshWriteReceipt) => undefined);
+    const awaitInvitationProjectionFreshness = vi.fn(async (_receipt: FreshWriteReceipt) => "fresh" as const);
     const withWaiter = { ...services, awaitInvitationProjectionFreshness };
     const identityMutations = createIdentityMutations();
     mockCreateIdentityAuthRequestClient.mockReturnValue(identityMutations);
@@ -570,7 +570,7 @@ describe("invitation auth routes", () => {
 
   it("still reads and emails without a forwarded receipt (unchanged behavior)", async () => {
     const services = createServices();
-    const awaitInvitationProjectionFreshness = vi.fn(async (_receipt: FreshWriteReceipt) => undefined);
+    const awaitInvitationProjectionFreshness = vi.fn(async (_receipt: FreshWriteReceipt) => "fresh" as const);
     const identityMutations = createIdentityMutations();
     mockCreateIdentityAuthRequestClient.mockReturnValue(identityMutations);
     const app = buildApp({ ...services, awaitInvitationProjectionFreshness });
@@ -586,7 +586,7 @@ describe("invitation auth routes", () => {
     expect(services.identity.getInvitation).toHaveBeenCalledTimes(1);
   });
 
-  it("falls back to emailing when the invitation projection never catches up within the bound", async () => {
+  it("emails a pending invitation the projection already shows even when the wait runs out", async () => {
     const services = createServices();
     // Real bounded waiter whose checkpoint never reaches the forwarded version.
     const awaitInvitationProjectionFreshness = createInvitationProjectionFreshnessWaiter({
@@ -613,6 +613,67 @@ describe("invitation auth routes", () => {
     expect(response.status).toBe(200);
     expect(services.identity.getInvitation).toHaveBeenCalledTimes(1);
     expect(services.notificationOutbox.enqueueNotification).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks the caller to try again when the projection has not reached the write and lacks the invitation", async () => {
+    const services = createServices();
+    const awaitInvitationProjectionFreshness = createInvitationProjectionFreshnessWaiter({
+      readInvitationProjectionPosition: async () => "1",
+      timeoutMs: 40,
+      pollIntervalMs: 1,
+    });
+    const identityMutations = createIdentityMutations();
+    mockCreateIdentityAuthRequestClient.mockReturnValue(identityMutations);
+    const app = buildApp({
+      ...services,
+      identity: { ...services.identity, getInvitation: vi.fn(async (_invitationId: string) => null) },
+      awaitInvitationProjectionFreshness,
+    });
+
+    const response = await app.request("https://marketplace.test/invitations/acceptance-link/request", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-forwarded-for": "203.0.113.13",
+        ...invitationFreshWriteHeader("999"),
+      },
+      body: JSON.stringify({ invitationId: "ivt_behind" }),
+    });
+
+    // Not "unavailable": the invitation was written but this read cannot see it yet.
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "projection_freshness_timeout",
+        message: "This invitation cannot be sent yet. Try again in a moment.",
+      },
+    });
+    expect(identityMutations.issueInvitationAcceptanceToken).not.toHaveBeenCalled();
+    expect(services.notificationOutbox.enqueueNotification).not.toHaveBeenCalled();
+  });
+
+  it("still answers unavailable for an invitation the caught-up projection lacks", async () => {
+    const services = createServices();
+    const identityMutations = createIdentityMutations();
+    mockCreateIdentityAuthRequestClient.mockReturnValue(identityMutations);
+    const app = buildApp({
+      ...services,
+      identity: { ...services.identity, getInvitation: vi.fn(async (_invitationId: string) => null) },
+      awaitInvitationProjectionFreshness: vi.fn(async (_receipt: FreshWriteReceipt) => "fresh" as const),
+    });
+
+    const response = await app.request("https://marketplace.test/invitations/acceptance-link/request", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-forwarded-for": "203.0.113.14",
+        ...invitationFreshWriteHeader("42"),
+      },
+      body: JSON.stringify({ invitationId: "ivt_gone" }),
+    });
+
+    expect(response.status).toBe(404);
+    expect(identityMutations.issueInvitationAcceptanceToken).not.toHaveBeenCalled();
   });
 
   it("completes the invite, email link, acceptance, and invited-account session journey", async () => {
