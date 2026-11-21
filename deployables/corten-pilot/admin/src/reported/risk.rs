@@ -7,7 +7,7 @@
 //! | Route | Answers |
 //! |---|---|
 //! | `GET /support/risk-alerts?status&alertKind` | the counts and the queue (100 at most, as admin-web reads it) |
-//! | `GET /support/risk-alerts/{alertId}?after_write&recorded` | an alert's page |
+//! | `GET /support/risk-alerts/{alertId}?after_write` | an alert's page |
 //! | `POST /support/risk-alerts/{alertId}` | a response (`action`, `note`), then the page |
 //!
 //! Request manual payout review is offered only for a candidate, as admin-web offers it; the API
@@ -20,7 +20,7 @@ use platform::receipt::Receipt;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
-use super::{ActionForm, After, after_action, behind, chosen, views};
+use super::{ActionForm, chosen, views};
 use crate::{
     api::{ApiError, Caller as ApiCaller, Method, segment},
     app::{Shared, read_failed, sign_in},
@@ -57,13 +57,12 @@ pub mod url {
         pub alert_kind: Option<String>,
     }
 
-    /// An alert's page, after the response whose receipt (or recorded time) the address carries;
-    /// a `POST` is a response.
+    /// An alert's page, after the response whose receipt the address carries; a `POST` is a
+    /// response.
     #[route("/support/risk-alerts/{alert_id}", get = alert, post = act)]
     pub struct Alert<'a> {
         pub alert_id: &'a str,
         pub after_write: Option<String>,
-        pub recorded: Option<String>,
     }
 }
 
@@ -180,8 +179,8 @@ async fn alert(
     headers: HeaderMap,
     Params(route): Params<url::Alert<'_>>,
 ) -> HtmlResult {
-    let after = After { receipt: Receipt::from_param(route.after_write.as_deref()), recorded: route.recorded.as_deref() };
-    draw(&req, &staff.viewer, &config, &headers, route.alert_id.as_str(), after, None, StatusCode::OK).await
+    let receipt = Receipt::from_param(route.after_write.as_deref());
+    draw(&req, &staff.viewer, &config, &headers, route.alert_id.as_str(), receipt, None, StatusCode::OK).await
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -191,7 +190,7 @@ async fn draw(
     config: &Shared,
     headers: &HeaderMap,
     alert_id: &str,
-    After { receipt, recorded }: After<'_>,
+    receipt: Option<Receipt>,
     refusal: Option<String>,
     status: StatusCode,
 ) -> HtmlResult {
@@ -209,8 +208,6 @@ async fn draw(
         }
         Err(error) => return read_failed(req, error, receipt.is_some()),
     };
-    // A response answers no receipt (chase-sets/chase-sets#10835).
-    catching_up |= behind(recorded, alert.last_action_at.as_deref());
     let screen = AlertScreen { alert, refusal, catching_up };
     let t: Ops = req.t();
     let title = t.risk_detail_meta_title(&views::alert_kind(t, &screen.alert.alert_kind)).to_string();
@@ -244,9 +241,9 @@ async fn act(
     let caller = config.platform.caller(&headers, config.proto, None);
     let body = json!({ "action": form.action, "note": note });
     match caller.write::<Value>(caller.request(Method::POST, &path, CONTEXT).json(&body)).await {
-        Ok((answer, receipt)) => {
-            let (after_write, recorded) = after_action(&answer, receipt.as_ref());
-            req.redirect(&url::Alert { alert_id, after_write, recorded })
+        Ok((_, receipt)) => {
+            let after_write = receipt.as_ref().map(Receipt::param);
+            req.redirect(&url::Alert { alert_id, after_write })
         }
         Err(error) => {
             let status = match error.status() {
@@ -260,7 +257,7 @@ async fn act(
                 StatusCode::CONFLICT | StatusCode::FORBIDDEN | StatusCode::NOT_FOUND => status,
                 _ => StatusCode::UNPROCESSABLE_ENTITY,
             };
-            draw(&req, &staff.viewer, &config, &headers, alert_id, After::default(), refusal, status).await
+            draw(&req, &staff.viewer, &config, &headers, alert_id, None, refusal, status).await
         }
     }
 }
