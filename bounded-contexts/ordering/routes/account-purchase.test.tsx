@@ -107,8 +107,17 @@ const unverifiedCollector = {
 };
 // The same member after consuming the magic link: Auth re-resolves the actor
 // per request, and a verified email no longer withholds orders.manage.
-const verifiedCollector = { ...unverifiedCollector, permissions: ["orders.view", "orders.manage"], withheldPermissions: [] };
-const viewerMember = { ...unverifiedCollector, roleKey: "viewer", permissions: ["orders.view"], withheldPermissions: [] };
+const verifiedCollector = {
+  ...unverifiedCollector,
+  permissions: ["orders.view", "orders.manage"],
+  withheldPermissions: [],
+};
+const viewerMember = {
+  ...unverifiedCollector,
+  roleKey: "viewer",
+  permissions: ["orders.view"],
+  withheldPermissions: [],
+};
 
 let actor: typeof unverifiedCollector = unverifiedCollector;
 const cancelledOrderIds: string[] = [];

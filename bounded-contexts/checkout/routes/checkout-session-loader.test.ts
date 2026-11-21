@@ -267,7 +267,11 @@ describe("checkout web routes: checkout session loader", () => {
   it.each([
     [
       "an owner whose email is unverified",
-      { roleKey: "owner", permissions: ["orders.view"], withheldPermissions: [{ permission: "orders.manage", reason: "email_verification_required" as const }] },
+      {
+        roleKey: "owner",
+        permissions: ["orders.view"],
+        withheldPermissions: [{ permission: "orders.manage", reason: "email_verification_required" as const }],
+      },
       true,
     ],
     ["an owner who may pay", { roleKey: "owner", permissions: ["orders.view", "orders.manage"] }, false],

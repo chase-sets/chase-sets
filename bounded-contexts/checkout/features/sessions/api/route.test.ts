@@ -2735,7 +2735,11 @@ describe("checkout session routes", () => {
     });
     const app = buildApp(
       services,
-      createBuyerActor({ roleKey: "owner", permissions: ["orders.view"], ...withheldFor("email_verification_required") }),
+      createBuyerActor({
+        roleKey: "owner",
+        permissions: ["orders.view"],
+        ...withheldFor("email_verification_required"),
+      }),
     );
 
     const response = await app.fetch(
