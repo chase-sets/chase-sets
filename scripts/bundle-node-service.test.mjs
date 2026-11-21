@@ -12,8 +12,8 @@ const repoRoot = fileURLToPath(new URL("../", import.meta.url));
 const roots = [];
 const assetSource = "bounded-contexts/platform-operations/features/support-requests/api/evidence-canonicalization.ts";
 const baselineScriptDigests = {
-  "platform-api": "24bf70e1121ced1b8dd484573f93eb86d1fa2b977f0c924c46af9a528764b280",
-  "platform-worker": "b968c49f7ec21e7b2ddd4ee0f390f422cdbd408dc108e12bd61f8db83fcf7eac",
+  "platform-api": "7a2cf61a3977fc27f371d6fb2e1c33e2cb3495a817b9c088fc9fac3714318c67",
+  "platform-worker": "522296d47d1f48a1d9655e5c25666723e3f794ba2366ce1b0b386a676da778f2",
 };
 
 async function put(root, name, contents) {

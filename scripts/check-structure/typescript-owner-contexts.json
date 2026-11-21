@@ -4,7 +4,7 @@
     "packageName": "@chase-sets/typescript-compiler-api",
     "packageVersion": "0.1.0",
     "packagePath": "packages/typescript-compiler-api/package.json",
-    "packageSha256": "80f3e2148b3729abf481c879ec7c4cd19fa4a3a0961eaf0c4413eaaf1d6bf10f",
+    "packageSha256": "3430b039f0f75cecb97491512c59f1dcaaf650bc868bcf4bf22856125b935777",
     "wrapperPath": "packages/typescript-compiler-api/index.mjs",
     "wrapperSha256": "469a5a1831ddc6bfda4fbe753a8ce384c63bfe6f86e4e09083b3bfc30f579c69"
   },
