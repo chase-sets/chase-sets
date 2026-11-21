@@ -8,6 +8,6 @@
     "./policy-corpus": "./policy-corpus.ts"
   },
   "scripts": {
-    "typecheck": "tsc -p ./tsconfig.json --noEmit"
+    "typecheck": "node ../../scripts/verify-typecheck.mjs --workspace=@chase-sets/public-docs"
   }
 }

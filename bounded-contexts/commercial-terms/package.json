@@ -7,7 +7,8 @@
     "test": "vitest run --config ./tests/vitest.config.mjs",
     "test:unit": "vitest run --config ./tests/vitest.config.mjs --exclude features/agreements/read-model/queries.db.test.ts",
     "test:db": "vitest run --config ./tests/vitest.config.mjs features/agreements/read-model/queries.db.test.ts",
-    "test:watch": "vitest --config ./tests/vitest.config.mjs"
+    "test:watch": "vitest --config ./tests/vitest.config.mjs",
+    "typecheck": "node ../../scripts/verify-typecheck.mjs --workspace=@chase-sets/commercial-terms"
   },
   "exports": {
     ".": "./index.ts",
