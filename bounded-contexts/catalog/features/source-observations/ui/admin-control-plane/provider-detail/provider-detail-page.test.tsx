@@ -375,6 +375,37 @@ describe("CatalogProviderDetailPage", () => {
 
     expect(screen.getAllByText(/activat/i).length).toBeGreaterThan(0);
   });
+
+  it("says a provider refresh run failed instead of showing it as done", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
+      requestUrl: "https://admin.example/catalog/providers/tcgdex?providerKey=tcgdex",
+      scopes: { items: [sourceObservationScope({ provider_key: "tcgdex" })], total: 1, count: 1 },
+      profileReviews: { items: [], total: 0, count: 0 },
+      controlPlaneOverview: controlPlaneOverview(),
+      canManageCatalog: true,
+    });
+
+    render(
+      <CatalogProviderDetailPage
+        readModel={readModel}
+        commandFeedback={{ status: "error", intent: "run-provider-refresh", result: "refresh-run-failed" }}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.runFailed.title"),
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.runFailed")),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText(
+        t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.ran.title"),
+      ),
+    ).toBeNull();
+  });
 });
 
 describe("CatalogProviderDetailPage Operator session section", () => {

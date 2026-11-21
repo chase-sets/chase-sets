@@ -1,3 +1,4 @@
+import { attachResponseMetadata } from "@chase-sets/http/responses";
 import { createForwardedAuthHeaders, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
 import type {
   ListingEvidencePolicyOverview,
@@ -27,7 +28,7 @@ async function read<T>(response: Response): Promise<T> {
       body?.error?.message ?? `Listing Evidence Policy request failed (${response.status}).`,
     );
   }
-  return (await response.json()) as T;
+  return attachResponseMetadata(await response.json(), response) as T;
 }
 
 export class ListingEvidencePolicyRequestError extends Error {

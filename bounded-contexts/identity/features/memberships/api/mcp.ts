@@ -123,7 +123,9 @@ export function createMembershipMcpHandlers(
   const listMembershipItems: McpToolHandler = async ({ actor, arguments: args }) => {
     const scopedActor = requireViewer(actor);
     const result = await services.listMemberships({
-      search: scopedActor.roleKey === PLATFORM_ADMIN_ROLE_KEY ? optionalString(args, "search") : scopedActor.accountId,
+      ...(scopedActor.roleKey === PLATFORM_ADMIN_ROLE_KEY
+        ? { search: optionalString(args, "search") }
+        : { accountId: scopedActor.accountId }),
       status: optionalString(args, "status"),
       limit: optionalInteger(args, "limit"),
       offset: optionalInteger(args, "offset"),

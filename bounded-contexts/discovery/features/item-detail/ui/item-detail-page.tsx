@@ -13,8 +13,8 @@ import {
   Text,
 } from "@chase-sets/design-system";
 import type {
-  DiscoveryItemDetail,
   DiscoveryAccountOfferMatch,
+  DiscoveryItemDetail,
   DiscoverySimilarItem,
 } from "../../../support/client-support/contracts";
 import { imageVariantSrcSet } from "../../../support/client-support/assets";
@@ -46,7 +46,7 @@ export function ItemDetailPage({
   hasInitialSelectedOptionFilters = false,
   renderCommerce,
 }: {
-  data: DiscoveryItemDetail | null;
+  data: LoadedItemDetailPageProps["data"] | null;
   similarItems?: readonly DiscoverySimilarItem[];
   notFound?: boolean;
   error?: string | null;

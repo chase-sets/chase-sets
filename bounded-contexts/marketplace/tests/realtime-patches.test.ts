@@ -3,7 +3,7 @@ import type { RealtimeProjectionPatch } from "@chase-sets/platform-runtime/realt
 import { applyMarketplaceListPatch, applySubmittedOfferListPatch } from "../support/realtime-support/patches";
 import {
   createMarketplaceOfferMatchPatch,
-  createMarketplaceOfferPatch,
+  createMarketplaceSubmittedOfferPatch,
 } from "../support/realtime-support/projection-patches";
 import { listOfferMatchesForSellers } from "../features/offers/read-model/queries";
 
@@ -68,9 +68,10 @@ describe("marketplace realtime list patches", () => {
 });
 
 describe("marketplace realtime offer-match patch payloads", () => {
-  it("omits private shipping destination snapshots from offer patches", () => {
+  it("keeps Away standing in the owner's patch only and omits shipping destinations on both topics", () => {
     const offer = {
       offer_id: "offer_1",
+      offers_away: true,
       shipping_destination_snapshot: {
         name: "Private Buyer",
         line1: "100 Market Street",
@@ -82,9 +83,11 @@ describe("marketplace realtime offer-match patch payloads", () => {
       },
     };
 
-    const offerPatch = createMarketplaceOfferPatch(["account:buyer:offers"], offer);
+    const offerPatch = createMarketplaceSubmittedOfferPatch("acc_buyer", offer);
     const offerMatchPatch = createMarketplaceOfferMatchPatch(["account:seller:offers"], "offer_1", offer);
 
+    expect(offerPatch.changes[0]).toMatchObject({ value: { offers_away: true } });
+    expect(offerMatchPatch.changes[0]).not.toHaveProperty("value.offers_away");
     expect(JSON.stringify({ offerPatch, offerMatchPatch })).not.toContain("shipping_destination_snapshot");
     expect(JSON.stringify({ offerPatch, offerMatchPatch })).not.toContain("alternate-contact@example.test");
   });

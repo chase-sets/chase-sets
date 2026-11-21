@@ -384,7 +384,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
     ],
   },
   "bootstrap-shared-seed-command.db.test.ts": {
-    executionUnit: "test:db:2",
+    executionUnit: "test:db:4",
     databaseSuffix: "platform_api_bootstrap_shared_seed_command",
     bootBearingCases: "all",
     cases: [
@@ -513,12 +513,16 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
   },
 });
 
-// Retain the three-unit topology; unit 1 includes eight newly enrolled direct-lease cases.
 export const bootstrapDbExecutionUnitBootBearingCaseCeilings = Object.freeze({
   "test:db:1": 26,
   "test:db:2": 32,
   "test:db:3": 19,
+  "test:db:4": 2,
 });
+
+// Capacity for the current 77 boots plus one case in the next file. The timing
+// model still has to fit; a boot slot alone says nothing about hosted duration.
+const minimumBootBearingCapacity = 78;
 
 /**
  * Historical timing inputs, provenance, and residuals remain in the
@@ -541,7 +545,7 @@ export const bootstrapDbScheduleModel = Object.freeze({
   executionUnitCeilingMs: 420000,
   aggregateCeilingMs: 1080000,
   maximumCaseReferenceDurationMs: 600000,
-  maximumScheduledFileCount: 12,
+  maximumScheduledFileCount: 13,
   maximumEnumeratedUnitCount: 4,
 });
 
@@ -1911,6 +1915,7 @@ function projectExecutionUnitSchedule({
   partitionFileNames,
   observedUnitNames,
   executionUnitBootBearingCaseCeilings,
+  requiredBootBearingCapacity,
   scheduleModel,
   measuredOneFewerUnitFloor,
 }) {
@@ -1973,6 +1978,22 @@ function projectExecutionUnitSchedule({
   }
 
   const { minimumUnitCount, refusal, oneFewer } = calculateMinimumAndOneFewer(scheduledFiles, scheduleModel);
+  // Taking the largest ceilings first gives an upper bound on what any smaller
+  // topology could hold, regardless of which files could actually be packed.
+  const bootCeilings = shippedUnits
+    .map((unit) => unit.bootBearingCeiling)
+    .filter((ceiling) => Number.isSafeInteger(ceiling) && ceiling > 0)
+    .sort((left, right) => right - left);
+  let bootCapacity = 0;
+  let bootCapacityMinimumUnitCount = 0;
+  while (bootCapacity < requiredBootBearingCapacity && bootCapacityMinimumUnitCount < bootCeilings.length) {
+    bootCapacity += bootCeilings[bootCapacityMinimumUnitCount++];
+  }
+  if (bootCapacity < requiredBootBearingCapacity) {
+    violations.push(
+      `the shipped topology provides ${bootCapacity} boot-bearing case slots, below the required ${requiredBootBearingCapacity}`,
+    );
+  }
   const floorVerdict = measuredOneFewerUnitFloorVerdict({
     floor: measuredOneFewerUnitFloor,
     modelRefused: Boolean(refusal),
@@ -1983,21 +2004,19 @@ function projectExecutionUnitSchedule({
   });
   const effectiveMinimumUnitCount = refusal
     ? null
-    : floorVerdict.applied
-      ? Math.max(minimumUnitCount, shippedUnits.length)
-      : minimumUnitCount;
+    : Math.max(minimumUnitCount, bootCapacityMinimumUnitCount, floorVerdict.applied ? shippedUnits.length : 0);
   if (refusal) {
     violations.push(refusal);
   } else if (shippedUnits.length > effectiveMinimumUnitCount) {
     violations.push(
       `the shipped topology spends ${shippedUnits.length} execution units where the schedule model's ` +
-        `minimumUnitCount for the same file set is ${minimumUnitCount}; execution units of one workspace run ` +
+        `minimumUnitCount for the same file set is ${effectiveMinimumUnitCount}; execution units of one workspace run ` +
         "serially, so an unnecessary unit is spent aggregate budget",
     );
   } else if (shippedUnits.length < effectiveMinimumUnitCount) {
     violations.push(
       `the shipped topology spends ${shippedUnits.length} execution units below the schedule model's ` +
-        `minimumUnitCount of ${minimumUnitCount}`,
+        `minimumUnitCount of ${effectiveMinimumUnitCount}`,
     );
   }
 
@@ -2035,6 +2054,7 @@ export function checkBootstrapDbEnrollment({
   platformApiRoot,
   manifest = bootstrapDbEnrollmentManifest,
   executionUnitBootBearingCaseCeilings = bootstrapDbExecutionUnitBootBearingCaseCeilings,
+  requiredBootBearingCapacity = minimumBootBearingCapacity,
   scheduleModel = bootstrapDbScheduleModel,
   nonBootstrapCensus = platformApiProductDbProofCensus,
   measuredOneFewerUnitFloor = bootstrapDbMeasuredOneFewerUnitFloor,
@@ -2050,6 +2070,10 @@ export function checkBootstrapDbEnrollment({
   const validatedScheduleModel = scheduleModelValidation.model;
   const scheduleModelIsUsable = validatedScheduleModel !== null;
   violations.push(...scheduleModelValidation.violations);
+  const bootCapacityIsUsable = Number.isSafeInteger(requiredBootBearingCapacity) && requiredBootBearingCapacity >= 0;
+  if (!bootCapacityIsUsable) {
+    violations.push("required boot-bearing case capacity must be a non-negative safe integer");
+  }
   if (validatedScheduleModel) {
     violations.push(...validateManifestShape(manifest, executionUnitBootBearingCaseCeilings, validatedScheduleModel));
   }
@@ -2327,6 +2351,7 @@ export function checkBootstrapDbEnrollment({
         partitionFileNames,
         observedUnitNames,
         executionUnitBootBearingCaseCeilings,
+        requiredBootBearingCapacity: bootCapacityIsUsable ? requiredBootBearingCapacity : 0,
         scheduleModel: validatedScheduleModel,
         measuredOneFewerUnitFloor,
       })
@@ -2398,6 +2423,9 @@ export function formatBootstrapDbEnrollmentResult(result) {
       `${formatSeconds(bootstrapDbScheduleModel.aggregateCeilingMs)}`,
     `  minimumUnitCount ${schedule.minimumUnitCount} observedUnitCount ${schedule.observedUnitCount}`,
   );
+  if (!schedule.measuredOneFewerUnitFloor.applied && schedule.effectiveMinimumUnitCount > schedule.minimumUnitCount) {
+    lines.push(`  boot-bearing capacity requires ${schedule.effectiveMinimumUnitCount} execution units`);
+  }
   if (schedule.measuredOneFewerUnitFloor.applied) {
     lines.push(
       `  measured one-fewer-unit floor applied: ${schedule.measuredOneFewerUnitFloor.reason}; ` +

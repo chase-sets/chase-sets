@@ -19,8 +19,8 @@ import {
 } from "@chase-sets/platform-runtime/worker-event-capability";
 import { createPlatformApiHost } from "./app";
 import { createPlatformBootstrapStoragePorts } from "./bootstrap-storage";
-import { loadBootstrapConfig } from "./config";
-import { closePlatformApiPools, createSeedCommandPools } from "./database-pools";
+import { loadBootstrapConfig, type PlatformApiBootstrapConfig } from "./config";
+import { closePlatformApiPools, createSeedCommandPools, selectSeedCommandDatabaseConfig } from "./database-pools";
 import { ensurePreviewPostgresDatabases } from "./preview-postgres";
 import { apiContextRegistry } from "./context-registry";
 import { createProductionTaxQuoteResolverBlocker, shouldBlockProductionTaxQuotes } from "./tax-readiness";
@@ -34,8 +34,15 @@ import { createFakeMoneyMovementGateway, createFakePaymentProcessorGateway } fro
 const DEPLOYMENT_SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS = 300_000;
 const DEPLOYMENT_SEED_SUBSTEP_TIMEOUT_MS = 600_000;
 
-export async function bootstrap() {
+export async function bootstrap(args: readonly string[] = []) {
+  if (args.length > 0 && (args.length !== 1 || args[0] !== "--disposable-representative-catalog-replay")) {
+    throw new Error("Unsupported platform bootstrap selector.");
+  }
+  const disposableRepresentativeCatalogReplay = args.length === 1;
   const config = await runBootstrapPhase("load-config", () => loadBootstrapConfig());
+  if (disposableRepresentativeCatalogReplay) {
+    assertDisposableRepresentativeCatalogReplay(config);
+  }
   if (config.previewPostgresAdminUrl) {
     await runBootstrapPhase("preview-postgres-databases", () => ensurePreviewPostgresDatabases(config));
   }
@@ -88,6 +95,7 @@ export async function bootstrap() {
             environmentName: config.deploymentEnvironment ?? null,
             runtimeProfile: config.runtimeProfile,
             substepTimeoutMs: DEPLOYMENT_SEED_SUBSTEP_TIMEOUT_MS,
+            ...(disposableRepresentativeCatalogReplay ? { disposableRepresentativeCatalogReplay: true } : {}),
             schemaBootstrap: {
               lockAcquisitionTimeoutMs: DEPLOYMENT_SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS,
               lockTimeoutRetryBudgetMs: DEPLOYMENT_SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS,
@@ -127,6 +135,54 @@ export async function bootstrap() {
     console.log("Platform API bootstrap complete.");
   } finally {
     await runBootstrapPhase("close-database-pools", () => closePlatformApiPools(pools));
+  }
+}
+
+function assertDisposableRepresentativeCatalogReplay(config: PlatformApiBootstrapConfig): void {
+  const sandboxId = process.env.CHASE_SETS_SANDBOX_ID;
+  const postgresPort = process.env.POSTGRES_DEV_HOST_PORT;
+  const profiles = config.dataProfiles ?? [];
+  if (
+    !["dev", "local"].includes(config.deploymentEnvironment ?? "") ||
+    !sandboxId ||
+    !/^[a-z0-9][a-z0-9-]{0,23}$/.test(sandboxId) ||
+    !postgresPort ||
+    !/^\d+$/.test(postgresPort) ||
+    Number(postgresPort) < 1 ||
+    Number(postgresPort) > 65535 ||
+    config.sharedDatabaseUrl ||
+    profiles.length !== 3 ||
+    !(["critical-bootstrap", "catalog-integration-bootstrap", "representative-catalog"] as const).every((profile) =>
+      profiles.includes(profile),
+    )
+  ) {
+    throw new Error(
+      "Disposable representative Catalog replay requires the canonical local sandbox and replay profiles.",
+    );
+  }
+  const target = selectSeedCommandDatabaseConfig(config);
+  const prefix = `cs_${sandboxId}`.replace(/[^a-z0-9]+/g, "_").replace(/_+$/g, "");
+  const matchesSandbox = (value: string | null | undefined, database: string) => {
+    if (!value) return false;
+    const expected = new URL(`postgresql://${database}:${database}@localhost:${postgresPort}/${database}`);
+    try {
+      return new URL(value).href === expected.href;
+    } catch {
+      return false;
+    }
+  };
+  if (
+    !matchesSandbox(target.controlDatabaseUrl, `${prefix}_control`) ||
+    !matchesSandbox(target.contextDatabaseUrls.catalog, `${prefix}_catalog`) ||
+    (target.workSignalDatabaseUrl && !matchesSandbox(target.workSignalDatabaseUrl, `${prefix}_control`)) ||
+    !apiContextRegistry.every(({ contextName }) =>
+      matchesSandbox(target.contextDatabaseUrls[contextName], `${prefix}_${contextName.replaceAll("-", "_")}`),
+    ) ||
+    Object.entries(target.contextWaiterDatabaseUrls ?? {}).some(
+      ([name, value]) => !matchesSandbox(value, `${prefix}_${name.replaceAll("-", "_")}`),
+    )
+  ) {
+    throw new Error("Disposable representative Catalog replay refuses non-canonical sandbox database targets.");
   }
 }
 
@@ -178,7 +234,7 @@ export async function syncBootstrapProjectionGroups(
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  void bootstrap().catch((error) => {
+  void bootstrap(process.argv.slice(2)).catch((error) => {
     console.error("Platform API bootstrap failed.", error);
     process.exit(1);
   });

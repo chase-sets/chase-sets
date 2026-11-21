@@ -2,13 +2,15 @@
 
 import { NumericValue } from "@chase-sets/design-system";
 import { renderToStaticMarkup } from "react-dom/server";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { SettlementApiError } from "../../../client";
 import { describeWalletAdjustmentFlowError } from "../../../support/request-support/wallet-adjustment-flow-error";
 import type { SettlementLedgerEntryRow, SettlementWalletRow } from "../read-model/queries";
 import type { SettlementWalletAdjustmentRow } from "../read-model/wallet-adjustment-queries";
+import type { SettlementPayoutReviewHold } from "../../../client";
+import { loader as loadWalletWorkbench } from "../../../routes/admin/wallet-workbench";
 import { SettlementWalletWorkbenchPage, type SettlementWalletWorkbenchPageProps } from "./wallet-workbench-page";
 
 function wallet(overrides: Partial<SettlementWalletRow> = {}): SettlementWalletRow {
@@ -101,6 +103,7 @@ function renderWorkbench(props: Partial<SettlementWalletWorkbenchPageProps> = {}
 describe("SettlementWalletWorkbenchPage", () => {
   afterEach(() => {
     cleanup();
+    vi.unstubAllGlobals();
   });
 
   it("renders a permission-denied state without leaking wallet data", () => {
@@ -131,6 +134,65 @@ describe("SettlementWalletWorkbenchPage", () => {
     expect(screen.getByText(/No ledger/)).toBeTruthy();
     const balanceSection = screen.getByTestId("wallet-balance-summary-furniture");
     expect(balanceSection.querySelector(".ds-glass")).toBeNull();
+  });
+
+  it("shows the stream-backed payout review hold details and release form", () => {
+    const hold: SettlementPayoutReviewHold = {
+      accountId: "acc_test" as never,
+      active: true,
+      streamExists: true,
+      hasNonMigrationEvent: true,
+      reason: "Operator review",
+      source: "operator",
+      sourceReference: null,
+      actorUserId: "usr_operator",
+      occurredAt: "2026-10-17T00:00:00.000Z",
+      version: 1,
+    };
+    renderWorkbench({ payoutReviewHold: hold, actorPermissions: ["payout-review-holds.manage"] });
+
+    expect(screen.getByTestId("payout-review-hold-panel")).toBeTruthy();
+    expect(screen.getByText("Operator review")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Release hold" })).toBeTruthy();
+  });
+
+  it.each([503, 200])("keeps wallet data visible when the hold GET returns %i", async (holdStatus) => {
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+      const path = new URL(input instanceof Request ? input.url : String(input)).pathname;
+      if (path.endsWith("/payout-review-hold")) {
+        return holdStatus === 503
+          ? Response.json({ error: { code: "unavailable" } }, { status: holdStatus })
+          : Response.json({ accountId: "acc_test", active: false, version: 0 });
+      }
+      if (path.endsWith("/summary")) return Response.json(wallet({ available_balance_amount: "42.31" }));
+      return Response.json({ items: [], total: 0 });
+    });
+    const url = new URL("http://synthetic.invalid/commerce/wallet-workbench/acc_test");
+    const data = await loadWalletWorkbench({
+      request: new Request(url),
+      url,
+      pattern: "/commerce/wallet-workbench/:accountId",
+      params: { accountId: "acc_test" },
+      context: undefined,
+    });
+
+    renderWorkbench({ ...data, actorPermissions: ["payout-review-holds.manage"] });
+    expect(screen.getAllByText("$42.31").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: "Release hold" })).toBeNull();
+    if (holdStatus === 503) {
+      expect(screen.getByRole("alert").textContent).toContain("Payout review hold status unavailable");
+      expect(screen.queryByText("Not held")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Place hold" })).toBeNull();
+    } else {
+      expect(screen.getByText("Not held")).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Place hold" })).toBeTruthy();
+    }
+  });
+
+  it("does not show hold status or forms to an actor outside the hold grants", () => {
+    renderWorkbench({ payoutReviewHold: "unavailable", actorPermissions: ["wallet-adjustments.view"] });
+
+    expect(screen.queryByTestId("payout-review-hold-panel")).toBeNull();
   });
 
   it("surfaces negative-balance and collections consequences without implying promotional credit", () => {

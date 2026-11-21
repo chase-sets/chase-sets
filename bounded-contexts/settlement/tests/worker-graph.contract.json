@@ -2,6 +2,50 @@
   "contextName": "settlement",
   "runners": [
     {
+      "subscriptionName": "settlement.identity-payout-review-hold-migration",
+      "handlerKind": "projection",
+      "projectionName": "settlement-payout-review-hold-migration",
+      "sourceContextName": "identity",
+      "targetContextName": "settlement",
+      "subscriptionVersion": 1,
+      "checkpointKey": "settlement-payout-review-hold-migration:identity:v1",
+      "handlers": {
+        "identity.account.badge-assigned": "<function>",
+        "identity.account.badge-removed": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": ["identity.account.badge-assigned", "identity.account.badge-removed"],
+      "streamPrefixes": "<undefined>",
+      "order": 21
+    },
+    {
+      "subscriptionName": "settlement.settlement-account-risk-source-projection",
+      "handlerKind": "projection",
+      "projectionName": "settlement-account-risk-source-projection",
+      "sourceContextName": "settlement",
+      "targetContextName": "settlement",
+      "subscriptionVersion": 1,
+      "checkpointKey": "settlement-account-risk-source-projection:settlement:v1",
+      "handlers": {
+        "settlement.payout-review-hold.placed": "<function>",
+        "settlement.payout-review-hold.released": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": ["settlement.payout-review-hold.placed", "settlement.payout-review-hold.released"],
+      "streamPrefixes": "<undefined>",
+      "order": 72
+    },
+    {
       "subscriptionName": "settlement.platform-policy-document-projection",
       "handlerKind": "projection",
       "projectionName": "platform-policy-document-projection",
@@ -519,6 +563,48 @@
     }
   ],
   "subscriptions": [
+    {
+      "subscriptionName": "settlement.identity-payout-review-hold-migration",
+      "handlerKind": "projection",
+      "sourceContextName": "identity",
+      "projectionName": "settlement-payout-review-hold-migration",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "identity.account.badge-assigned": "<function>",
+        "identity.account.badge-removed": "<function>"
+      },
+      "eventTypes": ["identity.account.badge-assigned", "identity.account.badge-removed"],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 21
+    },
+    {
+      "subscriptionName": "settlement.settlement-account-risk-source-projection",
+      "handlerKind": "projection",
+      "sourceContextName": "settlement",
+      "projectionName": "settlement-account-risk-source-projection",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "settlement.payout-review-hold.placed": "<function>",
+        "settlement.payout-review-hold.released": "<function>"
+      },
+      "eventTypes": ["settlement.payout-review-hold.placed", "settlement.payout-review-hold.released"],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 72
+    },
     {
       "subscriptionName": "settlement.identity-account-risk-source-projection",
       "handlerKind": "projection",

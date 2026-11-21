@@ -74,6 +74,15 @@ CREATE TABLE IF NOT EXISTS ordering_inventory_hold_inputs (
 CREATE INDEX IF NOT EXISTS ordering_inventory_hold_inputs_item_idx
   ON ordering_inventory_hold_inputs (item_id, status);
 
+CREATE TABLE IF NOT EXISTS ordering_inventory_pending_hold_claims (
+  hold_id text PRIMARY KEY,
+  item_id text NOT NULL,
+  item_stream_version integer NOT NULL CHECK (item_stream_version >= 1)
+);
+
+CREATE INDEX IF NOT EXISTS ordering_inventory_pending_hold_claims_item_idx
+  ON ordering_inventory_pending_hold_claims (item_id);
+
 CREATE TABLE IF NOT EXISTS ordering_offer_acceptance_inputs (
   offer_id text PRIMARY KEY,
   buyer_account_id text NOT NULL,
@@ -129,7 +138,8 @@ ALTER TABLE ordering_market_listing_inputs
   ALTER COLUMN terms_resolved_at DROP NOT NULL;
 
 ALTER TABLE ordering_offer_acceptance_inputs
-  ADD COLUMN IF NOT EXISTS shipping_allowance_percentage_bps integer NOT NULL DEFAULT 500;
+  ADD COLUMN IF NOT EXISTS shipping_allowance_percentage_bps integer NOT NULL DEFAULT 500,
+  ADD COLUMN IF NOT EXISTS inventory_item_version bigint NULL;
 
 ALTER TABLE ordering_offer_acceptance_inputs
   ADD COLUMN IF NOT EXISTS marketplace_sales_fee_percentage_bps integer NOT NULL DEFAULT 0,

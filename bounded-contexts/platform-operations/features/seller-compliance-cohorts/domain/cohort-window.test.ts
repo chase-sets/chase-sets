@@ -838,6 +838,59 @@ describe("seller compliance cohort window", () => {
     expect(oracleLifecycle(scan, rule, [ticks[4]!], "entries-only")[0]!.state).toBe("outside");
   });
 
+  it("continuous oracle pins the leap-day clamp through exact exit", () => {
+    const sales = [sale("j", "2024-01-31T00:00:00.000Z", "250000"), sale("f", "2024-02-29T12:00:00.000Z", "250000")];
+    const scan = sales.map((sale) => ({ sale, at: Date.parse(sale.occurredAt), qualifying: true, gross: 250000n }));
+    const rule = { count: 2, gross: 500000n, disclosure: 2000000n, windowMonths: 1, lookbackMonths: 2 };
+    const rows = [
+      [
+        "2024-03-05T00:00:00.000Z",
+        "member",
+        "2024-01-29T12:00:00.001Z",
+        "2024-02-29T12:00:00.001Z",
+        "2024-03-29T12:00:00.000Z",
+      ],
+      [
+        "2024-03-29T12:00:00.000Z",
+        "member",
+        "2024-01-29T12:00:00.001Z",
+        "2024-02-29T12:00:00.001Z",
+        "2024-03-31T00:00:00.000Z",
+      ],
+      [
+        "2024-03-30T23:59:59.999Z",
+        "member",
+        "2024-01-30T23:59:59.999Z",
+        "2024-02-29T23:59:59.999Z",
+        "2024-03-31T00:00:00.000Z",
+      ],
+      ["2024-03-31T00:00:00.000Z", "outside", null, null, null],
+    ] as const;
+    const ticks = rows.map(([at]) => Date.parse(at));
+    const oracle = oracleLifecycle(scan, rule, ticks);
+    expect(oracle[0]!.transitions).toEqual([["entered", "2024-02-29T12:00:00.000Z"]]);
+    expect(oracle.at(-1)!.transitions).toEqual([["exited", "2024-03-31T00:00:00.000Z"]]);
+    expect(evaluatorLifecycle(sales, policy, ticks)).toEqual(oracle);
+
+    // For these two sales, the only reevaluations are the forward sale expiry and the oracle's exact exit.
+    const saleExpiries = scan.map(({ at }) => new Date(addMonthsMs(at, rule.windowMonths)).toISOString()).sort();
+    const exit = oracle.at(-1)!.transitions[0]![1];
+    expect(
+      oracle.map(({ at, state, windowStart, windowEnd }) => [
+        at,
+        state,
+        windowStart,
+        windowEnd,
+        state === "member" ? (saleExpiries.find((expiry) => expiry > at) ?? exit) : null,
+      ]),
+    ).toEqual(rows);
+    for (const [evaluationAt, , , , nextReevaluationAt] of rows) {
+      expect(evaluateSellerComplianceCohort({ sales, policy, evaluationAt }).nextReevaluationAt, evaluationAt).toBe(
+        nextReevaluationAt,
+      );
+    }
+  });
+
   it("continuous oracle preserves Feb28 forward expiry and kills the inverse mutant", () => {
     const fact = sale("feb28", "2025-02-28T06:00:00.000Z", "500000");
     const scan = [{ sale: fact, at: Date.parse(fact.occurredAt), qualifying: true, gross: 500000n }];
@@ -1233,6 +1286,35 @@ describe("seller compliance cohort window", () => {
         evaluationAt: "2025-01-03T00:00:00.000Z",
       }).state,
     ).toBe("outside");
+  });
+
+  it.each([
+    ["catalogItemId", "item", { catalogItemId: "item", productId: "item" }, true],
+    ["catalogItemId", "item", { catalogItemId: "other", productId: "item" }, false],
+    ["gradedCard", "graded", { gradedCard: "PSA" }, true],
+    ["gradedCard", "graded", { gradedCard: { gradingCompany: "PSA" } }, true],
+    ["gradedCard", "graded", { gradedCard: true }, true],
+    ["gradedCard", "true", { gradedCard: "PSA" }, true],
+    ["gradedCard", "true", { gradedCard: { gradingCompany: "PSA" } }, true],
+    ["gradedCard", "true", { gradedCard: true }, true],
+    ["gradedCard", "graded", { gradedCard: null }, false],
+    ["gradedCard", "graded", {}, false],
+    ["gradedCard", "true", { gradedCard: false }, false],
+    ["gradedCard", "PSA", { gradedCard: "PSA" }, true],
+    ["gradedCard", "PSA", { gradedCard: { gradingCompany: "PSA" } }, true],
+    ["gradedCard", "PSA", { gradedCard: "BGS" }, false],
+    ["gradedCard", "PSA", { gradedCard: { gradingCompany: "BGS" } }, false],
+    ["gradedCard", "PSA", { gradedCard: true }, false],
+  ] as const)("classifies catalogItemId and gradedCard rules: %s %s against %j", (source, value, line, matches) => {
+    const { qualifyingCount, unclassifiableCount } = evaluateSellerComplianceCohort({
+      sales: [sale("classified", "2025-01-02T00:00:00.000Z", "500000", { classificationInputs: [line] })],
+      policy: { ...policy, qualifyingTransactionCount: 1, classificationRules: [{ source, value }] },
+      evaluationAt: "2025-01-03T00:00:00.000Z",
+    });
+    expect({ qualifyingCount, unclassifiableCount }).toEqual({
+      qualifyingCount: matches ? 1 : 0,
+      unclassifiableCount: matches ? 0 : 1,
+    });
   });
 
   it("applies every interpretive treatment branch distinctly", () => {

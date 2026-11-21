@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { commandFeedbackFromUrl } from "./integrations-command-feedback";
 import { providerDetailAction } from "./provider-detail-action";
 import { loadProviderDetail } from "./provider-detail-loader";
 import { buildCatalogPrimaryWorkbenchReadModelForSurface } from "../../../features/source-observations/ui/primary-workbench-read-model";
@@ -7,7 +8,7 @@ import { Hono } from "hono";
 import type { CatalogAuthoringEnv } from "../../authoring-support/api";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
-import { createCatalogApiClient } from "../../shell-support/api/client";
+import { ApiError as CatalogApiError, createCatalogApiClient } from "../../shell-support/api/client";
 import {
   integrationJobRoutes,
   type IntegrationJobRouteServices,
@@ -188,6 +189,61 @@ describe("provider detail route support", () => {
     }
   });
 
+  it("says what each refresh command did", async () => {
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      runCatalogProviderRefreshNow: vi
+        .fn()
+        .mockResolvedValueOnce({ status: "succeeded" })
+        .mockResolvedValueOnce({ status: "skipped-no-targets" }),
+      setCatalogProviderRefreshPaused: vi.fn().mockResolvedValue({}),
+    });
+
+    expect(await refreshFeedback("run-provider-refresh")).toMatchObject({
+      status: "success",
+      intent: "run-provider-refresh",
+      result: "refresh-ran",
+    });
+    expect((await refreshFeedback("run-provider-refresh")).result).toBe("refresh-skipped");
+    expect((await refreshFeedback("pause-provider-refresh")).result).toBe("refresh-paused");
+    expect((await refreshFeedback("resume-provider-refresh")).result).toBe("refresh-resumed");
+  });
+
+  it("says a refused refresh command or a failed run did not succeed", async () => {
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      runCatalogProviderRefreshNow: vi
+        .fn()
+        .mockRejectedValueOnce(new CatalogApiError(502, { status: "failed", error: "Provider timed out." }))
+        .mockRejectedValueOnce(new CatalogApiError(403, { error: { code: "forbidden", message: "Forbidden." } })),
+      setCatalogProviderRefreshPaused: vi
+        .fn()
+        .mockRejectedValue(
+          new CatalogApiError(404, { error: { code: "provider_refresh_schedule_not_found", message: "Not found." } }),
+        ),
+    });
+
+    expect(await refreshFeedback("run-provider-refresh")).toMatchObject({
+      status: "error",
+      intent: "run-provider-refresh",
+      result: "refresh-run-failed",
+    });
+    expect(await refreshFeedback("run-provider-refresh")).toMatchObject({ status: "error", result: "command-failed" });
+    expect(await refreshFeedback("pause-provider-refresh")).toMatchObject({
+      status: "error",
+      result: "command-failed",
+    });
+  });
+
+  it("does not hide a failure that is not an API answer", async () => {
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      runCatalogProviderRefreshNow: vi.fn().mockRejectedValue(new TypeError("fetch failed")),
+      setCatalogProviderRefreshPaused: vi.fn(),
+    });
+
+    await expect(
+      providerDetailAction(actionArgs("run-provider-refresh", "https://admin.example/catalog/providers/tcgdex")),
+    ).rejects.toThrow("fetch failed");
+  });
+
   it.each(["retry", "resume", "cancel"] as const)(
     "submits job.%s through the Provider action and real API permission boundary, retaining selected inspection",
     async (verb) => {
@@ -302,6 +358,13 @@ function loaderArgs(providerKey: string): Parameters<typeof loadProviderDetail>[
     params: { providerKey },
     context: {},
   } as unknown as Parameters<typeof loadProviderDetail>[0];
+}
+
+async function refreshFeedback(intent: string) {
+  const response = await providerDetailAction(actionArgs(intent, "https://admin.example/catalog/providers/tcgdex"));
+  const location = new URL(response.headers.get("Location") ?? "", "https://admin.example");
+  expect(location.pathname).toBe("/catalog/providers/tcgdex");
+  return commandFeedbackFromUrl(location) ?? { status: null, intent: null, result: null };
 }
 
 function actionArgs(intent: string, url: string): Parameters<typeof providerDetailAction>[0] {
