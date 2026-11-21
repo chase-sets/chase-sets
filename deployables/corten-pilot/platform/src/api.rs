@@ -156,6 +156,10 @@ impl Caller<'_> {
         if let Some(receipt) = &self.receipt {
             req = req.header("chase-sets-read-after-write", receipt);
         }
+        #[cfg(feature = "otlp")]
+        for (name, value) in crate::telemetry::inject() {
+            req = req.header(name, value);
+        }
         req
     }
 
