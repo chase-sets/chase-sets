@@ -396,6 +396,14 @@ jobs:
           docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -v ON_ERROR_STOP=1 -c \
             'SHOW max_connections; SHOW max_locks_per_transaction; SHOW shared_buffers; SHOW work_mem; SHOW maintenance_work_mem; SHOW superuser_reserved_connections; SHOW reserved_connections;'
 
+      - name: Provision the managed Postgres pod CA mount path for DB Profile
+        run: |
+          set -euo pipefail
+          # infrastructure/event-core-postgres/managed-postgres-client-tls.db.test.ts
+          # drives pod clients against the exact #7512 mount path the runtime pool
+          # admits, writing only a synthetic test CA there.
+          sudo install -d -m 0755 -o "$(id -u)" -g "$(id -g)" /var/run/secrets/chase-sets/managed-postgres
+
       - name: Select platform API evidence before running tests
         id: platform-api-selected
         env:

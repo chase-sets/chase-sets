@@ -10,12 +10,17 @@ import {
   fetchDigitalOceanManagedPostgresCa,
   githubEnvLinesForDatabaseUrls,
   managedPostgresClusterIdFromTerraformState,
+  managedPostgresRunnerCaPath,
   main,
   parseTerraformStateDatabaseUrlArgs,
   reconcileManagedPostgresCaSecret,
   writeManagedPostgresCa,
 } from "./terraform-state-database-urls.mjs";
 import { parse as parseYaml } from "yaml";
+import {
+  admitPostgresClientConnection,
+  managedPostgresRunnerCaPath as runtimeRunnerCaPath,
+} from "../infrastructure/event-core-postgres/pool.ts";
 
 const caPath = "/runner/temp/digitalocean-managed-postgres-ca.pem";
 const certificate = "-----BEGIN CERTIFICATE-----\nZmFrZS1jYQ==\n-----END CERTIFICATE-----\n";
@@ -124,6 +129,30 @@ function mixedPooledTerraformState() {
 }
 
 describe("Terraform state database URL export", () => {
+  it("is the runner CA path runtime clients admit, and its URLs pass the runtime seam only on a runner", () => {
+    for (const runnerTemp of ["/home/runner/work/_temp", "/runner/temp", "/tmp/a b"]) {
+      expect(runtimeRunnerCaPath(runnerTemp)).toBe(managedPostgresRunnerCaPath(runnerTemp));
+    }
+    const runnerTemp = "/home/runner/work/_temp";
+    const exportedCaPath = parseTerraformStateDatabaseUrlArgs([], { RUNNER_TEMP: runnerTemp }).caPath;
+    expect(exportedCaPath).toBe(managedPostgresRunnerCaPath(runnerTemp));
+    const urls = databaseUrlsFromTerraformState(terraformState(), {
+      environmentName: "staging",
+      caPath: exportedCaPath,
+    });
+    for (const { url } of urls) {
+      expect(admitPostgresClientConnection(url, { GITHUB_ACTIONS: "true", RUNNER_TEMP: runnerTemp }).transport).toBe(
+        "verified-managed",
+      );
+      expect(() => admitPostgresClientConnection(url, { KUBERNETES_SERVICE_HOST: "10.245.0.1" })).toThrow(
+        "remote-postgres-rootcert-path-unexpected",
+      );
+      expect(() => admitPostgresClientConnection(url, { RUNNER_TEMP: runnerTemp })).toThrow(
+        "remote-postgres-rootcert-path-unexpected",
+      );
+    }
+  });
+
   it("derives masked GitHub env lines for every context by default", () => {
     const urls = databaseUrlsFromTerraformState(terraformState(), { environmentName: "staging", caPath });
 
