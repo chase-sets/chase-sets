@@ -1646,6 +1646,17 @@ function allProjectionSourcesMounted(
   return sourceContextNames.every((sourceContextName) => mountedContextNames.has(sourceContextName));
 }
 
+const LOCAL_PROJECTION_SUBSCRIPTION_VERSION = 1;
+
+/** The checkpoint key of a context's own projection handler set (its local subscription). */
+export function localProjectionCheckpointKey(contextName: string, projectionName: string): string {
+  return createCheckpointKey({
+    projectionName,
+    sourceContextName: contextName,
+    subscriptionVersion: LOCAL_PROJECTION_SUBSCRIPTION_VERSION,
+  });
+}
+
 function createLocalProjectionSubscription(
   contextName: string,
   projection: BcProjectionHandlerSet,
@@ -1656,7 +1667,7 @@ function createLocalProjectionSubscription(
     handlerKind: "projection",
     sourceContextName: contextName,
     projectionName: projection.projectionName,
-    subscriptionVersion: 1,
+    subscriptionVersion: LOCAL_PROJECTION_SUBSCRIPTION_VERSION,
     handlers: projection.handlers,
     inlineApply: projection.inlineApply === true,
     eventTypes: projection.eventTypes,
@@ -1685,21 +1696,79 @@ function validateSubscriptionEventFilters(contextName: string, subscription: BcE
   }
 }
 
+const PROJECTION_DEPENDENCY_WAIT_EVENT_ID = "projectionDependencyWaitEventId";
+
+/**
+ * A transient failure raised by a handler that waits for another projection to
+ * apply the event first. A background runner retries it like any transient
+ * failure; a synchronous drain takes it as a reason for another pass, so the
+ * projection it waits on can catch up within the same drain.
+ */
+export function createProjectionDependencyWaitError(message: string, eventId: string): Error {
+  const error = createTransientProjectionError(message) as Error & {
+    [PROJECTION_DEPENDENCY_WAIT_EVENT_ID]: string;
+  };
+  error[PROJECTION_DEPENDENCY_WAIT_EVENT_ID] = eventId;
+  return error;
+}
+
+function projectionDependencyWaitEventId(error: unknown): string | null {
+  if (typeof error !== "object" || error === null || !(PROJECTION_DEPENDENCY_WAIT_EVENT_ID in error)) {
+    return null;
+  }
+  const eventId = (error as Record<string, unknown>)[PROJECTION_DEPENDENCY_WAIT_EVENT_ID];
+  return typeof eventId === "string" ? eventId : null;
+}
+
+/**
+ * Runs every runner until a pass applies nothing, and answers how many events
+ * the passes applied. A runner held by a dependency wait keeps the drain going
+ * while other runners still apply events or the held runner moves on to a
+ * later event; a pass that changes neither rethrows the wait, so a dependency
+ * that never catches up fails the drain instead of spinning.
+ */
+async function drainRunnerPasses(
+  runners: readonly ContextSubscriptionRunner[],
+  context?: ProjectionRunContext,
+): Promise<number> {
+  let totalProcessed = 0;
+  let previousHolds: string | null = null;
+
+  for (;;) {
+    let processed = 0;
+    const holds: { readonly key: string; readonly error: unknown }[] = [];
+
+    for (const runner of sortSubscriptionRunners(runners)) {
+      context?.throwIfLeaseLost?.();
+      try {
+        const result = await runner.runOnce(context);
+        processed += result.processed;
+      } catch (error) {
+        const heldEventId = projectionDependencyWaitEventId(error);
+        if (heldEventId === null) throw error;
+        holds.push({ key: `${runner.checkpointKey} ${heldEventId}`, error });
+      }
+    }
+    totalProcessed += processed;
+
+    if (holds.length === 0) {
+      if (processed === 0) return totalProcessed;
+      continue;
+    }
+
+    const holdKey = holds.map((hold) => hold.key).join("\n");
+    if (processed === 0 && holdKey === previousHolds) {
+      throw holds[0]!.error;
+    }
+    previousHolds = holdKey;
+  }
+}
+
 export async function drainSubscriptionRunners(
   runners: readonly ContextSubscriptionRunner[],
   context?: ProjectionRunContext,
 ): Promise<void> {
-  let processed = 0;
-
-  do {
-    processed = 0;
-
-    for (const runner of sortSubscriptionRunners(runners)) {
-      context?.throwIfLeaseLost?.();
-      const result = await runner.runOnce(context);
-      processed += result.processed;
-    }
-  } while (processed > 0);
+  await drainRunnerPasses(runners, context);
 }
 
 export async function drainLocalProjectionHandlerSets(
@@ -1763,20 +1832,7 @@ export async function drainContextProcesses(
   processSet: ContextProcessSet,
   context?: ProjectionRunContext,
 ): Promise<number> {
-  let processed = 0;
-  let totalProcessed = 0;
-
-  do {
-    processed = 0;
-
-    for (const runner of sortSubscriptionRunners(processSet.subscriptionRunners ?? [])) {
-      context?.throwIfLeaseLost?.();
-      const result = await runner.runOnce(context);
-      processed += result.processed;
-      totalProcessed += result.processed;
-    }
-  } while (processed > 0);
-  return totalProcessed;
+  return drainRunnerPasses(processSet.subscriptionRunners ?? [], context);
 }
 
 export async function syncContextSubscriptions(

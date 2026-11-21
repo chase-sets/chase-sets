@@ -4,6 +4,7 @@ import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import { withCatalogAdminRealtimeInvalidation } from "../../../support/projection-support/realtime-invalidation";
+import { afterCatalogSourceProjections } from "../../../support/projection-support/source-projection-gate";
 import {
   createBulkLifecycleOperations,
   type BulkLifecycleOperations,
@@ -54,7 +55,7 @@ export function createComponentRuntime(deps: CatalogRuntimeDeps): ComponentServi
     }),
     createProjectionHandlerSet({
       projectionName: "catalog-admin-component-detail-projection",
-      handlers: buildCatalogAdminComponentProjectionHandlers(deps.db),
+      handlers: afterCatalogSourceProjections(buildCatalogAdminComponentProjectionHandlers(deps.db), deps.db),
     }),
   ];
   const bulkLifecycle = createBulkLifecycleOperations<
