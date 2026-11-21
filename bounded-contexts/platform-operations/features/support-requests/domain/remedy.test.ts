@@ -185,6 +185,46 @@ describe("support remedy execution", () => {
     expect(authorized.remedy?.refundReleasedAt).toBe("2026-07-03T12:00:00.000Z");
   });
 
+  it("refuses approval of a workflow sent back for correction but replays an approval already recorded", () => {
+    const firstApprover = "acc_01J00000000000000000000002" as AccountId;
+    const secondApprover = "acc_01J00000000000000000000003" as AccountId;
+    const approve = (approvedByAccountId: AccountId): SupportRequestCommand => ({
+      ...approvalCommand(),
+      type: "ApproveSupportRemedy",
+      approvedByAccountId,
+      idempotencyKey: `approve:${approvedByAccountId}`,
+    });
+    let state = resolvedState();
+    state = apply(
+      state,
+      decideSupportRequest(state, { ...proposalCommand(), requiredApprovalCount: 2 } as SupportRequestCommand),
+    );
+    state = apply(state, decideSupportRequest(state, effect("coverage-reservation", "2026-07-03T06:00:00.000Z")));
+    state = apply(state, decideSupportRequest(state, approve(firstApprover)));
+    expect(state.remedyApproval?.status).toBe("approval-pending");
+
+    state = apply(
+      state,
+      decideSupportRequest(state, {
+        type: "RequestSupportRemedyCorrection",
+        requestedByAccountId: secondApprover,
+        permissionUsed: "support.remedies.correct",
+        reasonCode: "allocation-incorrect",
+        rationale: "The allocation needs a seller share.",
+        evidenceReferences: ["evidence-1"],
+        idempotencyKey: "correction-1",
+        requestedAt: "2026-07-03T08:00:00.000Z",
+      }),
+    );
+    expect(state.remedyApproval?.status).toBe("correction-requested");
+
+    expect(decideSupportRequest(state, approve(firstApprover))).toEqual([]);
+    expect(() => decideSupportRequest(state, approve(secondApprover))).toThrow(
+      "A remedy can only be approved while its workflow is approval-pending; this workflow is correction-requested.",
+    );
+    expect(state.remedy).toBeNull();
+  });
+
   it("does not confuse refund completion with Settlement reconciliation", () => {
     let state = authorizedState();
     const refundEvents = decideSupportRequest(
