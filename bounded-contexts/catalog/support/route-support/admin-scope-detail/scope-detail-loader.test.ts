@@ -87,7 +87,9 @@ describe("Catalog scope-detail route loader", () => {
     "preserves %s journey health provenance without another read",
     async (state) => {
       mockCreateCatalogRequestApiClient.mockReturnValue({
-        getCatalogScopeJourney: vi.fn().mockResolvedValue(journeyOf({ ...paldeanFatesScope(), languageEditions: ["en"] })),
+        getCatalogScopeJourney: vi
+          .fn()
+          .mockResolvedValue(journeyOf({ ...paldeanFatesScope(), languageEditions: ["en"] })),
         getScopeCoverageMatrix: vi.fn().mockResolvedValue(null),
       });
       const request = new Request(
@@ -202,7 +204,9 @@ describe("Catalog scope-detail route loader", () => {
   // Scope Record, so the journey is read for this page's own address, not a rewritten daily workbench one.
   it("reads the journey for the page's own address", async () => {
     mockCreateCatalogRequestApiClient.mockReturnValue({
-      getCatalogScopeJourney: vi.fn().mockResolvedValue(journeyOf({ ...paldeanFatesScope(), languageEditions: ["en"] })),
+      getCatalogScopeJourney: vi
+        .fn()
+        .mockResolvedValue(journeyOf({ ...paldeanFatesScope(), languageEditions: ["en"] })),
       getScopeCoverageMatrix: vi.fn().mockResolvedValue(null),
     });
     const request = new Request(
@@ -230,7 +234,9 @@ describe("Catalog scope-detail route loader", () => {
         : { items: [{ jobId: "job_running" }] },
     );
     mockCreateCatalogRequestApiClient.mockReturnValue({
-      getCatalogScopeJourney: vi.fn().mockResolvedValue(journeyOf({ ...paldeanFatesScope(), languageEditions: ["en"] })),
+      getCatalogScopeJourney: vi
+        .fn()
+        .mockResolvedValue(journeyOf({ ...paldeanFatesScope(), languageEditions: ["en"] })),
       listCatalogMergeCandidateBulkJobs,
       listFailedCatalogMergeCandidateBulkJobs,
     });
@@ -262,7 +268,9 @@ describe("Catalog scope-detail route loader", () => {
 
   it("degrades the candidate review jobs panel instead of failing the scope page", async () => {
     mockCreateCatalogRequestApiClient.mockReturnValue({
-      getCatalogScopeJourney: vi.fn().mockResolvedValue(journeyOf({ ...paldeanFatesScope(), languageEditions: ["en"] })),
+      getCatalogScopeJourney: vi
+        .fn()
+        .mockResolvedValue(journeyOf({ ...paldeanFatesScope(), languageEditions: ["en"] })),
       listCatalogMergeCandidateBulkJobs: vi.fn().mockRejectedValue(new CatalogApiError(400, { error: "bad cursor" })),
     });
 
@@ -282,7 +290,9 @@ describe("Catalog scope-detail route loader", () => {
   it("resolves canManageAliases to false when the actor lacks catalog.manage", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ permissions: ["catalog.view"] });
     mockCreateCatalogRequestApiClient.mockReturnValue({
-      getCatalogScopeJourney: vi.fn().mockResolvedValue(journeyOf({ ...paldeanFatesScope(), languageEditions: ["en"] })),
+      getCatalogScopeJourney: vi
+        .fn()
+        .mockResolvedValue(journeyOf({ ...paldeanFatesScope(), languageEditions: ["en"] })),
     });
 
     const routeData = await runLoader(
