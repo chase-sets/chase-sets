@@ -7937,6 +7937,7 @@ export const englishTranslations = {
   "marketplace.features.listingEvidencePolicy.ui.diff": "Added: {added} · Changed: {changed} · Removed: {removed}",
   "marketplace.features.listingEvidencePolicy.ui.draft.title": "Guided policy draft",
   "marketplace.features.listingEvidencePolicy.ui.effective.from": "Effective from",
+  "marketplace.features.listingEvidencePolicy.ui.effective.invalid": "Enter each effective time as a date and time. The policy was not activated.",
   "marketplace.features.listingEvidencePolicy.ui.effective.required": "Choose a valid effective time before activation.",
   "marketplace.features.listingEvidencePolicy.ui.effective.until": "Effective until",
   "marketplace.features.listingEvidencePolicy.ui.explanation.code": "Explanation code",
