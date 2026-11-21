@@ -834,6 +834,8 @@ export function e2eSuiteIdsForChangedFile(filePath) {
     /^bounded-contexts\/checkout\/(?:features\/sessions\/ui\/agent-(?:cart-review|checkout)|support\/ui-support\/agent-checkout-views|web\.ts$)/.test(
       normalized,
     ) ||
+    // The Checkout widgets' copy source; en.ts is generated from it.
+    normalized === "contracts/localization/locales/en/checkout.ts" ||
     /^infrastructure\/platform-runtime\/(?:mcp-widget-resources|public-product-urls|ucp-contracts)\.ts$/.test(
       normalized,
     );

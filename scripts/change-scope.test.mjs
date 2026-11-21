@@ -999,7 +999,7 @@ describe("shared E2E setup selection", () => {
       changedFiles.includes("deployables/marketplace/e2e/unmapped.spec.ts"),
     );
     expect(captured.cases).toHaveLength(150);
-    expect(candidate.cases).toHaveLength(156);
+    expect(candidate.cases).toHaveLength(157);
     expect(candidate.families).toEqual([
       ...captured.families
         .filter((family) => family.path !== retired)
@@ -3270,6 +3270,12 @@ describe("change-scope", () => {
     ]) {
       expect(e2eSuiteIdsForChangedFile(file)).toContain("agent_apps");
     }
+    // A copy-only change to the Checkout widgets touches only the locale source and its generated aggregate.
+    expect(
+      classifyChanges({
+        changedFiles: ["contracts/localization/locales/en/checkout.ts", "contracts/localization/locales/en.ts"],
+      }).e2eSuiteIds,
+    ).toContain("agent_apps");
     expect(e2eSuiteById("agent_apps").command).toEqual([
       "--filter",
       "@chase-sets/app-agent-apps",
