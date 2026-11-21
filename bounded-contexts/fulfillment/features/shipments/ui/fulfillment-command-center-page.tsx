@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { t } from "./localization/translator";
 import {
   Badge,
   Button,

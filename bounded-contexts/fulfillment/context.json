@@ -78,15 +78,41 @@
   ],
   "contextName": "fulfillment",
   "packageName": "@chase-sets/fulfillment",
-  "localeCatalogs": ["contracts/localization/locales/en/fulfillment.ts"],
-  "ownedNouns": ["shipment", "return-shipment"],
+  "localeCatalogs": [
+    "bounded-contexts/fulfillment/features/shipments/ui/localization/locales/en.ts",
+    "bounded-contexts/fulfillment/features/return-shipments/ui/localization/locales/en.ts",
+    "bounded-contexts/fulfillment/features/seller-checkout-readiness/ui/localization/locales/en.ts"
+  ],
+  "ownedNouns": [
+    "shipment",
+    "return-shipment"
+  ],
   "streamPrefix": "fulfillment.",
   "apiBasePath": "/api/marketplace",
-  "slices": ["shipments", "return-shipments", "seller-checkout-readiness"],
-  "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support"],
-  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./integration/link-intents"],
+  "slices": [
+    "shipments",
+    "return-shipments",
+    "seller-checkout-readiness"
+  ],
+  "allowedSupportDirectories": [
+    "request-support",
+    "runtime-support",
+    "seed-support"
+  ],
+  "publicExports": [
+    ".",
+    "./context",
+    "./routes/*",
+    "./seed-support/*",
+    "./server",
+    "./integration/link-intents"
+  ],
   "allowedContextDependencies": [],
-  "seedRequirements": ["identity", "payments", "ordering"],
+  "seedRequirements": [
+    "identity",
+    "payments",
+    "ordering"
+  ],
   "eventSubscriptions": [
     {
       "sourceContextName": "ordering",
@@ -101,7 +127,9 @@
         "ordering.order-group.dissolved"
       ],
       "order": 15,
-      "projectionHandlerSetNames": ["fulfillment-order-group-admission-subscription"]
+      "projectionHandlerSetNames": [
+        "fulfillment-order-group-admission-subscription"
+      ]
     },
     {
       "sourceContextName": "identity",
@@ -115,7 +143,9 @@
         "identity.account.closed"
       ],
       "order": 10,
-      "projectionHandlerSetNames": ["fulfillment-account-projection"]
+      "projectionHandlerSetNames": [
+        "fulfillment-account-projection"
+      ]
     },
     {
       "sourceContextName": "ordering",
@@ -129,7 +159,9 @@
         "ordering.order.ready-for-fulfillment-recorded"
       ],
       "order": 20,
-      "projectionHandlerSetNames": ["fulfillment-order-source-projection"]
+      "projectionHandlerSetNames": [
+        "fulfillment-order-source-projection"
+      ]
     },
     {
       "sourceContextName": "payments",
@@ -142,7 +174,9 @@
         "payments.payment-fraud-review-closed"
       ],
       "order": 30,
-      "projectionHandlerSetNames": ["fulfillment-payment-fraud-source-projection"]
+      "projectionHandlerSetNames": [
+        "fulfillment-payment-fraud-source-projection"
+      ]
     },
     {
       "sourceContextName": "platform-operations",
@@ -157,13 +191,17 @@
         "support.support-request.cancelled"
       ],
       "order": 40,
-      "projectionHandlerSetNames": ["fulfillment-support-return-source-projection"]
+      "projectionHandlerSetNames": [
+        "fulfillment-support-return-source-projection"
+      ]
     }
   ],
   "projectionGroups": [
     {
       "projectionName": "fulfillment-order-group-admission-subscription",
-      "sourceContextNames": ["ordering"],
+      "sourceContextNames": [
+        "ordering"
+      ],
       "ownedTables": [],
       "sideEffectOnly": true,
       "requiredDuringBootstrap": true,
@@ -171,35 +209,55 @@
     },
     {
       "projectionName": "fulfillment-account-projection",
-      "sourceContextNames": ["identity"],
-      "ownedTables": ["fulfillment_account_pages"],
+      "sourceContextNames": [
+        "identity"
+      ],
+      "ownedTables": [
+        "fulfillment_account_pages"
+      ],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     },
     {
       "projectionName": "fulfillment-order-source-projection",
-      "sourceContextNames": ["ordering"],
-      "ownedTables": ["fulfillment_order_sources", "fulfillment_order_source_lines"],
+      "sourceContextNames": [
+        "ordering"
+      ],
+      "ownedTables": [
+        "fulfillment_order_sources",
+        "fulfillment_order_source_lines"
+      ],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     },
     {
       "projectionName": "fulfillment-payment-fraud-source-projection",
-      "sourceContextNames": ["payments"],
-      "ownedTables": ["fulfillment_payment_fraud_review_holds"],
+      "sourceContextNames": [
+        "payments"
+      ],
+      "ownedTables": [
+        "fulfillment_payment_fraud_review_holds"
+      ],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     },
     {
       "projectionName": "fulfillment-support-return-source-projection",
-      "sourceContextNames": ["platform-operations"],
-      "ownedTables": ["fulfillment_support_return_sources", "fulfillment_support_return_remedy_sources"],
+      "sourceContextNames": [
+        "platform-operations"
+      ],
+      "ownedTables": [
+        "fulfillment_support_return_sources",
+        "fulfillment_support_return_remedy_sources"
+      ],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     },
     {
       "projectionName": "fulfillment-shipment-projection",
-      "sourceContextNames": ["fulfillment"],
+      "sourceContextNames": [
+        "fulfillment"
+      ],
       "ownedTables": [
         "fulfillment_shipment_pages",
         "fulfillment_shipment_line_pages",
@@ -216,7 +274,9 @@
     },
     {
       "projectionName": "fulfillment-return-shipment-projection",
-      "sourceContextNames": ["fulfillment"],
+      "sourceContextNames": [
+        "fulfillment"
+      ],
       "ownedTables": [
         "fulfillment_return_shipment_customer_pages",
         "fulfillment_return_shipment_operator_pages",
@@ -256,20 +316,62 @@
   ],
   "mcpCapabilities": {
     "tools": [
-      { "name": "fulfillment.list-shipments", "ownerSlice": "shipments" },
-      { "name": "fulfillment.get-tracking", "ownerSlice": "shipments" },
-      { "name": "fulfillment.purchase-label", "ownerSlice": "shipments" },
-      { "name": "fulfillment.cancel-shipment", "ownerSlice": "shipments" },
-      { "name": "fulfillment.advance-shipment", "ownerSlice": "shipments" },
-      { "name": "fulfillment.dispatch-shipment", "ownerSlice": "shipments" },
-      { "name": "fulfillment.raise-shipment-exception", "ownerSlice": "shipments" },
-      { "name": "fulfillment.void-label", "ownerSlice": "shipments" },
-      { "name": "fulfillment.complete-return-intake", "ownerSlice": "return-shipments" },
-      { "name": "fulfillment.correct-return-intake", "ownerSlice": "return-shipments" },
-      { "name": "fulfillment.get-return-intake-queue", "ownerSlice": "return-shipments" },
-      { "name": "fulfillment.reconcile-unidentified-return-package", "ownerSlice": "return-shipments" },
-      { "name": "fulfillment.record-unidentified-return-package", "ownerSlice": "return-shipments" },
-      { "name": "fulfillment.resolve-return-intake", "ownerSlice": "return-shipments" }
+      {
+        "name": "fulfillment.list-shipments",
+        "ownerSlice": "shipments"
+      },
+      {
+        "name": "fulfillment.get-tracking",
+        "ownerSlice": "shipments"
+      },
+      {
+        "name": "fulfillment.purchase-label",
+        "ownerSlice": "shipments"
+      },
+      {
+        "name": "fulfillment.cancel-shipment",
+        "ownerSlice": "shipments"
+      },
+      {
+        "name": "fulfillment.advance-shipment",
+        "ownerSlice": "shipments"
+      },
+      {
+        "name": "fulfillment.dispatch-shipment",
+        "ownerSlice": "shipments"
+      },
+      {
+        "name": "fulfillment.raise-shipment-exception",
+        "ownerSlice": "shipments"
+      },
+      {
+        "name": "fulfillment.void-label",
+        "ownerSlice": "shipments"
+      },
+      {
+        "name": "fulfillment.complete-return-intake",
+        "ownerSlice": "return-shipments"
+      },
+      {
+        "name": "fulfillment.correct-return-intake",
+        "ownerSlice": "return-shipments"
+      },
+      {
+        "name": "fulfillment.get-return-intake-queue",
+        "ownerSlice": "return-shipments"
+      },
+      {
+        "name": "fulfillment.reconcile-unidentified-return-package",
+        "ownerSlice": "return-shipments"
+      },
+      {
+        "name": "fulfillment.record-unidentified-return-package",
+        "ownerSlice": "return-shipments"
+      },
+      {
+        "name": "fulfillment.resolve-return-intake",
+        "ownerSlice": "return-shipments"
+      }
     ],
     "resources": [
       {
@@ -278,7 +380,9 @@
       }
     ]
   },
-  "apiDeployables": ["platform-api"],
+  "apiDeployables": [
+    "platform-api"
+  ],
   "apiMounts": [
     {
       "mountPath": "/api/marketplace",
@@ -287,7 +391,10 @@
       "readFreshnessRoutes": [
         {
           "routePath": "/account/sales/shipments/:id",
-          "methods": ["GET", "HEAD"],
+          "methods": [
+            "GET",
+            "HEAD"
+          ],
           "dependencies": [
             {
               "readModelTable": "fulfillment_shipment_pages"
@@ -314,11 +421,20 @@
         },
         {
           "routePath": "/account/sales/shipments/:id/mutation-recovery",
-          "methods": ["GET", "HEAD"],
+          "methods": [
+            "GET",
+            "HEAD"
+          ],
           "dependencies": [
-            { "readModelTable": "fulfillment_shipment_pages" },
-            { "readModelTable": "fulfillment_postage_label_operations" },
-            { "readModelTable": "fulfillment_shipment_tenant_resolutions" }
+            {
+              "readModelTable": "fulfillment_shipment_pages"
+            },
+            {
+              "readModelTable": "fulfillment_postage_label_operations"
+            },
+            {
+              "readModelTable": "fulfillment_shipment_tenant_resolutions"
+            }
           ]
         }
       ]
@@ -340,7 +456,10 @@
         "p99Ms": 5000
       },
       "source": {
-        "routeIds": ["account-sale-shipment", "account-sale-shipment-packing"],
+        "routeIds": [
+          "account-sale-shipment",
+          "account-sale-shipment-packing"
+        ],
         "actions": [
           "Start packing",
           "Complete packing",
@@ -350,10 +469,15 @@
           "Record delivery, return, or exception"
         ],
         "command": "Fulfillment shipment commands",
-        "helperUses": ["navigateAfterWrite"]
+        "helperUses": [
+          "navigateAfterWrite"
+        ]
       },
       "destination": {
-        "routeIds": ["account-sale-shipment", "account-sale-shipment-packing"],
+        "routeIds": [
+          "account-sale-shipment",
+          "account-sale-shipment-packing"
+        ],
         "apiContextName": "fulfillment",
         "apiRoutePath": "/account/sales/shipments/:id",
         "readModelTables": [
@@ -381,12 +505,22 @@
         "p99Ms": 5000
       },
       "source": {
-        "routeIds": ["account-sale-shipments", "account-sale-shipment", "account-sale-shipment-packing"],
-        "actions": ["Recover an interrupted Shipment mutation by its retained owner attempt"],
+        "routeIds": [
+          "account-sale-shipments",
+          "account-sale-shipment",
+          "account-sale-shipment-packing"
+        ],
+        "actions": [
+          "Recover an interrupted Shipment mutation by its retained owner attempt"
+        ],
         "command": "Read-only Shipment mutation recovery"
       },
       "destination": {
-        "routeIds": ["account-sale-shipments", "account-sale-shipment", "account-sale-shipment-packing"],
+        "routeIds": [
+          "account-sale-shipments",
+          "account-sale-shipment",
+          "account-sale-shipment-packing"
+        ],
         "apiContextName": "fulfillment",
         "apiRoutePath": "/account/sales/shipments/:id/mutation-recovery",
         "readModelTables": [
@@ -409,10 +543,9 @@
       "risk": "important",
       "strategy": "snapshot-return",
       "surfaces": [
-        "api-client:bounded-contexts/fulfillment/client.ts:PUT H94acfba1dac0#1",
+        "api-client:bounded-contexts/fulfillment/features/seller-checkout-readiness/api/client.ts:PUT Hc62954b23f06#1",
         "post-form:bounded-contexts/fulfillment/features/seller-checkout-readiness/ui/shipping-setup-page.tsx:H1abed2c1c746#1",
-        "route-action:bounded-contexts/fulfillment/features/seller-checkout-readiness/ui/shipping-setup-route-adapter.tsx",
-        "route-action:bounded-contexts/fulfillment/routes/seller-shipping-setup.tsx"
+        "route-action:bounded-contexts/fulfillment/features/seller-checkout-readiness/ui/routes/seller-shipping-setup.tsx"
       ],
       "visibleDestination": {
         "routeId": "seller-shipping-setup",
@@ -420,7 +553,9 @@
       },
       "proof": {
         "authoritativeResponse": "The request client returns the setup API command result unchanged. The action returns that snapshot, while the loader reads the current committed source so later support revocation remains visible.",
-        "tests": ["bounded-contexts/fulfillment/routes/seller-shipping-setup.test.tsx"]
+        "tests": [
+          "bounded-contexts/fulfillment/features/seller-checkout-readiness/ui/routes/seller-shipping-setup.test.tsx"
+        ]
       }
     },
     {
@@ -469,7 +604,9 @@
       },
       "proof": {
         "authoritativeResponse": "bounded-contexts/fulfillment/features/shipments/api/route.ts builds each mutation response from the Fulfillment shipment command result before any projection read; platform API commit receipt headers attach to those responses when mounted.",
-        "tests": ["bounded-contexts/fulfillment/features/shipments/api/route.test.ts"]
+        "tests": [
+          "bounded-contexts/fulfillment/features/shipments/api/route.test.ts"
+        ]
       }
     },
     {
@@ -486,7 +623,7 @@
         "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#6",
         "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#7",
         "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#8",
-        "route-action:bounded-contexts/fulfillment/routes/marketplace/account-sale-shipment.tsx"
+        "route-action:bounded-contexts/fulfillment/features/shipments/ui/routes/account-sale-shipment.tsx"
       ],
       "visibleDestination": {
         "routeId": "account-sale-shipment",
@@ -508,7 +645,7 @@
       },
       "proof": {
         "tests": [
-          "bounded-contexts/fulfillment/routes/marketplace/account-sale-shipment-route.test.ts",
+          "bounded-contexts/fulfillment/features/shipments/ui/routes/account-sale-shipment-route.test.ts",
           "bounded-contexts/fulfillment/features/shipments/ui/packing-slip-page.test.tsx"
         ]
       }
@@ -541,7 +678,7 @@
       },
       "proof": {
         "tests": [
-          "bounded-contexts/fulfillment/routes/marketplace/account-sale-shipment-packing-route.test.ts",
+          "bounded-contexts/fulfillment/features/shipments/ui/routes/account-sale-shipment-packing-route.test.ts",
           "bounded-contexts/fulfillment/features/shipments/ui/packing-slip-page.test.tsx"
         ]
       }
@@ -553,7 +690,7 @@
       "strategy": "optimistic-with-correction",
       "surfaces": [
         "raw-fetch:bounded-contexts/fulfillment/features/shipments/ui/shipment-packing-page.tsx:POST Hd5352f45e551#1",
-        "route-action:bounded-contexts/fulfillment/routes/marketplace/account-sale-shipment-packing.tsx"
+        "route-action:bounded-contexts/fulfillment/features/shipments/ui/routes/account-sale-shipment-packing.tsx"
       ],
       "visibleDestination": {
         "routeId": "account-sale-shipment-packing",
@@ -563,7 +700,7 @@
         "correction": "shipment-packing-page.tsx applies the requested packed quantity optimistically, ignores stale command responses for superseded per-line requests, reconciles to the returned line confirmedQuantity snapshot, rolls back failed latest writes, and keeps complete-packing disabled while writes are in flight.",
         "tests": [
           "bounded-contexts/fulfillment/features/shipments/ui/shipment-packing-optimistic-correction.test.tsx",
-          "bounded-contexts/fulfillment/routes/marketplace/account-sale-shipment-packing-route.test.ts"
+          "bounded-contexts/fulfillment/features/shipments/ui/routes/account-sale-shipment-packing-route.test.ts"
         ]
       }
     },
@@ -592,7 +729,7 @@
       "risk": "important",
       "strategy": "snapshot-return",
       "surfaces": [
-        "api-client:bounded-contexts/fulfillment/client.ts:POST Hf450f96a7d7f#1",
+        "api-client:bounded-contexts/fulfillment/features/return-shipments/api/client.ts:POST Hf450f96a7d7f#1",
         "api-route:bounded-contexts/fulfillment/features/return-shipments/api/route.ts:POST /:returnShipmentId/complete",
         "api-route:bounded-contexts/fulfillment/features/return-shipments/api/route.ts:POST /:returnShipmentId/corrections",
         "api-route:bounded-contexts/fulfillment/features/return-shipments/api/route.ts:POST /evidence",
@@ -602,7 +739,7 @@
         "post-form:bounded-contexts/fulfillment/features/return-shipments/ui/facility-intake-page.tsx:H1abed2c1c746#2",
         "post-form:bounded-contexts/fulfillment/features/return-shipments/ui/facility-intake-page.tsx:H1abed2c1c746#3",
         "post-form:bounded-contexts/fulfillment/features/return-shipments/ui/facility-intake-page.tsx:H1abed2c1c746#4",
-        "route-action:bounded-contexts/fulfillment/routes/admin/return-intake.tsx"
+        "route-action:bounded-contexts/fulfillment/features/return-shipments/ui/routes/return-intake.tsx"
       ],
       "visibleDestination": {
         "description": "Facility intake writes return authoritative attachment, aggregate-version, duplicate, custody, correction, or reconciliation results. The workstation derives its success state from that command response and treats projection-backed queues as refreshable operational context."
@@ -624,7 +761,7 @@
         "post-form:bounded-contexts/fulfillment/features/shipments/ui/fulfillment-command-center-page.tsx:H1abed2c1c746#1",
         "post-form:bounded-contexts/fulfillment/features/shipments/ui/fulfillment-command-center-page.tsx:H1abed2c1c746#2",
         "post-form:bounded-contexts/fulfillment/features/shipments/ui/fulfillment-command-center-page.tsx:H1abed2c1c746#3",
-        "route-action:bounded-contexts/fulfillment/routes/marketplace/account-sale-shipments.tsx"
+        "route-action:bounded-contexts/fulfillment/features/shipments/ui/routes/account-sale-shipments.tsx"
       ],
       "visibleDestination": {
         "description": "The fulfillment command center dispatches each named shipment action to the seller shipment command endpoints, which return authoritative command snapshots with shipment id and aggregate version. The work-ordered queue re-derives from those snapshots on reload and is treated as refreshable operational context, not a claimed inline read."
@@ -661,11 +798,23 @@
           "routeType": "route",
           "sourceContext": "fulfillment",
           "delivery": "server-only",
-          "authorization": { "kind": "public" },
-          "canonicalLink": { "kind": "not-applicable", "reason": "Owner-scoped shipping setup is not a public canonical page." },
-          "availability": { "web": true, "mobile": false },
+          "authorization": {
+            "kind": "public"
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Owner-scoped shipping setup is not a public canonical page."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
           "pageComponentExport": "default",
-          "unsupportedMobile": { "owner": "fulfillment", "followUp": "#11113", "reason": "Shipping setup is delivered on the marketplace web route." }
+          "unsupportedMobile": {
+            "owner": "fulfillment",
+            "followUp": "#11113",
+            "reason": "Shipping setup is delivered on the marketplace web route."
+          }
         },
         {
           "routeId": "account-sale-shipment-packing-slips",
@@ -853,7 +1002,9 @@
       "section": "commerce",
       "order": 20,
       "visibility": "signed-in",
-      "requiredPermissions": ["return-intake.view"]
+      "requiredPermissions": [
+        "return-intake.view"
+      ]
     },
     {
       "deployable": "marketplace-web",
@@ -866,8 +1017,12 @@
       "parentKey": "selling-workspace",
       "order": 195,
       "visibility": "signed-in",
-      "requiredPermissions": ["fulfillment.view"],
-      "excludedRoleKeys": ["guest-buyer"]
+      "requiredPermissions": [
+        "fulfillment.view"
+      ],
+      "excludedRoleKeys": [
+        "guest-buyer"
+      ]
     },
     {
       "deployable": "marketplace-web",
@@ -880,8 +1035,12 @@
       "parentKey": "selling-workspace",
       "order": 195,
       "visibility": "signed-in",
-      "requiredPermissions": ["fulfillment.view"],
-      "excludedRoleKeys": ["guest-buyer"],
+      "requiredPermissions": [
+        "fulfillment.view"
+      ],
+      "excludedRoleKeys": [
+        "guest-buyer"
+      ],
       "packingPriority": 0
     }
   ],
@@ -889,44 +1048,74 @@
     "shipments": {
       "classification": "slice",
       "purpose": "Own shipments feature behavior, read models, and UI contracts for the fulfillment context.",
-      "expectedConsumers": ["Internal fulfillment module composition"]
+      "expectedConsumers": [
+        "Internal fulfillment module composition"
+      ]
     },
     "return-shipments": {
       "classification": "slice",
       "purpose": "Own buyer-to-seller and buyer-to-platform return-shipment behavior, label issuance and voiding, destination selection, facility intake and discrepancy workflow, unidentified package reconciliation, and customer-safe and operator read models.",
-      "expectedConsumers": ["Internal fulfillment module composition"]
+      "expectedConsumers": [
+        "Internal fulfillment module composition"
+      ]
     },
     "seller-checkout-readiness": {
       "classification": "slice",
       "purpose": "Own the Fulfillment pre-checkout seller checkout label and provider readiness read for an account or anonymous owner, Ship-From Location and label preference; missing, stale, conflicting or unavailable owner facts block.",
-      "expectedConsumers": ["Checkout seller checkout adapter at readiness and immediately before confirm"]
+      "expectedConsumers": [
+        "Checkout seller checkout adapter at readiness and immediately before confirm"
+      ]
     },
     "request-support": {
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by fulfillment-owned features and composition seams.",
-      "expectedConsumers": ["seller-checkout-readiness", "shipments"],
+      "expectedConsumers": [
+        "return-shipments",
+        "seller-checkout-readiness",
+        "shipments"
+      ],
       "crossCuttingRuntimeComposition": true
     },
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by fulfillment-owned features and composition seams.",
-      "expectedConsumers": ["seller-checkout-readiness"]
+      "expectedConsumers": [
+        "seller-checkout-readiness"
+      ]
     },
     "seed-support": {
       "classification": "support",
       "purpose": "Provide reusable seed-support assets shared by fulfillment-owned features and composition seams.",
-      "expectedConsumers": ["Multiple fulfillment slices", "Deployable composition for fulfillment"],
+      "expectedConsumers": [
+        "Multiple fulfillment slices",
+        "Deployable composition for fulfillment"
+      ],
       "crossCuttingRuntimeComposition": true
     },
     "routes": {
       "classification": "routes",
       "purpose": "Expose fulfillment-owned route modules consumed by generated deployable adapters.",
-      "expectedConsumers": ["Generated deployable route adapters"]
+      "expectedConsumers": [
+        "Generated deployable route adapters"
+      ]
     }
   },
-  "runtimeDeployables": ["platform-worker"],
-  "sourceRuntimeDeployables": ["platform-api", "platform-worker"],
-  "sourceRuntimeProfiles": ["landing"],
-  "apiRuntimeProfiles": ["proof", "public"],
-  "workerRuntimeProfiles": ["proof", "public"]
+  "runtimeDeployables": [
+    "platform-worker"
+  ],
+  "sourceRuntimeDeployables": [
+    "platform-api",
+    "platform-worker"
+  ],
+  "sourceRuntimeProfiles": [
+    "landing"
+  ],
+  "apiRuntimeProfiles": [
+    "proof",
+    "public"
+  ],
+  "workerRuntimeProfiles": [
+    "proof",
+    "public"
+  ]
 }
