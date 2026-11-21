@@ -20,9 +20,11 @@ const REMOTE_PINNED_USES = /^[^/@\s]+\/[^@\s]+(?:\/[^@\s]+)*@[0-9a-f]{40}$/i;
 const TLS_DOWNGRADE =
   /(?:rejectUnauthorized\s*:\s*false|sslmode\s*(?:=|["']?\s*[,):]\s*["']?)require\b|PGSSLMODE\s*[:=]\s*["']?require\b|NODE_TLS_REJECT_UNAUTHORIZED\s*[:=]\s*["']?0\b)/i;
 const CONNECTION_URL = /\bpostgres(?:ql)?:\/\//i;
+const CONNECTION_URL_TEXT = /\bpostgres(?:ql)?:\/\/[^\s"'`;]*/gi;
 const DISCRETE_CONNECTION_ASSIGNMENT = /\bPG(?:HOST|PORT|USER|PASSWORD|DATABASE|SSLMODE)\b\s*(?::|=)\s*(?![=])/i;
-const LOCAL_POSTGRES_URL =
-  /postgres(?:ql)?:\/\/[^\s"'`@]*@?(?:localhost|127\.0\.0\.1|\[?::1\]?|postgres)(?::[a-zA-Z0-9_${}.-]+)?\/[^\s"'`?]+/i;
+// Compose Postgres answers only as `postgres` and as the exact preview alias in docker-compose.pr-smoke.yml.
+const COMPOSE_PREVIEW_POSTGRES_HOST = "chase-sets-platform-chase-sets-platform-preview-postgres";
+const LOCAL_POSTGRES_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "postgres", COMPOSE_PREVIEW_POSTGRES_HOST]);
 const POD_INTERNAL_EXECUTION = /\bkubectl\b[^\n]*(?:\bexec\b|\bcp\b)|\bexecFile\b[^\n]*["']kubectl["']/i;
 const KUBERNETES_RUNTIME_SECRET_EXPORT =
   /kind\s*:\s*["']Secret["'][\s\S]*Buffer\.from\s*\([^)]*["']utf8["'][^)]*\)\.toString\s*\(\s*["']base64["']\s*\)[\s\S]*(?:kubectl|applyManifest)/i;
@@ -67,7 +69,6 @@ export async function scanManagedPostgresAuthority(options = {}) {
         absolutePath: path,
         file,
         kind: isWorkflowPath(file) ? "workflow" : "action",
-        source,
         value,
       });
     } catch {
@@ -500,10 +501,17 @@ function enforceBoundaryInvariants({ discovery, manifest, violations }) {
 }
 
 async function scanLayerB(repositoryRoot, parsedFiles, violations) {
-  const packageIndex = await loadPackageIndex(repositoryRoot);
-  const queue = [];
-  const scanned = new Set();
-  const expanded = new Set();
+  const scan = {
+    repositoryRoot,
+    violations,
+    packageIndex: await loadPackageIndex(repositoryRoot),
+    queue: [],
+    queued: new Set(),
+    expanded: new Set(),
+    fileFacts: new Map(),
+    sourceFacts: new Map(),
+    resolutions: new Map(),
+  };
 
   for (const parsed of parsedFiles) {
     if (parsed.kind === "workflow") {
@@ -511,7 +519,7 @@ async function scanLayerB(repositoryRoot, parsedFiles, violations) {
         if (!Array.isArray(job?.steps)) continue;
         for (const [index, step] of job.steps.entries()) {
           if (typeof step?.run === "string") {
-            queue.push({
+            enqueueSurface(scan, {
               id: `${parsed.file}\u0000${jobId}\u0000${index + 1}`,
               file: parsed.file,
               jobId,
@@ -526,19 +534,11 @@ async function scanLayerB(repositoryRoot, parsedFiles, violations) {
     } else {
       if (typeof parsed.value.runs?.main === "string") {
         const mainPath = resolve(dirname(parsed.absolutePath), parsed.value.runs.main);
-        await enqueueFileSurface(
-          repositoryRoot,
-          mainPath,
-          publicAnchorForAction(parsed.file),
-          queue,
-          violations,
-          false,
-          expanded,
-        );
+        await enqueueFileSurface(scan, mainPath, publicAnchorForAction(parsed.file), false);
       }
       for (const [index, step] of (parsed.value.runs?.steps ?? []).entries()) {
         if (typeof step?.run === "string") {
-          queue.push({
+          enqueueSurface(scan, {
             id: `${parsed.file}\u0000action\u0000${index + 1}`,
             file: parsed.file,
             jobId: "action",
@@ -552,123 +552,181 @@ async function scanLayerB(repositoryRoot, parsedFiles, violations) {
     }
   }
 
-  while (queue.length > 0) {
-    const surface = queue.shift();
-    if (scanned.has(surface.id)) {
-      continue;
+  // Each surface is queued once, so the first context that reaches it anchors its content findings.
+  for (let next = 0; next < scan.queue.length; next += 1) {
+    const surface = scan.queue[next];
+    const facts = await surfaceFacts(scan, surface);
+    if (!surface.allowCanonicalProducer) {
+      for (const code of facts.tripwires) {
+        violations.push(violation(code, surface));
+      }
     }
-    scanned.add(surface.id);
-    addContentTripwires(surface, violations);
-    for (const reference of [
-      ...matches(surface.source, RUNTIME_FILE_REFERENCE, 1),
-      ...matches(surface.source, DIRECT_FILE_REFERENCE, 1),
-    ]) {
-      const path = await resolveExecutableReference(repositoryRoot, surface.baseDirectory, reference);
+    for (const path of facts.executables) {
       if (!path) {
         violations.push(violation("referenced-executable-missing", surface));
         continue;
       }
       await enqueueFileSurface(
-        repositoryRoot,
+        scan,
         path,
         surface,
-        queue,
-        violations,
         surface.allowCanonicalProducer &&
           repositoryPath(repositoryRoot, path) === "scripts/terraform-state-database-urls.mjs",
-        expanded,
       );
     }
-    await enqueuePackageScripts(repositoryRoot, packageIndex, surface, queue, violations, expanded);
+    await enqueuePackageScripts(scan, facts, surface);
   }
-  return { scannedSurfaceCount: scanned.size };
+  return { scannedSurfaceCount: scan.queued.size };
 }
 
-function addContentTripwires(surface, violations) {
-  if (
-    surface.allowCanonicalProducer ||
-    POD_INTERNAL_EXECUTION.test(surface.source) ||
-    KUBERNETES_RUNTIME_SECRET_EXPORT.test(surface.source)
-  ) {
-    return;
-  }
-  const containsNonLocalUrl = CONNECTION_URL.test(surface.source) && !LOCAL_POSTGRES_URL.test(surface.source);
-  if (containsNonLocalUrl || DISCRETE_CONNECTION_ASSIGNMENT.test(surface.source)) {
-    violations.push(violation("connection-material", surface));
-  }
-  if (TLS_DOWNGRADE.test(surface.source) && !LOCAL_POSTGRES_URL.test(surface.source)) {
-    violations.push(violation("tls-downgrade", surface));
-  }
+function enqueueSurface(scan, surface) {
+  if (scan.queued.has(surface.id)) return;
+  scan.queued.add(surface.id);
+  scan.queue.push(surface);
 }
 
-// Returns whether this expansion is reusable within the invocation: repeating it for the same path,
-// job, step anchor and producer flag would only re-queue already queued surfaces and re-emit identical
-// findings. Findings anchored to parent.file are not reusable, so those expansions always repeat.
-async function enqueueFileSurface(repositoryRoot, path, parent, queue, violations, allowCanonicalProducer, expanded) {
-  const expansionKey = JSON.stringify([path, parent.jobId, parent.stepAnchor, allowCanonicalProducer]);
-  if (expanded.has(expansionKey)) {
-    return true;
+function surfaceFacts(scan, surface) {
+  if (surface.facts) return surface.facts;
+  if (!scan.sourceFacts.has(surface.id)) {
+    scan.sourceFacts.set(surface.id, analyzeSource(scan, surface.source, surface.baseDirectory));
   }
-  if (!isWithinRepository(repositoryRoot, path) || !(await firstExistingFile([path]))) {
-    violations.push(violation("referenced-executable-missing", parent));
-    return false;
+  return scan.sourceFacts.get(surface.id);
+}
+
+// Reads and analyzes each file once per invocation and keeps only the derived facts, never its contents.
+// Null means the path is outside the repository, missing or unreadable.
+function fileFacts(scan, path) {
+  if (!scan.fileFacts.has(path)) {
+    scan.fileFacts.set(path, readFileFacts(scan, path));
   }
-  const file = repositoryPath(repositoryRoot, path);
+  return scan.fileFacts.get(path);
+}
+
+async function readFileFacts(scan, path) {
+  if (!isWithinRepository(scan.repositoryRoot, path) || !(await firstExistingFile([path]))) {
+    return null;
+  }
   let source;
   try {
     source = await readFile(path, "utf8");
   } catch {
-    violations.push(violation("referenced-executable-missing", parent));
-    return false;
+    return null;
   }
-  queue.push({
-    id: `file:${file}`,
-    file,
+  const baseDirectory = dirname(path);
+  const imports = [];
+  for (const reference of matches(source, LOCAL_MODULE_REFERENCE, 1)) {
+    imports.push(await resolveReference(scan, baseDirectory, reference));
+  }
+  return {
+    file: repositoryPath(scan.repositoryRoot, path),
+    imports,
+    ...(await analyzeSource(scan, source, baseDirectory)),
+  };
+}
+
+async function analyzeSource(scan, source, baseDirectory) {
+  const executables = [];
+  for (const reference of [
+    ...matches(source, RUNTIME_FILE_REFERENCE, 1),
+    ...matches(source, DIRECT_FILE_REFERENCE, 1),
+  ]) {
+    executables.push(await resolveReference(scan, baseDirectory, reference));
+  }
+  FILTERED_PACKAGE_RUN_REFERENCE.lastIndex = 0;
+  PACKAGE_RUN_REFERENCE.lastIndex = 0;
+  return {
+    tripwires: contentTripwires(source),
+    executables,
+    filteredPackageRuns: [...source.matchAll(FILTERED_PACKAGE_RUN_REFERENCE)].map((match) => ({
+      packageName: match[1] ?? match[2],
+      scriptName: match[3],
+    })),
+    packageRuns: [...source.matchAll(PACKAGE_RUN_REFERENCE)].map((match) => match[1]),
+  };
+}
+
+function contentTripwires(source) {
+  if (POD_INTERNAL_EXECUTION.test(source) || KUBERNETES_RUNTIME_SECRET_EXPORT.test(source)) {
+    return [];
+  }
+  const codes = [];
+  const outsideLocalUrls = source.replace(CONNECTION_URL_TEXT, (url) => (isLocalPostgresUrl(url) ? " " : url));
+  if (CONNECTION_URL.test(outsideLocalUrls) || DISCRETE_CONNECTION_ASSIGNMENT.test(source)) {
+    codes.push("connection-material");
+  }
+  if (TLS_DOWNGRADE.test(outsideLocalUrls)) {
+    codes.push("tls-downgrade");
+  }
+  return codes;
+}
+
+function resolveReference(scan, baseDirectory, reference) {
+  const key = `${baseDirectory}\u0000${reference}`;
+  if (!scan.resolutions.has(key)) {
+    scan.resolutions.set(key, resolveExecutableReference(scan.repositoryRoot, baseDirectory, reference));
+  }
+  return scan.resolutions.get(key);
+}
+
+// Queues path and its local imports in one context (job, step anchor and producer flag), visiting each
+// file once per expansion so import cycles terminate. A completed expansion is recorded for every file
+// it visited: repeating any of them in the same context would only re-queue queued surfaces and re-emit
+// identical findings. Findings anchored to parent.file are not reusable, so those expansions repeat.
+async function enqueueFileSurface(scan, path, parent, allowCanonicalProducer) {
+  const expansion = { visited: new Set(), reusable: true };
+  await expandFileSurface(scan, path, parent, allowCanonicalProducer, expansion);
+  if (expansion.reusable) {
+    for (const visitedPath of expansion.visited) {
+      scan.expanded.add(expansionKey(visitedPath, parent, allowCanonicalProducer));
+    }
+  }
+}
+
+async function expandFileSurface(scan, path, parent, allowCanonicalProducer, expansion) {
+  if (expansion.visited.has(path) || scan.expanded.has(expansionKey(path, parent, allowCanonicalProducer))) {
+    return;
+  }
+  expansion.visited.add(path);
+  const facts = await fileFacts(scan, path);
+  if (!facts) {
+    scan.violations.push(violation("referenced-executable-missing", parent));
+    expansion.reusable = false;
+    return;
+  }
+  enqueueSurface(scan, {
+    id: `file:${facts.file}`,
+    file: facts.file,
     jobId: parent.jobId,
     stepAnchor: parent.stepAnchor,
-    source,
-    baseDirectory: dirname(path),
+    facts,
     allowCanonicalProducer,
   });
-  let reusable = true;
-  for (const reference of matches(source, LOCAL_MODULE_REFERENCE, 1)) {
-    const importedPath = await resolveExecutableReference(repositoryRoot, dirname(path), reference);
+  for (const importedPath of facts.imports) {
     if (!importedPath) {
-      violations.push(violation("referenced-executable-missing", { ...parent, file }));
+      scan.violations.push(violation("referenced-executable-missing", { ...parent, file: facts.file }));
       continue;
     }
-    const importReusable = await enqueueFileSurface(
-      repositoryRoot,
-      importedPath,
-      parent,
-      queue,
-      violations,
-      allowCanonicalProducer,
-      expanded,
-    );
-    reusable &&= importReusable;
+    await expandFileSurface(scan, importedPath, parent, allowCanonicalProducer, expansion);
   }
-  if (reusable) {
-    expanded.add(expansionKey);
-  }
-  return reusable;
 }
 
-async function enqueuePackageScripts(repositoryRoot, packageIndex, surface, queue, violations, expanded) {
-  FILTERED_PACKAGE_RUN_REFERENCE.lastIndex = 0;
-  for (const match of surface.source.matchAll(FILTERED_PACKAGE_RUN_REFERENCE)) {
-    const packageRecord = packageIndex.byName.get(match[1] ?? match[2]);
+function expansionKey(path, parent, allowCanonicalProducer) {
+  return JSON.stringify([path, parent.jobId, parent.stepAnchor, allowCanonicalProducer]);
+}
+
+async function enqueuePackageScripts(scan, facts, surface) {
+  for (const { packageName, scriptName } of facts.filteredPackageRuns) {
+    const packageRecord = scan.packageIndex.byName.get(packageName);
     if (packageRecord) {
-      await enqueuePackageScript(repositoryRoot, packageRecord, match[3], surface, queue, violations, expanded);
+      await enqueuePackageScript(scan, packageRecord, scriptName, surface);
     }
   }
-  PACKAGE_RUN_REFERENCE.lastIndex = 0;
-  for (const match of surface.source.matchAll(PACKAGE_RUN_REFERENCE)) {
-    await enqueuePackageScript(repositoryRoot, packageIndex.root, match[1], surface, queue, violations, expanded);
+  for (const scriptName of facts.packageRuns) {
+    await enqueuePackageScript(scan, scan.packageIndex.root, scriptName, surface);
   }
 }
 
-async function enqueuePackageScript(repositoryRoot, packageRecord, scriptName, parent, queue, violations, expanded) {
+async function enqueuePackageScript(scan, packageRecord, scriptName, parent) {
   const source = packageRecord?.scripts?.[scriptName];
   if (typeof source !== "string") {
     return;
@@ -682,17 +740,13 @@ async function enqueuePackageScript(repositoryRoot, packageRecord, scriptName, p
     baseDirectory: packageRecord.directory,
     allowCanonicalProducer: false,
   };
-  queue.push(surface);
-  for (const reference of [
-    ...matches(source, RUNTIME_FILE_REFERENCE, 1),
-    ...matches(source, DIRECT_FILE_REFERENCE, 1),
-  ]) {
-    const path = await resolveExecutableReference(repositoryRoot, packageRecord.directory, reference);
+  enqueueSurface(scan, surface);
+  for (const path of (await surfaceFacts(scan, surface)).executables) {
     if (!path) {
-      violations.push(violation("referenced-executable-missing", surface));
+      scan.violations.push(violation("referenced-executable-missing", surface));
       continue;
     }
-    await enqueueFileSurface(repositoryRoot, path, surface, queue, violations, false, expanded);
+    await enqueueFileSurface(scan, path, surface, false);
   }
 }
 
@@ -861,6 +915,15 @@ function onlyKeys(value, allowed) {
 function matches(source, pattern, group) {
   pattern.lastIndex = 0;
   return [...source.matchAll(pattern)].map((match) => match[group]);
+}
+
+// Each URL is classified on its own: it is local only when its single authority host is exactly a loopback or
+// Compose Postgres name and no query parameter can redirect it. Only a local URL's own text, including its TLS
+// mode, is exempt from the tripwires.
+function isLocalPostgresUrl(url) {
+  const [, authority, query = ""] = /^[^:]*:\/\/([^/?#]*)[^?#]*(?:\?([^#]*))?/.exec(url);
+  const host = /^(?:[^@]*@)?(\[[^\]]*\]|[^:[\]]*)(?::[a-zA-Z0-9_${}.-]+)?$/.exec(authority)?.[1];
+  return LOCAL_POSTGRES_HOSTS.has(host?.toLowerCase()) && !/(?:^|&)(?:host|hostaddr)=|%/i.test(query);
 }
 
 async function readdirIfPresent(directory) {

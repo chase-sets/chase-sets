@@ -123,6 +123,15 @@ app.kubernetes.io/managed-by: {{ .root.Release.Service }}
   value: {{ default "" .value | quote }}
   {{- end }}
 {{- end }}
+{{- /*
+  The runtime pool admits plaintext preview Postgres only for this exact host,
+  the Service preview-postgres.yaml names for this release. It is chart-derived
+  so no values or envOverride can widen it.
+*/ -}}
+{{- if $root.Values.previewPostgres.enabled }}
+- name: "CHASE_SETS_PREVIEW_POSTGRES_HOST"
+  value: {{ include "chase-sets-platform.previewPostgresName" $root | quote }}
+{{- end }}
 {{- if and (eq .component.kind "job") .component.job.quiesce.enabled }}
 - name: "CHASE_SETS_QUIESCE_MODE"
   value: "helm-hook"
