@@ -107,6 +107,14 @@ jobs:
         with:
           install: true
 
+      - name: Provision the managed Postgres pod CA mount path for DB coverage
+        run: |
+          set -euo pipefail
+          # infrastructure/event-core-postgres/managed-postgres-client-tls.db.test.ts
+          # drives pod clients against the exact mount path the runtime pool
+          # admits, writing only a synthetic test CA there.
+          sudo install -d -m 0755 -o "$(id -u)" -g "$(id -g)" /var/run/secrets/chase-sets/managed-postgres
+
       - name: Run DB coverage
         id: coverage
         run: |

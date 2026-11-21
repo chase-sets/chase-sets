@@ -309,7 +309,7 @@ export function createIdentityApiClient({
       return ownerResponse<T>(await client.invitations.$post({ json: body, header: headers }));
     },
     async resendInvitation<T>(id: string, expiresAt: string): Promise<T> {
-      return parseJsonResponse<T>(
+      return ownerResponse<T>(
         await client.invitations[":id"].resend.$post({ param: { id }, json: { expiresAt }, header: headers }),
       );
     },
