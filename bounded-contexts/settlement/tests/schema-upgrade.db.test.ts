@@ -88,6 +88,40 @@ describeDb("settlement schema upgrades", () => {
     );
   });
 
+  it("adds payout review hold columns on retained rows without changing the badge or revision", async () => {
+    const pool = pools.settlement;
+    const migrationId = "20261120_settlement_payout_review_hold";
+    await bootstrapContextDatabase(
+      {
+        ...settlementModule,
+        schemaMigrations: settlementModule.schemaMigrations!.filter(
+          (migration) => migration.migrationId !== migrationId,
+        ),
+      },
+      pool,
+    );
+    await pool.query(`INSERT INTO settlement_account_risk_sources (account_id, manual_payout_review, revision)
+      VALUES ('acc_payout_review_hold_upgrade', true, 7)`);
+    await bootstrapContextDatabase(settlementModule, pool);
+    const read = async () =>
+      (
+        await pool.query(
+          `SELECT manual_payout_review, revision, payout_review_hold, payout_review_hold_stream_version
+         FROM settlement_account_risk_sources WHERE account_id = 'acc_payout_review_hold_upgrade'`,
+        )
+      ).rows;
+    expect(await read()).toEqual([
+      { manual_payout_review: true, revision: "7", payout_review_hold: false, payout_review_hold_stream_version: "0" },
+    ]);
+    await pool.query(`UPDATE settlement_account_risk_sources
+      SET payout_review_hold = true, payout_review_hold_stream_version = 1
+      WHERE account_id = 'acc_payout_review_hold_upgrade'`);
+    await bootstrapContextDatabase(settlementModule, pool);
+    expect(await read()).toEqual([
+      { manual_payout_review: true, revision: "7", payout_review_hold: true, payout_review_hold_stream_version: "1" },
+    ]);
+  });
+
   it("backfills stable hold identities outside boot-time schema SQL", async () => {
     const pool = pools.settlement;
     await bootstrapContextDatabase(settlementModule, pool);

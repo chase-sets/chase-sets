@@ -22,6 +22,18 @@
   "seedRequirements": ["catalog", "commercial-terms", "identity", "inventory", "marketplace"],
   "eventSubscriptions": [
     {
+      "sourceContextName": "marketplace",
+      "projectionName": "checkout.offer-standing-projection",
+      "subscriptionName": "checkout.offer-standing-projection",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": [
+        "marketplace.seller-listing-availability.offers-disabled",
+        "marketplace.seller-listing-availability.offers-enabled"
+      ],
+      "projectionHandlerSetNames": ["checkout.offer-standing-projection"]
+    },
+    {
       "sourceContextName": "catalog",
       "projectionName": "checkout-catalog-item-projection",
       "subscriptionVersion": 1,
@@ -214,6 +226,13 @@
     }
   ],
   "projectionGroups": [
+    {
+      "projectionName": "checkout.offer-standing-projection",
+      "sourceContextNames": ["marketplace"],
+      "ownedTables": ["checkout_buyer_offer_standing"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
     {
       "projectionName": "checkout.cart-projection",
       "sourceContextNames": ["checkout"],

@@ -27,7 +27,10 @@ import { seedProductMeasures } from "../../features/product-measures/api/seed";
 import { seedProductContentConfiguration, seedProductContentScenario } from "../../features/product-contents/api/seed";
 import { seedReferenceData } from "../../features/reference-data/api/seed";
 import type { CatalogReferenceIds } from "../../features/reference-data/api/seed";
-import { seedPromotedSourceObservationScenario } from "../../features/source-observations/api/seed";
+import {
+  seedChangedSourceObservationScenario,
+  seedPromotedSourceObservationScenario,
+} from "../../features/source-observations/api/seed";
 import {
   buildRepresentativeCatalogReplayReceipt,
   replayRepresentativeCatalogPacks,
@@ -107,7 +110,7 @@ export async function seedCatalogDatabase(
   }
 
   if (shouldSeedScenarioData) {
-    await seedCatalogScenarioData(pool, services, authoring);
+    await seedCatalogScenarioData(pool, services, authoring, options?.environmentName);
   }
 
   if (shouldSeedRepresentativeProductContents) {
@@ -358,6 +361,7 @@ async function seedCatalogScenarioData(
   pool: PgTransactionalPool,
   services: CatalogServices,
   authoring: CatalogIntegrationIds,
+  environmentName: BcSeedOptions["environmentName"],
 ): Promise<void> {
   const targetCatalogItemId = catalogSeedIds.items.pikachuJungle as CatalogItemId;
   const { hasAnyCatalogItem, retainedScenarioItemIds } = await loadCatalogScenarioSeedState(services.db);
@@ -396,6 +400,10 @@ async function seedCatalogScenarioData(
   await recoverScenarioCatalogItemProjections(pool, services);
   await seedProductContentScenario(services);
   await seedPromotedSourceObservationScenario(services);
+  // Staging also enables scenario-seed, but the changed observation is only a browser test fixture.
+  if (environmentName !== "staging" && environmentName !== "production") {
+    await seedChangedSourceObservationScenario(services);
+  }
 }
 
 const scenarioCatalogItemIds = Object.values(catalogSeedIds.items) as readonly CatalogItemId[];

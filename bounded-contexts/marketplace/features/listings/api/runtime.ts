@@ -108,6 +108,7 @@ import {
   type SellerListingAvailabilityEvent,
   type SellerListingAvailabilityReasonCategory,
   type SellerListingAvailabilityState,
+  type AwayScope,
 } from "../domain/seller-listing-availability";
 import {
   decideSellerOrderCapacity,
@@ -635,6 +636,8 @@ type MarketplaceListingCoreServices = Readonly<{
     params: MarketplaceListingAttemptParams &
       Readonly<{
         accountId: string;
+        scope?: AwayScope;
+        preserveOtherSide?: boolean;
         reasonCategory: SellerListingAvailabilityReasonCategory | null;
         availableAgainOn: string | null;
         /**
@@ -697,6 +700,7 @@ type MarketplaceListingCoreServices = Readonly<{
         startsAt: string;
         endsAt: string | null;
         reasonCategory: SellerListingAvailabilityReasonCategory;
+        scope?: AwayScope;
       }>,
     context: EventStoreContext,
   ) => Promise<{ accountId: string; version: number }>;
@@ -2860,6 +2864,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         reasonCategory: params.reasonCategory,
         availableAgainOn: params.availableAgainOn,
         availableAgainAt: params.availableAgainAt ?? null,
+        scope: params.scope,
       });
       const done = (version: number) => ({ accountId: params.accountId, version, status: "unavailable" as const });
       return runListingAttempt(
@@ -2882,6 +2887,8 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
                 // calls the command handler directly with "scheduled" instead of
                 // routing through this public method.
                 disabledBy: "seller",
+                scope: params.scope,
+                preserveOtherSide: params.preserveOtherSide,
               },
               context,
             },
@@ -2968,33 +2975,42 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     sweepDueSellerAvailabilityRestores: async (params, context) => {
       const now = params?.now ?? new Date().toISOString();
       const candidates = await listDueSellerAvailabilityRestores(deps.db, { now, limit: params?.limit });
+      let checked = 0;
       let restored = 0;
       let skipped = 0;
 
       for (const candidate of candidates) {
-        const result = await sellerAvailabilityCommandHandler({
-          streamId: `marketplace.seller-listing-availability-${candidate.account_id}`,
-          command: {
-            type: "EnableSellerListingAvailability",
-            accountId: candidate.account_id,
-            enabledAt: now,
-            enabledBy: "scheduled",
-            dueBy: candidate.available_again_at,
-          },
-          context,
-        });
+        for (const [scope, dueBy] of [
+          ["listings", candidate.available_again_at],
+          ["offers", candidate.offers_available_again_at],
+        ] as const) {
+          if (dueBy == null) continue;
+          checked += 1;
+          const result = await sellerAvailabilityCommandHandler({
+            streamId: `marketplace.seller-listing-availability-${candidate.account_id}`,
+            command: {
+              type: "EnableSellerListingAvailability",
+              accountId: candidate.account_id,
+              enabledAt: now,
+              enabledBy: "scheduled",
+              dueBy,
+              scope,
+            },
+            context,
+          });
 
-        if (result.newEvents.length > 0) {
-          restored += 1;
-        } else {
-          // The seller enabled, or pushed the resume instant forward,
-          // between the due-query read above and this command -- the
-          // decider's compare-and-swap already no-opped it cleanly.
-          skipped += 1;
+          if (result.newEvents.length > 0) {
+            restored += 1;
+          } else {
+            // The seller enabled, or pushed the resume instant forward,
+            // between the due-query read above and this command -- the
+            // decider's compare-and-swap already no-opped it cleanly.
+            skipped += 1;
+          }
         }
       }
 
-      return { checked: candidates.length, restored, skipped };
+      return { checked, restored, skipped };
     },
     scheduleSellerAwayWindow: async (params, context) => {
       const attempt = attemptFor("seller.away", params, {
@@ -3002,6 +3018,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         startsAt: params.startsAt,
         endsAt: params.endsAt,
         reasonCategory: params.reasonCategory,
+        scope: params.scope,
       });
       return runListingAttempt(
         deps.eventStore,
@@ -3019,6 +3036,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
                 endsAt: params.endsAt,
                 reasonCategory: params.reasonCategory,
                 scheduledAt: new Date().toISOString(),
+                scope: params.scope,
               },
               context,
             },
@@ -3075,6 +3093,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
             disabledAt: candidate.away_window_starts_at,
             disabledBy: "scheduled" satisfies SellerListingAvailabilityDisabledBy,
             dueBy: candidate.away_window_starts_at,
+            scope: candidate.away_window_scope ?? "listings",
           },
           context,
         });
