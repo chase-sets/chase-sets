@@ -21,11 +21,12 @@ import { fileURLToPath } from "node:url";
 import { readOption } from "./lib/cli-options.mjs";
 import { buildPlatformHelmValues, platformHelmPreviewPostgresName } from "./render-platform-helm-values.mjs";
 
-// Compose renders the canonical preview Postgres service host with
-// `sslmode=disable`, the only non-loopback plaintext shape the runtime pool
-// (infrastructure/event-core-postgres/pool.ts) admits, and only under
-// DEPLOYMENT_ENVIRONMENT=preview. docker-compose.pr-smoke.yml's `postgres`
-// service is the DNS owner: it carries this host as a network alias.
+// Compose renders the default release's preview Postgres service host with
+// `sslmode=disable`. With no release host in its environment, the runtime pool
+// (infrastructure/event-core-postgres/pool.ts) admits plaintext for exactly
+// this fixed alias, and only under DEPLOYMENT_ENVIRONMENT=preview.
+// docker-compose.pr-smoke.yml's `postgres` service is the DNS owner: it
+// carries this host as a network alias.
 export const composeSmokePostgresHost = platformHelmPreviewPostgresName();
 export const composeSmokePostgresUrl = `postgresql://postgres:postgres@${composeSmokePostgresHost}:5432/chase_sets?sslmode=disable`;
 export const composeSmokeInternalAuthSecret = "compose-smoke-internal-auth-secret";

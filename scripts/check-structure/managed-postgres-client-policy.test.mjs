@@ -342,6 +342,57 @@ describe("managed Postgres client policy inventory (#7313)", () => {
       reason: "bare-postgres-cli psql",
     },
     {
+      name: "test-library script run by a managed job",
+      files: {
+        "tools/runner-client.mjs": [
+          'import test from "node:test";',
+          'import pg from "pg";',
+          'test("reads", async () => { await new pg.Client(process.env.DATABASE_URL).connect(); });',
+        ].join("\n"),
+      },
+      path: "tools/runner-client.mjs",
+      reason: "seam-bypass-driver",
+      location: "github-runner:managed-authority",
+    },
+    {
+      name: "test-library helper imported by a managed runner client",
+      files: {
+        "tools/helper.mjs": [
+          'import { vi } from "vitest";',
+          'import pg from "pg";',
+          "export const open = (url) => new pg.Pool({ connectionString: url });",
+        ].join("\n"),
+        "tools/runner-client.mjs":
+          'import { open } from "./helper.mjs";\nawait open(process.env.DATABASE_URL).query("select 1");',
+      },
+      path: "tools/helper.mjs",
+      reason: "seam-bypass-driver",
+      chainEnd: "tools/helper.mjs (import ./helper.mjs)",
+    },
+    {
+      name: "kubectl exec psql against a managed URL in a workflow step",
+      files: {
+        ".github/workflows/ops.yml": base[".github/workflows/ops.yml"].replace(
+          "      - run: node tools/runner-client.mjs",
+          '      - run: kubectl exec deploy/api -- psql "$DATABASE_URL_CATALOG" -c "select 1"',
+        ),
+      },
+      path: ".github/workflows/ops.yml",
+      reason: "in-container-cli-target psql",
+    },
+    {
+      name: "kubectl exec psql argv with a managed URL",
+      files: {
+        "tools/runner-client.mjs": [
+          'import { spawnSync } from "node:child_process";',
+          'spawnSync("kubectl", ["exec", "deploy/api", "--", "psql", process.env.DATABASE_URL, "-c", "select 1"]);',
+        ].join("\n"),
+      },
+      path: "tools/runner-client.mjs",
+      reason: "in-container-cli-target psql",
+      location: "github-runner:managed-authority",
+    },
+    {
       name: "require producer",
       files: { "tools/urls.mjs": "export const url = (host) => `postgresql://app@${host}:25060/app?sslmode=require`;" },
       path: "tools/urls.mjs",
@@ -422,13 +473,24 @@ describe("managed Postgres client policy inventory (#7313)", () => {
     expect(managedPostgresClientPolicyFailures(withoutSeam.report)).toContain("validated-seam-not-unique");
   });
 
-  it("keeps safe controls green: in-container CLIs, local tools and tests", () => {
+  it("keeps safe controls green: local-socket in-container CLIs, local tools and tests", () => {
     const { status, stderr, report } = runGuard(
       fixtureRepo({
+        // Managed jobs whose container execs name no connection target reach only the container's own socket.
         ".github/workflows/ops.yml": base[".github/workflows/ops.yml"].replace(
           "      - run: node tools/runner-client.mjs",
-          '      - run: docker exec "$POSTGRES_CONTAINER" psql -U postgres -c "select 1"',
+          [
+            '      - run: docker exec "$POSTGRES_CONTAINER" psql -U postgres -c "select 1"',
+            '      - run: kubectl exec deploy/preview-postgres -c postgres -- psql --username postgres -c "select 1"',
+            "      - run: node tools/snapshot.mjs",
+          ].join("\n"),
         ),
+        "tools/snapshot.mjs": [
+          'import { spawnSync } from "node:child_process";',
+          "const statements = ['SHOW max_connections'];",
+          'spawnSync("kubectl", ["exec", "deployment/preview-postgres", "--container", "postgres", "--", "psql",',
+          '  "--username", "postgres", "-h", "/var/run/postgresql", ...statements.flatMap((s) => ["--command", s])]);',
+        ].join("\n"),
         "tools/compose.mjs": [
           'import { spawnSync } from "node:child_process";',
           'spawnSync("docker", ["compose", "exec", "-T", "postgres", "psql", "-U", "postgres"]);',
@@ -443,6 +505,10 @@ describe("managed Postgres client policy inventory (#7313)", () => {
 
     expect(status, stderr).toBe(0);
     expect(member(report, ".github/workflows/ops.yml").class).toBe("in-container-cli");
+    expect(member(report, "tools/snapshot.mjs")).toMatchObject({
+      class: "in-container-cli",
+      locations: ["github-runner:managed-authority"],
+    });
     expect(member(report, "tools/compose.mjs").class).toBe("in-container-cli");
     expect(member(report, "tools/client.test.mjs")).toMatchObject({ class: "test-tool", locations: ["test-runner"] });
   });

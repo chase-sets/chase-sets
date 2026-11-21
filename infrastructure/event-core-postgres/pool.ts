@@ -74,9 +74,16 @@ export type PostgresClientAdmission = Readonly<{
   transport: "plaintext-local" | "plaintext-preview" | "verified-managed";
 }>;
 
+// The chart renders the preview Postgres Service name for its release into
+// every preview pod under this variable (chase-sets-platform.env in
+// infrastructure/helm/platform/templates/_helpers.tpl).
+export const previewPostgresHostEnvName = "CHASE_SETS_PREVIEW_POSTGRES_HOST";
+// docker-compose.pr-smoke.yml gives its Postgres service this fixed alias: the
+// preview Service name for the default release.
+export const composePreviewPostgresHost = "chase-sets-platform-chase-sets-platform-preview-postgres";
+
 const loopbackHosts = new Set(["localhost", "127.0.0.1", "::1"]);
 const refusedConnectionParameters = ["host", "hostaddr", "ssl", "sslcert", "sslkey"];
-const previewPostgresServiceSuffix = "-preview-postgres";
 const dnsLabel = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const transportCodePattern = /^[A-Z0-9_]{1,40}$/;
 const caFileErrorCodes = new Set(["ENOENT", "EACCES", "EISDIR", "ENOTDIR", "EPERM", "ELOOP"]);
@@ -118,13 +125,26 @@ export function resolveManagedPostgresCaPath(env: PostgresClientEnvironment): st
   return managedPostgresRunnerCaPath(runnerTemp);
 }
 
-export function isCanonicalPreviewPostgresHost(hostname: string): boolean {
-  return dnsLabel.test(hostname) && hostname.endsWith(previewPostgresServiceSuffix);
+/**
+ * The one plaintext preview Postgres host under DEPLOYMENT_ENVIRONMENT=preview:
+ * the Service the chart names for this release, or the fixed Compose alias
+ * where no release names one. Any other host, including another release's
+ * preview Service, is not a preview database.
+ */
+export function resolvePreviewPostgresHost(env: PostgresClientEnvironment): string | undefined {
+  if (env.DEPLOYMENT_ENVIRONMENT !== "preview") {
+    return undefined;
+  }
+  const releaseHost = env[previewPostgresHostEnvName];
+  if (releaseHost === undefined || releaseHost === "") {
+    return composePreviewPostgresHost;
+  }
+  return dnsLabel.test(releaseHost) ? releaseHost : undefined;
 }
 
 /**
  * Fail-closed admission for every runtime Postgres client. Plaintext is only
- * admitted for loopback hosts, or for the canonical preview service under
+ * admitted for loopback hosts, or for the exact preview Postgres host under
  * DEPLOYMENT_ENVIRONMENT=preview with sslmode=disable. Every other URL must be
  * verify-full with libpq compatibility and the location-bound sslrootcert; pg
  * then reads only that CA file and verifies the DNS hostname.
@@ -141,7 +161,7 @@ export function admitPostgresClientConnection(
   if (loopbackHosts.has(hostname) && plaintextMode) {
     return { connectionString: withPlaintextMode(url, connectionString, sslMode), transport: "plaintext-local" };
   }
-  if (env.DEPLOYMENT_ENVIRONMENT === "preview" && sslMode === "disable" && isCanonicalPreviewPostgresHost(hostname)) {
+  if (sslMode === "disable" && hostname === resolvePreviewPostgresHost(env)) {
     return { connectionString, transport: "plaintext-preview" };
   }
   // The DNS hostname is the TLS identity (SNI and certificate name); an IP literal is not.

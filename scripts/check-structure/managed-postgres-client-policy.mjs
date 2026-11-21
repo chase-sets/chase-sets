@@ -76,6 +76,11 @@ const CLI_NAMES = "psql|pg_dump|pg_restore|pg_dumpall";
 const CLI_LITERAL = new RegExp(`^(?:exec\\s+)?(?:${CLI_NAMES})(?:\\s|$)`, "u");
 const SHELL_CLI = new RegExp(`(?<![\\w./-])(?:${CLI_NAMES})(?![\\w./-])`, "gu");
 const SHELL_CONTAINER_EXEC = /\b(?:docker|podman|kubectl|compose)\b[^\n;|&]*\bexec\b/u;
+// An in-container CLI that names no connection target reaches only the
+// container's own local socket. A URL, a URL-valued variable, a libpq host
+// variable or a non-socket host names another database.
+const CLI_CONNECTION_TARGET =
+  /postgres(?:ql)?:\/\/|url|Url|URL|\bPG(?:HOST|HOSTADDR|SERVICE)\b|(?:^|[\s"',[(])(?:-h|--host)(?:=|[\s"',]+)(?![\s"',]*\/)/u;
 const WEAK_MODES = "require|prefer|allow|verify-ca|no-verify";
 const DOWNGRADES = [
   /\brejectUnauthorized\s*(?<![=!])[:=](?!=)\s*false\b/u,
@@ -498,16 +503,21 @@ function calleeBefore(masked, position) {
 // program argument of a process call; it runs in a container when that argv
 // carries an `exec` element before it, and is admitted when the argv passes the
 // connection target through the validated seam.
-function cliSiteFor(masked, literals, position) {
+function cliSiteFor(masked, code, literals, position) {
   const bracket = enclosingBracket(masked, position);
   if (!bracket) return undefined;
   const argvText = masked.slice(bracket.start, bracket.end + 1);
+  const connectionTarget = CLI_CONNECTION_TARGET.test(code.slice(bracket.start, bracket.end + 1));
   if (bracket.open === "[") {
     const before = literals.filter((entry) => entry.start > bracket.start && entry.start < position);
-    return { inContainer: before.some((entry) => entry.value === "exec"), admitted: SEAM_CALL.test(argvText) };
+    return {
+      inContainer: before.some((entry) => entry.value === "exec"),
+      connectionTarget,
+      admitted: SEAM_CALL.test(argvText),
+    };
   }
   if (bracket.open === "(" && /spawn|exec|run|process/iu.test(calleeBefore(masked, bracket.start) ?? "")) {
-    return { inContainer: false, admitted: SEAM_CALL.test(argvText) };
+    return { inContainer: false, connectionTarget, admitted: SEAM_CALL.test(argvText) };
   }
   return undefined;
 }
@@ -596,7 +606,7 @@ function analyzeJavaScript(node, source, context, directory, embedded = false) {
             .filter((index) => index < windowStart + declaration.index || index > literal.start)
         : [literal.start];
       for (const position of positions) {
-        const site = cliSiteFor(masked, literals, position);
+        const site = cliSiteFor(masked, code, literals, position);
         if (site) facts.cliSites.push({ ...site, origin: node.path, command: literal.value.split(/\s+/u).at(-1) });
       }
       continue;
@@ -647,6 +657,7 @@ function analyzeShell(node, text, context, cwd) {
     for (const match of line.matchAll(SHELL_CLI)) {
       facts.cliSites.push({
         inContainer: SHELL_CONTAINER_EXEC.test(line.slice(0, match.index)),
+        connectionTarget: CLI_CONNECTION_TARGET.test(line),
         admitted: false,
         origin: node.path,
         command: match[0],
@@ -1051,8 +1062,10 @@ function traverse(files, isStart, fromTests) {
     const node = nodeById(files, state.id);
     for (const edge of node?.edges ?? []) {
       if (edge.dispatchKey !== undefined && state.selector !== ANY && state.selector !== edge.dispatchKey) continue;
+      // Reachability follows test-library files too; their exemption is a
+      // classification decision made after managed reachability is known.
       const target = nodeById(files, edge.to);
-      if (!target || (!fromTests && target.testTool)) continue;
+      if (!target) continue;
       const selector =
         edge.selector && edge.selector !== ANY
           ? edge.selector
@@ -1128,7 +1141,8 @@ function classify(file, reach) {
     locations: locations.length > 0 ? locations : ["operator-invoked"],
     reachability: reachedNodes.length > 0 ? reach.operational.chain(reachedNodes[0].path) : [],
   };
-  if (file.testTool) return { ...member, class: "test-tool", locations: ["test-runner"] };
+  // A test-library file is exempt only while no managed entrypoint runs it.
+  if (file.testTool && !nodes.some(authority)) return { ...member, class: "test-tool", locations: ["test-runner"] };
   if (facts.genericShape) return { ...member, class: "INDETERMINATE", reasons: ["unrecognized-local-exec-command"] };
   if (file.seamOwner === "duplicate" || file.trustOwner === "duplicate") {
     return { ...member, class: "INDETERMINATE", reasons: ["duplicate-trust-owner"] };
@@ -1140,8 +1154,10 @@ function classify(file, reach) {
   const bypassing = facts.driverImports.filter((entry) => !owner && !trustClient && authority(entry.node));
   if (bypassing.length > 0) reasons.push("seam-bypass-driver");
   for (const site of facts.cliSites) {
-    if (!site.inContainer && !site.admitted && authority(nodeOf(nodes, site.origin)))
-      reasons.push(`bare-postgres-cli ${site.command}`);
+    if (site.admitted || !authority(nodeOf(nodes, site.origin))) continue;
+    // A container exec is exempt only with local-socket evidence: no named connection target.
+    if (!site.inContainer) reasons.push(`bare-postgres-cli ${site.command}`);
+    else if (site.connectionTarget) reasons.push(`in-container-cli-target ${site.command}`);
   }
   const authorityChain = [
     ...bypassing.map((entry) => entry.node),

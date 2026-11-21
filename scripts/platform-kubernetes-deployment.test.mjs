@@ -56,8 +56,12 @@ import {
   verifyStalePendingRecoveryTransition,
 } from "./platform-kubernetes-deployment.mjs";
 import { managedPostgresPodCaPath } from "./platform-kubernetes-secret.mjs";
-import { isDatabaseSecretKey } from "./render-platform-helm-values.mjs";
-import { managedPostgresPodCaPath as runtimeManagedPostgresPodCaPath } from "../infrastructure/event-core-postgres/pool.ts";
+import { isDatabaseSecretKey, platformHelmPreviewPostgresName } from "./render-platform-helm-values.mjs";
+import {
+  admitPostgresClientConnection,
+  composePreviewPostgresHost,
+  managedPostgresPodCaPath as runtimeManagedPostgresPodCaPath,
+} from "../infrastructure/event-core-postgres/pool.ts";
 import * as platformKubernetesDeployment from "./platform-kubernetes-deployment.mjs";
 import {
   classifyAdmissionWebhookTransient,
@@ -7708,6 +7712,46 @@ describe("preview Postgres connection ceiling and diagnostics (#10022)", () => {
     }
   });
 
+  it("binds each preview pod's plaintext Postgres host to its own release's preview Service", () => {
+    const urlFor = (host) => `postgresql://app@${host}:5432/app?sslmode=disable`;
+    for (const release of ["chase-sets-pr-123", "chase-sets-gate-1-1", "chase-sets-verify-1-1"]) {
+      const rendered = documents(helmTemplate(templateArgs(deployArgs("preview", release))));
+      const service = rendered.find(
+        (item) => item.kind === "Service" && item.metadata.labels["app.kubernetes.io/component"] === "preview-postgres",
+      );
+      expect(service.metadata.name).toBe(platformHelmPreviewPostgresName({ releaseName: release }));
+      const workloads = rendered.filter(
+        (item) => item.spec?.template && item.metadata.labels["app.kubernetes.io/component"] !== "preview-postgres",
+      );
+      expect(workloads).toHaveLength(6);
+      for (const workload of workloads) {
+        const container = workload.spec.template.spec.containers[0];
+        const env = Object.fromEntries(container.env.filter((entry) => "value" in entry).map((e) => [e.name, e.value]));
+        const name = workload.metadata.labels["app.kubernetes.io/component"];
+        expect(env.CHASE_SETS_PREVIEW_POSTGRES_HOST, name).toBe(service.metadata.name);
+        if (!container.env.some((entry) => isDatabaseSecretKey(entry.valueFrom?.secretKeyRef?.key ?? ""))) continue;
+        const pod = { ...env, KUBERNETES_SERVICE_HOST: "10.245.0.1" };
+        expect(admitPostgresClientConnection(urlFor(service.metadata.name), pod).transport, name).toBe(
+          "plaintext-preview",
+        );
+        for (const host of [
+          "synthetic-unrelated-preview-postgres",
+          platformHelmPreviewPostgresName({ releaseName: "chase-sets-pr-999" }),
+          composePreviewPostgresHost,
+        ]) {
+          expect(() => admitPostgresClientConnection(urlFor(host), pod), `${name} ${host}`).toThrow(
+            "remote-postgres-sslmode-downgraded",
+          );
+        }
+      }
+    }
+    for (const environment of ["staging", "production"]) {
+      expect(helmTemplate(templateArgs(deployArgs(environment, "chase-sets-platform")))).not.toContain(
+        "CHASE_SETS_PREVIEW_POSTGRES_HOST",
+      );
+    }
+  });
+
   it("refuses conflicting global affinity when preview stack isolation is enabled", () => {
     expect(() =>
       helmTemplate([
@@ -8091,5 +8135,65 @@ describe("managed Postgres CA trust across rollout and rollback (#7313)", () => 
 
     const admitted = await capture(rollbackValues, []);
     expect(admitted).toMatchObject({ sourceRevision: 228, sourceStatus: "deployed" });
+  });
+
+  it("refuses a below-floor revision on the shared rollback path before any Helm mutation", async () => {
+    const belowFloor = { ...rollbackValues, global: { ...rollbackValues.global, managedPostgresCaSha256: undefined } };
+    const history = [
+      { revision: 227, status: "superseded", description: "Upgrade complete" },
+      { revision: 228, status: "deployed", description: "Upgrade complete" },
+    ];
+    // Without the floor, the stable history re-read admits the target and the next spawn is `helm rollback`.
+    const rollbackSpawn = (calls) =>
+      completedSpawn(calls, [
+        { code: 0, stdout: '{"name":"proof"}' },
+        { code: 0, stdout: helmHistory(history) },
+        { code: 0, stdout: JSON.stringify(belowFloor) },
+        { code: 0, stdout: helmHistory(history) },
+      ]);
+    const helmMutations = (calls) =>
+      calls.filter((call) => ["rollback", "upgrade", "install", "uninstall"].includes(call.args[0]));
+
+    // Direct callers: production deploy recovery, admission retry and stale pending-upgrade recovery.
+    const directCalls = [];
+    const direct = await rollbackPlatformOnKubernetes({
+      release: "proof",
+      namespace: "staging",
+      revision: "227",
+      spawn: rollbackSpawn(directCalls),
+    });
+    expect(helmMutations(directCalls)).toEqual([]);
+    expect(direct.result).toBe("failure");
+    expect(direct.reason).toContain("Helm revision 227 predates the managed Postgres CA mount floor");
+    expect(directCalls).toHaveLength(3);
+
+    // The exact argv of platform-staging-helm-recovery.yml and the staging rollback drill.
+    const cliCalls = [];
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await expect(
+        platformKubernetesDeployment.runPlatformKubernetesDeploymentCli(
+          [
+            "rollback",
+            "--namespace",
+            "staging",
+            "--release",
+            "proof",
+            "--revision",
+            "227",
+            "--timeout",
+            "5m",
+            "--runtime-env",
+            "DEPLOYMENT_ENVIRONMENT=staging",
+          ],
+          {},
+          { spawn: rollbackSpawn(cliCalls) },
+        ),
+      ).resolves.toBe(1);
+    } finally {
+      log.mockRestore();
+    }
+    expect(helmMutations(cliCalls)).toEqual([]);
+    expect(cliCalls).toHaveLength(3);
   });
 });

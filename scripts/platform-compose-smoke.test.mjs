@@ -14,7 +14,11 @@ import {
 } from "./platform-compose-smoke.mjs";
 import { listContextManifests } from "./lib/repo.mjs";
 import { buildPlatformHelmValues, platformHelmPreviewPostgresName } from "./render-platform-helm-values.mjs";
-import { admitPostgresClientConnection } from "../infrastructure/event-core-postgres/pool.ts";
+import {
+  admitPostgresClientConnection,
+  composePreviewPostgresHost,
+  previewPostgresHostEnvName,
+} from "../infrastructure/event-core-postgres/pool.ts";
 
 function envValue(component, name) {
   return component.env.find((entry) => entry.name === name)?.value;
@@ -51,6 +55,11 @@ describe("platform-compose-smoke", () => {
     const compose = parseYaml(readFileSync("docker-compose.pr-smoke.yml", "utf8"));
     expect(new URL(composeSmokePostgresUrl).hostname).toBe(composeSmokePostgresHost);
     expect(composeSmokePostgresHost).toBe(platformHelmPreviewPostgresName());
+    // The runtime pool's fixed Compose alias is this host; no Compose component names a release host.
+    expect(composeSmokePostgresHost).toBe(composePreviewPostgresHost);
+    for (const component of Object.values(buildComposeSmokeValues().components)) {
+      expect(envValue(component, previewPostgresHostEnvName)).toBeUndefined();
+    }
     expect(compose.services.postgres.networks.default.aliases).toContain(composeSmokePostgresHost);
     for (const [name, service] of Object.entries(compose.services)) {
       if (name === "postgres") continue;

@@ -1899,7 +1899,9 @@ export function verifyStalePendingRecoveryTransition(admissionHistory, observedH
 // Runtime Secret URLs are verify-full with the pod CA mount path, and
 // a Helm rollback restores workloads but not that Secret. A rollback target
 // must therefore be a revision that mounts the CA into every database-bearing
-// workload: the CA mount floor. Older revisions are refused.
+// workload: the CA mount floor. Older revisions are refused, both when a
+// rollback target is captured and inside rollbackPlatformOnKubernetes before
+// any Helm rollback runs.
 export function assertManagedPostgresCaMountFloor(values, label) {
   const digest = values?.global?.managedPostgresCaSha256;
   if (typeof digest !== "string" || !/^[0-9a-f]{64}$/.test(digest)) {
@@ -3755,6 +3757,9 @@ export async function rollbackPlatformOnKubernetes(options = {}) {
     }
 
     const sourceValues = await readHelmRevisionValues({ ...options, helmPath, revision: sourceRevision });
+    // Every rollback caller (staging recovery and drill, production deploy recovery) targets a managed
+    // release, so the source revision must clear the CA mount floor before Helm runs.
+    assertManagedPostgresCaMountFloor(sourceValues, `Helm revision ${sourceRevision}`);
     workloads = options.workloads ?? platformKubernetesWorkloads({ ...options, values: sourceValues });
     const sourceIdentity = platformImageIdentityFromValues(sourceValues);
     const expected = rollbackExpectation(options.rollbackTarget, sourceRevision, sourceIdentity);

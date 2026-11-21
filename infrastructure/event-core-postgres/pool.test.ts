@@ -4,11 +4,14 @@ import {
   ManagedPostgresClientError,
   admitPostgresClientConnection,
   classifyManagedPostgresClientError,
+  composePreviewPostgresHost,
   createPgClient,
   createPgPool,
   managedPostgresPodCaPath,
   managedPostgresRunnerCaPath,
+  previewPostgresHostEnvName,
   resolveManagedPostgresCaPath,
+  resolvePreviewPostgresHost,
   type PostgresClientEnvironment,
 } from "./pool";
 import type { PgTransactionalPool } from "./types";
@@ -166,9 +169,13 @@ describe("admitPostgresClientConnection", () => {
     );
   });
 
-  it("admits preview plaintext only for the canonical preview service under preview with disable", () => {
+  it("admits preview plaintext only for the release's exact preview service under preview with disable", () => {
     const preview = `postgresql://cs_preview_catalog:secret-password@${previewHost}:5432/chase_sets_preview_catalog?sslmode=disable`;
-    const previewEnv = { DEPLOYMENT_ENVIRONMENT: "preview", KUBERNETES_SERVICE_HOST: "10.245.0.1" };
+    const previewEnv = {
+      DEPLOYMENT_ENVIRONMENT: "preview",
+      KUBERNETES_SERVICE_HOST: "10.245.0.1",
+      [previewPostgresHostEnvName]: previewHost,
+    };
     expect(admitPostgresClientConnection(preview, previewEnv)).toEqual({
       connectionString: preview,
       transport: "plaintext-preview",
@@ -186,6 +193,37 @@ describe("admitPostgresClientConnection", () => {
     expect(refusal(preview.replace(previewHost, "postgres"), previewEnv)).toBe("remote-postgres-sslmode-downgraded");
     expect(refusal(preview.replace(previewHost, managedHost), previewEnv)).toBe("remote-postgres-sslmode-downgraded");
     expect(refusal(managedUrl(managedPostgresPodCaPath), previewEnv)).toBe("remote-postgres-rootcert-path-unexpected");
+
+    // A preview-looking suffix is not the preview database: only this release's Service is.
+    for (const host of [
+      "synthetic-unrelated-preview-postgres",
+      "chase-sets-pr-43-chase-sets-platform-preview-postgres",
+      composePreviewPostgresHost,
+    ]) {
+      expect(refusal(preview.replace(previewHost, host), previewEnv)).toBe("remote-postgres-sslmode-downgraded");
+      expect(() => createPgClient(preview.replace(previewHost, host), {}, previewEnv)).toThrow(
+        "remote-postgres-sslmode-downgraded",
+      );
+    }
+    expect(refusal(preview, { ...previewEnv, [previewPostgresHostEnvName]: "Not A Host" })).toBe(
+      "remote-postgres-sslmode-downgraded",
+    );
+  });
+
+  it("admits the fixed Compose alias as the preview database only where no release names one", () => {
+    const composeEnv = { DEPLOYMENT_ENVIRONMENT: "preview" };
+    const compose = `postgresql://postgres:secret-password@${composePreviewPostgresHost}:5432/chase_sets?sslmode=disable`;
+    expect(resolvePreviewPostgresHost(composeEnv)).toBe(composePreviewPostgresHost);
+    expect(admitPostgresClientConnection(compose, composeEnv).transport).toBe("plaintext-preview");
+    for (const host of [previewHost, "synthetic-unrelated-preview-postgres"]) {
+      expect(refusal(compose.replace(composePreviewPostgresHost, host), composeEnv)).toBe(
+        "remote-postgres-sslmode-downgraded",
+      );
+    }
+    expect(resolvePreviewPostgresHost({ [previewPostgresHostEnvName]: previewHost })).toBeUndefined();
+    expect(admitPostgresClientConnection("postgresql://postgres@localhost:5432/chase_sets", composeEnv).transport).toBe(
+      "plaintext-local",
+    );
   });
 });
 

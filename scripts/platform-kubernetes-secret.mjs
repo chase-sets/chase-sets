@@ -553,8 +553,9 @@ function previewDatabaseUser(contextName) {
 
 function postgresUrl({ username, password, host, port, database }) {
   // The disposable in-cluster preview Postgres does not serve SSL. The runtime
-  // pool admits sslmode=disable only for this canonical preview service under
-  // DEPLOYMENT_ENVIRONMENT=preview and refuses a missing mode for non-loopback hosts.
+  // pool admits sslmode=disable only for this release's preview Service, which
+  // the chart also renders into each pod, under DEPLOYMENT_ENVIRONMENT=preview,
+  // and refuses a missing mode for non-loopback hosts.
   return `postgresql://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${host}:${port}/${encodeURIComponent(database)}?sslmode=disable`;
 }
 

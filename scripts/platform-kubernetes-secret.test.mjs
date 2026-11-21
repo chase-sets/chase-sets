@@ -20,10 +20,15 @@ import {
   managedPostgresPodCaPath,
   summarizePlatformSecret,
 } from "./platform-kubernetes-secret.mjs";
-import { buildPlatformHelmValues, isDatabaseSecretKey } from "./render-platform-helm-values.mjs";
+import {
+  buildPlatformHelmValues,
+  isDatabaseSecretKey,
+  platformHelmPreviewPostgresName,
+} from "./render-platform-helm-values.mjs";
 import {
   admitPostgresClientConnection,
   managedPostgresPodCaPath as runtimePodCaPath,
+  previewPostgresHostEnvName,
 } from "../infrastructure/event-core-postgres/pool.ts";
 
 const stagingPodEnv = { DEPLOYMENT_ENVIRONMENT: "staging", KUBERNETES_SERVICE_HOST: "10.245.0.1" };
@@ -453,8 +458,19 @@ describe("platform Kubernetes secret", () => {
     expect(JSON.stringify(bundle)).not.toContain("super-secret");
     expect(JSON.stringify(bundle)).not.toContain("app-secret");
     const previewUrl = Buffer.from(bundle.runtimeSecret.data.DATABASE_URL_CATALOG_WAITER, "base64").toString("utf8");
-    const previewPod = { DEPLOYMENT_ENVIRONMENT: "preview", KUBERNETES_SERVICE_HOST: "10.245.0.1" };
+    // The chart renders the same release's Service name into the pod.
+    const previewPod = {
+      DEPLOYMENT_ENVIRONMENT: "preview",
+      KUBERNETES_SERVICE_HOST: "10.245.0.1",
+      [previewPostgresHostEnvName]: platformHelmPreviewPostgresName({ releaseName: "chase-sets-pr-123" }),
+    };
     expect(admitPostgresClientConnection(previewUrl, previewPod).transport).toBe("plaintext-preview");
+    expect(() =>
+      admitPostgresClientConnection(previewUrl, {
+        ...previewPod,
+        [previewPostgresHostEnvName]: platformHelmPreviewPostgresName({ releaseName: "chase-sets-pr-124" }),
+      }),
+    ).toThrow("remote-postgres-sslmode-downgraded");
     for (const environment of ["staging", "production"]) {
       expect(() =>
         admitPostgresClientConnection(previewUrl, { ...previewPod, DEPLOYMENT_ENVIRONMENT: environment }),
