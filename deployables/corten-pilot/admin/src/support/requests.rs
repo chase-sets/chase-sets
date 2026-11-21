@@ -15,12 +15,9 @@
 //! | `POST /support/requests/{id}?<queue>` | a case or remedy action (`intent`: note, response, escalate, resolve, close, cancel, and the remedy panel's), then the sheet; a remedy preview is the sheet with it |
 //! | `GET /support/requests/{id}/attachments/{attachment}` | an evidence photo, relayed from the API |
 //!
-//! Departures from admin-web, each until its issue closes:
-//! - The remedy panel's choices (the launch policy's refund triggers and reason, return-exception
-//!   and correction codes), the effects it lets an operator waive, its permission gates, its
-//!   currency default and its idempotency keys are admin-web's own rules, copied here until the
-//!   Support API offers them (chase-sets/chase-sets#11239). The API checks each permission and
-//!   the policy again.
+//! The remedy panel draws what the ops read offers (`remedy_offer`): the active policy's choices,
+//! the remedy currency, and each action the request takes now with its idempotency key and whether
+//! this staff member may take it.
 use std::time::SystemTime;
 
 use corten::{
@@ -167,58 +164,59 @@ pub const RESOLUTIONS: [&str; 7] =
 pub const REMEDY_KINDS: [&str; 2] = ["full-refund", "partial-refund"];
 pub const FUNDING_KINDS: [&str; 3] = ["platform-funded", "split", "seller-funded"];
 pub const RETURN_DIRECTIVES: [&str; 3] = ["no-return", "return-to-seller", "return-to-platform"];
-/// The platform remedy launch policy's lists, as admin-web compiles them in
-/// (`PLATFORM_REMEDY_LAUNCH_POLICY_VALUE`) rather than reading the active policy
-/// (chase-sets/chase-sets#11239).
-pub const REFUND_TRIGGERS: [&str; 5] = ["immediate", "carrier-accepted", "delivered", "facility-intake", "operator-release"];
-pub const REMEDY_REASONS: [&str; 4] =
-    ["insufficient-evidence", "platform-service-failure", "carrier-exception", "customer-protection"];
-pub const RETURN_EXCEPTION_REASONS: [&str; 4] = ["unsafe-return", "lost-return", "cost-disproportionate", "documented-exception"];
-pub const CORRECTION_REASONS: [&str; 6] = [
-    "coverage-rejected",
-    "reservation-expired",
-    "carrier-exception",
-    "refund-failure",
-    "reconciliation-stuck",
-    "policy-exception",
-];
-/// The effects admin-web never offers to waive (chase-sets/chase-sets#11239).
-pub const UNWAIVABLE_EFFECTS: [&str; 3] = ["coverage-reservation", "refund-completion", "settlement-reconciliation"];
-
-/// The platform remedy capabilities (`platformRemedyCapabilities`).
-pub mod remedy_capability {
-    pub const PROPOSE: &str = "support.remedies.propose";
-    pub const APPROVE: &str = "support.remedies.approve";
-    pub const APPROVE_ELEVATED: &str = "support.remedies.approve-elevated";
-    pub const OVERRIDE_RETURN: &str = "support.remedies.override-return";
-    pub const RETRY: &str = "support.remedies.retry";
-    pub const WAIVE: &str = "support.remedies.waive";
-    pub const CORRECT: &str = "support.remedies.correct";
+/// What the remedy workflow offers on a request (`SupportRemedyOffer`), as the ops read answers it
+/// for the signed-in staff member.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default, rename_all = "camelCase")]
+pub struct RemedyOffer {
+    pub policy_version: String,
+    pub choices: RemedyChoices,
+    pub currency_code: String,
+    pub propose: Option<ActionOffer>,
+    pub approve: Option<ActionOffer>,
+    pub correct: Option<ActionOffer>,
+    pub effects: Vec<EffectOffer>,
 }
 
-/// What the staff member may do to a remedy: admin-web's gates, which only enable its buttons
-/// (chase-sets/chase-sets#11239); the API checks each permission again.
-#[derive(Clone, Copy, Debug, Default, Serialize, ToJson)]
-pub struct RemedyRights {
-    pub propose: bool,
-    pub approve: bool,
-    pub retry: bool,
-    pub waive: bool,
-    pub correct: bool,
-    pub release: bool,
+/// The choices the active platform remedy policy allows.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default, rename_all = "camelCase")]
+pub struct RemedyChoices {
+    pub refund_triggers: Vec<String>,
+    pub eligible_reason_codes: Vec<String>,
+    pub return_exception_reason_codes: Vec<String>,
+    pub escalation_reason_codes: Vec<String>,
+    pub split_funding_allowed: bool,
 }
 
-impl RemedyRights {
-    pub fn of(viewer: &Viewer) -> Self {
-        use remedy_capability as can;
-        RemedyRights {
-            propose: viewer.can(can::PROPOSE),
-            approve: viewer.can(can::APPROVE) || viewer.can(can::APPROVE_ELEVATED),
-            retry: viewer.can(can::RETRY),
-            waive: viewer.can(can::WAIVE),
-            correct: viewer.can(can::CORRECT),
-            release: viewer.can(can::OVERRIDE_RETURN),
-        }
+/// An action the request takes now: the key its command expects, and whether this staff member may
+/// take it.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ActionOffer {
+    pub idempotency_key: String,
+    pub allowed: bool,
+}
+
+/// The recovery an execution effect takes now.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default)]
+pub struct EffectOffer {
+    pub effect: String,
+    pub retry: Option<ActionOffer>,
+    pub waive: Option<ActionOffer>,
+    pub release: Option<ActionOffer>,
+}
+
+impl RemedyOffer {
+    /// The funding allocations the policy allows, in admin-web's order.
+    pub fn funding_kinds(&self) -> Vec<&'static str> {
+        FUNDING_KINDS.into_iter().filter(|kind| *kind != "split" || self.choices.split_funding_allowed).collect()
+    }
+
+    /// The recovery offered for an effect, if any.
+    pub fn effect(&self, effect: &str) -> Option<&EffectOffer> {
+        self.effects.iter().find(|offer| offer.effect == effect)
     }
 }
 
@@ -472,6 +470,8 @@ pub struct Detail {
     pub remedy: Option<Remedy>,
     #[serde(default)]
     pub remedy_approval: Option<RemedyWorkflow>,
+    #[serde(default)]
+    pub remedy_offer: RemedyOffer,
     pub flow: Flow,
 }
 
@@ -554,17 +554,6 @@ impl RemedyEffect {
     pub fn latest(&self) -> Option<&EffectFact> {
         self.facts.last()
     }
-
-    /// The idempotency key of a retry or waiver of this effect (admin-web's; #11239).
-    pub fn key(&self, remedy_id: &str, action: &str) -> String {
-        let latest = self.latest().map_or("pending", |f| f.idempotency_key.as_str());
-        format!("{remedy_id}:{}:{latest}:{action}", self.effect)
-    }
-
-    /// Whether admin-web offers to waive it: a terminal failure of an effect it lets an operator waive.
-    pub fn waivable(&self) -> bool {
-        self.status == "failed-terminal" && !UNWAIVABLE_EFFECTS.contains(&self.effect.as_str())
-    }
 }
 
 /// What a remedy proposal would do (`PlatformRemedyProposalPreview`).
@@ -583,7 +572,7 @@ pub struct RemedyPreview {
     pub policy_version: String,
 }
 
-/// A remedy proposal as the form holds it: admin-web's defaults, else what was just previewed or
+/// A remedy proposal as the form holds it: the offered defaults, else what was just previewed or
 /// refused.
 #[derive(Clone, Debug, Default, Serialize, ToJson)]
 pub struct RemedyDraft {
@@ -602,20 +591,23 @@ pub struct RemedyDraft {
 }
 
 impl RemedyDraft {
-    /// admin-web's defaults: the decided refund, platform funded, no return, an immediate refund.
+    /// admin-web's defaults: the decided refund in the offered currency, platform funded, no
+    /// return, and the policy's first refund trigger, reason and return exception.
     pub fn start(detail: &Detail) -> Self {
         let decided = detail.decided_refund().unwrap_or_default().to_owned();
+        let offer = &detail.remedy_offer;
+        let first = |codes: &[String]| codes.first().cloned().unwrap_or_default();
         RemedyDraft {
             kind: REMEDY_KINDS[0].to_owned(),
             amount: decided.clone(),
-            currency_code: detail.remedy_currency(),
+            currency_code: offer.currency_code.clone(),
             funding_kind: FUNDING_KINDS[0].to_owned(),
             seller_funded_amount: "0.00".to_owned(),
             platform_funded_amount: decided,
             return_directive: RETURN_DIRECTIVES[0].to_owned(),
-            refund_trigger: REFUND_TRIGGERS[0].to_owned(),
-            reason_code: REMEDY_REASONS[0].to_owned(),
-            return_exception_reason_code: RETURN_EXCEPTION_REASONS[0].to_owned(),
+            refund_trigger: first(&offer.choices.refund_triggers),
+            reason_code: first(&offer.choices.eligible_reason_codes),
+            return_exception_reason_code: first(&offer.choices.return_exception_reason_codes),
             rationale: String::new(),
             evidence_references: String::new(),
         }
@@ -657,16 +649,6 @@ impl Detail {
     /// The refund the support decision recorded, which a remedy proposal starts from.
     pub fn decided_refund(&self) -> Option<&str> {
         self.resolution.as_ref().and_then(|r| r.refund_amount.as_deref()).filter(|a| !a.is_empty())
-    }
-
-    /// The remedy's currency: the first affected line's, else `usd` (admin-web's default; #11239).
-    pub fn remedy_currency(&self) -> String {
-        self.affected_line_items
-            .iter()
-            .find(|line| line.is_object())
-            .and_then(|line| line["currencyCode"].as_str())
-            .unwrap_or("usd")
-            .to_lowercase()
     }
 
     /// The resolutions the flow allows, in admin-web's order.
@@ -780,9 +762,7 @@ pub struct QueueScreen {
     pub catching_up: bool,
     /// The marketplace's origin, for an order's purchase and sale pages.
     pub marketplace: Option<String>,
-    /// What the staff member may do to a remedy, a proposal's preview, and the proposal as it was
-    /// filled in (after a preview or a refusal).
-    pub remedy_rights: RemedyRights,
+    /// A proposal's preview, and the proposal as it was filled in (after a preview or a refusal).
     pub remedy_preview: Option<RemedyPreview>,
     pub remedy_draft: Option<RemedyDraft>,
 }
@@ -910,7 +890,6 @@ async fn draw(
         refusal: shown.refusal,
         catching_up,
         marketplace: marketplace(),
-        remedy_rights: RemedyRights::of(viewer),
         remedy_preview: shown.preview,
         remedy_draft: shown.draft,
     };

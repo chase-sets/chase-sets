@@ -692,7 +692,6 @@ export function EntityDetailDrawer({
   marketplaceOrigin,
   actionError,
   actionResult,
-  actorPermissions,
   remedyPreview,
   remedyProposalInput,
   onClose,
@@ -703,7 +702,6 @@ export function EntityDetailDrawer({
   marketplaceOrigin?: string | null;
   actionError?: string | null;
   actionResult?: string | null;
-  actorPermissions: readonly string[];
   remedyPreview?: PlatformRemedyProposalPreview | null;
   remedyProposalInput?: PlatformRemedyProposalInput | null;
   onClose: () => void;
@@ -795,7 +793,7 @@ export function EntityDetailDrawer({
           >
             <PlatformRemedyWorkflowPanel
               request={request}
-              actorPermissions={actorPermissions}
+              offer={request.remedy_offer}
               preview={remedyPreview}
               proposalInput={remedyProposalInput}
             />
