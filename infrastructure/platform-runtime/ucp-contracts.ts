@@ -158,7 +158,7 @@ function writeAnnotations(
 }
 
 export const UCP_MCP_APP_RESOURCE_MIME_TYPE = "text/html;profile=mcp-app";
-export const UCP_MCP_PRODUCT_CARDS_RESOURCE_URI = "ui://chase-sets/product-cards/v1.html";
+export const UCP_MCP_PRODUCT_CARDS_RESOURCE_URI = "ui://chase-sets/product-cards/v2.html";
 export const UCP_MCP_CART_REVIEW_RESOURCE_URI = "ui://chase-sets/cart-review/v1.html";
 export const UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI = "ui://chase-sets/checkout-handoff/v1.html";
 export const UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI = UCP_MCP_PRODUCT_CARDS_RESOURCE_URI;

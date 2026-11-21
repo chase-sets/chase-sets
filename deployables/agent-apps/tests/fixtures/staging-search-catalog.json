@@ -1,0 +1,159 @@
+{
+  "capture": {
+    "endpoint": "https://marketplace.staging.chasesets.com/ucp/mcp",
+    "operation": "search_catalog",
+    "capturedAt": "2026-11-20T10:58:16.7742374Z",
+    "releaseSha": "5bc8f00b27ff9f8f947df703d21b4f5d95a91f46",
+    "deployJob": "https://github.com/chase-sets/chase-sets/actions/runs/44715168151/job/136227183015"
+  },
+  "toolResult": {
+    "structuredContent": {
+      "ucp": {
+        "version": "2026-08-25",
+        "status": "success"
+      },
+      "products": [
+        {
+          "id": "cat_seed_pikachu_jungle",
+          "title": "Pikachu",
+          "description": {
+            "plain": ""
+          },
+          "url": "http://marketplace.staging.chasesets.com/items/pikachu-jungle-60-64-common-cat-seed-pikachu-jungle-1kwaurr",
+          "price_range": {
+            "min": {
+              "currency": "USD",
+              "amount": 2150
+            },
+            "max": {
+              "currency": "USD",
+              "amount": 2150
+            }
+          },
+          "variants": [
+            {
+              "id": "lst_repr_35a1e12edcaa717b1e86add5",
+              "title": "Pikachu",
+              "description": {
+                "plain": "Form: raw | Condition: damaged"
+              },
+              "url": "http://marketplace.staging.chasesets.com/listings/pikachu-jungle-60-64-common-form-raw-condition-damaged-35a1e12edcaa717b1e86add5-6x5j7y",
+              "price": {
+                "currency": "USD",
+                "amount": 2150
+              },
+              "extensions": {
+                "chase_sets": {
+                  "catalog_item_id": "cat_seed_pikachu_jungle",
+                  "slug": "pikachu-jungle-60-64-common-cat-seed-pikachu-jungle-1kwaurr",
+                  "listing_id": "lst_repr_35a1e12edcaa717b1e86add5",
+                  "listing_slug": "pikachu-jungle-60-64-common-form-raw-condition-damaged-35a1e12edcaa717b1e86add5-6x5j7y",
+                  "inventory_item_id": "inv_listing_stock_280f5efd1eda48711d73e58f",
+                  "product_id": "cat_seed_pikachu_jungle::dim_seed_form:chc_seed_form_raw|dim_seed_condition:chc_seed_condition_damaged|dim_seed_grading_company:-|dim_seed_grade:-"
+                }
+              }
+            }
+          ],
+          "extensions": {
+            "chase_sets": {
+              "catalog_item_id": "cat_seed_pikachu_jungle",
+              "slug": "pikachu-jungle-60-64-common-cat-seed-pikachu-jungle-1kwaurr",
+              "listing_count": 1,
+              "omitted_listings": false
+            }
+          }
+        },
+        {
+          "id": "cat_seed_prismatic_evolutions_booster_pack",
+          "title": "Prismatic Evolutions Booster Pack",
+          "description": {
+            "plain": "A single sealed booster pack from the Prismatic Evolutions set."
+          },
+          "url": "http://marketplace.staging.chasesets.com/items/prismatic-evolutions-booster-pack-sealed-booster-pack-evolutions-booster-pack-9x1lai",
+          "price_range": {
+            "min": {
+              "currency": "USD",
+              "amount": 999
+            },
+            "max": {
+              "currency": "USD",
+              "amount": 999
+            }
+          },
+          "variants": [
+            {
+              "id": "lst_repr_55fe91291e0687d34e8b6a0b",
+              "title": "Prismatic Evolutions Booster Pack",
+              "description": {
+                "plain": "A single sealed booster pack from the Prismatic Evolutions set."
+              },
+              "url": "http://marketplace.staging.chasesets.com/listings/prismatic-evolutions-booster-pack-sealed-booster-pack-55fe91291e0687d34e8b6a0b-1cn6adt",
+              "price": {
+                "currency": "USD",
+                "amount": 999
+              },
+              "extensions": {
+                "chase_sets": {
+                  "catalog_item_id": "cat_seed_prismatic_evolutions_booster_pack",
+                  "slug": "prismatic-evolutions-booster-pack-sealed-booster-pack-evolutions-booster-pack-9x1lai",
+                  "listing_id": "lst_repr_55fe91291e0687d34e8b6a0b",
+                  "listing_slug": "prismatic-evolutions-booster-pack-sealed-booster-pack-55fe91291e0687d34e8b6a0b-1cn6adt",
+                  "inventory_item_id": "inv_listing_stock_b44e88e1d5030a49a2894c68",
+                  "product_id": "cat_seed_prismatic_evolutions_booster_pack::"
+                }
+              }
+            },
+            {
+              "id": "lst_repr_9e162ceec17d6319136f3725",
+              "title": "Prismatic Evolutions Booster Pack",
+              "description": {
+                "plain": "A single sealed booster pack from the Prismatic Evolutions set."
+              },
+              "url": "http://marketplace.staging.chasesets.com/listings/prismatic-evolutions-booster-pack-sealed-booster-pack-9e162ceec17d6319136f3725-u8czlm",
+              "price": {
+                "currency": "USD",
+                "amount": 999
+              },
+              "extensions": {
+                "chase_sets": {
+                  "catalog_item_id": "cat_seed_prismatic_evolutions_booster_pack",
+                  "slug": "prismatic-evolutions-booster-pack-sealed-booster-pack-evolutions-booster-pack-9x1lai",
+                  "listing_id": "lst_repr_9e162ceec17d6319136f3725",
+                  "listing_slug": "prismatic-evolutions-booster-pack-sealed-booster-pack-9e162ceec17d6319136f3725-u8czlm",
+                  "inventory_item_id": "inv_listing_stock_cedfcd8e01407f9af11c61e0",
+                  "product_id": "cat_seed_prismatic_evolutions_booster_pack::"
+                }
+              }
+            }
+          ],
+          "extensions": {
+            "chase_sets": {
+              "catalog_item_id": "cat_seed_prismatic_evolutions_booster_pack",
+              "slug": "prismatic-evolutions-booster-pack-sealed-booster-pack-evolutions-booster-pack-9x1lai",
+              "listing_count": 2,
+              "omitted_listings": false
+            }
+          }
+        }
+      ],
+      "pagination": {
+        "has_next_page": false
+      }
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "Found 2 marketplace results: Pikachu, Prismatic Evolutions Booster Pack."
+      }
+    ],
+    "_meta": {
+      "ui": {
+        "resourceUri": "ui://chase-sets/product-cards/v1.html"
+      },
+      "openai/outputTemplate": "ui://chase-sets/product-cards/v1.html",
+      "chase_sets": {
+        "result_kind": "search_catalog"
+      }
+    }
+  }
+}

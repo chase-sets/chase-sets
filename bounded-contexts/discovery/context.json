@@ -1606,7 +1606,7 @@
     "ucp-support": {
       "classification": "support",
       "purpose": "Provide Discovery-owned UCP catalog search and lookup adapters over Discovery read models instead of deployable protocol mapping.",
-      "expectedConsumers": ["platform-api UCP route composition"]
+      "expectedConsumers": ["search"]
     },
     "routes": {
       "classification": "routes",

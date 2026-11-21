@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { isSellerAttentionItem, type SellerAttentionContext } from "@chase-sets/seller-attention-queue";
+import {
+  aggregateSellerAttentionQueue,
+  isSellerAttentionItem,
+  type SellerAttentionContext,
+} from "@chase-sets/seller-attention-queue";
 import {
   createShipByAttentionSource,
   createShipByAttentionSourceFromReadModel,
@@ -9,6 +13,12 @@ import {
 
 const NOW = "2026-07-14T12:00:00.000Z";
 const CONTEXT: SellerAttentionContext = { accountId: "acct-1", now: NOW };
+
+// node-postgres hands back a timestamptz column as a Date unless the query reads
+// it as text; this fake answers the same way for the column it is asked about.
+function pgTimestamp(sql: string, column: string, iso: string): string | Date {
+  return sql.includes(`to_char(${column} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`) ? iso : new Date(iso);
+}
 
 function row(overrides: Partial<ShipByAttentionRow> = {}): ShipByAttentionRow {
   return {
@@ -88,5 +98,37 @@ describe("createShipByAttentionSourceFromReadModel", () => {
         summary: expect.objectContaining({ code: "fulfillment.command-center.ready-to-dispatch" }),
       }),
     ]);
+  });
+
+  it("reads its times as ISO text, so the queue keeps the shipment", async () => {
+    const query = vi.fn(async (sql: string) => ({
+      rows: [
+        {
+          shipment_id: "shp_1",
+          order_id: "ord_1",
+          display_reference: "SHP-1",
+          status: "awaiting-package",
+          label_status: "not-purchased",
+          tracking_identifier: null,
+          carrier_name: null,
+          buyer_display_name: "Buyer",
+          current_exception_type: null,
+          current_exception_notes: null,
+          line_count: 1,
+          total_quantity: 1,
+          created_at: pgTimestamp(sql, "page.created_at", "2026-07-13T00:00:00.000Z"),
+          updated_at: pgTimestamp(sql, "page.updated_at", "2026-07-13T00:05:00.000Z"),
+          conflicts: [],
+        },
+      ],
+    }));
+
+    const queue = await aggregateSellerAttentionQueue(
+      [createShipByAttentionSourceFromReadModel({ query } as never)],
+      CONTEXT,
+    );
+
+    expect(queue.sources).toEqual([{ id: "fulfillment-ship-by", status: "available", itemCount: 1 }]);
+    expect(queue.items[0]?.observedAt).toBe("2026-07-13T00:00:00.000Z");
   });
 });
