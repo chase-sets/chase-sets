@@ -64,9 +64,22 @@ export type WorkerHostRuntime = Readonly<{
 
 export type WorkerRunner = CanonicalWorkerRunner<ContextProjectionGroupStatus>;
 
+type ProjectionWakeGeneration = Readonly<{ wakeIntentId: string; requiredPosition: bigint }>;
+
 export type WorkerRunnerLoop = Readonly<{
   start: () => void;
   nudge: () => void;
+  /**
+   * Give verified pending hot demand precedence over new scheduled acquisitions,
+   * and yield any productive holder at a successful pass boundary.
+   */
+  requestProjectionWakeLeaseHandoff: (runnerName: string, wake: ProjectionWakeGeneration, expiresAt: number) => void;
+  /**
+   * Completes a projection-group handoff after the matching hot wake reaches
+   * an existing terminal signal. The lease-TTL fallback remains authoritative
+   * when the signal is observed by another worker.
+   */
+  completeProjectionWakeLeaseHandoff: (runnerName: string, wake: ProjectionWakeGeneration) => void;
   stop: () => Promise<void>;
   status: () => Readonly<{
     workerId: string;
@@ -271,12 +284,18 @@ type HeldRunnerLease = {
   renewalInFlight: boolean;
   renewalTimer: ReturnType<typeof setInterval> | null;
   activeRunCount: number;
+  lastPassSucceeded: boolean;
   releaseAfterActiveRun: boolean;
   leaseIntervalId: string;
   acquiredAtMonotonicMs: number;
   nextPassSeq: number;
   terminalEventEmitted: boolean;
   releasePromise?: Promise<void>;
+};
+
+type ProjectionWakePark = {
+  parkUntil: number;
+  wakes: Map<string, { requiredPosition: bigint; blockedUntil: number }>;
 };
 
 export function getWorkerHostEntries<TRegistry extends WorkerContextRegistry>(
@@ -486,6 +505,11 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
   let scheduleQueued = false;
   let scheduling = false;
   let scheduleAgainAfterCurrentPass = false;
+  const requestedLeaseYields = new Set<string>();
+  const projectionRunnerNames = new Set(
+    options.runners.filter((runner) => runner.kind === "projection-group").map((runner) => runner.name),
+  );
+  const pendingProjectionWakes = new Map<string, ProjectionWakePark>();
   const heldRunnerLeases = new Map<string, HeldRunnerLease>();
   const retainedProjectionLeases = new Set<HeldRunnerLease>();
   const failureBackoffBaseMs = Math.max(0, Math.floor(options.failureBackoffBaseMs ?? options.pollIntervalMs * 5));
@@ -580,6 +604,30 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
     }
   };
 
+  const pendingWakeParkFor = (runnerName: string, now: number) => {
+    const park = pendingProjectionWakes.get(runnerName);
+    if (!park) return undefined;
+    for (const [wakeIntentId, wake] of park.wakes) {
+      if (wake.blockedUntil <= now) park.wakes.delete(wakeIntentId);
+    }
+    if (park.wakes.size > 0) return park;
+    pendingProjectionWakes.delete(runnerName);
+    requestedLeaseYields.delete(runnerName);
+    return undefined;
+  };
+
+  const leaseYieldRequested = (runnerName: string) =>
+    requestedLeaseYields.has(runnerName) && pendingWakeParkFor(runnerName, Date.now()) !== undefined;
+
+  const blocksNewProjectionAcquisition = (runner: WorkerRunner, now: number) => {
+    const park = pendingWakeParkFor(runner.name, now);
+    return (
+      park !== undefined &&
+      now < park.parkUntil &&
+      !heldRunnerLeases.get(createWorkerRunnerLeaseName(runner))?.leaseActive
+    );
+  };
+
   const dropHeldRunnerLeaseAfterRenewalFailure = (heldLease: HeldRunnerLease, error?: unknown): void => {
     if (!heldLease.leaseActive) {
       return;
@@ -640,6 +688,8 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
       await releaseHeldRunnerLease(existingLease, false, "renewal-loss");
     }
 
+    if (blocksNewProjectionAcquisition(runner, Date.now())) return null;
+
     const lease = await options.controlPlane.acquireLease({
       leaseName,
       ownerId: options.workerId,
@@ -667,6 +717,7 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
       renewalTimer: null,
       activeRunCount: 0,
       releaseAfterActiveRun: false,
+      lastPassSucceeded: true,
       leaseIntervalId: runner.kind === "projection-group" ? randomUUID() : "",
       acquiredAtMonotonicMs: performance.now(),
       nextPassSeq: 0,
@@ -692,23 +743,36 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
     let leaseAcquired = false;
     let acquiredLease: HeldRunnerLease | null = null;
     const promise = acquireHeldRunnerLease(runner)
-      .then((heldLease) => {
-        acquiredLease = heldLease ?? null;
-        return heldLease
-          ? runLeasedRunner(
-              options,
-              runner,
-              heldLease,
-              releaseHeldRunnerLease,
-              runAbortController.signal,
-              statusPublishState,
-              notifyHolderLifecycle,
-            )
-          : ({ leaseAcquired: false } satisfies LeasedRunnerOutcome);
+      .then<LeasedRunnerOutcome | void>((heldLease) => {
+        if (!heldLease) return { leaseAcquired: false };
+        const now = Date.now();
+        const park = pendingWakeParkFor(runner.name, now);
+        if (park) {
+          // A wake may arrive while the fresh acquisition is in flight.
+          if (now < park.parkUntil && heldLease.nextPassSeq === 0) {
+            return releaseHeldRunnerLease(heldLease, false, "idle");
+          }
+          if (now >= park.parkUntil) {
+            requestedLeaseYields.add(runner.name);
+          }
+        }
+        acquiredLease = heldLease;
+        return runLeasedRunner(
+          options,
+          runner,
+          heldLease,
+          releaseHeldRunnerLease,
+          runAbortController.signal,
+          statusPublishState,
+          notifyHolderLifecycle,
+          () => leaseYieldRequested(runner.name),
+        );
       })
       .then((outcome) => {
+        if (!outcome) return;
         if (!outcome.leaseAcquired) {
           leaseMissCount += 1;
+          requestedLeaseYields.delete(runner.name);
           return;
         }
         leaseAcquired = true;
@@ -716,6 +780,7 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
         failedRunnerBackoffs.delete(runner.name);
       })
       .catch((error) => {
+        requestedLeaseYields.delete(runner.name);
         const previous = failedRunnerBackoffs.get(runner.name);
         const attempt = (previous?.attempt ?? 0) + 1;
         const backoffMs =
@@ -738,6 +803,9 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
           activeSharedSlotCount -= 1;
         }
         if (leaseAcquired) {
+          const now = Date.now();
+          const park = requestedLeaseYields.has(runner.name) ? pendingWakeParkFor(runner.name, now) : undefined;
+          const yieldRequested = park !== undefined;
           // A projection-group runner that finished an idle pass (processed
           // nothing) must not keep holding the shared `projection-group:<name>`
           // lease. Two consumer classes acquire that exact lease, frequently
@@ -756,18 +824,29 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
           //   during post-rollout replay.
           // Productive continuations reuse the lease; schedule releases a
           // retained holder only after selection leaves it inactive.
-          if (acquiredLease && shouldYieldIdleProjectionGroupLease(runner, completedResult)) {
+          if (
+            acquiredLease &&
+            (shouldYieldIdleProjectionGroupLease(runner, completedResult) ||
+              (yieldRequested && acquiredLease.lastPassSucceeded))
+          ) {
+            // A pass at the cap gives surviving wakes a new turn from the release boundary,
+            // even if the pass itself took longer than the park cap.
+            if (park && now >= park.parkUntil) park.parkUntil = now + options.leaseTtlMs;
             // Release without an immediate reschedule: the group runner has no
             // work of its own, so let the normal poll tick re-run it while the
             // freed lease stays available for queued wakes and operations.
             void releaseHeldRunnerLease(acquiredLease, false, "idle").catch((error: unknown) => {
               options.onError?.(error, runner);
             });
+            requestedLeaseYields.delete(runner.name);
           } else if (acquiredLease && runner.kind === "projection-group" && (completedResult?.processed ?? 0) > 0) {
             retainedProjectionLeases.add(acquiredLease);
+            requestedLeaseYields.delete(runner.name);
+          } else {
+            requestedLeaseYields.delete(runner.name);
           }
           try {
-            if (shouldRescheduleAfterCompletion(runner, completedResult)) {
+            if (!yieldRequested && shouldRescheduleAfterCompletion(runner, completedResult)) {
               queueImmediateSchedule();
             }
           } catch (error) {
@@ -870,6 +949,7 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
           reservedRunners,
           activeRunnerNames,
           failedRunnerBackoffs,
+          blocksNewProjectionAcquisition,
           nextReservedRunnerIndex,
           now,
         );
@@ -892,6 +972,7 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
           options.runners,
           activeRunnerNames,
           failedRunnerBackoffs,
+          blocksNewProjectionAcquisition,
           nextRunnerIndex,
           now,
         );
@@ -939,7 +1020,43 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
       startPriorityRefreshTimer();
       schedule();
     },
-    nudge: () => queueImmediateSchedule(),
+    nudge: queueImmediateSchedule,
+    requestProjectionWakeLeaseHandoff: (runnerName, wake, expiresAt) => {
+      const now = Date.now();
+      if (stopped || !projectionRunnerNames.has(runnerName) || !Number.isFinite(expiresAt) || expiresAt <= now) return;
+
+      const park = pendingWakeParkFor(runnerName, now) ?? { parkUntil: now + options.leaseTtlMs, wakes: new Map() };
+      const existing = park.wakes.get(wake.wakeIntentId);
+      if (existing && existing.requiredPosition >= wake.requiredPosition) return;
+      park.wakes.set(wake.wakeIntentId, {
+        requiredPosition: wake.requiredPosition,
+        blockedUntil: Math.min(expiresAt, now + options.leaseTtlMs),
+      });
+      pendingProjectionWakes.set(runnerName, park);
+
+      const heldLease = [...heldRunnerLeases.values()].find(
+        (candidate) => candidate.runner.name === runnerName && candidate.leaseActive,
+      );
+      if (activeRunnerNames.has(runnerName)) {
+        requestedLeaseYields.add(runnerName);
+      } else if (heldLease && heldLease.activeRunCount === 0 && heldLease.lastPassSucceeded) {
+        retainedProjectionLeases.delete(heldLease);
+        void releaseHeldRunnerLease(heldLease, false, "idle").catch((error: unknown) => {
+          options.onError?.(error, heldLease.runner);
+        });
+      }
+    },
+    completeProjectionWakeLeaseHandoff: (runnerName, wake) => {
+      const wakes = pendingWakeParkFor(runnerName, Date.now())?.wakes;
+      if (wakes?.get(wake.wakeIntentId)?.requiredPosition === wake.requiredPosition) {
+        wakes.delete(wake.wakeIntentId);
+        if (wakes.size === 0) {
+          pendingProjectionWakes.delete(runnerName);
+          requestedLeaseYields.delete(runnerName);
+          queueImmediateSchedule();
+        }
+      }
+    },
     stop: async () => {
       stopped = true;
       if (timer) {
@@ -1005,6 +1122,7 @@ function selectNextRunner(
   runners: readonly WorkerRunner[],
   activeRunnerNames: ReadonlySet<string>,
   failedRunnerBackoffs: ReadonlyMap<string, Readonly<{ eligibleAt: number }>>,
+  blocksNewProjectionAcquisition: (runner: WorkerRunner, now: number) => boolean,
   startIndex: number,
   now: number,
 ): Readonly<{ runner: WorkerRunner; index: number }> | null {
@@ -1013,7 +1131,7 @@ function selectNextRunner(
   for (let offset = 0; offset < runners.length; offset += 1) {
     const index = (startIndex + offset) % runners.length;
     const runner = runners[index];
-    if (activeRunnerNames.has(runner.name)) {
+    if (activeRunnerNames.has(runner.name) || blocksNewProjectionAcquisition(runner, now)) {
       continue;
     }
     const failedBackoff = failedRunnerBackoffs.get(runner.name);
@@ -1142,6 +1260,7 @@ async function runLeasedRunner(
   runSignal?: AbortSignal,
   statusPublishState?: WorkerStatusPublishState,
   notifyHolderLifecycle?: (runner: WorkerRunner, event: WorkerHolderLifecycleEvent) => void,
+  leaseYieldRequested?: () => boolean,
 ): Promise<LeasedRunnerOutcome> {
   if (runSignal?.aborted) {
     return { leaseAcquired: true };
@@ -1297,6 +1416,7 @@ async function runLeasedRunner(
     }
     throw error;
   } finally {
+    heldLease.lastPassSucceeded = passSucceeded;
     notifyHolderLifecycle?.(
       runner,
       holderLifecycleEvent(heldLease, {
@@ -1305,7 +1425,9 @@ async function runLeasedRunner(
         outcome: observedOutcome(passSucceeded),
         disposition: heldLeaseLost()
           ? "lost"
-          : stoppedCooperatively() || (passSucceeded && shouldYieldIdleProjectionGroupLease(runner, result))
+          : stoppedCooperatively() ||
+              (passSucceeded &&
+                (shouldYieldIdleProjectionGroupLease(runner, result) || leaseYieldRequested?.() === true))
             ? "release-pending"
             : "retained",
         ...(result === undefined ? {} : { processed: result.processed }),
@@ -2005,19 +2127,24 @@ export async function tryRunWithRenewedLease<T>(
 
   let leaseActive = true;
   const abortController = new AbortController();
+  let renewalTimer: ReturnType<typeof setInterval> | undefined;
+  const stopRenewing = () => {
+    leaseActive = false;
+    clearInterval(renewalTimer);
+  };
   // Chain the held lease off any upstream signal (the operation execution
   // deadline) so an in-flight abort stops lease renewal at once rather than up
   // to one `shouldAbort` poll interval later. Without this a timed-out
   // operation keeps renewing the shared `projection-group:<name>` lease while
   // its leaked work settles, starving the scheduled group runner.
-  const abortFromUpstreamSignal = () => {
-    leaseActive = false;
+  const abortLease = () => {
+    stopRenewing();
     abortController.abort();
   };
   if (input.signal?.aborted) {
-    abortFromUpstreamSignal();
+    abortLease();
   } else {
-    input.signal?.addEventListener("abort", abortFromUpstreamSignal, { once: true });
+    input.signal?.addEventListener("abort", abortLease, { once: true });
   }
   const throwIfLeaseLost = () => {
     if (!leaseActive || abortController.signal.aborted) {
@@ -2025,50 +2152,48 @@ export async function tryRunWithRenewedLease<T>(
     }
   };
   let renewalInFlight = false;
-  const renewalTimer = setInterval(() => {
+  let missedRenewalTick = false;
+  const resetRenewalTimer = () => {
+    clearInterval(renewalTimer);
+    renewalTimer = setInterval(() => void renew(), input.renewIntervalMs);
+    renewalTimer.unref?.();
+  };
+  const renew = async () => {
+    if (!leaseActive) return;
     if (renewalInFlight) {
-      return;
-    }
-    // Once the run is aborted (lease lost, cancellation, or operation
-    // timeout) the lease must lapse by TTL rather than being renewed forever:
-    // leaked work that ignores the abort signal must not pin the shared
-    // projection-group lease against the scheduled runner.
-    if (!leaseActive || abortController.signal.aborted) {
+      missedRenewalTick = true;
       return;
     }
     renewalInFlight = true;
-    void controlPlane
-      .renewLease(lease, input.ttlMs)
-      .then((renewed) => {
-        leaseActive = leaseActive && renewed;
-        if (!renewed) {
-          abortController.abort();
-        }
-      })
-      .catch(() => {
-        leaseActive = false;
-        abortController.abort();
-      })
-      .finally(() => {
-        renewalInFlight = false;
-      });
-  }, input.renewIntervalMs);
-  renewalTimer.unref?.();
+    try {
+      if (!(await controlPlane.renewLease(lease, input.ttlMs))) {
+        abortLease();
+        return;
+      }
+    } catch {
+      abortLease();
+      return;
+    } finally {
+      renewalInFlight = false;
+    }
+    // Postgres extends the lease before the reply reaches us. Catch up on a
+    // missed tick now and time the next tick from that follow-up renewal.
+    if (leaseActive && missedRenewalTick) {
+      missedRenewalTick = false;
+      resetRenewalTimer();
+      void renew();
+    }
+  };
+  if (leaseActive) resetRenewalTimer();
   const abortPollTimer =
     input.shouldAbort && input.abortPollIntervalMs && input.abortPollIntervalMs > 0
       ? setInterval(() => {
           void input
             .shouldAbort?.()
             .then((shouldAbort) => {
-              if (shouldAbort) {
-                leaseActive = false;
-                abortController.abort();
-              }
+              if (shouldAbort) abortLease();
             })
-            .catch(() => {
-              leaseActive = false;
-              abortController.abort();
-            });
+            .catch(abortLease);
         }, input.abortPollIntervalMs)
       : null;
   abortPollTimer?.unref?.();
@@ -2086,11 +2211,11 @@ export async function tryRunWithRenewedLease<T>(
     });
     return { acquired: true, result };
   } finally {
-    clearInterval(renewalTimer);
+    stopRenewing();
     if (abortPollTimer) {
       clearInterval(abortPollTimer);
     }
-    input.signal?.removeEventListener("abort", abortFromUpstreamSignal);
+    input.signal?.removeEventListener("abort", abortLease);
     await controlPlane.releaseLease(lease);
   }
 }

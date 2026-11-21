@@ -3,7 +3,11 @@ import type { ProjectionRunContext } from "@chase-sets/event-core/projector";
 import { describe, expect, it, vi } from "vitest";
 
 import type { PlatformControlPlane } from "./control-plane";
-import { createWorkerRunnerLoop, DEFAULT_PROJECTION_TRANSACTION_IDLE_TIMEOUT_MS } from "./worker";
+import {
+  createProjectionGroupWorkerRunner,
+  createWorkerRunnerLoop,
+  DEFAULT_PROJECTION_TRANSACTION_IDLE_TIMEOUT_MS,
+} from "./worker";
 import {
   createProjectionWakeSchedulerRunners,
   createWorkSignalCleanupRunner,
@@ -680,6 +684,79 @@ describe("projection wake scheduler", () => {
     expect(store.failures[0]).toMatchObject({ retryAfterMs: 20_000 });
     expect(store.failures[0].error).toMatchObject({ reason: "projection-revision-rebuilding" });
     expect(deferred).toHaveLength(1);
+  });
+
+  it("lets the poller rebuild at the park cap despite newer stale-revision wakes", async () => {
+    vi.useFakeTimers({ now: NOW });
+    let finishRebuild!: () => void;
+    const rebuild = new Promise<void>((resolve) => {
+      finishRebuild = resolve;
+    });
+    const projection = checkoutProjection({
+      position: 90n,
+      headPosition: 120n,
+      revisionStale: true,
+      onRun: () => rebuild,
+    });
+    const intents = [102n, 103n].map((requiredPosition) => claimedIntent({ requiredPosition }));
+    const store = recordingSchedulerStore(intents);
+    const { controlPlane } = sharedFleetControlPlane();
+    const rebuilt = vi.fn();
+    const pollRunner = createProjectionGroupWorkerRunner(projection.group, {
+      onCheckpointsReset: async () => rebuilt(),
+    });
+    const poller = createWorkerRunnerLoop({
+      workerId: "synthetic-revision-poller",
+      controlPlane,
+      runners: [pollRunner],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 30_000,
+      leaseRenewIntervalMs: 10_000,
+      pollIntervalMs: 1_000,
+    });
+    const [wakeRunner] = createProjectionWakeSchedulerRunners({
+      workerId: "synthetic-revision-wake",
+      controlPlane,
+      workSignalStore: store.store,
+      projectionGroups: [projection.group],
+      lanes: [{ lane: "hot", runnerCount: 1 }],
+      revisionStaleRetryMs: 20_000,
+      maxClaimsPerRun: 1,
+      now: () => new Date(),
+    });
+
+    try {
+      for (const [index, intent] of intents.entries()) {
+        if (index > 0) await vi.advanceTimersByTimeAsync(20_000);
+        poller.requestProjectionWakeLeaseHandoff(pollRunner.name, intent, intent.expiresAt.getTime());
+        if (index === 0) poller.start();
+        await wakeRunner.runOnce();
+      }
+      expect(store.failures.map(({ error }) => error?.reason)).toEqual([
+        "projection-revision-rebuilding",
+        "projection-revision-rebuilding",
+      ]);
+      await vi.advanceTimersByTimeAsync(9_999);
+      expect(projection.resetCount()).toBe(0);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(rebuilt).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(25_000);
+      poller.requestProjectionWakeLeaseHandoff(
+        pollRunner.name,
+        { ...intents[1], requiredPosition: 104n },
+        intents[1].expiresAt.getTime(),
+      );
+      await vi.advanceTimersByTimeAsync(5_001);
+      finishRebuild();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(projection.runCount()).toBe(1);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(rebuilt).toHaveBeenCalledTimes(1);
+    } finally {
+      finishRebuild();
+      await poller.stop();
+      vi.useRealTimers();
+    }
   });
 
   it("fails the intent durably and ends the pass when the projection run fails", async () => {
