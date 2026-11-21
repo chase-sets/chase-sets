@@ -27,9 +27,10 @@ const facts = {
   review_count: 99,
   average_rating: "1.00",
 };
+const holdFacts = { payout_review_hold: true, payout_review_hold_stream_version: 3 };
 
 describe("seller checkout risk v1 policy", () => {
-  it("enumerates every persisted fact family, including account age, trust, review, fraud, linkage, velocity and manual review", () => {
+  it("enumerates boot facts and the ledger-only payout review hold facts", () => {
     const schema = readFileSync(
       new URL("../../wallets/integrations/account-risk-source/account-risk-source-schema.ts", import.meta.url),
       "utf8",
@@ -40,15 +41,20 @@ describe("seller checkout risk v1 policy", () => {
       .split("\n")
       .map((line) => line.trim().split(/\s+/)[0]);
     expect(columns.sort()).toEqual(["account_id", "updated_at", ...Object.keys(facts)].sort());
+    const ledgerFacts = [...schema.matchAll(/ADD COLUMN IF NOT EXISTS (revision|payout_review_hold\w*)\b/g)].map(
+      ([, column]) => column,
+    );
+    expect(ledgerFacts).toEqual(["revision", ...Object.keys(holdFacts)]);
     expect(schema.match(/ADD COLUMN IF NOT EXISTS revision bigint NOT NULL DEFAULT 0/g)).toHaveLength(1);
     expect(evaluateSellerCheckoutRisk()).toEqual({ status: "clear", reasonCode: null });
   });
 
-  it.each(Object.keys(facts))(
+  it.each(Object.keys({ ...facts, ...holdFacts }))(
     "keeps persisted %s private and both hold/block predicates disabled on the production read path",
     async (fact) => {
       const persisted: Record<string, unknown> = {
         ...facts,
+        ...holdFacts,
         account_id: "acc_policy",
         revision: "17",
         updated_at: new Date("2026-10-29T14:00:00.000Z"),

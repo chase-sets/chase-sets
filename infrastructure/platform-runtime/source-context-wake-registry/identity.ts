@@ -51,6 +51,7 @@ export const identityWakeRegistryEntry = registryEntry({
     "pricing:pricing-market-trades-projection",
     "public-presence:public-presence-waitlist-transactional-email-projection",
     "settlement:settlement-account-risk-source-projection",
+    "settlement:settlement-payout-review-hold-migration",
   ],
   routeDependencyIds: [
     "identity.account-management-attempt-owner-history",
