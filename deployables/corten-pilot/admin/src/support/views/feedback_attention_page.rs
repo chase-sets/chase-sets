@@ -1,16 +1,18 @@
 //! Customer Feedback's attention queue (`FeedbackAttentionSurface`): four figures (one column on a
 //! phone, four from 48rem), then the queue as a table that stacks on a phone, a row a block of labelled lines.
+//! Each case links to its own queue; opened for one case, the queue says so and links back to all.
 use corten::{
     i18n::{DateStyle, TimeStyle, parse_timestamp},
     prelude::*,
 };
 use platform::ui::{
+    button::{Button, ButtonSize, ButtonVariant},
     stats::{Stat, StatTone, Stats as KitStats, StatsSurface},
     table::{CellLabel, Table as KitTable, TableLayout},
 };
 
 use crate::{
-    support::attention::{AttentionScreen, Item, duration},
+    support::attention::{AttentionScreen, Item, duration, url},
     text::Sup,
 };
 
@@ -34,7 +36,12 @@ fn Row<'a>(t: Sup, item: &'a Item) -> impl Render {
         <tr>
             <td class={Words}>
                 <CellLabel>{t.cfa_case()}</CellLabel>
-                {&item.case_id}
+                <a
+                    class={Button { variant: ButtonVariant::Ghost, size: ButtonSize::Sm }}
+                    href={url::Attention::case(&item.case_id)}
+                >
+                    {&item.case_id}
+                </a>
             </td>
             <td>
                 <CellLabel>{t.cfa_priority()}</CellLabel>
@@ -67,6 +74,10 @@ fn Row<'a>(t: Sup, item: &'a Item) -> impl Render {
 #[component(css)]
 pub fn FeedbackAttentionPage<'a>(t: Sup, screen: &'a AttentionScreen) -> impl Render {
     let m = &screen.metrics;
+    let empty = match &screen.case_id {
+        Some(case_id) => t.cfa_case_empty(case_id).to_string(),
+        None => t.cfa_empty().to_owned(),
+    };
     html! {
         <header class={Header}>
             <p class={Eyebrow}>{t.cfa_title()}</p>
@@ -86,9 +97,17 @@ pub fn FeedbackAttentionPage<'a>(t: Sup, screen: &'a AttentionScreen) -> impl Re
         </dl>
         <section class={Part}>
             <h2 class={Heading}>{t.cfa_queue()}</h2>
+            if let Some(case_id) = &screen.case_id {
+                <p class={Focus}>
+                    <span>{t.cfa_case_focus(case_id)}</span>
+                    <a class={Button { variant: ButtonVariant::Ghost, size: ButtonSize::Sm }} href={url::Attention::default()}>
+                        {t.cfa_show_all()}
+                    </a>
+                </p>
+            }
             if screen.items.is_empty() {
                 <div class={Empty}>
-                    <p class={EmptyTitle}>{t.cfa_empty()}</p>
+                    <p class={EmptyTitle}>{empty}</p>
                     <p class={Muted}>{t.cfa_description()}</p>
                 </div>
             } else {

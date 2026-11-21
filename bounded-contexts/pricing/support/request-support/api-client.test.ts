@@ -193,3 +193,19 @@ describe("Pricing authoring client", () => {
     }
   });
 });
+
+describe("Bulk reprice upload client", () => {
+  it("sends the upload attempt as Idempotency-Key, and no key without one", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>();
+    const api = createPricingApiClient({ baseUrl: "https://synthetic.test", fetch });
+    const job = { jobId: "job_bri_synthetic", status: "queued" };
+    fetch.mockResolvedValueOnce(Response.json(job, { status: 202 }));
+    await api.createBulkRepriceJob({ csvText: "sku,price", sourceFilename: "prices.csv" }, "attempt-1");
+    fetch.mockResolvedValueOnce(Response.json(job, { status: 202 }));
+    await api.createBulkRepriceJob({ csvText: "sku,price", sourceFilename: "prices.csv" });
+
+    const sent = fetch.mock.calls.map(([input, init]) => new Request(input as RequestInfo, init).headers);
+    expect(sent[0]?.get("Idempotency-Key")).toBe("attempt-1");
+    expect(sent[1]?.has("Idempotency-Key")).toBe(false);
+  });
+});
