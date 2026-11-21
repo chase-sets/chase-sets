@@ -519,7 +519,9 @@ export function evaluateCatalogIntegrationDataResetEvidence(
     findings.push({
       code: "incomplete-backup-decision",
       severity: "p0",
-      message: "Production reset evidence requires a managed Postgres backup or restore point.",
+      message: resetEvidenceFindingMessage(
+        "Production reset evidence requires a managed Postgres backup or restore point.",
+      ),
     });
   }
   if (packet.backupDecision?.kind === "retain-data-reset-unsafe") {

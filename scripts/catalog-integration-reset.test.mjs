@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { parse as parseYaml } from "yaml";
 import { runInNewContext } from "node:vm";
+import * as catalogReset from "../bounded-contexts/catalog/features/source-observations/api/catalog-integration-data-migration-reset.ts";
 import { stagingRefreshOverlapWorkflowFiles } from "./staging-refresh-preflight-config.mjs";
 import {
   CATALOG_INTEGRATION_RESET_CONFIRMATION,
@@ -274,6 +275,29 @@ describe("catalog integration reset argument and environment gates", () => {
     await expect(runCatalogIntegrationReset({ ...productionApply, ...overrides }, db)).rejects.toThrow(reason);
     expect(db.query).not.toHaveBeenCalled();
     expect(db.connect).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])("fails production apply on P0 evidence (already applied: %s)", async (alreadyApplied) => {
+    const before = verification();
+    const after = verification({ sourceObservationEventStreams: 2, sourceObservationEvents: 7 });
+    const runProductionReset = vi.spyOn(catalogReset, "runCatalogIntegrationProductionReset").mockResolvedValueOnce({
+      before: { verification: before },
+      after: { verification: after },
+      reset: { before, after },
+      alreadyApplied,
+    });
+
+    try {
+      const record = await runCatalogIntegrationReset(productionApply, database());
+
+      expect(record.evidenceFindings).toEqual([
+        expect.objectContaining({ code: "post-reset-source-observation-event-streams-remain", severity: "p0" }),
+      ]);
+      expect(record.result).toBe("failed");
+      expect(catalogIntegrationResetExitCode(record)).toBe(2);
+    } finally {
+      runProductionReset.mockRestore();
+    }
   });
 
   it("does not trim production confirmation or fall back to an environment value", () => {

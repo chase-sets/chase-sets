@@ -419,9 +419,11 @@ async function runProductionReset(
     before: reset?.before ?? null,
     after: reset?.after ?? null,
   });
+  const hasP0Finding = evidenceFindings.some((finding) => finding.severity === "p0");
   return {
     ...base,
-    result: production.rollbackReasons ? "failed" : production.alreadyApplied ? "already-applied" : "applied",
+    result:
+      production.rollbackReasons || hasP0Finding ? "failed" : production.alreadyApplied ? "already-applied" : "applied",
     dryRun: production.before.verification,
     reset,
     evidenceFindings,

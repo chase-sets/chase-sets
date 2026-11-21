@@ -241,6 +241,7 @@ The command refuses a database other than `chase_sets_production_catalog`.
    record a managed Postgres backup or restore point before apply; accepted
    data loss is not a substitute. Use only support-safe references as inputs,
    never credentials.
+   Pause provider automation before dry-run and keep it paused through apply so provider traffic cannot change the counts and invalidate the fingerprint.
 2. Dispatch `dry-run` and inspect the JSON artifact. PostgreSQL enforces a
    read-only, repeatable-read transaction. The report lists exact row counts
    for the existing reset plan, including cascaded Source Observation
