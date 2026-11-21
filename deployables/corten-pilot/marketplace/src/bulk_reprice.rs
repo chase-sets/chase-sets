@@ -14,8 +14,8 @@
 //!
 //! An upload is one attempt (the form's `SubmitKey`, sent as Pricing's `Idempotency-Key`): the same
 //! form sent again (a double click, a resend after a lost answer) lands on the job it started, and
-//! a different file under the same form is refused with Pricing's words. Marketplace's action sends
-//! no key, so each resend starts another job (chase-sets/chase-sets#11491).
+//! a different file under the same form is refused with Pricing's words, as marketplace's action
+//! does.
 //!
 //! While Pricing has bulk reprice switched off, every one of its routes answers 404: the page then
 //! says bulk reprice is not available (404), with nothing to upload or download, as marketplace's

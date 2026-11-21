@@ -13,8 +13,8 @@
 //! | `GET /platform/policy-console/{policy_key}` | a policy's page |
 //! | `POST /platform/policy-console/{policy_key}` | a revision (`value`, `status`, `effectiveFrom`, `effectiveUntil`), then the page |
 //!
-//! The effective times are `datetime-local` fields. admin-web reads them in its server's time zone
-//! (chase-sets/chase-sets#10875). The pilot draws the form in the operator's zone
+//! The effective times are `datetime-local` fields, read in the operator's zone as admin-web reads
+//! them. The pilot draws the form in that zone
 //! (`DrawZone::from(req.zone())`, UTC until the browser has said, and named by each field), the
 //! form sends that zone back (`FormZone`), and the post reads the times in it and sends the
 //! instant. A blank effective-from is now, as in admin-web. Times sent without the form's zone (not
