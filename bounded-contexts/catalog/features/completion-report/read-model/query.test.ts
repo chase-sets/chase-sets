@@ -121,6 +121,77 @@ describeDb("Production Catalog completion facts from the database (db)", () => {
     await closeMultiContextTestPools(pools);
   });
 
+  it("reads failed import outcomes by the batch run's fanout links, including a reused child", async () => {
+    const scopeRecordId = "scope_synthetic_failures";
+    const syncRunId = "run_synthetic_failures";
+    const scrydexCard = { providerKey: "scrydex", unitKey: "scrydex:lorcana:single-card:source-observation-import" };
+    const batch = await createBatch(db, "batch_synthetic_failures", [plan(scopeRecordId, [scrydexCard])]);
+    const jobs = integrationJobs(db);
+    const failed = {
+      ...importOutcome("scrydex", null),
+      status: "failed",
+      observed: 0,
+      reason:
+        "Catalog provider 'scrydex' source observation normalization failed at normalizedObservation.fields.setName, normalizedObservation.fields.cardNumber.",
+    };
+    await batch.runUnit(scopeRecordId, syncRunId, async () => {
+      await jobs.run(
+        syncRunId,
+        "catalog-sync-scope",
+        { action: "catalog-sync-scope" },
+        {
+          completed: true,
+          childJobs: [
+            { ...scrydexCard, childJobId: "job_synthetic_failed", syncRunLinkState: "attached-to-child-payload" },
+            { ...scrydexCard, childJobId: "job_synthetic_reused", syncRunLinkState: "reused-active-child-job" },
+          ],
+        },
+      );
+      await jobs.run(
+        "job_synthetic_failed",
+        "import",
+        { action: "import", syncRunId },
+        {
+          completed: true,
+          outcomes: [importOutcome("scrydex", null), failed],
+        },
+      );
+      await jobs.run(
+        "job_synthetic_reused",
+        "import",
+        { action: "import", syncRunId: "run_synthetic_other" },
+        {
+          completed: true,
+          outcomes: [failed],
+        },
+      );
+      await jobs.run(
+        "job_synthetic_unlinked",
+        "import",
+        { action: "import", syncRunId },
+        {
+          completed: true,
+          outcomes: [failed],
+        },
+      );
+    });
+
+    const { reportedFacts } = await queryProductionCatalogCompletionFacts(db, {
+      batchId: "batch_synthetic_failures",
+      observedAt: new Date().toISOString(),
+    });
+    expect(reportedFacts.failedImportUnits).toEqual(
+      ["job_synthetic_failed", "job_synthetic_reused"].map((integrationJobId) => ({
+        ...scrydexCard,
+        scopeRecordId,
+        syncRunId,
+        integrationJobId,
+        outcomeStatus: "failed",
+        reason: { code: "source-observation-normalization-failed", fieldPath: "normalizedObservation.fields.setName" },
+      })),
+    );
+  });
+
   it("AC1: reports the hand-built manifest's blockers for state written by Catalog projectors, by canonical scope id", async () => {
     await projectScope(db, "scope_alpha");
     await projectScope(db, "scope_beta");
@@ -781,7 +852,7 @@ function integrationJobs(db: PgTransactionalPool) {
       jobId: string,
       jobKind: string,
       payload: Record<string, unknown>,
-      outcome: Readonly<{ completed: boolean; outcomes?: readonly unknown[] }>,
+      outcome: Readonly<{ completed: boolean; outcomes?: readonly unknown[]; childJobs?: readonly unknown[] }>,
     ) {
       await store.enqueue({ jobId, jobKind, payload, progress: { phase: "queued" } });
       const claimed = await store.claimNext({ claimOwnerId: "completion-report-test", claimTtlMs: 60_000 });
@@ -799,6 +870,7 @@ function integrationJobs(db: PgTransactionalPool) {
               skipped: 0,
               failed: 0,
               outcomes: outcome.outcomes ?? [],
+              ...(outcome.childJobs ? { childJobs: outcome.childJobs } : {}),
             },
           })
         : await store.fail({

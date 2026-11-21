@@ -1,5 +1,6 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { CatalogSyncRun } from "../../source-observations/api/runtime";
+import { sourceObservationImportFailureDiagnostic } from "../../source-observations/api/source-observation-import-failure-diagnostic";
 import type { ScopeSyncBatchBudget, ScopeSyncBatchPlannedScope, ScopeSyncBatchUnitState } from "../domain/batch";
 
 export type ClaimedScopeSyncBatchUnit = Readonly<{
@@ -92,6 +93,8 @@ function scopeSyncRunFailureDiagnostic(run: CatalogSyncRun): string {
       if (outcome.status !== "failed") continue;
       const diagnostic = knownHttpStatusDiagnostic(outcome.reason);
       if (diagnostic) return diagnostic;
+      const failure = sourceObservationImportFailureDiagnostic(child.providerKey, outcome.reason);
+      if (failure.fieldPath) return `${failure.code}: ${failure.fieldPath}`;
     }
     if (!childSummary && child.providerKey && child.unitKey) {
       const failed = result ? `, ${result.failed} failed` : "";
