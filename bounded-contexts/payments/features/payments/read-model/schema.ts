@@ -60,6 +60,10 @@ CREATE TABLE IF NOT EXISTS payments_payment_creation_reservations (
   source_context text NULL,
   source_reference_id text NULL,
   status text NOT NULL CHECK (status IN ('active', 'failed', 'released')),
+  creation_protocol text NULL,
+  hold_intent_at timestamptz NULL,
+  release_pending boolean NULL,
+  release_failures integer NOT NULL DEFAULT 0 CHECK (release_failures BETWEEN 0 AND 3),
   created_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL
 );
@@ -382,6 +386,23 @@ ON CONFLICT (payment_id, order_id) DO NOTHING`,
       `ALTER TABLE payments_payment_pages DROP CONSTRAINT IF EXISTS payments_payment_pages_processor_payment_reference_key`,
       `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS payments_payment_pages_processor_reference_idx
   ON payments_payment_pages (processor_name, processor_payment_kind, processor_payment_reference)`,
+    ],
+  },
+  {
+    migrationId: "20261121_payments_reservation_hold_cleanup",
+    description: "Fence stale marked payment creation reservations and keep hold cleanup retryable.",
+    statements: [
+      `ALTER TABLE payments_payment_creation_reservations
+  ADD COLUMN IF NOT EXISTS creation_protocol text NULL,
+  ADD COLUMN IF NOT EXISTS hold_intent_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS release_pending boolean NULL,
+  ADD COLUMN IF NOT EXISTS release_failures integer NOT NULL DEFAULT 0 CHECK (release_failures BETWEEN 0 AND 3)`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS payments_creation_reservations_stale_marked_idx
+  ON payments_payment_creation_reservations (created_at, payment_id)
+  WHERE creation_protocol IS NOT NULL AND status = 'active'`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS payments_creation_reservations_pending_release_idx
+  ON payments_payment_creation_reservations (updated_at, payment_id)
+  WHERE creation_protocol IS NOT NULL AND status = 'failed' AND release_pending IS TRUE`,
     ],
   },
 ] as const;

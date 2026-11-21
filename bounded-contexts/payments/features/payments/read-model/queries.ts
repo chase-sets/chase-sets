@@ -579,6 +579,94 @@ export async function markPaymentCreationReservationInactive(
   );
 }
 
+export async function listPaymentCreationReservationsForSweep(
+  db: PgQueryable,
+  params: Readonly<{ staleBefore: string; limit?: number }>,
+): Promise<string[]> {
+  const limit = Math.max(1, Math.min(params.limit ?? 100, 500));
+  const hasNoPaymentStream = `NOT EXISTS (
+    SELECT 1 FROM event_store_streams AS stream
+    WHERE stream.stream_id = 'payments.payment-' || reservation.payment_id AND stream.current_version > 0
+  )`;
+  const result = await db.query<{ payment_id: string }>(
+    `SELECT payment_id FROM (
+       (SELECT reservation.payment_id, reservation.created_at AS eligible_at
+        FROM payments_payment_creation_reservations AS reservation
+        WHERE creation_protocol IS NOT NULL AND status = 'active' AND created_at < $1
+          AND ${hasNoPaymentStream}
+        ORDER BY created_at, payment_id LIMIT $2)
+       UNION ALL
+       (SELECT reservation.payment_id, reservation.updated_at AS eligible_at
+        FROM payments_payment_creation_reservations AS reservation
+        WHERE creation_protocol IS NOT NULL AND status = 'failed' AND release_pending IS TRUE
+          AND ${hasNoPaymentStream}
+        ORDER BY updated_at, payment_id LIMIT $2)
+     ) AS candidates
+     ORDER BY eligible_at, payment_id LIMIT $2`,
+    [params.staleBefore, limit],
+  );
+  return result.rows.map((row) => row.payment_id);
+}
+
+/** Call inside the same transaction as the marked creation or sweep decision. */
+export async function lockMarkedPaymentCreationReservation(db: PgQueryable, paymentId: string) {
+  const result = await db.query<
+    Pick<PaymentCreationReservationRow, "status" | "buyer_account_id" | "created_at"> & {
+      release_pending: boolean | null;
+    }
+  >(
+    `SELECT status, buyer_account_id, created_at, release_pending
+     FROM payments_payment_creation_reservations
+     WHERE payment_id = $1 AND creation_protocol IS NOT NULL
+     FOR UPDATE`,
+    [paymentId],
+  );
+  return result.rows[0] ?? null;
+}
+
+export async function recordReservationHoldIntent(
+  db: PgQueryable,
+  params: Readonly<{ paymentId: string; intendedAt?: string }>,
+): Promise<boolean> {
+  // UPDATE takes the same row lock and rechecks active status after any concurrent sweep commits.
+  const result = await db.query(
+    `UPDATE payments_payment_creation_reservations
+     SET hold_intent_at = COALESCE(hold_intent_at, $2)
+     WHERE payment_id = $1 AND status = 'active' AND creation_protocol IS NOT NULL
+     RETURNING payment_id`,
+    [params.paymentId, params.intendedAt ?? new Date().toISOString()],
+  );
+  return result.rows.length > 0;
+}
+
+/** The caller holds the reservation lock and has verified that the Payment stream is empty. */
+export async function failMarkedPaymentCreationReservation(db: PgQueryable, paymentId: string) {
+  const result = await db.query<{ release_pending: boolean | null }>(
+    `UPDATE payments_payment_creation_reservations
+     SET status = 'failed', release_pending = CASE WHEN hold_intent_at IS NOT NULL THEN TRUE END, updated_at = now()
+     WHERE payment_id = $1 AND status = 'active' AND creation_protocol IS NOT NULL
+     RETURNING release_pending`,
+    [paymentId],
+  );
+  return result.rows[0]?.release_pending === true;
+}
+
+export async function recordReservationHoldCleanup(
+  db: PgQueryable,
+  params: Readonly<{ paymentId: string; acknowledged: boolean }>,
+): Promise<number | null> {
+  const result = await db.query<{ release_failures: number }>(
+    `UPDATE payments_payment_creation_reservations
+     SET release_pending = CASE WHEN $2 THEN NULL ELSE TRUE END,
+         release_failures = CASE WHEN $2 THEN release_failures ELSE LEAST(release_failures + 1, 3) END,
+         updated_at = now()
+     WHERE payment_id = $1 AND status = 'failed' AND creation_protocol IS NOT NULL AND release_pending IS TRUE
+     RETURNING release_failures`,
+    [params.paymentId, params.acknowledged],
+  );
+  return result.rows[0]?.release_failures ?? null;
+}
+
 export async function listSavedCheckoutInstruments(
   db: PgQueryable,
   accountId: string,
