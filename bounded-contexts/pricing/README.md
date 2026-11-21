@@ -186,6 +186,17 @@ selectors. One set-based read returns sorted distinct non-null `listingCurrencyC
 actor's listings, including withdrawn listings, and `hasCostBasis` from the exact account-qualified
 listed inventory item with a non-null acquisition cost. Zero cost counts as present. No identifiers
 or amounts leave this endpoint. Failed reads never become empty facts or invented currency defaults.
+The same response carries the Repricing Preset catalog, `presets` (each preset's knob range and
+default, and the slow-stock preset's listing-age range), and `editorDefaults`: the account's one
+listing currency or null, and a floor of cost plus 10% when `hasCostBasis` is true, else an absolute
+floor the seller enters. Every editor starts from these rather than its own copy.
+
+`POST /account/repricing-policies/presets/compile` requires `pricing.manage` and answers the policy
+body a preset's controls compile to (`compilePresetBody`), with its authoring intent bound. It takes
+`preset`, `knob`, `ageDays` (slow stock only), `name`, `currencyCode`, `floor` and `scope`, and
+answers `validation_failed` for an unknown preset, a knob or age outside its range, or a floor or
+scope of no known kind. Amounts, the currency and the scope's members are checked when the body is
+previewed or saved, so a half-written policy still compiles. It reads and writes nothing.
 
 Intentional domain assertion messages reach the editor through `validation_failed` error details.
 `details[].message` is untranslated server text; a future additional locale must account for this
