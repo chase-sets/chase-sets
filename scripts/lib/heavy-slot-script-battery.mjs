@@ -8,6 +8,7 @@ export const inheritedOwnerScriptTests = Object.freeze([
   "scripts/verify-ci-local.test.mjs",
   "scripts/managed-postgres-authority-guard.test.mjs",
   "scripts/managed-postgres-authority-sources.test.mjs",
+  "scripts/check-structure/managed-postgres-client-policy.test.mjs",
   "scripts/typescript-resolver-caller-parity.test.mjs",
 ]);
 

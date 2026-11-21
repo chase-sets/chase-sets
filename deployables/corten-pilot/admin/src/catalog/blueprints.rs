@@ -12,11 +12,11 @@
 //! | `POST /catalog/blueprints/{id}/components`, `.../components/{component_id}/detach` | attach or detach a component |
 //! | `GET /catalog/blueprints/{id}/field-rules`, `.../dimension-rules`, `.../product-resolution-rules` | a Set dialog (drawn when opened); `POST` sets |
 //!
-//! A Set replaces every rule of its kind with the rows it sends. Its dialog starts from the rules
-//! the list has (the blueprint's own table), read when it is opened, not from the page's read,
-//! which can miss a change (chase-sets/chase-sets#10823): a rule it missed would be deleted, as
-//! a component's edit did (chase-sets/chase-sets#10824). Opening it carries the page's receipt,
-//! so the rules it starts from include the write the page shows.
+//! A Set replaces every rule of its kind with the rows it sends. Its dialog starts from the
+//! blueprint's detail, read when it is opened, as admin-web's starts from the page's: the detail
+//! holds a change until the blueprint's own table has it (chase-sets/chase-sets#10823), so it
+//! shows every rule the Set would replace. Opening it carries the page's receipt, so the rules it
+//! starts from include the write the page shows.
 use corten::{LiveResponse, LiveSince, http::HeaderMap, prelude::*};
 use platform::receipt::Receipt;
 use serde_json::Value;
@@ -26,11 +26,11 @@ use super::{
     api::{Blueprint, BlueprintDetail, BlueprintRules, Catalog as _, Kind, Written, under},
     bulk, command, confirm, filter_query, follow,
     form::{ActionInput, AttachInput, BlueprintInput, BulkInput, DimensionRulesInput, FieldRulesInput, OrderInput},
-    list_query, listed, manages, not_offered, preview, receipt, screen,
+    list_query, manages, not_offered, preview, receipt, screen,
     views::{self, BlueprintForms, Draft, Previewed, Set, SetRules, ids},
 };
 use crate::{
-    api::{ApiError, Caller, Method},
+    api::Method,
     app::{Shared, live_rows, read_failed},
     auth::{CatalogAccess, CatalogManage, Staff, Viewer},
     text::{Cat, Pilot},
@@ -496,13 +496,7 @@ async fn detach(
 
 // The Set dialogs.
 
-/// The blueprint's rules as the list has them (its own table), page by page until its row; none
-/// when the list does not have it.
-async fn current_rules(caller: &Caller<'_>, id: &str) -> Result<Option<BlueprintRules>, ApiError> {
-    listed(caller, Kind::Blueprints, id, |row: &BlueprintRules| row.blueprint_id.as_str()).await
-}
-
-/// A Set dialog opened: drawn from the rules the list has, with the receipt the page carried.
+/// A Set dialog opened: drawn from the blueprint's detail, with the receipt the page carried.
 async fn open_set(
     req: &Req,
     viewer: &Viewer,
@@ -514,24 +508,21 @@ async fn open_set(
 ) -> HtmlResult {
     let receipt = Receipt::from_param(opened.after_write.as_deref());
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
-    let set = match current_rules(&caller, id).await {
-        Ok(Some(rules)) => match which {
-            Set::Fields => SetRules::Fields(Draft::new(FieldRulesInput::of(&rules.field_rules))),
-            Set::Dimensions => SetRules::Dimensions(Draft::new(DimensionRulesInput::of(&rules.dimension_rules))),
-            Set::Order => SetRules::Order(Draft::new(OrderInput::of(&rules.canonical_dimension_order))),
-        },
-        Ok(None) => SetRules::Unread(which),
+    let rules = match caller.get::<BlueprintDetail>(Kind::Blueprints, id).await {
+        Ok(blueprint) => BlueprintRules::from(&blueprint),
         Err(error) => return read_failed(req, error, receipt.is_some()),
+    };
+    let set = match which {
+        Set::Fields => SetRules::Fields(Draft::new(FieldRulesInput::of(&rules.field_rules))),
+        Set::Dimensions => SetRules::Dimensions(Draft::new(DimensionRulesInput::of(&rules.dimension_rules))),
+        Set::Order => SetRules::Order(Draft::new(OrderInput::of(&rules.canonical_dimension_order))),
     };
     if let Some(script) = req.action() {
         let (t, p) = (req.t(), req.t());
         return match &set {
-            SetRules::Fields(form) => script.patch(views::FieldRulesDialog { t, p, id, form: Some(form) }),
-            SetRules::Dimensions(form) => script.patch(views::DimensionRulesDialog { t, p, id, form: Some(form) }),
-            SetRules::Order(form) => script.patch(views::OrderDialog { t, p, id, form: Some(form) }),
-            SetRules::Unread(Set::Fields) => script.patch(views::FieldRulesDialog { t, p, id, form: None }),
-            SetRules::Unread(Set::Dimensions) => script.patch(views::DimensionRulesDialog { t, p, id, form: None }),
-            SetRules::Unread(Set::Order) => script.patch(views::OrderDialog { t, p, id, form: None }),
+            SetRules::Fields(form) => script.patch(views::FieldRulesDialog { t, p, id, form }),
+            SetRules::Dimensions(form) => script.patch(views::DimensionRulesDialog { t, p, id, form }),
+            SetRules::Order(form) => script.patch(views::OrderDialog { t, p, id, form }),
         };
     }
     let forms = BlueprintForms { set: Some(set), ..Default::default() };

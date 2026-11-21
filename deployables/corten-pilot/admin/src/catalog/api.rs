@@ -572,18 +572,6 @@ pub struct Component {
     pub status: String,
 }
 
-/// A list row's rules as the API's command takes them (`Component.field_rules`,
-/// `.dimension_rules`): the list reads the component's own table, where the detail reads the
-/// admin page's, which can miss a change (chase-sets/chase-sets#10823).
-#[derive(Clone, Debug, Deserialize)]
-pub struct ComponentRules {
-    pub component_id: String,
-    #[serde(default)]
-    pub field_rules: Vec<Value>,
-    #[serde(default)]
-    pub dimension_rules: Vec<Value>,
-}
-
 /// `ComponentDetail`: the component and its rules, with the names of what they name.
 #[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
 pub struct ComponentDetail {
@@ -692,18 +680,41 @@ pub struct DimensionName {
     pub dimension_name: String,
 }
 
-/// A blueprint's rules as the list has them (the blueprint's own table, `Blueprint`): what its
-/// Set dialogs start from, since the detail reads the admin page's table, which can miss a change
-/// (chase-sets/chase-sets#10823).
-#[derive(Clone, Debug, Default, Deserialize)]
+/// A blueprint's rules by id, as its Set dialogs start from them: the detail's, without the names.
+/// The detail's admin page holds a change until the blueprint's own table has it
+/// (chase-sets/chase-sets#10823), so a rule it shows is every rule the Set would replace.
+#[derive(Clone, Debug, Default)]
 pub struct BlueprintRules {
-    pub blueprint_id: String,
-    #[serde(default)]
     pub field_rules: Vec<FieldRuleIds>,
-    #[serde(default)]
     pub dimension_rules: Vec<DimensionRuleIds>,
-    #[serde(default)]
     pub canonical_dimension_order: Vec<String>,
+}
+
+impl From<&BlueprintDetail> for BlueprintRules {
+    fn from(blueprint: &BlueprintDetail) -> Self {
+        BlueprintRules {
+            field_rules: blueprint
+                .field_rules
+                .iter()
+                .map(|r| FieldRuleIds { field_id: r.field_id.clone(), required: r.required })
+                .collect(),
+            dimension_rules: blueprint
+                .dimension_rules
+                .iter()
+                .map(|r| DimensionRuleIds {
+                    dimension_id: r.dimension_id.clone(),
+                    required: r.required,
+                    allowed_option_ids: r.allowed_options.iter().map(|o| o.option_id.clone()).collect(),
+                    applies_when: r
+                        .applies_when
+                        .iter()
+                        .map(|c| AppliesIds { dimension_id: c.dimension_id.clone(), option_ids: c.option_ids.clone() })
+                        .collect(),
+                })
+                .collect(),
+            canonical_dimension_order: blueprint.canonical_dimension_order.iter().map(|d| d.dimension_id.clone()).collect(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
