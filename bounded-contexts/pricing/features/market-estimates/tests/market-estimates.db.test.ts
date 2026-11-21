@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { composeModuleSchemaSql } from "@chase-sets/bounded-context-runtime";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createPolicyRuntime, type PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import {
@@ -74,7 +75,7 @@ describeDb("pricing market-estimates blended estimate publication (#4315)", () =
 
   beforeEach(async () => {
     await resetMultiContextTestSchemas(pools);
-    await pools.pricing.query(pricingModule.schemaSql);
+    await pools.pricing.query(composeModuleSchemaSql(pricingModule));
   });
 
   afterAll(async () => {

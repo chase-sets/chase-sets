@@ -181,7 +181,7 @@ jobs:
           import { promisify } from "node:util";
           import { pathToFileURL } from "node:url";
 
-          const { parsePlatformImageRef, readGitHubProductionWriterCensus, readHelmOperationCensus } = await import(
+          const { parsePlatformImageRef, readGitHubActiveWorkflowRuns, readHelmOperationCensus } = await import(
             pathToFileURL(`${process.env.GITHUB_WORKSPACE ?? process.cwd()}/scripts/platform-kubernetes-deployment.mjs`)
           );
 
@@ -260,8 +260,6 @@ jobs:
             }
             return null;
           };
-          const writerEnv = { ...process.env, GITHUB_RUN_ID: String(process.env.GITHUB_RUN_ID), GITHUB_RUN_ATTEMPT: String(process.env.GITHUB_RUN_ATTEMPT ?? 1) };
-          const writerCensus = async () => (await readGitHubProductionWriterCensus({ env: writerEnv })).runs;
           const stagingRunIsActive = async (run) => {
             const workflow = workflowName(run);
             if (!memberSet.has(workflow)) return false;
@@ -276,17 +274,21 @@ jobs:
           };
           const waitForAdmission = async () => {
             const { deadline, pollMs } = currentAdmission();
+            let blockedRun;
             while (true) {
-              const runs = await writerCensus();
-              let blocked = null;
-              for (const run of runs) {
-                if (String(run.id) === String(process.env.GITHUB_RUN_ID)) continue;
-                if (await stagingRunIsActive(run)) {
-                  blocked = `${workflowName(run)} run ${run.id} has an active staging-scope job`;
-                  break;
+              // Recheck the known blocker before paying for another full member census.
+              if (!blockedRun || !(await stagingRunIsActive(blockedRun))) {
+                const runs = await readGitHubActiveWorkflowRuns(members);
+                blockedRun = null;
+                for (const run of runs) {
+                  if (String(run.id) === String(process.env.GITHUB_RUN_ID)) continue;
+                  if (await stagingRunIsActive(run)) {
+                    blockedRun = run;
+                    break;
+                  }
                 }
+                if (!blockedRun) return { admissionAt: new Date().toISOString(), runs };
               }
-              if (!blocked) return { admissionAt: new Date().toISOString(), runs };
               if (Date.now() >= deadline) throw new Error("advisory preflight refused: staging member wait timed out");
               await new Promise((resolve) => setTimeout(resolve, Math.min(pollMs, Math.max(1, deadline - Date.now()))));
             }
@@ -560,7 +562,7 @@ jobs:
           import { promisify } from "node:util";
           import { pathToFileURL } from "node:url";
 
-          const { parsePlatformImageRef, readGitHubProductionWriterCensus } = await import(
+          const { parsePlatformImageRef, readGitHubActiveWorkflowRuns } = await import(
             pathToFileURL(`${process.env.GITHUB_WORKSPACE ?? process.cwd()}/scripts/platform-kubernetes-deployment.mjs`)
           );
           const execFileAsync = promisify(execFile);
@@ -679,11 +681,11 @@ jobs:
             output("observed_superseding_identity", superseded ? "true" : "false");
             const census = [];
             let staleReason = superseded ? "applied staging identity was superseded during the evidence window" : "";
-            const writerCensus = await readGitHubProductionWriterCensus({
+            const activeRuns = await readGitHubActiveWorkflowRuns(members, {
               env: { ...process.env, GITHUB_TOKEN: process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN },
             });
             const activeMemberRuns = new Map();
-            for (const run of writerCensus.runs ?? []) {
+            for (const run of activeRuns) {
               const workflow = workflowName(run);
               if (memberSet.has(workflow) && String(run.id) !== String(process.env.GITHUB_RUN_ID)) activeMemberRuns.set(String(run.id), { run, workflow });
             }

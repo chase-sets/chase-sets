@@ -41,9 +41,14 @@ type OrderSnapshot = Readonly<{
   }>;
 }>;
 
+// The demo seller's tenant, as in the Identity, Ordering and Inventory seeds.
+// A returned seed shipment hands its tenant to Inventory's restock decision,
+// which only the seller's own tenant can record.
+const FULFILLMENT_SEED_TENANT_ID = "tnt_identity" as TenantId;
+
 function createSeedContext(): EventStoreContext {
   return {
-    tenantId: "tnt_seed_development" as TenantId,
+    tenantId: FULFILLMENT_SEED_TENANT_ID,
     audit: {
       performedByUserId: identitySeedIds.demo.userId,
       forAccountId: identitySeedIds.demo.accountId,
@@ -289,9 +294,35 @@ function buildSeedShipmentReconcilers(
       decide: decideFulfillmentShipment,
       evolve: evolveFulfillmentShipment,
       steps: buildSeedShipmentSteps(plan, order),
-      send: (streamId, command) => services.shipments.commandHandler({ streamId, command, context }),
+      send: async (streamId, command) => {
+        await assertSeedShipmentTenant(services.db, streamId, context.tenantId);
+        return services.shipments.commandHandler({ streamId, command, context });
+      },
     });
   });
+}
+
+/**
+ * Refuses to resume a seed shipment whose stream was written under another
+ * tenant. Appending would mix tenants in one stream and still leave its
+ * returned decision out of the seller's reach; a retained stream like that
+ * needs an authorized reset and reseed, not a silent repair at boot.
+ */
+async function assertSeedShipmentTenant(db: PgQueryable, streamId: string, tenantId: TenantId): Promise<void> {
+  const result = await db.query<Readonly<{ tenant_id: string }>>(
+    `SELECT DISTINCT tenant_id
+     FROM event_store_events
+     WHERE stream_id = $1 AND tenant_id <> $2`,
+    [streamId, tenantId],
+  );
+  const foreign = result.rows.map((row) => row.tenant_id);
+  if (foreign.length > 0) {
+    throw new Error(
+      `${FULFILLMENT_BOOTSTRAP_LABEL} Shipment stream '${streamId}' was written under tenant ` +
+        `'${foreign.join("', '")}', not the seed tenant '${tenantId}'; it will not be resumed. ` +
+        `Reset and reseed the disposable environment to replace it.`,
+    );
+  }
 }
 
 async function loadSeedShipmentState(db: PgQueryable, shipmentId: string) {

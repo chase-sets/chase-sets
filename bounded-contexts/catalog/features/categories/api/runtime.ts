@@ -4,6 +4,7 @@ import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import { withCatalogAdminRealtimeInvalidation } from "../../../support/projection-support/realtime-invalidation";
+import { afterCatalogSourceProjections } from "../../../support/projection-support/source-projection-gate";
 import {
   createBulkLifecycleOperations,
   type BulkLifecycleOperations,
@@ -51,10 +52,11 @@ export function createCategoryRuntime(deps: CatalogRuntimeDeps): CategoryService
     }),
     createProjectionHandlerSet({
       projectionName: "catalog-admin-category-projection",
-      handlers: withCatalogAdminRealtimeInvalidation(buildCatalogAdminCategoryProjectionHandlers(deps.db), deps.db, {
-        projectionName: "catalog-admin-category-projection",
-        surface: "categories",
-      }),
+      handlers: withCatalogAdminRealtimeInvalidation(
+        afterCatalogSourceProjections(buildCatalogAdminCategoryProjectionHandlers(deps.db), deps.db),
+        deps.db,
+        { projectionName: "catalog-admin-category-projection", surface: "categories" },
+      ),
     }),
   ];
   const bulkLifecycle = createBulkLifecycleOperations<

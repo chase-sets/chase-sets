@@ -55,13 +55,13 @@ class AliasProjectionDb implements PgQueryable {
       return { rows: [], rowCount: 1 };
     }
 
-    if (sql.includes("DELETE FROM discovery_search_item_identity_terms")) {
-      this.terms = [];
-      return { rows: [], rowCount: 1 };
-    }
     if (sql.includes("INSERT INTO discovery_search_item_identity_terms")) {
       this.terms = values[1] as string[];
       return { rows: [], rowCount: this.terms.length };
+    }
+    if (sql.includes("DELETE FROM discovery_search_item_identity_terms")) {
+      this.terms = [];
+      return { rows: [], rowCount: 1 };
     }
 
     if (

@@ -18,7 +18,7 @@ import { buildPaymentsOrderInputProjectionHandlers } from "../features/payments/
 import { buildPaymentProjectionHandlers } from "../features/payments/read-model/projection";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
-const contextNames = ["payments", "ordering", "fulfillment", "platform-operations", "identity"] as const;
+const contextNames = ["payments", "ordering", "fulfillment", "platform-operations", "settlement"] as const;
 const keys = [
   "payments-order-input-projection:ordering:v3",
   "payments-support-refund-effect:platform-operations:v1",
