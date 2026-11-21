@@ -10,8 +10,7 @@
 //! Reading needs `catalog.view` and a review `catalog.manage`, as the API asks. admin-web links to
 //! this page from nowhere (its workbench opens an evidence sheet instead), so neither does the
 //! pilot; its way back is admin-web's workbench. A review the API refuses (a rollout control, an
-//! observation no longer reviewable) is the form's message here; admin-web shows nothing then
-//! (chase-sets/chase-sets#10896).
+//! observation no longer reviewable) is the form's message, as admin-web shows it.
 //! Reject without a reason sends admin-web's default one, "Rejected during review.".
 use corten::{http::HeaderMap, prelude::*};
 use platform::receipt::Receipt;
