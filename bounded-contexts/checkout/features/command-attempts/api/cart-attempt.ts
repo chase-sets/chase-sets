@@ -8,6 +8,7 @@ import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import {
   CheckoutDomainError,
   createCheckoutProductDescriptor,
+  summarizeCheckoutProductSelection,
   type CartLineId,
   type CheckoutVersionSchema,
 } from "../../../support/runtime-support/common";
@@ -165,10 +166,12 @@ export function createCheckoutCartAttemptExecutor(deps: CheckoutCartAttemptDeps)
     const result = await deps.db.query<{
       catalog_item_id: string;
       language_code: string;
+      title: string;
+      subtitle: string | null;
       status: string;
       product_schema: unknown;
     }>(
-      `SELECT catalog_item_id, language_code, status, product_schema
+      `SELECT catalog_item_id, language_code, title, subtitle, status, product_schema
        FROM checkout_catalog_items
        WHERE catalog_item_id = $1`,
       [catalogItemId],
@@ -222,12 +225,13 @@ export function createCheckoutCartAttemptExecutor(deps: CheckoutCartAttemptDeps)
             if (catalogItem.status !== "active") {
               throw new CheckoutDomainError("Cart lines may only reference active catalog items.");
             }
+            const productSchema =
+              typeof catalogItem.product_schema === "object" && catalogItem.product_schema !== null
+                ? (catalogItem.product_schema as CheckoutVersionSchema)
+                : null;
             const catalogVersion = createCheckoutProductDescriptor({
               catalogItemId: command.catalogItemId,
-              productSchema:
-                typeof catalogItem.product_schema === "object" && catalogItem.product_schema !== null
-                  ? (catalogItem.product_schema as CheckoutVersionSchema)
-                  : null,
+              productSchema,
               selection: command.selectedOptions,
             });
             if (command.productId.trim() !== catalogVersion.productId) {
@@ -281,15 +285,15 @@ export function createCheckoutCartAttemptExecutor(deps: CheckoutCartAttemptDeps)
               catalogItemId: command.catalogItemId,
               productId: catalogVersion.productId,
               itemLanguageCode: catalogItem.language_code,
-              itemTitle: command.itemTitle,
-              itemSubtitle: command.itemSubtitle,
+              itemTitle: catalogItem.title,
+              itemSubtitle: catalogItem.subtitle ?? null,
               itemImageUrl: command.itemImageUrl,
               itemImageSrcSet: command.itemImageSrcSet,
               itemImageLoadingUrl: command.itemImageLoadingUrl,
               itemImageLoadingAlt: command.itemImageLoadingAlt,
               itemImageLoadingSrcSet: command.itemImageLoadingSrcSet,
               selectedOptions: catalogVersion.selection,
-              productSummary: command.productSummary,
+              productSummary: summarizeCheckoutProductSelection(productSchema, catalogVersion.selection),
               quantity: command.quantity,
               fulfillmentMode,
               lockedListingId,
