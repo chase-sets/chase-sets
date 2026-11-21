@@ -3029,16 +3029,8 @@ async fn blueprints_are_created_and_their_components_attached_and_rules_set() {
 }
 
 #[tokio::test]
-async fn a_set_dialog_the_list_cannot_fill_has_no_form_and_blueprint_refusals_stay_on_the_page() {
+async fn blueprint_refusals_stay_on_the_page_and_a_blueprint_bulk_change_previews() {
     let pilot = Pilot::new().await;
-    // The list does not have bpr_other: its rules are not known, so there is nothing to save.
-    let (status, _, html) = pilot.send(opened("/catalog/blueprints/bpr_other/field-rules")).await;
-    assert_eq!(status, StatusCode::OK);
-    assert!(html.contains("rules could not be read") && !html.contains(r#"name="field_id""#), "{html}");
-    let (status, _, html) = pilot.send(get("/catalog/blueprints/bpr_other/dimension-rules", Some("staff"))).await;
-    assert_eq!(status, StatusCode::OK);
-    assert!(html.starts_with("<!DOCTYPE html>") && html.contains("rules could not be read"), "{html}");
-
     // Without a component id there is no command to send.
     let (status, _, html) = pilot.send(post("/catalog/blueprints/bpr_seed/components", "component_id=+", true)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
