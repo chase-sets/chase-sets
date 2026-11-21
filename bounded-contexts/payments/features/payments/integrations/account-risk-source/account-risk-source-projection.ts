@@ -1,4 +1,7 @@
-import { extractIdFromStreamId } from "@chase-sets/event-core";
+import {
+  normalizePayoutReviewHoldPayload,
+  payoutReviewHoldFactTypes,
+} from "@chase-sets/event-core/payout-review-hold-facts";
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
@@ -19,30 +22,16 @@ async function updateManualPayoutReview(
   );
 }
 
-export function buildPaymentsIdentityAccountRiskSourceProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+export function buildPaymentsSettlementAccountRiskSourceProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+  const update =
+    (assigned: boolean): NonNullable<ProjectorHandlerMap[string]> =>
+    async (event) => {
+      const { accountId } = normalizePayoutReviewHoldPayload(event.data);
+      await updateManualPayoutReview(db, { accountId, assigned, updatedAt: event.timing.recordedAt });
+    };
   return {
-    "identity.account.badge-assigned": async (event) => {
-      const data = event.data as { badgeKey: string };
-      if (data.badgeKey !== "manual-payout-review") {
-        return;
-      }
-      await updateManualPayoutReview(db, {
-        accountId: extractIdFromStreamId(event.streamId, "identity.account-"),
-        assigned: true,
-        updatedAt: event.timing.recordedAt,
-      });
-    },
-    "identity.account.badge-removed": async (event) => {
-      const data = event.data as { badgeKey: string };
-      if (data.badgeKey !== "manual-payout-review") {
-        return;
-      }
-      await updateManualPayoutReview(db, {
-        accountId: extractIdFromStreamId(event.streamId, "identity.account-"),
-        assigned: false,
-        updatedAt: event.timing.recordedAt,
-      });
-    },
+    [payoutReviewHoldFactTypes.placed]: update(true),
+    [payoutReviewHoldFactTypes.released]: update(false),
   };
 }
 

@@ -382,11 +382,12 @@
       "projectionName": "pricing-market-trades-projection",
       "sourceContextName": "settlement",
       "targetContextName": "pricing",
-      "subscriptionVersion": 1,
-      "checkpointKey": "pricing-market-trades-projection:settlement:v1",
+      "subscriptionVersion": 2,
+      "checkpointKey": "pricing-market-trades-projection:settlement:v2",
       "handlers": {
         "settlement.account-linkage.flagged": "<function>",
-        "settlement.account-linkage.cleared": "<function>"
+        "settlement.account-linkage.cleared": "<function>",
+        "settlement.payout-review-hold.placed": "<function>"
       },
       "inlineApply": false,
       "errorPolicy": "strict-per-stream",
@@ -394,7 +395,11 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": ["settlement.account-linkage.flagged", "settlement.account-linkage.cleared"],
+      "eventTypes": [
+        "settlement.account-linkage.flagged",
+        "settlement.account-linkage.cleared",
+        "settlement.payout-review-hold.placed"
+      ],
       "streamPrefixes": "<undefined>",
       "order": 110
     },
@@ -874,12 +879,17 @@
       "handlerKind": "projection",
       "sourceContextName": "settlement",
       "projectionName": "pricing-market-trades-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "handlers": {
         "settlement.account-linkage.flagged": "<function>",
-        "settlement.account-linkage.cleared": "<function>"
+        "settlement.account-linkage.cleared": "<function>",
+        "settlement.payout-review-hold.placed": "<function>"
       },
-      "eventTypes": ["settlement.account-linkage.flagged", "settlement.account-linkage.cleared"],
+      "eventTypes": [
+        "settlement.account-linkage.flagged",
+        "settlement.account-linkage.cleared",
+        "settlement.payout-review-hold.placed"
+      ],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",

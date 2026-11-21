@@ -4,6 +4,10 @@ import {
   normalizeAccountLinkageClearedPayload,
   normalizeAccountLinkageFlaggedPayload,
 } from "@chase-sets/event-core/account-linkage-facts";
+import {
+  normalizePayoutReviewHoldPayload,
+  payoutReviewHoldFactTypes,
+} from "@chase-sets/event-core/payout-review-hold-facts";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 /**
@@ -12,28 +16,49 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
  * authenticity "passed" verdict sets the tape's `verified` marker. Same
  * `pricing-market-trades-projection` projection name and target table as
  * `../source/source-projection.ts` -- split into its own integrations
- * sub-folder because both the *sources* (identity, payments, authenticity)
+ * sub-folder because both the *sources* (identity, payments, settlement, authenticity)
  * and the *concern* (integrity, not tape construction) are distinct from the
  * ordering/fulfillment reactions that build the tape.
  *
  * Settlement's account-linkage lifecycle is the pair-scoped self-dealing
  * authority: a trade is excluded only when BOTH counterparties belong to the
- * same active cluster. Identity's manual-review badge remains the broader,
- * account-scoped fraud path. Every retroactive stats change also records the
- * affected sold-day tuple for bounded asynchronous rollup repair.
+ * same active cluster. Settlement hold placement is the broader, account-scoped
+ * fraud path, with Identity badge assignments kept for frozen history. Every
+ * retroactive stats change records the sold-day tuple for rollup repair.
  */
 
 /** Identity's own AccountBadgeKey union, duck-typed -- see source-projection.ts's header note on this convention. */
 type AccountBadgeKey = "founding-account" | "manual-payout-review" | "trusted-seller";
 
-/**
- * Reacts to Identity's account-badge lifecycle: a `manual-payout-review`
- * badge assignment is the platform's real "this account is under fraud/
- * linkage review" flag (also consumed by Settlement's own account-risk-source
- * projection). Every historical trade naming the flagged account as either
- * buyer or seller -- i.e. every trade touching that counterparty pair -- is
- * retroactively excluded.
- */
+async function excludeAccountTradesForFraud(db: PgQueryable, accountId: string, recordedAt: string) {
+  await db.query(
+    `WITH affected AS (
+       UPDATE pricing_market_trades
+       SET excluded = true,
+           exclusion_reason = 'fraud-flagged',
+           updated_at = $2
+       WHERE (seller_account_id = $1 OR buyer_account_id = $1)
+         AND (excluded = false OR exclusion_reason = 'self-dealing')
+       RETURNING catalog_catalog_item_id, product_id, sold_at
+     )
+     INSERT INTO pricing_market_trade_rollup_rederive_queue (
+       catalog_catalog_item_id, product_id, day, queued_at, generation
+     )
+     SELECT DISTINCT catalog_catalog_item_id, product_id,
+            (sold_at AT TIME ZONE 'UTC')::date, $2, 1
+     FROM affected
+     WHERE sold_at IS NOT NULL
+     ON CONFLICT (catalog_catalog_item_id, product_id, day) DO UPDATE
+     SET queued_at = GREATEST(
+           pricing_market_trade_rollup_rederive_queue.queued_at,
+           EXCLUDED.queued_at
+         ),
+         generation = pricing_market_trade_rollup_rederive_queue.generation + 1`,
+    [accountId, recordedAt],
+  );
+}
+
+/** Preserve terminal exclusions from frozen badge history on rebuild. */
 export function buildPricingMarketTradesIdentityIntegrityProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "identity.account.badge-assigned": async (event) => {
@@ -42,32 +67,7 @@ export function buildPricingMarketTradesIdentityIntegrityProjectionHandlers(db: 
         return;
       }
       const accountId = extractIdFromStreamId(event.streamId, "identity.account-");
-
-      await db.query(
-        `WITH affected AS (
-           UPDATE pricing_market_trades
-           SET excluded = true,
-               exclusion_reason = 'fraud-flagged',
-               updated_at = $2
-           WHERE (seller_account_id = $1 OR buyer_account_id = $1)
-             AND (excluded = false OR exclusion_reason = 'self-dealing')
-           RETURNING catalog_catalog_item_id, product_id, sold_at
-         )
-         INSERT INTO pricing_market_trade_rollup_rederive_queue (
-           catalog_catalog_item_id, product_id, day, queued_at, generation
-         )
-         SELECT DISTINCT catalog_catalog_item_id, product_id,
-                (sold_at AT TIME ZONE 'UTC')::date, $2, 1
-         FROM affected
-         WHERE sold_at IS NOT NULL
-         ON CONFLICT (catalog_catalog_item_id, product_id, day) DO UPDATE
-         SET queued_at = GREATEST(
-               pricing_market_trade_rollup_rederive_queue.queued_at,
-               EXCLUDED.queued_at
-             ),
-             generation = pricing_market_trade_rollup_rederive_queue.generation + 1`,
-        [accountId, event.timing.recordedAt],
-      );
+      await excludeAccountTradesForFraud(db, accountId, event.timing.recordedAt);
     },
   };
 }
@@ -124,6 +124,10 @@ export function buildPricingMarketTradesPaymentsIntegrityProjectionHandlers(db: 
  */
 export function buildPricingMarketTradesSettlementIntegrityProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
+    [payoutReviewHoldFactTypes.placed]: async (event) => {
+      const { accountId } = normalizePayoutReviewHoldPayload(event.data);
+      await excludeAccountTradesForFraud(db, accountId, event.timing.recordedAt);
+    },
     "settlement.account-linkage.flagged": async (event) => {
       const data = normalizeAccountLinkageFlaggedPayload(event.data);
 

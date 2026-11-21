@@ -1,5 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { bootstrapContextDatabase, createSubscriptionRunner } from "@chase-sets/bounded-context-runtime";
+import { createNoopCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
+import { payoutReviewHoldFactTypes } from "@chase-sets/event-core/payout-review-hold-facts";
+import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -157,6 +160,135 @@ describeDb("pricing market-trades tape-integrity SQL persistence boundary (#4304
       `SELECT excluded FROM pricing_market_trades WHERE order_id = 'ord_1'`,
     );
     expect(rows.rows[0]?.excluded).toBe(false);
+  });
+
+  it("payout review hold placement excludes trades and replays idempotently", async () => {
+    const pool = pools.pricing;
+    await bootstrapContextDatabase(pricingModule, pool);
+    const held = "acc_synthetic_held";
+    const linked = "acc_synthetic_linked";
+    const historical = "acc_synthetic_historical_badge";
+    for (const [orderId, buyerAccountId, sellerAccountId] of [
+      ["ord_buyer", held, linked],
+      ["ord_seller", "acc_other_buyer", held],
+      ["ord_history", historical, "acc_other_seller"],
+      ["ord_control", "acc_unrelated_buyer", "acc_unrelated_seller"],
+    ] as const) {
+      await seedTrade(pool, { orderId, lineId: "line_1", buyerAccountId, sellerAccountId });
+      await markTradeSold(pool, orderId, orderId === "ord_seller" ? "2026-07-03T00:00:00.000Z" : undefined);
+    }
+    await pool.query("TRUNCATE pricing_market_trade_rollup_rederive_queue");
+
+    const services = pricingModule.createServices(pool, {
+      commercialTermsResolver: createNoopCommercialTermsResolver(),
+      channelConnectionIdentityReader: { resolve: async () => null },
+    });
+    const subscriptions = pricingModule.buildSubscriptions!(services);
+    const integrity = (source: string) =>
+      subscriptions.find(
+        (subscription) =>
+          subscription.sourceContextName === source &&
+          subscription.projectionName === "pricing-market-trades-projection",
+      )!;
+    const declared = integrity("settlement");
+    const clusterHash = "a".repeat(64);
+    const placedAt = "2026-07-08T00:00:00.000Z";
+    const linkage = { clusterHash, signalKind: "shared-instrument", accountIds: [held, linked] };
+    const hold = {
+      factSchemaVersion: 1,
+      accountId: held,
+      source: "operator",
+      reason: "Synthetic review",
+      sourceReference: null,
+    };
+    const append = async (
+      eventType: string,
+      streamId: string,
+      expectedVersion: "no_stream" | number,
+      payload: typeof linkage | typeof hold,
+      recordedAt: string,
+    ) => {
+      await createPostgresEventStore({ pool, now: () => recordedAt as never }).appendToStream({
+        streamId: streamId as never,
+        expectedVersion,
+        context: {
+          tenantId: "tnt_synthetic",
+          audit: { performedByUserId: "usr_synthetic", forAccountId: held },
+        } as never,
+        events: [{ eventId: `evt_${eventType}` as never, eventType, payload, occurredAt: recordedAt as never }],
+      });
+    };
+    const linkageStream = `settlement.account-linkage-${clusterHash}`;
+    const holdStream = `settlement.payout-review-hold-${held}`;
+    const flagged = "settlement.account-linkage.flagged";
+    const cleared = "settlement.account-linkage.cleared";
+    await append(flagged, linkageStream, "no_stream", linkage, "2026-07-06T00:00:00.000Z");
+    await append(payoutReviewHoldFactTypes.placed, holdStream, "no_stream", hold, placedAt);
+
+    // The v1 worker already saw the placement but had no handler for it.
+    const v1 = createSubscriptionRunner("pricing", pool, pool, {
+      ...declared,
+      subscriptionVersion: 1,
+      eventTypes: [flagged, cleared],
+      handlers: { [flagged]: declared.handlers[flagged]!, [cleared]: declared.handlers[cleared]! },
+    });
+    expect(await v1.runOnce()).toMatchObject({ processed: 1, lastGlobalPosition: "2" });
+    const trades = async () => (await pool.query("SELECT * FROM pricing_market_trades ORDER BY order_id")).rows;
+    expect(await trades()).toEqual([
+      expect.objectContaining({ order_id: "ord_buyer", exclusion_reason: "self-dealing" }),
+      expect.objectContaining({ order_id: "ord_control", exclusion_reason: null }),
+      expect.objectContaining({ order_id: "ord_history", exclusion_reason: null }),
+      expect.objectContaining({ order_id: "ord_seller", exclusion_reason: null }),
+    ]);
+    const queue = async () =>
+      (
+        await pool.query(
+          "SELECT day::text, queued_at, generation::int FROM pricing_market_trade_rollup_rederive_queue ORDER BY day",
+        )
+      ).rows;
+    const clusters = async () =>
+      (await pool.query("SELECT * FROM pricing_market_trade_linkage_clusters ORDER BY cluster_hash")).rows;
+    const runV2 = () => createSubscriptionRunner("pricing", pool, pool, declared);
+    const v2 = runV2();
+    expect(v2.checkpointKey).toBe("pricing-market-trades-projection:settlement:v2");
+    expect(await v2.runOnce()).toMatchObject({ processed: 2, lastGlobalPosition: "2" });
+    expect(await trades()).toEqual([
+      expect.objectContaining({ order_id: "ord_buyer", excluded: true, exclusion_reason: "fraud-flagged" }),
+      expect.objectContaining({ order_id: "ord_control", excluded: false, exclusion_reason: null }),
+      expect.objectContaining({ order_id: "ord_history", excluded: false, exclusion_reason: null }),
+      expect.objectContaining({ order_id: "ord_seller", excluded: true, exclusion_reason: "fraud-flagged" }),
+    ]);
+    expect(await queue()).toEqual([
+      { day: "2026-07-02", queued_at: new Date(placedAt), generation: 2 },
+      { day: "2026-07-03", queued_at: new Date(placedAt), generation: 1 },
+    ]);
+    const placed = { trades: await trades(), clusters: await clusters(), queue: await queue() };
+
+    await append(payoutReviewHoldFactTypes.released, holdStream, 1, hold, "2026-07-09T00:00:00.000Z");
+    expect(await v2.runOnce()).toMatchObject({ processed: 0, lastGlobalPosition: "3" });
+    expect({ trades: await trades(), clusters: await clusters(), queue: await queue() }).toEqual(placed);
+
+    const badgeAssigned = "identity.account.badge-assigned";
+    await integrity("identity").handlers[badgeAssigned]!(
+      event(
+        badgeAssigned,
+        { badgeKey: "manual-payout-review" },
+        "2026-07-07T00:00:00.000Z",
+        `identity.account-${historical}`,
+      ),
+    );
+    expect(await trades()).toContainEqual(
+      expect.objectContaining({ order_id: "ord_history", exclusion_reason: "fraud-flagged" }),
+    );
+    await append(cleared, linkageStream, 1, linkage, "2026-07-10T00:00:00.000Z");
+    expect(await v2.runOnce()).toMatchObject({ processed: 1, lastGlobalPosition: "4" });
+    expect(await clusters()).toMatchObject([{ cluster_hash: clusterHash, flagged: false }]);
+    const final = { trades: await trades(), clusters: await clusters(), queue: await queue() };
+
+    await pool.query("DELETE FROM event_subscription_applications WHERE projection_key = $1", [v2.checkpointKey]);
+    await pool.query("DELETE FROM event_subscription_checkpoints WHERE checkpoint_key = $1", [v2.checkpointKey]);
+    expect(await runV2().runOnce()).toMatchObject({ processed: 3, lastGlobalPosition: "4" });
+    expect({ trades: await trades(), clusters: await clusters(), queue: await queue() }).toEqual(final);
   });
 
   it("excludes every trade line on a Stripe fraud-flagged order (AC1)", async () => {

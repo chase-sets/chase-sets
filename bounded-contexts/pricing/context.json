@@ -307,9 +307,13 @@
     {
       "sourceContextName": "settlement",
       "projectionName": "pricing-market-trades-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "filterToEventTypes": true,
-      "eventTypes": ["settlement.account-linkage.flagged", "settlement.account-linkage.cleared"],
+      "eventTypes": [
+        "settlement.account-linkage.flagged",
+        "settlement.account-linkage.cleared",
+        "settlement.payout-review-hold.placed"
+      ],
       "order": 110,
       "projectionHandlerSetNames": ["pricing-market-trades-projection"]
     }

@@ -35,9 +35,9 @@ CREATE TABLE IF NOT EXISTS pricing_market_trades (
   -- Set true by an m109 authenticity-case 'passed' verdict on the trade's
   -- order (see integrations/integrity/integrity-projection.ts).
   verified boolean NOT NULL DEFAULT false,
-  -- 'fraud-flagged' is wired by m107 risk-flag events (identity
-  -- manual-payout-review badge assignment, Stripe early-fraud-warning
-  -- receipt). 'self-dealing' is pair-scoped proxy self-dealing: Pricing
+  -- 'fraud-flagged' comes from Settlement payout review hold placement,
+  -- Stripe early-fraud-warning receipts, and frozen Identity badge history.
+  -- 'self-dealing' is pair-scoped proxy self-dealing: Pricing
   -- writes it only when Settlement has flagged a linkage cluster containing
   -- BOTH counterparties. Same-account orders remain hard-blocked upstream.
   excluded boolean NOT NULL DEFAULT false,
