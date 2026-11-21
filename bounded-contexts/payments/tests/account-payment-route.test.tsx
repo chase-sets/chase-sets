@@ -310,7 +310,7 @@ function expectSurfaceTreatment(anchor: HTMLElement, treatment: SurfaceTreatment
 
 describe("marketplace account payment route", () => {
   it.each(["captured", "pending-confirmation", "failed", "cancelled"])(
-    "offers only a claim link for captured guest payments: %s",
+    "offers only a claim-options link, promising no save, for captured guest payments: %s",
     (status) => {
       mockUseLoaderData.mockReturnValue({
         payment: buildPayment({ status }),
@@ -324,9 +324,10 @@ describe("marketplace account payment route", () => {
           <MarketplaceAccountPaymentRoute />
         </ChaseRoot>,
       );
-      const link = screen.queryByRole("link", { name: "Save this order" });
+      const link = screen.queryByRole("link", { name: "Account options for this order" });
       if (status === "captured") expect(link?.getAttribute("href")).toBe("/checkout/claim/pay_1?afterWrite=kept");
       else expect(link).toBeNull();
+      expect(screen.queryByText("Save this order")).toBeNull();
       expect(screen.queryByRole("button", { name: "Email me a claim link" })).toBeNull();
       expect(screen.queryByRole("button", { name: "Save with passkey" })).toBeNull();
     },
