@@ -220,7 +220,7 @@ describe("payments terms artifact", () => {
     );
     const refs = section?.reviewManifest.productTruthRefs.join(" ") ?? "";
     expect(refs).not.toContain("runtime.ts:493-511");
-    expect(refs).toContain("runtime.ts:2429-2449");
+    expect(refs).toContain("runtime.ts:2462-2483");
   });
 
   it("distinguishes Order creation, payment requests and recorded capture without promising statement display", () => {
@@ -241,7 +241,7 @@ describe("payments terms artifact", () => {
       /charges your selected payment method when you complete|immediately confirming|before the purchase is recorded|no repository evidence shows|statement will carry|Chase Sets does not control/i,
     );
     expect(section.reviewManifest.productTruthRefs).toContain(
-      "bounded-contexts/checkout/features/sessions/api/route.ts:1327-1376",
+      "bounded-contexts/checkout/features/sessions/api/route.ts:1431-1476",
     );
     expect(section.reviewManifest.openQuestions.join(" ")).toMatch(/statement.*display/i);
     expect(section.reviewManifest.openQuestions.join(" ")).toMatch(/network.*control/i);

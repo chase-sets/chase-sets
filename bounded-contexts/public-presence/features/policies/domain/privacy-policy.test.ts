@@ -144,7 +144,7 @@ describe("Privacy Policy candidate", () => {
     );
     const [capture, strategy, onboarding] = section.reviewManifest.assumptions;
     expect(capture.assertion).toContain("records capture");
-    expect(capture.evidenceRef).toContain("runtime.ts:3005-3046");
+    expect(capture.evidenceRef).toContain("runtime.ts:3105-3147");
     expect(capture.evidenceRef).toContain("domain.ts:954-993");
     expect(capture.evidenceRef).not.toMatch(/1485-1515|0006-stripe-connect/);
     expect(strategy.evidenceRef).toBe("docs/adr/0006-stripe-connect-custom-account-experience.md:15");
@@ -293,13 +293,13 @@ describe(
         (text) => text.slice(0, providerParagraphStart) + text.slice(providerParagraphEnd),
       );
 
-      // Six required route tokens across the four provider surfaces.
+      // Seven required route tokens across the five provider surfaces.
       const violations = evaluate(mutant);
-      expect(violations).toHaveLength(6);
+      expect(violations).toHaveLength(7);
       for (const violation of violations) {
         expect(violation).toMatch(/required by binding 'provider-loader-/);
       }
-      expect(new Set(violations.map((violation) => /binding '([^']+)'/.exec(violation)?.[1])).size).toBe(4);
+      expect(new Set(violations.map((violation) => /binding '([^']+)'/.exec(violation)?.[1])).size).toBe(5);
       // Frozen families: no cookie, Web Storage, CacheStorage, or social-provider
       // binding turns red through this mutant.
       for (const family of ["cookie-", "web-storage-", "cache-storage-", "social-provider-"]) {
