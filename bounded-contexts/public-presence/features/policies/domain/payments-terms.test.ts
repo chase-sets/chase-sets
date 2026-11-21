@@ -113,7 +113,7 @@ describe("payments terms artifact", () => {
     expect(section.draftText).toContain("Settlement owns the release decision");
     expect(section.draftText).toContain("after a payout is requested");
     expect(section.draftText).not.toContain("timing depends on the connected-account configuration");
-    expect(section.reviewManifest.productTruthRefs).toContain("bounded-contexts/settlement/GLOSSARY.md:117-125");
+    expect(section.reviewManifest.productTruthRefs).toContain("bounded-contexts/settlement/GLOSSARY.md:121-129");
   });
 
   it("is structurally valid and registered under the canonical /payments-terms route", () => {

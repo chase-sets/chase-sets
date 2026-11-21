@@ -1169,6 +1169,7 @@ describe("Catalog primary workbench admin contracts", () => {
             saveOutcome: "not-submitted",
             submitHref: "/catalog/integrations?providerKey=tcgdex&profileVersion=2026.06.04&section=profile-work",
             commandKey: "provider-profile.edit-section",
+            sectionFingerprint: "sha256:basics-read",
             fields: [
               {
                 key: "displayName",
@@ -1912,7 +1913,7 @@ describe("Catalog primary workbench admin contracts", () => {
       }
     }
     expect(thrownMessages).toEqual(baselineThrownMessages);
-    expect(Object.values(baselineThrownMessages).flat()).toHaveLength(181);
+    expect(Object.values(baselineThrownMessages).flat()).toHaveLength(182);
     expect(Object.values(baselineThrownMessages).filter((messages) => messages.length > 0)).toHaveLength(19);
 
     // The base composite omits only the optional promotion result, which the composer accepts.
@@ -2415,6 +2416,7 @@ function validationReadinessFixture(): CatalogPrimaryWorkbenchReadModel["validat
       saveEvidenceBlockers: [],
       activationCommandKey: "provider-profile.activate",
       evidenceCommandKey: "provider-profile.edit-section",
+      evidenceSectionFingerprint: "sha256:migration-evidence-read",
       workspaceHref: "/catalog/integrations?providerKey=tcgdex&profileVersion=2026.06.04&section=readiness",
       providerKey: "tcgdex",
       profileVersion: "2026.06.04",
@@ -3563,6 +3565,7 @@ const baselineThrownMessages: Readonly<Record<string, readonly string[]>> = {
     "Primary workbench profile authoring must expose guided section workspaces.",
     "Primary workbench profile section ${workspace.sectionKey} must belong to a navigation group.",
     "Primary workbench profile section ${workspace.sectionKey} must use section-scoped saves.",
+    "Primary workbench profile section ${workspace.sectionKey} must carry the revision its save is checked against.",
     "Primary workbench profile section ${workspace.sectionKey} submit link must stay in the rebuilt workbench.",
     "Primary workbench profile section ${workspace.sectionKey} must expose guided controls.",
     "Primary workbench profile section ${workspace.sectionKey} must not expose raw JSON controls.",

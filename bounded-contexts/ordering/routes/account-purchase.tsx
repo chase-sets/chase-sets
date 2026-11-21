@@ -16,10 +16,11 @@ import { orderingApiErrorAdapter } from "../support/request-support/route-api-er
 
 const MARKETPLACE_DESCRIPTION = t("ordering.routes.accountPurchase.inspect.a.purchase.cancel.it.while");
 
-// Cancel is offered only to an actor the action below admits; one whose
-// cancel permission Auth withholds pending email verification is told how to
+// Cancel and Pay now both need orders.manage (this route's action and
+// /account/payments/new). They are offered only to an actor holding it; one
+// whose orders.manage Auth withholds pending email verification is told how to
 // verify instead, and no permission is granted here.
-function purchaseCancelAuthority(actor: Pick<ResolvedActor, "roleKey" | "permissions" | "agentGrant"> | null) {
+function purchaseOrderAuthority(actor: Pick<ResolvedActor, "roleKey" | "permissions" | "agentGrant"> | null) {
   if (actor?.permissions.includes("orders.manage")) {
     return "allowed" as const;
   }
@@ -35,15 +36,23 @@ export const loader = defineResourceRoute({
   authorization: { permission: "orders.view" },
   errorAdapter: orderingApiErrorAdapter,
   load: ({ request, params }) => createOrderingRequestApiClient(request).getPurchase(params.purchaseId!),
-  map: (purchase, { actor }) => ({
-    purchase,
-    reviewOutcome: purchase.reviewOutcome ?? { status: "unavailable" as const, opportunity: null },
-    cancelAuthority: purchaseCancelAuthority(actor),
-    verifyEmailHref: emailVerificationSignInHref(
-      `/account/purchases/${encodeURIComponent(purchase.order_id)}`,
-      "cancel-purchase",
-    ),
-  }),
+  map: (purchase, { actor }) => {
+    const orderAuthority = purchaseOrderAuthority(actor);
+    return {
+      purchase,
+      reviewOutcome: purchase.reviewOutcome ?? { status: "unavailable" as const, opportunity: null },
+      cancelAuthority: orderAuthority,
+      paymentAuthority: orderAuthority,
+      verifyEmailHref: emailVerificationSignInHref(
+        `/account/purchases/${encodeURIComponent(purchase.order_id)}`,
+        "cancel-purchase",
+      ),
+      verifyEmailToPayHref: emailVerificationSignInHref(
+        `/account/purchases/${encodeURIComponent(purchase.order_id)}`,
+        "pay-purchase",
+      ),
+    };
+  },
   messages: {
     pending: "We are preparing your purchase. Refresh in a moment and it should appear.",
     pendingStatusText: "Preparing purchase",
@@ -93,7 +102,9 @@ export default function OrderingAccountPurchaseRoute() {
       order={data.purchase as PurchaseDetail}
       errorMessage={actionData?.error ?? null}
       cancelAuthority={data.cancelAuthority}
+      paymentAuthority={data.paymentAuthority}
       verifyEmailHref={data.verifyEmailHref}
+      verifyEmailToPayHref={data.verifyEmailToPayHref}
       supplementarySectionTitle={t("ordering.routes.accountPurchase.order.outcome")}
       supplementarySection={
         <OrderOutcomePanel

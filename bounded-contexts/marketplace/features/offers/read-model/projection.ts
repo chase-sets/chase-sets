@@ -3,7 +3,7 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { recordRealtimeProjectionPatch, recordRealtimeProjectionPatches } from "@chase-sets/platform-runtime/realtime";
 import {
   createMarketplaceOfferMatchPatch,
-  createMarketplaceOfferPatch,
+  createMarketplaceSubmittedOfferPatch,
 } from "../../../support/realtime-support/projection-patches";
 import { marketplaceRealtimeTopics } from "../../../support/realtime-support/topics";
 import { listOfferMatchesForSellers } from "./queries";
@@ -12,6 +12,7 @@ async function loadRealtimeOffer(db: PgQueryable, offerId: string) {
   const result = await db.query<{
     offer_id: string;
     buyer_account_id: string;
+    offers_away: boolean;
     catalog_catalog_item_id: string;
     product_id: string;
     item_title: string;
@@ -28,7 +29,14 @@ async function loadRealtimeOffer(db: PgQueryable, offerId: string) {
     accepted_at: string | null;
     created_at: string;
     updated_at: string;
-  }>("SELECT * FROM marketplace_offer_pages WHERE offer_id = $1", [offerId]);
+  }>(
+    `SELECT offer.*, COALESCE(availability.offers_status = 'unavailable', FALSE) AS offers_away
+     FROM marketplace_offer_pages AS offer
+     LEFT JOIN marketplace_seller_listing_availability_pages AS availability
+       ON availability.account_id = offer.buyer_account_id
+     WHERE offer.offer_id = $1`,
+    [offerId],
+  );
   const row = result.rows[0];
 
   return row
@@ -39,33 +47,49 @@ async function loadRealtimeOffer(db: PgQueryable, offerId: string) {
     : null;
 }
 
+/** Sellers with an active Listing or available inventory for the Product; both can hold a Match for it. */
 async function loadInterestedSellerAccountIds(db: PgQueryable, productId: string) {
   const result = await db.query<{ account_id: string }>(
-    `SELECT DISTINCT account_id
+    `SELECT account_id
      FROM marketplace_listing_pages
      WHERE product_id = $1
-       AND status = 'active'`,
+       AND status = 'active'
+     UNION
+     SELECT inventory_item.account_id
+     FROM marketplace_supply_items AS inventory_item
+     WHERE inventory_item.product_id = $1
+       AND inventory_item.total_quantity > (
+         SELECT COALESCE(SUM(supply_hold.quantity), 0)
+         FROM marketplace_supply_holds AS supply_hold
+         WHERE supply_hold.item_id = inventory_item.item_id
+           AND supply_hold.status = 'active'
+       )`,
     [productId],
   );
 
   return result.rows.map((row) => row.account_id);
 }
 
-async function emitOfferPatch(db: PgQueryable, event: Parameters<ProjectorHandlerMap[string]>[0], offerId: string) {
+async function emitOfferPatch(
+  db: PgQueryable,
+  event: Parameters<ProjectorHandlerMap[string]>[0],
+  offerId: string,
+  suffix = "",
+) {
   const offer = await loadRealtimeOffer(db, offerId);
   if (!offer) {
     return;
   }
 
-  const buyerTopics = [marketplaceRealtimeTopics.accountOffers(offer.buyer_account_id)];
+  const buyerPatch = createMarketplaceSubmittedOfferPatch(offer.buyer_account_id, offer);
 
   await recordRealtimeProjectionPatch(db, {
     sourceGlobalPosition: event.globalPosition,
     projectionName: "marketplace-offer-projection",
-    patchKey: `offer:${offerId}`,
-    topics: buyerTopics,
+    patchKey: `offer${suffix}:${offerId}`,
+    topics: buyerPatch.topics,
     recordedAt: event.timing.recordedAt,
-    patch: createMarketplaceOfferPatch(buyerTopics, offer),
+    patch: buyerPatch,
   });
 
   const sellerAccountIds = new Set(await loadInterestedSellerAccountIds(db, offer.product_id));
@@ -77,12 +101,12 @@ async function emitOfferPatch(db: PgQueryable, event: Parameters<ProjectorHandle
   await recordRealtimeProjectionPatches(
     db,
     [...sellerAccountIds].map((sellerAccountId) => {
-      const topic = marketplaceRealtimeTopics.accountOffers(sellerAccountId);
+      const topic = marketplaceRealtimeTopics.accountOfferMatches(sellerAccountId);
       const offerMatch = offerMatchesBySellerAccountId.get(sellerAccountId);
       return {
         sourceGlobalPosition: event.globalPosition,
         projectionName: "marketplace-offer-projection",
-        patchKey: `offer-match:${offerId}:${sellerAccountId}`,
+        patchKey: `offer-match${suffix}:${offerId}:${sellerAccountId}`,
         topics: [topic],
         recordedAt: event.timing.recordedAt,
         patch: createMarketplaceOfferMatchPatch([topic], offerId, offerMatch ?? null),
@@ -91,11 +115,12 @@ async function emitOfferPatch(db: PgQueryable, event: Parameters<ProjectorHandle
   );
 }
 
-/** Reconcile Match rows after a buyer account lifecycle change, in pages of 100. */
+/** Reconcile buyer and Match rows after an account or Offers-away flip, in pages of 100. */
 export async function emitBuyerAccountOfferMatchPatches(
   db: PgQueryable,
   event: Parameters<ProjectorHandlerMap[string]>[0],
   buyerAccountId: string,
+  patchKeySuffix = "",
 ) {
   let cursor = "";
   for (;;) {
@@ -110,7 +135,7 @@ export async function emitBuyerAccountOfferMatchPatches(
       [buyerAccountId, cursor],
     );
     if (result.rows.length === 0) return;
-    for (const row of result.rows) await emitOfferPatch(db, event, row.offer_id);
+    for (const row of result.rows) await emitOfferPatch(db, event, row.offer_id, patchKeySuffix);
     cursor = result.rows[result.rows.length - 1]!.offer_id;
     if (result.rows.length < 100) return;
   }

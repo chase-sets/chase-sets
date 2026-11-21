@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { t } from "@chase-sets/localization";
+import { returnIntakeHref } from "./admin-paths";
 import {
   Button,
   ConnectionStatusIndicator,
@@ -8,6 +9,7 @@ import {
   Form,
   Grid,
   HiddenInput,
+  LocalDateTimeInput,
   NativeSelect,
   OperationalStatusBanner,
   Page,
@@ -125,8 +127,7 @@ export function FacilityIntakePage(props: FacilityIntakePageProps) {
   }, []);
 
   function resolveScan(identifier: string) {
-    const params = new URLSearchParams({ facilityId: props.facilityId, identifier: identifier.trim() });
-    void navigate(`/return-intake?${params.toString()}`);
+    void navigate(returnIntakeHref(props.facilityId, { identifier: identifier.trim() }));
   }
 
   const intakeSummary = props.resolved ? facilityIntakeSummary(props.resolved) : null;
@@ -328,9 +329,8 @@ export function FacilityIntakePage(props: FacilityIntakePageProps) {
                       required
                       autoComplete="off"
                     />
-                    <TextInput
+                    <LocalDateTimeInput
                       name="receivedAt"
-                      type="datetime-local"
                       label={t("fulfillment.returnIntake.receiptTimestamp")}
                       required
                     />
@@ -441,12 +441,7 @@ export function FacilityIntakePage(props: FacilityIntakePageProps) {
             <HiddenInput name="idempotencyKey" value={props.formToken} />
             <Grid columns={{ base: 1, md: 2 }} gap={3}>
               <TextInput name="stationId" label={t("fulfillment.returnIntake.facilityStation")} required />
-              <TextInput
-                name="receivedAt"
-                type="datetime-local"
-                label={t("fulfillment.returnIntake.receiptTimestamp")}
-                required
-              />
+              <LocalDateTimeInput name="receivedAt" label={t("fulfillment.returnIntake.receiptTimestamp")} required />
               <NativeSelect
                 name="packageCondition"
                 label={t("fulfillment.returnIntake.packageCondition")}

@@ -1,4 +1,6 @@
 import "./observability-prelude";
+import { readFile } from "node:fs/promises";
+import { UCP_MCP_PRODUCT_CARDS_RESOURCE_URI } from "@chase-sets/platform-runtime/ucp";
 import type { ProviderWebhookTelemetryEvent } from "@chase-sets/http/provider-errors";
 import { serve } from "@hono/node-server";
 import { createClient } from "redis";
@@ -368,6 +370,7 @@ const runtime = createPlatformApiHost({
     adminGoogleWorkspaceSso: config.adminGoogleWorkspaceSso,
     registrationAdmission: config.registrationAdmission,
     stagingPersonaMagicLinkVerifierSha256: config.stagingPersonaMagicLinkVerifierSha256,
+    readConsistencyWorkSignalGateway: workSignalStore.readConsistencyGateway,
     evidenceWindowCorrelation,
     evidenceWindowProviderWrite,
     securityLifetimes: config.authSecurityLifetimes,
@@ -636,7 +639,19 @@ const ucpProfileResolver = createUcpProfileResolver({
   db: pools.control,
   onFailure: ({ kind, host }) => logger.warn("UCP platform profile resolution failed.", { kind, host }),
 });
+const productCardsHtml = await readFile(new URL("../../agent-apps/build/product-cards.html", import.meta.url), "utf8")
+  .then((html) => {
+    if (html.trim()) return html;
+    logger.warn("MCP product cards widget unavailable.", { code: "empty_file" });
+    return undefined;
+  })
+  .catch((error: unknown) => {
+    const missing = error instanceof Error && "code" in error && error.code === "ENOENT";
+    logger.warn("MCP product cards widget unavailable.", { code: missing ? "missing_file" : "read_failed" });
+    return undefined;
+  });
 const app = buildPlatformApiApp(runtime, {
+  widgetResources: (uri) => (uri === UCP_MCP_PRODUCT_CARDS_RESOURCE_URI ? productCardsHtml : undefined),
   runtimeProfile: config.runtimeProfile,
   receiptLookupActor: config.receiptLookupActor,
   internalAuthSecret: config.internalAuthSecret,

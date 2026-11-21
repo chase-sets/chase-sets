@@ -11,12 +11,14 @@ import {
   MARKETPLACE_OFFER_BULK_LIFECYCLE_LIMIT,
   MarketplaceOfferAbuseControlError,
   MarketplaceOfferAcceptanceReadinessError,
+  MarketplaceOfferSubmissionAwayError,
   MarketplaceOfferFeeQuoteStaleError,
   MarketplaceOfferLifecycleError,
+  MarketplaceOfferMatchRequiresListingError,
   type MarketplaceOfferServices,
 } from "./runtime";
 import type { AccountId, OfferId } from "@chase-sets/primitives/typed-ids";
-import { omitPrivateOfferResponseFields, publicOfferListResponse } from "./response-shape";
+import { omitPrivateOfferResponseFields, publicOfferListResponse, submittedOfferResponse } from "./response-shape";
 import { ManagedOfferConflictError } from "./managed-authority";
 import { MarketplaceAttemptError } from "../../mutation-recovery/api/attempt";
 import { marketplaceReceiptResponse } from "../../mutation-recovery/api/receipt";
@@ -117,6 +119,27 @@ function requireOfferAccess(
   return { actor, response: null };
 }
 
+/** Offer Matches show the seller's own Listings and inventory, so reading them needs listings.view as well. */
+function requireOfferMatchReadAccess(c: { get(key: "actor"): MarketplaceApiEnv["Variables"]["actor"] }) {
+  const access = requireOfferAccess(c, "offers.view");
+  if (access.response || access.actor.permissions.includes("listings.view")) {
+    return access;
+  }
+
+  return {
+    actor: null,
+    response: new Response(
+      JSON.stringify({
+        error: { code: "authorization_forbidden", message: t("marketplace.features.offers.api.route.forbidden.2") },
+      }),
+      {
+        status: 403,
+        headers: { "Content-Type": "application/json" },
+      },
+    ),
+  };
+}
+
 function requireSignedInAccount(c: { get(key: "actor"): MarketplaceApiEnv["Variables"]["actor"] }) {
   const actor = c.get("actor");
   if (!actor) {
@@ -182,6 +205,11 @@ function validationError(
       409,
     );
   }
+  if (
+    error instanceof MarketplaceOfferSubmissionAwayError ||
+    error instanceof MarketplaceOfferMatchRequiresListingError
+  )
+    return c.json({ error: { code: error.code, message: error.message } }, 409);
 
   if (error instanceof MarketplaceOfferAbuseControlError) {
     return c.json(
@@ -300,11 +328,10 @@ export function createAccountSubmittedOfferRoutes(services: MarketplaceOfferServ
       status: parseSubmittedOfferStatus(c.req.query("status")),
     });
 
-    const response = publicOfferListResponse(result);
-
     return c.json({
-      ...response,
-      count: response.items.length,
+      items: result.items.map(submittedOfferResponse),
+      total: result.total,
+      count: result.items.length,
       statusCounts: result.statusCounts,
     });
   });
@@ -411,7 +438,7 @@ export function createAccountSubmittedOfferRoutes(services: MarketplaceOfferServ
       );
     }
 
-    return c.json(omitPrivateOfferResponseFields(offer));
+    return c.json(submittedOfferResponse(offer));
   });
 
   app.post("/offers/submitted", async (c) => {
@@ -540,7 +567,7 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
   });
 
   app.get("/offers/matches", async (c) => {
-    const access = requireOfferAccess(c, "offers.view");
+    const access = requireOfferMatchReadAccess(c);
     if (access.response) {
       return access.response;
     }
@@ -569,7 +596,7 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
   });
 
   app.get("/offers/matches/:id", async (c) => {
-    const access = requireOfferAccess(c, "offers.view");
+    const access = requireOfferMatchReadAccess(c);
     if (access.response) {
       return access.response;
     }
@@ -590,16 +617,9 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
   });
 
   app.get("/offers/matches/:id/terms-preview", async (c) => {
-    const access = requireOfferAccess(c, "offers.view");
+    const access = requireOfferMatchReadAccess(c);
     if (access.response) {
       return access.response;
-    }
-
-    if (!access.actor.permissions.includes("listings.view")) {
-      return c.json(
-        { error: { code: "authorization_forbidden", message: t("marketplace.features.offers.api.route.forbidden.2") } },
-        403,
-      );
     }
 
     try {

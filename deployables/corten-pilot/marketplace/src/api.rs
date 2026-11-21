@@ -2085,8 +2085,8 @@ pub struct AuthenticityOffer {
 
 /// What Payments quotes for paying `amount` (`GET /account/checkout/preview-status`,
 /// `CheckoutPaymentPreviewStatus`): the fee for the chosen method, every method's quote, and the
-/// wallet credit applied. Payments quotes it from the policy in effect; marketplace's loader
-/// quotes the compiled default itself (chase-sets/chase-sets#10683).
+/// wallet credit applied. Payments quotes it from the policy in effect, as marketplace's loader
+/// reads it.
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct PaymentPreview {
     pub marketplace_checkout_fee: FeeQuote,
@@ -4747,6 +4747,8 @@ pub enum AccountAction {
     RotateApiKey,
     RevokeApiKey,
     CreateInvitation,
+    /// A pending invitation's new expiry, emailed again.
+    ResendInvitation,
     CancelInvitation,
     ChangeRole,
     /// A membership's revoke.
@@ -4769,6 +4771,7 @@ impl AccountAction {
             AccountAction::RotateApiKey => "rotate-api-key",
             AccountAction::RevokeApiKey => "revoke-api-key",
             AccountAction::CreateInvitation => "create-invitation",
+            AccountAction::ResendInvitation => "resend-invitation",
             AccountAction::CancelInvitation => "cancel-invitation",
             AccountAction::ChangeRole => "change-role",
             AccountAction::Revoke => "revoke",
@@ -4921,6 +4924,7 @@ impl Addresses for Caller<'_> {
             | AccountAction::RotateApiKey
             | AccountAction::RevokeApiKey
             | AccountAction::CreateInvitation
+            | AccountAction::ResendInvitation
             | AccountAction::CancelInvitation
             | AccountAction::ChangeRole
             | AccountAction::Revoke
@@ -5080,6 +5084,30 @@ pub struct Invitation {
     pub account_name: Option<String>,
     pub role_key: String,
     pub status: String,
+    pub expires_at: String,
+    /// Pending as recorded, but past its expiry when the page was read: Identity no longer sends it.
+    #[serde(skip_deserializing)]
+    pub lapsed: bool,
+}
+
+impl Invitation {
+    /// Marks a pending invitation whose expiry is at or before `now` as lapsed. An expiry that does
+    /// not parse leaves it as recorded.
+    pub fn mark_lapsed(&mut self, now: time::OffsetDateTime) {
+        use time::format_description::well_known::Rfc3339;
+        self.lapsed = self.status == "pending"
+            && time::OffsetDateTime::parse(&self.expires_at, &Rfc3339).is_ok_and(|expires| expires <= now);
+    }
+
+    /// Its status as it stands now: a lapsed invitation is expired before Identity records it.
+    pub fn effective_status(&self) -> &str {
+        if self.lapsed { "expired" } else { &self.status }
+    }
+
+    /// Pending and not lapsed: the only invitation Identity sends again.
+    pub fn open(&self) -> bool {
+        self.status == "pending" && !self.lapsed
+    }
 }
 
 #[derive(Deserialize)]
@@ -5088,8 +5116,8 @@ struct TeamList<T> {
     items: Vec<T>,
 }
 
-/// A committed create-invitation's answer: the invitation it recorded, and whether this call
-/// recorded it (`false` for an attempt the API had already recorded).
+/// A committed create- or resend-invitation's answer: the invitation it recorded, and whether this
+/// call recorded it (`false` for an attempt the API had already recorded).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Invited {
     pub invitation_id: String,
@@ -5118,10 +5146,9 @@ struct CommittedOwner {
 /// The account's team (Identity's `memberships` and `invitations`), as the signed-in member. Each
 /// write is an account-management attempt, as the address book's are.
 pub trait TeamCalls {
-    /// The account's members and invitations. Workaround for chase-sets/chase-sets#10704: Identity
-    /// scopes these lists by a substring match on the account's id, so only the rows whose
-    /// `account_id` is `account` are kept.
-    async fn team(&self, account: &str) -> Result<(Vec<Membership>, Vec<Invitation>), ApiError>;
+    /// The signed-in account's members and invitations: Identity lists only the caller's account
+    /// to a member.
+    async fn team(&self) -> Result<(Vec<Membership>, Vec<Invitation>), ApiError>;
     /// Send `action` on `target` as `attempt` with `body` (a create's fields, or a role); with
     /// the invitation a committed create recorded.
     async fn write_team(
@@ -5131,23 +5158,18 @@ pub trait TeamCalls {
         attempt: &str,
         body: &serde_json::Value,
     ) -> Result<(AccountAnswer, Option<Invited>), ApiError>;
-    /// Ask Auth to email a new invitation's acceptance link, after the receipt the caller carries,
+    /// Ask Auth to email an invitation's acceptance link, after the receipt the caller carries,
     /// from the browser's address (Auth limits these by address, as it does sign-ins).
     async fn invitation_link(&self, invitation: &str, client: Option<corten::ClientIp>) -> Result<(), ApiError>;
 }
 
 impl TeamCalls for Caller<'_> {
-    async fn team(&self, account: &str) -> Result<(Vec<Membership>, Vec<Invitation>), ApiError> {
-        let scope = segment(account);
-        let (members_at, invitations_at) =
-            (format!("/api/identity/memberships?search={scope}"), format!("/api/identity/invitations?search={scope}"));
+    async fn team(&self) -> Result<(Vec<Membership>, Vec<Invitation>), ApiError> {
         let (members, invitations) = tokio::join!(
-            self.read::<TeamList<Membership>>(&members_at, IDENTITY),
-            self.read::<TeamList<Invitation>>(&invitations_at, IDENTITY),
+            self.read::<TeamList<Membership>>("/api/identity/memberships", IDENTITY),
+            self.read::<TeamList<Invitation>>("/api/identity/invitations", IDENTITY),
         );
-        let members = members?.items.into_iter().filter(|m| m.account_id == account).collect();
-        let invitations = invitations?.items.into_iter().filter(|i| i.account_id == account).collect();
-        Ok((members, invitations))
+        Ok((members?.items, invitations?.items))
     }
 
     async fn write_team(
@@ -5160,6 +5182,7 @@ impl TeamCalls for Caller<'_> {
         let id = target.map(segment).unwrap_or_default();
         let (method, path) = match action {
             AccountAction::CreateInvitation => (Method::POST, "/api/identity/invitations".to_owned()),
+            AccountAction::ResendInvitation => (Method::POST, format!("/api/identity/invitations/{id}/resend")),
             AccountAction::CancelInvitation => (Method::POST, format!("/api/identity/invitations/{id}/cancel")),
             AccountAction::ChangeRole => (Method::PUT, format!("/api/identity/memberships/{id}/role")),
             AccountAction::Revoke => (Method::POST, format!("/api/identity/memberships/{id}/revoke")),
@@ -5171,7 +5194,7 @@ impl TeamCalls for Caller<'_> {
         let text = res.text().await?;
         let answer = AccountAnswer::read(status, &text, receipt)?;
         let invited = match (&answer, action) {
-            (AccountAnswer::Committed(_), AccountAction::CreateInvitation) => invited(&text),
+            (AccountAnswer::Committed(_), AccountAction::CreateInvitation | AccountAction::ResendInvitation) => invited(&text),
             _ => None,
         };
         Ok((answer, invited))
@@ -5498,9 +5521,8 @@ fn key_secret(action: AccountAction, answer: AccountAnswer, body: &str, lookup: 
 /// writes, account-management attempts like the address book's.
 pub trait SecurityCalls {
     async fn user(&self, user: &str) -> Result<SecurityUser, ApiError>;
-    /// The user's keys. Identity filters the list by `search`, which it matches against the key's
-    /// name too, so only the keys whose `user_id` is `user` are kept (chase-sets/chase-sets#10695).
-    async fn api_keys(&self, user: &str) -> Result<Vec<ApiKey>, ApiError>;
+    /// The signed-in user's keys: Identity lists only the caller's own keys to a user.
+    async fn api_keys(&self) -> Result<Vec<ApiKey>, ApiError>;
     /// Send the user's profile as `attempt`. A call with no answer is `Err(ApiError::Transport)`.
     async fn update_user(&self, user: &str, attempt: &str, command: &UserCommand) -> Result<AccountAnswer, ApiError>;
     /// Create a key named `name` for `user` (`target` none), or rotate or revoke `target`, as
@@ -5527,9 +5549,9 @@ impl SecurityCalls for Caller<'_> {
         self.read(&format!("/api/identity/users/{}", segment(user)), IDENTITY).await
     }
 
-    async fn api_keys(&self, user: &str) -> Result<Vec<ApiKey>, ApiError> {
-        let list: ApiKeyList = self.read(&format!("/api/identity/api-keys?search={}", segment(user)), IDENTITY).await?;
-        Ok(list.items.into_iter().filter(|key| key.user_id == user).collect())
+    async fn api_keys(&self) -> Result<Vec<ApiKey>, ApiError> {
+        let list: ApiKeyList = self.read("/api/identity/api-keys", IDENTITY).await?;
+        Ok(list.items)
     }
 
     async fn update_user(&self, user: &str, attempt: &str, command: &UserCommand) -> Result<AccountAnswer, ApiError> {

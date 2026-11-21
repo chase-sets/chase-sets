@@ -215,6 +215,8 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
             actor(&["projection-operations.view"])
         } else if cookie.contains("chase_sets_session=feedback-manager") || cookie.contains("chase_sets_session=feedback-lag") {
             actor(&["platform-feedback.view", "platform-feedback.manage", "platform-feedback.export"])
+        } else if cookie.contains("chase_sets_session=feedback-exporter") {
+            actor(&["platform-feedback.view", "customer-feedback.privacy.export-sensitive-feedback"])
         } else if cookie.contains("chase_sets_session=feedback-viewer") {
             actor(&["platform-feedback.view"])
         } else if cookie.contains("chase_sets_session=support-viewer") || cookie.contains("chase_sets_session=attention-down") {
@@ -325,8 +327,14 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
     if uri.path() == "/api/customer-feedback" {
         return csat_dashboard(uri.query().unwrap_or_default());
     }
+    if uri.path() == "/api/customer-feedback/export" {
+        return csat_export(uri.query().unwrap_or_default());
+    }
+    if let Some(id) = uri.path().strip_prefix("/api/customer-feedback/export/") {
+        return csat_export_file(id);
+    }
     if uri.path() == "/api/customer-feedback/attention" {
-        return feedback_attention(cookie);
+        return feedback_attention(cookie, uri.query().unwrap_or_default());
     }
     if let Some(reference) = uri.path().strip_prefix("/api/platform/support-reference-lookup/") {
         return support_lookup(reference);
@@ -399,7 +407,7 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
     if let Some(answer) = daily_command(&method, uri.path(), &body) {
         return answer;
     }
-    if let Some(answer) = provider_api(&method, uri.path(), &body) {
+    if let Some(answer) = provider_api(&method, uri.path(), &headers, &body) {
         return answer;
     }
     if let Some(answer) = operator_session_api(&method, uri.path(), &headers) {
@@ -444,7 +452,7 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
                 "Projection read model did not catch up to the requested write receipt before the freshness timeout.",
             );
         }
-        return support_requests(&method, rest, &body);
+        return support_requests(&method, rest, &body, cookie.contains("support-remedies"));
     }
     if let Some(rest) = uri.path().strip_prefix("/api/experience/risk-alerts") {
         return risk_alerts(&method, rest);
@@ -676,12 +684,8 @@ fn reported_content(method: &Method, rest: &str, body: &str) -> Response {
             Json(json!({ "error": { "code": "validation_failed", "reason": "note_required", "message": "The moderation action was rejected." } })),
         )
             .into_response(),
-        // As the API answers today (chase-sets/chase-sets#10833): no receipt.
-        (Method::POST, "/review/rev_1/actions") if body.contains("dismiss") => {
-            Json(json!({ "id": "rca_1", "recordedAt": "2026-10-30T12:00:00.000Z" })).into_response()
-        }
         (Method::POST, "/listing/lst_1/actions" | "/review/rev_1/actions") => written(StatusCode::OK, "act_1"),
-        (Method::POST, "/listing/lst_1/acknowledge") => Json(json!({ "acknowledgedAt": "2026-11-15T12:00:00.000Z" })).into_response(),
+        (Method::POST, "/listing/lst_1/acknowledge") => written(StatusCode::OK, "ack_1"),
         // As the API refuses it: a reason and no message.
         (Method::POST, "/review/rev_1/acknowledge") => {
             (StatusCode::BAD_REQUEST, Json(json!({ "error": { "code": "validation_failed", "reason": "target-disposed" } })))
@@ -746,10 +750,15 @@ fn platform_feedback(method: &Method, rest: &str, body: &str) -> Response {
 
 /// Customer Feedback's attention queue: an urgent case the API says is overdue, a triaged one
 /// due in 2099 with an owner, and the metrics; `attention-down` fails. Each item's `sla` is the
-/// API's, so the page draws it as given whatever the clock says.
-fn feedback_attention(cookie: &str) -> Response {
+/// API's, so the page draws it as given whatever the clock says. A `caseId` keeps only that
+/// case's items; one that is not a case ID is refused with a 400, as the API refuses it.
+fn feedback_attention(cookie: &str, query: &str) -> Response {
     if cookie.contains("attention-down") {
         return refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal_error", "Internal server error.");
+    }
+    let case = query.strip_prefix("caseId=");
+    if case.is_some_and(|id| !id.starts_with("fbcase_")) {
+        return refusal(StatusCode::BAD_REQUEST, "invalid_id", "caseId is not a valid identifier.");
     }
     let item = |id: &str,
                 priority: &str,
@@ -769,14 +778,18 @@ fn feedback_attention(cookie: &str) -> Response {
             },
         })
     };
+    let items: Vec<Value> = [
+        item("fbcase_1", "urgent", 1, None, None, None, true),
+        item("fbcase_2", "high", 2, Some("usr_ops"), Some("2026-05-07T10:30:00.000Z"), Some("2099-01-01T12:00:00.000Z"), false),
+        // Past its due date by the clock, but the API says it is not overdue: the page shows
+        // the API's answer, not its own.
+        item("fbcase_3", "normal", 3, None, Some("2026-05-07T10:30:00.000Z"), Some("2026-05-08T12:00:00.000Z"), false),
+    ]
+    .into_iter()
+    .filter(|item| case.is_none_or(|id| item["caseId"] == id))
+    .collect();
     Json(json!({
-        "items": [
-            item("fbcase_1", "urgent", 1, None, None, None, true),
-            item("fbcase_2", "high", 2, Some("usr_ops"), Some("2026-05-07T10:30:00.000Z"), Some("2099-01-01T12:00:00.000Z"), false),
-            // Past its due date by the clock, but the API says it is not overdue: the page shows
-            // the API's answer, not its own.
-            item("fbcase_3", "normal", 3, None, Some("2026-05-07T10:30:00.000Z"), Some("2026-05-08T12:00:00.000Z"), false),
-        ],
+        "items": items,
         "metrics": {
             "activeCount": 4, "overdueCount": 1, "medianTimeToTriageMs": 5_400_000.0, "medianTimeToCloseMs": null, "oldestOverdueMs": 1,
             "deliverySuccesses": 2, "deliveryFailures": 3, "digestPending": 0, "digestFailures": 0, "latestDigestAt": null,
@@ -814,7 +827,24 @@ const SUPPORT_REQUESTS: &str = "/api/marketplace/support-requests";
 /// an unwaivable and a releasable effect; a remedy preview (refused without a rationale) and the
 /// remedy writes; the flows' titles; Escalate overdue's counts; a resolve without its summary
 /// refused; and `req_1`'s one photo.
-fn support_requests(method: &Method, rest: &str, body: &str) -> Response {
+fn support_requests(method: &Method, rest: &str, body: &str, remedies: bool) -> Response {
+    // The ops read's remedy offer: the policy's choices, and each action with whether the reader
+    // (with every remedy capability, or none) may take it.
+    let offered = |key: &str| json!({ "idempotencyKey": key, "allowed": remedies });
+    let remedy_offer = |propose: Value, approve: Value, correct: Value, effects: Value| {
+        json!({
+            "policyVersion": "platform-operations.platform-remedies:pol_published:2026-05-01T00:00:00.000Z",
+            "choices": {
+                "refundTriggers": ["immediate", "delivered"],
+                "eligibleReasonCodes": ["customer-protection", "published-goodwill"],
+                "returnExceptionReasonCodes": ["documented-exception"],
+                "escalationReasonCodes": ["refund-failure", "published-escalation"],
+                "splitFundingAllowed": false,
+            },
+            "currencyCode": "usd",
+            "propose": propose, "approve": approve, "correct": correct, "effects": effects,
+        })
+    };
     let row = |id: &str, reference: &str, status: &str, priority: &str, due: Option<&str>| {
         json!({
             "support_request_id": id, "display_reference": reference, "order_id": "ord_1", "flow_type": "product-damaged",
@@ -879,6 +909,8 @@ fn support_requests(method: &Method, rest: &str, body: &str) -> Response {
                 "flow": { "allowedResolutions": ["full-refund"] },
             });
             detail.as_object_mut().unwrap().extend(more.as_object().unwrap().clone());
+            detail["remedy_offer"] =
+                remedy_offer(offered("req_done:platform-remedy-proposal"), Value::Null, Value::Null, json!([]));
             Json(detail).into_response()
         }
         (Method::GET, "/ops/req_remedy") => {
@@ -921,6 +953,15 @@ fn support_requests(method: &Method, rest: &str, body: &str) -> Response {
                 effect("operator-release", "pending", None),
             ];
             detail["remedy"] = json!({ "remedyId": "rmd_1", "status": "action-required", "effects": effects });
+            let none = |effect: &str| json!({ "effect": effect, "retry": null, "waive": null, "release": null });
+            let effect_offers = json!([
+                { "effect": "refund-execution", "retry": offered("rmd_1:refund-execution:idem_3:retry"), "waive": null, "release": null },
+                { "effect": "buyer-notification", "retry": null, "waive": offered("rmd_1:buyer-notification:idem_4:waive"), "release": null },
+                none("coverage-reservation"),
+                { "effect": "operator-release", "retry": null, "waive": null, "release": offered("rmd_1:operator-release") },
+            ]);
+            detail["remedy_offer"] =
+                remedy_offer(Value::Null, offered("rmd_1:approval"), offered("rmd_1:correction"), effect_offers);
             Json(detail).into_response()
         }
         (Method::POST, "/ops/req_done/remedy-proposals/preview") if body.contains(r#""rationale":"""#) => {
@@ -962,10 +1003,14 @@ fn support_requests(method: &Method, rest: &str, body: &str) -> Response {
 }
 
 /// Customer Feedback's CSAT dashboard: a 7-day window with too few answers, a 30-day one with
-/// figures, one trend bucket, one invitation and both pages; a `to` in the future is answered 500,
-/// as the API does (chase-sets/chase-sets#10844).
+/// figures, one trend bucket, one invitation and both pages; a `to` in the future is refused as
+/// the API refuses it (400 `validation_failed`, `range-after-as-of`), and the expired state fails.
 fn csat_dashboard(query: &str) -> Response {
     if query.contains("to=2099") {
+        let body = json!({ "error": { "code": "validation_failed", "reason": "range-after-as-of", "message": "CSAT trendTo cannot be after asOf." } });
+        return (StatusCode::BAD_REQUEST, Json(body)).into_response();
+    }
+    if query.contains("states=expired") {
         return refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal_error", "Internal server error.");
     }
     let slice = |csat: Value, availability: &str| {
@@ -996,6 +1041,35 @@ fn csat_dashboard(query: &str) -> Response {
     .into_response()
 }
 
+/// Customer Feedback's export: created (201, with its metadata) for a reason, else refused as the
+/// API refuses it.
+fn csat_export(query: &str) -> Response {
+    if !query.split('&').any(|pair| pair.starts_with("reason=") && pair.len() > "reason=".len()) {
+        return refusal(StatusCode::BAD_REQUEST, "export_reason_code_required", "");
+    }
+    let body = json!({
+        "exportId": "cse_1", "rowCount": 1, "status": "completed",
+        "artifactExpiresAt": "2099-01-01T00:00:00.000Z", "downloadHref": "/export/cse_1",
+    });
+    (StatusCode::CREATED, Json(body)).into_response()
+}
+
+/// An export's file, as the API answers it.
+fn csat_export_file(id: &str) -> Response {
+    if id != "cse_1" {
+        return refusal(StatusCode::NOT_FOUND, "export_not_found_or_expired", "");
+    }
+    (
+        [
+            (header::CONTENT_TYPE, "text/csv; charset=utf-8"),
+            (header::CONTENT_DISPOSITION, r#"attachment; filename="customer-feedback-export.csv""#),
+            (header::CACHE_CONTROL, "no-store"),
+        ],
+        "invitation_id,state\n\"csi_1\",\"submitted\"\n",
+    )
+        .into_response()
+}
+
 /// Support's reference lookup: an order, a record whose link is not a path here, a failure, and
 /// nothing else.
 fn support_lookup(reference: &str) -> Response {
@@ -1015,8 +1089,7 @@ fn support_lookup(reference: &str) -> Response {
 }
 
 /// Platform Operations' risk alerts: a candidate with evidence and a threshold, and an
-/// acknowledged one that is not a candidate. Actions answer no receipt, as the API does
-/// (chase-sets/chase-sets#10835).
+/// acknowledged one that is not a candidate. Actions answer their receipt.
 fn risk_alerts(method: &Method, rest: &str) -> Response {
     let alert = |id: &str, status: &str, candidate: bool| {
         json!({
@@ -1040,9 +1113,7 @@ fn risk_alerts(method: &Method, rest: &str) -> Response {
         .into_response(),
         (Method::GET, "/ral_1") => Json(alert("ral_1", "needs-review", true)).into_response(),
         (Method::GET, "/ral_2") => Json(alert("ral_2", "acknowledged", false)).into_response(),
-        (Method::POST, "/ral_1/actions" | "/ral_2/actions") => {
-            Json(json!({ "id": "raa_1", "recordedAt": "2026-10-30T12:00:00.000Z" })).into_response()
-        }
+        (Method::POST, "/ral_1/actions" | "/ral_2/actions") => written(StatusCode::OK, "raa_1"),
         _ => StatusCode::NOT_FOUND.into_response(),
     }
 }
@@ -1616,8 +1687,7 @@ fn catalog_component(id: &str) -> Value {
 }
 
 /// A draft blueprint as its page reads it (`BlueprintDetail`): one component, a required field
-/// rule, a dimension rule, and a canonical order. The admin page's read misses the field rule
-/// the list has (`fld_more`), as chase-sets/chase-sets#10823 can.
+/// rule, a dimension rule, and a canonical order.
 fn catalog_blueprint(id: &str) -> Value {
     json!({
         "blueprint_id": id, "key": "single", "name": "Card single", "description": "", "status": "draft",
@@ -1884,12 +1954,45 @@ fn scope_api(method: &Method, path: &str, query: &str, body: &str) -> Option<Res
         json!({ "jobId": id, "kind": kind, "status": status, "progress": { "completed": 1, "total": 2 },
                 "result": result, "errorMessage": error })
     };
+    let pending_ja = json!({
+        "aliasHash": "ah_ja", "targetKind": "reference-record", "targetId": "ref_scp_paf",
+        "nativePrintedName": "Shiny Treasure ex", "proposedAlias": "Paldean Fates", "aliasLanguageCode": "ja",
+        "confidence": "medium", "reviewStatus": "pending", "autoAccept": { "reasons": ["Confidence is below high."] },
+        "availableActions": ["alias.accept", "alias.reject", "alias.defer"],
+    });
+    // The scope as `/scope-records/{id}/journey` answers it: `stages` the five stages' statuses in
+    // order, the editions drawn as the API composed them.
+    let journey = |scope: Value, editions: Value, condition: &str, stages: [&str; 5], pending: usize| {
+        let count = scope["languageEditions"].as_array().map_or(0, Vec::len);
+        let keys = ["coverage", "sync", "jobs", "candidates", "promotion"];
+        let stages: Vec<Value> = keys.iter().zip(stages).map(|(k, s)| json!({ "key": k, "status": s })).collect();
+        json!({ "generatedAt": "2026-11-04T12:00:00.000Z", "languageEditions": editions,
+                "languageEditionReviewFailed": false,
+                "overview": { "scopeRecordId": scope["scopeRecordId"], "condition": condition, "stages": stages,
+                              "editionCount": count, "linkedEditionCount": count - pending.min(count),
+                              "pendingCandidateCount": pending, "promotionReadiness": scope["promotionReadiness"],
+                              "syncFreshness": scope["syncFreshness"] },
+                "scope": scope })
+    };
     let rest = path.strip_prefix(CATALOG)?;
     let answer = match (method.clone(), rest) {
-        (Method::GET, "/scope-records/scp_paf") => Json(scope("scp_paf", &["en", "ja"], "draft")).into_response(),
-        (Method::GET, "/scope-records/scp_one") => Json(scope("scp_one", &["en"], "active")).into_response(),
-        (Method::GET, "/scope-records/scp_down") => Json(scope("scp_down", &["en"], "active")).into_response(),
-        (Method::GET, "/scope-records/scp_gone") => refusal(StatusCode::NOT_FOUND, "not_found", "Scope record not found."),
+        (Method::GET, "/scope-records/scp_paf/journey") => {
+            let editions = json!({ "scopeRecordId": "scp_paf", "referenceRecordId": "ref_scp_paf", "editions": [
+                { "languageCode": "en", "isCanonical": true, "linkState": "linked", "acceptedAliasCount": 0,
+                  "pendingCandidates": [], "acceptedCandidates": [] },
+                { "languageCode": "ja", "isCanonical": false, "linkState": "pending-review", "acceptedAliasCount": 0,
+                  "pendingCandidates": [pending_ja], "acceptedCandidates": [] },
+            ] });
+            let stages = ["complete", "complete", "complete", "current", "upcoming"];
+            Json(journey(scope("scp_paf", &["en", "ja"], "draft"), editions, "conflict", stages, 1)).into_response()
+        }
+        (Method::GET, path @ ("/scope-records/scp_one/journey" | "/scope-records/scp_down/journey")) => {
+            let id = path.trim_start_matches("/scope-records/").trim_end_matches("/journey");
+            Json(journey(scope(id, &["en"], "active"), Value::Null, "ready", ["complete"; 5], 0)).into_response()
+        }
+        (Method::GET, "/scope-records/scp_gone/journey") => {
+            refusal(StatusCode::NOT_FOUND, "not_found", "Scope record not found.")
+        }
         (Method::GET, "/provider-scope-mappings/coverage/scp_down") | (Method::GET, "/source-observations/bulk-jobs/active")
             if query.contains("scp_down") || rest.ends_with("scp_down") =>
         {
@@ -1943,13 +2046,7 @@ fn scope_api(method: &Method, path: &str, query: &str, body: &str) -> Option<Res
         (Method::GET, "/source-observations/bulk-jobs/active" | "/source-observations/merge-candidate-bulk-jobs/failed") => {
             Json(json!({ "items": [] })).into_response()
         }
-        (Method::GET, "/alias-review") => Json(json!({ "candidates": [{
-            "aliasHash": "ah_ja", "targetKind": "reference-record", "targetId": "ref_scp_paf",
-            "nativePrintedName": "Shiny Treasure ex", "proposedAlias": "Paldean Fates", "aliasLanguageCode": "ja",
-            "confidence": "medium", "reviewStatus": "pending", "autoAccept": { "reasons": ["Confidence is below high."] },
-            "availableActions": ["alias.accept", "alias.reject", "alias.defer"],
-        }] }))
-        .into_response(),
+        (Method::GET, "/alias-review") => Json(json!({ "candidates": [pending_ja] })).into_response(),
         (Method::POST, "/provider-scope-mappings/commands" | "/provider-scope-mappings/propose") if body.contains("refuse") => {
             refusal(StatusCode::UNPROCESSABLE_ENTITY, "validation_failed", "The mapping moved meanwhile.")
         }
@@ -2824,14 +2921,16 @@ async fn components_are_created_and_their_rules_added_and_removed() {
     let body = |i: usize| serde_json::from_str::<Value>(&sent[i].body).unwrap();
     assert_eq!((&sent[0].method, sent[0].path.as_str()), (&Method::POST, "/api/catalog/components"));
     assert_eq!(body(0)["componentId"], "cmp_01JZ");
-    // The edit restates the rules the API has, read from the list (the component's own table)
-    // just before the write, not from the page's read.
+    // The edit sends the key, name and description only, as admin-web's does: the API's revise
+    // leaves the rules as they are.
     assert_eq!((&sent[1].method, sent[1].path.as_str()), (&Method::PUT, "/api/catalog/components/cmp_seed"));
-    assert_eq!(body(1)["fieldRules"], json!([{ "fieldId": "fld_seed", "required": true }]));
     assert_eq!(
-        body(1)["dimensionRules"],
-        json!([{ "dimensionId": "dim_seed", "required": false, "allowedOptionIds": ["chc_a"],
-                 "appliesWhen": [{ "dimensionId": "dim_b", "optionIds": ["chc_x"] }] }])
+        body(1),
+        json!({
+            "key": "card-face",
+            "name": { "defaultLocale": "en", "values": { "en": "Card front" } },
+            "description": { "defaultLocale": "en", "values": {} },
+        })
     );
     assert_eq!(sent[2].path, "/api/catalog/components/cmp_seed/field-rules");
     assert_eq!(body(2), json!({ "fieldId": "fld_x", "required": true }));
@@ -2855,12 +2954,8 @@ async fn components_are_created_and_their_rules_added_and_removed() {
         .collect();
     assert_eq!(
         reads,
-        [
-            "/api/catalog/components?hasFieldRules=true&limit=50&offset=0",
-            "/api/catalog/components/cmp_seed",
-            "/api/catalog/components?limit=50&offset=0",
-        ],
-        "the list, the page, and the edit's read of the rules"
+        ["/api/catalog/components?hasFieldRules=true&limit=50&offset=0", "/api/catalog/components/cmp_seed"],
+        "the list and the page; the edit reads nothing"
     );
 }
 
@@ -2874,13 +2969,6 @@ async fn a_refused_rule_removal_is_its_rows_message_and_a_component_bulk_change_
     let (status, _, html) = pilot.send(post("/catalog/components/cmp_seed/field-rules/fld_gone/remove", "", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.starts_with("<!DOCTYPE html>") && html.contains("The component has no rule for this field."), "{html}");
-
-    // An edit of a component the list does not have writes nothing: its rules would be lost.
-    let pilot = Pilot::new().await;
-    let (status, _, html) = pilot.send(post("/catalog/components/cmp_other/edit", "key=x&name=X&description=", true)).await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert!(html.contains("rules could not be read, so it was not saved"), "{html}");
-    assert!(pilot.catalog_writes().is_empty());
 
     let pilot = Pilot::new().await;
     let (status, _, html) =
@@ -2927,21 +3015,21 @@ async fn blueprints_are_created_and_their_components_attached_and_rules_set() {
     assert!(html.contains(r#"name="after_write" value=""#), "{html}");
     assert!(html.contains(r#"name="action" value="publish">Publish</button>"#), "{html}");
 
-    // A Set dialog starts from the list's rules (two field rules), not the page's (one).
+    // A Set dialog starts from the blueprint's detail, read when it is opened, by id.
     let (status, headers, html) =
         pilot.send(opened(&format!("/catalog/blueprints/bpr_seed/field-rules?after_write={receipt}"))).await;
     assert_eq!(status, StatusCode::OK);
     assert!(headers.contains_key("corten-patch"), "{headers:?}");
-    assert!(html.contains(r#"value="fld_seed""#) && html.contains(r#"value="fld_more""#), "{html}");
-    assert!(html.contains(r#"name="required" value="0" checked"#) && !html.contains(r#"value="1" checked"#), "{html}");
-    let list_read = pilot.catalog_calls().into_iter().last().unwrap();
-    assert_eq!(list_read.path, "/api/catalog/blueprints?limit=50&offset=0");
-    assert!(list_read.headers.contains_key("chase-sets-read-after-write"), "the list read waits for the page's write");
+    assert!(html.contains(r#"value="fld_seed""#) && html.matches(r#"name="field_id""#).count() == 1, "{html}");
+    assert!(html.contains(r#"name="required" value="0" checked"#), "{html}");
+    let detail_read = pilot.catalog_calls().into_iter().last().unwrap();
+    assert_eq!(detail_read.path, "/api/catalog/blueprints/bpr_seed");
+    assert!(detail_read.headers.contains_key("chase-sets-read-after-write"), "the read waits for the page's write");
     let (_, _, html) = pilot.send(opened("/catalog/blueprints/bpr_seed/dimension-rules")).await;
     assert!(html.contains(r#"value="dim_seed""#) && html.contains(r#"value="chc_a""#), "{html}");
-    assert!(html.contains(r#"value="dim_b=chc_x|chc_y""#), "{html}");
+    assert!(html.contains(r#"value="dim_b=chc_x""#), "{html}");
     let (_, _, html) = pilot.send(opened("/catalog/blueprints/bpr_seed/product-resolution-rules")).await;
-    assert!(html.contains(r#"value="dim_seed, dim_b""#), "{html}");
+    assert!(html.contains(r#"value="dim_seed""#), "{html}");
 
     // Add Rule draws the form again with a row more, and writes nothing.
     let (status, _, html) =
@@ -2996,16 +3084,8 @@ async fn blueprints_are_created_and_their_components_attached_and_rules_set() {
 }
 
 #[tokio::test]
-async fn a_set_dialog_the_list_cannot_fill_has_no_form_and_blueprint_refusals_stay_on_the_page() {
+async fn blueprint_refusals_stay_on_the_page_and_a_blueprint_bulk_change_previews() {
     let pilot = Pilot::new().await;
-    // The list does not have bpr_other: its rules are not known, so there is nothing to save.
-    let (status, _, html) = pilot.send(opened("/catalog/blueprints/bpr_other/field-rules")).await;
-    assert_eq!(status, StatusCode::OK);
-    assert!(html.contains("rules could not be read") && !html.contains(r#"name="field_id""#), "{html}");
-    let (status, _, html) = pilot.send(get("/catalog/blueprints/bpr_other/dimension-rules", Some("staff"))).await;
-    assert_eq!(status, StatusCode::OK);
-    assert!(html.starts_with("<!DOCTYPE html>") && html.contains("rules could not be read"), "{html}");
-
     // Without a component id there is no command to send.
     let (status, _, html) = pilot.send(post("/catalog/blueprints/bpr_seed/components", "component_id=+", true)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
@@ -4191,7 +4271,10 @@ async fn an_alias_candidates_accept_and_reject_post_the_alias_review() {
     let pilot = Pilot::new().await;
     let (status, headers, _) = pilot.send(post("/catalog/scopes/attention/alias/accept", "alias_hashes=h1", true)).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
-    assert!(headers["corten-location"].to_str().unwrap().contains("done=queued"));
+    let to = headers["corten-location"].to_str().unwrap().to_owned();
+    assert!(to.contains("done=alias_accepted"), "{to}");
+    let (_, _, html) = pilot.send(get(&to, Some("staff"))).await;
+    assert!(html.contains("Alias accepted") && html.contains("The selected alias candidates were accepted."), "{html}");
     pilot.send(post("/catalog/scopes/attention/alias/reject", "alias_hashes=h1&reason=Reject", true)).await;
     let writes = pilot.catalog_writes();
     assert_eq!(writes[0].path, "/api/catalog/alias-review/commands");
@@ -4284,8 +4367,10 @@ async fn the_all_scopes_alias_review_is_folded_under_the_queue_and_its_commands_
         .await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers[header::LOCATION].to_str().unwrap();
-    assert!(to.starts_with("/catalog/scopes?status=active&after_write=") && to.ends_with("&done=queued"), "{to}");
-    pilot.send(post("/catalog/scopes/aliases", "intent=alias.revoke&alias_hashes=ah_pika&reason=Wrong+card", false)).await;
+    assert!(to.starts_with("/catalog/scopes?status=active&after_write=") && to.ends_with("&done=alias_accepted"), "{to}");
+    let (_, headers, _) =
+        pilot.send(post("/catalog/scopes/aliases", "intent=alias.revoke&alias_hashes=ah_pika&reason=Wrong+card", false)).await;
+    assert!(headers[header::LOCATION].to_str().unwrap().ends_with("&done=alias_revoked"), "{headers:?}");
     let bodies: Vec<Value> = pilot.catalog_writes().iter().map(|w| serde_json::from_str(&w.body).unwrap()).collect();
     assert_eq!(
         bodies,
@@ -4297,7 +4382,9 @@ async fn the_all_scopes_alias_review_is_folded_under_the_queue_and_its_commands_
 
     // Defer writes nothing; a revoke with no reason and an unknown intent are the failed banner.
     let (_, headers, _) = pilot.send(post("/catalog/scopes/aliases", "intent=alias.defer&alias_hashes=ah_glurak", false)).await;
-    assert_eq!(headers[header::LOCATION], "/catalog/scopes?done=queued");
+    assert_eq!(headers[header::LOCATION], "/catalog/scopes?done=alias_deferred");
+    let (_, _, html) = pilot.send(get("/catalog/scopes?done=alias_deferred", Some("staff"))).await;
+    assert!(html.contains("Left for later") && html.contains("Nothing was recorded."), "{html}");
     for body in
         ["intent=alias.revoke&alias_hashes=ah_pika&reason=+", "intent=alias.forget&alias_hashes=ah_pika", "intent=alias.accept"]
     {
@@ -4344,9 +4431,10 @@ async fn the_alias_reviews_bulk_bar_posts_the_checked_candidates_and_auto_accept
     let at = "/catalog/scopes/aliases?status=active";
     let (status, headers, _) = pilot.send(post(at, "intent=alias.accept&picked=ah_glurak&picked=ah_dracaufeu", false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
-    assert!(headers[header::LOCATION].to_str().unwrap().ends_with("&done=queued"), "{headers:?}");
+    assert!(headers[header::LOCATION].to_str().unwrap().ends_with("&done=alias_accepted"), "{headers:?}");
     pilot.send(post(at, "intent=alias.accept-eligible&picked=ah_glurak&picked=ah_dracaufeu", false)).await;
-    pilot.send(post(at, "intent=alias.reject&picked=ah_glurak&reason=Machine+translation", false)).await;
+    let (_, headers, _) = pilot.send(post(at, "intent=alias.reject&picked=ah_glurak&reason=Machine+translation", false)).await;
+    assert!(headers[header::LOCATION].to_str().unwrap().ends_with("&done=alias_rejected"), "{headers:?}");
     let bodies: Vec<Value> = pilot.catalog_writes().iter().map(|w| serde_json::from_str(&w.body).unwrap()).collect();
     assert_eq!(
         bodies,
@@ -4578,15 +4666,15 @@ async fn a_scopes_page_draws_its_journey_coverage_jobs_and_editions_from_the_cat
     assert_eq!(status, StatusCode::OK, "{html}");
     let calls: Vec<String> = pilot.catalog_calls().into_iter().map(|c| c.path).collect();
     for path in [
-        "/api/catalog/scope-records/scp_paf",
+        "/api/catalog/scope-records/scp_paf/journey",
         "/api/catalog/provider-scope-mappings/coverage/scp_paf",
         "/api/catalog/source-observations/bulk-jobs/active?scopeRecordId=scp_paf",
         "/api/catalog/source-observations/bulk-jobs/active?scopeRecordId=scp_paf&status=completed",
         "/api/catalog/source-observations/merge-candidate-bulk-jobs/failed?scopeRecordId=scp_paf",
-        "/api/catalog/alias-review?targetKind=reference-record&targetId=ref_scp_paf",
     ] {
         assert!(calls.iter().any(|c| c == path), "{path} in {calls:?}");
     }
+    assert!(!calls.iter().any(|c| c.contains("alias-review")), "the API reads the editions' aliases: {calls:?}");
     assert!(html.contains("Paldean Fates") && html.contains(r#"href="/catalog/scopes""#), "{html}");
     // The journey: a pending Japanese alias is a conflict.
     assert!(html.contains(r#"data-status="current""#), "{html}");
@@ -4812,7 +4900,7 @@ async fn a_scope_with_one_edition_reads_no_alias_review_and_a_failed_read_is_its
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(get("/catalog/scopes/scp_one", Some("staff"))).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(!pilot.catalog_calls().iter().any(|c| c.path.contains("alias-review")), "one edition has nothing to review");
+    assert!(!pilot.catalog_calls().iter().any(|c| c.path.contains("alias-review")), "the API reads the editions' aliases");
     assert!(!html.contains("scope-editions"), "{html}");
 
     let (status, _, html) = pilot.send(get("/catalog/scopes/scp_down", Some("staff"))).await;
@@ -4961,9 +5049,9 @@ async fn an_editions_alias_commands_post_the_alias_review_and_defer_writes_nothi
     assert_eq!(status, StatusCode::NO_CONTENT);
     let to = headers["corten-location"].to_str().unwrap().to_owned();
     assert_eq!(to, "/catalog/scopes/scp_paf?done=alias_deferred");
-    assert!(pilot.catalog_writes().is_empty(), "chase-sets/chase-sets#10702: defer has no command");
+    assert!(pilot.catalog_writes().is_empty(), "defer has no command");
     let (_, _, html) = pilot.send(get(&to, Some("staff"))).await;
-    assert!(html.contains("stays pending"), "{html}");
+    assert!(html.contains("Left for later"), "admin-web's words for a defer: {html}");
 
     pilot.send(post("/catalog/scopes/scp_paf/aliases", "intent=alias.accept&alias_hashes=ah_ja", true)).await;
     pilot.send(post("/catalog/scopes/scp_paf/aliases", "intent=alias.reject&alias_hashes=ah_ja&reason=Not+this+set", true)).await;
@@ -5921,22 +6009,6 @@ async fn a_target_read_after_an_action_that_is_not_readable_yet_is_read_without_
 }
 
 #[tokio::test]
-async fn an_action_answered_without_a_receipt_carries_its_time_and_the_page_says_it_is_being_applied() {
-    let pilot = Pilot::new().await;
-    let at = "/support/reported-content/review/rev_1";
-    let (status, headers, _) = pilot.send(post_as("moderator", at, "action=dismiss&note=Not+abusive", false)).await;
-    assert_eq!(status, StatusCode::SEE_OTHER);
-    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
-    assert_eq!(to, "/support/reported-content/review/rev_1?recorded=2026-10-30T12%3A00%3A00.000Z");
-    let (status, _, html) = pilot.send(get(&to, Some("moderator"))).await;
-    assert_eq!(status, StatusCode::OK, "{html}");
-    assert!(main_of(&html).contains(r#"role="status""#) && html.contains("Refresh in a moment"), "older than the action: {html}");
-    let caught_up = "/support/reported-content/review/rev_1?recorded=2026-10-29T13%3A00%3A00.000Z";
-    let (_, _, html) = pilot.send(get(caught_up, Some("moderator"))).await;
-    assert!(!html.contains("Refresh in a moment"), "the target shows the action: {html}");
-}
-
-#[tokio::test]
 async fn acknowledging_a_response_posts_to_its_endpoint_and_a_refusal_draws_the_page_again() {
     let pilot = Pilot::new().await;
     let at = "/support/reported-content/listing/lst_1";
@@ -5949,14 +6021,11 @@ async fn acknowledging_a_response_posts_to_its_endpoint_and_a_refusal_draws_the_
         "no body and no note, as admin-web sends it"
     );
     let to = headers[header::LOCATION].to_str().unwrap().to_owned();
-    assert_eq!(to, "/support/reported-content/listing/lst_1?recorded=2026-11-15T12%3A00%3A00.000Z", "the section stays");
+    assert!(to.starts_with("/support/reported-content/listing/lst_1?after_write="), "the section stays: {to}");
     let (status, _, html) = pilot.send(get(&to, Some("moderator"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    assert!(html.contains("Refresh in a moment"), "the target does not show the acknowledgement yet: {html}");
-    // The review's last action (Oct 29) is older than this; its acknowledgement (Oct 30, 9:00) is not.
-    let shown = "/support/reported-content/review/rev_1?recorded=2026-10-30T09%3A00%3A00.000Z";
-    let (_, _, html) = pilot.send(get(shown, Some("moderator"))).await;
-    assert!(!html.contains("Refresh in a moment"), "the target shows the acknowledgement: {html}");
+    let read = pilot.calls_to(REPORTED).into_iter().last().unwrap();
+    assert!(read.headers.contains_key("chase-sets-read-after-write"), "the read waits for the acknowledgement");
 
     let review = "/support/reported-content/review/rev_1";
     let (status, headers, html) = pilot.send(post_as("moderator", review, "action=acknowledge", false)).await;
@@ -5998,20 +6067,22 @@ async fn risk_alerts_read_the_queue_and_an_alerts_page_as_admin_web_does() {
 }
 
 #[tokio::test]
-async fn a_risk_alert_response_is_sent_and_the_page_says_it_is_being_applied_until_it_shows() {
+async fn a_risk_alert_response_is_sent_and_the_page_is_read_after_it() {
     let pilot = Pilot::new().await;
     let at = "/support/risk-alerts/ral_1";
     let (status, headers, _) = pilot.send(post_as("moderator", at, "action=acknowledge&note=+Known+seller+", false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers[header::LOCATION].to_str().unwrap().to_owned();
-    assert_eq!(to, "/support/risk-alerts/ral_1?recorded=2026-10-30T12%3A00%3A00.000Z");
+    assert!(to.starts_with("/support/risk-alerts/ral_1?after_write="), "{to}");
     let write = pilot.calls_to(RISK).into_iter().last().unwrap();
     assert_eq!(
         (write.method, write.path.as_str(), write.body.as_str()),
         (Method::POST, &*format!("{RISK}/ral_1/actions"), r#"{"action":"acknowledge","note":"Known seller"}"#)
     );
-    let (_, _, html) = pilot.send(get(&to, Some("moderator"))).await;
-    assert!(main_of(&html).contains(r#"role="status""#) && html.contains("Refresh in a moment"), "{html}");
+    let (status, _, html) = pilot.send(get(&to, Some("moderator"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let read = pilot.calls_to(RISK).into_iter().last().unwrap();
+    assert!(read.headers.contains_key("chase-sets-read-after-write"), "the read waits for the response");
     assert_eq!(pilot.send(post_as("moderator", at, "action=unlist", false)).await.0, StatusCode::BAD_REQUEST);
     assert_eq!(pilot.send(post_as("staff", at, "action=acknowledge", false)).await.0, StatusCode::FORBIDDEN);
     let writes = pilot.calls_to(RISK).into_iter().filter(|c| c.method == Method::POST).count();
@@ -6054,13 +6125,14 @@ const CSAT: &str = "/api/customer-feedback";
 #[tokio::test]
 async fn the_csat_dashboard_reads_customer_feedback_with_the_filters_admin_web_offers() {
     let pilot = Pilot::new().await;
-    let at = "/support/csat?from=2026-10-01&to=oops&surveyVersion=v1&outcomeCodes=order.delivered&customerRoles=pirate&ratings=4";
+    let at =
+        "/support/csat?from=2026-10-01&to=oops&surveyVersion=csat.v1&outcomeCodes=order.delivered&customerRoles=pirate&ratings=4";
     let (status, _, html) = pilot.send(get(at, Some("feedback-viewer"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert_eq!(
         pilot.calls_to(CSAT).last().unwrap().path,
         format!("{CSAT}?from=2026-10-01&surveyVersion=csat.v1&outcomeCodes=order.delivered&ratings=4"),
-        "admin-web's v1 is the registered version; what admin-web does not offer is left out"
+        "what admin-web does not offer is left out"
     );
     for text in [
         r#"<dd class="stats__value">Insufficient sample</dd>"#,
@@ -6089,10 +6161,55 @@ async fn the_csat_dashboard_reads_customer_feedback_with_the_filters_admin_web_o
 #[tokio::test]
 async fn a_csat_read_that_fails_keeps_the_filters_on_the_page_with_a_banner() {
     let pilot = Pilot::new().await;
-    let (status, _, html) = pilot.send(get("/support/csat?to=2099-01-01&states=issued", Some("feedback-viewer"))).await;
+    let (status, _, html) = pilot.send(get("/support/csat?from=2026-10-01&states=expired", Some("feedback-viewer"))).await;
     assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
-    assert!(html.contains(r#"role="alert""#) && html.contains(r#"value="2099-01-01""#), "{html}");
+    assert!(html.contains(r#"role="alert""#) && html.contains(r#"value="2026-10-01""#), "{html}");
+    assert!(html.contains(r#"<option value="expired" selected>Expired</option>"#), "{html}");
+    assert!(!html.contains("These filters can&#39;t be applied") && !html.contains("These filters can't be applied"), "{html}");
+}
+
+#[tokio::test]
+async fn the_csat_export_creates_the_apis_export_for_its_reason_and_relays_the_file() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/support/csat?ratings=4", Some("feedback-viewer"))).await;
+    assert!(!html.contains("/support/csat/export"), "only an exporter is offered it: {html}");
+    let (status, _, html) = pilot.send(get("/support/csat?ratings=4", Some("feedback-exporter"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"method="post" action="/support/csat/export?ratings=4""#), "{html}");
+    assert!(html.contains(r#"<option value="quality-review">Quality review</option>"#), "{html}");
+
+    let (status, headers, body) =
+        pilot.send(post_as("feedback-exporter", "/support/csat/export?ratings=4", "reason=quality-review", false)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(headers[header::CONTENT_DISPOSITION], r#"attachment; filename="customer-feedback-export.csv""#);
+    assert_eq!(headers[header::CACHE_CONTROL], "no-store");
+    assert!(body.starts_with("invitation_id,state"), "{body}");
+    let exports =
+        |pilot: &Pilot| -> Vec<String> { pilot.calls_to("/api/customer-feedback/export").into_iter().map(|c| c.path).collect() };
+    assert_eq!(
+        exports(&pilot),
+        ["/api/customer-feedback/export?ratings=4&reason=quality-review", "/api/customer-feedback/export/cse_1"]
+    );
+
+    let (status, headers, _) = pilot.send(post_as("feedback-exporter", "/support/csat/export?ratings=4", "reason=", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "no reason: back to the dashboard");
+    assert_eq!(headers[header::LOCATION], "/support/csat?ratings=4");
+    let (status, _, _) = pilot.send(post_as("feedback-viewer", "/support/csat/export", "reason=case-review", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "the export needs its own grant");
+    assert_eq!(exports(&pilot).len(), 2, "neither created an export");
+}
+
+#[tokio::test]
+async fn a_csat_filter_the_api_refuses_keeps_the_filters_and_says_why() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/support/csat?to=2099-01-01&states=issued", Some("feedback-viewer"))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{html}");
+    assert!(html.contains(r#"value="2099-01-01""#), "{html}");
     assert!(html.contains(r#"<option value="issued" selected>Issued</option>"#), "{html}");
+    let alert = html.split(r#"role="alert">"#).nth(1).unwrap_or_default();
+    assert!(alert.contains("These filters can") && alert.contains("The To date can"), "{html}");
+    assert!(alert.contains("be later than today."), "{html}");
+    assert_eq!(html.matches(r#"role="alert""#).count(), 1, "one alert, the reason: {html}");
 }
 
 const FEEDBACK: &str = "/api/experience/platform-feedback";
@@ -6371,12 +6488,15 @@ async fn a_refund_decision_offers_a_remedy_proposal_previewed_before_it_is_reque
     let (status, _, html) = pilot.send(get("/support/requests?requestId=req_done", Some("support-remedies"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains(r#"name="remedyAmount" inputmode="decimal" value="5.00""#), "the decided refund: {html}");
-    assert!(html.contains(r#"name="currencyCode" value="usd""#), "no affected lines, admin-web's usd: {html}");
+    assert!(html.contains(r#"name="currencyCode" value="usd""#), "the offered currency: {html}");
+    assert!(html.contains(r#"<option value="published-goodwill">"#), "the active policy's reasons: {html}");
+    assert!(!html.contains(r#"value="carrier-accepted""#), "not the launch policy's triggers: {html}");
+    assert!(!html.contains(r#"<option value="split""#), "split funding the policy does not allow: {html}");
     assert!(html.contains(r#"value="req_done:platform-remedy-proposal""#), "{html}");
     assert!(html.contains(r#"value="preview-remedy">"#), "{html}");
     assert!(html.contains(r#"value="propose-remedy" disabled>"#), "no reservation before a preview: {html}");
     let (_, _, html) = pilot.send(get("/support/requests?requestId=req_done", Some("support-agent"))).await;
-    assert!(html.contains(r#"value="preview-remedy" disabled>"#), "without support.remedies.propose: {html}");
+    assert!(html.contains(r#"value="preview-remedy" disabled>"#), "the read does not allow it: {html}");
 
     let at = "/support/requests/req_done?status=resolved";
     let form = "intent=preview-remedy&remedyKind=partial-refund&remedyAmount=5.00&currencyCode=usd&fundingKind=platform-funded\
@@ -6449,7 +6569,7 @@ async fn a_remedy_shows_its_workflow_and_the_recovery_admin_web_offers() {
     for intent in
         ["approve-remedy", "retry-remedy-effect", "waive-remedy-effect", "release-remedy-refund", "request-remedy-correction"]
     {
-        assert!(html.contains(&format!(r#"value="{intent}" disabled>"#)), "{intent} needs its capability: {html}");
+        assert!(html.contains(&format!(r#"value="{intent}" disabled>"#)), "{intent} the read does not allow: {html}");
     }
 
     let reasoned =
@@ -6610,12 +6730,38 @@ async fn the_feedback_attention_queue_shows_its_figures_and_each_cases_sla() {
         "the queue stacks on a phone: {html}"
     );
     assert!(html.contains("May 8, 2026, 12:00 PM UTC"), "a case past its date by the clock is the API's not overdue: {html}");
-    assert!(!html.contains("caseId="), "no link to the same queue (chase-sets/chase-sets#10854): {html}");
+    assert!(
+        html.contains(r#"href="/support/customer-feedback/attention?caseId=fbcase_2">"#),
+        "each case links to its own queue: {html}"
+    );
+    assert!(!html.contains("Show all cases"), "the whole queue needs no way back: {html}");
     assert!(marks_current(&html, "/support/customer-feedback/attention"), "the nav serves it: {html}");
     assert_eq!(pilot.calls_to("/api/customer-feedback/attention").len(), 1);
 
     assert_eq!(pilot.send(get(at, Some("attention-down"))).await.0, StatusCode::BAD_GATEWAY);
     assert_eq!(pilot.send(get(at, Some("support-agent"))).await.0, StatusCode::FORBIDDEN, "admin-web's route needs support.view");
+}
+
+#[tokio::test]
+async fn a_cases_link_opens_the_attention_queue_for_that_case_alone() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/support/customer-feedback/attention?caseId=fbcase_2", Some("support-viewer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Showing attention for case fbcase_2."), "{html}");
+    assert!(html.contains(r#"href="/support/customer-feedback/attention">Show all cases</a>"#), "{html}");
+    assert!(html.contains("usr_ops") && !html.contains("fbcase_1"), "only that case's items: {html}");
+    assert_eq!(pilot.calls_to("/api/customer-feedback/attention?caseId=fbcase_2").len(), 1, "the API reads the case");
+
+    let (status, _, html) = pilot.send(get("/support/customer-feedback/attention?caseId=fbcase_9", Some("support-viewer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Case fbcase_9 has no active attention."), "{html}");
+
+    let at = "/support/customer-feedback/attention?caseId=case_1";
+    assert_eq!(
+        pilot.send(get(at, Some("support-viewer"))).await.0,
+        StatusCode::BAD_REQUEST,
+        "a malformed case ID is the API's 400"
+    );
 }
 
 const RETURN_INTAKE: &str = "/api/marketplace/operations/return-intake";
@@ -8974,7 +9120,7 @@ fn section_groups() -> Value {
 /// Two of provider detail's section workspaces: one the API lets be saved, one it does not.
 fn section_workspaces() -> Value {
     json!([
-        { "sectionKey": "basics", "displayName": "Basics", "groupLabel": "Profile foundation",
+        { "sectionKey": "basics", "displayName": "Basics", "groupLabel": "Profile foundation", "sectionFingerprint": "sha256:basics-read",
             "description": "The profile's name and scopes.", "domainConcept": "Provider profile", "status": "valid",
             "editable": true, "actionState": "available", "blockers": [], "dirtyState": "clean", "staleState": "fresh",
             "saveOutcome": "not-submitted", "anchorId": "profile-section-basics", "semanticChangeCount": 0,
@@ -9197,6 +9343,7 @@ fn validation_readiness(selected: &str) -> Value {
         "activationDecision": { "status": "blocked", "actionState": "blocked", "blockers": ["migration-evidence-missing"],
             "saveEvidenceState": "available", "saveEvidenceBlockers": [],
             "activationCommandKey": "provider-profile.activate", "evidenceCommandKey": "provider-profile.edit-section",
+            "evidenceSectionFingerprint": "sha256:migration-evidence-read",
             "workspaceHref": format!("/catalog/providers/tcgplayer?profileVersion={selected}"),
             "providerKey": "tcgplayer", "profileVersion": selected, "lifecycle": "draft", "importEligibility": "blocked",
             "affectedReferences": { "referenceCount": 4, "requiresMigrationEvidence": true,
@@ -9243,7 +9390,7 @@ const OPERATOR_GRANT: &str = "Q2hhc2VTZXRzT3BlcmF0b3JHcmFudEZvclRlc3RzXzA";
 /// API refuses it, and a deprecate of 2026.06.23 is refused as a lifecycle conflict. Migration
 /// evidence with a blank text is refused, as the API's section check does, and activating
 /// 2026.06.23 is refused for its missing evidence.
-fn provider_api(method: &Method, path: &str, body: &str) -> Option<Response> {
+fn provider_api(method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
     if let Some(rest) = path.strip_prefix("/api/catalog/provider-scope-discovery/refresh-schedule") {
         return Some(match (method.as_str(), rest) {
             ("POST", "/lorcast/run") => {
@@ -9261,16 +9408,21 @@ fn provider_api(method: &Method, path: &str, body: &str) -> Option<Response> {
             .into_response(),
         );
     }
+    // The API checks a section save against the revision its form was drawn from.
+    let revision = headers.get(header::IF_MATCH).and_then(|v| v.to_str().ok()).unwrap_or_default();
     if *method == Method::PATCH && rest == "tcgplayer/2026.07.13/sections/basics" {
-        let sent: Value = serde_json::from_str(body).unwrap_or(Value::Null);
-        return Some(if sent["command"]["displayName"] == "Stale" {
-            refusal(
+        return Some(match revision {
+            r#""sha256:basics-read""# => written(StatusCode::OK, "profile_1"),
+            "" | r#""""# => refusal(
+                StatusCode::PRECONDITION_REQUIRED,
+                "profile_section_fingerprint_required",
+                "Saving a profile section needs the section revision it was read at. Read the profile again and resend the change.",
+            ),
+            _ => refusal(
                 StatusCode::CONFLICT,
-                "profile_section_conflict",
-                "Catalog provider profile section 'basics' has changed; reload before saving.",
-            )
-        } else {
-            written(StatusCode::OK, "profile_1")
+                "profile_section_changed",
+                "This section changed after the page read it. Read the profile again before saving.",
+            ),
         });
     }
     if *method == Method::PATCH && rest.ends_with("/sections/migration-evidence") {
@@ -9642,11 +9794,8 @@ async fn provider_detail_draws_validation_readiness_and_its_activation_decision(
     let evidence = html.find(r#"data-catalog-validation-evidence-form="true""#).unwrap();
     let form = &html[html[..evidence].rfind("<form").unwrap()..evidence + html[evidence..].find("</form>").unwrap()];
     assert!(form.contains(r#"action="/catalog/providers/tcgplayer/evidence?profileVersion=2026.07.13""#), "{form}");
-    assert!(form.contains(r#"value="fp_old""#) && form.contains(r#"value="fp_new""#), "{form}");
-    assert!(
-        form.contains(r#"name="migrationRecordedAt" value="2026-11-05T12:00:00.000Z""#),
-        "the read's time, as admin-web sends it (chase-sets/chase-sets#11068): {form}"
-    );
+    // Only the text and the fixture run: Catalog stamps the time, the author and the fingerprints.
+    assert!(!form.contains("migrationRecordedAt") && !form.contains("migrationFingerprint"), "{form}");
     assert!(form.contains("required") && !form.contains("disabled"), "{form}");
     let activate = html.find(r#"data-catalog-activate-profile-form="true""#).unwrap();
     let form = &html[activate..activate + html[activate..].find("</form>").unwrap()];
@@ -9667,8 +9816,7 @@ async fn the_activation_decision_saves_evidence_and_activates_and_draws_the_apis
     let pilot = Pilot::new().await;
     let at = "profileVersion=2026.07.13";
     let landed = |headers: &HeaderMap| headers[header::LOCATION].to_str().unwrap().to_owned();
-    let form = "profileVersion=2026.07.13&migrationEvidenceText=Replayed+the+changed+fixtures.&migrationFixtureRunId=\
-                &migrationFingerprintBefore=fp_old&migrationFingerprintAfter=fp_new&migrationRecordedAt=2026-11-05T12%3A00%3A00.000Z";
+    let form = "profileVersion=2026.07.13&sectionFingerprint=sha256%3Amigration-evidence-read&migrationEvidenceText=Replayed+the+changed+fixtures.&migrationFixtureRunId=";
     let (status, headers, _) = pilot.send(post(&format!("/catalog/providers/tcgplayer/evidence?{at}"), form, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert!(
@@ -9678,11 +9826,11 @@ async fn the_activation_decision_saves_evidence_and_activates_and_draws_the_apis
     );
     let sent = pilot.calls.lock().unwrap().iter().find(|c| c.path.ends_with("/sections/migration-evidence")).cloned().unwrap();
     assert_eq!(sent.method, Method::PATCH);
+    assert_eq!(sent.headers[header::IF_MATCH], r#""sha256:migration-evidence-read""#);
     assert_eq!(
         serde_json::from_str::<Value>(&sent.body).unwrap(),
         json!({ "command": { "section": "migration-evidence", "migrationEvidence": {
-            "evidenceText": "Replayed the changed fixtures.", "fixtureRunId": null, "mappingFingerprintBefore": "fp_old",
-            "mappingFingerprintAfter": "fp_new", "recordedAt": "2026-11-05T12:00:00.000Z" } } })
+            "evidenceText": "Replayed the changed fixtures.", "fixtureRunId": null } } })
     );
     let (status, headers, _) =
         pilot.send(post(&format!("/catalog/providers/tcgplayer/activate?{at}"), "profileVersion=2026.07.13", false)).await;
@@ -9700,8 +9848,8 @@ async fn the_activation_decision_saves_evidence_and_activates_and_draws_the_apis
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("Migration evidence saved"), "{html}");
 
-    // A blank text is the API's to refuse, in its words (chase-sets/chase-sets#11068: admin-web sends a
-    // fixed sentence instead), and so is an activation it will not run.
+    // A blank text is the API's to refuse, in its words (chase-sets/chase-sets#11068), and so is an
+    // activation it will not run.
     let (status, _, html) = pilot
         .send(post(
             &format!("/catalog/providers/tcgplayer/evidence?{at}"),
@@ -10396,7 +10544,10 @@ async fn the_review_stage_folds_the_providers_alias_review_and_its_commands_land
         .await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers[header::LOCATION].to_str().unwrap();
-    assert!(to.starts_with("/catalog/integrations?providerKey=tcgplayer&unitKey=pokemon") && to.contains("done=queued"), "{to}");
+    assert!(
+        to.starts_with("/catalog/integrations?providerKey=tcgplayer&unitKey=pokemon") && to.contains("done=alias-accepted"),
+        "{to}"
+    );
     let sent = |pilot: &Pilot| -> Vec<Value> {
         pilot
             .catalog_writes()
@@ -10416,8 +10567,11 @@ async fn the_review_stage_folds_the_providers_alias_review_and_its_commands_land
         .send(post(&format!("/catalog/integrations/aliases?{at}"), "intent=alias.defer&alias_hashes=ah_glurak", false))
         .await;
     assert_eq!(status, StatusCode::SEE_OTHER);
-    assert!(headers[header::LOCATION].to_str().unwrap().contains("done=queued"));
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(to.contains("done=alias-deferred"), "{to}");
     assert_eq!(sent(&pilot).len(), 2, "a defer writes nothing");
+    let (_, _, html) = pilot.send(get(&to, Some("staff"))).await;
+    assert!(html.contains("Left for later") && html.contains("Nothing was recorded."), "{html}");
 
     // A reject without its reason sends nothing and draws the page with the form's message.
     let (status, _, html) = pilot
@@ -11883,6 +12037,7 @@ async fn a_profile_section_is_drawn_from_its_workspace_and_saved_over_the_stored
     let basics = section("basics");
     assert!(basics.contains(r#"action="/catalog/providers/tcgplayer/sections/basics?profileVersion=2026.07.13""#), "{basics}");
     assert!(basics.contains(r#"name="profileVersion" value="2026.07.13""#), "{basics}");
+    assert!(basics.contains(r#"name="sectionFingerprint" value="sha256:basics-read""#), "{basics}");
     assert!(basics.contains(r#"name="displayName" value="TCGplayer Pokemon Cards" required"#), "{basics}");
     assert!(basics.contains(r#"<option value="active" selected>Active</option>"#), "{basics}");
     // A field the API disables is disabled, so it is not sent and its stored value stays.
@@ -11898,12 +12053,13 @@ async fn a_profile_section_is_drawn_from_its_workspace_and_saved_over_the_stored
     let save = &fixtures[fixtures.find(r#"type="submit""#).unwrap()..];
     assert!(save[..save.find('>').unwrap()].contains("disabled"), "{fixtures}");
 
-    // A save reads the version's authoring model and sends the posted fields over the stored ones.
+    // A save reads the version's authoring model and sends the posted fields over the stored ones,
+    // checked against the revision the form was drawn from.
     let at = "profileVersion=2026.07.13";
     let (status, headers, _) = pilot
         .send(post(
             &format!("/catalog/providers/tcgplayer/sections/basics?{at}"),
-            "profileVersion=2026.07.13&displayName=+Pokemon+Singles+&status=planned",
+            "profileVersion=2026.07.13&sectionFingerprint=sha256%3Abasics-read&displayName=+Pokemon+Singles+&status=planned",
             false,
         ))
         .await;
@@ -11912,6 +12068,7 @@ async fn a_profile_section_is_drawn_from_its_workspace_and_saved_over_the_stored
     assert!(landed.starts_with(&format!("/catalog/providers/tcgplayer?{at}&done=section-saved&after_write=")), "{landed}");
     let sent = pilot.calls.lock().unwrap().iter().find(|c| c.path.ends_with("/sections/basics")).cloned().unwrap();
     assert_eq!(sent.method, Method::PATCH);
+    assert_eq!(sent.headers[header::IF_MATCH], r#""sha256:basics-read""#);
     assert_eq!(
         serde_json::from_str::<Value>(&sent.body).unwrap(),
         json!({ "command": { "section": "basics", "displayName": "Pokemon Singles", "status": "planned",
@@ -11922,16 +12079,17 @@ async fn a_profile_section_is_drawn_from_its_workspace_and_saved_over_the_stored
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("Profile section saved"), "{html}");
 
-    // The API's refusal is the page's notice, patched in place.
+    // A form drawn from a revision another save replaced is the API's to refuse, and its refusal is
+    // the page's notice, patched in place.
     let (status, _, patch) = pilot
         .send(post(
             &format!("/catalog/providers/tcgplayer/sections/basics?{at}"),
-            "profileVersion=2026.07.13&displayName=Stale",
+            "profileVersion=2026.07.13&sectionFingerprint=sha256%3Aolder&displayName=Stale",
             true,
         ))
         .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{patch}");
-    assert!(patch.contains("has changed; reload before saving."), "{patch}");
+    assert!(patch.contains("This section changed after the page read it."), "{patch}");
 
     // A section the command does not take, or no version, sends nothing; a reader may not save.
     let before = provider_writes(&pilot).len();

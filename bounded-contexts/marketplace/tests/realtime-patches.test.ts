@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { RealtimeProjectionPatch } from "@chase-sets/platform-runtime/realtime";
-import { applyMarketplaceListPatch, applySubmittedOfferListPatch } from "../support/realtime-support/patches";
+import {
+  applyMarketplaceListPatch,
+  applyOfferMatchListPatch,
+  applySubmittedOfferListPatch,
+} from "../support/realtime-support/patches";
 import {
   createMarketplaceOfferMatchPatch,
-  createMarketplaceOfferPatch,
+  createMarketplaceSubmittedOfferPatch,
 } from "../support/realtime-support/projection-patches";
 import { listOfferMatchesForSellers } from "../features/offers/read-model/queries";
 
@@ -68,9 +72,10 @@ describe("marketplace realtime list patches", () => {
 });
 
 describe("marketplace realtime offer-match patch payloads", () => {
-  it("omits private shipping destination snapshots from offer patches", () => {
+  it("keeps Away standing in the owner's patch only and omits shipping destinations on both topics", () => {
     const offer = {
       offer_id: "offer_1",
+      offers_away: true,
       shipping_destination_snapshot: {
         name: "Private Buyer",
         line1: "100 Market Street",
@@ -82,9 +87,11 @@ describe("marketplace realtime offer-match patch payloads", () => {
       },
     };
 
-    const offerPatch = createMarketplaceOfferPatch(["account:buyer:offers"], offer);
-    const offerMatchPatch = createMarketplaceOfferMatchPatch(["account:seller:offers"], "offer_1", offer);
+    const offerPatch = createMarketplaceSubmittedOfferPatch("acc_buyer", offer);
+    const offerMatchPatch = createMarketplaceOfferMatchPatch(["account:seller:offer-matches"], "offer_1", offer);
 
+    expect(offerPatch.changes[0]).toMatchObject({ value: { offers_away: true } });
+    expect(offerMatchPatch.changes[0]).not.toHaveProperty("value.offers_away");
     expect(JSON.stringify({ offerPatch, offerMatchPatch })).not.toContain("shipping_destination_snapshot");
     expect(JSON.stringify({ offerPatch, offerMatchPatch })).not.toContain("alternate-contact@example.test");
   });
@@ -144,6 +151,131 @@ describe("marketplace realtime offer-match patch payloads", () => {
       }),
     );
     expect(rows.has("seller_2")).toBe(false);
+  });
+});
+
+describe("Offer Match list patches over Listing and inventory rows", () => {
+  type MatchRow = Readonly<{
+    offer_id: string;
+    fill_source: "listing" | "inventory";
+    price_amount: string;
+    quantity_requested: number;
+    created_at: string;
+    inventory_available_quantity?: number;
+  }>;
+  const listing = (offerId: string, priceAmount = "10.00"): MatchRow => ({
+    offer_id: offerId,
+    fill_source: "listing",
+    price_amount: priceAmount,
+    quantity_requested: 1,
+    created_at: "2026-11-01T00:00:00.000Z",
+  });
+  const inventory = (
+    offerId: string,
+    { price = "10.00", stock = 5, requested = 1, createdAt = "2026-11-01T00:00:00.000Z" } = {},
+  ): MatchRow => ({
+    offer_id: offerId,
+    fill_source: "inventory",
+    price_amount: price,
+    quantity_requested: requested,
+    created_at: createdAt,
+    inventory_available_quantity: stock,
+  });
+  const snapshot = (...items: MatchRow[]) => ({ items, total: items.length, count: items.length });
+  const patchOf = (...changes: RealtimeProjectionPatch["changes"]) =>
+    ({
+      kind: "projection.patch",
+      context: "marketplace",
+      projection: "marketplace-offer-projection",
+      topics: ["account:acc_seller:offer-matches"],
+      changes,
+    }) satisfies RealtimeProjectionPatch;
+  const upsert = (row: MatchRow) =>
+    ({ op: "upsert", entity: "marketplace.offerMatch", id: row.offer_id, value: row }) as const;
+  const ids = (data: { items: readonly MatchRow[] }) => data.items.map((row) => row.offer_id);
+
+  it("places a new inventory Match after every Listing Match", () => {
+    const next = applyOfferMatchListPatch(
+      snapshot(listing("off_l1"), listing("off_l2")),
+      patchOf(upsert(inventory("off_i1"))),
+    );
+    expect(ids(next)).toEqual(["off_l1", "off_l2", "off_i1"]);
+    expect(next).toMatchObject({ total: 3, count: 3 });
+  });
+
+  it("moves a Listing Match that falls back to inventory behind the remaining Listing Matches", () => {
+    const next = applyOfferMatchListPatch(
+      snapshot(listing("off_l1"), listing("off_l2"), inventory("off_i1", { price: "5.00" })),
+      patchOf(upsert(inventory("off_l1", { price: "8.00" }))),
+    );
+    expect(ids(next)).toEqual(["off_l2", "off_l1", "off_i1"]);
+    expect(next.items[1]).toMatchObject({ fill_source: "inventory" });
+  });
+
+  it("keeps a newly listed inventory Match among the Listing Matches", () => {
+    const next = applyOfferMatchListPatch(
+      snapshot(listing("off_l1"), inventory("off_i1"), inventory("off_i2")),
+      patchOf(upsert(listing("off_i2"))),
+    );
+    expect(ids(next)).toEqual(["off_l1", "off_i2", "off_i1"]);
+  });
+
+  it("joins a new Listing Match at the top, as before", () => {
+    const next = applyOfferMatchListPatch(
+      snapshot(listing("off_l1"), inventory("off_i1")),
+      patchOf(upsert(listing("off_l2"))),
+    );
+    expect(ids(next)).toEqual(["off_l2", "off_l1", "off_i1"]);
+  });
+
+  it("ranks inventory Matches by covering stock, then Offer price, then the older Offer", () => {
+    const start = snapshot(
+      listing("off_l1"),
+      inventory("off_cover_low", { price: "6.00" }),
+      inventory("off_short_high", { price: "50.00", stock: 1, requested: 2 }),
+    );
+    const higherCovering = applyOfferMatchListPatch(
+      start,
+      patchOf(upsert(inventory("off_cover_high", { price: "9.50" }))),
+    );
+    expect(ids(higherCovering)).toEqual(["off_l1", "off_cover_high", "off_cover_low", "off_short_high"]);
+
+    const olderSamePrice = applyOfferMatchListPatch(
+      higherCovering,
+      patchOf(upsert(inventory("off_cover_older", { price: "9.50", createdAt: "2026-10-01T00:00:00.000Z" }))),
+    );
+    expect(ids(olderSamePrice)).toEqual([
+      "off_l1",
+      "off_cover_older",
+      "off_cover_high",
+      "off_cover_low",
+      "off_short_high",
+    ]);
+
+    const stockDrop = applyOfferMatchListPatch(
+      olderSamePrice,
+      patchOf(upsert(inventory("off_cover_older", { price: "9.50", stock: 0, createdAt: "2026-10-01T00:00:00.000Z" }))),
+    );
+    expect(ids(stockDrop)).toEqual(["off_l1", "off_cover_high", "off_cover_low", "off_short_high", "off_cover_older"]);
+  });
+
+  it("removes Matches and ignores other entities without reordering", () => {
+    const start = snapshot(listing("off_l1"), inventory("off_i1"), inventory("off_i2", { price: "5.00" }));
+    expect(
+      ids(applyOfferMatchListPatch(start, patchOf({ op: "remove", entity: "marketplace.offerMatch", id: "off_i1" }))),
+    ).toEqual(["off_l1", "off_i2"]);
+    const buyerOfferPatch = patchOf({
+      op: "upsert",
+      entity: "marketplace.offer",
+      id: "off_x",
+      value: listing("off_x"),
+    });
+    expect(applyOfferMatchListPatch(start, buyerOfferPatch)).toBe(start);
+  });
+
+  it("does not insert into a paged snapshot", () => {
+    const paged = { items: [listing("off_l1")], total: 3, count: 1 };
+    expect(ids(applyOfferMatchListPatch(paged, patchOf(upsert(inventory("off_i9")))))).toEqual(["off_l1"]);
   });
 });
 

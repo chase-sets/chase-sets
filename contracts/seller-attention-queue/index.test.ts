@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { sellerAttentionQueueEnglishTranslations } from "@chase-sets/seller-attention-queue/localization";
 import {
   aggregateSellerAttentionQueue,
   buildSellerAttentionItem,
@@ -12,6 +13,19 @@ import {
 } from "./index";
 
 const CONTEXT: SellerAttentionContext = { accountId: "acct-1", now: "2026-07-14T00:00:00.000Z" };
+
+it("exports the eight shared Channel attention reasons", () => {
+  expect(sellerAttentionQueueEnglishTranslations).toEqual({
+    "channels.attention.reason.credential": "Credentials",
+    "channels.attention.reason.seller-setup": "Connection setup",
+    "channels.attention.reason.subscription": "Subscription",
+    "channels.attention.reason.polling": "Channel polling",
+    "channels.attention.reason.drift": "Inventory differences",
+    "channels.attention.reason.provider-rate": "Channel rate limit",
+    "channels.attention.reason.provider-availability": "Channel availability",
+    "channels.attention.reason.sale-follow-up": "Sale follow-up",
+  });
+});
 
 function shipByItem(overrides: Partial<SellerAttentionItem> = {}): SellerAttentionItem {
   return {
@@ -245,5 +259,41 @@ describe("aggregateSellerAttentionQueue", () => {
     const offerHealth = queue.sources.find((source) => source.id === "offer-response");
     expect(offerHealth?.status).toBe("unavailable");
     expect(offerHealth?.reason).toBe("source returned a non-conforming item");
+  });
+
+  it("degrades only the source whose item has an unreadable or missing time, and keeps its siblings in order", async () => {
+    const listing = (entityId: string, observedAt: unknown) =>
+      ({
+        ...buildSellerAttentionItem({
+          source: "listing-action",
+          entityId,
+          severity: "info",
+          summary: { code: "listing-needs-action", params: { reference: entityId, action: "draft" } },
+          observedAt: "2026-07-12T00:00:00.000Z",
+        }),
+        observedAt,
+      }) as SellerAttentionItem;
+
+    for (const observedAt of [new Date("2026-07-12T00:00:00.000Z"), "not a time", null]) {
+      const queue = await aggregateSellerAttentionQueue(
+        [
+          staticSource("fulfillment-ship-by", [
+            shipByItem({ id: "fulfillment-ship-by:ship-2", dueAt: "2026-07-12T00:00:00.000Z" }),
+            shipByItem(),
+          ]),
+          staticSource("listing-action", [
+            listing("lst-ok", "2026-07-12T00:00:00.000Z"),
+            listing("lst-bad", observedAt),
+          ]),
+        ],
+        CONTEXT,
+      );
+
+      expect(queue.items.map((item) => item.id)).toEqual(["fulfillment-ship-by:ship-1", "fulfillment-ship-by:ship-2"]);
+      expect(queue.sources).toEqual([
+        { id: "fulfillment-ship-by", status: "available", itemCount: 2 },
+        { id: "listing-action", status: "unavailable", itemCount: 0, reason: "source returned a non-conforming item" },
+      ]);
+    }
   });
 });

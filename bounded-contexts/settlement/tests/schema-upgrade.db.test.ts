@@ -12,6 +12,7 @@ import { module as settlementModule } from "../index";
 import { queryLiabilitySnapshot } from "../features/liability-reconciliation/read-model/liability-reconciliation";
 import { getPayout, listPayouts } from "../features/payouts/read-model/queries";
 import { lookupPayoutBySupportId, lookupPayoutBySupportReference } from "../features/payouts/read-model/support-lookup";
+import { settlementPayoutReviewHoldFallbackGuardMigrationId } from "../features/wallets/integrations/account-risk-source/account-risk-source-schema";
 import {
   settlementFulfillmentSourceSchemaMigrations,
   settlementFulfillmentSourceSchemaSql,
@@ -34,6 +35,13 @@ describeDb("settlement schema upgrades", () => {
 
   beforeEach(async () => resetMultiContextTestSchemas(pools));
   afterAll(async () => closeMultiContextTestPools(pools));
+
+  const previousModule = {
+    ...settlementModule,
+    schemaMigrations: settlementModule.schemaMigrations!.filter(
+      (migration) => migration.migrationId !== settlementPayoutReviewHoldFallbackGuardMigrationId,
+    ),
+  };
 
   it("adds the ledger-only risk revision with exact fresh and retained catalogs and skips it on second boot", async () => {
     const pool = pools.settlement;
@@ -86,6 +94,76 @@ describeDb("settlement schema upgrades", () => {
     expect((await pool.query("SELECT * FROM settlement_account_risk_sources")).rows).toEqual(
       before.map((row) => ({ ...row, revision: "0" })),
     );
+  });
+
+  it("adds payout review hold columns on retained rows without changing the badge or revision", async () => {
+    const pool = pools.settlement;
+    const migrationId = "20261120_settlement_payout_review_hold";
+    await bootstrapContextDatabase(
+      {
+        ...previousModule,
+        schemaMigrations: previousModule.schemaMigrations.filter((migration) => migration.migrationId !== migrationId),
+      },
+      pool,
+    );
+    await pool.query(`INSERT INTO settlement_account_risk_sources (account_id, manual_payout_review, revision)
+      VALUES ('acc_payout_review_hold_upgrade', true, 7)`);
+    await bootstrapContextDatabase(previousModule, pool);
+    const read = async () =>
+      (
+        await pool.query(
+          `SELECT manual_payout_review, revision, payout_review_hold, payout_review_hold_stream_version
+         FROM settlement_account_risk_sources WHERE account_id = 'acc_payout_review_hold_upgrade'`,
+        )
+      ).rows;
+    expect(await read()).toEqual([
+      { manual_payout_review: true, revision: "7", payout_review_hold: false, payout_review_hold_stream_version: "0" },
+    ]);
+    await pool.query(`UPDATE settlement_account_risk_sources
+      SET payout_review_hold = true, payout_review_hold_stream_version = 1
+      WHERE account_id = 'acc_payout_review_hold_upgrade'`);
+    await bootstrapContextDatabase(settlementModule, pool);
+    expect(await read()).toEqual([
+      { manual_payout_review: true, revision: "7", payout_review_hold: true, payout_review_hold_stream_version: "1" },
+    ]);
+  });
+
+  it("fallback guard refuses unmigrated rows and keeps the column", async () => {
+    const pool = pools.settlement;
+    const ledger = async () =>
+      (
+        await pool.query("SELECT * FROM bounded_context_schema_migrations WHERE migration_id = $1", [
+          settlementPayoutReviewHoldFallbackGuardMigrationId,
+        ])
+      ).rows;
+    await bootstrapContextDatabase(previousModule, pool);
+    await pool.query(`INSERT INTO settlement_account_risk_sources (account_id, manual_payout_review)
+      VALUES ('acc_unmigrated_badge', true)`);
+    await expect(bootstrapContextDatabase(settlementModule, pool)).rejects.toMatchObject({
+      code: "P0001",
+      message: expect.stringContaining("unmigrated manual payout review badges remain"),
+    });
+    expect(await ledger()).toEqual([]);
+
+    await pool.query(`UPDATE settlement_account_risk_sources SET payout_review_hold_stream_version = 1
+      WHERE account_id = 'acc_unmigrated_badge'`);
+    await bootstrapContextDatabase(settlementModule, pool);
+    const applied = await ledger();
+    expect(applied).toHaveLength(1);
+    expect((await pool.query("SELECT manual_payout_review FROM settlement_account_risk_sources")).rows).toEqual([
+      { manual_payout_review: true },
+    ]);
+    await bootstrapContextDatabase(settlementModule, pool);
+    expect(await ledger()).toEqual(applied);
+
+    await resetMultiContextTestSchemas(pools);
+    await bootstrapContextDatabase(previousModule, pool);
+    await pool.query("ALTER TABLE settlement_account_risk_sources DROP COLUMN manual_payout_review");
+    await bootstrapContextDatabase(settlementModule, pool);
+    expect(await ledger()).toHaveLength(1);
+    await expect(pool.query("SELECT manual_payout_review FROM settlement_account_risk_sources")).rejects.toMatchObject({
+      code: "42703",
+    });
   });
 
   it("backfills stable hold identities outside boot-time schema SQL", async () => {

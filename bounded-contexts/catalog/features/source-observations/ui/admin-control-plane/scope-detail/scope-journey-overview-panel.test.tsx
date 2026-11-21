@@ -2,7 +2,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { CatalogScopeJourneyOverviewPanel } from "./scope-journey-overview-panel";
-import type { CatalogScopeJourneyOverviewReadModel } from "./scope-journey-overview";
+import type { CatalogScopeJourneyOverviewReadModel } from "../../../../scope-registry/ui/contracts";
 
 afterEach(cleanup);
 

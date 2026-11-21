@@ -1,5 +1,9 @@
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
-import { parseTypedIdBoundary, TypedIdBoundaryDomainError } from "@chase-sets/http/typed-id";
+import {
+  parseOptionalTypedIdBoundary,
+  parseTypedIdBoundary,
+  TypedIdBoundaryDomainError,
+} from "@chase-sets/http/typed-id";
 import { t } from "@chase-sets/localization";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { Hono } from "hono";
@@ -32,10 +36,18 @@ export function buildCustomerFeedbackAttentionApi(services: FeedbackAttentionApi
     const actor = c.get("actor");
     if (!canAccessFeedbackAttention(actor, "view")) return accessResponse(c, actor ? 403 : 401);
     const url = new URL(c.req.url);
+    let caseId: string | undefined;
+    try {
+      caseId = parseOptionalTypedIdBoundary(url.searchParams.get("caseId"), "fbcase", "caseId");
+    } catch (error) {
+      if (error instanceof TypedIdBoundaryDomainError) return c.json(error.body, error.status);
+      throw error;
+    }
     const readNow = new Date().toISOString();
     const items = await listFeedbackAttention(db, {
       limit: Number(url.searchParams.get("limit") ?? 100),
       ownerId: url.searchParams.get("ownerId") ?? undefined,
+      caseId,
       overdueOnly: url.searchParams.get("overdueOnly") === "true",
       now: readNow,
     });

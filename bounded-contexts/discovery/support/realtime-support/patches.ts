@@ -94,10 +94,17 @@ export function createDiscoveryOfferPatch(
     offer_id: string;
     status: string;
     buyer_account_status?: string | null;
+    buyer_offers_away?: boolean;
+    price_currency_code?: string | null;
+    offer_stream_version?: number;
   }>,
 ): RealtimeProjectionPatch {
   return createDiscoveryProjectionPatch(topics, [
-    offer.status === "submitted" && (offer.buyer_account_status ?? "active") === "active"
+    offer.status === "submitted" &&
+    (offer.buyer_account_status ?? "active") === "active" &&
+    !offer.buyer_offers_away &&
+    offer.price_currency_code !== null &&
+    (offer.offer_stream_version ?? 1) > 0
       ? {
           op: "upsert",
           entity: "discovery.buyerOffer",

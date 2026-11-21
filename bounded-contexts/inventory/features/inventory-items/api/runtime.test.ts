@@ -285,6 +285,108 @@ describe("inventory create runtime graded boundaries", () => {
     },
   );
 
+  function ensureListingStock(
+    input: Readonly<{
+      catalogItemId: string;
+      selectedOptions: readonly { dimensionId: string; optionId: string }[];
+      gradedCard?: Parameters<InventoryItemServices["ensureListingStock"]>[0]["gradedCard"];
+    }>,
+  ) {
+    const harness = setup();
+    const location = {
+      storage_location_id: "loc_listing_stock",
+      account_id: "acc_seller",
+      name: "Listing stock",
+      description: null,
+      ship_from_code: "LISTING-STOCK",
+      ship_from_address: shipFromAddress,
+      is_archived: false,
+    };
+    harness.db.query.mockImplementation(async (sql: string) => {
+      if (sql.includes("FROM inventory_storage_locations")) return { rows: [location] };
+      if (sql.includes("FROM inventory_items AS item")) return { rows: [] };
+      if (sql.includes("WITH candidates AS")) return { rows: [] };
+      throw new Error(`Unexpected query: ${sql}`);
+    });
+    const runtime = createInventoryItemRuntime(
+      { eventStore: harness.eventStore, db: harness.db as never, checkpointStore: createCheckpointStore() },
+      {
+        getCatalogItem: vi.fn(async (catalogItemId: string) => ({
+          catalog_item_id: catalogItemId,
+          status: "active",
+          product_schema: schemas[catalogItemId] ?? null,
+        })),
+      } as never,
+      { listStorageLocations: vi.fn(async () => [location]) } as never,
+    );
+    return {
+      harness,
+      result: runtime.ensureListingStock({ accountId: "acc_seller" as never, quantity: 1, ...input }, context),
+    };
+  }
+
+  it("ensures Graded listing stock from the selected grading company and grade alone", async () => {
+    const { harness, result } = ensureListingStock({ catalogItemId: "cat_required", selectedOptions: gradedOptions });
+    const { inventoryItemId } = await result;
+    const events = await harness.eventStore.readStream({ streamId: `inventory.item-${inventoryItemId}` });
+    expect(events[0]?.payload).toMatchObject({
+      selectedOptions: gradedOptions,
+      gradedCard: {
+        gradingCompany: "PSA",
+        grade: "10",
+        certificationNumber: null,
+        population: null,
+        conditionDescriptors: [],
+      },
+    });
+  });
+
+  it("keeps graded card details a caller sends for Graded listing stock", async () => {
+    const gradedCard = {
+      gradingCompany: "PSA",
+      grade: "10",
+      certificationNumber: "cert-123",
+      population: null,
+      conditionDescriptors: [],
+    };
+    const { harness, result } = ensureListingStock({
+      catalogItemId: "cat_required",
+      selectedOptions: gradedOptions,
+      gradedCard,
+    });
+    const { inventoryItemId } = await result;
+    const events = await harness.eventStore.readStream({ streamId: `inventory.item-${inventoryItemId}` });
+    expect(events[0]?.payload).toMatchObject({ gradedCard });
+  });
+
+  it.each([
+    ["the grade is not chosen", "cat_optional", ["form", "company"], MISSING_DETAILS],
+    ["the Form option is a legacy graded label", "cat_slab", ["form"], REQUIRES_DETAILS],
+  ])("refuses Graded listing stock without writes when %s", async (_case, catalogItemId, dimensionIds, message) => {
+    const { harness, result } = ensureListingStock({
+      catalogItemId,
+      selectedOptions: gradedOptions.filter((option) => dimensionIds.includes(option.dimensionId)),
+    });
+    await expect(result).rejects.toThrow(message);
+    expect(harness.streams.size).toBe(0);
+  });
+
+  it("refuses graded card details on raw listing stock", async () => {
+    const { harness, result } = ensureListingStock({
+      catalogItemId: "cat_required",
+      selectedOptions: rawOptions,
+      gradedCard: {
+        gradingCompany: "PSA",
+        grade: "10",
+        certificationNumber: null,
+        population: null,
+        conditionDescriptors: [],
+      },
+    });
+    await expect(result).rejects.toThrow("Graded card details are only allowed for graded listing stock.");
+    expect(harness.streams.size).toBe(0);
+  });
+
   it("refuses a non-blank certification number on a raw item", async () => {
     await expectRefusedWithoutWrites(
       { catalogItemId: "cat_required", selectedOptions: rawOptions, certificationNumber: "cert-123" },

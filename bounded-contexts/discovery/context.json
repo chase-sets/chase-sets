@@ -56,6 +56,18 @@
   "seedRequirements": [],
   "eventSubscriptions": [
     {
+      "sourceContextName": "marketplace",
+      "projectionName": "discovery.offer-standing-projection",
+      "subscriptionName": "discovery.offer-standing-projection",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": [
+        "marketplace.seller-listing-availability.offers-disabled",
+        "marketplace.seller-listing-availability.offers-enabled"
+      ],
+      "projectionHandlerSetNames": ["discovery.offer-standing-projection"]
+    },
+    {
       "sourceContextName": "discovery",
       "projectionName": "discovery-product-alert-page-projection",
       "subscriptionVersion": 1,
@@ -153,7 +165,9 @@
         "catalog.dimension.options-reordered",
         "catalog.product-contents.resolved"
       ],
-      "checkpointBatchSize": 1,
+      "batchSize": 100,
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": 500,
       "projectionTransactionTimeoutMs": 120000,
       "projectionStatementTimeoutMs": 120000,
       "order": 10,
@@ -205,7 +219,9 @@
         "catalog.dimension.option-revised",
         "catalog.dimension.options-reordered"
       ],
-      "checkpointBatchSize": 1,
+      "batchSize": 100,
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": 500,
       "projectionTransactionTimeoutMs": 120000,
       "projectionStatementTimeoutMs": 120000,
       "order": 10,
@@ -358,6 +374,8 @@
       "subscriptionVersion": 2,
       "subscriptionName": "discovery.marketplace-product-alert-notifications",
       "eventTypes": [
+        "marketplace.seller-listing-availability.offers-disabled",
+        "marketplace.seller-listing-availability.offers-enabled",
         "marketplace.listing.created",
         "marketplace.listing.price-updated",
         "marketplace.listing.quantity-cap-updated",
@@ -378,6 +396,13 @@
     }
   ],
   "projectionGroups": [
+    {
+      "projectionName": "discovery.offer-standing-projection",
+      "sourceContextNames": ["marketplace"],
+      "ownedTables": ["discovery_buyer_offer_standing"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
     {
       "projectionName": "discovery-category-projection",
       "sourceContextNames": ["catalog"],
@@ -464,7 +489,7 @@
     {
       "projectionName": "discovery-product-alert-notification-projection",
       "sourceContextNames": ["marketplace"],
-      "ownedTables": ["discovery_product_alert_market_activity", "discovery_product_alert_match_notifications"],
+      "ownedTables": ["discovery_product_alert_market_activity", "discovery_product_alert_match_notifications", "discovery_product_alert_offer_suppression"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     }
@@ -1585,7 +1610,7 @@
     "ucp-support": {
       "classification": "support",
       "purpose": "Provide Discovery-owned UCP catalog search and lookup adapters over Discovery read models instead of deployable protocol mapping.",
-      "expectedConsumers": ["platform-api UCP route composition"]
+      "expectedConsumers": ["search"]
     },
     "routes": {
       "classification": "routes",

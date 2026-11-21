@@ -57,6 +57,7 @@ type SellerListingAvailabilityPageRow = {
   away_window_starts_at: string | null;
   away_window_ends_at: string | null;
   away_window_reason_category: string | null;
+  away_window_scope: string;
   updated_at: string;
 };
 
@@ -219,7 +220,15 @@ class ProjectionDb implements PgQueryable {
       return { rows: [], rowCount: 1 };
     }
 
-    if (sql.includes("INSERT INTO marketplace_seller_listing_availability_pages (") && sql.includes("'unavailable'")) {
+    if (
+      sql.includes("INSERT INTO marketplace_seller_listing_availability_pages AS availability (") &&
+      sql.includes("VALUES ($1, 'unavailable', $2, $3, $4, $5, NULL, NULL, NULL, NULL, $6)")
+    ) {
+      const existing = this.sellerListingAvailability.get(String(values[0]));
+      const offersWindow =
+        values[6] === true && (existing?.away_window_scope === "offers" || existing?.away_window_scope === "both")
+          ? existing
+          : undefined;
       const row: SellerListingAvailabilityPageRow = {
         account_id: String(values[0]),
         status: "unavailable",
@@ -228,10 +237,10 @@ class ProjectionDb implements PgQueryable {
         available_again_at: values[3] === null ? null : String(values[3]),
         disabled_at: String(values[4]),
         enabled_at: null,
-        // A disable (manual or scheduled) consumes any pending Away Window.
-        away_window_starts_at: null,
-        away_window_ends_at: null,
-        away_window_reason_category: null,
+        away_window_starts_at: offersWindow?.away_window_starts_at ?? null,
+        away_window_ends_at: offersWindow?.away_window_ends_at ?? null,
+        away_window_reason_category: offersWindow?.away_window_reason_category ?? null,
+        away_window_scope: offersWindow ? "offers" : "listings",
         updated_at: String(values[5]),
       };
       this.sellerListingAvailability.set(row.account_id, row);
@@ -239,6 +248,7 @@ class ProjectionDb implements PgQueryable {
     }
 
     if (sql.includes("INSERT INTO marketplace_seller_listing_availability_pages (") && sql.includes("'available'")) {
+      const existing = this.sellerListingAvailability.get(String(values[0]));
       const row: SellerListingAvailabilityPageRow = {
         account_id: String(values[0]),
         status: "available",
@@ -247,9 +257,10 @@ class ProjectionDb implements PgQueryable {
         available_again_at: null,
         disabled_at: null,
         enabled_at: String(values[1]),
-        away_window_starts_at: null,
-        away_window_ends_at: null,
-        away_window_reason_category: null,
+        away_window_starts_at: existing?.away_window_starts_at ?? null,
+        away_window_ends_at: existing?.away_window_ends_at ?? null,
+        away_window_reason_category: existing?.away_window_reason_category ?? null,
+        away_window_scope: existing?.away_window_scope ?? "listings",
         updated_at: String(values[2]),
       };
       this.sellerListingAvailability.set(row.account_id, row);
@@ -302,7 +313,8 @@ class ProjectionDb implements PgQueryable {
         away_window_starts_at: isCancel ? null : values[1] === null ? null : String(values[1]),
         away_window_ends_at: isCancel ? null : values[2] === null ? null : String(values[2]),
         away_window_reason_category: isCancel ? null : values[3] === null ? null : String(values[3]),
-        updated_at: String(isCancel ? values[1] : values[4]),
+        away_window_scope: isCancel ? "listings" : String(values[4]),
+        updated_at: String(isCancel ? values[1] : values[5]),
       };
       this.sellerListingAvailability.set(row.account_id, row);
       return { rows: [], rowCount: 1 };
@@ -1062,6 +1074,8 @@ describe("marketplace listing projection", () => {
       away_window_starts_at: "2026-07-20T05:00:00.000Z",
       away_window_ends_at: "2026-07-27T05:00:00.000Z",
       away_window_reason_category: "travel",
+      away_window_scope: "listings",
+      updated_at: "2026-05-09T00:01:00.000Z",
     });
   });
 
@@ -1101,7 +1115,10 @@ describe("marketplace listing projection", () => {
     });
   });
 
-  it("clears the pending away window's columns when the disable that consumes it is projected", async () => {
+  it.each([
+    { name: "clears the pending window when a disable consumes it", preserveOtherSide: undefined },
+    { name: "keeps the Offers window when only Listings are disabled", preserveOtherSide: true },
+  ])("$name", async ({ preserveOtherSide }) => {
     const db = new ProjectionDb();
     const handlers = buildMarketplaceListingProjectionHandlers(db);
 
@@ -1113,6 +1130,7 @@ describe("marketplace listing projection", () => {
           startsAt: "2026-07-20T05:00:00.000Z",
           endsAt: "2026-07-27T05:00:00.000Z",
           reasonCategory: "travel",
+          scope: "both",
           scheduledAt: "2026-07-13T12:00:00.000Z",
         },
         "marketplace.seller-listing-availability-acc_seller",
@@ -1128,6 +1146,7 @@ describe("marketplace listing projection", () => {
           availableAgainAt: "2026-07-27T05:00:00.000Z",
           disabledAt: "2026-07-20T05:00:00.000Z",
           disabledBy: "scheduled",
+          ...(preserveOtherSide ? { preserveOtherSide } : {}),
         },
         "marketplace.seller-listing-availability-acc_seller",
       ),
@@ -1135,9 +1154,10 @@ describe("marketplace listing projection", () => {
 
     expect(db.sellerListingAvailability.get("acc_seller")).toMatchObject({
       status: "unavailable",
-      away_window_starts_at: null,
-      away_window_ends_at: null,
-      away_window_reason_category: null,
+      away_window_starts_at: preserveOtherSide ? "2026-07-20T05:00:00.000Z" : null,
+      away_window_ends_at: preserveOtherSide ? "2026-07-27T05:00:00.000Z" : null,
+      away_window_reason_category: preserveOtherSide ? "travel" : null,
+      away_window_scope: preserveOtherSide ? "offers" : "listings",
     });
   });
 });

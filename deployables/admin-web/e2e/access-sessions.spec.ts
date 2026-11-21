@@ -41,8 +41,11 @@ test.describe("access admin sessions", () => {
     await expect(page.getByText(sessionAuthenticationMethodLabel(session.authentication_method)).first()).toBeVisible();
     await expect(page.getByText(sessionExpiresAtLabel(session.expires_at)).first()).toBeVisible();
     const activeAccount = session.account_display_name ?? session.account_name ?? session.account_id;
-    const activeAccountSummary = page.getByText("Active Account", { exact: true }).locator("..");
-    await expect(activeAccountSummary.getByText(activeAccount, { exact: true })).toBeVisible();
+    const activeAccountValue = page
+      .getByText("Active Account", { exact: true })
+      .locator("xpath=following-sibling::*[1]");
+    await expect(activeAccountValue).toBeVisible();
+    await expect(activeAccountValue).toHaveText(activeAccount);
     const switchTargets = session.available_account_ids.filter((id) => id !== session.account_id);
     const switchAccount = page.getByRole("button", { name: "Switch Account" });
     const switchTo = page.getByRole("combobox", { name: "Switch to" });

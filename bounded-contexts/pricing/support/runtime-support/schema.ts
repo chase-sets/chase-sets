@@ -15,6 +15,7 @@ import {
   pricingRecommendationSourceSchemaSql,
 } from "../../features/recommendations/integrations/source/source-schema";
 import {
+  pricingMarketTradeLinkageExpansionSchemaSql,
   pricingMarketTradesSchemaMigrations,
   pricingMarketTradesSchemaSql,
 } from "../../features/market-trades/read-model/schema";
@@ -76,6 +77,7 @@ export const pricingSchemaSql = [
   pricingProviderObservationsSchemaSql,
   pricingRecommendationSchemaSql,
   pricingMarketTradesSchemaSql,
+  pricingMarketTradeLinkageExpansionSchemaSql,
   pricingEconomicsSchemaSql,
   pricingMarketRollupsSchemaSql,
   pricingMarketEstimatesSchemaSql,

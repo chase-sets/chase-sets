@@ -75,4 +75,18 @@ describe("recovered item routes", () => {
       context,
     );
   });
+
+  it.each([{ intent: "teleport" }, {}])("refuses an action it does not know (%o) as client input", async (body) => {
+    const execute = vi.fn();
+    const response = await appWithPermissions(["recovered-inventory.manage"], { execute }).request(
+      "/rci_does_not_exist/actions",
+      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) },
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: { code: "validation_failed", message: "Unsupported recovered item action." },
+    });
+    expect(execute).not.toHaveBeenCalled();
+  });
 });

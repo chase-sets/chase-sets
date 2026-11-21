@@ -498,9 +498,10 @@ describe("public policy corpus compiler", () => {
     // Re-derived for the Marketplace Checkout Fee glossary line move in
     // [#7864 Break the Auth and Payments dependency cycle and reject cycles in the structure gate](https://github.com/chase-sets/chase-sets/issues/7864).
     // Re-derived for the Identity account-domain citation shift that the required profile name check makes.
+    // Re-derived for the payout review hold and whole-construct registration citations.
     expect(
       fingerprint(baseline.find(({ relativePath }) => relativePath === "terms-of-service-publication.ts")?.content),
-    ).toBe("sha256:a009624e67efaefb3c8b9eb7884b6142d87ef6bd3674d2c36834dc4c2b60b910");
+    ).toBe("sha256:e76fe01de71cbe4cd5677538a04819bc1027cfe46399d0c8315030193b8ea805");
 
     for (const module of changed) {
       const before = baseline.find((candidate) => candidate.relativePath === module.relativePath)?.content;
@@ -539,9 +540,9 @@ describe("public policy corpus compiler", () => {
         sectionId: "children",
         carrier: "assumptionEvidenceRef",
         before:
-          "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:370; bounded-contexts/auth/features/registration/ui/register-page.tsx:60-66",
+          "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:370; bounded-contexts/auth/features/registration/ui/register-page.tsx:67-73,137-195,417-582",
         after:
-          "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:345; bounded-contexts/auth/features/registration/ui/register-page.tsx:60-66",
+          "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:345; bounded-contexts/auth/features/registration/ui/register-page.tsx:67-73,137-195,417-582",
         module: "privacy-policy-publication.ts",
       },
       {

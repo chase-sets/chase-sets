@@ -144,6 +144,7 @@ import {
   createBlockedPayoutAttentionSourceFromReadModel,
   createSellerCheckoutRiskReader,
   createSettlementBalanceCreditResolver,
+  createSettlementPayoutReviewHoldPort,
   createSettlementWalletSpendHoldPort,
   getProtectionReserveSummary,
   lookupPayoutBySupportId,
@@ -158,6 +159,7 @@ import {
   type SettlementSupportLookupRow,
   type SettlementWalletAdjustmentSupportLookupRow,
 } from "@chase-sets/settlement/server";
+import type { PayoutReviewHoldCrossContextPort } from "@chase-sets/platform-operations/server";
 import {
   attachApiMountMiddleware,
   assertApiRouteTableHasNoCollisions,
@@ -298,6 +300,7 @@ export function createSavedListAnalyticsRecorder(
 }
 
 export type BuildPlatformApiOptions = Readonly<{
+  widgetResources?: CreateMcpRoutesOptions["widgetResources"];
   runtimeProfile?: PlatformApiRuntimeProfile;
   getProjectionReplay?: () => HealthProjectionReplaySummary | Promise<HealthProjectionReplaySummary>;
   readinessChecks?: readonly ReadinessCheck[];
@@ -312,8 +315,8 @@ export type BuildPlatformApiOptions = Readonly<{
   realtimeWakeSignal?: Parameters<typeof createRealtimeRoutes>[0]["wakeSignal"];
   realtimeActiveConnectionCount?: () => number;
   isDraining?: () => boolean;
-  mcp?: CreateMcpRoutesOptions;
-  ucp?: CreateUcpRoutesOptions;
+  mcp?: Omit<CreateMcpRoutesOptions, "widgetResources">;
+  ucp?: Omit<CreateUcpRoutesOptions, "widgetResources">;
   agentGrantSpendPolicy?: AgentGrantSpendPolicy;
   agentGrantConsent?: AgentGrantConsentDirectory;
   agentGrantActivity?: AgentGrantActivityDirectory;
@@ -406,6 +409,11 @@ export function createPlatformApiHost(
         ]
       : []),
   ];
+  const payoutReviewHoldCrossContext: PayoutReviewHoldCrossContextPort | undefined = settlementPool
+    ? createSettlementPayoutReviewHoldPort(
+        () => (runtime?.services.settlement as SettlementServices | undefined)?.payoutReviewHold,
+      )
+    : undefined;
   const marketplaceChannelInboundClamp = createPlatformApiMarketplaceChannelInboundClampBinding(
     Boolean(marketplacePool),
     () => runtime?.services.marketplace as MarketplaceServices | undefined,
@@ -795,6 +803,7 @@ export function createPlatformApiHost(
       ...(opsMarketAnalyticsCrossContext ? { opsMarketAnalyticsCrossContext } : {}),
       providerConnectionsCrossContext,
       ...(offerEconomicsCrossContext ? { offerEconomicsCrossContext } : {}),
+      ...(payoutReviewHoldCrossContext ? { payoutReviewHoldCrossContext } : {}),
       sellerAttentionSources,
       publicPolicySources,
       ...(checkoutPool
@@ -1155,6 +1164,7 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
   }
   const mcpOptions = {
     ...options.mcp,
+    widgetResources: options.widgetResources,
     operatorAuthority: options.mcp?.operatorAuthority ?? identityServices.auth?.identity?.operatorAuthority,
     agentGrantRateLimiter: options.mcp?.agentGrantRateLimiter ?? options.ucp?.agentGrantRateLimiter,
     toolHandlers,
@@ -1285,7 +1295,7 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     app.use("/ucp/mcp", platformActorMiddleware);
     app.use("/ucp/mcp/*", platformActorMiddleware);
     app.route("/ucp/v1", createUcpRestRoutes(ucpOptions));
-    app.route("/ucp/mcp", createUcpMcpRoutes(ucpOptions));
+    app.route("/ucp/mcp", createUcpMcpRoutes({ ...ucpOptions, widgetResources: options.widgetResources }));
     app.route(
       "/api/realtime",
       createRealtimeRoutes({

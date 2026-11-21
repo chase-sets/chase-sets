@@ -73,6 +73,7 @@ test("derives every heavy artifact entry point and requires a reachable guard ac
     "contracts/order-groups/vitest.config.ts",
     "contracts/inventory-draft-listing/vitest.config.ts",
     "contracts/tcgplayer-market-observations/vitest.config.ts",
+    "deployables/agent-apps/vitest.config.ts",
     "deployables/platform-api/vitest.config.ts",
     "deployables/tcgplayer-operator-extension/vitest.config.ts",
     "playwright.config.ts",
@@ -82,6 +83,7 @@ test("derives every heavy artifact entry point and requires a reachable guard ac
     "scripts/bundle-node-service.mjs",
     "scripts/check-structure/brand-foil-proof.mjs",
     "scripts/check-structure/browser-e2e-disclosure-guard.mjs",
+    "scripts/check-structure/managed-postgres-client-policy.mjs",
     "scripts/check-structure/provider-scope-picker-shape-guard.mjs",
     "scripts/check-structure/regenerate-lockfile-bound-artifacts.mjs",
     "scripts/connector-pairing-drill-staging.mjs",
@@ -95,7 +97,7 @@ test("derives every heavy artifact entry point and requires a reachable guard ac
     "scripts/run-workspaces.mjs",
     "vitest.scripts.config.mjs",
   ];
-  assert.equal(result.entrypoints.length, 88);
+  assert.equal(result.entrypoints.length, 90);
   assert.equal(result.entrypoints.includes("scripts/typecheck-changed.mjs"), false);
   assert.deepEqual(
     expectedEntrypoints.filter((entrypoint) => !result.entrypoints.includes(entrypoint)),
@@ -565,8 +567,8 @@ function classifyInheritedOwnerCandidates(
 test("every script test that reaches a real heavy-slot acquisition is a declared inherited-owner test", () => {
   const candidates = deriveInheritedOwnerCandidates();
   const classification = classifyInheritedOwnerCandidates(candidates);
-  assert.equal(candidates.length, 30);
-  assert.equal(inheritedOwnerScriptTests.length, 5);
+  assert.equal(candidates.length, 31);
+  assert.equal(inheritedOwnerScriptTests.length, 6);
   assert.deepEqual(classification, {
     unclassified: [],
     overlapping: [],

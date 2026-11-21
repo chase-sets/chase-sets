@@ -100,7 +100,7 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
         scopeNote: "Describe the Wallet and fund flow; reserve legal classification and ordinary interest for counsel.",
         decisionRefs: [5004],
         productTruthRefs: [
-          "bounded-contexts/settlement/GLOSSARY.md:5-7",
+          "bounded-contexts/settlement/GLOSSARY.md:9-11",
           "infrastructure/stripe-payments/index.ts:1669-1693",
           "infrastructure/stripe-connect/index.ts:1100-1160",
         ],
@@ -112,7 +112,7 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
           {
             assertion:
               "The Wallet is defined in Settlement's ratified vocabulary as a marketplace-ledger balance container, not a separately modeled bank deposit product.",
-            evidenceRef: "bounded-contexts/settlement/GLOSSARY.md:5-7",
+            evidenceRef: "bounded-contexts/settlement/GLOSSARY.md:9-11",
           },
         ],
         canonicalClaims: walletInterestUnresolvedCanonicalClaims,
@@ -203,7 +203,7 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
         decisionRefs: [5004],
         productTruthRefs: [
           "docs/adr/0020-wallet-adjustment-authority-and-balance-types.md:25",
-          "bounded-contexts/settlement/GLOSSARY.md:160",
+          "bounded-contexts/settlement/GLOSSARY.md:164",
         ],
         openQuestions: [],
         assumptions: [
@@ -225,14 +225,14 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
         scopeNote: "Describe negative-balance creation, approval, recovery, and offset, and capability restrictions.",
         decisionRefs: [5004],
         productTruthRefs: [
-          "bounded-contexts/settlement/GLOSSARY.md:127-135,158-166,168-176,178-186",
+          "bounded-contexts/settlement/GLOSSARY.md:131-139,162-170,172-180,182-190",
           "docs/adr/0020-wallet-adjustment-authority-and-balance-types.md:70-82",
         ],
         openQuestions: [],
         assumptions: [
           {
             assertion: "Collections pauses new listings and payout requests until the Wallet is in-good-standing.",
-            evidenceRef: "bounded-contexts/settlement/GLOSSARY.md:178-186",
+            evidenceRef: "bounded-contexts/settlement/GLOSSARY.md:182-190",
           },
         ],
       },
@@ -273,8 +273,8 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
           "Define the treatment of Wallet funds during account suspension or closure, dormancy, legal holds, and lawful release of remaining funds.",
         decisionRefs: [5004],
         productTruthRefs: [
-          "bounded-contexts/identity/features/accounts/domain/domain.ts:21,76-86,187-219,302-307 (AccountStatus and account enforcement commands/lifecycle)",
-          "bounded-contexts/settlement/GLOSSARY.md:162-170",
+          "bounded-contexts/identity/features/accounts/domain/domain.ts:21,76-86,187-219,310-315 (AccountStatus and account enforcement commands/lifecycle)",
+          "bounded-contexts/settlement/GLOSSARY.md:166-174",
         ],
         openQuestions: [
           "A dedicated dormant-balance lifecycle and a formal legal-hold workflow distinct from ordinary Collections/account suspension were not found in the current codebase; this clause states Chase Sets' reserved authority rather than describing a shipped self-service dormancy or hold feature. Consider a fixed-scope product issue if dedicated dormancy/legal-hold surfaces are needed before launch.",
@@ -284,7 +284,7 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
             assertion:
               "Identity Account status supports active/suspended/closed; there is no separate dormant-balance or legal-hold state machine today.",
             evidenceRef:
-              "bounded-contexts/identity/features/accounts/domain/domain.ts:35-43,134-136,302-307 (Account enforcement latest/open state and lifecycle events)",
+              "bounded-contexts/identity/features/accounts/domain/domain.ts:35-43,134-136,310-315 (Account enforcement latest/open state and lifecycle events)",
           },
         ],
       },
@@ -375,7 +375,7 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
           "State the minimum-age and contracting-capacity requirement, and the account holder's registration-accuracy, contact-currency, and credential-security duties.",
         decisionRefs: [],
         productTruthRefs: [
-          "bounded-contexts/auth/features/registration/ui/register-page.tsx:60-66,158-176",
+          "bounded-contexts/auth/features/registration/ui/register-page.tsx:67-73,137-195,417-582",
           "bounded-contexts/auth/support/api-support/registration-gates.ts:21-25,58-84",
           "bounded-contexts/identity/features/api-keys/domain/domain.ts",
         ],
@@ -387,7 +387,7 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
           {
             assertion: "No age or date-of-birth field exists in the registration form or API today.",
             evidenceRef:
-              "bounded-contexts/auth/features/registration/ui/register-page.tsx:60-66; bounded-contexts/auth/support/api-support/register-routes.ts:36-58",
+              "bounded-contexts/auth/features/registration/ui/register-page.tsx:67-73,137-195,417-582; bounded-contexts/auth/support/api-support/register-routes.ts:36-58",
           },
           {
             assertion: "Registration may be gated by invitation, waitlist, or disposable-email screening.",
@@ -531,7 +531,7 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
         productTruthRefs: [
           "bounded-contexts/identity/features/consents/domain/domain.ts:29-73",
           "bounded-contexts/identity/features/consents/api/route.ts:49-101",
-          "bounded-contexts/auth/features/registration/ui/register-page.tsx:130-175,281-330",
+          "bounded-contexts/auth/features/registration/ui/register-page.tsx:137-195,283-324,417-582",
         ],
         openQuestions: [
           "Gap confirmed by #5685: registration today captures identity/authentication consent but not the affirmative electronic-delivery disclosure set (paper-copy right, withdrawal, scope, hardware/software requirements, access confirmation) described in this subject. Per #5686's instruction, this subject drafts the target flow rather than only the shipped state; the implementation gap is tracked at #5900 and must land, with the disclosure copy and delivery point reviewed by counsel, before this subject can be marked counsel-approved and published.",

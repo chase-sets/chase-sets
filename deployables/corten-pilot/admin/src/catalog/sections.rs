@@ -11,15 +11,18 @@
 //! refusal. Which fields a section has, their values, options and whether each may be edited come
 //! from the read model, so the form is drawn from it rather than written here.
 //!
+//! Each form carries its section's revision as the page read it (`sectionFingerprint`), and the save
+//! sends it as `If-Match`: the API refuses a save drawn from a revision another save has replaced,
+//! and takes one after a change to another section.
+//!
 //! Workaround, to remove when its issue lands: chase-sets/chase-sets#11074. The section command takes
 //! the whole section, so the save reads the version's authoring model
 //! (`GET .../provider-profiles/{key}/{version}/authoring`) and merges the posted fields over the
 //! stored ones as admin-web's `profileSectionCommandFromFormData` does, with its defaults and fixed
 //! values (fixtures never call the provider live, promotion is always reviewed, a retired profile is
-//! removed once its executable mapping contract is active, and the rest named in that issue). There
-//! is no revision check, as there. One difference, as the validation readiness' evidence form has
-//! (chase-sets/chase-sets#11068): migration evidence's text is never filled with admin-web's fixed
-//! sentence, which would satisfy activation; a blank one is sent blank, for the API to refuse.
+//! removed once its executable mapping contract is active, and the rest named in that issue).
+//! Migration evidence is not merged: it sends only the text and the fixture run, and Catalog stamps
+//! the rest (chase-sets/chase-sets#11068).
 use std::collections::BTreeMap;
 
 use corten::{
@@ -31,7 +34,7 @@ use serde_json::{Map, Value, json};
 
 use super::{
     api::{Catalog as _, Kind, under},
-    command, daily,
+    command_at, daily,
     provider::{self, Done, again, answer},
 };
 use crate::{
@@ -65,6 +68,8 @@ pub struct Workspace {
     pub dirty_state: String,
     pub stale_state: String,
     pub save_outcome: String,
+    /// The section's revision as the page read it, which its save is checked against.
+    pub section_fingerprint: String,
     pub fields: Vec<Field>,
     pub diagnostics: Vec<Diagnostic>,
     pub semantic_change_count: u64,
@@ -123,6 +128,9 @@ pub const EDITABLE: [&str; 15] = [
 
 /// The version the form is for; the hidden field every section form carries.
 pub const PROFILE_VERSION: &str = "profileVersion";
+
+/// The section's revision as the page read it; the other hidden field every section form carries.
+pub const SECTION_FINGERPRINT: &str = "sectionFingerprint";
 
 /// What a section form posted: each field it sent, by name. A field the form left out (disabled, or
 /// a checkbox not checked) is missing, which keeps the stored value; one sent blank is blank.
@@ -435,21 +443,12 @@ pub fn section_command(profile: &Value, section: &str, form: &Posted) -> Option<
             command.insert("retirementPlan".into(), plan);
         }
         "migration-evidence" => {
-            let stored = record(get("migrationEvidence"));
-            let mut evidence = stored.cloned().unwrap_or_default();
-            let kept = |key: &str| stored.and_then(|s| s.get(key)).filter(|v| !v.is_null());
-            // Sent as typed, never admin-web's fixed sentence (chase-sets/chase-sets#11068).
-            let typed = form.get("migrationEvidenceText").map(|v| Value::String(v.trim().to_owned()));
-            evidence.insert("evidenceText".into(), typed.or_else(|| kept("evidenceText").cloned()).unwrap_or_else(|| "".into()));
-            for (field, name) in [
-                ("fixtureRunId", "migrationFixtureRunId"),
-                ("mappingFingerprintBefore", "migrationFingerprintBefore"),
-                ("mappingFingerprintAfter", "migrationFingerprintAfter"),
-            ] {
-                evidence.insert(field.into(), nullable(form, name, kept(field)));
-            }
-            let recorded = sent(form, "migrationRecordedAt").or_else(|| kept("recordedAt").cloned());
-            evidence.insert("recordedAt".into(), recorded.unwrap_or_else(|| "1970-01-01T00:00:00.000Z".into()));
+            // Only what the operator wrote; Catalog refuses a blank text and stamps the time, the
+            // author and the fingerprints itself (chase-sets/chase-sets#11068).
+            let mut evidence = Map::new();
+            let typed = form.get("migrationEvidenceText").map(|v| v.trim().to_owned()).unwrap_or_default();
+            evidence.insert("evidenceText".into(), Value::String(typed));
+            evidence.insert("fixtureRunId".into(), sent(form, "migrationFixtureRunId").unwrap_or(Value::Null));
             command.insert("migrationEvidence".into(), Value::Object(evidence));
         }
         _ => return None,
@@ -499,7 +498,9 @@ pub(crate) async fn save(
         return again(&req, &staff, &config, &headers, &route.key, &context, super::not_offered(req.t())).await;
     };
     let rest = format!("/provider-profiles{}", under(&route.key, &[&version, "sections", section]));
-    let sent = command(&caller, Method::PATCH, Kind::SourceObservations, &rest, Some(&json!({ "command": command_body }))).await;
+    let revision = form.get(SECTION_FINGERPRINT).map_or("", |v| v.trim());
+    let body = json!({ "command": command_body });
+    let sent = command_at(&caller, Method::PATCH, Kind::SourceObservations, &rest, &body, revision).await;
     let changes = [("profileVersion", Some(version.as_str()))];
     answer(&req, &staff, &config, &headers, &route.key, &context, sent, &changes, Done::SectionSaved).await
 }
@@ -609,14 +610,21 @@ mod tests {
     }
 
     #[test]
-    fn migration_evidence_is_sent_as_typed_never_admin_webs_sentence() {
+    fn migration_evidence_sends_only_what_the_operator_wrote() {
         let command = section_command(&json!({}), "migration-evidence", &posted(&[("migrationEvidenceText", "  ")])).unwrap();
-        assert_eq!(command["migrationEvidence"]["evidenceText"], "");
-        assert_eq!(command["migrationEvidence"]["fixtureRunId"], Value::Null);
+        assert_eq!(
+            command["migrationEvidence"],
+            json!({ "evidenceText": "", "fixtureRunId": null }),
+            "blank is the API's to refuse"
+        );
         let stored = json!({ "migrationEvidence": { "evidenceText": "Replayed.", "recordedAt": "2026-11-01T00:00:00Z" } });
-        let kept = section_command(&stored, "migration-evidence", &posted(&[])).unwrap();
-        assert_eq!(kept["migrationEvidence"]["evidenceText"], "Replayed.");
-        assert_eq!(kept["migrationEvidence"]["recordedAt"], "2026-11-01T00:00:00Z");
+        let posted = posted(&[("migrationEvidenceText", " Replayed again. "), ("migrationFixtureRunId", "run_2")]);
+        let command = section_command(&stored, "migration-evidence", &posted).unwrap();
+        assert_eq!(
+            command["migrationEvidence"],
+            json!({ "evidenceText": "Replayed again.", "fixtureRunId": "run_2" }),
+            "nothing stored is carried forward"
+        );
     }
 
     #[test]

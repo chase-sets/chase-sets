@@ -14,11 +14,9 @@
 //! what it will not take, and the page draws the refusal. admin-web posts both to its route action
 //! with an `_intent`; the pilot gives each its own route.
 //!
-//! Workaround, to remove when its issue lands: chase-sets/chase-sets#11068. The section command takes
-//! the whole evidence object, and its time comes from the client, so the evidence form carries the
-//! decision's fingerprints and the read's `generatedAt` (or the evidence's `recordedAt`) as admin-web's
-//! does. The text is sent as typed: a blank one is refused by the API's own check, where admin-web
-//! would send a fixed sentence in its place.
+//! The evidence command sends only what the operator wrote, the text and the fixture run; Catalog
+//! refuses a blank text and stamps the time, the author and the fingerprints itself
+//! (chase-sets/chase-sets#11068).
 use corten::{
     http::{HeaderMap, Uri},
     prelude::*,
@@ -28,7 +26,7 @@ use serde_json::{Value, json};
 
 use super::{
     api::{Kind, under},
-    command, daily,
+    command, command_at, daily,
     provider::{self, Done, again, answer},
 };
 use crate::{
@@ -249,6 +247,9 @@ pub struct Decision {
     pub blockers: Vec<String>,
     pub save_evidence_state: String,
     pub save_evidence_blockers: Vec<String>,
+    /// Migration evidence's section revision as the page read it, which the evidence save is
+    /// checked against.
+    pub evidence_section_fingerprint: Option<String>,
     pub provider_key: Option<String>,
     pub profile_version: Option<String>,
     pub lifecycle: Option<String>,
@@ -304,36 +305,27 @@ pub struct SelectedScope {
     pub readiness: ScopeReadiness,
 }
 
-/// The evidence form: the version it is for, the text and fixture run typed, and (workaround,
-/// chase-sets/chase-sets#11068) the fingerprints and time admin-web's form carries.
+/// The evidence form: the version it is for, and the text and fixture run typed.
 #[derive(Clone, Debug, Default, Fields)]
 #[serde(default, rename_all = "camelCase")]
 pub struct EvidenceInput {
     pub profile_version: String,
+    pub section_fingerprint: String,
     pub migration_evidence_text: String,
     pub migration_fixture_run_id: String,
-    pub migration_fingerprint_before: String,
-    pub migration_fingerprint_after: String,
-    pub migration_recorded_at: String,
 }
 
 impl EvidenceInput {
     /// The API's section command. The text goes as typed (trimmed), so a blank one is the API's to
-    /// refuse; an empty fixture run or fingerprint is none.
+    /// refuse; an empty fixture run is none.
     pub fn command(&self) -> Value {
-        let some = |value: &str| {
-            let value = value.trim();
-            if value.is_empty() { Value::Null } else { Value::String(value.to_owned()) }
-        };
+        let run = self.migration_fixture_run_id.trim();
         json!({
             "command": {
                 "section": "migration-evidence",
                 "migrationEvidence": {
                     "evidenceText": self.migration_evidence_text.trim(),
-                    "fixtureRunId": some(&self.migration_fixture_run_id),
-                    "mappingFingerprintBefore": some(&self.migration_fingerprint_before),
-                    "mappingFingerprintAfter": some(&self.migration_fingerprint_after),
-                    "recordedAt": self.migration_recorded_at.trim(),
+                    "fixtureRunId": if run.is_empty() { Value::Null } else { Value::String(run.to_owned()) },
                 }
             }
         })
@@ -363,7 +355,8 @@ pub(crate) async fn evidence(
     }
     let caller = config.platform.caller(&headers, config.proto, None);
     let rest = format!("/provider-profiles{}", under(&route.key, &[version, "sections", "migration-evidence"]));
-    let sent = command(&caller, Method::PATCH, Kind::SourceObservations, &rest, Some(&input.command())).await;
+    let revision = input.section_fingerprint.trim();
+    let sent = command_at(&caller, Method::PATCH, Kind::SourceObservations, &rest, &input.command(), revision).await;
     let changes = [("profileVersion", Some(version))];
     answer(&req, &staff, &config, &headers, &route.key, &context, sent, &changes, Done::EvidenceSaved).await
 }
@@ -397,18 +390,14 @@ mod tests {
     fn the_evidence_command_sends_the_text_as_typed_and_empty_values_as_none() {
         let input = EvidenceInput {
             profile_version: "2026.07.13".into(),
+            section_fingerprint: "sha256:migration-evidence-read".into(),
             migration_evidence_text: "  Replayed the changed fixtures.  ".into(),
             migration_fixture_run_id: " ".into(),
-            migration_fingerprint_before: "fp_a".into(),
-            migration_fingerprint_after: String::new(),
-            migration_recorded_at: "2026-11-05T12:00:00.000Z".into(),
         };
         assert_eq!(
             input.command(),
             json!({ "command": { "section": "migration-evidence", "migrationEvidence": {
-                "evidenceText": "Replayed the changed fixtures.", "fixtureRunId": null,
-                "mappingFingerprintBefore": "fp_a", "mappingFingerprintAfter": null,
-                "recordedAt": "2026-11-05T12:00:00.000Z" } } })
+                "evidenceText": "Replayed the changed fixtures.", "fixtureRunId": null } } })
         );
         let blank = EvidenceInput { migration_evidence_text: "   ".into(), ..input };
         assert_eq!(blank.command()["command"]["migrationEvidence"]["evidenceText"], "", "the API's to refuse, not replaced");

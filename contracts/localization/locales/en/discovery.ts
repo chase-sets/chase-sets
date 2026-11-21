@@ -1,4 +1,13 @@
 export const discoveryEnglishTranslations = {
+  "discovery.features.search.ui.agentProductCards.loading": "Loading products",
+  "discovery.features.search.ui.agentProductCards.malformed": "Product results could not be displayed",
+  "discovery.features.search.ui.agentProductCards.error": "Chase Sets could not load the products",
+  "discovery.features.search.ui.agentProductCards.empty": "No matching products",
+  "discovery.features.search.ui.agentProductCards.empty.description":
+    "Try another search to find products on Chase Sets.",
+  "discovery.features.search.ui.agentProductCards.open": "View on Chase Sets",
+  "discovery.features.search.ui.agentProductCards.open.error": "The product page could not be opened",
+  "discovery.features.search.ui.agentProductCards.priceFrom": "From {price}",
   "discovery.routes.itemDetail.checkout.closed":
     "Buying opens at public launch. You can keep browsing and adding items to your Buy Cart.",
   "discovery.features.home.ui.homeMerchandising.browse.all.new.arrivals": "Browse all new arrivals",
@@ -1208,6 +1217,7 @@ export const discoveryEnglishTranslations = {
   "discovery.routes.publicListing.report.reason.prohibited": "Prohibited item",
   "discovery.routes.publicListing.report.reason.stolenPhotos": "Stolen photos",
   "discovery.routes.publicListing.report.received": "Thanks. We received your report, and we will review this listing.",
+  "discovery.routes.publicListing.report.repeat": "You have already reported this listing. We will review it.",
   "discovery.routes.publicListing.report.submit": "Report listing",
   "discovery.routes.publicListing.report.title": "Report Listing",
   "discovery.features.browse.api.route.set.not.found": "Set not found.",

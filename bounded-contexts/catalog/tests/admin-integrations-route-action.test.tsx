@@ -260,7 +260,17 @@ function ReceiptActionRouteHarness({
             languageEditions: ["en"],
             updatedAt: "2026-11-06T00:00:00Z",
           },
-          languageEditionAliasReview: aliasReviewReadModel(),
+          languageEditions: null,
+          journeyOverview: {
+            scopeRecordId,
+            condition: "ready",
+            stages: [],
+            editionCount: 1,
+            linkedEditionCount: 1,
+            pendingCandidateCount: 0,
+            promotionReadiness: "live",
+            syncFreshness: "fresh",
+          },
           journey,
         }
       : journey,
@@ -2300,6 +2310,7 @@ describe("Catalog integrations route", () => {
       importScope: "en:3:base:base1",
       profileVersion: "2026.06.04-draft",
       sectionKey: "basics",
+      sectionFingerprint: "sha256:basics-read",
       displayName: "TCGdex Pokemon cards draft",
       lifecycle: "draft",
       status: "planned",
@@ -2310,6 +2321,7 @@ describe("Catalog integrations route", () => {
       promotionPreviewId: "preview-stale",
     });
 
+    // The save carries the revision the form was drawn from, so Catalog can refuse a newer one.
     expect(updateSourceObservationProviderProfileSection).toHaveBeenCalledWith(
       "tcgdex",
       "2026.06.04-draft",
@@ -2322,6 +2334,7 @@ describe("Catalog integrations route", () => {
         capabilities: ["source-observation-import", "catalog-item-promotion"],
         languageOptions: ["en", "fr"],
       }),
+      "sha256:basics-read",
     );
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toContain("/catalog/providers/tcgdex");
@@ -2366,6 +2379,7 @@ describe("Catalog integrations route", () => {
         importScope: "en:3:base:base1",
         profileVersion: "2026.06.04",
         sectionKey: "migration-evidence",
+        sectionFingerprint: "sha256:migration-evidence-read",
         migrationEvidenceText: "Dry-run and replay evidence reviewed for the activation decision.",
         migrationFixtureRunId: "fixture-run-1037",
         migrationFingerprintBefore: "sha256:active-mapping",
@@ -2376,20 +2390,20 @@ describe("Catalog integrations route", () => {
       "https://admin.example/catalog/providers/tcgdex?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04",
     );
 
+    // Only what the operator wrote: Catalog stamps the time, author and fingerprints,
+    // so the form's stale copies of them are not sent.
     expect(updateSourceObservationProviderProfileSection).toHaveBeenCalledWith(
       "tcgdex",
       "2026.06.04",
       "migration-evidence",
-      expect.objectContaining({
+      {
         section: "migration-evidence",
-        migrationEvidence: expect.objectContaining({
+        migrationEvidence: {
           evidenceText: "Dry-run and replay evidence reviewed for the activation decision.",
           fixtureRunId: "fixture-run-1037",
-          mappingFingerprintBefore: "sha256:active-mapping",
-          mappingFingerprintAfter: "sha256:candidate-mapping",
-          recordedAt: "2026-06-11T00:00:00.000Z",
-        }),
-      }),
+        },
+      },
+      "sha256:migration-evidence-read",
     );
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toContain("/catalog/providers/tcgdex");
@@ -2411,6 +2425,46 @@ describe("Catalog integrations route", () => {
         detourTarget: "profile-authoring",
         detourOutcome: "returned",
       }),
+    );
+  });
+
+  it("sends a blank migration evidence text blank for Catalog to refuse", async () => {
+    const getSourceObservationProviderProfileAuthoringModel = vi.fn().mockResolvedValue(
+      profileAuthoringModel({
+        review: profileReview({
+          profileVersion: "2026.06.04",
+          migrationEvidence: { evidenceText: "Earlier evidence.", recordedAt: "2026-06-01T00:00:00.000Z" },
+        }),
+      }),
+    );
+    const updateSourceObservationProviderProfileSection = vi.fn().mockResolvedValue({
+      providerKey: "tcgdex",
+      profileKey: "tcgdex-pokemon-card",
+      profileVersion: "2026.06.04",
+    });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      getSourceObservationProviderProfileAuthoringModel,
+      updateSourceObservationProviderProfileSection,
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+
+    await runProviderDetailAction(
+      {
+        _intent: "provider-profile.edit-section",
+        providerKey: "tcgdex",
+        profileVersion: "2026.06.04",
+        sectionKey: "migration-evidence",
+        migrationEvidenceText: "   ",
+      },
+      "https://admin.example/catalog/providers/tcgdex?providerKey=tcgdex&profileVersion=2026.06.04",
+    );
+
+    expect(updateSourceObservationProviderProfileSection).toHaveBeenCalledWith(
+      "tcgdex",
+      "2026.06.04",
+      "migration-evidence",
+      { section: "migration-evidence", migrationEvidence: { evidenceText: "", fixtureRunId: null } },
+      "",
     );
   });
 
@@ -2694,7 +2748,8 @@ describe("Catalog integrations route", () => {
     const updateSourceObservationProviderProfileSection = vi
       .fn()
       .mockRejectedValueOnce(new CatalogApiError(409, { error: { code: "stale" } }))
-      .mockRejectedValueOnce(new CatalogApiError(400, { error: { code: "invalid" } }));
+      .mockRejectedValueOnce(new CatalogApiError(400, { error: { code: "invalid" } }))
+      .mockRejectedValueOnce(new CatalogApiError(428, { error: { code: "profile_section_fingerprint_required" } }));
     mockCreateCatalogRequestApiClient.mockReturnValue({
       getSourceObservationProviderProfileAuthoringModel,
       updateSourceObservationProviderProfileSection,
@@ -2720,8 +2775,20 @@ describe("Catalog integrations route", () => {
       fixtureSetVersion: "tcgdex-proof-v1",
     });
 
+    // A form drawn before it carried a revision is stale in the same way.
+    const unrevisedResponse = await runProviderDetailAction({
+      _intent: "provider-profile.edit-section",
+      providerKey: "tcgdex",
+      profileVersion: "2026.06.04-draft",
+      sectionKey: "source-contract",
+      sourceOwner: "chase-sets/catalog",
+      sourceDocumentPath: "bounded-contexts/catalog/docs/provider-integration-profiles.md",
+      fixtureSetVersion: "tcgdex-proof-v1",
+    });
+
     expect(conflictResponse.headers.get("Location")).toContain("commandResult=section-conflict");
     expect(conflictResponse.headers.get("Location")).toContain("commandSection=source-contract");
+    expect(unrevisedResponse.headers.get("Location")).toContain("commandResult=section-conflict");
     expect(invalidResponse.headers.get("Location")).toContain("commandResult=section-invalid");
     expect(invalidResponse.headers.get("Location")).toContain("commandSection=source-contract");
   });

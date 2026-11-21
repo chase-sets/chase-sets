@@ -11,6 +11,8 @@ export const marketplaceEnglishTranslations = {
   "marketplace.reviewRecovery.changedRequest": "This attempt was used for a different request.",
   "marketplace.reviewRecovery.reportNotSent": "The report was not sent. Reload the form before submitting.",
   "marketplace.reviewRecovery.reportFailed": "The report could not be submitted.",
+  "marketplace.reviewRecovery.reportLimited":
+    "You have sent several reports in a short time. Try again in a few minutes.",
   "marketplace.recovery.receiptMismatch": "Attempt receipt does not match the first result.",
   "marketplace.recovery.acceptanceBindingInvalid": "Invalid Offer acceptance binding.",
   "marketplace.recovery.acceptanceBindingUnexpected": "Unexpected acceptance binding.",
@@ -395,15 +397,28 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.ui.listingListPage.availability.unavailable.description":
     "Active listings are hidden from buyer flows. Reason: {reason}. Planned return: {date}.",
   "marketplace.features.listings.ui.listingListPage.available.again.on": "Available again on",
+  "marketplace.features.listings.ui.listingListPage.away.end": "End Away",
+  "marketplace.features.listings.ui.listingListPage.away.offers.available": "Offers visible",
+  "marketplace.features.listings.ui.listingListPage.away.offers.keep.date":
+    "Leave blank to keep your Offers' current return date.",
+  "marketplace.features.listings.ui.listingListPage.away.offers.preview":
+    "Your submitted Offers will be hidden from sellers. Your Listings stay visible.",
+  "marketplace.features.listings.ui.listingListPage.away.offers.reason.with.return.date": "{reason} · {date}",
+  "marketplace.features.listings.ui.listingListPage.away.offers.unavailable": "Offers away",
+  "marketplace.features.listings.ui.listingListPage.away.scope.both": "Listings and Offers",
+  "marketplace.features.listings.ui.listingListPage.away.scope.label": "What does Away cover?",
+  "marketplace.features.listings.ui.listingListPage.away.scope.listings": "Listings",
+  "marketplace.features.listings.ui.listingListPage.away.scope.offers": "Offers",
+  "marketplace.features.listings.ui.listingListPage.away.start": "Go Away",
   "marketplace.features.listings.ui.listingListPage.away.window": "Away window",
   "marketplace.features.listings.ui.listingListPage.away.window.description":
-    "Book time off in advance. Listings turn off automatically when the window starts and back on when it ends.",
+    "Book time off in advance. The selected Listings or Offers will be hidden at the start and shown again at the end.",
   "marketplace.features.listings.ui.listingListPage.away.window.ends.on": "Ends on",
   "marketplace.features.listings.ui.listingListPage.away.window.scheduled.description":
     "Scheduled away for {reason} starting {startDate}. Returning {endDate}.",
   "marketplace.features.listings.ui.listingListPage.away.window.starts.on": "Starts on",
   "marketplace.features.listings.ui.listingListPage.away.window.unavailable.while.away":
-    "Scheduling a new away window requires listings to currently be available. Update your away settings above instead.",
+    "End Away before scheduling a new window, or update your current Away settings above.",
   "marketplace.features.listings.ui.listingListPage.cancel.away.window": "Cancel scheduled away window",
   "marketplace.features.listings.ui.listingListPage.schedule.away.window": "Schedule away window",
   "marketplace.features.listings.ui.listingListPage.agreement.override": "Agreement override: ",
@@ -789,7 +804,7 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.offers.ui.offerMatchListPage.can.fulfill": "Can fulfill",
   "marketplace.features.offers.ui.offerMatchListPage.checkout.sell.list": "Checkout Sell List",
   "marketplace.features.offers.ui.offerMatchListPage.compare.best.offers.to.your.listing":
-    "Compare each best buyer offer against your active listing price and decide whether the gap is worth accepting.",
+    "Compare each best buyer offer against your active listing price, or the inventory you could list, and decide whether it is worth accepting.",
   "marketplace.features.offers.ui.offerMatchListPage.decline": "Decline",
   "marketplace.features.offers.ui.offerMatchListPage.inventory": "Inventory",
   "marketplace.features.offers.ui.offerMatchListPage.item": "Item",
@@ -803,7 +818,7 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.offers.ui.offerMatchListPage.offer.matches": "Offer Matches",
   "marketplace.features.offers.ui.offerMatchListPage.offer.matches.2": "Offer Matches",
   "marketplace.features.offers.ui.offerMatchListPage.offer.matches.appear.here.when.submitted":
-    "Offer matches appear here when submitted offers match products you actively list.",
+    "Offer matches appear here when submitted offers match products you actively list or hold in inventory.",
   "marketplace.features.offers.ui.offerMatchListPage.offer.match.health": "Offer match health",
   "marketplace.features.offers.ui.offerMatchListPage.offer.match.health.description":
     "Scan available demand, fulfillment readiness, and queued seller decisions before accepting offers.",
@@ -844,12 +859,18 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.offers.ui.offerMatchListPage.status": "Status",
   "marketplace.features.offers.ui.offerMatchListPage.updated": "Updated",
   "marketplace.features.offers.ui.offerMatchListPage.view.listings": "View listings",
-  "marketplace.features.offers.ui.offerMatchListPage.your.listing": "Your Listing",
+  "marketplace.features.offers.ui.offerMatchListPage.your.listing": "Your Listing or inventory",
   "marketplace.features.offers.ui.price.incomplete": "Price incomplete",
   "marketplace.features.offers.ui.priceGap.below.ask": "{amount} below ask",
   "marketplace.features.offers.ui.priceGap.meets.ask": "Meets ask",
   "marketplace.features.offers.ui.priceGap.over.ask": "{amount} over ask",
   "marketplace.features.offers.ui.priceGap.unknown": "Ask gap unavailable",
+  "marketplace.features.offers.ui.matchSource.from.listing": "From Listing",
+  "marketplace.features.offers.ui.matchSource.from.inventory": "From inventory",
+  "marketplace.features.offers.ui.matchSource.inventory.quantity": "{quantity} in inventory",
+  "marketplace.features.offers.ui.matchSource.list.to.fill.offer": "List to fill this Offer",
+  "marketplace.features.offers.ui.matchSource.not.enough.stock": "Not enough stock",
+  "marketplace.features.offers.ui.matchSource.list.before.responding": "List this item to accept or decline the Offer.",
   "marketplace.features.offers.ui.offerDetailRecoveryPage.no.payment.or.sale.changed":
     "No payment or sale changed while these offer details finish updating.",
   "marketplace.features.offers.ui.offerDetailRecoveryPage.recover.offer": "Recover offer details",
@@ -877,6 +898,7 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.offers.ui.submittedOfferDetailPage.this.submitted.offer.is.marketplace.wide":
     "This submitted offer is marketplace-wide. Accounts can review it when they publish matching active supply.",
   "marketplace.features.offers.ui.submittedOfferListPage.actions": "Actions",
+  "marketplace.features.offers.ui.submittedOfferListPage.away": "Away",
   "marketplace.features.offers.ui.submittedOfferListPage.browse.marketplace": "Browse marketplace",
   "marketplace.features.offers.ui.submittedOfferListPage.item": "Item",
   "marketplace.features.offers.ui.submittedOfferListPage.no.seller.feedback.yet": "No account feedback yet",
@@ -991,7 +1013,7 @@ export const marketplaceEnglishTranslations = {
   "marketplace.routes.accountOfferMatches.offer.matches.marketplace": "Offer Matches | Marketplace",
   "marketplace.routes.accountOfferMatches.request.failed": "Request failed.",
   "marketplace.routes.accountOfferMatches.review.offer.matches.against.your.active":
-    "Review offer matches against your active listings.",
+    "Review offer matches against your active listings and inventory.",
   "marketplace.routes.accountOffersSubmitted.submitted.offers.marketplace": "Submitted Offers | Marketplace",
   "marketplace.routes.accountOffersSubmitted.track.offers.you.have.submitted.against":
     "Track offers you have submitted against marketplace inventory.",
@@ -1055,6 +1077,8 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listingEvidencePolicy.ui.hash": "Policy hash",
   "marketplace.features.listingEvidencePolicy.ui.effective.from": "Effective from",
   "marketplace.features.listingEvidencePolicy.ui.effective.until": "Effective until",
+  "marketplace.features.listingEvidencePolicy.ui.effective.invalid":
+    "Enter each effective time as a date and time. The policy was not activated.",
   "marketplace.features.listingEvidencePolicy.ui.effective.required":
     "Choose a valid effective time before activation.",
   "marketplace.features.listingEvidencePolicy.ui.open.ended": "Open ended",

@@ -6708,6 +6708,7 @@ function syntheticPreviewProbeProfile(
     migrationEvidence: null,
     authoringAudit: null,
     validation: { status: "valid", diagnostics: [] },
+    sectionFingerprints: {} as SyntheticPreviewProbeReview["sectionFingerprints"],
     ...overrides,
   };
 }
@@ -7998,6 +7999,8 @@ async function submitBatchCommand(
   for (const [name, value] of Object.entries(fields)) {
     form = form.filter({ has: page.locator(`input[name=${cssString(name)}][value=${cssString(value)}]`) });
   }
+  // The batch DataTable renders a desktop and a mobile copy; act on the one shown.
+  form = form.filter({ visible: true });
   await expect(form).toHaveCount(1, { timeout: pageReadyTimeoutMs });
   assertWholeGameOrigin(page.url());
   const [response] = await Promise.all([

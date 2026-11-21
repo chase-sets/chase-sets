@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import ts from "@chase-sets/typescript-compiler-api";
 import {
@@ -48,8 +49,11 @@ function violationFor(relativeFile, content, manifest = baseManifest) {
 describe("route support placement guard", () => {
   it("preserves ordinary R99 candidate acceptance and the exact stopped Settlement fresh-CREATE refusal", () => {
     const accountFile =
-      "../../bounded-contexts/settlement/features/wallets/integrations/account-risk-source/account-risk-source-schema.ts";
-    const candidate = readFileSync(new URL(accountFile, import.meta.url), "utf8").replace(/\r\n/g, "\n");
+      "bounded-contexts/settlement/features/wallets/integrations/account-risk-source/account-risk-source-schema.ts";
+    const candidate = execFileSync("git", ["show", `95deea24538aaefde33d276b07afe2926d3475b8:${accountFile}`], {
+      cwd: fileURLToPath(new URL("../../", import.meta.url)),
+      encoding: "utf8",
+    });
     const digest = (value) => createHash("sha256").update(value, "utf8").digest("hex");
     const parsed = ts.createSourceFile(accountFile, candidate, ts.ScriptTarget.Latest, true);
     const ledger = parsed.statements
@@ -57,17 +61,20 @@ describe("route support placement guard", () => {
       .flatMap((statement) => statement.declarationList.declarations)
       .find((node) => node.name.getText(parsed) === "settlementAccountRiskSourceSchemaMigrations")?.initializer;
     expect(ledger && ts.isAsExpression(ledger) && ts.isArrayLiteralExpression(ledger.expression)).toBe(true);
-    const last = ledger.expression.elements.at(-1);
-    const baseSource = `${candidate.slice(0, last.getFullStart())}\n] as const;\n`;
-    const stopped = candidate.replace(
+    const revision = ledger.expression.elements.at(-2);
+    const hold = ledger.expression.elements.at(-1);
+    const baseSource = `${candidate.slice(0, revision.getFullStart())}\n] as const;\n`;
+    const revisionSource = `${candidate.slice(0, hold.getFullStart())}\n] as const;\n`;
+    const stopped = revisionSource.replace(
       "  account_id text PRIMARY KEY,",
       "  account_id text PRIMARY KEY,\n  revision bigint NOT NULL DEFAULT 0,",
     );
-    expect(digest(candidate)).toBe("47c64402367e57c6f9bca8fc4aafcc7483aee1849e71ad2cce5ee12d7e4e36b5");
+    expect(digest(candidate)).toBe("af2f9f9e83057747ef49bad4ed66f44018c2bb94299c15166074aca41518464d");
+    expect(digest(revisionSource)).toBe("47c64402367e57c6f9bca8fc4aafcc7483aee1849e71ad2cce5ee12d7e4e36b5");
     expect(digest(baseSource)).toBe("a1de72122075c49e538ddf87e471c3ca29e3fb3775bd17a84041a5f49d24e610");
     // Exact LF bytes of the stopped 77ea12e schema, not a coarser synthetic SQL example.
     expect(digest(stopped)).toBe("c0d4c4dfd3a81a360336334e3f7f7ffb397bad3ebca065b1b43039bddec877ea");
-    for (const currentSource of [candidate, stopped]) {
+    for (const currentSource of [revisionSource, candidate, stopped]) {
       const convergence = findBootSchemaLedgerConvergenceViolations({ baseSource, currentSource });
       const refused = findBootSchemaRetainedUpgradeViolations({ baseSource, currentSource });
       expect(convergence).toEqual([]);
@@ -76,6 +83,12 @@ describe("route support placement guard", () => {
         `SETTLEMENT_R99_CONTROL ${currentSource === stopped ? "stopped-77ea12e" : "candidate"} convergence=${convergence.length} refusals=${refused.length}`,
       );
     }
+    expect(findBootSchemaLedgerConvergenceViolations({ baseSource: revisionSource, currentSource: candidate })).toEqual(
+      [],
+    );
+    expect(findBootSchemaRetainedUpgradeViolations({ baseSource: revisionSource, currentSource: candidate })).toEqual(
+      [],
+    );
   });
 
   it("publishes the Settlement risk reader only through the admitted server surface", async () => {

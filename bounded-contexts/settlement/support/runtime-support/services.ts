@@ -21,6 +21,8 @@ import { createPayoutRuntime } from "../../features/payouts/api/runtime";
 import { createPayoutReadinessRuntime } from "../../features/payout-readiness/api/runtime";
 import { createLiabilityReconciliationRuntime } from "../../features/liability-reconciliation/api/runtime";
 import { createAccountLinkageRuntime } from "../../features/wallets/api/account-linkage-runtime";
+import { createPayoutReviewHoldRuntime } from "../../features/wallets/api/payout-review-hold-runtime";
+import type { CommittedManualPayoutReviewBadgeReader } from "../../features/wallets/integrations/account-risk-source/payout-review-hold-migration";
 import type { MoneyMovementGateway } from "@chase-sets/money-movement";
 import { createNoopSettlementOperationsRecorder, type SettlementOperationsRecorder } from "./operations";
 import type { PayoutDestinationFrictionPolicy, SensitiveActionVerifier } from "../../features/payouts/api/runtime";
@@ -46,6 +48,7 @@ export type SettlementHostPorts = Readonly<{
   sensitiveActionVerifier?: SensitiveActionVerifier;
   webhookTelemetry?: ProviderWebhookTelemetry;
   marketplaceLabelPostageActivation?: MarketplaceLabelPostageActivation;
+  readCommittedManualPayoutReviewBadge?: CommittedManualPayoutReviewBadgeReader;
 }>;
 
 export type SettlementServices = Readonly<{
@@ -58,9 +61,11 @@ export type SettlementServices = Readonly<{
   payoutReadiness: ReturnType<typeof createPayoutReadinessRuntime>;
   liabilityReconciliation: ReturnType<typeof createLiabilityReconciliationRuntime>;
   accountLinkage: ReturnType<typeof createAccountLinkageRuntime>;
+  payoutReviewHold: ReturnType<typeof createPayoutReviewHoldRuntime>;
   /** The shared platform-policy runtime, mounted for this context's `definePolicy` documents. */
   policies: PolicyRuntime;
   marketplaceLabelPostageActivation?: MarketplaceLabelPostageActivation;
+  readCommittedManualPayoutReviewBadge?: CommittedManualPayoutReviewBadgeReader;
   projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
   db: PgQueryable;
@@ -145,6 +150,7 @@ export function createSettlementServices(
   });
   const liabilityReconciliation = createLiabilityReconciliationRuntime({ db, moneyMovementGateway });
   const accountLinkage = createAccountLinkageRuntime({ eventStore, db, policies });
+  const payoutReviewHold = createPayoutReviewHoldRuntime({ eventStore });
 
   return {
     wallets,
@@ -156,6 +162,8 @@ export function createSettlementServices(
     payoutReadiness,
     liabilityReconciliation,
     accountLinkage,
+    payoutReviewHold,
+    readCommittedManualPayoutReviewBadge: ports.readCommittedManualPayoutReviewBadge,
     policies,
     ...(ports.marketplaceLabelPostageActivation
       ? { marketplaceLabelPostageActivation: ports.marketplaceLabelPostageActivation }

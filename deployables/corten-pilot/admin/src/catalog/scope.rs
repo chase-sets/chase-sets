@@ -11,9 +11,10 @@
 //! | `POST /catalog/scopes/{id}/publish` | Confirm canonical record |
 //! | `POST /catalog/scopes/{id}/aliases` | an edition's alias candidate: accept, reject, revoke or defer |
 //!
-//! The scope is the page's one required read; the coverage, the jobs and the alias review are
-//! read with it, and each failed one is a banner in its own section, as admin-web's loader degrades
-//! them. Every write is a form that works without JavaScript and answers with the page after it
+//! The scope, with its language editions and journey as the Catalog API composes them, is the
+//! page's one required read; the coverage and the jobs are read with it, and each failed one is a
+//! banner in its own section, as admin-web's loader degrades them. An alias review the API could not
+//! read is the journey's partial failure. Every write is a form that works without JavaScript and answers with the page after it
 //! (its receipt and the toast), or the page again with the API's refusal (422).
 //!
 //! The import-to-promotion section is the daily workbench's surface for the scope
@@ -34,7 +35,12 @@ use serde_json::{Value, json};
 
 use super::{
     Sent,
-    api::{AliasCandidate, AliasReview, Catalog as _, Coverage, Kind, ReviewJob, ReviewJobs, ScopeRecord, Written, under},
+    api::{
+        AliasCandidate, Catalog as _, Coverage, EditionLinkState, EditionSummary, JourneyCondition, JourneyOverview,
+        JourneyStage, JourneyStageKey, JourneyStageStatus, Kind, ReviewJob, ReviewJobs, ScopeJourney, ScopeRecord, Written,
+        under,
+    },
+    attention::AliasDone,
     command,
     daily::Opened,
     manages, receipt,
@@ -184,9 +190,8 @@ pub mod url {
 use url::{AliasCommand, MappingInput, ProposeInput, ScopeAt, ScopeDone, Via};
 
 impl ScopeDone {
-    /// The toast: admin-web's words for the coverage, the pilot's for an alias (admin-web says
-    /// "Command queued" for each, chase-sets/chase-sets#10702).
-    pub fn notice(self, t: Cat, p: Pilot, count: u32) -> String {
+    /// The toast: admin-web's words for what the command did.
+    pub fn notice(self, t: Cat, count: u32) -> String {
         match self {
             ScopeDone::MappingAccepted => t.coverage_mapping_accepted().into(),
             ScopeDone::AvailableAccepted => t.coverage_all_available_accepted(count).to_string(),
@@ -195,19 +200,15 @@ impl ScopeDone {
             ScopeDone::MappingProposed => t.coverage_mapping_proposed().into(),
             ScopeDone::MappingProposedAccepted => t.coverage_mapping_proposed_and_accepted().into(),
             ScopeDone::CanonicalConfirmed => t.coverage_canonical_record_confirmed().into(),
-            ScopeDone::AliasAccepted => p.scope_alias_accepted().into(),
-            ScopeDone::AliasRejected => p.scope_alias_rejected().into(),
-            ScopeDone::AliasRevoked => p.scope_alias_revoked().into(),
-            ScopeDone::AliasDeferred => p.scope_alias_deferred().into(),
+            ScopeDone::AliasAccepted => AliasDone::Accepted.title(t).into(),
+            ScopeDone::AliasRejected => AliasDone::Rejected.title(t).into(),
+            ScopeDone::AliasRevoked => AliasDone::Revoked.title(t).into(),
+            ScopeDone::AliasDeferred => AliasDone::Deferred.title(t).into(),
             ScopeDone::Queued => t.feedback_queued_title().into(),
             ScopeDone::Cancelled => t.feedback_cancelled_title().into(),
         }
     }
 }
-
-/// The edition every scope's Reference Record is named in: it needs no alias to be linked
-/// (`CATALOG_SCOPE_CANONICAL_LANGUAGE_CODE`).
-const CANONICAL: &str = "en";
 
 /// Where the whole journey is (`CatalogScopeJourneyCondition`), most pressing first.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, ToJson)]
@@ -337,80 +338,61 @@ pub fn journey_context(query: &str, id: &str) -> String {
     with_query(&with_query(query, &drop), &[(HOME, Some(id))])
 }
 
-/// Workaround for chase-sets/chase-sets#10703: admin-web derives each edition's link state from
-/// the alias review in its web layer (`language-edition-review.ts`), so the pilot repeats it.
-/// The canonical edition first, then the rest in order.
-fn editions(scope: &ScopeRecord, review: &AliasReview) -> Vec<Edition> {
-    let mut codes: Vec<&str> = scope.language_editions.iter().map(String::as_str).collect();
-    codes.sort_by(|a, b| (*a != CANONICAL).cmp(&(*b != CANONICAL)).then(a.cmp(b)));
-    codes.dedup();
-    codes
-        .into_iter()
-        .map(|code| {
-            let canonical = code == CANONICAL;
-            let mine = review.candidates.iter().filter(|c| {
-                c.target_kind == "reference-record"
-                    && c.target_id.as_deref() == Some(scope.reference_record_id.as_str())
-                    && c.alias_language_code == code
-            });
-            let pending: Vec<AliasCandidate> = mine.clone().filter(|c| c.review_status == "pending").cloned().collect();
-            let accepted: Vec<AliasCandidate> =
-                mine.filter(|c| matches!(c.review_status.as_str(), "accepted" | "auto-accepted")).cloned().collect();
-            let link = if canonical || !accepted.is_empty() {
-                Link::Linked
-            } else if !pending.is_empty() {
-                Link::PendingReview
-            } else {
-                Link::NotYetObserved
-            };
-            Edition { language_code: code.to_owned(), canonical, link, pending, accepted }
-        })
-        .collect()
+impl From<EditionSummary> for Edition {
+    fn from(edition: EditionSummary) -> Self {
+        Edition {
+            language_code: edition.language_code,
+            canonical: edition.is_canonical,
+            link: match edition.link_state {
+                EditionLinkState::Linked => Link::Linked,
+                EditionLinkState::PendingReview => Link::PendingReview,
+                EditionLinkState::NotYetObserved => Link::NotYetObserved,
+            },
+            pending: edition.pending_candidates,
+            accepted: edition.accepted_candidates,
+        }
+    }
 }
 
-/// Workaround for chase-sets/chase-sets#10703: the journey (`scope-journey-overview.ts`), from the
-/// scope, its editions and whether their review could be read. Promotion and sync are the API's.
-fn journey(scope: &ScopeRecord, editions: Option<&[Edition]>, review_failed: bool) -> Journey {
-    let count = scope.language_editions.len();
-    // A scope with one edition is its own canonical identity: linked, nothing to review.
-    let (linked, pending) = match editions {
-        Some(editions) => {
-            (editions.iter().filter(|e| e.link == Link::Linked).count(), editions.iter().map(|e| e.pending.len()).sum())
-        }
-        None => (count, 0),
-    };
-    let (promotion, sync) = (scope.promotion_readiness, scope.sync_freshness);
-    let condition = if count == 0 {
-        Condition::Empty
-    } else if review_failed {
-        Condition::PartialFailure
-    } else if matches!(promotion, Promotion::Deprecated | Promotion::Archived) {
-        Condition::Blocked
-    } else if pending > 0 {
-        Condition::Conflict
-    } else if sync == Sync::Stale {
-        Condition::ProjectionLag
-    } else {
-        Condition::Ready
-    };
-    let fresh = sync == Sync::Fresh;
-    let done = |yes: bool, otherwise: StageStatus| if yes { StageStatus::Complete } else { otherwise };
-    let stages = vec![
-        Stage { key: StageKey::Coverage, status: done(count > 0, StageStatus::Current) },
-        Stage { key: StageKey::Sync, status: done(fresh, StageStatus::Current) },
-        // A sync runs the live jobs: a fresh scope ran them lately, a stale one waits for the next.
-        Stage { key: StageKey::Jobs, status: done(fresh, StageStatus::Upcoming) },
-        Stage { key: StageKey::Candidates, status: done(pending == 0, StageStatus::Current) },
+impl From<JourneyStage> for Stage {
+    fn from(stage: JourneyStage) -> Self {
         Stage {
-            key: StageKey::Promotion,
-            status: match promotion {
-                Promotion::Live => StageStatus::Complete,
-                Promotion::Deprecated | Promotion::Archived => StageStatus::Blocked,
-                Promotion::Unpublished => StageStatus::Upcoming,
+            key: match stage.key {
+                JourneyStageKey::Coverage => StageKey::Coverage,
+                JourneyStageKey::Sync => StageKey::Sync,
+                JourneyStageKey::Jobs => StageKey::Jobs,
+                JourneyStageKey::Candidates => StageKey::Candidates,
+                JourneyStageKey::Promotion => StageKey::Promotion,
             },
-        },
-    ];
-    Journey { condition, stages, editions: count, linked, pending, promotion, sync }
+            status: match stage.status {
+                JourneyStageStatus::Complete => StageStatus::Complete,
+                JourneyStageStatus::Current => StageStatus::Current,
+                JourneyStageStatus::Upcoming => StageStatus::Upcoming,
+                JourneyStageStatus::Blocked => StageStatus::Blocked,
+            },
+        }
+    }
+}
+
+impl From<JourneyOverview> for Journey {
+    fn from(overview: JourneyOverview) -> Self {
+        Journey {
+            condition: match overview.condition {
+                JourneyCondition::Empty => Condition::Empty,
+                JourneyCondition::PartialFailure => Condition::PartialFailure,
+                JourneyCondition::Blocked => Condition::Blocked,
+                JourneyCondition::Conflict => Condition::Conflict,
+                JourneyCondition::ProjectionLag => Condition::ProjectionLag,
+                JourneyCondition::Ready => Condition::Ready,
+            },
+            stages: overview.stages.into_iter().map(Stage::from).collect(),
+            editions: overview.edition_count,
+            linked: overview.linked_edition_count,
+            pending: overview.pending_candidate_count,
+            promotion: overview.promotion_readiness,
+            sync: overview.sync_freshness,
+        }
+    }
 }
 
 /// The candidate review jobs (`loadCandidateReviewJobs`): none when any of the three reads failed.
@@ -436,36 +418,34 @@ async fn jobs(caller: &Caller<'_>, id: &str, cursor: Option<&str>) -> Option<Job
     }
 }
 
-/// The page's reads: the scope, its coverage, its jobs and its import-to-promotion section
-/// together, then (with more than one edition) the alias review of its Reference Record.
+/// The page's reads, together: the scope with its editions and journey, its coverage, its jobs and
+/// its import-to-promotion section.
 async fn screen(caller: &Caller<'_>, id: &str, cursor: Option<&str>, query: &str, manage: bool) -> Result<ScopeScreen, ApiError> {
     use crate::catalog::daily::workspace as daily;
     let context = journey_context(query, id);
-    let coverage_at = format!("/coverage{}", under(id, &[]));
-    let (scope, coverage, jobs, workspace) = tokio::join!(
-        caller.get::<ScopeRecord>(Kind::ScopeRecords, id),
+    let (journey_at, coverage_at) = (under(id, &["journey"]), format!("/coverage{}", under(id, &[])));
+    let (journey, coverage, jobs, workspace) = tokio::join!(
+        caller.read_at::<ScopeJourney>(Kind::ScopeRecords, &journey_at),
         caller.read_at::<Coverage>(Kind::ProviderScopeMappings, &coverage_at),
         jobs(caller, id, cursor),
         daily(caller, &context, manage),
     );
-    let scope = scope?;
-    let review = if scope.language_editions.len() <= 1 {
-        None
-    } else {
-        let query = format!("?targetKind=reference-record&targetId={}", segment(&scope.reference_record_id));
-        Some(caller.read_at::<AliasReview>(Kind::AliasReview, &query).await)
-    };
+    let ScopeJourney { scope, language_editions, language_edition_review_failed, overview } = journey?;
+    if language_edition_review_failed {
+        tracing::warn!("the Catalog API could not read a scope's alias review");
+    }
     let coverage = coverage.inspect_err(|error| tracing::warn!("a scope's coverage could not be read: {error}")).ok();
-    let (editions, alias_review_failed) = match review {
-        None => (None, false),
-        Some(Ok(review)) => (Some(editions(&scope, &review)), false),
-        Some(Err(error)) => {
-            tracing::warn!("a scope's alias review could not be read: {error}");
-            (Some(editions(&scope, &AliasReview::default())), true)
-        }
-    };
-    let journey = journey(&scope, editions.as_deref(), alias_review_failed);
-    Ok(ScopeScreen { scope, journey, coverage, jobs, editions, alias_review_failed, context, workspace })
+    let editions = language_editions.map(|review| review.editions.into_iter().map(Edition::from).collect());
+    Ok(ScopeScreen {
+        scope,
+        journey: Journey::from(overview),
+        coverage,
+        jobs,
+        editions,
+        alias_review_failed: language_edition_review_failed,
+        context,
+        workspace,
+    })
 }
 
 fn caller<'a>(config: &'a Shared, headers: &'a HeaderMap, receipt: Option<&'a Receipt>) -> Caller<'a> {
@@ -551,8 +531,8 @@ async fn render(
     if let Some(workspace) = view.workspace.as_mut() {
         workspace.open(opened);
     }
-    let (t, p): (Cat, Pilot) = (req.t(), req.t());
-    let notice = at.done.map(|done| done.notice(t, p, at.count.unwrap_or(0)));
+    let t: Cat = req.t();
+    let notice = at.done.map(|done| done.notice(t, at.count.unwrap_or(0)));
     let status = if matches!(back, ScopeBack::Nothing) { StatusCode::OK } else { StatusCode::UNPROCESSABLE_ENTITY };
     let page = views::scope_page(req, &view, at.jobs.as_deref(), notice, back, manages(viewer));
     let html = html! {
@@ -834,70 +814,76 @@ mod tests {
         }
     }
 
-    #[test]
-    fn editions_put_the_canonical_first_and_link_by_an_accepted_alias_of_this_scope_only() {
-        let review = AliasReview {
-            candidates: vec![
-                candidate("a", "ja", "pending", "ref_1"),
-                candidate("b", "de", "auto-accepted", "ref_1"),
-                candidate("c", "fr", "pending", "ref_other"),
-                candidate("d", "ja", "rejected", "ref_1"),
-            ],
-            ..Default::default()
-        };
-        let editions = editions(&scope(&["ja", "fr", "en", "de", "ja"], "active", Sync::Fresh), &review);
-        let shown: Vec<(&str, Link, usize, usize)> =
-            editions.iter().map(|e| (e.language_code.as_str(), e.link, e.pending.len(), e.accepted.len())).collect();
-        assert_eq!(
-            shown,
-            [
-                ("en", Link::Linked, 0, 0),
-                ("de", Link::Linked, 0, 1),
-                ("fr", Link::NotYetObserved, 0, 0),
-                ("ja", Link::PendingReview, 1, 0),
-            ]
-        );
+    /// `GET /scope-records/{id}/journey` as the Catalog API answers it: a pending Japanese alias, so
+    /// the journey is a conflict.
+    fn api_journey() -> ScopeJourney {
+        let mut scope = serde_json::to_value(scope(&["en", "ja"], "active", Sync::Fresh)).unwrap();
+        scope["referenceRecordId"] = "ref_1".into();
+        let candidate = serde_json::to_value(candidate("a", "ja", "pending", "ref_1")).unwrap();
+        serde_json::from_value(serde_json::json!({
+            "generatedAt": "2026-10-25T00:00:00.000Z",
+            "scope": scope,
+            "languageEditions": { "scopeRecordId": "scp_1", "referenceRecordId": "ref_1", "editions": [
+                { "languageCode": "en", "isCanonical": true, "linkState": "linked", "acceptedAliasCount": 0,
+                  "pendingCandidates": [], "acceptedCandidates": [] },
+                { "languageCode": "ja", "isCanonical": false, "linkState": "pending-review", "acceptedAliasCount": 0,
+                  "pendingCandidates": [candidate], "acceptedCandidates": [] },
+            ] },
+            "languageEditionReviewFailed": false,
+            "overview": { "scopeRecordId": "scp_1", "condition": "conflict", "stages": [
+                { "key": "coverage", "status": "complete" }, { "key": "sync", "status": "complete" },
+                { "key": "jobs", "status": "complete" }, { "key": "candidates", "status": "current" },
+                { "key": "promotion", "status": "complete" },
+            ], "editionCount": 2, "linkedEditionCount": 1, "pendingCandidateCount": 1,
+              "promotionReadiness": "live", "syncFreshness": "fresh" },
+        }))
+        .unwrap()
     }
 
     #[test]
-    fn the_journey_condition_follows_admin_webs_order() {
-        let (fresh, stale) = (Sync::Fresh, Sync::Stale);
-        let pending = [Edition {
-            language_code: "ja".into(),
-            canonical: false,
-            link: Link::PendingReview,
-            pending: vec![candidate("a", "ja", "pending", "ref_1")],
-            accepted: Vec::new(),
-        }];
-        let of = |s: &ScopeRecord, editions: Option<&[Edition]>, failed| journey(s, editions, failed);
-        assert_eq!(of(&scope(&[], "active", fresh), None, false).condition, Condition::Empty);
-        assert_eq!(of(&scope(&["en", "ja"], "active", fresh), Some(&pending), true).condition, Condition::PartialFailure);
-        assert_eq!(of(&scope(&["en", "ja"], "archived", fresh), Some(&pending), false).condition, Condition::Blocked);
-        assert_eq!(of(&scope(&["en", "ja"], "active", stale), Some(&pending), false).condition, Condition::Conflict);
-        let lag = of(&scope(&["en"], "draft", stale), None, false);
-        assert_eq!((lag.condition, lag.linked, lag.pending), (Condition::ProjectionLag, 1, 0), "one edition is linked");
-        let ready = of(&scope(&["en"], "active", fresh), None, false);
-        assert_eq!(ready.condition, Condition::Ready);
-        assert!(ready.stages.iter().all(|s| s.status == StageStatus::Complete), "{:?}", ready.stages);
-        let stages: Vec<StageStatus> = lag.stages.iter().map(|s| s.status).collect();
-        assert_eq!(
-            stages,
-            [StageStatus::Complete, StageStatus::Current, StageStatus::Upcoming, StageStatus::Complete, StageStatus::Upcoming]
-        );
+    fn the_editions_and_journey_are_drawn_as_the_catalog_api_composes_them() {
+        let ScopeJourney { scope, language_editions, language_edition_review_failed, overview } = api_journey();
+        assert_eq!(scope.reference_record_id, "ref_1");
+        assert!(!language_edition_review_failed);
+        let editions: Vec<Edition> = language_editions.unwrap().editions.into_iter().map(Edition::from).collect();
+        let shown: Vec<(&str, bool, Link, usize)> =
+            editions.iter().map(|e| (e.language_code.as_str(), e.canonical, e.link, e.pending.len())).collect();
+        assert_eq!(shown, [("en", true, Link::Linked, 0), ("ja", false, Link::PendingReview, 1)]);
+        let journey = Journey::from(overview);
+        assert_eq!((journey.condition, journey.editions, journey.linked, journey.pending), (Condition::Conflict, 2, 1, 1));
+        assert_eq!((journey.promotion, journey.sync), (Promotion::Live, Sync::Fresh));
+        let stages: Vec<(StageKey, StageStatus)> = journey.stages.iter().map(|s| (s.key, s.status)).collect();
+        assert_eq!(stages[3], (StageKey::Candidates, StageStatus::Current));
+        assert_eq!(stages.len(), 5);
+    }
+
+    #[test]
+    fn every_api_condition_has_the_pages() {
+        for (api, page) in [
+            ("empty", Condition::Empty),
+            ("partial-failure", Condition::PartialFailure),
+            ("blocked", Condition::Blocked),
+            ("conflict", Condition::Conflict),
+            ("projection-lag", Condition::ProjectionLag),
+            ("ready", Condition::Ready),
+        ] {
+            let condition: JourneyCondition = serde_json::from_value(serde_json::json!(api)).unwrap();
+            let overview = JourneyOverview { condition, ..api_journey().overview };
+            assert_eq!(Journey::from(overview).condition, page, "{api}");
+        }
+        let link: EditionLinkState = serde_json::from_value(serde_json::json!("not-yet-observed")).unwrap();
+        assert_eq!(link, EditionLinkState::NotYetObserved);
     }
 
     #[test]
     fn the_screen_is_written_as_serde_writes_it() {
-        let s = scope(&["en", "ja"], "active", Sync::Fresh);
-        let review = AliasReview { candidates: vec![candidate("a", "ja", "pending", "ref_1")], ..Default::default() };
-        let editions = editions(&s, &review);
-        let journey = journey(&s, Some(&editions), false);
+        let ScopeJourney { scope, language_editions, overview, .. } = api_journey();
         let screen = ScopeScreen {
-            scope: s,
-            journey,
+            scope,
+            journey: Journey::from(overview),
             coverage: None,
             jobs: Some(Jobs { active: Vec::new(), failed: Vec::new(), completed: Vec::new(), next: Some("c1".into()) }),
-            editions: Some(editions),
+            editions: language_editions.map(|review| review.editions.into_iter().map(Edition::from).collect()),
             alias_review_failed: false,
             context: String::new(),
             workspace: None,

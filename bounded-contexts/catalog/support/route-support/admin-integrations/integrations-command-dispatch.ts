@@ -7,7 +7,10 @@ import {
 import { createCatalogRequestApiClient } from "../../../support/request-support/api-client";
 import { commandContextFromFormData, observationIdsFromFormData } from "./integrations-command-context";
 import { ApiError as CatalogApiError } from "../../shell-support/api/client";
-import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../../features/source-observations/ui/primary-workbench-command-feedback";
+import {
+  isProviderRefreshFeedbackResult,
+  type CatalogPrimaryWorkbenchCommandFeedback,
+} from "../../../features/source-observations/ui/primary-workbench-command-feedback";
 import type { CatalogIntegrationsCommandResult } from "./integrations-command-result";
 import { handleAliasReviewCommand, isAliasReviewCommandIntent } from "./alias-review-command-handler";
 import { handleAttentionQueueCommand, isAttentionQueueCommandIntent } from "./attention-queue-command-handler";
@@ -249,13 +252,15 @@ async function recordCommandTelemetry(
   api: CatalogControlPlaneTelemetryApi,
   result: CatalogIntegrationsCommandResult,
 ): Promise<void> {
+  const commandResult = result.feedback.result;
+  if (isProviderRefreshFeedbackResult(commandResult)) return;
   await recordCatalogControlPlaneEvents(
     api,
     commandTelemetryEvents({
       context: result.context,
       intent: result.feedback.intent,
       status: result.feedback.status,
-      result: result.feedback.result,
+      result: commandResult,
       commandSection: result.commandSection,
     }),
   );

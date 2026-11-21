@@ -2,6 +2,7 @@ import { formatDateTime, t } from "@chase-sets/localization";
 import {
   Badge,
   DataTable,
+  Inline,
   LinkButton,
   Page,
   PageHeader,
@@ -29,12 +30,17 @@ function priorityTone(priority: FeedbackAttentionQueueItem["priority"]) {
   return priority === "urgent" ? "danger" : priority === "high" ? "warning" : "neutral";
 }
 
+const queueHref = "/support/customer-feedback/attention";
+
 export function FeedbackAttentionSurface({
   items,
   metrics,
+  caseId = null,
 }: Readonly<{
   items: readonly FeedbackAttentionQueueItem[];
   metrics: FeedbackAttentionMetrics;
+  /** Set by a case deep link; items then hold only that case's attention. */
+  caseId?: string | null;
 }>) {
   return (
     <Page>
@@ -53,6 +59,14 @@ export function FeedbackAttentionSurface({
         <Stat label={t("customer-feedback.attention.metrics.deliveryFailures")} value={metrics.deliveryFailures} />
       </StatGrid>
       <PageSection title={t("customer-feedback.attention.queue")}>
+        {caseId ? (
+          <Inline gap={2}>
+            <Text>{t("customer-feedback.attention.caseFocus", { caseId })}</Text>
+            <LinkButton href={queueHref} tone="ghost" size="sm">
+              {t("customer-feedback.attention.showAll")}
+            </LinkButton>
+          </Inline>
+        ) : null}
         <DataTable
           rows={[...items]}
           getRowId={(item) => item.attentionId}
@@ -61,11 +75,7 @@ export function FeedbackAttentionSurface({
               key: "case",
               header: t("customer-feedback.attention.case"),
               cell: (item) => (
-                <LinkButton
-                  href={`/support/customer-feedback/attention?caseId=${encodeURIComponent(item.caseId)}`}
-                  tone="ghost"
-                  size="sm"
-                >
+                <LinkButton href={`${queueHref}?caseId=${encodeURIComponent(item.caseId)}`} tone="ghost" size="sm">
                   {item.caseId}
                 </LinkButton>
               ),
@@ -106,7 +116,9 @@ export function FeedbackAttentionSurface({
               cell: (item) => <Text>{item.ownerId ?? t("customer-feedback.attention.unassigned")}</Text>,
             },
           ]}
-          emptyTitle={t("customer-feedback.attention.empty")}
+          emptyTitle={
+            caseId ? t("customer-feedback.attention.caseEmpty", { caseId }) : t("customer-feedback.attention.empty")
+          }
           emptyDescription={t("customer-feedback.attention.description")}
         />
       </PageSection>

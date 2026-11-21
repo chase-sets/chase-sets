@@ -1,11 +1,13 @@
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
+import { resolveAgentOAuthScopedPermissions } from "@chase-sets/auth-context";
 import type { MarketplaceApiEnv } from "../../../api";
 import { createAccountOfferMatchRoutes, createAccountSubmittedOfferRoutes } from "./route";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import {
   createMarketplaceOfferRuntime,
   MarketplaceOfferFeeQuoteStaleError,
+  MarketplaceOfferMatchRequiresListingError,
   type MarketplaceOfferServices,
 } from "./runtime";
 import { ManagedOfferConflictError } from "./managed-authority";
@@ -94,6 +96,7 @@ function createServices(): MarketplaceOfferServices {
 const submittedOfferWithPrivateDestination = {
   offer_id: "off_1",
   buyer_account_id: "acc_buyer",
+  offers_away: true,
   catalog_catalog_item_id: "cat_charizard",
   product_id: "cat_charizard::",
   item_title: "Charizard",
@@ -130,7 +133,7 @@ describe("marketplace offer routes", () => {
         accountId: "acc_seller",
         membershipId: "mbr_1",
         roleKey: "viewer",
-        permissions: ["offers.view"],
+        permissions: ["offers.view", "listings.view"],
       },
       services,
     });
@@ -264,7 +267,7 @@ describe("marketplace offer routes", () => {
     });
   });
 
-  it("omits private shipping destination snapshots from submitted offer responses", async () => {
+  it("keeps owner standing but omits private shipping destinations from submitted Offer responses", async () => {
     const services = createServices();
     vi.mocked(services.listSubmittedOffers).mockResolvedValue({
       items: [submittedOfferWithPrivateDestination],
@@ -293,6 +296,8 @@ describe("marketplace offer routes", () => {
     expect(detailResponse.status).toBe(200);
     expect(listBody.items[0]).not.toHaveProperty("shipping_destination_snapshot");
     expect(detailBody).not.toHaveProperty("shipping_destination_snapshot");
+    expect(listBody.items[0]).toHaveProperty("offers_away", true);
+    expect(detailBody).toHaveProperty("offers_away", true);
     expect(JSON.stringify({ listBody, detailBody })).not.toContain("alternate-contact@example.test");
   });
 
@@ -341,6 +346,7 @@ describe("marketplace offer routes", () => {
       price_amount: "24.96",
     });
     expect(body).not.toHaveProperty("shipping_destination_snapshot");
+    expect(body).not.toHaveProperty("offers_away");
     for (const [key, value] of Object.entries(privatePolicyFields)) {
       expect(body).not.toHaveProperty(key);
       if (typeof value !== "object") expect(JSON.stringify(body)).not.toContain(String(value));
@@ -447,7 +453,7 @@ describe("marketplace offer routes", () => {
         accountId: "acc_seller",
         membershipId: "mbr_1",
         roleKey: "owner",
-        permissions: ["offers.view"],
+        permissions: ["offers.view", "listings.view"],
       },
       services,
     });
@@ -463,6 +469,81 @@ describe("marketplace offer routes", () => {
     expect(body).not.toHaveProperty("shipping_destination_snapshot");
     expect(JSON.stringify(body)).not.toContain("alternate-contact@example.test");
     expect(services.getOfferMatch).toHaveBeenCalledWith("off_1", "acc_seller");
+  });
+
+  describe("Offer Match reads show the seller's Listings and inventory", () => {
+    const sellerWith = (permissions: readonly string[]) => ({
+      sessionId: "ses_1",
+      tenantId: "tnt_identity",
+      userId: "usr_1",
+      accountId: "acc_seller",
+      membershipId: "mbr_1",
+      roleKey: "owner",
+      permissions: [...permissions],
+    });
+    const inventoryMatch = {
+      ...submittedOfferWithPrivateDestination,
+      offer_id: "off_1",
+      buyer_account_id: "acc_buyer",
+      status: "submitted",
+      buyer_display_name: "Buyer One",
+      fill_source: "inventory",
+      can_fulfill: false,
+      inventory_item_id: "inv_private",
+      inventory_available_quantity: 7,
+    };
+    const matchReads = ["/account/offers/matches", "/account/offers/matches/off_1"];
+
+    it.each(matchReads)("refuses %s to an offers:read-only agent grant", async (path) => {
+      const permissions = resolveAgentOAuthScopedPermissions(
+        ["offers:read"],
+        ["offers.view", "listings.view", "inventory.view"],
+      );
+      expect(permissions).toEqual(["offers.view"]);
+      const services = createServices();
+      vi.mocked(services.listOfferMatches).mockResolvedValue({ items: [inventoryMatch], total: 1 } as never);
+      vi.mocked(services.getOfferMatch).mockResolvedValue(inventoryMatch as never);
+      const app = buildApp({ actor: sellerWith(permissions), services });
+
+      const response = await app.fetch(new Request(`http://marketplace.test${path}`));
+
+      expect(response.status).toBe(403);
+      const body = await response.text();
+      expect(JSON.parse(body)).toMatchObject({ error: { code: "authorization_forbidden" } });
+      expect(body).not.toContain("inv_private");
+      expect(services.listOfferMatches).not.toHaveBeenCalled();
+      expect(services.getOfferMatch).not.toHaveBeenCalled();
+    });
+
+    it.each(matchReads)("refuses %s without offers.view", async (path) => {
+      const services = createServices();
+      const app = buildApp({ actor: sellerWith(["listings.view"]), services });
+
+      const response = await app.fetch(new Request(`http://marketplace.test${path}`));
+
+      expect(response.status).toBe(403);
+      expect(services.listOfferMatches).not.toHaveBeenCalled();
+      expect(services.getOfferMatch).not.toHaveBeenCalled();
+    });
+
+    it.each(matchReads)("serves %s with offers:read and listings:read", async (path) => {
+      const permissions = resolveAgentOAuthScopedPermissions(
+        ["offers:read", "listings:read"],
+        ["offers.view", "listings.view"],
+      );
+      expect(permissions).toEqual(["offers.view", "listings.view"]);
+      const services = createServices();
+      vi.mocked(services.listOfferMatches).mockResolvedValue({ items: [inventoryMatch], total: 1 } as never);
+      vi.mocked(services.getOfferMatch).mockResolvedValue(inventoryMatch as never);
+      const app = buildApp({ actor: sellerWith(permissions), services });
+
+      const response = await app.fetch(new Request(`http://marketplace.test${path}`));
+
+      expect(response.status).toBe(200);
+      const body = await response.text();
+      expect(body).toContain('"inventory_item_id":"inv_private"');
+      expect(body).not.toContain("alternate-contact@example.test");
+    });
   });
 
   it.each(["managed_offer_held", "managed_offer_refresh_required", "managed_offer_conflict"] as const)(
@@ -627,6 +708,34 @@ describe("marketplace offer routes", () => {
       },
       expect.any(Object),
     );
+  });
+
+  it("rejects declining an inventory Match with 409 offer_match_requires_listing", async () => {
+    const services = createServices();
+    vi.mocked(services.declineOfferMatch).mockRejectedValueOnce(new MarketplaceOfferMatchRequiresListingError());
+    const app = buildApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_seller",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["offers.view", "offers.manage", "listings.view"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/account/offers/matches/off_1/decline", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ attemptId: "decline_route_attempt_02" }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "offer_match_requires_listing" } });
   });
 
   it.each([
@@ -846,6 +955,38 @@ describe("buyer Offer lifecycle routes", () => {
     });
     expect(accept.status).toBe(409);
     await expect(accept.json()).resolves.toMatchObject({ error: { code: "offer_not_open" } });
+  });
+
+  it("returns 409 offer_not_open when the submitted Offer's buyer is Away", async () => {
+    const { seller, eventStore } = await lifecycleApps({ off_1: "acc_buyer" }, true, "active");
+    await eventStore.appendToStream({
+      streamId: "marketplace.seller-listing-availability-acc_buyer",
+      expectedVersion: "no_stream",
+      events: [
+        {
+          eventType: "marketplace.seller-listing-availability.offers-disabled",
+          payload: {
+            accountId: "acc_buyer",
+            reasonCategory: "travel",
+            availableAgainOn: null,
+            availableAgainAt: null,
+            disabledAt: "2030-01-01T00:00:00Z",
+            disabledBy: "seller",
+          },
+        },
+      ],
+      context: {
+        tenantId: "tnt_identity" as never,
+        audit: { performedByUserId: "usr_1" as never, forAccountId: "acc_buyer" as never },
+      },
+    });
+    const result = await post(seller, "/offers/matches/off_1/accept", {
+      listingId: "lst_1",
+      feeQuoteFingerprint: "x",
+      sourceActionKey: "away_route_attempt_identity_01",
+    });
+    expect(result.status).toBe(409);
+    await expect(result.json()).resolves.toMatchObject({ error: { code: "offer_not_open" } });
   });
 
   it("hides another buyer's Offer from single lifecycle commands", async () => {

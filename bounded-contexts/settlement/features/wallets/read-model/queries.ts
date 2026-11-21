@@ -242,7 +242,10 @@ export async function listPendingCreditEntriesMaturedBy(
              AND fulfillment.delivered_at <= (
                $1::timestamptz - CASE
                  WHEN COALESCE((
-                   SELECT risk.manual_payout_review
+                   SELECT risk.payout_review_hold OR COALESCE((
+                     SELECT current_version FROM event_store_streams
+                     WHERE stream_id = 'settlement.payout-review-hold-' || settlement_ledger_entry_pages.account_id
+                   ), 0) > risk.payout_review_hold_stream_version
                    FROM settlement_account_risk_sources risk
                    WHERE risk.account_id = settlement_ledger_entry_pages.account_id
                  ), FALSE)
@@ -387,7 +390,10 @@ export async function listPendingCreditEntriesMaturedBy(
            AND fulfillment.delivered_at <= (
              $1::timestamptz - CASE
                WHEN COALESCE((
-                 SELECT risk.manual_payout_review
+                 SELECT risk.payout_review_hold OR COALESCE((
+                   SELECT current_version FROM event_store_streams
+                   WHERE stream_id = 'settlement.payout-review-hold-' || settlement_ledger_entry_pages.account_id
+                 ), 0) > risk.payout_review_hold_stream_version
                  FROM settlement_account_risk_sources risk
                  WHERE risk.account_id = settlement_ledger_entry_pages.account_id
                ), FALSE)

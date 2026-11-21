@@ -246,9 +246,7 @@ function MigrationEvidenceForm({
     <WorkbenchForm method="post" action={decision.workspaceHref} data-catalog-validation-evidence-form="true">
       <ValidationContextHiddenInputs readModel={readModel} intent={decision.evidenceCommandKey} />
       <HiddenInput name="sectionKey" value="migration-evidence" />
-      <HiddenInput name="migrationFingerprintBefore" value={evidence.mappingFingerprintBefore ?? ""} />
-      <HiddenInput name="migrationFingerprintAfter" value={evidence.mappingFingerprintAfter ?? ""} />
-      <HiddenInput name="migrationRecordedAt" value={evidence.recordedAt ?? readModel.generatedAt} />
+      <HiddenInput name="sectionFingerprint" value={decision.evidenceSectionFingerprint ?? ""} />
       <Textarea
         label={t(
           "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.evidence.label",

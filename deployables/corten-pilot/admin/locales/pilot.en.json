@@ -50,9 +50,7 @@
     "breadcrumbs": "Breadcrumbs",
     "action": "This action is not available here.",
     "edit_option": "Edit {code}",
-    "options_label": "Options of {name}",
-    "rules_unread": "This component's rules could not be read, so it was not saved. Refresh in a moment and save again.",
-    "blueprint_rules_unread": "This blueprint's rules could not be read, so they cannot be set here yet. Refresh in a moment and open this again."
+    "options_label": "Options of {name}"
   },
   "access": {
     "view": "View",
@@ -78,10 +76,6 @@
   "scope": {
     "refused": "The Catalog API refused the change.",
     "propose_needs": "Enter the provider, the unit, and a set id or set name.",
-    "alias_accepted": "The alias was accepted.",
-    "alias_rejected": "The alias was rejected.",
-    "alias_revoked": "The alias was revoked.",
-    "alias_deferred": "The candidate stays pending for a later review.",
     "workspace_title": "Import to promotion",
     "workspace_unread": "The import-to-promotion workspace could not be read. Try again in a moment.",
     "workspace_open": "Read the workspace again",

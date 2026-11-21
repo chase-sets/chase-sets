@@ -26,6 +26,15 @@ describe("marketplace account gate context", () => {
     });
   });
 
+  it("explains the email verification a purchase payment is waiting on", () => {
+    expect(marketplaceAccountGateContextMessage("/account/purchases/ord_1?verifyEmail=pay-purchase")).toEqual({
+      title: "Verify your email to pay for this purchase",
+      description:
+        "Enter the email on your account. Opening the link we send verifies that email and brings you back to your purchase, where you can pay for it.",
+    });
+    expect(marketplaceAccountGateContextMessage("/account/purchases?verifyEmail=pay-purchase")).toBeNull();
+  });
+
   it("keeps an ordinary purchase sign-in return a plain sign-in", () => {
     expect(marketplaceAccountGateContextMessage("/account/purchases/ord_1")).toBeNull();
     expect(marketplaceAccountGateContextMessage("/account/purchases?verifyEmail=cancel-purchase")).toBeNull();

@@ -85,6 +85,8 @@ The projection tables are query/read-model infrastructure, not a new profile aut
 
 Normal Admin Control Plane authoring must use section-scoped typed commands, and every editable section metadata entry must report `rawJsonBacked=false`. There is no supported profile-shaped JSON patch route for launch workflows.
 
+A section save is checked against the revision its form was drawn from. The version review carries each editable section's revision (`sectionFingerprints`), and each workbench section workspace carries its own (`sectionFingerprint`); the save sends it as `If-Match`. The command refuses a save without one (`428`, `profile_section_fingerprint_required`) and a save whose section changed since it was read (`409`, `profile_section_changed`). A change to another section of the same version does not conflict: the revision covers only the stored values that section's command composes over, computed from the canonical version rather than the section projection, and a save that loses a race with another section's save reads the version again before it writes.
+
 ## TCGdex Pokemon TCG Profile
 
 The TCGdex Pokemon TCG profile is seeded in Catalog config and installs the Pokemon card and sealed-product structure used by TCGdex Source Observations:

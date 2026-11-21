@@ -9,7 +9,7 @@ import {
 import { type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as settlementModule } from "../../../index";
 import { buildPayoutSummary } from "./payout-summary";
-import { listPayoutSummaryRows } from "./queries";
+import { listPayouts, listPayoutsNeedingReconciliation, listPayoutSummaryRows } from "./queries";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI)
@@ -45,6 +45,51 @@ describeDb("settlement payout summary SQL", () => {
       [payoutId, accountId, status, updatedAt],
     );
   }
+
+  // Two payouts in one millisecond whose IDs sort against their times: only the
+  // stored timestamp, not the millisecond text the rows carry, orders them.
+  async function insertSameMillisecondPair() {
+    await insertPayout("pyt_z_older", "acct-1", "failed", "2026-10-29T02:00:00.123100Z");
+    await insertPayout("pyt_a_newer", "acct-1", "failed", "2026-10-29T02:00:00.123400Z");
+  }
+
+  it("lists payouts in one millisecond latest first, page by page", async () => {
+    await insertSameMillisecondPair();
+
+    const list = await listPayouts(pool, { accountId: "acct-1" });
+    expect(list.items.map((row) => row.payout_id)).toEqual(["pyt_a_newer", "pyt_z_older"]);
+    const firstPage = await listPayouts(pool, { accountId: "acct-1", limit: 1, offset: 0 });
+    const secondPage = await listPayouts(pool, { accountId: "acct-1", limit: 1, offset: 1 });
+    expect([...firstPage.items, ...secondPage.items].map((row) => row.payout_id)).toEqual([
+      "pyt_a_newer",
+      "pyt_z_older",
+    ]);
+
+    const summary = await listPayoutSummaryRows(pool, "acct-1");
+    expect(summary.items.map((row) => row.payout_id)).toEqual(["pyt_a_newer", "pyt_z_older"]);
+    expect(list.items.map((row) => [row.updated_at, row.failed_at])).toEqual([
+      ["2026-10-29T02:00:00.123Z", null],
+      ["2026-10-29T02:00:00.123Z", null],
+    ]);
+  });
+
+  it("reconciles payouts in one millisecond oldest first, with or without a claim", async () => {
+    await insertSameMillisecondPair();
+
+    const unclaimed = await listPayoutsNeedingReconciliation(pool, { accountId: "acct-1", limit: 1 });
+    expect(unclaimed.map((row) => row.payout_id)).toEqual(["pyt_z_older"]);
+
+    const claimed = await listPayoutsNeedingReconciliation(pool, {
+      accountId: "acct-1",
+      limit: 2,
+      claimOwnerId: "worker-same-millisecond",
+    });
+    expect(claimed.map((row) => row.payout_id)).toEqual(["pyt_z_older", "pyt_a_newer"]);
+    expect(claimed.map((row) => [row.updated_at, row.failed_at])).toEqual([
+      ["2026-10-29T02:00:00.123Z", null],
+      ["2026-10-29T02:00:00.123Z", null],
+    ]);
+  });
 
   it("keeps the summary account-scoped", async () => {
     await insertPayout("acct-1-payout", "acct-1", "failed", "2026-10-29T02:00:00.000Z");

@@ -193,6 +193,23 @@ export function applyCurrentPlatformBootstrapSelectors(explicitEnvironment, curr
   return result;
 }
 
+export function buildPlatformBootstrapEnvironment(
+  workspace,
+  baseEnvironment,
+  explicitEnvironment,
+  { sandbox, disposableRepresentativeCatalogReplay = false } = {},
+) {
+  const environment = buildPlatformChildEnvironment(
+    baseEnvironment,
+    applyCurrentPlatformBootstrapSelectors(explicitEnvironment, baseEnvironment),
+    { minimalBase: true },
+  );
+  if (disposableRepresentativeCatalogReplay && workspace === "@chase-sets/app-platform-api") {
+    environment.POSTGRES_DEV_HOST_PORT = String(sandbox.ports.postgres);
+  }
+  return environment;
+}
+
 export function buildRepresentativeSnapshotCommandEnvironment(baseEnvironment, sandboxEnvironment) {
   const explicit = {};
   for (const name of representativeSandboxEnvironmentNames) {

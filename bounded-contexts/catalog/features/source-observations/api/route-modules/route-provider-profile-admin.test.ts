@@ -1,8 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { SourceObservationRouteServices } from "../route";
 import { catalogProviderIntegrationProfileVersions } from "../provider-integration-profiles";
+import { ProviderAdapterRegistry } from "../provider-adapters/registry";
 import { CatalogProviderOptionQueryUnavailableError } from "../providers/provider-option-query-cache";
 import { CatalogProviderOptionQueryInvalidRequestError } from "../providers/provider-option-query-resolver";
+import { queryProviderIntegrationOptions } from "../providers/provider-option-queries";
+import { getActiveCatalogProviderIntegrationProfileVersion } from "../providers/registry";
+import { createTcgdexProviderAdapter } from "../providers/tcgdex/adapter";
 import {
   buildApp,
   bulkJobFixture,
@@ -20,6 +25,9 @@ import {
   sourceObservationScope,
 } from "../../ui/primary-workbench-read-model-test-support";
 import type { CatalogIntegrationControlPlaneOverview } from "../../ui/contracts";
+import type { CatalogProviderIntegrationProfileVersionStore } from "../providers/provider-integration-profile-store";
+import { catalogProviderProfileEditableSectionFingerprint } from "../providers/provider-profile-section-fingerprint";
+import type { CatalogProviderProfileEditableSectionKey } from "../providers/provider-profile-section-registry";
 
 type RouteControlPlaneOverview = CatalogIntegrationControlPlaneOverview & {
   activeJobs: NonNullable<CatalogIntegrationControlPlaneOverview["activeJobs"]>;
@@ -342,6 +350,144 @@ describe("source observation routes: integration discovery and profile administr
       limit: 1,
       forceRefresh: true,
       cacheOnly: true,
+    });
+  });
+
+  describe("TCGdex Korean expansion option queries", () => {
+    const path = "/source-observations/integration-options?provider=tcgdex&kind=expansions&language=ko&parentValue=SV";
+    const seriesUrl = "https://api.tcgdex.net/v2/ko/series/sv";
+
+    function optionQueryServices(fetch: typeof globalThis.fetch, db: PgQueryable | null = null) {
+      const registry = new ProviderAdapterRegistry([
+        createTcgdexProviderAdapter({
+          fetch,
+          loadActiveProfileVersion: async () => {
+            const profile = getActiveCatalogProviderIntegrationProfileVersion("tcgdex");
+            if (!profile) throw new Error("Missing active TCGdex profile.");
+            return profile;
+          },
+        }),
+      ]);
+      const recordProviderOptionQuery = vi.fn();
+      const services = {
+        queryIntegrationOptions: (input) =>
+          queryProviderIntegrationOptions(input, db, null, undefined, registry, { recordProviderOptionQuery }),
+      } satisfies Pick<SourceObservationRouteServices, "queryIntegrationOptions">;
+      return { services: services as SourceObservationRouteServices, recordProviderOptionQuery };
+    }
+
+    it.each([503, 502])("returns unavailable for upstream HTTP %i without usable cache", async (status) => {
+      const upstreamBody = "synthetic upstream failure body";
+      const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(upstreamBody, { status }));
+      const { services, recordProviderOptionQuery } = optionQueryServices(fetch);
+      const response = await buildApp(services).request(path);
+
+      expect(fetch).toHaveBeenCalledExactlyOnceWith(seriesUrl, undefined);
+      expect(response.status).toBe(503);
+      const body = await response.text();
+      expect(JSON.parse(body)).toMatchObject({ error: { code: "catalog_provider_option_query_unavailable" } });
+      expect(body).not.toContain("api.tcgdex.net");
+      expect(body).not.toContain(upstreamBody);
+      expect(recordProviderOptionQuery).toHaveBeenCalledWith(
+        expect.objectContaining({ providerKey: "tcgdex", queryKind: "expansions", result: "failure" }),
+      );
+    });
+
+    it("returns a live page for valid upstream series detail", async () => {
+      const fetch = vi.fn<typeof globalThis.fetch>(async (url) => {
+        if (url === seriesUrl) {
+          return Response.json({
+            id: "sv",
+            name: "Fixture series",
+            sets: [{ id: "fixture-set", name: "Fixture set" }],
+          });
+        }
+        expect(url).toBe("https://api.tcgdex.net/v2/en/sets/fixture-set");
+        return new Response(null, { status: 404 });
+      });
+      const { services } = optionQueryServices(fetch);
+      const response = await buildApp(services).request(path);
+
+      expect(fetch).toHaveBeenCalledWith(seriesUrl, undefined);
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        items: [{ value: "fixture-set", label: "Fixture set", parentValue: "sv" }],
+        total: 1,
+        count: 1,
+        cache: { status: "miss", source: "live", degraded: false },
+      });
+    });
+
+    it("returns a degraded stale page after an upstream 5xx", async () => {
+      const now = Date.now();
+      const query = vi.fn<PgQueryable["query"]>().mockResolvedValueOnce({
+        rows: [
+          {
+            cache_key: "sha256:fixture",
+            fetched_at: new Date(now - 60 * 60_000),
+            expires_at: new Date(now - 45 * 60_000),
+            stale_until: new Date(now + 23 * 60 * 60_000),
+            items_json: [
+              {
+                providerKey: "tcgdex",
+                queryKind: "expansions",
+                value: "cached-set",
+                label: "Cached set",
+                description: null,
+                parentValue: "sv",
+                imageUrl: null,
+                metadata: {},
+              },
+            ],
+          },
+        ],
+      });
+      const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(null, { status: 503 }));
+      const { services } = optionQueryServices(fetch, { query });
+      const response = await buildApp(services).request(path);
+
+      expect(fetch).toHaveBeenCalledExactlyOnceWith(seriesUrl, undefined);
+      expect(query).toHaveBeenCalledTimes(1);
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        items: [{ value: "cached-set" }],
+        total: 1,
+        count: 1,
+        cache: {
+          status: "stale",
+          source: "cache",
+          degraded: true,
+          diagnostics: [{ code: "provider-option-query-stale-cache-used" }],
+        },
+      });
+    });
+
+    it.each([
+      ["an upstream 404", 404],
+      ["an unrelated exception mentioning 503", new Error("Fixture transport exception mentioning HTTP 503.")],
+    ] as const)("leaves %s unclassified", async (_label, failure) => {
+      const fetch = vi.fn<typeof globalThis.fetch>();
+      if (typeof failure === "number") {
+        fetch.mockResolvedValue(new Response(null, { status: failure }));
+      } else {
+        fetch.mockRejectedValue(failure);
+      }
+      const { services } = optionQueryServices(fetch);
+      const response = await buildApp(services).request(path);
+
+      expect(fetch).toHaveBeenCalledExactlyOnceWith(seriesUrl, undefined);
+      expect(response.status).toBe(500);
+      await expect(response.text()).resolves.toBe("Internal Server Error");
+    });
+
+    it("denies a request without catalog.view before calling the provider", async () => {
+      const fetch = vi.fn<typeof globalThis.fetch>();
+      const { services } = optionQueryServices(fetch);
+      const response = await buildApp(services, undefined, { permissions: [] }).request(path);
+
+      expect(response.status).toBe(403);
+      await expect(response.json()).resolves.toMatchObject({ error: { code: "authorization_forbidden" } });
+      expect(fetch).not.toHaveBeenCalled();
     });
   });
 
@@ -989,7 +1135,7 @@ describe("source observation routes: integration discovery and profile administr
           languageOptions: ["en", "fr"],
         },
       }),
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", "if-match": await sectionIfMatch(store, "2026.06.04", "basics") },
     });
 
     expect(response.status).toBe(200);
@@ -1002,6 +1148,81 @@ describe("source observation routes: integration discovery and profile administr
         updatedForAccountId: "acc_test",
       },
     });
+  });
+
+  it("records migration evidence with Catalog's time, author and fingerprints, not the client's", async () => {
+    const store = mutableProfileStore([
+      ...catalogProviderIntegrationProfileVersions,
+      profileVersion("tcgdex", { profileVersion: "2026.06.04", lifecycle: "draft", active: false }),
+    ]);
+    const app = buildApp({} as SourceObservationRouteServices, store);
+    const before = Date.now();
+
+    const response = await app.request(
+      "/source-observations/provider-profiles/tcgdex/2026.06.04/sections/migration-evidence",
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          command: {
+            section: "migration-evidence",
+            migrationEvidence: {
+              evidenceText: "  Replayed the changed fixtures.  ",
+              fixtureRunId: "run_1",
+              recordedAt: "1970-01-01T00:00:00.000Z",
+              recordedByUserId: "usr_spoofed",
+              mappingFingerprintBefore: "client-before",
+              mappingFingerprintAfter: "client-after",
+            },
+          },
+        }),
+        headers: {
+          "content-type": "application/json",
+          "if-match": await sectionIfMatch(store, "2026.06.04", "migration-evidence"),
+        },
+      },
+    );
+
+    expect(response.status).toBe(200);
+    const saved = await store.getProfileVersion("tcgdex", "2026.06.04");
+    const evidence = saved?.migrationEvidence;
+    expect(evidence).toMatchObject({
+      evidenceText: "Replayed the changed fixtures.",
+      fixtureRunId: "run_1",
+      recordedByUserId: "usr_test",
+      recordedForAccountId: "acc_test",
+    });
+    expect(Date.parse(evidence?.recordedAt ?? "")).toBeGreaterThanOrEqual(before);
+    expect(evidence?.mappingFingerprintBefore).not.toBe("client-before");
+    expect(evidence?.mappingFingerprintAfter).not.toBe("client-after");
+  });
+
+  it("refuses migration evidence with a blank text", async () => {
+    const store = mutableProfileStore([
+      ...catalogProviderIntegrationProfileVersions,
+      profileVersion("tcgdex", { profileVersion: "2026.06.04", lifecycle: "draft", active: false }),
+    ]);
+    const app = buildApp({} as SourceObservationRouteServices, store);
+
+    const response = await app.request(
+      "/source-observations/provider-profiles/tcgdex/2026.06.04/sections/migration-evidence",
+      {
+        method: "PATCH",
+        body: JSON.stringify({ command: { section: "migration-evidence", migrationEvidence: { evidenceText: "  " } } }),
+        headers: {
+          "content-type": "application/json",
+          "if-match": await sectionIfMatch(store, "2026.06.04", "migration-evidence"),
+        },
+      },
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "invalid_profile_section_command",
+        message: "migrationEvidence.evidenceText must be a non-empty string.",
+      },
+    });
+    expect((await store.getProfileVersion("tcgdex", "2026.06.04"))?.migrationEvidence ?? null).toBeNull();
   });
 
   it("returns a typed provider profile authoring model through the admin API", async () => {
@@ -1168,7 +1389,10 @@ describe("source observation routes: integration discovery and profile administr
           liveProviderCallsAllowed: true,
         },
       }),
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        "if-match": await sectionIfMatch(store, "2026.06.04", "fixtures"),
+      },
     });
 
     expect(response.status).toBe(400);
@@ -1199,7 +1423,10 @@ describe("source observation routes: integration discovery and profile administr
               migrationEvidence: { evidenceText: "Synthetic evidence.", recordedAt: "2026-11-06T00:00:00.000Z" },
             },
           }),
-          headers: { "content-type": "application/json" },
+          headers: {
+            "content-type": "application/json",
+            "if-match": await sectionIfMatch(store, "2026.06.03", "migration-evidence"),
+          },
         },
       );
 
@@ -1221,11 +1448,90 @@ describe("source observation routes: integration discovery and profile administr
     const response = await app.request("/source-observations/provider-profiles/tcgdex/missing/sections/basics", {
       method: "PATCH",
       body: JSON.stringify({ command: { section: "basics", displayName: "Synthetic" } }),
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", "if-match": '"sha256:unread"' },
     });
 
     expect(response.status).toBe(404);
     await expect(response.json()).resolves.toMatchObject({ error: { code: "profile_version_not_found" } });
+  });
+
+  describe("section revisions", () => {
+    const basicsPath = "/source-observations/provider-profiles/tcgdex/2026.06.04/sections/basics";
+    const draftStore = () =>
+      mutableProfileStore([
+        ...catalogProviderIntegrationProfileVersions,
+        profileVersion("tcgdex", { profileVersion: "2026.06.04", lifecycle: "draft", active: false }),
+      ]);
+    const renameTo = (displayName: string) => JSON.stringify({ command: { section: "basics", displayName } });
+
+    it.each([
+      ["no If-Match", {}],
+      ["an empty If-Match", { "if-match": '""' }],
+      ["a wildcard If-Match", { "if-match": "*" }],
+    ])("refuses a section save with %s and writes nothing", async (_case, ifMatch: Record<string, string>) => {
+      const store = draftStore();
+      const upsert = vi.spyOn(store, "upsertProfileVersion");
+      const app = buildApp({} as SourceObservationRouteServices, store);
+
+      const response = await app.request(basicsPath, {
+        method: "PATCH",
+        body: renameTo("Synthetic"),
+        headers: { "content-type": "application/json", ...ifMatch },
+      });
+
+      expect(response.status).toBe(428);
+      await expect(response.json()).resolves.toMatchObject({
+        error: { code: "profile_section_fingerprint_required" },
+      });
+      expect(upsert).not.toHaveBeenCalled();
+    });
+
+    it("answers a section save drawn from a replaced revision with 409 and keeps the newer save", async () => {
+      const store = draftStore();
+      const app = buildApp({} as SourceObservationRouteServices, store);
+      const read = await sectionIfMatch(store, "2026.06.04", "basics");
+      const save = (displayName: string) =>
+        app.request(basicsPath, {
+          method: "PATCH",
+          body: renameTo(displayName),
+          headers: { "content-type": "application/json", "if-match": read },
+        });
+
+      expect((await save("First operator")).status).toBe(200);
+      const stale = await save("Second operator");
+
+      expect(stale.status).toBe(409);
+      await expect(stale.json()).resolves.toEqual({
+        error: {
+          code: "profile_section_changed",
+          message: "This section changed after the page read it. Read the profile again before saving.",
+        },
+      });
+      expect((await store.getProfileVersion("tcgdex", "2026.06.04"))?.profile.displayName).toBe("First operator");
+    });
+
+    it("takes a section's revision bare or as a quoted entity tag, and answers with the new one", async () => {
+      const store = draftStore();
+      const app = buildApp({} as SourceObservationRouteServices, store);
+      const quoted = await sectionIfMatch(store, "2026.06.04", "basics");
+
+      const first = await app.request(basicsPath, {
+        method: "PATCH",
+        body: renameTo("Quoted"),
+        headers: { "content-type": "application/json", "if-match": quoted },
+      });
+      expect(first.status).toBe(200);
+      const review = (await first.json()) as { sectionFingerprints: Record<string, string> };
+      expect(`"${review.sectionFingerprints.basics}"`).toBe(await sectionIfMatch(store, "2026.06.04", "basics"));
+      expect(`"${review.sectionFingerprints.basics}"`).not.toBe(quoted);
+
+      const second = await app.request(basicsPath, {
+        method: "PATCH",
+        body: renameTo("Bare"),
+        headers: { "content-type": "application/json", "if-match": review.sectionFingerprints.basics },
+      });
+      expect(second.status).toBe(200);
+    });
   });
 
   it("refuses to create a profile version that is not draft or test", async () => {
@@ -1346,7 +1652,10 @@ describe("source observation routes: integration discovery and profile administr
       {
         method: "PATCH",
         body: JSON.stringify({ command: {} }),
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          "if-match": await sectionIfMatch(store, "2026.06.04", "normalized-observation"),
+        },
       },
     );
 
@@ -1523,3 +1832,15 @@ describe("source observation routes: provider profile review without a profile s
     });
   });
 });
+
+async function sectionIfMatch(
+  store: CatalogProviderIntegrationProfileVersionStore,
+  version: string,
+  section: CatalogProviderProfileEditableSectionKey,
+): Promise<string> {
+  const record = await store.getProfileVersion("tcgdex", version);
+  if (!record) {
+    throw new Error(`Expected TCGdex profile version ${version}.`);
+  }
+  return `"${catalogProviderProfileEditableSectionFingerprint(record, section)}"`;
+}

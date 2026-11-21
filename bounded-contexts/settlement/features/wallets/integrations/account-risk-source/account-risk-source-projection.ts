@@ -489,20 +489,19 @@ async function updateBadge(
   db: PgQueryable,
   params: Readonly<{ accountId: string; badgeKey: string; assigned: boolean; updatedAt: string }>,
 ) {
-  if (!["trusted-seller", "manual-payout-review"].includes(params.badgeKey)) {
+  if (params.badgeKey !== "trusted-seller") {
     return;
   }
-  const columnName = params.badgeKey === "trusted-seller" ? "trusted_seller" : "manual_payout_review";
 
   await db.query(
     `INSERT INTO settlement_account_risk_sources (
        account_id,
-       ${columnName},
+       trusted_seller,
        revision,
        updated_at
      ) VALUES ($1, $2, 1, $3)
      ON CONFLICT (account_id) DO UPDATE SET
-       ${columnName} = EXCLUDED.${columnName},
+       trusted_seller = EXCLUDED.trusted_seller,
        revision = settlement_account_risk_sources.revision + 1,
        updated_at = EXCLUDED.updated_at`,
     [params.accountId, params.assigned, params.updatedAt],
@@ -651,6 +650,31 @@ export function buildSettlementIdentityAccountRiskSourceProjectionHandlers(
       await refreshSharedAddressClusters(db, data.accountId, data.archivedAt);
       await refreshAddressClusterAccounts(db, previousClusterKey, data.archivedAt);
     },
+  };
+}
+
+/** Settlement-owned hold projection. The stream version guard prevents a delayed fact from
+ * overwriting a newer command while preserving the event-store version observed by queries. */
+export function buildSettlementPayoutReviewHoldProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+  async function write(event: Parameters<NonNullable<ProjectorHandlerMap[string]>>[0], active: boolean) {
+    const data = event.data as { accountId: string };
+    const version = Number(event.streamVersion ?? 0);
+    await db.query(
+      `INSERT INTO settlement_account_risk_sources (
+         account_id, payout_review_hold, payout_review_hold_stream_version, revision, updated_at
+       ) VALUES ($1, $2, $3, 1, $4)
+       ON CONFLICT (account_id) DO UPDATE SET
+         payout_review_hold = EXCLUDED.payout_review_hold,
+         payout_review_hold_stream_version = EXCLUDED.payout_review_hold_stream_version,
+         revision = settlement_account_risk_sources.revision + 1,
+         updated_at = EXCLUDED.updated_at
+       WHERE settlement_account_risk_sources.payout_review_hold_stream_version < EXCLUDED.payout_review_hold_stream_version`,
+      [data.accountId, active, version, event.timing.recordedAt],
+    );
+  }
+  return {
+    "settlement.payout-review-hold.placed": (event) => write(event, true),
+    "settlement.payout-review-hold.released": (event) => write(event, false),
   };
 }
 

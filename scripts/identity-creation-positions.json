@@ -183,7 +183,7 @@
     {
       "path": "bounded-contexts/identity/features/users/domain/domain.test.ts",
       "command": "CreateUser",
-      "occurrences": 2,
+      "occurrences": 3,
       "disposition": "test-fixture",
       "reason": "These fixtures drive the User decider directly to verify command-to-event behavior without a transport or registration subject."
     },

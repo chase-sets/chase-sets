@@ -457,30 +457,6 @@ async fn home(req: Req, _: corten::Caller<Staff<CatalogAccess>>) -> HtmlResult {
     req.redirect(&url::Dimensions::default())
 }
 
-/// The record `id` as `kind`'s list has it (the record's own table, which a write's command
-/// reads), page by page until its row; none when the list does not have it. A command that
-/// replaces rules starts from this rather than the detail, whose admin page can miss a change
-/// (chase-sets/chase-sets#10823).
-async fn listed<T: serde::de::DeserializeOwned>(
-    caller: &Caller<'_>,
-    kind: Kind,
-    id: &str,
-    id_of: impl Fn(&T) -> &str,
-) -> Result<Option<T>, crate::api::ApiError> {
-    let mut page = 1;
-    loop {
-        let list = caller.list::<T>(kind, &list_query(&[], page)).await?;
-        let read = list.items.len();
-        if let Some(row) = list.items.into_iter().find(|row| id_of(row) == id) {
-            return Ok(Some(row));
-        }
-        if read == 0 || page * PAGE_SIZE >= list.total {
-            return Ok(None);
-        }
-        page += 1;
-    }
-}
-
 /// A list's API query: the filters that are set, then `limit` and `offset`
 /// (`buildCatalogListApiQuery`).
 fn list_query(filters: &[(&str, &Option<String>)], page: u32) -> String {
@@ -518,6 +494,17 @@ enum Sent {
 
 async fn command(caller: &Caller<'_>, method: Method, kind: Kind, rest: &str, body: Option<&Value>) -> Sent {
     match caller.command(method, kind, rest, body).await {
+        Ok(written) => Sent::Written(written),
+        Err(error) => match refused(error) {
+            Ok(errors) => Sent::Refused(errors),
+            Err(denied) => Sent::Denied(denied),
+        },
+    }
+}
+
+/// `command`, checked against the revision its form was drawn from (`Catalog::command_at`).
+async fn command_at(caller: &Caller<'_>, method: Method, kind: Kind, rest: &str, body: &Value, revision: &str) -> Sent {
+    match caller.command_at(method, kind, rest, body, revision).await {
         Ok(written) => Sent::Written(written),
         Err(error) => match refused(error) {
             Ok(errors) => Sent::Refused(errors),

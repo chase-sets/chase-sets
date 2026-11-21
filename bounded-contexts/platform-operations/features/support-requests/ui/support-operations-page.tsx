@@ -51,7 +51,6 @@ type SupportOperationsPageProps = Readonly<{
   actionError?: string | null;
   actionResult?: string | null;
   marketplaceOrigin?: string | null;
-  actorPermissions?: readonly string[];
   remedyPreview?: PlatformRemedyProposalPreview | null;
   remedyProposalInput?: PlatformRemedyProposalInput | null;
 }>;
@@ -299,7 +298,6 @@ export function SupportOperationsPage({
   actionError,
   actionResult,
   marketplaceOrigin,
-  actorPermissions = [],
   remedyPreview,
   remedyProposalInput,
 }: SupportOperationsPageProps) {
@@ -528,7 +526,6 @@ export function SupportOperationsPage({
           marketplaceOrigin={marketplaceOrigin}
           actionError={actionError}
           actionResult={actionResult}
-          actorPermissions={actorPermissions}
           remedyPreview={remedyPreview}
           remedyProposalInput={remedyProposalInput}
           onClose={() => navigate(queueHref(searchParams))}

@@ -294,30 +294,13 @@ function profileSectionCommand(
       };
     }
     case "migration-evidence":
+      // Only what the operator wrote; Catalog refuses a blank text and stamps
+      // the time, the author and the fingerprints itself.
       return {
         section: "migration-evidence",
         migrationEvidence: {
-          ...(profile.migrationEvidence ?? {}),
-          evidenceText:
-            stringValue(formData.get("migrationEvidenceText")) ??
-            profile.migrationEvidence?.evidenceText ??
-            "Section update validated through profile authoring.",
-          fixtureRunId: nullableStringValue(
-            formData.get("migrationFixtureRunId"),
-            profile.migrationEvidence?.fixtureRunId ?? null,
-          ),
-          mappingFingerprintBefore: nullableStringValue(
-            formData.get("migrationFingerprintBefore"),
-            profile.migrationEvidence?.mappingFingerprintBefore ?? null,
-          ),
-          mappingFingerprintAfter: nullableStringValue(
-            formData.get("migrationFingerprintAfter"),
-            profile.migrationEvidence?.mappingFingerprintAfter ?? null,
-          ),
-          recordedAt:
-            stringValue(formData.get("migrationRecordedAt")) ??
-            profile.migrationEvidence?.recordedAt ??
-            new Date(0).toISOString(),
+          evidenceText: stringValue(formData.get("migrationEvidenceText")) ?? "",
+          fixtureRunId: stringValue(formData.get("migrationFixtureRunId")),
         },
       };
   }
@@ -353,7 +336,8 @@ export function profileSectionFailureResult(
   "section-conflict" | "section-invalid" | "command-failed"
 > {
   if (error instanceof CatalogApiError) {
-    if (error.status === 409) {
+    // 428: the form carried no section revision, so it was drawn before revisions were sent.
+    if (error.status === 409 || error.status === 428) {
       return "section-conflict";
     }
     if (error.status === 400) {

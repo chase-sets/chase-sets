@@ -23,6 +23,7 @@ Each entry has `name`, `scope` (`"repository"` or a list of inventoried environm
 Rules enforced by `scripts/credential-inventory.test.mjs` in `test:scripts`:
 
 - Every `secrets.NAME` in `.github/workflows/**` and `.github/actions/**` (except `GITHUB_TOKEN`) has an entry, and `secrets[...]` index syntax is rejected because it hides the name from every static check.
+- `scope: []` is only for agent-tier names with no GitHub placement. They cannot be referenced by workflows or actions and are not checked or rotated by GitHub credential tooling. Spaces pairing and bucket validation still apply.
 - `valueGroups` partition `scope` with no overlap.
 - Assisted credentials use `maxAgeDays` 365. Identifiers carry no age limit, provider expiry or liveness.
 - `pairedWith` is reciprocal. A Spaces liveness entry pairs with exactly one secret key of the same scope.

@@ -19,6 +19,11 @@ import {
   listCatalogProviderProfileVersionReviews,
   retireCatalogProviderProfileVersionForReview,
 } from "./provider-profile-review";
+import {
+  CatalogProviderProfileEditableSectionChangedError,
+  catalogProviderProfileEditableSectionFingerprint,
+} from "./provider-profile-section-fingerprint";
+import type { CatalogProviderProfileEditableSectionKey } from "./provider-profile-section-registry";
 
 describe("Catalog provider profile review", () => {
   it("lists profile versions with validation status and review metadata", async () => {
@@ -504,6 +509,7 @@ describe("Catalog provider profile review", () => {
       store,
       providerKey: "tcgdex",
       profileVersion: "2026.06.04",
+      expectedSectionFingerprint: await storedSectionFingerprint(store, "basics"),
       command: {
         section: "basics",
         lifecycle: "test",
@@ -540,6 +546,7 @@ describe("Catalog provider profile review", () => {
       store,
       providerKey: "tcgdex",
       profileVersion: "2026.06.04",
+      expectedSectionFingerprint: await storedSectionFingerprint(store, "provider-options"),
       command: {
         section: "provider-options",
         optionQueries: [
@@ -574,6 +581,7 @@ describe("Catalog provider profile review", () => {
       store,
       providerKey: "tcgdex",
       profileVersion: "2026.06.04",
+      expectedSectionFingerprint: await storedSectionFingerprint(store, "promotion-plan"),
       command: {
         section: "promotion-plan",
         promotionCommandPlan: {
@@ -595,11 +603,13 @@ describe("Catalog provider profile review", () => {
   });
 
   it("rejects fixture section commands that allow live provider calls", async () => {
+    const store = mutableProfileStore([tcgdexVersion("2026.06.04", "draft", false)]);
     await expect(
       updateCatalogProviderProfileSectionForReview({
-        store: mutableProfileStore([tcgdexVersion("2026.06.04", "draft", false)]),
+        store,
         providerKey: "tcgdex",
         profileVersion: "2026.06.04",
+        expectedSectionFingerprint: await storedSectionFingerprint(store, "fixtures"),
         command: {
           section: "fixtures",
           fixtures: {
@@ -610,6 +620,104 @@ describe("Catalog provider profile review", () => {
         },
       }),
     ).rejects.toThrow("fixtures.liveProviderCallsAllowed must remain false.");
+  });
+
+  it("refuses a section save drawn from a revision another save has replaced, and keeps that save", async () => {
+    const store = mutableProfileStore([tcgdexVersion("2026.06.04", "draft", false)]);
+    const read = await storedSectionFingerprint(store, "basics");
+    await updateCatalogProviderProfileSectionForReview({
+      store,
+      providerKey: "tcgdex",
+      profileVersion: "2026.06.04",
+      expectedSectionFingerprint: read,
+      command: basicsCommand("First operator"),
+    });
+
+    await expect(
+      updateCatalogProviderProfileSectionForReview({
+        store,
+        providerKey: "tcgdex",
+        profileVersion: "2026.06.04",
+        expectedSectionFingerprint: read,
+        command: basicsCommand("Second operator"),
+      }),
+    ).rejects.toBeInstanceOf(CatalogProviderProfileEditableSectionChangedError);
+    expect((await store.getProfileVersion("tcgdex", "2026.06.04"))?.profile.displayName).toBe("First operator");
+  });
+
+  it("takes a section save after another section changed, and keeps both changes", async () => {
+    const store = mutableProfileStore([tcgdexVersion("2026.06.04", "draft", false)]);
+    const promotionRead = await storedSectionFingerprint(store, "promotion-plan");
+    await updateCatalogProviderProfileSectionForReview({
+      store,
+      providerKey: "tcgdex",
+      profileVersion: "2026.06.04",
+      expectedSectionFingerprint: await storedSectionFingerprint(store, "basics"),
+      command: basicsCommand("Renamed first"),
+    });
+
+    const review = await updateCatalogProviderProfileSectionForReview({
+      store,
+      providerKey: "tcgdex",
+      profileVersion: "2026.06.04",
+      expectedSectionFingerprint: promotionRead,
+      command: await emptyPromotionPlanCommand(store),
+    });
+
+    expect(review.displayName).toBe("Renamed first");
+    expect(review.executableMappingContract).toMatchObject({ promotionCommandPlan: { commands: [] } });
+    expect(review.sectionFingerprints["promotion-plan"]).not.toBe(promotionRead);
+  });
+
+  it("reads again when another section's save lands between the read and the write", async () => {
+    const store = mutableProfileStore([tcgdexVersion("2026.06.04", "draft", false)]);
+    const basicsRead = await storedSectionFingerprint(store, "basics");
+    const promotionCommand = await emptyPromotionPlanCommand(store);
+    const racing = storeWithOneRacingSave(store, async () => {
+      await updateCatalogProviderProfileSectionForReview({
+        store,
+        providerKey: "tcgdex",
+        profileVersion: "2026.06.04",
+        expectedSectionFingerprint: basicsRead,
+        command: basicsCommand("Landed in between"),
+      });
+    });
+
+    const review = await updateCatalogProviderProfileSectionForReview({
+      store: racing,
+      providerKey: "tcgdex",
+      profileVersion: "2026.06.04",
+      expectedSectionFingerprint: await storedSectionFingerprint(store, "promotion-plan"),
+      command: promotionCommand,
+    });
+
+    expect(review.displayName).toBe("Landed in between");
+    expect(review.executableMappingContract).toMatchObject({ promotionCommandPlan: { commands: [] } });
+  });
+
+  it("refuses a save when the same section's save lands between the read and the write", async () => {
+    const store = mutableProfileStore([tcgdexVersion("2026.06.04", "draft", false)]);
+    const read = await storedSectionFingerprint(store, "basics");
+    const racing = storeWithOneRacingSave(store, async () => {
+      await updateCatalogProviderProfileSectionForReview({
+        store,
+        providerKey: "tcgdex",
+        profileVersion: "2026.06.04",
+        expectedSectionFingerprint: read,
+        command: basicsCommand("Landed in between"),
+      });
+    });
+
+    await expect(
+      updateCatalogProviderProfileSectionForReview({
+        store: racing,
+        providerKey: "tcgdex",
+        profileVersion: "2026.06.04",
+        expectedSectionFingerprint: read,
+        command: basicsCommand("Read before it"),
+      }),
+    ).rejects.toBeInstanceOf(CatalogProviderProfileEditableSectionChangedError);
+    expect((await store.getProfileVersion("tcgdex", "2026.06.04"))?.profile.displayName).toBe("Landed in between");
   });
 
   it("blocks activation when fixture harness validation fails", async () => {
@@ -737,6 +845,58 @@ function profileStore(
   };
 }
 
+async function storedSectionFingerprint(
+  store: CatalogProviderIntegrationProfileVersionStore,
+  section: CatalogProviderProfileEditableSectionKey,
+): Promise<string> {
+  const version = await store.getProfileVersion("tcgdex", "2026.06.04");
+  if (!version) {
+    throw new Error("Expected TCGdex profile version 2026.06.04.");
+  }
+  return catalogProviderProfileEditableSectionFingerprint(version, section);
+}
+
+function basicsCommand(displayName: string) {
+  return {
+    section: "basics",
+    lifecycle: "draft",
+    displayName,
+    status: "planned",
+    capabilities: ["provider-option-query"],
+    supportedScopes: ["language", "expansion"],
+    languageOptions: ["en"],
+  } as const;
+}
+
+async function emptyPromotionPlanCommand(store: CatalogProviderIntegrationProfileVersionStore) {
+  const base = await store.getProfileVersion("tcgdex", "2026.06.04");
+  if (!base?.executableMappingContract) {
+    throw new Error("Expected draft TCGdex executable mapping contract.");
+  }
+  return {
+    section: "promotion-plan",
+    promotionCommandPlan: { ...base.executableMappingContract.promotionCommandPlan, commands: [] },
+  } as const;
+}
+
+/** A store whose first write lets `land` save through the underlying store before it runs. */
+function storeWithOneRacingSave(
+  store: CatalogProviderIntegrationProfileVersionStore,
+  land: () => Promise<void>,
+): CatalogProviderIntegrationProfileVersionStore {
+  let landed = false;
+  return {
+    ...store,
+    upsertProfileVersion: async (version, guard) => {
+      if (!landed) {
+        landed = true;
+        await land();
+      }
+      return store.upsertProfileVersion(version, guard);
+    },
+  };
+}
+
 function mutableProfileStore(
   versions: readonly CatalogProviderIntegrationProfileVersionRecord[] = catalogProviderIntegrationProfileVersions,
   referenceCount = 0,
@@ -744,7 +904,15 @@ function mutableProfileStore(
   let records = [...versions];
   return {
     seedProfileVersions: async () => records,
-    upsertProfileVersion: async (version) => {
+    upsertProfileVersion: async (version, guard) => {
+      guard?.(
+        records.find(
+          (candidate) =>
+            candidate.providerKey === version.providerKey &&
+            candidate.profileKey === version.profileKey &&
+            candidate.profileVersion === version.profileVersion,
+        ) ?? null,
+      );
       records = records.filter(
         (candidate) =>
           !(

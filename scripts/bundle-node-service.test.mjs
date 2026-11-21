@@ -12,7 +12,7 @@ const repoRoot = fileURLToPath(new URL("../", import.meta.url));
 const roots = [];
 const assetSource = "bounded-contexts/platform-operations/features/support-requests/api/evidence-canonicalization.ts";
 const baselineScriptDigests = {
-  "platform-api": "61391107de6ba1a3ca361a867007c79bdaaf8b27c3acba0e622582baddcc0e72",
+  "platform-api": "24bf70e1121ced1b8dd484573f93eb86d1fa2b977f0c924c46af9a528764b280",
   "platform-worker": "b968c49f7ec21e7b2ddd4ee0f390f422cdbd408dc108e12bd61f8db83fcf7eac",
 };
 
@@ -169,6 +169,32 @@ describe("bundle-node-service", () => {
     ).toBe(files.join("\n"));
   });
 
+  it.each([true, false])("loads the bundled product cards HTML only when built (built: %s)", async (built) => {
+    const f = await fixture();
+    const html = "<!doctype html><title>Product cards</title>";
+    const asset = "deployables/agent-apps/build/product-cards.html";
+    if (built) await put(f.root, asset, html);
+    await put(
+      f.root,
+      `${f.service}/src/main.ts`,
+      `import { readFile } from "node:fs/promises";
+const html = await readFile(new URL("../../agent-apps/build/product-cards.html", import.meta.url), "utf8")
+  .catch((error) => { if (error.code !== "ENOENT") throw error; });
+console.log(html ?? "unavailable");`,
+    );
+    await bundleNodeService({ repoRoot: f.root, deployable: f.name });
+    const copy = readFile(path.join(f.dist, "product-cards.html"), "utf8");
+    if (built) {
+      await expect(copy).resolves.toBe(html);
+      await rm(path.join(f.root, asset));
+    } else {
+      await expect(copy).rejects.toMatchObject({ code: "ENOENT" });
+    }
+    expect(execFileSync(process.execPath, [path.join(f.dist, "main.js")], { encoding: "utf8", timeout: 30_000 })).toBe(
+      `${built ? html : "unavailable"}\n`,
+    );
+  });
+
   it("maps bundled stack traces to TypeScript sources", async () => {
     const f = await fixture();
     await put(
@@ -195,5 +221,14 @@ describe("bundle-node-service", () => {
         `COPY --chown=node:node --from=build /app/deployables/${name}/dist ./deployables/${name}/dist`,
       );
     }
+  });
+
+  it("builds the product cards HTML before bundling Platform API in the image", async () => {
+    const dockerfile = await readFile(path.join(repoRoot, "Dockerfile"), "utf8");
+    const [buildStage] = dockerfile.split(" AS runtime");
+    const widget = buildStage.indexOf("pnpm --filter @chase-sets/app-agent-apps run build");
+    const api = buildStage.indexOf("pnpm --filter @chase-sets/app-platform-api run build");
+    expect(widget).toBeGreaterThanOrEqual(0);
+    expect(api).toBeGreaterThan(widget);
   });
 });

@@ -12,7 +12,7 @@ import type { MarketplaceApiEnv } from "../api";
 import { omitPrivateOfferResponseFields } from "../features/offers/api/response-shape";
 import {
   createMarketplaceOfferMatchPatch,
-  createMarketplaceOfferPatch,
+  createMarketplaceSubmittedOfferPatch,
 } from "../support/realtime-support/projection-patches";
 import { action as itemDetailAction } from "../../discovery/routes/item-detail";
 import {
@@ -488,7 +488,7 @@ describe("market-following Submitted Offer real router", () => {
       selected_options: [{ dimensionId: "dim_condition", optionId: "opt_near_mint", maximumUnitItemAmount: "1937.41" }],
     };
     for (const patch of [
-      createMarketplaceOfferPatch(["public-offers"], source),
+      createMarketplaceSubmittedOfferPatch("acc_buyer", source),
       createMarketplaceOfferMatchPatch(["seller-matches"], source.offer_id, source),
     ]) {
       const serialized = JSON.stringify(patch);
@@ -950,6 +950,63 @@ describe("marketplace offer routes", () => {
     }
     expect(offerMatch.offer_id).toBe("off_1");
     expect(offerMatch.buyer_display_name).toBe("Buyer One");
+  });
+
+  it("loads an inventory Match without previewing acceptance terms", async () => {
+    const fetchMock = vi.fn((input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/api/auth/session")) {
+        return Promise.resolve(
+          jsonResponse({
+            actor: {
+              sessionId: "ses_1",
+              tenantId: "tnt_identity",
+              userId: "usr_1",
+              accountId: "acc_1",
+              membershipId: "mbr_1",
+              roleKey: "owner",
+              permissions: ["offers.view", "offers.manage", "listings.view"],
+            },
+          }),
+        );
+      }
+      if (url.includes("terms-preview")) return Promise.reject(new Error("terms preview must not be read"));
+      return Promise.resolve(
+        jsonResponse({
+          offer_id: "off_1",
+          buyer_account_id: "acc_buyer",
+          buyer_display_name: "Buyer One",
+          catalog_catalog_item_id: "cat_charizard",
+          product_id: "cat_charizard::",
+          item_title: "Charizard",
+          item_subtitle: null,
+          selected_options: [],
+          product_summary: null,
+          price_amount: "350.00",
+          quantity_requested: 1,
+          status: "submitted",
+          created_at: "2026-03-31T00:00:00.000Z",
+          updated_at: "2026-03-31T00:00:00.000Z",
+          fill_source: "inventory",
+          can_fulfill: false,
+          inventory_item_id: "inv_1",
+          inventory_available_quantity: 2,
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await offerMatchLoader({
+      request: new Request("http://localhost/account/offers/matches/off_1"),
+      params: { offerId: "off_1" },
+      context: undefined,
+    } as never);
+
+    expect(result.offerMatch).toMatchObject({ fill_source: "inventory", inventory_item_id: "inv_1" });
+    expect(result.acceptanceTerms).toBeNull();
+    expect(fetchMock.mock.calls.map(([input]) => String(input)).some((url) => url.includes("terms-preview"))).toBe(
+      false,
+    );
   });
 
   it("returns route-owned recovery when a fresh offer match read hits projection freshness timeout", async () => {

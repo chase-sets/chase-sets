@@ -20,6 +20,7 @@ import { buildProductAlertNotificationProjectionHandlers } from "./features/prod
 import { buildProductAlertPageProjectionHandlers } from "./features/product-alerts/read-model/projection";
 import { buildGoogleShoppingFeedRowProjectionHandlers } from "./features/google-shopping-operations/api/projection";
 import { buildDiscoveryMarketProjectionHandlers } from "./support/market-support/projection";
+import { buildDiscoveryBuyerOfferStandingHandlers } from "./support/market-support/offer-standing";
 import { buildDiscoverySearchItemProjectionHandlers } from "./features/search/read-model/projection";
 import { buildDiscoverySavedListPickerProjectionHandlers } from "./features/saved-list-addition/integrations/collections/projection";
 import { createDiscoveryServices, type DiscoveryHostPorts } from "./support/runtime-support/services";
@@ -50,8 +51,8 @@ const baseModule = defineBoundedContextModule<DiscoveryServices, PgTransactional
     const marketProjectionHandlers = buildDiscoveryMarketProjectionHandlers(services.db);
 
     // Search/detail rebuild large buyer-facing documents from Catalog facts.
-    // Their manifest declarations intentionally use a larger projection budget
-    // and one-event transaction chunks so deterministic bulk replays do not park poison.
+    // Their manifest declarations batch ordinary events and keep structural
+    // cascades resumable when they outgrow a single transaction.
     return buildEventSubscriptionsFromManifest({
       contextName: "discovery",
       manifest: contextManifest,
@@ -69,6 +70,7 @@ const baseModule = defineBoundedContextModule<DiscoveryServices, PgTransactional
         "inventory.discovery-market-projection": () => marketProjectionHandlers,
         "checkout.discovery-market-projection": () => marketProjectionHandlers,
         "marketplace.discovery-market-projection": () => marketProjectionHandlers,
+        "marketplace.discovery.offer-standing-projection": () => buildDiscoveryBuyerOfferStandingHandlers(services.db),
         "ordering.discovery-market-projection": () => marketProjectionHandlers,
         "marketplace.discovery-product-alert-notification-projection": (subscription) =>
           buildProductAlertNotificationProjectionHandlers(

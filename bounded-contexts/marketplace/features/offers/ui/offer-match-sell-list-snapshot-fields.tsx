@@ -1,7 +1,7 @@
 import { HiddenInput } from "@chase-sets/design-system";
-import type { OfferMatchListItem } from "./contracts";
+import type { ListingOfferMatchListItem } from "./contracts";
 
-export function OfferMatchSellListSnapshotFields({ offer }: { offer: OfferMatchListItem }) {
+export function OfferMatchSellListSnapshotFields({ offer }: { offer: ListingOfferMatchListItem }) {
   return (
     <>
       <HiddenInput type="hidden" name="offerId" value={offer.offer_id} />

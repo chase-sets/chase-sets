@@ -34,11 +34,19 @@ import {
   type CatalogProviderProfileFixtureCase,
 } from "./provider-profile-contract-harness";
 import { catalogProviderProfileFixtureCases } from "./provider-profile-fixture-cases";
+import {
+  assertCatalogProviderProfileEditableSectionFingerprint,
+  CatalogProviderProfileEditableSectionChangedError,
+  catalogProviderProfileEditableSectionFingerprints,
+} from "./provider-profile-section-fingerprint";
+import { stableJsonStringify } from "../source-observation-job-serialization";
 import { catalogProviderRequiredFixtureFlows } from "./provider-integration-mapping-contract";
 import {
   catalogProviderProfileEditableSectionMetadata,
   toCatalogProviderProfileSectionPatch,
+  type CatalogProviderProfileEditableSectionKey,
   type CatalogProviderProfileEditableSectionMetadata,
+  type CatalogProviderProfileMigrationEvidenceRecording,
   type CatalogProviderProfileSectionUpdateCommand,
   type CatalogProviderProfileVersionUpdatePatch,
 } from "./provider-profile-section-registry";
@@ -159,6 +167,8 @@ export type CatalogProviderProfileVersionReview = Readonly<{
   hasExecutableMappingContract: boolean;
   migrationEvidence: CatalogProviderIntegrationProfileMigrationEvidence | null;
   authoringAudit: CatalogProviderIntegrationProfileAuthoringAudit | null;
+  /** Each editable section's revision; a section save sends the one its form was drawn from. */
+  sectionFingerprints: Readonly<Record<CatalogProviderProfileEditableSectionKey, string>>;
   validation: Readonly<{
     status: "valid" | "invalid";
     diagnostics: readonly CatalogProviderProfileReviewDiagnostic[];
@@ -398,18 +408,7 @@ export async function getCatalogProviderProfileAuthoringModel(input: {
   const selector = profileVersionSelectorFromInput(input);
   const version = await requireProfileVersion(input.store, input.providerKey, input.profileVersion, selector);
   const referenceCount = await input.store.countProfileVersionReferences(version.providerKey, version.profileVersion);
-  const versions = await input.store.listProfileVersions(version.providerKey);
-  const activeVersion =
-    versions.find(
-      (candidate) =>
-        candidate.active &&
-        candidate.lifecycle === "active" &&
-        catalogProviderProfileVersionsCompete(candidate, version),
-    ) ??
-    (await input.store.getActiveProfileVersion(version.providerKey, {
-      profileKey: version.profileKey,
-      ingestionUnitKey: catalogProviderProfileVersionIngestionUnitKey(version),
-    }));
+  const activeVersion = await findCompetingActiveProfileVersion(input.store, version);
   const fixtureCases = authoringFixtureCasesForVersion(
     version,
     input.fixtureCases ?? catalogProviderProfileFixtureCases(),
@@ -668,34 +667,56 @@ export async function updateCatalogProviderProfileVersionForReview(input: {
     input.profileVersion,
     profileVersionSelectorFromInput(input),
   );
+  const saved = await input.store.upsertProfileVersion(
+    patchedProfileVersion(existing, input.patch, input.audit),
+    refuseImmutableDestination,
+  );
+  return toProfileVersionReview(saved);
+}
+
+function patchedProfileVersion(
+  existing: CatalogProviderIntegrationProfileVersionRecord,
+  patch: CatalogProviderProfileVersionUpdatePatch,
+  audit: CatalogProviderIntegrationProfileAuthoringAudit | null | undefined,
+): CatalogProviderIntegrationProfileVersionRecord {
   assertMutableLifecycle(existing.lifecycle);
-  const nextLifecycle = input.patch.lifecycle ?? existing.lifecycle;
+  const nextLifecycle = patch.lifecycle ?? existing.lifecycle;
   assertMutableLifecycle(nextLifecycle);
-  const updated = assertProfileVersionIdentity({
+  return assertProfileVersionIdentity({
     ...existing,
     lifecycle: nextLifecycle,
     active: false,
-    profile: input.patch.profile ?? existing.profile,
-    sourceContract: input.patch.sourceContract ?? existing.sourceContract,
-    fixtures: input.patch.fixtures ?? existing.fixtures,
-    retirementPlan: Object.prototype.hasOwnProperty.call(input.patch, "retirementPlan")
-      ? (input.patch.retirementPlan ?? null)
+    profile: patch.profile ?? existing.profile,
+    sourceContract: patch.sourceContract ?? existing.sourceContract,
+    fixtures: patch.fixtures ?? existing.fixtures,
+    retirementPlan: Object.prototype.hasOwnProperty.call(patch, "retirementPlan")
+      ? (patch.retirementPlan ?? null)
       : existing.retirementPlan,
-    executableMappingContract: Object.prototype.hasOwnProperty.call(input.patch, "executableMappingContract")
-      ? (input.patch.executableMappingContract ?? undefined)
+    executableMappingContract: Object.prototype.hasOwnProperty.call(patch, "executableMappingContract")
+      ? (patch.executableMappingContract ?? undefined)
       : existing.executableMappingContract
         ? {
             ...existing.executableMappingContract,
             lifecycle: nextLifecycle,
           }
         : undefined,
-    migrationEvidence: Object.prototype.hasOwnProperty.call(input.patch, "migrationEvidence")
-      ? (input.patch.migrationEvidence ?? null)
+    migrationEvidence: Object.prototype.hasOwnProperty.call(patch, "migrationEvidence")
+      ? (patch.migrationEvidence ?? null)
       : (existing.migrationEvidence ?? null),
-    authoringAudit: mergeAuthoringAudit(existing.authoringAudit ?? null, input.audit),
+    authoringAudit: mergeAuthoringAudit(existing.authoringAudit ?? null, audit),
   });
-  const saved = await input.store.upsertProfileVersion(updated, refuseImmutableDestination);
-  return toProfileVersionReview(saved);
+}
+
+// A save composes the whole version from one read, so another save landing between that read and
+// the write would be overwritten. The write lock refuses that case, and the save then reads again:
+// a change to another section is kept, and a change to this section answers that it changed.
+const SECTION_SAVE_ATTEMPTS = 3;
+
+class ProfileVersionMovedError extends Error {
+  constructor() {
+    super("Catalog provider profile version changed between read and write.");
+    this.name = "ProfileVersionMovedError";
+  }
 }
 
 export async function updateCatalogProviderProfileSectionForReview(input: {
@@ -705,26 +726,88 @@ export async function updateCatalogProviderProfileSectionForReview(input: {
   profileKey?: string | null;
   ingestionUnitKey?: string | null;
   command: CatalogProviderProfileSectionUpdateCommand;
+  /** The section's fingerprint when the operator's form was drawn (`sectionFingerprints`). */
+  expectedSectionFingerprint: string;
   audit?: CatalogProviderIntegrationProfileAuthoringAudit | null;
   activeJobs?: readonly CatalogProviderProfileLifecycleBlockingJob[];
 }): Promise<CatalogProviderProfileVersionReview> {
-  const existing = await requireProfileVersion(
-    input.store,
-    input.providerKey,
-    input.profileVersion,
-    profileVersionSelectorFromInput(input),
+  assertNoActiveProfileLifecycleBlockingJobs(input);
+  for (let attempt = 1; ; attempt += 1) {
+    const existing = await requireProfileVersion(
+      input.store,
+      input.providerKey,
+      input.profileVersion,
+      profileVersionSelectorFromInput(input),
+    );
+    const patch = toCatalogProviderProfileSectionPatch(existing, input.command, {
+      migrationEvidenceRecording:
+        input.command.section === "migration-evidence"
+          ? await migrationEvidenceRecording(input.store, existing, input.audit ?? null)
+          : null,
+    });
+    // A version that cannot change, or a command it would refuse, says so before the revision does.
+    const next = patchedProfileVersion(existing, patch, input.audit);
+    assertCatalogProviderProfileEditableSectionFingerprint(
+      existing,
+      input.command.section,
+      input.expectedSectionFingerprint,
+    );
+    const read = profileVersionContent(existing);
+    try {
+      const saved = await input.store.upsertProfileVersion(next, (persisted) => {
+        refuseImmutableDestination(persisted);
+        if (!persisted || profileVersionContent(persisted) !== read) {
+          throw new ProfileVersionMovedError();
+        }
+      });
+      return toProfileVersionReview(saved);
+    } catch (error) {
+      if (!(error instanceof ProfileVersionMovedError)) {
+        throw error;
+      }
+      if (attempt >= SECTION_SAVE_ATTEMPTS) {
+        throw new CatalogProviderProfileEditableSectionChangedError(input.command.section);
+      }
+    }
+  }
+}
+
+function profileVersionContent(version: CatalogProviderIntegrationProfileVersionRecord): string {
+  return stableJsonStringify(toJsonValue(version));
+}
+
+async function findCompetingActiveProfileVersion(
+  store: CatalogProviderIntegrationProfileVersionStore,
+  version: CatalogProviderIntegrationProfileVersionRecord,
+): Promise<CatalogProviderIntegrationProfileVersionRecord | null> {
+  const versions = await store.listProfileVersions(version.providerKey);
+  return (
+    versions.find(
+      (candidate) =>
+        candidate.active &&
+        candidate.lifecycle === "active" &&
+        catalogProviderProfileVersionsCompete(candidate, version),
+    ) ??
+    (await store.getActiveProfileVersion(version.providerKey, {
+      profileKey: version.profileKey,
+      ingestionUnitKey: catalogProviderProfileVersionIngestionUnitKey(version),
+    }))
   );
-  const patch = toCatalogProviderProfileSectionPatch(existing, input.command);
-  return updateCatalogProviderProfileVersionForReview({
-    store: input.store,
-    providerKey: input.providerKey,
-    profileVersion: input.profileVersion,
-    profileKey: input.profileKey,
-    ingestionUnitKey: input.ingestionUnitKey,
-    patch,
-    audit: input.audit,
-    activeJobs: input.activeJobs,
-  });
+}
+
+async function migrationEvidenceRecording(
+  store: CatalogProviderIntegrationProfileVersionStore,
+  version: CatalogProviderIntegrationProfileVersionRecord,
+  audit: CatalogProviderIntegrationProfileAuthoringAudit | null,
+): Promise<CatalogProviderProfileMigrationEvidenceRecording> {
+  const active = await findCompetingActiveProfileVersion(store, version);
+  return {
+    recordedAt: audit?.updatedAt ?? new Date().toISOString(),
+    recordedByUserId: audit?.updatedByUserId ?? null,
+    recordedForAccountId: audit?.updatedForAccountId ?? null,
+    mappingFingerprintBefore: active ? sourceMappingFingerprint(active) : null,
+    mappingFingerprintAfter: sourceMappingFingerprint(version),
+  };
 }
 
 export async function rollbackCatalogProviderProfileVersionForReview(input: {
@@ -1548,6 +1631,7 @@ function toProfileVersionReview(
     hasExecutableMappingContract: Boolean(version.executableMappingContract),
     migrationEvidence: version.migrationEvidence ?? null,
     authoringAudit: version.authoringAudit ?? null,
+    sectionFingerprints: catalogProviderProfileEditableSectionFingerprints(version),
     validation: {
       status: diagnostics.length === 0 ? "valid" : "invalid",
       diagnostics,

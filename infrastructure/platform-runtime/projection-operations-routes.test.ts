@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import {
   createProjectionOperationsRoutes,
+  loadBlockedProjectionState,
   type ProjectionOperationsRouteOptions,
 } from "./projection-operations-routes";
 import type { ResolvedActor } from "./auth";
@@ -116,7 +117,58 @@ function projectionOperation(
   };
 }
 
-function createIdentityConsentProjectionRuntime(): ApiHostRuntime {
+function identityConsentGroup(blockedStreamCount: number, poisonEventCount: number) {
+  const status = {
+    targetContextName: "identity",
+    projectionName: "identity-consent-projection",
+    projectionRevision: 1,
+    storedProjectionRevision: 1,
+    revisionStale: false,
+    sourceContextNames: ["identity"],
+    ownedTables: ["identity_consents"],
+    requiredDuringBootstrap: false,
+    initialized: true,
+    caughtUp: false,
+    state: blockedStreamCount > 0 || poisonEventCount > 0 ? "error" : "caught-up",
+    lastError: null,
+    outstandingEventCount: "0",
+    blockedStreamCount,
+    poisonEventCount,
+    updatedAt: "2026-07-06T00:00:00.000Z",
+    subscriptions: [
+      {
+        checkpointKey: "identity-consent-projection:identity:v1",
+        subscriptionName: "identity-consent-projection",
+        projectionName: "identity-consent-projection",
+        sourceContextName: "identity",
+        targetContextName: "identity",
+        subscriptionVersion: 1,
+        initialized: true,
+        lastGlobalPosition: "1",
+        sourceHeadGlobalPosition: "1",
+        outstandingEventCount: "0",
+        processedEvents: 0,
+        state: "caught-up",
+        lastError: null,
+        blockedStreamCount,
+        poisonEventCount,
+        updatedAt: "2026-07-06T00:00:00.000Z",
+      },
+    ],
+  };
+  return {
+    targetContextName: status.targetContextName,
+    projectionName: status.projectionName,
+    requiredDuringBootstrap: false,
+    subscriptionRunners: [],
+    refreshStatus: vi.fn(async () => status),
+    getStatus: () => status,
+  } as unknown as ApiHostRuntime["projectionGroups"][number];
+}
+
+function createIdentityConsentProjectionRuntime(
+  projectionGroups: ApiHostRuntime["projectionGroups"] = [],
+): ApiHostRuntime {
   const pool = {
     query: vi.fn(async <Row>(sql: string) => {
       if (sql.includes("FROM event_projection_blocked_streams")) {
@@ -179,7 +231,7 @@ function createIdentityConsentProjectionRuntime(): ApiHostRuntime {
     ],
     mountedModules: [],
     services: {},
-    projectionGroups: [],
+    projectionGroups,
     subscriptionRunners: [
       {
         checkpointKey: "identity-consent-projection:identity:v1",
@@ -669,6 +721,49 @@ describe("projection operations routes", () => {
         requestedByAccountId: platformActor.accountId,
       }),
     );
+  });
+
+  it("lists a stuck projection's blocked streams and poison events beside its counts", async () => {
+    const runtime = createIdentityConsentProjectionRuntime([identityConsentGroup(1, 1)]);
+    const deriveProjectionTriage = vi.fn<ProjectionOperationsRouteOptions["deriveProjectionTriage"]>(() => ({
+      attentionItems: [],
+      repairQueue: [],
+      activeWorkerCount: 0,
+      staleWorkerCount: 0,
+    }));
+    const app = createRouteApp(platformActor, runtime, { deriveProjectionTriage });
+
+    const response = await app.request("/");
+
+    expect(response.status).toBe(200);
+    const expected = [
+      {
+        projectionKey: "identity-consent-projection:identity:v1",
+        blockedStreamCount: 1,
+        poisonEventCount: 1,
+        blockedStreams: [expect.objectContaining({ streamId: "identity.legacy-fact-1", state: "blocked" })],
+        poisonEvents: [
+          expect.objectContaining({ eventId: "evt_identity_legacy_1", streamId: "identity.legacy-fact-1" }),
+        ],
+      },
+    ];
+    const body = await response.json();
+    expect(body.blockedProjections).toEqual(expected);
+    expect(deriveProjectionTriage.mock.calls[0]?.[0]).toMatchObject({ blockedProjections: expected });
+    // Operations Attention reads the same state through this loader.
+    await expect(loadBlockedProjectionState(runtime, undefined)).resolves.toMatchObject({
+      blockedProjections: expected,
+    });
+  });
+
+  it("reads no blocked details while every projection is healthy", async () => {
+    const runtime = createIdentityConsentProjectionRuntime([identityConsentGroup(0, 0)]);
+    const pool = (runtime.mountedContexts[0] as unknown as { pool: { query: ReturnType<typeof vi.fn> } }).pool;
+
+    const state = await loadBlockedProjectionState(runtime, undefined);
+
+    expect(state.blockedProjections).toEqual([]);
+    expect(pool.query).not.toHaveBeenCalled();
   });
 
   it("summarizes runtime-memory projection status", async () => {

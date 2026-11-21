@@ -106,31 +106,51 @@ dbDescribe("Offer attempt first results on PostgreSQL", () => {
       },
     });
   }
-  async function seedMatch() {
+  async function seedMatch(suffix = "one", submitting = buyer, accepting = seller) {
     const offers = runtime();
-    const result = await offers.submitOffer({ ...submission, offerId: "off_one" }, buyer);
-    await pools.marketplace
-      .query(`INSERT INTO marketplace_offer_pages(offer_id,buyer_account_id,catalog_catalog_item_id,product_id,item_title,price_amount,price_currency_code,last_stream_version,quantity_requested,status)
-      VALUES ('off_one','acc_buyer','cat_one','cat_one::','Item',10,'USD',1,1,'submitted')`);
-    await pools.marketplace
-      .query(`INSERT INTO marketplace_supply_items(item_id,account_id,catalog_catalog_item_id,product_id,storage_location_id,total_quantity)
-      VALUES ('inv_one','acc_seller','cat_one','cat_one::','loc_one',10)`);
-    await pools.marketplace
-      .query(`INSERT INTO marketplace_listing_pages(listing_id,account_id,inventory_item_id,catalog_catalog_item_id,product_id,price_amount,price_currency_code,listing_stream_version,marketplace_sales_fee_unit_amount,seller_net_unit_amount,fee_quote_fingerprint,quantity_cap,status)
-      VALUES ('lst_one','acc_seller','inv_one','cat_one','cat_one::',10,'USD',2,0,10,'fixture',10,'active')`);
+    const offerId = `off_${suffix}` as const;
+    const listingId = `lst_${suffix}`;
+    const inventoryItemId = `inv_${suffix}`;
+    const catalogItemId = `cat_${suffix}`;
+    const productId = `${catalogItemId}::`;
+    const buyerAccountId = submitting.audit.forAccountId!;
+    const sellerAccountId = accepting.audit.forAccountId!;
+    await pools.marketplace.query(
+      "INSERT INTO marketplace_catalog_items(catalog_item_id,title,status) VALUES ($1,'Item','active') ON CONFLICT DO NOTHING",
+      [catalogItemId],
+    );
+    const result = await offers.submitOffer(
+      { ...submission, buyerAccountId, catalogItemId, productId, offerId },
+      submitting,
+    );
+    await pools.marketplace.query(
+      `INSERT INTO marketplace_offer_pages(offer_id,buyer_account_id,catalog_catalog_item_id,product_id,item_title,price_amount,price_currency_code,last_stream_version,quantity_requested,status)
+       VALUES ($1,$2,$3,$4,'Item',10,'USD',1,1,'submitted')`,
+      [offerId, buyerAccountId, catalogItemId, productId],
+    );
+    await pools.marketplace.query(
+      `INSERT INTO marketplace_supply_items(item_id,account_id,catalog_catalog_item_id,product_id,storage_location_id,total_quantity)
+       VALUES ($1,$2,$3,$4,'loc_one',10)`,
+      [inventoryItemId, sellerAccountId, catalogItemId, productId],
+    );
+    await pools.marketplace.query(
+      `INSERT INTO marketplace_listing_pages(listing_id,account_id,inventory_item_id,catalog_catalog_item_id,product_id,price_amount,price_currency_code,listing_stream_version,marketplace_sales_fee_unit_amount,seller_net_unit_amount,fee_quote_fingerprint,quantity_cap,status)
+       VALUES ($1,$2,$3,$4,$5,10,'USD',2,0,10,'fixture',10,'active')`,
+      [listingId, sellerAccountId, inventoryItemId, catalogItemId, productId],
+    );
     await store.appendToStream({
-      streamId: "marketplace.listing-lst_one",
+      streamId: `marketplace.listing-${listingId}`,
       expectedVersion: "no_stream",
-      context: seller,
+      context: accepting,
       events: [
         {
           eventType: "marketplace.listing.created",
           payload: {
-            listingId: "lst_one",
-            accountId: "acc_seller",
-            inventoryItemId: "inv_one",
-            catalogItemId: "cat_one",
-            productId: "cat_one::",
+            listingId,
+            accountId: sellerAccountId,
+            inventoryItemId,
+            catalogItemId,
+            productId,
             itemTitle: "Item",
             itemSubtitle: null,
             selectedOptions: [],
@@ -156,14 +176,58 @@ dbDescribe("Offer attempt first results on PostgreSQL", () => {
             evidence: [],
           },
         },
-        { eventType: "marketplace.listing.published", payload: { listingId: "lst_one" } },
+        { eventType: "marketplace.listing.published", payload: { listingId } },
       ],
     });
-    return { offers, result };
+    return { offers, result, offerId, listingId, sellerAccountId };
   }
 
+  it("orders both reciprocal acceptance roles identically and retries the guarded PostgreSQL conflict", async () => {
+    const directions = await Promise.all([seedMatch(), seedMatch("reciprocal", seller, buyer)]);
+    const commands = await Promise.all(
+      directions.map(async ({ offers, offerId, listingId, sellerAccountId }) => {
+        const request = { offerId, listingId, sellerAccountId };
+        const quote = await offers.previewOfferAcceptanceTerms(request);
+        return {
+          ...request,
+          sourceActionKey: `reciprocal_accept_${offerId}`,
+          feeQuoteFingerprint: quote.fee_quote_fingerprint,
+        };
+      }),
+    );
+    const availabilityPrefix = "marketplace.seller-listing-availability-";
+    const orders: string[][] = [];
+    let release!: () => void;
+    const bothPrepared = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const commit = store.appendToStreams!.bind(store);
+    const append = vi.spyOn(store, "appendToStreams").mockImplementation(async (inputs) => {
+      orders.push(inputs.map(({ streamId }) => streamId).filter((streamId) => streamId.startsWith(availabilityPrefix)));
+      if (orders.length === 2) release();
+      await bothPrepared;
+      return commit(inputs);
+    });
+    const actors = [seller, buyer];
+    const accept = (index: number) => directions[index]!.offers.acceptOffer(commands[index]!, actors[index]!);
+    const results = await Promise.allSettled(commands.map((_, index) => accept(index).finally(release)));
+    append.mockRestore();
+
+    const expected = [`${availabilityPrefix}acc_buyer`, `${availabilityPrefix}acc_seller`];
+    expect(orders).toEqual([expected, expected]);
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    const conflictIndex = results.findIndex((result) => result.status === "rejected");
+    expect(results[conflictIndex]).toMatchObject({ status: "rejected", reason: { code: "listing_not_eligible" } });
+    await expect(accept(conflictIndex)).resolves.toMatchObject({ offerId: commands[conflictIndex]!.offerId });
+    for (const streamId of expected) {
+      expect((await store.readStream({ streamId })).map((event) => event.eventType)).toEqual([
+        "marketplace.seller-listing-availability.commitment-checked",
+      ]);
+    }
+  });
+
   it.each(["selected", "match"])(
-    "races four streams and replays the first %s acceptance after commit-then-loss with zero appends",
+    "races both availability participants and replays the first %s acceptance after commit-then-loss with zero appends",
     async (keyKind) => {
       const { offers } = await seedMatch();
       const quote = await offers.previewOfferAcceptanceTerms({
@@ -193,7 +257,7 @@ dbDescribe("Offer attempt first results on PostgreSQL", () => {
       expect(results[1].status).toBe("fulfilled");
       if (results[1].status !== "fulfilled") throw results[1].reason;
       const first = results[1].value;
-      expect(append.mock.calls[0]![0]).toHaveLength(4);
+      expect(append.mock.calls[0]![0]).toHaveLength(5);
       expect(
         (await store.readStream({ streamId: "marketplace.offer-off_one" })).filter(
           (event) => event.eventType === "marketplace.offer.accepted",

@@ -504,7 +504,9 @@ export type BcEventSubscriptionDeclaration = Readonly<{
    * Maximum number of dependent rows this projection's cascade may refresh in one
    * event transaction before the runtime commits the chunk and resumes the same
    * event on a later pass. Bounds fan-out so a structural event cannot exceed its
-   * transaction budget. Omitted/`0` uses the runtime default.
+   * transaction budget. Omitted/`0` uses the runtime default. When both this
+   * setting and `checkpointBatchSize > 1` are explicit, the runtime tries a
+   * batch first and retries in per-event transactions if a cascade cannot fit.
    */
   readonly projectionCascadeChunkSize?: number;
   readonly order?: number;
@@ -884,6 +886,7 @@ export type BcRetentionExemption = Readonly<{
 export type BcSeedOptions = Readonly<{
   enabledDataProfiles: readonly EnvironmentDataProfile[];
   environmentName?: string | null;
+  signal?: AbortSignal;
 }>;
 
 /**

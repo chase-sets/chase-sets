@@ -82,6 +82,7 @@ export function buildItemDetailCommerce(
       actions?: ReactNode,
       showSummary?: boolean,
       actionMode?: "all" | "buy-now" | "add-to-cart",
+      onCartAddStart?: () => void,
     ) => (
       <CheckoutPurchaseIntentSection
         formId={formId}
@@ -99,6 +100,7 @@ export function buildItemDetailCommerce(
         productSummary={context.selectedProductSummary}
         visibleListingCount={context.visibleListings.length}
         errorMessage={actionErrorMessage}
+        onCartAddStart={onCartAddStart}
       />
     );
     const renderProductAlert = (
@@ -228,6 +230,7 @@ export function buildItemDetailCommerce(
       formIdPrefix: string,
       panelVariant: FormPanelVariant = "card",
       accordionEdge?: CommerceAccordionEdge,
+      onCartAddStart?: () => void,
     ) => (
       <BuyActionCard
         formIdPrefix={formIdPrefix}
@@ -240,7 +243,7 @@ export function buildItemDetailCommerce(
         hasSelectedListing={Boolean(context.selectedListing)}
         selectedListingSource={context.selectedListingSource}
         renderBuyNow={(formId) => renderBuy(formId, "plain", undefined, true, "buy-now")}
-        renderAddToCart={(formId) => renderBuy(formId, "plain", undefined, true, "add-to-cart")}
+        renderAddToCart={(formId) => renderBuy(formId, "plain", undefined, true, "add-to-cart", onCartAddStart)}
         renderOffer={(formId) => renderOffer(formId, "plain", undefined, true)}
       />
     );
@@ -334,7 +337,7 @@ export function buildItemDetailCommerce(
       watch: renderWatchActionCard("watch-card", "plain"),
       mobile: {
         buy: {
-          content: renderBuyActionCard("mobile-buy-card", "plain", "panel"),
+          content: renderBuyActionCard("mobile-buy-card", "plain", "panel", context.onMobileCartAddStart),
         },
         sell: {
           content: renderSellActionCard("mobile-sell-card", "plain", "panel"),

@@ -22,7 +22,8 @@ import {
   productOptionsFromSummary,
 } from "@chase-sets/design-system";
 import { RouterForm as Form } from "@chase-sets/design-system/react-router";
-import type { OfferMatchDetail } from "./contracts";
+import type { InventoryOfferMatchListItem, OfferMatchDetail } from "./contracts";
+import { InventoryOfferMatchAction } from "./inventory-offer-match-action";
 import { useOfferMatchDeclineAttemptIds } from "./offer-match-decline-attempt-provider";
 import { OfferMatchSellListSnapshotFields } from "./offer-match-sell-list-snapshot-fields";
 import { formatPriceGap } from "./price-gap";
@@ -41,6 +42,95 @@ function termsSourceLabel(terms: MarketplaceListingTermsPreview) {
   return terms.agreement_id ? "Seller terms" : t("marketplace.features.offers.ui.offerMatchDetailPage.standard.terms");
 }
 
+/** Inventory Matches have no Listing to accept against; the seller lists the item first. */
+function InventoryOfferMatchDetailPage({
+  offer,
+  errorMessage,
+}: {
+  offer: InventoryOfferMatchListItem;
+  errorMessage?: string | null | undefined;
+}) {
+  return (
+    <Page>
+      <PageHeader
+        eyebrow={t("marketplace.features.offers.ui.offerMatchDetailPage.offer.match")}
+        title={offer.item_title}
+        description={t("marketplace.features.offers.ui.matchSource.list.before.responding")}
+        actions={
+          <LinkButton href="/account/offers/matches" tone="secondary">
+            {t("marketplace.features.offers.ui.offerMatchDetailPage.back.to.offer.matches")}
+          </LinkButton>
+        }
+      />
+
+      {errorMessage ? (
+        <MarketplaceNotice
+          tone="danger"
+          title={t("marketplace.features.offers.ui.offerMatchDetailPage.offer.match.overview")}
+          description={errorMessage}
+        />
+      ) : null}
+
+      {offer.managed_status ? (
+        <MarketplaceNotice
+          tone="warning"
+          title={t("marketplace.features.offers.ui.offerMatchDetailPage.offer.match.overview")}
+          description={t(`marketplace.marketFollowing.seller.${offer.managed_status}`)}
+        />
+      ) : null}
+
+      <PageSection title={t("marketplace.features.offers.ui.offerMatchDetailPage.offer.match.overview")}>
+        <Card elevation="elevated">
+          <Stack gap={4}>
+            <Stack gap={2}>
+              <Inline>
+                <Badge tone={statusTone(offer.status)}>{offer.status}</Badge>
+                <Badge tone="neutral">{t("marketplace.features.offers.ui.matchSource.from.inventory")}</Badge>
+              </Inline>
+              <Text size="lg" weight="semibold">
+                {formatMoney(offer.price_amount, offer.price_currency_code!)}
+              </Text>
+              <Text weight="semibold">{offer.item_title}</Text>
+              {offer.item_subtitle ? <Text tone="secondary">{offer.item_subtitle}</Text> : null}
+              {offer.product_summary ? (
+                <ProductOptions options={productOptionsFromSummary(offer.product_summary)} variant="chips" />
+              ) : null}
+            </Stack>
+            <KeyValueList
+              density="compact"
+              variant="plain"
+              items={[
+                {
+                  key: t("marketplace.features.offers.ui.offerMatchDetailPage.buyer"),
+                  value: (
+                    <AccountReputationSummary
+                      accountName={offer.buyer_display_name ?? offer.buyer_account_id}
+                      averageRating={offer.buyer_average_rating}
+                      reviewCount={offer.buyer_review_count ?? 0}
+                      ratingLabel={t("marketplace.features.offers.ui.offerMatchDetailPage.buyer.reputation")}
+                    />
+                  ),
+                },
+                {
+                  key: t("marketplace.features.offers.ui.offerMatchDetailPage.quantity.requested"),
+                  value: offer.quantity_requested,
+                },
+                {
+                  key: t("marketplace.features.offers.ui.offerMatchDetailPage.active.supply.available"),
+                  value: offer.inventory_available_quantity,
+                },
+              ]}
+            />
+            <Inline gap={2}>
+              <InventoryOfferMatchAction offer={offer} />
+            </Inline>
+          </Stack>
+        </Card>
+      </PageSection>
+    </Page>
+  );
+}
+
 export function MarketplaceOfferMatchDetailPage({
   offer,
   acceptanceTerms,
@@ -55,6 +145,9 @@ export function MarketplaceOfferMatchDetailPage({
   errorMessage?: string | null;
 }) {
   const declineAttemptIdFor = useOfferMatchDeclineAttemptIds();
+  if (offer.fill_source === "inventory") {
+    return <InventoryOfferMatchDetailPage offer={offer} errorMessage={errorMessage} />;
+  }
   const declineAttemptId = declineAttemptIdFor(offer);
   const canAcceptSubmitted = canAccept && offer.status === "submitted";
   const fulfillmentLabel = offer.can_fulfill

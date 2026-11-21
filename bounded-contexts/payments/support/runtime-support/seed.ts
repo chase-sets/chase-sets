@@ -46,9 +46,15 @@ function logWaitingForSeedOrder(orderDescription: string) {
   console.log(`Payments seed is waiting for ${orderDescription}. Skipping dependent payment data for this pass.`);
 }
 
+// The tenant the seed's buyer and seller sign in under, as in the Identity,
+// Ordering and Fulfillment seeds. A captured seed payment hands its tenant to
+// Ordering's ready-for-fulfillment record and from there to the shipment
+// Fulfillment opens, which only the seller's own tenant can pack.
+const PAYMENTS_SEED_TENANT_ID = "tnt_identity" as TenantId;
+
 function createSeedContext(accountId: string, userId: string): EventStoreContext {
   return {
-    tenantId: "tnt_seed_development" as TenantId,
+    tenantId: PAYMENTS_SEED_TENANT_ID,
     audit: {
       performedByUserId: userId as UserId,
       forAccountId: accountId as AccountId,
@@ -311,6 +317,43 @@ const PAYMENTS_BOOTSTRAP_LABEL = "Payments seed bootstrap";
 const paymentStreamId = (paymentId: string) => `payments.payment-${paymentId}`;
 const refundStreamId = (refundId: string) => `payments.refund-${refundId}`;
 
+type SeedPaymentsServices = ReturnType<typeof createPaymentsServices>;
+type SeedPaymentCommandInput = Parameters<SeedPaymentsServices["payments"]["commandHandler"]>[0];
+type SeedRefundCommandInput = Parameters<SeedPaymentsServices["refunds"]["commandHandler"]>[0];
+
+/**
+ * Refuses to resume a seed payment or refund whose stream was written under
+ * another tenant. Appending would mix tenants in one stream and still route
+ * its capture to a tenant the seller cannot act under; a retained stream like
+ * that needs an authorized reset and reseed, not a silent repair at boot.
+ */
+async function assertSeedStreamTenant(db: PgQueryable, streamId: string, tenantId: TenantId): Promise<void> {
+  const result = await db.query<Readonly<{ tenant_id: string }>>(
+    `SELECT DISTINCT tenant_id
+     FROM event_store_events
+     WHERE stream_id = $1 AND tenant_id <> $2`,
+    [streamId, tenantId],
+  );
+  const foreign = result.rows.map((row) => row.tenant_id);
+  if (foreign.length > 0) {
+    throw new Error(
+      `${PAYMENTS_BOOTSTRAP_LABEL} Stream '${streamId}' was written under tenant ` +
+        `'${foreign.join("', '")}', not the seed tenant '${tenantId}'; it will not be resumed. ` +
+        `Reset and reseed the disposable environment to replace it.`,
+    );
+  }
+}
+
+async function sendSeedPaymentCommand(services: SeedPaymentsServices, input: SeedPaymentCommandInput) {
+  await assertSeedStreamTenant(services.db, input.streamId, input.context.tenantId);
+  return services.payments.commandHandler(input);
+}
+
+async function sendSeedRefundCommand(services: SeedPaymentsServices, input: SeedRefundCommandInput) {
+  await assertSeedStreamTenant(services.db, input.streamId, input.context.tenantId);
+  return services.refunds.commandHandler(input);
+}
+
 /**
  * Folds one seeded payment from its own `payments.payment-*` stream.
  *
@@ -491,7 +534,7 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
       description: `Seed payment ${paymentId}`,
     });
 
-    await services.payments.commandHandler({
+    await sendSeedPaymentCommand(services, {
       streamId: paymentStreamId(paymentId),
       command: {
         type: "CreatePayment",
@@ -610,7 +653,7 @@ async function seedReservedPayments(
     "2026-03-20T10:05:00.000Z",
   );
   if (failedPayment.status !== "failed") {
-    await services.payments.commandHandler({
+    await sendSeedPaymentCommand(services, {
       streamId: paymentStreamId(paymentsReservedSeedIds.payments.failedModernCheckout),
       command: {
         type: "RecordPaymentFailure",
@@ -629,7 +672,7 @@ async function seedReservedPayments(
     "2026-03-20T10:10:00.000Z",
   );
   if (cancelledPayment.status !== "cancelled") {
-    await services.payments.commandHandler({
+    await sendSeedPaymentCommand(services, {
       streamId: paymentStreamId(paymentsReservedSeedIds.payments.cancelledVintageCheckout),
       command: {
         type: "CancelPayment",
@@ -645,7 +688,7 @@ async function seedReservedPayments(
     "2026-03-20T11:00:00.000Z",
   );
   if (capturedPayment.status !== "captured") {
-    await services.payments.commandHandler({
+    await sendSeedPaymentCommand(services, {
       streamId: paymentStreamId(paymentsReservedSeedIds.payments.acceptedOfferCaptured),
       command: {
         type: "RecordPaymentCapture",
@@ -662,7 +705,7 @@ async function seedReservedPayments(
     "2026-03-20T11:30:00.000Z",
   );
   if (reviewEligiblePayment.status !== "captured") {
-    await services.payments.commandHandler({
+    await sendSeedPaymentCommand(services, {
       streamId: paymentStreamId(paymentsReservedSeedIds.payments.reviewEligibleCaptured),
       command: {
         type: "RecordPaymentCapture",
@@ -712,7 +755,7 @@ async function seedReservedRefunds(
     }
 
     if (existing.refundId === null) {
-      await services.refunds.commandHandler({
+      await sendSeedRefundCommand(services, {
         streamId: refundStreamId(refundId),
         command: {
           type: "RequestRefund",
@@ -739,7 +782,7 @@ async function seedReservedRefunds(
         currencyCode: normalizeCurrencyCode("usd"),
         reason,
       });
-      await services.refunds.commandHandler({
+      await sendSeedRefundCommand(services, {
         streamId: refundStreamId(refundId),
         command: {
           type: "RecordRefundIssued",
@@ -750,7 +793,7 @@ async function seedReservedRefunds(
         context: sellerContext,
       });
     } catch (error) {
-      await services.refunds.commandHandler({
+      await sendSeedRefundCommand(services, {
         streamId: refundStreamId(refundId),
         command: {
           type: "RecordRefundFailure",

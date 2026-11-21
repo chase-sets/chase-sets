@@ -288,6 +288,9 @@
       "@chase-sets/design-system/loading": [
         "./packages/design-system/src/components/feedback/loading.tsx"
       ],
+      "@chase-sets/design-system/localization": [
+        "./packages/design-system/src/localization/locales/en.ts"
+      ],
       "@chase-sets/design-system/menu": [
         "./packages/design-system/src/components/feedback/menu.tsx"
       ],
@@ -449,6 +452,9 @@
       ],
       "@chase-sets/event-core/owner-stream-reservation": [
         "./contracts/event-core/owner-stream-reservation.ts"
+      ],
+      "@chase-sets/event-core/payout-review-hold-facts": [
+        "./contracts/event-core/payout-review-hold-facts.ts"
       ],
       "@chase-sets/event-core/platform-coverage-facts": [
         "./contracts/event-core/platform-coverage-facts.ts"
@@ -840,6 +846,9 @@
       "@chase-sets/platform-runtime/mcp-tool-call-limiter": [
         "./infrastructure/platform-runtime/mcp-tool-call-limiter.ts"
       ],
+      "@chase-sets/platform-runtime/mcp-widget-resources": [
+        "./infrastructure/platform-runtime/mcp-widget-resources.ts"
+      ],
       "@chase-sets/platform-runtime/meta": [
         "./infrastructure/platform-runtime/meta.ts"
       ],
@@ -876,6 +885,9 @@
       "@chase-sets/platform-runtime/projection-wake-scheduler": [
         "./infrastructure/platform-runtime/projection-wake-scheduler.ts"
       ],
+      "@chase-sets/platform-runtime/public-product-urls": [
+        "./infrastructure/platform-runtime/public-product-urls.ts"
+      ],
       "@chase-sets/platform-runtime/pwa": [
         "./infrastructure/platform-runtime/pwa.ts"
       ],
@@ -911,6 +923,9 @@
       ],
       "@chase-sets/platform-runtime/ucp": [
         "./infrastructure/platform-runtime/ucp.ts"
+      ],
+      "@chase-sets/platform-runtime/ucp-contracts": [
+        "./infrastructure/platform-runtime/ucp-contracts.ts"
       ],
       "@chase-sets/platform-runtime/ucp-schema-test-support": [
         "./infrastructure/platform-runtime/ucp-schema-test-support.ts"
@@ -1025,6 +1040,9 @@
       ],
       "@chase-sets/seller-attention-queue": [
         "./contracts/seller-attention-queue/index.ts"
+      ],
+      "@chase-sets/seller-attention-queue/localization": [
+        "./contracts/seller-attention-queue/localization/locales/en.ts"
       ],
       "@chase-sets/seller-desk": [
         "./contracts/seller-desk/index.ts"

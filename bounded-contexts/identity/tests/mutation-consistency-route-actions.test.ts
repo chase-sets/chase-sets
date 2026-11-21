@@ -115,7 +115,9 @@ function participantReply(request: Request, secret?: string) {
   let action: MutationAction;
   if (parts.includes("api-keys"))
     action = last === "api-keys" ? "create-api-key" : last === "rotate" ? "rotate-api-key" : "revoke-api-key";
-  else if (parts.includes("invitations")) action = last === "invitations" ? "create-invitation" : "cancel-invitation";
+  else if (parts.includes("invitations"))
+    action =
+      last === "invitations" ? "create-invitation" : last === "resend" ? "resend-invitation" : "cancel-invitation";
   else if (parts.includes("memberships"))
     action = last === "role" ? "change-role" : last === "reinstate" ? "reinstate" : "revoke";
   else if (parts.includes("consents")) action = "withdraw";
@@ -237,6 +239,11 @@ describe("Identity mutation consistency route actions", () => {
       {
         action: accountTeamAction,
         path: "/account/team",
+        form: { intent: "resend-invitation", invitationId: "ivt_1" },
+      },
+      {
+        action: accountTeamAction,
+        path: "/account/team",
         form: { intent: "cancel-invitation", invitationId: "ivt_1" },
       },
     ] as const;
@@ -278,10 +285,9 @@ describe("Identity mutation consistency route actions", () => {
         expect(readFreshWriteToken(`https://chasesets.test${location}`)?.commitPosition).toBe("79");
       }
       expect(requests.filter((url) => url.includes("/api/identity/"))).toHaveLength(1);
-      expect(requests.filter((url) => url.includes("/acceptance-link/request"))).toHaveLength(
-        testCase.form.intent === "create-invitation" ? 1 : 0,
-      );
-      expect(fetch).toHaveBeenCalledTimes(testCase.form.intent === "create-invitation" ? 3 : 2);
+      const emails = ["create-invitation", "resend-invitation"].includes(testCase.form.intent);
+      expect(requests.filter((url) => url.includes("/acceptance-link/request"))).toHaveLength(emails ? 1 : 0);
+      expect(fetch).toHaveBeenCalledTimes(emails ? 3 : 2);
     }
   });
 
@@ -391,24 +397,6 @@ describe("Identity mutation consistency route actions", () => {
         request: formRequest("/access/accounts/acc_1", {
           intent: "remove-account-badge",
           badgeKey: "founding-account",
-        }),
-        params: { id: "acc_1" },
-        expectedPath: "/access/accounts/acc_1",
-      },
-      {
-        action: accountDetailAction,
-        request: formRequest("/access/accounts/acc_1", {
-          intent: "assign-account-badge",
-          badgeKey: "manual-payout-review",
-        }),
-        params: { id: "acc_1" },
-        expectedPath: "/access/accounts/acc_1",
-      },
-      {
-        action: accountDetailAction,
-        request: formRequest("/access/accounts/acc_1", {
-          intent: "remove-account-badge",
-          badgeKey: "manual-payout-review",
         }),
         params: { id: "acc_1" },
         expectedPath: "/access/accounts/acc_1",
