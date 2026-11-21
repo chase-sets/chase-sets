@@ -1,8 +1,10 @@
 import { formatMoney } from "@chase-sets/localization";
 import { readMcpStringArgument, type McpResourceHandler, type McpToolHandler } from "@chase-sets/platform-runtime/mcp";
+import { createPublicProductUrlPolicy } from "@chase-sets/platform-runtime/public-product-urls";
 import type { DiscoveryItemDetailRow } from "../../features/item-detail/read-model/queries";
 import type { DiscoverySearchParams } from "../../features/search/read-model/queries";
 import type { DiscoveryItemsServices } from "./runtime";
+import { publicProductImages } from "./public-product-images";
 
 export type DiscoveryItemMcpHandlers = Readonly<{
   toolHandlers: Readonly<Record<string, McpToolHandler>>;
@@ -79,54 +81,22 @@ function itemUriParts(uri: string): Readonly<{ itemSlug: string }> | null {
   return { itemSlug: decodeURIComponent(match[1] ?? "") };
 }
 
-function primaryImageUrl(row: {
-  image_urls: unknown;
-  image_fallback: unknown;
-  product_asset_sets: unknown;
-}): string | null {
-  if (Array.isArray(row.image_urls) && typeof row.image_urls[0] === "string") {
-    return row.image_urls[0];
-  }
-  if (row.image_fallback && typeof row.image_fallback === "object") {
-    const url = (row.image_fallback as Readonly<Record<string, unknown>>).url;
-    if (typeof url === "string" && url.trim()) {
-      return url;
-    }
-  }
-
-  for (const assetSet of Array.isArray(row.product_asset_sets) ? row.product_asset_sets : []) {
-    if (!assetSet || typeof assetSet !== "object") {
-      continue;
-    }
-    const source = (assetSet as Readonly<Record<string, unknown>>).source;
-    if (source && typeof source === "object") {
-      const publicUrl = (source as Readonly<Record<string, unknown>>).publicUrl;
-      if (typeof publicUrl === "string" && publicUrl.trim()) {
-        return publicUrl;
-      }
-    }
-  }
-
-  return null;
-}
-
-function marketplaceUrl(request: Request, path: string) {
-  return new URL(path, new URL(request.url).origin).toString();
-}
-
 function priceDisplay(amount: string | null | undefined, currencyCode: string | null | undefined) {
   return amount && currencyCode ? formatMoney(amount, currencyCode) : "Not currently listed";
 }
 
-function productFeedItem(item: DiscoveryItemDetailRow, request: Request) {
-  const url = marketplaceUrl(request, `/items/${item.slug}`);
+function productFeedItem(
+  item: DiscoveryItemDetailRow,
+  resolve: ReturnType<typeof createPublicProductUrlPolicy>["resolve"],
+) {
+  const url = resolve(`/items/${item.slug}`) ?? null;
   return {
     id: item.catalog_item_id,
     title: item.title,
     subtitle: item.subtitle,
     description: item.description,
     url,
-    image_url: primaryImageUrl(item),
+    image_url: publicProductImages(item, resolve)[0] ?? null,
     availability: {
       status: item.market_summary && item.market_summary.total_visible_quantity > 0 ? "in_stock" : "out_of_stock",
       quantity: item.market_summary?.total_visible_quantity ?? 0,
@@ -143,7 +113,7 @@ function productFeedItem(item: DiscoveryItemDetailRow, request: Request) {
       id: listing.product_id,
       listing_id: listing.listing_id,
       title: listing.product_summary ?? item.title,
-      url: marketplaceUrl(request, `/listings/${listing.listing_slug}`),
+      url: resolve(`/listings/${listing.listing_slug}`) ?? null,
       price: {
         currency: listing.price_currency_code,
         amount: listing.price_amount,
@@ -193,7 +163,8 @@ export function createDiscoveryItemMcpHandlers(items: DiscoveryItemsServices): D
   const getChatGptProductFeed: McpToolHandler = async ({ arguments: args, request }) => {
     const result = await items.search.searchItems(readSearchParams(args));
     const details = await Promise.all(result.items.map((item) => items.detail.getItemDetail(item.slug)));
-    const products = details.filter(isPublicItem).map((item) => productFeedItem(item, request));
+    const { resolve } = createPublicProductUrlPolicy(request);
+    const products = details.filter(isPublicItem).map((item) => productFeedItem(item, resolve));
 
     return {
       feedFormat: "chatgpt-product-feed/v1",
