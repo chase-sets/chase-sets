@@ -52,7 +52,7 @@ function createServices() {
       query: vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [] })),
     },
     auth: {
-      verifyPassword: vi.fn(async () => ({ valid: true }) as { valid: boolean; upgradedHash?: string }),
+      verifyPassword: vi.fn<AuthServices["auth"]["verifyPassword"]>(async () => ({ valid: true })),
     },
     identity: {
       normalizeEmail: vi.fn((value: string) => value.trim().toLowerCase()),
@@ -130,6 +130,18 @@ describe("password auth routes", () => {
     expect(mockStartInteractiveAuth).not.toHaveBeenCalled();
   });
 
+  it("verifies a password once for an unknown email", async () => {
+    const services = createServices();
+    services.identity.getUserByEmail.mockResolvedValue(null);
+    const app = buildApp(services);
+
+    const response = await signInRequest(app, { email: "missing@example.test", password: "whatever" }, "203.0.113.64");
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({ error: "Invalid email or password." });
+    expect(services.auth.verifyPassword).toHaveBeenCalledExactlyOnceWith("whatever", null);
+  });
+
   it("rejects sign-in for a wrong password with the same generic error, without starting a session", async () => {
     const services = createServices();
     mockGetPasswordCredentialByUserId.mockResolvedValue({
@@ -144,6 +156,7 @@ describe("password auth routes", () => {
 
     expect(response.status).toBe(401);
     await expect(response.json()).resolves.toEqual({ error: "Invalid email or password." });
+    expect(services.auth.verifyPassword).toHaveBeenCalledExactlyOnceWith("wrong", "hash_correct");
     expect(mockStartInteractiveAuth).not.toHaveBeenCalled();
     expect(mockUpsertPasswordCredential).not.toHaveBeenCalled();
   });
@@ -156,7 +169,8 @@ describe("password auth routes", () => {
     const response = await signInRequest(app, { email: "buyer@example.com", password: "whatever" }, "203.0.113.63");
 
     expect(response.status).toBe(401);
-    expect(services.auth.verifyPassword).not.toHaveBeenCalled();
+    await expect(response.json()).resolves.toEqual({ error: "Invalid email or password." });
+    expect(services.auth.verifyPassword).toHaveBeenCalledExactlyOnceWith("whatever", null);
     expect(mockStartInteractiveAuth).not.toHaveBeenCalled();
   });
 
@@ -230,6 +244,7 @@ describe("password auth routes", () => {
     await expect(ipLimited.json()).resolves.toMatchObject({
       error: { code: "rate_limited", surface: "auth.sign-in.ip-failures" },
     });
+    expect(services.auth.verifyPassword).toHaveBeenCalledTimes(10);
     expect(mockStartInteractiveAuth).not.toHaveBeenCalled();
   });
 });
