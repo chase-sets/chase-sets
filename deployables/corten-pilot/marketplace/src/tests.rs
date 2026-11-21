@@ -571,7 +571,8 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
                 if session == "unverified_agent" {
                     actor["agentGrant"] = json!({ "grantId": "agr_1" });
                 } else {
-                    actor["withheldPermissions"] = json!([{ "permission": "orders.manage", "reason": "email_verification_required" }]);
+                    actor["withheldPermissions"] =
+                        json!([{ "permission": "orders.manage", "reason": "email_verification_required" }]);
                 }
                 Json(json!({ "actor": actor })).into_response()
             }
