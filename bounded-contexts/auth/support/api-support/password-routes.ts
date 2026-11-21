@@ -30,18 +30,14 @@ export function registerPasswordRoutes(app: AuthApiApp, services: AuthServices) 
     }
 
     const user = await services.identity.getUserByEmail(email);
-    if (!user) {
+    const passwordCredential = user ? await getPasswordCredentialByUserId(services.db, user.user_id) : null;
+    const verification = await services.auth.verifyPassword(
+      String(body.password ?? ""),
+      passwordCredential?.secret_hash ?? null,
+    );
+    if (!user || !passwordCredential || !verification.valid) {
       passwordSignInFailureRateLimits.record(c.req.raw, identifierKey);
       return c.json({ error: t("auth.support.apiSupport.passwordRoutes.invalid.email.or.password") }, 401);
-    }
-
-    const passwordCredential = await getPasswordCredentialByUserId(services.db, user.user_id);
-    const verification = passwordCredential
-      ? await services.auth.verifyPassword(String(body.password ?? ""), passwordCredential.secret_hash)
-      : { valid: false };
-    if (!passwordCredential || !verification.valid) {
-      passwordSignInFailureRateLimits.record(c.req.raw, identifierKey);
-      return c.json({ error: t("auth.support.apiSupport.passwordRoutes.invalid.email.or.password.2") }, 401);
     }
 
     // Transparent migration: a successful verify against a legacy SHA-256 (or

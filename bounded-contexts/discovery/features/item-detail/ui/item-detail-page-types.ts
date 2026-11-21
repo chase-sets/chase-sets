@@ -27,6 +27,7 @@ export type ItemDetailMarketplaceSectionContext = Readonly<{
   bestListing: DiscoveryMarketListing | null;
   bestOffer: DiscoveryOffer | null;
   bestAccountOfferMatch: DiscoveryAccountOfferMatch | null;
+  onMobileCartAddStart: () => void;
 }>;
 
 export type ItemDetailMobileCommerceSection = Readonly<{

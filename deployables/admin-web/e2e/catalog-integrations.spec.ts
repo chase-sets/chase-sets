@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { captureResponsiveEvidence } from "@chase-sets/playwright-evidence";
 import {
   authenticateAdmin,
   expectAdminWebHydrated,
@@ -131,6 +132,144 @@ async function expectAliasReviewWorkspace(page: Page) {
     )
     .toEqual(expect.arrayContaining([expect.stringMatching(/^(accept|reject|defer|revoke|auto-accept)$/)]));
 }
+
+test("tablet operator navigates to import review and uses the bulk action bar @catalog-admin-integrations @tablet @browser-e2e-seed", async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(120_000);
+  await authenticateAdmin(page, "/catalog/integrations", "/access/sign-in");
+  await expectPageOk(page, "/catalog/integrations");
+  await expectAdminWebHydrated(page);
+
+  await page.getByRole("button", { name: "Sections" }).tap();
+  const sections = page.getByRole("dialog", { name: "Sections" });
+  await expect(sections).toBeVisible();
+  await sections.getByRole("link", { name: "Integration health" }).tap();
+  await expect(page).toHaveURL(/\/catalog\/integrations\/health$/);
+  await expect(sections).toBeHidden();
+  await page.getByRole("link", { name: "Back to import workbench" }).tap();
+  await expect(page).toHaveURL(/\/catalog\/integrations(?:\?|$)/);
+  const trail = page.getByRole("navigation", { name: "Current section" });
+  await expect(trail.getByText("Import", { exact: true })).toHaveAttribute("aria-current", "page");
+
+  const context = page.locator('[data-catalog-import-context-bar="true"]');
+  const contextTrigger = context.getByRole("button", { name: /Step 0 · Choose import scope/ });
+  await clickUntilDisclosureExpanded(contextTrigger, true);
+  const provider = context.getByRole("combobox", { name: "Provider" });
+  const tcgdexUrl = /[?&]providerKey=tcgdex(?:&|$)/;
+  await expect(async () => {
+    if (!tcgdexUrl.test(page.url())) {
+      await expect(contextTrigger).toHaveAttribute("aria-expanded", "true");
+      await provider.selectOption("tcgdex");
+    }
+    await expect(page).toHaveURL(tcgdexUrl, { timeout: 1_000 });
+  }).toPass({ timeout: 20_000 });
+  await clickUntilDisclosureExpanded(page.getByRole("button", { name: "Review changes" }).first(), true);
+  await clickUntilDisclosureExpanded(page.getByRole("button", { name: "Source Observation evidence" }), true);
+
+  const review = page.getByRole("region", { name: "Source Observation review" });
+  const changedOptions = { name: "Select row tcgdex_en_base2_60_1st_edition" };
+  const changed = review.getByRole("checkbox", changedOptions);
+  await expect(changed, "browser-e2e seed must provide the changed tcgdex observation").toBeVisible();
+  const changedRow = review
+    .getByRole("row")
+    .or(review.getByRole("listitem"))
+    .filter({
+      has: page.getByRole("checkbox", changedOptions),
+    });
+  await expect(changedRow.getByText("Changed", { exact: true })).toBeVisible();
+  const selected = review.getByText("1 observation(s) selected", { exact: true });
+  await expect(async () => {
+    await changed.check();
+    await expect(selected).toBeVisible({ timeout: 1_000 });
+  }).toPass({ timeout: 10_000 });
+
+  const primary = review.locator('[data-bulk-action-region="primary"]');
+  const secondary = review.locator('[data-bulk-action-region="secondary"]');
+  await expect(primary.getByRole("button", { name: /Preview promotion/i })).toBeVisible();
+  await expect(secondary.getByRole("button", { name: /Defer/i })).toBeVisible();
+  const clear = secondary.getByRole("button", { name: "Clear selection" });
+  await expect(clear).toBeVisible();
+  const importUrl = new URL(page.url());
+  await captureResponsiveEvidence({
+    page,
+    testInfo,
+    claimId: "tablet-import-review-bulk-actions",
+    routePath: importUrl.pathname + importUrl.search,
+  });
+  await clear.tap();
+  await expect(changed).not.toBeChecked();
+  await expect(selected).toBeHidden();
+});
+
+async function openIntegrationHealthTriage(page: Page) {
+  await authenticateAdmin(page, "/catalog/integrations/health", "/access/sign-in");
+
+  // Health triage now lives on the real /catalog/integrations/health surface route.
+  await expectPageOk(
+    page,
+    "/catalog/integrations/health?providerKey=tcgdex&section=triage&filter.status=changed&selectedObservationIds=obs_001",
+  );
+  await expect(page).toHaveURL(/\/catalog\/integrations\/health\?.*section=triage/);
+}
+
+async function expectIntegrationHealthTriage(page: Page) {
+  // There is no page-local workflow nav or mobile combobox; cross-surface
+  // navigation is the admin shell's responsibility.
+  await expect(page.getByRole("navigation", { name: "Catalog control plane workflows" })).toHaveCount(0);
+  await expect(page.getByRole("combobox", { name: "Choose Catalog workflow" })).toHaveCount(0);
+  // The primary "Pull provider data" / "Preview promotion" actions are not
+  // duplicated in the shell header, so the supporting surfaces (this is the
+  // health surface) do not surface them — they live only in the daily flow's
+  // owning stages, asserted on the daily route above.
+  await expect(page.getByRole("button", { name: /Pull provider data/i })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Preview promotion/i })).toHaveCount(0);
+  const healthTriageRegion = page.getByRole("region", { name: "Integration health triage" });
+  await expect(healthTriageRegion).toBeVisible();
+  // DataTable renders both cards and a table; only one is visible at a given width.
+  for (const label of [
+    "integration-health-summary",
+    "provider-transport-readiness-summary",
+    "import-job-progress-summary",
+    "audit-evidence-timeline",
+    "Read model",
+    "Ingestion unit",
+    "Catalog semantic",
+    "Provider transport",
+    "Provider adapter",
+    "Adapter capabilities",
+    "API",
+    "Payload",
+    /No active or failed import jobs|Import job|Active jobs/i,
+  ]) {
+    await expect(healthTriageRegion.getByText(label).filter({ visible: true }).first()).toBeVisible();
+  }
+  // The health surface stacks three workspaces but renders the "Back to import
+  // workbench" affordance exactly once, in the surface header (not once per
+  // stacked workspace), so this needs no .first() disambiguator.
+  const healthBackLinks = page.getByRole("link", { name: "Back to import workbench" });
+  await expect(healthBackLinks).toHaveCount(1);
+  await expect(healthBackLinks).toBeVisible();
+  await expect(healthBackLinks).toHaveAttribute("href", /\/catalog\/integrations(\?|$)/);
+  await expect(page.getByRole("heading", { name: "Import to promotion workbench" })).toHaveCount(0);
+  // The health surface stacks all three of its workspaces, so the audit timeline is
+  // already rendered alongside health triage; its workspace heading stays visible.
+  const auditEvidenceWorkspace = page.locator('[data-catalog-audit-evidence-workspace="true"]');
+  await expect(auditEvidenceWorkspace).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Audit timeline" })).toBeVisible();
+  await expect(auditEvidenceWorkspace.getByRole("heading", { name: "Evidence links" })).toBeVisible();
+  await expect(auditEvidenceWorkspace.getByText("source payload body download")).toBeVisible();
+  await expect(auditEvidenceWorkspace.getByText("operator identity expansion")).toBeVisible();
+}
+
+test("catalog operator can inspect integration health triage @catalog-admin-integrations @tablet", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  await openIntegrationHealthTriage(page);
+  const trail = page.getByRole("navigation", { name: "Current section" });
+  await expect(trail.getByText("Integration health")).toHaveAttribute("aria-current", "page");
+  await expectIntegrationHealthTriage(page);
+});
 
 test.describe.serial("catalog admin integrations", () => {
   test("catalog job streams open or fail with controlled JSON responses @catalog-admin-integrations", async ({
@@ -628,71 +767,13 @@ test.describe.serial("catalog admin integrations", () => {
       "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
     );
 
-    await authenticateAdmin(page, "/catalog/integrations/health", "/access/sign-in");
-
-    // Health triage now lives on the real /catalog/integrations/health surface route.
-    await expectPageOk(
-      page,
-      "/catalog/integrations/health?providerKey=tcgdex&section=triage&filter.status=changed&selectedObservationIds=obs_001",
-    );
-    await expect(page).toHaveURL(/\/catalog\/integrations\/health\?.*section=triage/);
-    // The health surface is the nested "Integration health" child, so its
-    // side-nav link is current and the Import child still links back to the daily route.
+    await openIntegrationHealthTriage(page);
     await expect(page.locator('a[href="/catalog/integrations/health"]').first()).toHaveAttribute(
       "aria-current",
       "page",
     );
     await expect(page.locator('a[href="/catalog/integrations"]').first()).toBeVisible();
-
-    await page.setViewportSize({ width: 390, height: 900 });
-    // There is no page-local workflow nav or mobile combobox; cross-surface
-    // navigation is the admin shell's responsibility.
-    await expect(page.getByRole("navigation", { name: "Catalog control plane workflows" })).toHaveCount(0);
-    await expect(page.getByRole("combobox", { name: "Choose Catalog workflow" })).toHaveCount(0);
-    // The primary "Pull provider data" / "Preview promotion" actions are not
-    // duplicated in the shell header, so the supporting surfaces (this is the
-    // health surface) do not surface them — they live only in the daily flow's
-    // owning stages, asserted on the daily route above.
-    await expect(page.getByRole("button", { name: /Pull provider data/i })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: /Preview promotion/i })).toHaveCount(0);
-    const healthTriageRegion = page.getByRole("region", { name: "Integration health triage" });
-    await expect(healthTriageRegion).toBeVisible();
-    for (const queryKey of [
-      "integration-health-summary",
-      "provider-transport-readiness-summary",
-      "import-job-progress-summary",
-      "audit-evidence-timeline",
-    ]) {
-      await expect(healthTriageRegion.getByText(queryKey).first()).toBeVisible();
-    }
-    await expect(healthTriageRegion.getByText("Read model").first()).toBeVisible();
-    await expect(healthTriageRegion.getByText("Ingestion unit").first()).toBeVisible();
-    await expect(healthTriageRegion.getByText("Catalog semantic").first()).toBeVisible();
-    await expect(healthTriageRegion.getByText("Provider transport").first()).toBeVisible();
-    await expect(healthTriageRegion.getByText("Provider adapter").first()).toBeVisible();
-    await expect(healthTriageRegion.getByText("Adapter capabilities").first()).toBeVisible();
-    await expect(healthTriageRegion.getByText("API").first()).toBeVisible();
-    await expect(healthTriageRegion.getByText("Payload").first()).toBeVisible();
-    await expect(
-      healthTriageRegion.getByText(/No active or failed import jobs|Import job|Active jobs/i).first(),
-    ).toBeVisible();
-    // The health surface stacks three workspaces but renders the "Back to import
-    // workbench" affordance exactly once, in the surface header (not once per
-    // stacked workspace), so this needs no .first() disambiguator.
-    const healthBackLinks = page.getByRole("link", { name: "Back to import workbench" });
-    await expect(healthBackLinks).toHaveCount(1);
-    await expect(healthBackLinks).toHaveAttribute("href", /\/catalog\/integrations(\?|$)/);
-    await expect(page.getByRole("heading", { name: "Import to promotion workbench" })).toHaveCount(0);
-    // The health surface stacks all three of its workspaces, so the audit timeline is
-    // already rendered alongside health triage; its workspace heading stays visible.
-    const auditEvidenceWorkspace = page.locator('[data-catalog-audit-evidence-workspace="true"]');
-    await expect(auditEvidenceWorkspace).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Audit timeline" })).toBeVisible();
-    await expect(auditEvidenceWorkspace.getByRole("heading", { name: "Evidence links" })).toBeVisible();
-    await expect(auditEvidenceWorkspace.getByText("source payload body download")).toBeVisible();
-    await expect(auditEvidenceWorkspace.getByText("operator identity expansion")).toBeVisible();
-    // Return to the desktop side nav for the remaining surface assertions.
-    await page.setViewportSize({ width: 1280, height: 900 });
+    await expectIntegrationHealthTriage(page);
   });
 
   test("catalog operator can inspect provider setup readiness on the v2 Provider detail page @catalog-admin-integrations", async ({

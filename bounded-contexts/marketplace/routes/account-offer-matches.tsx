@@ -9,7 +9,7 @@ import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { type OfferMatchListItem } from "../support/request-support/api-client";
 import { createMarketplaceRequestApiClient } from "../support/request-support/api-client";
 import { MarketplaceOfferMatchListPage } from "../features/offers/ui/offer-match-list-page";
-import { applyMarketplaceListPatch } from "../support/realtime-support/patches";
+import { applyOfferMatchListPatch } from "../support/realtime-support/patches";
 import { marketplaceRealtimeRouteTopics } from "../support/realtime-support/topics";
 import contextManifest from "../context.json";
 import { marketplaceApiErrorAdapter } from "../support/request-support/route-api-error";
@@ -84,12 +84,8 @@ function MarketplaceAccountOfferMatchesRealtimeView({
   const offerMatches = useRealtimePatchedSnapshot<ListResponse<OfferMatchListItem>>({
     initialSnapshot: data.offerMatches as ListResponse<OfferMatchListItem>,
     snapshotKey: JSON.stringify(data.offerMatches),
-    topics: accountId ? marketplaceRealtimeRouteTopics.accountOffers(accountId).topics : [],
-    applyPatch: (current, patch) =>
-      applyMarketplaceListPatch(current, patch, {
-        entity: "marketplace.offerMatch",
-        idField: "offer_id",
-      }),
+    topics: accountId ? marketplaceRealtimeRouteTopics.accountOfferMatches(accountId).topics : [],
+    applyPatch: applyOfferMatchListPatch,
     onSyncRequired: reloadForRealtimeSync,
   });
 

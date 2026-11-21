@@ -220,7 +220,9 @@ CREATE INDEX IF NOT EXISTS payments_provider_webhook_events_received_idx
 
 CREATE TABLE IF NOT EXISTS payments_account_risk_sources (
   account_id text PRIMARY KEY,
+  -- Retained for the previous fleet during rollout; new readers use the hold.
   manual_payout_review boolean NOT NULL DEFAULT false,
+  payout_review_hold boolean NOT NULL DEFAULT false,
   stripe_fraud_flag boolean NOT NULL DEFAULT false,
   stripe_fraud_flagged_at timestamptz NULL,
   stripe_fraud_signal_count integer NOT NULL DEFAULT 0,
@@ -229,7 +231,20 @@ CREATE TABLE IF NOT EXISTS payments_account_risk_sources (
 );
 `;
 
+export const paymentsAccountRiskSourceExpansionSchemaSql = `
+ALTER TABLE payments_account_risk_sources
+  ADD COLUMN IF NOT EXISTS payout_review_hold boolean NOT NULL DEFAULT false;
+`;
+
 export const paymentsPaymentSchemaMigrations = [
+  {
+    migrationId: "20261120_payments_payout_review_hold_risk_source",
+    description: "Start the Settlement-owned hold signal without inheriting stale Identity badge flags.",
+    statements: [
+      `ALTER TABLE payments_account_risk_sources
+       ADD COLUMN IF NOT EXISTS payout_review_hold boolean NOT NULL DEFAULT false`,
+    ],
+  },
   {
     migrationId: "20260703_payments_payment_pages_checkout_columns",
     description: "Add checkout handoff, payout, refund, and dispute columns to existing payment page read models.",

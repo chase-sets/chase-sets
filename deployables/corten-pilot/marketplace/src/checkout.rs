@@ -22,8 +22,7 @@
 //! is ready shows as a row whose Edit is a link (`?edit=delivery`, marketplace's `edit`). The
 //! payment starts when the buyer presses Pay now, never as the page loads (marketplace's page
 //! submits Pay now itself, chase-sets/chase-sets#10581). Payments quotes the fee
-//! (`/account/checkout/preview-status`), where marketplace's loader quotes the compiled default
-//! policy (chase-sets/chase-sets#10683).
+//! (`/account/checkout/preview-status`), as marketplace's loader reads it.
 //!
 //! Checkout received (`/checkout/buy/session/{id}/confirmation`, marketplace's
 //! `buy-checkout-confirmation.tsx`) is where Pay now with a saved card that needs no secure step

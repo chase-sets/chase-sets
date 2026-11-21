@@ -17,8 +17,8 @@
 //! refuses leaves the draft, which the form then links to.
 //!
 //! The product's options and words come from the page the form was drawn as, not the form. The
-//! stock's ensure never sends a graded card's details, so a graded product cannot be listed here,
-//! as on marketplace (chase-sets/chase-sets#10598); the API's refusal is shown.
+//! stock's ensure sends no graded card's details: for a graded product Inventory takes the grading
+//! company and grade from the options.
 use corten::{
     extract::State,
     http::{HeaderMap, StatusCode, Uri, header},

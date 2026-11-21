@@ -211,6 +211,17 @@ describe("notifications api", () => {
       key: "product-alerts",
       enabled: false,
     });
+
+    for (const channel of ["sms", "rcs"]) {
+      const refused = await app.request(`/api/notifications/preferences/${channel}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: true }),
+      });
+      expect(refused.status).toBe(400);
+      expect(await refused.json()).toMatchObject({ error: { code: "invalid_preference" } });
+    }
+    expect(services.preferences.setPreference).toHaveBeenCalledOnce();
   });
 
   it("records provider SMS/RCS webhooks without marketplace auth", async () => {

@@ -4,6 +4,59 @@
   "claims": [
     {
       "kind": "claim",
+      "id": "mobile-buy-cart-quantity",
+      "file": "deployables/marketplace/e2e/buyer-purchase-journey.spec.ts",
+      "testTitle": "phone buyer searches, adds a product and reaches payment review @marketplace-checkout @mobile @browser-e2e-seed",
+      "route": { "name": "Marketplace Buy Cart", "path": "/account/cart" },
+      "fixture": { "identity": "marketplace-browser-e2e-seed:charizard" },
+      "viewport": { "width": 390, "height": 844 },
+      "target": {
+        "identity": "buy-cart-line",
+        "selector": "[data-marketplace-cart-line]",
+        "populatedSelector": "input[role='spinbutton']"
+      },
+      "measurements": [
+        {
+          "identity": "buy-cart-no-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": { "maximum": 0 }
+        }
+      ],
+      "artifact": "mobile-buy-cart-quantity"
+    },
+    {
+      "kind": "claim",
+      "id": "tablet-import-review-bulk-actions",
+      "file": "deployables/admin-web/e2e/catalog-integrations.spec.ts",
+      "testTitle": "tablet operator navigates to import review and uses the bulk action bar @catalog-admin-integrations @tablet @browser-e2e-seed",
+      "route": { "name": "Catalog integrations import review", "path": "/catalog/integrations" },
+      "fixture": { "identity": "browser-e2e-seed:changed-tcgdex-observation" },
+      "viewport": { "width": 768, "height": 1024 },
+      "target": {
+        "identity": "review-selection-secondary-actions",
+        "selector": "[data-bulk-action-region='secondary']",
+        "populatedSelector": "button"
+      },
+      "measurements": [
+        {
+          "identity": "review-actions-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": { "minimum": 1, "maximum": 768 }
+        },
+        {
+          "identity": "review-no-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": { "maximum": 0 }
+        }
+      ],
+      "artifact": "tablet-import-review-bulk-actions"
+    },
+    {
+      "kind": "claim",
       "id": "checkout-cart-lines-390",
       "file": "deployables/marketplace/e2e/buy-funnel-redesign.spec.ts",
       "testTitle": "captures populated cart lines and actions at 390px @marketplace-checkout @browser-e2e-seed",

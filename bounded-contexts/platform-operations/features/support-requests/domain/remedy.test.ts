@@ -185,6 +185,84 @@ describe("support remedy execution", () => {
     expect(authorized.remedy?.refundReleasedAt).toBe("2026-07-03T12:00:00.000Z");
   });
 
+  it("refuses approval of a workflow sent back for correction but replays an approval already recorded", () => {
+    const firstApprover = "acc_01J00000000000000000000002" as AccountId;
+    const secondApprover = "acc_01J00000000000000000000003" as AccountId;
+    const approve = (approvedByAccountId: AccountId): SupportRequestCommand => ({
+      type: "ApproveSupportRemedy",
+      approvedByAccountId,
+      permissionUsed: "support.remedies.approve",
+      reasonCode: "policy-approved",
+      rationale: "The proposal is within policy.",
+      evidenceReferences: ["evidence-1"],
+      idempotencyKey: `approve:${approvedByAccountId}`,
+      approvedAt: "2026-07-03T12:00:00.000Z",
+    });
+    const proposal = proposalCommand() as Extract<SupportRequestCommand, { type: "ProposeSupportRemedy" }>;
+    let state = resolvedState();
+    state = apply(state, decideSupportRequest(state, { ...proposal, requiredApprovalCount: 2 }));
+    state = apply(state, decideSupportRequest(state, effect("coverage-reservation", "2026-07-03T06:00:00.000Z")));
+    state = apply(state, decideSupportRequest(state, approve(firstApprover)));
+    expect(state.remedyApproval?.status).toBe("approval-pending");
+
+    state = apply(
+      state,
+      decideSupportRequest(state, {
+        type: "RequestSupportRemedyCorrection",
+        requestedByAccountId: secondApprover,
+        permissionUsed: "support.remedies.correct",
+        reasonCode: "allocation-incorrect",
+        rationale: "The allocation needs a seller share.",
+        evidenceReferences: ["evidence-1"],
+        idempotencyKey: "correction-1",
+        requestedAt: "2026-07-03T08:00:00.000Z",
+      }),
+    );
+    expect(state.remedyApproval?.status).toBe("correction-requested");
+
+    expect(decideSupportRequest(state, approve(firstApprover))).toEqual([]);
+    expect(() => decideSupportRequest(state, approve(secondApprover))).toThrow(
+      "A remedy can only be approved while its workflow is approval-pending; this workflow is correction-requested.",
+    );
+    expect(state.remedy).toBeNull();
+  });
+
+  it("keeps a correction request when a matching reservation fact arrives afterwards and refuses a fresh approval", () => {
+    let state = resolvedState();
+    state = apply(state, decideSupportRequest(state, proposalCommand()));
+    expect(state.remedyApproval?.status).toBe("reservation-pending");
+    state = apply(
+      state,
+      decideSupportRequest(state, {
+        type: "RequestSupportRemedyCorrection",
+        requestedByAccountId: "acc_01J00000000000000000000002" as AccountId,
+        permissionUsed: "support.remedies.correct",
+        reasonCode: "allocation-incorrect",
+        rationale: "The allocation needs a seller share.",
+        evidenceReferences: ["evidence-1"],
+        idempotencyKey: "correction-1",
+        requestedAt: "2026-07-03T05:00:00.000Z",
+      }),
+    );
+    expect(state.remedyApproval?.status).toBe("correction-requested");
+
+    state = apply(state, decideSupportRequest(state, effect("coverage-reservation", "2026-07-03T06:00:00.000Z")));
+    expect(state.remedyApproval?.status).toBe("correction-requested");
+    expect(state.remedyApproval?.reservationStatus).toBe("reserved");
+    expect(state.remedyApproval?.auditTrail.map((entry) => entry.action)).toContain("reservation-reserved");
+
+    let approvalEvents: readonly SupportRequestEvent[] = [];
+    expect(() => {
+      approvalEvents = decideSupportRequest(state, approvalCommand());
+    }).toThrow(
+      "A remedy can only be approved while its workflow is approval-pending; this workflow is correction-requested.",
+    );
+    expect(approvalEvents.map((event) => event.type)).not.toContain("support.support-request.remedy-authorized.v1");
+    expect(approvalEvents.map((event) => event.type)).not.toContain("support.support-request.refund-released.v1");
+    expect(state.remedy).toBeNull();
+    expect(state.remedyApproval?.approvals).toEqual([]);
+  });
+
   it("does not confuse refund completion with Settlement reconciliation", () => {
     let state = authorizedState();
     const refundEvents = decideSupportRequest(

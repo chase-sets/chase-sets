@@ -3,6 +3,8 @@ import type { SellListReviewReadiness } from "../../features/sell-list/api/revie
 import { expect, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { appendFreshWriteToken } from "@chase-sets/http/responses";
+import type { PaymentsCheckoutStatus } from "@chase-sets/payments/server";
+import { compareMoneyAmounts, subtractMoneyAmounts } from "@chase-sets/primitives/money";
 
 export class MockCheckoutApiError extends Error {
   public constructor(
@@ -86,7 +88,69 @@ export const mockMergeGuestSellListToAccount = vi.fn();
 export const mockListShippingAddresses = vi.fn();
 export const mockListSellListShipFromAddresses = vi.fn();
 
+/**
+ * What Payments' checkout preview-status answers under the launch fee policy, with a balance-credit
+ * resolver that grants the requested credit up to the amount.
+ */
+export async function paymentsCheckoutPreviewStatus(
+  params: Readonly<{
+    amount: string;
+    currencyCode?: string | null;
+    requestedBalanceCreditAmount?: string | null;
+    paymentMethodCategory?: string | null;
+  }>,
+): Promise<PaymentsCheckoutStatus> {
+  // Loaded when called: test files mock @chase-sets/payments/server with factories that read this module.
+  const {
+    marketplaceCheckoutFeePaymentMethodCategories,
+    normalizeMarketplaceCheckoutFeePaymentMethodCategory,
+    quoteMarketplaceCheckoutFee,
+  } = await vi.importActual<typeof import("@chase-sets/payments/server")>("@chase-sets/payments/server");
+  const requested = params.requestedBalanceCreditAmount || "0.00";
+  const applied = compareMoneyAmounts(requested, params.amount) <= 0 ? requested : params.amount;
+  const external = subtractMoneyAmounts(params.amount, applied);
+  const quotes = marketplaceCheckoutFeePaymentMethodCategories.map((method) =>
+    quoteMarketplaceCheckoutFee({
+      orderAmount: params.amount,
+      externalBasisAmount: external,
+      balanceCreditAmount: applied,
+      paymentMethodCategory: method,
+    }),
+  );
+  const method = normalizeMarketplaceCheckoutFeePaymentMethodCategory(params.paymentMethodCategory);
+  const payable = compareMoneyAmounts(params.amount, "0.00") > 0;
+  return {
+    order_ids: [],
+    currency_code: (params.currencyCode || "usd").toLowerCase(),
+    amount: params.amount,
+    marketplace_checkout_fee: quotes.find((quote) => quote.payment_method_category === method) ?? quotes[0]!,
+    payment_method_quotes: quotes,
+    wallet_credit: { requested_amount: requested, applied_amount: applied, external_amount: external },
+    can_start_payment: payable,
+    unavailable_reasons: payable ? [] : ["no-payable-order-balance"],
+    unavailable_reason_details: payable
+      ? []
+      : [{ code: "no-payable-order-balance", message: "No payable order balance is available." }],
+  };
+}
+
+/** Payments' preview-status answer for a request to it, or null for any other URL. */
+export async function paymentsCheckoutPreviewStatusResponse(input: RequestInfo | URL): Promise<Response | null> {
+  const url = new URL(input instanceof Request ? input.url : String(input));
+  if (!url.pathname.endsWith("/account/checkout/preview-status")) return null;
+  return Response.json(
+    await paymentsCheckoutPreviewStatus({
+      amount: url.searchParams.get("amount") ?? "0.00",
+      currencyCode: url.searchParams.get("currencyCode"),
+      requestedBalanceCreditAmount: url.searchParams.get("requestedBalanceCreditAmount"),
+      paymentMethodCategory: url.searchParams.get("paymentMethodCategory"),
+    }),
+  );
+}
+
 export function applyCheckoutRouteMockDefaults() {
+  mockPreviewCheckoutStatus.mockImplementation(paymentsCheckoutPreviewStatus);
+  mockCreatePaymentsRequestApiClient.mockReturnValue({ previewCheckoutStatus: mockPreviewCheckoutStatus });
   mockGetSellListConfirmation.mockRejectedValue(new MockCheckoutApiError(404, { error: { code: "not_found" } }));
   mockConfirmSellListCheckout.mockImplementation(async (body: { confirmationId: string; handoffSummary: unknown }) => ({
     confirmation: {

@@ -281,6 +281,7 @@ function buildScenarioIdentityReconcilers(
   context: IdentityBootstrapContext,
 ): readonly SeedAggregateReconciler[] {
   const { demo, collector, support, suspended, invitations, apiKeys } = identitySeedIds;
+  const supportInvitationTokenHash = services.auth.hashSecret("seeded-support-invitation-token");
 
   const accountReconciler = (id: string, key: string, steps: readonly AccountCommand[]) =>
     createSeedAggregateReconciler<AccountState, AccountCommand, AccountEvent>({
@@ -649,13 +650,13 @@ function buildScenarioIdentityReconcilers(
       },
       {
         type: "IssueInvitationAcceptanceToken",
-        tokenHash: "seeded-support-invitation-token",
+        tokenHash: supportInvitationTokenHash,
         expiresAt: isoDate("2026-04-01T00:00:00.000Z"),
       },
       {
         type: "AcceptInvitation",
         userId: support.userId,
-        acceptanceTokenHash: "seeded-support-invitation-token",
+        acceptanceTokenHash: supportInvitationTokenHash,
         acceptedAt: isoDate("2026-03-03T12:00:00.000Z"),
       },
     ]),

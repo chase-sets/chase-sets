@@ -36,4 +36,19 @@ describe("issue-7168-ac2-binding-and-hash", () => {
     expect(() => canonicalRequest("sixteenth-action", null, {})).toThrow();
     expect(() => parseAttemptKey("not-a-key")).toThrow("interruption-safe-client-required");
   });
+  it("binds a resend to its invitation and requires an instant, which a retry may recompute", () => {
+    const invitation = "ivt_01ARZ3NDEKTSV4RRFFQ69G5FAV";
+    const first = canonicalRequest("resend-invitation", invitation, { expiresAt: "2026-11-27T12:00:00.000Z" });
+    const retry = canonicalRequest("resend-invitation", invitation, { expiresAt: "2026-11-27T12:00:05.000Z" });
+    expect(retry.hash).toBe(first.hash);
+    expect(first.fields).toEqual({ expiresAt: "2026-11-27T12:00:00.000Z" });
+    expect(() => canonicalRequest("resend-invitation", invitation, {})).toThrow();
+    expect(() => canonicalRequest("resend-invitation", invitation, { expiresAt: "next week" })).toThrow();
+    expect(() => canonicalRequest("resend-invitation", null, { expiresAt: "2026-11-27T12:00:00.000Z" })).toThrow();
+    expect(() =>
+      canonicalRequest("resend-invitation", "mbr_01ARZ3NDEKTSV4RRFFQ69G5FAV", {
+        expiresAt: "2026-11-27T12:00:00.000Z",
+      }),
+    ).toThrow();
+  });
 });

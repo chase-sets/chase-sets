@@ -17,6 +17,8 @@ import {
   expectSourceEvent,
 } from "../../customer-feedback/tests/outcome-fact-test-support";
 
+const acceptanceTokenHash = "a".repeat(64);
+
 const actor: ResolvedActor = {
   sessionId: "ses_1",
   tenantId: "tnt_identity",
@@ -173,7 +175,7 @@ function createServices(
         roleKey: "owner",
         status: "pending",
         expiresAt: "2027-07-01T00:00:00.000Z",
-        acceptanceTokenHash: "hashed:invite_token",
+        acceptanceTokenHash,
         acceptanceTokenExpiresAt: "2027-06-01T00:00:00.000Z",
         acceptanceTokenConsumedAt: null,
         acceptedByUserId: null,
@@ -272,7 +274,7 @@ async function emitIdentityOutcome(path: "registration" | "guest-account" | "inv
             }
           : path === "guest-account"
             ? { userId: "usr_1", roleKey: "owner" }
-            : { userId: "usr_1", acceptanceTokenHash: "hashed:invite_token" },
+            : { userId: "usr_1", acceptanceTokenHash },
       ),
     },
   );
@@ -369,7 +371,7 @@ describe("Identity API mutation snapshots", () => {
 
     const invitation = await requestJson(app, "/internal/auth/invitations/ivt_existing/accept", {
       method: "POST",
-      body: JSON.stringify({ userId: "usr_2", acceptanceTokenHash: "hashed:invite_token" }),
+      body: JSON.stringify({ userId: "usr_2", acceptanceTokenHash }),
     });
     expect(invitation.response.status).toBe(200);
     expect(eventStore.appendToStream).toHaveBeenCalledWith(
@@ -540,7 +542,7 @@ describe("Identity API mutation snapshots", () => {
 
     const acceptedInvitation = await requestJson(app, "/internal/auth/invitations/ivt_1/accept", {
       method: "POST",
-      body: JSON.stringify({ userId: "usr_1", acceptanceTokenHash: "hashed:invite_token" }),
+      body: JSON.stringify({ userId: "usr_1", acceptanceTokenHash }),
     });
     expect(acceptedInvitation.response.status).toBe(200);
     expect(acceptedInvitation.body.snapshots).toEqual(
@@ -959,7 +961,7 @@ describe("Identity API mutation snapshots", () => {
 
     const invitationAccept = await requestJson(app, "/internal/auth/invitations/ivt_1/accept", {
       method: "POST",
-      body: JSON.stringify({ userId: "usr_1", acceptanceTokenHash: "hashed:invite_token" }),
+      body: JSON.stringify({ userId: "usr_1", acceptanceTokenHash }),
     });
 
     expect(invitationAccept.response.status).toBe(200);
@@ -986,7 +988,7 @@ describe("Identity API mutation snapshots", () => {
           roleKey: "platform-admin",
           status: "pending",
           expiresAt: "2027-07-01T00:00:00.000Z",
-          acceptanceTokenHash: "hashed:invite_token",
+          acceptanceTokenHash,
           acceptanceTokenExpiresAt: "2027-06-01T00:00:00.000Z",
           acceptanceTokenConsumedAt: null,
           acceptedByUserId: null,
@@ -1003,7 +1005,7 @@ describe("Identity API mutation snapshots", () => {
     const app = buildApp(services);
     const invitationAccept = await requestJson(app, "/internal/auth/invitations/ivt_1/accept", {
       method: "POST",
-      body: JSON.stringify({ userId: "usr_1", acceptanceTokenHash: "hashed:invite_token" }),
+      body: JSON.stringify({ userId: "usr_1", acceptanceTokenHash }),
     });
 
     expect(invitationAccept.response.status).toBe(403);

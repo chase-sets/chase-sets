@@ -17,7 +17,6 @@ import type { InventoryCatalogItemServices } from "../integrations/catalog/runti
 import {
   createInventoryProductDescriptor,
   parseSelectedOptionsInput,
-  summarizeSelectedOptions,
   type InventorySelectedOptionEntry,
 } from "../integrations/catalog/versioning";
 import {
@@ -431,17 +430,14 @@ export function createInventoryItemRuntime(
         productSchema: catalogItem.product_schema,
         selection: parseSelectedOptionsInput(params.selectedOptions),
       });
-      const productSummary = summarizeSelectedOptions(catalogItem.product_schema, catalogVersion.selection);
-      const gradedCard = params.gradedCard ?? null;
-      const isGradedCard = productSummary.includes("Form: Graded");
+      const graded = classifyInventoryGradedSelection(catalogItem.product_schema, catalogVersion.selection);
 
-      if (isGradedCard && !gradedCard) {
-        throw new InventoryDomainError("Graded listing stock requires graded card details.");
-      }
-
-      if (!isGradedCard && gradedCard) {
+      if (graded.kind === "raw" && params.gradedCard) {
         throw new InventoryDomainError("Graded card details are only allowed for graded listing stock.");
       }
+
+      // The selection already names the grading company and grade; the certificate is optional, as for an item.
+      const gradedCard = graded.kind === "raw" ? null : (params.gradedCard ?? createItemGradedCard(graded, null));
 
       let location = await findDefaultListingStockLocation(params.accountId);
       let createdStorageLocation = false;
