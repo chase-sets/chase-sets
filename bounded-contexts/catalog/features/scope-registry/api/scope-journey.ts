@@ -40,7 +40,8 @@ type CatalogScopeAliasReviewReader = (input: {
 /**
  * Reads the alias review of the scope's Reference Record when the scope has
  * sibling editions, and composes the editions and journey. A failed alias read
- * degrades to editions without candidates and a partial-failure journey.
+ * degrades to editions without candidates and a partial-failure journey, and is
+ * logged with the scope and its cause so the partial failure is not silent.
  */
 export async function readCatalogScopeJourney(input: {
   scope: CatalogScopeRecordDetail;
@@ -61,8 +62,13 @@ export async function readCatalogScopeJourney(input: {
         filter: { targetKind: "reference-record", targetId: scope.referenceRecordId },
       });
       candidates = review.candidates;
-    } catch {
+    } catch (error) {
       languageEditionReviewFailed = true;
+      console.warn("[catalog] scope journey could not read the alias review", {
+        scopeRecordId: scope.scopeRecordId,
+        referenceRecordId: scope.referenceRecordId,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
   const languageEditions = hasEditionsToReview
