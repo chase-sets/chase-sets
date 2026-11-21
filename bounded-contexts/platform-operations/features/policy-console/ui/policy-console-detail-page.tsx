@@ -10,12 +10,13 @@ import {
   HiddenInput,
   KeyValueList,
   LinkButton,
+  LocalDateTime,
+  LocalDateTimeInput,
   NativeSelect,
   Page,
   PageHeader,
   Stack,
   Text,
-  TextInput,
   Textarea,
 } from "@chase-sets/design-system";
 import type { PolicyConsoleOverview } from "../api/contracts";
@@ -63,10 +64,21 @@ export function PolicyConsoleDetailPage({
             items={[
               { key: t(`${routeKey}.source`), value: overview.current.source },
               { key: t(`${routeKey}.status`), value: overview.current.status ?? t(`${routeKey}.notSet`) },
-              { key: t(`${routeKey}.effectiveFrom`), value: overview.current.effectiveFrom ?? t(`${routeKey}.notSet`) },
+              {
+                key: t(`${routeKey}.effectiveFrom`),
+                value: overview.current.effectiveFrom ? (
+                  <LocalDateTime value={overview.current.effectiveFrom} />
+                ) : (
+                  t(`${routeKey}.notSet`)
+                ),
+              },
               {
                 key: t(`${routeKey}.effectiveUntil`),
-                value: overview.current.effectiveUntil ?? t(`${routeKey}.openEnded`),
+                value: overview.current.effectiveUntil ? (
+                  <LocalDateTime value={overview.current.effectiveUntil} />
+                ) : (
+                  t(`${routeKey}.openEnded`)
+                ),
               },
             ]}
           />
@@ -82,7 +94,11 @@ export function PolicyConsoleDetailPage({
             <Stack gap={3}>
               {overview.upcoming.map((revision) => (
                 <Stack key={revision.documentId} gap={1}>
-                  <Badge tone="info">{t(`${routeKey}.scheduledFor`, { effectiveFrom: revision.effectiveFrom })}</Badge>
+                  <Badge tone="info">
+                    <LocalDateTime value={revision.effectiveFrom}>
+                      {(effectiveFrom) => t(`${routeKey}.scheduledFor`, { effectiveFrom })}
+                    </LocalDateTime>
+                  </Badge>
                   <Text size="sm" tone="secondary">
                     {JSON.stringify(revision.value)}
                   </Text>
@@ -121,14 +137,12 @@ export function PolicyConsoleDetailPage({
                   { value: "inactive", label: t(`${routeKey}.statusInactive`) },
                 ]}
               />
-              <TextInput
-                type="datetime-local"
+              <LocalDateTimeInput
                 name="effectiveFrom"
                 label={t(`${routeKey}.effectiveFromLabel`)}
                 description={t(`${routeKey}.effectiveFromDescription`)}
               />
-              <TextInput
-                type="datetime-local"
+              <LocalDateTimeInput
                 name="effectiveUntil"
                 label={t(`${routeKey}.effectiveUntilLabel`)}
                 description={t(`${routeKey}.effectiveUntilDescription`)}
@@ -146,14 +160,23 @@ export function PolicyConsoleDetailPage({
           columns={[
             { key: "eventType", header: t(`${routeKey}.historyEvent`), cell: (row) => row.event_type },
             { key: "status", header: t(`${routeKey}.status`), cell: (row) => row.status },
-            { key: "effectiveFrom", header: t(`${routeKey}.effectiveFrom`), cell: (row) => row.effective_from },
+            {
+              key: "effectiveFrom",
+              header: t(`${routeKey}.effectiveFrom`),
+              cell: (row) => <LocalDateTime value={row.effective_from} />,
+            },
             {
               key: "effectiveUntil",
               header: t(`${routeKey}.effectiveUntil`),
-              cell: (row) => row.effective_until ?? t(`${routeKey}.openEnded`),
+              cell: (row) =>
+                row.effective_until ? <LocalDateTime value={row.effective_until} /> : t(`${routeKey}.openEnded`),
             },
             { key: "actor", header: t(`${routeKey}.historyActor`), cell: (row) => row.actor_user_id },
-            { key: "recordedAt", header: t(`${routeKey}.historyRecordedAt`), cell: (row) => row.recorded_at },
+            {
+              key: "recordedAt",
+              header: t(`${routeKey}.historyRecordedAt`),
+              cell: (row) => <LocalDateTime value={row.recorded_at} />,
+            },
           ]}
         />
       </DetailPanel>

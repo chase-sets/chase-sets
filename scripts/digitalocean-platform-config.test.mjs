@@ -4113,7 +4113,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(e2eCondition).toBe("needs['change-scope'].outputs.e2e_tests_required == 'true'");
 
     const dbProfileJob = workflowJob(platformPrWorkflow, "db-tests");
-    expect(dbProfileJob).toContain("timeout-minutes: 45");
+    expect(dbProfileJob).toContain("timeout-minutes: ${{ matrix.db-workspace-group == 'api' && 30 || 45 }}");
     expect(dbProfileJob).toContain(
       "image: ghcr.io/chase-sets/ci-mirror-pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a",
     );
@@ -4139,7 +4139,7 @@ describe("DigitalOcean platform configuration", () => {
       "DB_WORKSPACE_CONCURRENCY: ${{ matrix.db-workspace-group == 'other' && '3' || '2' }}",
     );
     expect(dbProfileJob).toContain(
-      'run: node ./scripts/run-workspaces.mjs "test:db*" --concurrency="$DB_WORKSPACE_CONCURRENCY" --workspace-list="${{ needs[\'change-scope\'].outputs.affected_workspaces }}" --db-workspace-group=${{ matrix.db-workspace-group }} --command-timeout-ms=900000',
+      'run: node ./scripts/run-workspaces.mjs "test:db*" --concurrency="$DB_WORKSPACE_CONCURRENCY" --workspace-list="${{ needs[\'change-scope\'].outputs.affected_workspaces }}" --db-workspace-group=${{ matrix.db-workspace-group }} --command-timeout-ms=${{ matrix.db-workspace-group == \'api\' && 600000 || 900000 }}',
     );
     expect(readFileSync(resolve("package.json"), "utf8")).toContain(
       '"verify:test-db": "node ./scripts/db-test-preflight.mjs && node ./scripts/run-workspaces.mjs \\"test:db*\\" --concurrency=2"',
@@ -4181,7 +4181,7 @@ describe("DigitalOcean platform configuration", () => {
       matrix: { "db-workspace-group": ["api", "other"] },
     });
     expect(job["continue-on-error"]).toBeUndefined();
-    expect(job["timeout-minutes"]).toBe(45);
+    expect(job["timeout-minutes"]).toBe("${{ matrix.db-workspace-group == 'api' && 30 || 45 }}");
     const execution = job.steps.filter((step) => step.name === "Run DB-profile tests");
     expect(execution).toHaveLength(1);
     expect(execution[0].if).toBeUndefined();

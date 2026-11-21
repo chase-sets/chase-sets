@@ -14,7 +14,7 @@ import {
   toGithubOutputMap,
   toOutputMap,
 } from "./change-scope.mjs";
-import { estimatedE2eSuiteDurationSeconds } from "./e2e-suites.mjs";
+import { e2eSuiteById, e2eSuiteIdsForChangedFile, estimatedE2eSuiteDurationSeconds } from "./e2e-suites.mjs";
 import { listWorkspacePackages, repoRoot } from "./lib/repo.mjs";
 import { classifyIntegrationRisk, classifyRisk } from "./lib/risk-policy-v1.mjs";
 import { renderedCopyTuples } from "../infrastructure/playwright-evidence/rendered-copy.ts";
@@ -999,7 +999,7 @@ describe("shared E2E setup selection", () => {
       changedFiles.includes("deployables/marketplace/e2e/unmapped.spec.ts"),
     );
     expect(captured.cases).toHaveLength(150);
-    expect(candidate.cases).toHaveLength(152);
+    expect(candidate.cases).toHaveLength(156);
     expect(candidate.families).toEqual([
       ...captured.families
         .filter((family) => family.path !== retired)
@@ -1396,8 +1396,10 @@ const schedulerVocabularyLookalikePaths = [
 // adding Notifications to the Ordering and Pricing cases' affected sets.
 // Accepted inventory delta: #9919 adds @chase-sets/tcgplayer-market-observations.
 // Accepted inventory delta adds @chase-sets/inventory-draft-listing.
+// Accepted inventory delta adds @chase-sets/app-agent-apps.
 const baseCapturedSchedulerFanoutWorkspaces = [
   "@chase-sets/app-admin-web",
+  "@chase-sets/app-agent-apps",
   "@chase-sets/app-marketplace-web",
   "@chase-sets/app-platform-api",
   "@chase-sets/app-platform-worker",
@@ -1798,6 +1800,7 @@ const hostedDbAdmissionCorpusSeeds = [
     expected: { db: true, e2e: false, integrationRisk: true, clusterPreview: false },
     expectedAffectedWorkspaces: [
       "@chase-sets/app-admin-web",
+      "@chase-sets/app-agent-apps",
       "@chase-sets/app-marketplace-web",
       "@chase-sets/app-platform-api",
       "@chase-sets/app-platform-worker",
@@ -3256,6 +3259,25 @@ describe("change-scope", () => {
     },
   );
 
+  it("registers hosted Agent Apps Chromium for the app, view, and resource policy", () => {
+    for (const file of [
+      "deployables/agent-apps/tests/product-cards.chromium.spec.ts",
+      "bounded-contexts/discovery/features/search/ui/agent-product-cards-view.tsx",
+      "infrastructure/platform-runtime/mcp-widget-resources.ts",
+    ]) {
+      expect(e2eSuiteIdsForChangedFile(file)).toContain("agent_apps");
+    }
+    expect(e2eSuiteById("agent_apps").command).toEqual([
+      "--filter",
+      "@chase-sets/app-agent-apps",
+      "run",
+      "test:chromium",
+    ]);
+    expect(e2eSuiteIdsForChangedFile("deployables/platform-api/__tests__/mcp-sdk-agent-journey.e2e.test.ts")).toEqual([
+      "platform_mcp_sdk",
+    ]);
+  });
+
   it("keeps every output except enumerated DB, enrollment, job dependency, setup E2E and acyclic context fan-out deltas byte-identical to the base commit", () => {
     for (const testCase of dbTestsOldVersusNewCorpus) {
       const scope = classifyChanges({ changedFiles: testCase.changedFiles });
@@ -3272,6 +3294,7 @@ describe("change-scope", () => {
         // baseline above and enumerate only the affected-workspace delta here.
         const affected = [
           "@chase-sets/app-admin-web",
+          "@chase-sets/app-agent-apps",
           "@chase-sets/app-marketplace-web",
           "@chase-sets/app-platform-api",
           "@chase-sets/app-platform-worker",

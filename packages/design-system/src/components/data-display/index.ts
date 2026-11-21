@@ -7,6 +7,7 @@ export {
   type KeyValueListProps,
   type KeyValueListValueAlign,
 } from "./key-value-list";
+export { LocalDateTime, type LocalDateTimeProps } from "./local-date-time";
 export { Stat, type StatProps, StatGrid, type StatGridProps } from "./stat";
 export {
   ComparisonList,
