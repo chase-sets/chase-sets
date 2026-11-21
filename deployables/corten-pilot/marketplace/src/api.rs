@@ -4747,6 +4747,8 @@ pub enum AccountAction {
     RotateApiKey,
     RevokeApiKey,
     CreateInvitation,
+    /// A pending invitation's new expiry, emailed again.
+    ResendInvitation,
     CancelInvitation,
     ChangeRole,
     /// A membership's revoke.
@@ -4769,6 +4771,7 @@ impl AccountAction {
             AccountAction::RotateApiKey => "rotate-api-key",
             AccountAction::RevokeApiKey => "revoke-api-key",
             AccountAction::CreateInvitation => "create-invitation",
+            AccountAction::ResendInvitation => "resend-invitation",
             AccountAction::CancelInvitation => "cancel-invitation",
             AccountAction::ChangeRole => "change-role",
             AccountAction::Revoke => "revoke",
@@ -4921,6 +4924,7 @@ impl Addresses for Caller<'_> {
             | AccountAction::RotateApiKey
             | AccountAction::RevokeApiKey
             | AccountAction::CreateInvitation
+            | AccountAction::ResendInvitation
             | AccountAction::CancelInvitation
             | AccountAction::ChangeRole
             | AccountAction::Revoke
@@ -5080,6 +5084,30 @@ pub struct Invitation {
     pub account_name: Option<String>,
     pub role_key: String,
     pub status: String,
+    pub expires_at: String,
+    /// Pending as recorded, but past its expiry when the page was read: Identity no longer sends it.
+    #[serde(skip_deserializing)]
+    pub lapsed: bool,
+}
+
+impl Invitation {
+    /// Marks a pending invitation whose expiry is at or before `now` as lapsed. An expiry that does
+    /// not parse leaves it as recorded.
+    pub fn mark_lapsed(&mut self, now: time::OffsetDateTime) {
+        use time::format_description::well_known::Rfc3339;
+        self.lapsed = self.status == "pending"
+            && time::OffsetDateTime::parse(&self.expires_at, &Rfc3339).is_ok_and(|expires| expires <= now);
+    }
+
+    /// Its status as it stands now: a lapsed invitation is expired before Identity records it.
+    pub fn effective_status(&self) -> &str {
+        if self.lapsed { "expired" } else { &self.status }
+    }
+
+    /// Pending and not lapsed: the only invitation Identity sends again.
+    pub fn open(&self) -> bool {
+        self.status == "pending" && !self.lapsed
+    }
 }
 
 #[derive(Deserialize)]
@@ -5088,8 +5116,8 @@ struct TeamList<T> {
     items: Vec<T>,
 }
 
-/// A committed create-invitation's answer: the invitation it recorded, and whether this call
-/// recorded it (`false` for an attempt the API had already recorded).
+/// A committed create- or resend-invitation's answer: the invitation it recorded, and whether this
+/// call recorded it (`false` for an attempt the API had already recorded).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Invited {
     pub invitation_id: String,
@@ -5130,7 +5158,7 @@ pub trait TeamCalls {
         attempt: &str,
         body: &serde_json::Value,
     ) -> Result<(AccountAnswer, Option<Invited>), ApiError>;
-    /// Ask Auth to email a new invitation's acceptance link, after the receipt the caller carries,
+    /// Ask Auth to email an invitation's acceptance link, after the receipt the caller carries,
     /// from the browser's address (Auth limits these by address, as it does sign-ins).
     async fn invitation_link(&self, invitation: &str, client: Option<corten::ClientIp>) -> Result<(), ApiError>;
 }
@@ -5154,6 +5182,7 @@ impl TeamCalls for Caller<'_> {
         let id = target.map(segment).unwrap_or_default();
         let (method, path) = match action {
             AccountAction::CreateInvitation => (Method::POST, "/api/identity/invitations".to_owned()),
+            AccountAction::ResendInvitation => (Method::POST, format!("/api/identity/invitations/{id}/resend")),
             AccountAction::CancelInvitation => (Method::POST, format!("/api/identity/invitations/{id}/cancel")),
             AccountAction::ChangeRole => (Method::PUT, format!("/api/identity/memberships/{id}/role")),
             AccountAction::Revoke => (Method::POST, format!("/api/identity/memberships/{id}/revoke")),
@@ -5165,7 +5194,7 @@ impl TeamCalls for Caller<'_> {
         let text = res.text().await?;
         let answer = AccountAnswer::read(status, &text, receipt)?;
         let invited = match (&answer, action) {
-            (AccountAnswer::Committed(_), AccountAction::CreateInvitation) => invited(&text),
+            (AccountAnswer::Committed(_), AccountAction::CreateInvitation | AccountAction::ResendInvitation) => invited(&text),
             _ => None,
         };
         Ok((answer, invited))
