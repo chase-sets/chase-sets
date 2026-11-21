@@ -13,6 +13,7 @@ import { completeBrowserAuthentication } from "../auth-host";
 import { clearGuestCheckoutCookie } from "../../auth-support/http";
 import type { InteractiveAuthResult } from "../auth-host";
 import type {
+  BoundGuestClaimContact,
   GuestCheckoutClaimContext,
   GuestClaimActionData,
 } from "../../../features/registration/ui/guest-payment-claim-contracts";
@@ -49,6 +50,12 @@ function localRecoveryEnabled() {
   );
 }
 
+function boundContact(context: GuestCheckoutClaimContext): BoundGuestClaimContact | null {
+  const contactEmail = context.contactEmail?.trim();
+  const contactName = context.contactName?.trim();
+  return contactEmail && contactName ? { contactEmail, contactName } : null;
+}
+
 export function createGuestPaymentClaimRoute(readGuestPaymentClaimability: ReadGuestPaymentClaimability) {
   const loader = defineResourceRoute({
     manifest: contextManifest,
@@ -80,19 +87,22 @@ export function createGuestPaymentClaimRoute(readGuestPaymentClaimability: ReadG
     errorAdapter,
     load: ({ request, params }) => readGuestPaymentClaimability(request, params.paymentId!),
     map: async ({ claimable }, { request, params }) => {
+      const paymentId = params.paymentId!;
+      if (!claimable) return { paymentId, claimable, guestClaimContact: null };
       try {
-        return {
-          paymentId: params.paymentId!,
-          claimable,
-          guestClaimContext: claimable
-            ? await createInternalAuthRequestApiClient(request).getGuestCheckoutClaimContext<GuestCheckoutClaimContext>(
-                { paymentId: params.paymentId },
-              )
-            : null,
-        };
+        const context = await createInternalAuthRequestApiClient(
+          request,
+        ).getGuestCheckoutClaimContext<GuestCheckoutClaimContext>({ paymentId });
+        return { paymentId, claimable, guestClaimContact: boundContact(context) };
       } catch (error) {
         if (hasStatus(error, 401) || hasStatus(error, 403)) throw accessExpired();
-        throw error;
+        // Saving the order is optional: a refused or failed read (Auth limits it per guest) leaves it off.
+        console.warn(
+          `[auth] A paid guest's claim context could not be read; Save this order is left off. ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+        return { paymentId, claimable, guestClaimContact: null };
       }
     },
     onPending: () => {
