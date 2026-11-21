@@ -2085,8 +2085,8 @@ pub struct AuthenticityOffer {
 
 /// What Payments quotes for paying `amount` (`GET /account/checkout/preview-status`,
 /// `CheckoutPaymentPreviewStatus`): the fee for the chosen method, every method's quote, and the
-/// wallet credit applied. Payments quotes it from the policy in effect; marketplace's loader
-/// quotes the compiled default itself (chase-sets/chase-sets#10683).
+/// wallet credit applied. Payments quotes it from the policy in effect, as marketplace's loader
+/// reads it.
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct PaymentPreview {
     pub marketplace_checkout_fee: FeeQuote,
