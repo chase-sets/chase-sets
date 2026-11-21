@@ -375,6 +375,15 @@ describe("settlement account risk source projection", () => {
     }
   });
 
+  it("ignores frozen manual payout review badge assignments and removals", async () => {
+    const query = vi.fn();
+    const handlers = buildSettlementIdentityAccountRiskSourceProjectionHandlers({ query });
+    for (const type of ["identity.account.badge-assigned", "identity.account.badge-removed"]) {
+      await handlers[type]!(event(type, { badgeKey: "manual-payout-review" }));
+    }
+    expect(query).not.toHaveBeenCalled();
+  });
+
   it("projects trusted seller badges and reputation reviews into payout release inputs", async () => {
     const db = {
       query: vi.fn(async (sql: string) => {

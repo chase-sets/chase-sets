@@ -1,6 +1,7 @@
 import type { ChaseSetsEventPayloads } from "@chase-sets/event-core/public-event-payloads";
 import { defineProjectorHandlers, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { lockPayoutReviewAccounts } from "../payout-review-lock";
 
 /**
  * Ordering's own `sourceType` wire values (`@chase-sets/checkout-order-source`
@@ -58,7 +59,12 @@ export function buildPricingMarketTradesProjectionHandlers(db: PgQueryable): Pro
       };
       const saleChannel = resolveSaleChannel(data.sourceType);
 
-      await db.query(`DELETE FROM pricing_market_trades WHERE order_id = $1`, [data.orderId]);
+      const accountIds = [data.sellerAccountId, data.buyerAccountId];
+      await lockPayoutReviewAccounts(db, accountIds);
+      await db.query(`DELETE FROM pricing_market_trades WHERE order_id = $1 AND NOT (line_id = ANY($2::text[]))`, [
+        data.orderId,
+        data.lines.map((line) => line.lineId),
+      ]);
 
       for (const line of data.lines) {
         await db.query(
@@ -70,7 +76,7 @@ export function buildPricingMarketTradesProjectionHandlers(db: PgQueryable): Pro
                  AND cluster.account_ids @> ARRAY[$4, $5]::text[]
              ) AS self_dealing
            )
-           INSERT INTO pricing_market_trades (
+           INSERT INTO pricing_market_trades AS trade (
              order_id,
              line_id,
              inventory_item_id,
@@ -82,6 +88,7 @@ export function buildPricingMarketTradesProjectionHandlers(db: PgQueryable): Pro
              currency_code,
              quantity,
              sale_channel,
+             order_created_at,
              shipment_id,
              sold_at,
              settled_at,
@@ -91,7 +98,7 @@ export function buildPricingMarketTradesProjectionHandlers(db: PgQueryable): Pro
              updated_at
            )
            SELECT
-             $1, $2, $3, $4, $5, $6, $7, $8, denomination.currency_code, $9, $10, NULL, NULL, NULL, false,
+             $1, $2, $3, $4, $5, $6, $7, $8, denomination.currency_code, $9, $10, $11, NULL, NULL, NULL, false,
              linkage.self_dealing,
              CASE WHEN linkage.self_dealing THEN 'self-dealing' ELSE NULL END,
              GREATEST($11::timestamptz, denomination.captured_at)
@@ -104,10 +111,9 @@ export function buildPricingMarketTradesProjectionHandlers(db: PgQueryable): Pro
                catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
                product_id = EXCLUDED.product_id,
                unit_price_amount = EXCLUDED.unit_price_amount,
-               currency_code = EXCLUDED.currency_code,
                quantity = EXCLUDED.quantity,
                sale_channel = EXCLUDED.sale_channel,
-               updated_at = EXCLUDED.updated_at`,
+               order_created_at = COALESCE(trade.order_created_at, EXCLUDED.order_created_at)`,
           [
             data.orderId,
             line.lineId,
@@ -123,6 +129,37 @@ export function buildPricingMarketTradesProjectionHandlers(db: PgQueryable): Pro
           ],
         );
       }
+
+      // Creation replay fills the immutable time without resetting sold,
+      // shipment or terminal exclusion state on retained rows.
+      await db.query(
+        `WITH cutoff AS (
+           SELECT MAX(placed_at) AS placed_at
+           FROM pricing_market_trade_payout_review_cutoffs
+           WHERE account_id = ANY($2::text[])
+         ), affected AS (
+           UPDATE pricing_market_trades AS trade
+           SET excluded = true,
+               exclusion_reason = 'fraud-flagged',
+               updated_at = GREATEST(trade.updated_at, cutoff.placed_at)
+           FROM cutoff
+           WHERE trade.order_id = $1
+             AND trade.order_created_at <= cutoff.placed_at
+             AND (trade.excluded = false OR trade.exclusion_reason = 'self-dealing')
+           RETURNING catalog_catalog_item_id, product_id, sold_at, cutoff.placed_at
+         )
+         INSERT INTO pricing_market_trade_rollup_rederive_queue (
+           catalog_catalog_item_id, product_id, day, queued_at, generation
+         )
+         SELECT DISTINCT catalog_catalog_item_id, product_id,
+                (sold_at AT TIME ZONE 'UTC')::date, placed_at, 1
+         FROM affected
+         WHERE sold_at IS NOT NULL
+         ON CONFLICT (catalog_catalog_item_id, product_id, day) DO UPDATE
+         SET queued_at = GREATEST(pricing_market_trade_rollup_rederive_queue.queued_at, EXCLUDED.queued_at),
+             generation = pricing_market_trade_rollup_rederive_queue.generation + 1`,
+        [data.orderId, accountIds],
+      );
     },
     "ordering.order.ready-for-fulfillment-recorded": async (event) => {
       const data = event.data as {
