@@ -131,7 +131,9 @@ function createServices() {
       hashSecret: vi.fn((value: string) => `hashed:${value}`),
       verifySecret: vi.fn((value: string, hash: string) => hash === `hashed:${value}`),
       hashPassword: vi.fn(async (value: string) => `password:${value}`),
-      verifyPassword: vi.fn(async (value: string, hash: string) => ({ valid: hash === `hashed:${value}` })),
+      verifyPassword: vi.fn<AuthServices["auth"]["verifyPassword"]>(async (value, hash) => ({
+        valid: hash === `hashed:${value}`,
+      })),
     },
     identity: {
       normalizeEmail: vi.fn((value: string) => value.trim().toLowerCase()),

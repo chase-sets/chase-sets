@@ -168,9 +168,8 @@ async fn draw(
     let mut catching_up = false;
     let session = match read(&caller, id).await {
         Ok(session) => session,
-        // The write is not readable yet: the page is read without it and says so, as an account's
-        // workspace does (chase-sets/chase-sets#10828: Auth's session projection applies a write
-        // 4 to 6 s after it, past the receipt wait; drop the note when it is fixed).
+        // The write is not readable within the receipt's wait: the page is read without it and
+        // says so, as an account's workspace does.
         Err(error) if receipt.is_some() && error.catching_up() => {
             catching_up = true;
             match read(&config.platform.caller(headers, config.proto, None), id).await {
