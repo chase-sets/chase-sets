@@ -1,4 +1,5 @@
 import { escapeLikePattern, type PgQueryable } from "@chase-sets/event-core-postgres";
+import type { AwayScope } from "../domain/seller-listing-availability";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
 import {
@@ -110,6 +111,10 @@ export type MarketplaceSellerListingAvailabilityRow = Readonly<{
   away_window_starts_at: string | null;
   away_window_ends_at: string | null;
   away_window_reason_category: string | null;
+  away_window_scope: AwayScope;
+  offers_status: "available" | "unavailable";
+  offers_available_again_at: string | null;
+  offers_reason_category: string | null;
   updated_at: string;
 }>;
 
@@ -697,6 +702,10 @@ export async function getSellerListingAvailability(
        away_window_starts_at::text AS away_window_starts_at,
        away_window_ends_at::text AS away_window_ends_at,
        away_window_reason_category,
+       away_window_scope,
+       offers_status,
+       offers_available_again_at::text AS offers_available_again_at,
+       offers_reason_category,
        updated_at::text AS updated_at
      FROM marketplace_seller_listing_availability_pages
      WHERE account_id = $1`,
@@ -715,6 +724,10 @@ export async function getSellerListingAvailability(
       away_window_starts_at: null,
       away_window_ends_at: null,
       away_window_reason_category: null,
+      away_window_scope: "listings",
+      offers_status: "available",
+      offers_available_again_at: null,
+      offers_reason_category: null,
       updated_at: new Date(0).toISOString(),
     }
   );
@@ -750,7 +763,8 @@ export async function getSellerOrderCapacity(
 
 export type MarketplaceDueSellerAvailabilityRestoreRow = Readonly<{
   account_id: string;
-  available_again_at: string;
+  available_again_at: string | null;
+  offers_available_again_at: string | null;
 }>;
 
 /**
@@ -767,15 +781,29 @@ export async function listDueSellerAvailabilityRestores(
 ): Promise<readonly MarketplaceDueSellerAvailabilityRestoreRow[]> {
   const limit = Math.max(1, Math.min(params.limit ?? 100, 500));
   const result = await db.query<MarketplaceDueSellerAvailabilityRestoreRow>(
-    `SELECT
-       account_id,
-       available_again_at::text AS available_again_at
-     FROM marketplace_seller_listing_availability_pages
-     WHERE status = 'unavailable'
-       AND available_again_at IS NOT NULL
-       AND available_again_at <= $1::timestamptz
-     ORDER BY available_again_at ASC, account_id ASC
-     LIMIT $2`,
+    `WITH candidates AS (
+       (SELECT account_id, available_again_at AS resume_at
+        FROM marketplace_seller_listing_availability_pages
+        WHERE status = 'unavailable' AND available_again_at IS NOT NULL AND available_again_at <= $1::timestamptz
+        ORDER BY available_again_at ASC, account_id ASC LIMIT $2)
+       UNION ALL
+       (SELECT account_id, offers_available_again_at AS resume_at
+        FROM marketplace_seller_listing_availability_pages
+        WHERE offers_status = 'unavailable' AND offers_available_again_at IS NOT NULL
+          AND offers_available_again_at <= $1::timestamptz
+        ORDER BY offers_available_again_at ASC, account_id ASC LIMIT $2)
+     ), due AS (
+       SELECT account_id, MIN(resume_at) AS resume_at
+       FROM candidates GROUP BY account_id
+       ORDER BY resume_at, account_id LIMIT $2
+     )
+     SELECT due.account_id,
+       CASE WHEN page.status = 'unavailable' AND page.available_again_at <= $1::timestamptz
+         THEN page.available_again_at::text END AS available_again_at,
+       CASE WHEN page.offers_status = 'unavailable' AND page.offers_available_again_at <= $1::timestamptz
+         THEN page.offers_available_again_at::text END AS offers_available_again_at
+     FROM due JOIN marketplace_seller_listing_availability_pages AS page USING (account_id)
+     ORDER BY due.resume_at, due.account_id`,
     [params.now, limit],
   );
 
@@ -787,6 +815,7 @@ export type MarketplaceDueSellerAwayWindowStartRow = Readonly<{
   away_window_starts_at: string;
   away_window_ends_at: string | null;
   away_window_reason_category: string;
+  away_window_scope: AwayScope;
 }>;
 
 /**
@@ -807,7 +836,8 @@ export async function listDueSellerAwayWindowStarts(
        account_id,
        away_window_starts_at::text AS away_window_starts_at,
        away_window_ends_at::text AS away_window_ends_at,
-       away_window_reason_category
+       away_window_reason_category,
+       away_window_scope
      FROM marketplace_seller_listing_availability_pages
      WHERE away_window_starts_at IS NOT NULL
        AND away_window_starts_at <= $1::timestamptz

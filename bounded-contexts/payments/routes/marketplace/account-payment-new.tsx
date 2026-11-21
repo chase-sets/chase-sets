@@ -10,6 +10,7 @@ import { useEffect, useRef } from "react";
 import type { ActionFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useNavigation, useSubmit } from "react-router";
 import { RouterForm } from "@chase-sets/design-system/react-router";
+import { emailVerificationSignInHref, permissionAwaitsEmailVerification } from "@chase-sets/auth-context";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
   createForwardedAuthFetch,
@@ -66,6 +67,24 @@ function parseOrderIds(value: string | null) {
     .split(",")
     .map((part) => part.trim())
     .filter(Boolean);
+}
+
+/**
+ * Paying needs orders.manage. An actor without it is not answered with a bare
+ * 403: one whose orders.manage awaits email verification is sent to verify and
+ * return to the purchase, and anyone else goes back to the purchase, which
+ * says this account cannot pay.
+ */
+async function requirePaymentActor(request: Request, orderIds: readonly string[]) {
+  const actor = await requireActorFromAuthApi({ request });
+  if (actor.permissions.includes("orders.manage")) return actor;
+  const purchasePath =
+    orderIds.length === 1 ? `/account/purchases/${encodeURIComponent(orderIds[0]!)}` : "/account/purchases";
+  throw redirect(
+    permissionAwaitsEmailVerification(actor, "orders.manage")
+      ? emailVerificationSignInHref(purchasePath, "pay-purchase")
+      : purchasePath,
+  );
 }
 
 function formatMoney(amount: string) {
@@ -179,8 +198,9 @@ export const loader = defineResourceRoute({
   routeId: "account-payment-new",
   prepare: async (args) => ({ ...args, request: await resolvePlatformPostWriteRequest(args.request) }),
   authorization: async ({ request }) => {
-    const actor = await requireActorFromAuthApi({ request, permission: "orders.manage" });
-    if (parseOrderIds(new URL(request.url).searchParams.get("orderIds")).length === 0) {
+    const orderIds = parseOrderIds(new URL(request.url).searchParams.get("orderIds"));
+    const actor = await requirePaymentActor(request, orderIds);
+    if (orderIds.length === 0) {
       throw redirect("/account/purchases");
     }
     return actor;
@@ -225,12 +245,9 @@ export const loader = defineResourceRoute({
 
 export async function action({ request }: ActionFunctionArgs) {
   request = await resolvePlatformPostWriteRequest(request);
-  await requireActorFromAuthApi({
-    request,
-    permission: "orders.manage",
-  });
   const formData = await request.formData();
   const orderIds = parseOrderIds(String(formData.get("orderIds") ?? ""));
+  await requirePaymentActor(request, orderIds);
   if (orderIds.length === 0) {
     return { error: t("payments.routes.marketplace.accountPaymentNew.choose.at.least.one.order.to") };
   }

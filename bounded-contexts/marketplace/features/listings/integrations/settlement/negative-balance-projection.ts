@@ -28,16 +28,19 @@ export function buildMarketplaceSettlementNegativeBalanceProjectionHandlers(
       };
 
       await listings.disableSellerListingAvailability(
-        listingCommandInput("seller.availability", {
-          status: "unavailable",
-          accountId: data.accountId,
-          idempotencyKey: createHash("sha256")
-            .update(JSON.stringify(["negative-balance", event.id, data.accountId]))
-            .digest("hex"),
-          reasonCategory: "operations",
-          availableAgainOn: null,
-          availableAgainAt: null,
-        }),
+        {
+          ...listingCommandInput("seller.availability", {
+            status: "unavailable",
+            accountId: data.accountId,
+            idempotencyKey: createHash("sha256")
+              .update(JSON.stringify(["negative-balance", event.id, data.accountId]))
+              .digest("hex"),
+            reasonCategory: "operations",
+            availableAgainOn: null,
+            availableAgainAt: null,
+          }),
+          preserveOtherSide: true,
+        },
         marketplaceSystemContext(data.accountId),
       );
     },

@@ -195,6 +195,7 @@ export const PERMISSION_KEYS = [
   "payouts.request",
   "payouts.setup",
   "payouts.view",
+  "payout-review-holds.manage",
   "wallet-adjustments.operate",
   "postage-policies.manage",
   "postage-policies.view",
@@ -263,6 +264,7 @@ export const PERMISSION_PRESETS = {
  */
 export const ROLE_PERMISSIONS = {
   "platform-admin": [
+    "payout-review-holds.manage",
     "payouts.platform.view",
     "provider-connections.view",
     "accounts.manage",
@@ -477,7 +479,7 @@ export function permissionAwaitsEmailVerification(
 
 /** Sign-in return marker naming the withheld action a member verifies their email to finish. */
 export const EMAIL_VERIFICATION_RETURN_PARAMETER = "verifyEmail";
-export type EmailVerificationPurpose = "cancel-purchase" | "pay-checkout";
+export type EmailVerificationPurpose = "cancel-purchase" | "pay-checkout" | "pay-purchase";
 
 /**
  * The marketplace sign-in path that emails a magic link and, once the link is
