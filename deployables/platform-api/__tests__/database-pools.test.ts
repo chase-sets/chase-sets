@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import { readFileSync } from "node:fs";
+import { managedPostgresPodCaPath } from "@chase-sets/event-core-postgres";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
 import { module as authModule } from "@chase-sets/auth";
 import { createPlatformApiHost } from "../src/app";
@@ -127,8 +128,26 @@ describe("Pending Registration lock pool", () => {
   type PoolOptions = { max: number; connectionTimeoutMillis: number; connectionString: string };
   const optionsOf = (pool: unknown) => (pool as { options: PoolOptions }).options;
   const end = (pool: unknown) => (pool as { end: () => Promise<void> }).end();
-  const runtimeAuthUrl = "postgresql://auth_runtime:synthetic-secret@db.example.test:25061/auth_pool?sslmode=require";
-  const directAuthUrl = "postgresql://auth_runtime:synthetic-secret@db.example.test:25060/auth?sslmode=require";
+  // Pod URLs verify TLS against the pod's managed Postgres CA mount.
+  const podManagedUrl = (url: string) => {
+    const managed = new URL(url);
+    managed.searchParams.set("sslmode", "verify-full");
+    managed.searchParams.set("uselibpqcompat", "true");
+    managed.searchParams.set("sslrootcert", managedPostgresPodCaPath);
+    return managed.toString();
+  };
+  const runtimeAuthUrl = podManagedUrl("postgresql://auth_runtime:synthetic-secret@db.example.test:25061/auth_pool");
+  const directAuthUrl = podManagedUrl("postgresql://auth_runtime:synthetic-secret@db.example.test:25060/auth");
+
+  beforeEach(() => {
+    vi.stubEnv("KUBERNETES_SERVICE_HOST", "10.245.0.1");
+    vi.stubEnv("GITHUB_ACTIONS", "");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   const managed = (environment: "staging" | "production", authUrl = runtimeAuthUrl): PlatformApiBaseConfig => ({
     runtimeProfile: "public",
     sharedDatabaseUrl: null,
@@ -171,13 +190,17 @@ describe("Pending Registration lock pool", () => {
   it.each(["staging", "production"] as const)(
     "uses only the direct Auth URL in %s, with the runtime user and TLS settings",
     async (environment) => {
+      vi.stubEnv("DEPLOYMENT_ENVIRONMENT", environment);
       const locks = createPendingRegistrationLockPool(managed(environment), {
         BOOTSTRAP_DATABASE_URL_AUTH: directAuthUrl,
       });
       try {
         expect(locks.refusal).toBeNull();
         expect(optionsOf(locks.pool).max).toBe(2);
-        expect(new URL(optionsOf(locks.pool).connectionString).port).toBe("25060");
+        const lockUrl = new URL(optionsOf(locks.pool).connectionString);
+        expect(lockUrl.port).toBe("25060");
+        expect(lockUrl.searchParams.get("sslmode")).toBe("verify-full");
+        expect(lockUrl.searchParams.get("sslrootcert")).toBe(managedPostgresPodCaPath);
       } finally {
         if (locks.pool) await end(locks.pool);
       }
@@ -210,7 +233,13 @@ describe("Pending Registration lock pool", () => {
     [
       "other TLS settings",
       managed("staging"),
-      directAuthUrl.replace("sslmode=require", "sslmode=disable"),
+      directAuthUrl.replace("sslmode=verify-full", "sslmode=require"),
+      "BOOTSTRAP_DATABASE_URL_AUTH does not use the Auth runtime TLS settings",
+    ],
+    [
+      "without libpq compatibility",
+      managed("production"),
+      directAuthUrl.replace("uselibpqcompat=true", "uselibpqcompat=false"),
       "BOOTSTRAP_DATABASE_URL_AUTH does not use the Auth runtime TLS settings",
     ],
     [

@@ -100,7 +100,8 @@ export function createPendingRegistrationLockPool(
     if (decodeURIComponent(lock.username) !== decodeURIComponent(runtime.username)) {
       return refuse(`${PENDING_REGISTRATION_LOCK_URL_KEY} does not use the Auth runtime user`);
     }
-    if (["sslmode", "sslrootcert"].some((name) => lock.searchParams.get(name) !== runtime.searchParams.get(name))) {
+    const tlsSettings = ["sslmode", "sslrootcert", "uselibpqcompat"];
+    if (tlsSettings.some((name) => lock.searchParams.get(name) !== runtime.searchParams.get(name))) {
       return refuse(`${PENDING_REGISTRATION_LOCK_URL_KEY} does not use the Auth runtime TLS settings`);
     }
   }
