@@ -312,6 +312,8 @@ export const authEnglishTranslations = {
   "auth.support.apiSupport.invitationRoutes.choose.a.password.or.passkey":
     "Choose a password or passkey to accept this invitation.",
   "auth.support.apiSupport.invitationRoutes.invitation.is.unavailable": "Invitation is unavailable.",
+  "auth.support.apiSupport.invitationRoutes.invitation.not.ready":
+    "This invitation cannot be sent yet. Try again in a moment.",
   "auth.support.apiSupport.invitationRoutes.password.is.incorrect": "The password is incorrect.",
   "auth.support.apiSupport.magicLinkRoutes.magic.link.is.invalid.or.has": "Magic link is invalid or has expired.",
   "auth.support.apiSupport.registrationGates.disposable.email.domains.are.not.allowed":
