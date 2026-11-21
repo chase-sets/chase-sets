@@ -196,8 +196,9 @@ describe("guest checkout auth routes", () => {
     }
   });
 
-  it("rejects guest checkout when the email already belongs to a user", async () => {
+  it("starts contact-less when an existing User email is supplied", async () => {
     const services = createServices({ existingUser: { user_id: "usr_existing" } });
+    mockCreateGuestAccount.mockResolvedValue({ accountId: "acc_guest" });
     mockCreateIdentityAuthRequestClient.mockReturnValue({
       createGuestAccount: mockCreateGuestAccount,
     });
@@ -212,36 +213,6 @@ describe("guest checkout auth routes", () => {
       }),
     });
 
-    expect(response.status).toBe(409);
-    await expect(response.json()).resolves.toEqual({
-      error: {
-        code: "account_sign_in_required",
-        message: "Sign in to continue checkout with this email.",
-      },
-    });
-    expect(services.identity.normalizeEmail).toHaveBeenCalledWith(" Jane@Example.com ");
-    expect(services.identity.getUserByEmail).toHaveBeenCalledWith("jane@example.com");
-    expect(mockCreateIdentityAuthRequestClient).not.toHaveBeenCalled();
-    expect(mockCreateGuestAccount).not.toHaveBeenCalled();
-  });
-
-  it("preserves contact-full guest checkout", async () => {
-    const services = createServices({ existingUser: null });
-    mockCreateGuestAccount.mockResolvedValue({ accountId: "acc_guest" });
-    mockCreateIdentityAuthRequestClient.mockReturnValue({
-      createGuestAccount: mockCreateGuestAccount,
-    });
-    const app = buildApp(services);
-
-    const response = await app.request("/guest-checkout/start", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        displayName: "Jane Smith",
-        email: "jane@example.com",
-      }),
-    });
-
     expect(response.status).toBe(201);
     await expect(response.json()).resolves.toEqual({
       accountId: "acc_guest",
@@ -249,12 +220,13 @@ describe("guest checkout auth routes", () => {
       expiresAt: expect.any(String),
     });
     expect(mockCreateGuestAccount).toHaveBeenCalledWith({
-      email: "jane@example.com",
-      displayName: "Jane Smith",
+      email: "",
+      displayName: "Guest",
     });
+    expect(services.identity.getUserByEmail).not.toHaveBeenCalled();
     expect(services.db.query).toHaveBeenCalledWith(
       expect.stringContaining("INSERT INTO identity_guest_checkout_tokens"),
-      expect.arrayContaining(["acc_guest", "jane@example.com", "Jane Smith"]),
+      [expect.any(String), "acc_guest", null, null, "hashed:guest_token", expect.any(String)],
     );
   });
 
@@ -741,8 +713,8 @@ describe("guest checkout auth routes", () => {
     expect(claimed.status).toBe(200);
 
     expect(identityClient.createGuestAccount).toHaveBeenCalledWith({
-      email: "buyer@example.com",
-      displayName: "Buyer Example",
+      email: "",
+      displayName: "Guest",
     });
     expect(identityClient.createUser).toHaveBeenCalledWith({
       email: "buyer@example.com",

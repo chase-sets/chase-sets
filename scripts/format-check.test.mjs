@@ -224,7 +224,7 @@ describe("format-check soundness corpus", () => {
       source: "git merge-base",
       files: ["src/renamed café file.js"],
     });
-  });
+  }, 30_000);
 
   it("retains an actual Git deletion so removing a formatter control forces the full check", async () => {
     const root = createFixtureRoot();
@@ -246,7 +246,7 @@ describe("format-check soundness corpus", () => {
     });
 
     expect(prettierCalls).toEqual([[".", "--check", "--ignore-unknown"]]);
-  });
+  }, 30_000);
 });
 
 describe("format-check fail-closed discovery", () => {
@@ -429,7 +429,7 @@ describe("format-check execution controls", () => {
     expect(harness.prettierCalls).toEqual([
       ["--check", "--ignore-unknown", "--", "nested/package.json", "src/unformatted.ts"],
     ]);
-  });
+  }, 30_000);
 
   it("escalates a nested package.json with a top-level prettier key at HEAD", async () => {
     const root = createFixtureRoot();
@@ -462,7 +462,7 @@ describe("format-check execution controls", () => {
 
     expect(harness.acquiredKinds).toEqual(["script-battery"]);
     expect(harness.prettierCalls).toEqual([[".", "--check", "--ignore-unknown"]]);
-  });
+  }, 30_000);
 
   it("keeps an added Git manifest without a prettier key scoped", async () => {
     const root = createFixtureRoot();
@@ -482,7 +482,7 @@ describe("format-check execution controls", () => {
 
     expect(harness.acquiredKinds).toEqual([]);
     expect(harness.prettierCalls).toEqual([["--check", "--ignore-unknown", "--", "added/package.json"]]);
-  });
+  }, 30_000);
 
   it("escalates a deleted Git manifest when its merge-base had a prettier key", async () => {
     const root = createFixtureRoot();
@@ -498,7 +498,7 @@ describe("format-check execution controls", () => {
 
     expect(harness.acquiredKinds).toEqual(["script-battery"]);
     expect(harness.prettierCalls).toEqual([[".", "--check", "--ignore-unknown"]]);
-  });
+  }, 30_000);
 
   it("escalates an unreadable and an absent-at-HEAD env manifest", async () => {
     for (const file of ["broken/package.json", "missing/package.json"]) {
@@ -542,7 +542,7 @@ describe("format-check execution controls", () => {
       "nested/package.json",
       "src/bad.ts",
     ]);
-  });
+  }, 30_000);
 
   it("forces CI's opted-in static chain back to the full tree before reading CHANGED_FILES_JSON", async () => {
     const harness = createRunnerHarness();

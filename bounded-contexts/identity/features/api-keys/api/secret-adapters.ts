@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import { equalSha256HexDigests } from "../../../support/runtime-support/secret-digests";
 
 export type IdentitySecretAdapters = Readonly<{
   issueOpaqueToken: (prefix: string) => string;
@@ -14,7 +15,8 @@ export function createIdentitySecretAdapters(): IdentitySecretAdapters {
       return prefix ? `${prefix}_${suffix}` : suffix;
     },
     hashSecret: (value) => createHash("sha256").update(value).digest("hex"),
-    verifySecret: (value, hashedValue) => createHash("sha256").update(value).digest("hex") === hashedValue,
+    verifySecret: (value, hashedValue) =>
+      equalSha256HexDigests(createHash("sha256").update(value).digest("hex"), hashedValue),
     issueChallenge: () => randomBytes(24).toString("base64url"),
   };
 }
