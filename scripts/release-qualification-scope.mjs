@@ -106,6 +106,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
   // registered here (for example a renamed deployable) fails closed.
   deployables: Object.freeze({
     "admin-web": "runtime",
+    "agent-apps": "runtime",
     marketplace: "runtime",
     "marketplace-seed-testing": "seed-machinery",
     // Not deployed (deployables/corten-pilot/AGENTS.md). `runtime` keeps a pilot change in the

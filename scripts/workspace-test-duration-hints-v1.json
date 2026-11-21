@@ -2,6 +2,7 @@
   "schemaVersion": "workspace-test-duration-hints/v1",
   "entries": [
     { "workspace": "@chase-sets/app-admin-web", "script": "test", "estimatedDurationSeconds": 32 },
+    { "workspace": "@chase-sets/app-agent-apps", "script": "test", "estimatedDurationSeconds": 3 },
     { "workspace": "@chase-sets/app-marketplace-web", "script": "test", "estimatedDurationSeconds": 34 },
     { "workspace": "@chase-sets/app-public-web", "script": "test", "estimatedDurationSeconds": 16 },
     { "workspace": "@chase-sets/app-tcgplayer-connector-extension", "script": "test", "estimatedDurationSeconds": 3 },
