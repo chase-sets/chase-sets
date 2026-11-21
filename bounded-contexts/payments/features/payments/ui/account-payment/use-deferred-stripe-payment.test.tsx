@@ -2,7 +2,7 @@
 
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { useDeferredStripePayment } from "./use-deferred-stripe-payment";
+import { DeferredStripePayment, type useDeferredStripePayment } from "./use-deferred-stripe-payment";
 
 const { loadStripe } = vi.hoisted(() => ({ loadStripe: vi.fn() }));
 vi.mock("@stripe/stripe-js", () => ({ loadStripe }));
@@ -39,8 +39,14 @@ function fixture(validationError?: string) {
   loadStripe.mockResolvedValue(stripe);
   let card: ReturnType<typeof useDeferredStripePayment>;
   function Entry({ quote }: { quote: string }) {
-    card = useDeferredStripePayment({ publishableKey: "pk_test_fixture", amount: 2605, currency: "usd", quote });
-    return card.entry;
+    return (
+      <DeferredStripePayment config={{ publishableKey: "pk_test_fixture", amount: 2605, currency: "usd", quote }}>
+        {(payment) => {
+          card = payment;
+          return payment.entry;
+        }}
+      </DeferredStripePayment>
+    );
   }
   return { calls, elements, stripe, element, Entry, card: () => card };
 }

@@ -17,6 +17,7 @@ import {
 import type { CheckoutSessionRow } from "../../features/sessions/read-model/queries";
 import { CheckoutDomainError } from "../runtime-support/common";
 export { normalizeRequestedBalanceCreditAmount } from "./balance-credit";
+export { isPaymentConfirmationTokenId } from "@chase-sets/payments/server";
 
 export async function readCheckoutPaymentStartThroughPayments(request: Request, sessionId: string) {
   try {

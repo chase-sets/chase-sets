@@ -59,7 +59,7 @@ import {
   type PaymentElementDefaultValues,
   type PaymentsSavedCheckoutInstrument,
 } from "@chase-sets/payments/server";
-import { StripeConfirmationCard } from "@chase-sets/payments/web";
+import { DeferredStripePayment, StripeConfirmationCard } from "@chase-sets/payments/web";
 import { checkoutSessionSourceCreatesOrders } from "@chase-sets/checkout-order-source";
 import { normalizeRequestedBalanceCreditAmount } from "../support/request-support/balance-credit";
 import { readCheckoutPaymentStartThroughPayments } from "../support/request-support/checkout-confirmation";
@@ -1346,10 +1346,22 @@ export default function CheckoutSessionRoute() {
       canSavePaymentMethods={data.canSavePaymentMethods}
       isSignedInBuyer={data.isSignedInBuyer}
       paymentVerifyEmailHref={data.paymentVerifyEmailHref}
-      deferredCardKey={data.deferredCardKey}
-      paymentElementDefaultValues={data.paymentElementDefaultValues}
-      submitDeferredPayment={async (formData) => {
-        await submit(formData, { method: "post" });
+      deferredCard={{
+        enabled: Boolean(data.deferredCardKey),
+        render: (quote, renderPage) => (
+          <DeferredStripePayment
+            config={
+              quote && data.deferredCardKey
+                ? { ...quote, publishableKey: data.deferredCardKey, defaultValues: data.paymentElementDefaultValues }
+                : null
+            }
+          >
+            {renderPage}
+          </DeferredStripePayment>
+        ),
+        submit: async (formData) => {
+          await submit(formData, { method: "post" });
+        },
       }}
       errorMessage={
         (actionData && "error" in actionData ? actionData.error : null) ??

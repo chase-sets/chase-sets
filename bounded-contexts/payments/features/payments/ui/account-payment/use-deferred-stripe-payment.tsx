@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { loadStripe, type Stripe, type StripeElements, type StripePaymentElement } from "@stripe/stripe-js";
 import { t } from "@chase-sets/localization";
 import { Banner, EmbeddedProviderSurface, MountPoint, Skeleton } from "@chase-sets/design-system";
@@ -117,4 +117,15 @@ export function useDeferredStripePayment(
     </>
   ) : null;
   return { entry, ready, createConfirmationToken };
+}
+
+export function DeferredStripePayment({
+  config,
+  children,
+}: {
+  config: Parameters<typeof useDeferredStripePayment>[0];
+  children: (payment: ReturnType<typeof useDeferredStripePayment>) => ReactNode;
+}) {
+  const payment = useDeferredStripePayment(config);
+  return children(payment);
 }

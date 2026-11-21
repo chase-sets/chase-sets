@@ -32,7 +32,8 @@ const {
   mockSubmitPurchaseIntentThroughMarketplace: vi.fn(),
 }));
 
-vi.mock("../../../support/request-support/checkout-confirmation", () => ({
+vi.mock("../../../support/request-support/checkout-confirmation", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../support/request-support/checkout-confirmation")>()),
   createCheckoutInventoryReservations: mockCreateCheckoutInventoryReservations,
   createCheckoutOrdersThroughOrdering: mockCreateCheckoutOrdersThroughOrdering,
   createCheckoutPaymentThroughPayments: mockCreateCheckoutPaymentThroughPayments,

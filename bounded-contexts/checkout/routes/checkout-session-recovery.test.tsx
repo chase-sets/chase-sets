@@ -56,15 +56,21 @@ vi.mock("@chase-sets/ordering/server", () => ({ createOrderingRequestApiClient: 
 vi.mock("@chase-sets/marketplace/server", () => ({
   createMarketplaceRequestApiClient: mockCreateMarketplaceRequestApiClient,
 }));
-const { newCardToken } = vi.hoisted(() => ({ newCardToken: vi.fn() }));
+const { newCardToken, renderDeferredPayment } = vi.hoisted(() => ({
+  newCardToken: vi.fn(),
+  renderDeferredPayment: vi.fn(),
+}));
 vi.mock("@chase-sets/payments/web", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@chase-sets/payments/web")>()),
   StripeConfirmationCard: () => null,
-  useDeferredStripePayment: (config: unknown) => ({
-    entry: config ? <p>Deferred card entry</p> : null,
-    ready: Boolean(config),
-    createConfirmationToken: newCardToken,
-  }),
+  DeferredStripePayment: (({ config, children }) => {
+    renderDeferredPayment(config);
+    return children({
+      entry: config ? <p>Deferred card entry</p> : null,
+      ready: Boolean(config),
+      createConfirmationToken: newCardToken,
+    });
+  }) satisfies typeof import("@chase-sets/payments/web").DeferredStripePayment,
 }));
 vi.mock("@chase-sets/platform-runtime/realtime-web", () => ({
   subscribeRealtimePatches: vi.fn(() => ({ close: vi.fn() })),
@@ -572,6 +578,13 @@ describe("checkout session confirm recovery through the data router", () => {
     mockConfirmCheckoutSession.mockResolvedValue({ payment_id: "pay_one", status: "confirmed" });
     await mount(sessionPath);
     expect(screen.getByText("Deferred card entry")).toBeTruthy();
+    expect(renderDeferredPayment).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        publishableKey: "pk_test_checkout_fixture",
+        currency: "usd",
+        quote: expect.stringMatching(/^chk_recovery:.+/),
+      }),
+    );
     await navigateAndCommit(`${sessionPath}?resumePaymentStart=1`);
     expect(screen.getByText("Deferred card entry")).toBeTruthy();
     expect(newCardToken).not.toHaveBeenCalled();
@@ -579,7 +592,7 @@ describe("checkout session confirm recovery through the data router", () => {
 
     await clickAndSettle(payButtons()[0]!);
     await waitFor(() => expect(screen.getByText("Recorded payment status")).toBeTruthy());
-    expect(newCardToken).toHaveBeenCalledTimes(1);
+    expect(newCardToken).toHaveBeenCalledExactlyOnceWith(false);
     expect(mockConfirmCheckoutSession).toHaveBeenCalledExactlyOnceWith(
       "chk_recovery",
       expect.objectContaining({ confirmationTokenId: "ctoken_fixture" }),

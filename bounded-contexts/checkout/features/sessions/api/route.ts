@@ -7,7 +7,6 @@ import {
   type SourceCommitPosition,
 } from "@chase-sets/http/responses";
 import { parseOptionalTypedIdBoundary } from "@chase-sets/http/typed-id";
-import { isPaymentConfirmationTokenId } from "@chase-sets/payments/server";
 import type { ShippingAddressId, AccountId, CheckoutSessionId } from "@chase-sets/primitives/typed-ids";
 import type { CheckoutApiEnv } from "../../../api";
 import { checkoutConfirmationNeedsPaymentStart, checkoutPaymentStartRefusalCode } from "./payment-start-eligibility";
@@ -26,6 +25,7 @@ import {
   createCheckoutOrdersThroughOrdering,
   createCheckoutInventoryReservations,
   createCheckoutPaymentThroughPayments,
+  isPaymentConfirmationTokenId,
   normalizeRequestedBalanceCreditAmount,
   previewCheckoutFulfillmentThroughOrdering,
   submitPurchaseIntentThroughMarketplace,

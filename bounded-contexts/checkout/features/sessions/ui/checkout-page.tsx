@@ -1,7 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { useRef, useState } from "react";
 import { tryMoneyToCents } from "@chase-sets/primitives/money";
-import { useDeferredStripePayment } from "@chase-sets/payments/web";
 import {
   Button,
   CheckoutFlowShell,
@@ -36,7 +35,7 @@ import { CheckoutPolicyLinks } from "./checkout-policy-links";
 import { CheckoutSavedInfoSection } from "./checkout-saved-info-section";
 import { CheckoutShippingSection } from "./checkout-shipping-section";
 import { useCheckoutSessionModel } from "./use-checkout-session-model";
-import type { CheckoutSessionPageProps } from "./checkout-page-types";
+import type { CheckoutSessionPageProps, DeferredCheckoutCard } from "./checkout-page-types";
 
 export type {
   CheckoutAddressDefaults,
@@ -52,13 +51,10 @@ export type {
 
 export function CheckoutSessionPage(props: CheckoutSessionPageProps) {
   const model = useCheckoutSessionModel(props);
-  const paying = useRef(false);
-  const [preparingCard, setPreparingCard] = useState(false);
   const quote = model.payment?.marketplace_checkout_fee;
   const amount = Number(tryMoneyToCents(quote?.processor_amount ?? "") ?? 0n);
-  const deferredCard =
-    props.deferredCardKey &&
-    props.submitDeferredPayment &&
+  const cardQuote =
+    props.deferredCard?.enabled &&
     model.payment &&
     quote &&
     Number.isSafeInteger(amount) &&
@@ -71,14 +67,29 @@ export function CheckoutSessionPage(props: CheckoutSessionPageProps) {
     !props.confirmationAmbiguous &&
     !props.paymentVerifyEmailHref
       ? {
-          publishableKey: props.deferredCardKey,
           amount,
           currency: model.payment.currency_code.toLowerCase(),
           quote: `${model.session.session_id}:${quote.quote_fingerprint}`,
-          defaultValues: props.paymentElementDefaultValues,
         }
       : null;
-  const card = useDeferredStripePayment(deferredCard);
+
+  const renderPage = (card: DeferredCheckoutCard | null) => (
+    <CheckoutSessionPageContent props={props} model={model} card={cardQuote ? card : null} />
+  );
+  return props.deferredCard ? props.deferredCard.render(cardQuote, renderPage) : renderPage(null);
+}
+
+function CheckoutSessionPageContent({
+  props,
+  model,
+  card,
+}: {
+  props: CheckoutSessionPageProps;
+  model: ReturnType<typeof useCheckoutSessionModel>;
+  card: DeferredCheckoutCard | null;
+}) {
+  const paying = useRef(false);
+  const [preparingCard, setPreparingCard] = useState(false);
 
   const commitButtonProps: CheckoutCommitButtonProps = {
     hasPayment: model.hasPayment,
@@ -90,7 +101,7 @@ export function CheckoutSessionPage(props: CheckoutSessionPageProps) {
     commitIntent: model.commitIntent,
     commitIcon: model.commitIcon,
     isSubmitting: model.isSubmitting || preparingCard,
-    paymentEntryPending: Boolean(deferredCard && !card.ready && model.commitIntent === "confirm-checkout"),
+    paymentEntryPending: Boolean(card && !card.ready && model.commitIntent === "confirm-checkout"),
     confirmationAmbiguous: props.confirmationAmbiguous ?? false,
     verifyEmailHref: props.paymentVerifyEmailHref ?? null,
     submittingCtaLabel: model.submittingCtaLabel,
@@ -177,12 +188,12 @@ export function CheckoutSessionPage(props: CheckoutSessionPageProps) {
                 props.onRetryWalletBalance();
               }
             }
-            if (intent === "confirm-checkout" && deferredCard && props.submitDeferredPayment) {
+            if (intent === "confirm-checkout" && card && props.deferredCard) {
               event.preventDefault();
               if (!card.ready || model.isSubmitting) return;
               const data = new FormData(event.currentTarget);
               data.set("intent", intent);
-              const submit = props.submitDeferredPayment;
+              const submit = props.deferredCard.submit;
               paying.current = true;
               setPreparingCard(true);
               void (async () => {
@@ -273,7 +284,7 @@ export function CheckoutSessionPage(props: CheckoutSessionPageProps) {
               wallet={model.wallet}
               walletUnavailable={model.walletUnavailable && !model.hasPayment}
               onFieldChange={model.markReviewStale}
-              paymentEntry={card.entry}
+              paymentEntry={card?.entry}
             />
 
             {model.canCancelCheckout ? (
