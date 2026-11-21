@@ -1169,6 +1169,7 @@ describe("Catalog primary workbench admin contracts", () => {
             saveOutcome: "not-submitted",
             submitHref: "/catalog/integrations?providerKey=tcgdex&profileVersion=2026.06.04&section=profile-work",
             commandKey: "provider-profile.edit-section",
+            sectionFingerprint: "sha256:basics-read",
             fields: [
               {
                 key: "displayName",
@@ -2415,6 +2416,7 @@ function validationReadinessFixture(): CatalogPrimaryWorkbenchReadModel["validat
       saveEvidenceBlockers: [],
       activationCommandKey: "provider-profile.activate",
       evidenceCommandKey: "provider-profile.edit-section",
+      evidenceSectionFingerprint: "sha256:migration-evidence-read",
       workspaceHref: "/catalog/integrations?providerKey=tcgdex&profileVersion=2026.06.04&section=readiness",
       providerKey: "tcgdex",
       profileVersion: "2026.06.04",

@@ -495,6 +495,11 @@ export function assertPrimaryWorkbenchProfileAuthoring(
     if (workspace.commandKey !== "provider-profile.edit-section") {
       throw new Error(`Primary workbench profile section ${workspace.sectionKey} must use section-scoped saves.`);
     }
+    if (typeof workspace.sectionFingerprint !== "string" || workspace.sectionFingerprint.length === 0) {
+      throw new Error(
+        `Primary workbench profile section ${workspace.sectionKey} must carry the revision its save is checked against.`,
+      );
+    }
     if (!isSafePrimaryWorkbenchReturnPath(workspace.submitHref)) {
       throw new Error(
         `Primary workbench profile section ${workspace.sectionKey} submit link must stay in the rebuilt workbench.`,
