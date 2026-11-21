@@ -370,6 +370,7 @@ const runtime = createPlatformApiHost({
     adminGoogleWorkspaceSso: config.adminGoogleWorkspaceSso,
     registrationAdmission: config.registrationAdmission,
     stagingPersonaMagicLinkVerifierSha256: config.stagingPersonaMagicLinkVerifierSha256,
+    readConsistencyWorkSignalGateway: workSignalStore.readConsistencyGateway,
     evidenceWindowCorrelation,
     evidenceWindowProviderWrite,
     securityLifetimes: config.authSecurityLifetimes,

@@ -5,6 +5,7 @@ import type { AppendToStreamInput, EventStoreContext, StoredEvent } from "@chase
 import type { JsonObject } from "@chase-sets/primitives/json";
 import type { MembershipId, UserId } from "@chase-sets/primitives/typed-ids";
 import { IdentityDomainError, normalizeEmail, parseGrantableRoleKey } from "../../../support/runtime-support/common";
+import { equalSha256HexDigests } from "../../../support/runtime-support/secret-digests";
 import { decideInvitation, evolveInvitation, initialInvitationState, type InvitationEvent } from "../domain/domain";
 import {
   decideMembership,
@@ -388,8 +389,7 @@ export async function readInvitationAcceptanceAuthority(
     !invitation.accountId ||
     !invitation.email ||
     !invitation.roleKey ||
-    invitation.acceptanceTokenHash !== params.acceptanceTokenHash ||
-    !params.acceptanceTokenHash ||
+    !equalSha256HexDigests(invitation.acceptanceTokenHash, params.acceptanceTokenHash) ||
     !instant(invitation.expiresAt) ||
     !instant(invitation.acceptanceTokenExpiresAt) ||
     (invitation.status !== "pending" && invitation.status !== "accepted")

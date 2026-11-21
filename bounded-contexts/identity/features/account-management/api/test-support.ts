@@ -20,6 +20,7 @@ export function syntheticMutationResult(
     "rotate-api-key": "api-key",
     "revoke-api-key": "api-key",
     "create-invitation": "invitation",
+    "resend-invitation": "invitation",
     "cancel-invitation": "invitation",
     "change-role": "membership",
     revoke: "membership",

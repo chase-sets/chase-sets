@@ -4,6 +4,8 @@ import { createRealtimeRouteSubscriptionPreset } from "@chase-sets/platform-runt
 export const marketplaceRealtimeTopics = {
   accountListings: (accountId: string) => `account:${accountId}:listings`,
   accountOffers: (accountId: string) => `account:${accountId}:offers`,
+  /** Seller Offer Matches carry the seller's Listings and inventory, so they stay off the buyer Offers topic. */
+  accountOfferMatches: (accountId: string) => `account:${accountId}:offer-matches`,
 } as const;
 
 export const marketplaceRealtimeRouteTopics = {
@@ -14,6 +16,10 @@ export const marketplaceRealtimeRouteTopics = {
   accountOffers: (accountId: string) =>
     createRealtimeRouteSubscriptionPreset("marketplace.accountOffers", [
       marketplaceRealtimeTopics.accountOffers(accountId),
+    ]),
+  accountOfferMatches: (accountId: string) =>
+    createRealtimeRouteSubscriptionPreset("marketplace.accountOfferMatches", [
+      marketplaceRealtimeTopics.accountOfferMatches(accountId),
     ]),
 } as const;
 
@@ -37,11 +43,15 @@ export const marketplaceRealtimeTopicPolicyManifest = {
         }
 
         if (segments[2] === "listings") {
-          return { family: "account", accountId: segments[1], permission: "listings.view" };
+          return { family: "account", accountId: segments[1], permissions: ["listings.view"] };
         }
 
         if (segments[2] === "offers") {
-          return { family: "account", accountId: segments[1], permission: "offers.view" };
+          return { family: "account", accountId: segments[1], permissions: ["offers.view"] };
+        }
+
+        if (segments[2] === "offer-matches") {
+          return { family: "account", accountId: segments[1], permissions: ["offers.view", "listings.view"] };
         }
 
         return null;
@@ -50,8 +60,8 @@ export const marketplaceRealtimeTopicPolicyManifest = {
         Boolean(
           actor &&
           match.accountId === actor.accountId &&
-          match.permission &&
-          actor.permissions.includes(match.permission),
+          match.permissions?.length &&
+          match.permissions.every((permission) => actor.permissions.includes(permission)),
         ),
     },
   ],

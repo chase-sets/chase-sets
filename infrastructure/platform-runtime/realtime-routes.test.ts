@@ -76,6 +76,21 @@ describe("realtime topic authorization", () => {
     ).toBeNull();
   });
 
+  it("requires both offers.view and listings.view for the seller Offer Match topic", () => {
+    expect(authorizeRealtimeTopics(["account:account_1:offer-matches"], actor)).toEqual([
+      "account:account_1:offer-matches",
+    ]);
+    expect(
+      authorizeRealtimeTopics(["account:account_1:offer-matches"], { ...actor, permissions: ["offers.view"] }),
+    ).toBeNull();
+    expect(
+      authorizeRealtimeTopics(["account:account_1:offer-matches"], { ...actor, permissions: ["listings.view"] }),
+    ).toBeNull();
+    expect(authorizeRealtimeTopics(["account:account_1:offers"], { ...actor, permissions: ["offers.view"] })).toEqual([
+      "account:account_1:offers",
+    ]);
+  });
+
   it("rejects mixed unauthorized topics", () => {
     expect(authorizeRealtimeTopics(["public:market", "account:other_account:listings"], actor)).toBeNull();
   });

@@ -57,9 +57,9 @@ function writerCases(db: PgQueryable) {
     },
     {
       name: "badge assignment",
-      column: "manual_payout_review",
+      column: "trusted_seller",
       value: true,
-      run: () => invoke(identity, "identity.account.badge-assigned", { badgeKey: "manual-payout-review" }),
+      run: () => invoke(identity, "identity.account.badge-assigned", { badgeKey: "trusted-seller" }),
     },
     {
       name: "address linkage",
@@ -214,8 +214,8 @@ describeDb("seller checkout risk source revision persistence", () => {
     await bootstrapContextDatabase(oldModule, pool);
     expect(await column()).toEqual([]);
     await pool.query(
-      `INSERT INTO settlement_account_risk_sources (account_id, account_created_at, trusted_seller, manual_payout_review, stripe_fraud_signal_count, updated_at)
-      VALUES ($1, $2, true, true, 9, $2)`,
+      `INSERT INTO settlement_account_risk_sources (account_id, account_created_at, trusted_seller, manual_payout_review, payout_review_hold_stream_version, stripe_fraud_signal_count, updated_at)
+      VALUES ($1, $2, true, true, 1, 9, $2)`,
       [accountId, timestamp],
     );
     const before = await row();

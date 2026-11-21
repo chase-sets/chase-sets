@@ -254,6 +254,12 @@ export function createRemedyApprovalWorkflow(command: ProposeSupportRemedyComman
   };
 }
 
+const reservationDrivenStatuses: ReadonlySet<RemedyApprovalStatus> = new Set([
+  "reservation-pending",
+  "reservation-rejected",
+  "approval-pending",
+]);
+
 export function applyRemedyReservationFact(
   workflow: RemedyApprovalWorkflow,
   fact: RemedyEffectFact,
@@ -266,11 +272,14 @@ export function applyRemedyReservationFact(
   }
   const reserved = fact.outcome === "satisfied";
   const reservationStatus: RemedyReservationStatus = reserved ? "reserved" : "rejected";
+  // A reservation fact can arrive after a reviewer has moved the workflow on (for example a correction
+  // request); it records the reservation outcome but must not reopen the workflow for approval.
+  const statusFollowsReservation = reservationDrivenStatuses.has(workflow.status);
   return {
     ...workflow,
     reservationStatus,
     reservationReasonCode: fact.reasonCode,
-    status: reserved ? "approval-pending" : "reservation-rejected",
+    status: statusFollowsReservation ? (reserved ? "approval-pending" : "reservation-rejected") : workflow.status,
     auditTrail: [
       ...workflow.auditTrail,
       auditEntry({
@@ -301,6 +310,11 @@ export function createRemedyApproval(
   }
   if (workflow.approvals.some((approval) => approval.idempotencyKey === command.idempotencyKey)) {
     return workflow.approvals.find((approval) => approval.idempotencyKey === command.idempotencyKey)!;
+  }
+  if (workflow.status !== "approval-pending") {
+    throw new SupportDomainError(
+      `A remedy can only be approved while its workflow is approval-pending; this workflow is ${workflow.status}.`,
+    );
   }
   if (workflow.approvals.some((approval) => approval.approvedByAccountId === command.approvedByAccountId)) {
     throw new SupportDomainError("Each required approval must come from a distinct operator.");

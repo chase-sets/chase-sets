@@ -145,14 +145,17 @@ test.describe("browser route modules @browser-e2e-dev-source", () => {
       page.on("console", (message) => {
         if (message.type() === "error") errors.push(message.text());
       });
-      await page.goto(`${marketplaceBrowserE2eSeedContract.itemDetail.selectedProductRoutePath}&market=sell`);
-      await page
+      // Keep fixture navigation (and any aborted route discovery) off the page whose hydration we measure.
+      const setup = await context.newPage();
+      await setup.goto(`${marketplaceBrowserE2eSeedContract.itemDetail.selectedProductRoutePath}&market=sell`);
+      await setup
         .getByRole("button", { name: /Selected product.*Save the selected product for Sell List review/ })
         .click();
-      const add = page.getByRole("button", { name: "Add product to Sell List", exact: true });
+      const add = setup.getByRole("button", { name: "Add product to Sell List", exact: true });
       await expect(add).toBeVisible();
       await add.click();
-      await expect(page).toHaveURL(/\/account\/sell-list/);
+      await expect(setup).toHaveURL(/\/account\/sell-list/);
+      await setup.close();
       let lineId: string | null = null;
       try {
         const readback = await context.request.get("/api/marketplace/guest/sell-list", {

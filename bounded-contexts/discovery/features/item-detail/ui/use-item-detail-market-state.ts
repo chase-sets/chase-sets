@@ -28,6 +28,8 @@ type ItemDetailMarketStateArgs = {
   hasInitialSelectedOptionFilters: boolean;
 };
 
+type MobileCommerceAction = "buy" | "sell" | "watch";
+
 export function useItemDetailMarketState({
   data,
   viewerAccountId,
@@ -67,7 +69,9 @@ export function useItemDetailMarketState({
     keptSelection ? keptSelection.offerId : initialSelectedOfferId,
   );
   const [marketIntent, setMarketIntent] = useState<MarketIntent>(initialMarketIntent);
-  const [activeMobileCommerce, setActiveMobileCommerce] = useState<"buy" | "sell" | "watch" | null>(null);
+  const [mobileCommerce, setMobileCommerce] = useState<{ action: MobileCommerceAction; cartAddStarted?: true } | null>(
+    null,
+  );
   const [marketBookTab, setMarketBookTab] = useState<MarketBookTab>(
     initialMarketIntent === "sell" ? "offers" : "listings",
   );
@@ -92,12 +96,14 @@ export function useItemDetailMarketState({
     setSelectedOfferId(initialSelectedOfferId);
   }
 
-  // A navigation, realtime patch or revalidation resets the market tabs and closes the mobile commerce panel.
   if (urlSelectionChanged || appliedData !== data) {
     setAppliedData(data);
-    setMarketIntent(initialMarketIntent);
-    setMarketBookTab(initialMarketIntent === "sell" ? "offers" : "listings");
-    setActiveMobileCommerce(null);
+    // A cart add revalidates this item. Keep its sheet and workflow so the buyer can act on the result.
+    if (urlSelectionChanged || !mobileCommerce?.cartAddStarted) {
+      setMarketIntent(initialMarketIntent);
+      setMarketBookTab(initialMarketIntent === "sell" ? "offers" : "listings");
+      setMobileCommerce(null);
+    }
   }
 
   // Kept while rendering, so a Buy form below posts the choices this render shows.
@@ -210,8 +216,11 @@ export function useItemDetailMarketState({
     selectedOfferId,
     marketIntent,
     setMarketIntent,
-    activeMobileCommerce,
-    setActiveMobileCommerce,
+    activeMobileCommerce: mobileCommerce?.action ?? null,
+    setActiveMobileCommerce: (action: MobileCommerceAction | null) => setMobileCommerce(action ? { action } : null),
+    onMobileCartAddStart: () => {
+      setMobileCommerce((current) => (current?.action === "buy" ? { action: "buy", cartAddStarted: true } : current));
+    },
     marketBookTab,
     setMarketBookTab,
     clearProductFilters,

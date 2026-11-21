@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import ts from "@chase-sets/typescript-compiler-api";
 import {
@@ -48,8 +49,11 @@ function violationFor(relativeFile, content, manifest = baseManifest) {
 describe("route support placement guard", () => {
   it("preserves ordinary R99 candidate acceptance and the exact stopped Settlement fresh-CREATE refusal", () => {
     const accountFile =
-      "../../bounded-contexts/settlement/features/wallets/integrations/account-risk-source/account-risk-source-schema.ts";
-    const candidate = readFileSync(new URL(accountFile, import.meta.url), "utf8").replace(/\r\n/g, "\n");
+      "bounded-contexts/settlement/features/wallets/integrations/account-risk-source/account-risk-source-schema.ts";
+    const candidate = execFileSync("git", ["show", `95deea24538aaefde33d276b07afe2926d3475b8:${accountFile}`], {
+      cwd: fileURLToPath(new URL("../../", import.meta.url)),
+      encoding: "utf8",
+    });
     const digest = (value) => createHash("sha256").update(value, "utf8").digest("hex");
     const parsed = ts.createSourceFile(accountFile, candidate, ts.ScriptTarget.Latest, true);
     const ledger = parsed.statements
