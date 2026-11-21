@@ -16,7 +16,11 @@ describe("authoring intent compatibility", () => {
       { preset: "track-market", knob: { min: -25, max: 25, defaultValue: 0 }, ageDays: null },
       { preset: "beat-lowest", knob: { min: 0, max: 15, defaultValue: 2 }, ageDays: null },
       { preset: "premium", knob: { min: 0, max: 30, defaultValue: 5 }, ageDays: null },
-      { preset: "slow-stock", knob: { min: 0, max: 30, defaultValue: 10 }, ageDays: { min: 14, max: 180, defaultValue: 45 } },
+      {
+        preset: "slow-stock",
+        knob: { min: 0, max: 30, defaultValue: 10 },
+        ageDays: { min: 14, max: 180, defaultValue: 45 },
+      },
     ]);
     expect(repricingEditorDefaults({ listingCurrencyCodes: ["CAD"], hasCostBasis: true })).toEqual({
       currencyCode: "CAD",

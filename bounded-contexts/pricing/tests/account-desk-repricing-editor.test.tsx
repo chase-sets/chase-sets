@@ -6,7 +6,10 @@ import { CHASE_SETS_COMMIT_RECEIPT_HEADER, encodeCommitReceipt } from "@chase-se
 import ListRoute, { action as listAction } from "../routes/marketplace/account-desk-repricing";
 import DetailRoute, { action as detailAction } from "../routes/marketplace/account-desk-repricing-policy";
 import { dryRunBody } from "../features/repricing-engine/tests/dry-run-fixture";
-import { repricingEditorDefaults, repricingPresetControls } from "../features/repricing-policies/domain/authoring-intent";
+import {
+  repricingEditorDefaults,
+  repricingPresetControls,
+} from "../features/repricing-policies/domain/authoring-intent";
 
 vi.mock("../support/request-support/api-client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../support/request-support/api-client")>();

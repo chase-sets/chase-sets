@@ -19,7 +19,12 @@ export const repricingPresetKnobs: Readonly<Record<RepricingPreset, RepricingPre
 /** How old a listing must be before the slow-stock preset marks it down. */
 export const repricingPresetAgeDays: RepricingPresetRange = { min: 14, max: 180, defaultValue: 45 };
 /** The presets in the order an editor offers them. */
-export const repricingPresetOrder: readonly RepricingPreset[] = ["track-market", "beat-lowest", "premium", "slow-stock"];
+export const repricingPresetOrder: readonly RepricingPreset[] = [
+  "track-market",
+  "beat-lowest",
+  "premium",
+  "slow-stock",
+];
 const presetMarginPercent = 10;
 
 export type RepricingPresetControls = Readonly<{
@@ -155,7 +160,12 @@ export function compilePresetBody(
             ]
           : [{ conditions: [], directive }],
     },
-    { kind: "preset", preset: input.preset, knob: input.knob, ageDays: input.ageDays ?? repricingPresetAgeDays.defaultValue },
+    {
+      kind: "preset",
+      preset: input.preset,
+      knob: input.knob,
+      ageDays: input.ageDays ?? repricingPresetAgeDays.defaultValue,
+    },
   );
 }
 

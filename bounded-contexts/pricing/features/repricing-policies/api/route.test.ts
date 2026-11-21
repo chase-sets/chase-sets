@@ -85,8 +85,16 @@ async function fixture(durable?: ReturnType<typeof createConfigurationPoolFixtur
       { id: "category_synthetic", name: "Synthetic", status: "active", listingCount: accountId === "acc_7910" ? 2 : 0 },
     ]),
     getAuthoringPrerequisites: vi.fn<RepricingPolicyServices["getAuthoringPrerequisites"]>(async (accountId) => {
-      const facts = { listingCurrencyCodes: accountId === "acc_7910" ? ["CAD", "USD"] : [], hasCostBasis: accountId === "acc_7910" };
-      return { ...facts, goalAdoption: [], presets: repricingPresetControls(), editorDefaults: repricingEditorDefaults(facts) };
+      const facts = {
+        listingCurrencyCodes: accountId === "acc_7910" ? ["CAD", "USD"] : [],
+        hasCostBasis: accountId === "acc_7910",
+      };
+      return {
+        ...facts,
+        goalAdoption: [],
+        presets: repricingPresetControls(),
+        editorDefaults: repricingEditorDefaults(facts),
+      };
     }),
     previewScope: vi.fn(async ({ accountId }) => ({
       matching: accountId === "acc_7910" ? 2 : 0,
@@ -320,9 +328,22 @@ describe("account policy controls", () => {
     const body = await response.json();
     expect(body).toEqual(compilePresetBody(controls));
     expect(body.rules[0].conditions).toEqual([{ type: "listing-age-at-least", days: 60 }]);
-    expect(recognizeAuthoringIntent(body)?.source).toEqual({ kind: "preset", preset: "slow-stock", knob: 12, ageDays: 60 });
-    const beat = await app().request("/policies/presets/compile", post({ ...controls, preset: "beat-lowest", knob: 2, ageDays: undefined }));
-    expect((await beat.json()).authoringIntent.source).toEqual({ kind: "preset", preset: "beat-lowest", knob: 2, ageDays: 45 });
+    expect(recognizeAuthoringIntent(body)?.source).toEqual({
+      kind: "preset",
+      preset: "slow-stock",
+      knob: 12,
+      ageDays: 60,
+    });
+    const beat = await app().request(
+      "/policies/presets/compile",
+      post({ ...controls, preset: "beat-lowest", knob: 2, ageDays: undefined }),
+    );
+    expect((await beat.json()).authoringIntent.source).toEqual({
+      kind: "preset",
+      preset: "beat-lowest",
+      knob: 2,
+      ageDays: 45,
+    });
 
     for (const refused of [
       { ...controls, preset: "unknown" },
@@ -340,7 +361,9 @@ describe("account policy controls", () => {
       expect(answer.status, JSON.stringify(refused)).toBe(400);
       expect(await answer.json()).toEqual({ error: { code: "validation_failed" } });
     }
-    expect((await app("acc_7910", ["pricing.view"]).request("/policies/presets/compile", post(controls))).status).toBe(403);
+    expect((await app("acc_7910", ["pricing.view"]).request("/policies/presets/compile", post(controls))).status).toBe(
+      403,
+    );
     expect((await app("acc_7910", [], false).request("/policies/presets/compile", post(controls))).status).toBe(401);
     expect(services.getAccountRepricingPolicy).not.toHaveBeenCalled();
   });
