@@ -9,6 +9,7 @@ import { invitationEmailFingerprint, type InvitationAcceptanceOperation } from "
 export const acceptanceContext = createTestEventStoreContext(
   createInternalSystemTestActor({ userId: "usr_recipient", accountId: "acc_invited" }),
 );
+export const acceptanceTokenHash = "a".repeat(64);
 export const acceptanceOperation: InvitationAcceptanceOperation = {
   version: 1,
   attemptId: "01c9f50d-cb3e-42ac-a0a8-8b5f887a01ea",
@@ -20,7 +21,11 @@ export const acceptanceOperation: InvitationAcceptanceOperation = {
   emailFingerprint: invitationEmailFingerprint("recipient@example.com"),
   bindingDigest: "b".repeat(64),
 };
-export async function seedAcceptance(store: EventStore, withUser = true) {
+export async function seedAcceptance(
+  store: EventStore,
+  withUser = true,
+  invitation: Readonly<{ email?: string; tokenHash?: string }> = {},
+) {
   const expiresAt = new Date(Date.now() + 86400_000 * 7).toISOString();
   const participants: readonly Pick<AppendToStreamInput, "streamId" | "events">[] = [
     {
@@ -64,13 +69,13 @@ export async function seedAcceptance(store: EventStore, withUser = true) {
             invitationId: "ivt_invited",
             accountId: "acc_invited",
             roleKey: "viewer",
-            email: "recipient@example.com",
+            email: invitation.email ?? "recipient@example.com",
             expiresAt,
           },
         },
         {
           eventType: "identity.invitation.acceptance-token-issued",
-          payload: { tokenHash: "existing-store-token-hash", expiresAt },
+          payload: { tokenHash: invitation.tokenHash ?? acceptanceTokenHash, expiresAt },
         },
       ],
     },

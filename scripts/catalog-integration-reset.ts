@@ -6,10 +6,8 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import pg from "pg";
 import {
-  normalizePgPoolConnectionString,
-  resolvePgPoolSslConfig,
+  createPgPool,
   type PgQueryable,
   type PgTransactionalPool,
 } from "../infrastructure/event-core-postgres/index.ts";
@@ -28,8 +26,6 @@ import {
   resolveAuthenticatedGitHubActionsIdentity,
   runStagingRefreshOverlapGate,
 } from "./staging-refresh-preflight.mjs";
-
-const { Pool } = pg;
 
 export const CATALOG_INTEGRATION_RESET_VERSION = "catalog-integration-reset/v1";
 export const CATALOG_INTEGRATION_RESET_CONFIRMATION = "reset staging catalog integration data";
@@ -335,20 +331,18 @@ function redactFailure(error: unknown): string {
     .replace(/([?&](?:password|token|key)=)[^&\s]+/gi, "$1[redacted]");
 }
 
+export function createCatalogIntegrationResetPool(databaseUrl: string): PgTransactionalPool {
+  return createPgPool(databaseUrl, { max: 1, applicationName: "chase_sets_catalog_integration_reset" });
+}
+
 async function main(): Promise<void> {
   const options = parseCatalogIntegrationResetArgs(process.argv.slice(2));
   const errors = validateCatalogIntegrationResetOptions(options);
   if (errors.length > 0) throw new Error(errors.join(" "));
 
-  const normalizedConnectionString = normalizePgPoolConnectionString(options.databaseUrl ?? "");
-  const pool = new Pool({
-    connectionString: normalizedConnectionString,
-    ssl: resolvePgPoolSslConfig(normalizedConnectionString),
-    max: 1,
-    application_name: "chase_sets_catalog_integration_reset",
-  });
+  const pool = createCatalogIntegrationResetPool(options.databaseUrl ?? "");
   try {
-    const record = await runCatalogIntegrationReset(options, pool as unknown as PgTransactionalPool);
+    const record = await runCatalogIntegrationReset(options, pool);
     const serialized = JSON.stringify(record, null, 2);
     if (options.outPath) {
       mkdirSync(dirname(options.outPath), { recursive: true });
@@ -357,7 +351,7 @@ async function main(): Promise<void> {
     process.stdout.write(`${serialized}\n`);
     process.exitCode = catalogIntegrationResetExitCode(record);
   } finally {
-    await pool.end();
+    await (pool as PgTransactionalPool & { end: () => Promise<void> }).end();
   }
 }
 

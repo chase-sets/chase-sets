@@ -55,7 +55,7 @@ export const loader = defineResourceRoute({
     return {
       offerMatch,
       acceptanceTerms:
-        offerMatch.status === "submitted"
+        offerMatch.fill_source !== "inventory" && offerMatch.status === "submitted"
           ? await api.previewOfferAcceptanceTerms(params.offerId!, offerMatch.listing_id)
           : null,
     };
@@ -150,7 +150,7 @@ export default function MarketplaceAccountOfferMatchRoute() {
   const visible = useRealtimePatchedSnapshot({
     initialSnapshot: true,
     snapshotKey: JSON.stringify(data.offerMatch),
-    topics: accountId && offerId ? marketplaceRealtimeRouteTopics.accountOffers(accountId).topics : [],
+    topics: accountId && offerId ? marketplaceRealtimeRouteTopics.accountOfferMatches(accountId).topics : [],
     applyPatch: (current, patch) => {
       const change = patch.changes.find((item) => item.entity === "marketplace.offerMatch" && item.id === offerId);
       return change ? change.op === "upsert" : current;
@@ -199,7 +199,7 @@ export default function MarketplaceAccountOfferMatchRoute() {
           (actionData?.currentQuote as MarketplaceListingTermsPreview | null | undefined) ??
           (data.acceptanceTerms as MarketplaceListingTermsPreview | null)
         }
-        canAccept
+        canAccept={data.offerMatch.fill_source !== "inventory"}
         actionDisabled={ambiguous || navigation.state !== "idle"}
         errorMessage={actionData?.error ?? null}
       />

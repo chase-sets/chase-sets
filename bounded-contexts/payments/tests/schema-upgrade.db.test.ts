@@ -8,8 +8,12 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
+import { payoutReviewHoldFactTypes } from "@chase-sets/event-core/payout-review-hold-facts";
 import { module as paymentsModule } from "../index";
 import { paymentsCardDeclineSchemaMigrations } from "../features/payments/api/card-decline-schema";
+import { buildPaymentsSettlementAccountRiskSourceProjectionHandlers } from "../features/payments/integrations/account-risk-source/account-risk-source-projection";
+import { getPaymentAccountRiskSource } from "../features/payments/read-model/queries";
 
 const adminDatabaseUrl = process.env.TEST_DATABASE_URL;
 if (!adminDatabaseUrl && process.env.CI) {
@@ -46,6 +50,48 @@ describeDb("payments schema upgrades", () => {
 
   afterAll(async () => {
     await closeMultiContextTestPools(pools);
+  });
+
+  it("rebuilds the 3DS hold signal without inheriting a lagged Identity badge removal", async () => {
+    const pool = pools.payments;
+    const accountId = "acc_synthetic_removed_badge";
+    const heldAccountId = "acc_synthetic_active_hold";
+    await bootstrapContextDatabase(paymentsModule, pool);
+    await pool.query("ALTER TABLE payments_account_risk_sources DROP COLUMN payout_review_hold");
+    await pool.query(
+      "DELETE FROM bounded_context_schema_migrations WHERE migration_id = '20261120_payments_payout_review_hold_risk_source'",
+    );
+    // The retired reader applied the assignment, missed the removal, and
+    // Settlement emits no hold facts for this now-unbadged account.
+    await pool.query(
+      `INSERT INTO payments_account_risk_sources
+         (account_id, manual_payout_review, stripe_fraud_flag, stripe_fraud_signal_count)
+       VALUES ($1, true, true, 2), ($2, true, false, 0)`,
+      [accountId, heldAccountId],
+    );
+    await bootstrapContextDatabase(paymentsModule, pool);
+    expect(await getPaymentAccountRiskSource(pool, accountId)).toMatchObject({
+      manual_payout_review: false,
+      stripe_fraud_flag: true,
+      stripe_fraud_signal_count: 2,
+    });
+    const handlers = buildPaymentsSettlementAccountRiskSourceProjectionHandlers(pool);
+    const payload = {
+      accountId: heldAccountId,
+      factSchemaVersion: 1,
+      reason: "Synthetic review",
+      source: "operator",
+      sourceReference: null,
+    };
+    await handlers[payoutReviewHoldFactTypes.placed]!(buildTransportEvent(payoutReviewHoldFactTypes.placed, payload));
+    await pool.query("UPDATE payments_account_risk_sources SET manual_payout_review = false WHERE account_id = $1", [
+      heldAccountId,
+    ]);
+    expect((await getPaymentAccountRiskSource(pool, heldAccountId))?.manual_payout_review).toBe(true);
+    await handlers[payoutReviewHoldFactTypes.released]!(
+      buildTransportEvent(payoutReviewHoldFactTypes.released, payload),
+    );
+    expect((await getPaymentAccountRiskSource(pool, heldAccountId))?.manual_payout_review).toBe(false);
   });
 
   it("converges fresh and migration-only decline stores and preserves windows on repeated startup", async () => {

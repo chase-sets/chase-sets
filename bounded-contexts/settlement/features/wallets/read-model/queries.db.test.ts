@@ -346,11 +346,11 @@ describeDb("settlement money maturity query persistence boundary", () => {
     ).resolves.toEqual([]);
   });
 
-  it("payout review hold governs extended clearance in both maturity paths", async () => {
-    // Each account is a trusted, reviewed, unlinked seller, so only the hold or badge can extend clearance.
+  it("payout review hold alone governs extended clearance", async () => {
+    // Each account is a trusted, reviewed, unlinked seller with no other extended-clearance trigger.
     const cases = [
       { accountId: "acc_hold_control", matures: true },
-      { accountId: "acc_badge_only_empty_stream", manualPayoutReview: true, matures: false },
+      { accountId: "acc_badge_only_empty_stream", manualPayoutReview: true, matures: true },
       { accountId: "acc_hold_active", hold: true, projectedVersion: 1, streamVersion: 1, matures: false },
       {
         accountId: "acc_hold_released_badged",

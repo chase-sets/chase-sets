@@ -21,14 +21,17 @@ import { fileURLToPath } from "node:url";
 import { readOption } from "./lib/cli-options.mjs";
 import { buildPlatformHelmValues } from "./render-platform-helm-values.mjs";
 
-// `sslmode=disable` is required, not cosmetic: infrastructure/event-core-postgres/pool.ts
-// only skips SSL for a literal localhost/127.0.0.1/::1 hostname, and
-// defaults to verifying SSL for anything else (matching managed Postgres in
-// preview/staging/production). The compose Postgres service is reached by
-// its compose service name ("postgres"), which fails that check, so without
-// this parameter every component's pg pool tries -- and fails -- a TLS
-// handshake against a plain compose Postgres container.
-export const composeSmokePostgresUrl = "postgresql://postgres:postgres@postgres:5432/chase_sets?sslmode=disable";
+// Compose renders the default release's preview Postgres service host with
+// `sslmode=disable`. With no release host in its environment, the runtime pool
+// (infrastructure/event-core-postgres/pool.ts) admits plaintext for exactly
+// this fixed alias, and only under DEPLOYMENT_ENVIRONMENT=preview.
+// docker-compose.pr-smoke.yml's `postgres` service is the DNS owner: it
+// carries this host as a network alias. The URL spells the alias out so the
+// managed-Postgres authority guard recognizes it as the local Compose database;
+// the smoke tests pin it to the chart's preview Service name.
+export const composeSmokePostgresUrl =
+  "postgresql://postgres:postgres@chase-sets-platform-chase-sets-platform-preview-postgres:5432/chase_sets?sslmode=disable";
+export const composeSmokePostgresHost = new URL(composeSmokePostgresUrl).hostname;
 export const composeSmokeInternalAuthSecret = "compose-smoke-internal-auth-secret";
 export const composeSmokeAdminEmail = "compose-smoke@chasesets.test";
 export const composeSmokeAdminPassword = "compose-smoke-not-a-real-secret";

@@ -9,7 +9,7 @@ import { hashMarketplaceRequest, marketplaceOfferCanonicalRequest } from "@chase
 import { module as paymentsModule } from "@chase-sets/payments";
 import { module as settlementModule } from "@chase-sets/settlement";
 import type { createCheckoutUcpHandlers } from "@chase-sets/checkout/server";
-import { createUcpEnvelope, UCP_VERSION } from "@chase-sets/platform-runtime/ucp";
+import { createUcpEnvelope, UCP_MCP_PRODUCT_CARDS_RESOURCE_URI, UCP_VERSION } from "@chase-sets/platform-runtime/ucp";
 import type { AgentGrantRateLimiter } from "@chase-sets/platform-runtime/agent-guardrails";
 import type { AgentGrantRevocations } from "@chase-sets/identity/server";
 import { buildPlatformApiApp } from "../src/app";
@@ -88,9 +88,10 @@ function createRuntime(services: Record<string, unknown>, modules: readonly { mo
 async function withMcpClient<T>(
   app: ReturnType<typeof buildPlatformApiApp>,
   run: (client: Client) => Promise<T>,
+  endpoint: "/mcp" | "/ucp/mcp" = "/mcp",
 ): Promise<T> {
   const client = new Client({ name: "chase-sets-uat-agent", version: "0.0.0" });
-  const transport = new StreamableHTTPClientTransport(new URL("https://platform-api.test/mcp"), {
+  const transport = new StreamableHTTPClientTransport(new URL(endpoint, "https://platform-api.test"), {
     fetch: async (input, init) => {
       const request = input instanceof Request ? input : new Request(input, init);
       return app.fetch(request);
@@ -104,6 +105,71 @@ async function withMcpClient<T>(
     await client.close();
   }
 }
+
+describe("mcp app widget resources @mcp-sdk-journey", () => {
+  it.each(["/ucp/mcp", "/mcp"] as const)(
+    "returns v2 widget HTML and policy through the SDK on %s",
+    async (endpoint) => {
+      const uri = UCP_MCP_PRODUCT_CARDS_RESOURCE_URI;
+      const marker = '<meta name="chase-sets-public-origins" content="">';
+      const html = `<!doctype html>${marker}<title>Product cards</title>`;
+      vi.stubEnv("CATALOG_ASSET_PUBLIC_BASE_URL", "https://assets.example/catalog");
+      vi.stubEnv("MARKETPLACE_LISTING_PHOTO_PUBLIC_BASE_URL", "https://photos.example/listings");
+      try {
+        const options = {
+          mcp: { allowInMemoryIdempotencyStoreForTests: true },
+          ucp: { allowInMemoryIdempotencyStoreForTests: true },
+        };
+        const app = buildPlatformApiApp(createRuntime({}, []), {
+          ...options,
+          widgetResources: (candidate) => (candidate === uri ? html : undefined),
+        });
+        const origins = ["https://platform-api.test", "https://assets.example", "https://photos.example"];
+        await withMcpClient(
+          app,
+          async (client) => {
+            const { contents } = await client.readResource({ uri });
+            expect(contents).toEqual([
+              {
+                uri: "ui://chase-sets/product-cards/v2.html",
+                mimeType: "text/html;profile=mcp-app",
+                text: html.replace(
+                  marker,
+                  marker.replace('content=""', `content="${encodeURIComponent(JSON.stringify(origins))}"`),
+                ),
+                _meta: {
+                  ui: { csp: { connectDomains: [], resourceDomains: origins }, prefersBorder: true },
+                  "openai/widgetDescription": expect.any(String),
+                },
+              },
+            ]);
+          },
+          endpoint,
+        );
+        const missing = buildPlatformApiApp(createRuntime({}, []), options);
+        await withMcpClient(
+          missing,
+          async (client) => {
+            await expect(client.readResource({ uri })).rejects.toMatchObject({ code: -32002 });
+          },
+          endpoint,
+        );
+        if (endpoint === "/mcp") {
+          const response = await app.request("https://platform-api.test/mcp/resources");
+          expect((await response.json()).resources).toContainEqual(
+            expect.objectContaining({
+              uri,
+              mimeType: "text/html;profile=mcp-app",
+              annotations: expect.objectContaining({ availability: "available" }),
+            }),
+          );
+        }
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    },
+  );
+});
 
 function textContent(result: Awaited<ReturnType<Client["callTool"]>>) {
   const content = (result as { content?: readonly unknown[] }).content ?? [];

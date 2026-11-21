@@ -33,8 +33,9 @@ const PASSWORD_SCRYPT_COST = { N: 2 ** 15, r: 8, p: 1 } as const;
 const PASSWORD_KEY_LENGTH = 64;
 const PASSWORD_SALT_BYTES = 16;
 
-/** A bare legacy SHA-256 digest: exactly 64 lowercase hex characters, no `$`. */
-const LEGACY_SHA256_HASH = /^[0-9a-f]{64}$/;
+function isSha256HexDigest(value: string): boolean {
+  return value.length === 64 && !/[^0-9a-f]/.test(value);
+}
 
 /** Node rejects scrypt when `maxmem` is below the working set; give generous headroom. */
 function scryptMaxmem(cost: Readonly<{ N: number; r: number; p: number }>): number {
@@ -49,6 +50,12 @@ function formatScryptPhc(cost: Readonly<{ N: number; r: number; p: number }>, sa
 
 type ParsedScryptPhc = Readonly<{ N: number; r: number; p: number; salt: Buffer; hash: Buffer }>;
 
+const DUMMY_PASSWORD_PHC: ParsedScryptPhc = {
+  ...PASSWORD_SCRYPT_COST,
+  salt: Buffer.alloc(PASSWORD_SALT_BYTES),
+  hash: Buffer.alloc(PASSWORD_KEY_LENGTH),
+};
+
 function isScryptPhc(stored: string): boolean {
   return stored.startsWith(`${PASSWORD_ALGORITHM}$`);
 }
@@ -60,24 +67,34 @@ function parseScryptPhc(stored: string): ParsedScryptPhc | null {
     return null;
   }
 
-  const cost: Record<string, number> = {};
-  for (const pair of parts[1]!.split(",")) {
-    const [key, rawValue] = pair.split("=");
-    const value = Number(rawValue);
-    if (!key || !Number.isInteger(value) || value <= 0) {
-      return null;
-    }
-    cost[key] = value;
+  const parameters = /^N=([1-9]\d*),r=([1-9]\d*),p=([1-9]\d*)$/.exec(parts[1]!);
+  if (!parameters || parameters[0] !== parts[1]) {
+    return null;
   }
 
-  const { N, r, p } = cost;
-  if (N === undefined || r === undefined || p === undefined || (N & (N - 1)) !== 0) {
+  const N = Number(parameters[1]);
+  const r = Number(parameters[2]);
+  const p = Number(parameters[3]);
+  // Reject invalid native scrypt parameters before choosing which derivation to run.
+  if (
+    N <= 1 ||
+    N > 2 ** 31 ||
+    (N & (N - 1)) !== 0 ||
+    N >= 2 ** (16 * r) ||
+    r * p >= 2 ** 30 ||
+    !Number.isSafeInteger(scryptMaxmem({ N, r, p }))
+  ) {
     return null;
   }
 
   const salt = Buffer.from(parts[2]!, "base64");
   const hash = Buffer.from(parts[3]!, "base64");
-  if (salt.length === 0 || hash.length === 0) {
+  if (
+    salt.length === 0 ||
+    hash.length === 0 ||
+    salt.toString("base64") !== parts[2] ||
+    hash.toString("base64") !== parts[3]
+  ) {
     return null;
   }
 
@@ -111,8 +128,8 @@ export type AuthSecretAdapters = Readonly<{
   verifySecret: (value: string, hashedValue: string) => boolean;
   /** Salted, memory-hard KDF for user-chosen passwords. Returns a self-describing PHC string. */
   hashPassword: (password: string) => Promise<string>;
-  /** Constant-time password verification with transparent rehash-on-login for legacy/weak hashes. */
-  verifyPassword: (password: string, storedHash: string) => Promise<PasswordVerification>;
+  /** Verify a stored password hash or pay the current KDF cost for an absent credential. */
+  verifyPassword: (password: string, storedHash: string | null) => Promise<PasswordVerification>;
   issueChallenge: () => string;
 }>;
 
@@ -123,34 +140,29 @@ export function createAuthSecretAdapters(): AuthSecretAdapters {
     return formatScryptPhc(PASSWORD_SCRYPT_COST, salt, derived);
   }
 
-  async function verifyPassword(password: string, storedHash: string): Promise<PasswordVerification> {
-    if (isScryptPhc(storedHash)) {
-      const parsed = parseScryptPhc(storedHash);
-      if (!parsed) {
-        return { valid: false };
-      }
-      const candidate = await deriveScrypt(password, parsed.salt, parsed.hash.length, parsed);
-      if (!timingSafeEqual(candidate, parsed.hash)) {
-        return { valid: false };
-      }
-      const stale =
-        parsed.N !== PASSWORD_SCRYPT_COST.N ||
-        parsed.r !== PASSWORD_SCRYPT_COST.r ||
-        parsed.p !== PASSWORD_SCRYPT_COST.p ||
-        parsed.hash.length !== PASSWORD_KEY_LENGTH;
-      return stale ? { valid: true, upgradedHash: await hashPassword(password) } : { valid: true };
-    }
-
-    if (LEGACY_SHA256_HASH.test(storedHash)) {
+  async function verifyPassword(password: string, storedHash: string | null): Promise<PasswordVerification> {
+    if (storedHash !== null && isSha256HexDigest(storedHash)) {
       const candidate = createHash("sha256").update(password).digest();
       const expected = Buffer.from(storedHash, "hex");
-      if (candidate.length !== expected.length || !timingSafeEqual(candidate, expected)) {
-        return { valid: false };
+      if (timingSafeEqual(candidate, expected)) {
+        return { valid: true, upgradedHash: await hashPassword(password) };
       }
-      return { valid: true, upgradedHash: await hashPassword(password) };
     }
 
-    return { valid: false };
+    const parsed = storedHash !== null && isScryptPhc(storedHash) ? parseScryptPhc(storedHash) : null;
+    // Missing and rejected formats pay the current cost but can never authenticate.
+    const phc = parsed ?? DUMMY_PASSWORD_PHC;
+    const candidate = await deriveScrypt(password, phc.salt, phc.hash.length, phc);
+    if (!parsed || !timingSafeEqual(candidate, parsed.hash)) {
+      return { valid: false };
+    }
+
+    const stale =
+      parsed.N !== PASSWORD_SCRYPT_COST.N ||
+      parsed.r !== PASSWORD_SCRYPT_COST.r ||
+      parsed.p !== PASSWORD_SCRYPT_COST.p ||
+      parsed.hash.length !== PASSWORD_KEY_LENGTH;
+    return stale ? { valid: true, upgradedHash: await hashPassword(password) } : { valid: true };
   }
 
   return {
@@ -159,7 +171,9 @@ export function createAuthSecretAdapters(): AuthSecretAdapters {
       return prefix ? `${prefix}_${suffix}` : suffix;
     },
     hashSecret: (value) => createHash("sha256").update(value).digest("hex"),
-    verifySecret: (value, hashedValue) => createHash("sha256").update(value).digest("hex") === hashedValue,
+    verifySecret: (value, hashedValue) =>
+      isSha256HexDigest(hashedValue) &&
+      timingSafeEqual(createHash("sha256").update(value).digest(), Buffer.from(hashedValue, "hex")),
     hashPassword,
     verifyPassword,
     issueChallenge: () => randomBytes(24).toString("base64url"),

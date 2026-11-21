@@ -22,8 +22,8 @@ import { buildPaymentsOrderInputProjectionHandlers } from "./features/payments/i
 import { buildPaymentsFulfillmentDisputeEvidenceProjectionHandlers } from "./features/payments/integrations/dispute-evidence/fulfillment-dispute-evidence-projection";
 import type { PaymentDisputedEvent } from "./features/payments/domain/domain";
 import {
-  buildPaymentsIdentityAccountRiskSourceProjectionHandlers,
   buildPaymentsPaymentsAccountRiskSourceProjectionHandlers,
+  buildPaymentsSettlementAccountRiskSourceProjectionHandlers,
 } from "./features/payments/integrations/account-risk-source/account-risk-source-projection";
 import { buildPaymentsOrderCancellationRefundEffectHandlers } from "./features/refunds/integrations/ordering/order-cancellation-refund-effect-projection";
 import { buildPaymentsSupportRefundEffectHandlers } from "./features/refunds/integrations/support/support-refund-effect-projection";
@@ -91,8 +91,8 @@ const contextModule = defineBoundedContextModule<PaymentsServices, PgTransaction
           buildPaymentsOrderCancellationRefundEffectHandlers(services.db, services.refunds),
         "payments.payments-order-cancellation-refund-effect": () =>
           buildPaymentsOrderCancellationRefundEffectHandlers(services.db, services.refunds),
-        "identity.payments-account-risk-source-projection": () =>
-          buildPaymentsIdentityAccountRiskSourceProjectionHandlers(services.db),
+        "settlement.payments-account-risk-source-projection": () =>
+          buildPaymentsSettlementAccountRiskSourceProjectionHandlers(services.db),
         "payments.payments-account-risk-source-projection": () =>
           buildPaymentsPaymentsAccountRiskSourceProjectionHandlers(services.db),
       },

@@ -69,6 +69,7 @@ export function useItemDetailPageModel({
     setMarketIntent,
     activeMobileCommerce,
     setActiveMobileCommerce,
+    onMobileCartAddStart,
     marketBookTab,
     setMarketBookTab,
     clearProductFilters,
@@ -313,6 +314,7 @@ export function useItemDetailPageModel({
     bestListing,
     bestOffer,
     bestAccountOfferMatch,
+    onMobileCartAddStart,
   } satisfies ItemDetailMarketplaceSectionContext;
   const commerceSections = renderCommerce?.(marketplaceContext) ?? null;
   const staleSelectionBanner = staleSelectedListingId ? (

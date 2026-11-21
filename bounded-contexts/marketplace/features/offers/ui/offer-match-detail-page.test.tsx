@@ -5,7 +5,7 @@ import type { ComponentProps } from "react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, describe, expect, it } from "vitest";
 import { MarketplaceOfferMatchDetailPage } from "./offer-match-detail-page";
-import type { OfferMatchDetail } from "./contracts";
+import type { InventoryOfferMatchListItem, OfferMatchDetail } from "./contracts";
 import { privatePolicyFields } from "../../offer-policy/tests/fixtures";
 import { omitPrivateOfferResponseFields } from "../api/response-shape";
 
@@ -30,6 +30,7 @@ const offer: OfferMatchDetail = {
   accepted_at: null,
   created_at: "2026-04-28T00:00:00.000Z",
   updated_at: "2026-04-28T00:00:00.000Z",
+  fill_source: "listing",
   listing_id: "lst_1",
   listing_price_amount: "22.00",
   listing_price_currency_code: "USD",
@@ -106,5 +107,53 @@ describe("MarketplaceOfferMatchDetailPage", () => {
     expect(markup).toContain('name="productId" value="cat_charizard::condition:raw"');
     expect(markup).not.toContain('name="feeQuoteFingerprint"');
     expect(markup).not.toContain('value="accept-offer"');
+  });
+});
+
+describe("MarketplaceOfferMatchDetailPage for an inventory Match", () => {
+  const inventoryOffer: InventoryOfferMatchListItem = {
+    offer_id: "off_inventory",
+    buyer_account_id: "acc_buyer",
+    buyer_display_name: "Ash Ketchum",
+    catalog_catalog_item_id: "cat_charizard",
+    product_id: "cat_charizard::condition:raw",
+    item_title: "Charizard",
+    item_subtitle: null,
+    selected_options: [],
+    product_summary: null,
+    price_amount: "20.00",
+    price_currency_code: "USD",
+    last_stream_version: 2,
+    quantity_requested: 2,
+    status: "submitted",
+    accepted_seller_account_id: null,
+    accepted_at: null,
+    created_at: "2026-04-28T00:00:00.000Z",
+    updated_at: "2026-04-28T00:00:00.000Z",
+    fill_source: "inventory",
+    can_fulfill: false,
+    inventory_item_id: "inv_1",
+    inventory_available_quantity: 3,
+  };
+
+  it("links covering stock to the new-Listing form and renders no Accept, Decline or Add to Sell List", () => {
+    const markup = renderToString(<RoutedOfferMatchPage offer={inventoryOffer} canAccept />);
+
+    expect(markup).toContain('href="/account/listings/new?inventoryItemId=inv_1&amp;recommendedPrice=20.00"');
+    expect(markup).toContain("List to fill this Offer");
+    expect(markup).not.toContain("Accept offer match");
+    expect(markup).not.toContain("decline-offer");
+    expect(markup).not.toContain("add-selected-offer");
+  });
+
+  it("shows Not enough stock with no action when stock is short", () => {
+    const markup = renderToString(
+      <RoutedOfferMatchPage offer={{ ...inventoryOffer, inventory_available_quantity: 1 }} canAccept />,
+    );
+
+    expect(markup).toContain("Not enough stock");
+    expect(markup).not.toContain("/account/listings/new");
+    expect(markup).not.toContain("decline-offer");
+    expect(markup).not.toContain("add-selected-offer");
   });
 });

@@ -4,8 +4,8 @@
 
 This index is generated from the root `@chase-sets/design-system` export surface and the production consumer inventory used by `scripts/check-design-system-dead-exports.mjs`.
 
-- Runtime exports indexed: 366
-- Source modules covered: 130
+- Runtime exports indexed: 367
+- Source modules covered: 131
 - Example consumers scan: production files under `bounded-contexts/` and `deployables/`, excluding tests
 
 | Component/export | Module | One-line purpose | Example consumer file |
@@ -167,6 +167,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `ListingPurchasePanel` | `packages/design-system/src/components/checkout/marketplace.tsx` | Purpose not documented; symbol name suggests: Listing Purchase Panel. | `bounded-contexts/discovery/routes/public-listing.tsx` |
 | `LiveRegion` | `packages/design-system/src/primitives/layout.tsx` | Assistive-technology announcement region. | `bounded-contexts/auth/features/account-selection/ui/account-selection-page.tsx` |
 | `LoadingSpinner` | `packages/design-system/src/components/feedback/loading.tsx` | Purpose not documented; symbol name suggests: Loading Spinner. | `bounded-contexts/catalog/features/provider-scope-mapping/ui/unmapped-scope-inbox-page.tsx` |
+| `LocalDateTime` | `packages/design-system/src/components/data-display/local-date-time.tsx` | An instant shown in the reader's time zone. | `bounded-contexts/marketplace/features/listing-evidence-policy/ui/listing-evidence-policy-page.tsx` |
 | `LocalDateTimeInput` | `packages/design-system/src/components/forms/local-date-time-input.tsx` | A date and time the operator enters in their own time zone. | `bounded-contexts/fulfillment/features/return-shipments/ui/facility-intake-page.tsx` |
 | `MarketingImageHero` | `packages/design-system/src/patterns/app-shells/marketing.tsx` | Purpose not documented; symbol name suggests: Marketing Image Hero. | `bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx` |
 | `MarketplaceActionSheet` | `packages/design-system/src/patterns/commerce-overlays.tsx` | Purpose not documented; symbol name suggests: Marketplace Action Sheet. | `No production consumer yet.` |
@@ -180,7 +181,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `MarketplaceMarketSummary` | `packages/design-system/src/patterns/app-shells/product-detail.tsx` | Purpose not documented; symbol name suggests: Marketplace Market Summary. | `bounded-contexts/discovery/features/item-detail/ui/item-detail-page.tsx` |
 | `MarketplaceMobileFilterBar` | `packages/design-system/src/patterns/app-shells/facets.tsx` | Purpose not documented; symbol name suggests: Marketplace Mobile Filter Bar. | `bounded-contexts/discovery/features/search/ui/search-page.tsx` |
 | `MarketplaceNotice` | `packages/design-system/src/components/checkout/marketplace.tsx` | Purpose not documented; symbol name suggests: Marketplace Notice. | `bounded-contexts/channels/features/connection-attention/ui/health-panel.tsx` |
-| `MarketplaceProductCard` | `packages/design-system/src/patterns/app-shells/product-cards.tsx` | Purpose not documented; symbol name suggests: Marketplace Product Card. | `No production consumer yet.` |
+| `MarketplaceProductCard` | `packages/design-system/src/patterns/app-shells/product-cards.tsx` | Purpose not documented; symbol name suggests: Marketplace Product Card. | `bounded-contexts/discovery/features/search/ui/agent-product-cards-view.tsx` |
 | `MarketplaceProductCommerceRail` | `packages/design-system/src/patterns/app-shells/product-detail.tsx` | Purpose not documented; symbol name suggests: Marketplace Product Commerce Rail. | `No production consumer yet.` |
 | `MarketplaceProductDetailLayout` | `packages/design-system/src/patterns/app-shells/product-detail.tsx` | Purpose not documented; symbol name suggests: Marketplace Product Detail Layout. | `bounded-contexts/discovery/features/item-detail/ui/item-detail-page.tsx` |
 | `MarketplaceProductMobileActionDock` | `packages/design-system/src/patterns/app-shells/product-detail.tsx` | Purpose not documented; symbol name suggests: Marketplace Product Mobile Action Dock. | `No production consumer yet.` |
@@ -201,7 +202,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `NavigationHeader` | `packages/design-system/src/components/actions/navigation-header.tsx` | Purpose not documented; symbol name suggests: Navigation Header. | `No production consumer yet.` |
 | `NavigationMenu` | `packages/design-system/src/components/actions/navigation-menu.tsx` | Purpose not documented; symbol name suggests: Navigation Menu. | `No production consumer yet.` |
 | `NavRail` | `packages/design-system/src/components/actions/navigation.tsx` | Purpose not documented; symbol name suggests: Nav Rail. | `No production consumer yet.` |
-| `NoResultsRecovery` | `packages/design-system/src/components/commerce/search.tsx` | Purpose not documented; symbol name suggests: No Results Recovery. | `bounded-contexts/discovery/features/search/ui/search-page.tsx` |
+| `NoResultsRecovery` | `packages/design-system/src/components/commerce/search.tsx` | Purpose not documented; symbol name suggests: No Results Recovery. | `bounded-contexts/discovery/features/search/ui/agent-product-cards-view.tsx` |
 | `normalizeFormErrors` | `packages/design-system/src/components/forms/form-state.ts` | Purpose not documented; symbol name suggests: normalize Form Errors. | `bounded-contexts/auth/support/ui-support/auth-form-feedback.ts` |
 | `NotificationCenterSheet` | `packages/design-system/src/patterns/commerce-overlays.tsx` | Purpose not documented; symbol name suggests: Notification Center Sheet. | `No production consumer yet.` |
 | `NumberField` | `packages/design-system/src/components/forms/number-field.tsx` | Purpose not documented; symbol name suggests: Number Field. | `bounded-contexts/channels/features/listing-composition/ui/publication-pages.tsx` |

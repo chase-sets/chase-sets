@@ -1,8 +1,9 @@
 import { readFileSync } from "node:fs";
 import { EventEmitter } from "node:events";
 import { fileURLToPath } from "node:url";
+import { managedPostgresPodCaPath } from "@chase-sets/event-core-postgres";
 import { seedApiHostIfEmpty, type ApiContextRegistry, type ApiHostRuntime } from "@chase-sets/platform-runtime/api";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { closePlatformApiPools, createSeedCommandPools, selectSeedCommandDatabaseConfig } from "../src/database-pools";
 import { getPlatformApiContextsForRuntimeProfile, type PlatformApiBaseConfig } from "../src/config";
 
@@ -10,6 +11,15 @@ const testProjectionGroupLeasePort = {
   runWithLease: async <T>(_group: unknown, _signal: AbortSignal | undefined, work: (context: never) => Promise<T>) =>
     work(undefined as never),
 };
+
+// In-pod seed commands get managed URLs that verify TLS against the pod's managed Postgres CA mount.
+function podManagedUrl(url: string): string {
+  const managed = new URL(url);
+  managed.searchParams.set("sslmode", "verify-full");
+  managed.searchParams.set("uselibpqcompat", "true");
+  managed.searchParams.set("sslrootcert", managedPostgresPodCaPath);
+  return managed.toString();
+}
 
 const pooledConfig: PlatformApiBaseConfig = {
   runtimeProfile: "public",
@@ -21,14 +31,24 @@ const pooledConfig: PlatformApiBaseConfig = {
 };
 
 describe("in-pod seed command database selection", () => {
+  beforeEach(() => {
+    vi.stubEnv("KUBERNETES_SERVICE_HOST", "10.245.0.1");
+    vi.stubEnv("GITHUB_ACTIONS", "");
+    vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "staging");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("bootstraps through the real one-connection seed pools without starving the lock context", async () => {
     const contexts = getPlatformApiContextsForRuntimeProfile("public");
     const pools = createSeedCommandPools({
       ...pooledConfig,
       pool: { max: 6, idleTimeoutMillis: 5_000, connectionTimeoutMillis: 500 },
-      controlDatabaseUrl: "postgres://synthetic.invalid:25060/control",
+      controlDatabaseUrl: podManagedUrl("postgres://synthetic.invalid:25060/control"),
       contextDatabaseUrls: Object.fromEntries(
-        contexts.map((name) => [name, `postgres://synthetic.invalid:25060/${name}`]),
+        contexts.map((name) => [name, podManagedUrl(`postgres://synthetic.invalid:25060/${name}`)]),
       ),
     });
     class MemoryClient extends EventEmitter {
@@ -84,7 +104,7 @@ describe("in-pod seed command database selection", () => {
   });
   it("caps the aggregate direct seed demand even when the runtime pool max is six", async () => {
     const contexts = getPlatformApiContextsForRuntimeProfile("public");
-    const directUrl = (name: string, role = "owner") => `postgres://${role}@host:25060/${name}`;
+    const directUrl = (name: string, role = "owner") => podManagedUrl(`postgres://${role}@host:25060/${name}`);
     const config: PlatformApiBaseConfig = {
       ...pooledConfig,
       pool: { max: 6, idleTimeoutMillis: 5_000, connectionTimeoutMillis: 10_000 },

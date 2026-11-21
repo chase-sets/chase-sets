@@ -9,18 +9,29 @@ export interface EmptyStateProps extends Omit<HTMLAttributes<HTMLDivElement>, "c
   description?: ReactNode;
   actions?: ReactNode;
   icon?: IconName;
+  /**
+   * Whether the title is a section heading. Pass `false` when the empty state is a status inside a
+   * section that already has its heading (a chart with no data), so it stays out of the page outline.
+   */
+  heading?: boolean;
 }
 
-export function EmptyState({ title, description, actions, icon = "spark", ...rest }: EmptyStateProps) {
+export function EmptyState({ title, description, actions, icon = "spark", heading = true, ...rest }: EmptyStateProps) {
   return (
     <div {...rest} className="rounded-tokenLg border border-dashed border-muted bg-background p-6 text-center">
       <div className="mx-auto max-w-sm">
         <Stack align="center" gap={4} minWidth="0">
           <ToneIcon name={icon} tone="primary" size="lg" />
           <Stack gap={2} align="center">
-            <Heading level={2} visualSize={4} align="center">
-              {title}
-            </Heading>
+            {heading ? (
+              <Heading level={2} visualSize={4} align="center">
+                {title}
+              </Heading>
+            ) : (
+              <Text size="lg" weight="semibold" align="center">
+                {title}
+              </Text>
+            )}
             {description ? (
               <Text size="sm" tone="secondary" align="center">
                 {description}
