@@ -452,6 +452,9 @@ pub struct CartLine {
     pub selected_listing_stream_version: Option<u64>,
     pub seller_preference_id: Option<String>,
     pub seller_options: Vec<SellerOption>,
+    /// The selected listing's availability; none is `available`.
+    #[serde(default)]
+    pub availability_state: Option<String>,
     pub updated_at: String,
 }
 

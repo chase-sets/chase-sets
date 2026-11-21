@@ -4042,6 +4042,42 @@ async fn a_cart_not_readable_yet_after_a_write_says_so_and_reads_again() {
     assert!(!html.contains("data-corten-read-again"), "a cart read as it is waits for nothing");
 }
 
+#[tokio::test]
+async fn after_an_add_the_cart_waits_for_its_line_and_says_when_it_is_missing() {
+    let pilot = Pilot::new().await;
+    let add = "semantic-handoff:checkout.cart.add-line".to_owned();
+    let handoff = crate::api::segment(crate::cart::ADD_LINE_HANDOFF);
+    post_write_outcomes();
+    // The added line is not in the cart yet: the item is on its way, and the page reads again.
+    let adding = format!("{CART_SCREEN}?after_write={}&post_write_handoff={handoff}", receipt_at("42"));
+    let (status, _, html) = pilot.send(get(&adding, Some("empty"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Your item was added. The Buy Cart is catching up"), "{html}");
+    assert!(html.contains("data-corten-read-again"), "{html}");
+    assert_eq!(post_write_outcomes(), [("handoff_pending", "pending_empty_state", "valid-after-write", add.clone())]);
+
+    // The line is there: the handoff is satisfied and the cart shows.
+    let (_, _, html) = pilot.send(get(&adding, Some("buyer"))).await;
+    assert!(html.contains("data-cart-line") && !html.contains("data-corten-read-again"), "{html}");
+    assert_eq!(post_write_outcomes(), [("handoff_satisfied", "none", "valid-after-write", add.clone())]);
+
+    // Still empty once the receipt has expired: the add may be missing, so refresh or keep shopping.
+    let missing = format!("{CART_SCREEN}?after_write={}&post_write_handoff={handoff}", expired_receipt("13"));
+    let (status, _, html) = pilot.send(get(&missing, Some("empty"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(
+        page.contains("did not catch up in time") && page.contains("Refresh cart") && page.contains("Keep shopping"),
+        "{page}"
+    );
+    assert!(!html.contains("data-corten-read-again"), "{html}");
+    assert_eq!(post_write_outcomes(), [("handoff_expired", "action_required", "expired-after-write", add)]);
+
+    // A cart read as it is records nothing.
+    pilot.send(get(CART_SCREEN, Some("buyer"))).await;
+    assert_eq!(post_write_outcomes(), []);
+}
+
 /// A Discovery item: a card that is raw (in one of three conditions) or graded (one of seven
 /// grades), with three listings and two offers, in the order the API ranks them.
 fn item() -> Value {
@@ -4601,6 +4637,7 @@ async fn the_product_goes_to_smart_match_and_buy_best_match_opens_the_cart() {
     assert_eq!(status, StatusCode::SEE_OTHER, "{body}");
     let to = headers[header::LOCATION].to_str().unwrap();
     assert!(to.starts_with("/account/cart?after_write="), "{to}");
+    assert_eq!(query(to)["post_write_handoff"], crate::cart::ADD_LINE_HANDOFF, "the cart waits for the added line: {to}");
     let lines: Vec<Value> = adds(&pilot).into_iter().map(|(_, line)| line).collect();
     for line in &lines {
         assert_eq!(line["fulfillmentMode"], "optimize", "{line}");
@@ -19167,29 +19204,64 @@ async fn back_from_registration_the_guest_sell_list_moves_into_the_account_and_i
     assert!(review.path.ends_with("?sellListPath=%2Faccount%2Fsell-list&includeStandardComparison=true"), "{}", review.path);
 }
 
+/// Each post-write outcome this thread recorded since the last call, as (outcome, recovery
+/// action, freshness outcome, correction source), checked against what marketplace-web records.
+fn post_write_outcomes() -> Vec<(&'static str, &'static str, &'static str, String)> {
+    platform::post_write::recorded()
+        .into_iter()
+        .map(|e| {
+            (
+                e.outcome,
+                e.recovery_action.unwrap_or("none"),
+                e.freshness_outcome.unwrap_or("none"),
+                e.correction_source.unwrap_or_default(),
+            )
+        })
+        .collect()
+}
+
 #[tokio::test]
 async fn a_sell_list_still_catching_up_reads_itself_again_and_a_missing_line_says_so() {
     let pilot = Pilot::new().await;
+    let add = "semantic-handoff:checkout.sell-list.add-line".to_owned();
     let handoff = crate::api::segment(crate::sell_list::ADD_LINE_HANDOFF);
     let pending = format!("{SELL_LIST_PAGE}?afterWrite={}&postWriteHandoff={handoff}", receipt_at("43"));
+    post_write_outcomes();
     let (status, _, html) = pilot.send(get(&pending, Some("trader"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(text(&html).contains("Your Sell List is catching up"), "{html}");
     assert!(html.contains(r#"data-corten-read-again="2""#), "{html}");
+    assert_eq!(post_write_outcomes(), [("freshness_timeout", "reload_prompt", "valid-after-write", "fresh-read".to_owned())]);
 
     let missing = format!("{SELL_LIST_PAGE}?afterWrite={}&postWriteHandoff={handoff}", expired_receipt("13"));
     let (status, _, html) = pilot.send(get(&missing, Some("empty"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(text(&html).contains("Sell List line not visible yet"), "{html}");
     assert!(!html.contains("data-corten-read-again"), "a missing line is not read again: {html}");
+    assert_eq!(post_write_outcomes(), [("handoff_expired", "action_required", "expired-after-write", add.clone())]);
+
+    // The add's line is there: the handoff is satisfied.
+    let arrived = format!("{SELL_LIST_PAGE}?afterWrite={}&postWriteHandoff={handoff}", receipt_at("72"));
+    let (_, _, html) = pilot.send(get(&arrived, Some("trader"))).await;
+    assert!(!html.contains("data-corten-read-again"), "{html}");
+    assert_eq!(post_write_outcomes(), [("handoff_satisfied", "none", "valid-after-write", add.clone())]);
+
+    // A receipt that is not one does not draw "missing", as marketplace's does not.
+    let malformed = format!("{SELL_LIST_PAGE}?afterWrite=%7Bnot&postWriteHandoff={handoff}");
+    let (_, _, html) = pilot.send(get(&malformed, Some("empty"))).await;
+    assert!(!text(&html).contains("Sell List line not visible yet"), "{html}");
+    assert_eq!(post_write_outcomes(), [("handoff_invalid", "none", "missing-after-write", add)]);
 
     // A seller confirmation still being saved waits for it; once it is there, it shows.
     let waiting = format!("{SELL_LIST_PAGE}?confirmation=preparing&pendingConfirmationId=slc_new");
     let (_, _, html) = pilot.send(get(&waiting, Some("trader"))).await;
     assert!(html.contains("data-corten-read-again") && !text(&html).contains("Latest seller confirmation"), "{html}");
+    let confirmation = "sell-checkout-confirmation".to_owned();
+    assert_eq!(post_write_outcomes(), [("handoff_pending", "pending_empty_state", "missing-after-write", confirmation)]);
     let arrived = format!("{SELL_LIST_PAGE}?confirmation=preparing&pendingConfirmationId=slc_01J");
     let (_, _, html) = pilot.send(get(&arrived, Some("trader"))).await;
     assert!(!html.contains("data-corten-read-again") && text(&html).contains("Latest seller confirmation"), "{html}");
+    assert_eq!(post_write_outcomes(), []);
 }
 
 #[tokio::test]

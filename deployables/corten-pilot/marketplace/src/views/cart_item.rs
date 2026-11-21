@@ -414,17 +414,23 @@ pub fn CheckoutForm<'a>(snapshot: &'a Snapshot, label: &'a str, primary: bool) -
     }
 }
 
-/// No line in the cart (`MarketplaceEmptyState` with its trust cue).
+/// No line in the cart (`MarketplaceEmptyState` with its trust cue), or none yet after an add whose
+/// receipt expired (`missing`: the page says the add may be missing, with Refresh cart).
 #[component(css = CartItem)]
-pub fn EmptyCart(t: CartMsg) -> impl Render {
+pub fn EmptyCart(t: CartMsg, missing: bool) -> impl Render {
     html! {
         <div class={Empty}>
             <p class={NoticeTitle}>{t.page_your_cart_is_empty()}</p>
-            <p class={Muted}>{t.page_browse_the_marketplace_and_add_a()}</p>
-            <div class={Cue}>
-                <p class={NoticeTitle}>{t.page_empty_cart_protection_title()}</p>
-                <p class={Muted}>{t.page_empty_cart_protection_description()}</p>
-            </div>
+            if missing {
+                <p class={Muted}>{t.route_cart_missing_after_fresh_write()}</p>
+                <p><CheckoutLink href={&url::Cart::default().href()} label={t.page_refresh_cart()} primary={false} /></p>
+            } else {
+                <p class={Muted}>{t.page_browse_the_marketplace_and_add_a()}</p>
+                <div class={Cue}>
+                    <p class={NoticeTitle}>{t.page_empty_cart_protection_title()}</p>
+                    <p class={Muted}>{t.page_empty_cart_protection_description()}</p>
+                </div>
+            }
             <p><CheckoutLink href={&link("/search")} label={t.page_keep_shopping()} primary /></p>
         </div>
     }
