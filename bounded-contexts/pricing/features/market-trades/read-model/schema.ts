@@ -97,9 +97,6 @@ CREATE TABLE IF NOT EXISTS pricing_market_trade_linkage_clusters (
   updated_at timestamptz NOT NULL
 );
 
-ALTER TABLE pricing_market_trade_linkage_clusters
-  ADD COLUMN IF NOT EXISTS stream_version bigint NOT NULL DEFAULT 0;
-
 CREATE INDEX IF NOT EXISTS pricing_market_trade_linkage_clusters_accounts_idx
   ON pricing_market_trade_linkage_clusters USING gin (account_ids)
   WHERE flagged = true;
@@ -123,6 +120,11 @@ CREATE TABLE IF NOT EXISTS pricing_market_trade_rollup_rederive_queue (
 
 CREATE INDEX IF NOT EXISTS pricing_market_trade_rollup_rederive_queue_age_idx
   ON pricing_market_trade_rollup_rederive_queue (queued_at, catalog_catalog_item_id, product_id, day);
+`;
+
+export const pricingMarketTradeLinkageExpansionSchemaSql = `
+ALTER TABLE pricing_market_trade_linkage_clusters
+  ADD COLUMN IF NOT EXISTS stream_version bigint NOT NULL DEFAULT 0;
 `;
 
 export const pricingMarketTradesSchemaMigrations: readonly BcSchemaMigration[] = [
