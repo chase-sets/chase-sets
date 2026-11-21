@@ -93,8 +93,9 @@ rows whose `exclusion_reason = 'self-dealing'` and whose pair is no longer cover
 cluster -- a `refunded`, `cancelled`, or `fraud-flagged` row never comes back through the linkage path.
 
 Settlement's pair-scoped linkage authority (both counterparties in one active cluster) is distinct
-from the account-scoped Payout Review Hold placement, which excludes all of the account's historical
-trades on either side. A hold release does not restore trades. Every retroactive exclusion or restoration enqueues its affected
+from the account-scoped Payout Review Hold placement, which excludes trades on either side when their
+orders were recorded as created at or before placement, regardless of delivery order. A hold release
+does not restore trades. Every retroactive exclusion or restoration enqueues its affected
 sold-day tuples for bounded asynchronous rollup re-derivation so Daily Product Rollups, window stats, and
 downstream Market-Value Estimate inputs converge without a manual backfill.
 

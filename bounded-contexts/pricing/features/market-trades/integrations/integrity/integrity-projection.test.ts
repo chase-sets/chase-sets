@@ -62,6 +62,25 @@ describe("pricing market-trades identity integrity projection", () => {
 describe("pricing market-trades settlement linkage projection", () => {
   const clusterHash = "a".repeat(64);
 
+  it("retains a placement cutoff and excludes only orders created by that instant", async () => {
+    const { calls, db } = createRecordingDb();
+    const handlers = buildPricingMarketTradesSettlementIntegrityProjectionHandlers(db);
+    const placedAt = "2026-07-06T00:00:00.000Z";
+    await handlers["settlement.payout-review-hold.placed"]?.({
+      type: "settlement.payout-review-hold.placed",
+      data: { accountId: "acc_a", reason: "Synthetic review", source: "operator", sourceReference: null },
+      timing: { recordedAt: placedAt },
+    } as never);
+
+    expect(
+      calls.find(({ sql }) => sql.includes("INSERT INTO pricing_market_trade_payout_review_cutoffs"))?.params,
+    ).toEqual(["acc_a", placedAt]);
+    expect(calls.find(({ sql }) => sql.includes("UPDATE pricing_market_trades"))?.sql).toContain(
+      "order_created_at <= $2",
+    );
+    expect(handlers["settlement.payout-review-hold.released"]).toBeUndefined();
+  });
+
   it("projects a flag and applies pair-scoped self-dealing exclusion before queuing affected days", async () => {
     const { calls, db } = createRecordingDb();
     const handlers = buildPricingMarketTradesSettlementIntegrityProjectionHandlers(db);
@@ -81,11 +100,15 @@ describe("pricing market-trades settlement linkage projection", () => {
     expect(calls[0]?.sql).toContain("WHERE excluded = false");
     expect(calls[0]?.sql).toContain("exclusion_reason = 'self-dealing'");
     expect(calls[0]?.sql).toContain("pricing_market_trade_rollup_rederive_queue");
+    expect(calls[0]?.sql).toContain("pricing_market_trade_linkage_clusters.stream_version < EXCLUDED.stream_version");
+    expect(calls[0]?.sql.match(/EXISTS \(SELECT 1 FROM linkage_state\)/g)).toHaveLength(2);
     expect(calls[0]?.params).toEqual([
       clusterHash,
       "shared-instrument",
       ["acc_a", "acc_b"],
       "2026-07-06T00:00:00.000Z",
+      1,
+      `settlement.account-linkage-${clusterHash}`,
     ]);
   });
 
@@ -106,6 +129,8 @@ describe("pricing market-trades settlement linkage projection", () => {
     expect(calls[0]?.sql).toContain("trade.exclusion_reason = 'self-dealing'");
     expect(calls[0]?.sql).toContain("cluster.cluster_hash <> $1");
     expect(calls[0]?.sql).toContain("SET excluded = false");
+    expect(calls[0]?.sql).toContain("pricing_market_trade_linkage_clusters.stream_version < EXCLUDED.stream_version");
+    expect(calls[0]?.sql).toContain("EXISTS (SELECT 1 FROM linkage_state)");
   });
 });
 

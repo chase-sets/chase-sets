@@ -257,7 +257,7 @@
     {
       "sourceContextName": "ordering",
       "projectionName": "pricing-market-trades-projection",
-      "subscriptionVersion": 2,
+      "subscriptionVersion": 3,
       "filterToEventTypes": true,
       "eventTypes": [
         "ordering.order.created",
@@ -435,6 +435,7 @@
         "pricing_market_trade_denominations",
         "pricing_market_trade_authenticity_cases",
         "pricing_market_trade_linkage_clusters",
+        "pricing_market_trade_payout_review_cutoffs",
         "pricing_market_trade_rollup_rederive_queue"
       ],
       "requiredDuringBootstrap": true,

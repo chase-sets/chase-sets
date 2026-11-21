@@ -9,6 +9,7 @@ import {
   payoutReviewHoldFactTypes,
 } from "@chase-sets/event-core/payout-review-hold-facts";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { lockPayoutReviewAccounts } from "../payout-review-lock";
 
 /**
  * Tape-integrity reactions: m107 risk-flag events retroactively exclude a
@@ -30,14 +31,20 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 /** Identity's own AccountBadgeKey union, duck-typed -- see source-projection.ts's header note on this convention. */
 type AccountBadgeKey = "founding-account" | "manual-payout-review" | "trusted-seller";
 
-async function excludeAccountTradesForFraud(db: PgQueryable, accountId: string, recordedAt: string) {
+async function excludeAccountTradesForFraud(
+  db: PgQueryable,
+  accountId: string,
+  recordedAt: string,
+  usePlacementCutoff = false,
+) {
   await db.query(
     `WITH affected AS (
        UPDATE pricing_market_trades
        SET excluded = true,
            exclusion_reason = 'fraud-flagged',
-           updated_at = $2
+           updated_at = GREATEST(updated_at, $2)
        WHERE (seller_account_id = $1 OR buyer_account_id = $1)
+         ${usePlacementCutoff ? "AND order_created_at <= $2" : ""}
          AND (excluded = false OR exclusion_reason = 'self-dealing')
        RETURNING catalog_catalog_item_id, product_id, sold_at
      )
@@ -57,6 +64,16 @@ async function excludeAccountTradesForFraud(db: PgQueryable, accountId: string, 
     [accountId, recordedAt],
   );
 }
+
+// Version zero marks a retained v1 row. Consult only that stream's applied
+// history, not a checkpoint that may also cover deferred or failed events.
+const newerLinkageVersion = `pricing_market_trade_linkage_clusters.stream_version < EXCLUDED.stream_version
+             AND (pricing_market_trade_linkage_clusters.stream_version <> 0 OR NOT EXISTS (
+               SELECT 1 FROM event_subscription_applications AS legacy
+               WHERE legacy.projection_key = 'pricing-market-trades-projection:settlement:v1'
+                 AND legacy.stream_id = $6 AND legacy.status = 'applied'
+                 AND legacy.stream_version >= EXCLUDED.stream_version
+             ))`;
 
 /** Preserve terminal exclusions from frozen badge history on rebuild. */
 export function buildPricingMarketTradesIdentityIntegrityProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
@@ -126,7 +143,16 @@ export function buildPricingMarketTradesSettlementIntegrityProjectionHandlers(db
   return {
     [payoutReviewHoldFactTypes.placed]: async (event) => {
       const { accountId } = normalizePayoutReviewHoldPayload(event.data);
-      await excludeAccountTradesForFraud(db, accountId, event.timing.recordedAt);
+      const placedAt = event.timing.recordedAt;
+      await lockPayoutReviewAccounts(db, [accountId]);
+      await db.query(
+        `INSERT INTO pricing_market_trade_payout_review_cutoffs (account_id, placed_at)
+         VALUES ($1, $2)
+         ON CONFLICT (account_id) DO UPDATE SET placed_at = EXCLUDED.placed_at
+         WHERE pricing_market_trade_payout_review_cutoffs.placed_at < EXCLUDED.placed_at`,
+        [accountId, placedAt],
+      );
+      await excludeAccountTradesForFraud(db, accountId, placedAt, true);
     },
     "settlement.account-linkage.flagged": async (event) => {
       const data = normalizeAccountLinkageFlaggedPayload(event.data);
@@ -134,13 +160,15 @@ export function buildPricingMarketTradesSettlementIntegrityProjectionHandlers(db
       await db.query(
         `WITH linkage_state AS (
            INSERT INTO pricing_market_trade_linkage_clusters (
-             cluster_hash, signal_kind, account_ids, flagged, updated_at
-           ) VALUES ($1, $2, $3::text[], true, $4)
+             cluster_hash, signal_kind, account_ids, flagged, updated_at, stream_version
+           ) VALUES ($1, $2, $3::text[], true, $4, $5)
            ON CONFLICT (cluster_hash) DO UPDATE SET
              signal_kind = EXCLUDED.signal_kind,
              account_ids = EXCLUDED.account_ids,
              flagged = true,
-             updated_at = EXCLUDED.updated_at
+             updated_at = EXCLUDED.updated_at,
+             stream_version = EXCLUDED.stream_version
+           WHERE ${newerLinkageVersion}
            RETURNING cluster_hash
          ), newly_excluded AS (
            UPDATE pricing_market_trades
@@ -148,6 +176,7 @@ export function buildPricingMarketTradesSettlementIntegrityProjectionHandlers(db
                exclusion_reason = 'self-dealing',
                updated_at = $4
            WHERE excluded = false
+             AND EXISTS (SELECT 1 FROM linkage_state)
              AND buyer_account_id = ANY($3::text[])
              AND seller_account_id = ANY($3::text[])
            RETURNING catalog_catalog_item_id, product_id, sold_at
@@ -157,6 +186,7 @@ export function buildPricingMarketTradesSettlementIntegrityProjectionHandlers(db
                exclusion_reason = NULL,
                updated_at = $4
            WHERE trade.exclusion_reason = 'self-dealing'
+             AND EXISTS (SELECT 1 FROM linkage_state)
              AND NOT (
                (trade.buyer_account_id = ANY($3::text[])
                 AND trade.seller_account_id = ANY($3::text[]))
@@ -190,7 +220,14 @@ export function buildPricingMarketTradesSettlementIntegrityProjectionHandlers(db
                EXCLUDED.queued_at
              ),
              generation = pricing_market_trade_rollup_rederive_queue.generation + 1`,
-        [data.clusterHash, data.signalKind, data.accountIds, event.timing.recordedAt],
+        [
+          data.clusterHash,
+          data.signalKind,
+          data.accountIds,
+          event.timing.recordedAt,
+          event.streamVersion,
+          event.streamId,
+        ],
       );
     },
     "settlement.account-linkage.cleared": async (event) => {
@@ -199,13 +236,15 @@ export function buildPricingMarketTradesSettlementIntegrityProjectionHandlers(db
       await db.query(
         `WITH linkage_state AS (
            INSERT INTO pricing_market_trade_linkage_clusters (
-             cluster_hash, signal_kind, account_ids, flagged, updated_at
-           ) VALUES ($1, $2, $3::text[], false, $4)
+             cluster_hash, signal_kind, account_ids, flagged, updated_at, stream_version
+           ) VALUES ($1, $2, $3::text[], false, $4, $5)
            ON CONFLICT (cluster_hash) DO UPDATE SET
              signal_kind = EXCLUDED.signal_kind,
              account_ids = EXCLUDED.account_ids,
              flagged = false,
-             updated_at = EXCLUDED.updated_at
+             updated_at = EXCLUDED.updated_at,
+             stream_version = EXCLUDED.stream_version
+           WHERE ${newerLinkageVersion}
            RETURNING cluster_hash
          ), affected AS (
            UPDATE pricing_market_trades AS trade
@@ -213,6 +252,7 @@ export function buildPricingMarketTradesSettlementIntegrityProjectionHandlers(db
                exclusion_reason = NULL,
                updated_at = $4
            WHERE trade.exclusion_reason = 'self-dealing'
+             AND EXISTS (SELECT 1 FROM linkage_state)
              AND NOT EXISTS (
                SELECT 1
                FROM pricing_market_trade_linkage_clusters AS cluster
@@ -238,7 +278,14 @@ export function buildPricingMarketTradesSettlementIntegrityProjectionHandlers(db
                EXCLUDED.queued_at
              ),
              generation = pricing_market_trade_rollup_rederive_queue.generation + 1`,
-        [data.clusterHash, data.signalKind, data.accountIds, event.timing.recordedAt],
+        [
+          data.clusterHash,
+          data.signalKind,
+          data.accountIds,
+          event.timing.recordedAt,
+          event.streamVersion,
+          event.streamId,
+        ],
       );
     },
   };

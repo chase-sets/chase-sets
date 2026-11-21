@@ -605,7 +605,7 @@ describeDb("pricing schema upgrades", () => {
          last_global_position, lease_owner_id, lease_fencing_token, updated_at
        ) VALUES
          ($1, 'pricing-inventory-input-projection', 'inventory', 3, 41, NULL, NULL, '2026-09-05T13:00:00.000Z'),
-         ($2, 'pricing-market-trades-projection', 'ordering', 2, 57, NULL, NULL, '2026-09-05T13:05:00.000Z')`,
+         ($2, 'pricing-market-trades-projection', 'ordering', 3, 57, NULL, NULL, '2026-09-05T13:05:00.000Z')`,
       [economicsInventoryCheckpointKey, economicsSalesCheckpointKey],
     );
 

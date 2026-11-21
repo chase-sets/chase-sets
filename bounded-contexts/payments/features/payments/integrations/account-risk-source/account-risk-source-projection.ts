@@ -5,29 +5,29 @@ import {
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
-async function updateManualPayoutReview(
+async function updatePayoutReviewHold(
   db: PgQueryable,
-  params: Readonly<{ accountId: string; assigned: boolean; updatedAt: string }>,
+  params: Readonly<{ accountId: string; active: boolean; updatedAt: string }>,
 ) {
   await db.query(
     `INSERT INTO payments_account_risk_sources (
        account_id,
-       manual_payout_review,
+       payout_review_hold,
        updated_at
      ) VALUES ($1, $2, $3)
      ON CONFLICT (account_id) DO UPDATE SET
-       manual_payout_review = EXCLUDED.manual_payout_review,
+       payout_review_hold = EXCLUDED.payout_review_hold,
        updated_at = EXCLUDED.updated_at`,
-    [params.accountId, params.assigned, params.updatedAt],
+    [params.accountId, params.active, params.updatedAt],
   );
 }
 
 export function buildPaymentsSettlementAccountRiskSourceProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   const update =
-    (assigned: boolean): NonNullable<ProjectorHandlerMap[string]> =>
+    (active: boolean): NonNullable<ProjectorHandlerMap[string]> =>
     async (event) => {
       const { accountId } = normalizePayoutReviewHoldPayload(event.data);
-      await updateManualPayoutReview(db, { accountId, assigned, updatedAt: event.timing.recordedAt });
+      await updatePayoutReviewHold(db, { accountId, active, updatedAt: event.timing.recordedAt });
     };
   return {
     [payoutReviewHoldFactTypes.placed]: update(true),

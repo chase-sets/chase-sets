@@ -25,6 +25,8 @@ CREATE TABLE IF NOT EXISTS pricing_market_trades (
   currency_code text NULL CHECK (currency_code ~ '^[A-Z]{3}$'),
   quantity integer NOT NULL CHECK (quantity > 0),
   sale_channel text NOT NULL CHECK (sale_channel IN ('listing', 'offer-accepted', 'buy-now')),
+  -- Retained rows acquire this from Ordering replay, not from updated_at.
+  order_created_at timestamptz NULL,
   shipment_id text NULL,
   -- Payment capture (order.ready-for-fulfillment-recorded). NULL means the
   -- order line has not yet printed on the tape.
@@ -91,12 +93,18 @@ CREATE TABLE IF NOT EXISTS pricing_market_trade_linkage_clusters (
   signal_kind text NOT NULL CHECK (signal_kind IN ('shared-instrument', 'shared-address')),
   account_ids text[] NOT NULL CHECK (cardinality(account_ids) >= 2),
   flagged boolean NOT NULL,
+  stream_version bigint NOT NULL DEFAULT 0,
   updated_at timestamptz NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS pricing_market_trade_linkage_clusters_accounts_idx
   ON pricing_market_trade_linkage_clusters USING gin (account_ids)
   WHERE flagged = true;
+
+CREATE TABLE IF NOT EXISTS pricing_market_trade_payout_review_cutoffs (
+  account_id text PRIMARY KEY,
+  placed_at timestamptz NOT NULL
+);
 
 -- Retroactive tape corrections can target days older than the closer's live
 -- trailing window. Integrity reactions enqueue the distinct affected day
@@ -115,6 +123,14 @@ CREATE INDEX IF NOT EXISTS pricing_market_trade_rollup_rederive_queue_age_idx
 `;
 
 export const pricingMarketTradesSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20261120_pricing_market_trade_integrity_replay",
+    description: "Retain immutable order creation times and version linkage applications.",
+    statements: [
+      `ALTER TABLE pricing_market_trades ADD COLUMN IF NOT EXISTS order_created_at timestamptz NULL`,
+      `ALTER TABLE pricing_market_trade_linkage_clusters ADD COLUMN IF NOT EXISTS stream_version bigint NOT NULL DEFAULT 0`,
+    ],
+  },
   {
     migrationId: "20260927_pricing_market_trade_denominations",
     description: "Persist Payments capture denomination for replayed Trades Tape lines.",

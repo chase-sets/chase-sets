@@ -333,8 +333,8 @@
       "projectionName": "pricing-market-trades-projection",
       "sourceContextName": "ordering",
       "targetContextName": "pricing",
-      "subscriptionVersion": 2,
-      "checkpointKey": "pricing-market-trades-projection:ordering:v2",
+      "subscriptionVersion": 3,
+      "checkpointKey": "pricing-market-trades-projection:ordering:v3",
       "handlers": {
         "ordering.order.created": "<function>",
         "ordering.order.cancelled": "<function>",
@@ -832,7 +832,7 @@
       "handlerKind": "projection",
       "sourceContextName": "ordering",
       "projectionName": "pricing-market-trades-projection",
-      "subscriptionVersion": 2,
+      "subscriptionVersion": 3,
       "handlers": {
         "ordering.order.created": "<function>",
         "ordering.order.cancelled": "<function>",

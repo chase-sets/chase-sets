@@ -1,5 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { bootstrapContextDatabase, createSubscriptionRunner } from "@chase-sets/bounded-context-runtime";
+import {
+  bootstrapContextDatabase,
+  composeModuleSchemaSql,
+  createProjectionAwarePool,
+  createSubscriptionRunner,
+} from "@chase-sets/bounded-context-runtime";
 import { createNoopCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
 import { payoutReviewHoldFactTypes } from "@chase-sets/event-core/payout-review-hold-facts";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
@@ -29,10 +34,12 @@ if (!databaseBaseUrl && process.env.CI) {
 const describeDb = databaseBaseUrl ? describe : describe.skip;
 const contextNames = ["pricing"] as const;
 
+let nextStreamVersion = 0;
 function event(type: string, data: Record<string, unknown>, recordedAt: string, streamId?: string) {
   return {
     type,
     streamId: streamId ?? `stream_${type}`,
+    streamVersion: ++nextStreamVersion,
     data,
     timing: { recordedAt },
   } as never;
@@ -53,7 +60,7 @@ describeDb("pricing market-trades tape-integrity SQL persistence boundary (#4304
 
   beforeEach(async () => {
     await resetMultiContextTestSchemas(pools);
-    await pools.pricing.query(pricingModule.schemaSql);
+    await pools.pricing.query(composeModuleSchemaSql(pricingModule));
   });
 
   afterAll(async () => {
@@ -62,7 +69,13 @@ describeDb("pricing market-trades tape-integrity SQL persistence boundary (#4304
 
   async function seedTrade(
     pool: PgTransactionalPool,
-    params: Readonly<{ orderId: string; lineId: string; buyerAccountId: string; sellerAccountId: string }>,
+    params: Readonly<{
+      orderId: string;
+      lineId: string;
+      buyerAccountId: string;
+      sellerAccountId: string;
+      createdAt?: string;
+    }>,
   ) {
     const tradeHandlers = buildPricingMarketTradesProjectionHandlers(pool);
     await tradeHandlers["ordering.order.created"]!(
@@ -83,7 +96,7 @@ describeDb("pricing market-trades tape-integrity SQL persistence boundary (#4304
             },
           ],
         },
-        "2026-07-01T00:00:00.000Z",
+        params.createdAt ?? "2026-07-01T00:00:00.000Z",
       ),
     );
   }
@@ -162,6 +175,99 @@ describeDb("pricing market-trades tape-integrity SQL persistence boundary (#4304
     expect(rows.rows[0]?.excluded).toBe(false);
   });
 
+  it.each(["orders-first", "hold-first", "retained"] as const)(
+    "applies the placement cutoff independently of delivery order: %s",
+    async (delivery) => {
+      const pool = pools.pricing;
+      const accountId = "acc_synthetic_cutoff";
+      const prePlacement = "2026-07-01T00:00:00.000Z";
+      const preSold = "2026-07-02T00:00:00.000Z";
+      const placedAt = "2026-07-03T00:00:00.000Z";
+      const postRelease = "2026-07-05T00:00:00.000Z";
+      const postSold = "2026-07-06T00:00:00.000Z";
+      const seedOrders = async () => {
+        await seedTrade(pool, {
+          orderId: "ord_before",
+          lineId: "line_1",
+          buyerAccountId: accountId,
+          sellerAccountId: "acc_other_seller",
+          createdAt: prePlacement,
+        });
+        await seedTrade(pool, {
+          orderId: "ord_after",
+          lineId: "line_1",
+          sellerAccountId: accountId,
+          buyerAccountId: "acc_other_buyer",
+          createdAt: postRelease,
+        });
+      };
+      const sellOrders = async () => {
+        await markTradeSold(pool, "ord_before", preSold);
+        await markTradeSold(pool, "ord_after", postSold);
+      };
+      const settlement = buildPricingMarketTradesSettlementIntegrityProjectionHandlers(pool);
+      const place = () =>
+        settlement[payoutReviewHoldFactTypes.placed]!(
+          event(
+            payoutReviewHoldFactTypes.placed,
+            {
+              accountId,
+              reason: "Synthetic review",
+              source: "operator",
+              sourceReference: null,
+            },
+            placedAt,
+          ),
+        );
+      if (delivery !== "hold-first") {
+        await seedOrders();
+        await sellOrders();
+        await pool.query("TRUNCATE pricing_market_trade_rollup_rederive_queue");
+      }
+      if (delivery === "retained") {
+        await pool.query("UPDATE pricing_market_trades SET order_created_at = NULL, updated_at = $1", [postSold]);
+      }
+      await place();
+      if (delivery !== "orders-first") await seedOrders();
+      if (delivery === "hold-first") await sellOrders();
+
+      const snapshot = async () => ({
+        trades: (
+          await pool.query(
+            "SELECT order_id, order_created_at, sold_at, exclusion_reason FROM pricing_market_trades ORDER BY order_id",
+          )
+        ).rows,
+        queue: (
+          await pool.query(
+            "SELECT day::text, generation::int FROM pricing_market_trade_rollup_rederive_queue ORDER BY day",
+          )
+        ).rows,
+      });
+      const first = await snapshot();
+      expect(first.trades).toEqual([
+        {
+          order_id: "ord_after",
+          order_created_at: new Date(postRelease),
+          sold_at: new Date(postSold),
+          exclusion_reason: null,
+        },
+        {
+          order_id: "ord_before",
+          order_created_at: new Date(prePlacement),
+          sold_at: new Date(preSold),
+          exclusion_reason: "fraud-flagged",
+        },
+      ]);
+      expect(first.queue).toEqual([
+        { day: "2026-07-02", generation: 1 },
+        ...(delivery === "hold-first" ? [{ day: "2026-07-06", generation: 1 }] : []),
+      ]);
+      await place();
+      await seedOrders();
+      expect(await snapshot()).toEqual(first);
+    },
+  );
+
   it("payout review hold placement excludes trades and replays idempotently", async () => {
     const pool = pools.pricing;
     await bootstrapContextDatabase(pricingModule, pool);
@@ -172,14 +278,32 @@ describeDb("pricing market-trades tape-integrity SQL persistence boundary (#4304
       ["ord_buyer", held, linked],
       ["ord_seller", "acc_other_buyer", held],
       ["ord_history", historical, "acc_other_seller"],
+      ["ord_linkage_only", "acc_linkage_left", "acc_linkage_right"],
       ["ord_control", "acc_unrelated_buyer", "acc_unrelated_seller"],
+      ["ord_post_release", held, "acc_unrelated_seller"],
     ] as const) {
-      await seedTrade(pool, { orderId, lineId: "line_1", buyerAccountId, sellerAccountId });
-      await markTradeSold(pool, orderId, orderId === "ord_seller" ? "2026-07-03T00:00:00.000Z" : undefined);
+      await seedTrade(pool, {
+        orderId,
+        lineId: "line_1",
+        buyerAccountId,
+        sellerAccountId,
+        ...(orderId === "ord_post_release" ? { createdAt: "2026-07-13T00:00:00.000Z" } : {}),
+      });
+      await markTradeSold(
+        pool,
+        orderId,
+        orderId === "ord_seller"
+          ? "2026-07-03T00:00:00.000Z"
+          : orderId === "ord_linkage_only"
+            ? "2026-07-04T00:00:00.000Z"
+            : orderId === "ord_post_release"
+              ? "2026-07-14T00:00:00.000Z"
+              : undefined,
+      );
     }
     await pool.query("TRUNCATE pricing_market_trade_rollup_rederive_queue");
 
-    const services = pricingModule.createServices(pool, {
+    const services = pricingModule.createServices(createProjectionAwarePool(pool), {
       commercialTermsResolver: createNoopCommercialTermsResolver(),
       channelConnectionIdentityReader: { resolve: async () => null },
     });
@@ -215,14 +339,31 @@ describeDb("pricing market-trades tape-integrity SQL persistence boundary (#4304
           tenantId: "tnt_synthetic",
           audit: { performedByUserId: "usr_synthetic", forAccountId: held },
         } as never,
-        events: [{ eventId: `evt_${eventType}` as never, eventType, payload, occurredAt: recordedAt as never }],
+        events: [
+          {
+            eventId: `evt_${streamId}_${expectedVersion}` as never,
+            eventType,
+            payload,
+            occurredAt: recordedAt as never,
+          },
+        ],
       });
     };
     const linkageStream = `settlement.account-linkage-${clusterHash}`;
     const holdStream = `settlement.payout-review-hold-${held}`;
     const flagged = "settlement.account-linkage.flagged";
     const cleared = "settlement.account-linkage.cleared";
+    const linkageOnlyHash = "b".repeat(64);
+    const linkageOnlyStream = `settlement.account-linkage-${linkageOnlyHash}`;
+    const linkageOnly = {
+      ...linkage,
+      clusterHash: linkageOnlyHash,
+      accountIds: ["acc_linkage_left", "acc_linkage_right"],
+    };
     await append(flagged, linkageStream, "no_stream", linkage, "2026-07-06T00:00:00.000Z");
+    await append(flagged, linkageOnlyStream, "no_stream", linkageOnly, "2026-07-06T01:00:00.000Z");
+    const clearedAt = "2026-07-07T00:00:00.000Z";
+    await append(cleared, linkageOnlyStream, 1, linkageOnly, clearedAt);
     await append(payoutReviewHoldFactTypes.placed, holdStream, "no_stream", hold, placedAt);
 
     // The v1 worker already saw the placement but had no handler for it.
@@ -232,12 +373,17 @@ describeDb("pricing market-trades tape-integrity SQL persistence boundary (#4304
       eventTypes: [flagged, cleared],
       handlers: { [flagged]: declared.handlers[flagged]!, [cleared]: declared.handlers[cleared]! },
     });
-    expect(await v1.runOnce()).toMatchObject({ processed: 1, lastGlobalPosition: "2" });
+    expect(await v1.runOnce()).toMatchObject({ processed: 3, lastGlobalPosition: "4" });
+    // The deployed v1 handlers wrote the cluster and application ledger, but
+    // did not stamp a version on the cluster itself.
+    await pool.query("UPDATE pricing_market_trade_linkage_clusters SET stream_version = 0");
     const trades = async () => (await pool.query("SELECT * FROM pricing_market_trades ORDER BY order_id")).rows;
     expect(await trades()).toEqual([
       expect.objectContaining({ order_id: "ord_buyer", exclusion_reason: "self-dealing" }),
       expect.objectContaining({ order_id: "ord_control", exclusion_reason: null }),
       expect.objectContaining({ order_id: "ord_history", exclusion_reason: null }),
+      expect.objectContaining({ order_id: "ord_linkage_only", exclusion_reason: null }),
+      expect.objectContaining({ order_id: "ord_post_release", exclusion_reason: null }),
       expect.objectContaining({ order_id: "ord_seller", exclusion_reason: null }),
     ]);
     const queue = async () =>
@@ -251,21 +397,28 @@ describeDb("pricing market-trades tape-integrity SQL persistence boundary (#4304
     const runV2 = () => createSubscriptionRunner("pricing", pool, pool, declared);
     const v2 = runV2();
     expect(v2.checkpointKey).toBe("pricing-market-trades-projection:settlement:v2");
-    expect(await v2.runOnce()).toMatchObject({ processed: 2, lastGlobalPosition: "2" });
+    expect(await v2.runOnce()).toMatchObject({ processed: 4, lastGlobalPosition: "4" });
     expect(await trades()).toEqual([
       expect.objectContaining({ order_id: "ord_buyer", excluded: true, exclusion_reason: "fraud-flagged" }),
       expect.objectContaining({ order_id: "ord_control", excluded: false, exclusion_reason: null }),
       expect.objectContaining({ order_id: "ord_history", excluded: false, exclusion_reason: null }),
+      expect.objectContaining({ order_id: "ord_linkage_only", excluded: false, exclusion_reason: null }),
+      expect.objectContaining({ order_id: "ord_post_release", excluded: false, exclusion_reason: null }),
       expect.objectContaining({ order_id: "ord_seller", excluded: true, exclusion_reason: "fraud-flagged" }),
     ]);
     expect(await queue()).toEqual([
       { day: "2026-07-02", queued_at: new Date(placedAt), generation: 2 },
       { day: "2026-07-03", queued_at: new Date(placedAt), generation: 1 },
+      { day: "2026-07-04", queued_at: new Date(clearedAt), generation: 2 },
+    ]);
+    expect(await clusters()).toMatchObject([
+      { cluster_hash: clusterHash, flagged: true, stream_version: "0" },
+      { cluster_hash: linkageOnlyHash, flagged: false, stream_version: "0", updated_at: new Date(clearedAt) },
     ]);
     const placed = { trades: await trades(), clusters: await clusters(), queue: await queue() };
 
     await append(payoutReviewHoldFactTypes.released, holdStream, 1, hold, "2026-07-09T00:00:00.000Z");
-    expect(await v2.runOnce()).toMatchObject({ processed: 0, lastGlobalPosition: "3" });
+    expect(await v2.runOnce()).toMatchObject({ processed: 0, lastGlobalPosition: "5" });
     expect({ trades: await trades(), clusters: await clusters(), queue: await queue() }).toEqual(placed);
 
     const badgeAssigned = "identity.account.badge-assigned";
@@ -281,13 +434,23 @@ describeDb("pricing market-trades tape-integrity SQL persistence boundary (#4304
       expect.objectContaining({ order_id: "ord_history", exclusion_reason: "fraud-flagged" }),
     );
     await append(cleared, linkageStream, 1, linkage, "2026-07-10T00:00:00.000Z");
-    expect(await v2.runOnce()).toMatchObject({ processed: 1, lastGlobalPosition: "4" });
-    expect(await clusters()).toMatchObject([{ cluster_hash: clusterHash, flagged: false }]);
+    await append(flagged, linkageOnlyStream, 2, linkageOnly, "2026-07-11T00:00:00.000Z");
+    await append(cleared, linkageOnlyStream, 3, linkageOnly, "2026-07-12T00:00:00.000Z");
+    expect(await v2.runOnce()).toMatchObject({ processed: 3, lastGlobalPosition: "8" });
+    expect(await clusters()).toMatchObject([
+      { cluster_hash: clusterHash, flagged: false, stream_version: "2" },
+      { cluster_hash: linkageOnlyHash, flagged: false, stream_version: "4" },
+    ]);
+    expect(await queue()).toContainEqual({
+      day: "2026-07-04",
+      generation: 4,
+      queued_at: new Date("2026-07-12T00:00:00.000Z"),
+    });
     const final = { trades: await trades(), clusters: await clusters(), queue: await queue() };
 
     await pool.query("DELETE FROM event_subscription_applications WHERE projection_key = $1", [v2.checkpointKey]);
     await pool.query("DELETE FROM event_subscription_checkpoints WHERE checkpoint_key = $1", [v2.checkpointKey]);
-    expect(await runV2().runOnce()).toMatchObject({ processed: 3, lastGlobalPosition: "4" });
+    expect(await runV2().runOnce()).toMatchObject({ processed: 7, lastGlobalPosition: "8" });
     expect({ trades: await trades(), clusters: await clusters(), queue: await queue() }).toEqual(final);
   });
 

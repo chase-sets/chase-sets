@@ -4,6 +4,7 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { expect, it, vi } from "vitest";
 import { module as paymentsModule } from "../../../../index";
 import type { PaymentsServices } from "../../../../support/runtime-support/services";
+import { getPaymentAccountRiskSource } from "../../read-model/queries";
 
 it("payments risk source follows payout review hold facts", async () => {
   const rows = new Map<string, { hold: boolean; updatedAt: string }>();
@@ -54,5 +55,14 @@ it("payments risk source follows payout review hold facts", async () => {
   await replay();
   expect(rows).toEqual(firstPass);
   expect(query).toHaveBeenCalledTimes(6);
-  expect(query.mock.calls[0]?.[0]).toContain("manual_payout_review = EXCLUDED.manual_payout_review");
+  expect(query.mock.calls[0]?.[0]).toContain("payout_review_hold = EXCLUDED.payout_review_hold");
+  expect(query.mock.calls[0]?.[0]).not.toContain("manual_payout_review");
+});
+
+it("reads the hold signal, not a retained Identity badge flag", async () => {
+  const query = vi.fn(async (_sql: string) => ({ rows: [] }));
+  await getPaymentAccountRiskSource({ query }, "acc_synthetic_removed_badge");
+  expect(query).toHaveBeenCalledWith(expect.stringContaining("payout_review_hold AS manual_payout_review"), [
+    "acc_synthetic_removed_badge",
+  ]);
 });
