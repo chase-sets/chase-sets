@@ -229,6 +229,9 @@ CREATE TABLE IF NOT EXISTS payments_account_risk_sources (
   stripe_review_open_count integer NOT NULL DEFAULT 0,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE payments_account_risk_sources
+  ADD COLUMN IF NOT EXISTS payout_review_hold boolean NOT NULL DEFAULT false;
 `;
 
 export const paymentsPaymentSchemaMigrations = [
