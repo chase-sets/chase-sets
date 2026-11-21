@@ -452,7 +452,7 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
                 "Projection read model did not catch up to the requested write receipt before the freshness timeout.",
             );
         }
-        return support_requests(&method, rest, &body);
+        return support_requests(&method, rest, &body, cookie.contains("support-remedies"));
     }
     if let Some(rest) = uri.path().strip_prefix("/api/experience/risk-alerts") {
         return risk_alerts(&method, rest);
@@ -827,7 +827,24 @@ const SUPPORT_REQUESTS: &str = "/api/marketplace/support-requests";
 /// an unwaivable and a releasable effect; a remedy preview (refused without a rationale) and the
 /// remedy writes; the flows' titles; Escalate overdue's counts; a resolve without its summary
 /// refused; and `req_1`'s one photo.
-fn support_requests(method: &Method, rest: &str, body: &str) -> Response {
+fn support_requests(method: &Method, rest: &str, body: &str, remedies: bool) -> Response {
+    // The ops read's remedy offer: the policy's choices, and each action with whether the reader
+    // (with every remedy capability, or none) may take it.
+    let offered = |key: &str| json!({ "idempotencyKey": key, "allowed": remedies });
+    let remedy_offer = |propose: Value, approve: Value, correct: Value, effects: Value| {
+        json!({
+            "policyVersion": "platform-operations.platform-remedies:pol_published:2026-05-01T00:00:00.000Z",
+            "choices": {
+                "refundTriggers": ["immediate", "delivered"],
+                "eligibleReasonCodes": ["customer-protection", "published-goodwill"],
+                "returnExceptionReasonCodes": ["documented-exception"],
+                "escalationReasonCodes": ["refund-failure", "published-escalation"],
+                "splitFundingAllowed": false,
+            },
+            "currencyCode": "usd",
+            "propose": propose, "approve": approve, "correct": correct, "effects": effects,
+        })
+    };
     let row = |id: &str, reference: &str, status: &str, priority: &str, due: Option<&str>| {
         json!({
             "support_request_id": id, "display_reference": reference, "order_id": "ord_1", "flow_type": "product-damaged",
@@ -892,6 +909,8 @@ fn support_requests(method: &Method, rest: &str, body: &str) -> Response {
                 "flow": { "allowedResolutions": ["full-refund"] },
             });
             detail.as_object_mut().unwrap().extend(more.as_object().unwrap().clone());
+            detail["remedy_offer"] =
+                remedy_offer(offered("req_done:platform-remedy-proposal"), Value::Null, Value::Null, json!([]));
             Json(detail).into_response()
         }
         (Method::GET, "/ops/req_remedy") => {
@@ -934,6 +953,15 @@ fn support_requests(method: &Method, rest: &str, body: &str) -> Response {
                 effect("operator-release", "pending", None),
             ];
             detail["remedy"] = json!({ "remedyId": "rmd_1", "status": "action-required", "effects": effects });
+            let none = |effect: &str| json!({ "effect": effect, "retry": null, "waive": null, "release": null });
+            let effect_offers = json!([
+                { "effect": "refund-execution", "retry": offered("rmd_1:refund-execution:idem_3:retry"), "waive": null, "release": null },
+                { "effect": "buyer-notification", "retry": null, "waive": offered("rmd_1:buyer-notification:idem_4:waive"), "release": null },
+                none("coverage-reservation"),
+                { "effect": "operator-release", "retry": null, "waive": null, "release": offered("rmd_1:operator-release") },
+            ]);
+            detail["remedy_offer"] =
+                remedy_offer(Value::Null, offered("rmd_1:approval"), offered("rmd_1:correction"), effect_offers);
             Json(detail).into_response()
         }
         (Method::POST, "/ops/req_done/remedy-proposals/preview") if body.contains(r#""rationale":"""#) => {
@@ -6451,12 +6479,15 @@ async fn a_refund_decision_offers_a_remedy_proposal_previewed_before_it_is_reque
     let (status, _, html) = pilot.send(get("/support/requests?requestId=req_done", Some("support-remedies"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains(r#"name="remedyAmount" inputmode="decimal" value="5.00""#), "the decided refund: {html}");
-    assert!(html.contains(r#"name="currencyCode" value="usd""#), "no affected lines, admin-web's usd: {html}");
+    assert!(html.contains(r#"name="currencyCode" value="usd""#), "the offered currency: {html}");
+    assert!(html.contains(r#"<option value="published-goodwill">"#), "the active policy's reasons: {html}");
+    assert!(!html.contains(r#"value="carrier-accepted""#), "not the launch policy's triggers: {html}");
+    assert!(!html.contains(r#"<option value="split""#), "split funding the policy does not allow: {html}");
     assert!(html.contains(r#"value="req_done:platform-remedy-proposal""#), "{html}");
     assert!(html.contains(r#"value="preview-remedy">"#), "{html}");
     assert!(html.contains(r#"value="propose-remedy" disabled>"#), "no reservation before a preview: {html}");
     let (_, _, html) = pilot.send(get("/support/requests?requestId=req_done", Some("support-agent"))).await;
-    assert!(html.contains(r#"value="preview-remedy" disabled>"#), "without support.remedies.propose: {html}");
+    assert!(html.contains(r#"value="preview-remedy" disabled>"#), "the read does not allow it: {html}");
 
     let at = "/support/requests/req_done?status=resolved";
     let form = "intent=preview-remedy&remedyKind=partial-refund&remedyAmount=5.00&currencyCode=usd&fundingKind=platform-funded\
@@ -6529,7 +6560,7 @@ async fn a_remedy_shows_its_workflow_and_the_recovery_admin_web_offers() {
     for intent in
         ["approve-remedy", "retry-remedy-effect", "waive-remedy-effect", "release-remedy-refund", "request-remedy-correction"]
     {
-        assert!(html.contains(&format!(r#"value="{intent}" disabled>"#)), "{intent} needs its capability: {html}");
+        assert!(html.contains(&format!(r#"value="{intent}" disabled>"#)), "{intent} the read does not allow: {html}");
     }
 
     let reasoned =

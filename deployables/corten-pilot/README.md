@@ -325,7 +325,6 @@ instead. Remove the workaround when the issue closes.
 
 | Issue | Cited in |
 |---|---|
-| [chase-sets/chase-sets#11239 [platform-operations] Offer a Support Request's remedy choices and actions from the Support API: admin-web's remedy panel uses the compiled launch policy and its own effect and permission rules](https://github.com/chase-sets/chase-sets/issues/11239) | [admin/src/support/requests.rs](admin/src/support/requests.rs) |
 | [chase-sets/chase-sets#8830 Complete Sell List Offer lines from inventory when the seller has no Listing](https://github.com/chase-sets/chase-sets/issues/8830) | [scripts/smoke-market-item-sell.mjs](scripts/smoke-market-item-sell.mjs), [marketplace/src/selling.rs](marketplace/src/selling.rs) |
 | [chase-sets/chase-sets#3494 [deployables] P2: Web route behavior leaks — analytics endpoint to discovery, cart/theme policy to contexts, catalog permission middleware to catalog](https://github.com/chase-sets/chase-sets/issues/3494) | [marketplace/src/site.rs](marketplace/src/site.rs) |
 | [chase-sets/chase-sets#11051 [catalog] Provider detail's Pause, Resume and Run now say nothing when the API refuses them or the run fails](https://github.com/chase-sets/chase-sets/issues/11051) | [admin/src/catalog/provider.rs](admin/src/catalog/provider.rs) |
