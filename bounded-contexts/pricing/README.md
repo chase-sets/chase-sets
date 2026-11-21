@@ -197,6 +197,9 @@ body a preset's controls compile to (`compilePresetBody`), with its authoring in
 answers `validation_failed` for an unknown preset, a knob or age outside its range, or a floor or
 scope of no known kind. Amounts, the currency and the scope's members are checked when the body is
 previewed or saved, so a half-written policy still compiles. It reads and writes nothing.
+Marketplace-web's editor still compiles in the browser through the same domain function
+(`compileRepricingPreset` in `ui/presets.ts`), so both clients write the same body; the endpoint
+serves clients that do not load the domain module, such as the Corten pilot.
 
 Intentional domain assertion messages reach the editor through `validation_failed` error details.
 `details[].message` is untranslated server text; a future additional locale must account for this
