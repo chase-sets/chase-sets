@@ -158,6 +158,20 @@ export const identityEnglishTranslations = {
     "Used for buyer confidence, seller attribution, and order records.",
   "identity.features.accounts.ui.accountProfilePage.legal.name": "Legal Name",
   "identity.features.accounts.ui.accountProfilePage.marketplace.name": "Marketplace name",
+  "identity.features.accounts.ui.accountProfilePage.publicNameGuidance":
+    "Your Marketplace name is public. Follow the Community Guidelines.",
+  "identity.features.accounts.ui.accountProfilePage.communityGuidelines": "Community Guidelines",
+  "identity.features.accounts.ui.accountProfilePage.contactSupport": "Contact support",
+  "identity.features.accounts.ui.accountProfilePage.displayNameRejected": "Edit your Marketplace name",
+  "identity.features.accounts.ui.accountProfilePage.draftKept": "Your draft is still here. Edit it and try again.",
+  "identity.features.accounts.ui.accountProfilePage.removeControlCharacters":
+    "Remove invisible control characters from your Marketplace name.",
+  "identity.features.accounts.ui.accountProfilePage.removeDirectionOverrides":
+    "Remove characters that override the direction of your Marketplace name.",
+  "identity.features.accounts.ui.accountProfilePage.useHttps":
+    "Remove unsafe links or use links that start with https://.",
+  "identity.features.accounts.ui.accountProfilePage.removeDuplicateLinks":
+    "Remove repeated links from your Marketplace name.",
   "identity.features.accounts.ui.accountProfilePage.marketplace.readiness": "Marketplace Readiness",
   "identity.features.accounts.ui.accountProfilePage.marketplace.readiness.description":
     "The account signals needed before a transaction moves forward.",

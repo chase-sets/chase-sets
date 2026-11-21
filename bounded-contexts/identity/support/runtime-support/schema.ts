@@ -1,6 +1,7 @@
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
 import { platformPolicySchemaSql } from "@chase-sets/platform-policy/schema";
 import { identityAccountSchemaSql } from "../../features/accounts/read-model/schema";
+import { identityAccountProfileReportSchemaSql } from "../../features/account-profile-reports/api/schema";
 import { identityApiKeySchemaSql } from "../../features/api-keys/read-model/schema";
 import { identityConsentSchemaSql } from "../../features/consents/read-model/schema";
 import { identityInvitationSchemaSql } from "../../features/invitations/read-model/schema";
@@ -24,6 +25,7 @@ CREATE TABLE IF NOT EXISTS identity_api_key_secrets (
 export const identitySchemaSql = [
   eventCorePostgresSchemaSql,
   identityAccountSchemaSql,
+  identityAccountProfileReportSchemaSql,
   identityUserSchemaSql,
   identityMembershipSchemaSql,
   identityInvitationSchemaSql,
