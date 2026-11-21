@@ -5,6 +5,8 @@ import { buildMembershipProjectionHandlers } from "../../../../identity/features
 import { buildCustomerFeedbackAttentionApi } from "../../attention/api/route";
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
+import { readCsatAnalytics } from "../read-model/analytics-query";
+import { listCsatAdminQueue } from "../read-model/queries";
 import { buildCustomerFeedbackApi } from "./admin-http";
 import type { CsatAdminReadPort } from "./runtime";
 
@@ -382,6 +384,60 @@ describe("Customer Feedback admin API", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("answers a filter the analytics or queue read refuses as 400 with its reason", async () => {
+    const unusedDb = {
+      query: vi.fn(async () => {
+        throw new Error("a refused query never reaches the database");
+      }),
+    };
+    const readiness = {
+      complete: true,
+      stale: false,
+      lastProjectedAt: null,
+      projectionLagMs: null,
+      rejectedEventCount: 0,
+    };
+    const analyticsPort: CsatAdminReadPort = {
+      ...port(),
+      readAdminAnalytics: (query) => readCsatAnalytics(unusedDb as never, query, readiness),
+    };
+    const queuePort: CsatAdminReadPort = {
+      ...port(),
+      listAdminQueue: (query) => listCsatAdminQueue(unusedDb as never, query),
+    };
+    const asOf = "asOf=2026-11-19T12:00:00.000Z";
+    const cases = [
+      [analyticsPort, `/?${asOf}&to=2026-11-25`, "range-after-as-of"],
+      [analyticsPort, `/?${asOf}&from=2026-10-20&to=2026-10-10`, "range-order"],
+      [analyticsPort, `/?${asOf}&surveyVersion=v1`, "survey-version-unregistered"],
+      [analyticsPort, `/?${asOf}&from=not-a-date`, "timestamp-invalid"],
+      [queuePort, `/?${asOf}&cursor=bogus`, "cursor-invalid"],
+      [queuePort, `/?${asOf}&to=not-a-date`, "timestamp-invalid"],
+    ] as const;
+    for (const [readPort, path, reason] of cases) {
+      const response = await appFor(["platform-feedback.view"], readPort).app.request(path);
+      expect(response.status, path).toBe(400);
+      expect(await response.json(), path).toMatchObject({ error: { code: "validation_failed", reason } });
+    }
+    expect(unusedDb.query).not.toHaveBeenCalled();
+
+    const exported = await appFor(["customer-feedback.privacy.export-sensitive-feedback"], queuePort).app.request(
+      "/export?reason=case-review&from=not-a-date",
+    );
+    expect(exported.status).toBe(400);
+    expect(await exported.json()).toMatchObject({ error: { code: "validation_failed", reason: "timestamp-invalid" } });
+  });
+
+  it("still answers a read failure that is not a refused filter as an error", async () => {
+    const readPort: CsatAdminReadPort = {
+      ...port(),
+      readAdminAnalytics: vi.fn(async () => {
+        throw new Error("database unavailable");
+      }),
+    };
+    expect((await appFor(["platform-feedback.view"], readPort).app.request("/")).status).toBe(500);
   });
 
   it("rejects anonymous reads", async () => {

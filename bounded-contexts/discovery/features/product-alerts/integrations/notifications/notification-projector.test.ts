@@ -13,9 +13,15 @@ class ProductAlertProjectionDb implements PgQueryable {
   public readonly alerts = new Map<string, Row>();
   public readonly activities = new Map<string, Row>();
   public readonly accounts = new Map<string, Row>();
+  public readonly suppression = new Map<string, boolean>();
+  public readonly publicOffersAway = new Set<string>();
   public readonly notifications = new Set<string>();
 
   async query<T = Row>(sql: string, values: readonly unknown[] = []): Promise<PgQueryResult<T>> {
+    if (sql.includes("INSERT INTO discovery_product_alert_offer_suppression")) {
+      this.suppression.set(String(values[0]), Boolean(values[2]));
+      return { rows: [], rowCount: 1 };
+    }
     if (sql.includes("SELECT") && sql.includes("FROM discovery_product_alert_market_activity")) {
       const row = this.activities.get(String(values[0]));
       const account = row ? this.accounts.get(String(row.owner_account_id)) : null;
@@ -26,6 +32,10 @@ class ProductAlertProjectionDb implements PgQueryable {
               {
                 ...row,
                 owner_account_status: account?.status ?? "active",
+                buyer_offers_away:
+                  (sql.includes("JOIN discovery_buyer_offer_standing") &&
+                    this.publicOffersAway.has(String(row.owner_account_id))) ||
+                  (this.suppression.get(String(row.owner_account_id)) ?? false),
                 seller_listing_availability_status: listingAvailability,
               },
             ]
@@ -136,6 +146,46 @@ function marketplaceEvent(
 }
 
 describe("Product Alert notification projector", () => {
+  it("suppresses an Offer during Away and alerts on a later Offer after resume despite public standing lag", async () => {
+    const db = new ProductAlertProjectionDb();
+    db.alerts.set("alert_open", {
+      alert_id: "alert_open",
+      account_id: "acc_watching",
+      market_side: "offer",
+      status: "active",
+      product_id: "prd_away",
+      threshold_amount: null,
+    });
+    const outbox = { enqueueNotification: vi.fn(async () => undefined) };
+    const handlers = buildProductAlertNotificationProjectionHandlers(db, outbox as never);
+    await handlers["marketplace.seller-listing-availability.offers-disabled"]!(
+      marketplaceEvent("marketplace.seller-listing-availability.offers-disabled", { accountId: "acc_away" }),
+    );
+    const payload = {
+      offerId: "off_away",
+      buyerAccountId: "acc_away",
+      catalogItemId: "cat_away",
+      productId: "prd_away",
+      itemTitle: "Away",
+      priceAmount: "5.00",
+      priceCurrencyCode: "USD",
+      quantityRequested: 1,
+    };
+    await handlers["marketplace.offer.submitted"]!(marketplaceEvent("marketplace.offer.submitted", payload));
+    expect(db.activities.get("off_away")?.status).toBe("submitted");
+    expect(db.notifications.size).toBe(0);
+    expect(outbox.enqueueNotification).not.toHaveBeenCalled();
+
+    db.publicOffersAway.add("acc_away");
+    await handlers["marketplace.seller-listing-availability.offers-enabled"]!(
+      marketplaceEvent("marketplace.seller-listing-availability.offers-enabled", { accountId: "acc_away" }, 2),
+    );
+    await handlers["marketplace.offer.submitted"]!(
+      marketplaceEvent("marketplace.offer.submitted", { ...payload, offerId: "off_resumed" }),
+    );
+    expect([...db.notifications]).toEqual(["alert_open:off_resumed:offer"]);
+    expect(outbox.enqueueNotification).toHaveBeenCalledOnce();
+  });
   const removal = {
     reportId: "rpt_01ARZ3NDEKTSV4RRFFQ69G5FAV",
     reportCount: 3,

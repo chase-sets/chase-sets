@@ -127,6 +127,25 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
     "The previous validated profile version is restored. Review affected references before pulling provider data again.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.rollback.title":
     "Provider profile rolled back",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.paused.description":
+    "Scheduled refreshes for this provider are paused. Run now still pulls on demand.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.paused.title":
+    "Refresh schedule paused",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.ran.description":
+    "The provider refresh ran. Its observations are in the refresh schedule's last run.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.ran.title": "Provider refresh ran",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.resumed.description":
+    "Scheduled refreshes for this provider run on their cadence again.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.resumed.title":
+    "Refresh schedule resumed",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.runFailed":
+    "The provider refresh ran but the pull failed. The refresh schedule shows the last run's error.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.runFailed.title":
+    "Provider refresh failed",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.skipped.description":
+    "The provider has no active profile targets, so the refresh pulled nothing.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.refresh.skipped.title":
+    "Provider refresh had nothing to pull",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.reason.required":
     "Rejecting Source Observations requires an operator reason for audit evidence.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.section.conflict":

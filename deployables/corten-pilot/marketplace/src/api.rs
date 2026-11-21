@@ -5118,10 +5118,9 @@ struct CommittedOwner {
 /// The account's team (Identity's `memberships` and `invitations`), as the signed-in member. Each
 /// write is an account-management attempt, as the address book's are.
 pub trait TeamCalls {
-    /// The account's members and invitations. Workaround for chase-sets/chase-sets#10704: Identity
-    /// scopes these lists by a substring match on the account's id, so only the rows whose
-    /// `account_id` is `account` are kept.
-    async fn team(&self, account: &str) -> Result<(Vec<Membership>, Vec<Invitation>), ApiError>;
+    /// The signed-in account's members and invitations: Identity lists only the caller's account
+    /// to a member.
+    async fn team(&self) -> Result<(Vec<Membership>, Vec<Invitation>), ApiError>;
     /// Send `action` on `target` as `attempt` with `body` (a create's fields, or a role); with
     /// the invitation a committed create recorded.
     async fn write_team(
@@ -5137,17 +5136,12 @@ pub trait TeamCalls {
 }
 
 impl TeamCalls for Caller<'_> {
-    async fn team(&self, account: &str) -> Result<(Vec<Membership>, Vec<Invitation>), ApiError> {
-        let scope = segment(account);
-        let (members_at, invitations_at) =
-            (format!("/api/identity/memberships?search={scope}"), format!("/api/identity/invitations?search={scope}"));
+    async fn team(&self) -> Result<(Vec<Membership>, Vec<Invitation>), ApiError> {
         let (members, invitations) = tokio::join!(
-            self.read::<TeamList<Membership>>(&members_at, IDENTITY),
-            self.read::<TeamList<Invitation>>(&invitations_at, IDENTITY),
+            self.read::<TeamList<Membership>>("/api/identity/memberships", IDENTITY),
+            self.read::<TeamList<Invitation>>("/api/identity/invitations", IDENTITY),
         );
-        let members = members?.items.into_iter().filter(|m| m.account_id == account).collect();
-        let invitations = invitations?.items.into_iter().filter(|i| i.account_id == account).collect();
-        Ok((members, invitations))
+        Ok((members?.items, invitations?.items))
     }
 
     async fn write_team(
@@ -5498,9 +5492,8 @@ fn key_secret(action: AccountAction, answer: AccountAnswer, body: &str, lookup: 
 /// writes, account-management attempts like the address book's.
 pub trait SecurityCalls {
     async fn user(&self, user: &str) -> Result<SecurityUser, ApiError>;
-    /// The user's keys. Identity filters the list by `search`, which it matches against the key's
-    /// name too, so only the keys whose `user_id` is `user` are kept (chase-sets/chase-sets#10695).
-    async fn api_keys(&self, user: &str) -> Result<Vec<ApiKey>, ApiError>;
+    /// The signed-in user's keys: Identity lists only the caller's own keys to a user.
+    async fn api_keys(&self) -> Result<Vec<ApiKey>, ApiError>;
     /// Send the user's profile as `attempt`. A call with no answer is `Err(ApiError::Transport)`.
     async fn update_user(&self, user: &str, attempt: &str, command: &UserCommand) -> Result<AccountAnswer, ApiError>;
     /// Create a key named `name` for `user` (`target` none), or rotate or revoke `target`, as
@@ -5527,9 +5520,9 @@ impl SecurityCalls for Caller<'_> {
         self.read(&format!("/api/identity/users/{}", segment(user)), IDENTITY).await
     }
 
-    async fn api_keys(&self, user: &str) -> Result<Vec<ApiKey>, ApiError> {
-        let list: ApiKeyList = self.read(&format!("/api/identity/api-keys?search={}", segment(user)), IDENTITY).await?;
-        Ok(list.items.into_iter().filter(|key| key.user_id == user).collect())
+    async fn api_keys(&self) -> Result<Vec<ApiKey>, ApiError> {
+        let list: ApiKeyList = self.read("/api/identity/api-keys", IDENTITY).await?;
+        Ok(list.items)
     }
 
     async fn update_user(&self, user: &str, attempt: &str, command: &UserCommand) -> Result<AccountAnswer, ApiError> {

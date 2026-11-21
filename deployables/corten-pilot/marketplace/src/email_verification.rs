@@ -26,6 +26,7 @@ pub const RETURN_PARAMETER: &str = "verifyEmail";
 pub enum Purpose {
     CancelPurchase,
     PayCheckout,
+    PayPurchase,
 }
 
 impl Purpose {
@@ -33,6 +34,7 @@ impl Purpose {
         match self {
             Purpose::CancelPurchase => "cancel-purchase",
             Purpose::PayCheckout => "pay-checkout",
+            Purpose::PayPurchase => "pay-purchase",
         }
     }
 }
@@ -53,10 +55,15 @@ pub fn awaits(actor: &Actor, permission: &str) -> bool {
 /// The sign-in that emails a magic link and, once it is opened (which verifies the email), returns
 /// to `return_path` marked with `purpose`.
 pub fn sign_in_href(return_path: &str, purpose: Purpose) -> String {
+    sign_in(return_path, purpose).href()
+}
+
+/// The sign-in of [`sign_in_href`], to redirect to.
+pub fn sign_in(return_path: &str, purpose: Purpose) -> url::SignIn {
     let mark = if return_path.contains('?') { '&' } else { '?' };
     let return_to = format!("{return_path}{mark}{RETURN_PARAMETER}={}", purpose.key());
     let ask = Ask { return_to: Some(return_to), sign_in_method: Some(Method::MagicLink.key().into()), ..Ask::default() };
-    url::SignIn { ask }.href()
+    url::SignIn { ask }
 }
 
 #[cfg(test)]
@@ -94,6 +101,10 @@ mod tests {
         assert_eq!(
             sign_in_href("/checkout/buy/session/chk_1", Purpose::PayCheckout),
             "/sign-in?returnTo=%2Fcheckout%2Fbuy%2Fsession%2Fchk_1%3FverifyEmail%3Dpay-checkout&signInMethod=magic-link"
+        );
+        assert_eq!(
+            sign_in_href("/account/purchases/ord_1", Purpose::PayPurchase),
+            "/sign-in?returnTo=%2Faccount%2Fpurchases%2Ford_1%3FverifyEmail%3Dpay-purchase&signInMethod=magic-link"
         );
     }
 }

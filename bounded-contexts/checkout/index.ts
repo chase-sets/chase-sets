@@ -16,6 +16,7 @@ import {
 } from "./features/cart/integrations/marketplace/marketplace-projection";
 import { buildCheckoutReputationSellerReviewsProjectionHandlers } from "./features/cart/integrations/reputation/reputation-projection";
 import { buildCheckoutSellListProjectionHandlers } from "./features/sell-list/read-model/projection";
+import { buildCheckoutBuyerOfferStandingHandlers } from "./features/sell-list/integrations/marketplace/offer-standing";
 import { buildCheckoutPaymentAffordanceProjectionHandlers } from "./features/sessions/integrations/payments/payment-affordance-projection";
 import { buildCheckoutPaymentSummaryProjectionHandlers } from "./features/sessions/integrations/payments/payment-summary-projection";
 import {
@@ -73,6 +74,7 @@ const baseModule = defineBoundedContextModule<CheckoutServices, PgTransactionalP
         "marketplace.checkout-seller-accounts-projection": () =>
           buildCheckoutReputationSellerReviewsProjectionHandlers(services.db),
         "marketplace.checkout.sell-list-projection": () => buildCheckoutSellListProjectionHandlers(services.db),
+        "marketplace.checkout.offer-standing-projection": () => buildCheckoutBuyerOfferStandingHandlers(services.db),
         "settlement.checkout.sell-list-projection": () => buildCheckoutSellListProjectionHandlers(services.db),
         "checkout.checkout.sell-list-projection": () => buildCheckoutSellListProjectionHandlers(services.db),
         "inventory.checkout-inventory-supply-projection": () =>

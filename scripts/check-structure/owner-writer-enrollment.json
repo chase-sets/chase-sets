@@ -1337,7 +1337,7 @@
     },
     {
       "file": "bounded-contexts/identity/features/accounts/api/runtime.ts",
-      "symbol": "createAccountRuntime",
+      "symbol": "createAccountAggregate",
       "sink": "createAggregateCommandHandler",
       "ordinal": 1,
       "keys": ["account"],

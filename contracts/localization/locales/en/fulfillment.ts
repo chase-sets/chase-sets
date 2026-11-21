@@ -496,6 +496,8 @@ export const fulfillmentEnglishTranslations = {
     "This intake form is stale because the package changed at another station. Reload current state before retrying.",
   "fulfillment.returnIntake.route.failed": "Return intake request failed.",
   "fulfillment.returnIntake.route.chooseAction": "Choose an intake action and try again.",
+  "fulfillment.returnIntake.route.receiptTimeInvalid":
+    "Enter the receipt time as a date and time. Nothing was recorded.",
   "fulfillment.returnIntake.route.metaTitle": "Facility return intake | Chase Sets",
   "fulfillment.routes.marketplace.accountSaleShipments.action.failed": "Shipment action failed.",
   "fulfillment.features.shipments.ui.commandCenter.eyebrow": "Seller",

@@ -1,6 +1,11 @@
 import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 
 export const discoveryProductAlertSchemaSql = `
+CREATE TABLE IF NOT EXISTS discovery_product_alert_offer_suppression (
+  account_id text PRIMARY KEY,
+  away_stream_version integer NOT NULL,
+  offers_away boolean NOT NULL
+);
 CREATE TABLE IF NOT EXISTS discovery_product_alert_pages (
   alert_id text PRIMARY KEY,
   account_id text NOT NULL,

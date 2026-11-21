@@ -7584,8 +7584,9 @@ fn order(id: &str, status: &str, unavailable: Option<&str>) -> Value {
 }
 
 /// The account's orders, as the stand-in answers them. Purchases: `ord_open` is pending payment,
-/// `ord_packed` is being packed (cancelling it is refused), `ord_lost`'s cancellation fails and
-/// `ord_gone` is not found. A read after
+/// `ord_paying` is pending a payment that was started, `ord_held` waits for its items to be
+/// reserved, `ord_packed` is being packed (cancelling it
+/// is refused), `ord_lost`'s cancellation fails and `ord_gone` is not found. A read after
 /// a cancellation at 42 has caught up (the purchase is cancelled); one at 43 has not. The sale
 /// `ord_sold` has a held case and a refund.
 fn ordering(method: &Method, uri: &Uri, headers: &HeaderMap) -> Option<Response> {
@@ -7644,6 +7645,8 @@ fn ordering(method: &Method, uri: &Uri, headers: &HeaderMap) -> Option<Response>
     let mut detail = match rest {
         "ord_open" if waits.as_deref() == Some("42") => order(rest, "cancelled", Some("already-cancelled")),
         "ord_open" => order(rest, "pending-payment", Some("payment-pending")),
+        "ord_paying" => order(rest, "pending-payment", Some("payment-unresolved")),
+        "ord_held" => order(rest, "pending-reservation", None),
         "ord_packed" => order(rest, "ready-for-fulfillment", Some("fulfillment-started")),
         "ord_sold" => {
             let mut sold = order(rest, "ready-for-fulfillment", Some("fulfillment-started"));
@@ -7709,32 +7712,55 @@ async fn pay_now_is_offered_only_to_a_buyer_who_may_pay_and_the_others_are_told_
     let (_, _, html) = pilot.send(get("/account/purchases/ord_open", Some("shopper"))).await;
     assert!(html.contains(pay), "{html}");
     assert!(!text(&html).contains("cannot pay"), "{html}");
-    // Without orders.manage: no Pay now, and a line that says so (chase-sets/chase-sets#11170).
+    // Without orders.manage: no Pay now, and a line that says so.
     let (status, _, html) = pilot.send(get("/account/purchases/ord_open", Some("looker"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(!html.contains(pay) && !text(&html).contains("Pay now"), "{html}");
     assert!(text(&html).contains("This account cannot pay for purchases."), "{html}");
-    // Awaiting email verification: no Pay now, and Verify email names paying too.
+    // Awaiting email verification: no Pay now, and one Verify email that names paying too and comes
+    // back to pay.
     let (_, _, html) = pilot.send(get("/account/purchases/ord_open", Some("unverified"))).await;
     let shown = text(&html);
     assert!(!html.contains(pay) && !shown.contains("Pay now"), "{html}");
     assert!(shown.contains("Verify your email to pay for or cancel this purchase"), "{shown}");
-    assert!(shown.contains("Paying and cancelling need a verified email."), "{shown}");
+    assert!(shown.contains("Paying needs a verified email."), "{shown}");
+    assert!(html.contains("verifyEmail%3Dpay-purchase") && !html.contains("verifyEmail%3Dcancel-purchase"), "{html}");
+    assert_eq!(shown.matches("Verify your email").count(), 1, "{shown}");
     assert!(!shown.contains("cannot pay"), "{shown}");
+    // A payment already started: it cannot be cancelled yet, so Verify email names paying only.
+    let (_, _, html) = pilot.send(get("/account/purchases/ord_paying", Some("unverified"))).await;
+    let shown = text(&html);
+    assert!(shown.contains("Verify your email to pay for this purchase"), "{shown}");
+    assert!(!shown.contains("or cancel"), "{shown}");
+}
+
+#[tokio::test]
+async fn a_purchase_whose_payment_was_started_says_it_is_being_confirmed_and_cannot_be_cancelled() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/account/purchases/ord_paying", Some("shopper"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("Payment is still being confirmed"), "{shown}");
+    assert!(shown.contains("A payment was started for this purchase."), "{shown}");
+    assert!(!shown.contains("Cancel purchase") && !html.contains("/cancel\""), "{html}");
+    assert!(shown.contains("Pay now"), "{shown}");
 }
 
 #[tokio::test]
 async fn a_cancel_awaiting_email_verification_offers_the_sign_in_that_verifies_it() {
     let pilot = Pilot::new().await;
-    let link = "/sign-in?returnTo=%2Faccount%2Fpurchases%2Ford_open%3FverifyEmail%3Dcancel-purchase&amp;signInMethod=magic-link";
-    // An owner whose orders.manage Auth withheld: no Cancel, and Verify email in its place. The
-    // purchase awaits payment, so it names paying too.
-    let (status, _, html) = pilot.send(get("/account/purchases/ord_open", Some("unverified"))).await;
+    let link = "/sign-in?returnTo=%2Faccount%2Fpurchases%2Ford_held%3FverifyEmail%3Dcancel-purchase&amp;signInMethod=magic-link";
+    // An owner whose orders.manage Auth withheld: no Cancel, and Verify email in its place.
+    let (status, _, html) = pilot.send(get("/account/purchases/ord_held", Some("unverified"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     let shown = text(&html);
-    assert!(shown.contains("Verify your email to pay for or cancel this purchase"), "{shown}");
+    assert!(shown.contains("Verify your email to cancel this purchase"), "{shown}");
     assert!(html.contains(&format!(r#"href="{link}""#)) && shown.contains("Verify email"), "{html}");
     assert!(!html.contains("/cancel\"") && !shown.contains("Cancel purchase"), "{html}");
+    // One that awaits payment names paying too, and its link comes back to pay.
+    let (_, _, html) = pilot.send(get("/account/purchases/ord_open", Some("unverified"))).await;
+    assert!(text(&html).contains("Verify your email to pay for or cancel this purchase"), "{html}");
+    assert!(!html.contains("/cancel\"") && !text(&html).contains("Cancel purchase"), "{html}");
     // Not when the order cannot be cancelled anyway, not for an agent, and not for a member whose
     // role does not grant it.
     let (_, _, html) = pilot.send(get("/account/purchases/ord_packed", Some("unverified"))).await;
@@ -7747,6 +7773,9 @@ async fn a_cancel_awaiting_email_verification_offers_the_sign_in_that_verifies_i
     let (status, _, html) = pilot.send(get("/account/purchases/ord_open?verifyEmail=cancel-purchase", Some("shopper"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(text(&html).contains("Cancel purchase") && !text(&html).contains("Verify your email"), "{html}");
+    let (status, _, html) = pilot.send(get("/account/purchases/ord_open?verifyEmail=pay-purchase", Some("shopper"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Pay now") && !text(&html).contains("Verify your email"), "{html}");
     assert!(order_calls(&pilot).iter().all(|c| c.method == Method::GET), "nothing was cancelled");
 }
 
@@ -7768,6 +7797,23 @@ async fn the_sign_in_says_it_verifies_the_email_to_cancel_a_purchase() {
         let (_, _, html) = pilot.send(get(&format!("/sign-in?returnTo={other}"), None)).await;
         assert!(!text(&html).contains("Verify your email to cancel"), "{other}: {html}");
     }
+}
+
+#[tokio::test]
+async fn the_sign_in_says_it_verifies_the_email_to_pay_for_a_purchase() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot
+        .send(get(
+            "/sign-in?returnTo=%2Faccount%2Fpurchases%2Ford_open%3FverifyEmail%3Dpay-purchase&signInMethod=magic-link",
+            None,
+        ))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("Verify your email to pay for this purchase"), "{shown}");
+    assert!(shown.contains("where you can pay for it"), "{shown}");
+    let (_, _, html) = pilot.send(get("/sign-in?returnTo=%2Faccount%2Fpurchases%3FverifyEmail%3Dpay-purchase", None)).await;
+    assert!(!text(&html).contains("Verify your email to pay"), "the purchases: {html}");
 }
 
 #[tokio::test]
@@ -9341,12 +9387,12 @@ fn key_committed(id: &str, secret: bool) -> Response {
     committed(StatusCode::OK, "identity", "42", body)
 }
 
-/// The stand-in Identity user `usr_seller` and the API keys: Shop sync (active), Old feed
-/// (revoked), and another user's key whose name holds `usr_seller`, which Identity's `search`
-/// matches too. A read that waits for 45 is still catching up. A write's attempt decides an answer
+/// The stand-in Identity user `usr_seller` and its API keys as Identity lists them to the user:
+/// Shop sync (active) and Old feed (revoked). A read that waits for 45 is still catching up. A write's attempt decides an answer
 /// as an address write's does: `NO_RECORD`, `APPLIED_BEFORE` and `CHECK_DOWN` are answered
 /// `indeterminate`, and the lookup says nothing was recorded, that it was (its secret lost), or
-/// cannot say. A display name `Refused` is refused; a key named `Taken` is a conflict.
+/// cannot say. A display name `Refused` is refused; a blank one is refused as Identity refuses it,
+/// naming the field; a key named `Taken` is a conflict.
 fn identity_security(method: &Method, uri: &Uri, headers: &HeaderMap, attempt: &str, body: &str) -> Option<Response> {
     let path = uri.path();
     let indeterminate = || {
@@ -9386,6 +9432,15 @@ fn identity_security(method: &Method, uri: &Uri, headers: &HeaderMap, attempt: &
             }))
             .into_response(),
             "PUT" if matches!(attempt, NO_RECORD | APPLIED_BEFORE | CHECK_DOWN) => indeterminate(),
+            "PUT" if sent["displayName"].as_str().is_some_and(|v| v.trim().is_empty()) => {
+                let message = "Display name is required.";
+                let details = json!([{ "field": "displayName", "code": "required", "message": message }]);
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({ "error": { "code": "validation_failed", "message": message, "details": details } })),
+                )
+                    .into_response()
+            }
             "PUT" if sent["displayName"] == "Refused" => {
                 (StatusCode::BAD_REQUEST, Json(json!({ "outcome": "not-recorded", "code": "validation-failed" }))).into_response()
             }
@@ -9403,12 +9458,9 @@ fn identity_security(method: &Method, uri: &Uri, headers: &HeaderMap, attempt: &
     Some(match (method.as_str(), rest) {
         ("GET", "") if waits_for(headers).as_deref() == Some("45") => catching_up(),
         ("GET", "") => {
-            let items = [
-                key("key_live", "usr_seller", "Shop sync", "active"),
-                key("key_old", "usr_seller", "Old feed", "revoked"),
-                key("key_else", "usr_other", "usr_seller backup", "active"),
-            ];
-            Json(json!({ "items": items, "total": 3, "count": 3 })).into_response()
+            let items =
+                [key("key_live", "usr_seller", "Shop sync", "active"), key("key_old", "usr_seller", "Old feed", "revoked")];
+            Json(json!({ "items": items, "total": 2, "count": 2 })).into_response()
         }
         _ if matches!(attempt, NO_RECORD | APPLIED_BEFORE | CHECK_DOWN) => indeterminate(),
         ("POST", "") if sent["name"] == "Taken" => {
@@ -9458,14 +9510,15 @@ async fn the_security_page_shows_the_user_its_own_keys_and_their_controls() {
     assert_eq!(status, StatusCode::OK, "{html}");
     let shown = text(&html);
     assert!(html.contains("<title>Security | Marketplace</title>"), "{html}");
-    assert!(html.contains(r#"name="display_name" value="Synthetic Seller" required pattern=".*\S.*""#), "{html}");
+    assert!(html.contains(r#"name="display_name" value="Synthetic Seller" required autocomplete="nickname""#), "{html}");
     assert!(html.contains(r#"name="given_name" value="Syn""#) && html.contains(r#"name="family_name" value="Seller""#), "{html}");
     assert!(
         shown.contains("Enabled Methods 3 Password, Passkey, Unrecognized authentication method: Hardware Token"),
         "an unknown method is named as Identity names it: {shown}"
     );
-    assert!(shown.contains("API Keys 1 2 total keys tracked"), "another user's key is not counted: {shown}");
-    assert!(!shown.contains("usr_seller backup"), "another user's key is not shown: {shown}");
+    assert!(shown.contains("API Keys 1 2 total keys tracked"), "{shown}");
+    let reads: Vec<String> = pilot.stand.calls.lock().unwrap().iter().map(|c| c.path.clone()).collect();
+    assert!(reads.iter().any(|c| c == KEYS_API), "Identity scopes the list itself: {reads:?}");
     assert!(shown.contains("Shop sync (Active), Old feed (Revoked)"), "{shown}");
     assert!(shown.contains("Updated Oct 24, 2026"), "{shown}");
     assert_eq!(html.matches(r#"value="rotate-api-key""#).count(), 1, "only an active key rotates: {html}");
@@ -9562,6 +9615,19 @@ async fn a_refused_security_write_says_so_and_sends_nothing_it_cannot_name() {
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
     }
     assert_eq!(security_writes(&pilot).len(), sent, "none of them is sent");
+}
+
+#[tokio::test]
+async fn a_blank_display_name_is_refused_on_its_own_field() {
+    let pilot = Pilot::new().await;
+    let sent = security_writes(&pilot).len();
+    let body = format!("intent=update-user&attempt={ATTEMPT}&display_name=+++&given_name=Syn&family_name=");
+    let (status, _, html) = pilot.send(post(SECURITY, "guard", &body, true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Display name is required."), "{}", text(&html));
+    let input = html.split(r#"name="display_name""#).nth(1).unwrap().split('>').next().unwrap();
+    assert!(input.contains(r#"aria-invalid="true""#), "the refused field is marked: {input}");
+    assert_eq!(security_writes(&pilot).len(), sent + 1, "the blank name is sent for Identity to refuse");
 }
 
 #[tokio::test]
@@ -15820,24 +15886,27 @@ async fn starting_a_payment_needs_orders_and_orders_manage() {
     let (status, _, html) = pilot.send(get("/account/payments/new?orderIds=ord_gone", Some("payer"))).await;
     assert_eq!(status, StatusCode::NOT_FOUND, "{html}");
     assert!(text(&html).contains("Purchase not found."), "{html}");
-    // Seeing payments is not enough to start one, and the page says why with the purchase's page
-    // (chase-sets/chase-sets#11170), not a bare Forbidden.
-    let (status, _, html) = pilot.send(get("/account/payments/new?orderIds=ord_pay", Some("card_reader"))).await;
-    assert_eq!(status, StatusCode::FORBIDDEN);
-    assert!(text(&html).contains("This account cannot pay for purchases."), "{html}");
-    assert!(html.contains(r#"href="/account/purchases/ord_pay""#), "{html}");
+    // Seeing payments is not enough to start one. Rather than a bare Forbidden, the buyer goes back
+    // to the purchase, which says this account cannot pay.
+    let location = |headers: &HeaderMap| headers[header::LOCATION].to_str().unwrap().to_owned();
+    let (status, headers, _) = pilot.send(get("/account/payments/new?orderIds=ord_pay", Some("card_reader"))).await;
+    assert_eq!((status, location(&headers).as_str()), (StatusCode::SEE_OTHER, "/account/purchases/ord_pay"));
     let form = "order_ids=ord_pay&payment_method_category=card&balance_credit_mode=none&requested_balance_credit_amount=";
-    let (status, _, html) = pilot.send(post("/account/payments/new", "card_reader", form, false)).await;
-    assert_eq!(status, StatusCode::FORBIDDEN);
-    assert!(text(&html).contains("This account cannot pay for purchases."), "{html}");
-    // One whose orders.manage awaits email verification is told to verify it from the purchase.
-    let (status, _, html) = pilot.send(get("/account/payments/new?orderIds=ord_pay", Some("unverified"))).await;
-    assert_eq!(status, StatusCode::FORBIDDEN);
-    assert!(text(&html).contains("Verify your email before you pay."), "{html}");
-    assert!(html.contains(r#"href="/account/purchases/ord_pay""#), "{html}");
-    // More than one order: no single purchase to open.
-    let (_, _, html) = pilot.send(get("/account/payments/new?orderIds=ord_pay,ord_open", Some("card_reader"))).await;
-    assert!(!html.contains(r#"href="/account/purchases/ord_"#), "{html}");
+    let (status, headers, _) = pilot.send(post("/account/payments/new", "card_reader", form, false)).await;
+    assert_eq!((status, location(&headers).as_str()), (StatusCode::SEE_OTHER, "/account/purchases/ord_pay"));
+    // One whose orders.manage awaits email verification goes to the sign-in that verifies it and
+    // comes back to the purchase to pay.
+    let (status, headers, _) = pilot.send(get("/account/payments/new?orderIds=ord_pay", Some("unverified"))).await;
+    assert_eq!(
+        (status, location(&headers).as_str()),
+        (
+            StatusCode::SEE_OTHER,
+            "/sign-in?returnTo=%2Faccount%2Fpurchases%2Ford_pay%3FverifyEmail%3Dpay-purchase&signInMethod=magic-link"
+        )
+    );
+    // More than one order: no single purchase to go back to.
+    let (status, headers, _) = pilot.send(get("/account/payments/new?orderIds=ord_pay,ord_open", Some("card_reader"))).await;
+    assert_eq!((status, location(&headers).as_str()), (StatusCode::SEE_OTHER, "/account/purchases"));
     let (status, headers, _) = pilot.send(get("/account/payments/new?orderIds=ord_pay", None)).await;
     assert_eq!(
         (status, headers[header::LOCATION].to_str().unwrap()),
@@ -17884,10 +17953,8 @@ const LINK_API: &str = "/api/auth/invitations/acceptance-link/request";
 /// An attempt the API had recorded before: its create answers `newlyCommitted: false`.
 const REPLAYED: &str = "55555555-5555-4555-8555-555555555555";
 
-/// The account `acc_seller`'s team, as Identity's lists answer a `search` of its id: its owner, a
-/// revoked packer with no display name, and another account's member whose name holds
-/// `acc_seller` (chase-sets/chase-sets#10704); a pending and a cancelled invitation, and another
-/// account's. A read that waits for 45 is still catching up. A write's attempt decides an answer as
+/// The account `acc_seller`'s team, as Identity lists it to a member: its owner, a revoked packer
+/// with no display name, and a pending and a cancelled invitation. A read that waits for 45 is still catching up. A write's attempt decides an answer as
 /// a security write's does (`NO_RECORD`, `APPLIED_BEFORE`, `CHECK_DOWN` are `indeterminate`;
 /// `REPLAYED` was recorded before). An invite to `taken@` is a conflict, to `bad@` is refused; a
 /// role change of the owner to `viewer` is refused as the last owner. The acceptance link answers
@@ -17958,9 +18025,8 @@ fn team_api(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Opti
                         "active",
                     ),
                     member("mbr_packer", "usr_packer", None, "packer@chasesets.test", "acc_seller", "fulfillment", "revoked"),
-                    member("mbr_else", "usr_else", Some("acc_seller fan"), "else@chasesets.test", "acc_other", "owner", "active"),
                 ];
-                Json(json!({ "items": items, "total": 3, "count": 3 })).into_response()
+                Json(json!({ "items": items, "total": 2, "count": 2 })).into_response()
             }
             _ if matches!(attempt, NO_RECORD | APPLIED_BEFORE | CHECK_DOWN) => indeterminate(),
             ("PUT", "/mbr_owner/role") if sent["roleKey"] == "viewer" => {
@@ -17978,9 +18044,8 @@ fn team_api(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Opti
             let items = [
                 invitation("ivt_pending", "new@chasesets.test", "acc_seller", "viewer", "pending"),
                 invitation("ivt_gone", "old@chasesets.test", "acc_seller", "manager", "cancelled"),
-                invitation("ivt_else", "acc_seller@elsewhere.test", "acc_other", "viewer", "pending"),
             ];
-            Json(json!({ "items": items, "total": 3, "count": 3 })).into_response()
+            Json(json!({ "items": items, "total": 2, "count": 2 })).into_response()
         }
         _ if matches!(attempt, NO_RECORD | APPLIED_BEFORE | CHECK_DOWN) => indeterminate(),
         // Identity's `isInstant`: to the millisecond at most, or the attempt is indeterminate.
@@ -18048,14 +18113,12 @@ async fn the_team_page_shows_only_the_accounts_members_and_invitations() {
     let (status, _, html) = pilot.send(get(TEAM, Some("teamer"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     let calls: Vec<String> = pilot.stand.calls.lock().unwrap().iter().map(|c| c.path.clone()).collect();
-    assert!(calls.iter().any(|c| c == "/api/identity/memberships?search=acc_seller"), "{calls:?}");
-    assert!(calls.iter().any(|c| c == "/api/identity/invitations?search=acc_seller"), "{calls:?}");
+    assert!(calls.iter().any(|c| c == "/api/identity/memberships"), "Identity scopes the list itself: {calls:?}");
+    assert!(calls.iter().any(|c| c == "/api/identity/invitations"), "{calls:?}");
     assert!(html.contains("Synthetic Seller") && html.contains("Owner · Active"), "{html}");
     assert!(html.contains("packer@chasesets.test") && html.contains("Fulfillment · Revoked"), "no name: the email: {html}");
     assert!(html.contains("new@chasesets.test") && html.contains("Viewer invitation · Pending"), "{html}");
     assert!(html.contains("Manager invitation · Cancelled"), "{html}");
-    assert!(!html.contains("mbr_else") && !html.contains("acc_seller fan"), "another account's member (#10704): {html}");
-    assert!(!html.contains("ivt_else") && !html.contains("elsewhere.test"), "another account's invitation (#10704): {html}");
     // The owner may be revoked (behind its dialog), the packer reinstated; only a pending invitation is cancelled.
     assert!(html.contains(r#"commandfor="revoke-member-dialog-mbr_owner""#), "{html}");
     assert!(html.contains(r#"<input type="hidden" name="intent" value="reinstate"><input type="hidden" name="membership_id" value="mbr_packer">"#), "{html}");
