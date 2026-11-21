@@ -28,6 +28,7 @@ type CheckoutEntryStub = ReturnType<typeof createCheckoutEntryStub>;
 const mocks = vi.hoisted(() => ({
   resolveActor: vi.fn(),
   getItemDetail: vi.fn(),
+  addCartLine: vi.fn(),
   checkout: { current: null as CheckoutEntryStub | null },
 }));
 
@@ -56,6 +57,7 @@ vi.mock("@chase-sets/inventory/server", () => ({ createInventoryRequestApiClient
 vi.mock("@chase-sets/checkout/server", async () => ({
   ...(await vi.importActual<typeof import("@chase-sets/checkout/server")>("@chase-sets/checkout/server")),
   createCheckoutRequestApiClient: () => ({
+    addCartLine: mocks.addCartLine,
     createCheckoutSession: (request: Parameters<CheckoutEntryStub["createCheckoutSession"]>[0]) =>
       mocks.checkout.current!.createCheckoutSession(request),
   }),
@@ -485,6 +487,48 @@ describe("item detail Buy now entry key", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(presentedTabs(page)).toEqual({ intent: "Buy", marketBook: "Listings" });
     expect(rendered(page)).toEqual(chosen);
+  });
+
+  it("keeps the mobile Buy Cart confirmation open through the add's item revalidation", async () => {
+    mocks.addCartLine.mockResolvedValueOnce({
+      id: "cli_1",
+      version: 1,
+      status: "active",
+      attempt: {
+        schemaVersion: 1,
+        kind: "cart.add-line",
+        fingerprint: "a".repeat(64),
+        actorBinding: { kind: "account", digest: "b".repeat(64) },
+        target: "cart",
+        requestHash: "c".repeat(64),
+        ownerStatus: "committed",
+        vector: [
+          {
+            index: 0,
+            command: "add",
+            outcome: "succeeded",
+            lineId: "cli_1",
+            status: "added",
+            version: 1,
+            message: null,
+          },
+        ],
+      },
+    });
+    const page = await show(await open(`${ITEM_PATH}?market=buy`));
+    const user = userEvent.setup();
+    const dialog = within(await openMobileSheet(page, "Buy"));
+
+    await user.click(dialog.getByRole("button", { name: /^Selected product/ }));
+    mocks.getItemDetail.mockResolvedValue(item({ subtitle: "Fresh catalog snapshot" }));
+    await act(async () => user.click(dialog.getByRole("button", { name: "Add product to Buy Cart" })));
+
+    expect(mocks.addCartLine).toHaveBeenCalledTimes(1);
+    expect(within(page.container).getAllByText("Fresh catalog snapshot").length).toBeGreaterThan(0);
+    const openDialog = within(screen.getByRole("dialog"));
+    expect(openDialog.getByRole("link", { name: "View buy cart" }).getAttribute("href")).toBe("/account/cart");
+    await user.click(openDialog.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("AC3 keeps chosen product options and their key across a realtime remount", async () => {

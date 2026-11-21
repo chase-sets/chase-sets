@@ -11,7 +11,7 @@ import { canonicalSha256 } from "../domain/revision";
 import type { EconomicsEvidenceReader, EconomicsEvidenceSnapshot } from "../domain/resolution";
 
 export const economicsInventoryCheckpointKey = "pricing-inventory-input-projection:inventory:v3";
-export const economicsSalesCheckpointKey = "pricing-market-trades-projection:ordering:v2";
+export const economicsSalesCheckpointKey = "pricing-market-trades-projection:ordering:v3";
 
 const NO_SOURCE_OBSERVATION_AT = "1970-01-01T00:00:00Z";
 

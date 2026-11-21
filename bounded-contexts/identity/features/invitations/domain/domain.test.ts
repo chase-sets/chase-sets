@@ -1,7 +1,54 @@
-import { describe, expect, it } from "vitest";
-import { decideInvitation, evolveInvitation, initialInvitationState } from "./domain";
+import { timingSafeEqual } from "node:crypto";
+import { describe, expect, it, vi } from "vitest";
+import {
+  decideInvitation,
+  evolveInvitation,
+  initialInvitationState,
+  validateInvitationAcceptanceToken,
+} from "./domain";
+
+vi.mock("node:crypto", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:crypto")>();
+  return { ...original, timingSafeEqual: vi.fn(original.timingSafeEqual) };
+});
+
+const tokenHash = "a".repeat(64);
 
 describe("invitation domain", () => {
+  describe("token validation", () => {
+    const verifiedAt = "2026-03-30T00:00:00.000Z";
+    const state = {
+      ...initialInvitationState,
+      id: "ivt_test" as never,
+      status: "pending" as const,
+      expiresAt: "2026-04-01T00:00:00.000Z",
+      acceptanceTokenHash: tokenHash,
+      acceptanceTokenExpiresAt: "2026-03-31T00:00:00.000Z",
+    };
+
+    it.each([true, false])("compares two 32-byte token digests in constant time (matches: %s)", (matches) => {
+      const candidate = matches ? tokenHash : "b".repeat(64);
+      vi.mocked(timingSafeEqual).mockClear();
+      const validate = () => validateInvitationAcceptanceToken(state, candidate, verifiedAt);
+
+      if (matches) expect(validate).not.toThrow();
+      else expect(validate).toThrow("Invitation acceptance token is invalid.");
+      expect(timingSafeEqual).toHaveBeenCalledExactlyOnceWith(
+        Buffer.from(tokenHash, "hex"),
+        Buffer.from(candidate, "hex"),
+      );
+    });
+
+    it.each(["a".repeat(62), "g".repeat(64)])("rejects a malformed stored token digest", (stored) => {
+      vi.mocked(timingSafeEqual).mockClear();
+
+      expect(() =>
+        validateInvitationAcceptanceToken({ ...state, acceptanceTokenHash: stored }, tokenHash, verifiedAt),
+      ).toThrow("Invitation acceptance token is invalid.");
+      expect(timingSafeEqual).not.toHaveBeenCalled();
+    });
+  });
+
   it("accepts an invitation with a single-use acceptance token", () => {
     const created = decideInvitation(initialInvitationState, {
       type: "CreateInvitation",
@@ -15,14 +62,14 @@ describe("invitation domain", () => {
     const createdState = created.reduce(evolveInvitation, initialInvitationState);
     const issued = decideInvitation(createdState, {
       type: "IssueInvitationAcceptanceToken",
-      tokenHash: "hashed:invite_token",
+      tokenHash,
       expiresAt: "2026-03-31T00:00:00.000Z",
     });
     const issuedState = issued.reduce(evolveInvitation, createdState);
     const accepted = decideInvitation(issuedState, {
       type: "AcceptInvitation",
       userId: "usr_test" as never,
-      acceptanceTokenHash: "hashed:invite_token",
+      acceptanceTokenHash: tokenHash,
       acceptedAt: "2026-03-30T00:00:00.000Z",
     });
     const acceptedState = accepted.reduce(evolveInvitation, issuedState);
@@ -34,7 +81,7 @@ describe("invitation domain", () => {
       decideInvitation(acceptedState, {
         type: "AcceptInvitation",
         userId: "usr_test" as never,
-        acceptanceTokenHash: "hashed:invite_token",
+        acceptanceTokenHash: tokenHash,
         acceptedAt: "2026-03-30T00:01:00.000Z",
       }),
     ).toThrow("Only pending invitations can change.");
@@ -75,7 +122,7 @@ describe("invitation domain", () => {
     const createdState = created.reduce(evolveInvitation, initialInvitationState);
     const issued = decideInvitation(createdState, {
       type: "IssueInvitationAcceptanceToken",
-      tokenHash: "hashed:invite_token",
+      tokenHash,
       expiresAt: "2026-03-29T00:00:00.000Z",
     });
     const issuedState = issued.reduce(evolveInvitation, createdState);
@@ -84,7 +131,7 @@ describe("invitation domain", () => {
       decideInvitation(issuedState, {
         type: "AcceptInvitation",
         userId: "usr_test" as never,
-        acceptanceTokenHash: "hashed:invite_token",
+        acceptanceTokenHash: tokenHash,
         acceptedAt: "2026-03-30T00:00:00.000Z",
       }),
     ).toThrow("Invitation acceptance token is expired.");
@@ -103,7 +150,7 @@ describe("invitation domain", () => {
     const createdState = created.reduce(evolveInvitation, initialInvitationState);
     const issued = decideInvitation(createdState, {
       type: "IssueInvitationAcceptanceToken",
-      tokenHash: "hashed:invite_token",
+      tokenHash,
       expiresAt: "2026-04-01T00:00:00.000Z",
     });
     const issuedState = issued.reduce(evolveInvitation, createdState);
@@ -113,7 +160,7 @@ describe("invitation domain", () => {
       decideInvitation(issuedState, {
         type: "AcceptInvitation",
         userId: "usr_test" as never,
-        acceptanceTokenHash: "hashed:invite_token",
+        acceptanceTokenHash: tokenHash,
         acceptedAt: "2026-04-01T00:00:00.000Z",
       }),
     ).toThrow("Invitation is expired.");

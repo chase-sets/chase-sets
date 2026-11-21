@@ -38,6 +38,7 @@ export const actionFields = {
   "rotate-api-key": [],
   "revoke-api-key": [],
   "create-invitation": ["accountId", "email", "roleKey", "invitationId", "expiresAt"],
+  "resend-invitation": ["expiresAt"],
   "cancel-invitation": [],
   "change-role": ["roleKey"],
   revoke: [],
@@ -59,6 +60,7 @@ export const actionEventTypes: Record<MutationAction, readonly string[]> = {
   "rotate-api-key": ["identity.api-key.rotated", "identity.api-key.verifier-recorded"],
   "revoke-api-key": ["identity.api-key.revoked"],
   "create-invitation": ["identity.invitation.created"],
+  "resend-invitation": ["identity.invitation.resent"],
   "cancel-invitation": ["identity.invitation.cancelled"],
   "change-role": ["identity.membership.role-changed"],
   revoke: ["identity.membership.revoked"],
@@ -71,7 +73,9 @@ export function validateEventProofs(
 ): readonly Readonly<{ id: string; type: string; digest: string }>[] {
   if (!Array.isArray(value) || value.length > 2) throw new Error("INDETERMINATE");
   const expected = actionEventTypes[action];
-  const mustChange = ["create", "create-api-key", "rotate-api-key", "create-invitation"].includes(action);
+  const mustChange = ["create", "create-api-key", "rotate-api-key", "create-invitation", "resend-invitation"].includes(
+    action,
+  );
   if ((mustChange || value.length > 0) && value.length !== expected.length) throw new Error("INDETERMINATE");
   const ids = new Set<string>();
   for (const [index, proof] of value.entries()) {
@@ -95,7 +99,14 @@ export const routeActions = {
   "/account/shipping-addresses": ["create", "update", "default", "archive"],
   "/account/consents": ["withdraw"],
   "/account/security": ["update-user", "create-api-key", "rotate-api-key", "revoke-api-key"],
-  "/account/team": ["create-invitation", "cancel-invitation", "change-role", "revoke", "reinstate"],
+  "/account/team": [
+    "create-invitation",
+    "resend-invitation",
+    "cancel-invitation",
+    "change-role",
+    "revoke",
+    "reinstate",
+  ],
 } as const;
 
 export const actionTargetField: Partial<Record<MutationAction, string>> = {
@@ -105,6 +116,7 @@ export const actionTargetField: Partial<Record<MutationAction, string>> = {
   withdraw: "consentId",
   "rotate-api-key": "apiKeyId",
   "revoke-api-key": "apiKeyId",
+  "resend-invitation": "invitationId",
   "cancel-invitation": "invitationId",
   "change-role": "membershipId",
   revoke: "membershipId",

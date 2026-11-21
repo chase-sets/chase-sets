@@ -703,6 +703,37 @@ describe("marketplace offer runtime", () => {
     ).resolves.toEqual({ offerId: "off_1", version: 1 });
   });
 
+  it("rejects Decline on an inventory Match before appending any event", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const { listing_id: _listingId, ...offerColumns } = acceptedOfferMatch;
+    const db = {
+      query: vi.fn(async () => ({
+        rows: [
+          { ...offerColumns, fill_source: "inventory", inventory_item_id: "inv_1", inventory_available_quantity: 2 },
+        ],
+      })),
+    };
+    const services = createMarketplaceOfferRuntime({
+      db,
+      eventStore,
+      checkpointStore: {} as never,
+      commercialTermsResolver: {} as never,
+    });
+    const context = {
+      tenantId: "tnt_marketplace" as never,
+      audit: { performedByUserId: "usr_seller" as never, forAccountId: "acc_seller" as never },
+    };
+    const before = await eventStore.readAll();
+
+    await expect(
+      services.declineOfferMatch(
+        { attemptId: "test_attempt_8694_inventory", offerId: "off_1" as never, sellerAccountId: "acc_seller" as never },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "offer_match_requires_listing" });
+    expect(await eventStore.readAll()).toEqual(before);
+  });
+
   it("keeps offer acceptance gated by matching active supply", async () => {
     const { eventStore } = createInMemoryEventStore();
     const db = {

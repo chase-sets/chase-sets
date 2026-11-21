@@ -19,8 +19,9 @@ Milestone #19 is governed by [ADR 0010: Push-Driven Projection Runtime](../adr/0
 Publish `projection.patch` messages only. Do not stream raw domain events.
 
 - `topics` are route-derived client topics such as `public:market`, `item:{id}`,
-  `listing:{id}`, `public-account:{id}`, `account:{id}:listings`, and
-  `account:{id}:offers`.
+  `listing:{id}`, `public-account:{id}`, `account:{id}:listings`,
+  `account:{id}:offers`, and `account:{id}:offer-matches` (seller Offer Matches;
+  subscribing needs both `offers.view` and `listings.view`).
 - `changes` use `upsert`, `remove`, or `summary`.
 - `projection` must match the emitting outbox projection name.
 - Patch compatibility is versioned by projection contract. Prefer additive payload
