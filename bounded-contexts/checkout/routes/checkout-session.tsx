@@ -52,7 +52,11 @@ import {
   isCheckoutRecovery,
 } from "../features/sessions/api/checkout-recovery";
 import { createIdentityRequestApiClient } from "@chase-sets/identity/server";
-import { type PaymentElementDefaultValues, type PaymentsSavedCheckoutInstrument } from "@chase-sets/payments/server";
+import {
+  createPaymentsRequestApiClient,
+  type PaymentElementDefaultValues,
+  type PaymentsSavedCheckoutInstrument,
+} from "@chase-sets/payments/server";
 import { StripeConfirmationCard } from "@chase-sets/payments/web";
 import { checkoutSessionSourceCreatesOrders } from "@chase-sets/checkout-order-source";
 import { normalizeRequestedBalanceCreditAmount } from "../support/request-support/balance-credit";
@@ -63,7 +67,7 @@ import {
 import { CheckoutSessionPage, type CheckoutEditSection } from "../features/sessions/ui/checkout-page";
 import { CheckoutSessionRecoveryPage } from "../features/sessions/ui/checkout-recovery-page";
 import {
-  buildCheckoutPaymentPreviewStatus,
+  readCheckoutPaymentPreviewStatus,
   type CheckoutPaymentPreviewStatus,
 } from "../support/route-support/checkout-session/payment-preview";
 import { deliveryCorrectionActionData } from "../support/route-support/checkout-session/delivery-correction";
@@ -721,13 +725,14 @@ async function loadSavedCheckoutInstruments(
   }
 }
 
-function loadPaymentPreview(
+async function loadPaymentPreview(
+  request: Request,
   actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>,
   fulfillmentPreview: Awaited<ReturnType<typeof loadFulfillmentPreview>>["fulfillmentPreview"],
   wallet: WalletRead | null,
   paymentMethodCategory: string,
   committedOrderIds: readonly string[],
-): CheckoutPaymentPreviewStatus | null {
+): Promise<CheckoutPaymentPreviewStatus | null> {
   if (!actor) {
     return null;
   }
@@ -736,7 +741,7 @@ function loadPaymentPreview(
     return null;
   }
 
-  return buildCheckoutPaymentPreviewStatus({
+  return readCheckoutPaymentPreviewStatus(createPaymentsRequestApiClient(request), {
     orderIds: committedOrderIds,
     amount: fulfillmentPreview.totals.totalAmount,
     currencyCode: wallet?.status === "available" ? wallet.balance.currency_code : "usd",
@@ -754,7 +759,8 @@ function loadPaymentPreview(
  * fingerprint. A missing quote or another revision gives no quote, which keeps the
  * totals notice. Checkout reads no other context here.
  */
-function loadCommittedOrderPaymentPreview(
+async function loadCommittedOrderPaymentPreview(
+  request: Request,
   actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>,
   session: Readonly<{
     payment_id: string | null;
@@ -764,7 +770,7 @@ function loadCommittedOrderPaymentPreview(
   }>,
   wallet: WalletRead | null,
   paymentMethodCategory: string,
-): CheckoutPaymentPreviewStatus | null {
+): Promise<CheckoutPaymentPreviewStatus | null> {
   if (!actor || session.payment_id || session.order_ids.length === 0 || wallet?.status === "unavailable") {
     return null;
   }
@@ -774,7 +780,7 @@ function loadCommittedOrderPaymentPreview(
     return null;
   }
 
-  return buildCheckoutPaymentPreviewStatus({
+  return readCheckoutPaymentPreviewStatus(createPaymentsRequestApiClient(request), {
     orderIds: session.order_ids,
     amount: quote.totals.totalAmount,
     currencyCode: wallet?.status === "available" ? wallet.balance.currency_code : "usd",
@@ -866,12 +872,19 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const committedOrderPaymentPreview =
     expiredCheckout || fulfillmentPreview
       ? null
-      : loadCommittedOrderPaymentPreview(actor, session, wallet, selectedPaymentMethodCategory);
+      : await loadCommittedOrderPaymentPreview(ancillaryRequest, actor, session, wallet, selectedPaymentMethodCategory);
   const previewError = committedOrderPaymentPreview ? null : loadedFulfillmentPreview.previewError;
   const paymentPreview = expiredCheckout
     ? null
     : (committedOrderPaymentPreview ??
-      loadPaymentPreview(actor, fulfillmentPreview, wallet, selectedPaymentMethodCategory, session.order_ids));
+      (await loadPaymentPreview(
+        ancillaryRequest,
+        actor,
+        fulfillmentPreview,
+        wallet,
+        selectedPaymentMethodCategory,
+        session.order_ids,
+      )));
   const reservationUnavailableLines = loadReservationUnavailableLines(searchParams, session, fulfillmentPreview);
 
   return {
