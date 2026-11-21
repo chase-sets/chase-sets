@@ -1,6 +1,14 @@
 import type { CheckoutFulfillmentPreview, CheckoutSessionRow } from "../../../support/request-support/api-client";
 import type { ReactNode } from "react";
 
+export type DeferredCheckoutCard = Readonly<{
+  entry: ReactNode;
+  ready: boolean;
+  createConfirmationToken: (save: boolean) => Promise<string | null>;
+}>;
+
+type DeferredCheckoutCardQuote = Readonly<{ amount: number; currency: string; quote: string }>;
+
 export type CheckoutPaymentPreview = Readonly<{
   currency_code: string;
   amount: string;
@@ -106,6 +114,14 @@ export type CheckoutSessionPageProps = {
   isSignedInBuyer?: boolean;
   /** Set while Auth withholds payment pending email verification: Pay now becomes this link. */
   paymentVerifyEmailHref?: string | null;
+  deferredCard?: Readonly<{
+    enabled: boolean;
+    render: (
+      quote: DeferredCheckoutCardQuote | null,
+      renderPage: (card: DeferredCheckoutCard) => ReactNode,
+    ) => ReactNode;
+    submit: (data: FormData) => Promise<void>;
+  }>;
   initialEditSection?: CheckoutEditSection | null;
   preparedPaymentEntry?: ReactNode;
 };

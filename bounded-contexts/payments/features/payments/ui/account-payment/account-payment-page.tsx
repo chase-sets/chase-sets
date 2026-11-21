@@ -25,6 +25,7 @@ import {
 import type { AccountPaymentOrderView, AccountPaymentPageProps } from "./account-payment-contracts";
 import { formatPaymentTimestamp, paymentStatusCopy, providerEventLabel, statusTone } from "./account-payment-display";
 import { StripeConfirmationCard } from "./stripe-confirmation-card";
+import { isDeferredCheckoutPayment } from "../../domain/deferred-checkout-payment";
 
 function PaymentTimestamp({ value }: { value: string }) {
   return <time dateTime={value}>{formatPaymentTimestamp(value)}</time>;
@@ -121,6 +122,8 @@ export function AccountPaymentPage({
             </LinkButton>
           </Stack>
         </Surface>
+      ) : isDeferredCheckoutPayment(payment) ? (
+        <StripeConfirmationCard payment={payment} defaultValues={null} statusOnly />
       ) : (
         <Surface tone="subtle" elevation="tinted">
           <Text>{t("payments.routes.marketplace.accountPayment.secure.payment.confirmation.is.not.configured")}</Text>
