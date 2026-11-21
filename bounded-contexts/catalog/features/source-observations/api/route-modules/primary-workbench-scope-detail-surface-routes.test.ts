@@ -314,6 +314,65 @@ describe("Catalog daily surface for a Scope Detail location", () => {
     expect(reviewReads).not.toContain("base1");
   });
 
+  // A series or product line names no expansion, so parsing another Scope's
+  // import scope would fill one. The read drops it before anything is queried.
+  it.each([
+    [
+      "series",
+      {
+        ...paldeanFates,
+        scopeRecordId: "scope_series_synthetic",
+        scopeKind: "series",
+        name: "Synthetic Series",
+        seriesScopeRecordId: null,
+      },
+    ],
+    [
+      "product-line",
+      {
+        ...paldeanFates,
+        scopeRecordId: "scope_product_line_synthetic",
+        scopeKind: "product-line",
+        name: "Synthetic Product Line",
+        productLineScopeRecordId: null,
+        seriesScopeRecordId: null,
+      },
+    ],
+  ])("keeps a foreign import scope out of a %s Scope's read and review", async (_kind, record) => {
+    const source = services();
+    const target = buildApp(source, mutableProfileStore(), manageActor, undefined, async () => record);
+    const address = `/catalog/scopes/${record.scopeRecordId}?${new URLSearchParams({
+      providerKey: "tcgdex",
+      unitKey: "tcgdex:pokemon:card:import",
+      importScope: "en:synthetic-other-series:synthetic-other-expansion",
+    })}`;
+
+    const { status, body } = await read(target, surfacePath("daily", address));
+
+    expect(status).toBe(200);
+    expect(body.readModel.routeContext.scopeRecordId).toBe(record.scopeRecordId);
+    expect(source.listSourceObservations).toHaveBeenCalled();
+    expect(JSON.stringify(vi.mocked(source.listSourceObservations).mock.calls)).not.toContain("synthetic-other");
+    expect(JSON.stringify(body)).not.toContain("synthetic-other");
+  });
+
+  it("keeps a compact import scope that names the expansion record in its read and review", async () => {
+    const source = services();
+    const target = buildApp(source, mutableProfileStore(), manageActor, undefined, async () => paldeanFates);
+    const address = `/catalog/scopes/scope_expansion_paldean_fates?${new URLSearchParams({
+      providerKey: "tcgdex",
+      importScope: "en:scope_expansion_paldean_fates",
+    })}`;
+
+    const { status, body } = await read(target, surfacePath("daily", address));
+
+    expect(status).toBe(200);
+    expect(body.readModel.routeContext.importScope).toBe("en:scope_expansion_paldean_fates");
+    expect(JSON.stringify(vi.mocked(source.listSourceObservations).mock.calls)).toContain(
+      "scope_expansion_paldean_fates",
+    );
+  });
+
   it.each([
     ["names a Scope Record that does not exist", async () => null],
     ["cannot be read without the Scope Record read", undefined],

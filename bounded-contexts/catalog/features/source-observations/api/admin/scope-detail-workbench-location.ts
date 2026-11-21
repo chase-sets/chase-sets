@@ -1,9 +1,13 @@
+import { scopeContextFromImportScope } from "../../ui/primary-workbench-scope-context";
+
 // Scope Detail (`/catalog/scopes/:id`) composes the daily import-to-promotion
 // journey for its own Scope Record. The record's hierarchy is the Scope's fixed
 // identity, so the daily surface read derives it here from the record it reads;
 // the provider, unit, profile, language, import scope and product coordinates are
 // selections inside that Scope and pass through from the page's own address.
-// Every client sends that address rather than rewriting it into a daily
+// Parsing an import scope fills the hierarchy levels the record does not name,
+// so one that would fill such a level passes only while it lies inside the
+// record. Every client sends that address rather than rewriting it into a daily
 // workbench location.
 
 /** The Scope Record fields a Scope Detail working set is built from. */
@@ -44,6 +48,15 @@ const SCOPE_RECORD_HIERARCHY_KEYS = new Map<string, CatalogScopeRecordQueryKey>(
 const REVIEW_FILTER_PREFIX = "filter.";
 // The keys that name the Scope Record itself on a command.
 const SCOPE_RECORD_ID_KEYS = ["scopeRecordId", "referenceId"] as const;
+// The import-scope hierarchy levels, top down, and the level each Scope Record
+// kind names itself at.
+const IMPORT_SCOPE_LEVELS = ["productLineId", "seriesId", "expansionId"] as const;
+const SCOPE_RECORD_OWN_LEVEL = new Map<string, (typeof IMPORT_SCOPE_LEVELS)[number]>([
+  ["product-line", "productLineId"],
+  ["series", "seriesId"],
+  ["expansion", "expansionId"],
+  ["set", "expansionId"],
+]);
 
 /** The Scope Record id a Scope Detail path names, or null for any other path. */
 export function catalogScopeRecordIdFromPath(pathname: string | null | undefined): string | null {
@@ -62,7 +75,9 @@ export function catalogScopeRecordIdFromPath(pathname: string | null | undefined
  * hierarchy and id, its first language edition unless the address names a
  * language, and every other query value the address carries (provider, unit,
  * profile and import-scope selections, jobs, previews, row selections,
- * pagination) as it was.
+ * pagination) as it was. An import scope from outside the record that would
+ * fill a level the record does not name is dropped, so the record's own
+ * hierarchy decides it.
  */
 export function catalogScopeDetailDailyLocation(location: URL, scope: CatalogScopeDetailWorkbenchScope): URL {
   const url = new URL(location);
@@ -71,6 +86,10 @@ export function catalogScopeDetailDailyLocation(location: URL, scope: CatalogSco
     if (scopeRecordHierarchyKey(key)) {
       url.searchParams.delete(key);
     }
+  }
+  const importScope = url.searchParams.get("importScope");
+  if (importScope && !importScopeInsideScopeRecord(importScope, url.searchParams.get("providerKey"), scope)) {
+    url.searchParams.delete("importScope");
   }
 
   setScopeHierarchy(url.searchParams, scope);
@@ -87,7 +106,10 @@ export function catalogScopeDetailDailyLocation(location: URL, scope: CatalogSco
  * the address or form restates a hierarchy value or Scope Record id the record
  * does not have. The bound address is the same one the Scope's read composes,
  * on the Scope's own path; the form keeps every selection and loses only the
- * hierarchy fields, which the address now names.
+ * hierarchy fields, which the address now names, and an import scope the read
+ * would drop, which yields to the address's. The form names the record and its
+ * kind, so a sync that submits no reference runs on this record rather than on
+ * a level inferred from the selection.
  */
 export function catalogScopeDetailCommandSubmission(
   location: URL,
@@ -111,19 +133,54 @@ export function catalogScopeDetailCommandSubmission(
 
   const boundLocation = catalogScopeDetailDailyLocation(location, scope);
   boundLocation.pathname = location.pathname;
+  const submittedProviderKey = formData.get("providerKey");
+  const providerKey =
+    (typeof submittedProviderKey === "string" && submittedProviderKey.trim()) ||
+    boundLocation.searchParams.get("providerKey");
   const boundFormData = new FormData();
   for (const [key, value] of formData) {
-    if (!scopeRecordHierarchyKey(key) && !(SCOPE_RECORD_ID_KEYS as readonly string[]).includes(key)) {
+    const recordOwned =
+      Boolean(scopeRecordHierarchyKey(key)) || (SCOPE_RECORD_ID_KEYS as readonly string[]).includes(key);
+    const outsideRecord =
+      key === "importScope" &&
+      typeof value === "string" &&
+      Boolean(value.trim()) &&
+      !importScopeInsideScopeRecord(value, providerKey, scope);
+    if (!recordOwned && !outsideRecord) {
       boundFormData.append(key, value);
     }
   }
-  for (const key of SCOPE_RECORD_ID_KEYS) {
-    if (formData.has(key)) {
-      boundFormData.set(key, scope.scopeRecordId);
-    }
+  boundFormData.set("scopeRecordId", scope.scopeRecordId);
+  if (formData.has("referenceId")) {
+    boundFormData.set("referenceId", scope.scopeRecordId);
   }
+  boundFormData.set("referenceKind", scope.scopeKind);
 
   return { location: boundLocation, formData: boundFormData };
+}
+
+// Whether an import scope may travel with the Scope Record. Read as its provider
+// reads it, a coordinate that fills only levels the record names is overridden
+// by the record there. One that would fill a level the record does not name,
+// such as a series' expansion, passes only inside the record: it names the
+// record at the record's own level and agrees with the record above that.
+function importScopeInsideScopeRecord(
+  importScope: string,
+  providerKey: string | null,
+  scope: CatalogScopeDetailWorkbenchScope,
+): boolean {
+  const ownLevel = SCOPE_RECORD_OWN_LEVEL.get(scope.scopeKind);
+  if (!ownLevel) return false;
+  const coordinate = scopeContextFromImportScope(importScope, providerKey);
+  const record = new URLSearchParams();
+  setScopeHierarchy(record, scope);
+  if (IMPORT_SCOPE_LEVELS.every((level) => !coordinate[level] || record.get(level))) {
+    return true;
+  }
+  return IMPORT_SCOPE_LEVELS.slice(0, IMPORT_SCOPE_LEVELS.indexOf(ownLevel) + 1).every((level) => {
+    const value = coordinate[level];
+    return value ? value === record.get(level) : level !== ownLevel;
+  });
 }
 
 // The record-owned hierarchy key a query or form key restates: the key itself, a

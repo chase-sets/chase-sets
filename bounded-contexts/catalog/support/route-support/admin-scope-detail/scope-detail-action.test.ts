@@ -56,10 +56,41 @@ const SYNC_FIELDS = {
   selectedUnitKeys: SELECTION.unitKey,
 };
 
+// Records that name no expansion, and an import scope from another Scope that
+// would fill one.
+const PRODUCT_LINE_ID = "scope_product_line_synthetic";
+const NO_EXPANSION_RECORDS = [
+  [
+    "series",
+    {
+      scopeRecordId: "scope_series_synthetic",
+      scopeKind: "series",
+      name: "Synthetic Series",
+      productLineScopeRecordId: PRODUCT_LINE_ID,
+      seriesScopeRecordId: null,
+    },
+  ],
+  [
+    "product-line",
+    {
+      scopeRecordId: PRODUCT_LINE_ID,
+      scopeKind: "product-line",
+      name: "Synthetic Product Line",
+      productLineScopeRecordId: null,
+      seriesScopeRecordId: null,
+    },
+  ],
+] as const;
+const FOREIGN_IMPORT_SCOPE = "en:synthetic-other-series:synthetic-other-expansion";
+
 function runAction(fields: Record<string, string>, query = "") {
+  return runScopeAction(SCOPE_ID, `${SCOPE_ACTION_URL}${query}`, fields);
+}
+
+function runScopeAction(scopeRecordId: string, url: string, fields: Record<string, string>) {
   return action({
-    request: new Request(`${SCOPE_ACTION_URL}${query}`, { method: "POST", body: new URLSearchParams(fields) }),
-    params: { id: SCOPE_ID },
+    request: new Request(url, { method: "POST", body: new URLSearchParams(fields) }),
+    params: { id: scopeRecordId },
     context: {},
   } as unknown as ActionFunctionArgs);
 }
@@ -285,4 +316,52 @@ describe("Catalog scope-detail route action", () => {
       expect(scope).toMatchObject({ seriesId: SCOPE_RECORD.seriesScopeRecordId, setId: SCOPE_ID });
     }
   });
+
+  // A series or product line names no expansion, so parsing another Scope's
+  // import scope would fill one. It reaches no import request, and a sync that
+  // submits no reference runs on the path's record.
+  it.each(NO_EXPANSION_RECORDS)(
+    "keeps a foreign import scope out of a %s Scope's import and syncs the path record",
+    async (scopeKind, record) => {
+      getCatalogScopeRecord.mockResolvedValue({ ...SCOPE_RECORD, ...record });
+      const enqueueSourceObservationIntegrationJob = vi
+        .fn()
+        .mockResolvedValue({ jobId: "job_import", status: "queued" });
+      const enqueueCatalogSyncRun = vi.fn().mockResolvedValue({ syncRunId: "job_sync" });
+      createApi.mockReturnValue({ enqueueSourceObservationIntegrationJob, enqueueCatalogSyncRun });
+      const path = `https://admin.example/catalog/scopes/${record.scopeRecordId}`;
+      const foreignAddress = `${path}?${new URLSearchParams({ ...SELECTION, importScope: FOREIGN_IMPORT_SCOPE })}`;
+      const plainAddress = `${path}?${new URLSearchParams({ ...SELECTION, importScope: "" })}`;
+      const { scopeRecordId: _submittedReference, ...syncFields } = SYNC_FIELDS;
+
+      const targets = [
+        redirectTarget(await runScopeAction(record.scopeRecordId, foreignAddress, { _intent: "scope.import" })),
+        redirectTarget(
+          await runScopeAction(record.scopeRecordId, plainAddress, {
+            _intent: "scope.import",
+            importScope: FOREIGN_IMPORT_SCOPE,
+          }),
+        ),
+        redirectTarget(
+          await runScopeAction(record.scopeRecordId, foreignAddress, { _intent: "scope.sync", ...syncFields }),
+        ),
+      ];
+
+      expect(enqueueSourceObservationIntegrationJob).toHaveBeenCalledTimes(2);
+      for (const [, scope] of enqueueSourceObservationIntegrationJob.mock.calls) {
+        expect(JSON.stringify(scope)).not.toContain("synthetic-other");
+        expect(scope).toMatchObject({
+          productLineId: PRODUCT_LINE_ID,
+          ...(scopeKind === "series" ? { seriesId: record.scopeRecordId } : {}),
+        });
+      }
+      expect(enqueueCatalogSyncRun).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ reference: { kind: scopeKind, scopeRecordId: record.scopeRecordId } }),
+      );
+      for (const target of targets) {
+        expect(target.pathname).toBe(`/catalog/scopes/${record.scopeRecordId}`);
+        expect(target.search).not.toContain("synthetic-other");
+      }
+    },
+  );
 });

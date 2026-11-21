@@ -54,7 +54,7 @@ describe("Scope Detail daily workbench location", () => {
     const selection = {
       providerKey: "tcgdex",
       unitKey: "tcgdex:pokemon:card:import",
-      importScope: "en:3:base:base1",
+      importScope: "en:pl_1:scope_1:synthetic-expansion",
       profileVersion: "2026.06.04",
       productId: "synthetic-product",
     };
@@ -145,6 +145,7 @@ describe("Scope Detail daily workbench location", () => {
       _intent: "scope.import",
       scopeRecordId: "scope_expansion_paldean_fates",
       importScope: "en:scope_expansion_paldean_fates",
+      referenceKind: "expansion",
     });
 
     const conflicts: readonly [string, URL, FormData][] = [
@@ -160,6 +161,98 @@ describe("Scope Detail daily workbench location", () => {
     for (const [name, address, formData] of conflicts) {
       expect(catalogScopeDetailCommandSubmission(address, formData, scope()), name).toBeNull();
     }
+  });
+
+  // Parsing an import scope fills the levels a record does not name, such as a
+  // series' expansion, so a coordinate that would fill one passes only inside the
+  // record: the same rule on the read and on a command's address and form.
+  it("keeps an import scope inside the record and drops one that would fill it from outside, on the read and the command", () => {
+    const series = scope({
+      scopeRecordId: "scope_1",
+      scopeKind: "series",
+      name: "Scope 1",
+      productLineScopeRecordId: "pl_1",
+      seriesScopeRecordId: null,
+    });
+    const productLine = scope({
+      scopeRecordId: "pl_1",
+      scopeKind: "product-line",
+      name: "Product line 1",
+      productLineScopeRecordId: null,
+      seriesScopeRecordId: null,
+    });
+    const seriesless = scope({ seriesScopeRecordId: null });
+    const foreign = "en:synthetic-other-series:synthetic-other-expansion";
+    // TCGdex reads a compact `language:X` as a series, Scryfall as an expansion.
+    const cases = [
+      ["series: its expansion", series, "tcgdex", "en:scope_1:synthetic-expansion", true],
+      ["series: its full path", series, "tcgdex", "en:pl_1:scope_1:synthetic-expansion", true],
+      ["series: another series and expansion", series, "tcgdex", foreign, false],
+      ["series: another product line", series, "tcgdex", "en:synthetic-other-line:scope_1:synthetic-expansion", false],
+      ["series: an expansion naming no series", series, "scryfall", "en:synthetic-other-expansion", false],
+      ["product line: its full path", productLine, "tcgdex", "en:pl_1:synthetic-series:synthetic-expansion", true],
+      ["product line: a path naming no product line", productLine, "tcgdex", foreign, false],
+      ["expansion: matching compact expansion", scope(), "tcgdex", "en:scope_expansion_paldean_fates", true],
+      [
+        "expansion: its series and expansion",
+        scope(),
+        "tcgdex",
+        "en:scope_series_scarlet_violet:scope_expansion_paldean_fates",
+        true,
+      ],
+      [
+        "expansion without a series: matching compact expansion",
+        seriesless,
+        "scryfall",
+        "en:scope_expansion_paldean_fates",
+        true,
+      ],
+      [
+        "expansion without a series: another series",
+        seriesless,
+        "tcgdex",
+        "en:synthetic-other-series:scope_expansion_paldean_fates",
+        false,
+      ],
+    ] as const;
+
+    for (const [label, record, providerKey, importScope, kept] of cases) {
+      const path = `https://admin.example/catalog/scopes/${record.scopeRecordId}`;
+      const address = new URL(`${path}?${new URLSearchParams({ providerKey, importScope })}`);
+      const formData = new FormData();
+      formData.set("_intent", "scope.import");
+      formData.set("importScope", importScope);
+
+      const read = catalogScopeDetailDailyLocation(address, record);
+      const fromAddress = catalogScopeDetailCommandSubmission(address, new FormData(), record);
+      const fromForm = catalogScopeDetailCommandSubmission(
+        new URL(`${path}?providerKey=${providerKey}`),
+        formData,
+        record,
+      );
+
+      const expected = kept ? importScope : null;
+      expect(read.searchParams.get("importScope"), `${label}: read`).toBe(expected);
+      expect(fromAddress?.location.searchParams.get("importScope"), `${label}: command address`).toBe(expected);
+      expect(fromForm?.formData.get("importScope"), `${label}: command form`).toBe(expected);
+    }
+  });
+
+  it("names the record and its kind on a command, whatever reference the form submits", () => {
+    const series = scope({ scopeRecordId: "scope_1", scopeKind: "series", name: "Scope 1", seriesScopeRecordId: null });
+    const formData = new FormData();
+    formData.set("_intent", "scope.sync");
+    formData.set("referenceKind", "expansion");
+
+    const bound = catalogScopeDetailCommandSubmission(
+      new URL("https://admin.example/catalog/scopes/scope_1?providerKey=tcgdex"),
+      formData,
+      series,
+    );
+
+    expect(bound?.formData.get("scopeRecordId")).toBe("scope_1");
+    expect(bound?.formData.get("referenceKind")).toBe("series");
+    expect(bound?.formData.has("referenceId")).toBe(false);
   });
 
   it("defaults to the first recorded language edition and maps every Scope Record kind", () => {
