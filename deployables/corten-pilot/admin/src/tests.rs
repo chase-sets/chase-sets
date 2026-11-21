@@ -168,12 +168,13 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
         headers: headers.clone(),
         body: body.clone(),
     });
-    // The API takes a bearer session token where there is no session cookie (`readAuthSessionToken`).
+    // The API takes a bearer session token where the cookies hold no session (`readAuthSessionToken`).
     let bearer = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()).and_then(|v| v.strip_prefix("Bearer "));
-    let session_cookie = match headers.get(header::COOKIE).and_then(|v| v.to_str().ok()) {
-        Some(cookie) => cookie.to_owned(),
-        None => bearer.map(|token| format!("chase_sets_session={token}")).unwrap_or_default(),
-    };
+    let session_cookie =
+        match headers.get(header::COOKIE).and_then(|v| v.to_str().ok()).filter(|c| c.contains("chase_sets_session=")) {
+            Some(cookie) => cookie.to_owned(),
+            None => bearer.map(|token| format!("chase_sets_session={token}")).unwrap_or_default(),
+        };
     let cookie = session_cookie.as_str();
     if let Some(answer) = workspace_sso(&method, &uri, &headers) {
         return answer;
@@ -1492,11 +1493,14 @@ async fn a_bearer_session_token_signs_in_as_the_session_cookie_does() {
     assert!(calls.iter().any(|c| c.path == "/api/auth/session"), "{calls:?}");
     assert!(calls.iter().all(|c| c.headers.get(header::AUTHORIZATION).is_some_and(|v| v == "Bearer staff")), "{calls:?}");
 
-    let (status, headers, _) = pilot.send(request("Basic c3RhZmY6eA==")).await;
-    assert_eq!(
-        (status, &headers[header::LOCATION]),
-        (StatusCode::SEE_OTHER, &header::HeaderValue::from_static("/access/sign-in?returnTo=%2Fcommerce%2Fpostage-policies"))
-    );
+    for refused in ["Basic c3RhZmY6eA==", "Bearer nobody"] {
+        let (status, headers, _) = pilot.send(request(refused)).await;
+        assert_eq!(
+            (status, &headers[header::LOCATION]),
+            (StatusCode::SEE_OTHER, &header::HeaderValue::from_static("/access/sign-in?returnTo=%2Fcommerce%2Fpostage-policies")),
+            "{refused}"
+        );
+    }
 }
 
 #[tokio::test]

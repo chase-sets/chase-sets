@@ -64,9 +64,15 @@ pub fn forwarded_for(headers: &HeaderMap, cookies: &[&str]) -> Option<HeaderMap>
 
 /// The request's `Authorization: Bearer` session token, which the React hosts and the API take
 /// in place of the session cookie (`readAuthSessionToken`: the cookie first, then the token). The
-/// apps forward it to the API with the cookies; any other scheme is not forwarded.
+/// apps forward it to the API with the cookies; any other scheme, or more than one
+/// `Authorization` line, is not forwarded.
 pub fn bearer(headers: &HeaderMap) -> Option<&HeaderValue> {
-    headers.get(header::AUTHORIZATION).filter(|value| {
+    let mut lines = headers.get_all(header::AUTHORIZATION).iter();
+    let only = match (lines.next(), lines.next()) {
+        (Some(value), None) => Some(value),
+        _ => None,
+    };
+    only.filter(|value| {
         value.to_str().is_ok_and(|text| text.strip_prefix("Bearer ").is_some_and(|token| !token.trim().is_empty()))
     })
 }
@@ -97,6 +103,9 @@ mod tests {
         assert!(forwarded(&headers(&[(header::AUTHORIZATION, "Basic dXNlcjpwYXNz")])).is_none());
         assert!(forwarded(&headers(&[(header::AUTHORIZATION, "Bearer  ")])).is_none());
         assert!(forwarded(&headers(&[(header::COOKIE, "chase_sets_color_mode=dark")])).is_none());
+        let mut twice = headers(&[(header::AUTHORIZATION, "Bearer tok_1")]);
+        twice.append(header::AUTHORIZATION, "Bearer tok_2".parse().unwrap());
+        assert!(forwarded(&twice).is_none(), "two Authorization lines are no token");
         let cookie = forwarded(&headers(&[(header::COOKIE, "chase_sets_session=ses_1")])).unwrap();
         assert!(cookie.get(header::AUTHORIZATION).is_none());
     }
