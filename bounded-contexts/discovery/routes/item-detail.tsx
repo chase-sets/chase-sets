@@ -2,11 +2,13 @@ import { t } from "@chase-sets/localization";
 import { InventoryMutationProvider, InventoryMutationForm } from "@chase-sets/inventory/web";
 import { EntryAttemptKeyScope } from "../support/ui-support/entry-attempt-key";
 import { MutationFormProvider } from "../support/ui-support/mutation-form";
-import type { MetaFunction } from "react-router";
+import type { ClientLoaderFunctionArgs, MetaFunction } from "react-router";
 import { useActionData, useLoaderData } from "react-router";
+import { useEffect, useLayoutEffect, useState, useSyncExternalStore } from "react";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
-import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
-import { applyDiscoveryItemPatch } from "../support/client-support/realtime-market";
+import type { RealtimeProjectionPatch } from "@chase-sets/platform-runtime/realtime";
+import { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
+import { applyDiscoveryItemPatch, type DiscoveryItemRealtimeSnapshot } from "../support/client-support/realtime-market";
 import { discoveryRealtimeRouteTopics } from "../support/realtime-support/topics";
 import { useDiscoveryRealtimeRevalidation } from "../support/realtime-support/revalidation";
 import { discoveryAssetUrls } from "../support/client-support/assets";
@@ -145,9 +147,100 @@ export const meta: MetaFunction<typeof loader> = ({ data }) => [
   ...(data?.canonicalUrl ? [{ tagName: "link", rel: "canonical", href: data.canonicalUrl }] : []),
 ];
 
+type OfferPatchStart = {
+  index: number;
+  signal: AbortSignal;
+  forget: () => void;
+};
+
+function createOfferPatchLog(itemId: string | undefined) {
+  const patches: RealtimeProjectionPatch[] = [];
+  const starts = new WeakMap<DiscoveryItemDetailRouteData, OfferPatchStart>();
+  const pending = new Set<WeakRef<OfferPatchStart>>();
+  const listeners = new Set<() => void>();
+  let offset = 0;
+  let renderedStart = 0;
+  const endIndex = () => offset + patches.length;
+
+  function trim() {
+    let first = renderedStart;
+    for (const ref of pending) {
+      const start = ref.deref();
+      if (!start || start.signal.aborted) pending.delete(ref);
+      else first = Math.min(first, start.index);
+    }
+    if (first > offset) {
+      patches.splice(0, first - offset);
+      offset = first;
+    }
+  }
+
+  return {
+    itemId,
+    endIndex,
+    start(signal: AbortSignal): OfferPatchStart {
+      trim();
+      // The loader, or its returned snapshot, keeps this position alive. A
+      // response the router drops without rendering must not pin it forever.
+      const start = { index: endIndex(), signal, forget: () => pending.delete(ref) };
+      const ref = new WeakRef(start);
+      pending.add(ref);
+      return start;
+    },
+    bind(data: DiscoveryItemDetailRouteData, start: OfferPatchStart) {
+      starts.set(data, start);
+    },
+    startOf(data: DiscoveryItemDetailRouteData) {
+      const start = starts.get(data);
+      return start?.signal.aborted ? undefined : start;
+    },
+    commit(start: OfferPatchStart | undefined) {
+      start?.forget();
+      renderedStart = start?.index ?? 0;
+      trim();
+    },
+    append(patch: RealtimeProjectionPatch) {
+      patches.push(patch);
+      for (const listener of listeners) listener();
+    },
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    replay(item: DiscoveryItemRealtimeSnapshot | null, start: OfferPatchStart | undefined, end: number) {
+      let next = item;
+      for (let index = Math.max(start?.index ?? 0, offset); index < end; index++) {
+        next = applyDiscoveryItemPatch(next, patches[index - offset]!);
+      }
+      return next;
+    },
+  };
+}
+
+const activeOfferPatchLogs = new Set<ReturnType<typeof createOfferPatchLog>>();
+
+export async function clientLoader({ request, serverLoader }: ClientLoaderFunctionArgs) {
+  const starts = request.signal.aborted
+    ? []
+    : Array.from(activeOfferPatchLogs, (log) => ({ log, start: log.start(request.signal) }));
+  try {
+    // Each response needs its own identity, even when its book is unchanged.
+    const data = { ...(await serverLoader<typeof loader>()) };
+    for (const { log, start } of starts) {
+      if (!request.signal.aborted && log.itemId === data.item?.catalog_item_id) log.bind(data, start);
+      else start.forget();
+    }
+    return data;
+  } catch (error) {
+    for (const { start } of starts) start.forget();
+    throw error;
+  }
+}
+
 export default function DiscoveryItemDetailRoute() {
   const data = useLoaderData<typeof loader>() ?? EMPTY_ITEM_DETAIL_RESULT;
   const actionData = useActionData<DiscoveryItemDetailActionData>();
+  const realtimeItem = useItemDetailRealtime(data);
 
   const view = (
     <EntryAttemptKeyScope
@@ -156,15 +249,7 @@ export default function DiscoveryItemDetailRoute() {
       actionKey={actionData && "entryAttemptKey" in actionData ? actionData.entryAttemptKey : null}
       actionDraft={actionData && "buyDraft" in actionData ? actionData.buyDraft : null}
     >
-      <DiscoveryItemDetailRealtimeView
-        key={[
-          data.item?.catalog_item_id ?? "empty",
-          data.item?.market_listings.map((listing) => listing.listing_id).join("|") ?? "",
-          data.item?.offer_demand_matches.map((offer) => offer.offer_id).join("|") ?? "",
-        ].join("\n")}
-        data={data}
-        actionData={actionData}
-      />
+      <DiscoveryItemDetailView data={data} actionData={actionData} realtimeItem={realtimeItem} />
     </EntryAttemptKeyScope>
   );
   const authority = "recoveryAuthority" in data ? data.recoveryAuthority : null;
@@ -177,22 +262,65 @@ export default function DiscoveryItemDetailRoute() {
   );
 }
 
-function DiscoveryItemDetailRealtimeView({
+function useItemDetailRealtime(data: DiscoveryItemDetailRouteData) {
+  const reload = useDiscoveryRealtimeRevalidation();
+  const itemId = data.item?.catalog_item_id;
+  const hasViewer = Boolean(data.viewerAccountId);
+  const [state, setState] = useState(() => ({ data, item: data.item, log: createOfferPatchLog(itemId) }));
+  const log = state.log.itemId === itemId ? state.log : createOfferPatchLog(itemId);
+  const item = state.data === data ? state.item : data.item;
+  if (state.data !== data) setState({ data, item, log });
+  const start = log.startOf(data);
+  const end = useSyncExternalStore(log.subscribe, log.endIndex, () => 0);
+
+  useLayoutEffect(() => {
+    if (!itemId) return;
+    activeOfferPatchLogs.add(log);
+    return () => {
+      activeOfferPatchLogs.delete(log);
+    };
+  }, [itemId, log]);
+
+  useLayoutEffect(() => {
+    log.commit(start);
+  }, [data, log, start]);
+
+  useEffect(() => {
+    if (!itemId) return;
+    const subscription = subscribeRealtimePatches({
+      topics: discoveryRealtimeRouteTopics.itemDetail(itemId).topics,
+      onPatch: (patch) => {
+        const offerChanges = patch.changes.filter((change) => change.entity === "discovery.buyerOffer");
+        const otherChanges = patch.changes.filter((change) => change.entity !== "discovery.buyerOffer");
+        if (otherChanges.length > 0) {
+          setState((current) =>
+            current.log === log
+              ? { ...current, item: applyDiscoveryItemPatch(current.item, { ...patch, changes: otherChanges }) }
+              : current,
+          );
+        }
+        if (offerChanges.length > 0) log.append({ ...patch, changes: offerChanges });
+        // Public patches do not carry the seller's account-scoped terms.
+        if (hasViewer && offerChanges.some((change) => change.op === "upsert")) reload();
+      },
+      onSyncRequired: reload,
+    });
+    return () => subscription.close();
+  }, [hasViewer, itemId, log, reload]);
+
+  return log.replay(item, start, end);
+}
+
+function DiscoveryItemDetailView({
   data,
   actionData,
+  realtimeItem,
 }: {
   data: DiscoveryItemDetailRouteData;
   actionData: DiscoveryItemDetailActionData;
+  realtimeItem: DiscoveryItemRealtimeSnapshot | null;
 }) {
-  const revalidateForRealtimeSync = useDiscoveryRealtimeRevalidation();
   const actionErrorMessage = getActionErrorMessage(actionData);
-  const realtimeItem = useRealtimePatchedSnapshot({
-    initialSnapshot: data.item,
-    snapshotKey: JSON.stringify(data.item),
-    topics: data.item ? discoveryRealtimeRouteTopics.itemDetail(data.item.catalog_item_id).topics : [],
-    applyPatch: applyDiscoveryItemPatch,
-    onSyncRequired: revalidateForRealtimeSync,
-  });
   const productJsonLd = realtimeItem
     ? buildItemDetailProductJsonLd({ item: realtimeItem, canonicalUrl: data.canonicalUrl })
     : null;
@@ -209,6 +337,10 @@ function DiscoveryItemDetailRealtimeView({
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: serializeJsonLd(breadcrumbJsonLd) }} />
       ) : null}
       <ItemDetailPage
+        key={[
+          data.item?.market_listings.map((listing) => listing.listing_id).join("|") ?? "",
+          data.item?.offer_demand_matches.map((offer) => offer.offer_id).join("|") ?? "",
+        ].join("\n")}
         data={realtimeItem}
         similarItems={data.similarItems}
         accountOfferMatches={data.accountOfferMatches}

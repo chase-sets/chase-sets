@@ -11,8 +11,9 @@ import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { realtimeOutboxSchemaSql } from "@chase-sets/platform-runtime/realtime";
 import { module as discoveryModule } from "../../index";
+import { createDiscoveryServices } from "../runtime-support/services";
 import { buildDiscoveryMarketProjectionHandlers } from "./projection";
-import { getDiscoveryPublicListingBySlug } from "./queries";
+import { getDiscoveryPublicListingById, getDiscoveryPublicListingBySlug } from "./queries";
 import {
   getDiscoveryItemDetail,
   getDiscoveryItemDetailSellerOverlay,
@@ -72,58 +73,123 @@ describeDb("Discovery Listing and Offer visibility parity on Postgres", () => {
     if (pool) await closeMultiContextTestPools({ discovery: pool });
   });
 
+  it("old schedule, disable and enable facts never write buyer Offer standing", async () => {
+    const subscriptions = discoveryModule.buildSubscriptions!(createDiscoveryServices(pool)).filter(
+      (sub) => sub.sourceContextName === "marketplace",
+    );
+    const date = "2030-01-01T00:00:00.000Z";
+    const accountId = "acc_active";
+    for (const [version, suffix, data] of [
+      [1, "away-window-scheduled", { accountId, startsAt: date, endsAt: null, reasonCategory: "travel" }],
+      [2, "disabled", { accountId, reasonCategory: "travel", availableAgainOn: null }],
+      [3, "enabled", { accountId, enabledAt: date }],
+    ] as const) {
+      const type = `marketplace.seller-listing-availability.${suffix}`;
+      for (const sub of subscriptions.filter((sub) => sub.eventTypes?.includes(type))) {
+        await sub.handlers[type]?.(
+          buildTransportEvent(type, data, {
+            streamId: `marketplace.seller-listing-availability-${accountId}`,
+            streamVersion: version,
+            globalPosition: String(version),
+          }),
+        );
+      }
+      expect((await pool.query("SELECT * FROM discovery_buyer_offer_standing")).rows).toEqual([]);
+      expect(await getDiscoveryPublicListingBySlug(pool, "active")).toMatchObject({
+        seller_listing_availability_status: suffix === "disabled" ? "unavailable" : "available",
+      });
+      expect(Boolean(await getDiscoveryPublicListingById(pool, "lst_active"))).toBe(suffix !== "disabled");
+    }
+  });
+
   it.each([
-    ["active", true],
-    ["suspended", false],
-    ["closed", false],
-    ["missing", false],
-  ] as const)("runs every buyer Offer read and Listing counterpart for %s mirrors", async (slug, visible) => {
-    const buyerAccountId = slug === "missing" ? "acc_missing" : `acc_${slug}`;
-    await pool.query(
-      `INSERT INTO discovery_offer_demand_matches
+    ["active", true, true],
+    ["suspended", false, false],
+    ["closed", false, false],
+    ["missing", false, false],
+    ["away", false, true],
+  ] as const)(
+    "runs every buyer Offer read and Listing counterpart for %s mirrors",
+    async (slug, visible, listingVisible) => {
+      const buyerAccountId = slug === "missing" ? "acc_missing" : `acc_${slug}`;
+      await pool.query(
+        `INSERT INTO discovery_offer_demand_matches
         (offer_id, buyer_account_id, catalog_catalog_item_id, product_id, item_title, price_amount, price_currency_code,
          offer_stream_version, quantity_requested, status, selected_options)
        VALUES ($1, $2, 'cat_one', 'cat_one::', 'Item', '8.00', 'USD', 1, 1, 'submitted',
          '[{"dimensionId":"finish","optionId":"foil"}]'::jsonb)`,
-      [`off_${slug}`, buyerAccountId],
-    );
-    const detail = await getDiscoveryItemDetail(pool, "item-one");
-    const overlay = await getDiscoveryItemDetailSellerOverlay(pool, {
-      accountId: "acc_active",
-      catalogItemId: "cat_one",
-    });
-    const search = await searchDiscoveryItems(
-      pool,
-      {
-        marketActivity: "offers",
-        dimensionFilters: [{ dimensionId: "finish", optionId: "foil" }],
-        includeTotal: true,
-      },
-      { loadFacets: true },
-    );
-    expect(detail?.offer_demand_matches.map((row) => row.offer_id)).toEqual(visible ? [`off_${slug}`] : []);
-    expect(overlay.accountOfferMatches.map((row) => row.offer_id)).toEqual(visible ? [`off_${slug}`] : []);
-    expect(search.total).toBe(visible ? 1 : 0);
-    expect(
-      search.facets.find((group) => group.id === "finish")?.values.find((value) => value.id === "foil")?.count ?? 0,
-    ).toBe(visible ? 1 : 0);
-    expect(Boolean(await getDiscoveryPublicListingBySlug(pool, slug))).toBe(visible);
-    const handlers = buildDiscoveryMarketProjectionHandlers(pool);
-    if (slug === "active") {
-      await handlers["identity.account.suspended"]!(
-        buildTransportEvent(
-          "identity.account.suspended",
-          {},
-          {
-            id: "evt_suspend",
-            streamId: "identity.account-acc_active",
-            streamVersion: 2,
-            globalPosition: "2",
-            timing: { occurredAt: "2026-10-17T00:00:02.000Z", recordedAt: "2026-10-17T00:00:02.000Z" },
-          },
-        ),
+        [`off_${slug}`, buyerAccountId],
       );
-      expect(await getDiscoveryPublicListingBySlug(pool, "active")).toBeNull();
-    }
-  });
+      const subscriptions = discoveryModule.buildSubscriptions!(createDiscoveryServices(pool));
+      const standing = subscriptions.find((sub) => sub.projectionName === "discovery.offer-standing-projection")!;
+      if (slug === "away") {
+        await pool.query(`INSERT INTO discovery_market_accounts (account_id, seller_slug, status)
+        VALUES ('acc_away', 'away', 'active');
+        UPDATE discovery_market_listings SET listing_slug = 'away', account_id = 'acc_away' WHERE listing_id = 'lst_active'`);
+        const apply = async (suffix: string, version: number) => {
+          const type = `marketplace.seller-listing-availability.${suffix}`;
+          expect(standing.eventTypes).toContain(type);
+          await standing.handlers[type]!(
+            buildTransportEvent(
+              type,
+              { accountId: buyerAccountId },
+              {
+                streamId: `marketplace.seller-listing-availability-${buyerAccountId}`,
+                streamVersion: version,
+                globalPosition: String(version),
+              },
+            ),
+          );
+        };
+        await apply("offers-disabled", 3);
+        await apply("offers-enabled", 2);
+        expect((await pool.query("SELECT * FROM discovery_buyer_offer_standing")).rows).toEqual([
+          { account_id: "acc_away", away_stream_version: 3, offers_away: true },
+        ]);
+        expect(
+          (
+            await pool.query<{ payload_json: string }>("SELECT payload_json FROM realtime_projection_outbox")
+          ).rows.flatMap((row) => JSON.parse(row.payload_json).changes),
+        ).toContainEqual(expect.objectContaining({ op: "remove", entity: "discovery.buyerOffer", id: "off_away" }));
+      }
+      const detail = await getDiscoveryItemDetail(pool, "item-one");
+      const overlay = await getDiscoveryItemDetailSellerOverlay(pool, {
+        accountId: "acc_active",
+        catalogItemId: "cat_one",
+      });
+      const search = await searchDiscoveryItems(
+        pool,
+        {
+          marketActivity: "offers",
+          dimensionFilters: [{ dimensionId: "finish", optionId: "foil" }],
+          includeTotal: true,
+        },
+        { loadFacets: true },
+      );
+      expect(detail?.offer_demand_matches.map((row) => row.offer_id)).toEqual(visible ? [`off_${slug}`] : []);
+      expect(overlay.accountOfferMatches.map((row) => row.offer_id)).toEqual(visible ? [`off_${slug}`] : []);
+      expect(search.total).toBe(visible ? 1 : 0);
+      expect(
+        search.facets.find((group) => group.id === "finish")?.values.find((value) => value.id === "foil")?.count ?? 0,
+      ).toBe(visible ? 1 : 0);
+      expect(Boolean(await getDiscoveryPublicListingBySlug(pool, slug))).toBe(listingVisible);
+      const handlers = buildDiscoveryMarketProjectionHandlers(pool);
+      if (slug === "active") {
+        await handlers["identity.account.suspended"]!(
+          buildTransportEvent(
+            "identity.account.suspended",
+            {},
+            {
+              id: "evt_suspend",
+              streamId: "identity.account-acc_active",
+              streamVersion: 2,
+              globalPosition: "2",
+              timing: { occurredAt: "2026-10-17T00:00:02.000Z", recordedAt: "2026-10-17T00:00:02.000Z" },
+            },
+          ),
+        );
+        expect(await getDiscoveryPublicListingBySlug(pool, "active")).toBeNull();
+      }
+    },
+  );
 });

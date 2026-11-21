@@ -210,12 +210,14 @@ A **Lock-Breaking Mutation** requires a new Listing identity and current Commerc
 
 ## Seller Listing Availability
 
-**Seller Listing Availability** is the account-wide Marketplace overlay that controls whether an account's active listings can create new seller commitments.
+**Seller Listing Availability** is the account-wide Marketplace overlay that records time away for Listings and Offers independently.
 
 Notes:
 
 - Seller Listing Availability is owned by Marketplace.
 - Turning it off does not mutate individual Listing Status values.
+- Offers away hides submitted Offers from sellers and prevents acceptance of those Offers, without changing Offer Status. The buyer still sees them on Submitted Offers.
+- Offers-only away does not hide the account's Listings or prevent the account from accepting other buyers' Offers.
 - While off, active listings are hidden from buyer browse and purchase flows, direct listing URLs remain reachable as unavailable, and Offer Acceptance is disabled.
 - Existing carts, checkout sessions, orders, payments, fulfillment, and account buying ability are not changed by this overlay.
 - `availableAgainAt` is the authoritative Resume Instant: an optional timestamp asserted to be after the disable time, captured client-side from the seller's own local timezone. It is the only field an automated resume sweep may act on.
@@ -224,9 +226,13 @@ Notes:
 - Enabling records `enabledBy`: `"seller"` for an explicit seller action, `"scheduled"` for an automated resume. Events recorded before this field existed read back as `"seller"`.
 - Disabling records `disabledBy`: `"seller"` for an explicit seller action, `"scheduled"` for the Away Window start sweep consuming its own pending window. Events recorded before this field existed read back as `"seller"`.
 
+## Away Scope
+
+**Away Scope** is what Away covers: Listings, Offers, or Listings and Offers. Each covered side keeps its own reason, provenance, and optional Resume Instant. A seller can replace the scope; internal disables never restore the other side.
+
 ## Resume Instant
 
-The **Resume Instant** is the authoritative point in time when a Seller Listing Availability away period ends and listings become eligible to resume, recorded as `availableAgainAt` on the disabling fact.
+The **Resume Instant** is the authoritative point in time when a covered side becomes eligible to return, recorded as `availableAgainAt` on its disabling fact.
 
 Notes:
 
@@ -272,7 +278,7 @@ An **Open Order** is an order that has been created and is neither cancelled nor
 
 ## Away Window
 
-An **Away Window** is a seller-scheduled future away period on Seller Listing Availability: a start instant and an optional end instant, set in advance so listings disable and resume automatically without a same-day manual action.
+An **Away Window** is a seller-scheduled future away period on Seller Listing Availability. It records a scope, a start instant and an optional end instant, so the covered sides disable and resume automatically. Old windows without a scope cover Listings only.
 
 Notes:
 

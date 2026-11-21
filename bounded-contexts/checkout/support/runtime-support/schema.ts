@@ -13,6 +13,7 @@ import {
   checkoutSellerAccountReviewsSchemaSql,
 } from "../../features/cart/integrations/reputation/reputation-schema";
 import { checkoutCartSchemaMigrations, checkoutCartSchemaSql } from "../../features/cart/read-model/schema";
+import { checkoutBuyerOfferStandingSchemaSql } from "../../features/sell-list/integrations/marketplace/offer-standing";
 import {
   checkoutSellListSchemaMigrations,
   checkoutSellListSchemaSql,
@@ -36,6 +37,7 @@ export const checkoutSchemaSql = [
   checkoutSellerAccountReviewsSchemaSql,
   checkoutCartSchemaSql,
   checkoutSellListSchemaSql,
+  checkoutBuyerOfferStandingSchemaSql,
   checkoutPaymentAffordanceSchemaSql,
   checkoutPaymentSummarySchemaSql,
   checkoutSessionSchemaSql,

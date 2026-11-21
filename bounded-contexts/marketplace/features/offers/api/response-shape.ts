@@ -66,3 +66,11 @@ export function publicOfferListResponse<T extends object>(response: { items: rea
     total: response.total,
   };
 }
+
+/** Buyer-private standing belongs only on the owner's views and subscription. */
+export function submittedOfferResponse<T extends object>(offer: T & { offers_away?: boolean }) {
+  return {
+    ...omitPrivateOfferResponseFields(offer),
+    ...(typeof offer.offers_away === "boolean" ? { offers_away: offer.offers_away } : {}),
+  };
+}
