@@ -48,19 +48,18 @@ test.describe("marketplace buyer purchase journey", () => {
       }
       await expect(page).toHaveURL(searchResults, { timeout: 1_000 });
     }).toPass({ timeout: 20_000 });
-    const detailPath = `${marketplaceBrowserE2eSeedContract.itemDetail.routePath}?market=buy`;
-    // The card's primary action sits above the full-card details link on narrow results.
-    const result = page
-      .getByRole("link", { name: "Add product to Buy Cart", exact: true })
-      .and(page.locator(`a[href="${detailPath}"]`));
-    await expect(result).toBeVisible();
     const searchSuggestions = page.getByRole("listbox", { name: "Search marketplace" });
     if (await searchSuggestions.isVisible()) {
       await search.press("Escape");
     }
     await expect(searchSuggestions).toBeHidden();
+
+    const detailPath = marketplaceBrowserE2eSeedContract.itemDetail.routePath;
+    const result = page.locator(`article > a[href="${detailPath}"]`);
+    await expect(result).toBeVisible();
     await expectNoHorizontalOverflow("Search results");
-    await result.tap();
+    // Tap the media side of the full-card link, away from overlapping commerce controls.
+    await result.tap({ position: { x: 24, y: 24 } });
     await expect(page).toHaveURL(new URL(detailPath, page.url()).href);
 
     const buy = page.getByTestId("product-detail-mobile-dock").getByRole("button", { name: "Buy" });
@@ -109,7 +108,12 @@ test.describe("marketplace buyer purchase journey", () => {
     await expect(checkout).toBeVisible();
     await checkout.tap();
     await expect(page).toHaveURL(/\/checkout\/buy\/session\/[^/?]+/);
-    await expect(page.getByText("Payment review comes next", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Checkout", exact: true })).toBeVisible();
+    const orderSummary = page.locator("details").filter({ has: page.locator("summary").getByText("Order summary") });
+    const openSummary = orderSummary.locator("summary");
+    await expect(openSummary).toBeVisible();
+    await openSummary.tap();
+    await expect(orderSummary.getByText("Charizard", { exact: true })).toBeVisible();
     await expectNoHorizontalOverflow("Payment review");
   });
 

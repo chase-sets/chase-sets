@@ -521,12 +521,10 @@ describe("item detail Buy now entry key", () => {
 
     await user.click(dialog.getByRole("button", { name: /^Selected product/ }));
     mocks.getItemDetail.mockResolvedValue(item({ subtitle: "Fresh catalog snapshot" }));
-    await user.click(dialog.getByRole("button", { name: "Add product to Buy Cart" }));
+    await act(async () => user.click(dialog.getByRole("button", { name: "Add product to Buy Cart" })));
 
-    await waitFor(() =>
-      expect(within(page.container).getAllByText("Fresh catalog snapshot").length).toBeGreaterThan(0),
-    );
     expect(mocks.addCartLine).toHaveBeenCalledTimes(1);
+    expect(within(page.container).getAllByText("Fresh catalog snapshot").length).toBeGreaterThan(0);
     const openDialog = within(screen.getByRole("dialog"));
     expect(openDialog.getByRole("link", { name: "View buy cart" }).getAttribute("href")).toBe("/account/cart");
     await user.click(openDialog.getByRole("button", { name: "Close" }));
