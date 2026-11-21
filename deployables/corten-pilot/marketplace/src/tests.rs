@@ -14036,7 +14036,8 @@ fn compiled_stand(controls: &Value) -> Value {
     }
     let mut body = json!({ "name": controls["name"], "scope": controls["scope"], "excludedListingIds": [],
       "maxChangesPerDay": 250, "rules": rules });
-    let source = json!({ "kind": "preset", "preset": controls["preset"], "knob": controls["knob"], "ageDays": age.unwrap_or(45) });
+    let source =
+        json!({ "kind": "preset", "preset": controls["preset"], "knob": controls["knob"], "ageDays": age.unwrap_or(45) });
     crate::repricing_body::bind(&mut body, source);
     body
 }
@@ -15050,7 +15051,8 @@ async fn the_editor_previews_the_compiled_preset_and_activates_only_its_own_prev
     );
     let calls = pricing_calls(&pilot);
     // Pricing compiles the preset's controls, and the dry run is of the body it answered.
-    let (_, _, asked) = calls.iter().find(|(m, p, _)| *m == Method::POST && p.ends_with("/presets/compile")).expect("the compile");
+    let (_, _, asked) =
+        calls.iter().find(|(m, p, _)| *m == Method::POST && p.ends_with("/presets/compile")).expect("the compile");
     let asked = serde_json::from_str::<Value>(asked).unwrap();
     assert_eq!(
         asked,

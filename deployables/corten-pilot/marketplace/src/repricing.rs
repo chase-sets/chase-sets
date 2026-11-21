@@ -55,8 +55,8 @@ use serde_json::{Value, json};
 
 use crate::{
     api::{
-        ApiError, ConfigurationReceipt, Configured, PRICING_CONTEXT, PricingRefusal, RepricingCalls as _, RepricingCategory,
-        PresetControls, RepricingDryRun, RepricingHalt, RepricingPolicyRow, RepricingPrerequisites, RepricingScope,
+        ApiError, ConfigurationReceipt, Configured, PRICING_CONTEXT, PresetControls, PricingRefusal, RepricingCalls as _,
+        RepricingCategory, RepricingDryRun, RepricingHalt, RepricingPolicyRow, RepricingPrerequisites, RepricingScope,
         RepricingScopePreview, RepricingTrace, repricing_dry_run_events,
     },
     app::{PRICING_MANAGE, Shared, sign_in, url},
@@ -142,8 +142,7 @@ impl Editor {
             value.as_deref().and_then(|v| v.trim().parse::<f64>().ok()).filter(|v| v.is_finite()).map(|v| v.round() as i64)
         };
         let first = Preset::offered(facts).next().unwrap_or(Preset::Track);
-        let preset =
-            input.preset.as_deref().and_then(Preset::read).filter(|p| facts.preset(p.key()).is_some()).unwrap_or(first);
+        let preset = input.preset.as_deref().and_then(Preset::read).filter(|p| facts.preset(p.key()).is_some()).unwrap_or(first);
         let changed = input.from.as_deref().and_then(Preset::read).is_some_and(|from| from != preset);
         let controls = preset.controls(facts);
         let held = |range: crate::api::PresetRange, value: &Option<String>| {

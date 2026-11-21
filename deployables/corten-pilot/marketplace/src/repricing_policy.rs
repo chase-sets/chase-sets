@@ -42,8 +42,8 @@ use serde_json::{Value, json};
 
 use crate::{
     api::{
-        ApiError, ConfigurationReceipt, Configured, PricingRefusal, RepricingActivityPage, RepricingCalls as _, RepricingCategory,
-        RepricingHalt, RepricingPolicy, RepricingPrerequisites, RepricingScopePreview,
+        ApiError, ConfigurationReceipt, Configured, PricingRefusal, RepricingActivityPage, RepricingCalls as _,
+        RepricingCategory, RepricingHalt, RepricingPolicy, RepricingPrerequisites, RepricingScopePreview,
     },
     app::{PRICING_MANAGE, Shared, read_failed, sign_in, url},
     auth::{PricingManager, Viewer},
