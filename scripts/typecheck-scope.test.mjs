@@ -43,7 +43,7 @@ function fixture() {
         },
       },
       include: ["**/*.ts"],
-      exclude: ["**/*.test.ts", ".tmp/**"],
+      exclude: ["**/*.test.ts", "**/node_modules/**", ".tmp/**"],
     },
     "tsconfig.strict.json": { extends: "./tsconfig.json", include: ["contracts/**/*.ts"] },
     "tsconfig.tests.json": { extends: "./tsconfig.json", include: ["**/*.test.ts", "ambient.d.ts"], exclude: [] },
@@ -57,8 +57,10 @@ function fixture() {
     "deployables/dynamic/index.test.ts": 'export const lazy = () => import("../../packages/relative");',
     "packages/unrelated/index.ts": "export const sentinel = 1;",
     "packages/unrelated/globals.ts":
-      "export {}; declare /* preserve this augmentation */ global { interface FixtureGlobal { id: number } }",
+      "export {}; declare /* preserve this augmentation */ global { interface FixtureGlobal { id: typeof TypeReferenceValue } }",
     "packages/unrelated/module.ts": "declare module FixtureModule { export interface Settings { id: number } }",
+    "packages/unrelated/type-reference.ts": '/// <reference types="fixture-global" />\nexport {};',
+    "packages/unrelated/node_modules/@types/fixture-global/index.d.ts": "declare const TypeReferenceValue: number;",
   }))
     write(root, file, content);
   return root;
@@ -75,10 +77,7 @@ function parseConfig(root, config) {
 
 function diagnostics(root, config) {
   const { fileNames, options } = parseConfig(root, config);
-  return ts
-    .getPreEmitDiagnostics(ts.createProgram(fileNames, options))
-    .filter(({ file }) => file && normalizeRelative(file.fileName, root) === "packages/relative/index.ts")
-    .map(({ code }) => code);
+  return ts.getPreEmitDiagnostics(ts.createProgram(fileNames, options)).map(({ code }) => code);
 }
 
 it("affected graph retains reverse consumers and explicit fallback", async () => {
@@ -97,6 +96,7 @@ it("affected graph retains reverse consumers and explicit fallback", async () =>
   const [source] = plan.programs;
   expect(source.roots).toContain("packages/unrelated/globals.ts");
   expect(source.roots).toContain("packages/unrelated/module.ts");
+  expect(source.roots).toContain("packages/unrelated/type-reference.ts");
   expect(source.roots).not.toContain("packages/unrelated/index.ts");
   const fullDiagnostics = diagnostics(root, "tsconfig.json");
   expect(fullDiagnostics).toEqual([2322]);
@@ -227,7 +227,10 @@ it("scoped programs are subsets of the full gate programs", () => {
       if (/\.d\.ts$/.test(file) || !prefixes.some((prefix) => file.startsWith(prefix))) return true;
       if (!augmentations.has(file)) {
         const text = readFileSync(path.join(repoRoot, file), "utf8");
-        augmentations.set(file, /\bdeclare(?:\s|\/\*[\s\S]*?\*\/)+(?:global|module)\b/.test(text));
+        augmentations.set(
+          file,
+          /\bdeclare(?:\s|\/\*[\s\S]*?\*\/)+(?:global|module)\b|^\/\/\/ <reference (?:types|lib|path)=/m.test(text),
+        );
       }
       return augmentations.get(file);
     });

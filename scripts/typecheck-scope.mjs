@@ -136,7 +136,7 @@ function readGraph(root, fullPrograms, ownerOf) {
   const cache = ts.createModuleResolutionCache(root, canonical, options);
   const forward = new Map();
   const reverse = new Map();
-  const globalDeclarations = new Set();
+  const globalContextRoots = new Set();
   const ambientPatterns = [];
   const unresolved = [];
   const pending = new Set(fullPrograms.flatMap(({ roots }) => roots));
@@ -154,7 +154,20 @@ function readGraph(root, fullPrograms, ownerOf) {
     const owner = ownerOf(file);
     forward.set(file, new Set());
     const content = readFileSync(absolute, "utf8");
-    if (hasGlobalDeclaration(file, content)) globalDeclarations.add(file);
+    const { importedFiles, referencedFiles, typeReferenceDirectives, libReferenceDirectives } = ts.preProcessFile(
+      content,
+      true,
+      true,
+    );
+    // References can supply globals to other roots even when nothing imports the referring file.
+    if (
+      hasGlobalDeclaration(file, content) ||
+      referencedFiles.length ||
+      typeReferenceDirectives.length ||
+      libReferenceDirectives.length
+    ) {
+      globalContextRoots.add(file);
+    }
     if (fullRoots.has(file) && declarationPath.test(file)) {
       const source = ts.createSourceFile(file, content, ts.ScriptTarget.Latest);
       if (!ts.isExternalModule(source)) {
@@ -165,7 +178,6 @@ function readGraph(root, fullPrograms, ownerOf) {
         }
       }
     }
-    const { importedFiles, referencedFiles } = ts.preProcessFile(content, true, true);
     for (const specifier of new Set(importedFiles.map(({ fileName }) => fileName))) {
       const { resolvedModule } = ts.resolveModuleName(specifier, absolute, options, ts.sys, cache);
       if (resolvedModule) {
@@ -201,7 +213,7 @@ function readGraph(root, fullPrograms, ownerOf) {
     if (!workspaceFiles.has(owner)) workspaceFiles.set(owner, []);
     workspaceFiles.get(owner).push(file);
   }
-  return { forward, reverse, workspaceFiles, globalDeclarations, fallbacks };
+  return { forward, reverse, workspaceFiles, globalContextRoots, fallbacks };
 }
 
 function reverseConsumers(direct, { reverse, workspaceFiles }, ownerOf) {
@@ -282,7 +294,7 @@ export function createTypecheckScope({ root = repoRoot } = {}) {
         const selected = roots.filter((file) => {
           const owner = ownerOf(file);
           return (
-            !owner || affected.has(owner) || declarationPath.test(file) || currentGraph.globalDeclarations.has(file)
+            !owner || affected.has(owner) || declarationPath.test(file) || currentGraph.globalContextRoots.has(file)
           );
         });
         return selected.length ? [{ name, config, roots: selected }] : [];
