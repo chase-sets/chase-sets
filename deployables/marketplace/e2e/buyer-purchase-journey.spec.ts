@@ -48,14 +48,17 @@ test.describe("marketplace buyer purchase journey", () => {
       }
       await expect(page).toHaveURL(searchResults, { timeout: 1_000 });
     }).toPass({ timeout: 20_000 });
-    await expect(page.getByRole("listbox", { name: "Search marketplace" })).toBeHidden();
-
     const detailPath = `${marketplaceBrowserE2eSeedContract.itemDetail.routePath}?market=buy`;
     // The card's primary action sits above the full-card details link on narrow results.
     const result = page
       .getByRole("link", { name: "Add product to Buy Cart", exact: true })
       .and(page.locator(`a[href="${detailPath}"]`));
     await expect(result).toBeVisible();
+    const searchSuggestions = page.getByRole("listbox", { name: "Search marketplace" });
+    if (await searchSuggestions.isVisible()) {
+      await search.press("Escape");
+    }
+    await expect(searchSuggestions).toBeHidden();
     await expectNoHorizontalOverflow("Search results");
     await result.tap();
     await expect(page).toHaveURL(new URL(detailPath, page.url()).href);
