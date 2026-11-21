@@ -278,8 +278,41 @@ describe("SellerDeskHomePage", () => {
     const banner = document.querySelector("[data-seller-desk-degraded]");
     expectJumpToSales();
     expect(banner).not.toBeNull();
-    expect(within(banner as HTMLElement).getByText(/Blocked payouts/)).toBeTruthy();
+    expect(within(banner as HTMLElement).getByText("Blocked payouts: temporarily unavailable")).toBeTruthy();
+    // The source's own reason is internal and never reaches the seller.
+    expect(banner?.textContent).not.toContain("settlement unavailable");
     // The healthy listing signal still renders.
     expect(screen.getByText("Listing Blastoise needs attention (draft)")).toBeTruthy();
+  });
+
+  it("lists both orders awaiting shipment and never shows a source's internal reason", async () => {
+    const shipment = (entityId: string, reference: string, dueAt: string) =>
+      buildSellerAttentionItem({
+        source: "fulfillment-ship-by",
+        entityId,
+        severity: "warning",
+        summary: { code: "ship-by-soon", params: { reference, dueAt } },
+        observedAt: "2026-07-13T00:00:00.000Z",
+        dueAt,
+      });
+    const queue = await aggregateSellerAttentionQueue(
+      [
+        staticSource("fulfillment-ship-by", [
+          shipment("shp-1", "SHP-1", "2026-07-15T00:00:00.000Z"),
+          shipment("shp-2", "SHP-2", "2026-07-15T06:00:00.000Z"),
+        ]),
+      ],
+      CONTEXT,
+    );
+
+    const { container } = render(<SellerDeskHomePage queue={queue} kpis={KPIS} />);
+
+    expect(
+      Array.from(container.querySelectorAll("[data-seller-desk-item]")).map((row) =>
+        row.getAttribute("data-seller-desk-item"),
+      ),
+    ).toEqual(["fulfillment-ship-by:shp-1", "fulfillment-ship-by:shp-2"]);
+    expect(container.querySelector("[data-seller-desk-degraded]")).toBeNull();
+    expect(container.textContent).not.toContain("non-conforming");
   });
 });
