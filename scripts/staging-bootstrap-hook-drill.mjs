@@ -336,7 +336,7 @@ async function discoverSchemaMigrationsRelation(client) {
 let client;
 try {
   // The worker pod's canonical verify-full URL is admitted (or refused) by the
-  // runtime seam, which binds its CA to the #7512 pod mount.
+  // runtime seam, which binds its CA to the pod CA mount.
   client = createPgClient(databaseUrl, { application_name: "staging-bootstrap-hook-drill-held-lock" });
   await client.connect();
   try {

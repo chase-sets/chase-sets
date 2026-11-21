@@ -133,7 +133,7 @@ locals {
     if contains(keys(local.wake_listener_database_users), context_name) && contains(keys(local.context_databases), context_name)
   ]
   # Managed URLs carry the same verify-full pod trust query the runtime Secret
-  # renderer emits (#7313); a require-mode URL would skip certificate validation.
+  # renderer emits; a require-mode URL would skip certificate validation.
   managed_postgres_pod_url_query = "sslmode=verify-full&sslrootcert=${urlencode("/var/run/secrets/chase-sets/managed-postgres/ca.crt")}&uselibpqcompat=true"
 
   worker_listener_database_urls = (local.is_production || local.is_staging) ? {

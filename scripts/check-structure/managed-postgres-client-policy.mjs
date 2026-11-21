@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Managed Postgres client policy inventory (#7313).
+// Managed Postgres client policy inventory.
 //
 // Every tracked file (`git ls-files -z --cached`) is read once, assigned a
 // grammar from its extension or content, scanned for Postgres client shapes and

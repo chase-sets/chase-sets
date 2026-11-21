@@ -22,7 +22,7 @@ export type PgPoolActiveClientErrorEvent = Readonly<{
   error: unknown;
 }>;
 
-// The pod CA path is the #7512 Secret volume (mount directory + item path) that
+// The pod CA path is the managed Postgres CA Secret volume (mount directory + item path) that
 // scripts/render-platform-helm-values.mjs mounts into every database-bearing pod.
 export const managedPostgresPodCaPath = "/var/run/secrets/chase-sets/managed-postgres/ca.crt";
 // Runner clients read the CA the canonical export action writes under RUNNER_TEMP
@@ -94,7 +94,7 @@ const untrustedCertificateCodes = new Set([
 
 /**
  * The CA path a managed client may use, fixed by the trusted execution context:
- * a Kubernetes pod reads the #7512 mount; an admitted GitHub runner reads the
+ * a Kubernetes pod reads the CA Secret mount; an admitted GitHub runner reads the
  * canonical export under RUNNER_TEMP. Preview, ambiguous or unknown contexts
  * have no managed trust location. URL, PGSSLROOTCERT, MANAGED_POSTGRES_CA_PATH
  * and caller options never select it.

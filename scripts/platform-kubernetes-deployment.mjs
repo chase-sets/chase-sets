@@ -1896,10 +1896,10 @@ export function verifyStalePendingRecoveryTransition(admissionHistory, observedH
   return resulting;
 }
 
-// Runtime Secret URLs are verify-full with the #7512 pod CA path (#7313), and
+// Runtime Secret URLs are verify-full with the pod CA mount path, and
 // a Helm rollback restores workloads but not that Secret. A rollback target
 // must therefore be a revision that mounts the CA into every database-bearing
-// workload: the #7512 mount floor. Older revisions are refused.
+// workload: the CA mount floor. Older revisions are refused.
 export function assertManagedPostgresCaMountFloor(values, label) {
   const digest = values?.global?.managedPostgresCaSha256;
   if (typeof digest !== "string" || !/^[0-9a-f]{64}$/.test(digest)) {

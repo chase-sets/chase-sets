@@ -12,7 +12,7 @@ import {
 } from "./render-platform-helm-values.mjs";
 import { managedPostgresConnectionUrl } from "./terraform-state-database-urls.mjs";
 
-// Pods read the cluster CA from the #7512 Secret volume; every staging and
+// Pods read the cluster CA from the managed Postgres CA Secret volume; every staging and
 // production runtime URL names exactly this file as its verify-full sslrootcert.
 export const managedPostgresPodCaPath = posix.join(managedPostgresCaMountPath, managedPostgresCaItemPath);
 
