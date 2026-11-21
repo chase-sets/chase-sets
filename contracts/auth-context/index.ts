@@ -479,7 +479,7 @@ export function permissionAwaitsEmailVerification(
 
 /** Sign-in return marker naming the withheld action a member verifies their email to finish. */
 export const EMAIL_VERIFICATION_RETURN_PARAMETER = "verifyEmail";
-export type EmailVerificationPurpose = "cancel-purchase" | "pay-checkout";
+export type EmailVerificationPurpose = "cancel-purchase" | "pay-checkout" | "pay-purchase";
 
 /**
  * The marketplace sign-in path that emails a magic link and, once the link is
