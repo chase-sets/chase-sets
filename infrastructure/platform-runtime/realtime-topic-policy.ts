@@ -14,7 +14,8 @@ export type RealtimeTopicPolicy = Readonly<{
 export type RealtimeTopicMatch = Readonly<{
   family: string;
   accountId?: string;
-  permission?: "listings.view" | "offers.view";
+  /** Every listed permission is required to subscribe. */
+  permissions?: readonly ("listings.view" | "offers.view")[];
 }>;
 
 export type RealtimeTopicPolicyManifest = Readonly<{
@@ -61,11 +62,15 @@ export const marketplaceRealtimeTopicPolicyManifest = {
         }
 
         if (segments[2] === "listings") {
-          return { family: "account", accountId: segments[1], permission: "listings.view" };
+          return { family: "account", accountId: segments[1], permissions: ["listings.view"] };
         }
 
         if (segments[2] === "offers") {
-          return { family: "account", accountId: segments[1], permission: "offers.view" };
+          return { family: "account", accountId: segments[1], permissions: ["offers.view"] };
+        }
+
+        if (segments[2] === "offer-matches") {
+          return { family: "account", accountId: segments[1], permissions: ["offers.view", "listings.view"] };
         }
 
         return null;
@@ -74,8 +79,8 @@ export const marketplaceRealtimeTopicPolicyManifest = {
         Boolean(
           actor &&
           match.accountId === actor.accountId &&
-          match.permission &&
-          actor.permissions.includes(match.permission),
+          match.permissions?.length &&
+          match.permissions.every((permission) => actor.permissions.includes(permission)),
         ),
     },
   ],

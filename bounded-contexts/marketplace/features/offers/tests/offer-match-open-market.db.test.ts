@@ -15,6 +15,7 @@ import {
   listOfferMatches,
   listOfferMatchesForSellers,
 } from "../read-model/queries";
+import { omitPrivateOfferResponseFields } from "../api/response-shape";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for Offer Match DB tests in CI.");
@@ -102,15 +103,26 @@ describeDb("open-market Offer Matches on Postgres", () => {
     "seller_available_quantity",
     "seller_listing_availability_status",
   ];
+  const acceptedListingKeys = ["accepted_listing_id", "listing_evidence_policy_hash", "listing_evidence_snapshot_hash"];
+  /** Real rows and their wire shape: an inventory Match omits every Listing key instead of sending it as null. */
+  function expectNoListingKeys(row: object | null | undefined) {
+    const wire = JSON.parse(JSON.stringify(omitPrivateOfferResponseFields(row!))) as object;
+    for (const key of [...listingOnlyKeys, ...acceptedListingKeys]) {
+      expect(row).not.toHaveProperty(key);
+      expect(wire).not.toHaveProperty(key);
+    }
+  }
   async function expectVisibleEverywhere(offerId: string, seller: string, listingId: string) {
     const db = pools.marketplace;
     const list = await listOfferMatches(db, { sellerAccountId: seller, canFulfill: true });
     expect(list.items.map((row) => row.offer_id)).toContain(offerId);
-    expect(await getOfferMatch(db, offerId, seller)).toMatchObject({
+    const detail = await getOfferMatch(db, offerId, seller);
+    expect(detail).toMatchObject({
       offer_id: offerId,
       fill_source: "listing",
       can_fulfill: true,
     });
+    for (const key of acceptedListingKeys) expect(detail).toHaveProperty(key, null);
     expect(await getOfferMatchForListing(db, offerId, seller, listingId)).toMatchObject({ offer_id: offerId });
     expect((await listOfferMatchesForSellers(db, offerId, [seller])).get(seller)).toMatchObject({
       offer_id: offerId,
@@ -228,12 +240,13 @@ describeDb("open-market Offer Matches on Postgres", () => {
         buyer_display_name: "Buyer",
       }),
     ]);
-    for (const key of listingOnlyKeys) expect(list.items[0]).not.toHaveProperty(key);
-    expect(await getOfferMatch(db, "off_one", "acc_seller_d")).toMatchObject({ inventory_item_id: "inv_d_a" });
-    expect((await listOfferMatchesForSellers(db, "off_one", ["acc_seller_d"])).get("acc_seller_d")).toMatchObject({
-      fill_source: "inventory",
-      inventory_item_id: "inv_d_a",
-    });
+    expectNoListingKeys(list.items[0]);
+    const detail = await getOfferMatch(db, "off_one", "acc_seller_d");
+    expect(detail).toMatchObject({ inventory_item_id: "inv_d_a" });
+    expectNoListingKeys(detail);
+    const batchRow = (await listOfferMatchesForSellers(db, "off_one", ["acc_seller_d"])).get("acc_seller_d");
+    expect(batchRow).toMatchObject({ fill_source: "inventory", inventory_item_id: "inv_d_a" });
+    expectNoListingKeys(batchRow);
     expect((await listOfferMatches(db, { sellerAccountId: "acc_seller_d", canFulfill: true })).items).toEqual([]);
 
     await seedHold("acc_seller_d", "inv_d_a", 1);

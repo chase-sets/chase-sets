@@ -56,7 +56,8 @@ export function MarketplaceOfferMatchListPage({
   errorMessage?: string | null;
 }) {
   const declineAttemptIdFor = useOfferMatchDeclineAttemptIds();
-  const listingItems = data.items.filter((item): item is ListingOfferMatchListItem => item.fill_source === "listing");
+  // Rows from an API that predates fill_source are Listing Matches, as the table renders them.
+  const listingItems = data.items.filter((item): item is ListingOfferMatchListItem => item.fill_source !== "inventory");
   const fulfillableCount = data.items.filter((item) => item.can_fulfill).length;
   const atOrAboveAskCount = listingItems.filter((item) => item.offer_to_listing_price_bps >= 10000).length;
   const bestMatchPercentage = listingItems.length

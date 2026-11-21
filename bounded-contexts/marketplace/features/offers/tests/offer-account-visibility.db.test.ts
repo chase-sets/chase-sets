@@ -92,11 +92,15 @@ describeDb("Offer account visibility on Postgres", () => {
        WHERE projection_name = 'marketplace-offer-projection'
        ORDER BY outbox_id ASC`,
     );
-    return result.rows.map((row) => ({
-      sourceGlobalPosition: row.source_global_position,
-      patchKey: row.patch_key,
-      changes: (JSON.parse(row.payload_json) as { changes: unknown[] }).changes,
-    }));
+    return result.rows.map((row) => {
+      const payload = JSON.parse(row.payload_json) as { topics: string[]; changes: unknown[] };
+      return {
+        sourceGlobalPosition: row.source_global_position,
+        patchKey: row.patch_key,
+        topics: payload.topics,
+        changes: payload.changes,
+      };
+    });
   }
 
   it("fences stale and duplicate Offers standing on public reads, seller Match patches and the buyer badge", async () => {
@@ -268,6 +272,7 @@ describeDb("Offer account visibility on Postgres", () => {
       expect.arrayContaining([
         expect.objectContaining({
           patchKey: "offer-match:off_two:acc_stock",
+          topics: ["account:acc_stock:offer-matches"],
           changes: [
             expect.objectContaining({
               op: "upsert",
@@ -277,8 +282,13 @@ describeDb("Offer account visibility on Postgres", () => {
             }),
           ],
         }),
+        expect.objectContaining({ patchKey: "offer:off_two", topics: ["account:acc_buyer:offers"] }),
       ]),
     );
+    const offersTopicEntities = (await patchRows())
+      .filter((row) => row.topics.some((topic) => topic.endsWith(":offers")))
+      .flatMap((row) => row.changes.map((change) => (change as { entity: string }).entity));
+    expect(offersTopicEntities).not.toContain("marketplace.offerMatch");
 
     const subscription = marketplaceModule.buildSubscriptions!(createMarketplaceServices(pool)).find(
       (candidate) => candidate.subscriptionName === "marketplace.self-listing-projection",

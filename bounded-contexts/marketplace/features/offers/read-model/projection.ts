@@ -101,7 +101,7 @@ async function emitOfferPatch(
   await recordRealtimeProjectionPatches(
     db,
     [...sellerAccountIds].map((sellerAccountId) => {
-      const topic = marketplaceRealtimeTopics.accountOffers(sellerAccountId);
+      const topic = marketplaceRealtimeTopics.accountOfferMatches(sellerAccountId);
       const offerMatch = offerMatchesBySellerAccountId.get(sellerAccountId);
       return {
         sourceGlobalPosition: event.globalPosition,

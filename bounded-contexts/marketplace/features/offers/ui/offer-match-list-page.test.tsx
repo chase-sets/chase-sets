@@ -430,4 +430,20 @@ describe("inventory Offer Matches on the list", () => {
     expect(markup).toContain('name="offerId" value="off_1"');
     expect(markup).not.toContain('name="offerId" value="off_inventory"');
   });
+
+  it("counts rows from an API without fill_source in the Listing metrics", () => {
+    const { fill_source: _fillSource, ...legacyRow } = { ...offer, offer_to_listing_price_bps: 12000 };
+    render(
+      <MarketplaceOfferMatchListPage
+        data={{
+          items: [
+            legacyRow as OfferMatchListItem,
+            inventoryOffer({ offer_id: "off_inventory", inventory_item_id: "inv_1" }),
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByText("At or above ask").previousElementSibling?.textContent).toBe("1");
+  });
 });

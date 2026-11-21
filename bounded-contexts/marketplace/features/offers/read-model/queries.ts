@@ -53,8 +53,14 @@ export type ListingOfferMatchRow = MarketplaceOfferListRow &
     can_fulfill: boolean;
   }>;
 
+/** Acceptance keys that name a Listing; an inventory Match has no Listing, so it omits them rather than sending null. */
+type AcceptedListingOfferField =
+  | "accepted_listing_id"
+  | "listing_evidence_policy_hash"
+  | "listing_evidence_snapshot_hash";
+
 /** A Match the seller could fill from inventory; it carries no Listing keys and cannot be accepted until listed. */
-export type InventoryOfferMatchRow = MarketplaceOfferListRow &
+export type InventoryOfferMatchRow = Omit<MarketplaceOfferListRow, AcceptedListingOfferField> &
   OfferMatchBuyerFields &
   Readonly<{
     fill_source: "inventory";
@@ -410,9 +416,15 @@ function mapOfferMatchRow(row: OfferMatchPageRow): OfferMatchRow {
     seller_listing_availability_status: _sellerListingAvailabilityStatus,
     ...offerColumns
   } = row;
+  const {
+    accepted_listing_id: _acceptedListingId,
+    listing_evidence_policy_hash: _listingEvidencePolicyHash,
+    listing_evidence_snapshot_hash: _listingEvidenceSnapshotHash,
+    ...offer
+  } = mapOfferRow(offerColumns);
 
   return {
-    ...mapOfferRow(offerColumns),
+    ...offer,
     buyer_display_name: row.buyer_display_name,
     buyer_average_rating: row.buyer_average_rating,
     buyer_review_count: row.buyer_review_count,

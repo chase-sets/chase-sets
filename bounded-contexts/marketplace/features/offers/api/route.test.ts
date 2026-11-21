@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
+import { resolveAgentOAuthScopedPermissions } from "@chase-sets/auth-context";
 import type { MarketplaceApiEnv } from "../../../api";
 import { createAccountOfferMatchRoutes, createAccountSubmittedOfferRoutes } from "./route";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
@@ -132,7 +133,7 @@ describe("marketplace offer routes", () => {
         accountId: "acc_seller",
         membershipId: "mbr_1",
         roleKey: "viewer",
-        permissions: ["offers.view"],
+        permissions: ["offers.view", "listings.view"],
       },
       services,
     });
@@ -452,7 +453,7 @@ describe("marketplace offer routes", () => {
         accountId: "acc_seller",
         membershipId: "mbr_1",
         roleKey: "owner",
-        permissions: ["offers.view"],
+        permissions: ["offers.view", "listings.view"],
       },
       services,
     });
@@ -468,6 +469,81 @@ describe("marketplace offer routes", () => {
     expect(body).not.toHaveProperty("shipping_destination_snapshot");
     expect(JSON.stringify(body)).not.toContain("alternate-contact@example.test");
     expect(services.getOfferMatch).toHaveBeenCalledWith("off_1", "acc_seller");
+  });
+
+  describe("Offer Match reads show the seller's Listings and inventory", () => {
+    const sellerWith = (permissions: readonly string[]) => ({
+      sessionId: "ses_1",
+      tenantId: "tnt_identity",
+      userId: "usr_1",
+      accountId: "acc_seller",
+      membershipId: "mbr_1",
+      roleKey: "owner",
+      permissions: [...permissions],
+    });
+    const inventoryMatch = {
+      ...submittedOfferWithPrivateDestination,
+      offer_id: "off_1",
+      buyer_account_id: "acc_buyer",
+      status: "submitted",
+      buyer_display_name: "Buyer One",
+      fill_source: "inventory",
+      can_fulfill: false,
+      inventory_item_id: "inv_private",
+      inventory_available_quantity: 7,
+    };
+    const matchReads = ["/account/offers/matches", "/account/offers/matches/off_1"];
+
+    it.each(matchReads)("refuses %s to an offers:read-only agent grant", async (path) => {
+      const permissions = resolveAgentOAuthScopedPermissions(
+        ["offers:read"],
+        ["offers.view", "listings.view", "inventory.view"],
+      );
+      expect(permissions).toEqual(["offers.view"]);
+      const services = createServices();
+      vi.mocked(services.listOfferMatches).mockResolvedValue({ items: [inventoryMatch], total: 1 } as never);
+      vi.mocked(services.getOfferMatch).mockResolvedValue(inventoryMatch as never);
+      const app = buildApp({ actor: sellerWith(permissions), services });
+
+      const response = await app.fetch(new Request(`http://marketplace.test${path}`));
+
+      expect(response.status).toBe(403);
+      const body = await response.text();
+      expect(JSON.parse(body)).toMatchObject({ error: { code: "authorization_forbidden" } });
+      expect(body).not.toContain("inv_private");
+      expect(services.listOfferMatches).not.toHaveBeenCalled();
+      expect(services.getOfferMatch).not.toHaveBeenCalled();
+    });
+
+    it.each(matchReads)("refuses %s without offers.view", async (path) => {
+      const services = createServices();
+      const app = buildApp({ actor: sellerWith(["listings.view"]), services });
+
+      const response = await app.fetch(new Request(`http://marketplace.test${path}`));
+
+      expect(response.status).toBe(403);
+      expect(services.listOfferMatches).not.toHaveBeenCalled();
+      expect(services.getOfferMatch).not.toHaveBeenCalled();
+    });
+
+    it.each(matchReads)("serves %s with offers:read and listings:read", async (path) => {
+      const permissions = resolveAgentOAuthScopedPermissions(
+        ["offers:read", "listings:read"],
+        ["offers.view", "listings.view"],
+      );
+      expect(permissions).toEqual(["offers.view", "listings.view"]);
+      const services = createServices();
+      vi.mocked(services.listOfferMatches).mockResolvedValue({ items: [inventoryMatch], total: 1 } as never);
+      vi.mocked(services.getOfferMatch).mockResolvedValue(inventoryMatch as never);
+      const app = buildApp({ actor: sellerWith(permissions), services });
+
+      const response = await app.fetch(new Request(`http://marketplace.test${path}`));
+
+      expect(response.status).toBe(200);
+      const body = await response.text();
+      expect(body).toContain('"inventory_item_id":"inv_private"');
+      expect(body).not.toContain("alternate-contact@example.test");
+    });
   });
 
   it.each(["managed_offer_held", "managed_offer_refresh_required", "managed_offer_conflict"] as const)(

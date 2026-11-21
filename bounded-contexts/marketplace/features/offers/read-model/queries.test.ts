@@ -7,6 +7,7 @@ import {
   listOfferMatches,
   listOfferMatchesForSellers,
 } from "./queries";
+import { omitPrivateOfferResponseFields } from "../api/response-shape";
 
 describe("marketplace offer read-model queries", () => {
   it("keeps seller-private Decline but removes controls from all four Match reads", async () => {
@@ -229,6 +230,10 @@ describe("Offer Matches from inventory", () => {
     quantity_requested: 1,
     status: "submitted",
     accepted_seller_account_id: null,
+    accepted_listing_id: null,
+    accepted_inventory_item_id: null,
+    listing_evidence_policy_hash: null,
+    listing_evidence_snapshot_hash: null,
     accepted_at: null,
     created_at: "2026-11-21T00:00:00.000Z",
     updated_at: "2026-11-21T00:00:00.000Z",
@@ -237,6 +242,7 @@ describe("Offer Matches from inventory", () => {
     buyer_review_count: 0,
     managed_status: null,
   };
+  const acceptedListingKeys = ["accepted_listing_id", "listing_evidence_policy_hash", "listing_evidence_snapshot_hash"];
   const listingOnlyKeys = [
     "listing_id",
     "listing_price_amount",
@@ -261,19 +267,17 @@ describe("Offer Matches from inventory", () => {
   }
 
   it("omits Listing keys from inventory rows and inventory keys from Listing rows", async () => {
-    const inventory = await getOfferMatch(
-      dbReturning({
-        ...offerColumns,
-        ...nullListingColumns,
-        offer_to_listing_price_bps: 0,
-        seller_listing_availability_status: "available",
-        fill_source: "inventory",
-        inventory_item_id: "inv_one",
-        inventory_available_quantity: 2,
-      }),
-      "off_one",
-      "acc_seller",
-    );
+    const inventoryDb = dbReturning({
+      ...offerColumns,
+      ...nullListingColumns,
+      seller_account_id: "acc_seller",
+      offer_to_listing_price_bps: 0,
+      seller_listing_availability_status: "available",
+      fill_source: "inventory",
+      inventory_item_id: "inv_one",
+      inventory_available_quantity: 2,
+    });
+    const inventory = await getOfferMatch(inventoryDb, "off_one", "acc_seller");
     expect(inventory).toMatchObject({
       fill_source: "inventory",
       can_fulfill: false,
@@ -282,8 +286,19 @@ describe("Offer Matches from inventory", () => {
       buyer_display_name: "Buyer",
       managed_status: null,
     });
-    for (const key of listingOnlyKeys) expect(Object.keys(inventory!)).not.toContain(key);
-    expect(JSON.parse(JSON.stringify(inventory))).not.toHaveProperty("listing_id");
+    const inventoryReads = [
+      inventory,
+      (await listOfferMatches(inventoryDb, { sellerAccountId: "acc_seller" })).items[0],
+      (await listOfferMatchesForSellers(inventoryDb, "off_one", ["acc_seller"])).get("acc_seller"),
+    ];
+    for (const row of inventoryReads) {
+      expect(row).toMatchObject({ fill_source: "inventory", inventory_item_id: "inv_one" });
+      const wire = JSON.parse(JSON.stringify(omitPrivateOfferResponseFields(row!))) as object;
+      for (const key of [...listingOnlyKeys, ...acceptedListingKeys]) {
+        expect(Object.keys(row!)).not.toContain(key);
+        expect(wire).not.toHaveProperty(key);
+      }
+    }
 
     const listing = await getOfferMatch(
       dbReturning({
@@ -308,6 +323,8 @@ describe("Offer Matches from inventory", () => {
     expect(listing).toMatchObject({ fill_source: "listing", listing_id: "lst_one", can_fulfill: true });
     expect(Object.keys(listing!)).not.toContain("inventory_item_id");
     expect(Object.keys(listing!)).not.toContain("inventory_available_quantity");
+    const listingWire = JSON.parse(JSON.stringify(omitPrivateOfferResponseFields(listing!))) as object;
+    for (const key of acceptedListingKeys) expect(listingWire).toHaveProperty(key, null);
   });
 
   it("shares one Match source rule across the three Match reads and keeps acceptance Listing-only", async () => {
