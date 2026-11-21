@@ -98,7 +98,7 @@ export function SellerDeskHomePage({ queue, kpis }: SellerDeskHomePageProps) {
                     <Text key={source.id} size="sm" tone="inherit">
                       {t("marketplace.features.sellerDesk.degraded.source", {
                         source: attentionSourceLabel(source.id),
-                        reason: source.reason ?? t("marketplace.features.sellerDesk.degraded.reasonUnknown"),
+                        reason: t("marketplace.features.sellerDesk.degraded.reasonUnknown"),
                       })}
                     </Text>
                   ))}

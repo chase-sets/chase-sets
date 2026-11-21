@@ -38,6 +38,7 @@ export const paymentsEnglishTranslations = {
   "payments.features.payments.api.runtime.provider.event.received": "Provider event received",
   "payments.features.payments.api.runtime.provider.operation.submitted": "Provider operation submitted",
   "payments.routes.marketplace.accountPayment.account": "Account: ",
+  "payments.routes.marketplace.accountPayment.account.options": "Account options for this order",
   "payments.routes.marketplace.accountPayment.back.to.purchases": "Back to purchases",
   "payments.routes.marketplace.accountPayment.checkout.confidence": "Checkout confidence",
   "payments.routes.marketplace.accountPayment.confirm.payment": "Confirm payment",
@@ -292,7 +293,6 @@ export const paymentsEnglishTranslations = {
   "payments.routes.marketplace.accountPayment.return.to.cart": "Return to buy cart",
   "payments.routes.marketplace.accountPayment.return.to.your.cart.to.review":
     "Return to your Buy Cart to review your items and start checkout again. If you already completed payment, contact support with the email address you used at checkout.",
-  "payments.routes.marketplace.accountPayment.save.this.order": "Save this order",
   "payments.routes.marketplace.accountPayment.this.checkout.payment.link.is.no.longer":
     "This checkout payment link is no longer valid. Your payment was not charged from this link.",
   "payments.routes.marketplace.accountPayment.this.payment.cannot.be.retried": "This payment cannot be retried.",

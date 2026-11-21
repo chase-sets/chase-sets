@@ -16,7 +16,7 @@ import {
   TextInput,
 } from "@chase-sets/design-system";
 import { createPasskeyCredential, type PasskeyCredentialPayload } from "../../../support/ui-support/passkey-browser";
-import type { GuestCheckoutClaimContext, GuestClaimActionData } from "./guest-payment-claim-contracts";
+import type { BoundGuestClaimContact, GuestClaimActionData } from "./guest-payment-claim-contracts";
 function PasskeyHiddenFields({ payload }: { payload: PasskeyCredentialPayload | null }) {
   return (
     <>
@@ -31,12 +31,12 @@ function PasskeyHiddenFields({ payload }: { payload: PasskeyCredentialPayload | 
 
 export function GuestClaimPrompt({
   actionData,
-  claimContext,
+  claimContact,
 }: {
   actionData: GuestClaimActionData | undefined;
-  claimContext: GuestCheckoutClaimContext;
+  claimContact: BoundGuestClaimContact;
 }) {
-  const [displayName, setDisplayName] = useState(claimContext.contactName);
+  const [displayName, setDisplayName] = useState(claimContact.contactName);
   const [passkeyPayload, setPasskeyPayload] = useState<PasskeyCredentialPayload | null>(null);
   const [passkeyError, setPasskeyError] = useState<string | null>(null);
   const [isCreatingPasskey, setIsCreatingPasskey] = useState(false);
@@ -54,7 +54,7 @@ export function GuestClaimPrompt({
     try {
       const payload = await createPasskeyCredential({
         displayName,
-        email: claimContext.contactEmail,
+        email: claimContact.contactEmail,
       });
       setPasskeyPayload(payload);
       window.setTimeout(() => passkeyFormRef.current?.requestSubmit(), 0);
@@ -84,6 +84,15 @@ export function GuestClaimPrompt({
               tone="danger"
             />
           ) : null}
+          {actionData && "status" in actionData ? (
+            <Banner
+              title={t("auth.routes.marketplace.guestPaymentClaim.claim.link.sent.title")}
+              description={t("auth.routes.marketplace.guestPaymentClaim.claim.link.sent", {
+                email: claimContact.contactEmail,
+              })}
+              tone="success"
+            />
+          ) : null}
           {passkeyError ? (
             <Banner
               title={t("auth.routes.marketplace.guestPaymentClaim.passkey.unavailable")}
@@ -94,7 +103,7 @@ export function GuestClaimPrompt({
           <RouterForm ref={passkeyFormRef} method="post" onSubmit={handlePasskeySubmit} spacing="none">
             <Stack gap={3}>
               <HiddenInput type="hidden" name="intent" value="claim-passkey" readOnly />
-              <HiddenInput type="hidden" name="email" value={claimContext.contactEmail} readOnly />
+              <HiddenInput type="hidden" name="email" value={claimContact.contactEmail} readOnly />
               <PasskeyHiddenFields payload={passkeyPayload} />
               <TextInput
                 label={t("auth.routes.marketplace.guestPaymentClaim.contact.name")}
@@ -106,7 +115,7 @@ export function GuestClaimPrompt({
               <Inset>
                 <Text size="sm" tone="secondary">
                   {t("auth.routes.marketplace.guestPaymentClaim.we.will.save.this.order.to", {
-                    email: claimContext.contactEmail,
+                    email: claimContact.contactEmail,
                   })}
                 </Text>
               </Inset>
@@ -122,7 +131,7 @@ export function GuestClaimPrompt({
               <HiddenInput type="hidden" name="displayName" value={displayName} readOnly />
               <Text size="sm" tone="secondary">
                 {t("auth.routes.marketplace.guestPaymentClaim.send.a.claim.link.to", {
-                  email: claimContext.contactEmail,
+                  email: claimContact.contactEmail,
                 })}
               </Text>
               <Button type="submit" tone="secondary" leadingIcon="message">

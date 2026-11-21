@@ -1,6 +1,7 @@
 //! Save this order's page (Auth's `GuestPaymentClaimRoute` and its `GuestClaimPrompt`, see
-//! `guest_claim`), drawn with the payment page's stylesheet: the title, then for a paid order whose
-//! contact Auth reports bound, the prompt. It says why the last claim did not save the order, then
+//! `guest_claim`), drawn with the payment page's stylesheet: the title (Save this order only where the
+//! prompt can save it, otherwise the order's account options), then for a paid order whose contact
+//! Auth reports bound, the prompt. It says why the last claim did not save the order, then
 //! offers a passkey for the contact's email (the shared passkey step creates it and sends the form
 //! with its credential; without a script the form comes without one and the page says so) and a
 //! claim link emailed there, saying once sent that it was, with the token to type where the page
@@ -26,7 +27,7 @@ pub fn GuestClaimPage<'a>(t: PaymentMsg, p: Pilot, screen: &'a ClaimScreen) -> i
             <header class={Header}>
                 <div class={Tight}>
                     <p class={Eyebrow}>{t.secure_checkout()}</p>
-                    <h1 class={Title}>{t.save_this_order()}</h1>
+                    <h1 class={Title}>{title(t, screen)}</h1>
                 </div>
             </header>
             if let Some(sent) = &screen.sent {
@@ -39,7 +40,7 @@ pub fn GuestClaimPage<'a>(t: PaymentMsg, p: Pilot, screen: &'a ClaimScreen) -> i
                     <Prompt t={t} id={&screen.payment_id} claim={claim} error={screen.error.as_deref()} />
                 }
                 None => {
-                    <section class={Section} aria-label={t.save_this_order()}>
+                    <section class={Section} aria-label={t.account_options()}>
                         <div class={Card}>
                             if let Some(error) = &screen.error {
                                 <div class={Banner} data-tone="danger" role="alert">
@@ -57,6 +58,11 @@ pub fn GuestClaimPage<'a>(t: PaymentMsg, p: Pilot, screen: &'a ClaimScreen) -> i
             }
         </div>
     }
+}
+
+/// The page's title: Save this order only where the prompt is drawn, since nothing else here can.
+pub(crate) fn title(t: PaymentMsg, screen: &ClaimScreen) -> &'static str {
+    if screen.claim.is_some() { t.save_this_order() } else { t.account_options() }
 }
 
 /// The prompt (`GuestClaimPrompt`): why the last claim did not save the order, the passkey form,
