@@ -1188,6 +1188,7 @@
   "obs.reject": "Reject",
   "obs.reject.reason": "Reject Reason",
   "obs.rejected": "Source observation rejected",
+  "obs.review_refused": "The review was not saved",
   "obs.rejected.reason": "Rejected during review.",
   "obs.release.date": "Release Date",
   "obs.expansion": "Expansion",

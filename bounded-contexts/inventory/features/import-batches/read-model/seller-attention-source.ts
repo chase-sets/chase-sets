@@ -71,7 +71,7 @@ export function createImportResolutionAttentionSourceFromReadModel(db: PgQueryab
         `SELECT
            batch.batch_id,
            COUNT(*)::integer AS unresolved_count,
-           MIN(row.updated_at) AS observed_at
+           to_char(MIN(row.updated_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS observed_at
          FROM inventory_import_batches AS batch
          INNER JOIN inventory_import_batch_rows AS row
            ON row.batch_id = batch.batch_id

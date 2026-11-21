@@ -49,6 +49,7 @@ import {
 import {
   collectProjectionOperationRunners,
   collectWorkerRunners,
+  createProjectionGroupRunnerName,
   createWorkerHost,
   createWorkerRunnerLoop,
   type WorkerHostRuntime,
@@ -74,7 +75,10 @@ import {
 } from "@chase-sets/platform-runtime/projection-interest-index";
 import { listProjectionInterestOverridesForPushMigration } from "@chase-sets/platform-runtime/projection-push-migration";
 import { listSourceContextWakeRelayConfigs } from "@chase-sets/platform-runtime/source-context-wake-registry";
-import { createPostgresWorkSignalStore } from "@chase-sets/platform-runtime/work-signal-store";
+import {
+  createPostgresWorkSignalStore,
+  type ProjectionWakeIntentWorkSignalPayload,
+} from "@chase-sets/platform-runtime/work-signal-store";
 import {
   collectRetentionSweepTargets,
   createRetentionSweepLogObserver,
@@ -163,9 +167,60 @@ const evidenceWindowCorrelation =
     ? createEvidenceWindowCorrelation(createPostgresEvidenceWindowRegistration(pools.control))
     : createNullEvidenceWindowCorrelation();
 let projectionWakeRunnerLoop: WorkerRunnerLoop | null = null;
+let projectionRunnerLoop: WorkerRunnerLoop | null = null;
+const projectionWakeKey = createProjectionGroupRunnerName;
+const requestProjectionWakeLeaseHandoff = (event: Partial<ProjectionWakeIntentWorkSignalPayload>): void => {
+  const maxAttempts = Math.max(1, Math.floor(config.projectionWakeScheduler.maxAttempts));
+  const remainingAttempts =
+    typeof event.attemptCount === "number" &&
+    Number.isInteger(event.attemptCount) &&
+    event.attemptCount >= 0 &&
+    event.attemptCount < maxAttempts;
+  const liveClaimUntil =
+    event.state === "claimed" && typeof event.claimedUntil === "string" ? Date.parse(event.claimedUntil) : NaN;
+  if (
+    event.priorityLane !== "hot" ||
+    event.outcome === "blocked" ||
+    typeof event.targetContextName !== "string" ||
+    typeof event.projectionName !== "string" ||
+    typeof event.wakeIntentId !== "string" ||
+    event.wakeIntentId.length === 0 ||
+    typeof event.requiredPosition !== "string" ||
+    !/^\d+$/.test(event.requiredPosition) ||
+    typeof event.expiresAt !== "string" ||
+    !(
+      event.state === "queued" ||
+      (event.state === "claimed" && liveClaimUntil > Date.now()) ||
+      ((event.state === "claimed" || event.state === "failed") && remainingAttempts)
+    )
+  ) {
+    return;
+  }
+  const runnerName = projectionWakeKey({
+    targetContextName: event.targetContextName,
+    projectionName: event.projectionName,
+  });
+  if (enabledProjectionWakeRunnerNames.has(runnerName)) {
+    const expiresAt = Date.parse(event.expiresAt);
+    projectionRunnerLoop?.requestProjectionWakeLeaseHandoff(
+      runnerName,
+      { wakeIntentId: event.wakeIntentId, requiredPosition: BigInt(event.requiredPosition) },
+      event.state === "claimed" && !remainingAttempts ? Math.min(expiresAt, liveClaimUntil) : expiresAt,
+    );
+  }
+};
+const completeProjectionWakeLeaseHandoff = (event: ProjectionWakeIntentLifecycleEvent): void => {
+  if (event.priorityLane === "hot") {
+    projectionRunnerLoop?.completeProjectionWakeLeaseHandoff(projectionWakeKey(event), {
+      wakeIntentId: event.wakeIntentId,
+      requiredPosition: BigInt(event.requiredPosition),
+    });
+  }
+};
 const workSignalStore = createPostgresWorkSignalStore(pools.workSignal, {
   observer: {
     projectionWakeIntentEnqueued: (event) => {
+      requestProjectionWakeLeaseHandoff(event);
       recordProjectionWakeIntentEnqueueOutcome({
         outcome: event.outcome,
         sourceContextName: event.sourceContextName,
@@ -488,6 +543,11 @@ const projectionWakeDisabledProjectionKeys = new Set(config.projectionWakeDisabl
 const projectionWakeSchedulerProjectionGroups = runtime.projectionGroups.filter(
   (group) => !projectionWakeDisabledProjectionKeys.has(`${group.targetContextName}:${group.projectionName}`),
 );
+const enabledProjectionWakeRunnerNames = new Set(
+  config.projectionWakeScheduler.enabled && config.projectionWakeScheduler.hotLaneRunnerCount > 0
+    ? projectionWakeSchedulerProjectionGroups.map(projectionWakeKey)
+    : [],
+);
 if (projectionWakeDisabledProjectionKeys.size > 0) {
   const hostedProjectionKeys = new Set(
     runtime.projectionGroups.map((group) => `${group.targetContextName}:${group.projectionName}`),
@@ -519,7 +579,9 @@ const projectionWakeRunners = config.projectionWakeScheduler.enabled
       retryBackoffBaseMs: config.projectionWakeScheduler.retryBackoffBaseMs,
       retryBackoffMaxMs: config.projectionWakeScheduler.retryBackoffMaxMs,
       maxAttempts: config.projectionWakeScheduler.maxAttempts,
-      observer: createProjectionWakeSchedulerLogObserver(),
+      observer: createProjectionWakeSchedulerLogObserver({
+        onTerminal: completeProjectionWakeLeaseHandoff,
+      }),
     })
   : [];
 const runnerGroups = [
@@ -565,6 +627,7 @@ const runnerLoops = runnerGroups.map((group) => ({
     },
   }),
 }));
+projectionRunnerLoop = runnerLoops.find((runnerLoop) => runnerLoop.name === "projections")?.loop ?? null;
 projectionWakeRunnerLoop = runnerLoops.find((runnerLoop) => runnerLoop.name === "wakes")?.loop ?? null;
 const projectionWakePushDispatcher =
   config.projectionWakeScheduler.pushDispatchEnabled && projectionWakeRunnerLoop
@@ -572,6 +635,12 @@ const projectionWakePushDispatcher =
         listenerPool: pools.workSignal,
         listenRetryCooldownMs: config.projectionWakeScheduler.pollIntervalMs,
         listenerObserver: {
+          notificationReceived: (event) => {
+            const envelope = event.notification.envelope;
+            if (envelope?.kind === "projection.wake-intent") {
+              requestProjectionWakeLeaseHandoff(envelope.payload as Partial<ProjectionWakeIntentWorkSignalPayload>);
+            }
+          },
           listenerUnavailable: ({ error }) => {
             logger.warn("Projection wake push dispatcher listener unavailable; relying on wake polling.", {
               type: "projection-wake-push.listener_unavailable",
@@ -1216,7 +1285,11 @@ function createProjectionWakeRelayLogObserver(): ProjectionWakeRelayRuntimeObser
   };
 }
 
-function createProjectionWakeSchedulerLogObserver(): ProjectionWakeSchedulerObserver {
+function createProjectionWakeSchedulerLogObserver(
+  options: Readonly<{
+    onTerminal?: (event: ProjectionWakeIntentLifecycleEvent) => void;
+  }> = {},
+): ProjectionWakeSchedulerObserver {
   const recordIntentOutcome = (
     event: ProjectionWakeIntentLifecycleEvent,
     outcome: ProjectionWakeIntentOutcomeSignal["outcome"],
@@ -1241,6 +1314,9 @@ function createProjectionWakeSchedulerLogObserver(): ProjectionWakeSchedulerObse
         ...event,
       }),
     wakeIntentCompleted: (event) => {
+      if (!event.requeued) {
+        options.onTerminal?.(event);
+      }
       recordIntentOutcome(event, event.outcome === "ran" ? "completed" : "already-satisfied", {
         processingDurationMs: event.processingDurationMs,
         requeued: event.requeued,
@@ -1265,6 +1341,7 @@ function createProjectionWakeSchedulerLogObserver(): ProjectionWakeSchedulerObse
       });
     },
     wakeIntentUnknownTarget: (event) => {
+      options.onTerminal?.(event);
       recordIntentOutcome(event, "unknown-target");
       logger.warn("Projection wake intent targeted an unknown projection group or checkpoint.", {
         type: "projection-wake.intent.unknown_target",
@@ -1279,6 +1356,7 @@ function createProjectionWakeSchedulerLogObserver(): ProjectionWakeSchedulerObse
       });
     },
     wakeIntentAttemptsExhausted: (event) => {
+      options.onTerminal?.(event);
       recordIntentOutcome(event, "attempts-exhausted");
       logger.error("Projection wake intent exhausted its scheduler attempts.", {
         type: "projection-wake.intent.attempts_exhausted",

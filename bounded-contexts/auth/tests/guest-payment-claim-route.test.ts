@@ -58,12 +58,59 @@ describe("guest payment claim route", () => {
       params: { paymentId: "pay_1" },
       context: undefined,
     };
-    expect(await loader(args)).toEqual({ paymentId: "pay_1", claimable: false, guestClaimContext: null });
+    expect(await loader(args)).toEqual({ paymentId: "pay_1", claimable: false, guestClaimContact: null });
     expect(context).not.toHaveBeenCalled();
     mockGetAccountPayment.mockResolvedValue({ status: "captured" });
-    expect(await loader(args)).toMatchObject({ claimable: true, guestClaimContext: { contactName: "Jane" } });
+    expect(await loader(args)).toEqual({
+      paymentId: "pay_1",
+      claimable: true,
+      guestClaimContact: { contactName: "Jane", contactEmail: "jane@example.com" },
+    });
     expect(readClaimability).toHaveBeenCalledTimes(2);
     expect(context).toHaveBeenCalledExactlyOnceWith({ paymentId: "pay_1" });
+  });
+  it.each([
+    ["no email", { contactEmail: null, contactName: "Jane" }],
+    ["no name", { contactEmail: "jane@example.com", contactName: null }],
+    ["a blank name", { contactEmail: "jane@example.com", contactName: "  " }],
+  ])("offers no claim for a contact Auth has not bound (%s)", async (_case, contact) => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockGetAccountPayment.mockResolvedValue({ status: "captured" });
+    mockCreateInternalAuthRequestApiClient.mockReturnValue({
+      getGuestCheckoutClaimContext: vi.fn(async () => ({ accountId: "guest", paymentId: "pay_1", ...contact })),
+    });
+    expect(
+      await loader({
+        request: new Request("https://marketplace.test/checkout/claim/pay_1"),
+        params: { paymentId: "pay_1" },
+        context: undefined,
+      }),
+    ).toEqual({ paymentId: "pay_1", claimable: true, guestClaimContact: null });
+  });
+  it.each([
+    ["limited (429)", Object.assign(new Error("Too many requests."), { status: 429, body: null })],
+    ["unreachable", new TypeError("fetch failed")],
+  ])("still draws the claim page when Auth's claim context is %s, without a claim", async (_case, failure) => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockGetAccountPayment.mockResolvedValue({ status: "captured" });
+    mockCreateInternalAuthRequestApiClient.mockReturnValue({
+      getGuestCheckoutClaimContext: vi.fn(async () => {
+        throw failure;
+      }),
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      expect(
+        await loader({
+          request: new Request("https://marketplace.test/checkout/claim/pay_1"),
+          params: { paymentId: "pay_1" },
+          context: undefined,
+        }),
+      ).toEqual({ paymentId: "pay_1", claimable: true, guestClaimContact: null });
+      expect(warn).toHaveBeenCalledOnce();
+    } finally {
+      warn.mockRestore();
+    }
   });
   it("redirects a non-guest actor before reading payment eligibility", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ roleKey: "owner" });

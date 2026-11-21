@@ -91,9 +91,10 @@ Each context has its own `README.md` and `GLOSSARY.md` where useful. Treat those
 Deployables are thin composition roots. Business behavior should not live in deployables. Every package-backed directory under `deployables/` is listed, including operational services and test harnesses; omissions are intentional only for directories without `package.json`.
 
 - `deployables/admin-web` (`@chase-sets/app-admin-web`): package scripts `build`, `dev`, `start`, `test`, `typecheck`.
+- `deployables/agent-apps` (`@chase-sets/app-agent-apps`): package scripts `build`, `test`, `test:chromium`, `typecheck`.
 - `deployables/marketplace` (`@chase-sets/app-marketplace-web`): package scripts `build`, `dev`, `start`, `test`, `typecheck`.
 - `deployables/marketplace-seed-testing` (`@chase-sets/marketplace-seed-testing`): package scripts `test:db`, `test:db:1`, `test:db:2`, `test:db:3`, `test:db:4`.
-- `deployables/platform-api` (`@chase-sets/app-platform-api`): package scripts `admin-qa-actor-fixtures`, `admin-qa-actor-fixtures:production`, `bootstrap`, `bootstrap:production`, `build`, `dev`, `representative-commerce-state`, `representative-commerce-state:production`, `start`, `start:production`, `test`, `test:db`, `test:db:1`, `test:db:2`, `test:db:3`, `test:fast`, `test:unit`, `test:watch`, `typecheck`.
+- `deployables/platform-api` (`@chase-sets/app-platform-api`): package scripts `admin-qa-actor-fixtures`, `admin-qa-actor-fixtures:production`, `bootstrap`, `bootstrap:production`, `build`, `dev`, `representative-commerce-state`, `representative-commerce-state:production`, `start`, `start:production`, `test`, `test:db`, `test:db:1`, `test:db:2`, `test:db:3`, `test:db:4`, `test:fast`, `test:unit`, `test:watch`, `typecheck`.
 - `deployables/platform-worker` (`@chase-sets/app-platform-worker`): package scripts `bootstrap`, `bootstrap:production`, `build`, `dev`, `dev:ci`, `start`, `start:production`, `test`, `test:db`, `test:fast`, `test:unit`, `test:watch`, `typecheck`.
 - `deployables/public-web` (`@chase-sets/app-public-web`): package scripts `build`, `dev`, `prebuild`, `start`, `test`, `typecheck`.
 - `deployables/tcgplayer-connector-extension` (`@chase-sets/app-tcgplayer-connector-extension`): package scripts `build`, `build:handoff`, `pairing-drill:staging`, `test`, `test:chromium`, `test:watch`, `typecheck`.

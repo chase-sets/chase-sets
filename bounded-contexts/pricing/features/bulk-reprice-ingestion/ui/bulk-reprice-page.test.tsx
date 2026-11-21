@@ -1,10 +1,32 @@
 // @vitest-environment jsdom
 
+import { cleanup, fireEvent, render } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { PricingBulkRepricePage } from "./bulk-reprice-page";
 
 describe("PricingBulkRepricePage", () => {
+  afterEach(cleanup);
+
+  it("keeps one upload attempt per chosen file and starts a new one for each job", () => {
+    const { container, rerender } = render(<PricingBulkRepricePage activeJobId={null} />);
+    const attempt = () => container.querySelector<HTMLInputElement>('input[name="idempotencyKey"]')?.value;
+    const first = attempt();
+    expect(first).toMatch(/^[0-9a-f-]{36}$/);
+
+    rerender(<PricingBulkRepricePage activeJobId={null} errorMessage="Request failed." />);
+    expect(attempt()).toBe(first);
+
+    const file = container.querySelector<HTMLInputElement>('input[name="file"]');
+    fireEvent.change(file!, { target: { files: [new File(["sku,price"], "prices.csv", { type: "text/csv" })] } });
+    const changed = attempt();
+    expect(changed).toMatch(/^[0-9a-f-]{36}$/);
+    expect(changed).not.toBe(first);
+
+    rerender(<PricingBulkRepricePage activeJobId="job_2" />);
+    expect(attempt()).not.toBe(changed);
+  });
+
   it("flattens upload furniture and outlines the populated reprice job entity", () => {
     const html = renderToStaticMarkup(
       <PricingBulkRepricePage
