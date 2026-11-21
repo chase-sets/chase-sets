@@ -1,14 +1,9 @@
 import { t } from "@chase-sets/localization";
-import { useEffect } from "react";
 import type { MetaFunction } from "react-router";
-import { useActionData, useLoaderData, useLocation, useNavigate, useNavigation } from "react-router";
+import { useActionData, useLoaderData, useLocation, useNavigation } from "react-router";
 import { CatalogIntegrationsSurfaceRouteView } from "../../features/source-observations/ui/integrations-surface-route-view";
 import { loader } from "../../support/route-support/admin-integrations/integrations-loader";
 import type { action as integrationsAction } from "../../support/route-support/admin-integrations/integrations-action";
-import {
-  commandRedirectHref,
-  commandResultNeedsRoutableHandoff,
-} from "../../support/route-support/admin-integrations/integrations-command-result";
 
 export { action } from "../../support/route-support/admin-integrations/integrations-action";
 export { loader } from "../../support/route-support/admin-integrations/integrations-loader";
@@ -23,23 +18,15 @@ export const meta: MetaFunction = () => [
 // surface view for the "daily" audience surface. Most run-sync / promote actions
 // stay on this route and return their result as data, so the banner reads the
 // action result (when present). Only queued Promote and Catalog sync jobs use a
-// routable checkpoint; imports render their original enqueue receipt in place.
-// For a routable checkpoint the route replaces the URL with the same redirect href
-// the server action uses. The queued job id lets the loader recover and render the
-// durable promotion outcome on subsequent refreshes.
+// routable checkpoint, which the server action redirects to; imports render their
+// original enqueue receipt in place. The queued job id lets the loader recover and
+// render the durable promotion outcome on subsequent refreshes.
 export default function IntegrationsRoute() {
   const routeData = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof integrationsAction>();
-  const navigate = useNavigate();
   const navigation = useNavigation();
   const location = useLocation();
   const commandFeedback = actionData && "feedback" in actionData ? actionData.feedback : undefined;
-
-  useEffect(() => {
-    if (actionData && "feedback" in actionData && commandResultNeedsRoutableHandoff(actionData)) {
-      void navigate(commandRedirectHref(actionData), { replace: true });
-    }
-  }, [actionData, navigate]);
 
   return (
     <CatalogIntegrationsSurfaceRouteView

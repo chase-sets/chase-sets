@@ -1,7 +1,9 @@
 // Scope Detail (`/catalog/scopes/:id`) composes the daily import-to-promotion
-// journey for its own Scope Record. The working set is the record's hierarchy,
-// so the daily surface read derives it here from the record it reads, and every
-// client sends the page's own address rather than rewriting it into a daily
+// journey for its own Scope Record. The record's hierarchy is the Scope's fixed
+// identity, so the daily surface read derives it here from the record it reads;
+// the provider, unit, profile, language, import scope and product coordinates are
+// selections inside that Scope and pass through from the page's own address.
+// Every client sends that address rather than rewriting it into a daily
 // workbench location.
 
 /** The Scope Record fields a Scope Detail working set is built from. */
@@ -17,13 +19,10 @@ export type CatalogScopeDetailWorkbenchScope = Readonly<{
 
 const DAILY_WORKBENCH_PATH = "/catalog/integrations";
 
-// The working-set keys a Scope Record decides; the address's own values for them
-// are dropped so the record, not the query string, names the scope.
-const SCOPE_QUERY_KEYS = [
-  "providerKey",
-  "unitKey",
-  "importScope",
-  "profileVersion",
+// The hierarchy keys a Scope Record decides; the address's own values for them
+// are dropped so the record, not the query string, names the scope. The import
+// context renders these as fixed on Scope Detail.
+export const CATALOG_SCOPE_RECORD_QUERY_KEYS = [
   "productLineId",
   "productLineName",
   "seriesId",
@@ -47,13 +46,14 @@ export function catalogScopeRecordIdFromPath(pathname: string | null | undefined
 /**
  * The daily workbench location for a Scope Detail address: the record's
  * hierarchy and id, its first language edition unless the address names a
- * language, and every other query value the address carries (jobs, previews,
- * selections, pagination) as it was.
+ * language, and every other query value the address carries (provider, unit,
+ * profile and import-scope selections, jobs, previews, row selections,
+ * pagination) as it was.
  */
 export function catalogScopeDetailDailyLocation(location: URL, scope: CatalogScopeDetailWorkbenchScope): URL {
   const url = new URL(location);
   url.pathname = DAILY_WORKBENCH_PATH;
-  for (const key of SCOPE_QUERY_KEYS) {
+  for (const key of CATALOG_SCOPE_RECORD_QUERY_KEYS) {
     url.searchParams.delete(key);
   }
 

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render as renderUi, screen } from "@testing-library/react";
+import type { ReactElement } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { CatalogScopeBulkReviewActions, partitionCandidates } from "./scope-bulk-review-actions";
 import type {
@@ -9,6 +10,9 @@ import type {
 import { parseCatalogPrimaryWorkbenchRouteContext } from "../../primary-workbench-route-context";
 import { CatalogIntegrationCommandActionProvider } from "./command-action-context";
 import { CATALOG_CONTROL_PLANE_ACTIONS } from "../information-architecture-v2";
+import { DailyCommandOwner } from "../../primary-workbench-test-fixtures";
+
+const render = (ui: ReactElement) => renderUi(ui, { wrapper: DailyCommandOwner });
 
 afterEach(cleanup);
 

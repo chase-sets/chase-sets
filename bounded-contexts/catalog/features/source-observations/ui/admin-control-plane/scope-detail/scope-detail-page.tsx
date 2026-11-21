@@ -18,6 +18,9 @@ import type { CatalogIntegrationsRouteData } from "../../integrations-surface-ro
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../primary-workbench-command-feedback";
 import { CatalogCommandFeedbackBanner } from "../../workbench-shell";
 import { CatalogIntegrationImportToPromotionWorkspace } from "../import-to-promotion/import-to-promotion-workspace";
+import { CatalogIntegrationCommandActionProvider } from "../import-to-promotion/command-action-context";
+import { CatalogImportContextBar } from "../import-to-promotion/import-context-bar";
+import { CATALOG_SCOPE_RECORD_QUERY_KEYS } from "../../../api/admin/scope-detail-workbench-location";
 import {
   CatalogScopeCandidateReviewJobsPanel,
   candidateReviewJobsPageHref,
@@ -74,6 +77,8 @@ export function CatalogScopeDetailPage({
     languageEditionReview: languageEditionsReadModel,
     languageEditionReviewFailed: languageEditionAliasReviewFailed,
   });
+  // A result kept as action data, else the feedback a queued-job redirect carried.
+  const journeyFeedback = commandFeedback ?? journey?.commandFeedback ?? null;
 
   return (
     <Page>
@@ -156,16 +161,26 @@ export function CatalogScopeDetailPage({
               auditEvidence={journey.readModel.auditEvidence}
             />
           ) : null}
-          {commandFeedback ? <CatalogCommandFeedbackBanner feedback={commandFeedback} /> : null}
-          <CatalogIntegrationImportToPromotionWorkspace
-            readModel={journey.readModel}
-            commandFeedback={commandFeedback ?? journey.commandFeedback}
-            deferredImportPreview={journey.deferredImportPreview ?? null}
-            deferredCatalogSyncRun={journey.deferredCatalogSyncRun ?? null}
-            deferredScopeSyncState={journey.deferredScopeSyncState ?? null}
-            commandActionPath={actionHref}
-            showSourceScopeWorkset={false}
-          />
+          {journeyFeedback ? <CatalogCommandFeedbackBanner feedback={journeyFeedback} /> : null}
+          {/* Every selection, workset and command control below targets this
+              Scope: the import context keeps the record's hierarchy fixed and
+              carries the provider/unit/profile choice in the Scope's address. */}
+          <CatalogIntegrationCommandActionProvider actionPath={actionHref}>
+            <CatalogImportContextBar
+              readModel={journey.readModel}
+              deferredSourceOptions={journey.deferredSourceOptions ?? null}
+              recordOwnedFieldNames={CATALOG_SCOPE_RECORD_QUERY_KEYS}
+            />
+            <CatalogIntegrationImportToPromotionWorkspace
+              readModel={journey.readModel}
+              commandFeedback={journeyFeedback}
+              deferredSourceOptions={journey.deferredSourceOptions ?? null}
+              deferredImportPreview={journey.deferredImportPreview ?? null}
+              deferredCatalogSyncRun={journey.deferredCatalogSyncRun ?? null}
+              deferredScopeSyncState={journey.deferredScopeSyncState ?? null}
+              showSourceScopeWorkset
+            />
+          </CatalogIntegrationCommandActionProvider>
         </PageSection>
       ) : null}
 

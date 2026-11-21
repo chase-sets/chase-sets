@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  CATALOG_SCOPE_RECORD_QUERY_KEYS,
   catalogScopeDetailDailyLocation,
   catalogScopeRecordIdFromPath,
   type CatalogScopeDetailWorkbenchScope,
@@ -45,7 +46,37 @@ describe("Scope Detail daily workbench location", () => {
     expect(url.searchParams.get("productLineName")).toBe("pokemon");
     expect(url.searchParams.get("languageCode")).toBe("ja");
     expect(url.searchParams.get("jobId")).toBe("sync_1");
-    expect(url.searchParams.has("providerKey")).toBe(false);
+    expect(url.searchParams.get("providerKey")).toBe("tcgdex");
+  });
+
+  it("carries the provider, unit, import scope and profile selections while the record overrides hierarchy", () => {
+    const selection = {
+      providerKey: "tcgdex",
+      unitKey: "tcgdex:pokemon:card:import",
+      importScope: "en:3:base:base1",
+      profileVersion: "2026.06.04",
+      productId: "synthetic-product",
+    };
+    const address = new URL("https://admin.example/catalog/scopes/scope_1");
+    for (const [key, value] of Object.entries(selection)) address.searchParams.set(key, value);
+    for (const key of CATALOG_SCOPE_RECORD_QUERY_KEYS) address.searchParams.set(key, `submitted-${key}`);
+
+    const series = catalogScopeDetailDailyLocation(
+      address,
+      scope({ scopeRecordId: "scope_1", scopeKind: "series", name: "Scope 1", productLineScopeRecordId: "pl_1" }),
+    );
+
+    for (const [key, value] of Object.entries(selection)) expect(series.searchParams.get(key), key).toBe(value);
+    expect(
+      Object.fromEntries(CATALOG_SCOPE_RECORD_QUERY_KEYS.map((key) => [key, series.searchParams.get(key)])),
+    ).toEqual({
+      productLineId: "pl_1",
+      productLineName: "pokemon",
+      seriesId: "scope_1",
+      seriesName: "Scope 1",
+      expansionId: null,
+      expansionName: null,
+    });
   });
 
   it("defaults to the first recorded language edition and maps every Scope Record kind", () => {

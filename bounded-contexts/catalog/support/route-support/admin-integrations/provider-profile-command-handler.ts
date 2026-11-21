@@ -18,9 +18,9 @@ type Api = ReturnType<typeof createCatalogRequestApiClient>;
 type RouteContext = CatalogIntegrationsCommandResult["context"];
 
 // The provider-setup surface owns profile authoring and validation readiness:
-// cloning a draft, activating a profile, and editing profile sections. These
-// results name the authoring/readiness section they belong to so the surface can
-// route to it; activation is non-destructive but lands on validation readiness.
+// cloning a draft, activating a profile, and editing profile sections. A result
+// names no page: the invoking page's route action (Provider detail) keeps it, and
+// a section edit reports the edited section as `commandSection` feedback.
 export type ProviderProfileCommandIntent =
   | "provider-profile.clone"
   | "provider-profile.edit-section"
@@ -76,7 +76,7 @@ async function cloneProviderProfile(
   const targetProfileVersion = stringValue(formData.get("targetProfileVersion"));
   const targetLifecycle = stringValue(formData.get("targetLifecycle")) ?? "draft";
   if (!sourceProviderKey || !sourceProfileVersion || !targetProfileVersion || targetLifecycle !== "draft") {
-    return profileResult("provider-profile.clone", "error", "invalid-intent", "profile-authoring", {
+    return profileResult("provider-profile.clone", "error", "invalid-intent", {
       ...context,
       section: "profile-authoring",
       selectedObservationIds,
@@ -89,7 +89,7 @@ async function cloneProviderProfile(
     { targetProfileVersion, lifecycle: "draft" },
   );
 
-  return profileResult("provider-profile.clone", "success", "draft-created", "profile-authoring", {
+  return profileResult("provider-profile.clone", "success", "draft-created", {
     ...context,
     section: "profile-authoring",
     providerKey: profile.providerKey,
@@ -108,7 +108,7 @@ async function activateProviderProfile(
   const providerKey = stringValue(formData.get("providerKey")) ?? context.providerKey;
   const profileVersion = stringValue(formData.get("profileVersion")) ?? context.profileVersion;
   if (!providerKey || !profileVersion) {
-    return profileResult("provider-profile.activate", "error", "invalid-intent", "validation-readiness", {
+    return profileResult("provider-profile.activate", "error", "invalid-intent", {
       ...context,
       section: "validation-readiness",
       selectedObservationIds,
@@ -120,7 +120,7 @@ async function activateProviderProfile(
     profileVersion,
   );
 
-  return profileResult("provider-profile.activate", "success", "profile-activated", "validation-readiness", {
+  return profileResult("provider-profile.activate", "success", "profile-activated", {
     ...context,
     section: "validation-readiness",
     providerKey: profile.providerKey,
@@ -150,7 +150,6 @@ async function updateProviderProfileSection(
       "provider-profile.edit-section",
       "error",
       "invalid-intent",
-      returnSection,
       { ...context, section: returnSection, selectedObservationIds },
       sectionKey ?? undefined,
     );
@@ -174,7 +173,6 @@ async function updateProviderProfileSection(
       "provider-profile.edit-section",
       "success",
       "section-saved",
-      returnSection,
       {
         ...context,
         section: returnSection,
@@ -190,7 +188,6 @@ async function updateProviderProfileSection(
       "provider-profile.edit-section",
       "error",
       profileSectionFailureResult(error),
-      returnSection,
       { ...context, section: returnSection, providerKey, profileVersion, selectedObservationIds },
       sectionKey,
     );
@@ -210,7 +207,7 @@ async function transitionProviderProfile(
   const providerKey = stringValue(formData.get("providerKey")) ?? context.providerKey;
   const profileVersion = stringValue(formData.get("profileVersion")) ?? context.profileVersion;
   if (!providerKey || !profileVersion) {
-    return profileResult(intent, "error", "invalid-intent", "lifecycle-recovery", {
+    return profileResult(intent, "error", "invalid-intent", {
       ...context,
       selectedObservationIds,
     });
@@ -224,7 +221,7 @@ async function transitionProviderProfile(
       profileVersion,
       typeof confirmation === "string" ? confirmation : null,
     );
-    return profileResult(intent, "success", lifecycleSuccessResult(intent), "lifecycle-recovery", {
+    return profileResult(intent, "success", lifecycleSuccessResult(intent), {
       ...context,
       providerKey: profile.providerKey,
       profileVersion: profile.profileVersion,
@@ -232,7 +229,7 @@ async function transitionProviderProfile(
       promotionPreviewId: null,
     });
   } catch (error) {
-    return profileResult(intent, "error", lifecycleFailureResult(error), "lifecycle-recovery", {
+    return profileResult(intent, "error", lifecycleFailureResult(error), {
       ...context,
       providerKey,
       profileVersion,
@@ -246,14 +243,12 @@ function profileResult(
   intent: ProviderProfileCommandIntent,
   status: CatalogPrimaryWorkbenchCommandFeedback["status"],
   result: CatalogPrimaryWorkbenchCommandFeedback["result"],
-  section: string,
   context: RouteContext,
   commandSection?: string,
 ): CatalogIntegrationsCommandResult {
   return {
     feedback: { status, intent, result },
     context,
-    section,
     commandSection,
   };
 }

@@ -1,12 +1,12 @@
 import { createContext, useContext, type ReactNode } from "react";
 import type { CatalogPrimaryWorkbenchRouteContext } from "../../../api/primary-workbench-admin-contracts";
-import {
-  catalogPrimaryWorkbenchHref,
-  serializeCatalogPrimaryWorkbenchRouteContext,
-} from "../../primary-workbench-route-context";
+import { serializeCatalogPrimaryWorkbenchRouteContext } from "../../primary-workbench-route-context";
 
 const CatalogIntegrationCommandActionPathContext = createContext<string | null>(null);
 
+// The page that owns the shared import-to-promotion controls supplies its own
+// action path: Scope Detail, Provider detail, or the daily surface on its fixed
+// path. Every form, refresh and link these controls render targets that path.
 export function CatalogIntegrationCommandActionProvider({
   actionPath,
   children,
@@ -18,21 +18,25 @@ export function CatalogIntegrationCommandActionProvider({
   );
 }
 
-// Daily integrations remains the default command owner. Scope Detail supplies
-// its own action path and gets the same URL-backed job/preview/filter context,
-// allowing the shared workflow modules to execute without a page detour.
+// A control rendered without an owning page fails closed: it never falls back to
+// another page's action path.
+export function useCatalogIntegrationCommandActionPath(): string {
+  const actionPath = useContext(CatalogIntegrationCommandActionPathContext);
+  if (!actionPath) {
+    throw new Error("Catalog integration controls require an owning page action path.");
+  }
+  return actionPath;
+}
+
 export function useCatalogIntegrationCommandHref(context: CatalogPrimaryWorkbenchRouteContext): string {
   return useCatalogIntegrationSurfaceHref(context, "import-to-promotion");
 }
 
-// The read model's links are daily paths. Under a page that supplies its own
-// action path (Scope Detail, Provider detail) the same query goes to that path.
+// The read model's links are daily paths. The same query goes to the owning
+// page's path, so following a link never leaves that page.
 export function useCatalogIntegrationHrefRebase(): (href: string) => string {
-  const actionPath = useContext(CatalogIntegrationCommandActionPathContext);
+  const actionPath = useCatalogIntegrationCommandActionPath();
   return (href) => {
-    if (!actionPath) {
-      return href;
-    }
     const query = new URL(href, "https://catalog.invalid").search;
     return query ? `${actionPath}${query}` : actionPath;
   };
@@ -42,11 +46,7 @@ export function useCatalogIntegrationSurfaceHref(
   context: CatalogPrimaryWorkbenchRouteContext,
   section: NonNullable<CatalogPrimaryWorkbenchRouteContext["section"]>,
 ): string {
-  const actionPath = useContext(CatalogIntegrationCommandActionPathContext);
-  if (!actionPath) {
-    return catalogPrimaryWorkbenchHref(context, section);
-  }
-
+  const actionPath = useCatalogIntegrationCommandActionPath();
   const query = serializeCatalogPrimaryWorkbenchRouteContext({
     ...context,
     section,
