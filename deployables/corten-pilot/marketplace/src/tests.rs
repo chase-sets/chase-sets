@@ -22281,10 +22281,12 @@ async fn a_guest_payment_is_the_pilots_page_with_retry_and_save() {
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(text(&html).contains("This payment cannot be retried."), "{html}");
 
-    // Paid: Save this order, a link to the claim that carries the receipt the page was read after;
-    // the page asks Auth nothing (see the claim's own test).
+    // Paid: the order's account options, a link to the claim that carries the receipt the page was
+    // read after. The page asks Auth nothing (see the claim's own test), so it promises no save.
     let (_, _, html) = pilot.send(as_guest(Method::GET, "/checkout/payments/pay_paid", "")).await;
-    assert!(text(&html).contains("Save this order") && html.contains(r#"href="/checkout/claim/pay_paid""#), "{html}");
+    let page = text(&html);
+    assert!(page.contains("Account options for this order") && html.contains(r#"href="/checkout/claim/pay_paid""#), "{html}");
+    assert!(!page.contains("Save this order"), "{html}");
     let after = format!("/checkout/payments/pay_paid?afterWrite={}", receipt_at("43"));
     let (_, _, html) = pilot.send(as_guest(Method::GET, &after, "")).await;
     assert!(html.contains(r#"href="/checkout/claim/pay_paid?afterWrite="#), "{html}");
@@ -22345,6 +22347,7 @@ async fn a_paid_guest_order_is_saved_to_an_account_with_a_passkey_or_a_claim_lin
         assert_eq!(status, StatusCode::OK, "{id}: {html}");
         let page = text(&html);
         assert!(page.contains("This order cannot be saved to an account right now."), "{id}: {html}");
+        assert!(page.contains("Account options for this order") && !page.contains("Save this order"), "{id}: {html}");
         assert!(
             !page.contains("Save with passkey")
                 && html.contains(&format!(r#"href="/checkout/payments/{id}">Back to payment</a>"#)),
@@ -22419,7 +22422,7 @@ async fn a_paid_guest_order_is_saved_to_an_account_with_a_passkey_or_a_claim_lin
     assert_eq!(status, StatusCode::OK, "{html}");
     let page = text(&html);
     assert!(page.contains("We sent a claim link to this order") && page.contains("contact email."), "{html}");
-    assert!(!page.contains("Email me a claim link"), "{html}");
+    assert!(!page.contains("Email me a claim link") && !page.contains("Save this order"), "{html}");
     let (status, _, html) = pilot.send(as_guest(Method::POST, "/checkout/claim/pay_unbound", "intent=claim-link-request")).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     let page = text(&html);
