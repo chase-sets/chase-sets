@@ -211,7 +211,8 @@ fn draw(req: &Req, viewer: &Viewer, screen: &ClaimScreen, status: StatusCode) ->
     let (t, p): (PaymentMsg, Pilot) = (req.t(), req.t());
     let view = html! { <views::GuestClaimPage t={t} p={p} screen={screen} /> };
     let head = html! { <meta name="robots" content="noindex"> };
-    let page = html! { <Layout req={req} viewer={Some(viewer)} title={t.save_this_order()} head={head}>{view}</Layout> };
+    let page =
+        html! { <Layout req={req} viewer={Some(viewer)} title={views::guest_claim_title(t, screen)} head={head}>{view}</Layout> };
     if status == StatusCode::OK { req.screen(screen, page) } else { req.page_with_status(status, page) }
 }
 

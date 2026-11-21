@@ -7,18 +7,20 @@
 //! | Route | Answers |
 //! |---|---|
 //! | `GET /support/customer-feedback/attention` | the metrics and the queue |
+//! | `GET /support/customer-feedback/attention?caseId=...` | one case's attention |
 //!
 //! Each item's SLA is the read's (`sla`, worked out by the API at one instant), as admin-web
-//! shows it.
-//!
-//! Departures from admin-web, each until its issue closes:
-//! - admin-web links each case to this queue again with a `caseId` it ignores
-//!   (chase-sets/chase-sets#10854): the pilot shows the case ID without the link.
-use corten::{http::HeaderMap, prelude::*};
+//! shows it. Each case links to the queue for that case alone; the API refuses a malformed case ID
+//! with a 400, which the page answers as admin-web does.
+use corten::{
+    http::{HeaderMap, StatusCode},
+    prelude::*,
+};
 use serde::{Deserialize, Serialize};
 
 use super::views;
 use crate::{
+    api::segment,
     app::{Shared, read_failed},
     auth::{Staff, SupportView},
     text::Sup,
@@ -29,10 +31,30 @@ const PATH: &str = "/api/customer-feedback/attention";
 
 #[corten::routes(state = crate::app::Shared, area = crate::support::attention::url::Attention, caller = crate::auth::Staff<crate::auth::SupportView>)]
 pub mod url {
-    /// The attention queue.
+    use corten::{Fields, Route};
+
+    /// The attention queue, or one case's.
     #[derive(Clone, Debug, Default)]
     #[route("/support/customer-feedback/attention", get = attention)]
-    pub struct Attention;
+    pub struct Attention {
+        #[route(query)]
+        pub focus: Focus,
+    }
+
+    /// The case a link selects, as admin-web names it.
+    #[derive(Clone, Debug, Default, Fields, Route)]
+    #[serde(rename_all = "camelCase")]
+    #[route(query)]
+    pub struct Focus {
+        pub case_id: Option<String>,
+    }
+
+    impl Attention {
+        /// The queue for one case.
+        pub fn case(case_id: &str) -> Self {
+            Self { focus: Focus { case_id: Some(case_id.to_owned()) } }
+        }
+    }
 }
 
 /// The area: its route and its stylesheet.
@@ -90,6 +112,9 @@ pub struct Metrics {
 pub struct AttentionScreen {
     pub items: Vec<Item>,
     pub metrics: Metrics,
+    /// The case the address selects; the items are then that case's alone.
+    #[serde(default)]
+    pub case_id: Option<String>,
 }
 
 /// A duration as admin-web's `formatDuration` words it: whole minutes under an hour, else hours.
@@ -107,12 +132,23 @@ async fn attention(
     Caller(staff): Caller<Staff<SupportView>>,
     State(config): State<Shared>,
     headers: HeaderMap,
+    Params(route): Params<url::Attention>,
 ) -> HtmlResult {
+    let case_id = route.focus.case_id.filter(|id| !id.is_empty());
+    let path = match &case_id {
+        Some(id) => format!("{PATH}?caseId={}", segment(id)),
+        None => PATH.to_owned(),
+    };
     let caller = config.platform.caller(&headers, config.proto, None);
-    let screen = match caller.read::<AttentionScreen>(PATH, CONTEXT).await {
+    let mut screen = match caller.read::<AttentionScreen>(&path, CONTEXT).await {
         Ok(screen) => screen,
+        // A malformed case ID: admin-web answers the API's status.
+        Err(error) if error.status() == Some(StatusCode::BAD_REQUEST) => {
+            return Err(corten::Error::new(error).with_status(StatusCode::BAD_REQUEST));
+        }
         Err(error) => return read_failed(&req, error, false),
     };
+    screen.case_id = case_id;
     let t: Sup = req.t();
     let view = html! { <views::FeedbackAttentionPage t={t} screen={&screen} /> };
     req.screen(

@@ -756,8 +756,8 @@ export async function listSellerCommandCenterShipments(
              page.current_exception_notes,
              COALESCE(line_stats.line_count, 0)::integer AS line_count,
              COALESCE(line_stats.total_quantity, 0)::integer AS total_quantity,
-             page.created_at,
-             page.updated_at,
+             to_char(page.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at,
+             to_char(page.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at,
              COALESCE(conflict_stats.conflicts, '[]'::jsonb) AS conflicts
            FROM fulfillment_shipment_pages AS page
            LEFT JOIN fulfillment_account_pages AS buyer

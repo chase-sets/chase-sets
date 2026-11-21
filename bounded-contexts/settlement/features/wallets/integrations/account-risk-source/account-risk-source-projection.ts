@@ -489,20 +489,19 @@ async function updateBadge(
   db: PgQueryable,
   params: Readonly<{ accountId: string; badgeKey: string; assigned: boolean; updatedAt: string }>,
 ) {
-  if (!["trusted-seller", "manual-payout-review"].includes(params.badgeKey)) {
+  if (params.badgeKey !== "trusted-seller") {
     return;
   }
-  const columnName = params.badgeKey === "trusted-seller" ? "trusted_seller" : "manual_payout_review";
 
   await db.query(
     `INSERT INTO settlement_account_risk_sources (
        account_id,
-       ${columnName},
+       trusted_seller,
        revision,
        updated_at
      ) VALUES ($1, $2, 1, $3)
      ON CONFLICT (account_id) DO UPDATE SET
-       ${columnName} = EXCLUDED.${columnName},
+       trusted_seller = EXCLUDED.trusted_seller,
        revision = settlement_account_risk_sources.revision + 1,
        updated_at = EXCLUDED.updated_at`,
     [params.accountId, params.assigned, params.updatedAt],

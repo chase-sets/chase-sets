@@ -246,4 +246,40 @@ describe("aggregateSellerAttentionQueue", () => {
     expect(offerHealth?.status).toBe("unavailable");
     expect(offerHealth?.reason).toBe("source returned a non-conforming item");
   });
+
+  it("degrades only the source whose item has an unreadable or missing time, and keeps its siblings in order", async () => {
+    const listing = (entityId: string, observedAt: unknown) =>
+      ({
+        ...buildSellerAttentionItem({
+          source: "listing-action",
+          entityId,
+          severity: "info",
+          summary: { code: "listing-needs-action", params: { reference: entityId, action: "draft" } },
+          observedAt: "2026-07-12T00:00:00.000Z",
+        }),
+        observedAt,
+      }) as SellerAttentionItem;
+
+    for (const observedAt of [new Date("2026-07-12T00:00:00.000Z"), "not a time", null]) {
+      const queue = await aggregateSellerAttentionQueue(
+        [
+          staticSource("fulfillment-ship-by", [
+            shipByItem({ id: "fulfillment-ship-by:ship-2", dueAt: "2026-07-12T00:00:00.000Z" }),
+            shipByItem(),
+          ]),
+          staticSource("listing-action", [
+            listing("lst-ok", "2026-07-12T00:00:00.000Z"),
+            listing("lst-bad", observedAt),
+          ]),
+        ],
+        CONTEXT,
+      );
+
+      expect(queue.items.map((item) => item.id)).toEqual(["fulfillment-ship-by:ship-1", "fulfillment-ship-by:ship-2"]);
+      expect(queue.sources).toEqual([
+        { id: "fulfillment-ship-by", status: "available", itemCount: 2 },
+        { id: "listing-action", status: "unavailable", itemCount: 0, reason: "source returned a non-conforming item" },
+      ]);
+    }
+  });
 });

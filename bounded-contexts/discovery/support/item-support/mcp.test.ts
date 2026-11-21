@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDiscoveryItemMcpHandlers } from "./mcp";
 import type { DiscoveryItemsServices } from "./runtime";
 
@@ -129,6 +129,42 @@ function toolInput(args: Record<string, unknown>) {
 }
 
 describe("Discovery item MCP handlers", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it.each([
+    ["/seed/charizard.webp", "https://marketplace.example/seed/charizard.webp"],
+    ["https://assets.example/charizard.webp", "https://assets.example/charizard.webp"],
+    ["https://photos.example/charizard.webp", "https://photos.example/charizard.webp"],
+    ["javascript:void(0)", null],
+    ["data:image/png;base64,AA", null],
+    ["http://assets.example/charizard.webp", null],
+    ["https://foreign.example/charizard.webp", null],
+  ])("product feed public url policy: %s", async (image, expected) => {
+    vi.stubEnv("CHASE_SETS_TRUST_FORWARDED_HEADERS", "true");
+    vi.stubEnv("CATALOG_ASSET_PUBLIC_BASE_URL", "https://assets.example/catalog");
+    vi.stubEnv("MARKETPLACE_LISTING_PHOTO_PUBLIC_BASE_URL", "https://photos.example/listings");
+    const items = services();
+    vi.mocked(items.detail.getItemDetail).mockResolvedValue(detailRow({ image_urls: [image] }));
+    const handlers = createDiscoveryItemMcpHandlers(items);
+    const request = new Request("http://localhost:3100/mcp", {
+      headers: { "X-Forwarded-Proto": "https", "X-Forwarded-Host": "marketplace.example" },
+    });
+    await expect(
+      handlers.toolHandlers["discovery.get-chatgpt-product-feed"]?.({ ...toolInput({}), request }),
+    ).resolves.toMatchObject({
+      products: [
+        {
+          image_url: expected,
+          url: "https://marketplace.example/items/charizard-cat_1",
+          variants: [{ url: "https://marketplace.example/listings/charizard-near-mint-lst_1" }],
+        },
+      ],
+    });
+    vi.stubEnv("CHASE_SETS_TRUST_FORWARDED_HEADERS", "false");
+    await expect(
+      handlers.toolHandlers["discovery.get-chatgpt-product-feed"]?.({ ...toolInput({}), request }),
+    ).resolves.toMatchObject({ products: [{ url: null, variants: [{ url: null }] }] });
+  });
   it("returns corrected rows through search-market and feed without retrieval metadata", async () => {
     const fakeServices = services();
     const original = await fakeServices.search.searchItems();
