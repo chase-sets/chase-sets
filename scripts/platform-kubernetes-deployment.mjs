@@ -11,6 +11,7 @@ import {
   buildPlatformHelmStagingValues,
   buildPreviewDoksIngressValues,
   chartPreviewValuesRelativePath,
+  isDatabaseSecretKey,
   managedPostgresCaDigestAnnotation,
   managedPostgresCaItemPath,
   managedPostgresCaMountPath,
@@ -1895,6 +1896,26 @@ export function verifyStalePendingRecoveryTransition(admissionHistory, observedH
   return resulting;
 }
 
+// Runtime Secret URLs are verify-full with the #7512 pod CA path (#7313), and
+// a Helm rollback restores workloads but not that Secret. A rollback target
+// must therefore be a revision that mounts the CA into every database-bearing
+// workload: the #7512 mount floor. Older revisions are refused.
+export function assertManagedPostgresCaMountFloor(values, label) {
+  const digest = values?.global?.managedPostgresCaSha256;
+  if (typeof digest !== "string" || !/^[0-9a-f]{64}$/.test(digest)) {
+    throw new Error(`${label} predates the managed Postgres CA mount floor and cannot serve verify-full runtime URLs.`);
+  }
+  for (const [name, component] of Object.entries(values?.components ?? {})) {
+    const usesDatabase =
+      component?.enabled !== false &&
+      Array.isArray(component?.env) &&
+      component.env.some((entry) => entry?.secret === true && isDatabaseSecretKey(entry.secretKey ?? entry.name));
+    if (usesDatabase && component.managedPostgresCa !== true) {
+      throw new Error(`${label} does not mount the managed Postgres CA into database-bearing component '${name}'.`);
+    }
+  }
+}
+
 export async function captureKubernetesRollbackTarget(options = {}) {
   const expectedIdentity = expectedRollbackImageIdentity(options);
   const lastKnownGoodCommit = requiredOption(options.lastKnownGoodCommit, "lastKnownGoodCommit");
@@ -1916,6 +1937,7 @@ export async function captureKubernetesRollbackTarget(options = {}) {
   const { source, historyHead, terminalFailedSuffix } = selectStableDeployedHelmSource(initialHistory);
 
   const values = await readHelmRevisionValues({ ...options, revision: source.revision });
+  assertManagedPostgresCaMountFloor(values, `Helm revision ${source.revision}`);
   const observedIdentity = platformImageIdentityFromValues(values);
   const imageIdentityProof = assertCapturedRollbackImageIdentity(
     observedIdentity,
@@ -1983,6 +2005,7 @@ async function healFailedRollbackTail(options, initialHistory, expectedIdentity)
   }
 
   const targetValues = await loadValues(targetRevision);
+  assertManagedPostgresCaMountFloor(targetValues, `Helm revision ${targetRevision}`);
   const targetIdentity = platformImageIdentityFromValues(targetValues);
   assertCapturedRollbackImageIdentity(targetIdentity, expectedIdentity, `Helm revision ${targetRevision}`, options);
   await readApplicationWorkloadIdentities({

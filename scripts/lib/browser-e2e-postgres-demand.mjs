@@ -1,4 +1,5 @@
 import { readFileSync, readdirSync } from "node:fs";
+import { isIP } from "node:net";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { runInNewContext } from "node:vm";
@@ -155,8 +156,10 @@ export function browserE2ePostgresDemand({ readSource = defaultReadSource } = {}
   const workerContexts = contextRegistry(readSource, "worker");
   const sandbox = resolveWorktreeSandbox({ env: {} });
   const postgresFactory = module("infrastructure/event-core-postgres/pool.ts", {
-    "node:fs": { readFileSync },
+    "node:net": { isIP },
+    "node:path": { isAbsolute: path.isAbsolute, join: path.join },
     pg: {
+      Client: class {},
       Pool: function (options) {
         const row = createPgPool(options.connectionString, options);
         row.on = () => row;
@@ -431,8 +434,10 @@ export function previewPostgresDemand({ readSource = defaultReadSource } = {}) {
   };
   const load = (file, dependencies) => loadSourceModule(readSource, file, dependencies, processEnv);
   const postgresFactory = load("infrastructure/event-core-postgres/pool.ts", {
-    "node:fs": { readFileSync },
+    "node:net": { isIP },
+    "node:path": { isAbsolute: path.isAbsolute, join: path.join },
     pg: {
+      Client: class {},
       Pool: function (options) {
         const row = createPgPool(options.connectionString, options);
         row.on = () => row;
@@ -537,6 +542,8 @@ export function previewPostgresDemand({ readSource = defaultReadSource } = {}) {
       );
     }
     if (component.kind === "service" && env.PLATFORM_CONTROL_DATABASE_URL) {
+      // The pool seam admits a URL against its own pod's environment.
+      useEnv(env);
       tokenStore.resetDefaultPostWriteTokenStoreForTests();
       hold(name, "runtime", constructedAt(tokenStorePath), "default post-write token store", () =>
         tokenStore.getDefaultPostWriteTokenStore(env),

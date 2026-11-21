@@ -17,9 +17,17 @@ import {
   buildPlatformSecretManifest,
   collectPlatformSecretKeys,
   deriveOtlpWriteToken,
+  managedPostgresPodCaPath,
   summarizePlatformSecret,
 } from "./platform-kubernetes-secret.mjs";
 import { buildPlatformHelmValues, isDatabaseSecretKey } from "./render-platform-helm-values.mjs";
+import {
+  admitPostgresClientConnection,
+  managedPostgresPodCaPath as runtimePodCaPath,
+} from "../infrastructure/event-core-postgres/pool.ts";
+
+const stagingPodEnv = { DEPLOYMENT_ENVIRONMENT: "staging", KUBERNETES_SERVICE_HOST: "10.245.0.1" };
+const runnerEnvForPodUrls = { GITHUB_ACTIONS: "true", RUNNER_TEMP: "/home/runner/work/_temp" };
 
 const sampleValues = {
   global: {
@@ -444,6 +452,29 @@ describe("platform Kubernetes secret", () => {
     );
     expect(JSON.stringify(bundle)).not.toContain("super-secret");
     expect(JSON.stringify(bundle)).not.toContain("app-secret");
+    const previewUrl = Buffer.from(bundle.runtimeSecret.data.DATABASE_URL_CATALOG_WAITER, "base64").toString("utf8");
+    const previewPod = { DEPLOYMENT_ENVIRONMENT: "preview", KUBERNETES_SERVICE_HOST: "10.245.0.1" };
+    expect(admitPostgresClientConnection(previewUrl, previewPod).transport).toBe("plaintext-preview");
+    for (const environment of ["staging", "production"]) {
+      expect(() =>
+        admitPostgresClientConnection(previewUrl, { ...previewPod, DEPLOYMENT_ENVIRONMENT: environment }),
+      ).toThrow("remote-postgres-sslmode-downgraded");
+    }
+  });
+
+  it("names the #7512 pod mount as the only runtime CA path", () => {
+    expect(managedPostgresPodCaPath).toBe("/var/run/secrets/chase-sets/managed-postgres/ca.crt");
+    expect(runtimePodCaPath).toBe(managedPostgresPodCaPath);
+  });
+
+  it("keeps the Terraform managed URL locals on the same verify-full pod query", () => {
+    const locals = readFileSync("infrastructure/digitalocean/platform/locals.tf", "utf8");
+    expect(locals).toContain(
+      `managed_postgres_pod_url_query = "sslmode=verify-full&sslrootcert=\${urlencode("${managedPostgresPodCaPath}")}&uselibpqcompat=true"`,
+    );
+    expect(locals).not.toMatch(/sslmode=(?:require|prefer|allow|verify-ca)\b/u);
+    expect(locals.match(/"postgresql:\/\/%s:%s@%s:%d\/%s\?%s",/gu)).toHaveLength(3);
+    expect(locals.match(/^ {6}local\.managed_postgres_pod_url_query,$/gmu)).toHaveLength(3);
   });
 
   it("never rewrites non-preview database URLs to sslmode=disable", () => {
@@ -484,22 +515,22 @@ describe("platform Kubernetes secret", () => {
       ],
     });
 
+    const podTrust = `?sslmode=verify-full&sslrootcert=${encodeURIComponent(managedPostgresPodCaPath)}&uselibpqcompat=true`;
     expect(databaseEnv).toEqual({
-      BOOTSTRAP_DATABASE_URL_CATALOG:
-        "postgresql://cs_staging_catalog:catalog-direct-password@staging-db.example:25060/chase_sets_staging_catalog?sslmode=require",
-      BOOTSTRAP_PLATFORM_CONTROL_DATABASE_URL:
-        "postgresql://cs_staging_control:control-direct-password@staging-db.example:25060/chase_sets_staging_control?sslmode=require",
-      DATABASE_URL_CATALOG:
-        "postgresql://cs_staging_catalog:catalog-direct-password@staging-pool.example:25061/catalog-runtime?sslmode=require",
-      DATABASE_URL_CATALOG_WAITER:
-        "postgresql://cs_staging_catalog_wake:catalog-wake-password@staging-db.example:25060/chase_sets_staging_catalog?sslmode=require",
-      PLATFORM_CONTROL_DATABASE_URL:
-        "postgresql://cs_staging_control:control-direct-password@staging-pool.example:25061/control-runtime?sslmode=require",
-      PLATFORM_WORK_SIGNAL_DATABASE_URL:
-        "postgresql://cs_staging_control:control-direct-password@staging-db.example:25060/chase_sets_staging_control?sslmode=require",
-      WORKER_LISTENER_DATABASE_URL_CATALOG:
-        "postgresql://cs_staging_catalog_wake:catalog-wake-password@staging-db.example:25060/chase_sets_staging_catalog?sslmode=require",
+      BOOTSTRAP_DATABASE_URL_CATALOG: `postgresql://cs_staging_catalog:catalog-direct-password@staging-db.example:25060/chase_sets_staging_catalog${podTrust}`,
+      BOOTSTRAP_PLATFORM_CONTROL_DATABASE_URL: `postgresql://cs_staging_control:control-direct-password@staging-db.example:25060/chase_sets_staging_control${podTrust}`,
+      DATABASE_URL_CATALOG: `postgresql://cs_staging_catalog:catalog-direct-password@staging-pool.example:25061/catalog-runtime${podTrust}`,
+      DATABASE_URL_CATALOG_WAITER: `postgresql://cs_staging_catalog_wake:catalog-wake-password@staging-db.example:25060/chase_sets_staging_catalog${podTrust}`,
+      PLATFORM_CONTROL_DATABASE_URL: `postgresql://cs_staging_control:control-direct-password@staging-pool.example:25061/control-runtime${podTrust}`,
+      PLATFORM_WORK_SIGNAL_DATABASE_URL: `postgresql://cs_staging_control:control-direct-password@staging-db.example:25060/chase_sets_staging_control${podTrust}`,
+      WORKER_LISTENER_DATABASE_URL_CATALOG: `postgresql://cs_staging_catalog_wake:catalog-wake-password@staging-db.example:25060/chase_sets_staging_catalog${podTrust}`,
     });
+    for (const url of Object.values(databaseEnv)) {
+      expect(admitPostgresClientConnection(url, stagingPodEnv).transport).toBe("verified-managed");
+      expect(() => admitPostgresClientConnection(url, runnerEnvForPodUrls)).toThrow(
+        "remote-postgres-rootcert-path-unexpected",
+      );
+    }
   });
 
   it("applies the secret manifest through kubectl stdin", async () => {

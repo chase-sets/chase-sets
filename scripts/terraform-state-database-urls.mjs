@@ -26,9 +26,7 @@ export function parseTerraformStateDatabaseUrlArgs(argv, env = process.env) {
     caPath:
       readOption(argv, "--ca-path") ??
       readEnv("MANAGED_POSTGRES_CA_PATH", env) ??
-      (readEnv("RUNNER_TEMP", env)
-        ? join(readEnv("RUNNER_TEMP", env), "digitalocean-managed-postgres-ca.pem")
-        : undefined),
+      (readEnv("RUNNER_TEMP", env) ? managedPostgresRunnerCaPath(readEnv("RUNNER_TEMP", env)) : undefined),
     digitalOceanToken: readEnv("DIGITALOCEAN_ACCESS_TOKEN", env),
     environmentName: readOption(argv, "--environment") ?? readEnv("DEPLOYMENT_ENVIRONMENT", env) ?? "staging",
     contexts: parseContexts(contextsOption ?? readEnv("TERRAFORM_STATE_DATABASE_URL_CONTEXTS", env)),
@@ -294,6 +292,13 @@ export function databaseUrlsFromTerraformState(state, options = {}) {
       url: managedPostgresConnectionUrl(url, options.caPath),
     };
   });
+}
+
+// The single pure RUNNER_TEMP derivation for the exported runner CA. Runtime
+// clients (infrastructure/event-core-postgres/pool.ts) admit only this path on
+// a runner; scripts/terraform-state-database-urls.test.mjs pins the two equal.
+export function managedPostgresRunnerCaPath(runnerTemp) {
+  return join(runnerTemp, "digitalocean-managed-postgres-ca.pem");
 }
 
 export function managedPostgresConnectionUrl(connectionString, caPath) {

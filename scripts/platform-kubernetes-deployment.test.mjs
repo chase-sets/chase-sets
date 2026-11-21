@@ -30,6 +30,7 @@ import {
   buildScenarioSeedAccessManifest,
   buildScenarioSeedJobManifest as buildScenarioSeedJobManifestUnderTest,
   copyPreviewWildcardTlsSecret,
+  assertManagedPostgresCaMountFloor,
   captureKubernetesRollbackTarget,
   deployPlatformToKubernetes as deployPlatformToKubernetesUnderTest,
   helmReleaseExists,
@@ -54,6 +55,9 @@ import {
   verifyKubernetesDeploymentTransition,
   verifyStalePendingRecoveryTransition,
 } from "./platform-kubernetes-deployment.mjs";
+import { managedPostgresPodCaPath } from "./platform-kubernetes-secret.mjs";
+import { isDatabaseSecretKey } from "./render-platform-helm-values.mjs";
+import { managedPostgresPodCaPath as runtimeManagedPostgresPodCaPath } from "../infrastructure/event-core-postgres/pool.ts";
 import * as platformKubernetesDeployment from "./platform-kubernetes-deployment.mjs";
 import {
   classifyAdmissionWebhookTransient,
@@ -281,8 +285,10 @@ function deployPlatformToKubernetes(options) {
 function runScenarioSeedOnKubernetes(options) {
   return runScenarioSeedOnKubernetesUnderTest(withManagedPostgresCa(options));
 }
+// Every captured rollback target is at or above the #7512 managed-Postgres CA mount floor.
 const rollbackValues = {
   global: {
+    managedPostgresCaSha256,
     image: {
       registry: "registry.digitalocean.com",
       registryName: "chase-sets",
@@ -7951,5 +7957,139 @@ describe("preview Postgres connection ceiling and diagnostics (#10022)", () => {
     } finally {
       error.mockRestore();
     }
+  });
+});
+
+describe("managed Postgres CA trust across rollout and rollback (#7313)", () => {
+  const nativeHelm = spawnSync("helm", ["version", "--short"], { encoding: "utf8" }).status === 0;
+  // Script CI has Docker but not a native Helm binary; use the chart job's pinned image.
+  const helmTemplate = (args) =>
+    execFileSync(
+      nativeHelm ? "helm" : "docker",
+      nativeHelm ? args : ["run", "--rm", "-v", `${process.cwd()}:/repo`, "-w", "/repo", "alpine/helm:3.15.4", ...args],
+      { encoding: "utf8", maxBuffer: 16 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] },
+    );
+  const workloadKinds = new Set(["Deployment", "Rollout", "Job"]);
+  // Renders the chart the way a revision's stored values do and returns every
+  // workload's pod-template CA annotation and CA file path.
+  const renderWorkloads = (digest) => {
+    const rendered = helmTemplate([
+      "template",
+      "proof",
+      "infrastructure/helm/platform",
+      "--set-string",
+      `global.image.tag=${"a".repeat(40)}`,
+      ...(digest ? ["--set-string", `global.managedPostgresCaSha256=${digest}`] : []),
+    ]);
+    const workloads = new Map();
+    for (const source of rendered.split(/^---$/mu)) {
+      const manifest = parseYaml(source);
+      if (!manifest || !workloadKinds.has(manifest.kind)) continue;
+      const component = manifest.metadata.labels["app.kubernetes.io/component"];
+      const pod = manifest.spec.template;
+      const mount = pod.spec.containers[0].volumeMounts?.find((entry) => entry.name === "managed-postgres-ca");
+      const volume = pod.spec.volumes?.find((entry) => entry.name === "managed-postgres-ca");
+      workloads.set(component, {
+        digest: pod.metadata.annotations?.["chase-sets.com/managed-postgres-ca-sha256"] ?? null,
+        caPath: mount && volume ? `${mount.mountPath}/${volume.secret.items[0].path}` : null,
+        databaseBearing: pod.spec.containers[0].env.some(
+          (entry) => entry.valueFrom?.secretKeyRef && isDatabaseSecretKey(entry.valueFrom.secretKeyRef.key),
+        ),
+      });
+    }
+    return workloads;
+  };
+
+  it("leaves pod templates unchanged for an unchanged CA and rolls exactly the database-bearing workloads on a new digest", () => {
+    const digestA = "a".repeat(64);
+    const digestB = "b".repeat(64);
+    const first = renderWorkloads(digestA);
+    const again = renderWorkloads(digestA);
+    const rotated = renderWorkloads(digestB);
+
+    expect(again).toEqual(first);
+    const databaseBearing = [...first].filter(([, workload]) => workload.databaseBearing).map(([name]) => name);
+    expect(databaseBearing).toEqual(expect.arrayContaining(["platform-api", "platform-worker", "platform-bootstrap"]));
+    for (const [name, workload] of first) {
+      const next = rotated.get(name);
+      if (workload.databaseBearing) {
+        expect([workload.digest, next.digest], name).toEqual([digestA, digestB]);
+        expect(next.caPath, name).toBe(managedPostgresPodCaPath);
+      } else {
+        expect(next, name).toEqual(workload);
+        expect(workload.digest, name).toBeNull();
+      }
+    }
+  });
+
+  it("mounts the CA at the exact path the pod Secret URLs and the runtime pool require", () => {
+    expect(managedPostgresPodCaPath).toBe(runtimeManagedPostgresPodCaPath);
+    for (const [name, workload] of renderWorkloads("c".repeat(64))) {
+      if (workload.databaseBearing) expect(workload.caPath, name).toBe(runtimeManagedPostgresPodCaPath);
+    }
+    // A revision below the #7512 floor renders no mount, so a verify-full URL cannot load its CA there.
+    for (const [name, workload] of renderWorkloads(null)) {
+      expect(workload.caPath, name).toBeNull();
+    }
+  });
+
+  it("refuses rollback targets below the mount floor and admits the immediate mount-aware revision", async () => {
+    const belowFloor = { ...rollbackValues, global: { ...rollbackValues.global, managedPostgresCaSha256: undefined } };
+    const unmountedComponent = {
+      ...rollbackValues,
+      components: {
+        ...rollbackValues.components,
+        "platform-api": {
+          enabled: true,
+          kind: "service",
+          managedPostgresCa: false,
+          env: [{ name: "DATABASE_URL_CATALOG", secret: true }],
+        },
+      },
+    };
+    expect(() => assertManagedPostgresCaMountFloor(belowFloor, "Helm revision 227")).toThrow(
+      "Helm revision 227 predates the managed Postgres CA mount floor",
+    );
+    expect(() =>
+      assertManagedPostgresCaMountFloor(
+        { ...rollbackValues, global: { ...rollbackValues.global, managedPostgresCaSha256: "A".repeat(64) } },
+        "Helm revision 227",
+      ),
+    ).toThrow("predates the managed Postgres CA mount floor");
+    expect(() => assertManagedPostgresCaMountFloor(unmountedComponent, "Helm revision 228")).toThrow(
+      "does not mount the managed Postgres CA into database-bearing component 'platform-api'",
+    );
+    expect(() => assertManagedPostgresCaMountFloor(rollbackValues, "Helm revision 228")).not.toThrow();
+
+    const history = [{ revision: 228, status: "deployed", description: "Upgrade complete" }];
+    const capture = (values, calls) =>
+      captureKubernetesRollbackTarget({
+        values,
+        release: "proof",
+        namespace: "production",
+        registryName: "chase-sets",
+        repository: "chase-sets-platform",
+        tag: rollbackTag,
+        digest: rollbackDigest,
+        lastKnownGoodCommit: rollbackTag,
+        releaseTag: "release-20260727120000-c0bd688d",
+        checkedAt: "2026-07-27T12:00:00.000Z",
+        spawn: completedSpawn(calls, [
+          { code: 0, stdout: helmHistory(history) },
+          { code: 0, stdout: JSON.stringify(values) },
+          { code: 0, stdout: rollbackWorkloadList() },
+          { code: 0, stdout: helmHistory(history) },
+        ]),
+      });
+
+    const refusedCalls = [];
+    await expect(capture(belowFloor, refusedCalls)).rejects.toThrow(
+      "Helm revision 228 predates the managed Postgres CA mount floor",
+    );
+    expect(refusedCalls.some((call) => call.args.includes("rollback"))).toBe(false);
+    expect(refusedCalls).toHaveLength(2);
+
+    const admitted = await capture(rollbackValues, []);
+    expect(admitted).toMatchObject({ sourceRevision: 228, sourceStatus: "deployed" });
   });
 });
