@@ -13,23 +13,22 @@
 //! | `POST /catalog/components/{id}/dimension-rules`, `.../dimension-rules/{dimension_id}/remove` | add or remove a dimension rule |
 //!
 //! A rule names its field or dimension by id, typed in, as admin-web's dialogs do; the API checks
-//! it. The edit restates the rules the API has when it is posted, from the list, which reads the
-//! component's own table: the page's read can miss a rule (chase-sets/chase-sets#10823), and a
-//! rule it missed would be deleted (chase-sets/chase-sets#10824).
+//! it. The edit sends the key, name and description only, as admin-web's does: the API's revise
+//! leaves the rules as they are (chase-sets/chase-sets#10824).
 use corten::{LiveResponse, LiveSince, http::HeaderMap, prelude::*};
 use platform::receipt::Receipt;
 use serde_json::Value;
 
 use super::{
     Confirming, Done, Previewing, Sent, action_label, answer_preview,
-    api::{Catalog as _, Component, ComponentDetail, ComponentRules, Kind, Written, under},
+    api::{Catalog as _, Component, ComponentDetail, Kind, Written, under},
     bulk, command, confirm, filter_query, follow,
     form::{ActionInput, BulkInput, ComponentInput, DimensionRuleInput, FieldRuleInput},
-    list_query, listed, manages, not_offered, preview, receipt, screen,
+    list_query, manages, not_offered, preview, receipt, screen,
     views::{self, ComponentForms, Draft, Previewed, ids},
 };
 use crate::{
-    api::{ApiError, Caller, Method},
+    api::Method,
     app::{Shared, live_rows, read_failed},
     auth::{CatalogAccess, CatalogManage, Staff, Viewer},
     text::{Cat, Pilot},
@@ -333,23 +332,10 @@ async fn revise(
 ) -> HtmlResult {
     let id = route.id;
     let caller = config.platform.caller(&headers, config.proto, None);
-    // The API replaces the rules with the body's: read them now, from the component's own table,
-    // rather than restating the page's (chase-sets/chase-sets#10824).
-    let errors = match current_rules(&caller, &id).await {
-        Ok(Some(current)) => {
-            let body = input.revise_body(&current);
-            match command(&caller, Method::PUT, Kind::Components, &under(&id, &[]), Some(&body)).await {
-                Sent::Written(written) => return to_component(&req, &id, &written, Done::Revised),
-                Sent::Refused(errors) => errors,
-                Sent::Denied(denied) => return denied.answer(&req),
-            }
-        }
-        Ok(None) => {
-            let mut errors = Errors::new();
-            errors.add_form(req.t::<Pilot>().catalog_rules_unread());
-            errors
-        }
-        Err(error) => return read_failed(&req, error, false),
+    let errors = match command(&caller, Method::PUT, Kind::Components, &under(&id, &[]), Some(&input.revise_body())).await {
+        Sent::Written(written) => return to_component(&req, &id, &written, Done::Revised),
+        Sent::Refused(errors) => errors,
+        Sent::Denied(denied) => return denied.answer(&req),
     };
     let draft = Draft { input, errors };
     let action = url::ComponentEdit { id: &id }.href();
@@ -358,11 +344,6 @@ async fn revise(
     refused_on_page(&req, &staff.viewer, &config, &headers, &id, &draft.errors, form, forms).await
 }
 
-/// The component's rules as the list has them (the component's own table); none when the list
-/// does not have it.
-async fn current_rules(caller: &Caller<'_>, id: &str) -> Result<Option<ComponentRules>, ApiError> {
-    listed(caller, Kind::Components, id, |row: &ComponentRules| row.component_id.as_str()).await
-}
 async fn lifecycle(
     req: Req,
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,

@@ -384,6 +384,7 @@ const runtime = createPlatformApiHost({
     registrationAdmission: config.registrationAdmission,
     stagingPersonaMagicLinkVerifierSha256: config.stagingPersonaMagicLinkVerifierSha256,
     ...(pendingRegistrationLocks ? { pendingRegistrationLocks } : {}),
+    readConsistencyWorkSignalGateway: workSignalStore.readConsistencyGateway,
     evidenceWindowCorrelation,
     evidenceWindowProviderWrite,
     securityLifetimes: config.authSecurityLifetimes,

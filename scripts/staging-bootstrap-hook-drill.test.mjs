@@ -1,6 +1,8 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
@@ -13,6 +15,7 @@ import {
   HELD_LOCK_SETUP_FAILED_MARKER,
   buildHeldLockInjectorExecArgs,
   buildHeldLockInjectorShell,
+  HELD_LOCK_INJECTOR_WORKDIR,
   buildHeldLockNotStarted,
   buildSuccessfulUpgradeArgs,
   parseStagingBootstrapHookDrillArgs,
@@ -24,6 +27,14 @@ import {
   summarizeEvents,
   summarizeReadyPodUidFingerprints,
 } from "./staging-bootstrap-hook-drill.mjs";
+import { managedPostgresPodCaPath } from "./platform-kubernetes-secret.mjs";
+import { managedPostgresConnectionUrl } from "./terraform-state-database-urls.mjs";
+
+// The URL shape the pod Secret producer writes for every staging/production context.
+const canonicalPodUrl = managedPostgresConnectionUrl(
+  "postgresql://catalog:secret@db.example:25060/catalog",
+  managedPostgresPodCaPath,
+);
 
 const release = DEFAULT_RELEASE;
 const namespace = DEFAULT_NAMESPACE;
@@ -132,13 +143,14 @@ describe("staging bootstrap hook drill", () => {
     expect(args.join(" ")).not.toMatch(/postgres:\/\/|PASSWORD=|TOKEN=|SECRET=/);
   });
 
-  it("normalizes sslmode=require injector connections to match the runtime pool", async () => {
+  it("hands the pod's canonical URL to the runtime seam without its own TLS parser", async () => {
     const result = await runGeneratedHeldLockInjector({
-      databaseUrl: "postgresql://catalog:secret@db.example:25060/catalog?sslmode=require",
+      databaseUrl: canonicalPodUrl,
     });
 
-    expect(new URL(result.config.connectionString).searchParams.get("uselibpqcompat")).toBe("true");
-    expect(result.config.ssl).toEqual({ rejectUnauthorized: false });
+    expect(result.config.connectionString).toBe(canonicalPodUrl);
+    expect(result.config.ssl).toBeUndefined();
+    expect(result.seamCalls).toBe(1);
     expect(result.config.application_name).toBe("staging-bootstrap-hook-drill-held-lock");
     expect(`${result.stdout}\n${result.stderr}`).toContain(HELD_LOCK_READY_MARKER);
     expect(`${result.stdout}\n${result.stderr}`).toContain('"schema":"catalog"');
@@ -151,7 +163,7 @@ describe("staging bootstrap hook drill", () => {
 
   it("discovers and locks a non-public schema-migrations relation", async () => {
     const result = await runGeneratedHeldLockInjector({
-      databaseUrl: "postgresql://catalog:secret@db.example:25060/catalog?sslmode=require",
+      databaseUrl: canonicalPodUrl,
       tableSchemas: ["catalog_runtime"],
     });
 
@@ -168,7 +180,7 @@ describe("staging bootstrap hook drill", () => {
 
   it("reports a support-safe missing-relation setup failure before taking the held lock", async () => {
     const result = await runGeneratedHeldLockInjector({
-      databaseUrl: "postgresql://catalog:secret@db.example:25060/catalog?sslmode=require",
+      databaseUrl: canonicalPodUrl,
       tableSchemas: [],
       schemaNames: ["catalog", "extensions", "public"],
       databaseName: "catalog",
@@ -190,7 +202,7 @@ describe("staging bootstrap hook drill", () => {
 
   it("reports support-safe duplicate relation candidates before taking the held lock", async () => {
     const result = await runGeneratedHeldLockInjector({
-      databaseUrl: "postgresql://catalog:secret@db.example:25060/catalog?sslmode=require",
+      databaseUrl: canonicalPodUrl,
       tableSchemas: ["catalog", "public"],
     });
 
@@ -207,44 +219,54 @@ describe("staging bootstrap hook drill", () => {
     expect(output).not.toContain("secret");
   });
 
-  it("uses PGSSLROOTCERT for verifying injector sslmodes without writing CA material to output", async () => {
-    const ca = await writeCaFile("root ca material");
-    try {
-      const result = await runGeneratedHeldLockInjector({
-        databaseUrl: "postgresql://catalog:secret@db.example:25060/catalog?sslmode=verify-ca",
-        pgsslrootcert: ca.caPath,
-      });
-
-      expect(new URL(result.config.connectionString).searchParams.get("uselibpqcompat")).toBe("true");
-      expect(result.config.ssl).toEqual({ rejectUnauthorized: true, ca: "root ca material" });
-      expect(`${result.stdout}\n${result.stderr}`).not.toContain("root ca material");
-      expect(`${result.stdout}\n${result.stderr}`).not.toContain(ca.caPath);
-      expect(`${result.stdout}\n${result.stderr}`).not.toContain("secret");
-    } finally {
-      await ca.cleanup();
+  it("carries no TLS parser, CA reader or downgrade of its own", () => {
+    const shell = buildHeldLockInjectorShell({ heldLockTimeoutSeconds: 0 });
+    expect(shell.startsWith(`cd ${HELD_LOCK_INJECTOR_WORKDIR} && `)).toBe(true);
+    expect(shell).toContain('import { createPgClient } from "../../infrastructure/event-core-postgres/pool.ts";');
+    expect(shell).toContain("node --import tsx --input-type=module");
+    for (const forbidden of [
+      "sslmode",
+      "sslrootcert",
+      "PGSSLROOTCERT",
+      "rejectUnauthorized",
+      "readFileSync",
+      'from "pg"',
+    ]) {
+      expect(shell).not.toContain(forbidden);
     }
   });
 
-  it("lets injector sslrootcert override PGSSLROOTCERT like the runtime pool", async () => {
-    const envCa = await writeCaFile("env ca");
-    const urlCa = await writeCaFile("url ca");
-    try {
+  it.each([
+    [
+      "require",
+      canonicalPodUrl.replace("sslmode=verify-full", "sslmode=require"),
+      "remote-postgres-sslmode-downgraded",
+    ],
+    ["an env-only CA", canonicalPodUrl.replace(/&sslrootcert=[^&]+/u, ""), "remote-postgres-rootcert-missing"],
+    [
+      "an arbitrary CA path",
+      canonicalPodUrl.replace(encodeURIComponent(managedPostgresPodCaPath), encodeURIComponent("/tmp/drill-ca.pem")),
+      "remote-postgres-rootcert-path-unexpected",
+    ],
+  ])(
+    "refuses %s through the real runtime seam with a support-safe classification",
+    async (_label, databaseUrl, classification) => {
       const result = await runGeneratedHeldLockInjector({
-        databaseUrl: `postgresql://catalog:secret@db.example:25060/catalog?sslmode=verify-full&sslrootcert=${encodeURIComponent(
-          urlCa.caPath,
-        )}`,
-        pgsslrootcert: envCa.caPath,
+        databaseUrl,
+        seam: "runtime",
+        pgsslrootcert: "/tmp/drill-ca.pem",
       });
 
-      expect(result.config.ssl).toEqual({ rejectUnauthorized: true, ca: "url ca" });
-      expect(`${result.stdout}\n${result.stderr}`).not.toContain("url ca");
-      expect(`${result.stdout}\n${result.stderr}`).not.toContain(envCa.caPath);
-      expect(`${result.stdout}\n${result.stderr}`).not.toContain(urlCa.caPath);
-    } finally {
-      await envCa.cleanup();
-      await urlCa.cleanup();
-    }
-  });
+      expect(result.exitCode).toBe(3);
+      const output = `${result.stdout}\n${result.stderr}`;
+      expect(readMarkerPayload(output, HELD_LOCK_SETUP_FAILED_MARKER)).toEqual({
+        reason: "injector-error",
+        name: "ManagedPostgresClientError",
+        classification,
+      });
+      expect(output).not.toMatch(/postgres(?:ql)?:\/\/|secret|drill-ca|managed-postgres\/ca\.crt/i);
+    },
+  );
 
   it("selects only ready running worker pods for live held-lock injection", () => {
     expect(
@@ -848,19 +870,83 @@ async function runGeneratedHeldLockInjector({
   tableSchemas = ["catalog"],
   schemaNames = ["catalog", "public"],
   databaseName = "catalog",
+  seam = "fake",
 }) {
   const directory = await mkdtemp(join(tmpdir(), "bootstrap-hook-drill-injector-"));
   try {
-    const pgModuleDirectory = join(directory, "node_modules", "pg");
+    // Mirror the worker image layout: the injector runs from the deployable
+    // directory and imports the runtime seam two levels up.
+    const workdir = join(directory, "deployables", "platform-worker");
+    const seamDirectory = join(directory, "infrastructure", "event-core-postgres");
     const capturePath = join(directory, "client-config.json");
-    const scriptPath = join(directory, "injector.mjs");
-    await mkdir(pgModuleDirectory, { recursive: true });
-    await writeFile(join(pgModuleDirectory, "package.json"), JSON.stringify({ type: "module", main: "index.js" }));
+    const scriptPath = join(workdir, "injector.mjs");
+    await mkdir(workdir, { recursive: true });
+    await mkdir(seamDirectory, { recursive: true });
+    // As in the image, the seam package is ESM (infrastructure/event-core-postgres is type=module).
+    await writeFile(join(seamDirectory, "package.json"), JSON.stringify({ type: "module" }));
     await writeFile(
-      join(pgModuleDirectory, "index.js"),
-      `import { writeFileSync } from "node:fs";
+      join(seamDirectory, "pool.ts"),
+      seam === "runtime" ? `export * from ${JSON.stringify(pathToFileURL(runtimePoolPath).href)};\n` : fakeSeamModule,
+    );
+    await writeFile(
+      scriptPath,
+      extractHeldLockInjectorNodeScript(buildHeldLockInjectorShell({ heldLockTimeoutSeconds: 0 })),
+    );
 
-export class Client {
+    let result;
+    try {
+      result = await execFile(process.execPath, ["--import", tsxLoaderUrl, scriptPath], {
+        cwd: workdir,
+        env: {
+          ...process.env,
+          CHASE_SETS_HELD_LOCK_TIMEOUT_SECONDS: "0",
+          CHASE_SETS_TEST_TABLE_SCHEMAS: JSON.stringify(tableSchemas),
+          CHASE_SETS_TEST_SCHEMA_NAMES: JSON.stringify(schemaNames),
+          CHASE_SETS_TEST_DATABASE_NAME: databaseName,
+          CHASE_SETS_TEST_CAPTURE_PATH: capturePath,
+          DATABASE_URL_CATALOG: databaseUrl,
+          DEPLOYMENT_ENVIRONMENT: "staging",
+          GITHUB_ACTIONS: "",
+          KUBERNETES_SERVICE_HOST: "10.245.0.1",
+          PGSSLROOTCERT: pgsslrootcert,
+        },
+        maxBuffer: 1024 * 1024,
+        timeout: 15_000,
+        windowsHide: true,
+      });
+    } catch (error) {
+      result = {
+        stdout: error.stdout ?? "",
+        stderr: error.stderr ?? "",
+        exitCode: typeof error.code === "number" ? error.code : 1,
+      };
+    }
+
+    const capture = seam === "fake" ? JSON.parse(await readFile(capturePath, "utf8")) : {};
+    return {
+      config: {
+        application_name: capture.application_name,
+        connectionString: capture.connectionString,
+        ssl: capture.ssl,
+      },
+      seamCalls: capture.seamCalls ?? 0,
+      queries: capture.queries ?? [],
+      exitCode: result.exitCode ?? 0,
+      stdout: result.stdout,
+      stderr: result.stderr,
+    };
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+const runtimePoolPath = fileURLToPath(new URL("../infrastructure/event-core-postgres/pool.ts", import.meta.url));
+const tsxLoaderUrl = pathToFileURL(createRequire(import.meta.url).resolve("tsx")).href;
+const fakeSeamModule = `import { writeFileSync } from "node:fs";
+
+let seamCalls = 0;
+
+class FakeClient {
   constructor(config) {
     this.config = config;
     this.queries = [];
@@ -869,7 +955,7 @@ export class Client {
 
   async connect() {}
 
-  async query(sql, params = []) {
+  async query(sql) {
     const query = String(sql);
     this.queries.push(query);
     this.writeCapture();
@@ -901,61 +987,17 @@ export class Client {
       application_name: this.config.application_name,
       connectionString: this.config.connectionString,
       ssl: this.config.ssl,
+      seamCalls,
       queries: this.queries,
     }));
   }
 }
 
-export default { Client };
-`,
-    );
-    await writeFile(
-      scriptPath,
-      extractHeldLockInjectorNodeScript(buildHeldLockInjectorShell({ heldLockTimeoutSeconds: 0 })),
-    );
-
-    let result;
-    try {
-      result = await execFile(process.execPath, [scriptPath], {
-        cwd: directory,
-        env: {
-          ...process.env,
-          CHASE_SETS_HELD_LOCK_TIMEOUT_SECONDS: "0",
-          CHASE_SETS_TEST_TABLE_SCHEMAS: JSON.stringify(tableSchemas),
-          CHASE_SETS_TEST_SCHEMA_NAMES: JSON.stringify(schemaNames),
-          CHASE_SETS_TEST_DATABASE_NAME: databaseName,
-          CHASE_SETS_TEST_CAPTURE_PATH: capturePath,
-          DATABASE_URL_CATALOG: databaseUrl,
-          PGSSLROOTCERT: pgsslrootcert,
-        },
-        maxBuffer: 1024 * 1024,
-        timeout: 5_000,
-        windowsHide: true,
-      });
-    } catch (error) {
-      result = {
-        stdout: error.stdout ?? "",
-        stderr: error.stderr ?? "",
-        exitCode: typeof error.code === "number" ? error.code : 1,
-      };
-    }
-
-    const capture = JSON.parse(await readFile(capturePath, "utf8"));
-    return {
-      config: {
-        application_name: capture.application_name,
-        connectionString: capture.connectionString,
-        ssl: capture.ssl,
-      },
-      queries: capture.queries ?? [],
-      exitCode: result.exitCode ?? 0,
-      stdout: result.stdout,
-      stderr: result.stderr,
-    };
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
+export function createPgClient(connectionString, options) {
+  seamCalls += 1;
+  return new FakeClient({ ...options, connectionString });
 }
+`;
 
 function extractHeldLockInjectorNodeScript(shell) {
   const match = /<<'NODE'\r?\n([\s\S]*)\r?\nNODE$/.exec(shell);
@@ -971,14 +1013,4 @@ function readMarkerPayload(output, marker) {
     throw new Error(`Output did not contain marker ${marker}.`);
   }
   return JSON.parse(line.slice(line.indexOf(marker) + marker.length).trim());
-}
-
-async function writeCaFile(contents) {
-  const directory = await mkdtemp(join(tmpdir(), "bootstrap-hook-drill-ca-"));
-  const caPath = join(directory, "root.crt");
-  await writeFile(caPath, contents, "utf8");
-  return {
-    caPath,
-    cleanup: () => rm(directory, { recursive: true, force: true }),
-  };
 }

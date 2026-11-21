@@ -12,7 +12,7 @@ import { createNoopCommercialTermsResolver } from "@chase-sets/commercial-terms/
 import { buildListingEvidenceSnapshot } from "../../listings/domain/evidence-snapshot";
 import { hashMarketplaceRequest } from "../../mutation-recovery/api/attempt";
 import { marketplaceOfferCanonicalRequest } from "../../mutation-recovery/domain/contracts";
-import type { OfferMatchRow } from "../read-model/queries";
+import type { ListingOfferMatchRow } from "../read-model/queries";
 
 const actor = {
   sessionId: "sess_1",
@@ -41,7 +41,7 @@ function mcpRequest(arguments_: Record<string, unknown>, requestActor: ResolvedA
   };
 }
 
-function offerRow(overrides: Partial<OfferMatchRow> = {}): OfferMatchRow {
+function offerRow(overrides: Partial<ListingOfferMatchRow> = {}): ListingOfferMatchRow {
   return {
     ...privatePolicyFields,
     offer_id: "off_1",
@@ -67,6 +67,7 @@ function offerRow(overrides: Partial<OfferMatchRow> = {}): OfferMatchRow {
     accepted_inventory_item_id: null,
     listing_evidence_policy_hash: null,
     listing_evidence_snapshot_hash: null,
+    fill_source: "listing",
     listing_id: "lst_1",
     listing_price_amount: "24.00",
     listing_price_currency_code: "USD",
@@ -351,6 +352,45 @@ describe("marketplace offer MCP handlers", () => {
       },
       expect.any(Object),
     );
+  });
+
+  it("rejects declineOffer on an inventory Match with offer_match_requires_listing and appends nothing", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const {
+      fill_source: _fillSource,
+      listing_id: _listingId,
+      ...offerColumns
+    } = offerRow({ offer_id: "off_inventory", buyer_account_id: "acc_buyer" });
+    const db = {
+      query: async <Row>() => ({
+        rows: [
+          { ...offerColumns, fill_source: "inventory", inventory_item_id: "inv_1", inventory_available_quantity: 1 },
+        ] as Row[],
+      }),
+    };
+    const handlers = createMarketplaceOfferMcpHandlers(
+      createMarketplaceOfferRuntime({
+        eventStore,
+        db,
+        checkpointStore: createPostgresProjectionStore({ db }),
+        commercialTermsResolver: createNoopCommercialTermsResolver(),
+      }),
+    );
+    const before = await eventStore.readAll();
+
+    await expect(
+      handlers.toolHandlers["marketplace.decline-offer"]!(
+        mcpRequest({
+          accountId: "acc_1",
+          offerId: "off_inventory",
+          attemptId: "mcp_attempt_identity_8694",
+          requestHash: hashMarketplaceRequest(
+            marketplaceOfferCanonicalRequest("offer.decline", { offerId: "off_inventory", sellerAccountId: "acc_1" }),
+          ),
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "offer_match_requires_listing" });
+    expect(await eventStore.readAll()).toEqual(before);
   });
 
   it("propagates managed refresh conflicts without silently requoting or retrying acceptance", async () => {
