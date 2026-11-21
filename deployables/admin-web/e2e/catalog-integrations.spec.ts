@@ -153,11 +153,15 @@ test("tablet operator navigates to import review and uses the bulk action bar @c
   await expect(trail.getByText("Import", { exact: true })).toHaveAttribute("aria-current", "page");
 
   const context = page.locator('[data-catalog-import-context-bar="true"]');
-  await clickUntilDisclosureExpanded(context.getByRole("button", { name: /Step 0 · Choose import scope/ }), true);
+  const contextTrigger = context.getByRole("button", { name: /Step 0 · Choose import scope/ });
+  await clickUntilDisclosureExpanded(contextTrigger, true);
   const provider = context.getByRole("combobox", { name: "Provider" });
   const tcgdexUrl = /[?&]providerKey=tcgdex(?:&|$)/;
   await expect(async () => {
-    if (!tcgdexUrl.test(page.url())) await provider.selectOption("tcgdex");
+    if (!tcgdexUrl.test(page.url())) {
+      await expect(contextTrigger).toHaveAttribute("aria-expanded", "true");
+      await provider.selectOption("tcgdex");
+    }
     await expect(page).toHaveURL(tcgdexUrl, { timeout: 1_000 });
   }).toPass({ timeout: 20_000 });
   await clickUntilDisclosureExpanded(page.getByRole("button", { name: "Review changes" }).first(), true);
