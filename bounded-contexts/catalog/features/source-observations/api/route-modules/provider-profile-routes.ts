@@ -23,6 +23,7 @@ import {
   CatalogProviderProfileVersionNotFoundError,
   type CatalogProviderProfileLifecycleBlockingJob,
 } from "../providers/provider-profile-review";
+import { CatalogProviderProfileEditableSectionChangedError } from "../providers/provider-profile-section-fingerprint";
 import type {
   CatalogProviderIntegrationProfileVersionRecord,
   CatalogProviderProfileVersionSelector,
@@ -164,6 +165,19 @@ export function providerProfileRoutes(
       return body;
     }
 
+    const expectedSectionFingerprint = sectionFingerprintFromIfMatch(c.req.header("If-Match"));
+    if (!expectedSectionFingerprint) {
+      return c.json(
+        {
+          error: {
+            code: "profile_section_fingerprint_required",
+            message: t("catalog.features.sourceObservations.api.route.profile.section.fingerprint.required"),
+          },
+        },
+        428,
+      );
+    }
+
     try {
       const commandBody = isRecord(body.command) ? body.command : body;
       const command = parseCatalogProviderProfileSectionUpdateCommand(commandBody, c.req.param("section"));
@@ -173,12 +187,24 @@ export function providerProfileRoutes(
         profileVersion: c.req.param("profileVersion"),
         ...profileVersionSelectorFromRequest(c),
         command,
+        expectedSectionFingerprint,
         audit: authoringAuditFromContext(c.get("context")),
         activeJobs: await listProfileLifecycleBlockingJobs(services, c.get("context")),
       });
 
       return c.json(result);
     } catch (error) {
+      if (error instanceof CatalogProviderProfileEditableSectionChangedError) {
+        return c.json(
+          {
+            error: {
+              code: error.code,
+              message: t("catalog.features.sourceObservations.api.route.profile.section.changed"),
+            },
+          },
+          409,
+        );
+      }
       if (error instanceof CatalogProviderProfileLifecycleConsistencyError) {
         return lifecycleConsistencyErrorResponse(c, error);
       }
@@ -622,4 +648,11 @@ function lifecycleConsistencyErrorResponse(c: Context<CatalogAuthoringEnv>, erro
     },
     409,
   );
+}
+
+// The section fingerprint travels as an entity tag, so a quoted value and a bare one name the same revision.
+// A wildcard names no revision, so it cannot stand in for the one the operator read.
+function sectionFingerprintFromIfMatch(header: string | undefined): string | undefined {
+  const value = header?.trim().replace(/^W\//, "").replace(/^"(.*)"$/, "$1").trim();
+  return value && value !== "*" ? value : undefined;
 }

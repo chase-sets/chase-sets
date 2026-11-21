@@ -1424,6 +1424,7 @@ export function createCatalogApiClient({
       profileVersion: string,
       section: string,
       command: unknown,
+      sectionFingerprint: string,
     ): Promise<T> {
       const response = await configuredFetch(
         `${baseUrl.replace(/\/$/, "")}/source-observations/provider-profiles/${encodeURIComponent(providerKey)}/${encodeURIComponent(profileVersion)}/sections/${encodeURIComponent(section)}`,
@@ -1432,6 +1433,7 @@ export function createCatalogApiClient({
           headers: {
             "content-type": "application/json",
             ...headersToRecord(headers),
+            "if-match": `"${sectionFingerprint}"`,
           },
           body: JSON.stringify({ command }),
         },

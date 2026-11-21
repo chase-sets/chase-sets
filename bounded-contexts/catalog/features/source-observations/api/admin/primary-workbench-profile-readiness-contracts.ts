@@ -152,6 +152,8 @@ export type CatalogPrimaryWorkbenchValidationReadinessReadModel = Readonly<{
     saveEvidenceBlockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
     activationCommandKey: Extract<CatalogPrimaryWorkbenchCommandKey, "provider-profile.activate">;
     evidenceCommandKey: Extract<CatalogPrimaryWorkbenchCommandKey, "provider-profile.edit-section">;
+    /** Migration evidence's section revision as this page read it, or null with no version selected. */
+    evidenceSectionFingerprint: string | null;
     workspaceHref: string;
     providerKey: string | null;
     profileVersion: string | null;
@@ -393,6 +395,8 @@ export type CatalogPrimaryWorkbenchProfileSectionWorkspace = Readonly<{
   saveOutcome: CatalogPrimaryWorkbenchProfileSectionSaveOutcome;
   submitHref: string;
   commandKey: Extract<CatalogPrimaryWorkbenchCommandKey, "provider-profile.edit-section">;
+  /** The section's revision as this page read it; the save sends it so a newer change is refused. */
+  sectionFingerprint: string;
   fields: readonly CatalogPrimaryWorkbenchProfileSectionField[];
   optionQueries: readonly CatalogPrimaryWorkbenchProfileOptionQueryDetail[];
   importScopeControls: readonly CatalogPrimaryWorkbenchProfileImportScopeControl[];
