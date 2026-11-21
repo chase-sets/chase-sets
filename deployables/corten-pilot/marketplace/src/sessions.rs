@@ -4,8 +4,8 @@
 //!
 //! Auth requires `security.manage` for every session call, so every handler takes a
 //! `SecurityOwner`; marketplace's routes ask only for a signed-in user and let the API refuse.
-//! The list sends its status filter and page to the API, which marketplace's loader does not
-//! (chase-sets/chase-sets#10699), and has no Search: for a user, Auth replaces it with the user's id.
+//! The list sends its status filter and page to the API, as marketplace's loader does, and has no
+//! Search: for a user, Auth replaces it with the user's id.
 //!
 //! Neither write is an attempt (Auth takes no `Idempotency-Key` for them). Auth names a refusal
 //! (`session_not_active`, `session_account_current`, `session_account_unavailable`) and answers a
