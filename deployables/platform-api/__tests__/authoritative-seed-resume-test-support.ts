@@ -450,7 +450,7 @@ export const frozenSeedIdentityCorpus: readonly string[] = [
   "identity|Invitation|ivt_seed_cancelled|cancelled@chasesets.test",
   "identity|Invitation|ivt_seed_declined|declined@chasesets.test",
   "identity|Invitation|ivt_seed_expired|expired@chasesets.test",
-  "identity|Invitation|ivt_seed_support_accept|support@chasesets.test",
+  "identity|Invitation|ivt_seed_support_accept_sha256|support@chasesets.test",
   "identity|Membership|mbr_seed_card_vault_membership|Card Vault owner",
   "identity|Membership|mbr_seed_collector_membership|Demo Collector owner",
   "identity|Membership|mbr_seed_demo_membership|Demo Account owner",

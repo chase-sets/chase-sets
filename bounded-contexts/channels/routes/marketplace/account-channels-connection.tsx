@@ -2,6 +2,7 @@ import { loader as connectionLoader } from "../../features/connections/ui/accoun
 import { defineApiErrorAdapter, defineResourceRoute } from "@chase-sets/platform-runtime/http";
 import contextManifest from "../../context.json";
 import { ChannelsConnectionsApiError } from "../../support/request-support/api-client";
+import { readSetupLocations } from "../../support/request-support/account-channels-connection.server";
 
 export {
   action,
@@ -20,7 +21,7 @@ export const loader = defineResourceRoute({
     getStatus: (error) => error.status,
     getBody: (error) => error.body,
   }),
-  load: connectionLoader,
+  load: (args) => connectionLoader(args, readSetupLocations),
   map: (data) => data,
   onPending: () => ({ kind: "loading" as const }),
   onPermanentFailure: (loaded) => {

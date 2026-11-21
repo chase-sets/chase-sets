@@ -7,6 +7,7 @@ import { t } from "@chase-sets/localization";
 import type { CheckoutFulfillmentPreview, CheckoutSessionRow } from "../support/request-support/api-client";
 import * as checkoutRouteHarness from "../tests/support/checkout-route-test-harness";
 import {
+  paymentsCheckoutPreviewStatusResponse,
   applyCheckoutRouteMockDefaults,
   checkoutCommit,
   MockCheckoutApiError,
@@ -410,7 +411,11 @@ beforeEach(() => {
   applyCheckoutRouteMockDefaults();
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () => Response.json({ available_balance_amount: "0.00", currency_code: "usd" })),
+    vi.fn(
+      async (input: RequestInfo | URL) =>
+        (await paymentsCheckoutPreviewStatusResponse(input)) ??
+        Response.json({ available_balance_amount: "0.00", currency_code: "usd" }),
+    ),
   );
   mockResolveActorFromAuthApi.mockResolvedValue(signedInActor);
   mockListSellListShipFromAddresses.mockResolvedValue({ items: [] });

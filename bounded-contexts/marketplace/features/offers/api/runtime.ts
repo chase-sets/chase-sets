@@ -85,6 +85,15 @@ export class MarketplaceOfferSubmissionAwayError extends Error {
   }
 }
 
+export class MarketplaceOfferMatchRequiresListingError extends Error {
+  readonly code = "offer_match_requires_listing";
+
+  constructor() {
+    super("This Offer Match is from inventory. List the item before responding to the Offer.");
+    this.name = "MarketplaceOfferMatchRequiresListingError";
+  }
+}
+
 export class MarketplaceOfferAcceptanceReadinessError extends Error {
   public constructor(
     public readonly code:
@@ -771,6 +780,7 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
       if (!offer) {
         throw new Error("Offer not found.");
       }
+      if (offer.fill_source === "inventory") throw new MarketplaceOfferMatchRequiresListingError();
       const streamId = `marketplace.offer-seller-control-${params.sellerAccountId}-${offer.buyer_account_id}-${offer.listing_id}`;
       const current = await sellerControlRepository.load(streamId);
       const events = decideMarketplaceOfferSellerControl(current.state, {

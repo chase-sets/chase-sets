@@ -289,7 +289,7 @@ export async function getPaymentAccountRiskSource(
   const result = await db.query<PaymentAccountRiskSourceRow>(
     `SELECT
        account_id,
-       manual_payout_review,
+       payout_review_hold AS manual_payout_review,
        stripe_fraud_flag,
        stripe_fraud_flagged_at,
        stripe_fraud_signal_count,

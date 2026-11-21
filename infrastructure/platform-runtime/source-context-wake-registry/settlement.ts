@@ -15,6 +15,7 @@ export const settlementWakeRegistryEntry = registryEntry({
     "marketplace:marketplace-settlement-negative-balance-projection",
     "notifications:notifications-source-facts-outbox-projection",
     "ordering:ordering-order-money-timeline-projection",
+    "payments:payments-account-risk-source-projection",
     "pricing:pricing-market-trades-projection",
     "settlement:platform-policy-document-projection",
     "settlement:settlement-account-risk-source-projection",

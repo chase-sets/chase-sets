@@ -6,6 +6,7 @@ import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CheckoutFulfillmentPreview, CheckoutSessionRow } from "../support/request-support/api-client";
 import {
+  paymentsCheckoutPreviewStatusResponse,
   applyCheckoutRouteMockDefaults,
   checkoutCommit,
   guestCheckoutActor,
@@ -286,7 +287,11 @@ describe("checkout session authorization through the data router", () => {
     applyCheckoutRouteMockDefaults();
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => Response.json({ available_balance_amount: "0.00", currency_code: "usd" })),
+      vi.fn(
+        async (input: RequestInfo | URL) =>
+          (await paymentsCheckoutPreviewStatusResponse(input)) ??
+          Response.json({ available_balance_amount: "0.00", currency_code: "usd" }),
+      ),
     );
     mockListSellListShipFromAddresses.mockResolvedValue({ items: [] });
     mockCreateAuthRequestApiClient.mockReturnValue({

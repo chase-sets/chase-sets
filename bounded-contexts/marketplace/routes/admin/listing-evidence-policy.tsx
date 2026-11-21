@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import { parseIsoUtcTimestamp } from "@chase-sets/primitives/iso-utc-timestamp";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useActionData, useLoaderData, useMatches } from "react-router";
 import { defineFormAction, formActionRedirect } from "@chase-sets/platform-runtime/http";
@@ -25,11 +26,21 @@ export async function loader({ request }: LoaderFunctionArgs) {
   return { overview, selectorCatalog };
 }
 
-function isoTimestamp(value: FormDataEntryValue | null) {
-  const raw = String(value ?? "").trim();
-  if (!raw) return null;
-  const parsed = new Date(raw);
-  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+// The form sends each effective time as the instant the browser read in the
+// operator's zone (`LocalDateTimeInput`), with the typed text in `<name>Local`.
+// A blank field is `null`; a time that is not an instant is refused rather
+// than read in this server's zone.
+function effectiveTime(formData: FormData, name: string): { ok: true; value: string | null } | { ok: false } {
+  const instant = String(formData.get(name) ?? "").trim();
+  const typed = String(formData.get(`${name}Local`) ?? "").trim();
+  if (!instant && !typed) {
+    return { ok: true, value: null };
+  }
+  try {
+    return { ok: true, value: parseIsoUtcTimestamp(instant) };
+  } catch {
+    return { ok: false };
+  }
 }
 
 // admin-web serves this page in its Platform section (context.json's route section).
@@ -63,14 +74,18 @@ export const action = defineFormAction({
       if (formData.get("impactAcknowledged") !== "yes") {
         return { validation: null, error: t("marketplace.features.listingEvidencePolicy.ui.impact.required") };
       }
-      const effectiveFrom = isoTimestamp(formData.get("effectiveFrom"));
-      if (!effectiveFrom) {
+      const from = effectiveTime(formData, "effectiveFrom");
+      const until = effectiveTime(formData, "effectiveUntil");
+      if (!from.ok || !until.ok) {
+        return { validation: null, error: t("marketplace.features.listingEvidencePolicy.ui.effective.invalid") };
+      }
+      if (!from.value) {
         return { validation: null, error: t("marketplace.features.listingEvidencePolicy.ui.effective.required") };
       }
       return policyRedirect(
         await activateListingEvidencePolicyDraft(request, String(formData.get("policyId") ?? ""), {
-          effectiveFrom,
-          effectiveUntil: isoTimestamp(formData.get("effectiveUntil")),
+          effectiveFrom: from.value,
+          effectiveUntil: until.value,
           impactAcknowledgmentHash: String(formData.get("impactAcknowledgmentHash") ?? ""),
         }),
       );

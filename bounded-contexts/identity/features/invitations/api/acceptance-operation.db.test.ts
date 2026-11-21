@@ -13,7 +13,7 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { acceptInvitationOperation, readInvitationAcceptanceAuthority } from "./acceptance-operation";
-import { acceptanceContext, acceptanceOperation, seedAcceptance } from "./acceptance-test-support";
+import { acceptanceContext, acceptanceOperation, acceptanceTokenHash, seedAcceptance } from "./acceptance-test-support";
 
 const base = process.env.TEST_DATABASE_URL;
 if (!base && process.env.CI) throw new Error("TEST_DATABASE_URL is required for database-backed tests in CI.");
@@ -68,7 +68,7 @@ if (!base && process.env.CI) throw new Error("TEST_DATABASE_URL is required for 
     await seedAcceptance(store);
     const params = {
       operation: acceptanceOperation,
-      acceptanceTokenHash: "existing-store-token-hash",
+      acceptanceTokenHash,
       context: acceptanceContext,
     };
     await acceptInvitationOperation(store, params);
@@ -112,7 +112,7 @@ if (!base && process.env.CI) throw new Error("TEST_DATABASE_URL is required for 
     await expect(
       acceptInvitationOperation(store, {
         operation: acceptanceOperation,
-        acceptanceTokenHash: "existing-store-token-hash",
+        acceptanceTokenHash,
         context: acceptanceContext,
       }),
     ).rejects.toThrow();
@@ -125,7 +125,7 @@ if (!base && process.env.CI) throw new Error("TEST_DATABASE_URL is required for 
     await expect(
       acceptInvitationOperation(store, {
         operation: acceptanceOperation,
-        acceptanceTokenHash: "existing-store-token-hash",
+        acceptanceTokenHash,
         context: acceptanceContext,
       }),
     ).resolves.toMatchObject({ membershipId: "mbr_reserved" });
@@ -135,7 +135,7 @@ if (!base && process.env.CI) throw new Error("TEST_DATABASE_URL is required for 
     await seedAcceptance(store);
     const input = {
       operation: acceptanceOperation,
-      acceptanceTokenHash: "existing-store-token-hash",
+      acceptanceTokenHash,
       context: acceptanceContext,
     };
     const results = await Promise.all([
@@ -162,7 +162,7 @@ if (!base && process.env.CI) throw new Error("TEST_DATABASE_URL is required for 
       await seedAcceptance(store);
       const input = {
         operation: acceptanceOperation,
-        acceptanceTokenHash: "existing-store-token-hash",
+        acceptanceTokenHash,
         context: acceptanceContext,
       };
       let committed = false;
