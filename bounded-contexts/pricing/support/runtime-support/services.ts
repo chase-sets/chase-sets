@@ -2,9 +2,13 @@ import {
   createPostgresEventStore,
   createPostgresProjectionStore,
   ownerPredicateKey,
+  withConfigurationEpochTransaction,
+  withOwnerPredicateWrite,
   type PgQueryable,
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
+import type { ConfigurationConsumer } from "@chase-sets/event-core/configuration-epoch";
+import type { AppendToStreamInput } from "@chase-sets/event-core/storage";
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createPolicyRuntime, type PolicyRuntime } from "@chase-sets/platform-policy/runtime";
@@ -15,7 +19,12 @@ import { createMarketEstimatesRuntime } from "../../features/market-estimates/ap
 import { createDemandCurveCloser } from "../../features/market-estimates/api/demand-curve-closer";
 import { createRepricingPolicyRuntime } from "../../features/repricing-policies/api/runtime";
 import { createRepricingPolicyActivationServices } from "../../features/repricing-policies/api/activation";
-import { createRepricingConfigurationWriter } from "../../features/repricing-policies/api/configuration";
+import {
+  createRepricingConfigurationWriter,
+  createRepricingStandingEpochStore,
+  lockRepricingStanding,
+  type RepricingStanding,
+} from "../../features/repricing-policies/api/configuration";
 import { createPublicMarketPagesRuntime } from "../../features/public-market-pages/api/runtime";
 import { createBulkRepriceIngestionRuntime } from "../../features/bulk-reprice-ingestion/api/runtime";
 import { createRepricingEngineRuntime } from "../../features/repricing-engine/api/runtime";
@@ -26,9 +35,18 @@ import { pricingGoalDefinitions } from "../../features/repricing-policies/domain
 import type { CommercialTermsResolver } from "@chase-sets/commercial-terms/server";
 import type { ChannelConnectionIdentityReader } from "../../features/economics/domain/contracts";
 import { createEconomicsServices, type EconomicsServices } from "../../features/economics/api/services";
+import {
+  createPricingEvaluationAuthority,
+  repricingPlatformSelector,
+  type PricingEvaluationAuthority,
+  type PricingEvaluationOwners,
+} from "../../features/repricing-engine/api/evaluation-authority";
+import { evaluationOwnerIdentity } from "../../features/repricing-engine/api/evaluation-owner-inputs";
 
 export type PricingHostPorts = Readonly<{
   pricingPredicateConsumerPool?: PgTransactionalPool | undefined;
+  pricingEvaluationOwners?: PricingEvaluationOwners;
+  pricingEvaluationConsumers?: readonly Readonly<{ identity: ConfigurationConsumer; pool: PgTransactionalPool }>[];
   commercialTermsResolver: CommercialTermsResolver;
   channelConnectionIdentityReader: ChannelConnectionIdentityReader;
 }>;
@@ -39,9 +57,10 @@ export type PricingServices = Readonly<{
   marketRollups: ReturnType<typeof createMarketRollupsRuntime>;
   marketEstimates: ReturnType<typeof createMarketEstimatesRuntime>;
   demandCurves: ReturnType<typeof createDemandCurveCloser>;
-  repricingPolicies: ReturnType<typeof createRepricingPolicyRuntime> &
+  repricingPolicies: Omit<ReturnType<typeof createRepricingPolicyRuntime>, "commandHandler"> &
     ReturnType<typeof createRepricingPolicyActivationServices>;
   repricingEngine: ReturnType<typeof createRepricingEngineRuntime>;
+  evaluationAuthority?: PricingEvaluationAuthority;
   forecastLedger: ReturnType<typeof createForecastLedgerRuntime>;
   publicMarketPages: ReturnType<typeof createPublicMarketPagesRuntime>;
   /**
@@ -67,24 +86,73 @@ export function createPricingServices(pool: PgTransactionalPool, ports: PricingH
   ) {
     throw new Error("Pricing requires Commercial Terms and Channel Connection Economics host ports.");
   }
-  const eventStore = createPostgresEventStore({
+  const affectsPlatformPolicy = (inputs: readonly AppendToStreamInput[]) =>
+    inputs.some(({ events }) =>
+      events.some(
+        (event) =>
+          (event.eventType === "platform-policy.document.created" ||
+            event.eventType === "platform-policy.document.revised") &&
+          event.payload.policyKey === repricingEnginePolicy.policyKey,
+      ),
+    );
+  const store = createPostgresEventStore({
     pool,
     ownerPredicates: {
       ...(ports.pricingPredicateConsumerPool ? { consumerPool: ports.pricingPredicateConsumerPool } : {}),
       keys: (inputs) =>
-        inputs.some(({ events }) =>
-          events.some(
-            (event) =>
-              (event.eventType === "platform-policy.document.created" ||
-                event.eventType === "platform-policy.document.revised") &&
-              event.payload.policyKey === repricingEnginePolicy.policyKey,
-          ),
-        )
+        affectsPlatformPolicy(inputs)
           ? [ownerPredicateKey("repricing-platform-policy", repricingEnginePolicy.policyKey)]
           : [],
     },
     wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "pricing" }),
   });
+  const standing: RepricingStanding = {
+    async source() {
+      const { incarnation } = await evaluationOwnerIdentity(pool, "pricing");
+      return {
+        incarnation,
+        epochs: createRepricingStandingEpochStore({
+          pool,
+          sourceIncarnation: incarnation,
+          consumers: ports.pricingEvaluationConsumers ?? [],
+        }),
+      };
+    },
+  };
+  async function writePlatformPolicy<T>(
+    write: (client: Parameters<typeof store.appendToStreamInTransaction>[0]) => Promise<T>,
+  ) {
+    const { incarnation, epochs } = await standing.source();
+    const closing = await withConfigurationEpochTransaction(pool, async (db) => {
+      await lockRepricingStanding(db, repricingPlatformSelector, incarnation);
+      return epochs.beginClosureInTransaction(db, repricingPlatformSelector);
+    });
+    const closed = await epochs.driveClosure(repricingPlatformSelector);
+    if (closed.epoch !== closing.epoch || closed.pendingConsumers.length)
+      throw new Error("Platform pricing policy installation is waiting for its consumers.");
+    return withOwnerPredicateWrite(pool, ports.pricingPredicateConsumerPool, async (db: PgQueryable) => {
+      if ((await lockRepricingStanding(db, repricingPlatformSelector, incarnation)) !== closing.epoch)
+        throw new Error("Platform pricing policy installation was superseded.");
+      const installed = await epochs.installClosureInTransaction(db, repricingPlatformSelector);
+      const result = await write(db);
+      await db.query("UPDATE pricing_repricing_standing SET epoch = $2 WHERE key = $1", [
+        repricingPlatformSelector,
+        installed.epoch,
+      ]);
+      return result;
+    });
+  }
+  const eventStore = {
+    ...store,
+    appendToStream: (input: AppendToStreamInput) =>
+      affectsPlatformPolicy([input])
+        ? writePlatformPolicy((db) => store.appendToStreamInTransaction(db, input))
+        : store.appendToStream(input),
+    appendToStreams: (inputs: readonly AppendToStreamInput[]) =>
+      affectsPlatformPolicy(inputs)
+        ? writePlatformPolicy((db) => store.appendToStreamsInTransaction(db, inputs))
+        : store.appendToStreams!(inputs),
+  };
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
   const policies = createPolicyRuntime({ eventStore, db });
@@ -141,14 +209,39 @@ export function createPricingServices(pool: PgTransactionalPool, ports: PricingH
       return result;
     },
   };
-  const configuration = createRepricingConfigurationWriter({ pool, eventStore, pricingPredicateConsumerPool });
-  const repricingPolicies = {
-    ...createRepricingPolicyRuntime({
+  const configuration = createRepricingConfigurationWriter({
+    pool,
+    eventStore,
+    pricingPredicateConsumerPool,
+    standing,
+  });
+  const evaluationAuthority =
+    ports.pricingEvaluationOwners &&
+    pricingPredicateConsumerPool === ports.pricingEvaluationOwners.marketplace &&
+    ports.pricingEvaluationConsumers &&
+    createPricingEvaluationAuthority({
+      pool,
+      owners: ports.pricingEvaluationOwners,
       eventStore,
-      db,
+      economy: economics,
       configuration,
-      goalAdoptions: () => forecastLedger.listGoalAdoptions(),
-    }),
+      standing,
+      hasConsumerRoute: (expected) =>
+        ports.pricingEvaluationConsumers?.some(
+          ({ identity, pool: consumer }) =>
+            identity.storeId === expected.storeId &&
+            identity.incarnation === expected.incarnation &&
+            consumer === ports.pricingEvaluationOwners?.marketplace,
+        ) === true,
+    });
+  const { commandHandler: _standaloneCommandHandler, ...policyControls } = createRepricingPolicyRuntime({
+    eventStore,
+    db,
+    configuration,
+    goalAdoptions: () => forecastLedger.listGoalAdoptions(),
+  });
+  const repricingPolicies = {
+    ...policyControls,
     ...createRepricingPolicyActivationServices({ eventStore, pool, configuration }),
   };
   const publicMarketPages = createPublicMarketPagesRuntime({ db, policies });
@@ -162,6 +255,7 @@ export function createPricingServices(pool: PgTransactionalPool, ports: PricingH
     demandCurves,
     repricingPolicies,
     repricingEngine,
+    ...(evaluationAuthority ? { evaluationAuthority } : {}),
     forecastLedger,
     publicMarketPages,
     policies,

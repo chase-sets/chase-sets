@@ -106,4 +106,33 @@ export const pricingRepricingEngineSchemaMigrations: readonly BcSchemaMigration[
     description: "Capture immutable repricing digest membership and checkpoint-gated daily delivery.",
     statements: [pricingRepricingDigestSchemaSql],
   },
+  {
+    migrationId: "20261120_pricing_evaluated_decision_policy_origins",
+    description: "Locate the complete seller policy origin set for an installed standing capture.",
+    statements: [
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS pricing_repricing_policy_origin_account_idx
+         ON event_store_events ((payload->>'accountId'), stream_id)
+         WHERE event_type = 'pricing.repricing-policy.created'`,
+    ],
+  },
 ];
+export const pricingEvaluationAuthoritySchemaSql = `
+CREATE TABLE IF NOT EXISTS pricing_repricing_standing (
+  key text PRIMARY KEY,
+  incarnation text NOT NULL,
+  epoch integer NOT NULL CHECK (epoch >= 0)
+);
+CREATE TABLE IF NOT EXISTS pricing_evaluated_decisions (
+  request_id text PRIMARY KEY,
+  evaluation_id text NOT NULL UNIQUE,
+  command_fingerprint text NOT NULL,
+  seller_account_id text NOT NULL,
+  budget_day date NOT NULL,
+  terminal_binding jsonb NOT NULL,
+  evidence jsonb NOT NULL,
+  evidence_hash text NOT NULL CHECK (length(evidence_hash) = 64),
+  status text NOT NULL CHECK (status IN ('PREPARED', 'COMMITTED', 'ABORTED'))
+);
+CREATE INDEX IF NOT EXISTS pricing_evaluated_decisions_settlement_idx
+  ON pricing_evaluated_decisions (seller_account_id, budget_day, request_id) WHERE status = 'PREPARED';
+`;
