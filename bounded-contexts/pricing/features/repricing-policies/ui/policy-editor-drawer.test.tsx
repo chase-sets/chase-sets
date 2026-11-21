@@ -10,7 +10,13 @@ import {
   withMemoryConfigurationTransactions,
 } from "../tests/configuration-fixture";
 import { createRepricingPolicyRoutes } from "../api/route";
-import { bindAuthoringIntent, bindGoalAuthoringIntent, compilePresetBody } from "../domain/authoring-intent";
+import {
+  bindAuthoringIntent,
+  bindGoalAuthoringIntent,
+  compilePresetBody,
+  repricingEditorDefaults,
+  repricingPresetControls,
+} from "../domain/authoring-intent";
 import { resolvePricingGoal, type RepricingPolicyState } from "../domain/domain";
 import { subscribeDurableJobStatus } from "@chase-sets/platform-runtime/durable-job-web";
 import { createPricingApiClient, PricingApiError } from "../../../support/request-support/api-client";
@@ -54,6 +60,8 @@ function apiFixture(): EditorApi {
     getRepricingAuthoringPrerequisites: vi.fn<EditorApi["getRepricingAuthoringPrerequisites"]>(async () => ({
       listingCurrencyCodes: ["CAD"],
       hasCostBasis: false,
+      presets: repricingPresetControls(),
+      editorDefaults: repricingEditorDefaults({ listingCurrencyCodes: ["CAD"], hasCostBasis: false }),
       goalAdoption: [
         {
           goalId: "fixed-percentile",
@@ -417,6 +425,8 @@ describe("policy editor prerequisites and gates", () => {
         listingCurrencyCodes,
         hasCostBasis: false,
         goalAdoption: [],
+        presets: repricingPresetControls(),
+        editorDefaults: repricingEditorDefaults({ listingCurrencyCodes, hasCostBasis: false }),
       });
       render(<PolicyEditorDrawer api={api} onSave={vi.fn()} onClose={vi.fn()} />);
       expect(screen.getByText("Loading listing currencies and cost availability")).toBeTruthy();
@@ -442,6 +452,8 @@ describe("policy editor prerequisites and gates", () => {
       listingCurrencyCodes: ["CAD"],
       hasCostBasis: true,
       goalAdoption: [],
+      presets: repricingPresetControls(),
+      editorDefaults: repricingEditorDefaults({ listingCurrencyCodes: ["CAD"], hasCostBasis: true }),
     });
     render(<PolicyEditorDrawer api={api} onSave={vi.fn()} onClose={vi.fn()} />);
     await screen.findByLabelText("Margin above cost (%)");
