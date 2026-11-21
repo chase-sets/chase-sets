@@ -831,6 +831,9 @@ export function e2eSuiteIdsForChangedFile(filePath) {
     /^bounded-contexts\/discovery\/(?:features\/search\/ui\/agent-product-cards|support\/ui-support\/agent-product-cards|web\.ts$)/.test(
       normalized,
     ) ||
+    /^bounded-contexts\/checkout\/(?:features\/sessions\/ui\/agent-(?:cart-review|checkout)|support\/ui-support\/agent-checkout-views|web\.ts$)/.test(
+      normalized,
+    ) ||
     /^infrastructure\/platform-runtime\/(?:mcp-widget-resources|public-product-urls|ucp-contracts)\.ts$/.test(
       normalized,
     );
