@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { channelsEnglishTranslations } from "@chase-sets/localization/locales/en/channels";
+import { sellerAttentionQueueEnglishTranslations } from "@chase-sets/seller-attention-queue/localization";
 import type { ConnectorAttentionContribution } from "../domain/contracts";
 import { ChannelConnectionHealthPanel, type ChannelHealthPanelState } from "../ui/health-panel";
 
@@ -133,9 +134,10 @@ function connectorPanel(value: ConnectorAttentionContribution | null) {
   return screen.queryByTestId("channel-connector-attention");
 }
 // Every rendered string must be a catalog template; a hard-coded literal matches none of them.
-const catalogTemplates = Object.values(channelsEnglishTranslations).map(
-  (value) => new RegExp(`^${value.replace(/[.*+?^$()|[\]\\]/g, "\\$&").replace(/\{[A-Za-z]+\}/g, ".+")}$`),
-);
+const catalogTemplates = Object.values({
+  ...channelsEnglishTranslations,
+  ...sellerAttentionQueueEnglishTranslations,
+}).map((value) => new RegExp(`^${value.replace(/[.*+?^$()|[\]\\]/g, "\\$&").replace(/\{[A-Za-z]+\}/g, ".+")}$`));
 function expectOnlyCatalogText(section: HTMLElement) {
   const walker = document.createTreeWalker(section, NodeFilter.SHOW_TEXT);
   const texts: string[] = [];
