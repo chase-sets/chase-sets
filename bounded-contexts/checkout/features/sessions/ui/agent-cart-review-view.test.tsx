@@ -91,7 +91,7 @@ describe("agent cart review states", () => {
   it("shows continue as pending, then a Banner when it is rejected", async () => {
     let reject: (error: Error) => void = () => {};
     const onContinue = vi.fn(() => new Promise<void>((_resolve, fail) => (reject = fail)));
-    render(<AgentCartReviewView state={result(fixtures.unpaid)} onContinue={onContinue} />);
+    const { rerender } = render(<AgentCartReviewView state={result(fixtures.unpaid)} onContinue={onContinue} />);
     fireEvent.click(continueButton()!);
     expect(onContinue).toHaveBeenCalledOnce();
     expect(continueButton()?.getAttribute("aria-busy")).toBe("true");
@@ -101,5 +101,10 @@ describe("agent cart review states", () => {
     expect(screen.getByText("Checkout could not continue. Try again.")).toBeTruthy();
     expect(continueButton()?.getAttribute("aria-busy")).toBeNull();
     expect(document.body.textContent).not.toContain("host refused");
+
+    // The error belongs to the result it was raised on; the next tool result clears it.
+    rerender(<AgentCartReviewView state={result(fixtures.captured)} onContinue={onContinue} />);
+    expect(continueButton()).toBeTruthy();
+    expect(screen.queryByText("Checkout could not continue. Try again.")).toBeNull();
   });
 });

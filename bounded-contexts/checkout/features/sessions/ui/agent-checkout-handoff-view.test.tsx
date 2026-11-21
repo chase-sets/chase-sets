@@ -125,9 +125,14 @@ describe("agent checkout handoff states", () => {
     const openLink = vi.fn(async () => {
       throw new Error("host refused");
     });
-    renderHandoff(fixtures.unpaid, openLink);
+    const { rerender } = renderHandoff(fixtures.unpaid, openLink);
     await act(async () => fireEvent.click(continueButton()!));
     expect(screen.getByText("Chase Sets checkout could not be opened")).toBeTruthy();
     expect(document.body.textContent).not.toContain("host refused");
+
+    // The warning belongs to the result it was raised on; the next tool result clears it.
+    rerender(<AgentCheckoutHandoffView state={result(fixtures.canceled)} openLink={openLink} />);
+    expect(screen.getByText("Checkout canceled")).toBeTruthy();
+    expect(screen.queryByText("Chase Sets checkout could not be opened")).toBeNull();
   });
 });

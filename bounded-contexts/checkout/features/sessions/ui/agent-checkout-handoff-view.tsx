@@ -115,14 +115,15 @@ export function AgentCheckoutHandoffView({
   state: AgentCheckoutViewState;
   openLink: (url: string) => Promise<void>;
 }>) {
-  const [linkFailed, setLinkFailed] = useState(false);
+  // A refused link belongs to the result it was raised on; the next tool result clears the warning.
+  const [linkFailedFor, setLinkFailedFor] = useState<AgentCheckoutViewState>();
   const view = handoff(state);
   const open = async (url: string) => {
-    setLinkFailed(false);
+    setLinkFailedFor(undefined);
     try {
       await openLink(url);
     } catch {
-      setLinkFailed(true);
+      setLinkFailedFor(state);
     }
   };
 
@@ -209,7 +210,7 @@ export function AgentCheckoutHandoffView({
               description={text(view.messages)}
             />
           )}
-          {linkFailed && (
+          {linkFailedFor === state && (
             <Banner tone="warning" title={t("checkout.features.sessions.ui.agentCheckoutHandoff.continue.error")} />
           )}
         </Stack>

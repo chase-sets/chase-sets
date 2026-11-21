@@ -91,15 +91,16 @@ export function AgentCartReviewView({
   onContinue?: () => Promise<void>;
 }>) {
   const [continuing, setContinuing] = useState(false);
-  const [continueFailed, setContinueFailed] = useState(false);
+  // A failed continue belongs to the result it was raised on; the next tool result clears the error.
+  const [continueFailedFor, setContinueFailedFor] = useState<AgentCheckoutViewState>();
   const view = state.kind === "loading" ? state : agentCheckoutResult(state.result);
   const proceed = async (run: () => Promise<void>) => {
-    setContinueFailed(false);
+    setContinueFailedFor(undefined);
     setContinuing(true);
     try {
       await run();
     } catch {
-      setContinueFailed(true);
+      setContinueFailedFor(state);
     } finally {
       setContinuing(false);
     }
@@ -149,7 +150,7 @@ export function AgentCartReviewView({
               )}
             </>
           )}
-          {continueFailed && (
+          {continueFailedFor === state && (
             <Banner tone="danger" title={t("checkout.features.sessions.ui.agentCartReview.continue.error")} />
           )}
         </Stack>
