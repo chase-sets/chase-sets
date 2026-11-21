@@ -363,35 +363,17 @@ async function executeAdvisoryPostWindow({
     };
     if (request.headers.authorization !== "Bearer synthetic-token") return send({ message: "Bad credentials" }, 401);
     const workflow = route.match(/^actions\/workflows\/([^/]+)\/runs\?/u);
-    const statusParam = new URL(request.url ?? "/", "http://127.0.0.1").searchParams.get("status");
-    const activeRuns =
-      (active || activeCompleted) &&
-      new URL(request.url ?? "/", "http://127.0.0.1").searchParams.get("status") === "in_progress";
-    if (route.startsWith("actions/runs?")) {
-      const currentRun = {
-        id: 999,
-        name: "Platform Staging Advisory Evidence",
-        path: ".github/workflows/platform-staging-advisory-evidence.yml",
-        workflow_id: 1,
-        run_attempt: 1,
-        status: "in_progress",
-        event: "workflow_dispatch",
-        head_sha: "a".repeat(40),
-        head_branch: "main",
-        created_at: new Date(Date.now() - 120_000).toISOString(),
-        run_started_at: new Date(Date.now() - 120_000).toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-      if (statusParam !== "in_progress") return send({ total_count: 0, workflow_runs: [] });
-      if (!activeRuns) return send({ total_count: 1, workflow_runs: [currentRun] });
+    if (workflow && url.searchParams.has("status")) {
+      const file = activeCompleted ? "platform-production.yml" : "platform-staging-reset.yml";
+      if (workflow[1] !== file || url.searchParams.get("status") !== "in_progress" || !(active || activeCompleted))
+        return send({ total_count: 0, workflow_runs: [] });
       return send({
-        total_count: 2,
+        total_count: 1,
         workflow_runs: [
-          currentRun,
           {
             id: 3001,
-            name: "Platform Staging Reset",
-            path: ".github/workflows/platform-production.yml",
+            name: activeCompleted ? "Platform Deploy" : "Platform Staging Reset",
+            path: `.github/workflows/${file}`,
             workflow_id: 2,
             run_attempt: 1,
             status: "in_progress",
@@ -403,19 +385,6 @@ async function executeAdvisoryPostWindow({
             updated_at: new Date().toISOString(),
           },
         ],
-      });
-    }
-    if (route === "actions/runs/999") {
-      return send({
-        id: 999,
-        name: "Platform Staging Advisory Evidence",
-        path: ".github/workflows/platform-staging-advisory-evidence.yml",
-        workflow_id: 1,
-        run_attempt: 1,
-        status: "in_progress",
-        event: "workflow_dispatch",
-        head_sha: "a".repeat(40),
-        head_branch: "main",
       });
     }
     if (workflow) {
@@ -873,6 +842,7 @@ async function executeAdvisoryWait({
     : [];
   writeFileSync(kubectl, `process.stdout.write(${JSON.stringify(JSON.stringify({ items: hookItems }))});`);
   let jobReads = 0;
+  let memberCensusPasses = 0;
   const activeRun = (
     id,
     path,
@@ -896,19 +866,16 @@ async function executeAdvisoryWait({
       response.end(JSON.stringify(body));
     };
     if (request.headers.authorization !== "Bearer synthetic-token") return send({ message: "Bad credentials" }, 401);
-    const runs = route.match(/^actions\/runs\?status=([^&]+)/u);
+    const runs = route.match(/^actions\/workflows\/([^/]+)\/runs\?status=([^&]+)/u);
     if (runs) {
-      if (runs[1] !== "in_progress") return send({ total_count: 0, workflow_runs: [] });
+      if (runs[1] === "platform-preview-wildcard-tls.yml" && runs[2] === "requested") memberCensusPasses += 1;
+      if (runs[1] !== "platform-production.yml" || runs[2] !== "in_progress")
+        return send({ total_count: 0, workflow_runs: [] });
       return send({
-        total_count: 2,
-        workflow_runs: [
-          activeRun(999, "platform-staging-advisory-evidence.yml", "Platform Staging Advisory Evidence"),
-          activeRun(1001, "platform-production.yml", "Platform Deploy"),
-        ],
+        total_count: 1,
+        workflow_runs: [activeRun(1001, "platform-production.yml", "Platform Deploy")],
       });
     }
-    if (route === "actions/runs/999")
-      return send(activeRun(999, "platform-staging-advisory-evidence.yml", "Platform Staging Advisory Evidence"));
     const jobs = route.match(/^actions\/runs\/(\d+)\/attempts\/\d+\/jobs/u);
     if (jobs) {
       if (jobs[1] === "1001") {
@@ -1059,7 +1026,7 @@ async function executeAdvisoryWait({
           return [line.slice(0, separator), line.slice(separator + 1)];
         }),
     );
-    return { ...result, evidence, outputs, jobReads };
+    return { ...result, evidence, outputs, jobReads, memberCensusPasses };
   } finally {
     server.close();
     rmSync(root, { recursive: true, force: true });
@@ -6172,10 +6139,11 @@ describe("DigitalOcean platform configuration", () => {
     expect(missingToken.evidence).toContain("freshness_status=unknown");
     expect(missingToken.evidence).toContain("admission_outcome=unknown");
 
-    const admitted = await executeAdvisoryWait({ dispatcherDoneAfter: 1 });
+    const admitted = await executeAdvisoryWait({ dispatcherDoneAfter: 3 });
     expect(admitted.status, admitted.stderr).toBe(0);
     expect(admitted.evidence).toContain("admission_outcome=admitted");
     expect(admitted.outputs.admission_outcome).toBe("admitted");
+    expect(admitted.memberCensusPasses).toBe(2);
     expect(admitted.outputs.freshness_status).toBe("unknown");
     expect(admitted.evidence).toContain("freshness_status=unknown");
     expect(admitted.evidence).not.toContain("freshness_status=fresh");
@@ -6337,6 +6305,7 @@ describe("DigitalOcean platform configuration", () => {
     const active = await executeAdvisoryPostWindow({ active: true });
     expect(active.status).not.toBe(0);
     expect(active.outputs.freshness_status).toBe("stale");
+    expect(active.outputs.freshness_reason).toContain("platform-staging-reset.yml run 3001 remained active");
 
     const activeCompleted = await executeAdvisoryPostWindow({ activeCompleted: true });
     expect(activeCompleted.status, activeCompleted.stderr).toBe(0);
