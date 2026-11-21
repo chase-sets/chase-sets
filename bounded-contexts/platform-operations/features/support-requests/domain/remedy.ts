@@ -183,6 +183,11 @@ const financialEffectKinds = new Set<RemedyEffectKind>([
   "settlement-reconciliation",
 ]);
 
+/** Whether an operator may waive the effect; financial effects need their owning context's fact. */
+export function remedyEffectWaivable(effect: RemedyEffectKind): boolean {
+  return !financialEffectKinds.has(effect);
+}
+
 function requiredText(value: string, message: string): string {
   const normalized = value.trim();
   if (!normalized) {
@@ -526,7 +531,7 @@ export function createRemedyEffectWaiver(command: OverrideSupportRemedyEffectCom
   waiver: RemedyEffectWaiver;
 } {
   const effect = normalizeRemedyEffectKind(String(command.effect));
-  if (financialEffectKinds.has(effect)) {
+  if (!remedyEffectWaivable(effect)) {
     throw new Error(`The ${effect} effect requires an owning-context fact and cannot be waived.`);
   }
   const evidenceReferences = command.evidenceReferences.map((reference) =>
