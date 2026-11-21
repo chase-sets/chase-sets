@@ -52,7 +52,8 @@ describe("checkout payment preview", () => {
     expect(preview?.marketplace_checkout_fee.quote_fingerprint).toBe(revisedCardQuote.quote_fingerprint);
   });
 
-  it("gives no preview when Payments cannot quote", async () => {
+  it("gives no preview when Payments cannot quote, and logs why", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const preview = await readCheckoutPaymentPreviewStatus(
       {
         previewCheckoutStatus: async () => {
@@ -69,5 +70,33 @@ describe("checkout payment preview", () => {
     );
 
     expect(preview).toBeNull();
+    expect(warn).toHaveBeenCalledExactlyOnceWith(expect.stringContaining("payments unavailable"));
+    warn.mockRestore();
+  });
+
+  it("logs Payments' status and error code when it refuses the preview", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const refusal = Object.assign(new Error("Payments refused the preview."), {
+      status: 503,
+      body: { error: { code: "payments_unavailable", message: "Payments refused the preview." } },
+    });
+    const preview = await readCheckoutPaymentPreviewStatus(
+      {
+        previewCheckoutStatus: async () => {
+          throw refusal;
+        },
+      },
+      {
+        orderIds: [],
+        amount: "26.00",
+        currencyCode: "usd",
+        requestedBalanceCreditAmount: "0.00",
+        paymentMethodCategory: "card",
+      },
+    );
+
+    expect(preview).toBeNull();
+    expect(warn).toHaveBeenCalledExactlyOnceWith(expect.stringContaining("status 503 code payments_unavailable"));
+    warn.mockRestore();
   });
 });

@@ -101,12 +101,12 @@ describe("ordinary interest versus the ruled Prepaid Balance term", () => {
 const chargeSourceRoles = [
   {
     role: "request",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2429-2449",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2462-2483",
     markers: ["createPaymentSession", "amount: processorAmount"],
   },
   {
     role: "saved request",
-    ref: "infrastructure/stripe-payments/index.ts:1677-1731",
+    ref: "infrastructure/stripe-payments/index.ts:1685-1739",
     markers: [
       'confirm: "true"',
       "paymentIntentAuthenticationUrl(body)",
@@ -116,7 +116,7 @@ const chargeSourceRoles = [
   },
   {
     role: "new session request",
-    ref: "infrastructure/stripe-payments/index.ts:1733-1822",
+    ref: "infrastructure/stripe-payments/index.ts:1801-1889",
     markers: [
       'mode: "payment"',
       '"/v1/checkout/sessions"',
@@ -125,13 +125,24 @@ const chargeSourceRoles = [
     ],
   },
   {
+    role: "new card confirmation request",
+    ref: "infrastructure/stripe-payments/index.ts:1758-1799",
+    markers: [
+      '"/v1/payment_intents"',
+      'confirm: "true"',
+      "confirmation_token: input.confirmationTokenId",
+      "statement_descriptor_suffix",
+      "paymentIntentAuthenticationUrl(intent)",
+    ],
+  },
+  {
     role: "nonzero pending",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2557-2564",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2626-2631",
     markers: ['compareMoney(processorAmount, "0.00")', '"pending-confirmation"', "captured_at:"],
   },
   {
     role: "session outcomes",
-    ref: "infrastructure/stripe-payments/index.ts:938-1020",
+    ref: "infrastructure/stripe-payments/index.ts:943-1024",
     markers: [
       'case "checkout.session.completed"',
       'paymentObject.mode === "setup"',
@@ -143,7 +154,7 @@ const chargeSourceRoles = [
   },
   {
     role: "intent outcomes",
-    ref: "infrastructure/stripe-payments/index.ts:1065-1091",
+    ref: "infrastructure/stripe-payments/index.ts:1070-1097",
     markers: [
       'case "payment_intent.processing"',
       'case "payment_intent.amount_capturable_updated"',
@@ -154,7 +165,7 @@ const chargeSourceRoles = [
   },
   {
     role: "webhook capture recording",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:3005-3046",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:3105-3147",
     markers: [
       'case "payment-authorized"',
       'type: "RecordPaymentAuthorization"',
@@ -165,7 +176,7 @@ const chargeSourceRoles = [
   },
   {
     role: "reconciliation outcomes",
-    ref: "infrastructure/stripe-payments/index.ts:411-486",
+    ref: "infrastructure/stripe-payments/index.ts:415-491",
     markers: [
       'processorStatus === "succeeded"',
       'processorStatus === "requires_capture"',
@@ -176,12 +187,12 @@ const chargeSourceRoles = [
   },
   {
     role: "reconciliation capture command",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:270-300",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:278-304",
     markers: ['case "captured"', 'type: "RecordPaymentCapture"', "capturedAt: result.occurredAt", 'case "authorized"'],
   },
   {
     role: "reconciliation recording",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:1559-1601",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:1573-1615",
     markers: [
       "providerResultMismatch(payment, result)",
       "paymentCommandFromProviderResult(result)",
@@ -1111,8 +1122,9 @@ const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
   [citationFencePaths.privacyPolicy]: "f1b3d0a6b2a688d481c6af4a390e0d30c532fe0313cee53d9d4255a9e0d911ee",
   [citationFencePaths.authenticityTest]: "700ac32ceea294c75f90d708a0e7656e7b2abe2beebff9569e71abed24aa40d9",
   // Repinned for #10066, #8846, the current-main lost-update guard surface merge, and the #10176 JSON import census
-  // evidence-citation update, #9878 TCGplayer guard surface, and the #9553 context-registry guard surface.
-  [citationFencePaths.staticSurfaces]: "9e95e3780ac11f188aff806d8273478bc6116a5f97ff90a407491a0e6dbb9b85",
+  // evidence-citation update, #9878 TCGplayer guard surface, the #9553 context-registry guard surface, and the
+  // #7313 managed-Postgres client policy surface with its authority-guard and client-policy evidence ranges.
+  [citationFencePaths.staticSurfaces]: "ac94c950cf78bbca8cdeb7310b25ff9de92015f06dc60ed3945059a1793717f5",
 };
 
 const citationFenceOccurrences: Readonly<Record<string, readonly RegExp[]>> = {
@@ -1220,7 +1232,7 @@ describe("canonical claim consistency guard", () => {
   });
 
   it.each([
-    { name: "creation-only", omitted: chargeSourceRoles.slice(3).map(({ role }) => role), extra: [] },
+    { name: "creation-only", omitted: chargeSourceRoles.slice(4).map(({ role }) => role), extra: [] },
     {
       name: "missing-capture",
       omitted: [
@@ -1239,7 +1251,7 @@ describe("canonical claim consistency guard", () => {
         "reconciliation recording",
         "capture fact",
       ],
-      extra: ["bounded-contexts/payments/features/payments/api/runtime.ts:2513-2524"],
+      extra: ["bounded-contexts/payments/features/payments/api/runtime.ts:2582-2592"],
     },
     ...chargeSourceRoles.slice(3).map(({ role }) => ({ name: `missing ${role}`, omitted: [role], extra: [] })),
   ])(

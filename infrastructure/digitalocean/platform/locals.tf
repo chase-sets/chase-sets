@@ -132,26 +132,32 @@ locals {
     context_name
     if contains(keys(local.wake_listener_database_users), context_name) && contains(keys(local.context_databases), context_name)
   ]
+  # Managed URLs carry the same verify-full pod trust query the runtime Secret
+  # renderer emits; a require-mode URL would skip certificate validation.
+  managed_postgres_pod_url_query = "sslmode=verify-full&sslrootcert=${urlencode("/var/run/secrets/chase-sets/managed-postgres/ca.crt")}&uselibpqcompat=true"
+
   worker_listener_database_urls = (local.is_production || local.is_staging) ? {
     for context_name in local.worker_listener_source_contexts :
     context_name => format(
-      "postgresql://%s:%s@%s:%d/%s?sslmode=require",
+      "postgresql://%s:%s@%s:%d/%s?%s",
       urlencode(digitalocean_database_user.wake_listeners[context_name].name),
       urlencode(digitalocean_database_user.wake_listeners[context_name].password),
       digitalocean_database_cluster.postgres[0].host,
       digitalocean_database_cluster.postgres[0].port,
       urlencode(local.wake_listener_database_names[context_name]),
+      local.managed_postgres_pod_url_query,
     )
   } : {}
   api_waiter_database_urls = (local.is_production || local.is_staging) ? {
     for context_name in local.api_waiter_contexts :
     context_name => format(
-      "postgresql://%s:%s@%s:%d/%s?sslmode=require",
+      "postgresql://%s:%s@%s:%d/%s?%s",
       urlencode(digitalocean_database_user.wake_listeners[context_name].name),
       urlencode(digitalocean_database_user.wake_listeners[context_name].password),
       digitalocean_database_cluster.postgres[0].host,
       digitalocean_database_cluster.postgres[0].port,
       urlencode(local.wake_listener_database_names[context_name]),
+      local.managed_postgres_pod_url_query,
     )
   } : {}
 
@@ -332,8 +338,8 @@ locals {
 
   preview_postgres_host = "chase-sets-preview-postgres"
   # The in-cluster preview Postgres does not serve SSL, so preview URLs state
-  # sslmode=disable explicitly; managed staging/production URLs keep
-  # sslmode=require.
+  # sslmode=disable explicitly; managed staging/production URLs use the
+  # verify-full pod trust query.
   preview_context_database_urls = {
     for context_name in local.context_database_names :
     context_name => format(
@@ -352,7 +358,7 @@ locals {
   context_database_urls = local.is_preview ? local.preview_context_database_urls : {
     for context_name in local.context_names :
     context_name => format(
-      "postgresql://%s:%s@%s:%d/%s?sslmode=require",
+      "postgresql://%s:%s@%s:%d/%s?%s",
       urlencode(digitalocean_database_connection_pool.contexts[context_name].user),
       urlencode(coalesce(
         digitalocean_database_connection_pool.contexts[context_name].password,
@@ -361,6 +367,7 @@ locals {
       digitalocean_database_connection_pool.contexts[context_name].host,
       digitalocean_database_connection_pool.contexts[context_name].port,
       urlencode(digitalocean_database_connection_pool.contexts[context_name].name),
+      local.managed_postgres_pod_url_query,
     )
   }
 

@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
 import { defineFormAction, formActionRedirect, type FormActionContext } from "@chase-sets/platform-runtime/http";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData, useMatches, useSearchParams } from "react-router";
+import { redirect, useActionData, useLoaderData, useSearchParams } from "react-router";
 import { SupportOperationsPage } from "../../features/support-requests/ui/support-operations-page";
 import {
   supportOperationsQueueFilters,
@@ -117,10 +117,6 @@ export default function SupportOperationsQueueRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [searchParams] = useSearchParams();
-  const permissions = useMatches().flatMap((match) => {
-    const actor = (match.data as { actor?: { permissions?: readonly string[] } } | undefined)?.actor;
-    return actor?.permissions ?? [];
-  });
   const escalated = searchParams.get("escalated");
   const skipped = searchParams.get("skipped");
   const capped = searchParams.get("capped");
@@ -148,7 +144,6 @@ export default function SupportOperationsQueueRoute() {
       actionError={actionData && "error" in actionData ? (actionData.error ?? null) : searchParams.get("actionError")}
       actionResult={searchParams.get("action")}
       marketplaceOrigin={data.marketplaceOrigin}
-      actorPermissions={permissions}
       remedyPreview={actionData && "preview" in actionData ? actionData.preview : null}
       remedyProposalInput={actionData && "proposalInput" in actionData ? actionData.proposalInput : null}
     />

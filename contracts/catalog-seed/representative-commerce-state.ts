@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import { coerceLocalizedTextMap } from "@chase-sets/localization";
+import { coerceLocalizedTextMap } from "@chase-sets/localization/core";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { AccountId, ListingId, OfferId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";

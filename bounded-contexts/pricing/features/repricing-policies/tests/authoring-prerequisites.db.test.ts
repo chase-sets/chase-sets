@@ -15,6 +15,7 @@ import { getRepricingAuthoringFacts } from "../read-model/controls";
 import { createRepricingPolicyRuntime } from "../api/runtime";
 import { createMemoryRepricingConfigurationWriter, withMemoryConfigurationTransactions } from "./configuration-fixture";
 import { createRepricingPolicyRoutes } from "../api/route";
+import { repricingPresetControls } from "../domain/authoring-intent";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required.");
@@ -102,7 +103,12 @@ describeDb("authoring prerequisites", () => {
     expect(await read()).toEqual({ listingCurrencyCodes: ["CAD", "USD"], hasCostBasis: true });
     const response = await route().request("/policies/authoring-prerequisites");
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ...(await read()), goalAdoption: [] });
+    expect(await response.json()).toEqual({
+      ...(await read()),
+      goalAdoption: [],
+      presets: repricingPresetControls(),
+      editorDefaults: { currencyCode: null, floor: { mode: "cost-basis-plus-margin", marginPercent: 10 } },
+    });
     const spoof = await route().request("/policies/authoring-prerequisites?accountId=acc_b");
     expect(spoof.status).toBe(400);
   });
@@ -123,6 +129,8 @@ describeDb("authoring prerequisites", () => {
     expect(await (await route().request("/policies/authoring-prerequisites")).json()).toEqual({
       ...expected,
       goalAdoption: [],
+      presets: repricingPresetControls(),
+      editorDefaults: { currencyCode: "USD", floor: { mode: "absolute" } },
     });
     await pools.pricing.query(
       "UPDATE pricing_inventory_item_inputs SET acquisition_cost_amount = 0 WHERE item_id = 'inv_a'",

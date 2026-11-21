@@ -106,69 +106,16 @@ pub enum Source {
     Goal { goal_id: String, goal_version: f64 },
 }
 
-/// A preset's body (`compilePresetBody`), its intent bound.
-#[allow(clippy::too_many_arguments)]
-pub fn compile_preset(preset: Preset, name: &str, currency: &str, floor: Value, knob: f64, age: i64, scope: Value) -> Value {
-    let anchors = match preset {
-        Preset::Beat => json!([{ "source": "lowest-competing-ask" }, { "source": "market-estimate" }]),
-        Preset::Premium => json!([{ "source": "comp-percentile", "percentile": 75 }, { "source": "market-estimate" }]),
-        Preset::Track | Preset::Slow => {
-            json!([{ "source": "market-estimate" }, { "source": "lowest-competing-ask" }, { "source": "last-sold" }])
-        }
-    };
-    let percent = if matches!(preset, Preset::Beat | Preset::Slow) { -knob } else { knob };
-    let tolerance = match preset {
-        Preset::Beat => 1,
-        Preset::Premium => 3,
-        Preset::Track | Preset::Slow => 2,
-    };
-    let max_move = match preset {
-        Preset::Premium => 15,
-        Preset::Slow => 25,
-        Preset::Track | Preset::Beat => 20,
-    };
-    let directive = json!({
-        "currencyCode": currency,
-        "anchorChain": anchors,
-        "offset": { "mode": "percent", "percent": number(percent) },
-        "floor": floor,
-        "ceiling": null,
-        "tolerance": { "mode": "percent", "percent": tolerance },
-        "rounding": { "mode": "none" },
-        "maxMovePercent": max_move,
-        "terminal": { "kind": "hold" },
-    });
-    let rules = if preset == Preset::Slow {
-        let mut rest = directive.clone();
-        rest["offset"] = json!({ "mode": "percent", "percent": 0 });
-        rest["tolerance"] = json!({ "mode": "percent", "percent": 5 });
-        rest["maxMovePercent"] = json!(10);
-        json!([
-            { "conditions": [{ "type": "listing-age-at-least", "days": age }], "directive": directive },
-            { "conditions": [], "directive": rest },
-        ])
-    } else {
-        json!([{ "conditions": [], "directive": directive }])
-    };
-    let mut body = json!({
-        "name": name,
-        "scope": scope,
-        "excludedListingIds": [],
-        "maxChangesPerDay": 250,
-        "rules": rules,
-    });
-    bind(&mut body, json!({ "kind": "preset", "preset": preset.key(), "knob": number(knob), "ageDays": age }));
-    body
-}
-
 fn is_one(value: &Value) -> bool {
     value.as_f64() == Some(1.0)
 }
 
 /// The intent the body's own rules still say (`recognizeAuthoringIntent` without the goal
-/// registry, as the browser's editor calls it): a preset only when compiling it again gives these
-/// rules, and a Pricing Goal only when the policy is that goal's one rule. Whether a seller may
-/// choose the goal's version is the editor's to check (`goalAdoption`).
+/// registry, as the browser's editor calls it). A preset's intent is only ever bound by Pricing,
+/// which compiles it and recognizes it again whenever it keeps a body, so a preset is recognized
+/// while the body is still the one its intent was bound to; a Pricing Goal only when the policy is
+/// that goal's one rule. Whether a seller may choose the goal's version is the editor's to check
+/// (`goalAdoption`).
 pub fn recognize(body: &Value) -> Option<Source> {
     let intent = body.get("authoringIntent")?;
     let semantic = intent.get("semanticBody")?.as_str()?;
@@ -180,16 +127,8 @@ pub fn recognize(body: &Value) -> Option<Source> {
         "preset" => {
             let preset = Preset::read(source["preset"].as_str()?)?;
             let (knob, age) = (source["knob"].as_f64()?, source["ageDays"].as_f64()?);
-            let (min, max, _) = preset.knob();
-            let directive = &body["rules"][0]["directive"];
-            let currency = directive["currencyCode"].as_str().filter(|code| !code.is_empty())?;
-            if !knob.is_finite() || knob < min as f64 || knob > max as f64 || age.fract() != 0.0 || !(14.0..=180.0).contains(&age)
-            {
-                return None;
-            }
-            let compiled =
-                compile_preset(preset, "", currency, directive["floor"].clone(), knob, age as i64, body["scope"].clone());
-            (body_key(&compiled) == semantic).then_some(Source::Preset { preset, knob, age: age as i64 })
+            body["rules"][0]["directive"]["currencyCode"].as_str().filter(|code| !code.is_empty())?;
+            (knob.is_finite() && age.fract() == 0.0).then_some(Source::Preset { preset, knob, age: age as i64 })
         }
         "goal" => {
             let parameters = source.get("parameters").filter(|p| p.is_object())?;

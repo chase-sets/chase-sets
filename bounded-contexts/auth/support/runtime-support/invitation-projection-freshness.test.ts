@@ -9,7 +9,7 @@ function invitationReceipt(maxGlobalPosition: string): FreshWriteReceipt {
   };
 }
 
-function trackSettlement(wait: Promise<void>) {
+function trackSettlement(wait: Promise<unknown>) {
   const settlement = { settled: false, wait };
   const markSettled = () => {
     settlement.settled = true;
@@ -31,7 +31,7 @@ describe("invitation projection freshness waiter", () => {
       pollIntervalMs: 1,
     });
 
-    await wait(invitationReceipt("5"));
+    await expect(wait(invitationReceipt("5"))).resolves.toBe("fresh");
 
     expect(readInvitationProjectionPosition).toHaveBeenCalledTimes(1);
   });
@@ -65,7 +65,7 @@ describe("invitation projection freshness waiter", () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(settlement.settled, "did not settle after the catch-up read").toBe(true);
     expect(reads).toBe(3);
-    await expect(settlement.wait).resolves.toBeUndefined();
+    await expect(settlement.wait).resolves.toBe("fresh");
   });
 
   it("does not treat a position one short of the target version as fresh", async () => {
@@ -87,10 +87,10 @@ describe("invitation projection freshness waiter", () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(settlement.settled, "did not settle at the timeout").toBe(true);
     expect(readInvitationProjectionPosition.mock.calls.length).toBeGreaterThan(1);
-    await expect(settlement.wait).resolves.toBeUndefined();
+    await expect(settlement.wait).resolves.toBe("behind");
   });
 
-  it("falls back gracefully and bounded when the projection never catches up", async () => {
+  it("answers behind, bounded, when the projection never catches up", async () => {
     vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
     const readInvitationProjectionPosition = vi.fn(async () => "1");
     const timeoutMs = 50;
@@ -108,11 +108,11 @@ describe("invitation projection freshness waiter", () => {
     expect(settlement.settled, "settled before the timeout").toBe(false);
     await vi.advanceTimersByTimeAsync(1);
     expect(settlement.settled, "did not settle at the timeout").toBe(true);
-    // Must resolve (no throw) so the caller can read the projection as-is.
-    await expect(settlement.wait).resolves.toBeUndefined();
+    // Resolves (no throw) and says the projection may not show the write yet.
+    await expect(settlement.wait).resolves.toBe("behind");
   });
 
-  it("never throws when the checkpoint read fails", async () => {
+  it("answers behind and never throws when the checkpoint read fails", async () => {
     const readInvitationProjectionPosition = vi.fn(async () => {
       throw new Error("checkpoint database unavailable");
     });
@@ -122,6 +122,35 @@ describe("invitation projection freshness waiter", () => {
       pollIntervalMs: 1,
     });
 
-    await expect(wait(invitationReceipt("5"))).resolves.toBeUndefined();
+    await expect(wait(invitationReceipt("5"))).resolves.toBe("behind");
+  });
+
+  it("asks the host's work-signal gateway to wake the invitation projection while it is behind", async () => {
+    let position = "1";
+    const requestWake = vi.fn(async (input: Readonly<{ requests: readonly unknown[] }>) => {
+      position = "5";
+      return input.requests.length;
+    });
+    const wait = createInvitationProjectionFreshnessWaiter({
+      readInvitationProjectionPosition: async () => position,
+      workSignalGateway: { requestWake },
+      timeoutMs: 1_000,
+      pollIntervalMs: 1,
+    });
+
+    await expect(wait(invitationReceipt("5"))).resolves.toBe("fresh");
+
+    expect(requestWake).toHaveBeenCalledTimes(1);
+    expect(requestWake.mock.calls[0][0]).toMatchObject({
+      requests: [
+        expect.objectContaining({
+          sourceContextName: "identity",
+          targetContextName: "auth",
+          projectionName: "auth-identity-invitation-projection",
+          requiredPosition: "5",
+        }),
+      ],
+      metadata: { routePaths: ["/api/auth/invitations/acceptance-link/request"] },
+    });
   });
 });

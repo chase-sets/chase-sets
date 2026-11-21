@@ -12407,7 +12407,9 @@ async fn the_offer_matches_show_the_snapshot_and_each_match_with_its_actions() {
         "Offer Matches Compare each best buyer offer",
         "Active matches 4 Ready to accept 1 At or above ask 0 Best match 88.79%",
         "Pikachu Jungle 60/64 Raw Excellent submitted Can fulfill",
-        "Your Listing or inventory From Listing $19.99 2 visible of 2 listed Best Offer $17.75 Collector Zero",
+        "Your Listing or inventory From Listing         "Your Listing or inventory From Listing $19.99 2 visible of 2 listed Best Offer $17.75 Collector Zero",
+9.99 2 visible of 2 listed Best Offer         "Your Listing or inventory From Listing $19.99 2 visible of 2 listed Best Offer $17.75 Collector Zero",
+7.75 Collector Zero",
         "Offer vs Ask 88.79% $2.24 below ask Quantity 2 requested 2 available",
         "Needs supply",
     ] {
@@ -13963,7 +13965,19 @@ fn repricing(stand: &Stand, session: &str, method: &Method, uri: &Uri, headers: 
         ("GET", "/configuration-requests") => Json(json!([])).into_response(),
         ("POST", "/halt") => configured(headers, StatusCode::OK, "46", serde_json::from_str::<Value>(body).unwrap()),
         ("GET", "/dry-runs") => Json(json!([run("repricing-dry-run:old", json!({}), "completed")])).into_response(),
-        ("GET", "/authoring-prerequisites") => Json(json!({ "listingCurrencyCodes": ["USD"], "hasCostBasis": true })).into_response(),
+        ("GET", "/authoring-prerequisites") => Json(json!({
+            "listingCurrencyCodes": ["USD"], "hasCostBasis": true, "goalAdoption": [],
+            "presets": [
+                { "preset": "track-market", "knob": { "min": -25, "max": 25, "defaultValue": 0 }, "ageDays": null },
+                { "preset": "beat-lowest", "knob": { "min": 0, "max": 15, "defaultValue": 2 }, "ageDays": null },
+                { "preset": "premium", "knob": { "min": 0, "max": 30, "defaultValue": 5 }, "ageDays": null },
+                { "preset": "slow-stock", "knob": { "min": 0, "max": 30, "defaultValue": 10 },
+                  "ageDays": { "min": 14, "max": 180, "defaultValue": 45 } },
+            ],
+            "editorDefaults": { "currencyCode": "USD", "floor": { "mode": "cost-basis-plus-margin", "marginPercent": 10 } },
+        }))
+        .into_response(),
+        ("POST", "/presets/compile") => Json(compiled_stand(&serde_json::from_str(body).unwrap())).into_response(),
         ("GET", "/categories") => Json(json!([{ "id": "cat-1", "name": "Pokemon" }, { "id": "cat-2", "name": "Magic" }])).into_response(),
         ("POST", "/scope-preview") => {
             Json(json!({ "matching": 12, "governed": 12, "shadowedBy": [{ "name": "Track", "count": 3 }], "takenFrom": [] })).into_response()
@@ -14099,17 +14113,35 @@ fn repricing_policy_stand() -> Value {
 
 /// `pol_4` as marketplace's editor writes Beat the lowest listing (knob 2, USD, a cost basis and
 /// fallback 4.00), its authoring intent bound.
+/// The body Pricing's `presets/compile` answers for `controls`, as far as the pages read it: the
+/// controls' currency, floor and scope in a complete rule, a second aged rule for slow stock, and
+/// the preset's intent bound.
+fn compiled_stand(controls: &Value) -> Value {
+    let knob = controls["knob"].as_f64().unwrap();
+    let directive = json!({
+        "currencyCode": controls["currencyCode"],
+        "anchorChain": [{ "source": "lowest-competing-ask" }, { "source": "market-estimate" }],
+        "offset": { "mode": "percent", "percent": crate::repricing_body::number(-knob) },
+        "floor": controls["floor"], "ceiling": null, "tolerance": { "mode": "percent", "percent": 1 },
+        "rounding": { "mode": "none" }, "maxMovePercent": 20, "terminal": { "kind": "hold" },
+    });
+    let age = controls.get("ageDays").and_then(Value::as_i64);
+    let mut rules = vec![json!({ "conditions": [], "directive": directive })];
+    if let Some(days) = age {
+        rules.insert(0, json!({ "conditions": [{ "type": "listing-age-at-least", "days": days }], "directive": directive }));
+    }
+    let mut body = json!({ "name": controls["name"], "scope": controls["scope"], "excludedListingIds": [],
+      "maxChangesPerDay": 250, "rules": rules });
+    let source =
+        json!({ "kind": "preset", "preset": controls["preset"], "knob": controls["knob"], "ageDays": age.unwrap_or(45) });
+    crate::repricing_body::bind(&mut body, source);
+    body
+}
+
 fn repricing_preset_stand() -> Value {
     let floor = json!({ "mode": "cost-basis-plus-margin", "marginPercent": 10, "absoluteFallbackAmount": "4.00" });
-    let body = crate::repricing_body::compile_preset(
-        crate::repricing::Preset::Beat,
-        "Beat",
-        "USD",
-        floor,
-        2.0,
-        45,
-        json!({ "kind": "all-listings" }),
-    );
+    let body = compiled_stand(&json!({ "preset": "beat-lowest", "knob": 2, "name": "Beat", "currencyCode": "USD",
+      "floor": floor, "scope": { "kind": "all-listings" } }));
     let mut policy = repricing_policy_stand();
     for (key, value) in body.as_object().unwrap() {
         policy[key] = value.clone();
@@ -15114,23 +15146,18 @@ async fn the_editor_previews_the_compiled_preset_and_activates_only_its_own_prev
         ("1", "repricing-dry-run:new", "beat-lowest")
     );
     let calls = pricing_calls(&pilot);
-    let (_, _, sent) = calls.iter().find(|(m, p, _)| *m == Method::POST && p.ends_with("/dry-runs")).expect("the dry run");
-    let mut sent = serde_json::from_str::<Value>(sent).unwrap();
-    // The preset's authoring intent, which opens the policy in these controls again.
-    let intent = sent.as_object_mut().unwrap().remove("authoringIntent").unwrap_or_default();
-    assert_eq!(intent["source"], json!({ "kind": "preset", "preset": "beat-lowest", "knob": 2, "ageDays": 45 }));
+    // Pricing compiles the preset's controls, and the dry run is of the body it answered.
+    let (_, _, asked) =
+        calls.iter().find(|(m, p, _)| *m == Method::POST && p.ends_with("/presets/compile")).expect("the compile");
+    let asked = serde_json::from_str::<Value>(asked).unwrap();
     assert_eq!(
-        sent,
-        json!({ "name": "Beat", "scope": { "kind": "all-listings" }, "excludedListingIds": [], "maxChangesPerDay": 250,
-          "rules": [ { "conditions": [], "directive": {
-            "currencyCode": "USD",
-            "anchorChain": [ { "source": "lowest-competing-ask" }, { "source": "market-estimate" } ],
-            "offset": { "mode": "percent", "percent": -2 },
-            "floor": { "mode": "cost-basis-plus-margin", "marginPercent": 10, "absoluteFallbackAmount": "4.00" },
-            "ceiling": null, "tolerance": { "mode": "percent", "percent": 1 }, "rounding": { "mode": "none" },
-            "maxMovePercent": 20, "terminal": { "kind": "hold" } } } ] }),
-        "chase-sets/chase-sets#7905's compiled example"
+        asked,
+        json!({ "preset": "beat-lowest", "knob": 2, "name": "Beat", "currencyCode": "USD",
+          "floor": { "mode": "cost-basis-plus-margin", "marginPercent": 10, "absoluteFallbackAmount": "4.00" },
+          "scope": { "kind": "all-listings" } })
     );
+    let (_, _, sent) = calls.iter().find(|(m, p, _)| *m == Method::POST && p.ends_with("/dry-runs")).expect("the dry run");
+    assert_eq!(serde_json::from_str::<Value>(sent).unwrap(), compiled_stand(&asked));
 
     // The editor with its finished run: the counts, the samples in words, and Activate on.
     let (status, _, html) = pilot.send(get(&to, Some("pricer"))).await;
@@ -18061,7 +18088,10 @@ fn team_api(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Opti
     }
     if path == "/api/identity/account-management/attempts" {
         let action = uri.query().unwrap_or_default().split('&').find_map(|p| p.strip_prefix("action=")).unwrap_or_default();
-        if !matches!(action, "create-invitation" | "cancel-invitation" | "change-role" | "revoke" | "reinstate") {
+        if !matches!(
+            action,
+            "create-invitation" | "resend-invitation" | "cancel-invitation" | "change-role" | "revoke" | "reinstate"
+        ) {
             return None;
         }
         return Some(match attempt {
@@ -18077,9 +18107,9 @@ fn team_api(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Opti
                 "account_id": account, "account_display_name": "Synthetic Shop", "account_name": "synthetic-shop",
                 "role_key": role, "role_permissions": [], "status": status, "updated_at": "2026-10-24T03:53:46.180Z" })
     };
-    let invitation = |id: &str, email: &str, account: &str, role: &str, status: &str| {
+    let invitation = |id: &str, email: &str, account: &str, role: &str, status: &str, expires: &str| {
         json!({ "invitation_id": id, "email": email, "account_id": account, "account_display_name": "Synthetic Shop",
-                "account_name": "synthetic-shop", "role_key": role, "status": status, "expires_at": "2026-11-04T00:00:00.000Z" })
+                "account_name": "synthetic-shop", "role_key": role, "status": status, "expires_at": expires })
     };
     if let Some(rest) = path.strip_prefix("/api/identity/memberships") {
         return Some(match (method.as_str(), rest) {
@@ -18113,10 +18143,12 @@ fn team_api(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Opti
     Some(match (method.as_str(), rest) {
         ("GET", "") => {
             let items = [
-                invitation("ivt_pending", "new@chasesets.test", "acc_seller", "viewer", "pending"),
-                invitation("ivt_gone", "old@chasesets.test", "acc_seller", "manager", "cancelled"),
+                invitation("ivt_pending", "new@chasesets.test", "acc_seller", "viewer", "pending", "2099-11-04T00:00:00.000Z"),
+                invitation("ivt_gone", "old@chasesets.test", "acc_seller", "manager", "cancelled", "2099-11-04T00:00:00.000Z"),
+                // Still recorded pending, past its expiry: Identity refuses to send it again.
+                invitation("ivt_lapsed", "late@chasesets.test", "acc_seller", "viewer", "pending", "2000-01-01T00:00:00.000Z"),
             ];
-            Json(json!({ "items": items, "total": 2, "count": 2 })).into_response()
+            Json(json!({ "items": items, "total": 3, "count": 3 })).into_response()
         }
         _ if matches!(attempt, NO_RECORD | APPLIED_BEFORE | CHECK_DOWN) => indeterminate(),
         // Identity's `isInstant`: to the millisecond at most, or the attempt is indeterminate.
@@ -18137,6 +18169,9 @@ fn team_api(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Opti
         ("POST", "") if sent["email"] == "linkdown@chasesets.test" => done("ivt_linkdown", true),
         ("POST", "") => done(sent["invitationId"].as_str().unwrap_or_default(), attempt != REPLAYED),
         ("POST", "/ivt_pending/cancel") => done("ivt_pending", true),
+        ("POST", "/ivt_pending/resend" | "/ivt_linkdown/resend") => {
+            done(rest.split('/').nth(1).unwrap_or_default(), attempt != REPLAYED)
+        }
         _ => StatusCode::NOT_FOUND.into_response(),
     })
 }
@@ -18190,7 +18225,10 @@ async fn the_team_page_shows_only_the_accounts_members_and_invitations() {
     assert!(html.contains("packer@chasesets.test") && html.contains("Fulfillment · Revoked"), "no name: the email: {html}");
     assert!(html.contains("new@chasesets.test") && html.contains("Viewer invitation · Pending"), "{html}");
     assert!(html.contains("Manager invitation · Cancelled"), "{html}");
-    // The owner may be revoked (behind its dialog), the packer reinstated; only a pending invitation is cancelled.
+    // Recorded pending but past its expiry: shown as expired, not resent, and still cancellable.
+    assert!(html.contains("late@chasesets.test") && html.contains("Viewer invitation · Expired"), "{html}");
+    assert!(html.contains(r#"commandfor="cancel-invitation-dialog-ivt_lapsed""#), "{html}");
+    // The owner may be revoked (behind its dialog), the packer reinstated; only a pending invitation is resent or cancelled.
     assert!(html.contains(r#"commandfor="revoke-member-dialog-mbr_owner""#), "{html}");
     assert!(html.contains(r#"<input type="hidden" name="intent" value="reinstate"><input type="hidden" name="membership_id" value="mbr_packer">"#), "{html}");
     assert!(
@@ -18198,6 +18236,10 @@ async fn the_team_page_shows_only_the_accounts_members_and_invitations() {
             && !html.contains("cancel-invitation-dialog-ivt_gone"),
         "{html}"
     );
+    let resend =
+        r#"<input type="hidden" name="intent" value="resend-invitation"><input type="hidden" name="invitation_id" value="#;
+    assert_eq!(html.matches(resend).count(), 1, "{html}");
+    assert!(html.contains(&format!(r#"{resend}"ivt_pending">"#)), "{html}");
     assert!(
         html.contains("Revoke Synthetic Seller&#39;s membership?") || html.contains("Revoke Synthetic Seller's membership?"),
         "{html}"
@@ -18207,7 +18249,8 @@ async fn the_team_page_shows_only_the_accounts_members_and_invitations() {
     let (_, _, body) = pilot.send(req).await;
     let body: Value = serde_json::from_str(&body).unwrap();
     assert_eq!(body["data"]["memberships"].as_array().map(Vec::len), Some(2), "{body}");
-    assert_eq!(body["data"]["invitations"].as_array().map(Vec::len), Some(2), "{body}");
+    assert_eq!(body["data"]["invitations"].as_array().map(Vec::len), Some(3), "{body}");
+    assert_eq!(body["data"]["invitations"][2]["lapsed"], json!(true), "{body}");
 }
 
 #[tokio::test]
@@ -18252,7 +18295,55 @@ async fn an_invite_sends_its_attempt_then_asks_auth_for_the_link_and_a_replay_do
     let body = "intent=create-invitation&attempt=0b6f3c1e-4d2a-4b8e-9f00-aaaaaaaaaaaa&email=linkdown%40chasesets.test";
     let (status, headers, _) = pilot.send(post(TEAM, "teamer", body, true)).await;
     assert_eq!(status, StatusCode::NO_CONTENT, "a link Auth cannot send leaves the invitation saved");
-    assert!(headers["corten-location"].to_str().unwrap().contains("saved="), "{headers:?}");
+    let to = headers["corten-location"].to_str().unwrap().to_owned();
+    assert!(to.contains("saved=") && to.contains("unsent=ivt_linkdown"), "and the page says it was not emailed: {to}");
+    let (_, _, html) = pilot.send(get(&to, Some("teamer"))).await;
+    assert!(html.contains("Invitation saved but not emailed"), "{html}");
+    assert!(
+        html.contains("The invitation could not be emailed. Use Resend on it once it appears below."),
+        "not listed yet: {html}"
+    );
+    let (_, _, html) = pilot.send(get(&format!("{TEAM}?unsent=ivt_pending"), Some("teamer"))).await;
+    assert!(html.contains("The invitation to new@chasesets.test could not be emailed. Use Resend to email it."), "{html}");
+    let (_, _, html) = pilot.send(get(&format!("{TEAM}?unsent=ivt_gone"), Some("teamer"))).await;
+    assert!(!html.contains("Invitation saved but not emailed"), "a cancelled invitation has nothing to send: {html}");
+    let (_, _, html) = pilot.send(get(&format!("{TEAM}?unsent=ivt_lapsed"), Some("teamer"))).await;
+    assert!(!html.contains("Invitation saved but not emailed"), "one past its expiry cannot be sent again: {html}");
+    let (_, _, html) = pilot.send(get(&format!("{TEAM}?unsent=mbr_owner"), Some("teamer"))).await;
+    assert!(!html.contains("Invitation saved but not emailed"), "only an invitation's id: {html}");
+}
+
+#[tokio::test]
+async fn a_resend_gives_a_pending_invitation_a_new_expiry_and_emails_it_once() {
+    let pilot = Pilot::new().await;
+    let body = format!("intent=resend-invitation&attempt={ATTEMPT}&invitation_id=ivt_pending");
+    let (status, headers, _) = pilot.send(post(TEAM, "teamer", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers["location"].to_str().unwrap();
+    assert!(to.contains(&format!("saved={ATTEMPT}")) && !to.contains("unsent="), "{to}");
+    let writes = team_writes(&pilot);
+    assert_eq!(writes.len(), 2, "{writes:?}");
+    let (method, path, attempt, sent) = &writes[0];
+    assert_eq!(
+        (method, path.as_str(), attempt.as_str()),
+        (&Method::POST, "/api/identity/invitations/ivt_pending/resend", ATTEMPT)
+    );
+    let expires = sent["expiresAt"].as_str().unwrap();
+    let expires = time::OffsetDateTime::parse(expires, &time::format_description::well_known::Rfc3339).unwrap();
+    assert!(expires > time::OffsetDateTime::now_utc() + time::Duration::days(6), "seven days from now: {sent}");
+    assert_eq!(writes[1].1, LINK_API);
+    assert_eq!(writes[1].3["invitationId"], "ivt_pending");
+
+    let body = format!("intent=resend-invitation&attempt={REPLAYED}&invitation_id=ivt_pending");
+    pilot.send(post(TEAM, "teamer", &body, true)).await;
+    assert_eq!(team_writes(&pilot).iter().filter(|w| w.1 == LINK_API).count(), 1, "a replayed resend is not emailed again");
+
+    let body = "intent=resend-invitation&attempt=0b6f3c1e-4d2a-4b8e-9f00-bbbbbbbbbbbb&invitation_id=ivt_linkdown";
+    let (_, headers, _) = pilot.send(post(TEAM, "teamer", body, true)).await;
+    assert!(headers["corten-location"].to_str().unwrap().contains("unsent=ivt_linkdown"), "{headers:?}");
+    let body = format!("intent=resend-invitation&attempt={ATTEMPT}&invitation_id=");
+    let (status, _, _) = pilot.send(post(TEAM, "teamer", &body, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "a resend names its invitation");
 }
 
 #[tokio::test]

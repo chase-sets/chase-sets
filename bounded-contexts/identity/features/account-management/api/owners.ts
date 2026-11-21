@@ -116,6 +116,7 @@ export function ownerForRequest(
     case "revoke-api-key":
       return { kind: "api-key", id: target, streamId: `identity.api-key-${target}` };
     case "create-invitation":
+    case "resend-invitation":
     case "cancel-invitation":
       return { kind: "invitation", id: target, streamId: `identity.invitation-${target}` };
     case "change-role":
@@ -250,6 +251,14 @@ export async function planOwnerMutation(
           expiresAt: text("expiresAt"),
           assignmentAuthority,
         });
+      } else if (request.action === "resend-invitation") {
+        // A new expiry for a pending invitation: one that is gone or past its expiry cannot be sent again.
+        if (
+          owner.state.status !== "pending" ||
+          (owner.state.expiresAt && Date.parse(owner.state.expiresAt) <= Date.parse(now))
+        )
+          throw new Error("conflict");
+        events = decideInvitation(owner.state, { type: "ResendInvitation", expiresAt: text("expiresAt") });
       } else {
         if (owner.state.status === "cancelled") events = [];
         else {

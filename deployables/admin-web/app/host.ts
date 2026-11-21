@@ -2,6 +2,7 @@ import { resolveWebHostNavItems } from "@chase-sets/platform-runtime/web";
 import type { WebHostSection } from "@chase-sets/platform-runtime/web";
 import { resolveWebHostRouteConfigRecords } from "@chase-sets/platform-runtime/web-route-config";
 import type { NavigationItem } from "@chase-sets/design-system";
+import { t } from "@chase-sets/localization";
 import { webContextRegistry } from "./context-registry";
 
 const adminSectionLabels: Record<WebHostSection, string> = {
@@ -98,7 +99,7 @@ export function resolveAdminWebNavItems(
   actor: Readonly<{ permissions?: readonly string[] }> | null | undefined,
   options: Readonly<{ section: WebHostSection }>,
 ) {
-  return resolveWebHostNavItems(webContextRegistry, "admin-web", "primary-nav", actor, options);
+  return resolveWebHostNavItems(webContextRegistry, "admin-web", "primary-nav", t, actor, options);
 }
 
 export function resolveAdminWebSectionNavItems(

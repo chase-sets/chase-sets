@@ -69,9 +69,11 @@ type ConfirmPhase = "idle" | "confirming" | "processing";
 export function StripeConfirmationCard({
   payment,
   defaultValues,
+  statusOnly = false,
 }: {
   payment: StripeConfirmablePayment;
   defaultValues: PaymentElementDefaultValues | null;
+  statusOnly?: boolean;
 }) {
   const revalidator = useRevalidator();
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -87,12 +89,13 @@ export function StripeConfirmationCard({
   const [confirmPhase, setConfirmPhase] = useState<ConfirmPhase>("idle");
   const buyerEmail = defaultValues?.billingDetails.email.trim() || null;
   const defaultValuesKey = JSON.stringify(defaultValues);
-  const missingBuyerEmail = payment.status === "pending-confirmation" && !buyerEmail;
+  const missingBuyerEmail = !statusOnly && payment.status === "pending-confirmation" && !buyerEmail;
 
   useEffect(() => {
     const container = containerRef.current;
     if (
       payment.status !== "pending-confirmation" ||
+      statusOnly ||
       !payment.processor_client_secret ||
       !payment.processor_publishable_key ||
       missingBuyerEmail ||
@@ -290,6 +293,7 @@ export function StripeConfirmationCard({
     payment.processor_client_secret,
     payment.processor_publishable_key,
     payment.status,
+    statusOnly,
   ]);
 
   useEffect(() => {
@@ -410,6 +414,16 @@ export function StripeConfirmationCard({
   // renders. Tying the skeleton and `aria-busy` to "not ready" alone left a
   // stalled provider advertising work still in progress with no way out.
   const isInitializingProvider = !isReady && !errorMessage;
+
+  if (statusOnly) {
+    return (
+      <Banner
+        tone="info"
+        title={t("payments.routes.marketplace.accountPayment.payment.in.progress")}
+        description={t("payments.routes.marketplace.accountPayment.the.payment.is.being.updated.by")}
+      />
+    );
+  }
 
   const confirmButtonLabel =
     confirmPhase === "processing"

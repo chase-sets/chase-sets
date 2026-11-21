@@ -13,6 +13,7 @@ import { PaymentDeclineLimitUnavailableError, PaymentsRateLimitExceededError, ty
 import { normalizeRequestedBalanceCreditAmount } from "./balance-credit-request";
 import type { AccountId, OrderId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 import type { AgenticProcessorPaymentInput, PaymentProcessorPublicConfig } from "@chase-sets/payment-processing";
+import { DeferredPaymentNotSent } from "@chase-sets/payment-processing";
 import { parseProviderModeObservation, type ProviderModeObservation } from "./contracts";
 import { ProviderWriteRefused } from "@chase-sets/evidence-window-provider-write";
 import { PaymentsDomainError } from "../../../support/runtime-support/common";
@@ -27,6 +28,7 @@ export type CreateAccountPaymentRequest = Readonly<{
   requestedBalanceCreditAmount?: string | null;
   paymentMethodCategory?: string | null;
   marketplaceCheckoutFeeQuoteFingerprint?: string | null;
+  confirmationTokenId?: string | null;
   savedCheckoutInstrumentId?: string | null;
   savePaymentMethodForFuture?: boolean;
   returnUrlPath?: string | null;
@@ -469,6 +471,7 @@ export function createAccountPaymentRoutes(services: PaymentServices, publicConf
                 body.marketplaceCheckoutFeeQuoteFingerprint === undefined
                   ? null
                   : String(body.marketplaceCheckoutFeeQuoteFingerprint),
+              ...(body.confirmationTokenId == null ? {} : { confirmationTokenId: String(body.confirmationTokenId) }),
               savedCheckoutInstrumentId:
                 body.savedCheckoutInstrumentId === null || body.savedCheckoutInstrumentId === undefined
                   ? null
@@ -500,6 +503,23 @@ export function createAccountPaymentRoutes(services: PaymentServices, publicConf
           const stale = staleFeeQuoteResponse(c, error);
           if (stale) {
             return stale;
+          }
+          if (
+            errorCode(error) === "payment_start_ambiguous" ||
+            (body.confirmationTokenId != null &&
+              !(error instanceof PaymentsDomainError) &&
+              !(error instanceof DeferredPaymentNotSent) &&
+              !(error instanceof ProviderWriteRefused))
+          ) {
+            return c.json(
+              {
+                error: {
+                  code: "payment_start_ambiguous",
+                  message: t("payments.routes.marketplace.accountPayment.payment.in.progress"),
+                },
+              },
+              409,
+            );
           }
           return c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 400);
         }
@@ -884,6 +904,13 @@ export function createAccountPaymentRoutes(services: PaymentServices, publicConf
         return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
       }
     })
+    .get("/checkout/payment-start/:sessionId", async (c) => {
+      const access = paymentAccess(c, "orders.view", { allowGuestCheckout: true });
+      if (access.reply) return access.reply;
+      return c.json(
+        await services.getCheckoutPaymentStart(c.req.param("sessionId"), access.actor.accountId as AccountId),
+      );
+    })
     .get("/payments/:id", async (c) => {
       const access = paymentAccess(c, "orders.view", {
         allowGuestCheckout: true,
@@ -892,7 +919,11 @@ export function createAccountPaymentRoutes(services: PaymentServices, publicConf
         return access.reply;
       }
 
-      const payment = await services.getAccountPayment(c.req.param("id"), access.actor.accountId);
+      const id = c.req.param("id");
+      const payment =
+        c.req.query("readProcessorStatus") === "1"
+          ? await services.getAccountPayment(id, access.actor.accountId, true)
+          : await services.getAccountPayment(id, access.actor.accountId);
       if (!payment) {
         return c.json(
           { error: { code: "not_found", message: t("payments.features.payments.api.route.payment.not.found") } },
