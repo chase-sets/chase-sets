@@ -426,7 +426,7 @@ export default {
         "team-roster":
           "Bootstrap membership mbr_seed_support_membership (bounded-contexts/identity/support/runtime-support/seed.ts): support@chasesets.test ('Support User'), role manager, active after reinstatement. Compare against the memberships read model.",
         "pending-invitations":
-          "Bootstrap invitations ivt_seed_support_accept (accepted), ivt_seed_declined, ivt_seed_cancelled, ivt_seed_expired: none pending. The correct answer is that nobody is still waiting, unless the invitations read model says otherwise.",
+          "Bootstrap invitations ivt_seed_support_accept_sha256 (accepted), ivt_seed_declined, ivt_seed_cancelled, ivt_seed_expired: none pending. The correct answer is that nobody is still waiting, unless the invitations read model says otherwise.",
       },
       routes: {
         "bounded-contexts/identity/routes/marketplace/account-team.tsx": "team-roster",
