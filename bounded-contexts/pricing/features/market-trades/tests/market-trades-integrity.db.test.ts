@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   bootstrapContextDatabase,
+  compactRuntimeSubscriptionLedgers,
   composeModuleSchemaSql,
   createProjectionAwarePool,
   createSubscriptionRunner,
@@ -268,7 +269,7 @@ describeDb("pricing market-trades tape-integrity SQL persistence boundary (#4304
     },
   );
 
-  it("payout review hold placement excludes trades and replays idempotently", async () => {
+  it("replays hold placement and deferred linkage without repeating compacted v1 linkage", async () => {
     const pool = pools.pricing;
     await bootstrapContextDatabase(pricingModule, pool);
     const held = "acc_synthetic_held";
@@ -364,6 +365,23 @@ describeDb("pricing market-trades tape-integrity SQL persistence boundary (#4304
     await append(flagged, linkageOnlyStream, "no_stream", linkageOnly, "2026-07-06T01:00:00.000Z");
     const clearedAt = "2026-07-07T00:00:00.000Z";
     await append(cleared, linkageOnlyStream, 1, linkageOnly, clearedAt);
+
+    const deferredHash = "c".repeat(64);
+    const deferredStream = `settlement.account-linkage-${deferredHash}`;
+    const deferredLinkage = {
+      ...linkage,
+      clusterHash: deferredHash,
+      accountIds: ["acc_deferred_left", "acc_deferred_right"],
+    };
+    await append(flagged, deferredStream, "no_stream", deferredLinkage, "2026-07-06T00:00:00.000Z");
+    await append(flagged, deferredStream, 1, deferredLinkage, "2026-07-06T01:00:00.000Z");
+    await append(cleared, deferredStream, 2, deferredLinkage, clearedAt);
+
+    // Advance beyond the runtime's 10,000-position receipt window without inserting filler events.
+    const placementPosition = 10_007;
+    await pool.query("SELECT setval('event_store_events_global_position_seq', $1::bigint, true)", [
+      placementPosition - 1,
+    ]);
     await append(payoutReviewHoldFactTypes.placed, holdStream, "no_stream", hold, placedAt);
 
     // The v1 worker already saw the placement but had no handler for it.
@@ -371,14 +389,50 @@ describeDb("pricing market-trades tape-integrity SQL persistence boundary (#4304
       ...declared,
       subscriptionVersion: 1,
       eventTypes: [flagged, cleared],
-      handlers: { [flagged]: declared.handlers[flagged]!, [cleared]: declared.handlers[cleared]! },
+      handlers: {
+        [flagged]: async (event, context) => {
+          if (event.streamId === deferredStream && event.streamVersion === 2) {
+            throw new Error("Synthetic v1 poison: defer the following clear");
+          }
+          await declared.handlers[flagged]!(event, context);
+        },
+        [cleared]: declared.handlers[cleared]!,
+      },
     });
-    expect(await v1.runOnce()).toMatchObject({ processed: 3, lastGlobalPosition: "4" });
-    // The deployed v1 handlers wrote the cluster and application ledger, but
-    // did not stamp a version on the cluster itself.
+    expect(await v1.runOnce({ settleIdleCheckpoints: true })).toMatchObject({
+      processed: 6,
+      lastGlobalPosition: String(placementPosition),
+      blockedStreams: 1,
+      poisonEvents: 1,
+    });
+    const applications = async () =>
+      (
+        await pool.query(
+          "SELECT event_id, status FROM event_subscription_applications WHERE projection_key = $1 ORDER BY global_position",
+          [v1.checkpointKey],
+        )
+      ).rows;
+    expect((await applications()).map(({ status }) => status)).toEqual([
+      "applied",
+      "applied",
+      "applied",
+      "applied",
+      "poison",
+    ]);
+    expect(
+      await compactRuntimeSubscriptionLedgers({
+        mountedContexts: [{ contextName: "pricing", module: pricingModule, services, pool, projectionHandlerSets: [] }],
+        subscriptionRunners: [v1],
+      }),
+    ).toBe(1);
+    expect(await applications()).toEqual([{ event_id: `evt_${deferredStream}_1`, status: "poison" }]);
+
+    // The deployed v1 handlers did not stamp a version on the cluster itself.
     await pool.query("UPDATE pricing_market_trade_linkage_clusters SET stream_version = 0");
-    const trades = async () => (await pool.query("SELECT * FROM pricing_market_trades ORDER BY order_id")).rows;
-    expect(await trades()).toEqual([
+    const trades = async () =>
+      (await pool.query<{ order_id: string }>("SELECT * FROM pricing_market_trades ORDER BY order_id")).rows;
+    const retainedTrades = await trades();
+    expect(retainedTrades).toEqual([
       expect.objectContaining({ order_id: "ord_buyer", exclusion_reason: "self-dealing" }),
       expect.objectContaining({ order_id: "ord_control", exclusion_reason: null }),
       expect.objectContaining({ order_id: "ord_history", exclusion_reason: null }),
@@ -394,11 +448,18 @@ describeDb("pricing market-trades tape-integrity SQL persistence boundary (#4304
       ).rows;
     const clusters = async () =>
       (await pool.query("SELECT * FROM pricing_market_trade_linkage_clusters ORDER BY cluster_hash")).rows;
+    const retainedClusters = await clusters();
+    expect(retainedClusters).toMatchObject([
+      { cluster_hash: clusterHash, flagged: true, stream_version: "0" },
+      { cluster_hash: linkageOnlyHash, flagged: false, stream_version: "0", updated_at: new Date(clearedAt) },
+      { cluster_hash: deferredHash, flagged: true, stream_version: "0" },
+    ]);
     const runV2 = () => createSubscriptionRunner("pricing", pool, pool, declared);
     const v2 = runV2();
     expect(v2.checkpointKey).toBe("pricing-market-trades-projection:settlement:v2");
-    expect(await v2.runOnce()).toMatchObject({ processed: 4, lastGlobalPosition: "4" });
-    expect(await trades()).toEqual([
+    expect(await v2.runOnce()).toMatchObject({ processed: 7, lastGlobalPosition: String(placementPosition) });
+    const replayedTrades = await trades();
+    expect(replayedTrades).toEqual([
       expect.objectContaining({ order_id: "ord_buyer", excluded: true, exclusion_reason: "fraud-flagged" }),
       expect.objectContaining({ order_id: "ord_control", excluded: false, exclusion_reason: null }),
       expect.objectContaining({ order_id: "ord_history", excluded: false, exclusion_reason: null }),
@@ -406,19 +467,21 @@ describeDb("pricing market-trades tape-integrity SQL persistence boundary (#4304
       expect.objectContaining({ order_id: "ord_post_release", excluded: false, exclusion_reason: null }),
       expect.objectContaining({ order_id: "ord_seller", excluded: true, exclusion_reason: "fraud-flagged" }),
     ]);
+    const notHeld = ({ order_id }: { order_id: string }) => order_id !== "ord_buyer" && order_id !== "ord_seller";
+    expect(replayedTrades.filter(notHeld)).toEqual(retainedTrades.filter(notHeld));
     expect(await queue()).toEqual([
       { day: "2026-07-02", queued_at: new Date(placedAt), generation: 2 },
       { day: "2026-07-03", queued_at: new Date(placedAt), generation: 1 },
       { day: "2026-07-04", queued_at: new Date(clearedAt), generation: 2 },
     ]);
-    expect(await clusters()).toMatchObject([
-      { cluster_hash: clusterHash, flagged: true, stream_version: "0" },
-      { cluster_hash: linkageOnlyHash, flagged: false, stream_version: "0", updated_at: new Date(clearedAt) },
+    expect(await clusters()).toEqual([
+      ...retainedClusters.slice(0, 2),
+      expect.objectContaining({ cluster_hash: deferredHash, flagged: false, stream_version: "3" }),
     ]);
     const placed = { trades: await trades(), clusters: await clusters(), queue: await queue() };
 
     await append(payoutReviewHoldFactTypes.released, holdStream, 1, hold, "2026-07-09T00:00:00.000Z");
-    expect(await v2.runOnce()).toMatchObject({ processed: 0, lastGlobalPosition: "5" });
+    expect(await v2.runOnce()).toMatchObject({ processed: 0, lastGlobalPosition: String(placementPosition + 1) });
     expect({ trades: await trades(), clusters: await clusters(), queue: await queue() }).toEqual(placed);
 
     const badgeAssigned = "identity.account.badge-assigned";
@@ -433,13 +496,28 @@ describeDb("pricing market-trades tape-integrity SQL persistence boundary (#4304
     expect(await trades()).toContainEqual(
       expect.objectContaining({ order_id: "ord_history", exclusion_reason: "fraud-flagged" }),
     );
+    const beforeReflag = await queue();
     await append(cleared, linkageStream, 1, linkage, "2026-07-10T00:00:00.000Z");
-    await append(flagged, linkageOnlyStream, 2, linkageOnly, "2026-07-11T00:00:00.000Z");
+    const reflaggedAt = "2026-07-11T00:00:00.000Z";
+    await append(flagged, linkageOnlyStream, 2, linkageOnly, reflaggedAt);
+    expect(await v2.runOnce()).toMatchObject({ processed: 2, lastGlobalPosition: String(placementPosition + 3) });
+    expect(await queue()).toEqual([
+      ...beforeReflag.slice(0, 2),
+      { day: "2026-07-04", queued_at: new Date(reflaggedAt), generation: 3 },
+    ]);
+    expect(await trades()).toContainEqual(
+      expect.objectContaining({ order_id: "ord_linkage_only", exclusion_reason: "self-dealing" }),
+    );
+    expect(await trades()).toContainEqual(
+      expect.objectContaining({ order_id: "ord_buyer", exclusion_reason: "fraud-flagged" }),
+    );
+
     await append(cleared, linkageOnlyStream, 3, linkageOnly, "2026-07-12T00:00:00.000Z");
-    expect(await v2.runOnce()).toMatchObject({ processed: 3, lastGlobalPosition: "8" });
+    expect(await v2.runOnce()).toMatchObject({ processed: 1, lastGlobalPosition: String(placementPosition + 4) });
     expect(await clusters()).toMatchObject([
       { cluster_hash: clusterHash, flagged: false, stream_version: "2" },
       { cluster_hash: linkageOnlyHash, flagged: false, stream_version: "4" },
+      { cluster_hash: deferredHash, flagged: false, stream_version: "3" },
     ]);
     expect(await queue()).toContainEqual({
       day: "2026-07-04",
@@ -450,7 +528,7 @@ describeDb("pricing market-trades tape-integrity SQL persistence boundary (#4304
 
     await pool.query("DELETE FROM event_subscription_applications WHERE projection_key = $1", [v2.checkpointKey]);
     await pool.query("DELETE FROM event_subscription_checkpoints WHERE checkpoint_key = $1", [v2.checkpointKey]);
-    expect(await runV2().runOnce()).toMatchObject({ processed: 7, lastGlobalPosition: "8" });
+    expect(await runV2().runOnce()).toMatchObject({ processed: 10, lastGlobalPosition: String(placementPosition + 4) });
     expect({ trades: await trades(), clusters: await clusters(), queue: await queue() }).toEqual(final);
   });
 

@@ -65,14 +65,29 @@ async function excludeAccountTradesForFraud(
   );
 }
 
-// Version zero marks a retained v1 row. Consult only that stream's applied
-// history, not a checkpoint that may also cover deferred or failed events.
+// Version zero marks a retained v1 row. The stopped v1 worker's checkpoint
+// survives compaction of applied receipts, but can also cover failed or deferred events.
 const newerLinkageVersion = `pricing_market_trade_linkage_clusters.stream_version < EXCLUDED.stream_version
              AND (pricing_market_trade_linkage_clusters.stream_version <> 0 OR NOT EXISTS (
-               SELECT 1 FROM event_subscription_applications AS legacy
-               WHERE legacy.projection_key = 'pricing-market-trades-projection:settlement:v1'
-                 AND legacy.stream_id = $6 AND legacy.status = 'applied'
-                 AND legacy.stream_version >= EXCLUDED.stream_version
+               SELECT 1 FROM event_subscription_checkpoints AS legacy
+               WHERE legacy.checkpoint_key = 'pricing-market-trades-projection:settlement:v1'
+                 AND legacy.last_global_position >= $7::bigint
+                 AND NOT EXISTS (
+                   SELECT 1 FROM event_subscription_applications AS application
+                   WHERE application.projection_key = legacy.checkpoint_key
+                     AND application.event_id = $8 AND application.status <> 'applied'
+                 )
+                 AND NOT EXISTS (
+                   SELECT 1 FROM event_projection_poison_events AS poison
+                   WHERE poison.projection_key = legacy.checkpoint_key
+                     AND poison.event_id = $8 AND poison.state <> 'resolved'
+                 )
+                 AND NOT EXISTS (
+                   SELECT 1 FROM event_projection_blocked_streams AS blocked
+                   WHERE blocked.projection_key = legacy.checkpoint_key
+                     AND blocked.stream_id = $6 AND blocked.state IN ('blocked', 'retrying')
+                     AND blocked.first_blocked_global_position <= $7::bigint
+                 )
              ))`;
 
 /** Preserve terminal exclusions from frozen badge history on rebuild. */
@@ -227,6 +242,8 @@ export function buildPricingMarketTradesSettlementIntegrityProjectionHandlers(db
           event.timing.recordedAt,
           event.streamVersion,
           event.streamId,
+          event.globalPosition,
+          event.id,
         ],
       );
     },
@@ -285,6 +302,8 @@ export function buildPricingMarketTradesSettlementIntegrityProjectionHandlers(db
           event.timing.recordedAt,
           event.streamVersion,
           event.streamId,
+          event.globalPosition,
+          event.id,
         ],
       );
     },
