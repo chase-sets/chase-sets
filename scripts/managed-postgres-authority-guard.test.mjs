@@ -210,6 +210,44 @@ process.stderr.write(${JSON.stringify(`${spreadOverflowMarker}\n`)});
     ]);
   });
 
+  it("classifies each Postgres URL on its own and exempts only an exact local host's own TLS mode", async () => {
+    const localUrl = "postgresql://postgres@localhost/chase_sets";
+    const root = await createFixture({
+      additionalSteps: [
+        {
+          name: "Mixed URLs",
+          run: 'echo "postgresql://synthetic@chase-sets-platform-chase-sets-platform-preview-postgres/db" "postgresql://synthetic-managed.invalid/db?sslmode=require"',
+        },
+        { name: "Alias suffix", run: "node ./urls/alias-suffix.mjs" },
+        { name: "Postgres suffix", run: "node ./urls/postgres-suffix.mjs" },
+        { name: "Redirected local URL", run: "node ./urls/redirected.mjs" },
+        { name: "Standalone downgrade", run: "node ./urls/standalone-downgrade.mjs" },
+        { name: "Local TLS mode", run: "node ./urls/local-tls-mode.mjs" },
+      ],
+      files: {
+        "urls/alias-suffix.mjs":
+          'export const url = "postgresql://synthetic-chase-sets-platform-chase-sets-platform-preview-postgres/db";\n',
+        "urls/postgres-suffix.mjs": 'export const url = "postgresql://synthetic-managed-postgres/db";\n',
+        "urls/redirected.mjs": `export const url = "${localUrl}?host=synthetic-managed.invalid";\n`,
+        "urls/standalone-downgrade.mjs": `export const url = "${localUrl}";\nexport const ssl = { rejectUnauthorized: false };\n`,
+        "urls/local-tls-mode.mjs": `export const url = "${localUrl}?sslmode=require";\n`,
+      },
+    });
+
+    const result = await runGuard(root);
+
+    const finding = (code, file, stepAnchor) => ({ code, file, jobId: "probe", stepAnchor });
+    expect(result.exitCode).toBe(1);
+    expect(result.report.violations).toEqual([
+      finding("connection-material", arbitraryWorkflowPath, "name:Mixed URLs#3"),
+      finding("connection-material", "urls/alias-suffix.mjs", "name:Alias suffix#4"),
+      finding("connection-material", "urls/postgres-suffix.mjs", "name:Postgres suffix#5"),
+      finding("connection-material", "urls/redirected.mjs", "name:Redirected local URL#6"),
+      finding("tls-downgrade", arbitraryWorkflowPath, "name:Mixed URLs#3"),
+      finding("tls-downgrade", "urls/standalone-downgrade.mjs", "name:Standalone downgrade#7"),
+    ]);
+  });
+
   it("N6 rejects a Docker action in a boundary-authorized job without a CA path mapping", async () => {
     const root = await createFixture({
       additionalSteps: [{ name: "Containerized consumer", uses: "docker://postgres:17" }],

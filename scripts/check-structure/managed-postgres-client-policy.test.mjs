@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 import {
   managedPostgresClientPolicyFailures,
   managedPostgresClientPolicySource,
@@ -103,7 +104,12 @@ const base = {
 };
 
 function git(root, args) {
-  return execFileSync("git", args, { cwd: root, encoding: "utf8", windowsHide: true });
+  return execFileSync("git", args, {
+    cwd: root,
+    encoding: "utf8",
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
+    windowsHide: true,
+  });
 }
 
 function fixtureRepo(overrides = {}, { removals = [] } = {}) {
@@ -393,6 +399,41 @@ describe("managed Postgres client policy inventory (#7313)", () => {
       location: "github-runner:managed-authority",
     },
     {
+      name: "kubectl exec psql with an attached host flag in a workflow step",
+      files: {
+        ".github/workflows/ops.yml": base[".github/workflows/ops.yml"].replace(
+          "      - run: node tools/runner-client.mjs",
+          '      - run: kubectl exec sample -- psql -hsynthetic-managed.invalid -c "select 1"',
+        ),
+      },
+      path: ".github/workflows/ops.yml",
+      reason: "in-container-cli-target psql",
+    },
+    {
+      name: "kubectl exec psql argv with an attached short host flag",
+      files: {
+        "tools/runner-client.mjs": [
+          'import { spawnSync } from "node:child_process";',
+          'spawnSync("kubectl", ["exec", "sample", "--", "psql", "-hsynthetic-managed.invalid", "-c", "select 1"]);',
+        ].join("\n"),
+      },
+      path: "tools/runner-client.mjs",
+      reason: "in-container-cli-target psql",
+      location: "github-runner:managed-authority",
+    },
+    {
+      name: "kubectl exec psql argv with an attached long host flag",
+      files: {
+        "tools/runner-client.mjs": [
+          'import { spawnSync } from "node:child_process";',
+          'spawnSync("kubectl", ["exec", "sample", "--", "psql", "--host=synthetic-managed.invalid", "-c", "select 1"]);',
+        ].join("\n"),
+      },
+      path: "tools/runner-client.mjs",
+      reason: "in-container-cli-target psql",
+      location: "github-runner:managed-authority",
+    },
+    {
       name: "require producer",
       files: { "tools/urls.mjs": "export const url = (host) => `postgresql://app@${host}:25060/app?sslmode=require`;" },
       path: "tools/urls.mjs",
@@ -495,6 +536,8 @@ describe("managed Postgres client policy inventory (#7313)", () => {
           [
             '      - run: docker exec "$POSTGRES_CONTAINER" psql -U postgres -c "select 1"',
             '      - run: kubectl exec deploy/preview-postgres -c postgres -- psql --username postgres -c "select 1"',
+            "      - run: kubectl exec deploy/preview-postgres -c postgres -- psql -h/var/run/postgresql -U postgres",
+            "      - run: kubectl exec deploy/preview-postgres -c postgres -- psql --host=/var/run/postgresql -U postgres",
             "      - run: node tools/snapshot.mjs",
           ].join("\n"),
         ),

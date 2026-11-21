@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 // Managed Postgres client policy inventory.
-//
 // Every tracked file (`git ls-files -z --cached`) is read once, assigned a
 // grammar from its extension or content, scanned for Postgres client shapes and
 // classified. Entrypoints are found by content: workflow jobs, YAML
@@ -21,6 +20,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseAllDocuments } from "yaml";
 import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
+import { acquireHeavySlot } from "../lib/heavy-slot.mjs";
 
 export const managedPostgresClientPolicyVersion = "managed-postgres-client-policy/v1";
 export const managedPostgresClientPolicySource = "git ls-files -z --cached --stage";
@@ -78,9 +78,9 @@ const SHELL_CLI = new RegExp(`(?<![\\w./-])(?:${CLI_NAMES})(?![\\w./-])`, "gu");
 const SHELL_CONTAINER_EXEC = /\b(?:docker|podman|kubectl|compose)\b[^\n;|&]*\bexec\b/u;
 // An in-container CLI that names no connection target reaches only the
 // container's own local socket. A URL, a URL-valued variable, a libpq host
-// variable or a non-socket host names another database.
+// variable or a non-socket host, spaced or attached, names another database.
 const CLI_CONNECTION_TARGET =
-  /postgres(?:ql)?:\/\/|url|Url|URL|\bPG(?:HOST|HOSTADDR|SERVICE)\b|(?:^|[\s"',[(])(?:-h|--host)(?:=|[\s"',]+)(?![\s"',]*\/)/u;
+  /postgres(?:ql)?:\/\/|url|Url|URL|\bPG(?:HOST|HOSTADDR|SERVICE)\b|(?:^|[\s"',[(])(?:-h|--host(?![\w-]))(?![=\s"',]*\/)/u;
 const WEAK_MODES = "require|prefer|allow|verify-ca|no-verify";
 const DOWNGRADES = [
   /\brejectUnauthorized\s*(?<![=!])[:=](?!=)\s*false\b/u,
@@ -1242,4 +1242,7 @@ function main() {
   }
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  acquireHeavySlot("script-battery");
+  main();
+}

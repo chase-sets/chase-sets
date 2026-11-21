@@ -20,11 +20,11 @@ const REMOTE_PINNED_USES = /^[^/@\s]+\/[^@\s]+(?:\/[^@\s]+)*@[0-9a-f]{40}$/i;
 const TLS_DOWNGRADE =
   /(?:rejectUnauthorized\s*:\s*false|sslmode\s*(?:=|["']?\s*[,):]\s*["']?)require\b|PGSSLMODE\s*[:=]\s*["']?require\b|NODE_TLS_REJECT_UNAUTHORIZED\s*[:=]\s*["']?0\b)/i;
 const CONNECTION_URL = /\bpostgres(?:ql)?:\/\//i;
+const CONNECTION_URL_TEXT = /\bpostgres(?:ql)?:\/\/[^\s"'`;]*/gi;
 const DISCRETE_CONNECTION_ASSIGNMENT = /\bPG(?:HOST|PORT|USER|PASSWORD|DATABASE|SSLMODE)\b\s*(?::|=)\s*(?![=])/i;
-// The Compose Postgres container answers as `postgres` and as the exact preview alias the runtime
-// admits for it (docker-compose.pr-smoke.yml); no other preview Service name is local.
-const LOCAL_POSTGRES_URL =
-  /postgres(?:ql)?:\/\/[^\s"'`@]*@?(?:localhost|127\.0\.0\.1|\[?::1\]?|postgres|chase-sets-platform-chase-sets-platform-preview-postgres)(?::[a-zA-Z0-9_${}.-]+)?\/[^\s"'`?]+/i;
+// Compose Postgres answers only as `postgres` and as the exact preview alias in docker-compose.pr-smoke.yml.
+const COMPOSE_PREVIEW_POSTGRES_HOST = "chase-sets-platform-chase-sets-platform-preview-postgres";
+const LOCAL_POSTGRES_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "postgres", COMPOSE_PREVIEW_POSTGRES_HOST]);
 const POD_INTERNAL_EXECUTION = /\bkubectl\b[^\n]*(?:\bexec\b|\bcp\b)|\bexecFile\b[^\n]*["']kubectl["']/i;
 const KUBERNETES_RUNTIME_SECRET_EXPORT =
   /kind\s*:\s*["']Secret["'][\s\S]*Buffer\.from\s*\([^)]*["']utf8["'][^)]*\)\.toString\s*\(\s*["']base64["']\s*\)[\s\S]*(?:kubectl|applyManifest)/i;
@@ -650,11 +650,11 @@ function contentTripwires(source) {
     return [];
   }
   const codes = [];
-  const containsNonLocalUrl = CONNECTION_URL.test(source) && !LOCAL_POSTGRES_URL.test(source);
-  if (containsNonLocalUrl || DISCRETE_CONNECTION_ASSIGNMENT.test(source)) {
+  const outsideLocalUrls = source.replace(CONNECTION_URL_TEXT, (url) => (isLocalPostgresUrl(url) ? " " : url));
+  if (CONNECTION_URL.test(outsideLocalUrls) || DISCRETE_CONNECTION_ASSIGNMENT.test(source)) {
     codes.push("connection-material");
   }
-  if (TLS_DOWNGRADE.test(source) && !LOCAL_POSTGRES_URL.test(source)) {
+  if (TLS_DOWNGRADE.test(outsideLocalUrls)) {
     codes.push("tls-downgrade");
   }
   return codes;
@@ -915,6 +915,15 @@ function onlyKeys(value, allowed) {
 function matches(source, pattern, group) {
   pattern.lastIndex = 0;
   return [...source.matchAll(pattern)].map((match) => match[group]);
+}
+
+// Each URL is classified on its own: it is local only when its single authority host is exactly a loopback or
+// Compose Postgres name and no query parameter can redirect it. Only a local URL's own text, including its TLS
+// mode, is exempt from the tripwires.
+function isLocalPostgresUrl(url) {
+  const [, authority, query = ""] = /^[^:]*:\/\/([^/?#]*)[^?#]*(?:\?([^#]*))?/.exec(url);
+  const host = /^(?:[^@]*@)?(\[[^\]]*\]|[^:[\]]*)(?::[a-zA-Z0-9_${}.-]+)?$/.exec(authority)?.[1];
+  return LOCAL_POSTGRES_HOSTS.has(host?.toLowerCase()) && !/(?:^|&)(?:host|hostaddr)=|%/i.test(query);
 }
 
 async function readdirIfPresent(directory) {
