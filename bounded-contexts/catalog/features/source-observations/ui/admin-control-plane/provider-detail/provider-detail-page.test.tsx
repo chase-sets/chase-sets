@@ -284,6 +284,34 @@ describe("CatalogProviderDetailPage", () => {
     expect(action.searchParams.get("profileVersion")).toBe("2026.06.04");
   });
 
+  it("sends each section save the revision its form was drawn from", () => {
+    const profile = profileReview({ providerKey: "tcgdex", profileVersion: "2026.06.04", lifecycle: "draft" });
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
+      requestUrl: "https://admin.example/catalog/providers/tcgdex?providerKey=tcgdex&profileVersion=2026.06.04",
+      scopes: { items: [sourceObservationScope({ provider_key: "tcgdex" })], total: 1, count: 1 },
+      profileReviews: { items: [profile], total: 1, count: 1 },
+      controlPlaneOverview: controlPlaneOverview(),
+      canManageCatalog: true,
+    });
+
+    render(<CatalogProviderDetailPage readModel={readModel} />);
+
+    const sectionForms = [
+      ...document.querySelectorAll<HTMLInputElement>('input[name="_intent"][value="provider-profile.edit-section"]'),
+    ].map((intent) => intent.closest("form")!);
+    expect(sectionForms.length).toBeGreaterThan(1);
+    for (const form of sectionForms) {
+      const section = form.querySelector<HTMLInputElement>('input[name="sectionKey"]')?.value;
+      expect(form.querySelector<HTMLInputElement>('input[name="sectionFingerprint"]')?.value).toBe(
+        `sha256:${section}-read`,
+      );
+    }
+    const evidenceForm = document.querySelector<HTMLFormElement>('form[data-catalog-validation-evidence-form="true"]');
+    expect(evidenceForm?.querySelector<HTMLInputElement>('input[name="sectionFingerprint"]')?.value).toBe(
+      "sha256:migration-evidence-read",
+    );
+  });
+
   it("renders rollback/deprecate/retire as row-level lifecycle actions that submit back to this page", () => {
     const profile = profileReview({
       providerKey: "tcgdex",

@@ -3781,7 +3781,15 @@ async function unionCleanupHarness() {
   const db = {
     query: vi.fn(async (sql: string) => ({
       rows: sql.includes("checkout_catalog_items")
-        ? [{ catalog_item_id: "cat_1", status: "active", product_schema: null, language_code: "en" }]
+        ? [
+            {
+              catalog_item_id: "cat_1",
+              title: "Charizard",
+              status: "active",
+              product_schema: null,
+              language_code: "en",
+            },
+          ]
         : sql.includes("checkout_session_pages") && projected
           ? [projected]
           : [],

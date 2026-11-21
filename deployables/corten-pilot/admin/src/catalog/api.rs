@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Map, Value};
 
-use corten::prelude::ToJson;
+use corten::{http::header, prelude::ToJson};
 
 use crate::api::{ApiError, Caller, Method, segment};
 use platform::receipt::Receipt;
@@ -80,6 +80,102 @@ pub enum Promotion {
 pub enum Sync {
     Fresh,
     Stale,
+}
+
+/// A scope with its language editions and journey (`CatalogScopeJourneyResponse`,
+/// `GET /scope-records/{id}/journey`): the Catalog API composes both, so a page draws them as given.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScopeJourney {
+    pub scope: ScopeRecord,
+    /// The editions to review; none when the scope has one edition or none.
+    #[serde(default)]
+    pub language_editions: Option<EditionReview>,
+    /// Whether the alias review could not be read (the editions then carry no candidates).
+    #[serde(default)]
+    pub language_edition_review_failed: bool,
+    pub overview: JourneyOverview,
+}
+
+/// `CatalogScopeLanguageEditionReviewReadModel`: the canonical edition first.
+#[derive(Clone, Debug, Deserialize)]
+pub struct EditionReview {
+    pub editions: Vec<EditionSummary>,
+}
+
+/// `CatalogScopeLanguageEditionSummary`.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditionSummary {
+    pub language_code: String,
+    pub is_canonical: bool,
+    pub link_state: EditionLinkState,
+    #[serde(default)]
+    pub pending_candidates: Vec<AliasCandidate>,
+    #[serde(default)]
+    pub accepted_candidates: Vec<AliasCandidate>,
+}
+
+/// `CatalogScopeLanguageEditionLinkState`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum EditionLinkState {
+    Linked,
+    PendingReview,
+    NotYetObserved,
+}
+
+/// `CatalogScopeJourneyOverviewReadModel`.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JourneyOverview {
+    pub condition: JourneyCondition,
+    pub stages: Vec<JourneyStage>,
+    pub edition_count: usize,
+    pub linked_edition_count: usize,
+    pub pending_candidate_count: usize,
+    pub promotion_readiness: Promotion,
+    pub sync_freshness: Sync,
+}
+
+/// `CatalogScopeJourneyCondition`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum JourneyCondition {
+    Empty,
+    PartialFailure,
+    Blocked,
+    Conflict,
+    ProjectionLag,
+    Ready,
+}
+
+/// `CatalogScopeJourneyStage`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+pub struct JourneyStage {
+    pub key: JourneyStageKey,
+    pub status: JourneyStageStatus,
+}
+
+/// `CatalogScopeJourneyStageKey`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum JourneyStageKey {
+    Coverage,
+    Sync,
+    Jobs,
+    Candidates,
+    Promotion,
+}
+
+/// `CatalogScopeJourneyStageStatus`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum JourneyStageStatus {
+    Complete,
+    Current,
+    Upcoming,
+    Blocked,
 }
 
 /// A page of Scope Records (`CatalogScopeRecordListResponse`): the page, the filtered total and the
@@ -1293,6 +1389,10 @@ pub trait Catalog {
     /// A command: `POST` or `PUT` to `/api/catalog/{kind}{rest}` with `body` (`rest` starts with
     /// `/`, or is empty for a create).
     async fn command(&self, method: Method, kind: Kind, rest: &str, body: Option<&Value>) -> Result<Written, ApiError>;
+    /// A command checked against the revision its form was drawn from, sent as `If-Match`: the API
+    /// refuses it when that revision has been replaced.
+    async fn command_at(&self, method: Method, kind: Kind, rest: &str, body: &Value, revision: &str)
+    -> Result<Written, ApiError>;
     /// What a bulk change of `kind` would do: `body` is `{ action, selection }`.
     async fn bulk_preview(&self, kind: Kind, body: &Value) -> Result<Preview, ApiError>;
     /// Starts a bulk change of `kind`: its job (202), which runs it.
@@ -1322,6 +1422,22 @@ impl Catalog for Caller<'_> {
         if let Some(body) = body {
             req = req.json(body);
         }
+        let (_, receipt): (Value, _) = self.write(req).await?;
+        Ok(Written { receipt })
+    }
+
+    async fn command_at(
+        &self,
+        method: Method,
+        kind: Kind,
+        rest: &str,
+        body: &Value,
+        revision: &str,
+    ) -> Result<Written, ApiError> {
+        let req = self
+            .request(method, &format!("{API}/{}{rest}", kind.path()), CATALOG)
+            .header(header::IF_MATCH, format!("\"{revision}\""))
+            .json(body);
         let (_, receipt): (Value, _) = self.write(req).await?;
         Ok(Written { receipt })
     }

@@ -12,11 +12,13 @@ import {
   sourceObservationListItem,
   sourceObservationScope,
 } from "../../primary-workbench-test-fixtures";
-import type {
-  CatalogAliasReviewCandidateSummary,
-  CatalogAliasReviewReadModel,
-} from "../../../../alias-equivalence/api/alias-review-admin-contracts";
+import type { CatalogAliasReviewCandidateSummary } from "../../../../alias-equivalence/api/alias-review-admin-contracts";
 import type { CatalogScopeRecordDetail } from "../../../../scope-registry/ui/contracts";
+import {
+  buildCatalogScopeJourneyOverviewReadModel,
+  buildCatalogScopeLanguageEditionReviewReadModel,
+  catalogScopeHasLanguageEditionsToReview,
+} from "../../../../scope-registry/api/scope-journey";
 
 vi.mock("../import-to-promotion/import-to-promotion-workspace", () => ({
   CatalogIntegrationImportToPromotionWorkspace: (props: {
@@ -74,7 +76,7 @@ it.each([true, false])(
       <CatalogScopeDetailPage
         scope={scope}
         actionHref={ACTION_HREF}
-        languageEditionAliasReview={aliasReview([])}
+        {...scopeJourney(scope, [])}
         journey={{ requestUrl, readModel }}
       />,
     );
@@ -125,7 +127,7 @@ it.each([false, true])("keeps missing Scope unit/job selections unavailable whil
       scope={paldeanFatesScope()}
       actionHref={ACTION_HREF}
       loading={loading}
-      languageEditionAliasReview={aliasReview([])}
+      {...scopeJourney(paldeanFatesScope(), [])}
       journey={{ ...journey, readModel: model }}
     />,
   );
@@ -219,40 +221,22 @@ function candidate(overrides: Partial<CatalogAliasReviewCandidateSummary> = {}):
   };
 }
 
-function aliasReview(candidates: readonly CatalogAliasReviewCandidateSummary[]): CatalogAliasReviewReadModel {
+// The editions and journey as the Catalog API returns them for this scope.
+function scopeJourney(
+  scope: CatalogScopeRecordDetail,
+  candidates: readonly CatalogAliasReviewCandidateSummary[],
+  languageEditionReviewFailed = false,
+) {
+  const languageEditions = catalogScopeHasLanguageEditionsToReview(scope)
+    ? buildCatalogScopeLanguageEditionReviewReadModel({ scope, candidates })
+    : null;
   return {
-    schemaVersion: "catalog-alias-review-v1",
-    generatedAt: "2026-06-16T00:00:00.000Z",
-    filter: {
-      providerKey: null,
-      sourceProfileVersion: null,
-      aliasType: null,
-      reviewStatuses: [],
-      observationId: null,
-      targetKind: "reference-record",
-      targetId: "ref_expansion_paldean_fates",
-    },
-    counts: {
-      total: candidates.length,
-      pending: candidates.length,
-      accepted: 0,
-      autoAccepted: 0,
-      rejected: 0,
-      revoked: 0,
-      needsReview: candidates.length,
-      autoAcceptEligible: 0,
-      warned: 0,
-    },
-    candidates,
-    groups: [],
-    coverage: {
-      cardsWithAcceptedEnglishAlias: 0,
-      cardsWithOnlySpeciesAliases: 0,
-      cardsNeedingReview: 0,
-      expansionsAndSeriesNeedingReview: 0,
-      cards: [],
-      referenceScopes: [],
-    },
+    languageEditions,
+    journeyOverview: buildCatalogScopeJourneyOverviewReadModel({
+      scope,
+      languageEditionReview: languageEditions,
+      languageEditionReviewFailed,
+    }),
   };
 }
 
@@ -261,7 +245,7 @@ describe("CatalogScopeDetailPage", () => {
     const view = render(
       <CatalogScopeDetailPage
         scope={paldeanFatesScope()}
-        languageEditionAliasReview={aliasReview([])}
+        {...scopeJourney(paldeanFatesScope(), [])}
         actionHref={ACTION_HREF}
         journey={journeyFixture()}
       />,
@@ -276,7 +260,7 @@ describe("CatalogScopeDetailPage", () => {
     view.rerender(
       <CatalogScopeDetailPage
         scope={paldeanFatesScope()}
-        languageEditionAliasReview={aliasReview([])}
+        {...scopeJourney(paldeanFatesScope(), [])}
         actionHref={ACTION_HREF}
         journey={journeyFixture(true)}
       />,
@@ -287,7 +271,7 @@ describe("CatalogScopeDetailPage", () => {
     render(
       <CatalogScopeDetailPage
         scope={paldeanFatesScope()}
-        languageEditionAliasReview={aliasReview([candidate()])}
+        {...scopeJourney(paldeanFatesScope(), [candidate()])}
         actionHref={ACTION_HREF}
       />,
     );
@@ -300,7 +284,7 @@ describe("CatalogScopeDetailPage", () => {
     render(
       <CatalogScopeDetailPage
         scope={paldeanFatesScope()}
-        languageEditionAliasReview={aliasReview([candidate()])}
+        {...scopeJourney(paldeanFatesScope(), [candidate()])}
         actionHref={ACTION_HREF}
       />,
     );
@@ -315,8 +299,7 @@ describe("CatalogScopeDetailPage", () => {
     render(
       <CatalogScopeDetailPage
         scope={paldeanFatesScope()}
-        languageEditionAliasReview={aliasReview([])}
-        languageEditionAliasReviewFailed
+        {...scopeJourney(paldeanFatesScope(), [], true)}
         actionHref={ACTION_HREF}
       />,
     );
@@ -328,7 +311,7 @@ describe("CatalogScopeDetailPage", () => {
     render(
       <CatalogScopeDetailPage
         scope={paldeanFatesScope()}
-        languageEditionAliasReview={aliasReview([])}
+        {...scopeJourney(paldeanFatesScope(), [])}
         actionHref={ACTION_HREF}
         loading
       />,
@@ -341,7 +324,7 @@ describe("CatalogScopeDetailPage", () => {
     render(
       <CatalogScopeDetailPage
         scope={paldeanFatesScope()}
-        languageEditionAliasReview={aliasReview([])}
+        {...scopeJourney(paldeanFatesScope(), [])}
         actionHref={ACTION_HREF}
         coverageMatrix={
           {
@@ -373,7 +356,7 @@ describe("CatalogScopeDetailPage", () => {
     render(
       <CatalogScopeDetailPage
         scope={paldeanFatesScope({ languageEditions: ["en"] })}
-        languageEditionAliasReview={aliasReview([])}
+        {...scopeJourney(paldeanFatesScope({ languageEditions: ["en"] }), [])}
         actionHref={ACTION_HREF}
       />,
     );

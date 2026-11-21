@@ -24,7 +24,7 @@ import type {
   CatalogScopeLanguageEditionLinkState,
   CatalogScopeLanguageEditionReviewReadModel,
   CatalogScopeLanguageEditionSummary,
-} from "./language-edition-review";
+} from "../../../../../scope-registry/ui/contracts";
 
 // The scope-detail language-editions section. Inline first, per
 // the v2 control-plane blueprint's disclosure rules: every edition's link
