@@ -1,8 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { SourceObservationRouteServices } from "../route";
 import { catalogProviderIntegrationProfileVersions } from "../provider-integration-profiles";
+import { ProviderAdapterRegistry } from "../provider-adapters/registry";
 import { CatalogProviderOptionQueryUnavailableError } from "../providers/provider-option-query-cache";
 import { CatalogProviderOptionQueryInvalidRequestError } from "../providers/provider-option-query-resolver";
+import { queryProviderIntegrationOptions } from "../providers/provider-option-queries";
+import { getActiveCatalogProviderIntegrationProfileVersion } from "../providers/registry";
+import { createTcgdexProviderAdapter } from "../providers/tcgdex/adapter";
 import {
   buildApp,
   bulkJobFixture,
@@ -342,6 +347,144 @@ describe("source observation routes: integration discovery and profile administr
       limit: 1,
       forceRefresh: true,
       cacheOnly: true,
+    });
+  });
+
+  describe("TCGdex Korean expansion option queries", () => {
+    const path = "/source-observations/integration-options?provider=tcgdex&kind=expansions&language=ko&parentValue=SV";
+    const seriesUrl = "https://api.tcgdex.net/v2/ko/series/sv";
+
+    function optionQueryServices(fetch: typeof globalThis.fetch, db: PgQueryable | null = null) {
+      const registry = new ProviderAdapterRegistry([
+        createTcgdexProviderAdapter({
+          fetch,
+          loadActiveProfileVersion: async () => {
+            const profile = getActiveCatalogProviderIntegrationProfileVersion("tcgdex");
+            if (!profile) throw new Error("Missing active TCGdex profile.");
+            return profile;
+          },
+        }),
+      ]);
+      const recordProviderOptionQuery = vi.fn();
+      const services = {
+        queryIntegrationOptions: (input) =>
+          queryProviderIntegrationOptions(input, db, null, undefined, registry, { recordProviderOptionQuery }),
+      } satisfies Pick<SourceObservationRouteServices, "queryIntegrationOptions">;
+      return { services: services as SourceObservationRouteServices, recordProviderOptionQuery };
+    }
+
+    it.each([503, 502])("returns unavailable for upstream HTTP %i without usable cache", async (status) => {
+      const upstreamBody = "synthetic upstream failure body";
+      const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(upstreamBody, { status }));
+      const { services, recordProviderOptionQuery } = optionQueryServices(fetch);
+      const response = await buildApp(services).request(path);
+
+      expect(fetch).toHaveBeenCalledExactlyOnceWith(seriesUrl, undefined);
+      expect(response.status).toBe(503);
+      const body = await response.text();
+      expect(JSON.parse(body)).toMatchObject({ error: { code: "catalog_provider_option_query_unavailable" } });
+      expect(body).not.toContain("api.tcgdex.net");
+      expect(body).not.toContain(upstreamBody);
+      expect(recordProviderOptionQuery).toHaveBeenCalledWith(
+        expect.objectContaining({ providerKey: "tcgdex", queryKind: "expansions", result: "failure" }),
+      );
+    });
+
+    it("returns a live page for valid upstream series detail", async () => {
+      const fetch = vi.fn<typeof globalThis.fetch>(async (url) => {
+        if (url === seriesUrl) {
+          return Response.json({
+            id: "sv",
+            name: "Fixture series",
+            sets: [{ id: "fixture-set", name: "Fixture set" }],
+          });
+        }
+        expect(url).toBe("https://api.tcgdex.net/v2/en/sets/fixture-set");
+        return new Response(null, { status: 404 });
+      });
+      const { services } = optionQueryServices(fetch);
+      const response = await buildApp(services).request(path);
+
+      expect(fetch).toHaveBeenCalledWith(seriesUrl, undefined);
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        items: [{ value: "fixture-set", label: "Fixture set", parentValue: "sv" }],
+        total: 1,
+        count: 1,
+        cache: { status: "miss", source: "live", degraded: false },
+      });
+    });
+
+    it("returns a degraded stale page after an upstream 5xx", async () => {
+      const now = Date.now();
+      const query = vi.fn<PgQueryable["query"]>().mockResolvedValueOnce({
+        rows: [
+          {
+            cache_key: "sha256:fixture",
+            fetched_at: new Date(now - 60 * 60_000),
+            expires_at: new Date(now - 45 * 60_000),
+            stale_until: new Date(now + 23 * 60 * 60_000),
+            items_json: [
+              {
+                providerKey: "tcgdex",
+                queryKind: "expansions",
+                value: "cached-set",
+                label: "Cached set",
+                description: null,
+                parentValue: "sv",
+                imageUrl: null,
+                metadata: {},
+              },
+            ],
+          },
+        ],
+      });
+      const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(null, { status: 503 }));
+      const { services } = optionQueryServices(fetch, { query });
+      const response = await buildApp(services).request(path);
+
+      expect(fetch).toHaveBeenCalledExactlyOnceWith(seriesUrl, undefined);
+      expect(query).toHaveBeenCalledTimes(1);
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        items: [{ value: "cached-set" }],
+        total: 1,
+        count: 1,
+        cache: {
+          status: "stale",
+          source: "cache",
+          degraded: true,
+          diagnostics: [{ code: "provider-option-query-stale-cache-used" }],
+        },
+      });
+    });
+
+    it.each([
+      ["an upstream 404", 404],
+      ["an unrelated exception mentioning 503", new Error("Fixture transport exception mentioning HTTP 503.")],
+    ] as const)("leaves %s unclassified", async (_label, failure) => {
+      const fetch = vi.fn<typeof globalThis.fetch>();
+      if (typeof failure === "number") {
+        fetch.mockResolvedValue(new Response(null, { status: failure }));
+      } else {
+        fetch.mockRejectedValue(failure);
+      }
+      const { services } = optionQueryServices(fetch);
+      const response = await buildApp(services).request(path);
+
+      expect(fetch).toHaveBeenCalledExactlyOnceWith(seriesUrl, undefined);
+      expect(response.status).toBe(500);
+      await expect(response.text()).resolves.toBe("Internal Server Error");
+    });
+
+    it("denies a request without catalog.view before calling the provider", async () => {
+      const fetch = vi.fn<typeof globalThis.fetch>();
+      const { services } = optionQueryServices(fetch);
+      const response = await buildApp(services, undefined, { permissions: [] }).request(path);
+
+      expect(response.status).toBe(403);
+      await expect(response.json()).resolves.toMatchObject({ error: { code: "authorization_forbidden" } });
+      expect(fetch).not.toHaveBeenCalled();
     });
   });
 
