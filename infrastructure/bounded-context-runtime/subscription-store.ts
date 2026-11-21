@@ -73,7 +73,7 @@ export async function clearCascadeProgress(db: PgQueryable, projectionKey: strin
 export function createDbProjectionCascadeController(
   db: PgQueryable,
   input: Readonly<{ projectionKey: string; eventId: string; budget: number }>,
-): ProjectionCascadeController & Readonly<{ refreshedCount: () => number }> {
+): ProjectionCascadeController & Readonly<{ refreshedCount: () => number; hasVisitedSite: () => boolean }> {
   let ordinal = -1;
   let remaining = Math.max(0, Math.floor(input.budget));
   let exhausted = false;
@@ -83,6 +83,7 @@ export function createDbProjectionCascadeController(
     nextOrdinal: () => (ordinal += 1),
     budgetRemaining: () => remaining,
     isExhausted: () => exhausted,
+    hasVisitedSite: () => ordinal >= 0,
     consume: (count: number) => {
       remaining -= count;
       refreshed += count;
