@@ -7,6 +7,7 @@ import {
   TimeSeriesChart,
   type TimeSeriesSeries,
 } from "../components/data-display/chart";
+import { EmptyState } from "../components/feedback/empty-state";
 import { ChaseRoot } from "../theme/provider";
 
 const motionElementCalls = vi.hoisted(
@@ -187,6 +188,7 @@ describe("TimeSeriesChart", () => {
 
     expect(screen.getByText("Not enough data yet")).toBeTruthy();
     expect(screen.getByText("At least 2 data points are required to show a reliable trend.")).toBeTruthy();
+    expect(screen.queryByRole("heading")).toBeNull();
   });
 
   it("renders a distinct empty state when a series has zero samples", () => {
@@ -198,6 +200,7 @@ describe("TimeSeriesChart", () => {
     );
 
     expect(screen.getByText("No data yet")).toBeTruthy();
+    expect(screen.queryByRole("heading")).toBeNull();
   });
 
   it("provides an integration point slot for a caller-supplied time-range selector", () => {
@@ -295,5 +298,18 @@ describe("NumericSeriesChart", () => {
     expect(screen.getByText("Empty chart title")).toBeTruthy();
     expect(screen.getByText("Insufficient chart title")).toBeTruthy();
     expect(screen.getByText("Error chart title")).toBeTruthy();
+    expect(screen.queryByRole("heading")).toBeNull();
+  });
+});
+
+describe("EmptyState title", () => {
+  it("is a level-2 heading on its own and plain text when it is a status inside a section", () => {
+    const { unmount } = renderWithRoot(<EmptyState title="No listings" />);
+    expect(screen.getByRole("heading", { level: 2, name: "No listings" })).toBeTruthy();
+    unmount();
+
+    renderWithRoot(<EmptyState heading={false} title="No data yet" />);
+    expect(screen.getByText("No data yet")).toBeTruthy();
+    expect(screen.queryByRole("heading")).toBeNull();
   });
 });

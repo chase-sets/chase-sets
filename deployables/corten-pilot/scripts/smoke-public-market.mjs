@@ -1,8 +1,7 @@
 // Uses public-web's market page in a browser, against the real platform API, beside public-web's own.
 // - Signed out: the title, description, canonical and social tags, the h1 and subtitle, the stats
 //   (each label and value), the lowest asks, the sell-through and the three marketplace links read
-//   as public-web's do; the page's headings are the title and its three sections
-//   (public-web's empty chart title is a heading too).
+//   as public-web's do; the page's headings are the title and its three sections.
 // - What caches may keep: without a cookie a browser keeps it a minute and a shared cache for the
 //   s-maxage Pricing's own answer carries (a day by default), an hour stale; private with one; the
 //   API is not sent the cookie.
@@ -71,13 +70,11 @@ check(
 );
 check(ours.info.robots === theirs.info.robots, `robots: ${ours.info.robots} (public-web ${theirs.info.robots})`);
 check(JSON.stringify(ours.info.h1) === JSON.stringify(theirs.info.h1), `the h1: ${ours.info.h1}`);
-const sections = theirs.info.h2.filter((h) => !["No data yet", "Not enough data yet"].includes(h));
 check(
-  JSON.stringify(ours.info.h2) === JSON.stringify(sections),
+  JSON.stringify(ours.info.h2) === JSON.stringify(theirs.info.h2),
   `the sections: ${ours.info.h2.join(" / ")} (public-web's h2s: ${theirs.info.h2.join(" / ")})`,
 );
-// Every word public-web shows in main is in ours, in the same order, apart from its heading-only
-// "No data yet" duplicates.
+// Every word public-web shows in main is in ours.
 const words = (text) =>
   text
     .replace(/[\u203a>]/g, " ")
