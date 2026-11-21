@@ -2207,6 +2207,13 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
+    async getCatalogScopeJourney<T>(id: string): Promise<T> {
+      const response = await client["scope-records"][":id"].journey.$get({
+        param: { id },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
     async listCatalogScopeRecords<T>(query = ""): Promise<T> {
       const search = query ? `?${new URLSearchParams(queryFromString(query)).toString()}` : "";
       const response = await configuredFetch(`${baseUrl.replace(/\/$/, "")}/scope-records${search}`, {

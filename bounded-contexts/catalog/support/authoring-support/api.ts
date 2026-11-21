@@ -122,7 +122,12 @@ export function buildCatalogAuthoringApi(services: CatalogServices) {
   app.route("/alias-review", catalogAliasRoutes(services.catalogAliases));
   app.route("/attention-queue", catalogAttentionQueueRoutes(services.attentionQueue));
   app.route("/provider-scope-mappings", providerScopeMappingRoutes(services.providerScopeMappings));
-  app.route("/scope-records", catalogScopeRegistryRoutes(services.scopeRegistry));
+  app.route(
+    "/scope-records",
+    catalogScopeRegistryRoutes(services.scopeRegistry, (input) =>
+      services.catalogAliases.getCatalogAliasReviewReadModel(input),
+    ),
+  );
   app.route("/provider-scope-discovery", providerScopeDiscoveryRoutes(services.providerScopeDiscovery));
   app.route("/scope-sync-batches", scopeSyncBatchRoutes(services.scopeSyncBatches, services.countCapture));
 
