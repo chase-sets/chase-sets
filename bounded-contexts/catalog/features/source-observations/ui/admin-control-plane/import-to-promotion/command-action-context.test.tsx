@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, render } from "@testing-library/react";
+import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 import { parseCatalogPrimaryWorkbenchRouteContext } from "../../primary-workbench-route-context";
 import {
@@ -44,8 +45,23 @@ describe("Catalog integration command action context", () => {
       expect(getByTestId("sentinel").getAttribute("href")).toBe(`${actionPath}${query}`);
     },
   );
-  it("uses the daily integrations action by default", () => {
-    const { getByTestId } = render(<Probe />);
+  // No page supplies a path, so no control may fall back to the daily workbench.
+  it("fails closed for commands, links and refreshes rendered without an owning page", () => {
+    function RebaseProbe() {
+      const rebase = useCatalogIntegrationHrefRebase();
+      return <a href={rebase("/catalog/integrations?providerKey=tcgdex")} />;
+    }
+    for (const probe of [<Probe key="command" />, <ReviewPagerProbe key="review" />, <RebaseProbe key="rebase" />]) {
+      expect(() => renderToString(probe)).toThrow("Catalog integration controls require an owning page action path.");
+    }
+  });
+
+  it("keeps the daily surface's commands on its own fixed path", () => {
+    const { getByTestId } = render(
+      <CatalogIntegrationCommandActionProvider actionPath="/catalog/integrations">
+        <Probe />
+      </CatalogIntegrationCommandActionProvider>,
+    );
     const action = new URL((getByTestId("command-form") as HTMLFormElement).action);
 
     expect(action.pathname).toBe("/catalog/integrations");

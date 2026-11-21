@@ -1,17 +1,22 @@
 import type { ActionFunctionArgs } from "react-router";
 import { redirect } from "react-router";
+import { serializeCatalogPrimaryWorkbenchRouteContext } from "../../../features/source-observations/ui/primary-workbench-route-context";
 import { dispatchIntegrationsCommand } from "./integrations-command-dispatch";
 import { commandRedirectHref } from "./integrations-command-result";
 
-// Post-command action for the redirect-owning integrations surfaces (provider
-// setup, governance, release). These surfaces commit profile-lifecycle and
-// authoring operations that belong to a specific governance/authoring section, so
-// the surface navigates to that section after the command — carrying the command
-// feedback as query state so the destination renders the same banner. The
-// navigation is the surface's decision, derived from the structured result rather
-// than hard-coded inside the command logic.
-export async function surfaceCommandAction(args: ActionFunctionArgs): Promise<Response> {
-  const result = await dispatchIntegrationsCommand(args);
+// Post-command actions for the Settings, governance and health integrations
+// routes. Each route owns its fixed path: a command posted there lands back on
+// that same page with its checkpoints and feedback, never on a page derived from
+// the result or the submitted URL.
+export const settingsCommandAction = surfaceCommandAction("/catalog/integrations/settings");
+export const governanceCommandAction = surfaceCommandAction("/catalog/integrations/governance");
+export const healthCommandAction = surfaceCommandAction("/catalog/integrations/health");
 
-  return redirect(commandRedirectHref(result));
+function surfaceCommandAction(ownerPath: string) {
+  return async function action(args: ActionFunctionArgs): Promise<Response> {
+    const result = await dispatchIntegrationsCommand(args);
+    const query = serializeCatalogPrimaryWorkbenchRouteContext(result.context).toString();
+
+    return redirect(commandRedirectHref(query ? `${ownerPath}?${query}` : ownerPath, result));
+  };
 }

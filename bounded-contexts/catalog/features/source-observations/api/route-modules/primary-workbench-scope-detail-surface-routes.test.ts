@@ -247,6 +247,43 @@ describe("Catalog daily surface for a Scope Detail location", () => {
     });
   });
 
+  it("carries the address's provider, unit and profile and keeps its import scope inside the record", async () => {
+    const selection = {
+      providerKey: "tcgdex",
+      unitKey: "tcgdex:pokemon:card:import",
+      importScope: "en:3:base:base1",
+      profileVersion: "2026.06.04",
+    };
+    const address = `/catalog/scopes/scope_expansion_paldean_fates?${new URLSearchParams({
+      ...selection,
+      languageCode: "ja",
+      seriesId: "submitted-series",
+      expansionId: "submitted-expansion",
+      expansionName: "Submitted expansion",
+    })}`;
+
+    const { status, body } = await read(
+      app(async () => paldeanFates),
+      surfacePath("daily", address),
+    );
+
+    expect(status).toBe(200);
+    expect(body.readModel.routeContext).toMatchObject({
+      providerKey: selection.providerKey,
+      unitKey: selection.unitKey,
+      profileVersion: selection.profileVersion,
+      // An import scope outside the record's hierarchy yields to the record's own.
+      importScope: "ja:scope_product_line_pokemon:scope_series_scarlet_violet:scope_expansion_paldean_fates",
+      scopeRecordId: "scope_expansion_paldean_fates",
+      scope: expect.objectContaining({
+        languageCode: "ja",
+        expansionId: "scope_expansion_paldean_fates",
+        expansionName: "Paldean Fates",
+        seriesId: "scope_series_scarlet_violet",
+      }),
+    });
+  });
+
   it.each([
     ["names a Scope Record that does not exist", async () => null],
     ["cannot be read without the Scope Record read", undefined],

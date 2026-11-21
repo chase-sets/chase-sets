@@ -11,9 +11,9 @@ type RouteContext = CatalogIntegrationsCommandResult["context"];
 // run, resume a paused one, or cancel one in flight. These are the `job` entity
 // actions in the Catalog Control Plane v2 vocabulary (`job.retry` | `job.resume`
 // | `job.cancel`); each command handler remains responsible for one entity. Every
-// transition targets one
-// durable import job and stays on the daily import-to-promotion surface: the
-// result names that section and the surface renders a status banner in place.
+// transition targets one durable import job; the result names no page, so the
+// owning page's route action (Scope Detail, Provider detail, or the daily
+// surface) renders its feedback in place.
 export type JobCommandIntent = "job.retry" | "job.resume" | "job.cancel";
 
 const JOB_COMMAND_INTENTS = new Set<string>(["job.retry", "job.resume", "job.cancel"] satisfies JobCommandIntent[]);
@@ -70,6 +70,5 @@ function jobResult(
   return {
     feedback: { status, intent, result },
     context,
-    section: "import-to-promotion",
   };
 }

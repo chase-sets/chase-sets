@@ -1,16 +1,14 @@
 import { t } from "@chase-sets/localization";
-import { useEffect } from "react";
 import type { MetaFunction } from "react-router";
-import { useActionData, useLoaderData, useNavigate, useNavigation } from "react-router";
+import { useActionData, useLoaderData, useNavigation } from "react-router";
 import { CatalogScopeDetailPage } from "../../features/source-observations/ui/admin-control-plane/scope-detail/scope-detail-page";
 import { loader } from "../../support/route-support/admin-scope-detail/scope-detail-loader";
 import type { action as scopeDetailAction } from "../../support/route-support/admin-scope-detail/scope-detail-action";
-import { commandResultNeedsRoutableHandoff } from "../../support/route-support/admin-integrations/integrations-command-result";
-import { scopeDetailCommandHref } from "../../support/route-support/admin-scope-detail/scope-detail-route-context";
 import { useOriginalPromotionReceipt } from "../../features/source-observations/ui/integrations-surface-route-view";
 
 export { loader } from "../../support/route-support/admin-scope-detail/scope-detail-loader";
 export { action } from "../../support/route-support/admin-scope-detail/scope-detail-action";
+export { catalogPrimaryWorkbenchSourceOptionShouldRevalidate as shouldRevalidate } from "../../features/source-observations/ui/primary-workbench-source-option-refresh";
 
 export const meta: MetaFunction<typeof loader> = ({ data }) => [
   { title: data ? `${data.scope.name} | Catalog Admin` : t("catalog.routes.admin.scopeDetail.scope.catalog.admin") },
@@ -18,8 +16,8 @@ export const meta: MetaFunction<typeof loader> = ({ data }) => [
 
 // Scope Detail page (`/catalog/scopes/:id`, v2 control-plane IA). Thin
 // composition root: it re-exports the loader/action and renders the scope
-// page. The language-editions section's accept/reject/defer/revoke forms
-// POST here and stay on this page, so the operator sees the result in place.
+// page. Every Scope form POSTs here: a queued job redirects back to this page
+// with its checkpoints, and every other result renders in place as action data.
 export default function ScopeDetailRoute() {
   const {
     scope,
@@ -34,15 +32,8 @@ export default function ScopeDetailRoute() {
   } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof scopeDetailAction>();
   const navigation = useNavigation();
-  const navigate = useNavigate();
-  const commandFeedback = actionData && "feedback" in actionData ? actionData.feedback : null;
-  const journeyReadModel = useOriginalPromotionReceipt(journey, actionData ?? null, navigation.state !== "idle");
-
-  useEffect(() => {
-    if (actionData && "feedback" in actionData && commandResultNeedsRoutableHandoff(actionData)) {
-      void navigate(scopeDetailCommandHref(scope.scopeRecordId, actionData.context), { replace: true });
-    }
-  }, [actionData, navigate, scope.scopeRecordId]);
+  const commandResult = actionData && "feedback" in actionData ? actionData : null;
+  const journeyReadModel = useOriginalPromotionReceipt(journey, commandResult, navigation.state !== "idle");
 
   return (
     <CatalogScopeDetailPage
@@ -55,7 +46,7 @@ export default function ScopeDetailRoute() {
       coverageMatrix={coverageMatrix}
       coverageMatrixFailed={coverageMatrixFailed}
       journey={{ ...journey, readModel: journeyReadModel }}
-      commandFeedback={commandFeedback}
+      commandFeedback={commandResult?.feedback ?? null}
       candidateReviewJobs={candidateReviewJobs}
       candidateReviewJobsCursor={candidateReviewJobsCursor}
     />

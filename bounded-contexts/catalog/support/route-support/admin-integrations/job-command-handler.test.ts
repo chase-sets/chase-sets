@@ -22,7 +22,7 @@ describe("import-job entity command handler", () => {
     });
 
     expect(retrySourceObservationIntegrationJob).toHaveBeenCalledWith("job_import_1");
-    expect(result.section).toBe("import-to-promotion");
+    expect(result).not.toHaveProperty("section");
     expect(result.feedback).toMatchObject({ status: "success", intent: "job.retry", result: "job-queued" });
     expect(result.context.jobId).toBe("job_import_9");
     expect(result.context.selectedObservationIds).toEqual(["obs_1"]);

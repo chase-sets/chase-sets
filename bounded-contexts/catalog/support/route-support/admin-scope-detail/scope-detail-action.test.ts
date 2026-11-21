@@ -1,27 +1,62 @@
 import type { ActionFunctionArgs } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError as CatalogApiError } from "../../shell-support/api/client";
+import { syntheticPromotionPreviewResponse } from "../../../features/source-observations/ui/primary-workbench-test-fixtures";
 
-const { mockDispatchIntegrationsCommand } = vi.hoisted(() => ({
-  mockDispatchIntegrationsCommand: vi.fn(),
-}));
+const { createApi } = vi.hoisted(() => ({ createApi: vi.fn() }));
 
-vi.mock("../admin-integrations/integrations-command-dispatch", () => ({
-  dispatchIntegrationsCommand: mockDispatchIntegrationsCommand,
+// The real dispatcher and entity handlers run; only the Catalog API is stubbed,
+// with the surface reads the promotion descriptor needs composed over the stub.
+vi.mock("../../request-support/api-client", async () => {
+  const { withCatalogSurfaceReads } = await vi.importActual<
+    typeof import("../../../features/source-observations/tests/integrations-surface-read-test-client")
+  >("../../../features/source-observations/tests/integrations-surface-read-test-client");
+  return {
+    createCatalogRequestApiClient: (request: Request) => withCatalogSurfaceReads(createApi(request), request),
+  };
+});
+
+vi.mock("@chase-sets/platform-runtime/auth", () => ({
+  resolveActorFromAuthApi: async () => ({ permissions: ["catalog.view", "catalog.manage"] }),
+  isTransientAuthResolutionError: () => false,
 }));
 
 const { action } = await import("./scope-detail-action");
 
-function formRequest(fields: Record<string, string>) {
-  const body = new URLSearchParams(fields);
-  return new Request("https://admin.example/catalog/scopes/scope_expansion_paldean_fates", {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: body.toString(),
-  });
+const SCOPE_ID = "scope_expansion_paldean_fates";
+const SELECTION = {
+  providerKey: "tcgdex",
+  unitKey: "tcgdex:pokemon:card:import",
+  importScope: "en:3:base:base1",
+  profileVersion: "2026.06.04",
+};
+// Scope-mounted forms post to the Scope's own address, which carries its selection.
+const SCOPE_ACTION_URL = `https://admin.example/catalog/scopes/${SCOPE_ID}?${new URLSearchParams(SELECTION)}`;
+const SYNC_FIELDS = {
+  productDomain: "pokemon",
+  productForm: "single-card",
+  languageCode: "en",
+  referenceKind: "expansion",
+  scopeRecordId: SCOPE_ID,
+  selectedUnitKeys: SELECTION.unitKey,
+};
+
+function runAction(fields: Record<string, string>, query = "") {
+  return action({
+    request: new Request(`${SCOPE_ACTION_URL}${query}`, { method: "POST", body: new URLSearchParams(fields) }),
+    params: { id: SCOPE_ID },
+    context: {},
+  } as unknown as ActionFunctionArgs);
 }
 
-function runAction(fields: Record<string, string>) {
-  return action({ request: formRequest(fields), params: {}, context: {} } as unknown as ActionFunctionArgs);
+function redirectTarget(response: unknown): URL {
+  expect(response).toBeInstanceOf(Response);
+  return new URL((response as Response).headers.get("Location") ?? "", "https://admin.example");
+}
+
+function asData(response: unknown) {
+  expect(response).not.toBeInstanceOf(Response);
+  return response as Exclude<Awaited<ReturnType<typeof action>>, Response>;
 }
 
 describe("Catalog scope-detail route action", () => {
@@ -30,30 +65,136 @@ describe("Catalog scope-detail route action", () => {
   });
 
   it.each([
-    ["alias.accept", "job-queued", "success"],
-    ["scope.sync", "job-queued", "success"],
-    ["observation.promote", "preview-ready", "success"],
-    ["candidate.defer", "reason-required", "error"],
-  ] as const)("delegates %s through the shared entity dispatcher", async (intent, result, status) => {
-    const commandResult = {
-      feedback: { status, intent, result },
-      context: { section: "import-to-promotion", selectedObservationIds: [] },
-      section: "import-to-promotion",
-    };
-    mockDispatchIntegrationsCommand.mockResolvedValue(commandResult);
+    ["scope.sync", SYNC_FIELDS, "", { enqueueCatalogSyncRun: async () => ({ syncRunId: "job_sync" }) }, "job_sync"],
+    [
+      "scope.import",
+      {},
+      "",
+      { enqueueSourceObservationIntegrationJob: async () => ({ jobId: "job_import", status: "queued" }) },
+      "job_import",
+    ],
+    [
+      "observation.reapply",
+      { selectedObservationIds: "obs_001" },
+      "",
+      { reapplySourceObservations: async () => ({ jobId: "job_reapply" }) },
+      "job_reapply",
+    ],
+    [
+      "observation.replay",
+      { selectedObservationIds: "obs_001" },
+      "",
+      { replaySourceObservations: async () => ({ jobId: "job_replay" }) },
+      "job_replay",
+    ],
+    [
+      "observation.reject",
+      { selectedObservationIds: "obs_001", reason: "Synthetic duplicate" },
+      "",
+      { bulkRejectSourceObservations: async () => ({ jobId: "job_reject" }) },
+      "job_reject",
+    ],
+    [
+      "observation.defer",
+      { selectedObservationIds: "obs_001" },
+      "",
+      { deferSourceObservations: async () => ({ jobId: "job_defer" }) },
+      "job_defer",
+    ],
+    [
+      "job.retry",
+      {},
+      "&jobId=job_failed",
+      { retrySourceObservationIntegrationJob: async () => ({ jobId: "job_failed" }) },
+      "job_failed",
+    ],
+    [
+      "job.resume",
+      {},
+      "&jobId=job_paused",
+      { resumeSourceObservationIntegrationJob: async () => ({ jobId: "job_paused" }) },
+      "job_paused",
+    ],
+  ] as const)(
+    "lands a queued %s job back on its Scope with feedback and selection",
+    async (intent, fields, query, api, jobId) => {
+      createApi.mockReturnValue(api);
 
-    await expect(runAction({ _intent: intent })).resolves.toEqual(commandResult);
-    expect(mockDispatchIntegrationsCommand).toHaveBeenCalledTimes(1);
+      const target = redirectTarget(await runAction({ _intent: intent, ...fields }, query));
+
+      expect(target.pathname).toBe(`/catalog/scopes/${SCOPE_ID}`);
+      expect(target.searchParams.get("commandIntent")).toBe(intent);
+      expect(target.searchParams.get("commandStatus")).toBe("success");
+      expect(target.searchParams.get("commandResult")).toBe("job-queued");
+      expect(target.searchParams.get("jobId")).toBe(jobId);
+      expect(target.searchParams.has("promotionPreviewId")).toBe(false);
+      for (const [key, value] of Object.entries(SELECTION)) {
+        expect(target.searchParams.get(key), key).toBe(value);
+      }
+    },
+  );
+
+  it("keeps the Scope's feedback on the page as data for every result that queues no job", async () => {
+    const dispatchCatalogAliasReviewCommand = vi.fn().mockResolvedValue({});
+    const bulkRejectSourceObservations = vi.fn();
+    const cancelSourceObservationIntegrationJob = vi.fn().mockResolvedValue({ jobId: "job_running" });
+    const enqueueSourceObservationIntegrationJob = vi
+      .fn()
+      .mockRejectedValue(new CatalogApiError(503, { error: { code: "unavailable" } }));
+    createApi.mockReturnValue({
+      dispatchCatalogAliasReviewCommand,
+      bulkRejectSourceObservations,
+      cancelSourceObservationIntegrationJob,
+      enqueueSourceObservationIntegrationJob,
+    });
+
+    const cases = [
+      ["alias.accept", await runAction({ _intent: "alias.accept", aliasHashes: "hash_a" }), "success"],
+      [
+        "reason-required",
+        await runAction({ _intent: "observation.reject", selectedObservationIds: "obs_001" }),
+        "error",
+      ],
+      ["job-cancelled", await runAction({ _intent: "job.cancel" }, "&jobId=job_running"), "success"],
+      ["command-failed", await runAction({ _intent: "scope.import" }), "error"],
+      ["invalid-intent", await runAction({ _intent: "not-a-real-intent" }), "error"],
+    ] as const;
+
+    for (const [label, response, status] of cases) {
+      const data = asData(response);
+      expect(data, label).not.toHaveProperty("section");
+      expect(data.feedback.status, label).toBe(status);
+      if (status === "error" || label === "job-cancelled") expect(data.feedback.result).toBe(label);
+      expect(data.context.providerKey, label).toBe("tcgdex");
+    }
+    expect(dispatchCatalogAliasReviewCommand).toHaveBeenCalledTimes(1);
+    expect(bulkRejectSourceObservations).not.toHaveBeenCalled();
   });
 
-  it("preserves detailed dispatcher failures for the scope feedback banner", async () => {
-    const commandResult = {
-      feedback: { status: "error", intent: "alias.accept", result: "command-failed" },
-      context: { section: "import-to-promotion", selectedObservationIds: [] },
-      section: "import-to-promotion",
-    };
-    mockDispatchIntegrationsCommand.mockResolvedValue(commandResult);
+  it("holds a promotion preview as data and refuses a stale one instead of executing it", async () => {
+    const bulkPromoteSourceObservations = vi
+      .fn()
+      .mockRejectedValue(new CatalogApiError(409, { error: { code: "stale_promotion_preview" } }));
+    createApi.mockReturnValue({
+      previewBulkPromoteSourceObservationIds: vi.fn().mockResolvedValue(syntheticPromotionPreviewResponse()),
+      bulkPromoteSourceObservations,
+    });
+    const fields = { _intent: "observation.promote", selectedObservationIds: "obs_001" };
 
-    await expect(runAction({ _intent: "alias.accept" })).resolves.toEqual(commandResult);
+    const preview = asData(await runAction({ ...fields, promotionPhase: "preview" }));
+    const stale = asData(
+      await runAction({
+        ...fields,
+        promotionPhase: "execute",
+        promotionPreviewId: preview.promotionReceipt?.previewId ?? "",
+      }),
+    );
+
+    expect(preview.feedback.result).toBe("preview-ready");
+    expect(preview.promotionReceipt?.previewId).toBeTruthy();
+    expect(bulkPromoteSourceObservations).toHaveBeenCalledTimes(1);
+    expect(stale.feedback).toMatchObject({ status: "error", result: "preview-required" });
+    expect(stale.context.promotionPreviewId).toBeNull();
+    for (const data of [preview, stale]) expect(data).not.toHaveProperty("section");
   });
 });

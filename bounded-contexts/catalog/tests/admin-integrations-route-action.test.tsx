@@ -10,7 +10,6 @@ import { loader as providersLoader, action as providerDetailAction } from "../ro
 import { action as governanceAction } from "../routes/admin/integrations-governance";
 import type { CatalogIntegrationsCommandResult } from "../support/route-support/admin-integrations/integrations-command-result";
 import { commandResultNeedsRoutableHandoff } from "../support/route-support/admin-integrations/integrations-command-result";
-import { action as scopeDetailAction } from "../support/route-support/admin-scope-detail/scope-detail-action";
 import { useOriginalPromotionReceipt } from "../features/source-observations/ui/integrations-surface-route-view";
 import { CatalogIntegrationCreateItemsStage } from "../features/source-observations/ui/admin-control-plane/import-to-promotion/create-items-stage";
 import { buildCatalogPrimaryWorkbenchReadModelForSurface } from "../features/source-observations/ui/primary-workbench-read-model";
@@ -23,6 +22,7 @@ import {
 } from "../features/source-observations/ui/primary-workbench-selection-store";
 import {
   controlPlaneOverview,
+  DailyCommandOwner,
   loaderData,
   integrationJobSummary,
   profileAuthoringModel,
@@ -43,6 +43,8 @@ import {
   runDailyAction,
   runDailyActionRedirect,
   runProviderDetailAction,
+  runScopeDetailAction,
+  runScopeDetailActionRedirect,
   scrydexLorcanaImportPreview,
   scrydexLorcanaProfileReview,
   scrydexOnePieceImportPreview,
@@ -283,7 +285,7 @@ function ReceiptActionRouteHarness({
         expect(fields.scopeRecordId).toBe(scopeRecordId ?? "");
         setTransition((previous) => ({ ...previous, pending: true }));
         const result = scopeRecordId
-          ? await scopeDetailAction(actionRequest(fields, requestUrl))
+          ? await runScopeDetailAction(fields, requestUrl)
           : await runDailyAction(fields, requestUrl);
         setTransition({ pending: false, result });
       }}
@@ -425,6 +427,7 @@ describe("Catalog integrations route", () => {
       expect(probe.result.current.promotionPreview.previewCommittable).toBe(false);
       render(
         <CatalogIntegrationCreateItemsStage readModel={probe.result.current} selectedObservationIds={["obs_001"]} />,
+        { wrapper: DailyCommandOwner },
       );
       expect(screen.getByLabelText(/I confirm this will promote/).hasAttribute("disabled")).toBe(true);
       expect(screen.getByRole("button", { name: "Create or update Catalog Items" }).hasAttribute("disabled")).toBe(
@@ -493,7 +496,9 @@ describe("Catalog integrations route", () => {
       useOriginalPromotionReceipt(loaderData({ requestUrl: receiptRequestUrl, readModel }), result, false),
     );
     expect(probe.result.current.promotionPreview.freshness).toBe("fresh");
-    render(<CatalogIntegrationCreateItemsStage readModel={probe.result.current} selectedObservationIds={ids} />);
+    render(<CatalogIntegrationCreateItemsStage readModel={probe.result.current} selectedObservationIds={ids} />, {
+      wrapper: DailyCommandOwner,
+    });
     const confirm = screen.getByLabelText(/I confirm this will promote/);
     expect(confirm.hasAttribute("disabled")).toBe(false);
     fireEvent.click(confirm);
@@ -1096,7 +1101,7 @@ describe("Catalog integrations route", () => {
     });
     // The run-sync path stays on the daily surface (no redirect) and returns its
     // result as data so the daily route renders the command-feedback banner.
-    expect(result.section).toBe("import-to-promotion");
+    expect(result).not.toHaveProperty("section");
     expect(result.context.jobId).toBe("job_import_123");
     expect(result.feedback.status).toBe("success");
     expect(result.feedback.result).toBe("job-queued");
@@ -1633,7 +1638,7 @@ describe("Catalog integrations route", () => {
     });
 
     expect(enqueueSourceObservationIntegrationJob).not.toHaveBeenCalled();
-    expect(result.section).toBe("import-to-promotion");
+    expect(result).not.toHaveProperty("section");
     expect(result.context.jobId).toBeNull();
     expect(result.feedback).toMatchObject({
       status: "error",
@@ -1841,6 +1846,7 @@ describe("Catalog integrations route", () => {
           readModel={readModel}
           selectedObservationIds={receipt.selection.observationIds}
         />,
+        { wrapper: DailyCommandOwner },
       );
       const disclosure = screen
         .getAllByRole("button", { name: /Preview promotion/ })
@@ -1879,6 +1885,7 @@ describe("Catalog integrations route", () => {
         readModel={{ ...model, promotionPreview: { ...model.promotionPreview, previewId: receipt.previewId, receipt } }}
         selectedObservationIds={receipt.selection.observationIds}
       />,
+      { wrapper: DailyCommandOwner },
     );
     const disclosure = screen
       .getAllByRole("button", { name: /Preview promotion/ })
@@ -2005,21 +2012,23 @@ describe("Catalog integrations route", () => {
       profileVersion: "2026.06.04",
       selectedObservationIds: "obs_001",
     };
-    const result = await scopeDetailAction(
-      actionRequest(fields, "https://admin.example/catalog/scopes/synthetic-scope-record"),
-    );
+    const scopeUrl = "https://admin.example/catalog/scopes/synthetic-scope-record";
+    const result = await runScopeDetailAction(fields, scopeUrl);
+    expect(result).not.toHaveProperty("section");
     expect(result.promotionReceipt?.selection.scopeRecordId).toBe("synthetic-scope-record");
     expect(commandResultNeedsRoutableHandoff(result)).toBe(false);
-    const queued = await scopeDetailAction(
-      actionRequest(
+    const queued = redirectLocation(
+      await runScopeDetailActionRedirect(
         { ...fields, promotionPhase: "execute", promotionPreviewId: result.promotionReceipt!.previewId },
-        "https://admin.example/catalog/scopes/synthetic-scope-record",
+        scopeUrl,
       ),
     );
-    expect(queued.feedback.result).toBe("job-queued");
-    expect(commandResultNeedsRoutableHandoff(queued)).toBe(true);
-    expect(queued.context.jobId).toBe("synthetic-scope-receipt-job");
-    expect(queued.promotionReceipt).toBeUndefined();
+    expect(queued.pathname).toBe("/catalog/scopes/synthetic-scope-record");
+    expect(queued.searchParams.get("commandIntent")).toBe("observation.promote");
+    expect(queued.searchParams.get("commandResult")).toBe("job-queued");
+    expect(queued.searchParams.get("jobId")).toBe("synthetic-scope-receipt-job");
+    expect(queued.searchParams.get("providerKey")).toBe("tcgdex");
+    expect(queued.searchParams.has("promotionPreviewId")).toBe(false);
   });
 
   it("independently refuses mismatched action and loader bindings without substituting original evidence", async () => {
@@ -2777,7 +2786,7 @@ describe("Catalog integrations route", () => {
     });
 
     expect(bulkPromoteSourceObservations).not.toHaveBeenCalled();
-    expect(result.section).toBe("import-to-promotion");
+    expect(result).not.toHaveProperty("section");
     expect(result.feedback.status).toBe("error");
     expect(result.feedback.result).toBe("preview-required");
   });

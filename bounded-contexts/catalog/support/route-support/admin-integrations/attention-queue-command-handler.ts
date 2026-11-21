@@ -12,10 +12,10 @@ type Api = ReturnType<typeof createCatalogRequestApiClient>;
 type RouteContext = CatalogIntegrationsCommandResult["context"];
 
 // The attention-queue panel POSTs its park (dismiss / defer) and restore forms to
-// the daily integrations route action. Each intent drives the attention-dismissal
-// aggregate over the attention-queue HTTP command endpoint. The daily surface owns
-// these intents, so every result names the import-to-promotion section and stays
-// on the daily route with a status banner — acting on a queue item never navigates
+// the route action of the page that renders it (the home queue or the daily
+// surface). Each intent drives the attention-dismissal aggregate over the
+// attention-queue HTTP command endpoint. The result names no page, so it stays on
+// the invoking page with a status banner — acting on a queue item never navigates
 // to a different surface (AC: zero returnPath-style detours).
 export { isCatalogAttentionCommandIntent as isAttentionQueueCommandIntent };
 
@@ -80,7 +80,6 @@ function attentionResult(
   return {
     feedback: { status, intent, result },
     context,
-    section: "import-to-promotion",
     ...(attentionItemKey ? { attentionItemKey } : {}),
   };
 }
