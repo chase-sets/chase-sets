@@ -23,7 +23,11 @@ import {
 } from "../auth-support/same-site-path.test-support";
 import { buildAuthSessionTransactionalEmailProjectionHandlers } from "../../features/sessions/integrations/transactional-email/transactional-email-projector";
 import { SessionClosureRequired } from "../../features/sessions/api/owner-epochs";
-import type { PendingMagicLinkRegistration, PendingRegistration } from "../auth-support/store";
+import type {
+  PendingMagicLinkRegistration,
+  PendingRegistration,
+  PendingRegistrationAdmission,
+} from "../auth-support/store";
 
 const {
   mockConsumeMagicLinkToken,
@@ -37,9 +41,9 @@ const {
   mockInsertPasswordCredentialIfAbsent,
   mockInsertRegisteredAuthIdentityUserMirror,
   mockLockPendingMagicLinkRegistration,
+  mockRecordPendingRegistrationAdmission,
   mockStartInteractiveAuth,
   mockStartOrResumeReservedAuth,
-  mockUpsertSessionTokenOnClient,
 } = vi.hoisted(() => ({
   mockConsumeMagicLinkToken: vi.fn(),
   mockCreateIdentityAuthRequestClient: vi.fn(),
@@ -52,9 +56,9 @@ const {
   mockInsertPasswordCredentialIfAbsent: vi.fn(),
   mockInsertRegisteredAuthIdentityUserMirror: vi.fn(),
   mockLockPendingMagicLinkRegistration: vi.fn(),
+  mockRecordPendingRegistrationAdmission: vi.fn(),
   mockStartInteractiveAuth: vi.fn(),
   mockStartOrResumeReservedAuth: vi.fn(),
-  mockUpsertSessionTokenOnClient: vi.fn(),
 }));
 
 vi.mock("../auth-support/store", () => ({
@@ -65,7 +69,7 @@ vi.mock("../auth-support/store", () => ({
   insertPasskeyCredentialIfAbsent: mockInsertPasskeyCredentialIfAbsent,
   insertPasswordCredentialIfAbsent: mockInsertPasswordCredentialIfAbsent,
   lockPendingMagicLinkRegistration: mockLockPendingMagicLinkRegistration,
-  upsertSessionTokenOnClient: mockUpsertSessionTokenOnClient,
+  recordPendingRegistrationAdmission: mockRecordPendingRegistrationAdmission,
 }));
 
 vi.mock("../auth-support/identity-projection", async () => ({
@@ -614,6 +618,10 @@ describe("Pending Registration magic-link consume", () => {
     "SET LOCAL statement_timeout = '5s'",
     "SET LOCAL lock_timeout = '5s'",
   ];
+  // The first lock transaction: claim, decide admission, record it, commit before any Identity write.
+  const ADMITTED = [...COMMITTED, "admission checkpoint", "COMMIT"];
+  // The first lock transaction when the link already carries its admission, or another User owns the email.
+  const NOTHING_TO_ADMIT = [...COMMITTED, "COMMIT"];
   let requestId = 0;
 
   function pendingRegistration(): PendingRegistration {
@@ -637,17 +645,32 @@ describe("Pending Registration magic-link consume", () => {
     };
   }
 
-  function pendingLink(): PendingMagicLinkRegistration {
-    return { tokenId: "cmd_pending", userId: null, email: STAGED_EMAIL, pendingRegistration: pendingRegistration() };
+  function pendingLink(admission: PendingRegistrationAdmission | null = null): PendingMagicLinkRegistration {
+    return {
+      tokenId: "cmd_pending",
+      userId: null,
+      email: STAGED_EMAIL,
+      pendingRegistration: pendingRegistration(),
+      admission,
+    };
   }
 
-  /** A lock pool whose single client logs every statement, beside the route's own steps. */
-  function setup(options: Readonly<{ failCommit?: boolean; withoutLocks?: boolean }> = {}) {
+  /**
+   * A lock pool whose single client logs every statement, beside the route's own
+   * steps. The staged link keeps the admission a committed first transaction recorded.
+   */
+  function setup(
+    options: Readonly<{
+      failFinalCommit?: boolean;
+      withoutLocks?: boolean;
+      admission?: PendingRegistrationAdmission;
+    }> = {},
+  ) {
     const log: string[] = [];
     const client = {
       query: vi.fn(async (sql: string) => {
         log.push(sql);
-        if (sql === "COMMIT" && options.failCommit) {
+        if (sql === "COMMIT" && options.failFinalCommit && log.at(-2) === "consume and clear") {
           throw new Error("synthetic connection loss before commit");
         }
         return { rows: [] };
@@ -679,24 +702,21 @@ describe("Pending Registration magic-link consume", () => {
     services.identity.getUserByEmail.mockResolvedValue(null);
     mockConsumeMagicLinkToken.mockResolvedValue(null);
     mockHasPendingMagicLinkRegistration.mockResolvedValue(true);
-    mockLockPendingMagicLinkRegistration.mockResolvedValue(pendingLink());
-    mockUpsertSessionTokenOnClient.mockImplementation(async () => {
-      log.push("session token");
-    });
+    let admission = options.admission ?? null;
+    mockLockPendingMagicLinkRegistration.mockImplementation(async () => pendingLink(admission));
+    mockRecordPendingRegistrationAdmission.mockImplementation(
+      async (_client: unknown, _tokenId: string, recorded: PendingRegistrationAdmission) => {
+        log.push("admission checkpoint");
+        admission = recorded;
+      },
+    );
     mockFinishPendingMagicLinkRegistration.mockImplementation(async () => {
       log.push("consume and clear");
     });
+    // Stands in for the Session Token write the real function makes on the passed lock client.
     mockStartOrResumeReservedAuth.mockImplementation(
-      async (
-        _services: unknown,
-        params: { userId: string; sessionId: string },
-        writeSessionToken: (token: unknown) => Promise<void>,
-      ) => {
-        await writeSessionToken({
-          sessionId: params.sessionId,
-          tokenHash: "hashed:session_token",
-          expiresAt: SESSION_EXPIRES_AT,
-        });
+      async (_services: unknown, params: { userId: string; sessionId: string }) => {
+        log.push("session token");
         return {
           type: "session-started",
           userId: params.userId,
@@ -759,10 +779,17 @@ describe("Pending Registration magic-link consume", () => {
     const body = await response.json();
     expect(body).toMatchObject({ type: "session-started", userId: RESERVED_USER, sessionToken: "session_token" });
     expect(JSON.stringify(body)).not.toContain(STAGED_HASH);
-    expect(log).toEqual([...COMMITTED, "session token", "consume and clear", "COMMIT"]);
-    expect(client.release).toHaveBeenCalledTimes(1);
+    expect(log).toEqual([...ADMITTED, ...COMMITTED, "session token", "consume and clear", "COMMIT"]);
+    expect(client.release).toHaveBeenCalledTimes(2);
     expect(mockConsumeMagicLinkToken).toHaveBeenCalledWith(services.db, `hashed:pending_token_${requestId}`);
     expect(mockLockPendingMagicLinkRegistration).toHaveBeenCalledWith(client, `hashed:pending_token_${requestId}`);
+    expect(mockRecordPendingRegistrationAdmission).toHaveBeenCalledWith(client, "cmd_pending", {
+      foundersBetaAccessStartedAt: null,
+    });
+    // The admission commits before Identity is asked for anything.
+    expect(mockRecordPendingRegistrationAdmission.mock.invocationCallOrder[0]).toBeLessThan(
+      mutations.createPersonalIdentity.mock.invocationCallOrder[0]!,
+    );
     expect(mutations.createPersonalIdentity).toHaveBeenCalledWith({
       email: STAGED_EMAIL,
       displayName: "Staged Collector",
@@ -821,52 +848,95 @@ describe("Pending Registration magic-link consume", () => {
         authenticationMethod: "magic-link",
         membershipsOverride: [expect.objectContaining({ membershipId: "mbr_reserved", roleKey: "owner" })],
       }),
-      expect.any(Function),
-    );
-    expect(mockUpsertSessionTokenOnClient).toHaveBeenCalledWith(
-      client,
-      { sessionId: RESERVED_SESSION, tokenHash: "hashed:session_token", expiresAt: SESSION_EXPIRES_AT },
-      services.sessionEpochs,
+      { client, epochs: services.sessionEpochs },
     );
     expect(mockFinishPendingMagicLinkRegistration).toHaveBeenCalledWith(client, "cmd_pending");
     expect(mockStartInteractiveAuth).not.toHaveBeenCalled();
   });
 
-  it("does not report success when the connection is lost before commit", async () => {
-    const { services, log, client } = setup({ failCommit: true });
+  it("does not report success when the connection is lost before the final commit", async () => {
+    const { services, log, client } = setup({ failFinalCommit: true });
 
     const response = await consume(services);
 
     expect(response.status).toBe(500);
     expect(JSON.stringify(await response.json())).not.toContain("session_token");
-    expect(log).toEqual([...COMMITTED, "session token", "consume and clear", "COMMIT", "ROLLBACK"]);
-    expect(client.release).toHaveBeenCalledTimes(1);
+    expect(log).toEqual([...ADMITTED, ...COMMITTED, "session token", "consume and clear", "COMMIT", "ROLLBACK"]);
+    expect(client.release).toHaveBeenCalledTimes(2);
   });
 
-  it("asks Identity only for missing writes when the reserved User already exists, without re-admitting it", async () => {
-    const { services, log, mutations } = setup();
-    services.identity.getUserByEmail.mockResolvedValue({ user_id: RESERVED_USER });
-    // Invitation-only admission would refuse this email; the reserved User was admitted by an earlier attempt.
+  it("records the first admission's founders-beta start and passes that same value to Identity", async () => {
+    const { services, mutations } = setup();
     services.registrationAdmission = {
       mode: "invitation",
       disposableEmailMode: "enforce",
       disposableEmailDomains: ["mailinator.com"],
+      findAdmittedWaitlistSignupByEmail: vi.fn(async () => ({
+        signup_id: "wls_synthetic",
+        beta_invitation_id: "inv_synthetic",
+        admitted_wave: 1,
+      })),
     };
+
+    expect((await consume(services)).status).toBe(200);
+
+    const recorded = mockRecordPendingRegistrationAdmission.mock.calls[0]![2] as PendingRegistrationAdmission;
+    expect(recorded.foundersBetaAccessStartedAt).toEqual(expect.any(String));
+    expect(mutations.createPersonalIdentity).toHaveBeenCalledWith(
+      expect.objectContaining({ foundersBetaAccessStartedAt: recorded.foundersBetaAccessStartedAt }),
+    );
+  });
+
+  it.each([
+    ["Auth's projection still shows no User", null],
+    ["the reserved User is already visible", { user_id: RESERVED_USER }],
+  ] as const)(
+    "reuses the link's recorded admission on a retry when %s, even though admission would now refuse",
+    async (_label, visibleUser) => {
+      const firstAdmission = { foundersBetaAccessStartedAt: "2026-11-20T10:00:00.000Z" };
+      const { services, log, mutations } = setup({ admission: firstAdmission });
+      services.identity.getUserByEmail.mockResolvedValue(visibleUser);
+      // Invitation-only admission would refuse this email now, for example after its invitation expired.
+      services.registrationAdmission = {
+        mode: "invitation",
+        disposableEmailMode: "enforce",
+        disposableEmailDomains: ["mailinator.com"],
+      };
+
+      const response = await consume(services);
+
+      expect(response.status).toBe(200);
+      expect(services.identity.findPendingInvitationByEmail).not.toHaveBeenCalled();
+      expect(mockRecordPendingRegistrationAdmission).not.toHaveBeenCalled();
+      expect(mutations.createPersonalIdentity).toHaveBeenCalledWith(
+        expect.objectContaining({
+          reservedUserId: RESERVED_USER,
+          foundersBetaAccessStartedAt: firstAdmission.foundersBetaAccessStartedAt,
+        }),
+      );
+      expect(mockInsertPasswordCredentialIfAbsent).toHaveBeenCalledTimes(1);
+      expect(mockInsertPasskeyCredentialIfAbsent).toHaveBeenCalledTimes(1);
+      expect(log).toEqual([...NOTHING_TO_ADMIT, ...COMMITTED, "session token", "consume and clear", "COMMIT"]);
+    },
+  );
+
+  it("fails closed before any Identity write when finalization finds no recorded admission", async () => {
+    const { services, log, mutations } = setup();
+    // The first transaction claims to record admission, but the link never shows it.
+    mockRecordPendingRegistrationAdmission.mockImplementation(async () => {
+      log.push("admission checkpoint");
+    });
 
     const response = await consume(services);
 
-    expect(response.status).toBe(200);
-    expect(services.identity.findPendingInvitationByEmail).not.toHaveBeenCalled();
-    expect(mutations.createPersonalIdentity).toHaveBeenCalledWith(
-      expect.objectContaining({ reservedUserId: RESERVED_USER, foundersBetaAccessStartedAt: undefined }),
-    );
-    expect(mockInsertPasswordCredentialIfAbsent).toHaveBeenCalledTimes(1);
-    expect(mockInsertPasskeyCredentialIfAbsent).toHaveBeenCalledTimes(1);
-    expect(log).toEqual([...COMMITTED, "session token", "consume and clear", "COMMIT"]);
+    expect(response.status).toBe(500);
+    expect(mutations.createPersonalIdentity).not.toHaveBeenCalled();
+    expect(mockFinishPendingMagicLinkRegistration).not.toHaveBeenCalled();
+    expect(log).toEqual([...ADMITTED, ...COMMITTED, "ROLLBACK"]);
   });
 
   it("signs a different existing User in normally, without the staged details, credentials or mirrors", async () => {
-    const { services, log, mutations } = setup();
+    const { services, log, client, mutations } = setup();
     services.identity.getUserByEmail.mockResolvedValue({ user_id: "usr_existing" });
 
     const response = await consume(services, { accountId: "acc_existing" });
@@ -879,7 +949,7 @@ describe("Pending Registration magic-link consume", () => {
     expect(mockStartOrResumeReservedAuth).toHaveBeenCalledWith(
       services,
       expect.not.objectContaining({ membershipsOverride: expect.anything() }),
-      expect.any(Function),
+      { client, epochs: services.sessionEpochs },
     );
     expect(mockStartOrResumeReservedAuth.mock.calls[0]![1]).toMatchObject({
       userId: "usr_existing",
@@ -887,11 +957,13 @@ describe("Pending Registration magic-link consume", () => {
       accountId: "acc_existing",
       authenticationMethod: "magic-link",
     });
-    expect(log).toEqual([...COMMITTED, "session token", "consume and clear", "COMMIT"]);
+    // Another User's email needs no registration admission.
+    expect(mockRecordPendingRegistrationAdmission).not.toHaveBeenCalled();
+    expect(log).toEqual([...NOTHING_TO_ADMIT, ...COMMITTED, "session token", "consume and clear", "COMMIT"]);
   });
 
-  it("returns an existing User's account selection and consumes the link without a Session Token", async () => {
-    const { services, log } = setup();
+  it("returns an existing User's account selection, issued on the lock client, and consumes the link", async () => {
+    const { services, log, client } = setup();
     services.identity.getUserByEmail.mockResolvedValue({ user_id: "usr_existing" });
     mockStartOrResumeReservedAuth.mockResolvedValue({
       type: "account-selection-required",
@@ -905,12 +977,18 @@ describe("Pending Registration magic-link consume", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({ type: "account-selection-required" });
-    expect(log).toEqual([...COMMITTED, "consume and clear", "COMMIT"]);
+    // The selection bearer joins the transaction that consumes the link, so it never outlives a rollback.
+    expect(mockStartOrResumeReservedAuth.mock.calls[0]![2]).toEqual({ client, epochs: services.sessionEpochs });
+    expect(log).toEqual([...NOTHING_TO_ADMIT, ...COMMITTED, "consume and clear", "COMMIT"]);
   });
 
   it("signs in the User that won a projection-lagged contact claim, with none of the staged details", async () => {
     const { services, mutations } = setup();
-    services.identity.getUserByEmail.mockResolvedValueOnce(null).mockResolvedValueOnce({ user_id: "usr_winner" });
+    // Admission and finalization both see no User; the conflict's lookup sees the winner.
+    services.identity.getUserByEmail
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ user_id: "usr_winner" });
     mutations.createPersonalIdentity.mockRejectedValue(
       identityError(409, { error: { code: "conflict", message: "Conflict." } }),
     );
@@ -936,7 +1014,7 @@ describe("Pending Registration magic-link consume", () => {
     expectNoRegistrationWrites(mutations);
     expect(mutations.verifyEmailContactMethod).not.toHaveBeenCalled();
     expect(mockStartOrResumeReservedAuth).not.toHaveBeenCalled();
-    expect(log).toEqual([...COMMITTED, "COMMIT"]);
+    expect(log).toEqual([...ADMITTED, ...COMMITTED, "COMMIT"]);
   });
 
   it("commits only the link's consumption on a terminal consent rejection", async () => {
@@ -956,7 +1034,39 @@ describe("Pending Registration magic-link consume", () => {
     await expect(response.json()).resolves.toEqual(rejection);
     expectNoRegistrationWrites(mutations);
     expect(mockStartOrResumeReservedAuth).not.toHaveBeenCalled();
-    expect(log).toEqual([...COMMITTED, "consume and clear", "COMMIT"]);
+    expect(log).toEqual([...ADMITTED, ...COMMITTED, "consume and clear", "COMMIT"]);
+  });
+
+  it("hands an absent staged consent to Identity and finishes the link on its terminal rejection", async () => {
+    const { services, log, mutations } = setup();
+    const { registrationConsent: _absent, ...withoutConsent } = pendingRegistration();
+    let admission: PendingRegistrationAdmission | null = null;
+    mockLockPendingMagicLinkRegistration.mockImplementation(async () => ({
+      ...pendingLink(admission),
+      pendingRegistration: withoutConsent as PendingRegistration,
+    }));
+    mockRecordPendingRegistrationAdmission.mockImplementation(
+      async (_client: unknown, _tokenId: string, recorded: PendingRegistrationAdmission) => {
+        log.push("admission checkpoint");
+        admission = recorded;
+      },
+    );
+    const rejection = {
+      error: {
+        code: "registration_consent_not_server_minted",
+        reason: "absent",
+        message: "A server-minted registration consent resolution is required.",
+      },
+    };
+    mutations.createPersonalIdentity.mockRejectedValue(identityError(400, rejection));
+
+    const response = await consume(services);
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual(rejection);
+    expect(mutations.createPersonalIdentity.mock.calls[0]![0]).toMatchObject({ registrationConsent: undefined });
+    expectNoRegistrationWrites(mutations);
+    expect(log).toEqual([...ADMITTED, ...COMMITTED, "consume and clear", "COMMIT"]);
   });
 
   it("commits only the link's consumption when admission refuses a new User", async () => {
@@ -991,24 +1101,27 @@ describe("Pending Registration magic-link consume", () => {
 
   it("rolls back and releases the lock client, settles a pending Session closure on the ordinary pool, then retries", async () => {
     const { services, log, client, sessionEpochs } = setup();
-    mockUpsertSessionTokenOnClient.mockRejectedValueOnce(new SessionClosureRequired([`session/${RESERVED_SESSION}`]));
+    mockStartOrResumeReservedAuth.mockRejectedValueOnce(new SessionClosureRequired([`session/${RESERVED_SESSION}`]));
 
     const response = await consume(services);
 
     expect(response.status).toBe(200);
     expect(log).toEqual([
+      ...ADMITTED,
       ...COMMITTED,
       "ROLLBACK",
       "settle closure",
+      ...NOTHING_TO_ADMIT,
       ...COMMITTED,
       "session token",
       "consume and clear",
       "COMMIT",
     ]);
     expect(sessionEpochs.settleClosure).toHaveBeenCalledWith([`session/${RESERVED_SESSION}`]);
-    expect(client.release).toHaveBeenCalledTimes(2);
-    // The retry starts again from the claim; Identity and the reserved Session are idempotent.
-    expect(mockLockPendingMagicLinkRegistration).toHaveBeenCalledTimes(2);
+    expect(client.release).toHaveBeenCalledTimes(4);
+    // The retry starts again from the claim and keeps the first admission; Identity and the reserved Session are idempotent.
+    expect(mockLockPendingMagicLinkRegistration).toHaveBeenCalledTimes(4);
+    expect(mockRecordPendingRegistrationAdmission).toHaveBeenCalledTimes(1);
     expect(mockStartOrResumeReservedAuth).toHaveBeenCalledTimes(2);
   });
 
@@ -1022,7 +1135,7 @@ describe("Pending Registration magic-link consume", () => {
     expect(response.status).toBe(401);
     await expect(response.json()).resolves.toEqual({ error: "Magic link is invalid or has expired." });
     expect(mockFinishPendingMagicLinkRegistration).not.toHaveBeenCalled();
-    expect(log).toEqual([...COMMITTED, "COMMIT"]);
+    expect(log).toEqual([...ADMITTED, ...COMMITTED, "COMMIT"]);
   });
 
   it("rolls back without consuming when another step fails", async () => {
@@ -1033,8 +1146,8 @@ describe("Pending Registration magic-link consume", () => {
 
     expect(response.status).toBe(500);
     expect(mockFinishPendingMagicLinkRegistration).not.toHaveBeenCalled();
-    expect(log).toEqual([...COMMITTED, "ROLLBACK"]);
-    expect(client.release).toHaveBeenCalledTimes(1);
+    expect(log).toEqual([...ADMITTED, ...COMMITTED, "ROLLBACK"]);
+    expect(client.release).toHaveBeenCalledTimes(2);
   });
 
   it("returns 401 when the claim finds no live Pending Registration (finished by another holder or expired)", async () => {

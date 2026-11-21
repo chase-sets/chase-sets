@@ -44,6 +44,7 @@ import {
   getMagicLinkDeliveryToken,
   insertAccountSelectionToken,
   upsertSessionToken,
+  upsertSessionTokenOnClient,
 } from "../auth-support/store";
 import { createSessionRuntime } from "../../features/sessions/api/runtime";
 import {
@@ -584,12 +585,13 @@ async function issueAccountSelectionToken(
     userId: string;
     authenticationMethod: AuthMethod;
   }>,
+  db: PgQueryable = services.db,
 ) {
   const tokenId = createId("cmd");
   const selectionToken = services.auth.issueOpaqueToken("acct");
   const selectionExpiresAt = createExpiryTimestamp(authSecurityLifetimesOf(services).accountSelectionTtlMs);
 
-  await insertAccountSelectionToken(services.db, {
+  await insertAccountSelectionToken(db, {
     tokenId,
     userId: params.userId,
     authenticationMethod: params.authenticationMethod,
@@ -646,10 +648,10 @@ export async function startInteractiveAuth(
   };
 }
 
-export type ReservedSessionTokenWrite = Readonly<{
-  sessionId: string;
-  tokenHash: string;
-  expiresAt: string;
+/** The caller's open transaction, and the epochs that fence its Session Token write. */
+export type ReservedAuthTokenTransaction = Readonly<{
+  client: PgQueryable;
+  epochs: AuthSessionEpochs;
 }>;
 
 /**
@@ -658,7 +660,9 @@ export type ReservedSessionTokenWrite = Readonly<{
  * it only while it is this User's active, unexpired Session in the current
  * Session Generation, keeping its account, method, expiry and authentication
  * moment. Any other started Session returns null so the caller can leave its
- * link retryable. The caller writes the Session Token on its own transaction.
+ * link retryable. Either bearer it issues, the Session Token or the Account
+ * Selection token, is written only on the caller's transaction, so neither
+ * outlives a rollback of that transaction.
  */
 export async function startOrResumeReservedAuth(
   services: AuthServices,
@@ -670,7 +674,7 @@ export async function startOrResumeReservedAuth(
     context: EventStoreContext;
     membershipsOverride?: readonly AuthSessionMembership[];
   }>,
-  writeSessionToken: (token: ReservedSessionTokenWrite) => Promise<void>,
+  tokens: ReservedAuthTokenTransaction,
 ): Promise<InteractiveAuthResult | null> {
   let sessionResult: AuthSessionStartResult;
   if (await services.sessions.getSessionState(params.sessionId)) {
@@ -689,10 +693,11 @@ export async function startOrResumeReservedAuth(
   }
 
   if (sessionResult.requiresAccountSelection) {
-    const selection = await issueAccountSelectionToken(services, {
-      userId: params.userId,
-      authenticationMethod: params.authenticationMethod,
-    });
+    const selection = await issueAccountSelectionToken(
+      services,
+      { userId: params.userId, authenticationMethod: params.authenticationMethod },
+      tokens.client,
+    );
     return {
       type: "account-selection-required",
       userId: params.userId,
@@ -703,11 +708,15 @@ export async function startOrResumeReservedAuth(
   }
 
   const sessionToken = services.auth.issueOpaqueToken("session");
-  await writeSessionToken({
-    sessionId: sessionResult.sessionId,
-    tokenHash: services.auth.hashSecret(sessionToken),
-    expiresAt: sessionResult.session.expires_at,
-  });
+  await upsertSessionTokenOnClient(
+    tokens.client,
+    {
+      sessionId: sessionResult.sessionId,
+      tokenHash: services.auth.hashSecret(sessionToken),
+      expiresAt: sessionResult.session.expires_at,
+    },
+    tokens.epochs,
+  );
   return {
     type: "session-started",
     userId: params.userId,

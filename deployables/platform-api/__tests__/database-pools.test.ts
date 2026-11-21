@@ -9,10 +9,10 @@ import type { PlatformApiBaseConfig } from "../src/config";
 import {
   PENDING_REGISTRATION_LOCK_POOL_MAX,
   closePlatformApiPools,
-  closePlatformApiPoolsOnStartupFailure,
   createPendingRegistrationLockPool,
   createPlatformApiPools,
   createPlatformApiRuntimePools,
+  runPlatformApiStartup,
 } from "../src/database-pools";
 import { resolveApiHostMounts } from "@chase-sets/platform-runtime/api";
 
@@ -231,6 +231,12 @@ describe("Pending Registration lock pool", () => {
       "BOOTSTRAP_DATABASE_URL_AUTH does not use the Auth runtime user",
     ],
     [
+      "a malformed user name escape",
+      managed("production"),
+      directAuthUrl.replace("auth_runtime", "auth%zzruntime"),
+      "BOOTSTRAP_DATABASE_URL_AUTH does not use the Auth runtime user",
+    ],
+    [
       "other TLS settings",
       managed("staging"),
       directAuthUrl.replace("sslmode=verify-full", "sslmode=require"),
@@ -255,6 +261,24 @@ describe("Pending Registration lock pool", () => {
 
     expect(locks).toEqual({ pool: null, refusal: `Pending Registration lock pool is absent: ${reason}.` });
     expect(locks.refusal).not.toMatch(/synthetic-secret|auth_runtime|doadmin|db\.example/);
+  });
+
+  it("serves the ordinary pools with no lock pool when the lock URL's user name has a malformed escape", async () => {
+    vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "staging");
+    const runtimePools = createPlatformApiRuntimePools(
+      { ...managed("staging"), sharedDatabaseUrl: "postgresql://localhost/shared" },
+      { BOOTSTRAP_DATABASE_URL_AUTH: directAuthUrl.replace("auth_runtime", "auth%zzruntime") },
+    );
+    try {
+      expect(runtimePools.pendingRegistrationLocks).toBeNull();
+      expect(runtimePools.pendingRegistrationLockRefusal).toBe(
+        "Pending Registration lock pool is absent: BOOTSTRAP_DATABASE_URL_AUTH does not use the Auth runtime user.",
+      );
+      expect(runtimePools.auth).toBeDefined();
+      expect(new URL(optionsOf(runtimePools.auth).connectionString).port).toBe("25061");
+    } finally {
+      await closePlatformApiPools(runtimePools);
+    }
   });
 
   it("hands the serving process's lock pool to Auth only, and closes it with the context pools", async () => {
@@ -292,13 +316,17 @@ describe("Pending Registration lock pool", () => {
 
     const main = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
     expect(main).toContain("const runtimePools = createPlatformApiRuntimePools(config);");
-    expect(main).toContain("const poolStartup = closePlatformApiPoolsOnStartupFailure(runtimePools);");
     expect(main).toContain(
       "const { pendingRegistrationLocks, pendingRegistrationLockRefusal, ...pools } = runtimePools;",
     );
     expect(main).toContain("...(pendingRegistrationLocks ? { pendingRegistrationLocks } : {}),");
-    expect(main).toContain("poolStartup.started();");
     expect(main).toContain("closePlatformApiPools(runtimePools)");
+    // The first pool use and the listen call both sit inside the awaited startup boundary.
+    const boundary = main.indexOf("\nawait runPlatformApiStartup(runtimePools, async () => {\n");
+    expect(boundary).toBeGreaterThan(main.indexOf("const runtimePools = createPlatformApiRuntimePools(config);"));
+    expect(main.indexOf("\n  await bootstrapPlatformControlPlane(pools.control);\n")).toBeGreaterThan(boundary);
+    expect(main.indexOf("\n  startGracefulHttpServer({\n")).toBeGreaterThan(boundary);
+    expect(main).not.toMatch(/^await (?!runPlatformApiStartup\()|^startGracefulHttpServer\(|uncaughtExceptionMonitor/m);
   });
 
   function fakePools() {
@@ -324,21 +352,55 @@ describe("Pending Registration lock pool", () => {
     expect(locks.end).toHaveBeenCalledTimes(1);
   });
 
-  it("closes the pools when startup fails before listening, and hands them over once listening", async () => {
-    const failing = fakePools();
-    const failingSignal = new EventEmitter();
-    closePlatformApiPoolsOnStartupFailure(failing.pools, failingSignal);
-    failingSignal.emit("uncaughtExceptionMonitor", new Error("synthetic startup failure"));
-    await vi.waitFor(() => expect(failing.locks.end).toHaveBeenCalledTimes(1));
-    expect(failing.auth.end).toHaveBeenCalledTimes(1);
+  it("propagates a failed startup only after each distinct pool's end settles", async () => {
+    const order: string[] = [];
+    const deferredPool = (name: string) => {
+      let settle!: () => void;
+      const settled = new Promise<void>((resolve) => (settle = resolve));
+      const end = vi.fn(async () => {
+        await settled;
+        order.push(`${name} ended`);
+      });
+      return { pool: { query: vi.fn(), connect: vi.fn(), end }, settle };
+    };
+    const auth = deferredPool("auth");
+    const locks = deferredPool("locks");
+    const pools = {
+      auth: auth.pool,
+      identity: auth.pool,
+      pendingRegistrationLocks: locks.pool,
+      pendingRegistrationLockRefusal: null,
+    };
+    const failure = new Error("synthetic startup failure");
 
-    const started = fakePools();
-    const startedSignal = new EventEmitter();
-    closePlatformApiPoolsOnStartupFailure(started.pools, startedSignal).started();
-    startedSignal.emit("uncaughtExceptionMonitor", new Error("synthetic later failure"));
+    const startup = runPlatformApiStartup(pools, async () => {
+      throw failure;
+    }).catch((error: unknown) => {
+      order.push("startup rejected");
+      throw error;
+    });
+
+    await vi.waitFor(() => expect(locks.pool.end).toHaveBeenCalledTimes(1));
+    expect(auth.pool.end).toHaveBeenCalledTimes(1);
     await new Promise((resolve) => setImmediate(resolve));
-    expect(started.locks.end).not.toHaveBeenCalled();
-    expect(startedSignal.listenerCount("uncaughtExceptionMonitor")).toBe(0);
+    expect(order).toEqual([]);
+    auth.settle();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(order).toEqual(["auth ended"]);
+    locks.settle();
+    await expect(startup).rejects.toBe(failure);
+    expect(order).toEqual(["auth ended", "locks ended", "startup rejected"]);
+    expect(auth.pool.end).toHaveBeenCalledTimes(1);
+    expect(locks.pool.end).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves the pools open for graceful shutdown when startup succeeds", async () => {
+    const { auth, locks, pools } = fakePools();
+
+    await expect(runPlatformApiStartup(pools, async () => "listening")).resolves.toBe("listening");
+
+    expect(auth.end).not.toHaveBeenCalled();
+    expect(locks.end).not.toHaveBeenCalled();
   });
 });
 

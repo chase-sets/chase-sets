@@ -29,7 +29,10 @@ import { createIdentityServices } from "../../../identity/support/runtime-suppor
 import { createIdentityBootstrapContext } from "../../../identity/support/runtime-support/bootstrap-context";
 import { resolveRegistrationConsentSigningKeys } from "../../../identity/support/runtime-support/registration-consent-signing";
 import { DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY } from "../../../identity/features/account-capabilities/api/authority";
-import { mintRegistrationConsentResolution } from "../../../identity/features/consents/domain/registration-consent";
+import {
+  mintRegistrationConsentResolution,
+  REGISTRATION_CONSENT_FRESHNESS_WINDOW_MS,
+} from "../../../identity/features/consents/domain/registration-consent";
 import * as consentBundle from "../../../identity/features/consents/domain/consent-bundle";
 import { activeRegistrationConsentFixture } from "../../../identity/tests/consent-activation-authority-fixtures";
 import { createAuthServices, revokeSession, type AuthServices } from "../runtime-support/services";
@@ -64,9 +67,10 @@ const operatorContext = () =>
 let requestOrdinal = 0;
 let stageOrdinal = 0;
 
-type Fault = Readonly<{ pattern: RegExp; fired: { value: boolean } }>;
+/** A one-shot injected failure; with `after`, it arms only once its client has run that statement. */
+type Fault = Readonly<{ pattern: RegExp; after?: RegExp; fired: { value: boolean } }>;
 
-const fault = (pattern: RegExp): Fault => ({ pattern, fired: { value: false } });
+const fault = (pattern: RegExp, after?: RegExp): Fault => ({ pattern, after, fired: { value: false } });
 
 function throwOnce(target: Fault | null, text: string) {
   if (target && !target.fired.value && target.pattern.test(text)) {
@@ -84,14 +88,22 @@ function faultingQueryable(db: PgQueryable, target: Fault): PgQueryable {
   };
 }
 
-function faultingPool(pool: PgTransactionalPool, target: Fault): PgTransactionalPool {
+/** Each checked-out client may wait at `pause` before a matching statement, then fail once per `target`. */
+function faultingPool(
+  pool: PgTransactionalPool,
+  target: Fault | null,
+  pause?: Readonly<{ pattern: RegExp; gate: ReturnType<typeof createGate> }>,
+): PgTransactionalPool {
   return {
     query: pool.query.bind(pool),
     connect: async (): Promise<PgPoolClient> => {
       const client = await pool.connect();
+      let armed = !target?.after;
       return {
-        query: ((sql: string, values?: readonly unknown[]) => {
-          throwOnce(target, sql);
+        query: (async (sql: string, values?: readonly unknown[]) => {
+          if (pause?.pattern.test(sql)) await pause.gate.pass();
+          if (armed) throwOnce(target, sql);
+          armed ||= target?.after?.test(sql) ?? false;
           return client.query(sql, values);
         }) as PgPoolClient["query"],
         release: (error?: unknown) => client.release(error),
@@ -100,7 +112,7 @@ function faultingPool(pool: PgTransactionalPool, target: Fault): PgTransactional
   };
 }
 
-/** A latch Identity's registration call passes through, so a test can hold a lock holder mid-finalization. */
+/** A latch a call passes through, so a test can hold a lock holder mid-finalization. */
 function createGate() {
   let open!: () => void;
   const opened = new Promise<void>((resolve) => (open = resolve));
@@ -121,14 +133,20 @@ function createGate() {
   };
 }
 
-function consentSubmission(): RegistrationConsentSubmission {
+function consentSubmission(
+  options: Readonly<{
+    resolvedAt?: string;
+    affirmed?: boolean;
+    requirements?: readonly Readonly<{ policyKey: string; version: string; href: string }>[];
+  }> = {},
+): RegistrationConsentSubmission {
   return {
     resolution: mintRegistrationConsentResolution({
-      requirements: CONSENT_BUNDLE,
-      resolvedAt: new Date().toISOString(),
+      requirements: options.requirements ?? CONSENT_BUNDLE,
+      resolvedAt: options.resolvedAt ?? new Date().toISOString(),
       signingKeys: resolveRegistrationConsentSigningKeys(),
     }),
-    affirmed: true,
+    affirmed: options.affirmed ?? true,
   };
 }
 
@@ -230,7 +248,7 @@ function consentSubmission(): RegistrationConsentSubmission {
       return { status: response.status, body: (await response.json()) as Record<string, unknown> };
     }
 
-    async function stage(label: string) {
+    async function stage(label: string, overrides: Partial<PendingRegistration> = {}) {
       stageOrdinal += 1;
       const suffix = `${label}_${stageOrdinal}`;
       const pending: PendingRegistration = {
@@ -253,6 +271,7 @@ function consentSubmission(): RegistrationConsentSubmission {
           credentialDeviceType: "singleDevice",
           credentialBackedUp: false,
         },
+        ...overrides,
       };
       const token = `synthetic-pending-token-${suffix}`;
       const email = `staged-${stageOrdinal}@example.test`;
@@ -435,7 +454,11 @@ function consentSubmission(): RegistrationConsentSubmission {
       },
       {
         name: "after the token write, before commit",
-        arm: () => ({ ...services, pendingRegistrationLocks: faultingPool(lockPool, fault(/^COMMIT$/)) }),
+        arm: () => ({
+          ...services,
+          // The admission transaction's own COMMIT precedes this one and must still land.
+          pendingRegistrationLocks: faultingPool(lockPool, fault(/^COMMIT$/, /INSERT INTO identity_session_tokens/)),
+        }),
       },
     ];
 
@@ -510,6 +533,100 @@ function consentSubmission(): RegistrationConsentSubmission {
       expect(await linkState(staged.token)).toEqual({ pending: false, consumed: true });
     });
 
+    it("commits an existing User's Account Selection token only with the link's consumption", async () => {
+      const staged = await stage("selection");
+      const existing = await registerDirectly(staged.email, "Selecting Owner", "usr_synthetic_selector");
+      await mirrorIdentityUser(existing, staged.email, "Selecting Owner");
+      await insertCreatedAuthIdentityAccountMirror(pools.auth, {
+        accountId: "acc_synthetic_second",
+        displayName: "Second Shop",
+      });
+      await insertActiveAuthIdentityMembershipMirror(pools.auth, {
+        membershipId: "mbr_synthetic_second",
+        userId: existing.userId,
+        accountId: "acc_synthetic_second",
+        roleKey: "owner",
+        updatedAt: new Date().toISOString(),
+      });
+      const selectionTokens = () =>
+        count(pools.auth, "identity_account_selection_tokens WHERE user_id = $1", [existing.userId]);
+      const routeServices = {
+        ...services,
+        pendingRegistrationLocks: faultingPool(
+          lockPool,
+          fault(/^COMMIT$/, /INSERT INTO identity_account_selection_tokens/),
+        ),
+      };
+
+      const interrupted = await consume(staged.token, routeServices);
+
+      expect(interrupted.status).toBeGreaterThanOrEqual(500);
+      expect(interrupted.body).not.toHaveProperty("selectionToken");
+      expect(await selectionTokens()).toBe(0);
+      expect(await linkState(staged.token)).toEqual({ pending: true, consumed: false });
+
+      const retried = await consume(staged.token, routeServices);
+
+      expect(retried.status).toBe(200);
+      expect(retried.body).toMatchObject({ type: "account-selection-required", userId: existing.userId });
+      expect(await selectionTokens()).toBe(1);
+      expect(await linkState(staged.token)).toEqual({ pending: false, consumed: true });
+      expect((await consume(staged.token)).status).toBe(401);
+      expect(await selectionTokens()).toBe(1);
+      expect(await count(pools.auth, "identity_session_tokens")).toBe(0);
+    });
+
+    it("finishes a retry on the link's recorded admission after Identity committed, though the invitation has since expired", async () => {
+      const invitationOnly: AuthServices = {
+        ...services,
+        registrationAdmission: { mode: "invitation", disposableEmailMode: "enforce", disposableEmailDomains: [] },
+      };
+      const staged = await stage("admitted");
+      await pools.auth.query(
+        `INSERT INTO auth_identity_invitations (invitation_id, account_id, email, role_key, status, expires_at)
+         VALUES ('inv_synthetic_admitted', 'acc_synthetic_inviter', $1, 'owner', 'pending', now() + interval '1 day')`,
+        [staged.email],
+      );
+      // Identity commits the registration, then the Auth mirrors fail, so Auth's projection stays behind.
+      const cutBeforeMirrors: AuthServices = {
+        ...invitationOnly,
+        pool: faultingPool(services.pool, fault(/INSERT INTO "?auth_identity_users"?[\s(]/)),
+      };
+
+      const interrupted = await consume(staged.token, cutBeforeMirrors);
+
+      expect(interrupted.status).toBeGreaterThanOrEqual(500);
+      expect(await identityEvents("identity.user.created", `identity.user-${staged.pending.reservedUserId}`)).toBe(1);
+      expect(await services.identity.getUserByEmail(staged.email)).toBeNull();
+      await expectRetryable(staged.token, staged.pending.reservedSessionId);
+
+      await pools.auth.query(
+        "UPDATE auth_identity_invitations SET expires_at = now() - interval '1 minute' WHERE invitation_id = 'inv_synthetic_admitted'",
+      );
+      expect(await services.identity.findPendingInvitationByEmail(staged.email)).toBeNull();
+
+      const retried = await consume(staged.token, cutBeforeMirrors);
+
+      expect(retried.status).toBe(200);
+      expect(retried.body).toMatchObject({
+        type: "session-started",
+        userId: staged.pending.reservedUserId,
+        sessionId: staged.pending.reservedSessionId,
+      });
+      await expectRegisteredOnce(staged, retried.body.sessionToken);
+
+      // A link never admitted still meets the gate: terminal 403, consumed, nothing registered.
+      const unadmitted = await stage("unadmitted");
+      const refused = await consume(unadmitted.token, invitationOnly);
+
+      expect(refused.status).toBe(403);
+      expect(refused.body).toMatchObject({ error: { code: "registration_admission_required" } });
+      expect(await linkState(unadmitted.token)).toEqual({ pending: false, consumed: true });
+      expect(await identityEvents("identity.user.created", `identity.user-${unadmitted.pending.reservedUserId}`)).toBe(
+        0,
+      );
+    });
+
     async function waitForRowLockWaiter() {
       for (let attempt = 0; attempt < 300; attempt += 1) {
         const waiting = await count(
@@ -522,14 +639,11 @@ function consentSubmission(): RegistrationConsentSubmission {
       throw new Error("The same-link waiter never blocked on the link's row lock.");
     }
 
-    const holdRegistrationCalls = (
-      gate: ReturnType<typeof createGate>,
-      answer?: (arrival: number) => Response | null,
-    ) => {
+    const holdRegistrationCalls = (gate: ReturnType<typeof createGate>) => {
       identityInterceptor = async (url) => {
         if (!url.endsWith("/personal-identities")) return null;
-        const arrival = await gate.pass();
-        return answer?.(arrival) ?? null;
+        await gate.pass();
+        return null;
       };
     };
 
@@ -550,27 +664,43 @@ function consentSubmission(): RegistrationConsentSubmission {
       await expectRegisteredOnce(staged, held.body.sessionToken);
     });
 
-    it("lets a same-link waiter resume the registration when the holder rolls back", async () => {
+    it("lets a same-link waiter resume the holder's started Session when the holder fails just before commit", async () => {
       const staged = await stage("takeover");
-      const gate = createGate();
-      holdRegistrationCalls(gate, (arrival) =>
-        arrival === 1
-          ? new Response(JSON.stringify({ error: { code: "internal_error", message: "Internal server error." } }), {
-              status: 503,
-              headers: { "Content-Type": "application/json" },
-            })
-          : null,
-      );
+      const sessionStarts = () =>
+        count(pools.auth, "event_store_events WHERE stream_id = $1 AND event_type = 'auth.session.started'", [
+          `auth.session-${staged.pending.reservedSessionId}`,
+        ]);
+      const tokenWrite = createGate();
+      const routeServices = {
+        ...services,
+        // The holder pauses at its token write, after SessionStarted, and later fails its final COMMIT.
+        pendingRegistrationLocks: faultingPool(lockPool, fault(/^COMMIT$/, /INSERT INTO identity_session_tokens/), {
+          pattern: /INSERT INTO identity_session_tokens/,
+          gate: tokenWrite,
+        }),
+      };
 
-      const holder = consume(staged.token);
-      await gate.arrived(1);
-      const waiter = consume(staged.token);
+      const holder = consume(staged.token, routeServices);
+      await tokenWrite.arrived(1);
+      expect(await sessionStarts()).toBe(1);
+      const waiter = consume(staged.token, routeServices);
       await waitForRowLockWaiter();
-      gate.open();
 
+      // The holder and its same-link waiter occupy both lock connections: ordinary Auth work
+      // still finishes, and a third lock checkout times out.
+      expect(await services.identity.getUserByEmail(staged.email)).toMatchObject({
+        user_id: staged.pending.reservedUserId,
+      });
+      await expect(lockPool.connect().then((client) => client.release())).rejects.toThrow(/timeout/i);
+
+      tokenWrite.open();
       const [held, waited] = await Promise.all([holder, waiter]);
+
       expect(held.status).toBeGreaterThanOrEqual(500);
+      expect(held.body).not.toHaveProperty("sessionToken");
       expect(waited.status).toBe(200);
+      expect(waited.body).toMatchObject({ type: "session-started", sessionId: staged.pending.reservedSessionId });
+      expect(await sessionStarts()).toBe(1);
       await expectRegisteredOnce(staged, waited.body.sessionToken);
     });
 
@@ -614,6 +744,56 @@ function consentSubmission(): RegistrationConsentSubmission {
         const retried = await consume(third.token);
         expect(retried.status).toBe(200);
         await expectRegisteredOnce(third, retried.body.sessionToken);
+      },
+    );
+
+    const stagedConsentCases: readonly (readonly [
+      reason: string,
+      consent: () => RegistrationConsentSubmission | undefined,
+      code: string,
+    ])[] = [
+      ["absent", () => undefined, "registration_consent_not_server_minted"],
+      [
+        "stale",
+        () =>
+          consentSubmission({
+            resolvedAt: new Date(Date.now() - REGISTRATION_CONSENT_FRESHNESS_WINDOW_MS - 60_000).toISOString(),
+          }),
+        "registration_consent_expired",
+      ],
+      ["unaffirmed", () => consentSubmission({ affirmed: false }), "registration_consent_affirmation_required"],
+      [
+        "superseded",
+        () => consentSubmission({ requirements: [CONSENT_BUNDLE[0], { ...CONSENT_BUNDLE[1], version: "v2" }] }),
+        "registration_consent_expired",
+      ],
+    ];
+
+    it.each(stagedConsentCases)(
+      "finishes the link with Identity's terminal 400 and writes nothing when the staged consent is %s",
+      async (reason, consent, code) => {
+        const staged = await stage("consent", { registrationConsent: consent() as RegistrationConsentSubmission });
+        const identityEventsBefore = await count(pools.identity, "event_store_events");
+
+        const response = await consume(staged.token);
+
+        expect(response.status).toBe(400);
+        expect(response.body).toMatchObject({ error: { code, reason } });
+        expect(JSON.stringify(response.body)).not.toContain(staged.pending.password!.secretHash);
+        expect(await linkState(staged.token)).toEqual({ pending: false, consumed: true });
+        // No Account, User, Membership or Consent write in Identity, and nothing mirrored or issued in Auth.
+        expect(await count(pools.identity, "event_store_events")).toBe(identityEventsBefore);
+        for (const table of [
+          "auth_identity_accounts",
+          "auth_identity_users",
+          "auth_identity_user_memberships",
+          "identity_password_credentials",
+          "identity_passkey_credentials",
+          "identity_session_tokens",
+          "identity_account_selection_tokens",
+        ]) {
+          expect(await count(pools.auth, table), table).toBe(0);
+        }
       },
     );
   },

@@ -13,7 +13,7 @@ import {
   insertPasskeyCredentialIfAbsent,
   insertPasswordCredentialIfAbsent,
   lockPendingMagicLinkRegistration,
-  upsertSessionTokenOnClient,
+  recordPendingRegistrationAdmission,
   type PendingMagicLinkRegistration,
 } from "../auth-support/store";
 import { getSafeSameSitePath } from "../auth-support/same-site-path";
@@ -234,13 +234,19 @@ const invalidLink = (): PendingRegistrationOutcome => ({
   body: { error: t("auth.support.apiSupport.magicLinkRoutes.magic.link.is.invalid.or.has") },
 });
 
+const findVisibleUser = (services: AuthServices, link: PendingMagicLinkRegistration) =>
+  link.userId ? services.identity.getUser(link.userId) : services.identity.getUserByEmail(link.email);
+
 /**
  * Finishes a Pending Registration link. Its row lock is held on the capped
- * direct lock pool from claim to commit; Identity, Auth reads and the Session
- * start use the ordinary pools. The Session Token write and the link's
- * consumption commit together on the lock client, and the response is sent
- * only after that commit. Every refusal except a terminal consent or admission
- * refusal leaves the link unconsumed and retryable.
+ * direct lock pool; Identity, Auth reads and the Session start use the
+ * ordinary pools. A short first lock transaction commits the link's admission
+ * before any Identity write, so a retry after Identity committed reuses that
+ * decision instead of deciding again against a lagging projection. The
+ * finalizing lock transaction commits the link's consumption together with
+ * whichever bearer it issues, and the response is sent only after that commit.
+ * Every refusal except a terminal consent or admission refusal leaves the link
+ * unconsumed and retryable.
  */
 async function finishPendingRegistration(
   c: AuthApiContext,
@@ -254,12 +260,13 @@ async function finishPendingRegistration(
     return c.json({ error: t("auth.support.routeSupport.authHost.sign.in.temporarily.unavailable") }, 503);
   }
 
-  const attempt = () =>
-    withPgTransaction(
-      locks,
-      (lockClient) => finalizePendingRegistration({ c, services, identityMutations, epochs, lockClient, ...request }),
-      { isolationLevel: "read committed" },
-    );
+  const inLockTransaction = <T>(work: (lockClient: PgQueryable) => Promise<T>) =>
+    withPgTransaction(locks, work, { isolationLevel: "read committed" });
+  const attempt = async (): Promise<PendingRegistrationOutcome> =>
+    (await inLockTransaction((lockClient) => admitPendingRegistration(services, lockClient, request.tokenHash))) ??
+    (await inLockTransaction((lockClient) =>
+      finalizePendingRegistration({ c, services, identityMutations, epochs, lockClient, ...request }),
+    ));
   let outcome: PendingRegistrationOutcome;
   try {
     outcome = await attempt();
@@ -274,6 +281,40 @@ async function finishPendingRegistration(
   return outcome.kind === "signed-in"
     ? jsonWithMutationReceipts(c, outcome.result, 200, outcome.receipts)
     : c.json(outcome.body, outcome.status);
+}
+
+/**
+ * Claims the link and, unless it already carries an admission or its email
+ * already belongs to another User (signed in without admission), decides
+ * admission once: a refusal consumes the link, a success is recorded on it.
+ * Returns null when finalization may proceed.
+ */
+async function admitPendingRegistration(
+  services: AuthServices,
+  lockClient: PgQueryable,
+  tokenHash: string,
+): Promise<PendingRegistrationOutcome | null> {
+  await boundStep(lockClient);
+  const link = await lockPendingMagicLinkRegistration(lockClient, tokenHash);
+  if (!link) {
+    return invalidLink();
+  }
+  if (link.admission) {
+    return null;
+  }
+  const visibleUser = await findVisibleUser(services, link);
+  if (visibleUser && visibleUser.user_id !== link.pendingRegistration.reservedUserId) {
+    return null;
+  }
+  const admission = await requireRegistrationAdmission(services, link.email);
+  if (!admission.ok) {
+    await finishPendingMagicLinkRegistration(lockClient, link.tokenId);
+    return { kind: "refused", status: admission.failure.status, body: admission.failure.body };
+  }
+  await recordPendingRegistrationAdmission(lockClient, link.tokenId, {
+    foundersBetaAccessStartedAt: admission.foundersBetaAccessStartedAt ?? null,
+  });
+  return null;
 }
 
 async function finalizePendingRegistration(
@@ -295,8 +336,8 @@ async function finalizePendingRegistration(
   }
   const pending = link.pendingRegistration;
   const context = getBootstrapContext(c);
-  const writeSessionToken = (token: Parameters<typeof upsertSessionTokenOnClient>[1]) =>
-    upsertSessionTokenOnClient(lockClient, token, epochs);
+  // Both bearers, the Session Token and the Account Selection token, commit only with the link's consumption.
+  const tokens = { client: lockClient, epochs };
 
   // Ordinary verified-link sign-in: no staged details, credentials or registration mirrors.
   const signInExistingUser = async (userId: string): Promise<PendingRegistrationOutcome> => {
@@ -310,27 +351,18 @@ async function finalizePendingRegistration(
         authenticationMethod: "magic-link",
         context,
       },
-      writeSessionToken,
+      tokens,
     );
     return result ? finish(link, lockClient, result, [verifiedEmail]) : invalidLink();
   };
 
-  const visibleUser = link.userId
-    ? await services.identity.getUser(link.userId)
-    : await services.identity.getUserByEmail(link.email);
+  const visibleUser = await findVisibleUser(services, link);
   if (visibleUser && visibleUser.user_id !== pending.reservedUserId) {
     return signInExistingUser(visibleUser.user_id);
   }
-
-  // A reserved User that is already visible was admitted by an earlier attempt.
-  let foundersBetaAccessStartedAt: string | undefined;
-  if (!visibleUser) {
-    const admission = await requireRegistrationAdmission(services, link.email);
-    if (!admission.ok) {
-      await finishPendingMagicLinkRegistration(lockClient, link.tokenId);
-      return { kind: "refused", status: admission.failure.status, body: admission.failure.body };
-    }
-    foundersBetaAccessStartedAt = admission.foundersBetaAccessStartedAt;
+  // Registration runs only on the admission this link committed before its first Identity write.
+  if (!link.admission) {
+    throw new Error("Pending Registration admission was not recorded before finalization.");
   }
 
   let identity: Awaited<ReturnType<IdentityAuthMutationClient["createPersonalIdentity"]>>;
@@ -342,7 +374,7 @@ async function finalizePendingRegistration(
       givenName: pending.givenName || undefined,
       familyName: pending.familyName || undefined,
       registrationConsent: pending.registrationConsent,
-      foundersBetaAccessStartedAt,
+      foundersBetaAccessStartedAt: link.admission.foundersBetaAccessStartedAt ?? undefined,
       reservedUserId: pending.reservedUserId,
     });
   } catch (error) {
@@ -426,7 +458,7 @@ async function finalizePendingRegistration(
         },
       ],
     },
-    writeSessionToken,
+    tokens,
   );
   return result ? finish(link, lockClient, result, receipts) : invalidLink();
 }

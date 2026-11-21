@@ -97,7 +97,8 @@ export function createPendingRegistrationLockPool(
     if (!runtime || lockUrl === runtimeUrl?.trim()) {
       return refuse(`${PENDING_REGISTRATION_LOCK_URL_KEY} is the runtime Auth URL`);
     }
-    if (decodeURIComponent(lock.username) !== decodeURIComponent(runtime.username)) {
+    const lockUser = decodeUserName(lock);
+    if (lockUser === null || lockUser !== decodeUserName(runtime)) {
       return refuse(`${PENDING_REGISTRATION_LOCK_URL_KEY} does not use the Auth runtime user`);
     }
     const tlsSettings = ["sslmode", "sslrootcert", "uselibpqcompat"];
@@ -121,6 +122,15 @@ function pendingRegistrationLockPoolOptions(overrides: PgPoolOptions | undefined
 function parseDatabaseUrl(value: string): URL | null {
   try {
     return new URL(value);
+  } catch {
+    return null;
+  }
+}
+
+/** The decoded user name, or null for a malformed percent escape, so a bad URL refuses instead of throwing. */
+function decodeUserName(url: URL): string | null {
+  try {
+    return decodeURIComponent(url.username);
   } catch {
     return null;
   }
@@ -151,24 +161,23 @@ export function closePlatformApiPools(pools: Readonly<Record<string, unknown>>):
   return closing;
 }
 
-type StartupFailureSignal = Readonly<{
-  once: (event: "uncaughtExceptionMonitor", listener: () => void) => unknown;
-  off: (event: "uncaughtExceptionMonitor", listener: () => void) => unknown;
-}>;
-
 /**
- * Closes the pools if startup fails before the server is listening, including
- * a rejected top-level await; `started()` hands the pools to graceful shutdown.
+ * The failure boundary for everything before the server listens: if startup
+ * throws or rejects, every distinct pool is ended once, and only after those
+ * ends settle does the startup error propagate. A successful startup hands the
+ * pools to graceful shutdown.
  */
-export function closePlatformApiPoolsOnStartupFailure(
+export async function runPlatformApiStartup<T>(
   pools: Readonly<Record<string, unknown>>,
-  signal: StartupFailureSignal = process,
-) {
-  const close = () => {
-    void closePlatformApiPools(pools).catch(() => undefined);
-  };
-  signal.once("uncaughtExceptionMonitor", close);
-  return { started: () => void signal.off("uncaughtExceptionMonitor", close) };
+  startup: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await startup();
+  } catch (error) {
+    // A failed close must not replace the startup error.
+    await closePlatformApiPools(pools).catch(() => undefined);
+    throw error;
+  }
 }
 
 export class SeedCommandDirectDatabaseUrlRequiredError extends Error {

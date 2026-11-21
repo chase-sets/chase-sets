@@ -25,6 +25,7 @@ export type PendingRegistration = Readonly<{
   displayName: string;
   givenName: string;
   familyName: string;
+  /** As staged, unchecked here: Identity's verifier classifies it, including its absence. */
   registrationConsent: RegistrationConsentSubmission;
   reservedUserId: string;
   reservedSessionId: string;
@@ -32,11 +33,19 @@ export type PendingRegistration = Readonly<{
   passkey: PendingRegistrationPasskey | null;
 }>;
 
+/**
+ * The link's first successful registration admission, committed before any
+ * Identity write. While the link is live a retry reuses it instead of deciding
+ * admission again; consuming the link clears it with the staged payload.
+ */
+export type PendingRegistrationAdmission = Readonly<{ foundersBetaAccessStartedAt: string | null }>;
+
 export type PendingMagicLinkRegistration = Readonly<{
   tokenId: string;
   userId: string | null;
   email: string;
   pendingRegistration: PendingRegistration;
+  admission: PendingRegistrationAdmission | null;
 }>;
 
 class PendingRegistrationPayloadError extends Error {
@@ -61,14 +70,13 @@ function requireRecord(value: unknown): Readonly<Record<string, unknown>> {
   return value as Readonly<Record<string, unknown>>;
 }
 
-/** Shape-checks the staged payload; Identity alone verifies the consent submission's signature and freshness. */
+/**
+ * Shape-checks the staged payload except its consent submission, which passes
+ * through as stored: Identity alone verifies it, so an absent or malformed
+ * submission reaches Identity's terminal consent rejection.
+ */
 export function parsePendingRegistration(value: unknown): PendingRegistration {
   const record = requireRecord(value);
-  const consent = requireRecord(record.registrationConsent);
-  requireRecord(consent.resolution);
-  if (typeof consent.affirmed !== "boolean") {
-    throw new PendingRegistrationPayloadError();
-  }
   const password = record.password === null ? null : requireRecord(record.password);
   const passkey = record.passkey === null ? null : requireRecord(record.passkey);
   if (passkey && (!Number.isSafeInteger(passkey.signCount) || typeof passkey.credentialBackedUp !== "boolean")) {
@@ -79,7 +87,7 @@ export function parsePendingRegistration(value: unknown): PendingRegistration {
     displayName: requireText(record.displayName),
     givenName: requireText(record.givenName, true),
     familyName: requireText(record.familyName, true),
-    registrationConsent: consent as RegistrationConsentSubmission,
+    registrationConsent: record.registrationConsent as RegistrationConsentSubmission,
     reservedUserId: requireText(record.reservedUserId),
     reservedSessionId: requireText(record.reservedSessionId),
     password: password && {
@@ -95,6 +103,17 @@ export function parsePendingRegistration(value: unknown): PendingRegistration {
       credentialDeviceType: requireText(passkey.credentialDeviceType),
       credentialBackedUp: passkey.credentialBackedUp as boolean,
     },
+  };
+}
+
+function parsePendingRegistrationAdmission(value: unknown): PendingRegistrationAdmission | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  const admission = requireRecord(value);
+  return {
+    foundersBetaAccessStartedAt:
+      admission.foundersBetaAccessStartedAt === null ? null : requireText(admission.foundersBetaAccessStartedAt),
   };
 }
 
@@ -424,14 +443,42 @@ export async function lockPendingMagicLinkRegistration(
     [tokenHash],
   );
   const row = result.rows[0];
-  return row
-    ? {
-        tokenId: row.token_id,
-        userId: row.user_id,
-        email: row.email,
-        pendingRegistration: parsePendingRegistration(row.pending_registration),
-      }
-    : null;
+  if (!row) {
+    return null;
+  }
+  const payload = requireRecord(row.pending_registration);
+  return {
+    tokenId: row.token_id,
+    userId: row.user_id,
+    email: row.email,
+    pendingRegistration: parsePendingRegistration(payload),
+    admission: parsePendingRegistrationAdmission(payload.admission),
+  };
+}
+
+/**
+ * Records a claimed link's successful admission in the caller's transaction,
+ * which must commit before the first Identity write. An existing admission is
+ * kept, so the first decision and its timestamp stand for every retry.
+ */
+export async function recordPendingRegistrationAdmission(
+  db: PgQueryable,
+  tokenId: string,
+  admission: PendingRegistrationAdmission,
+): Promise<void> {
+  const result = await db.query(
+    `UPDATE identity_magic_link_tokens
+     SET pending_registration = jsonb_set(pending_registration, '{admission}', $2::jsonb)
+     WHERE token_id = $1
+       AND consumed_at IS NULL
+       AND pending_registration IS NOT NULL
+       AND pending_registration->'admission' IS NULL
+     RETURNING token_id`,
+    [tokenId, JSON.stringify(admission)],
+  );
+  if (result.rows.length !== 1) {
+    throw new Error("Pending Registration link was not claimed for admission by this transaction.");
+  }
 }
 
 /** Consumes a claimed Pending Registration link and clears its staged payload in the caller's transaction. */

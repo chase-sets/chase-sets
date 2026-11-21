@@ -23,6 +23,7 @@ import {
   hasPendingMagicLinkRegistration,
   insertAccountSelectionToken,
   lockPendingMagicLinkRegistration,
+  recordPendingRegistrationAdmission,
   type PendingRegistration,
   insertChallenge,
   insertGuestCheckoutClaimToken,
@@ -251,6 +252,7 @@ describeDb("auth token store persistence boundary", () => {
           userId: null,
           email: "staged@example.com",
           pendingRegistration: pending,
+          admission: null,
         });
         await finishPendingMagicLinkRegistration(client, claimed!.tokenId);
       });
@@ -263,6 +265,51 @@ describeDb("auth token store persistence boundary", () => {
       await expect(finishPendingMagicLinkRegistration(pool, "cmd_hash_pending_finish")).rejects.toThrow(
         "Pending Registration link was not claimed by this transaction.",
       );
+    });
+
+    it("keeps the first recorded admission across claims until finishing clears it with the payload", async () => {
+      await stagePending("hash_pending_admission");
+      const first = { foundersBetaAccessStartedAt: "2026-11-20T10:00:00.000Z" };
+
+      await withPgTransaction(pool, async (client) => {
+        const claimed = await lockPendingMagicLinkRegistration(client, "hash_pending_admission");
+        await recordPendingRegistrationAdmission(client, claimed!.tokenId, first);
+      });
+
+      await withPgTransaction(pool, async (client) => {
+        const claimed = await lockPendingMagicLinkRegistration(client, "hash_pending_admission");
+        expect(claimed).toMatchObject({ pendingRegistration: pending, admission: first });
+        await expect(
+          recordPendingRegistrationAdmission(client, claimed!.tokenId, { foundersBetaAccessStartedAt: null }),
+        ).rejects.toThrow("Pending Registration link was not claimed for admission by this transaction.");
+      });
+      await withPgTransaction(pool, async (client) => {
+        const claimed = await lockPendingMagicLinkRegistration(client, "hash_pending_admission");
+        expect(claimed?.admission).toEqual(first);
+        await finishPendingMagicLinkRegistration(client, claimed!.tokenId);
+      });
+
+      await expect(readRow("hash_pending_admission")).resolves.toMatchObject({ pending_registration: null });
+    });
+
+    it("claims a staged link without a consent submission, leaving its verdict to Identity", async () => {
+      const { registrationConsent: _absent, ...withoutConsent } = pending;
+      await insertMagicLinkToken(pool, {
+        tokenId: "cmd_hash_pending_no_consent",
+        userId: null,
+        email: "staged@example.com",
+        tokenHash: "hash_pending_no_consent",
+        deliveryToken: null,
+        expiresAt: futureIso(),
+        pendingRegistration: withoutConsent as PendingRegistration,
+      });
+
+      const claimed = await withPgTransaction(pool, (client) =>
+        lockPendingMagicLinkRegistration(client, "hash_pending_no_consent"),
+      );
+
+      expect(claimed?.pendingRegistration.registrationConsent).toBeUndefined();
+      expect(claimed?.pendingRegistration.reservedUserId).toBe(pending.reservedUserId);
     });
 
     it("rolls a failed finalization back to a still-pending link", async () => {
