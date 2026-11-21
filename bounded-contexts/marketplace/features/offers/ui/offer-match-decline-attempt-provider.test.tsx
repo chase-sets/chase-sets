@@ -30,6 +30,7 @@ const offer: OfferMatchListItem = {
   accepted_at: null,
   created_at: "2026-04-28T00:00:00.000Z",
   updated_at: "2026-04-28T00:00:00.000Z",
+  fill_source: "listing",
   listing_id: "lst_1",
   listing_price_amount: "22.00",
   listing_price_currency_code: "USD",

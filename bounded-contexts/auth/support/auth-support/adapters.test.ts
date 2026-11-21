@@ -1,6 +1,11 @@
-import { createHash, randomBytes, scryptSync } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { createHash, randomBytes, scrypt, scryptSync, timingSafeEqual } from "node:crypto";
+import { describe, expect, it, vi } from "vitest";
 import { createAuthSecretAdapters } from "./adapters";
+
+vi.mock("node:crypto", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:crypto")>();
+  return { ...original, scrypt: vi.fn(original.scrypt), timingSafeEqual: vi.fn(original.timingSafeEqual) };
+});
 
 const adapters = createAuthSecretAdapters();
 
@@ -93,6 +98,31 @@ describe("password KDF adapters", () => {
     await expect(adapters.verifyPassword("x", "scrypt$garbage$c2FsdA==$aGFzaA==")).resolves.toEqual({ valid: false });
   });
 
+  it("derives once at current cost for every rejected stored-hash shape", async () => {
+    const modern = await adapters.hashPassword("different-password");
+    const rejected = [
+      modern,
+      "scrypt$N=32768,r=8,p=1$truncated",
+      modern.replace("N=32768", "N=1"),
+      modern.replace("$N=", "$N=garbage"),
+      modern.replace(/(\$[^$]+)$/, "$1!"),
+      legacySha256("different-password"),
+      "unknown",
+      null,
+    ];
+    for (const storedHash of rejected) {
+      vi.mocked(scrypt).mockClear();
+      await expect(adapters.verifyPassword("guessed-password", storedHash)).resolves.toEqual({ valid: false });
+      expect(scrypt).toHaveBeenCalledExactlyOnceWith(
+        "guessed-password",
+        expect.any(Buffer),
+        64,
+        expect.objectContaining({ N: 32768, r: 8, p: 1 }),
+        expect.any(Function),
+      );
+    }
+  });
+
   describe("legacy SHA-256 migration", () => {
     it("verifies a legacy bare SHA-256 hash AND returns an upgraded scrypt hash to persist", async () => {
       const legacy = legacySha256("legacy-user-password");
@@ -130,5 +160,23 @@ describe("password KDF adapters", () => {
     // are deliberately separated.
     expect(adapters.hashSecret("opaque-token")).toBe(legacySha256("opaque-token"));
     expect(adapters.verifySecret("opaque-token", legacySha256("opaque-token"))).toBe(true);
+  });
+
+  it.each(["opaque-token", "different-token"])("compares the 32-byte digest of %s in constant time", (token) => {
+    const stored = legacySha256("opaque-token");
+    vi.mocked(timingSafeEqual).mockClear();
+
+    expect(adapters.verifySecret(token, stored)).toBe(token === "opaque-token");
+    expect(timingSafeEqual).toHaveBeenCalledExactlyOnceWith(
+      Buffer.from(legacySha256(token), "hex"),
+      Buffer.from(stored, "hex"),
+    );
+  });
+
+  it.each(["a".repeat(62), "g".repeat(64), `${"a".repeat(63)}\n`])("rejects a malformed secret digest", (stored) => {
+    vi.mocked(timingSafeEqual).mockClear();
+
+    expect(adapters.verifySecret("opaque-token", stored)).toBe(false);
+    expect(timingSafeEqual).not.toHaveBeenCalled();
   });
 });

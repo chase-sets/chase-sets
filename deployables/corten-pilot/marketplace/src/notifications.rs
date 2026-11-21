@@ -19,9 +19,8 @@
 //!
 //! A failed read is its own state (a banner and Try again, answered 502), never an empty feed or
 //! empty settings: the settings need both of their reads, as marketplace's loader does. The
-//! channels are the ones the page has words for (web, email and Product alerts); the API also
-//! lists `sms` and `rcs`, which marketplace shows as bare keys and nothing delivers
-//! (chase-sets/chase-sets#10625). The Product alerts list is Discovery's read model, so the read
+//! channels are the ones the API lists that the page has words for (web, email and Product
+//! alerts). The Product alerts list is Discovery's read model, so the read
 //! after an alert's write waits for its receipt and, while it catches up, says the change is saved
 //! and reads again.
 use std::time::Duration;

@@ -63,6 +63,7 @@ const targetPrefixes: Record<MutationAction, string | null> = {
   "rotate-api-key": "key",
   "revoke-api-key": "key",
   "create-invitation": null,
+  "resend-invitation": "ivt",
   "cancel-invitation": "ivt",
   "change-role": "mbr",
   revoke: "mbr",
@@ -104,6 +105,8 @@ export function canonicalRequest(action: string, target: string | null, body: un
       throw new Error("INDETERMINATE");
     boundedId(fields.invitationId, "ivt");
   }
+  if (known === "resend-invitation" && (typeof fields.expiresAt !== "string" || !isInstant(fields.expiresAt)))
+    throw new Error("INDETERMINATE");
   for (const [name, prefix] of [
     ["userId", "usr"],
     ["accountId", "acc"],

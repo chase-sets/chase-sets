@@ -3,6 +3,7 @@ import {
   loadSubscriptionCheckpoint,
   waitForProjectionFreshness,
   type ReadConsistencyProjectionGroup,
+  type ReadConsistencyWorkSignalGateway,
 } from "@chase-sets/bounded-context-runtime";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
@@ -20,9 +21,23 @@ const AUTH_IDENTITY_INVITATION_SOURCE_CONTEXT = "identity";
 const AUTH_IDENTITY_INVITATION_SUBSCRIPTION_VERSION = 1;
 const AUTH_CONTEXT_NAME = "auth";
 
-export type InvitationProjectionFreshnessWaiter = (receipt: FreshWriteReceipt) => Promise<void>;
+/**
+ * Whether Auth's invitation projection reached the forwarded receipt: `fresh` when it did,
+ * `behind` when the bounded wait ended first or the checkpoint could not be read.
+ */
+export type InvitationProjectionFreshness = "fresh" | "behind";
+
+export type InvitationProjectionFreshnessWaiter = (
+  receipt: FreshWriteReceipt,
+) => Promise<InvitationProjectionFreshness>;
 
 export type InvitationProjectionPositionReader = () => Promise<string>;
+
+const AUTH_IDENTITY_INVITATION_CHECKPOINT_KEY = createCheckpointKey({
+  projectionName: AUTH_IDENTITY_INVITATION_PROJECTION,
+  sourceContextName: AUTH_IDENTITY_INVITATION_SOURCE_CONTEXT,
+  subscriptionVersion: AUTH_IDENTITY_INVITATION_SUBSCRIPTION_VERSION,
+});
 
 /**
  * Reads the durable last-applied global position of Auth's invitation
@@ -31,27 +46,23 @@ export type InvitationProjectionPositionReader = () => Promise<string>;
 export function createAuthIdentityInvitationProjectionPositionReader(
   db: PgQueryable,
 ): InvitationProjectionPositionReader {
-  const checkpointKey = createCheckpointKey({
-    projectionName: AUTH_IDENTITY_INVITATION_PROJECTION,
-    sourceContextName: AUTH_IDENTITY_INVITATION_SOURCE_CONTEXT,
-    subscriptionVersion: AUTH_IDENTITY_INVITATION_SUBSCRIPTION_VERSION,
-  });
-
-  return async () => String((await loadSubscriptionCheckpoint(db, checkpointKey)) ?? ZERO_GLOBAL_POSITION);
+  return async () =>
+    String((await loadSubscriptionCheckpoint(db, AUTH_IDENTITY_INVITATION_CHECKPOINT_KEY)) ?? ZERO_GLOBAL_POSITION);
 }
 
 /**
- * Builds a best-effort, strictly bounded waiter that lets Auth's invitation
- * projection catch up to a forwarded fresh-write receipt before the
- * acceptance-link handler reads the invitation. Reuses the shared
- * `waitForProjectionFreshness` mechanism (bounded by its timeout). On timeout
- * -- or any wait failure -- it resolves without throwing so the caller falls
- * back to reading the projection as it stands today; the wait never blocks
- * unboundedly and never introduces a new failure mode for the email path.
+ * Builds a strictly bounded waiter that lets Auth's invitation projection catch
+ * up to a forwarded fresh-write receipt before the acceptance-link handler reads
+ * the invitation. Reuses the shared `waitForProjectionFreshness` mechanism, and
+ * with the host's work-signal gateway it wakes the projection rather than only
+ * polling, as the shared read-after-write middleware does. It never throws: a
+ * timeout or a failed checkpoint read answers `behind`, so the handler can tell
+ * an invitation the projection has not reached yet from one that is unavailable.
  */
 export function createInvitationProjectionFreshnessWaiter(
   input: Readonly<{
     readInvitationProjectionPosition: InvitationProjectionPositionReader;
+    workSignalGateway?: ReadConsistencyWorkSignalGateway;
     timeoutMs?: number;
     pollIntervalMs?: number;
     nowMs?: () => number;
@@ -64,6 +75,7 @@ export function createInvitationProjectionFreshnessWaiter(
       subscriptionRunners: [
         {
           sourceContextName: AUTH_IDENTITY_INVITATION_SOURCE_CONTEXT,
+          checkpointKey: AUTH_IDENTITY_INVITATION_CHECKPOINT_KEY,
           refreshStatus: async () => ({
             lastGlobalPosition: await input.readInvitationProjectionPosition(),
             state: "unknown",
@@ -83,11 +95,15 @@ export function createInvitationProjectionFreshnessWaiter(
         receipt,
         timeoutMs: input.timeoutMs,
         pollIntervalMs: input.pollIntervalMs,
+        workSignalGateway: input.workSignalGateway,
+        workSignalMetadata: { routePaths: ["/api/auth/invitations/acceptance-link/request"] },
         nowMs: input.nowMs,
       });
+      return "fresh";
     } catch {
-      // Bounded fallback: a freshness timeout (or any wait failure) proceeds to
-      // read the projection as it stands today rather than blocking or failing.
+      // A timeout or a failed checkpoint read: the projection may not show the
+      // write yet. The handler decides what that means for its read.
+      return "behind";
     }
   };
 }

@@ -15,6 +15,7 @@ import {
   MarketplaceOfferSubmissionAwayError,
   MarketplaceOfferFeeQuoteStaleError,
   MarketplaceOfferLifecycleError,
+  MarketplaceOfferMatchRequiresListingError,
   type MarketplaceOfferServices,
 } from "./runtime";
 import type { AccountId, OfferId } from "@chase-sets/primitives/typed-ids";
@@ -132,6 +133,27 @@ function requireOfferLifecycleAccess(c: { get(key: "actor"): MarketplaceApiEnv["
   return requireOfferAccess(c, "offers.manage");
 }
 
+/** Offer Matches show the seller's own Listings and inventory, so reading them needs listings.view as well. */
+function requireOfferMatchReadAccess(c: { get(key: "actor"): MarketplaceApiEnv["Variables"]["actor"] }) {
+  const access = requireOfferAccess(c, "offers.view");
+  if (access.response || access.actor.permissions.includes("listings.view")) {
+    return access;
+  }
+
+  return {
+    actor: null,
+    response: new Response(
+      JSON.stringify({
+        error: { code: "authorization_forbidden", message: t("marketplace.features.offers.api.route.forbidden.2") },
+      }),
+      {
+        status: 403,
+        headers: { "Content-Type": "application/json" },
+      },
+    ),
+  };
+}
+
 function requireSignedInAccount(c: { get(key: "actor"): MarketplaceApiEnv["Variables"]["actor"] }) {
   const actor = c.get("actor");
   if (!actor) {
@@ -197,7 +219,10 @@ function validationError(
       409,
     );
   }
-  if (error instanceof MarketplaceOfferSubmissionAwayError)
+  if (
+    error instanceof MarketplaceOfferSubmissionAwayError ||
+    error instanceof MarketplaceOfferMatchRequiresListingError
+  )
     return c.json({ error: { code: error.code, message: error.message } }, 409);
 
   if (error instanceof MarketplaceOfferAbuseControlError) {
@@ -556,7 +581,7 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
   });
 
   app.get("/offers/matches", async (c) => {
-    const access = requireOfferAccess(c, "offers.view");
+    const access = requireOfferMatchReadAccess(c);
     if (access.response) {
       return access.response;
     }
@@ -585,7 +610,7 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
   });
 
   app.get("/offers/matches/:id", async (c) => {
-    const access = requireOfferAccess(c, "offers.view");
+    const access = requireOfferMatchReadAccess(c);
     if (access.response) {
       return access.response;
     }
@@ -606,16 +631,9 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
   });
 
   app.get("/offers/matches/:id/terms-preview", async (c) => {
-    const access = requireOfferAccess(c, "offers.view");
+    const access = requireOfferMatchReadAccess(c);
     if (access.response) {
       return access.response;
-    }
-
-    if (!access.actor.permissions.includes("listings.view")) {
-      return c.json(
-        { error: { code: "authorization_forbidden", message: t("marketplace.features.offers.api.route.forbidden.2") } },
-        403,
-      );
     }
 
     try {

@@ -1,11 +1,14 @@
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
-import type { NotificationPreferenceKey, NotificationsServices } from "./features/notification-center/api/services";
+import {
+  isNotificationPreferenceKey,
+  type NotificationPreferenceKey,
+  type NotificationsServices,
+} from "./features/notification-center/api/services";
 
 export type NotificationsApiEnv = AuthenticatedApiEnv;
 
-const preferenceKeys = new Set<NotificationPreferenceKey>(["web", "email", "sms", "rcs", "product-alerts"]);
 const defaultFeedSnapshotQuery = Object.freeze({
   includeRead: true,
   limit: 25,
@@ -54,7 +57,7 @@ function requireAccountAccess(c: { get(key: "actor"): NotificationsApiEnv["Varia
 }
 
 function parsePreferenceKey(value: string): NotificationPreferenceKey | null {
-  return preferenceKeys.has(value as NotificationPreferenceKey) ? (value as NotificationPreferenceKey) : null;
+  return isNotificationPreferenceKey(value) ? value : null;
 }
 
 async function loadFeedSnapshot(services: NotificationsServices, accountId: string) {

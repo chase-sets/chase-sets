@@ -554,7 +554,10 @@ async function buildContentSearchText(db: PgQueryable, containedCatalogItemId: s
     `SELECT * FROM discovery_search_catalog_items WHERE catalog_item_id = $1`,
     [containedCatalogItemId],
   );
-  const item = result.rows[0];
+  return contentSearchTextForItem(result.rows[0]);
+}
+
+function contentSearchTextForItem(item: SearchCatalogItemRow | undefined): string {
   if (!item || item.status !== "active") {
     return "";
   }
@@ -595,26 +598,6 @@ async function loadContainerContentSearchText(
       .filter((entry) => entry.trim().length > 0)
       .join(" "),
   };
-}
-
-/**
- * Re-folds every container that includes a given contained item. Called whenever
- * a contained item's mirrored text changes (display identity, publish, retire,
- * archive, removal) so the container's tsvector reflects the new contents. The
- * container refresh runs without `refreshProductContentText`, so it never
- * re-enters this cascade.
- */
-async function refreshContainersForContainedItem(db: PgQueryable, containedCatalogItemId: string): Promise<void> {
-  const result = await db.query<{ container_catalog_item_id: string }>(
-    `SELECT DISTINCT container_catalog_item_id
-     FROM ${SEARCH_PRODUCT_CONTENTS_TABLE}
-     WHERE contained_catalog_item_id = $1`,
-    [containedCatalogItemId],
-  );
-
-  for (const row of result.rows) {
-    await refreshDiscoverySearchItem(db, row.container_catalog_item_id);
-  }
 }
 
 function contentSearchWeight(value: number | null | undefined): number {
@@ -713,20 +696,22 @@ async function applyProductContentsResolved(
 async function refreshSearchProductContentsForContainedItem(
   db: PgQueryable,
   containedCatalogItemId: string,
+  item: SearchCatalogItemRow | undefined,
   updatedAt: string,
   options: Readonly<{ cascadeContainers?: boolean }> = {},
 ): Promise<void> {
-  const contentSearchText = foldSearchDiacritics(await buildContentSearchText(db, containedCatalogItemId));
+  const contentSearchText = foldSearchDiacritics(contentSearchTextForItem(item));
   const contentSearchTextSimple = buildSimpleSearchText(contentSearchText);
 
-  await db.query(
+  const { rows } = await db.query<{ container_catalog_item_id: string }>(
     `UPDATE ${SEARCH_PRODUCT_CONTENTS_TABLE}
      SET content_search_text = $2,
          content_search_text_simple = $3,
          search_text = to_tsvector('english', $2),
          search_text_simple = to_tsvector('simple', $3),
          updated_at = $4
-     WHERE contained_catalog_item_id = $1`,
+     WHERE contained_catalog_item_id = $1
+     RETURNING container_catalog_item_id`,
     [containedCatalogItemId, contentSearchText, contentSearchTextSimple, updatedAt],
   );
 
@@ -734,7 +719,9 @@ async function refreshSearchProductContentsForContainedItem(
   // that includes it. Skipped during a full rebuild, which folds every container
   // directly from the mirror as it walks the catalog.
   if (options.cascadeContainers !== false) {
-    await refreshContainersForContainedItem(db, containedCatalogItemId);
+    for (const containerId of new Set(rows.map((row) => row.container_catalog_item_id))) {
+      await refreshDiscoverySearchItem(db, containerId);
+    }
   }
 }
 
@@ -763,7 +750,7 @@ async function refreshDiscoverySearchItem(
       [itemId],
     );
     if (options.refreshProductContentText) {
-      await refreshSearchProductContentsForContainedItem(db, itemId, new Date().toISOString(), {
+      await refreshSearchProductContentsForContainedItem(db, itemId, item, new Date().toISOString(), {
         cascadeContainers: options.cascadeContainerContents,
       });
     }
@@ -779,7 +766,7 @@ async function refreshDiscoverySearchItem(
       [itemId, item.updated_at],
     );
     if (options.refreshProductContentText) {
-      await refreshSearchProductContentsForContainedItem(db, itemId, item.updated_at, {
+      await refreshSearchProductContentsForContainedItem(db, itemId, item, item.updated_at, {
         cascadeContainers: options.cascadeContainerContents,
       });
     }
@@ -1063,19 +1050,22 @@ async function refreshDiscoverySearchItem(
   );
 
   if (applied.rowCount) {
-    await db.query(`DELETE FROM ${IDENTITY_TERMS_TABLE[targetTable]} WHERE catalog_item_id = $1`, [itemId]);
     const terms = item.status === "active" ? buildDiscoverySearchIdentityTerms(item) : [];
-    if (terms.length > 0) {
-      await db.query(
-        `INSERT INTO ${IDENTITY_TERMS_TABLE[targetTable]} (catalog_item_id, term)
-         SELECT $1, unnest($2::text[])`,
-        [itemId, terms],
-      );
-    }
+    const identityTable = IDENTITY_TERMS_TABLE[targetTable];
+    await db.query(
+      `WITH removed AS (
+         DELETE FROM ${identityTable}
+         WHERE catalog_item_id = $1 AND term <> ALL($2::text[])
+       )
+       INSERT INTO ${identityTable} (catalog_item_id, term)
+       SELECT $1, unnest($2::text[])
+       ON CONFLICT (catalog_item_id, term) DO NOTHING`,
+      [itemId, terms],
+    );
   }
 
   if (options.refreshProductContentText) {
-    await refreshSearchProductContentsForContainedItem(db, item.catalog_item_id, item.updated_at, {
+    await refreshSearchProductContentsForContainedItem(db, item.catalog_item_id, item, item.updated_at, {
       cascadeContainers: options.cascadeContainerContents,
     });
   }

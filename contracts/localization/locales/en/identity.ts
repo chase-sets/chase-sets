@@ -355,6 +355,12 @@ export const identityEnglishTranslations = {
   "identity.features.memberships.ui.accountTeamPage.invitation.summary": "{role} invitation · {status}",
   "identity.features.memberships.ui.accountTeamPage.invite": "Invite",
   "identity.features.memberships.ui.accountTeamPage.reinstate": "Reinstate",
+  "identity.features.memberships.ui.accountTeamPage.resend": "Resend",
+  "identity.features.memberships.ui.accountTeamPage.invitation.unsent": "Invitation saved but not emailed",
+  "identity.features.memberships.ui.accountTeamPage.invitation.unsent.description":
+    "The invitation to {email} could not be emailed. Use Resend to email it.",
+  "identity.features.memberships.ui.accountTeamPage.invitation.unsent.unlisted":
+    "The invitation could not be emailed. Use Resend on it once it appears below.",
   "identity.features.memberships.ui.accountTeamPage.revoke": "Revoke",
   "identity.features.memberships.ui.accountTeamPage.revoke.confirm.action": "Confirm revoke",
   "identity.features.memberships.ui.accountTeamPage.revoke.confirm.description":

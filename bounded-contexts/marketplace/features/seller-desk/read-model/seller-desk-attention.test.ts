@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { aggregateSellerAttentionQueue, type SellerAttentionContext } from "@chase-sets/seller-attention-queue";
-import type { OfferMatchListItem } from "../../offers/ui/contracts";
+import type { ListingOfferMatchListItem } from "../../offers/ui/contracts";
 import type { MarketplaceListingListItem } from "../../listings/ui/contracts";
 import {
   createMarketplaceSellerAttentionSources,
@@ -10,7 +10,7 @@ import {
 
 const CONTEXT: SellerAttentionContext = { accountId: "acct-1", now: "2026-07-14T12:00:00.000Z" };
 
-function offer(overrides: Partial<OfferMatchListItem> = {}): OfferMatchListItem {
+function offer(overrides: Partial<ListingOfferMatchListItem> = {}): ListingOfferMatchListItem {
   return {
     offer_id: "off-1",
     buyer_account_id: "buyer-1",
@@ -29,6 +29,7 @@ function offer(overrides: Partial<OfferMatchListItem> = {}): OfferMatchListItem 
     accepted_at: null,
     created_at: "2026-07-13T00:00:00.000Z",
     updated_at: "2026-07-13T00:00:00.000Z",
+    fill_source: "listing",
     listing_id: "lst-1",
     listing_price_amount: "12.00",
     listing_price_currency_code: "USD",

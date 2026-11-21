@@ -39,6 +39,7 @@ import type { SellListLineId } from "../../../support/runtime-support/common";
 import {
   CheckoutDomainError,
   createCheckoutProductDescriptor,
+  summarizeCheckoutProductSelection,
   type CheckoutVersionSchema,
 } from "../../../support/runtime-support/common";
 import {
@@ -382,10 +383,12 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
   async function getCatalogItemSnapshot(catalogItemId: string) {
     const result = await deps.db.query<{
       catalog_item_id: string;
+      title: string;
+      subtitle: string | null;
       status: string;
       product_schema: unknown;
     }>(
-      `SELECT catalog_item_id, status, product_schema
+      `SELECT catalog_item_id, title, subtitle, status, product_schema
        FROM checkout_catalog_items
        WHERE catalog_item_id = $1`,
       [catalogItemId],
@@ -404,12 +407,13 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
       throw new CheckoutDomainError("Sell list lines may only reference active catalog items.");
     }
 
+    const productSchema =
+      typeof catalogItem.product_schema === "object" && catalogItem.product_schema !== null
+        ? (catalogItem.product_schema as CheckoutVersionSchema)
+        : null;
     const product = createCheckoutProductDescriptor({
       catalogItemId: params.catalogItemId,
-      productSchema:
-        typeof catalogItem.product_schema === "object" && catalogItem.product_schema !== null
-          ? (catalogItem.product_schema as CheckoutVersionSchema)
-          : null,
+      productSchema,
       selection: params.selectedOptions,
     });
 
@@ -431,8 +435,9 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
       listingStreamVersion: params.listingStreamVersion ?? null,
       productId: product.productId,
       selectedOptions: product.selection,
-      itemSubtitle: params.itemSubtitle ?? null,
-      productSummary: params.productSummary ?? null,
+      itemTitle: catalogItem.title,
+      itemSubtitle: catalogItem.subtitle ?? null,
+      productSummary: summarizeCheckoutProductSelection(productSchema, product.selection),
       fallbackMode: params.fallbackMode ?? "none",
       minimumListingPriceAmount: params.minimumListingPriceAmount ?? null,
     };

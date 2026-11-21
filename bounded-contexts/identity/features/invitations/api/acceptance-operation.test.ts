@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createHash } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import type { EventStore } from "@chase-sets/event-core/event-store";
@@ -13,12 +13,17 @@ import {
   readInvitationAcceptanceAuthority,
   INVITATION_ACCEPTANCE_MAX_EVENTS,
 } from "./acceptance-operation";
-import { acceptanceContext, acceptanceOperation, seedAcceptance } from "./acceptance-test-support";
+import { acceptanceContext, acceptanceOperation, acceptanceTokenHash, seedAcceptance } from "./acceptance-test-support";
 import {
   expectHelperParity,
   expectProjectionFailure,
   expectSourceEvent,
 } from "../../../../customer-feedback/tests/outcome-fact-test-support";
+
+vi.mock("node:crypto", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:crypto")>();
+  return { ...original, timingSafeEqual: vi.fn(original.timingSafeEqual) };
+});
 
 function servicesFor(store: EventStore): IdentityServices {
   const deps = {
@@ -44,11 +49,48 @@ async function accept(store: EventStore, operation = acceptanceOperation) {
   return app.request("/internal/auth/invitations/ivt_invited/accept", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ userId: operation.userId, acceptanceTokenHash: "existing-store-token-hash", operation }),
+    body: JSON.stringify({ userId: operation.userId, acceptanceTokenHash, operation }),
   });
 }
 
 describe("invitation-acceptance-identity-atomicity", () => {
+  it.each([true, false])(
+    "compares two 32-byte authority token digests in constant time (matches: %s)",
+    async (matches) => {
+      const store = createInMemoryEventStore();
+      await seedAcceptance(store);
+      const candidate = matches ? acceptanceTokenHash : "c".repeat(64);
+      vi.mocked(timingSafeEqual).mockClear();
+
+      const authority = readInvitationAcceptanceAuthority(store, {
+        invitationId: acceptanceOperation.invitationId,
+        acceptanceTokenHash: candidate,
+        context: acceptanceContext,
+      });
+      if (matches) await expect(authority).resolves.toMatchObject({ invitation: { status: "pending" } });
+      else await expect(authority).rejects.toThrow("Invitation acceptance authority is unavailable.");
+      expect(timingSafeEqual).toHaveBeenCalledExactlyOnceWith(
+        Buffer.from(acceptanceTokenHash, "hex"),
+        Buffer.from(candidate, "hex"),
+      );
+    },
+  );
+
+  it.each(["a".repeat(62), "g".repeat(64)])("rejects a malformed stored authority token digest", async (stored) => {
+    const store = createInMemoryEventStore();
+    await seedAcceptance(store, true, { tokenHash: stored });
+    vi.mocked(timingSafeEqual).mockClear();
+
+    await expect(
+      readInvitationAcceptanceAuthority(store, {
+        invitationId: acceptanceOperation.invitationId,
+        acceptanceTokenHash,
+        context: acceptanceContext,
+      }),
+    ).rejects.toThrow("Invitation acceptance authority is unavailable.");
+    expect(timingSafeEqual).not.toHaveBeenCalled();
+  });
+
   it.each(["identity.invitation-ivt_invited", `identity.invitation-acceptance-${acceptanceOperation.attemptId}`])(
     "converges when an exact acceptance commits after reading %s",
     async (streamId) => {
@@ -56,7 +98,7 @@ describe("invitation-acceptance-identity-atomicity", () => {
       await seedAcceptance(store);
       const params = {
         operation: acceptanceOperation,
-        acceptanceTokenHash: "existing-store-token-hash",
+        acceptanceTokenHash,
         context: acceptanceContext,
       };
       let committed = false;
@@ -145,7 +187,7 @@ describe("invitation-acceptance-identity-atomicity", () => {
       events: [
         {
           eventType: "identity.invitation.acceptance-token-issued",
-          payload: { tokenHash: "existing-store-token-hash", expiresAt },
+          payload: { tokenHash: acceptanceTokenHash, expiresAt },
         },
       ],
     });
@@ -158,14 +200,14 @@ describe("invitation-acceptance-identity-atomicity", () => {
       events: [
         {
           eventType: "identity.invitation.acceptance-token-issued",
-          payload: { tokenHash: "existing-store-token-hash", expiresAt },
+          payload: { tokenHash: acceptanceTokenHash, expiresAt },
         },
       ],
     });
     expect((await accept(store)).status).toBe(200);
     const params = {
       invitationId: "ivt_invited",
-      acceptanceTokenHash: "existing-store-token-hash",
+      acceptanceTokenHash,
       operation: acceptanceOperation,
       context: acceptanceContext,
     };
@@ -206,7 +248,7 @@ describe("invitation-acceptance-identity-atomicity", () => {
     });
     const params = {
       invitationId: "ivt_invited",
-      acceptanceTokenHash: "existing-store-token-hash",
+      acceptanceTokenHash,
       context: acceptanceContext,
     };
     await expect(readInvitationAcceptanceAuthority(store, params)).resolves.toMatchObject({
@@ -225,21 +267,9 @@ describe("invitation-acceptance-identity-atomicity", () => {
       ),
     ).toBe("refused");
     const large = createInMemoryEventStore();
-    await seedAcceptance(large);
-    const tokenHash = "s".repeat(256 * 1024);
-    await large.appendToStream({
-      streamId: "identity.invitation-ivt_invited",
-      expectedVersion: 2,
-      context: acceptanceContext,
-      events: [
-        {
-          eventType: "identity.invitation.acceptance-token-issued",
-          payload: { tokenHash, expiresAt: new Date(Date.now() + 86400_000).toISOString() },
-        },
-      ],
-    });
+    await seedAcceptance(large, true, { email: `${"s".repeat(256 * 1024)}@example.test` });
     expect(
-      await readInvitationAcceptanceAuthority(large, { ...params, acceptanceTokenHash: tokenHash }).then(
+      await readInvitationAcceptanceAuthority(large, params).then(
         () => "allowed",
         () => "refused",
       ),
@@ -257,7 +287,7 @@ describe("invitation-acceptance-identity-atomicity", () => {
       await seedAcceptance(store);
       const params = {
         operation: acceptanceOperation,
-        acceptanceTokenHash: "existing-store-token-hash",
+        acceptanceTokenHash,
         context: acceptanceContext,
       };
       await acceptInvitationOperation(store, params);
@@ -278,7 +308,7 @@ describe("invitation-acceptance-identity-atomicity", () => {
     await seedAcceptance(inner);
     await acceptInvitationOperation(inner, {
       operation: acceptanceOperation,
-      acceptanceTokenHash: "existing-store-token-hash",
+      acceptanceTokenHash,
       context: acceptanceContext,
     });
     let changed = false;
@@ -301,7 +331,7 @@ describe("invitation-acceptance-identity-atomicity", () => {
       readInvitationAcceptanceAuthority(store, {
         invitationId: "ivt_invited",
         operation: acceptanceOperation,
-        acceptanceTokenHash: "existing-store-token-hash",
+        acceptanceTokenHash,
         context: acceptanceContext,
       }),
     ).rejects.toThrow();
@@ -325,7 +355,7 @@ describe("invitation-acceptance-identity-atomicity", () => {
     await expect(
       acceptInvitationOperation(store, {
         operation: acceptanceOperation,
-        acceptanceTokenHash: "existing-store-token-hash",
+        acceptanceTokenHash,
         context: acceptanceContext,
       }),
     ).rejects.toThrow();
@@ -349,7 +379,7 @@ describe("invitation-acceptance-identity-atomicity", () => {
     await expect(
       readInvitationAcceptanceAuthority(store, {
         invitationId: "ivt_invited",
-        acceptanceTokenHash: "existing-store-token-hash",
+        acceptanceTokenHash,
         context: acceptanceContext,
       }),
     ).resolves.toMatchObject({ invitation: { status: "pending" } });
@@ -362,14 +392,14 @@ describe("invitation-acceptance-identity-atomicity", () => {
     await expect(
       readInvitationAcceptanceAuthority(store, {
         invitationId: "ivt_invited",
-        acceptanceTokenHash: "existing-store-token-hash",
+        acceptanceTokenHash,
         context: acceptanceContext,
       }),
     ).rejects.toThrow();
     await expect(
       acceptInvitationOperation(store, {
         operation: acceptanceOperation,
-        acceptanceTokenHash: "existing-store-token-hash",
+        acceptanceTokenHash,
         context: acceptanceContext,
       }),
     ).rejects.toThrow();
@@ -389,7 +419,7 @@ describe("invitation-acceptance-identity-atomicity", () => {
     await expect(
       acceptInvitationOperation(store, {
         operation: acceptanceOperation,
-        acceptanceTokenHash: "existing-store-token-hash",
+        acceptanceTokenHash,
         context: acceptanceContext,
       }),
     ).rejects.toThrow();
@@ -411,7 +441,7 @@ describe("invitation-acceptance-identity-atomicity", () => {
     await expect(
       acceptInvitationOperation(store, {
         operation: acceptanceOperation,
-        acceptanceTokenHash: "existing-store-token-hash",
+        acceptanceTokenHash,
         context: acceptanceContext,
       }),
     ).rejects.toThrow();
@@ -440,7 +470,7 @@ describe("invitation-acceptance-identity-atomicity", () => {
     await expect(
       readInvitationAcceptanceAuthority(store, {
         invitationId: acceptanceOperation.invitationId,
-        acceptanceTokenHash: "existing-store-token-hash",
+        acceptanceTokenHash,
         context: acceptanceContext,
       }),
     ).rejects.toThrow();

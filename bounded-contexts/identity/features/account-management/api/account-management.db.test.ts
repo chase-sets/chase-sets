@@ -406,8 +406,17 @@ describeDb("issue-7168 PostgreSQL authority", () => {
       expiresAt: "2099-01-01T00:00:00Z",
     });
     if (invitation.outcome !== "committed") throw new Error("Expected invitation commit");
+    const resent = await submit("resend-invitation", invitation.receipt.result.id, {
+      expiresAt: "2099-02-01T00:00:00Z",
+    });
+    expect(resent).toMatchObject({ outcome: "committed", newlyCommitted: true });
+    if (resent.outcome !== "committed") throw new Error("Expected resend commit");
+    expect(resent.receipt.events.map((event) => event.type)).toEqual(["identity.invitation.resent"]);
     expect(await submit("cancel-invitation", invitation.receipt.result.id)).toMatchObject({ outcome: "committed" });
     await noOp("cancel-invitation", invitation.receipt.result.id);
+    expect(
+      await submit("resend-invitation", invitation.receipt.result.id, { expiresAt: "2099-02-01T00:00:00Z" }),
+    ).toMatchObject({ outcome: "conflict" });
     await noOp("change-role", "mbr_second7168", { roleKey: "owner" });
     expect(await submit("reinstate", "mbr_second7168")).toMatchObject({ outcome: "conflict" });
     expect(await submit("change-role", "mbr_second7168", { roleKey: "viewer" })).toMatchObject({
@@ -440,6 +449,9 @@ describeDb("issue-7168 PostgreSQL authority", () => {
         ],
       });
       expect(await submit("cancel-invitation", id)).toMatchObject({ outcome: "conflict" });
+      expect(await submit("resend-invitation", id, { expiresAt: "2099-02-01T00:00:00Z" })).toMatchObject({
+        outcome: "conflict",
+      });
     }
   });
 

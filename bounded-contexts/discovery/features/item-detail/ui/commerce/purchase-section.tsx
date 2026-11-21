@@ -132,6 +132,7 @@ export function CheckoutPurchaseIntentSection({
   productSummary,
   visibleListingCount,
   errorMessage,
+  onCartAddStart,
 }: {
   formId?: string;
   panelVariant?: FormPanelVariant;
@@ -164,6 +165,7 @@ export function CheckoutPurchaseIntentSection({
   productSummary: string | null;
   visibleListingCount: number;
   errorMessage?: string | null;
+  onCartAddStart?: () => void;
 }) {
   const formRef = useRef<HTMLFormElement>(null);
   const [quantity, setQuantity] = useBuyQuantity(formId);
@@ -307,6 +309,7 @@ export function CheckoutPurchaseIntentSection({
     formData.set("intent", "add-to-cart");
     formData.set("attemptId", mintCartAttemptId());
     lastAddSubmissionRef.current = formData;
+    onCartAddStart?.();
     void addToCartFetcher.submit(formData, { method: "post" });
   }
 
