@@ -15,8 +15,6 @@
 //! photo goes to the evidence endpoint before the intake that cites it, as admin-web sends them.
 //!
 //! Departures from admin-web:
-//! - The scan and every write's redirect stay under `/commerce`; admin-web's leave it off and land on
-//!   its not-found page (chase-sets/chase-sets#10856).
 //! - The receipt time is drawn in the operator's time zone (`DrawZone::from(req.zone())`, UTC until
 //!   the browser has said, and named by the field), read in the zone the form sends back
 //!   (`FormZone`), and a time that cannot be read or comes without that zone is refused; admin-web
@@ -419,8 +417,7 @@ impl Stop {
     }
 }
 
-/// Each photo sent to the evidence endpoint, in order: the attachments the intake cites. Until
-/// chase-sets/chase-sets#10860 the API answers every upload 503, which the station shows as a failure.
+/// Each photo sent to the evidence endpoint, in order: the attachments the intake cites.
 async fn upload_photos(caller: &ApiCaller<'_>, t: Com, facility_id: &str, photos: Vec<Photo>) -> Result<Vec<Value>, Stop> {
     let mut attachments = Vec::with_capacity(photos.len());
     for photo in photos {

@@ -1019,9 +1019,12 @@ describe("caller inventory (seed/bootstrap/import/reconciliation) — issue #583
     expect(inventory.misses).toEqual([]);
     expect(discovered).toContain("bounded-contexts/identity/support/seed-support/account-management-browser.ts");
     expect(discovered).toContain("bounded-contexts/pricing/support/runtime-support/pricing-health-browser-seed.ts");
+    expect(discovered).toContain(
+      "bounded-contexts/catalog/features/source-observations/api/seeding/representative-catalog-asset-preparation.ts",
+    );
     expect({ discovered: discovered.length, persistentCount, ruledCount }).toEqual({
-      discovered: 172,
-      persistentCount: 166,
+      discovered: 173,
+      persistentCount: 167,
       ruledCount: 6,
     });
   });

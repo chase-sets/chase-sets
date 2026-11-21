@@ -457,6 +457,12 @@ function parseSellerListingAvailabilityReason(value: unknown) {
   );
 }
 
+function parseAwayScope(value: unknown) {
+  if (value === undefined || value === "listings") return undefined;
+  if (value === "offers" || value === "both") return value;
+  throw new MarketplaceListingDomainError("command-rejected", "Choose what Away covers.");
+}
+
 // Away Window scheduling requires a reason -- unlike a manual disable,
 // where a reason is optional.
 function parseRequiredSellerListingAvailabilityReason(value: unknown) {
@@ -802,6 +808,7 @@ export function createAccountListingRoutes(
           reasonCategory: parseSellerListingAvailabilityReason(body.reasonCategory),
           availableAgainOn: parseAvailableAgainOn(body.availableAgainOn),
           availableAgainAt: parseAvailableAgainAt(body.availableAgainAt),
+          scope: parseAwayScope(body.scope),
           ...listingAttemptInput(c, body),
         },
         context,
@@ -956,6 +963,7 @@ export function createAccountListingRoutes(
           startsAt: parseAwayWindowInstant(body.startsAt),
           endsAt: parseAwayWindowEndInstant(body.endsAt),
           reasonCategory: parseRequiredSellerListingAvailabilityReason(body.reasonCategory),
+          scope: parseAwayScope(body.scope),
           ...listingAttemptInput(c, body),
         },
         context,

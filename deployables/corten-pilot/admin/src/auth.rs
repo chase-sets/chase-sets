@@ -100,8 +100,6 @@ rules! {
     ReportedContentView => "reported-content.view";
     /// Support > Reference Lookup (and Support's other operator pages).
     SupportManage => "support.manage";
-    /// Support > CSAT dashboard.
-    PlatformFeedbackView => "platform-feedback.view";
     /// Growth > Waitlist, Promo Bar and Campaign Analytics (Public Presence's admin API asks for the
     /// same, for reads and writes alike).
     GrowthView => "public-presence.view";
@@ -139,6 +137,18 @@ pub struct FeedbackAccess;
 impl Rule for FeedbackAccess {
     fn permission(method: &Method) -> &'static str {
         if method.is_safe() { "platform-feedback.view" } else { crate::support::feedback::MANAGE }
+    }
+}
+
+/// Support > CSAT dashboard: reading needs `platform-feedback.view`; its export (a `POST`, since
+/// the API audits each one) needs `customer-feedback.privacy.export-sensitive-feedback`, as the
+/// API's export route and admin-web's Export button ask.
+#[derive(Clone, Debug, Hash)]
+pub struct CsatAccess;
+
+impl Rule for CsatAccess {
+    fn permission(method: &Method) -> &'static str {
+        if method.is_safe() { "platform-feedback.view" } else { crate::support::csat::EXPORT }
     }
 }
 

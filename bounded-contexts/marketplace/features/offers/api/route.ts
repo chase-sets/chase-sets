@@ -11,12 +11,13 @@ import {
   MARKETPLACE_OFFER_BULK_LIFECYCLE_LIMIT,
   MarketplaceOfferAbuseControlError,
   MarketplaceOfferAcceptanceReadinessError,
+  MarketplaceOfferSubmissionAwayError,
   MarketplaceOfferFeeQuoteStaleError,
   MarketplaceOfferLifecycleError,
   type MarketplaceOfferServices,
 } from "./runtime";
 import type { AccountId, OfferId } from "@chase-sets/primitives/typed-ids";
-import { omitPrivateOfferResponseFields, publicOfferListResponse } from "./response-shape";
+import { omitPrivateOfferResponseFields, publicOfferListResponse, submittedOfferResponse } from "./response-shape";
 import { ManagedOfferConflictError } from "./managed-authority";
 import { MarketplaceAttemptError } from "../../mutation-recovery/api/attempt";
 import { marketplaceReceiptResponse } from "../../mutation-recovery/api/receipt";
@@ -182,6 +183,8 @@ function validationError(
       409,
     );
   }
+  if (error instanceof MarketplaceOfferSubmissionAwayError)
+    return c.json({ error: { code: error.code, message: error.message } }, 409);
 
   if (error instanceof MarketplaceOfferAbuseControlError) {
     return c.json(
@@ -300,11 +303,10 @@ export function createAccountSubmittedOfferRoutes(services: MarketplaceOfferServ
       status: parseSubmittedOfferStatus(c.req.query("status")),
     });
 
-    const response = publicOfferListResponse(result);
-
     return c.json({
-      ...response,
-      count: response.items.length,
+      items: result.items.map(submittedOfferResponse),
+      total: result.total,
+      count: result.items.length,
       statusCounts: result.statusCounts,
     });
   });
@@ -411,7 +413,7 @@ export function createAccountSubmittedOfferRoutes(services: MarketplaceOfferServ
       );
     }
 
-    return c.json(omitPrivateOfferResponseFields(offer));
+    return c.json(submittedOfferResponse(offer));
   });
 
   app.post("/offers/submitted", async (c) => {

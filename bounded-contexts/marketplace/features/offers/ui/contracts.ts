@@ -20,7 +20,9 @@ export interface MarketplaceOffer {
   updated_at: string;
 }
 
-export interface SubmittedOfferListItem extends MarketplaceOffer {}
+export interface SubmittedOfferListItem extends MarketplaceOffer {
+  offers_away?: boolean;
+}
 export interface SubmittedOfferDetail extends MarketplaceOffer {}
 export interface PublicOfferDetail extends MarketplaceOffer {}
 

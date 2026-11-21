@@ -3,6 +3,8 @@ import {
   decideSellerListingAvailability,
   evolveSellerListingAvailability,
   initialSellerListingAvailabilityState,
+  type AwayScope,
+  type DisableSellerListingAvailabilityCommand,
   type SellerListingAvailabilityEvent,
 } from "./seller-listing-availability";
 
@@ -650,4 +652,126 @@ describe("seller listing availability", () => {
       expect(cancelled).toMatchObject({ status: "available", pendingAwayWindow: null });
     });
   });
+});
+describe("independent Away scopes", () => {
+  const resume = "2030-02-01T00:00:00.000Z";
+  const away = {
+    type: "DisableSellerListingAvailability",
+    accountId: "acc_away",
+    reasonCategory: "travel",
+    availableAgainOn: null,
+    availableAgainAt: resume,
+    disabledAt: "2030-01-01T00:00:00.000Z",
+    disabledBy: "seller",
+  } as const satisfies DisableSellerListingAvailabilityCommand;
+  const initial = initialSellerListingAvailabilityState;
+  const enabled = {
+    type: "EnableSellerListingAvailability",
+    accountId: away.accountId,
+    enabledAt: resume,
+    enabledBy: "seller",
+  } as const;
+  const set = (scope: AwayScope | null) =>
+    scope
+      ? decideSellerListingAvailability(initial, { ...away, scope }).reduce(evolveSellerListingAvailability, initial)
+      : initial;
+  const eventNames = (events: readonly { type: string }[]) => events.map((event) => event.type.split(".").at(-1));
+
+  it.each([
+    [null, "listings", ["disabled"]],
+    [null, "offers", ["offers-disabled"]],
+    [null, "both", ["disabled", "offers-disabled"]],
+    ["listings", "offers", ["enabled", "offers-disabled"]],
+    ["listings", "both", ["offers-disabled"]],
+    ["offers", "listings", ["disabled", "offers-enabled"]],
+    ["offers", "both", ["disabled"]],
+    ["both", "listings", ["offers-enabled"]],
+    ["both", "offers", ["enabled"]],
+    ["listings", null, ["enabled"]],
+    ["offers", null, ["offers-enabled"]],
+    ["both", null, ["enabled", "offers-enabled"]],
+  ] as const)("moves %s to %s and ignores an identical repeat", (from, to, expected) => {
+    const command = to ? { ...away, scope: to } : enabled;
+    const start = set(from);
+    const events = decideSellerListingAvailability(start, command);
+    expect(eventNames(events)).toEqual(expected);
+    expect(decideSellerListingAvailability(events.reduce(evolveSellerListingAvailability, start), command)).toEqual([]);
+  });
+
+  it("refreshes both deadlines without an enable and keeps Offers' details through a settlement disable", () => {
+    const both = set("both");
+    expect(
+      eventNames(
+        decideSellerListingAvailability(both, {
+          ...away,
+          scope: "both",
+          availableAgainAt: "2030-03-01T00:00:00.000Z",
+        }),
+      ),
+    ).toEqual(["disabled", "offers-disabled"]);
+    const offers = set("offers");
+    const settlement = {
+      ...away,
+      preserveOtherSide: true,
+      reasonCategory: "operations",
+      availableAgainAt: null,
+    } as const;
+    const events = decideSellerListingAvailability(offers, settlement);
+    expect(eventNames(events)).toEqual(["disabled"]);
+    expect(events.reduce(evolveSellerListingAvailability, offers).offers).toEqual(offers.offers);
+  });
+
+  it.each(["offers", "both"] as const)(
+    "keeps the Offers leg of a pending %s window through settlement's Listings disable",
+    (scope) => {
+      const pending = decideSellerListingAvailability(initial, {
+        type: "ScheduleSellerAwayWindow",
+        accountId: away.accountId,
+        startsAt: "2030-01-20T00:00:00Z",
+        endsAt: resume,
+        reasonCategory: "travel",
+        scheduledAt: away.disabledAt,
+        scope,
+      }).reduce(evolveSellerListingAvailability, initial);
+      const events = decideSellerListingAvailability(pending, {
+        ...away,
+        preserveOtherSide: true,
+        reasonCategory: "operations",
+        availableAgainAt: null,
+      });
+      expect(eventNames(events)).toEqual(["disabled"]);
+      expect(events.reduce(evolveSellerListingAvailability, pending)).toMatchObject({
+        status: "unavailable",
+        disabledReasonCategory: "operations",
+        offers: { status: "available" },
+        pendingAwayWindow: { ...pending.pendingAwayWindow, scope: "offers" },
+      });
+    },
+  );
+
+  it.each(["listings", "offers"] as const)(
+    "keeps the %s deadline when narrowing and checks the retained instant",
+    (scope) => {
+      const both = set("both");
+      const other = scope === "offers" ? "listings" : "offers";
+      const details = (state: typeof both) => (scope === "offers" ? state.offers : state);
+      const narrow = { ...away, scope, availableAgainAt: null } as const;
+      const events = decideSellerListingAvailability(both, narrow);
+      const enableOther = other === "offers" ? "offers-enabled" : "enabled";
+      const enableRetained = scope === "offers" ? "offers-enabled" : "enabled";
+      expect(eventNames(events)).toEqual([enableOther]);
+      const narrowed = events.reduce(evolveSellerListingAvailability, both);
+      expect(details(narrowed).availableAgainAt).toBe(resume);
+      expect(decideSellerListingAvailability(narrowed, { ...enabled, scope, dueBy: "2030-01-01T00:00:00Z" })).toEqual(
+        [],
+      );
+      expect(eventNames(decideSellerListingAvailability(narrowed, { ...enabled, scope, dueBy: resume }))).toEqual([
+        enableRetained,
+      ]);
+
+      const newResume = "2030-03-01T00:00:00.000Z";
+      const explicit = decideSellerListingAvailability(both, { ...narrow, availableAgainAt: newResume });
+      expect(details(explicit.reduce(evolveSellerListingAvailability, both)).availableAgainAt).toBe(newResume);
+    },
+  );
 });

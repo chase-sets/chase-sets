@@ -567,6 +567,7 @@ async function storePromotionProductAssetSet(input: {
 
     return normalizeProductAssetSet({
       sourceBody: input.productAssetSource.body,
+      preparedSource: input.productAssetSource.preparedSource,
       sourceContentType: input.productAssetSource.contentType,
       sourceProviderKey: input.providerKey,
       sourceUrl: input.productAssetSource.sourceUrl,

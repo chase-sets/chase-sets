@@ -53,6 +53,7 @@
   "reveal.warning": "Copy this full secret now. It is shown only once and cannot be recovered after you leave or reload this page.",
   "key_status.active": "Active",
   "key_status.revoked": "Revoked",
+  "errors.display_name.required": "Display name is required.",
   "user.display_name": "Display Name",
   "user.family_name": "Family Name",
   "user.given_name": "Given Name",

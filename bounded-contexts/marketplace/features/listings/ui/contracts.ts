@@ -178,6 +178,10 @@ export interface MarketplaceSellerListingAvailability {
   away_window_starts_at: string | null;
   away_window_ends_at: string | null;
   away_window_reason_category: string | null;
+  away_window_scope?: "listings" | "offers" | "both";
+  offers_status?: "available" | "unavailable";
+  offers_available_again_at?: string | null;
+  offers_reason_category?: string | null;
   updated_at: string;
 }
 
@@ -423,6 +427,7 @@ export const listingRecoveryFields = [
   "reasonCategory",
   "availableAgainOn",
   "availableAgainAt",
+  "scope",
   "awayWindowStartsAt",
   "awayWindowEndsAt",
   "awayWindowReasonCategory",

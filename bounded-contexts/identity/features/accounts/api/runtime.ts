@@ -42,14 +42,27 @@ function accountRowFromState(state: AccountState): AccountRow | null {
   };
 }
 
-export function createAccountRuntime(deps: IdentityRuntimeDeps): AccountServices {
-  const { commandHandler, repository } = createAggregateCommandHandler({
-    eventStore: deps.eventStore,
+function createAccountAggregate(eventStore: IdentityRuntimeDeps["eventStore"]) {
+  return createAggregateCommandHandler({
+    eventStore,
     codec: createPassthroughDomainEventCodec<AccountEvent>(),
     initialState: () => initialAccountState,
     evolve: evolveAccount,
     decide: decideAccount,
   });
+}
+
+export function createIdentityManualPayoutReviewBadgeReader(eventStore: IdentityRuntimeDeps["eventStore"]) {
+  const { repository } = createAccountAggregate(eventStore);
+  return async (accountId: string): Promise<boolean> => {
+    const { state } = await repository.load(`identity.account-${accountId}`);
+    if (!state.id) throw new Error("Committed Identity account is unavailable for payout review hold migration.");
+    return state.badges.includes("manual-payout-review");
+  };
+}
+
+export function createAccountRuntime(deps: IdentityRuntimeDeps): AccountServices {
+  const { commandHandler, repository } = createAccountAggregate(deps.eventStore);
 
   return {
     commandHandler,
