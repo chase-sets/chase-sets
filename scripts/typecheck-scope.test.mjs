@@ -124,7 +124,7 @@ function hasGlobalContext(text) {
   return false;
 }
 
-it("affected graph retains reverse consumers and explicit fallback", async () => {
+it("scoped compiler roots retain reverse consumers and match full diagnostics", async () => {
   const root = fixture();
   expect(diagnostics(root, "tsconfig.json")).toEqual([]);
   write(root, valueFile, "export type Value = { id: number };");
@@ -147,7 +147,9 @@ it("affected graph retains reverse consumers and explicit fallback", async () =>
   await runScopedPrograms(root, [source], (configPath) => {
     expect(diagnostics(root, configPath)).toEqual(fullDiagnostics);
   });
+});
 
+it("retains real downstream money movement consumers", () => {
   const realPlan = realScope.plan({ changedFiles: [moneyMovement] });
   expect(realPlan.mode).toBe("scoped");
   expect(realPlan.workspaces).toEqual(
@@ -158,7 +160,9 @@ it("affected graph retains reverse consumers and explicit fallback", async () =>
       "@chase-sets/app-platform-worker",
     ]),
   );
+});
 
+it("reports explicit fallback reasons for config and unmapped inputs", () => {
   const changedInputs = [
     ["global-input", "package.json"],
     ["global-input", "pnpm-lock.yaml"],
@@ -169,7 +173,7 @@ it("affected graph retains reverse consumers and explicit fallback", async () =>
     ["declaration-input", "packages/unrelated/ambient.d.ts"],
     ["unmapped-typescript", "infrastructure/no-owner/index.ts"],
   ];
-  const scope = createTypecheckScope({ root });
+  const scope = createTypecheckScope({ root: fixture() });
   for (const [reason, file] of changedInputs) {
     const fallback = scope.plan({ changedFiles: [file] });
     expect(fallback).toEqual({ mode: "full", fallbacks: [{ reason, path: file }] });
@@ -177,7 +181,10 @@ it("affected graph retains reverse consumers and explicit fallback", async () =>
     printFallbacks(fallback.fallbacks, output);
     expect(output).toHaveBeenCalledWith(`[TYPECHECK_SCOPE_FULL_FALLBACK] reason=${reason} path=${file}`);
   }
+});
 
+it("resolves ambient assets and reports unresolved workspace imports", () => {
+  const root = fixture();
   const unrelated = "packages/unrelated/index.ts";
   const asset = "contracts/value/styles.css";
   write(root, asset, "body { color: black; }");

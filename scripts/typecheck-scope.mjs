@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "@chase-sets/typescript-compiler-api";
 import { listChangedFiles } from "./change-scope.mjs";
+import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 import { listWorkspacePackages, normalizePath, normalizeRelative, repoRoot, workspaceRoots } from "./lib/repo.mjs";
 
 const programs = [
@@ -117,12 +118,14 @@ function hasGlobalContext(file, content, references = ts.preProcessFile(content,
 
 function mergeBaseFileReader(root) {
   const hasGit = existsSync(path.join(root, ".git"));
-  const git = (...args) => execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: "pipe" });
+  const options = { cwd: root, encoding: "utf8", stdio: "pipe", maxBuffer: GIT_LISTING_MAX_BUFFER };
   let base;
   return (file) => {
     if (!hasGit) return;
-    base ??= git("merge-base", "origin/main", "HEAD").trim();
-    if (git("--literal-pathspecs", "ls-tree", "-z", base, "--", file)) return git("show", `${base}:${file}`);
+    base ??= execFileSync("git", ["merge-base", "origin/main", "HEAD"], options).trim();
+    if (execFileSync("git", ["--literal-pathspecs", "ls-tree", "-z", base, "--", file], options)) {
+      return execFileSync("git", ["show", `${base}:${file}`], options);
+    }
   };
 }
 
