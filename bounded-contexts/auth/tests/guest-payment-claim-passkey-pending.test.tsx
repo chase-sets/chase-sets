@@ -55,9 +55,8 @@ const guestData = {
     },
   ],
   isGuestCheckoutPayment: true,
-  guestClaimContext: {
-    accountId: "acc_guest",
-    paymentId: "pay_pending",
+  claimable: true,
+  guestClaimContact: {
     contactEmail: "jane@example.com",
     contactName: "Jane Smith",
   },
