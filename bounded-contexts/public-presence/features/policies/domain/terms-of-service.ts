@@ -203,7 +203,7 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
         decisionRefs: [5004],
         productTruthRefs: [
           "docs/adr/0020-wallet-adjustment-authority-and-balance-types.md:25",
-          "bounded-contexts/settlement/GLOSSARY.md:164",
+          "bounded-contexts/settlement/GLOSSARY.md:184",
         ],
         openQuestions: [],
         assumptions: [
@@ -225,14 +225,14 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
         scopeNote: "Describe negative-balance creation, approval, recovery, and offset, and capability restrictions.",
         decisionRefs: [5004],
         productTruthRefs: [
-          "bounded-contexts/settlement/GLOSSARY.md:131-139,162-170,172-180,182-190",
+          "bounded-contexts/settlement/GLOSSARY.md:135-143,166-174,176-184,186-194",
           "docs/adr/0020-wallet-adjustment-authority-and-balance-types.md:70-82",
         ],
         openQuestions: [],
         assumptions: [
           {
             assertion: "Collections pauses new listings and payout requests until the Wallet is in-good-standing.",
-            evidenceRef: "bounded-contexts/settlement/GLOSSARY.md:182-190",
+            evidenceRef: "bounded-contexts/settlement/GLOSSARY.md:186-194",
           },
         ],
       },
@@ -274,7 +274,7 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
         decisionRefs: [5004],
         productTruthRefs: [
           "bounded-contexts/identity/features/accounts/domain/domain.ts:21,76-86,187-219,310-315 (AccountStatus and account enforcement commands/lifecycle)",
-          "bounded-contexts/settlement/GLOSSARY.md:166-174",
+          "bounded-contexts/settlement/GLOSSARY.md:186-194",
         ],
         openQuestions: [
           "A dedicated dormant-balance lifecycle and a formal legal-hold workflow distinct from ordinary Collections/account suspension were not found in the current codebase; this clause states Chase Sets' reserved authority rather than describing a shipped self-service dormancy or hold feature. Consider a fixed-scope product issue if dedicated dormancy/legal-hold surfaces are needed before launch.",

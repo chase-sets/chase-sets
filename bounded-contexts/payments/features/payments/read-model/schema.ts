@@ -235,6 +235,14 @@ CREATE TABLE IF NOT EXISTS payments_account_risk_sources (
 );
 `;
 
+export const paymentsPaymentCreationReservationExpansionSchemaSql = `
+ALTER TABLE payments_payment_creation_reservations
+  ADD COLUMN IF NOT EXISTS creation_protocol text NULL,
+  ADD COLUMN IF NOT EXISTS hold_intent_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS release_pending boolean NULL,
+  ADD COLUMN IF NOT EXISTS release_failures integer CHECK (release_failures BETWEEN 0 AND 3) NOT NULL DEFAULT 0;
+`;
+
 export const paymentsAccountRiskSourceExpansionSchemaSql = `
 ALTER TABLE payments_account_risk_sources
   ADD COLUMN IF NOT EXISTS payout_review_hold boolean NOT NULL DEFAULT false;
@@ -396,7 +404,7 @@ ON CONFLICT (payment_id, order_id) DO NOTHING`,
   ADD COLUMN IF NOT EXISTS creation_protocol text NULL,
   ADD COLUMN IF NOT EXISTS hold_intent_at timestamptz NULL,
   ADD COLUMN IF NOT EXISTS release_pending boolean NULL,
-  ADD COLUMN IF NOT EXISTS release_failures integer NOT NULL DEFAULT 0 CHECK (release_failures BETWEEN 0 AND 3)`,
+  ADD COLUMN IF NOT EXISTS release_failures integer CHECK (release_failures BETWEEN 0 AND 3) NOT NULL DEFAULT 0`,
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS payments_creation_reservations_stale_marked_idx
   ON payments_payment_creation_reservations (created_at, payment_id)
   WHERE creation_protocol IS NOT NULL AND status = 'active'`,
