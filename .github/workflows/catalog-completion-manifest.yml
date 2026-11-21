@@ -18,6 +18,10 @@ on:
 
 permissions: {}
 
+concurrency:
+  group: catalog-completion-manifest-production
+  cancel-in-progress: false
+
 jobs:
   manifest:
     name: Freeze Production Catalog Completion Manifest
@@ -59,6 +63,18 @@ jobs:
           environment: production
           contexts: catalog
           connection-mode: direct
+
+      - name: Require catalog database authority
+        run: |
+          set -euo pipefail
+          if [ -z "${DATABASE_URL_CATALOG:-}" ]; then
+            echo "catalog-database-url-missing: the Catalog context URL was not exported." >&2
+            exit 1
+          fi
+          if [ -z "${PGSSLROOTCERT:-}" ] || [ ! -s "$PGSSLROOTCERT" ]; then
+            echo "managed-postgres-ca-missing: the managed Postgres CA was not exported." >&2
+            exit 1
+          fi
 
       - name: Freeze manifest from Catalog snapshot
         run: |

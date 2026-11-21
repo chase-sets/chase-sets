@@ -63,7 +63,20 @@ function mappingRow(scope, provider, unit = pair(provider)) {
   };
 }
 
-function snapshot({ reverse = false, drift = null } = {}) {
+function participationUnit(provider, overrides = {}) {
+  return {
+    providerKey: provider,
+    unitKey: pair(provider),
+    profileKey: `${provider}-profile`,
+    profileVersion: "synthetic-v1",
+    selected: true,
+    eligibility: "eligible",
+    blockers: [],
+    ...overrides,
+  };
+}
+
+function snapshot({ reverse = false, drift = null, blockerCode = null, excluded = false } = {}) {
   const ordered = (rows) => (reverse ? [...rows].reverse() : rows);
   const query = vi.fn(async (sql) => {
     const rows = (result) => ({ rows: ordered(result) });
@@ -89,19 +102,26 @@ function snapshot({ reverse = false, drift = null } = {}) {
           sync_run_id: null,
           plan: {
             scopeRecordVersion: updated,
-            scope: { languageCode: scope.language },
+            scope: {
+              languageCode: scope.language,
+              ...(excluded &&
+                scope.id === "scope-a" && {
+                  providerParticipation: { excludedUnitKeys: [pair(scope.provider)] },
+                }),
+            },
             mappingVersions: [{ mappingId: `${scope.id}-${scope.provider}`, version: updated }],
             participationPreview: {
-              units: [
-                {
-                  providerKey: scope.provider,
-                  unitKey: pair(scope.provider),
-                  profileKey: `${scope.provider}-profile`,
-                  profileVersion: "synthetic-v1",
-                  selected: true,
-                  eligibility: "eligible",
-                },
-              ],
+              units:
+                excluded && scope.id === "scope-a"
+                  ? []
+                  : [
+                      participationUnit(
+                        scope.provider,
+                        blockerCode && scope.id === "scope-a"
+                          ? { eligibility: "ineligible", blockers: [{ code: blockerCode, severity: "error" }] }
+                          : {},
+                      ),
+                    ],
             },
           },
         })),
@@ -124,10 +144,12 @@ function snapshot({ reverse = false, drift = null } = {}) {
     if (sql.includes("FROM catalog_provider_scope_mappings")) {
       expect(sql).toContain("review_status IN ('accepted', 'auto-accepted')");
       return rows([
-        ...scopes.map((scope) => ({
-          ...mappingRow(scope, scope.provider),
-          ...(drift === "mapping" && { updated_at: input.launchCutoff }),
-        })),
+        ...scopes
+          .filter((scope) => drift !== "missing mapping" || scope.id !== "scope-a")
+          .map((scope) => ({
+            ...mappingRow(scope, scope.provider),
+            ...(drift === "mapping" && { updated_at: input.launchCutoff }),
+          })),
         mappingRow(scopes[0], "validation"),
         mappingRow(scopes[0], "tcgplayer", browserUnit),
       ]);
@@ -264,12 +286,35 @@ describe("production completion manifest", () => {
     expect(network).not.toHaveBeenCalled();
   });
 
-  it.each(["scope", "mapping", "profile"])("fails closed and rolls back on %s drift", async (drift) => {
-    const pool = snapshot({ drift });
-    await expect(produceProductionCatalogCompletionManifest(pool, window)).rejects.toThrow();
-    expect(pool.query.mock.calls.at(-1)[0]).toBe("ROLLBACK");
-    expect(pool.release).toHaveBeenCalledOnce();
+  it.each([
+    ["provider-rollout-blocked", "rollout-blocked"],
+    ["provider-credential-not-ready", "provider-unavailable"],
+    ["provider-transport-blocked", "provider-unavailable"],
+    ["provider-adapter-missing", "provider-unavailable"],
+    [null, "operator-deferred"],
+  ])("freezes %s as a stable %s exclusion", async (blockerCode, reason) => {
+    const options = { blockerCode, excluded: blockerCode === null };
+    const { manifest, json } = await produceProductionCatalogCompletionManifest(snapshot(options), window);
+    const coordinates = { scopeRecordId: "scope-a", providerKey: "tcgdex", unitKey: pair("tcgdex") };
+    expect(manifest.exclusions).toContainEqual({ ...coordinates, reason, note: null });
+    expect(manifest.expectedUnits).not.toContainEqual(coordinates);
+    expect(manifest.expectedUnits).toHaveLength(1);
+    const reordered = await produceProductionCatalogCompletionManifest(snapshot({ ...options, reverse: true }), window);
+    expect(reordered.json).toBe(json);
+    expect(providerBoundary).not.toHaveBeenCalled();
   });
+
+  it.each(["scope", "missing mapping", "mapping", "profile"])(
+    "fails closed and rolls back on %s drift",
+    async (drift) => {
+      const pool = snapshot({ drift });
+      await expect(produceProductionCatalogCompletionManifest(pool, window)).rejects.toThrow(
+        drift === "scope" ? "Count quote requires the complete active selection" : "manifest-plan-drift",
+      );
+      expect(pool.query.mock.calls.at(-1)[0]).toBe("ROLLBACK");
+      expect(pool.release).toHaveBeenCalledOnce();
+    },
+  );
 
   it("rejects an expiry at or before the cutoff or generation time", () => {
     expect(() => completionManifestWindow({ ...input, expiresAt: input.launchCutoff }, clock)).toThrow(
@@ -283,16 +328,29 @@ it("uses the production-only workflow authority and refuses a CLI without the Ca
   const workflow = parse(readFileSync(join(repoRoot, ".github/workflows/catalog-completion-manifest.yml"), "utf8"));
   const { manifest: job } = workflow.jobs;
   expect(Object.keys(workflow.on)).toEqual(["workflow_dispatch"]);
+  expect(workflow.concurrency).toEqual({
+    group: "catalog-completion-manifest-production",
+    "cancel-in-progress": false,
+  });
   expect(job).toMatchObject({
     environment: "production",
     if: "${{ github.ref == 'refs/heads/main' }}",
     permissions: { contents: "read" },
   });
-  expect(job.steps.find((step) => step.uses === "./.github/actions/export-managed-postgres-authority").with).toEqual({
+  const exportIndex = job.steps.findIndex(
+    (step) => step.uses === "./.github/actions/export-managed-postgres-authority",
+  );
+  expect(job.steps[exportIndex].with).toEqual({
     environment: "production",
     contexts: "catalog",
     "connection-mode": "direct",
   });
+  const report = parse(readFileSync(join(repoRoot, ".github/workflows/catalog-completion-report.yml"), "utf8"));
+  const requirement = report.jobs["completion-report"].steps.find(
+    (step) => step.name === "Require catalog database authority",
+  );
+  expect(job.steps[exportIndex + 1]).toEqual(requirement);
+  expect(job.steps[exportIndex + 2].name).toBe("Freeze manifest from Catalog snapshot");
   expect(
     job.steps
       .find((step) => step.name === "Upload frozen manifest and SHA-256")

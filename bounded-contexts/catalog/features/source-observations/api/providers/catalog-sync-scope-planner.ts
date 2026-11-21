@@ -421,7 +421,7 @@ async function planProviderUnit(input: {
   const selected = input.explicitlySelected || input.required || blockers.length === 0;
   const estimate =
     childExecutionScope && adapter ? await planEstimate(adapter, input.unitKey, childExecutionScope, blockers) : null;
-  const eligibility = blockers.some((blocker) => blocker.severity === "error") ? "ineligible" : "eligible";
+  const eligibility = catalogSyncProviderEligibility(blockers);
 
   return {
     providerKey: input.version.providerKey,
@@ -581,6 +581,12 @@ function isActiveProviderProfileVersion(version: CatalogProviderIntegrationProfi
 // anything, so its units stay planned and fail closed as provider-adapter-missing.
 function declaresNoImportPlanning(registry: ProviderAdapterRegistry, providerKey: string): boolean {
   return registry.get(providerKey)?.capabilities.supportsImportPlanning === false;
+}
+
+export function catalogSyncProviderEligibility(
+  blockers: readonly Pick<CatalogSyncProviderParticipationBlocker, "severity">[],
+): CatalogSyncProviderParticipationUnit["eligibility"] {
+  return blockers.some((blocker) => blocker.severity === "error") ? "ineligible" : "eligible";
 }
 
 export function catalogSyncProfileEligibilityBlockers(

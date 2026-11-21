@@ -6,6 +6,7 @@ import { parseSelection } from "../../scope-sync-batches/api/route";
 import {
   catalogSyncAcceptedScopeMappingFromRow,
   catalogSyncProfileEligibilityBlockers,
+  catalogSyncProviderEligibility,
   type CatalogSyncScope,
 } from "../../source-observations/api/providers/catalog-sync-scope-planner";
 import { catalogProviderProfileVersionIngestionUnitKey } from "../../source-observations/api/providers/registry";
@@ -51,7 +52,10 @@ export function completionManifestWindow(input: z.input<typeof freezeInput>, now
 
 const storedPlan = z.object({
   scopeRecordVersion: z.string(),
-  scope: z.object({ languageCode: z.string().nullish() }),
+  scope: z.object({
+    languageCode: z.string().nullish(),
+    providerParticipation: z.object({ excludedUnitKeys: z.array(z.string().trim()).optional() }).nullish(),
+  }),
   mappingVersions: z.array(z.object({ mappingId: z.string(), version: z.string() })),
   participationPreview: z.object({
     units: z.array(
@@ -62,12 +66,14 @@ const storedPlan = z.object({
         profileVersion: z.string(),
         selected: z.boolean(),
         eligibility: z.enum(["eligible", "ineligible"]),
+        blockers: z.array(z.object({ code: z.string(), severity: z.enum(["error", "warning"]) })).default([]),
       }),
     ),
   }),
 });
 
 type FreezeEvidence = NonNullable<ProductionCatalogCompletionManifest["freezeEvidence"]>;
+type StoredUnit = z.infer<typeof storedPlan>["participationPreview"]["units"][number];
 
 export async function produceProductionCatalogCompletionManifest(
   pool: PgTransactionalPool,
@@ -135,11 +141,24 @@ export async function produceProductionCatalogCompletionManifest(
           languageCode,
           reference: { kind: record.scope_kind, scopeRecordId },
         };
-        const planned = new Map(
-          plan.participationPreview.units
-            .filter((unit) => unit.selected && unit.eligibility === "eligible" && unit.providerKey !== browserProvider)
-            .map((unit) => [providerUnitKey(unit.providerKey, unit.unitKey), unit]),
-        );
+        const planned = new Map<string, StoredUnit>();
+        const operationallyExcluded = new Set<string>();
+        const excludedUnitKeys = new Set(plan.scope.providerParticipation?.excludedUnitKeys);
+        // Operational eligibility is evidence from the stored preview, not something to probe at freeze time.
+        for (const unit of plan.participationPreview.units) {
+          const { providerKey, unitKey: key } = unit;
+          if (providerKey === browserProvider) continue;
+          const pair = providerUnitKey(providerKey, key);
+          if (unit.selected && unit.eligibility === "eligible") {
+            planned.set(pair, unit);
+          } else if (unit.eligibility === "ineligible") {
+            const reason = operationalExclusionReason(unit.blockers);
+            if (reason) {
+              operationallyExcluded.add(pair);
+              exclusions.push({ scopeRecordId, providerKey, unitKey: key, reason, note: null });
+            }
+          }
+        }
         const plannedMappingVersions = new Map(plan.mappingVersions.map((row) => [row.mappingId, row.version]));
         const acceptedMappings: ManifestScope["acceptedMappings"][number][] = [];
         const seen = new Set<string>();
@@ -151,6 +170,12 @@ export async function produceProductionCatalogCompletionManifest(
           const coordinates = { scopeRecordId, providerKey, unitKey: key };
           if (seen.has(pair)) throw planDrift("ambiguous accepted mappings");
           seen.add(pair);
+          if (operationallyExcluded.has(pair)) continue;
+          if (!planned.has(pair) && excludedUnitKeys.has(key)) {
+            operationallyExcluded.add(pair);
+            exclusions.push({ ...coordinates, reason: "operator-deferred", note: null });
+            continue;
+          }
           const productionClass = profile ? classifyProviderProductionClass(profile) : "unapproved";
           if (!profile || productionClass !== "production") {
             exclusions.push({
@@ -163,7 +188,8 @@ export async function produceProductionCatalogCompletionManifest(
           if (
             !profile.profile.capabilities.includes("source-observation-import") ||
             (languageCode && mapping.languageCode && mapping.languageCode !== languageCode) ||
-            catalogSyncProfileEligibilityBlockers(profile, key, scope, mapping).length > 0
+            catalogSyncProviderEligibility(catalogSyncProfileEligibilityBlockers(profile, key, scope, mapping)) ===
+              "ineligible"
           ) {
             exclusions.push({ ...coordinates, reason: "ineligible", note: null });
             continue;
@@ -185,7 +211,9 @@ export async function produceProductionCatalogCompletionManifest(
           mappingVersions.push({ mappingId: mapping.mappingId, version: mapping.mappingVersion });
         }
 
-        if (planned.size > 0 || acceptedMappings.length === 0) throw planDrift("required scope coverage");
+        if (planned.size > 0 || (acceptedMappings.length === 0 && operationallyExcluded.size === 0)) {
+          throw planDrift("required scope coverage");
+        }
         scopes.push({ scopeRecordId, eligible: true, acceptedMappings: sortedBy(acceptedMappings, unitOrder) });
         scopeVersions.push({ scopeRecordId, version });
         domains.push(scope.productDomain);
@@ -246,6 +274,22 @@ export async function produceProductionCatalogCompletionManifest(
     const json = `${JSON.stringify(manifest, null, 2)}\n`;
     return { manifest, json, sha256: createHash("sha256").update(json).digest("hex") };
   });
+}
+
+function operationalExclusionReason(blockers: StoredUnit["blockers"]): ManifestExclusion["reason"] | null {
+  const codes = new Set(blockers.filter((blocker) => blocker.severity === "error").map((blocker) => blocker.code));
+  if (codes.has("provider-rollout-blocked")) return "rollout-blocked";
+  if (
+    codes.has("provider-adapter-missing") ||
+    codes.has("provider-adapter-diagnostics") ||
+    codes.has("provider-credential-not-ready") ||
+    codes.has("provider-transport-blocked") ||
+    codes.has("provider-plan-unavailable") ||
+    codes.has("credited-provider-preflight-unavailable")
+  ) {
+    return "provider-unavailable";
+  }
+  return null;
 }
 
 function planDrift(part: string): Error {
