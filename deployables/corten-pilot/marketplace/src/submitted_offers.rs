@@ -37,13 +37,14 @@ use corten::{
     prelude::*,
 };
 use futures_util::StreamExt;
-use platform::{realtime::Tick, receipt::Receipt};
+use platform::{api::Actor, realtime::Tick, receipt::Receipt};
 use serde::Deserialize;
 
 use crate::{
     api::{ApiError, LifecycleOutcome, SubmittedOffer, SubmittedOfferCalls as _, SubmittedOffers},
     app::{OFFERS_MANAGE, Shared, read_failed, sign_in},
     auth::{OfferBuyer, Viewer},
+    email_verification,
     items::Raw,
     market_following::{self, Following, Problem},
     text::{Pilot, SubmittedOffersMsg},
@@ -86,7 +87,10 @@ pub struct OfferPlace {
 /// What an offer's page shows.
 pub struct OfferScreen {
     pub offer: SubmittedOffer,
+    /// The reader may take market-following steps (`offers.manage`).
     pub manage: bool,
+    /// The reader may Pause, Resume and Withdraw ([`may_change`]).
+    pub change: bool,
     pub outcomes: Option<Vec<LifecycleOutcome>>,
     pub refusal: Option<String>,
     /// Market following; none in the live parts, which do not draw it.
@@ -103,12 +107,21 @@ pub struct LifecycleForm {
     pub row: String,
 }
 
+/// Whether the reader may Pause, Resume and Withdraw their offers: with `offers.manage`, or while
+/// Auth withholds it from their role until their email is verified, as the Offers API allows (an
+/// account that may submit an offer may take it back).
+pub(crate) fn may_change(actor: &Actor) -> bool {
+    actor.can(OFFERS_MANAGE) || email_verification::awaits(actor, OFFERS_MANAGE)
+}
+
 /// What the page shows.
 pub struct OffersScreen {
     pub offers: SubmittedOffers,
     pub place: Place,
-    /// The reader may Pause, Resume and Withdraw (`offers.manage`).
+    /// The reader may take market-following steps (`offers.manage`).
     pub manage: bool,
+    /// The reader may Pause, Resume and Withdraw ([`may_change`]).
+    pub change: bool,
     /// What the change before did to each offer.
     pub outcomes: Option<Vec<LifecycleOutcome>>,
     /// Why a change was refused as a whole.
@@ -239,8 +252,8 @@ async fn render(
         Followed::ReadFailed(error) => return read_failed(req, Some(viewer), error, None),
     };
     let status = step_status(status, step, following.as_ref());
-    let manage = viewer.actor.can(OFFERS_MANAGE);
-    let screen = OffersScreen { offers, place, manage, outcomes, refusal, following };
+    let (manage, change) = (viewer.actor.can(OFFERS_MANAGE), may_change(&viewer.actor));
+    let screen = OffersScreen { offers, place, manage, change, outcomes, refusal, following };
     let t: SubmittedOffersMsg = req.t();
     let page = html! {
         <Layout req={req} viewer={Some(viewer)} title={t.route_submitted_offers_marketplace()} head={()}>
@@ -363,7 +376,7 @@ pub(crate) async fn live(
 ) -> LiveResponse {
     let place = route.place;
     let (t, p): (SubmittedOffersMsg, Pilot) = (req.t(), req.t());
-    let manage = viewer.actor.can(OFFERS_MANAGE);
+    let (manage, change) = (viewer.actor.can(OFFERS_MANAGE), may_change(&viewer.actor));
     let topic = format!("account:{}:offers", viewer.actor.account_id);
     let changes = config.platform.caller(&headers, config.proto, None).changes(&[&topic], since.0);
     let fragments = changes
@@ -384,7 +397,7 @@ pub(crate) async fn live(
                         return None;
                     }
                 };
-                let screen = OffersScreen { offers, place, manage, outcomes: None, refusal: None, following: None };
+                let screen = OffersScreen { offers, place, manage, change, outcomes: None, refusal: None, following: None };
                 let html = views::submitted_offers_live_parts(t, p, &screen).to_html();
                 Some(match cursor {
                     Some(cursor) => corten::Fragment::new(html).cursor(cursor),
@@ -471,8 +484,8 @@ async fn render_offer(
         Followed::ReadFailed(error) => return read_failed(req, Some(viewer), error, None),
     };
     let status = step_status(status, step, following.as_ref());
-    let manage = viewer.actor.can(OFFERS_MANAGE);
-    let screen = OfferScreen { offer, manage, outcomes, refusal, following };
+    let (manage, change) = (viewer.actor.can(OFFERS_MANAGE), may_change(&viewer.actor));
+    let screen = OfferScreen { offer, manage, change, outcomes, refusal, following };
     let page = html! {
         <Layout req={req} viewer={Some(viewer)} title={t.detail_route_submitted_offer_marketplace()} head={()}>
             <views::SubmittedOfferPage t={t} p={req.t()} screen={&screen} />

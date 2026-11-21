@@ -719,6 +719,8 @@ describe("buyer Offer lifecycle routes", () => {
       eventStore,
       writes: () => appendToStream.mock.calls.length + appendToStreams.mock.calls.length,
       buyer: buildApp({ actor: actorFor("acc_buyer"), services }),
+      buyerAs: (overrides: Readonly<Record<string, unknown>>) =>
+        buildApp({ actor: { ...actorFor("acc_buyer"), ...overrides } as never, services }),
       seller: buildApp({ actor: actorFor("acc_seller", ["offers.view", "offers.manage", "listings.view"]), services }),
     };
   }
@@ -792,6 +794,58 @@ describe("buyer Offer lifecycle routes", () => {
     expect(replay.headers.get("Chase-Sets-Commit-Receipt")).toBe(repriced.headers.get("Chase-Sets-Commit-Receipt"));
     expect(replay.headers.get("Chase-Sets-Commit-Receipt")).not.toBeNull();
     expect(writes()).toBe(writesBeforeReplay);
+  });
+
+  it("lets an owner whose offers.manage awaits email verification pause, resume and withdraw their own Offers", async () => {
+    const { buyerAs } = await lifecycleApps({ off_1: "acc_buyer", off_2: "acc_buyer", off_other: "acc_other" });
+    const unverified = buyerAs({ roleKey: "owner", permissions: ["offers.view"] });
+    await expect((await post(unverified, "/offers/submitted/off_1/pause")).json()).resolves.toMatchObject({
+      status: "paused",
+      outcome: "changed",
+    });
+    await expect((await post(unverified, "/offers/submitted/off_1/resume")).json()).resolves.toMatchObject({
+      status: "submitted",
+      outcome: "changed",
+    });
+    await expect((await post(unverified, "/offers/submitted/off_1/withdraw")).json()).resolves.toMatchObject({
+      status: "withdrawn",
+      outcome: "changed",
+    });
+    const bulk = await post(unverified, "/offers/submitted/bulk", {
+      action: "withdraw",
+      offerIds: ["off_2", "off_other"],
+    });
+    expect(bulk.status).toBe(200);
+    await expect(bulk.json()).resolves.toMatchObject({
+      items: [
+        { offerId: "off_2", outcome: "changed", status: "withdrawn" },
+        { offerId: "off_other", outcome: "rejected", code: "not_found" },
+      ],
+    });
+    const other = await post(unverified, "/offers/submitted/off_other/withdraw");
+    expect(other.status).toBe(404);
+  });
+
+  it.each([
+    ["a role without offers.manage", { roleKey: "viewer", permissions: ["offers.view"] }],
+    [
+      "an agent the owner granted offers.view",
+      { roleKey: "owner", permissions: ["offers.view"], agentGrant: { grantId: "agt_1", scopes: ["offers.view"] } },
+    ],
+  ])("refuses %s every lifecycle command with no write", async (_label, overrides) => {
+    const { buyerAs, writes } = await lifecycleApps({ off_1: "acc_buyer" });
+    const app = buyerAs(overrides);
+    for (const [path, body] of [
+      ["/offers/submitted/off_1/pause", {}],
+      ["/offers/submitted/off_1/resume", {}],
+      ["/offers/submitted/off_1/withdraw", {}],
+      ["/offers/submitted/bulk", { action: "withdraw", offerIds: ["off_1"] }],
+    ] as const) {
+      const response = await post(app, path, body);
+      expect(response.status).toBe(403);
+      await expect(response.json()).resolves.toMatchObject({ error: { code: "authorization_forbidden" } });
+    }
+    expect(writes()).toBe(0);
   });
 
   it("keeps a withdrawn Offer final: it cannot be resumed, re-priced or accepted", async () => {

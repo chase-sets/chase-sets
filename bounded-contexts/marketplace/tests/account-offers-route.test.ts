@@ -1308,6 +1308,44 @@ describe("Submitted Offers lifecycle route", () => {
     ).rejects.toMatchObject({ status: 400 });
   });
 
+  it.each([
+    ["an owner whose offers.manage awaits email verification", "owner", true],
+    ["a role without offers.manage", "viewer", false],
+  ])("decides Offer lifecycle access for %s (role %s)", async (_label, roleKey, allowed) => {
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.includes("/api/auth/session"))
+          return jsonResponse({ actor: { ...actor, roleKey, permissions: ["offers.view"] } });
+        calls.push(new URL(url).pathname);
+        return jsonResponse({ id: "off_1", version: 3, status: "withdrawn", outcome: "changed" });
+      }),
+    );
+    const action = submittedOffersAction({
+      request: new Request("http://localhost/account/offers/submitted", {
+        method: "POST",
+        body: new URLSearchParams([
+          ["intent", "offer-lifecycle"],
+          ["lifecycleAction", "withdraw"],
+          ["offerId", "off_1"],
+        ]),
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+    if (!allowed) {
+      await expect(action).rejects.toMatchObject({ status: 403 });
+      expect(calls).toEqual([]);
+      return;
+    }
+    await expect(action.then((result) => result.data)).resolves.toEqual({
+      lifecycle: { outcomes: [{ offerId: "off_1", outcome: "changed", status: "withdrawn", version: 3 }] },
+    });
+    expect(calls).toEqual(["/api/marketplace/account/offers/submitted/off_1/withdraw"]);
+  });
+
   it("reports closed lifecycle admission on every selected Offer, single or bulk", async () => {
     let closedCode = "offer_lifecycle_closed";
     vi.stubGlobal(

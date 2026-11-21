@@ -1,3 +1,4 @@
+import { permissionAwaitsEmailVerification } from "@chase-sets/auth-context";
 import { t } from "@chase-sets/localization";
 import { useEffect, useRef } from "react";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
@@ -73,11 +74,20 @@ async function submittedOfferLifecycleAction(
 }
 
 export async function action({ request }: ActionFunctionArgs) {
-  await requireActorFromAuthApi({ request, permission: "offers.manage" });
-  const api = createMarketplaceRequestApiClient(request);
   const lifecycleForm = await request.clone().formData();
-  if (lifecycleForm.get("intent") === SUBMITTED_OFFER_LIFECYCLE_INTENT)
-    return data(await submittedOfferLifecycleAction(lifecycleForm, api));
+  const lifecycle = lifecycleForm.get("intent") === SUBMITTED_OFFER_LIFECYCLE_INTENT;
+  const actor = await requireActorFromAuthApi({ request, permission: lifecycle ? "offers.view" : "offers.manage" });
+  // A buyer may pause, resume and withdraw what they submitted while Auth withholds offers.manage
+  // pending email verification, as the Offers API allows.
+  if (
+    lifecycle &&
+    !actor.permissions.includes("offers.manage") &&
+    !permissionAwaitsEmailVerification(actor, "offers.manage")
+  ) {
+    throw new Response("Forbidden.", { status: 403 });
+  }
+  const api = createMarketplaceRequestApiClient(request);
+  if (lifecycle) return data(await submittedOfferLifecycleAction(lifecycleForm, api));
   const headers = new Headers();
   const result = await submittedOfferPolicyAction(request, {
     ...api,
