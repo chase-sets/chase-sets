@@ -6323,10 +6323,8 @@ async fn a_listing_the_input_or_the_api_refuses_says_why_in_its_form() {
     let product = form.split(r#"name="product" value=""#).nth(1).and_then(|s| s.split('"').next()).unwrap().replace("&amp;", "&");
     assert!(product.contains("chc_graded"), "{product}");
     let graded_attempt = "2c7e4d2f-5e3b-4c9f-8a11-234567890abc";
-    let graded = format!(
-        "{address}&product={}&attempt={graded_attempt}&price=700&currency=USD&quantity=1",
-        crate::api::segment(&product)
-    );
+    let graded =
+        format!("{address}&product={}&attempt={graded_attempt}&price=700&currency=USD&quantity=1", crate::api::segment(&product));
     let (status, _, html) = pilot.send(post(LIST, "lister", &graded, false)).await;
     assert_ne!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     let calls = pilot.stand.calls.lock().unwrap().clone();
