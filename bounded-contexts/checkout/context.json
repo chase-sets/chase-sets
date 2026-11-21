@@ -6,8 +6,15 @@
   "streamPrefix": "checkout.",
   "apiBasePath": "/api/marketplace",
   "slices": ["cart", "command-attempts", "sell-list", "sessions", "support-lookup"],
-  "allowedSupportDirectories": ["request-support", "route-support", "runtime-support", "seed-support", "ucp-support"],
-  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
+  "allowedSupportDirectories": [
+    "request-support",
+    "route-support",
+    "runtime-support",
+    "seed-support",
+    "ucp-support",
+    "ui-support"
+  ],
+  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./web"],
   "allowedContextDependencies": [
     "@chase-sets/auth",
     "@chase-sets/commercial-terms",
@@ -1459,6 +1466,11 @@
       "classification": "support",
       "purpose": "Provide Checkout-owned UCP adapters for AI-agent checkout operations without moving buyer authorization or session lifecycle rules into deployables.",
       "expectedConsumers": ["platform-api UCP composition"]
+    },
+    "ui-support": {
+      "classification": "support",
+      "purpose": "Publish the sessions slice's in-chat checkout session review and handoff views through the web surface for MCP Apps widgets.",
+      "expectedConsumers": ["Agent Apps widget entries"]
     },
     "routes": {
       "classification": "routes",
