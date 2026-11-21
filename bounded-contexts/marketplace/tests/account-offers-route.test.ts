@@ -1346,6 +1346,38 @@ describe("Submitted Offers lifecycle route", () => {
     expect(calls).toEqual(["/api/marketplace/account/offers/submitted/off_1/withdraw"]);
   });
 
+  it.each(["preview", "authorize"])(
+    "refuses a market-following %s step from an owner whose offers.manage awaits email verification",
+    async (step) => {
+      const calls: string[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: string | URL | Request) => {
+          const url = String(input);
+          if (url.includes("/api/auth/session"))
+            return jsonResponse({ actor: { ...actor, roleKey: "owner", permissions: ["offers.view"] } });
+          calls.push(new URL(url).pathname);
+          return jsonResponse({});
+        }),
+      );
+      const action = submittedOffersAction({
+        request: new Request("http://localhost/account/offers/submitted", {
+          method: "POST",
+          body: new URLSearchParams([
+            ["step", step],
+            ["policyId", "bop_1"],
+            ["offerId", "off_1"],
+          ]),
+        }),
+        params: {},
+        context: undefined,
+      } as never);
+
+      await expect(action).rejects.toMatchObject({ status: 403 });
+      expect(calls).toEqual([]);
+    },
+  );
+
   it("reports closed lifecycle admission on every selected Offer, single or bulk", async () => {
     let closedCode = "offer_lifecycle_closed";
     vi.stubGlobal(

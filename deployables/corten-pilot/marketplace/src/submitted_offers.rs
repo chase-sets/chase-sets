@@ -114,6 +114,14 @@ pub(crate) fn may_change(actor: &Actor) -> bool {
     actor.can(OFFERS_MANAGE) || email_verification::awaits(actor, OFFERS_MANAGE)
 }
 
+/// Whether the reader may follow the market with their offers: only with `offers.manage`, as the
+/// route's action requires. Following creates and authorizes a repricing policy, which the Offer
+/// policy API checks only for a sign-in, so awaiting verification admits the changes above and not
+/// this.
+fn may_follow(actor: &Actor) -> bool {
+    actor.can(OFFERS_MANAGE)
+}
+
 /// What the page shows.
 pub struct OffersScreen {
     pub offers: SubmittedOffers,
@@ -252,7 +260,7 @@ async fn render(
         Followed::ReadFailed(error) => return read_failed(req, Some(viewer), error, None),
     };
     let status = step_status(status, step, following.as_ref());
-    let (manage, change) = (viewer.actor.can(OFFERS_MANAGE), may_change(&viewer.actor));
+    let (manage, change) = (may_follow(&viewer.actor), may_change(&viewer.actor));
     let screen = OffersScreen { offers, place, manage, change, outcomes, refusal, following };
     let t: SubmittedOffersMsg = req.t();
     let page = html! {
@@ -284,6 +292,9 @@ pub(crate) async fn follow(
     Params(route): Params<crate::app::url::submitted_offers::SubmittedOffersFollowing>,
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
+    if !may_follow(&viewer.actor) {
+        return Err(Refused::forbidden().into());
+    }
     render(&req, &viewer, &config, &headers, route.place, None, None, None, Some(&raw), StatusCode::OK).await
 }
 
@@ -376,7 +387,7 @@ pub(crate) async fn live(
 ) -> LiveResponse {
     let place = route.place;
     let (t, p): (SubmittedOffersMsg, Pilot) = (req.t(), req.t());
-    let (manage, change) = (viewer.actor.can(OFFERS_MANAGE), may_change(&viewer.actor));
+    let (manage, change) = (may_follow(&viewer.actor), may_change(&viewer.actor));
     let topic = format!("account:{}:offers", viewer.actor.account_id);
     let changes = config.platform.caller(&headers, config.proto, None).changes(&[&topic], since.0);
     let fragments = changes
@@ -484,7 +495,7 @@ async fn render_offer(
         Followed::ReadFailed(error) => return read_failed(req, Some(viewer), error, None),
     };
     let status = step_status(status, step, following.as_ref());
-    let (manage, change) = (viewer.actor.can(OFFERS_MANAGE), may_change(&viewer.actor));
+    let (manage, change) = (may_follow(&viewer.actor), may_change(&viewer.actor));
     let screen = OfferScreen { offer, manage, change, outcomes, refusal, following };
     let page = html! {
         <Layout req={req} viewer={Some(viewer)} title={t.detail_route_submitted_offer_marketplace()} head={()}>
@@ -517,6 +528,9 @@ pub(crate) async fn follow_one(
     Params(route): Params<crate::app::url::submitted_offers::SubmittedOfferFollowing<'_>>,
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
+    if !may_follow(&viewer.actor) {
+        return Err(Refused::forbidden().into());
+    }
     render_offer(&req, &viewer, &config, &headers, &route.id, None, None, None, None, Some(&raw), StatusCode::OK).await
 }
 

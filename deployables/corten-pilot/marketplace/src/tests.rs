@@ -564,13 +564,13 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             // Payout setup: `setter` has not started, `restricted_setter` is restricted with a
             // provider account (its management session asks it to sign in again).
             "setter" | "restricted_setter" => actor(&["payouts.view", "payouts.setup"]),
-            // An owner whose orders.manage Auth withholds until its email is verified, and an agent
-            // acting for an owner with the same permissions (never asked to verify).
             // An owner whose offers.manage Auth withholds until its email is verified.
             "offers_unverified" => Json(json!({ "actor": {
                 "userId": "usr_seller", "accountId": "acc_seller", "roleKey": "owner", "permissions": ["offers.view", "listings.view"],
             } }))
             .into_response(),
+            // An owner whose orders.manage Auth withholds until its email is verified, and an agent
+            // acting for an owner with the same permissions (never asked to verify).
             "unverified" | "unverified_agent" => {
                 let mut actor = json!({ "userId": "usr_buyer", "accountId": "acc_buyer", "roleKey": "owner", "permissions": ["orders.view"] });
                 if session == "unverified_agent" {
@@ -13038,6 +13038,28 @@ async fn an_owner_whose_offers_manage_awaits_email_verification_may_still_change
     let (status, _, html) = pilot.send(get("/account/offers/submitted/off_open", Some("offers_unverified"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains(r#"name="row" value="pause:off_open""#), "{html}");
+}
+
+#[tokio::test]
+async fn an_owner_awaiting_email_verification_may_not_follow_the_market() {
+    // Following creates and authorizes a repricing policy, which needs offers.manage itself.
+    let pilot = Pilot::new().await;
+    let steps = [
+        format!(
+            "step=preview&policyId=bop_new2&expectedVersion=0&attemptId={POLICY_ATTEMPT}&operationId=op_1&offerId=off_open&cap.off_open=18.5&adjustment=-5"
+        ),
+        format!(
+            "step=authorize&policyId=bop_new2&expectedVersion=0&attemptId={POLICY_ATTEMPT}&operationId=op_1&offerId=off_open&cap.off_open=18.5&adjustment=-5"
+        ),
+    ];
+    for here in ["/account/offers/submitted/following", "/account/offers/submitted/off_open/following"] {
+        for step in &steps {
+            let (status, _, _) = pilot.send(post(here, "offers_unverified", step, false)).await;
+            assert_eq!(status, StatusCode::FORBIDDEN, "{here} {step}");
+        }
+    }
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    assert!(!calls.iter().any(|c| c.path.contains("/offer-policies")), "{calls:?}");
 }
 
 #[tokio::test]
