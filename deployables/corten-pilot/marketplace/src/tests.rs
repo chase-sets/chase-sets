@@ -23134,9 +23134,15 @@ async fn each_request_is_a_span_named_by_its_route_and_its_api_calls_carry_it() 
     let provider = opentelemetry_sdk::trace::SdkTracerProvider::builder().with_simple_exporter(exporter.clone()).build();
     opentelemetry::global::set_text_map_propagator(TraceContextPropagator::new());
     let subscriber = tracing_subscriber::registry().with(tracing_opentelemetry::layer().with_tracer(provider.tracer("test")));
+    // With one dispatcher registered, tracing-core settles a callsite another test's thread meets
+    // first by that thread's default, which has no subscriber: never. A second, empty dispatcher
+    // makes every callsite ask each one, so this thread's subscriber is asked too.
+    let _others = tracing::Dispatch::new(tracing::subscriber::NoSubscriber::default());
     let _traced = tracing::subscriber::set_default(subscriber);
 
     let pilot = Pilot::new().await;
+    // And a callsite another thread was settling while the two were registered is asked again.
+    tracing::callsite::rebuild_interest_cache();
     let (status, _, html) = pilot.send(get("/search?q=pika", Some("buyer"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     provider.force_flush().unwrap();
