@@ -97,6 +97,9 @@ export const authEnglishTranslations = {
   "auth.routes.marketplace.accountGate.purchase.cancel.verify.description":
     "Enter the email on your account. Opening the link we send verifies that email and brings you back to your purchase, where you can cancel it.",
   "auth.routes.marketplace.accountGate.purchase.cancel.verify.title": "Verify your email to cancel this purchase",
+  "auth.routes.marketplace.accountGate.purchase.pay.verify.description":
+    "Enter the email on your account. Opening the link we send verifies that email and brings you back to your purchase, where you can pay for it.",
+  "auth.routes.marketplace.accountGate.purchase.pay.verify.title": "Verify your email to pay for this purchase",
   "auth.routes.marketplace.accountGate.seller.checkout.description":
     "Your Sell List is saved. An account is required before offer acceptance, listing publication, payout, or shipping label work starts.",
   "auth.routes.marketplace.accountGate.seller.checkout.title": "Use an account to continue seller checkout",

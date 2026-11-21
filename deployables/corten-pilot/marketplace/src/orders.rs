@@ -103,6 +103,8 @@ pub struct OrderScreen {
     /// For a buyer whose cancel Auth withheld until their email is verified, the sign-in that
     /// verifies it and comes back (account-purchase's `verify-email` cancel authority).
     pub verify_email: Option<String>,
+    /// The same for paying (account-purchase's `verifyEmailToPayHref`).
+    pub verify_email_to_pay: Option<String>,
 }
 
 pub fn list_href(side: Side, page: Paging) -> String {
@@ -231,10 +233,12 @@ async fn order(
         Err(error) => return order_failed(req, viewer, side, error, receipt.is_some()),
     };
     let may_cancel = viewer.actor.can(ORDERS_MANAGE);
-    let verify_email = (side == Side::Buyer && email_verification::awaits(&viewer.actor, ORDERS_MANAGE)).then(|| {
-        email_verification::sign_in_href(&url::Purchase { id, after: Default::default() }.href(), Purpose::CancelPurchase)
-    });
-    let screen = OrderScreen { side, order, notice: None, may_cancel, verify_email };
+    // Cancel and Pay now both need orders.manage; one verified email unlocks both.
+    let verify = side == Side::Buyer && email_verification::awaits(&viewer.actor, ORDERS_MANAGE);
+    let purchase = url::Purchase { id, after: Default::default() }.href();
+    let verify_email = verify.then(|| email_verification::sign_in_href(&purchase, Purpose::CancelPurchase));
+    let verify_email_to_pay = verify.then(|| email_verification::sign_in_href(&purchase, Purpose::PayPurchase));
+    let screen = OrderScreen { side, order, notice: None, may_cancel, verify_email, verify_email_to_pay };
     render(req, viewer, screen, StatusCode::OK)
 }
 
@@ -279,7 +283,14 @@ async fn cancel(req: &Req, viewer: &Viewer, config: &Config, headers: &HeaderMap
     render(
         req,
         viewer,
-        OrderScreen { side, order: Some(order), notice: Some(message), may_cancel: true, verify_email: None },
+        OrderScreen {
+            side,
+            order: Some(order),
+            notice: Some(message),
+            may_cancel: true,
+            verify_email: None,
+            verify_email_to_pay: None,
+        },
         status,
     )
 }

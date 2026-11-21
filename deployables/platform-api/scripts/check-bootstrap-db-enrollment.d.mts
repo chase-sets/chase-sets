@@ -74,7 +74,7 @@ export interface BootstrapDbSchedule {
   readonly files: readonly BootstrapDbScheduledFile[];
   readonly observedUnitCount: number;
   readonly minimumUnitCount: number | null;
-  /** The minimum the shipped unit count is compared with: minimumUnitCount, raised to the shipped count by an applied floor. */
+  /** The maximum of the model, the boot-capacity requirement, and any applicable measured floor. */
   readonly effectiveMinimumUnitCount: number | null;
   readonly measuredOneFewerUnitFloor: BootstrapDbMeasuredOneFewerUnitFloorVerdict;
   readonly aggregateMs: number;
@@ -120,6 +120,7 @@ export function checkBootstrapDbEnrollment(
     platformApiRoot?: string;
     manifest?: Readonly<Record<string, BootstrapDbEnrollmentPartition>>;
     executionUnitBootBearingCaseCeilings?: Readonly<Record<string, number>>;
+    requiredBootBearingCapacity?: number;
     /** Untrusted input validated against the closed JSON-like plain-record contract before use. */
     scheduleModel?: unknown;
     nonBootstrapCensus?: PlatformApiNonBootstrapDbCensus;

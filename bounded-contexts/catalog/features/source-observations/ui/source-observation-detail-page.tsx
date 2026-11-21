@@ -18,19 +18,32 @@ export function SourceObservationDetailPage({
   const [rejectReason, setRejectReason] = useState("");
   const imageUrl = data ? firstImageUrl(data) : undefined;
 
-  async function handlePromote() {
-    await promoteSourceObservation(id);
-    addToast(t("catalog.features.sourceObservations.ui.detail.promoted"), "success");
+  // A refused review leaves the observation as it was and says why.
+  async function review(write: () => Promise<unknown>, successTitle: string) {
+    try {
+      await write();
+    } catch (reviewError) {
+      addToast(
+        t("catalog.features.sourceObservations.ui.detail.reviewRefused"),
+        "danger",
+        reviewError instanceof Error ? reviewError.message : undefined,
+      );
+      return;
+    }
+    addToast(successTitle, "success");
     refresh();
   }
 
-  async function handleReject() {
-    await rejectSourceObservation(
-      id,
-      rejectReason || t("catalog.features.sourceObservations.ui.detail.rejected.reason"),
+  function handlePromote() {
+    return review(() => promoteSourceObservation(id), t("catalog.features.sourceObservations.ui.detail.promoted"));
+  }
+
+  function handleReject() {
+    return review(
+      () =>
+        rejectSourceObservation(id, rejectReason || t("catalog.features.sourceObservations.ui.detail.rejected.reason")),
+      t("catalog.features.sourceObservations.ui.detail.rejected"),
     );
-    addToast(t("catalog.features.sourceObservations.ui.detail.rejected"), "success");
-    refresh();
   }
 
   return (

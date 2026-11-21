@@ -7,19 +7,32 @@ import { createId } from "@chase-sets/primitives/typed-ids";
 import { RiskAlertActionRejectedError, type RiskAlertAction } from "./contracts";
 import { buildRiskAlertProjectionHandlers } from "../read-model/projection";
 import { getRiskAlertQueueItem, getRiskAlertQueueMetrics, listRiskAlertQueue } from "../read-model/queries";
+import type { PayoutReviewHoldCrossContextPort } from "./cross-context";
 
 export type RiskAlertServices = Readonly<{
   listRiskAlertQueue: (params: Parameters<typeof listRiskAlertQueue>[1]) => ReturnType<typeof listRiskAlertQueue>;
   getRiskAlertQueueItem: (alertId: string) => ReturnType<typeof getRiskAlertQueueItem>;
   getRiskAlertQueueMetrics: () => ReturnType<typeof getRiskAlertQueueMetrics>;
   recordRiskAlertAction: (
-    params: Readonly<{ alertId: string; action: RiskAlertAction; note: string | null; operatorUserId: string | null }>,
+    params: Readonly<{
+      alertId: string;
+      action: RiskAlertAction;
+      note: string | null;
+      operatorUserId: string | null;
+      actorPermissions?: readonly string[];
+    }>,
     context: EventStoreContext,
   ) => Promise<{ actionId: string; recordedAt: string }>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
-export function createRiskAlertRuntime(deps: Readonly<{ db: PgQueryable; eventStore: EventStore }>): RiskAlertServices {
+export function createRiskAlertRuntime(
+  deps: Readonly<{
+    db: PgQueryable;
+    eventStore: EventStore;
+    payoutReviewHoldCrossContext?: PayoutReviewHoldCrossContextPort;
+  }>,
+): RiskAlertServices {
   return {
     listRiskAlertQueue: (params) => listRiskAlertQueue(deps.db, params),
     getRiskAlertQueueItem: (alertId) => getRiskAlertQueueItem(deps.db, alertId),
@@ -29,8 +42,22 @@ export function createRiskAlertRuntime(deps: Readonly<{ db: PgQueryable; eventSt
       if (!alert) {
         throw new RiskAlertActionRejectedError("alert-not-found");
       }
-      if (params.action === "request-manual-payout-review" && !alert.manual_payout_review_candidate) {
-        throw new RiskAlertActionRejectedError("action-not-allowed");
+      if (params.action === "request-manual-payout-review") {
+        if (!alert.manual_payout_review_candidate) {
+          throw new RiskAlertActionRejectedError("action-not-allowed");
+        }
+        if (!deps.payoutReviewHoldCrossContext) throw new Error("Settlement payout review hold is not mounted.");
+        const reason = params.note?.trim() || `Risk alert ${params.alertId}`;
+        if (reason.length > 500) throw new Error("Risk alert note must be 500 characters or fewer.");
+        await deps.payoutReviewHoldCrossContext.placeRiskAlertHold(
+          {
+            accountId: alert.account_id,
+            reason,
+            sourceReference: params.alertId,
+            actorPermissions: params.actorPermissions ?? [],
+          },
+          context,
+        );
       }
 
       const actionId = createId("raa");

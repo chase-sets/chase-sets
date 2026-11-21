@@ -55,11 +55,15 @@ describe("membership role permission projection", () => {
   });
 
   it.each(ROLE_KEYS)("writes the canonical role table on grant and role change: %s", async (roleKey) => {
-    expect(await projectedPermissions(roleKey)).toEqual({
+    const written = await projectedPermissions(roleKey);
+    expect(written).toEqual({
       "identity.membership.granted": ROLE_PERMISSIONS[roleKey],
       "identity.membership.role-changed": ROLE_PERMISSIONS[roleKey],
     });
-    for (const permissions of Object.values(await projectedPermissions(roleKey))) {
+    for (const permissions of Object.values(written)) {
+      expect(permissions.filter((key) => key === "payout-review-holds.manage")).toEqual(
+        roleKey === "platform-admin" ? ["payout-review-holds.manage"] : [],
+      );
       expect(permissions.includes("customer-feedback.privacy.export-sensitive-feedback")).toBe(
         roleKey === "platform-admin",
       );
