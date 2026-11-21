@@ -442,7 +442,7 @@ describe("marketplace listings workbench", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Turn on listings" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "End Away" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Update away settings" })).toBeTruthy();
     expect((screen.getByLabelText("Reason") as HTMLSelectElement).value).toBe("travel");
     expect((screen.getByLabelText("Available again on") as HTMLInputElement).value).toBe("2026-07-20");
@@ -457,7 +457,7 @@ describe("marketplace listings workbench", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Turn off listings" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Turn on listings" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Go Away" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "End Away" })).toBeNull();
   });
 });

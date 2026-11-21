@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MarketplaceSubmittedOfferListPage } from "./submitted-offer-list-page";
 import type { SubmittedOfferListItem } from "./contracts";
@@ -49,6 +49,10 @@ function renderPage(overrides: Partial<Parameters<typeof MarketplaceSubmittedOff
 }
 
 describe("Submitted Offers list lifecycle controls", () => {
+  it("shows Away on an open Offer without changing its status", () => {
+    renderPage({ data: { items: [{ ...offer("off_away", "submitted", "Charizard"), offers_away: true }] } });
+    expect(within(screen.getByText("Away").parentElement!).getByText("Open")).toBeTruthy();
+  });
   it("filters by Open, Paused, Withdrawn and Accepted with per-status counts", () => {
     const { onStatusFilterChange } = renderPage();
     expect(screen.getByRole("radio", { name: "All (6)" }).getAttribute("aria-checked")).toBe("true");

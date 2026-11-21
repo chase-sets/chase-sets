@@ -1,12 +1,14 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { t } from "@chase-sets/localization";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SourceObservationNormalized } from "../domain/domain";
 import { ToastProvider } from "../../../support/shell-support/ui/toasts";
 import type { SourceObservationDetail } from "./contracts";
+import { ApiError } from "../../../support/shell-support/api/client";
 import { SourceObservationDetailPage } from "./source-observation-detail-page";
-import { useSourceObservation } from "./use-source-observations";
+import { promoteSourceObservation, rejectSourceObservation, useSourceObservation } from "./use-source-observations";
 
 vi.mock("./use-source-observations", () => ({
   useSourceObservation: vi.fn(),
@@ -57,12 +59,12 @@ function observationWith(normalized: SourceObservationNormalized): SourceObserva
   };
 }
 
-function renderDetail(observation: SourceObservationDetail) {
+function renderDetail(observation: SourceObservationDetail, refresh = vi.fn()) {
   vi.mocked(useSourceObservation).mockReturnValue({
     data: observation,
     loading: false,
     error: null,
-    refresh: vi.fn(),
+    refresh,
   });
   render(
     <ToastProvider>
@@ -95,5 +97,50 @@ describe("SourceObservationDetailPage image", () => {
     expect(screen.getByRole("img", { name: "Card image" }).getAttribute("src")).toBe(
       "https://images.example/sets/be02.png",
     );
+  });
+});
+
+describe("SourceObservationDetailPage review", () => {
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it("shows the API's message when Promote is refused and keeps the observation as it was", async () => {
+    vi.mocked(promoteSourceObservation).mockRejectedValue(
+      new ApiError(403, { error: { code: "rollout_paused", message: "Promotion is paused for this provider." } }),
+    );
+    const refresh = vi.fn();
+    renderDetail(observationWith(storedSetReference), refresh);
+
+    fireEvent.click(screen.getByRole("button", { name: t("catalog.features.sourceObservations.ui.detail.promote") }));
+
+    expect(await screen.findByText(t("catalog.features.sourceObservations.ui.detail.reviewRefused"))).toBeTruthy();
+    expect(screen.getByText("Promotion is paused for this provider.")).toBeTruthy();
+    expect(screen.queryByText(t("catalog.features.sourceObservations.ui.detail.promoted"))).toBeNull();
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("shows the API's message when Reject is refused", async () => {
+    vi.mocked(rejectSourceObservation).mockRejectedValue(
+      new ApiError(409, { error: { code: "not_reviewable", message: "This observation is no longer reviewable." } }),
+    );
+    renderDetail(observationWith(storedSetReference));
+
+    fireEvent.click(screen.getByRole("button", { name: t("catalog.features.sourceObservations.ui.detail.reject") }));
+
+    expect(await screen.findByText("This observation is no longer reviewable.")).toBeTruthy();
+    expect(screen.queryByText(t("catalog.features.sourceObservations.ui.detail.rejected"))).toBeNull();
+  });
+
+  it("confirms an accepted review and reloads the observation", async () => {
+    vi.mocked(promoteSourceObservation).mockResolvedValue({} as never);
+    const refresh = vi.fn();
+    renderDetail(observationWith(storedSetReference), refresh);
+
+    fireEvent.click(screen.getByRole("button", { name: t("catalog.features.sourceObservations.ui.detail.promote") }));
+
+    expect(await screen.findByText(t("catalog.features.sourceObservations.ui.detail.promoted"))).toBeTruthy();
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
   });
 });

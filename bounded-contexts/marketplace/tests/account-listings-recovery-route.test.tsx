@@ -386,7 +386,11 @@ describe("Listing recovery through a real data router", () => {
       const alert = screen.getByRole("alert");
       await waitFor(() => expect(document.activeElement).toBe(alert));
       expect(alert.textContent).toBe(t("marketplace.listingRecovery.ambiguous"));
-      expect(screen.getByRole("button", { name: "Turn off listings" }).matches(":disabled")).toBe(true);
+      expect(
+        screen
+          .getByRole("button", { name: t("marketplace.features.listings.ui.listingListPage.away.start") })
+          .matches(":disabled"),
+      ).toBe(true);
       const form = new FormData();
       form.set("intent", "retry-listing-batch");
       await act(async () => {
@@ -416,7 +420,11 @@ describe("Listing recovery through a real data router", () => {
       navigation = fixture.router.navigate(listingRecoveryUrl(path, fixture.reference));
     });
     await screen.findAllByText(t("marketplace.listingRecovery.loading"));
-    expect(screen.getByRole("button", { name: "Turn off listings" }).matches(":disabled")).toBe(true);
+    expect(
+      screen
+        .getByRole("button", { name: t("marketplace.features.listings.ui.listingListPage.away.start") })
+        .matches(":disabled"),
+    ).toBe(true);
     await act(async () => {
       release();
       await navigation;

@@ -288,8 +288,11 @@ struct Known<'a> {
     fully_delivered: bool,
     can_cancel: bool,
     /// Where a buyer whose cancel awaits email verification verifies it, when the order could be
-    /// cancelled (`showVerifyEmailToCancel`).
+    /// cancelled (`verifyEmailToCancel`).
     verify_email: Option<&'a str>,
+    /// Where a buyer whose Pay now awaits email verification verifies it, when the purchase awaits
+    /// payment (`showVerifyEmailToPay`).
+    verify_email_to_pay: Option<&'a str>,
     /// Whether the caller may pay for or cancel the order (`orders.manage`).
     may_manage: bool,
 }
@@ -299,6 +302,8 @@ impl<'a> Known<'a> {
         let delivery = order.delivery_summary.as_ref().filter(|_| side == Side::Buyer);
         let fully_delivered = delivery.is_some_and(|d| d.shipment_count > 0 && d.delivered_count == d.shipment_count);
         let pending = matches!(order.status.as_str(), "pending-payment" | "pending-reservation");
+        // A started payment holds the items until it settles (`canSelfServiceCancel`).
+        let payment_unresolved = order.cancellation_unavailable_reason.as_deref() == Some("payment-unresolved");
         let label = match side {
             Side::Buyer => t.detail_purchase(),
             Side::Seller => t.detail_sale(),
@@ -308,8 +313,9 @@ impl<'a> Known<'a> {
             order,
             label,
             fully_delivered,
-            can_cancel: !fully_delivered && (order.self_service_cancellation_available || pending),
+            can_cancel: !fully_delivered && !payment_unresolved && (order.self_service_cancellation_available || pending),
             verify_email: None,
+            verify_email_to_pay: None,
             may_manage: false,
         }
     }
@@ -324,6 +330,15 @@ impl<'a> Known<'a> {
             Side::Buyer => o.seller_display_name.as_deref().unwrap_or(&o.seller_account_id),
             Side::Seller => o.buyer_display_name.as_deref().unwrap_or(&o.buyer_account_id),
         }
+    }
+
+    /// A buyer's purchase that waits for payment.
+    fn awaiting_payment(&self) -> bool {
+        self.side == Side::Buyer && self.order.status == "pending-payment"
+    }
+
+    fn payment_unresolved(&self) -> bool {
+        self.order.cancellation_unavailable_reason.as_deref() == Some("payment-unresolved")
     }
 
     fn fulfillment_started(&self) -> bool {
@@ -396,6 +411,7 @@ pub fn OrderPage<'a>(t: OrdersMsg, p: Pilot, screen: &'a OrderScreen) -> impl Re
                 back={&back}
                 may_cancel={screen.may_cancel}
                 verify_email={screen.verify_email.as_deref()}
+                verify_email_to_pay={screen.verify_email_to_pay.as_deref()}
             />
         } else {
             <div class={Page}>
@@ -417,9 +433,11 @@ fn OrderView<'a>(
     back: &'a str,
     may_cancel: bool,
     verify_email: Option<&'a str>,
+    verify_email_to_pay: Option<&'a str>,
 ) -> impl Render {
     let mut facts = Known::of(t, side, order);
     facts.verify_email = verify_email.filter(|_| facts.can_cancel && !may_cancel);
+    facts.verify_email_to_pay = verify_email_to_pay.filter(|_| facts.awaiting_payment() && !may_cancel);
     facts.can_cancel &= may_cancel;
     facts.may_manage = may_cancel;
     let eyebrow = match side {
@@ -554,20 +572,30 @@ fn OrderFacts<'a>(t: OrdersMsg, p: Pilot, facts: &'a Known<'a>) -> impl Render {
     };
     let deadline = facts.payment_deadline().map(|at| t.detail_payment_deadline_description(&date_time(t, at)).to_string());
     // Pay now needs orders.manage, as Payments' start does; a buyer without it is told why
-    // instead of being sent to a refusal (chase-sets/chase-sets#11170).
-    let awaiting_payment = facts.side == Side::Buyer && order.status == "pending-payment";
+    // instead of being sent to a refusal (account-purchase's `paymentAuthority`).
+    let awaiting_payment = facts.awaiting_payment();
     let pay = (awaiting_payment && facts.may_manage).then(|| {
         let place = crate::payment_start::StartPlace::of(std::slice::from_ref(&order.order_id));
         crate::app::url::BuyerPaymentNew { place }.href()
     });
-    let cannot_pay = awaiting_payment && !facts.may_manage && facts.verify_email.is_none();
-    let verify_title = if awaiting_payment {
-        p.orders_verify_to_pay_title(&lower).to_string()
-    } else {
-        t.detail_verify_email_to_cancel_title(&lower).to_string()
+    let cannot_pay = awaiting_payment && !facts.may_manage && facts.verify_email_to_pay.is_none();
+    // One verified email unlocks both, so a purchase that can be paid for or cancelled shows one
+    // notice, whose link comes back to pay.
+    let verify = match (facts.verify_email_to_pay, facts.verify_email) {
+        (Some(href), cancel) => {
+            let title = if cancel.is_some() {
+                t.detail_verify_email_to_pay_or_cancel_title(&lower).to_string()
+            } else {
+                t.detail_verify_email_to_pay_title(&lower).to_string()
+            };
+            Some((href, title, t.detail_verify_email_to_pay_description()))
+        }
+        (None, Some(href)) => {
+            Some((href, t.detail_verify_email_to_cancel_title(&lower).to_string(), t.detail_verify_email_to_cancel_description()))
+        }
+        (None, None) => None,
     };
-    let verify_description =
-        if awaiting_payment { p.orders_verify_to_pay_description() } else { t.detail_verify_email_to_cancel_description() };
+    let unresolved = facts.payment_unresolved().then(|| t.detail_payment_unresolved_description(&lower).to_string());
     let support = !(facts.fully_delivered && facts.fulfillment_started());
     let support_label = if facts.fulfillment_started() { t.detail_ask_to_cancel() } else { t.detail_open_support() };
     let fulfillment = (!matches!(order.status.as_str(), "pending-payment" | "pending-reservation")).then(|| match facts.side {
@@ -605,15 +633,21 @@ fn OrderFacts<'a>(t: OrdersMsg, p: Pilot, facts: &'a Known<'a>) -> impl Render {
             if let Some(window) = &window {
                 <p class={(Banner, Info)} role="note">{window}</p>
             }
-            if let Some(verify) = facts.verify_email {
+            if let Some(unresolved) = &unresolved {
+                <div class={(Banner, Warning)} role="note">
+                    <p class={Strong}>{t.detail_payment_unresolved_title()}</p>
+                    <p>{unresolved}</p>
+                </div>
+            }
+            if let Some((href, title, description)) = &verify {
                 <div class={(Banner, Info)} role="note">
-                    <p class={Strong}>{&verify_title}</p>
-                    <p>{verify_description}</p>
-                    <p><a class={Secondary} href={verify}>{t.detail_verify_email()}</a></p>
+                    <p class={Strong}>{title}</p>
+                    <p>{*description}</p>
+                    <p><a class={Secondary} href={*href}>{t.detail_verify_email()}</a></p>
                 </div>
             }
             if cannot_pay {
-                <p class={(Banner, Info)} role="note">{p.orders_cannot_pay()}</p>
+                <p class={(Banner, Info)} role="note">{t.detail_payment_authority_unavailable()}</p>
             }
             <div class={Actions}>
                 if let Some(pay) = &pay {

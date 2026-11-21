@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { formatDateTime } from "@chase-sets/localization";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { TimeAwayCapacityCard, type TimeAwayCapacitySnapshot } from "./time-away-capacity-card";
 import type { MarketplaceSellerListingAvailability, MarketplaceSellerOrderCapacity } from "./contracts";
@@ -47,6 +48,53 @@ afterEach(() => {
 });
 
 describe("TimeAwayCapacityCard states", () => {
+  it("requires a scope, defaults to both, and shows Offers-only Away separately", () => {
+    render(<TimeAwayCapacityCard {...snapshot({ availability: availability({ offers_status: "unavailable" }) })} />);
+    const choice = screen.getByRole("radiogroup", { name: "What does Away cover?" });
+    expect(choice.getAttribute("aria-required")).toBe("true");
+    expect(within(choice).getByRole("radio", { name: "Listings and Offers" }).getAttribute("aria-checked")).toBe(
+      "true",
+    );
+    expect(screen.getByText("Listings available")).toBeTruthy();
+    expect(screen.getByText("Offers away")).toBeTruthy();
+    const form = choice.closest("form")!;
+    expect(new FormData(form).get("scope")).toBe("both");
+    fireEvent.click(within(choice).getByRole("radio", { name: "Offers" }));
+    expect(new FormData(form).get("scope")).toBe("offers");
+  });
+
+  it("keeps a prefilled Resume Instant exact and only submits a new date when entered after narrowing", () => {
+    const resume = "2030-02-01T08:29:00.000Z";
+    render(
+      <TimeAwayCapacityCard
+        {...snapshot({
+          availability: availability({
+            status: "unavailable",
+            offers_status: "unavailable",
+            offers_reason_category: "travel",
+            available_again_on: "2030-02-01",
+            available_again_at: resume,
+            offers_available_again_at: resume,
+          }),
+        })}
+      />,
+    );
+    expect(screen.getByText(`Travel · ${formatDateTime(resume)}`)).toBeTruthy();
+    const choice = screen.getByRole("radiogroup", { name: "What does Away cover?" });
+    const form = choice.closest("form")!;
+    fireEvent.submit(form);
+    expect(new FormData(form).get("availableAgainAt")).toBe(resume);
+    for (const scope of ["Listings", "Offers"]) {
+      fireEvent.click(within(choice).getByRole("radio", { name: scope }));
+      fireEvent.submit(form);
+      expect(new FormData(form).get("availableAgainOn")).toBe("");
+      expect(new FormData(form).get("availableAgainAt")).toBe("");
+    }
+    const on = form.elements.namedItem("availableAgainOn") as HTMLInputElement;
+    fireEvent.change(on, { target: { value: "2030-02-02" } });
+    fireEvent.submit(form);
+    expect(new FormData(form).get("availableAgainAt")).toBe(new Date("2030-02-02T00:00:00").toISOString());
+  });
   // State 1: available (and capacity unset) -- status badge, impact preview,
   // schedule-away-window affordance, and "no cap set" capacity copy.
   it("renders the available state with the impact preview and a schedulable away window", () => {
@@ -54,8 +102,8 @@ describe("TimeAwayCapacityCard states", () => {
 
     // Available state: the disable ("turn off") control is offered, not the
     // enable ("turn on") control; the impact preview and schedulable window show.
-    expect(screen.getByRole("button", { name: "Turn off listings" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Turn on listings" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Go Away" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "End Away" })).toBeNull();
     expect(
       screen.getByText(
         "4 active listings will be hidden from buyers; offer acceptance pauses; orders already in flight are unaffected.",
@@ -63,7 +111,7 @@ describe("TimeAwayCapacityCard states", () => {
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Schedule away window" })).toBeTruthy();
     expect(screen.getByText("No cap set — you'll accept unlimited open orders.")).toBeTruthy();
-    const root = screen.getByRole("button", { name: "Turn off listings" }).closest(".rounded-tokenLg");
+    const root = screen.getByRole("button", { name: "Go Away" }).closest(".rounded-tokenLg");
     expect(root).not.toBeNull();
     const tokens = new Set((root as HTMLElement).className.split(/\s+/));
     expect(tokens.has("bg-surface-2"), "time-away capacity includes bg-surface-2").toBe(true);
@@ -122,8 +170,8 @@ describe("TimeAwayCapacityCard states", () => {
 
     // Away state: the enable ("turn on") control is offered, and the
     // automatic-return notice makes the resume date legible.
-    expect(screen.getByRole("button", { name: "Turn on listings" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Turn off listings" })).toBeNull();
+    expect(screen.getByRole("button", { name: "End Away" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Go Away" })).toBeNull();
     expect(screen.getByText(/Your listings will automatically return on/)).toBeTruthy();
     expect(screen.getByText(/we'll notify you\./)).toBeTruthy();
   });
@@ -148,7 +196,7 @@ describe("TimeAwayCapacityCard states", () => {
 
     // Away-indefinite: enable control is offered, but with no resume instant
     // there is no automatic-return date to promise.
-    expect(screen.getByRole("button", { name: "Turn on listings" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "End Away" })).toBeTruthy();
     expect(screen.queryByText(/will automatically return on/)).toBeNull();
   });
 
