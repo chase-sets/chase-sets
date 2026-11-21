@@ -165,6 +165,7 @@ const cancelButtonName = t("ordering.features.orders.ui.orderDetailPage.cancel.p
   projectionLabel: "purchase",
 });
 const verifyLinkName = t("ordering.features.orders.ui.orderDetailPage.verify.email");
+const payNowName = t("ordering.features.orders.ui.orderDetailPage.pay.now");
 
 describe("purchase cancellation authority on the account purchase route", () => {
   beforeEach(() => {
@@ -185,18 +186,45 @@ describe("purchase cancellation authority on the account purchase route", () => 
     vi.clearAllMocks();
   });
 
-  it("guides an unverified collector to verify instead of offering a Cancel that answers Forbidden", async () => {
+  it("guides an unverified collector to verify instead of offering a Cancel or Pay now that answers Forbidden", async () => {
     actor = unverifiedCollector;
     purchaseApi({ ord_1: pendingPurchase("ord_1") });
 
     const data = await renderPurchase("ord_1");
 
     expect(data.cancelAuthority).toBe("verify-email");
+    expect(data.paymentAuthority).toBe("verify-email");
     expect(screen.queryByRole("button", { name: cancelButtonName })).toBeNull();
+    expect(screen.queryByRole("link", { name: payNowName })).toBeNull();
+    // One verified email unlocks both, so the unpaid purchase shows one notice.
+    expect(
+      screen.getByText(
+        t("ordering.features.orders.ui.orderDetailPage.verify.email.to.pay.or.cancel.title", {
+          projectionLabel: "purchase",
+        }),
+      ),
+    ).toBeTruthy();
     const verify = screen.getByRole("link", { name: verifyLinkName });
     const href = new URL(verify.getAttribute("href")!, "http://localhost");
     expect(href.pathname).toBe("/sign-in");
     expect(href.searchParams.get("signInMethod")).toBe("magic-link");
+    expect(href.searchParams.get("returnTo")).toBe("/account/purchases/ord_1?verifyEmail=pay-purchase");
+  });
+
+  it("asks an unverified collector to verify to cancel a paid purchase", async () => {
+    actor = unverifiedCollector;
+    purchaseApi({ ord_1: pendingPurchase("ord_1", { status: "paid", payment_deadline_at: null }) });
+
+    await renderPurchase("ord_1");
+
+    expect(screen.queryByRole("button", { name: cancelButtonName })).toBeNull();
+    expect(
+      screen.getByText(
+        t("ordering.features.orders.ui.orderDetailPage.verify.email.to.cancel.title", { projectionLabel: "purchase" }),
+      ),
+    ).toBeTruthy();
+    const verify = screen.getByRole("link", { name: verifyLinkName });
+    const href = new URL(verify.getAttribute("href")!, "http://localhost");
     expect(href.searchParams.get("returnTo")).toBe("/account/purchases/ord_1?verifyEmail=cancel-purchase");
   });
 
@@ -219,6 +247,9 @@ describe("purchase cancellation authority on the account purchase route", () => 
 
     expect(data.cancelAuthority).toBe("allowed");
     expect(screen.getByRole("button", { name: cancelButtonName })).toBeTruthy();
+    expect(screen.getByRole("link", { name: payNowName }).getAttribute("href")).toBe(
+      "/account/payments/new?orderIds=ord_1",
+    );
     expect(screen.queryByRole("link", { name: verifyLinkName })).toBeNull();
 
     for (const orderId of ["ord_1", "ord_2"]) {
@@ -238,6 +269,10 @@ describe("purchase cancellation authority on the account purchase route", () => 
     expect(data.cancelAuthority).toBe("unavailable");
     expect(screen.queryByRole("button", { name: cancelButtonName })).toBeNull();
     expect(screen.queryByRole("link", { name: verifyLinkName })).toBeNull();
+    expect(screen.queryByRole("link", { name: payNowName })).toBeNull();
+    expect(
+      screen.getByText(t("ordering.features.orders.ui.orderDetailPage.payment.authority.unavailable")),
+    ).toBeTruthy();
   });
 
   it("keeps a purchase with an unresolved payment protected and visibly unresolved, even for an authorized buyer", async () => {

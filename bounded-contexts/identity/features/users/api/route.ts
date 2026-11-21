@@ -5,6 +5,7 @@ import type { AccountManagementServices } from "../../account-management/api/run
 import { parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import type { IdentityApiEnv } from "../../../api";
 import type { UserServices } from "./runtime";
+import { UserProfileFieldError } from "../domain/errors";
 import { PLATFORM_ADMIN_ROLE_KEY, type AuthMethodKey } from "../../../support/runtime-support/common";
 
 function canManageUser(actor: IdentityApiEnv["Variables"]["actor"], userId: string) {
@@ -70,17 +71,26 @@ export function userRoutes(services: UserServices, accountManagement?: AccountMa
       return c.json(forbidden(), 403);
     }
     const body = await c.req.json();
-    const result = await services.commandHandler({
-      streamId: `identity.user-${userId}`,
-      command: {
-        type: "UpdateUserProfile",
-        displayName: body.displayName,
-        givenName: body.givenName,
-        familyName: body.familyName,
-      },
-      context: c.get("context"),
-    });
-    return c.json({ id: userId, version: result.version, status: result.state.status });
+    try {
+      const result = await services.commandHandler({
+        streamId: `identity.user-${userId}`,
+        command: {
+          type: "UpdateUserProfile",
+          displayName: body.displayName,
+          givenName: body.givenName,
+          familyName: body.familyName,
+        },
+        context: c.get("context"),
+      });
+      return c.json({ id: userId, version: result.version, status: result.state.status });
+    } catch (error) {
+      if (!(error instanceof UserProfileFieldError)) throw error;
+      const message = error.message;
+      return c.json(
+        { error: { code: "validation_failed", message, details: [{ field: error.field, code: error.code, message }] } },
+        400,
+      );
+    }
   });
 
   app.post("/:id/contact-methods", async (c) => {

@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import { parseIsoUtcTimestamp } from "@chase-sets/primitives/iso-utc-timestamp";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useMatches } from "react-router";
 import {
@@ -23,13 +24,21 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   return { overview, history };
 }
 
-function toIsoTimestamp(value: FormDataEntryValue | null): string | null {
-  const raw = typeof value === "string" ? value.trim() : "";
-  if (!raw) {
-    return null;
+// The form sends each effective time as the instant the browser read in the
+// operator's zone (`LocalDateTimeInput`), with the typed text in `<name>Local`.
+// A blank field is `null`; a time that is not an instant is refused rather
+// than read in this server's zone.
+function effectiveTime(formData: FormData, name: string): { ok: true; value: string | null } | { ok: false } {
+  const instant = String(formData.get(name) ?? "").trim();
+  const typed = String(formData.get(`${name}Local`) ?? "").trim();
+  if (!instant && !typed) {
+    return { ok: true, value: null };
   }
-  const parsed = new Date(raw);
-  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+  try {
+    return { ok: true, value: parseIsoUtcTimestamp(instant) };
+  } catch {
+    return { ok: false };
+  }
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
@@ -44,8 +53,13 @@ export async function action({ request, params }: ActionFunctionArgs) {
   }
 
   const status = formData.get("status") === "inactive" ? "inactive" : "active";
-  const effectiveFrom = toIsoTimestamp(formData.get("effectiveFrom")) ?? new Date().toISOString();
-  const effectiveUntil = toIsoTimestamp(formData.get("effectiveUntil"));
+  const from = effectiveTime(formData, "effectiveFrom");
+  const until = effectiveTime(formData, "effectiveUntil");
+  if (!from.ok || !until.ok) {
+    return { error: t("platformOperations.policyConsole.detail.invalidEffectiveTime") };
+  }
+  const effectiveFrom = from.value ?? new Date().toISOString();
+  const effectiveUntil = until.value;
 
   try {
     await createPolicyConsoleRevision(request, policyKey, {

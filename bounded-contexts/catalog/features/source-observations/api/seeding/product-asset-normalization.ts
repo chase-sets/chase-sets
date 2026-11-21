@@ -80,6 +80,19 @@ export type NormalizeProductAssetInput = Readonly<{
   generatedAt: string;
   assetStorage: CatalogAssetStorage;
   imageProcessor?: CatalogImageProcessor;
+  preparedSource?: PreparedProductAssetSource;
+}>;
+
+export type PreparedProductAssetSource = Readonly<{
+  sourceHash: string;
+  displayHash: string;
+  width: number;
+  height: number;
+  variants: readonly Readonly<{
+    body: Uint8Array;
+    width: number;
+    height: number;
+  }>[];
 }>;
 
 export type NormalizeLorcanaImageAssetInput = Readonly<{
@@ -109,30 +122,43 @@ export async function assertDecodableProductAssetSource(body: Uint8Array): Promi
   }
 }
 
+export async function prepareProductAssetSource(
+  sourceBody: Uint8Array,
+  imageProcessor: CatalogImageProcessor = sharpImageProcessor,
+): Promise<PreparedProductAssetSource> {
+  const sourceHash = hashBytes(sourceBody);
+  const displayBody = await imageProcessor.normalizeDisplaySource(sourceBody);
+  const displayHash = hashBytes(displayBody);
+  const metadata = await imageProcessor.metadata(sourceBody);
+  const variants: PreparedProductAssetSource["variants"][number][] = [];
+  for (const spec of PRODUCT_ASSET_VARIANT_SPECS) {
+    variants.push(await imageProcessor.resizeToWebp({ body: displayBody, width: spec.width, quality: spec.quality }));
+  }
+  return { sourceHash, displayHash, ...metadata, variants };
+}
+
 export async function normalizeProductAssetSet(input: NormalizeProductAssetInput): Promise<ProductAssetSet> {
   const imageProcessor = input.imageProcessor ?? sharpImageProcessor;
   const sourceHash = hashBytes(input.sourceBody);
-  const displayBody = await imageProcessor.normalizeDisplaySource(input.sourceBody);
-  const displayHash = hashBytes(displayBody);
-  const sourceMetadata = await imageProcessor.metadata(input.sourceBody);
+  const prepared = input.preparedSource ?? (await prepareProductAssetSource(input.sourceBody, imageProcessor));
+  if (prepared.sourceHash !== sourceHash || prepared.variants.length !== PRODUCT_ASSET_VARIANT_SPECS.length) {
+    throw new Error("Prepared product asset source does not match the source image.");
+  }
+  const displayHash = prepared.displayHash;
   const source = await storeVariant({
     assetStorage: input.assetStorage,
     storageKey: `${input.storageBaseKey}/source-${sourceHash.slice(0, 12)}.webp`,
     body: input.sourceBody,
-    width: sourceMetadata.width,
-    height: sourceMetadata.height,
+    width: prepared.width,
+    height: prepared.height,
     role: "source",
     density: null,
     generatedAt: input.generatedAt,
   });
   const variants: ProductAssetVariant[] = [];
 
-  for (const spec of PRODUCT_ASSET_VARIANT_SPECS) {
-    const resized = await imageProcessor.resizeToWebp({
-      body: displayBody,
-      width: spec.width,
-      quality: spec.quality,
-    });
+  for (const [index, spec] of PRODUCT_ASSET_VARIANT_SPECS.entries()) {
+    const resized = prepared.variants[index];
     variants.push(
       await storeVariant({
         assetStorage: input.assetStorage,

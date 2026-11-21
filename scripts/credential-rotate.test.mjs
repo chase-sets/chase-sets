@@ -65,7 +65,7 @@ vi.mock("node:child_process", async (importOriginal) => {
   };
 });
 
-import { validateCredentialInventory } from "./credential-inventory.mjs";
+import { loadCredentialInventory, validateCredentialInventory } from "./credential-inventory.mjs";
 import { SUBCOMMANDS } from "./ops.mjs";
 import { runCredentialRotate } from "./credential-rotate.mjs";
 
@@ -638,6 +638,18 @@ describe("AC4: proof dispatch and --dry-run", () => {
 });
 
 describe("AC5: only assisted credentials rotate here", () => {
+  it("refuses either agent-only Spaces probe name before prompting", async () => {
+    const inventory = loadCredentialInventory(repositoryRoot);
+    for (const secret of ["SPACES_PROBE_ACCESS_ID", "SPACES_PROBE_SECRET_KEY"]) {
+      const stdin = ttyStdin("\u0003");
+      const result = await rotate(["--secret", secret], { inventory, stdin });
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain(`${secret} has no GitHub scope`);
+      expect(stdin.rawModes).toEqual([]);
+    }
+    expect(gh.calls).toEqual([]);
+  });
+
   it.each([
     ["AUTOMATIC_TOKEN", "AUTOMATIC_TOKEN has rotation automatic; its owner is the automatic rotation tooling"],
     ["COOKIE", "COOKIE has rotation external-owner; its owner is issue #8447"],

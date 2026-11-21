@@ -60,11 +60,12 @@ export function createListingActionAttentionSourceFromReadModel(db: PgQueryable)
         listing_id: string;
         item_title: string | null;
         status: string;
-        updated_at: string;
+        observed_at: string;
         pause_reason: string | null;
         inventory_capacity_recovery_block: string | null;
       }>(
-        `SELECT listing_id, item_title, status, updated_at, pause_reason, inventory_capacity_recovery_block
+        `SELECT listing_id, item_title, status, pause_reason, inventory_capacity_recovery_block,
+                to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS observed_at
          FROM marketplace_listing_pages
          WHERE account_id = $1
            AND status IN ('draft', 'paused')
@@ -80,7 +81,7 @@ export function createListingActionAttentionSourceFromReadModel(db: PgQueryable)
           row.pause_reason === "inventory-capacity" && row.inventory_capacity_recovery_block
             ? `inventory-capacity:${row.inventory_capacity_recovery_block}`
             : row.status,
-        observedAt: row.updated_at,
+        observedAt: row.observed_at,
       }));
     },
   });

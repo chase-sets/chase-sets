@@ -1,4 +1,5 @@
 import type { ProviderSendWindowReadout } from "./providers/provider-send-runtime";
+import type { PreparedProductAssetSource } from "./seeding/product-asset-normalization";
 import type { ProductContentsEvidenceLabelRows } from "./admin/source-observation-evidence-read";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import { type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
@@ -352,6 +353,7 @@ export type RepresentativeCatalogProductAssetSource = Readonly<{
   contentType: string;
   sourceUrl: string | null;
   sourceHash: string;
+  preparedSource?: PreparedProductAssetSource;
 }>;
 
 export type SourceObservationIntegrationJobPayload = Readonly<{

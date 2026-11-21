@@ -4,8 +4,8 @@
 
 This index is generated from the root `@chase-sets/design-system` export surface and the production consumer inventory used by `scripts/check-design-system-dead-exports.mjs`.
 
-- Runtime exports indexed: 365
-- Source modules covered: 129
+- Runtime exports indexed: 367
+- Source modules covered: 131
 - Example consumers scan: production files under `bounded-contexts/` and `deployables/`, excluding tests
 
 | Component/export | Module | One-line purpose | Example consumer file |
@@ -167,6 +167,8 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `ListingPurchasePanel` | `packages/design-system/src/components/checkout/marketplace.tsx` | Purpose not documented; symbol name suggests: Listing Purchase Panel. | `bounded-contexts/discovery/routes/public-listing.tsx` |
 | `LiveRegion` | `packages/design-system/src/primitives/layout.tsx` | Assistive-technology announcement region. | `bounded-contexts/auth/features/account-selection/ui/account-selection-page.tsx` |
 | `LoadingSpinner` | `packages/design-system/src/components/feedback/loading.tsx` | Purpose not documented; symbol name suggests: Loading Spinner. | `bounded-contexts/catalog/features/provider-scope-mapping/ui/unmapped-scope-inbox-page.tsx` |
+| `LocalDateTime` | `packages/design-system/src/components/data-display/local-date-time.tsx` | An instant shown in the reader's time zone. | `bounded-contexts/platform-operations/features/policy-console/ui/policy-console-detail-page.tsx` |
+| `LocalDateTimeInput` | `packages/design-system/src/components/forms/local-date-time-input.tsx` | A date and time the operator enters in their own time zone. | `bounded-contexts/fulfillment/features/return-shipments/ui/facility-intake-page.tsx` |
 | `MarketingImageHero` | `packages/design-system/src/patterns/app-shells/marketing.tsx` | Purpose not documented; symbol name suggests: Marketing Image Hero. | `bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx` |
 | `MarketplaceActionSheet` | `packages/design-system/src/patterns/commerce-overlays.tsx` | Purpose not documented; symbol name suggests: Marketplace Action Sheet. | `No production consumer yet.` |
 | `MarketplaceCartLineItem` | `packages/design-system/src/components/commerce/cart-line-item.tsx` | Purpose not documented; symbol name suggests: Marketplace Cart Line Item. | `bounded-contexts/checkout/features/cart/ui/cart-page.tsx` |

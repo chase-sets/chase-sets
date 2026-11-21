@@ -148,6 +148,8 @@ export const TESTED_DESIGN_SYSTEM_ROOT_EXPORTS = Object.freeze([
   "ListingPurchasePanel",
   "LiveRegion",
   "LoadingSpinner",
+  "LocalDateTime",
+  "LocalDateTimeInput",
   "MarketStatusBadge",
   "MarketingImageHero",
   "MarketplaceActionSheet",
