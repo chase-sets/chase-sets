@@ -82,6 +82,102 @@ pub enum Sync {
     Stale,
 }
 
+/// A scope with its language editions and journey (`CatalogScopeJourneyResponse`,
+/// `GET /scope-records/{id}/journey`): the Catalog API composes both, so a page draws them as given.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScopeJourney {
+    pub scope: ScopeRecord,
+    /// The editions to review; none when the scope has one edition or none.
+    #[serde(default)]
+    pub language_editions: Option<EditionReview>,
+    /// Whether the alias review could not be read (the editions then carry no candidates).
+    #[serde(default)]
+    pub language_edition_review_failed: bool,
+    pub overview: JourneyOverview,
+}
+
+/// `CatalogScopeLanguageEditionReviewReadModel`: the canonical edition first.
+#[derive(Clone, Debug, Deserialize)]
+pub struct EditionReview {
+    pub editions: Vec<EditionSummary>,
+}
+
+/// `CatalogScopeLanguageEditionSummary`.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditionSummary {
+    pub language_code: String,
+    pub is_canonical: bool,
+    pub link_state: EditionLinkState,
+    #[serde(default)]
+    pub pending_candidates: Vec<AliasCandidate>,
+    #[serde(default)]
+    pub accepted_candidates: Vec<AliasCandidate>,
+}
+
+/// `CatalogScopeLanguageEditionLinkState`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum EditionLinkState {
+    Linked,
+    PendingReview,
+    NotYetObserved,
+}
+
+/// `CatalogScopeJourneyOverviewReadModel`.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JourneyOverview {
+    pub condition: JourneyCondition,
+    pub stages: Vec<JourneyStage>,
+    pub edition_count: usize,
+    pub linked_edition_count: usize,
+    pub pending_candidate_count: usize,
+    pub promotion_readiness: Promotion,
+    pub sync_freshness: Sync,
+}
+
+/// `CatalogScopeJourneyCondition`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum JourneyCondition {
+    Empty,
+    PartialFailure,
+    Blocked,
+    Conflict,
+    ProjectionLag,
+    Ready,
+}
+
+/// `CatalogScopeJourneyStage`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+pub struct JourneyStage {
+    pub key: JourneyStageKey,
+    pub status: JourneyStageStatus,
+}
+
+/// `CatalogScopeJourneyStageKey`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum JourneyStageKey {
+    Coverage,
+    Sync,
+    Jobs,
+    Candidates,
+    Promotion,
+}
+
+/// `CatalogScopeJourneyStageStatus`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum JourneyStageStatus {
+    Complete,
+    Current,
+    Upcoming,
+    Blocked,
+}
+
 /// A page of Scope Records (`CatalogScopeRecordListResponse`): the page, the filtered total and the
 /// language editions across every page of that filter.
 #[derive(Clone, Debug, Deserialize, Serialize)]

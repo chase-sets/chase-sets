@@ -260,7 +260,17 @@ function ReceiptActionRouteHarness({
             languageEditions: ["en"],
             updatedAt: "2026-11-06T00:00:00Z",
           },
-          languageEditionAliasReview: aliasReviewReadModel(),
+          languageEditions: null,
+          journeyOverview: {
+            scopeRecordId,
+            condition: "ready",
+            stages: [],
+            editionCount: 1,
+            linkedEditionCount: 1,
+            pendingCandidateCount: 0,
+            promotionReadiness: "live",
+            syncFreshness: "fresh",
+          },
           journey,
         }
       : journey,
