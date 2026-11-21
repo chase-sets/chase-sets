@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { composeModuleSchemaSql } from "@chase-sets/bounded-context-runtime";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { RealtimeProjectionPatch } from "@chase-sets/platform-runtime/realtime";
 import { createPolicyResolver } from "@chase-sets/platform-policy/resolver";
@@ -66,7 +67,7 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
 
   beforeEach(async () => {
     await resetMultiContextTestSchemas(pools);
-    await pools.pricing.query(pricingModule.schemaSql);
+    await pools.pricing.query(composeModuleSchemaSql(pricingModule));
   });
 
   afterAll(async () => {

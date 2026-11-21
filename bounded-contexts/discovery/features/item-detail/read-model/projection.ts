@@ -437,7 +437,7 @@ async function buildProductSchema(db: PgQueryable, blueprintId: string): Promise
 }
 
 async function refreshDiscoveryItemDetailPage(db: PgQueryable, itemId: string): Promise<void> {
-  await refreshDiscoveryItemDetailPages(db, [itemId]);
+  await refreshDiscoveryItemDetailPageChunk(db, [itemId], new Map());
 }
 
 // Rebuilding pages one item at a time (~10 queries per item: item select, four

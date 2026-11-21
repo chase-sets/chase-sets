@@ -22,6 +22,32 @@ describe("session list page heading hierarchy", () => {
   });
 });
 
+describe("session list search", () => {
+  it("draws Search where the list can be searched and only the status where it cannot", () => {
+    const data = { items: [], count: 0, total: 0 };
+    const { unmount } = render(
+      <MemoryRouter>
+        <SessionListPage initialData={data} />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("textbox", { name: "Search" })).toBeTruthy();
+    unmount();
+
+    render(
+      <MemoryRouter>
+        <SessionListPage
+          hrefBase="/account/sessions"
+          initialData={data}
+          filters={{ status: "revoked", search: "" }}
+          searchable={false}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.queryByRole("textbox", { name: "Search" })).toBeNull();
+    expect((screen.getByRole("combobox", { name: "Status" }) as HTMLSelectElement).value).toBe("revoked");
+  });
+});
+
 describe("seeded session list destinations", () => {
   const seededSessions: Session[] = [identitySeedIds.demo, identitySeedIds.support, identitySeedIds.collector].map(
     (fixture) => ({

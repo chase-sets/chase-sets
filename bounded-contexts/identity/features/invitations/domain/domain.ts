@@ -11,6 +11,7 @@ import {
   type RoleAssignmentAuthority,
   type RoleKey,
 } from "../../../support/runtime-support/common";
+import { equalSha256HexDigests } from "../../../support/runtime-support/secret-digests";
 
 export type InvitationState = Readonly<{
   id: InvitationId | null;
@@ -232,5 +233,5 @@ export function validateInvitationAcceptanceToken(state: InvitationState, tokenH
     state.acceptanceTokenExpiresAt !== null && Date.parse(state.acceptanceTokenExpiresAt) > Date.parse(verifiedAt),
     "Invitation acceptance token is expired.",
   );
-  assert(state.acceptanceTokenHash === tokenHash, "Invitation acceptance token is invalid.");
+  assert(equalSha256HexDigests(state.acceptanceTokenHash, tokenHash), "Invitation acceptance token is invalid.");
 }

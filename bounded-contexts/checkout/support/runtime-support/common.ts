@@ -106,6 +106,22 @@ function isDimensionActive(dimension: CheckoutVersionDimension, selections: Reco
   });
 }
 
+export function summarizeCheckoutProductSelection(
+  productSchema: CheckoutVersionSchema | null,
+  selection: readonly VersionSelectedOptionEntry[],
+): string | null {
+  const labels = selection
+    .map(
+      (entry) =>
+        productSchema?.dimensions
+          .find((dimension) => dimension.dimensionId === entry.dimensionId)
+          ?.allowedOptions.find((option) => option.optionId === entry.optionId)
+          ?.label.trim() ?? "",
+    )
+    .filter((label) => label.length > 0);
+  return labels.length > 0 ? labels.join(" / ") : null;
+}
+
 export function createCheckoutProductDescriptor(
   input: Readonly<{
     catalogItemId: string;
