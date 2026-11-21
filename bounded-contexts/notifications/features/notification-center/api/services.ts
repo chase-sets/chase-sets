@@ -8,13 +8,13 @@ import {
   type EmailWebhookGateway,
   type MobileMessageProviderWebhookEvent,
   type MobileMessageWebhookGateway,
-  type NotificationChannelPreference,
   type NotificationPreferenceResolver,
   type NotificationDeliveryOutcomeReporter,
 } from "@chase-sets/outbound-messaging";
 import { createPostgresWebNotificationFeed } from "@chase-sets/web-notifications";
 import {
   defaultNotificationPreferences,
+  deliveryChannelPreferences,
   type NotificationPreference,
   type NotificationPreferenceKey,
 } from "../../preferences/domain/preferences";
@@ -27,6 +27,7 @@ import type { AccountId } from "@chase-sets/primitives/typed-ids";
 
 export {
   defaultNotificationPreferences,
+  isNotificationPreferenceKey,
   type NotificationPreference,
   type NotificationPreferenceKey,
 } from "../../preferences/domain/preferences";
@@ -158,24 +159,8 @@ function createPostgresSupportCaseDirectory(db: PgQueryable): SupportCaseDirecto
 function createNotificationPreferenceResolver(store: NotificationPreferenceStore): NotificationPreferenceResolver {
   return {
     async listPreferences(accountId) {
-      const preferences = await store.listPreferences(accountId);
-      return preferences.map(toChannelPreference);
+      return deliveryChannelPreferences(await store.listPreferences(accountId));
     },
-  };
-}
-
-function toChannelPreference(preference: NotificationPreference): NotificationChannelPreference {
-  if (preference.key === "product-alerts") {
-    return {
-      channel: null,
-      category: "product-alerts",
-      enabled: preference.enabled,
-    };
-  }
-
-  return {
-    channel: preference.key,
-    enabled: preference.enabled,
   };
 }
 

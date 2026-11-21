@@ -112,10 +112,10 @@
       "projectionHandlerSetNames": ["payments-order-cancellation-refund-effect"]
     },
     {
-      "sourceContextName": "identity",
+      "sourceContextName": "settlement",
       "projectionName": "payments-account-risk-source-projection",
       "subscriptionVersion": 1,
-      "eventTypes": ["identity.account.badge-assigned", "identity.account.badge-removed"],
+      "eventTypes": ["settlement.payout-review-hold.placed", "settlement.payout-review-hold.released"],
       "order": 30,
       "projectionHandlerSetNames": ["payments-account-risk-source-projection"]
     },
@@ -207,7 +207,7 @@
     },
     {
       "projectionName": "payments-account-risk-source-projection",
-      "sourceContextNames": ["identity", "payments"],
+      "sourceContextNames": ["settlement", "payments"],
       "ownedTables": ["payments_account_risk_sources"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"

@@ -38,7 +38,7 @@ class DiscoveryProjectionDb implements PgTransactionalPool {
 
     if (sql.includes("discovery_search_item_identity_terms")) {
       if (sql.startsWith("DELETE FROM")) this.identityTerms.delete(String(values[0]));
-      if (sql.startsWith("INSERT INTO")) this.identityTerms.set(String(values[0]), values[1] as string[]);
+      if (sql.includes("INSERT INTO")) this.identityTerms.set(String(values[0]), values[1] as string[]);
       return { rows: [], rowCount: 1 };
     }
 

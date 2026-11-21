@@ -1314,6 +1314,26 @@
       "batches": ["marketplace_checkout"]
     },
     {
+      "changedFiles": ["deployables/agent-apps/tests/product-cards.chromium.spec.ts"],
+      "suiteIds": ["agent_apps"],
+      "batches": ["agent_apps"]
+    },
+    {
+      "changedFiles": ["bounded-contexts/discovery/features/search/ui/agent-product-cards-view.tsx"],
+      "suiteIds": ["marketplace_browse", "agent_apps"],
+      "batches": ["marketplace_browse,agent_apps"]
+    },
+    {
+      "changedFiles": ["infrastructure/platform-runtime/mcp-widget-resources.ts"],
+      "suiteIds": ["agent_apps"],
+      "batches": ["agent_apps"]
+    },
+    {
+      "changedFiles": ["deployables/platform-api/__tests__/mcp-sdk-agent-journey.e2e.test.ts"],
+      "suiteIds": ["platform_mcp_sdk"],
+      "batches": ["platform_mcp_sdk"]
+    },
+    {
       "changedFiles": ["deployables/marketplace/e2e/inventory-recovery.spec.ts"],
       "suiteIds": ["marketplace_seller"],
       "batches": ["marketplace_seller"]

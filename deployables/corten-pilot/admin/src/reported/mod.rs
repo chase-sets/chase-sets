@@ -7,7 +7,7 @@
 //! | Route | Answers |
 //! |---|---|
 //! | `GET /support/reported-content?status&targetType` | the counts and the queue (100 at most, as admin-web reads it) |
-//! | `GET /support/reported-content/{targetType}/{targetId}?after_write&recorded` | a target's page |
+//! | `GET /support/reported-content/{targetType}/{targetId}?after_write` | a target's page |
 //! | `POST /support/reported-content/{targetType}/{targetId}` | a moderation action (`action`, `note`) or `action=acknowledge`, then the page |
 //!
 //! Which actions a target type has is the published contract table
@@ -64,14 +64,13 @@ pub mod url {
         pub target_type: Option<String>,
     }
 
-    /// A reported target's page, after the action whose receipt the address carries, or the time
-    /// the action was recorded when it answered no receipt; a `POST` is a moderation action.
+    /// A reported target's page, after the action whose receipt the address carries; a `POST` is
+    /// a moderation action.
     #[route("/support/reported-content/{target_type}/{target_id}", get = item, post = act)]
     pub struct Item<'a> {
         pub target_type: &'a str,
         pub target_id: &'a str,
         pub after_write: Option<String>,
-        pub recorded: Option<String>,
     }
 }
 
@@ -298,32 +297,7 @@ async fn item(
 ) -> HtmlResult {
     let receipt = Receipt::from_param(route.after_write.as_deref());
     let target = (route.target_type.as_str(), route.target_id.as_str());
-    let after = After { receipt, recorded: route.recorded.as_deref() };
-    draw(&req, &staff.viewer, &config, &headers, target, after, None, StatusCode::OK).await
-}
-
-/// The action a page follows: its receipt, or the time it was recorded when it answered none.
-#[derive(Default)]
-struct After<'a> {
-    receipt: Option<Receipt>,
-    recorded: Option<&'a str>,
-}
-
-/// Whether a page read after an action that answered no receipt, recorded at `recorded`, shows
-/// a latest action older than it.
-fn behind(recorded: Option<&str>, last_action_at: Option<&str>) -> bool {
-    let Some(at) = recorded.and_then(corten::i18n::parse_timestamp) else { return false };
-    last_action_at.and_then(corten::i18n::parse_timestamp).is_none_or(|last| last < at)
-}
-
-/// Where an action's page goes after it: with its receipt, or with the time the API says it
-/// recorded the action (`recordedAt`, or an acknowledgement's `acknowledgedAt`) when it answered
-/// no receipt.
-fn after_action(answer: &serde_json::Value, receipt: Option<&Receipt>) -> (Option<String>, Option<String>) {
-    match receipt {
-        Some(receipt) => (Some(receipt.param()), None),
-        None => (None, answer["recordedAt"].as_str().or_else(|| answer["acknowledgedAt"].as_str()).map(str::to_owned)),
-    }
+    draw(&req, &staff.viewer, &config, &headers, target, receipt, None, StatusCode::OK).await
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -333,7 +307,7 @@ async fn draw(
     config: &Shared,
     headers: &HeaderMap,
     (target_type, target_id): (&str, &str),
-    After { receipt, recorded }: After<'_>,
+    receipt: Option<Receipt>,
     refusal: Option<String>,
     status: StatusCode,
 ) -> HtmlResult {
@@ -351,9 +325,6 @@ async fn draw(
         }
         Err(error) => return read_failed(req, error, receipt.is_some()),
     };
-    // An action answers no receipt (chase-sets/chase-sets#10833): until the target shows an
-    // action or an acknowledgement as late as it, the page says it is still being applied.
-    catching_up |= behind(recorded, item.last_action_at.as_deref()) && behind(recorded, item.acknowledged_at.as_deref());
     let marketplace_href = (item.target_type == "listing")
         .then(marketplace_origin)
         .flatten()
@@ -409,11 +380,9 @@ async fn act(
         caller.request(Method::POST, &format!("{at}/actions"), CONTEXT).json(&json!({ "action": form.action, "note": note }))
     };
     match caller.write::<serde_json::Value>(request).await {
-        // admin-web drops the section here (chase-sets/chase-sets#10832, and for an
-        // acknowledgement chase-sets/chase-sets#11373); the pilot does not.
-        Ok((answer, receipt)) => {
-            let (after_write, recorded) = after_action(&answer, receipt.as_ref());
-            req.redirect(&url::Item { target_type: target.0, target_id: target.1, after_write, recorded })
+        Ok((_, receipt)) => {
+            let after_write = receipt.as_ref().map(Receipt::param);
+            req.redirect(&url::Item { target_type: target.0, target_id: target.1, after_write })
         }
         Err(error) => {
             let status = match error.status() {
@@ -427,7 +396,7 @@ async fn act(
                 StatusCode::CONFLICT | StatusCode::FORBIDDEN | StatusCode::NOT_FOUND => status,
                 _ => StatusCode::UNPROCESSABLE_ENTITY,
             };
-            draw(&req, &staff.viewer, &config, &headers, target, After::default(), refusal, status).await
+            draw(&req, &staff.viewer, &config, &headers, target, None, refusal, status).await
         }
     }
 }
@@ -449,13 +418,5 @@ mod tests {
         assert_eq!(serves("/support/reported-content/listing/lst_1?x=1"), None);
         assert_eq!(serves("/support/reported-contentx"), None);
         assert_eq!(serves("/reported-content/listing/lst_1"), None, "only the sectioned path");
-    }
-
-    #[test]
-    fn a_page_is_behind_until_it_shows_an_action_or_an_acknowledgement_as_late_as_the_write() {
-        let at = Some("2026-11-15T12:00:00.000Z");
-        assert!(behind(at, None) && behind(at, Some("2026-11-15T11:59:59.000Z")));
-        assert!(!behind(at, Some("2026-11-15T12:00:00.000Z")));
-        assert!(!behind(None, None), "a page after a receipt, or after nothing, is not behind");
     }
 }

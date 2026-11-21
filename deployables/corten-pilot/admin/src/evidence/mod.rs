@@ -15,15 +15,10 @@
 //! JavaScript. A rule's fields are parallel lists, one entry per rule; Require buyer acknowledgment
 //! sends its rule's index.
 //!
-//! Where admin-web falls short the pilot does not: an invalid draft's diagnostics are shown
-//! (chase-sets/chase-sets#10878), Validate is offered for a validated draft as well as a draft so
-//! a validated one can still be activated (chase-sets/chase-sets#10879), the effective times are
-//! drawn in the operator's zone and read in the zone the Activate form sends back
-//! (chase-sets/chase-sets#10880), and a write comes back here, under `/platform`
-//! (chase-sets/chase-sets#10877).
-//!
-//! One of the API's own faults shows through: Validate fails for every draft
-//! (chase-sets/chase-sets#10882).
+//! An invalid draft's diagnostics are shown, Validate is offered for a validated draft as well as
+//! a draft so a validated one can still be activated, and a write comes back here, under
+//! `/platform`. The effective times are drawn in the operator's zone and read in the zone the
+//! Activate form sends back (chase-sets/chase-sets#10880).
 use corten::{
     ClientZone,
     form::{DrawZone, FormZone},

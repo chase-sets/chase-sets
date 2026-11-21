@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import {
   buildPricingMarketTradesAuthenticityIntegrityProjectionHandlers,
   buildPricingMarketTradesIdentityIntegrityProjectionHandlers,
@@ -62,6 +63,60 @@ describe("pricing market-trades identity integrity projection", () => {
 describe("pricing market-trades settlement linkage projection", () => {
   const clusterHash = "a".repeat(64);
 
+  it.each(["flagged", "cleared"] as const)(
+    "fences retained %s replay after v1 applied receipts expire",
+    async (fact) => {
+      const { calls, db } = createRecordingDb();
+      const handlers = buildPricingMarketTradesSettlementIntegrityProjectionHandlers(db);
+      const type = `settlement.account-linkage.${fact}`;
+      const streamId = `settlement.account-linkage-${clusterHash}`;
+      const id = `evt_synthetic_${fact}`;
+      const globalPosition = "9007199254740993";
+      await handlers[type]!(
+        buildTransportEvent(
+          type,
+          { clusterHash, signalKind: "shared-address", accountIds: ["acc_a", "acc_b"] },
+          {
+            id,
+            streamId,
+            globalPosition,
+          },
+        ),
+      );
+
+      expect(calls).toHaveLength(1);
+      const { sql, params } = calls[0]!;
+      expect(sql).toContain("pricing_market_trade_linkage_clusters.stream_version <> 0 OR NOT EXISTS");
+      expect(sql).toContain("FROM event_subscription_checkpoints AS legacy");
+      expect(sql).toContain("legacy.checkpoint_key = 'pricing-market-trades-projection:settlement:v1'");
+      expect(sql).toContain("legacy.last_global_position >= $7::bigint");
+      expect(sql).toContain("application.event_id = $8 AND application.status <> 'applied'");
+      expect(sql).toContain("poison.event_id = $8 AND poison.state <> 'resolved'");
+      expect(sql).toContain("blocked.stream_id = $6 AND blocked.state IN ('blocked', 'retrying')");
+      expect(sql).toContain("blocked.first_blocked_global_position <= $7::bigint");
+      expect(params.slice(5)).toEqual([streamId, globalPosition, id]);
+    },
+  );
+
+  it("retains a placement cutoff and excludes only orders created by that instant", async () => {
+    const { calls, db } = createRecordingDb();
+    const handlers = buildPricingMarketTradesSettlementIntegrityProjectionHandlers(db);
+    const placedAt = "2026-07-06T00:00:00.000Z";
+    await handlers["settlement.payout-review-hold.placed"]?.({
+      type: "settlement.payout-review-hold.placed",
+      data: { accountId: "acc_a", reason: "Synthetic review", source: "operator", sourceReference: null },
+      timing: { recordedAt: placedAt },
+    } as never);
+
+    expect(
+      calls.find(({ sql }) => sql.includes("INSERT INTO pricing_market_trade_payout_review_cutoffs"))?.params,
+    ).toEqual(["acc_a", placedAt]);
+    expect(calls.find(({ sql }) => sql.includes("UPDATE pricing_market_trades"))?.sql).toContain(
+      "order_created_at <= $2",
+    );
+    expect(handlers["settlement.payout-review-hold.released"]).toBeUndefined();
+  });
+
   it("projects a flag and applies pair-scoped self-dealing exclusion before queuing affected days", async () => {
     const { calls, db } = createRecordingDb();
     const handlers = buildPricingMarketTradesSettlementIntegrityProjectionHandlers(db);
@@ -70,6 +125,8 @@ describe("pricing market-trades settlement linkage projection", () => {
       type: "settlement.account-linkage.flagged",
       streamId: `settlement.account-linkage-${clusterHash}`,
       streamVersion: 1,
+      globalPosition: "42",
+      id: "evt_synthetic_flag",
       data: { clusterHash, signalKind: "shared-instrument", accountIds: ["acc_b", "acc_a"] },
       timing: { recordedAt: "2026-07-06T00:00:00.000Z" },
     } as never);
@@ -81,11 +138,17 @@ describe("pricing market-trades settlement linkage projection", () => {
     expect(calls[0]?.sql).toContain("WHERE excluded = false");
     expect(calls[0]?.sql).toContain("exclusion_reason = 'self-dealing'");
     expect(calls[0]?.sql).toContain("pricing_market_trade_rollup_rederive_queue");
+    expect(calls[0]?.sql).toContain("pricing_market_trade_linkage_clusters.stream_version < EXCLUDED.stream_version");
+    expect(calls[0]?.sql.match(/EXISTS \(SELECT 1 FROM linkage_state\)/g)).toHaveLength(2);
     expect(calls[0]?.params).toEqual([
       clusterHash,
       "shared-instrument",
       ["acc_a", "acc_b"],
       "2026-07-06T00:00:00.000Z",
+      1,
+      `settlement.account-linkage-${clusterHash}`,
+      "42",
+      "evt_synthetic_flag",
     ]);
   });
 
@@ -106,6 +169,8 @@ describe("pricing market-trades settlement linkage projection", () => {
     expect(calls[0]?.sql).toContain("trade.exclusion_reason = 'self-dealing'");
     expect(calls[0]?.sql).toContain("cluster.cluster_hash <> $1");
     expect(calls[0]?.sql).toContain("SET excluded = false");
+    expect(calls[0]?.sql).toContain("pricing_market_trade_linkage_clusters.stream_version < EXCLUDED.stream_version");
+    expect(calls[0]?.sql).toContain("EXISTS (SELECT 1 FROM linkage_state)");
   });
 });
 

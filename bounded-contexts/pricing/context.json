@@ -257,7 +257,7 @@
     {
       "sourceContextName": "ordering",
       "projectionName": "pricing-market-trades-projection",
-      "subscriptionVersion": 2,
+      "subscriptionVersion": 3,
       "filterToEventTypes": true,
       "eventTypes": [
         "ordering.order.created",
@@ -307,9 +307,13 @@
     {
       "sourceContextName": "settlement",
       "projectionName": "pricing-market-trades-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "filterToEventTypes": true,
-      "eventTypes": ["settlement.account-linkage.flagged", "settlement.account-linkage.cleared"],
+      "eventTypes": [
+        "settlement.account-linkage.flagged",
+        "settlement.account-linkage.cleared",
+        "settlement.payout-review-hold.placed"
+      ],
       "order": 110,
       "projectionHandlerSetNames": ["pricing-market-trades-projection"]
     }
@@ -431,6 +435,7 @@
         "pricing_market_trade_denominations",
         "pricing_market_trade_authenticity_cases",
         "pricing_market_trade_linkage_clusters",
+        "pricing_market_trade_payout_review_cutoffs",
         "pricing_market_trade_rollup_rederive_queue"
       ],
       "requiredDuringBootstrap": true,
@@ -726,7 +731,7 @@
         "api-route:bounded-contexts/pricing/features/bulk-reprice-ingestion/api/route.ts:POST /",
         "api-route:bounded-contexts/pricing/features/bulk-reprice-ingestion/api/route.ts:POST /jobs/:jobId/cancel",
         "post-form:bounded-contexts/pricing/features/bulk-reprice-ingestion/ui/bulk-reprice-page.tsx:H2df726441e2a#1",
-        "post-form:bounded-contexts/pricing/features/bulk-reprice-ingestion/ui/bulk-reprice-page.tsx:H2df726441e2a#2",
+        "post-form:bounded-contexts/pricing/features/bulk-reprice-ingestion/ui/bulk-reprice-page.tsx:H5572ea7ef0df#1",
         "route-action:bounded-contexts/pricing/support/route-support/bulk-reprice/action.ts"
       ],
       "visibleDestination": {
