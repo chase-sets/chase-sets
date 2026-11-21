@@ -111,6 +111,8 @@ describe("in-pod seed command database selection", () => {
       expect(contexts).toHaveLength(20);
       expect(uniquePools.size).toBe(26); // 20 context URLs, control, four distinct waiter URLs, lock holder.
       expect(maxConnections).toBe(26);
+      // Seed and bootstrap commands never open the serving process's Pending Registration lock pool.
+      expect(pools).not.toHaveProperty("pendingRegistrationLocks");
       expect(pools.schemaBootstrapLockPool).not.toBe(pools.auth);
       expect(
         (pools.schemaBootstrapLockPool as unknown as { options: { connectionString: string } }).options

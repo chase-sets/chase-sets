@@ -531,6 +531,113 @@ export async function upsertRegisteredAuthIdentityUserMirror(
   await syncContactMethodLookups(db, params.userId, contactMethods, params.updatedAt);
 }
 
+/**
+ * Pending Registration's User mirror. It is inserted only while the projector
+ * has not written the row yet, so a retried registration can never regress a
+ * newer projected profile, verification or credential.
+ */
+export async function insertRegisteredAuthIdentityUserMirror(
+  db: PgQueryable,
+  params: Readonly<{
+    userId: string;
+    displayName: string;
+    givenName: string;
+    familyName: string;
+    email: string;
+    emailVerifiedAt: string;
+    authMethods: readonly string[];
+    passwordCredentialId: string | null;
+    passkeyCredentialIds: readonly string[];
+    updatedAt: string;
+  }>,
+) {
+  const normalizedEmail = normalizeAuthEmail(params.email);
+  const contactMethods: ContactMethodRow[] = normalizedEmail
+    ? [
+        {
+          contactMethodId: `${params.userId}-primary-email`,
+          type: "email",
+          value: normalizedEmail,
+          verifiedAt: params.emailVerifiedAt,
+        },
+      ]
+    : [];
+
+  const inserted = await upsertRow(db, {
+    table: "auth_identity_users",
+    insertColumns: [
+      "user_id",
+      "display_name",
+      "given_name",
+      "family_name",
+      "primary_email",
+      "status",
+      "contact_methods",
+      "auth_methods",
+      "password_credential_id",
+      "passkey_credential_ids",
+      "social_login_links",
+      "updated_at",
+    ],
+    conflictColumns: ["user_id"],
+    updateColumns: [],
+    values: {
+      user_id: params.userId,
+      display_name: params.displayName,
+      given_name: params.givenName,
+      family_name: params.familyName,
+      primary_email: normalizedEmail || null,
+      status: "active",
+      contact_methods: contactMethods,
+      auth_methods: [...new Set(params.authMethods)].sort((left, right) => left.localeCompare(right)),
+      password_credential_id: params.passwordCredentialId,
+      passkey_credential_ids: [...new Set(params.passkeyCredentialIds)].sort(),
+      social_login_links: [],
+      updated_at: params.updatedAt,
+    },
+    casts: {
+      contact_methods: "jsonb",
+      auth_methods: "jsonb",
+      passkey_credential_ids: "jsonb",
+      social_login_links: "jsonb",
+    },
+    returning: ["user_id"],
+  });
+
+  if (inserted.rows.length > 0) {
+    await syncContactMethodLookups(db, params.userId, contactMethods, params.updatedAt);
+  }
+}
+
+/** Pending Registration's owner Membership mirror; an already projected row is left as it is. */
+export async function insertActiveAuthIdentityMembershipMirror(
+  db: PgQueryable,
+  params: Readonly<{
+    membershipId: string;
+    userId: string;
+    accountId: string;
+    roleKey: keyof typeof ROLE_PERMISSIONS;
+    updatedAt: string;
+  }>,
+) {
+  await upsertRow(db, {
+    table: "auth_identity_user_memberships",
+    insertColumns: ["membership_id", "user_id", "account_id", "role_key", "role_permissions", "status", "updated_at"],
+    conflictColumns: ["membership_id"],
+    updateColumns: [],
+    values: {
+      membership_id: params.membershipId,
+      user_id: params.userId,
+      account_id: params.accountId,
+      role_key: params.roleKey,
+      role_permissions: ROLE_PERMISSIONS[params.roleKey],
+      status: "active",
+      updated_at: params.updatedAt,
+    },
+    casts: { role_permissions: "jsonb" },
+  });
+}
+
 async function upsertMembershipMirror(
   db: PgQueryable,
   membershipId: string,

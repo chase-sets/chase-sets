@@ -8,7 +8,7 @@ Production `DATABASE_URL_*` query traffic runs through DigitalOcean transaction-
 
 Normal bounded-context reads and writes are compatible with transaction pooling. DigitalOcean documents transaction pooling as the general-use pooling mode, while session-level behavior such as prepared statements, session advisory locks, and listen/notify belongs on session or direct connections. Production therefore keeps direct/session-compatible paths for work-signal, context-owned waiter, relay-listener, and schema-bootstrap traffic while ordinary query traffic rides the pools.
 
-The #3342 refresh set the convergence direction (`production_pgbouncer_ready = false` until plan evidence existed); #4655 flips it true. Server-side pool sizes cap cluster backends regardless of client count, so KEDA burst worker scaling (#4057) stays budget-safe: production rolling-deploy overlap demand is 63/94 on `db-s-2vcpu-4gb`, below the 80% (75) tier-upgrade trigger, and adding `platform-api` or `platform-worker` instances adds zero cluster backends to that envelope.
+The #3342 refresh set the convergence direction (`production_pgbouncer_ready = false` until plan evidence existed); #4655 flips it true. Server-side pool sizes cap cluster backends regardless of client count, so KEDA burst worker scaling (#4057) stays budget-safe: production rolling-deploy overlap demand is 61/94 on `db-s-2vcpu-4gb` (including 4 direct Auth pending-registration lock backends; 67/94 with the wave-2 direct-listener proposal), below the 80% (75) tier-upgrade trigger. Adding `platform-worker` instances adds zero pooled cluster backends to that envelope; each `platform-api` instance adds only its capped direct Auth lock backends (2, or 4 across a rollout's two generations).
 
 ## Source Rules
 
@@ -40,6 +40,7 @@ No prepared-statement pinning, session GUC persistence, temp tables, `WITH HOLD`
 | Context-owned durable/realtime waiters | `DATABASE_URL_<CONTEXT>_WAITER` for `catalog`, `discovery`, `inventory`, and `marketplace` | Direct/session-compatible; falls back to the context query pool only when no waiter URL is configured. |
 | Projection wake relay source listeners | `WORKER_LISTENER_DATABASE_URL_<CONTEXT>` | Direct-only and least-privilege; never transaction-pooled. |
 | Schema bootstrap, migrations, grants, and production maintenance | DOKS-exported `BOOTSTRAP_*` direct cluster URLs or Terraform/admin direct URLs | Direct-only for the DOKS session advisory lock. |
+| Auth Pending Registration magic-link row locks | Platform API's separate lock pool on `BOOTSTRAP_DATABASE_URL_AUTH` (Auth runtime user and TLS, port 25060), capped at 2 per API process | Direct-only: the consume holds `FOR UPDATE` through finalization; a pooled, other-port or runtime URL leaves the pool absent and refuses only Pending Registration consumes. |
 | Realtime cleanup and retention | Runtime pool with single-statement advisory-lock usage | Transaction-pool-safe (acquire and release inside one CTE statement). |
 
 ## Audit Evidence

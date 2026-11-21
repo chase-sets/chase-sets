@@ -1,8 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
+import { readFileSync } from "node:fs";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
+import { module as authModule } from "@chase-sets/auth";
 import { createPlatformApiHost } from "../src/app";
-import { closePlatformApiPools, createPlatformApiPools } from "../src/database-pools";
+import type { PlatformApiBaseConfig } from "../src/config";
+import {
+  PENDING_REGISTRATION_LOCK_POOL_MAX,
+  closePlatformApiPools,
+  closePlatformApiPoolsOnStartupFailure,
+  createPendingRegistrationLockPool,
+  createPlatformApiPools,
+  createPlatformApiRuntimePools,
+} from "../src/database-pools";
 import { resolveApiHostMounts } from "@chase-sets/platform-runtime/api";
 
 describe("platform api database pools", () => {
@@ -110,6 +120,196 @@ describe("platform api database pools", () => {
     } finally {
       await closePlatformApiPools(pools);
     }
+  });
+});
+
+describe("Pending Registration lock pool", () => {
+  type PoolOptions = { max: number; connectionTimeoutMillis: number; connectionString: string };
+  const optionsOf = (pool: unknown) => (pool as { options: PoolOptions }).options;
+  const end = (pool: unknown) => (pool as { end: () => Promise<void> }).end();
+  const runtimeAuthUrl = "postgresql://auth_runtime:synthetic-secret@db.example.test:25061/auth_pool?sslmode=require";
+  const directAuthUrl = "postgresql://auth_runtime:synthetic-secret@db.example.test:25060/auth?sslmode=require";
+  const managed = (environment: "staging" | "production", authUrl = runtimeAuthUrl): PlatformApiBaseConfig => ({
+    runtimeProfile: "public",
+    sharedDatabaseUrl: null,
+    contextDatabaseUrls: { auth: authUrl },
+    pool: { max: 40, idleTimeoutMillis: 5_000, connectionTimeoutMillis: 7_000 },
+    deploymentEnvironment: environment,
+    port: 6182,
+  });
+
+  it.each([
+    ["the Auth URL", { auth: "postgresql://localhost/auth" }, "postgresql://localhost/shared", "/auth"],
+    ["the shared URL", {}, "postgresql://localhost/shared", "/shared"],
+  ] as const)(
+    "caps a local lock pool on %s at two connections over any pool override",
+    async (_, urls, shared, path) => {
+      const locks = createPendingRegistrationLockPool(
+        {
+          runtimeProfile: "public",
+          sharedDatabaseUrl: shared,
+          contextDatabaseUrls: urls,
+          pool: { max: 40, idleTimeoutMillis: 5_000, connectionTimeoutMillis: 7_000 },
+          port: 6182,
+        },
+        {},
+      );
+      try {
+        expect(locks.refusal).toBeNull();
+        expect(optionsOf(locks.pool)).toMatchObject({
+          max: PENDING_REGISTRATION_LOCK_POOL_MAX,
+          connectionTimeoutMillis: 7_000,
+        });
+        expect(PENDING_REGISTRATION_LOCK_POOL_MAX).toBe(2);
+        expect(new URL(optionsOf(locks.pool).connectionString).pathname).toBe(path);
+      } finally {
+        if (locks.pool) await end(locks.pool);
+      }
+    },
+  );
+
+  it.each(["staging", "production"] as const)(
+    "uses only the direct Auth URL in %s, with the runtime user and TLS settings",
+    async (environment) => {
+      const locks = createPendingRegistrationLockPool(managed(environment), {
+        BOOTSTRAP_DATABASE_URL_AUTH: directAuthUrl,
+      });
+      try {
+        expect(locks.refusal).toBeNull();
+        expect(optionsOf(locks.pool).max).toBe(2);
+        expect(new URL(optionsOf(locks.pool).connectionString).port).toBe("25060");
+      } finally {
+        if (locks.pool) await end(locks.pool);
+      }
+    },
+  );
+
+  it.each([
+    ["missing", managed("staging"), undefined, "BOOTSTRAP_DATABASE_URL_AUTH is not set"],
+    ["malformed", managed("staging"), "not a database url", "the lock URL is not a postgres:// URL"],
+    ["not postgres", managed("staging"), "https://db.example.test:25060/auth", "the lock URL is not a postgres:// URL"],
+    ["a transaction pool", managed("staging"), runtimeAuthUrl, "the lock URL names a transaction pool"],
+    [
+      "on another port",
+      managed("production"),
+      directAuthUrl.replace(":25060", ":5432"),
+      "BOOTSTRAP_DATABASE_URL_AUTH is not a direct port 25060 URL",
+    ],
+    [
+      "the runtime Auth URL",
+      managed("production", directAuthUrl),
+      directAuthUrl,
+      "BOOTSTRAP_DATABASE_URL_AUTH is the runtime Auth URL",
+    ],
+    [
+      "another user",
+      managed("staging"),
+      directAuthUrl.replace("auth_runtime", "doadmin"),
+      "BOOTSTRAP_DATABASE_URL_AUTH does not use the Auth runtime user",
+    ],
+    [
+      "other TLS settings",
+      managed("staging"),
+      directAuthUrl.replace("sslmode=require", "sslmode=disable"),
+      "BOOTSTRAP_DATABASE_URL_AUTH does not use the Auth runtime TLS settings",
+    ],
+    [
+      "no local URL",
+      { runtimeProfile: "public", sharedDatabaseUrl: null, contextDatabaseUrls: {}, port: 6182 },
+      undefined,
+      "no Auth or shared database URL",
+    ],
+  ] as const)("refuses a lock URL that is %s without naming a credential", (_, config, lockUrl, reason) => {
+    const locks = createPendingRegistrationLockPool(config as PlatformApiBaseConfig, {
+      BOOTSTRAP_DATABASE_URL_AUTH: lockUrl,
+    });
+
+    expect(locks).toEqual({ pool: null, refusal: `Pending Registration lock pool is absent: ${reason}.` });
+    expect(locks.refusal).not.toMatch(/synthetic-secret|auth_runtime|doadmin|db\.example/);
+  });
+
+  it("hands the serving process's lock pool to Auth only, and closes it with the context pools", async () => {
+    const runtimePools = createPlatformApiRuntimePools(
+      {
+        runtimeProfile: "public",
+        sharedDatabaseUrl: "postgresql://localhost/shared",
+        contextDatabaseUrls: { auth: "postgresql://localhost/auth" },
+        port: 6182,
+      },
+      {},
+    );
+    const { pendingRegistrationLocks, pendingRegistrationLockRefusal, ...pools } = runtimePools;
+    try {
+      expect(pendingRegistrationLockRefusal).toBeNull();
+      expect(pendingRegistrationLocks).not.toBe(pools.auth);
+      expect(Object.values(pools)).not.toContain(pendingRegistrationLocks);
+      const runtime = createPlatformApiHost({
+        runtimeProfile: "public",
+        pools,
+        hostPorts: {
+          capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
+          processorGateway: createFakePaymentProcessorGateway(),
+          pendingRegistrationLocks: pendingRegistrationLocks!,
+        },
+      });
+      const auth = runtime.services.auth as ReturnType<typeof authModule.createServices>;
+      expect(auth.pendingRegistrationLocks).toBe(pendingRegistrationLocks);
+      expect(runtime.mountedContexts.find((entry) => entry.contextName === "auth")?.pool).toBe(pools.auth);
+    } finally {
+      await closePlatformApiPools(runtimePools);
+    }
+    expect((pendingRegistrationLocks as unknown as { ended: boolean }).ended).toBe(true);
+    expect((pools.auth as unknown as { ended: boolean }).ended).toBe(true);
+
+    const main = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
+    expect(main).toContain("const runtimePools = createPlatformApiRuntimePools(config);");
+    expect(main).toContain("const poolStartup = closePlatformApiPoolsOnStartupFailure(runtimePools);");
+    expect(main).toContain(
+      "const { pendingRegistrationLocks, pendingRegistrationLockRefusal, ...pools } = runtimePools;",
+    );
+    expect(main).toContain("...(pendingRegistrationLocks ? { pendingRegistrationLocks } : {}),");
+    expect(main).toContain("poolStartup.started();");
+    expect(main).toContain("closePlatformApiPools(runtimePools)");
+  });
+
+  function fakePools() {
+    const pool = () => ({ query: vi.fn(), connect: vi.fn(), end: vi.fn(async () => undefined) });
+    const auth = pool();
+    const locks = pool();
+    return {
+      auth,
+      locks,
+      pools: { auth, identity: auth, pendingRegistrationLocks: locks, pendingRegistrationLockRefusal: null },
+    };
+  }
+
+  it("ends every distinct pool exactly once however many paths close them", async () => {
+    const { auth, locks, pools } = fakePools();
+
+    const first = closePlatformApiPools(pools);
+    const second = closePlatformApiPools(pools);
+    await Promise.all([first, second]);
+
+    expect(second).toBe(first);
+    expect(auth.end).toHaveBeenCalledTimes(1);
+    expect(locks.end).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes the pools when startup fails before listening, and hands them over once listening", async () => {
+    const failing = fakePools();
+    const failingSignal = new EventEmitter();
+    closePlatformApiPoolsOnStartupFailure(failing.pools, failingSignal);
+    failingSignal.emit("uncaughtExceptionMonitor", new Error("synthetic startup failure"));
+    await vi.waitFor(() => expect(failing.locks.end).toHaveBeenCalledTimes(1));
+    expect(failing.auth.end).toHaveBeenCalledTimes(1);
+
+    const started = fakePools();
+    const startedSignal = new EventEmitter();
+    closePlatformApiPoolsOnStartupFailure(started.pools, startedSignal).started();
+    startedSignal.emit("uncaughtExceptionMonitor", new Error("synthetic later failure"));
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(started.locks.end).not.toHaveBeenCalled();
+    expect(startedSignal.listenerCount("uncaughtExceptionMonitor")).toBe(0);
   });
 });
 

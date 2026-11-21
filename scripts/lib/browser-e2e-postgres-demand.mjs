@@ -190,7 +190,13 @@ export function browserE2ePostgresDemand({ readSource = defaultReadSource } = {}
   };
   phase = "runtime/test/teardown";
   processName = "platform-api";
-  const apiRegistry = api.createPlatformApiPools(config("api"));
+  // The serving factory: context pools plus the separate Pending Registration lock pool.
+  const {
+    pendingRegistrationLocks,
+    pendingRegistrationLockRefusal: _pendingRegistrationLockRefusal,
+    ...apiRegistry
+  } = api.createPlatformApiRuntimePools(config("api"));
+  if (pendingRegistrationLocks) pendingRegistrationLocks.pool += " (Pending Registration locks)";
   processName = "platform-worker";
   const workerRegistry = worker.createPlatformWorkerPools(config("worker"));
   worker.createSettlementBootstrapPool(config("worker"));
@@ -491,14 +497,19 @@ export function previewPostgresDemand({ readSource = defaultReadSource } = {}) {
     throw new Error("Re-inventory the worker projection wake relay listener configuration.");
   }
   const apiPoolsAt = at(apiPoolsPath, "export function createPlatformApiPools(");
+  const lockPoolAt = at(apiPoolsPath, "export function createPendingRegistrationLockPool(");
   const seedPoolsAt = at(apiPoolsPath, "export function createSeedCommandPools(");
 
   for (const { name, component, env } of components) {
     const kind = previewProcesses.get(component.command);
     if (kind === "api") {
-      hold(name, "runtime", apiPoolsAt, "context + control pools", () =>
-        api.createPlatformApiPools(configFor(env, apiContexts)),
+      // The serving factory: context pools plus the separate Pending Registration lock pool.
+      const { pendingRegistrationLocks } = hold(name, "runtime", apiPoolsAt, "context + control pools", () =>
+        api.createPlatformApiRuntimePools(configFor(env, apiContexts)),
       );
+      if (pendingRegistrationLocks) {
+        Object.assign(pendingRegistrationLocks, { source: lockPoolAt, reason: "Pending Registration lock pool" });
+      }
     } else if (kind === "worker") {
       const config = configFor(env, workerContexts);
       hold(

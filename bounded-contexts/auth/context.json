@@ -212,6 +212,11 @@
       "purpose": "Transport routes to registered class-C Session consumers; required membership comes only from canonical Guard History."
     },
     {
+      "portName": "pendingRegistrationLocks",
+      "providedBy": "platform-api",
+      "purpose": "Separate direct Auth pool capped at two connections per API process; a Pending Registration magic-link consume holds its link's row lock there through finalization. Absent, only those consumes are refused."
+    },
+    {
       "portName": "notificationOutbox",
       "providedBy": "platform-worker",
       "purpose": "Durable outbound notification outbox used for magic-link email, SMS sign-in codes, and future Auth notification channels."

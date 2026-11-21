@@ -322,7 +322,7 @@ describe("identity creation path registry", () => {
       }
     }
 
-    expect(callSites.length).toBe(7);
+    expect(callSites.length).toBe(8);
     expect(callSites.filter((site) => !registered.has(site))).toEqual([]);
     expect(discovered.sort()).toEqual(callSites.sort());
   });
@@ -506,7 +506,10 @@ const landingSelectors = {
     personalIdentity("registerInvitationRoutes", "post", "/invitations/accept"),
     call("identity.createPersonalIdentity", "acceptInvitationAttempt"),
   ],
-  "first-use-magic-link": [personalIdentity("registerMagicLinkRoutes", "post", "/magic-link/consume")],
+  "first-use-magic-link": [
+    personalIdentity("registerMagicLinkRoutes", "post", "/magic-link/consume"),
+    call("identityMutations.createPersonalIdentity", "finalizePendingRegistration"),
+  ],
   "passkey-registration": [personalIdentity("registerPasskeyRoutes", "post", "/passkeys/register")],
   "phone-code-registration": [personalIdentity("registerPhoneCodeRoutes", "post", "/phone-code/consume")],
   "social-login-first-use": [personalIdentity("registerSocialLoginRoutes", "get", "/social/:provider/callback")],
@@ -831,7 +834,7 @@ describe("identity creation pin landing", () => {
   it("every registry pin lands on its creation call", () => {
     const sources = registeredSources;
     const landings = discoverLandingTargets(registry, sources);
-    expect(landings).toHaveLength(49);
+    expect(landings).toHaveLength(50);
     expect(landings.filter((landing) => landing.wholeFile)).toHaveLength(6);
     expect(collectPinLandingViolations(registry, sources)).toEqual([]);
     for (const slot of landings) {

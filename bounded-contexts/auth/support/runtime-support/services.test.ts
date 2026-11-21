@@ -4,7 +4,7 @@ import { resolveRecentAuthenticationStatus, ROLE_PERMISSIONS } from "@chase-sets
 import type { AuthenticatedSessionRead } from "../../features/sessions/api/runtime";
 import { AUTH_BOOTSTRAP_TENANT_ID } from "../auth-support/constants";
 import type { AuthServices } from "./services";
-import { resolveActorFromSessionId } from "./services";
+import { resolveActorFromSessionId, startOrResumeReservedAuth } from "./services";
 
 describe("Account lifecycle proof enrollment", () => {
   it("enrolls the real DB proof, excludes it from unit CI, and rejects a deleted proof file", () => {
@@ -41,6 +41,194 @@ describe("Account lifecycle proof enrollment", () => {
       "register-routes.ts",
       "social-login-routes.ts",
     ]);
+    // Only Pending Registration consume starts or resumes a reserved Session id.
+    expect(matching(/startOrResumeReservedAuth\(/)).toEqual(["magic-link-routes.ts"]);
+  });
+});
+
+describe("Pending Registration proof enrollment", () => {
+  it("runs the real-route DB proof only in the DB profile", () => {
+    const proof = "support/api-support/pending-registration.db.test.ts";
+    const manifest = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
+    expect(manifest.scripts["test:db"].split(/\s+/)).toContain(proof);
+    expect(manifest.scripts["test:unit"]).toContain(`--exclude ${proof}`);
+    expect(existsSync(new URL("../api-support/pending-registration.db.test.ts", import.meta.url))).toBe(true);
+  });
+});
+
+describe("startOrResumeReservedAuth", () => {
+  const RESERVED_SESSION = "ses_synthetic_reserved";
+  const RESERVED_USER = "usr_synthetic_reserved";
+  const RESERVED_ACCOUNT = "acc_synthetic_reserved";
+  const STARTED_AT = "2026-11-21T08:00:00.000Z";
+  const EXPIRES_AT = "2099-01-01T00:00:00.000Z";
+  const owner = {
+    membershipId: "mbr_synthetic_reserved",
+    accountId: RESERVED_ACCOUNT,
+    roleKey: "owner",
+    status: "active",
+    rolePermissions: ROLE_PERMISSIONS.owner,
+  } as const;
+
+  function reservedState(overrides: Partial<AuthenticatedSessionRead["state"]> = {}) {
+    return {
+      id: RESERVED_SESSION,
+      userId: RESERVED_USER,
+      accountId: RESERVED_ACCOUNT,
+      availableAccountIds: [RESERVED_ACCOUNT],
+      authenticationMethod: "magic-link",
+      status: "active",
+      expiresAt: EXPIRES_AT,
+      sessionGeneration: 0,
+      ...overrides,
+    } as AuthenticatedSessionRead["state"];
+  }
+
+  function createReservedServices(
+    started: Readonly<{
+      state: AuthenticatedSessionRead["state"];
+      authenticated: AuthenticatedSessionRead | null;
+    }> | null,
+  ) {
+    const commandHandler = vi.fn(async (input: { command: Record<string, unknown> }) => ({
+      state: {
+        id: input.command.sessionId,
+        userId: input.command.userId,
+        accountId: input.command.accountId,
+        availableAccountIds: input.command.availableAccountIds,
+        authenticationMethod: input.command.authenticationMethod,
+        status: "active",
+        expiresAt: input.command.expiresAt,
+        sessionGeneration: 0,
+      },
+      storedEvents: [{ recordedAt: STARTED_AT }],
+    }));
+    const services = {
+      db: {
+        query: vi.fn(async (sql: string, params?: readonly unknown[]) =>
+          sql.includes("FROM auth_identity_accounts")
+            ? { rows: (params![0] as string[]).map((account_id) => ({ account_id })) }
+            : { rows: [] },
+        ),
+      },
+      auth: {
+        issueOpaqueToken: vi.fn(() => "session_token"),
+        hashSecret: vi.fn((value: string) => `hashed:${value}`),
+      },
+      identity: { listActiveMembershipsForUser: vi.fn(async () => []) },
+      sessions: {
+        getSessionState: vi.fn(async () => started?.state ?? null),
+        readAuthenticatedSession: vi.fn(async () => started?.authenticated ?? null),
+        getSession: vi.fn(async () => null),
+        commandHandler,
+      },
+    } as unknown as AuthServices;
+    return { services, commandHandler };
+  }
+
+  const params = {
+    userId: RESERVED_USER,
+    sessionId: RESERVED_SESSION,
+    accountId: RESERVED_ACCOUNT,
+    authenticationMethod: "magic-link",
+    context: {} as never,
+    membershipsOverride: [owner],
+  } as const;
+
+  it("starts the reserved id once through the generation-guarded start and hands the token write to the caller", async () => {
+    const { services, commandHandler } = createReservedServices(null);
+    const writeSessionToken = vi.fn(async () => undefined);
+
+    const result = await startOrResumeReservedAuth(services, params, writeSessionToken);
+
+    expect(commandHandler).toHaveBeenCalledTimes(1);
+    expect(commandHandler.mock.calls[0]![0].command).toMatchObject({
+      type: "StartSession",
+      sessionId: RESERVED_SESSION,
+      userId: RESERVED_USER,
+      accountId: RESERVED_ACCOUNT,
+    });
+    expect(writeSessionToken).toHaveBeenCalledWith({
+      sessionId: RESERVED_SESSION,
+      tokenHash: "hashed:session_token",
+      expiresAt: (commandHandler.mock.calls[0]![0].command as { expiresAt: string }).expiresAt,
+    });
+    expect(result).toMatchObject({
+      type: "session-started",
+      sessionId: RESERVED_SESSION,
+      sessionToken: "session_token",
+      session: { started_at: STARTED_AT },
+    });
+  });
+
+  it("resumes this User's active, unexpired, current-generation Session with its account, method, expiry and authentication time", async () => {
+    const state = reservedState({ authenticationMethod: "password" });
+    const { services, commandHandler } = createReservedServices({
+      state,
+      // A projection miss (getSession -> null) still resumes from the aggregate.
+      authenticated: { state, authenticatedAt: STARTED_AT },
+    });
+    const writeSessionToken = vi.fn(async () => undefined);
+
+    const result = await startOrResumeReservedAuth(
+      services,
+      { ...params, accountId: "acc_synthetic_other" },
+      writeSessionToken,
+    );
+
+    expect(commandHandler).not.toHaveBeenCalled();
+    expect(writeSessionToken).toHaveBeenCalledWith({
+      sessionId: RESERVED_SESSION,
+      tokenHash: "hashed:session_token",
+      expiresAt: EXPIRES_AT,
+    });
+    expect(result).toMatchObject({
+      type: "session-started",
+      session: {
+        session_id: RESERVED_SESSION,
+        account_id: RESERVED_ACCOUNT,
+        authentication_method: "password",
+        expires_at: EXPIRES_AT,
+        started_at: STARTED_AT,
+      },
+    });
+  });
+
+  it.each([
+    ["another User's Session", reservedState({ userId: "usr_synthetic_other" }), STARTED_AT, "same"],
+    ["a revoked Session", reservedState({ status: "revoked" }), STARTED_AT, "same"],
+    ["an expired Session", reservedState({ expiresAt: "2020-01-01T00:00:00.000Z" }), STARTED_AT, "same"],
+    ["a superseded Session Generation", reservedState(), STARTED_AT, "superseded"],
+    ["a Session with no authentication moment", reservedState(), null, "same"],
+  ] as const)("refuses to resume %s and writes no token", async (_label, state, authenticatedAt, generation) => {
+    const { services, commandHandler } = createReservedServices({
+      state,
+      authenticated: generation === "superseded" ? null : { state, authenticatedAt },
+    });
+    const writeSessionToken = vi.fn(async () => undefined);
+
+    await expect(startOrResumeReservedAuth(services, params, writeSessionToken)).resolves.toBeNull();
+    expect(commandHandler).not.toHaveBeenCalled();
+    expect(writeSessionToken).not.toHaveBeenCalled();
+  });
+
+  it("returns account selection without a Session Token when an existing User has several accounts", async () => {
+    const { services, commandHandler } = createReservedServices(null);
+    vi.mocked(services.identity.listActiveMembershipsForUser).mockResolvedValue([
+      { ...owner, accountId: "acc_synthetic_a" },
+      { ...owner, accountId: "acc_synthetic_b" },
+    ] as never);
+    const writeSessionToken = vi.fn(async () => undefined);
+
+    const result = await startOrResumeReservedAuth(
+      services,
+      { userId: RESERVED_USER, sessionId: RESERVED_SESSION, authenticationMethod: "magic-link", context: {} as never },
+      writeSessionToken,
+    );
+
+    expect(result).toMatchObject({ type: "account-selection-required", userId: RESERVED_USER });
+    expect(commandHandler).not.toHaveBeenCalled();
+    expect(writeSessionToken).not.toHaveBeenCalled();
   });
 });
 

@@ -106,7 +106,11 @@ import {
   type PlatformApiCatalogAssetStorageConfig,
   type PlatformApiListingPhotoStorageConfig,
 } from "./config";
-import { closePlatformApiPools, createPlatformApiPools } from "./database-pools";
+import {
+  closePlatformApiPools,
+  closePlatformApiPoolsOnStartupFailure,
+  createPlatformApiRuntimePools,
+} from "./database-pools";
 import { createSupportEvidenceAttachmentStorage, openPlatformSupportEvidenceCanonicalizer } from "./bootstrap-storage";
 import { createProductionTaxQuoteResolverBlocker, shouldBlockProductionTaxQuotes } from "./tax-readiness";
 import {
@@ -119,7 +123,16 @@ const observability = getObservabilityRuntime();
 const logger = observability.logger;
 registerPostWriteConsistencyRecorder(recordPostWriteConsistencyEvent);
 const config = loadConfig();
-const pools = createPlatformApiPools(config);
+const runtimePools = createPlatformApiRuntimePools(config);
+const poolStartup = closePlatformApiPoolsOnStartupFailure(runtimePools);
+// The host mounts only the context pools; the lock pool goes to Auth alone, and shutdown closes both.
+const { pendingRegistrationLocks, pendingRegistrationLockRefusal, ...pools } = runtimePools;
+if (pendingRegistrationLockRefusal) {
+  logger.warn("Pending Registration magic-link consumes are refused until the lock pool is configured.", {
+    type: "auth.pending-registration.lock-pool.absent",
+    reason: pendingRegistrationLockRefusal,
+  });
+}
 await bootstrapPlatformControlPlane(pools.control);
 const runtimeLifecycle = createRuntimeLifecycleRegistry();
 const controlPlane = createPostgresPlatformControlPlane(pools.control, { lifecycle: runtimeLifecycle });
@@ -370,6 +383,7 @@ const runtime = createPlatformApiHost({
     adminGoogleWorkspaceSso: config.adminGoogleWorkspaceSso,
     registrationAdmission: config.registrationAdmission,
     stagingPersonaMagicLinkVerifierSha256: config.stagingPersonaMagicLinkVerifierSha256,
+    ...(pendingRegistrationLocks ? { pendingRegistrationLocks } : {}),
     evidenceWindowCorrelation,
     evidenceWindowProviderWrite,
     securityLifetimes: config.authSecurityLifetimes,
@@ -899,6 +913,7 @@ startGracefulHttpServer({
   drainState,
   logger,
   onListening: (info) => {
+    poolStartup.started();
     logger.info("Platform API listening.", {
       type: "platform-api.started",
       port: info.port,
@@ -921,7 +936,9 @@ startGracefulHttpServer({
     },
     async () => realtimeStreamLimiter.stop?.(),
     async () => {
-      await runWithRuntimeLifecycleTimeout("platform-api.close-pools", () => closePlatformApiPools(pools), { logger });
+      await runWithRuntimeLifecycleTimeout("platform-api.close-pools", () => closePlatformApiPools(runtimePools), {
+        logger,
+      });
     },
     async () => observability.shutdown(),
   ],

@@ -131,6 +131,8 @@ export type AuthServices = Readonly<{
   awaitInvitationProjectionFreshness?: InvitationProjectionFreshnessWaiter;
   sessions: ReturnType<typeof createSessionRuntime>;
   sessionEpochs?: AuthSessionEpochs;
+  /** Capped direct pool that holds a Pending Registration link's row lock; absent refuses only those consumes. */
+  pendingRegistrationLocks?: PgTransactionalPool;
   sessionAuthority?: ReturnType<typeof createAuthSessionAuthority>;
   notificationOutbox: NotificationOutbox;
   agentWebhookOutbox: AgentWebhookOutbox;
@@ -172,6 +174,12 @@ export type AuthHostPorts = Readonly<{
   operatorAuthority?: OperatorAuthority;
   /** Staging-only SHA-256 verifier; never the raw bearer secret. */
   stagingPersonaMagicLinkVerifierSha256?: string;
+  /**
+   * platform-api's separate, capped direct Auth pool. A Pending Registration
+   * consume holds its link's row lock on one of these connections through
+   * finalization, so the lock never occupies a transaction-pooled backend.
+   */
+  pendingRegistrationLocks?: PgTransactionalPool;
 }>;
 
 export type AgentWebhookOrderResolvers = Readonly<{
@@ -256,6 +264,7 @@ export function createAuthServices(pool: PgTransactionalPool, ports: AuthHostPor
     }),
     sessions,
     sessionEpochs,
+    pendingRegistrationLocks: ports.pendingRegistrationLocks,
     sessionAuthority: createAuthSessionAuthority(pool, rawEventStore, sessionEpochs),
     notificationOutbox,
     agentWebhookOutbox,
@@ -460,6 +469,22 @@ async function getSessionForAuth(services: AuthServices, sessionId: string): Pro
   };
 }
 
+async function resolveSessionMemberships(
+  services: AuthServices,
+  params: Readonly<{ userId: string; membershipsOverride?: readonly AuthSessionMembership[] }>,
+): Promise<readonly AuthSessionMembership[]> {
+  if (!params.membershipsOverride) {
+    return services.identity.listActiveMembershipsForUser(params.userId);
+  }
+  const activeAccountIds = await listActiveAuthAccountIds(
+    services.db,
+    params.membershipsOverride.map((membership) => membership.accountId),
+  );
+  return params.membershipsOverride.filter(
+    (membership) => membership.status === "active" && activeAccountIds.has(membership.accountId),
+  );
+}
+
 async function startSessionForUser(
   services: AuthServices,
   params: Readonly<{
@@ -471,16 +496,7 @@ async function startSessionForUser(
     membershipsOverride?: readonly AuthSessionMembership[];
   }>,
 ): Promise<AuthSessionStartResult> {
-  let memberships = params.membershipsOverride ?? (await services.identity.listActiveMembershipsForUser(params.userId));
-  if (params.membershipsOverride) {
-    const activeAccountIds = await listActiveAuthAccountIds(
-      services.db,
-      memberships.map((membership) => membership.accountId),
-    );
-    memberships = memberships.filter(
-      (membership) => membership.status === "active" && activeAccountIds.has(membership.accountId),
-    );
-  }
+  const memberships = await resolveSessionMemberships(services, params);
   if (memberships.length === 0) {
     throw new Error("User has no active memberships.");
   }
@@ -613,6 +629,78 @@ export async function startInteractiveAuth(
     expiresAt: sessionResult.session.expires_at,
   });
 
+  return {
+    type: "session-started",
+    userId: params.userId,
+    sessionId: sessionResult.sessionId,
+    sessionToken,
+    session: sessionResult.session,
+    memberships: sessionResult.memberships,
+  };
+}
+
+export type ReservedSessionTokenWrite = Readonly<{
+  sessionId: string;
+  tokenHash: string;
+  expiresAt: string;
+}>;
+
+/**
+ * Interactive sign-in for a reserved Session id (Pending Registration). The id
+ * starts at most once, through the generation-guarded start. A retry resumes
+ * it only while it is this User's active, unexpired Session in the current
+ * Session Generation, keeping its account, method, expiry and authentication
+ * moment. Any other started Session returns null so the caller can leave its
+ * link retryable. The caller writes the Session Token on its own transaction.
+ */
+export async function startOrResumeReservedAuth(
+  services: AuthServices,
+  params: Readonly<{
+    userId: string;
+    sessionId: string;
+    accountId?: string;
+    authenticationMethod: AuthMethod;
+    context: EventStoreContext;
+    membershipsOverride?: readonly AuthSessionMembership[];
+  }>,
+  writeSessionToken: (token: ReservedSessionTokenWrite) => Promise<void>,
+): Promise<InteractiveAuthResult | null> {
+  let sessionResult: AuthSessionStartResult;
+  if (await services.sessions.getSessionState(params.sessionId)) {
+    const session = await getSessionForAuth(services, params.sessionId);
+    if (!session || session.user_id !== params.userId || !session.started_at) {
+      return null;
+    }
+    sessionResult = {
+      requiresAccountSelection: false,
+      sessionId: session.session_id,
+      session,
+      memberships: await resolveSessionMemberships(services, params),
+    };
+  } else {
+    sessionResult = await startSessionForUser(services, params);
+  }
+
+  if (sessionResult.requiresAccountSelection) {
+    const selection = await issueAccountSelectionToken(services, {
+      userId: params.userId,
+      authenticationMethod: params.authenticationMethod,
+    });
+    return {
+      type: "account-selection-required",
+      userId: params.userId,
+      selectionToken: selection.selectionToken,
+      selectionExpiresAt: selection.selectionExpiresAt,
+      memberships: sessionResult.memberships,
+    };
+  }
+
+  const sessionToken = services.auth.issueOpaqueToken("session");
+  await writeSessionToken({
+    sessionId: sessionResult.sessionId,
+    tokenHash: services.auth.hashSecret(sessionToken),
+    expiresAt: sessionResult.session.expires_at,
+  });
   return {
     type: "session-started",
     userId: params.userId,
