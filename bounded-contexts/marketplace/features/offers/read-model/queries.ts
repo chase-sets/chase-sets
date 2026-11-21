@@ -29,8 +29,17 @@ export type MarketplaceOfferListRow = Readonly<{
   updated_at: string;
 }>;
 
-export type OfferMatchRow = MarketplaceOfferListRow &
+type OfferMatchBuyerFields = Readonly<{
+  buyer_display_name: string | null;
+  buyer_average_rating: string | null;
+  buyer_review_count: number;
+  managed_status?: "unavailable" | "held" | "refresh_required" | null;
+}>;
+
+export type ListingOfferMatchRow = MarketplaceOfferListRow &
+  OfferMatchBuyerFields &
   Readonly<{
+    fill_source: "listing";
     listing_id: string;
     listing_price_amount: string;
     listing_price_currency_code: string;
@@ -39,14 +48,22 @@ export type OfferMatchRow = MarketplaceOfferListRow &
     listing_visible_quantity: number;
     offer_price_gap_amount: string;
     offer_to_listing_price_bps: number;
-    buyer_display_name: string | null;
-    buyer_average_rating: string | null;
-    buyer_review_count: number;
     seller_available_quantity: number;
     seller_listing_availability_status: "available" | "unavailable";
     can_fulfill: boolean;
-    managed_status?: "unavailable" | "held" | "refresh_required" | null;
   }>;
+
+/** A Match the seller could fill from inventory; it carries no Listing keys and cannot be accepted until listed. */
+export type InventoryOfferMatchRow = MarketplaceOfferListRow &
+  OfferMatchBuyerFields &
+  Readonly<{
+    fill_source: "inventory";
+    can_fulfill: false;
+    inventory_item_id: string;
+    inventory_available_quantity: number;
+  }>;
+
+export type OfferMatchRow = ListingOfferMatchRow | InventoryOfferMatchRow;
 
 type MarketplaceOfferPageRow = Readonly<{
   offers_away?: boolean;
@@ -119,9 +136,13 @@ const sellerVisibilitySql = (checkProjectedOffersAway = true) => `
   )
 )`;
 
-function sellerBestListingJoinSql(sellerAccountSql: string) {
+/**
+ * Joins the seller's best qualifying Listing and, only when there is none, their inventory item with the most
+ * available quantity. Pair with sellerMatchSourceWhereSql so an Offer matches from either source.
+ */
+function sellerMatchSourceJoinSql(sellerAccountSql: string) {
   return `
-  INNER JOIN LATERAL (
+  LEFT JOIN LATERAL (
     SELECT
       listing.listing_id,
       listing.price_amount AS listing_price_amount,
@@ -161,8 +182,39 @@ function sellerBestListingJoinSql(sellerAccountSql: string) {
       listing.updated_at DESC,
       listing.listing_id ASC
     LIMIT 1
-  ) AS matched_listing ON TRUE`;
+  ) AS matched_listing ON TRUE
+  LEFT JOIN LATERAL (
+    SELECT
+      inventory_item.item_id AS inventory_item_id,
+      (inventory_item.total_quantity - COALESCE(inventory_holds.held_quantity, 0))::integer
+        AS inventory_available_quantity
+    FROM marketplace_supply_items AS inventory_item
+    LEFT JOIN LATERAL (
+      SELECT COALESCE(SUM(supply_hold.quantity), 0)::integer AS held_quantity
+      FROM marketplace_supply_holds AS supply_hold
+      WHERE supply_hold.item_id = inventory_item.item_id
+        AND supply_hold.status = 'active'
+    ) AS inventory_holds ON TRUE
+    WHERE matched_listing.listing_id IS NULL
+      AND inventory_item.account_id = ${sellerAccountSql}
+      AND inventory_item.product_id = offer.product_id
+      AND inventory_item.total_quantity - COALESCE(inventory_holds.held_quantity, 0) > 0
+    ORDER BY inventory_available_quantity DESC, inventory_item.item_id ASC
+    LIMIT 1
+  ) AS matched_inventory ON TRUE`;
 }
+
+/** The Match source rule shared by listOfferMatches, getOfferMatch and listOfferMatchesForSellers. */
+function sellerMatchSourceWhereSql(sellerAccountSql: string) {
+  return `${buyerVisibleOfferPredicateSql("offer", "buyer")}
+    AND offer.buyer_account_id <> ${sellerAccountSql}
+    AND (matched_listing.listing_id IS NOT NULL OR matched_inventory.inventory_item_id IS NOT NULL)`;
+}
+
+const sellerMatchSourceSelectSql = `
+  CASE WHEN matched_listing.listing_id IS NOT NULL THEN 'listing' ELSE 'inventory' END AS fill_source,
+  matched_inventory.inventory_item_id,
+  matched_inventory.inventory_available_quantity`;
 
 function sellerExactListingJoinSql(sellerAccountSql: string, listingIdSql: string) {
   return `
@@ -304,7 +356,22 @@ function sellerOfferOutcomeOrderSql(tieBreakerSql: string) {
     ${tieBreakerSql}`;
 }
 
+/** Listing Matches keep their outcome order; inventory Matches follow, covering stock first, then Offer price. */
+function sellerMatchOrderSql() {
+  const inventory = (expression: string) => `CASE WHEN seller_offer.fill_source = 'inventory' THEN ${expression} END`;
+  return `
+    (seller_offer.fill_source = 'inventory') ASC,
+    ${inventory("seller_offer.inventory_available_quantity >= seller_offer.quantity_requested")} DESC NULLS LAST,
+    ${inventory("seller_offer.price_amount::numeric")} DESC NULLS LAST,
+    ${inventory("seller_offer.created_at")} ASC,
+    ${inventory("seller_offer.offer_id")} ASC,
+    ${sellerOfferOutcomeOrderSql("seller_offer.created_at ASC, seller_offer.offer_id ASC")}`;
+}
+
 type OfferMatchPageRow = MarketplaceOfferPageRow & {
+  fill_source?: "listing" | "inventory" | null;
+  inventory_item_id?: string | null;
+  inventory_available_quantity?: number | null;
   listing_id: string;
   listing_price_amount: string;
   listing_price_currency_code: string;
@@ -326,10 +393,49 @@ type OfferMatchForSellerPageRow = OfferMatchPageRow & {
 };
 
 function mapOfferMatchRow(row: OfferMatchPageRow): OfferMatchRow {
-  const offer = mapOfferRow(row);
+  if (row.fill_source !== "inventory") return mapListingOfferMatchRow(row);
+  const {
+    fill_source: _fillSource,
+    inventory_item_id,
+    inventory_available_quantity,
+    listing_id: _listingId,
+    listing_price_amount: _listingPriceAmount,
+    listing_price_currency_code: _listingPriceCurrencyCode,
+    listing_stream_version: _listingStreamVersion,
+    listing_quantity_cap: _listingQuantityCap,
+    listing_visible_quantity: _listingVisibleQuantity,
+    offer_price_gap_amount: _offerPriceGapAmount,
+    offer_to_listing_price_bps: _offerToListingPriceBps,
+    seller_available_quantity: _sellerAvailableQuantity,
+    seller_listing_availability_status: _sellerListingAvailabilityStatus,
+    ...offerColumns
+  } = row;
+
+  return {
+    ...mapOfferRow(offerColumns),
+    buyer_display_name: row.buyer_display_name,
+    buyer_average_rating: row.buyer_average_rating,
+    buyer_review_count: row.buyer_review_count,
+    managed_status: row.managed_status ?? null,
+    fill_source: "inventory",
+    can_fulfill: false,
+    inventory_item_id: inventory_item_id!,
+    inventory_available_quantity: inventory_available_quantity!,
+  };
+}
+
+function mapListingOfferMatchRow(row: OfferMatchPageRow): ListingOfferMatchRow {
+  const {
+    fill_source: _fillSource,
+    inventory_item_id: _inventoryItemId,
+    inventory_available_quantity: _inventoryAvailableQuantity,
+    ...listingColumns
+  } = row;
+  const offer = mapOfferRow(listingColumns);
 
   return {
     ...offer,
+    fill_source: "listing",
     listing_id: row.listing_id,
     listing_price_amount: row.listing_price_amount,
     listing_price_currency_code: row.listing_price_currency_code,
@@ -465,7 +571,7 @@ export async function listOfferMatches(
   const limit = Math.max(1, Math.min(params.limit ?? 50, 250));
   const offset = Math.max(0, params.offset ?? 0);
   const productIds = [...new Set((params.productIds ?? []).map((value) => value.trim()).filter(Boolean))];
-  const innerWhere = [`offer.status = 'submitted'`, sellerVisibilitySql()];
+  const innerWhere = [`offer.status = 'submitted'`, sellerMatchSourceWhereSql("$1")];
   const innerValues: unknown[] = [params.sellerAccountId];
   if (productIds.length > 0) {
     innerValues.push(productIds);
@@ -473,15 +579,17 @@ export async function listOfferMatches(
   }
   const fulfillableWhere =
     params.canFulfill === true
-      ? `seller_offer.seller_listing_availability_status = 'available'
+      ? `seller_offer.fill_source = 'listing'
+         AND seller_offer.seller_listing_availability_status = 'available'
          AND seller_offer.managed_status IS NULL
          AND seller_offer.seller_available_quantity >= seller_offer.quantity_requested`
       : `TRUE`;
   const innerSql = `
     SELECT
-      ${sellerOfferSelectSql("$1")}
+      ${sellerOfferSelectSql("$1")},
+      ${sellerMatchSourceSelectSql}
     FROM marketplace_offer_pages AS offer
-    ${sellerBestListingJoinSql("$1")}
+    ${sellerMatchSourceJoinSql("$1")}
     ${sellerOfferControlsJoinSql("$1")}
     LEFT JOIN marketplace_account_pages AS buyer
       ON buyer.account_id = offer.buyer_account_id
@@ -502,7 +610,7 @@ export async function listOfferMatches(
        FROM (${innerSql}) AS seller_offer
        WHERE ${fulfillableWhere}
        ORDER BY
-         ${sellerOfferOutcomeOrderSql("seller_offer.created_at ASC, seller_offer.offer_id ASC")}
+         ${sellerMatchOrderSql()}
        LIMIT $${innerValues.length + 1} OFFSET $${innerValues.length + 2}`,
       [...innerValues, limit, offset],
     ),
@@ -521,17 +629,17 @@ export async function getOfferMatch(
 ): Promise<OfferMatchRow | null> {
   const result = await db.query<OfferMatchPageRow>(
     `SELECT
-       ${sellerOfferSelectSql("$1")}
+       ${sellerOfferSelectSql("$1")},
+       ${sellerMatchSourceSelectSql}
      FROM marketplace_offer_pages AS offer
-     ${sellerBestListingJoinSql("$1")}
+     ${sellerMatchSourceJoinSql("$1")}
      ${sellerOfferControlsJoinSql("$1")}
      LEFT JOIN marketplace_account_pages AS buyer
        ON buyer.account_id = offer.buyer_account_id
      LEFT JOIN marketplace_seller_listing_availability_pages AS availability
        ON availability.account_id = $1
      WHERE offer.offer_id = $2
-       AND ${buyerVisibleOfferPredicateSql("offer", "buyer")}
-       AND ${sellerVisibilitySql()}
+       AND ${sellerMatchSourceWhereSql("$1")}
        AND ${sellerOfferControlsWhereSql()}`,
     [sellerAccountId, offerId],
   );
@@ -547,7 +655,7 @@ export async function getOfferMatchForListing(
   sellerAccountId: string,
   listingId: string,
   { checkProjectedOffersAway = true }: { checkProjectedOffersAway?: boolean } = {},
-): Promise<OfferMatchRow | null> {
+): Promise<ListingOfferMatchRow | null> {
   const result = await db.query<OfferMatchPageRow>(
     `SELECT
        ${sellerOfferSelectSql("$1")}
@@ -566,7 +674,7 @@ export async function getOfferMatchForListing(
   );
 
   const row = result.rows[0];
-  return row ? mapOfferMatchRow(row) : null;
+  return row ? mapListingOfferMatchRow(row) : null;
 }
 
 export async function listOfferMatchesForSellers(
@@ -585,24 +693,18 @@ export async function listOfferMatchesForSellers(
      )
      SELECT
        seller_account.seller_account_id,
-       ${sellerOfferSelectSql("seller_account.seller_account_id")}
+       ${sellerOfferSelectSql("seller_account.seller_account_id")},
+       ${sellerMatchSourceSelectSql}
      FROM seller_accounts AS seller_account
      INNER JOIN marketplace_offer_pages AS offer
        ON offer.offer_id = $1
-     ${sellerBestListingJoinSql("seller_account.seller_account_id")}
+     ${sellerMatchSourceJoinSql("seller_account.seller_account_id")}
      ${sellerOfferControlsJoinSql("seller_account.seller_account_id")}
      LEFT JOIN marketplace_account_pages AS buyer
        ON buyer.account_id = offer.buyer_account_id
      LEFT JOIN marketplace_seller_listing_availability_pages AS availability
        ON availability.account_id = seller_account.seller_account_id
-     WHERE ${buyerVisibleOfferPredicateSql("offer", "buyer")}
-       AND EXISTS (
-         SELECT 1
-         FROM marketplace_listing_pages AS listing
-         WHERE listing.account_id = seller_account.seller_account_id
-           AND listing.status = 'active'
-           AND listing.product_id = offer.product_id
-       )
+     WHERE ${sellerMatchSourceWhereSql("seller_account.seller_account_id")}
        AND ${sellerOfferControlsWhereSql()}`,
     [offerId, uniqueSellerAccountIds],
   );

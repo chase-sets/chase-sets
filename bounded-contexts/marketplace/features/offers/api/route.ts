@@ -14,6 +14,7 @@ import {
   MarketplaceOfferSubmissionAwayError,
   MarketplaceOfferFeeQuoteStaleError,
   MarketplaceOfferLifecycleError,
+  MarketplaceOfferMatchRequiresListingError,
   type MarketplaceOfferServices,
 } from "./runtime";
 import type { AccountId, OfferId } from "@chase-sets/primitives/typed-ids";
@@ -183,7 +184,10 @@ function validationError(
       409,
     );
   }
-  if (error instanceof MarketplaceOfferSubmissionAwayError)
+  if (
+    error instanceof MarketplaceOfferSubmissionAwayError ||
+    error instanceof MarketplaceOfferMatchRequiresListingError
+  )
     return c.json({ error: { code: error.code, message: error.message } }, 409);
 
   if (error instanceof MarketplaceOfferAbuseControlError) {

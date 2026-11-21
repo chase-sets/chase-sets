@@ -6,6 +6,7 @@ import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import {
   createMarketplaceOfferRuntime,
   MarketplaceOfferFeeQuoteStaleError,
+  MarketplaceOfferMatchRequiresListingError,
   type MarketplaceOfferServices,
 } from "./runtime";
 import { ManagedOfferConflictError } from "./managed-authority";
@@ -631,6 +632,34 @@ describe("marketplace offer routes", () => {
       },
       expect.any(Object),
     );
+  });
+
+  it("rejects declining an inventory Match with 409 offer_match_requires_listing", async () => {
+    const services = createServices();
+    vi.mocked(services.declineOfferMatch).mockRejectedValueOnce(new MarketplaceOfferMatchRequiresListingError());
+    const app = buildApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_seller",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["offers.view", "offers.manage", "listings.view"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/account/offers/matches/off_1/decline", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ attemptId: "decline_route_attempt_02" }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "offer_match_requires_listing" } });
   });
 
   it.each([

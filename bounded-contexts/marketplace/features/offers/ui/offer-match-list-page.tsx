@@ -21,7 +21,8 @@ import {
   Text,
   productOptionsFromSummary,
 } from "@chase-sets/design-system";
-import type { OfferMatchListItem } from "./contracts";
+import type { ListingOfferMatchListItem, OfferMatchListItem } from "./contracts";
+import { InventoryOfferMatchAction } from "./inventory-offer-match-action";
 import { useOfferMatchDeclineAttemptIds } from "./offer-match-decline-attempt-provider";
 import { OfferMatchSellListSnapshotFields } from "./offer-match-sell-list-snapshot-fields";
 import { formatPriceGap } from "./price-gap";
@@ -35,7 +36,7 @@ function statusTone(status: string) {
   }
 }
 
-function DeclineOfferMatchForm({ offer, attemptId }: { offer: OfferMatchListItem; attemptId: string }) {
+function DeclineOfferMatchForm({ offer, attemptId }: { offer: ListingOfferMatchListItem; attemptId: string }) {
   return (
     <RouterForm spacing="none" method="post" action={`/account/offers/matches/${offer.offer_id}`}>
       <HiddenInput type="hidden" name="intent" value="decline-offer" />
@@ -55,12 +56,13 @@ export function MarketplaceOfferMatchListPage({
   errorMessage?: string | null;
 }) {
   const declineAttemptIdFor = useOfferMatchDeclineAttemptIds();
+  const listingItems = data.items.filter((item): item is ListingOfferMatchListItem => item.fill_source === "listing");
   const fulfillableCount = data.items.filter((item) => item.can_fulfill).length;
-  const atOrAboveAskCount = data.items.filter((item) => item.offer_to_listing_price_bps >= 10000).length;
-  const bestMatchPercentage = data.items.length
-    ? formatBpsPercent(Math.max(...data.items.map((item) => item.offer_to_listing_price_bps)))
+  const atOrAboveAskCount = listingItems.filter((item) => item.offer_to_listing_price_bps >= 10000).length;
+  const bestMatchPercentage = listingItems.length
+    ? formatBpsPercent(Math.max(...listingItems.map((item) => item.offer_to_listing_price_bps)))
     : "0%";
-  const listingsUnavailable = data.items.some((item) => item.seller_listing_availability_status === "unavailable");
+  const listingsUnavailable = listingItems.some((item) => item.seller_listing_availability_status === "unavailable");
   return (
     <Page>
       <PageHeader
@@ -154,19 +156,30 @@ export function MarketplaceOfferMatchListPage({
             {
               key: "listing",
               header: t("marketplace.features.offers.ui.offerMatchListPage.your.listing"),
-              cell: (row) => (
-                <Stack gap={1}>
-                  <Text weight="semibold">
-                    {formatMoney(row.listing_price_amount, row.listing_price_currency_code)}
-                  </Text>
-                  <Text size="sm" tone="secondary">
-                    {t("marketplace.features.offers.ui.offerMatchListPage.listing.quantity", {
-                      visible: row.listing_visible_quantity,
-                      cap: row.listing_quantity_cap,
-                    })}
-                  </Text>
-                </Stack>
-              ),
+              cell: (row) =>
+                row.fill_source === "inventory" ? (
+                  <Stack gap={1}>
+                    <Badge tone="neutral">{t("marketplace.features.offers.ui.matchSource.from.inventory")}</Badge>
+                    <Text size="sm" tone="secondary">
+                      {t("marketplace.features.offers.ui.matchSource.inventory.quantity", {
+                        quantity: row.inventory_available_quantity,
+                      })}
+                    </Text>
+                  </Stack>
+                ) : (
+                  <Stack gap={1}>
+                    <Badge tone="neutral">{t("marketplace.features.offers.ui.matchSource.from.listing")}</Badge>
+                    <Text weight="semibold">
+                      {formatMoney(row.listing_price_amount, row.listing_price_currency_code)}
+                    </Text>
+                    <Text size="sm" tone="secondary">
+                      {t("marketplace.features.offers.ui.offerMatchListPage.listing.quantity", {
+                        visible: row.listing_visible_quantity,
+                        cap: row.listing_quantity_cap,
+                      })}
+                    </Text>
+                  </Stack>
+                ),
             },
             {
               key: "best-offer",
@@ -186,16 +199,17 @@ export function MarketplaceOfferMatchListPage({
             {
               key: "gap",
               header: t("marketplace.features.offers.ui.offerMatchListPage.offer.vs.ask"),
-              cell: (row) => (
-                <Stack gap={1}>
-                  <Badge tone={row.offer_to_listing_price_bps >= 10000 ? "success" : "accent"}>
-                    {formatBpsPercent(row.offer_to_listing_price_bps)}
-                  </Badge>
-                  <Text size="sm" tone="secondary">
-                    {formatPriceGap(row.offer_price_gap_amount)}
-                  </Text>
-                </Stack>
-              ),
+              cell: (row) =>
+                row.fill_source === "inventory" ? null : (
+                  <Stack gap={1}>
+                    <Badge tone={row.offer_to_listing_price_bps >= 10000 ? "success" : "accent"}>
+                      {formatBpsPercent(row.offer_to_listing_price_bps)}
+                    </Badge>
+                    <Text size="sm" tone="secondary">
+                      {formatPriceGap(row.offer_price_gap_amount)}
+                    </Text>
+                  </Stack>
+                ),
             },
             {
               key: "quantity",
@@ -210,7 +224,10 @@ export function MarketplaceOfferMatchListPage({
                   </Text>
                   <Text size="sm" tone="secondary">
                     {t("marketplace.features.offers.ui.offerMatchListPage.available.quantity", {
-                      quantity: row.seller_available_quantity,
+                      quantity:
+                        row.fill_source === "inventory"
+                          ? row.inventory_available_quantity
+                          : row.seller_available_quantity,
                     })}
                   </Text>
                 </Stack>
@@ -222,15 +239,21 @@ export function MarketplaceOfferMatchListPage({
               cell: (row) => (
                 <Stack gap={1}>
                   <Badge tone={statusTone(row.status)}>{row.status}</Badge>
-                  <Badge tone={row.can_fulfill ? "success" : "warning"}>
-                    {row.seller_listing_availability_status === "unavailable"
-                      ? t("marketplace.features.offers.ui.offerMatchListPage.listings.unavailable")
-                      : row.managed_status
-                        ? t(`marketplace.marketFollowing.seller.${row.managed_status}`)
-                        : row.can_fulfill
-                          ? t("marketplace.features.offers.ui.offerMatchListPage.can.fulfill")
-                          : t("marketplace.features.offers.ui.offerMatchListPage.needs.supply")}
-                  </Badge>
+                  {row.fill_source === "inventory" ? (
+                    row.managed_status ? (
+                      <Badge tone="warning">{t(`marketplace.marketFollowing.seller.${row.managed_status}`)}</Badge>
+                    ) : null
+                  ) : (
+                    <Badge tone={row.can_fulfill ? "success" : "warning"}>
+                      {row.seller_listing_availability_status === "unavailable"
+                        ? t("marketplace.features.offers.ui.offerMatchListPage.listings.unavailable")
+                        : row.managed_status
+                          ? t(`marketplace.marketFollowing.seller.${row.managed_status}`)
+                          : row.can_fulfill
+                            ? t("marketplace.features.offers.ui.offerMatchListPage.can.fulfill")
+                            : t("marketplace.features.offers.ui.offerMatchListPage.needs.supply")}
+                    </Badge>
+                  )}
                 </Stack>
               ),
             },
@@ -242,26 +265,34 @@ export function MarketplaceOfferMatchListPage({
             {
               key: "actions",
               header: t("marketplace.features.offers.ui.offerMatchListPage.actions"),
-              cell: (row) => (
-                <Stack gap={2}>
-                  <Form spacing="none" method="post" action="/account/sell-list">
-                    <HiddenInput type="hidden" name="intent" value="add-selected-offer" />
-                    <OfferMatchSellListSnapshotFields offer={row} />
-                    <Button
-                      type="submit"
-                      tone="secondary"
-                      size="sm"
-                      disabled={!row.can_fulfill || row.status !== "submitted"}
-                    >
-                      {t("marketplace.features.offers.ui.offerMatchListPage.add.to.sell.list")}
-                    </Button>
-                  </Form>
-                  <LinkButton href={`/account/offers/matches/${row.offer_id}`} tone="secondary" size="sm">
-                    {t("marketplace.features.offers.ui.offerMatchListPage.open")}
-                  </LinkButton>
-                  <DeclineOfferMatchForm key={row.offer_id} offer={row} attemptId={declineAttemptIdFor(row)} />
-                </Stack>
-              ),
+              cell: (row) =>
+                row.fill_source === "inventory" ? (
+                  <Stack gap={2}>
+                    <InventoryOfferMatchAction offer={row} size="sm" />
+                    <LinkButton href={`/account/offers/matches/${row.offer_id}`} tone="secondary" size="sm">
+                      {t("marketplace.features.offers.ui.offerMatchListPage.open")}
+                    </LinkButton>
+                  </Stack>
+                ) : (
+                  <Stack gap={2}>
+                    <Form spacing="none" method="post" action="/account/sell-list">
+                      <HiddenInput type="hidden" name="intent" value="add-selected-offer" />
+                      <OfferMatchSellListSnapshotFields offer={row} />
+                      <Button
+                        type="submit"
+                        tone="secondary"
+                        size="sm"
+                        disabled={!row.can_fulfill || row.status !== "submitted"}
+                      >
+                        {t("marketplace.features.offers.ui.offerMatchListPage.add.to.sell.list")}
+                      </Button>
+                    </Form>
+                    <LinkButton href={`/account/offers/matches/${row.offer_id}`} tone="secondary" size="sm">
+                      {t("marketplace.features.offers.ui.offerMatchListPage.open")}
+                    </LinkButton>
+                    <DeclineOfferMatchForm key={row.offer_id} offer={row} attemptId={declineAttemptIdFor(row)} />
+                  </Stack>
+                ),
             },
           ]}
           emptyTitle={t("marketplace.features.offers.ui.offerMatchListPage.no.offer.matches")}

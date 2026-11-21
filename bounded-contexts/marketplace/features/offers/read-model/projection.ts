@@ -47,12 +47,23 @@ async function loadRealtimeOffer(db: PgQueryable, offerId: string) {
     : null;
 }
 
+/** Sellers with an active Listing or available inventory for the Product; both can hold a Match for it. */
 async function loadInterestedSellerAccountIds(db: PgQueryable, productId: string) {
   const result = await db.query<{ account_id: string }>(
-    `SELECT DISTINCT account_id
+    `SELECT account_id
      FROM marketplace_listing_pages
      WHERE product_id = $1
-       AND status = 'active'`,
+       AND status = 'active'
+     UNION
+     SELECT inventory_item.account_id
+     FROM marketplace_supply_items AS inventory_item
+     WHERE inventory_item.product_id = $1
+       AND inventory_item.total_quantity > (
+         SELECT COALESCE(SUM(supply_hold.quantity), 0)
+         FROM marketplace_supply_holds AS supply_hold
+         WHERE supply_hold.item_id = inventory_item.item_id
+           AND supply_hold.status = 'active'
+       )`,
     [productId],
   );
 

@@ -865,6 +865,12 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.offers.ui.priceGap.meets.ask": "Meets ask",
   "marketplace.features.offers.ui.priceGap.over.ask": "{amount} over ask",
   "marketplace.features.offers.ui.priceGap.unknown": "Ask gap unavailable",
+  "marketplace.features.offers.ui.matchSource.from.listing": "From Listing",
+  "marketplace.features.offers.ui.matchSource.from.inventory": "From inventory",
+  "marketplace.features.offers.ui.matchSource.inventory.quantity": "{quantity} in inventory",
+  "marketplace.features.offers.ui.matchSource.list.to.fill.offer": "List to fill this Offer",
+  "marketplace.features.offers.ui.matchSource.not.enough.stock": "Not enough stock",
+  "marketplace.features.offers.ui.matchSource.list.before.responding": "List this item to accept or decline the Offer.",
   "marketplace.features.offers.ui.offerDetailRecoveryPage.no.payment.or.sale.changed":
     "No payment or sale changed while these offer details finish updating.",
   "marketplace.features.offers.ui.offerDetailRecoveryPage.recover.offer": "Recover offer details",

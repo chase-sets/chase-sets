@@ -55,7 +55,7 @@ export const loader = defineResourceRoute({
     return {
       offerMatch,
       acceptanceTerms:
-        offerMatch.status === "submitted"
+        offerMatch.fill_source !== "inventory" && offerMatch.status === "submitted"
           ? await api.previewOfferAcceptanceTerms(params.offerId!, offerMatch.listing_id)
           : null,
     };
@@ -199,7 +199,7 @@ export default function MarketplaceAccountOfferMatchRoute() {
           (actionData?.currentQuote as MarketplaceListingTermsPreview | null | undefined) ??
           (data.acceptanceTerms as MarketplaceListingTermsPreview | null)
         }
-        canAccept
+        canAccept={data.offerMatch.fill_source !== "inventory"}
         actionDisabled={ambiguous || navigation.state !== "idle"}
         errorMessage={actionData?.error ?? null}
       />

@@ -211,3 +211,122 @@ describe("marketplace offer read-model queries", () => {
     expect(selectCall?.params).toEqual(["acc_seller", ["cat_air_balloon::form:raw|condition:damaged"], 50, 0]);
   });
 });
+
+describe("Offer Matches from inventory", () => {
+  const offerColumns = {
+    offer_id: "off_one",
+    buyer_account_id: "acc_buyer",
+    catalog_catalog_item_id: "cat_one",
+    product_id: "cat_one::",
+    item_title: "Item",
+    item_subtitle: null,
+    selected_options: [],
+    product_summary: null,
+    shipping_destination_snapshot: null,
+    price_amount: "5.00",
+    price_currency_code: "USD",
+    last_stream_version: 1,
+    quantity_requested: 1,
+    status: "submitted",
+    accepted_seller_account_id: null,
+    accepted_at: null,
+    created_at: "2026-11-21T00:00:00.000Z",
+    updated_at: "2026-11-21T00:00:00.000Z",
+    buyer_display_name: "Buyer",
+    buyer_average_rating: null,
+    buyer_review_count: 0,
+    managed_status: null,
+  };
+  const listingOnlyKeys = [
+    "listing_id",
+    "listing_price_amount",
+    "listing_price_currency_code",
+    "listing_stream_version",
+    "listing_quantity_cap",
+    "listing_visible_quantity",
+    "offer_price_gap_amount",
+    "offer_to_listing_price_bps",
+    "seller_available_quantity",
+    "seller_listing_availability_status",
+  ];
+  const nullListingColumns = Object.fromEntries(listingOnlyKeys.map((key) => [key, null]));
+
+  function dbReturning(row: Record<string, unknown>, statements: string[] = []): PgQueryable {
+    return {
+      async query<Row>(sql: string) {
+        statements.push(sql);
+        return { rows: (sql.includes("COUNT(*)") ? [{ count: "1" }] : [row]) as Row[] };
+      },
+    };
+  }
+
+  it("omits Listing keys from inventory rows and inventory keys from Listing rows", async () => {
+    const inventory = await getOfferMatch(
+      dbReturning({
+        ...offerColumns,
+        ...nullListingColumns,
+        offer_to_listing_price_bps: 0,
+        seller_listing_availability_status: "available",
+        fill_source: "inventory",
+        inventory_item_id: "inv_one",
+        inventory_available_quantity: 2,
+      }),
+      "off_one",
+      "acc_seller",
+    );
+    expect(inventory).toMatchObject({
+      fill_source: "inventory",
+      can_fulfill: false,
+      inventory_item_id: "inv_one",
+      inventory_available_quantity: 2,
+      buyer_display_name: "Buyer",
+      managed_status: null,
+    });
+    for (const key of listingOnlyKeys) expect(Object.keys(inventory!)).not.toContain(key);
+    expect(JSON.parse(JSON.stringify(inventory))).not.toHaveProperty("listing_id");
+
+    const listing = await getOfferMatch(
+      dbReturning({
+        ...offerColumns,
+        fill_source: "listing",
+        inventory_item_id: null,
+        inventory_available_quantity: null,
+        listing_id: "lst_one",
+        listing_price_amount: "10.00",
+        listing_price_currency_code: "USD",
+        listing_stream_version: 2,
+        listing_quantity_cap: 1,
+        listing_visible_quantity: 1,
+        offer_price_gap_amount: "5.00",
+        offer_to_listing_price_bps: 5000,
+        seller_available_quantity: 1,
+        seller_listing_availability_status: "available",
+      }),
+      "off_one",
+      "acc_seller",
+    );
+    expect(listing).toMatchObject({ fill_source: "listing", listing_id: "lst_one", can_fulfill: true });
+    expect(Object.keys(listing!)).not.toContain("inventory_item_id");
+    expect(Object.keys(listing!)).not.toContain("inventory_available_quantity");
+  });
+
+  it("shares one Match source rule across the three Match reads and keeps acceptance Listing-only", async () => {
+    const statements: string[] = [];
+    const db = dbReturning({ ...offerColumns, fill_source: "listing" }, statements);
+    await listOfferMatches(db, { sellerAccountId: "acc_seller", canFulfill: true });
+    await getOfferMatch(db, "off_one", "acc_seller");
+    await listOfferMatchesForSellers(db, "off_one", ["acc_seller"]);
+    await getOfferMatchForListing(db, "off_one", "acc_seller", "lst_one");
+    const [count, list, get, batch, acceptance] = statements;
+    for (const sql of [count!, list!, get!, batch!]) {
+      expect(sql).toContain("AS matched_inventory ON TRUE");
+      expect(sql).toContain("inventory_item.total_quantity - COALESCE(inventory_holds.held_quantity, 0) > 0");
+      expect(sql).toContain("matched_inventory.inventory_item_id IS NOT NULL");
+      expect(sql).toContain("offer.buyer_account_id <>");
+      expect(sql).toContain("buyer_availability.offers_status = 'unavailable'");
+    }
+    expect(count).toContain("seller_offer.fill_source = 'listing'");
+    expect(list).toContain("(seller_offer.fill_source = 'inventory') ASC");
+    expect(acceptance).not.toContain("matched_inventory");
+  });
+});
