@@ -23,8 +23,8 @@
 //! `jobId`); the pilot passes it to the API without reading it. A command's body is the API's own
 //! (`.../refresh-schedule/{key}/{command}`, `.../provider-profiles/{key}/{version}/clone`,
 //! `.../{rollback|deprecate|retire}`, `.../integration-jobs/{id}/{command}`); the API decides what
-//! each allows. A refusal is drawn on the page, and so is a refresh run that failed
-//! (chase-sets/chase-sets#11051: admin-web drops both).
+//! each allows. A refusal is drawn on the page, and so is a refresh run that failed, as admin-web
+//! draws them.
 //!
 //! Validation readiness (provider readiness, fixtures, dry runs, semantic compare, activation
 //! readiness and the activation decision) is drawn from the same read ([`super::validation`]), and
