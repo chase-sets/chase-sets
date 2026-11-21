@@ -828,6 +828,15 @@
       "workspace": "@chase-sets/channels",
       "script": "test:unit",
       "observedDurationMs": 4544
+    },
+    {
+      "runId": 44763649516,
+      "runAttempt": 1,
+      "jobId": 136383666535,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/app-agent-apps",
+      "script": "test",
+      "observedDurationMs": 2504
     }
   ]
 }

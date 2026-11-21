@@ -1,11 +1,11 @@
 import Ajv2020, { type AnySchema, type ValidateFunction } from "ajv/dist/2020";
 import { readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ucpErrorSeverity } from "./ucp-contracts";
 import { ucpToolOutputSchema } from "./ucp-tool-schemas";
 
-const SCHEMA_ROOT = fileURLToPath(new URL("./__fixtures__/ucp-2026-08-25/schemas/", import.meta.url));
+const SCHEMA_ROOT = join(dirname(fileURLToPath(import.meta.url)), "__fixtures__", "ucp-2026-08-25", "schemas");
 const SCHEMA_PREFIX = "https://ucp.dev/2026-08-25/schemas/";
 let state: { ajv: Ajv2020; unresolved: string[] } | undefined;
 

@@ -718,10 +718,9 @@ describe("shared CI gate plan", () => {
       expect(selectionFixture.cases.some(({ changedFiles }) => changedFiles.includes(family.path))).toBe(true);
       if (!family.synthetic) expect(tracked.has(family.path), family.family).toBe(true);
     }
-    // The registered SDK suite has no path ownership in the production selector.
-    // This change preserves that mapping rather than inventing a new one.
+    // Rendered copy has its own fixture corpus and dedicated batch coverage.
     expect(new Set(scopedCases.flatMap(({ suiteIds }) => suiteIds))).toEqual(
-      new Set(e2eSuites.filter(({ id }) => !["platform_mcp_sdk", "rendered_copy"].includes(id)).map(({ id }) => id)),
+      new Set(e2eSuites.filter(({ id }) => id !== "rendered_copy").map(({ id }) => id)),
     );
     const prefixes = [...source.matchAll(/normalized\.startsWith\("([^"]+)"\)/g)].map((match) => match[1]);
     expect(prefixes).toEqual([
@@ -735,6 +734,7 @@ describe("shared CI gate plan", () => {
       "deployables/admin-web/",
       "deployables/platform-api/",
       "packages/design-system/",
+      "deployables/agent-apps/",
     ]);
     for (const prefix of prefixes)
       expect(scopedCases.some(({ changedFiles }) => changedFiles.some((file) => file.startsWith(prefix)))).toBe(true);

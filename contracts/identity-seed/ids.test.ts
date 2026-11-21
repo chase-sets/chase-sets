@@ -57,7 +57,7 @@ const expectedIdentitySeedIds = {
     accountId: "acc_seed_support_account",
     userId: "usr_seed_support_user",
     membershipId: "mbr_seed_support_membership",
-    invitationId: "ivt_seed_support_accept",
+    invitationId: "ivt_seed_support_accept_sha256",
     sessionId: "ses_seed_support_session",
   },
   suspended: {

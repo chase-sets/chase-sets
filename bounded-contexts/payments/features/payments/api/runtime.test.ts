@@ -1469,7 +1469,8 @@ describe("payment runtime", () => {
     },
     { name: "fraud flag", risk: { stripe_fraud_flag: true }, reasonCodes: ["stripe-fraud-flag"] },
     { name: "open fraud review", risk: { stripe_review_open_count: 1 }, reasonCodes: ["stripe-fraud-review-open"] },
-    { name: "manual payout review", risk: { manual_payout_review: true }, reasonCodes: ["manual-payout-review"] },
+    { name: "active payout review hold", risk: { manual_payout_review: true }, reasonCodes: ["manual-payout-review"] },
+    { name: "released payout review hold", risk: { manual_payout_review: false }, reasonCodes: [] },
     { name: "automatic below threshold", amount: "249.99", reasonCodes: [] },
     { name: "direct saved intent", risk: { stripe_fraud_flag: true }, saved: true, reasonCodes: ["stripe-fraud-flag"] },
   ])("existing 3DS assessments reach a schema-valid Checkout Session: $name", async (scenario) => {
