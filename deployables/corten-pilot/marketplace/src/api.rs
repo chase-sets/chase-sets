@@ -6644,7 +6644,7 @@ impl SellerListingList for Caller<'_> {
     }
 }
 
-/// A submitted offer that matches a listing of the seller's (`OfferMatchListItem`, the same row
+/// A submitted offer that matches a listing or an inventory item of the seller's (`OfferMatchListItem`, the same row
 /// for the list and an offer match's page; Checkout's sell-list read adds `offer_stream_version`).
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(default)]
@@ -6684,6 +6684,19 @@ pub struct OfferMatch {
     /// `unavailable`, `held` or `refresh_required` for a managed offer.
     pub managed_status: Option<String>,
     pub updated_at: String,
+    /// `listing`, or `inventory` for an offer the seller could fill from an inventory item: such a
+    /// match has no listing fields until the seller lists the item, and cannot be accepted, declined
+    /// or added to the sell list. A row without it is a listing's.
+    pub fill_source: Option<String>,
+    pub inventory_item_id: Option<String>,
+    pub inventory_available_quantity: u64,
+}
+
+impl OfferMatch {
+    /// Whether it is a match from inventory, with no listing to accept it against.
+    pub fn from_inventory(&self) -> bool {
+        self.fill_source.as_deref() == Some("inventory")
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
