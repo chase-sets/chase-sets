@@ -22,6 +22,9 @@ const publicOfferFields = [
   "accepted_at",
   "created_at",
   "updated_at",
+  "fill_source",
+  "inventory_item_id",
+  "inventory_available_quantity",
   "listing_id",
   "listing_price_amount",
   "listing_price_currency_code",
@@ -39,7 +42,7 @@ const publicOfferFields = [
   "managed_status",
 ] as const;
 type PublicOfferField = (typeof publicOfferFields)[number];
-type PublicOffer<T> = Pick<T, Extract<keyof T, PublicOfferField>>;
+type PublicOffer<T> = T extends unknown ? Pick<T, Extract<keyof T, PublicOfferField>> : never;
 
 /** Public, seller, MCP and realtime paths share a positive field allowlist. */
 export function omitPrivateOfferResponseFields<T extends object>(offer: T): PublicOffer<T> {

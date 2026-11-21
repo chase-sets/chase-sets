@@ -110,6 +110,9 @@ export function invitationRoutes(
 
   app.post("/:id/resend", async (c) => {
     const invitationId = parseTypedIdBoundary(c.req.param("id"), "ivt", "invitationId");
+    const body = await c.req.json();
+    const attempted = await submitAccountManagement(c, accountManagement, "resend-invitation", invitationId, body);
+    if (attempted) return attempted;
     const invitation = await services.getInvitationForRead(invitationId);
     if (!invitation) {
       return c.json(
@@ -120,7 +123,6 @@ export function invitationRoutes(
     if (!canManageInvitation(c.var.actor, invitation)) {
       return c.json(forbidden(), 403);
     }
-    const body = await c.req.json();
     const result = await services.commandHandler({
       streamId: `identity.invitation-${invitationId}`,
       command: { type: "ResendInvitation", expiresAt: body.expiresAt },

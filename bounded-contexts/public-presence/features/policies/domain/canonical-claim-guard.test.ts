@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "@chase-sets/typescript-compiler-api";
 import { describe, expect, it, vi } from "vitest";
 import { canonicalClaimRegistry, resolveUnresolvedPublicDisclosureText } from "./canonical-claims";
 import { evaluateCanonicalClaimConsistency, projectCanonicalClaimReviewCorpus } from "./canonical-claim-guard";
@@ -732,6 +733,108 @@ const citationAuthorityRows: readonly CitationAuthorityRow[] = [
   },
 ];
 
+const registrationSourcePath = "bounded-contexts/auth/features/registration/ui/register-page.tsx";
+const registrationFieldsRef = `${registrationSourcePath}:67-73,137-195,417-582`;
+const registrationEsignRef = `${registrationSourcePath}:137-195,283-324,417-582`;
+const registrationFieldFragments = ['name="displayName"', 'name="email"', 'name="phone"', 'name="password"'];
+const registrationFieldNames = [
+  "code",
+  "displayName",
+  "email",
+  "intent",
+  "password",
+  "phone",
+  "registrationMethod",
+  "registrationMethodsShown",
+  "tokenId",
+];
+
+type RegistrationCitationOccurrence = Readonly<{
+  policyKey: string;
+  sectionId: string;
+  fieldPath: string;
+  ref: string;
+}>;
+
+type RegistrationCitationAuthorityRow = Readonly<{
+  occurrence: RegistrationCitationOccurrence;
+  union: "fields" | "esign";
+  fragments: readonly string[];
+}>;
+
+const registrationCitationAuthorityRows: readonly RegistrationCitationAuthorityRow[] = [
+  {
+    occurrence: {
+      policyKey: "terms-of-service",
+      sectionId: "eligibility-and-accounts",
+      fieldPath: "reviewManifest.productTruthRefs[0]",
+      ref: registrationFieldsRef,
+    },
+    union: "fields",
+    fragments: registrationFieldFragments,
+  },
+  {
+    occurrence: {
+      policyKey: "terms-of-service",
+      sectionId: "eligibility-and-accounts",
+      fieldPath: "reviewManifest.assumptions[0].evidenceRef",
+      ref: `${registrationFieldsRef}; bounded-contexts/auth/support/api-support/register-routes.ts:36-58`,
+    },
+    union: "fields",
+    fragments: registrationFieldFragments,
+  },
+  {
+    occurrence: {
+      policyKey: "terms-of-service",
+      sectionId: "electronic-communications-and-esign",
+      fieldPath: "reviewManifest.productTruthRefs[2]",
+      ref: registrationEsignRef,
+    },
+    union: "esign",
+    fragments: ['method="post"', "createPasskeyCredential"],
+  },
+  {
+    occurrence: {
+      policyKey: "privacy-policy",
+      sectionId: "data-categories-and-sources",
+      fieldPath: "reviewManifest.productTruthRefs[4]",
+      ref: registrationFieldsRef,
+    },
+    union: "fields",
+    fragments: registrationFieldFragments,
+  },
+  {
+    occurrence: {
+      policyKey: "privacy-policy",
+      sectionId: "data-categories-and-sources",
+      fieldPath: "reviewManifest.assumptions[0].evidenceRef",
+      ref: registrationFieldsRef,
+    },
+    union: "fields",
+    fragments: registrationFieldFragments,
+  },
+  {
+    occurrence: {
+      policyKey: "privacy-policy",
+      sectionId: "children",
+      fieldPath: "reviewManifest.productTruthRefs[1]",
+      ref: registrationFieldsRef,
+    },
+    union: "fields",
+    fragments: ["type RegistrationDetails", ...registrationFieldFragments],
+  },
+  {
+    occurrence: {
+      policyKey: "privacy-policy",
+      sectionId: "children",
+      fieldPath: "reviewManifest.assumptions[0].evidenceRef",
+      ref: `${termsSourcePath}:370; ${registrationFieldsRef}`,
+    },
+    union: "fields",
+    fragments: ["type RegistrationDetails", ...registrationFieldFragments],
+  },
+];
+
 function validateCitationAuthority(row: CitationAuthorityRow, ref = row.ref): readonly string[] {
   const slice = readCitedSourceSlice(repoRoot, ref);
   if (slice.error !== undefined) {
@@ -763,6 +866,174 @@ function lineKeyedCitationParts(reference: string): readonly string[] {
       if (match === null) return [];
       return match[2]!.split(",").map((range) => `${match[1]}:${range}`);
     });
+}
+
+function registrationCitationOccurrences(
+  registry: readonly PublicPolicyRegistryEntry[],
+): readonly RegistrationCitationOccurrence[] {
+  return registry.flatMap(({ artifact }) =>
+    artifact.sections.flatMap(({ id: sectionId, reviewManifest }) => {
+      const occurrence = (ref: string, fieldPath: string) =>
+        ref.split(";").some((part) => part.trim().startsWith(`${registrationSourcePath}:`))
+          ? [{ policyKey: artifact.metadata.policyKey, sectionId, fieldPath: `reviewManifest.${fieldPath}`, ref }]
+          : [];
+      return [
+        ...reviewManifest.productTruthRefs.flatMap((ref, index) => occurrence(ref, `productTruthRefs[${index}]`)),
+        ...reviewManifest.assumptions.flatMap(({ evidenceRef }, index) =>
+          occurrence(evidenceRef, `assumptions[${index}].evidenceRef`),
+        ),
+        ...(reviewManifest.canonicalClaims ?? []).flatMap(({ productTruthRefs }, claimIndex) =>
+          productTruthRefs.flatMap((ref, index) =>
+            occurrence(ref, `canonicalClaims[${claimIndex}].productTruthRefs[${index}]`),
+          ),
+        ),
+      ];
+    }),
+  );
+}
+
+function registrationCitationSource() {
+  const source = ts.createSourceFile(
+    registrationSourcePath,
+    sourceLines(registrationSourcePath).join("\n"),
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  );
+  const nodes: ts.Node[] = [];
+  function visit(node: ts.Node) {
+    nodes.push(node);
+    ts.forEachChild(node, visit);
+  }
+  visit(source);
+
+  const lineOf = (position: number) => source.getLineAndCharacterOfPosition(position).line + 1;
+  const spanOf = (node: ts.Node): SourceSpan => ({
+    start: lineOf(node.getStart(source)),
+    end: lineOf(node.getEnd() - 1),
+  });
+  const exactlyOne = (matches: readonly ts.Node[], name: string) => {
+    if (matches.length !== 1) {
+      throw new Error(`Expected one ${name} in ${registrationSourcePath}, found ${matches.length}.`);
+    }
+    return matches[0]!;
+  };
+  const functionNode = (name: string) =>
+    exactlyOne(
+      nodes.filter((node) => ts.isFunctionDeclaration(node) && node.name?.text === name),
+      name,
+    );
+  const registerPage = functionNode("RegisterPage");
+  const methodBranch = (method: string) =>
+    spanOf(
+      exactlyOne(
+        nodes.filter((node) => {
+          if (
+            node.pos < registerPage.pos ||
+            node.end > registerPage.end ||
+            !ts.isJsxExpression(node) ||
+            node.expression === undefined ||
+            !ts.isConditionalExpression(node.expression)
+          ) {
+            return false;
+          }
+          const { condition } = node.expression;
+          return (
+            ts.isBinaryExpression(condition) &&
+            ts.isIdentifier(condition.left) &&
+            condition.left.text === "method" &&
+            condition.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken &&
+            ts.isStringLiteral(condition.right) &&
+            condition.right.text === method
+          );
+        }),
+        `${method} registration branch`,
+      ),
+    );
+  const identityFields = spanOf(functionNode("IdentityFields"));
+  const details = spanOf(
+    exactlyOne(
+      source.statements.filter((node) => ts.isTypeAliasDeclaration(node) && node.name.text === "RegistrationDetails"),
+      "RegistrationDetails",
+    ),
+  );
+  const formAndIdentity = { start: spanOf(functionNode("RegistrationFormCard")).start, end: identityFields.end };
+  const submitHandlers = {
+    start: spanOf(functionNode("handleCompleted")).start,
+    end: spanOf(functionNode("handlePasskeySubmit")).end,
+  };
+  const passkey = methodBranch("passkey");
+  const magicLink = methodBranch("magic-link");
+  const phoneCode = methodBranch("phone-code");
+  const password = methodBranch("password");
+  const branches = { start: passkey.start, end: password.end };
+  if (passkey.end >= magicLink.start || magicLink.end >= phoneCode.start || phoneCode.end >= password.start) {
+    throw new Error(`Registration method branches are not in the reviewed order in ${registrationSourcePath}.`);
+  }
+  const formTags = nodes.flatMap((node) =>
+    (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) &&
+    /^(RegistrationFormCard|Form|RouterForm|form)\b/.test(node.tagName.getText(source))
+      ? [spanOf(node)]
+      : [],
+  );
+  return {
+    unions: { fields: [details, formAndIdentity, branches], esign: [formAndIdentity, submitHandlers, branches] },
+    identityFields,
+    formTags,
+    branches,
+    magicLink,
+  };
+}
+
+function validateRegistrationCitationAuthority(
+  row: RegistrationCitationAuthorityRow,
+  source: ReturnType<typeof registrationCitationSource>,
+  ref = row.occurrence.ref,
+  readSlice = (part: string) => readCitedSourceSlice(repoRoot, part),
+): readonly string[] {
+  const { policyKey, sectionId } = row.occurrence;
+  const errors: string[] = [];
+  const reject = (message: string) => errors.push(`${policyKey} ${sectionId} ${ref}: ${message}`);
+  const slices = lineKeyedCitationParts(ref)
+    .filter((part) => part.startsWith(`${registrationSourcePath}:`))
+    .flatMap((part) => {
+      const { start, end, text, error } = readSlice(part);
+      if (start === undefined || end === undefined || text === undefined) {
+        reject(`${part}: ${error ?? "cited source slice was incomplete"}`);
+        return [];
+      }
+      return [{ start, end, text }];
+    });
+  const range = ({ start, end }: SourceSpan) => `${start}-${end}`;
+  const expected = source.unions[row.union].map(range);
+  if (slices.map(range).join(",") !== expected.join(",")) {
+    reject(`expected whole-construct ranges ${expected.join(",")}`);
+  }
+  const covers = (span: SourceSpan) => slices.some(({ start, end }) => start <= span.start && end >= span.end);
+  for (const tag of source.formTags) {
+    if (!covers(tag)) reject(`uncovered form tag at line ${tag.start}`);
+  }
+  if (!covers(source.identityFields))
+    reject(`uncovered IdentityFields definition at lines ${range(source.identityFields)}`);
+
+  const text = slices.map((slice) => slice.text).join("\n");
+  for (const fragment of row.fragments) {
+    if (!text.includes(fragment)) reject(`missing fragment '${fragment}'`);
+  }
+  const names = new Set<string>();
+  for (const [, doubleQuoted, singleQuoted, expression] of text.matchAll(
+    /\sname\s*=\s*(?:"([^"]*)"|'([^']*)'|(\{))/g,
+  )) {
+    if (expression !== undefined) reject("unexpected name={ expression");
+    else names.add((doubleQuoted ?? singleQuoted)!);
+  }
+  for (const name of names) {
+    if (!registrationFieldNames.includes(name)) reject(`unexpected field '${name}'`);
+  }
+  for (const name of registrationFieldNames) {
+    if (!names.has(name)) reject(`missing reviewed field '${name}'`);
+  }
+  return errors;
 }
 
 type TermsAcceptanceCitationOccurrence = Readonly<{
@@ -836,17 +1107,19 @@ const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
   // and Connector Pairing manifest reconciliation; only C1-C7 digits remain normalized.
   // Repinned for the legal-notice email and authority update with the same C1-C7 normalization:
   // [#9050 Fill the legal-notice email in the Terms, Seller Agreement and Privacy Policy drafts](https://github.com/chase-sets/chase-sets/issues/9050).
-  [citationFencePaths.privacyPolicy]: "d1311be5fba82a9c88bf61d8baf7c6ab8b36fb6ca0966cec8a2d856b2ee9d065",
+  // Repinned for the whole-construct registration refs without changing the C1-C7 normalization.
+  [citationFencePaths.privacyPolicy]: "f1b3d0a6b2a688d481c6af4a390e0d30c532fe0313cee53d9d4255a9e0d911ee",
   [citationFencePaths.authenticityTest]: "700ac32ceea294c75f90d708a0e7656e7b2abe2beebff9569e71abed24aa40d9",
   // Repinned for #10066, #8846, the current-main lost-update guard surface merge, and the #10176 JSON import census
-  // evidence-citation update, #9878 TCGplayer guard surface, and the #9553 context-registry guard surface.
-  [citationFencePaths.staticSurfaces]: "9e95e3780ac11f188aff806d8273478bc6116a5f97ff90a407491a0e6dbb9b85",
+  // evidence-citation update, #9878 TCGplayer guard surface, the #9553 context-registry guard surface, and the
+  // #7313 managed-Postgres client policy surface with its authority-guard and client-policy evidence ranges.
+  [citationFencePaths.staticSurfaces]: "ac94c950cf78bbca8cdeb7310b25ff9de92015f06dc60ed3945059a1793717f5",
 };
 
 const citationFenceOccurrences: Readonly<Record<string, readonly RegExp[]>> = {
   [citationFencePaths.privacyPolicy]: [
     /("bounded-contexts\/public-presence\/features\/policies\/domain\/terms-of-service\.ts:)\d+("\s*,)/g,
-    /("bounded-contexts\/public-presence\/features\/policies\/domain\/terms-of-service\.ts:)\d+(; bounded-contexts\/auth\/features\/registration\/ui\/register-page\.tsx:60-66")/g,
+    /("bounded-contexts\/public-presence\/features\/policies\/domain\/terms-of-service\.ts:)\d+(; bounded-contexts\/auth\/features\/registration\/ui\/register-page\.tsx:67-73,137-195,417-582")/g,
   ],
   [citationFencePaths.authenticityTerms]: [
     /("bounded-contexts\/public-presence\/features\/policies\/domain\/terms-of-service\.ts:)\d+-\d+("\s*,)/g,
@@ -1820,6 +2093,76 @@ describe("line-keyed policy citation authority", () => {
     }
   });
 
+  it("registration citation authority pins seven occurrences to whole constructs", () => {
+    const expected = registrationCitationAuthorityRows.map(({ occurrence }) => occurrence);
+    expect(expected).toHaveLength(7);
+    expect(registrationCitationOccurrences(publicPolicyRegistry)).toEqual(expected);
+
+    const source = registrationCitationSource();
+    for (const row of registrationCitationAuthorityRows) {
+      expect(validateRegistrationCitationAuthority(row, source)).toEqual([]);
+    }
+  });
+
+  it("registration citation authority rejects non-entailing source ranges", () => {
+    const row = registrationCitationAuthorityRows.find(
+      ({ occurrence }) => occurrence.policyKey === "privacy-policy" && occurrence.sectionId === "children",
+    )!;
+    const { policyKey, sectionId, ref } = row.occurrence;
+    const source = registrationCitationSource();
+    const { branches, magicLink } = source;
+    const magicLinkTag = source.formTags.find(({ start }) => start >= magicLink.start && start <= magicLink.end)!;
+    const withoutMagicLink = ref.replace(
+      `${branches.start}-${branches.end}`,
+      `${branches.start}-${magicLink.start - 1},${magicLink.end + 1}-${branches.end}`,
+    );
+    const formerRef = `${registrationSourcePath}:60-66`;
+    const addBirthDate = (part: string) => {
+      const slice = readCitedSourceSlice(repoRoot, part);
+      return slice.end === source.identityFields.end
+        ? { ...slice, text: `${slice.text}\n<TextInput name="dateOfBirth" />` }
+        : slice;
+    };
+    const controls = [
+      {
+        ref: formerRef,
+        detail: "missing fragment 'name=\"displayName\"'",
+        errors: validateRegistrationCitationAuthority(row, source, formerRef),
+      },
+      {
+        ref: withoutMagicLink,
+        detail: `uncovered form tag at line ${magicLinkTag.start}`,
+        errors: validateRegistrationCitationAuthority(row, source, withoutMagicLink),
+      },
+      {
+        ref,
+        detail: "unexpected field 'dateOfBirth'",
+        errors: validateRegistrationCitationAuthority(row, source, ref, addBirthDate),
+      },
+    ];
+    for (const control of controls) {
+      expect(control.errors).toContain(`${policyKey} ${sectionId} ${control.ref}: ${control.detail}`);
+    }
+  });
+
+  it("registration citation occurrence pin detects an added or dropped carrier", () => {
+    const expected = registrationCitationAuthorityRows.map(({ occurrence }) => occurrence);
+    const eligibility = termsSectionOf("eligibility-and-accounts");
+    const manifest = eligibility.reviewManifest;
+    const withProductTruthRefs = (productTruthRefs: readonly string[]) =>
+      registrationCitationOccurrences(
+        withTermsOfServiceSectionOverride(eligibility.id, {
+          reviewManifest: { ...manifest, productTruthRefs },
+        }),
+      );
+    const extra = withProductTruthRefs([...manifest.productTruthRefs, registrationFieldsRef]);
+    expect(extra).toHaveLength(8);
+    expect(extra).not.toEqual(expected);
+    const missing = withProductTruthRefs(manifest.productTruthRefs.filter((ref) => ref !== registrationFieldsRef));
+    expect(missing).toHaveLength(6);
+    expect(missing).not.toEqual(expected);
+  });
+
   it("negative control: a bare Support Request token falsely accepts C3's following neighbour", () => {
     const row = citationAuthorityRows.find(({ id }) => id === "C3")!;
     const after = row.spanOf(row.neighbours[1]);
@@ -1917,8 +2260,8 @@ describe("occurrence-scoped citation byte fence", () => {
       [citationFencePaths.privacyPolicy, `${termsSourcePath}:370\"`, `${termsSourcePath}:9370\"`],
       [
         citationFencePaths.privacyPolicy,
-        `${termsSourcePath}:370; bounded-contexts/auth/features/registration/ui/register-page.tsx:60-66`,
-        `${termsSourcePath}:9370; bounded-contexts/auth/features/registration/ui/register-page.tsx:60-66`,
+        `${termsSourcePath}:370; ${registrationFieldsRef}`,
+        `${termsSourcePath}:9370; ${registrationFieldsRef}`,
       ],
       [citationFencePaths.authenticityTerms, `${termsSourcePath}:576-602`, `${termsSourcePath}:9576-9602`],
       [

@@ -1,6 +1,6 @@
 //! The account's team (Identity's marketplace `account-team` route): invite someone by email with
 //! a role, and each member (Change Role, then Revoke behind a dialog or Reinstate) and invitation
-//! (Cancel behind a dialog while it is pending). Every rule is the API's: who may be invited, which
+//! (Resend, and Cancel behind a dialog, while it is pending). Every rule is the API's: who may be invited, which
 //! roles may be granted, that the last owner keeps the account.
 //!
 //! Each write is an Identity account-management attempt, as the shipping addresses' are: the
@@ -9,16 +9,16 @@
 //! off (see `addresses`). Every write posts to the page's own path, as marketplace's form action
 //! does, and a committed one redirects to the page read after it.
 //!
-//! An invitation the API newly records is then emailed: the pilot asks Auth to send its acceptance
-//! link after the invitation's receipt, from the browser's address, as marketplace's action does. A
-//! link that cannot be asked for leaves the invitation saved and its delivery unknown, as
-//! marketplace's does; an invitation the API had already recorded is never emailed again. Asked for at
-//! once, the link is often refused (404) before Auth has the invitation (chase-sets/chase-sets#10795).
+//! An invitation the API newly records or resends is then emailed: the pilot asks Auth to send its
+//! acceptance link after the invitation's receipt, from the browser's address, as marketplace's
+//! action does. A link that cannot be asked for leaves the invitation saved, and the page it returns
+//! to says it was not emailed (`?unsent=`) so the owner can Resend it; an invitation the API had
+//! already recorded is never emailed again.
 //!
 //! | Route | Answers |
 //! |---|---|
 //! | `GET /account/team?<place>` | the page, read after the write whose receipt it carries |
-//! | `POST /account/team` | invite, cancel an invitation, change a role, revoke or reinstate a member (`intent`) |
+//! | `POST /account/team` | invite, resend or cancel an invitation, change a role, revoke or reinstate a member (`intent`) |
 use crate::recovery::attempt_text;
 use corten::{
     ClientIp,
@@ -54,13 +54,14 @@ fn instant(at: OffsetDateTime) -> String {
 }
 
 /// What the page's address carries: the last write's receipt (`after_write`), the attempt that
-/// answer settles (`saved`), and an attempt to ask the API about (`check`, its `action` and
-/// `target`).
+/// answer settles (`saved`), an invitation that write saved but could not email (`unsent`), and an
+/// attempt to ask the API about (`check`, its `action` and `target`).
 #[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 pub struct Place {
     pub after_write: Option<String>,
     pub saved: Option<String>,
+    pub unsent: Option<String>,
     pub check: Option<String>,
     pub action: Option<AccountAction>,
     pub target: Option<String>,
@@ -80,10 +81,11 @@ pub struct TeamInput {
 }
 
 impl TeamInput {
-    /// The write `intent` names: one of the page's five.
+    /// The write `intent` names: one of the page's six.
     pub fn action(&self) -> Option<AccountAction> {
         Some(match self.intent.as_str() {
             "create-invitation" => AccountAction::CreateInvitation,
+            "resend-invitation" => AccountAction::ResendInvitation,
             "cancel-invitation" => AccountAction::CancelInvitation,
             "change-role" => AccountAction::ChangeRole,
             "revoke" => AccountAction::Revoke,
@@ -109,13 +111,14 @@ pub struct Draft {
 }
 
 /// The page: the account's members and invitations (as they were while the lists catch up with a
-/// write), what the last write did, and a refused invite.
+/// write), what the last write did, an invitation it could not email, and a refused invite.
 #[derive(Serialize, ToJson)]
 pub struct TeamScreen {
     pub memberships: Vec<Membership>,
     pub invitations: Vec<Invitation>,
     pub pending: bool,
     pub said: Said,
+    pub unsent: Option<String>,
     #[serde(skip)]
     pub posted: Option<Draft>,
 }
@@ -146,7 +149,16 @@ pub(crate) async fn page(
         (None, _) if place.saved.is_some() => Said::Saved,
         (None, _) => Said::Editing,
     };
-    render(&req, &viewer, &config, &headers, place.after_write.as_deref(), said, None, StatusCode::OK).await
+    let unsent = place.unsent.filter(|id| id.starts_with("ivt_") && id.len() <= 100);
+    let read = Read { after_write: place.after_write.as_deref(), unsent };
+    render(&req, &viewer, &config, &headers, read, said, None, StatusCode::OK).await
+}
+
+/// What the page is read with: the write's receipt, and an invitation it saved but could not email.
+#[derive(Default)]
+struct Read<'a> {
+    after_write: Option<&'a str>,
+    unsent: Option<String>,
 }
 
 /// What the API says came of `attempt`, for the page.
@@ -173,14 +185,14 @@ async fn render(
     viewer: &Viewer,
     config: &Shared,
     headers: &HeaderMap,
-    after_write: Option<&str>,
+    read: Read<'_>,
     said: Said,
     posted: Option<Draft>,
     status: StatusCode,
 ) -> HtmlResult {
-    let receipt = Receipt::from_param(after_write);
+    let receipt = Receipt::from_param(read.after_write);
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
-    let ((memberships, invitations), pending) = match caller.team().await {
+    let ((memberships, mut invitations), pending) = match caller.team().await {
         Ok(team) => (team, false),
         // The write's projection is not readable yet: the team as it was, marked as updating.
         Err(error) if receipt.is_some() && error.catching_up() => {
@@ -192,7 +204,9 @@ async fn render(
         }
         Err(error) => return read_failed(req, Some(viewer), error, None),
     };
-    let screen = TeamScreen { memberships, invitations, pending, said, posted };
+    let now = time::OffsetDateTime::now_utc();
+    invitations.iter_mut().for_each(|invitation| invitation.mark_lapsed(now));
+    let screen = TeamScreen { memberships, invitations, pending, said, unsent: read.unsent, posted };
     let t: TeamMsg = req.t();
     let head = html! {
         if pending {
@@ -225,7 +239,7 @@ pub(crate) async fn write(
         // Only the invite form is drawn again; any other refusal is the page's banner, with its words.
         let said = if action == Some(AccountAction::CreateInvitation) { Said::Editing } else { Said::NotSaved };
         let posted = Some(Draft { input: input.clone(), errors });
-        render(req, viewer, config, headers, None, said, posted, StatusCode::UNPROCESSABLE_ENTITY)
+        render(req, viewer, config, headers, Read::default(), said, posted, StatusCode::UNPROCESSABLE_ENTITY)
     };
     let Some(action) = action else { return refuse(t.manage_state_failed_safe()).await };
     if !valid_attempt(&attempt) {
@@ -246,8 +260,12 @@ pub(crate) async fn write(
             });
             (None, body)
         }
-        AccountAction::CancelInvitation => match input.invitation_id.trim() {
+        AccountAction::ResendInvitation | AccountAction::CancelInvitation => match input.invitation_id.trim() {
             "" => return refuse(t.manage_state_failed_safe()).await,
+            id if action == AccountAction::ResendInvitation => {
+                let expires = instant(OffsetDateTime::now_utc() + Duration::days(INVITATION_DAYS));
+                (Some(id.to_owned()), json!({ "expiresAt": expires }))
+            }
             id => (Some(id.to_owned()), json!({})),
         },
         _ => match input.membership_id.trim() {
@@ -279,19 +297,23 @@ pub(crate) async fn write(
     };
     match answer {
         AccountAnswer::Committed(after_write) => {
+            let mut unsent = None;
             if let Some(invited) = invited.filter(|i| i.newly) {
                 let receipt = Receipt::from_param(after_write.as_deref());
                 let after = config.platform.caller(headers, config.proto, receipt.as_ref());
                 if let Err(error) = after.invitation_link(&invited.invitation_id, client).await {
                     tracing::warn!("an invitation's acceptance link could not be asked for: {error}");
+                    unsent = Some(invited.invitation_id);
                 }
             }
-            let place = Place { after_write, saved: Some(attempt), ..Place::default() };
+            let place = Place { after_write, saved: Some(attempt), unsent, ..Place::default() };
             req.redirect(&url::Team { place })
         }
         AccountAnswer::NotRecorded { code, .. } if code == "validation-failed" => refuse(t.action_validation()).await,
         AccountAnswer::NotRecorded { .. } => refuse(t.manage_state_failed_safe()).await,
-        AccountAnswer::Conflict => render(req, viewer, config, headers, None, Said::Conflict, None, StatusCode::CONFLICT).await,
+        AccountAnswer::Conflict => {
+            render(req, viewer, config, headers, Read::default(), Said::Conflict, None, StatusCode::CONFLICT).await
+        }
         AccountAnswer::Indeterminate => unreachable!("asked about above"),
     }
 }
@@ -303,10 +325,10 @@ async fn failed(req: &Req, viewer: &Viewer, config: &Shared, headers: &HeaderMap
     match error.status() {
         Some(StatusCode::UNAUTHORIZED) => sign_in(req),
         Some(StatusCode::FORBIDDEN) => {
-            render(req, viewer, config, headers, None, Said::Denied, None, StatusCode::FORBIDDEN).await
+            render(req, viewer, config, headers, Read::default(), Said::Denied, None, StatusCode::FORBIDDEN).await
         }
         Some(status) if status.is_client_error() => {
-            render(req, viewer, config, headers, None, Said::NotSaved, None, StatusCode::UNPROCESSABLE_ENTITY).await
+            render(req, viewer, config, headers, Read::default(), Said::NotSaved, None, StatusCode::UNPROCESSABLE_ENTITY).await
         }
         _ => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
     }
@@ -328,6 +350,7 @@ mod tests {
     fn the_intent_names_one_of_the_pages_writes_and_the_role_is_viewer_unless_chosen() {
         let with = |intent: &str| TeamInput { intent: intent.into(), ..TeamInput::default() };
         assert_eq!(with("create-invitation").action(), Some(AccountAction::CreateInvitation));
+        assert_eq!(with("resend-invitation").action(), Some(AccountAction::ResendInvitation));
         assert_eq!(with("cancel-invitation").action(), Some(AccountAction::CancelInvitation));
         assert_eq!(with("change-role").action(), Some(AccountAction::ChangeRole));
         assert_eq!(with("revoke").action(), Some(AccountAction::Revoke));

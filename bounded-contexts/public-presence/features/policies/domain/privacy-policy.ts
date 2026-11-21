@@ -103,7 +103,7 @@ export const privacyPolicyArtifact: PublicPolicyArtifact<"privacy-policy", Priva
         decisionRefs: [5685],
         productTruthRefs: [
           ...privacyProductTruthRefsForSection("data-categories-and-sources"),
-          "bounded-contexts/auth/features/registration/ui/register-page.tsx:60-66",
+          "bounded-contexts/auth/features/registration/ui/register-page.tsx:67-73,137-195,417-582",
           "bounded-contexts/auth/docs/security-lifetimes.md:3",
           "bounded-contexts/public-presence/features/waitlist/domain/common.ts:27-40",
           "bounded-contexts/public-presence/features/waitlist/domain/common.ts:42-50",
@@ -124,7 +124,7 @@ export const privacyPolicyArtifact: PublicPolicyArtifact<"privacy-policy", Priva
           {
             assertion:
               "Registration captures display name, email, phone, and password; no date-of-birth or government-identifier field exists in the registration details.",
-            evidenceRef: "bounded-contexts/auth/features/registration/ui/register-page.tsx:60-66",
+            evidenceRef: "bounded-contexts/auth/features/registration/ui/register-page.tsx:67-73,137-195,417-582",
           },
           {
             assertion:
@@ -416,7 +416,7 @@ export const privacyPolicyArtifact: PublicPolicyArtifact<"privacy-policy", Priva
         decisionRefs: [5679],
         productTruthRefs: [
           "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:370",
-          "bounded-contexts/auth/features/registration/ui/register-page.tsx:60-66",
+          "bounded-contexts/auth/features/registration/ui/register-page.tsx:67-73,137-195,417-582",
         ],
         openQuestions: [
           "Children's-privacy language, including any COPPA applicability conclusion and the learn-and-delete commitment, is counsel-owned.",
@@ -427,7 +427,7 @@ export const privacyPolicyArtifact: PublicPolicyArtifact<"privacy-policy", Priva
             assertion:
               "The Terms of Service eligibility draft requires account holders to be at least 18; registration collects no age or date-of-birth field.",
             evidenceRef:
-              "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:370; bounded-contexts/auth/features/registration/ui/register-page.tsx:60-66",
+              "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:370; bounded-contexts/auth/features/registration/ui/register-page.tsx:67-73,137-195,417-582",
           },
         ],
       },

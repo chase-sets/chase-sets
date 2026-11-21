@@ -365,6 +365,12 @@ export function verifyReceipts(receipts) {
   }
 }
 
+// Requires the tsx loader (main registers it) to import the TypeScript seam.
+export async function openRedactionPool(databaseUrl) {
+  const { createPgPool } = await import("../infrastructure/event-core-postgres/index.ts");
+  return createPgPool(databaseUrl, { max: 1, connectionTimeoutMillis: 15_000, statementTimeoutMillis: 30_000 });
+}
+
 async function main() {
   const mode = process.env.REDACTION_MODE;
   const out = process.env.REDACTION_OUT;
@@ -405,22 +411,11 @@ async function main() {
   const unregister = register();
   let pool;
   try {
-    const { default: pg } = await import("pg");
-    const { normalizePgPoolConnectionString, resolvePgPoolSslConfig } =
-      await import("../infrastructure/event-core-postgres/index.ts");
     const { redactLegacyAnonymousOwners } =
       await import("../bounded-contexts/collections/features/saved-lists/api/anonymous-owner-redaction.ts");
     const { activateAnonymousOwnerCutover } =
       await import("../bounded-contexts/collections/support/runtime-support/anonymous-owner-activation.ts");
-    const connectionString = normalizePgPoolConnectionString(options.databaseUrl);
-    pool = new pg.Pool({
-      connectionString,
-      ssl: resolvePgPoolSslConfig(connectionString),
-      max: 1,
-      connectionTimeoutMillis: 15_000,
-      statement_timeout: 30_000,
-    });
-    pool.on("error", () => {});
+    pool = await openRedactionPool(options.databaseUrl);
     const receipt = await runRedaction(options, {
       pool,
       redact: redactLegacyAnonymousOwners,
