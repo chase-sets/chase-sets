@@ -11,6 +11,7 @@ import { stagingRefreshOverlapWorkflowFiles } from "./staging-refresh-preflight-
 import {
   CATALOG_INTEGRATION_RESET_CONFIRMATION,
   CATALOG_INTEGRATION_RESET_WORKFLOW_FILE,
+  PRODUCTION_CATALOG_INTEGRATION_RESET_CONFIRMATION,
   STAGING_CATALOG_DATABASE_NAME,
   assertStagingCatalogDatabaseIdentity,
   catalogIntegrationResetExitCode,
@@ -20,6 +21,7 @@ import {
 } from "./catalog-integration-reset.ts";
 
 const workflow = readFileSync(resolve(".github/workflows/catalog-integration-staging-reset.yml"), "utf8");
+const workflowDocument = parseYaml(workflow);
 
 function assertImmutableProviderUatAdmission(document) {
   const gate = document.jobs["admit-reviewed-sha"];
@@ -113,7 +115,11 @@ const workflowFilesWithConcurrencyGroup = (group) =>
   readdirSync(resolve(".github/workflows"))
     .filter((file) => file.endsWith(".yml"))
     .map((file) => `.github/workflows/${file}`)
-    .filter((file) => workflowSource(file).includes(`group: ${group}`))
+    .filter((file) =>
+      file === CATALOG_INTEGRATION_RESET_WORKFLOW_FILE && group === "platform-staging-mutating-operations"
+        ? workflowDocument.concurrency.group.endsWith("|| 'platform-staging-mutating-operations' }}")
+        : workflowSource(file).includes(`group: ${group}`),
+    )
     .sort();
 const scriptsDir = dirname(fileURLToPath(import.meta.url));
 const runnerPath = join(scriptsDir, "run-catalog-integration-reset.mjs");
@@ -232,10 +238,52 @@ describe("catalog integration reset argument and environment gates", () => {
     expect(parsed).not.toHaveProperty("currentRunId");
   });
 
-  it("refuses production/prelaunch even when apply confirmations are complete", () => {
-    expect(validateCatalogIntegrationResetOptions(applyOptions({ environment: "production-prelaunch" }))).toContain(
-      "Production/prelaunch is refused by this staging operator entry point; create separately reviewed production machinery after a successful staging rehearsal.",
-    );
+  const productionApply = applyOptions({
+    environment: "production-prelaunch",
+    confirmation: PRODUCTION_CATALOG_INTEGRATION_RESET_CONFIRMATION,
+    backupDecision: {
+      kind: "create-backup-snapshot-export",
+      reference: "synthetic-managed-postgres-restore-point",
+      owner: "synthetic-owner",
+      retentionUntil: "2026-11-28",
+      restoreVerificationReference: "synthetic-restore-verification",
+    },
+    dryRunFingerprint: "synthetic-fingerprint",
+    stagingRehearsalReference: "synthetic-staging-rehearsal",
+  });
+
+  it("admits production dry-run without apply inputs and accepts complete production apply inputs", () => {
+    expect(validateCatalogIntegrationResetOptions(options({ environment: "production-prelaunch" }))).toEqual([]);
+    expect(validateCatalogIntegrationResetOptions(productionApply)).toEqual([]);
+  });
+
+  it.each([
+    [{ confirmation: CATALOG_INTEGRATION_RESET_CONFIRMATION }, "--confirm must exactly equal"],
+    [{ confirmation: PRODUCTION_CATALOG_INTEGRATION_RESET_CONFIRMATION + " " }, "--confirm must exactly equal"],
+    [{ approvalReference: null }, "--approval-reference is required"],
+    [{ operator: null }, "--operator is required"],
+    [{ backupDecision: null }, "requires a managed Postgres backup"],
+    [{ backupDecision: applyOptions().backupDecision }, "skipping backup is not allowed"],
+    [{ backupDecision: { ...productionApply.backupDecision, reference: "" } }, "--backup-reference is required"],
+    [{ backupDecision: { ...productionApply.backupDecision, reference: " " } }, "--backup-reference is required"],
+    [{ dryRunFingerprint: null }, "--dry-run-fingerprint is required"],
+    [{ stagingRehearsalReference: null }, "--staging-rehearsal-reference is required"],
+    [{ smokeVerificationReference: null }, "--smoke-verification-reference is required"],
+  ])("refuses incomplete production apply inputs %j before any database access", async (overrides, reason) => {
+    const db = { ...database(), connect: vi.fn() };
+    await expect(runCatalogIntegrationReset({ ...productionApply, ...overrides }, db)).rejects.toThrow(reason);
+    expect(db.query).not.toHaveBeenCalled();
+    expect(db.connect).not.toHaveBeenCalled();
+  });
+
+  it("does not trim production confirmation or fall back to an environment value", () => {
+    const args = ["--environment", "production-prelaunch"];
+    const env = { CATALOG_INTEGRATION_RESET_CONFIRM: PRODUCTION_CATALOG_INTEGRATION_RESET_CONFIRMATION };
+    expect(parseCatalogIntegrationResetArgs(args, env).confirmation).toBeNull();
+    expect(
+      parseCatalogIntegrationResetArgs([...args, "--confirm", " " + env.CATALOG_INTEGRATION_RESET_CONFIRM], env)
+        .confirmation,
+    ).toBe(" " + env.CATALOG_INTEGRATION_RESET_CONFIRM);
   });
 
   it("requires exact confirmation, operator, approval, and complete backup evidence for apply", () => {
@@ -417,10 +465,8 @@ describe("catalog integration reset execution", () => {
 });
 
 describe("Catalog Integration Staging Reset workflow", () => {
-  it("pins staging scope, exact destructive confirmation, production refusal, and retained evidence", () => {
+  it("pins staging scope, exact destructive confirmation, and retained evidence", () => {
     expect(workflow).toContain("name: Catalog Integration Staging Reset");
-    expect(workflow).toContain("environment: staging");
-    expect(workflow).toContain("inputs.environment != 'staging'");
     expect(workflow).toContain(`inputs.confirm != '${CATALOG_INTEGRATION_RESET_CONFIRMATION}'`);
     expect(workflow).toContain("pnpm run ops catalog:integration-reset");
     expect(workflow).toContain("--approval-reference");
@@ -450,5 +496,36 @@ describe("Catalog Integration Staging Reset workflow", () => {
         ".github/workflows/platform-database-restore-drill.yml",
       ]),
     );
+  });
+
+  it("gates production on main and uses the existing Catalog-only Postgres authority in the production environment", () => {
+    const { jobs, concurrency } = workflowDocument;
+    const worker = jobs["catalog-integration-reset"];
+    const authority = worker.steps.find(({ uses }) => uses === "./.github/actions/export-managed-postgres-authority");
+    expect(jobs["refuse-unadmitted-target"].if).toContain(
+      "inputs.environment == 'production-prelaunch' && github.ref != 'refs/heads/main'",
+    );
+    expect(jobs["refuse-unconfirmed-apply"].if).toContain(
+      `inputs.environment == 'production-prelaunch' && inputs.confirm != '${PRODUCTION_CATALOG_INTEGRATION_RESET_CONFIRMATION}'`,
+    );
+    expect(worker.needs).toEqual(["refuse-unadmitted-target", "refuse-unconfirmed-apply"]);
+    expect(worker.if).toContain("needs.refuse-unadmitted-target.result == 'skipped'");
+    expect(worker.if).toContain("needs.refuse-unconfirmed-apply.result == 'skipped'");
+    expect(worker.environment).toBe("${{ inputs.environment == 'production-prelaunch' && 'production' || 'staging' }}");
+    expect(worker.env.DEPLOYMENT_ENVIRONMENT).toBe(worker.environment);
+    expect(authority.with).toEqual({
+      environment: "${{ env.DEPLOYMENT_ENVIRONMENT }}",
+      contexts: "catalog",
+      "connection-mode": "pooled",
+    });
+    expect(concurrency.group).toContain(
+      "'catalog-production-prelaunch-reset' || 'platform-staging-mutating-operations'",
+    );
+    expect(workflow).toContain('--environment "$RESET_ENVIRONMENT"');
+    expect(workflow).toContain("--dry-run-fingerprint=$RESET_DRY_RUN_FINGERPRINT");
+    expect(workflow).toContain("--staging-rehearsal-reference=$RESET_STAGING_REHEARSAL_REFERENCE");
+    const upload = worker.steps.find(({ name }) => name === "Upload Catalog integration reset report");
+    expect(upload.if).toBe("always()");
+    expect(upload.with.path).toBe("artifacts/catalog-integration-reset/catalog-integration-reset.json");
   });
 });
