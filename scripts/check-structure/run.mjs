@@ -27,6 +27,7 @@ import { validateCrossContextReadInventory } from "./cross-context-read-inventor
 import { validateGlossaryCoverage } from "./glossary-coverage.mjs";
 import { validateIaRegistry } from "./ia-registry-guard.mjs";
 import { validateReadAfterWriteRouteInventory } from "./read-after-write-inventory.mjs";
+import { findFeatureRouteReexports } from "./feature-route-reexports.mjs";
 import { validateServerBarrelReactFree } from "./server-barrel-react-free.mjs";
 import { findBootSchemaDdlDisciplineViolations } from "./boot-schema-ddl-discipline.mjs";
 import { validateDoksIngressChartVersion } from "./doks-ingress-chart-version.mjs";
@@ -3636,7 +3637,8 @@ export async function runStructureCheck(options = {}) {
         normalizedFile.startsWith("bounded-contexts/") &&
         routeOrShellSupportClassification === "routes" &&
         !isTestFile(normalizedFile) &&
-        /(export\s+const\s+(?:loader|action|meta|headers)|export\s+default\s+function)/.test(content) === false
+        !/(export\s+const\s+(?:loader|action|meta|headers)|export\s+default\s+function)/.test(content) &&
+        findFeatureRouteReexports(repoRoot, normalizedFile, content).length === 0
       ) {
         addViolation(
           file,

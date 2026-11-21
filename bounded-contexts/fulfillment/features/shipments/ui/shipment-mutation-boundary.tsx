@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { useSubmit } from "react-router";
 import { MarketplaceNotice, Stack } from "@chase-sets/design-system";
-import { t } from "@chase-sets/localization";
+import { t } from "./localization/translator";
 import {
   completeShipmentMutationDescriptor,
   listShipmentMutationDescriptors,

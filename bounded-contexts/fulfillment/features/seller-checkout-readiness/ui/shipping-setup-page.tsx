@@ -11,8 +11,8 @@ import {
   Text,
   TextInput,
 } from "@chase-sets/design-system";
-import { t } from "@chase-sets/localization";
-import type { SellerShippingSetupResult } from "../../../support/request-support/api-client";
+import { t } from "./localization/translator";
+import type { SellerShippingSetupResult } from "../api/runtime";
 
 export const shippingSetupFields = [
   "name",

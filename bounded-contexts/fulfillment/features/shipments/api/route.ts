@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { t } from "../ui/localization/translator";
 import { Hono } from "hono";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { FulfillmentApiEnv } from "../../../api";
