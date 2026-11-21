@@ -16,7 +16,7 @@ import {
   TextInput,
 } from "@chase-sets/design-system";
 import type { PlatformRemedyProposalInput, PlatformRemedyProposalPreview, SupportRequestDetail } from "./contracts";
-import { PLATFORM_REMEDY_LAUNCH_POLICY_VALUE, platformRemedyCapabilities } from "../domain/platform-remedy-policy";
+import type { SupportRemedyOffer } from "../domain/remedy-offer";
 import { formatSupportDateTime } from "./support-request-presentation";
 
 function proposalNestedValue(
@@ -32,12 +32,6 @@ function proposalNestedValue(
 
 function proposalValue(input: PlatformRemedyProposalInput | null | undefined, key: string, fallback: string) {
   return String(input?.[key] ?? fallback);
-}
-
-function remedyCurrency(request: SupportRequestDetail) {
-  const affected = Array.isArray(request.affected_line_items) ? request.affected_line_items : [];
-  const first = affected.find((item) => item && typeof item === "object") as Record<string, unknown> | undefined;
-  return String(first?.currencyCode ?? "usd").toLowerCase();
 }
 
 function PlatformRemedyPreview({ preview }: Readonly<{ preview: PlatformRemedyProposalPreview }>) {
@@ -96,30 +90,22 @@ function PlatformRemedyPreview({ preview }: Readonly<{ preview: PlatformRemedyPr
 
 export function PlatformRemedyWorkflowPanel({
   request,
-  actorPermissions,
+  offer,
   preview,
   proposalInput,
 }: Readonly<{
   request: SupportRequestDetail;
-  actorPermissions: readonly string[];
+  offer: SupportRemedyOffer;
   preview?: PlatformRemedyProposalPreview | null;
   proposalInput?: PlatformRemedyProposalInput | null;
 }>) {
   const workflow = request.remedy_approval;
   const remedy = request.remedy;
   const decidedAmount = request.resolution?.refundAmount ?? "";
-  const currencyCode = remedyCurrency(request);
-  const canPropose = actorPermissions.includes(platformRemedyCapabilities.propose);
-  const canApprove =
-    actorPermissions.includes(platformRemedyCapabilities.approve) ||
-    actorPermissions.includes(platformRemedyCapabilities.approveElevated);
-  const canRetry = actorPermissions.includes(platformRemedyCapabilities.retry);
-  const canWaive = actorPermissions.includes(platformRemedyCapabilities.waive);
-  const canCorrect = actorPermissions.includes(platformRemedyCapabilities.correct);
-  const canOverrideReturn = actorPermissions.includes(platformRemedyCapabilities.overrideReturn);
+  const { choices } = offer;
 
   if (!workflow) {
-    if (!request.resolution?.refundAmount) {
+    if (!offer.propose) {
       return (
         <EmptyState
           title={t("support.features.supportRequests.ui.supportOperationsPage.remedy.unavailable.title")}
@@ -158,7 +144,7 @@ export function PlatformRemedyWorkflowPanel({
             <TextInput
               label={t("support.features.supportRequests.ui.supportOperationsPage.remedy.currency")}
               name="currencyCode"
-              defaultValue={proposalNestedValue(proposalInput, "remedy", "currencyCode", currencyCode)}
+              defaultValue={proposalNestedValue(proposalInput, "remedy", "currencyCode", offer.currencyCode)}
               required
             />
             <NativeSelect
@@ -169,10 +155,14 @@ export function PlatformRemedyWorkflowPanel({
                   value: "platform-funded",
                   label: t("support.features.supportRequests.ui.supportOperationsPage.remedy.funding.platform"),
                 },
-                {
-                  value: "split",
-                  label: t("support.features.supportRequests.ui.supportOperationsPage.remedy.funding.split"),
-                },
+                ...(choices.splitFundingAllowed
+                  ? [
+                      {
+                        value: "split",
+                        label: t("support.features.supportRequests.ui.supportOperationsPage.remedy.funding.split"),
+                      },
+                    ]
+                  : []),
                 {
                   value: "seller-funded",
                   label: t("support.features.supportRequests.ui.supportOperationsPage.remedy.funding.seller"),
@@ -218,35 +208,25 @@ export function PlatformRemedyWorkflowPanel({
             <NativeSelect
               label={t("support.features.supportRequests.ui.supportOperationsPage.remedy.refundTrigger")}
               name="refundTrigger"
-              items={PLATFORM_REMEDY_LAUNCH_POLICY_VALUE.allowableRefundTriggers.map((value) => ({
-                value,
-                label: value,
-              }))}
-              defaultValue={proposalValue(proposalInput, "refundTrigger", "immediate")}
+              items={choices.refundTriggers.map((value) => ({ value, label: value }))}
+              defaultValue={proposalValue(proposalInput, "refundTrigger", choices.refundTriggers[0] ?? "")}
               required
             />
             <NativeSelect
               label={t("support.features.supportRequests.ui.supportOperationsPage.remedy.reason")}
               name="reasonCode"
-              items={PLATFORM_REMEDY_LAUNCH_POLICY_VALUE.eligibleReasonCodes.map((value) => ({ value, label: value }))}
-              defaultValue={proposalValue(
-                proposalInput,
-                "reasonCode",
-                PLATFORM_REMEDY_LAUNCH_POLICY_VALUE.eligibleReasonCodes[0] ?? "",
-              )}
+              items={choices.eligibleReasonCodes.map((value) => ({ value, label: value }))}
+              defaultValue={proposalValue(proposalInput, "reasonCode", choices.eligibleReasonCodes[0] ?? "")}
               required
             />
             <NativeSelect
               label={t("support.features.supportRequests.ui.supportOperationsPage.remedy.returnException")}
               name="returnExceptionReasonCode"
-              items={PLATFORM_REMEDY_LAUNCH_POLICY_VALUE.returnExceptionReasonCodes.map((value) => ({
-                value,
-                label: value,
-              }))}
+              items={choices.returnExceptionReasonCodes.map((value) => ({ value, label: value }))}
               defaultValue={proposalValue(
                 proposalInput,
                 "returnExceptionReasonCode",
-                PLATFORM_REMEDY_LAUNCH_POLICY_VALUE.returnExceptionReasonCodes[0] ?? "",
+                choices.returnExceptionReasonCodes[0] ?? "",
               )}
             />
           </Grid>
@@ -264,17 +244,18 @@ export function PlatformRemedyWorkflowPanel({
             rows={3}
             required
           />
-          <HiddenInput
-            type="hidden"
-            name="idempotencyKey"
-            value={`${request.support_request_id}:platform-remedy-proposal`}
-            readOnly
-          />
+          <HiddenInput type="hidden" name="idempotencyKey" value={offer.propose.idempotencyKey} readOnly />
           <Cluster justify="end">
-            <Button type="submit" name="intent" value="preview-remedy" tone="secondary" disabled={!canPropose}>
+            <Button
+              type="submit"
+              name="intent"
+              value="preview-remedy"
+              tone="secondary"
+              disabled={!offer.propose.allowed}
+            >
               {t("support.features.supportRequests.ui.supportOperationsPage.remedy.preview.submit")}
             </Button>
-            <Button type="submit" name="intent" value="propose-remedy" disabled={!canPropose || !preview}>
+            <Button type="submit" name="intent" value="propose-remedy" disabled={!offer.propose.allowed || !preview}>
               {t("support.features.supportRequests.ui.supportOperationsPage.remedy.propose.submit")}
             </Button>
           </Cluster>
@@ -330,11 +311,11 @@ export function PlatformRemedyWorkflowPanel({
         </Stack>
       </Surface>
 
-      {workflow.status === "approval-pending" ? (
+      {offer.approve ? (
         <Surface elevation="tinted" data-elevation-role="furniture">
           <RouterForm method="post" spacing="md">
             <HiddenInput name="supportRequestId" value={request.support_request_id} readOnly />
-            <HiddenInput type="hidden" name="idempotencyKey" value={`${workflow.terms.remedyId}:approval`} readOnly />
+            <HiddenInput type="hidden" name="idempotencyKey" value={offer.approve.idempotencyKey} readOnly />
             <NativeSelect
               label={t("support.features.supportRequests.ui.supportOperationsPage.remedy.approval.reason")}
               name="reasonCode"
@@ -359,7 +340,7 @@ export function PlatformRemedyWorkflowPanel({
               required
             />
             <Cluster justify="end">
-              <Button type="submit" name="intent" value="approve-remedy" disabled={!canApprove}>
+              <Button type="submit" name="intent" value="approve-remedy" disabled={!offer.approve.allowed}>
                 {t("support.features.supportRequests.ui.supportOperationsPage.remedy.approve.submit")}
               </Button>
             </Cluster>
@@ -375,9 +356,7 @@ export function PlatformRemedyWorkflowPanel({
           {remedy.effects.map((effect) => {
             const latest = effect.facts.at(-1);
             const retryable = effect.status === "failed-retryable";
-            const waivable = !["coverage-reservation", "refund-completion", "settlement-reconciliation"].includes(
-              effect.effect,
-            );
+            const actions = offer.effects.find((candidate) => candidate.effect === effect.effect);
             return (
               <Surface
                 key={effect.effect}
@@ -405,17 +384,12 @@ export function PlatformRemedyWorkflowPanel({
                       {latest.reasonCode} · {formatSupportDateTime(latest.occurredAt)}
                     </Text>
                   ) : null}
-                  {retryable ? (
+                  {actions?.retry ? (
                     <RouterForm method="post" spacing="sm">
                       <HiddenInput name="supportRequestId" value={request.support_request_id} readOnly />
                       <HiddenInput type="hidden" name="remedyId" value={remedy.remedyId} readOnly />
                       <HiddenInput type="hidden" name="effect" value={effect.effect} readOnly />
-                      <HiddenInput
-                        type="hidden"
-                        name="idempotencyKey"
-                        value={`${remedy.remedyId}:${effect.effect}:${latest?.idempotencyKey ?? "pending"}:retry`}
-                        readOnly
-                      />
+                      <HiddenInput type="hidden" name="idempotencyKey" value={actions.retry.idempotencyKey} readOnly />
                       <TextInput
                         label={t("support.features.supportRequests.ui.supportOperationsPage.remedy.recovery.reason")}
                         name="reasonCode"
@@ -427,22 +401,17 @@ export function PlatformRemedyWorkflowPanel({
                         rows={2}
                         required
                       />
-                      <Button type="submit" name="intent" value="retry-remedy-effect" disabled={!canRetry}>
+                      <Button type="submit" name="intent" value="retry-remedy-effect" disabled={!actions.retry.allowed}>
                         {t("support.features.supportRequests.ui.supportOperationsPage.remedy.retry.submit")}
                       </Button>
                     </RouterForm>
                   ) : null}
-                  {effect.status === "failed-terminal" && waivable ? (
+                  {actions?.waive ? (
                     <RouterForm method="post" spacing="sm">
                       <HiddenInput name="supportRequestId" value={request.support_request_id} readOnly />
                       <HiddenInput type="hidden" name="remedyId" value={remedy.remedyId} readOnly />
                       <HiddenInput type="hidden" name="effect" value={effect.effect} readOnly />
-                      <HiddenInput
-                        type="hidden"
-                        name="idempotencyKey"
-                        value={`${remedy.remedyId}:${effect.effect}:${latest?.idempotencyKey ?? "pending"}:waive`}
-                        readOnly
-                      />
+                      <HiddenInput type="hidden" name="idempotencyKey" value={actions.waive.idempotencyKey} readOnly />
                       <TextInput
                         label={t("support.features.supportRequests.ui.supportOperationsPage.remedy.recovery.reason")}
                         name="reasonCode"
@@ -464,21 +433,21 @@ export function PlatformRemedyWorkflowPanel({
                         type="submit"
                         name="intent"
                         value="waive-remedy-effect"
-                        disabled={!canWaive}
+                        disabled={!actions.waive.allowed}
                         tone="secondary"
                       >
                         {t("support.features.supportRequests.ui.supportOperationsPage.remedy.waive.submit")}
                       </Button>
                     </RouterForm>
                   ) : null}
-                  {effect.effect === "operator-release" && effect.status === "pending" ? (
+                  {actions?.release ? (
                     <RouterForm method="post" spacing="sm">
                       <HiddenInput name="supportRequestId" value={request.support_request_id} readOnly />
                       <HiddenInput type="hidden" name="remedyId" value={remedy.remedyId} readOnly />
                       <HiddenInput
                         type="hidden"
                         name="idempotencyKey"
-                        value={`${remedy.remedyId}:operator-release`}
+                        value={actions.release.idempotencyKey}
                         readOnly
                       />
                       <TextInput
@@ -486,7 +455,12 @@ export function PlatformRemedyWorkflowPanel({
                         name="reasonCode"
                         required
                       />
-                      <Button type="submit" name="intent" value="release-remedy-refund" disabled={!canOverrideReturn}>
+                      <Button
+                        type="submit"
+                        name="intent"
+                        value="release-remedy-refund"
+                        disabled={!actions.release.allowed}
+                      >
                         {t("support.features.supportRequests.ui.supportOperationsPage.remedy.release.submit")}
                       </Button>
                     </RouterForm>
@@ -498,41 +472,43 @@ export function PlatformRemedyWorkflowPanel({
         </Stack>
       ) : null}
 
-      <Surface elevation="tinted" data-elevation-role="furniture">
-        <RouterForm method="post" spacing="md">
-          <HiddenInput name="supportRequestId" value={request.support_request_id} readOnly />
-          <HiddenInput type="hidden" name="idempotencyKey" value={`${workflow.terms.remedyId}:correction`} readOnly />
-          <NativeSelect
-            label={t("support.features.supportRequests.ui.supportOperationsPage.remedy.correction.reason")}
-            name="reasonCode"
-            items={PLATFORM_REMEDY_LAUNCH_POLICY_VALUE.escalationReasonCodes.map((value) => ({ value, label: value }))}
-            required
-          />
-          <Textarea
-            label={t("support.features.supportRequests.ui.supportOperationsPage.remedy.rationale")}
-            name="rationale"
-            rows={2}
-            required
-          />
-          <Textarea
-            label={t("support.features.supportRequests.ui.supportOperationsPage.remedy.evidenceReferences")}
-            name="evidenceReferences"
-            rows={2}
-            required
-          />
-          <Cluster justify="end">
-            <Button
-              type="submit"
-              name="intent"
-              value="request-remedy-correction"
-              tone="secondary"
-              disabled={!canCorrect}
-            >
-              {t("support.features.supportRequests.ui.supportOperationsPage.remedy.correction.submit")}
-            </Button>
-          </Cluster>
-        </RouterForm>
-      </Surface>
+      {offer.correct ? (
+        <Surface elevation="tinted" data-elevation-role="furniture">
+          <RouterForm method="post" spacing="md">
+            <HiddenInput name="supportRequestId" value={request.support_request_id} readOnly />
+            <HiddenInput type="hidden" name="idempotencyKey" value={offer.correct.idempotencyKey} readOnly />
+            <NativeSelect
+              label={t("support.features.supportRequests.ui.supportOperationsPage.remedy.correction.reason")}
+              name="reasonCode"
+              items={choices.escalationReasonCodes.map((value) => ({ value, label: value }))}
+              required
+            />
+            <Textarea
+              label={t("support.features.supportRequests.ui.supportOperationsPage.remedy.rationale")}
+              name="rationale"
+              rows={2}
+              required
+            />
+            <Textarea
+              label={t("support.features.supportRequests.ui.supportOperationsPage.remedy.evidenceReferences")}
+              name="evidenceReferences"
+              rows={2}
+              required
+            />
+            <Cluster justify="end">
+              <Button
+                type="submit"
+                name="intent"
+                value="request-remedy-correction"
+                tone="secondary"
+                disabled={!offer.correct.allowed}
+              >
+                {t("support.features.supportRequests.ui.supportOperationsPage.remedy.correction.submit")}
+              </Button>
+            </Cluster>
+          </RouterForm>
+        </Surface>
+      ) : null}
 
       <DataTable
         density="compact"

@@ -1111,8 +1111,9 @@ const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
   [citationFencePaths.privacyPolicy]: "f1b3d0a6b2a688d481c6af4a390e0d30c532fe0313cee53d9d4255a9e0d911ee",
   [citationFencePaths.authenticityTest]: "700ac32ceea294c75f90d708a0e7656e7b2abe2beebff9569e71abed24aa40d9",
   // Repinned for #10066, #8846, the current-main lost-update guard surface merge, and the #10176 JSON import census
-  // evidence-citation update, #9878 TCGplayer guard surface, and the #9553 context-registry guard surface.
-  [citationFencePaths.staticSurfaces]: "9e95e3780ac11f188aff806d8273478bc6116a5f97ff90a407491a0e6dbb9b85",
+  // evidence-citation update, #9878 TCGplayer guard surface, the #9553 context-registry guard surface, and the
+  // #7313 managed-Postgres client policy surface with its authority-guard and client-policy evidence ranges.
+  [citationFencePaths.staticSurfaces]: "ac94c950cf78bbca8cdeb7310b25ff9de92015f06dc60ed3945059a1793717f5",
 };
 
 const citationFenceOccurrences: Readonly<Record<string, readonly RegExp[]>> = {

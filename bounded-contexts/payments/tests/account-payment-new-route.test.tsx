@@ -697,6 +697,7 @@ describe("marketplace account payment start route without payment authority", ()
       accountId: "acc_buyer",
       roleKey: "owner",
       permissions: ["orders.view"],
+      withheldPermissions: [{ permission: "orders.manage", reason: "email_verification_required" }],
     });
 
     for (const run of [loadFor("ord_1"), submitFor("ord_1")]) {

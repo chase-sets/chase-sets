@@ -452,7 +452,7 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
                 "Projection read model did not catch up to the requested write receipt before the freshness timeout.",
             );
         }
-        return support_requests(&method, rest, &body);
+        return support_requests(&method, rest, &body, cookie.contains("support-remedies"));
     }
     if let Some(rest) = uri.path().strip_prefix("/api/experience/risk-alerts") {
         return risk_alerts(&method, rest);
@@ -827,7 +827,24 @@ const SUPPORT_REQUESTS: &str = "/api/marketplace/support-requests";
 /// an unwaivable and a releasable effect; a remedy preview (refused without a rationale) and the
 /// remedy writes; the flows' titles; Escalate overdue's counts; a resolve without its summary
 /// refused; and `req_1`'s one photo.
-fn support_requests(method: &Method, rest: &str, body: &str) -> Response {
+fn support_requests(method: &Method, rest: &str, body: &str, remedies: bool) -> Response {
+    // The ops read's remedy offer: the policy's choices, and each action with whether the reader
+    // (with every remedy capability, or none) may take it.
+    let offered = |key: &str| json!({ "idempotencyKey": key, "allowed": remedies });
+    let remedy_offer = |propose: Value, approve: Value, correct: Value, effects: Value| {
+        json!({
+            "policyVersion": "platform-operations.platform-remedies:pol_published:2026-05-01T00:00:00.000Z",
+            "choices": {
+                "refundTriggers": ["immediate", "delivered"],
+                "eligibleReasonCodes": ["customer-protection", "published-goodwill"],
+                "returnExceptionReasonCodes": ["documented-exception"],
+                "escalationReasonCodes": ["refund-failure", "published-escalation"],
+                "splitFundingAllowed": false,
+            },
+            "currencyCode": "usd",
+            "propose": propose, "approve": approve, "correct": correct, "effects": effects,
+        })
+    };
     let row = |id: &str, reference: &str, status: &str, priority: &str, due: Option<&str>| {
         json!({
             "support_request_id": id, "display_reference": reference, "order_id": "ord_1", "flow_type": "product-damaged",
@@ -892,6 +909,8 @@ fn support_requests(method: &Method, rest: &str, body: &str) -> Response {
                 "flow": { "allowedResolutions": ["full-refund"] },
             });
             detail.as_object_mut().unwrap().extend(more.as_object().unwrap().clone());
+            detail["remedy_offer"] =
+                remedy_offer(offered("req_done:platform-remedy-proposal"), Value::Null, Value::Null, json!([]));
             Json(detail).into_response()
         }
         (Method::GET, "/ops/req_remedy") => {
@@ -934,6 +953,15 @@ fn support_requests(method: &Method, rest: &str, body: &str) -> Response {
                 effect("operator-release", "pending", None),
             ];
             detail["remedy"] = json!({ "remedyId": "rmd_1", "status": "action-required", "effects": effects });
+            let none = |effect: &str| json!({ "effect": effect, "retry": null, "waive": null, "release": null });
+            let effect_offers = json!([
+                { "effect": "refund-execution", "retry": offered("rmd_1:refund-execution:idem_3:retry"), "waive": null, "release": null },
+                { "effect": "buyer-notification", "retry": null, "waive": offered("rmd_1:buyer-notification:idem_4:waive"), "release": null },
+                none("coverage-reservation"),
+                { "effect": "operator-release", "retry": null, "waive": null, "release": offered("rmd_1:operator-release") },
+            ]);
+            detail["remedy_offer"] =
+                remedy_offer(Value::Null, offered("rmd_1:approval"), offered("rmd_1:correction"), effect_offers);
             Json(detail).into_response()
         }
         (Method::POST, "/ops/req_done/remedy-proposals/preview") if body.contains(r#""rationale":"""#) => {
@@ -1659,8 +1687,7 @@ fn catalog_component(id: &str) -> Value {
 }
 
 /// A draft blueprint as its page reads it (`BlueprintDetail`): one component, a required field
-/// rule, a dimension rule, and a canonical order. The admin page's read misses the field rule
-/// the list has (`fld_more`), as chase-sets/chase-sets#10823 can.
+/// rule, a dimension rule, and a canonical order.
 fn catalog_blueprint(id: &str) -> Value {
     json!({
         "blueprint_id": id, "key": "single", "name": "Card single", "description": "", "status": "draft",
@@ -2867,14 +2894,16 @@ async fn components_are_created_and_their_rules_added_and_removed() {
     let body = |i: usize| serde_json::from_str::<Value>(&sent[i].body).unwrap();
     assert_eq!((&sent[0].method, sent[0].path.as_str()), (&Method::POST, "/api/catalog/components"));
     assert_eq!(body(0)["componentId"], "cmp_01JZ");
-    // The edit restates the rules the API has, read from the list (the component's own table)
-    // just before the write, not from the page's read.
+    // The edit sends the key, name and description only, as admin-web's does: the API's revise
+    // leaves the rules as they are.
     assert_eq!((&sent[1].method, sent[1].path.as_str()), (&Method::PUT, "/api/catalog/components/cmp_seed"));
-    assert_eq!(body(1)["fieldRules"], json!([{ "fieldId": "fld_seed", "required": true }]));
     assert_eq!(
-        body(1)["dimensionRules"],
-        json!([{ "dimensionId": "dim_seed", "required": false, "allowedOptionIds": ["chc_a"],
-                 "appliesWhen": [{ "dimensionId": "dim_b", "optionIds": ["chc_x"] }] }])
+        body(1),
+        json!({
+            "key": "card-face",
+            "name": { "defaultLocale": "en", "values": { "en": "Card front" } },
+            "description": { "defaultLocale": "en", "values": {} },
+        })
     );
     assert_eq!(sent[2].path, "/api/catalog/components/cmp_seed/field-rules");
     assert_eq!(body(2), json!({ "fieldId": "fld_x", "required": true }));
@@ -2898,12 +2927,8 @@ async fn components_are_created_and_their_rules_added_and_removed() {
         .collect();
     assert_eq!(
         reads,
-        [
-            "/api/catalog/components?hasFieldRules=true&limit=50&offset=0",
-            "/api/catalog/components/cmp_seed",
-            "/api/catalog/components?limit=50&offset=0",
-        ],
-        "the list, the page, and the edit's read of the rules"
+        ["/api/catalog/components?hasFieldRules=true&limit=50&offset=0", "/api/catalog/components/cmp_seed"],
+        "the list and the page; the edit reads nothing"
     );
 }
 
@@ -2917,13 +2942,6 @@ async fn a_refused_rule_removal_is_its_rows_message_and_a_component_bulk_change_
     let (status, _, html) = pilot.send(post("/catalog/components/cmp_seed/field-rules/fld_gone/remove", "", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.starts_with("<!DOCTYPE html>") && html.contains("The component has no rule for this field."), "{html}");
-
-    // An edit of a component the list does not have writes nothing: its rules would be lost.
-    let pilot = Pilot::new().await;
-    let (status, _, html) = pilot.send(post("/catalog/components/cmp_other/edit", "key=x&name=X&description=", true)).await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert!(html.contains("rules could not be read, so it was not saved"), "{html}");
-    assert!(pilot.catalog_writes().is_empty());
 
     let pilot = Pilot::new().await;
     let (status, _, html) =
@@ -2970,21 +2988,21 @@ async fn blueprints_are_created_and_their_components_attached_and_rules_set() {
     assert!(html.contains(r#"name="after_write" value=""#), "{html}");
     assert!(html.contains(r#"name="action" value="publish">Publish</button>"#), "{html}");
 
-    // A Set dialog starts from the list's rules (two field rules), not the page's (one).
+    // A Set dialog starts from the blueprint's detail, read when it is opened, by id.
     let (status, headers, html) =
         pilot.send(opened(&format!("/catalog/blueprints/bpr_seed/field-rules?after_write={receipt}"))).await;
     assert_eq!(status, StatusCode::OK);
     assert!(headers.contains_key("corten-patch"), "{headers:?}");
-    assert!(html.contains(r#"value="fld_seed""#) && html.contains(r#"value="fld_more""#), "{html}");
-    assert!(html.contains(r#"name="required" value="0" checked"#) && !html.contains(r#"value="1" checked"#), "{html}");
-    let list_read = pilot.catalog_calls().into_iter().last().unwrap();
-    assert_eq!(list_read.path, "/api/catalog/blueprints?limit=50&offset=0");
-    assert!(list_read.headers.contains_key("chase-sets-read-after-write"), "the list read waits for the page's write");
+    assert!(html.contains(r#"value="fld_seed""#) && html.matches(r#"name="field_id""#).count() == 1, "{html}");
+    assert!(html.contains(r#"name="required" value="0" checked"#), "{html}");
+    let detail_read = pilot.catalog_calls().into_iter().last().unwrap();
+    assert_eq!(detail_read.path, "/api/catalog/blueprints/bpr_seed");
+    assert!(detail_read.headers.contains_key("chase-sets-read-after-write"), "the read waits for the page's write");
     let (_, _, html) = pilot.send(opened("/catalog/blueprints/bpr_seed/dimension-rules")).await;
     assert!(html.contains(r#"value="dim_seed""#) && html.contains(r#"value="chc_a""#), "{html}");
-    assert!(html.contains(r#"value="dim_b=chc_x|chc_y""#), "{html}");
+    assert!(html.contains(r#"value="dim_b=chc_x""#), "{html}");
     let (_, _, html) = pilot.send(opened("/catalog/blueprints/bpr_seed/product-resolution-rules")).await;
-    assert!(html.contains(r#"value="dim_seed, dim_b""#), "{html}");
+    assert!(html.contains(r#"value="dim_seed""#), "{html}");
 
     // Add Rule draws the form again with a row more, and writes nothing.
     let (status, _, html) =
@@ -3039,16 +3057,8 @@ async fn blueprints_are_created_and_their_components_attached_and_rules_set() {
 }
 
 #[tokio::test]
-async fn a_set_dialog_the_list_cannot_fill_has_no_form_and_blueprint_refusals_stay_on_the_page() {
+async fn blueprint_refusals_stay_on_the_page_and_a_blueprint_bulk_change_previews() {
     let pilot = Pilot::new().await;
-    // The list does not have bpr_other: its rules are not known, so there is nothing to save.
-    let (status, _, html) = pilot.send(opened("/catalog/blueprints/bpr_other/field-rules")).await;
-    assert_eq!(status, StatusCode::OK);
-    assert!(html.contains("rules could not be read") && !html.contains(r#"name="field_id""#), "{html}");
-    let (status, _, html) = pilot.send(get("/catalog/blueprints/bpr_other/dimension-rules", Some("staff"))).await;
-    assert_eq!(status, StatusCode::OK);
-    assert!(html.starts_with("<!DOCTYPE html>") && html.contains("rules could not be read"), "{html}");
-
     // Without a component id there is no command to send.
     let (status, _, html) = pilot.send(post("/catalog/blueprints/bpr_seed/components", "component_id=+", true)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
@@ -6451,12 +6461,15 @@ async fn a_refund_decision_offers_a_remedy_proposal_previewed_before_it_is_reque
     let (status, _, html) = pilot.send(get("/support/requests?requestId=req_done", Some("support-remedies"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains(r#"name="remedyAmount" inputmode="decimal" value="5.00""#), "the decided refund: {html}");
-    assert!(html.contains(r#"name="currencyCode" value="usd""#), "no affected lines, admin-web's usd: {html}");
+    assert!(html.contains(r#"name="currencyCode" value="usd""#), "the offered currency: {html}");
+    assert!(html.contains(r#"<option value="published-goodwill">"#), "the active policy's reasons: {html}");
+    assert!(!html.contains(r#"value="carrier-accepted""#), "not the launch policy's triggers: {html}");
+    assert!(!html.contains(r#"<option value="split""#), "split funding the policy does not allow: {html}");
     assert!(html.contains(r#"value="req_done:platform-remedy-proposal""#), "{html}");
     assert!(html.contains(r#"value="preview-remedy">"#), "{html}");
     assert!(html.contains(r#"value="propose-remedy" disabled>"#), "no reservation before a preview: {html}");
     let (_, _, html) = pilot.send(get("/support/requests?requestId=req_done", Some("support-agent"))).await;
-    assert!(html.contains(r#"value="preview-remedy" disabled>"#), "without support.remedies.propose: {html}");
+    assert!(html.contains(r#"value="preview-remedy" disabled>"#), "the read does not allow it: {html}");
 
     let at = "/support/requests/req_done?status=resolved";
     let form = "intent=preview-remedy&remedyKind=partial-refund&remedyAmount=5.00&currencyCode=usd&fundingKind=platform-funded\
@@ -6529,7 +6542,7 @@ async fn a_remedy_shows_its_workflow_and_the_recovery_admin_web_offers() {
     for intent in
         ["approve-remedy", "retry-remedy-effect", "waive-remedy-effect", "release-remedy-refund", "request-remedy-correction"]
     {
-        assert!(html.contains(&format!(r#"value="{intent}" disabled>"#)), "{intent} needs its capability: {html}");
+        assert!(html.contains(&format!(r#"value="{intent}" disabled>"#)), "{intent} the read does not allow: {html}");
     }
 
     let reasoned =

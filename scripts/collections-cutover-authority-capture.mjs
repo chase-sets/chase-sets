@@ -1435,44 +1435,43 @@ export async function runCapture({ argv, env, dependencies, io }) {
   return 0;
 }
 
+// Both require the tsx loader (main registers it) to import the TypeScript seam.
+export async function createCaptureDatabaseClient(databaseUrl) {
+  const { createPgClient } = await import("../infrastructure/event-core-postgres/index.ts");
+  return createPgClient(databaseUrl, {
+    options: "-c default_transaction_read_only=on",
+    connectionTimeoutMillis: 15_000,
+    statement_timeout: 30_000,
+    query_timeout: 45_000,
+  });
+}
+
+// PgBouncer refuses unknown startup parameters, so the pooled client sends no options or statement_timeout;
+// its one transaction is BEGIN READ ONLY instead.
+export async function createCapturePooledClient(url) {
+  const { createPgClient } = await import("../infrastructure/event-core-postgres/index.ts");
+  return createPgClient(url, { connectionTimeoutMillis: 15_000, query_timeout: 45_000 });
+}
+
 async function main() {
   const root = process.cwd();
   const { register } = await import("tsx/esm/api");
   const unregister = register();
   let client;
   try {
-    const { default: pg } = await import("pg");
-    const { normalizePgPoolConnectionString, resolvePgPoolSslConfig } =
-      await import("../infrastructure/event-core-postgres/index.ts");
     const { redactLegacyAnonymousOwners, legacyAnonymousOwnerCountSql, anonymousOwnerObservationSql } =
       await import("../bounded-contexts/collections/features/saved-lists/api/anonymous-owner-redaction.ts");
     let database = null;
     try {
-      const connectionString = normalizePgPoolConnectionString(process.env.DATABASE_URL_COLLECTIONS ?? "");
-      client = new pg.Client({
-        connectionString,
-        ssl: resolvePgPoolSslConfig(connectionString),
-        options: "-c default_transaction_read_only=on",
-        connectionTimeoutMillis: 15_000,
-        statement_timeout: 30_000,
-        query_timeout: 45_000,
-      });
+      client = await createCaptureDatabaseClient(process.env.DATABASE_URL_COLLECTIONS ?? "");
       client.on("error", () => {});
       await client.connect();
       database = client;
     } catch {
       database = null;
     }
-    // PgBouncer refuses unknown startup parameters, so the pooled client sends no options or statement_timeout;
-    // its one transaction is BEGIN READ ONLY instead.
     const openPooled = async (url) => {
-      const connectionString = normalizePgPoolConnectionString(url);
-      const pooled = new pg.Client({
-        connectionString,
-        ssl: resolvePgPoolSslConfig(connectionString),
-        connectionTimeoutMillis: 15_000,
-        query_timeout: 45_000,
-      });
+      const pooled = await createCapturePooledClient(url);
       pooled.on("error", () => {});
       try {
         await pooled.connect();

@@ -72,7 +72,7 @@ function writeFixture(rootDir, relativePath, source) {
 describe("verify:static surface-map and selector contracts", () => {
   it("validates every real-map citation and fail-closes malformed classifications", () => {
     const chain = currentChain();
-    expect(chain).toHaveLength(31);
+    expect(chain).toHaveLength(32);
     expect(verifyStaticSurfaceMapCompleteness(chain)).toEqual({ missing: [], extra: [], invalidMayNarrow: [] });
     for (const entry of Object.values(VERIFY_STATIC_SURFACES)) {
       expect(entry.rule).toBeTruthy();
