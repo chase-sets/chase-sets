@@ -189,16 +189,18 @@ describe("support remedy execution", () => {
     const firstApprover = "acc_01J00000000000000000000002" as AccountId;
     const secondApprover = "acc_01J00000000000000000000003" as AccountId;
     const approve = (approvedByAccountId: AccountId): SupportRequestCommand => ({
-      ...approvalCommand(),
       type: "ApproveSupportRemedy",
       approvedByAccountId,
+      permissionUsed: "support.remedies.approve",
+      reasonCode: "policy-approved",
+      rationale: "The proposal is within policy.",
+      evidenceReferences: ["evidence-1"],
       idempotencyKey: `approve:${approvedByAccountId}`,
+      approvedAt: "2026-07-03T12:00:00.000Z",
     });
+    const proposal = proposalCommand() as Extract<SupportRequestCommand, { type: "ProposeSupportRemedy" }>;
     let state = resolvedState();
-    state = apply(
-      state,
-      decideSupportRequest(state, { ...proposalCommand(), requiredApprovalCount: 2 } as SupportRequestCommand),
-    );
+    state = apply(state, decideSupportRequest(state, { ...proposal, requiredApprovalCount: 2 }));
     state = apply(state, decideSupportRequest(state, effect("coverage-reservation", "2026-07-03T06:00:00.000Z")));
     state = apply(state, decideSupportRequest(state, approve(firstApprover)));
     expect(state.remedyApproval?.status).toBe("approval-pending");
