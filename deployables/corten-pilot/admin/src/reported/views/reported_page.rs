@@ -243,7 +243,7 @@ pub fn ReportedPage<'a>(t: Ops, screen: &'a QueueScreen) -> impl Render {
                                             <CellLabel>{t.reported_action()}</CellLabel>
                                             <a
                                                 class={Open}
-                                                href={url::Item { target_type: &item.target_type, target_id: &item.target_id, after_write: None, recorded: None }}
+                                                href={url::Item { target_type: &item.target_type, target_id: &item.target_id, after_write: None }}
                                             >
                                                 {t.reported_open()}
                                             </a>
@@ -278,7 +278,7 @@ pub fn ItemPage<'a>(t: Ops, p: Pilot, screen: &'a ItemScreen) -> impl Render {
     let item = &screen.item;
     let kind = target_type(t, &item.target_type);
     let f = ActionForm::FIELDS;
-    let here = url::Item { target_type: &item.target_type, target_id: &item.target_id, after_write: None, recorded: None };
+    let here = url::Item { target_type: &item.target_type, target_id: &item.target_id, after_write: None };
     html! {
         let title = t.reported_detail_title(crate::text::ops::ReportedDetailTitle { target_type: &kind, target_id: &item.target_id }).to_string();
         let owner = item.target_owner_account_id.clone().unwrap_or_else(|| t.reported_not_set().to_owned());
@@ -536,7 +536,7 @@ pub fn RisksPage<'a>(t: Ops, screen: &'a RisksScreen) -> impl Render {
                                             <CellLabel>{t.risk_action()}</CellLabel>
                                             <a
                                                 class={Open}
-                                                href={risk_url::Alert { alert_id: &alert.alert_id, after_write: None, recorded: None }}
+                                                href={risk_url::Alert { alert_id: &alert.alert_id, after_write: None }}
                                             >
                                                 {t.risk_open()}
                                             </a>
@@ -586,7 +586,7 @@ pub fn AlertPage<'a>(t: Ops, p: Pilot, screen: &'a AlertScreen) -> impl Render {
     let alert = &screen.alert;
     let kind = alert_kind(t, &alert.alert_kind);
     let f = ActionForm::FIELDS;
-    let here = risk_url::Alert { alert_id: &alert.alert_id, after_write: None, recorded: None };
+    let here = risk_url::Alert { alert_id: &alert.alert_id, after_write: None };
     html! {
         let title = t.risk_detail_title(&kind).to_string();
         let last = alert.last_action.as_deref().map(|a| t.risk_last_action(crate::text::ops::RiskLastAction { action: &risk_action(t, a), timestamp: &risk_when(t, alert.last_action_at.as_deref()) }).to_string());
