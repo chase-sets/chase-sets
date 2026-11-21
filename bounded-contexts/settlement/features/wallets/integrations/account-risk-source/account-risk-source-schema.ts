@@ -172,6 +172,9 @@ CREATE INDEX IF NOT EXISTS settlement_account_velocity_sources_reviewer_idx
   WHERE reviewer_account_id IS NOT NULL;
 `;
 
+export const settlementPayoutReviewHoldFallbackGuardMigrationId =
+  "20261120_settlement_payout_review_hold_fallback_guard";
+
 export const settlementAccountRiskSourceSchemaMigrations: readonly BcSchemaMigration[] = [
   {
     migrationId: "20260907_settlement_listing_risk_currency",
@@ -372,6 +375,30 @@ export const settlementAccountRiskSourceSchemaMigrations: readonly BcSchemaMigra
   ADD COLUMN IF NOT EXISTS payout_review_hold boolean NOT NULL DEFAULT false`,
       `ALTER TABLE settlement_account_risk_sources
   ADD COLUMN IF NOT EXISTS payout_review_hold_stream_version bigint NOT NULL DEFAULT 0`,
+    ],
+  },
+  {
+    migrationId: settlementPayoutReviewHoldFallbackGuardMigrationId,
+    description:
+      "Refuse to retire the payout review badge fallback until every badged account has projected a hold decision.",
+    statements: [
+      `DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = current_schema()
+      AND table_name = 'settlement_account_risk_sources'
+      AND column_name = 'manual_payout_review'
+  ) THEN
+    IF EXISTS (
+      SELECT 1 FROM settlement_account_risk_sources
+      WHERE manual_payout_review AND payout_review_hold_stream_version = 0
+    ) THEN
+      RAISE EXCEPTION 'Payout review hold fallback cannot be retired: unmigrated manual payout review badges remain. Drain the hold migration or place or release the affected holds, then redeploy.';
+    END IF;
+  END IF;
+END;
+$$`,
     ],
   },
 ] as const;
