@@ -500,6 +500,28 @@ describe("representative catalog Observation Pack replay", () => {
     }
   }, 240_000);
 
+  it("stops a failed asset write before later items or batches and emits no completion receipt", async () => {
+    const packDir = await writeSyntheticLorcanaPack(
+      Array.from({ length: 8 }, () => "Amethyst"),
+      "1",
+    );
+    process.env.REPRESENTATIVE_CATALOG_PACK_SOURCE = packDir;
+    const receiptPath = path.join(packDir, "receipt.json");
+    process.env.REPRESENTATIVE_CATALOG_REPLAY_EVIDENCE_OUT = receiptPath;
+    vi.stubGlobal("fetch", async () => {
+      throw new Error("synthetic replay must stay offline");
+    });
+    const put = vi.spyOn(catalogAssetStorage, "putObject").mockRejectedValue(new Error("synthetic storage failure"));
+    await expect(seedRuntime.seed()).rejects.toThrow("representative-catalog-promotion-failed");
+    expect(put).toHaveBeenCalledTimes(1);
+    expect(storedAssets.size).toBe(0);
+    await expect(readFile(receiptPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    const promoted = await seedRuntime.pools.catalog.query<{ count: number }>(
+      "SELECT COUNT(*)::integer AS count FROM catalog_source_observations WHERE status = 'promoted'",
+    );
+    expect(promoted.rows[0]?.count).toBe(0);
+  });
+
   it("refuses a non-accepted pack with no partial pack state", async () => {
     process.env.REPRESENTATIVE_CATALOG_PACK_SOURCE = await writeSyntheticPack({ accepted: false });
     await expect(seedRuntime.seed()).rejects.toThrow("representative-catalog-pack-not-accepted");

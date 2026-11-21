@@ -244,7 +244,8 @@ describe("marketplace account payment start route", () => {
     mockUseSubmit.mockReturnValue(vi.fn());
     mockRequireActorFromAuthApi.mockResolvedValue({
       accountId: "acc_buyer",
-      permissions: ["purchases.view", "purchases.manage"],
+      roleKey: "owner",
+      permissions: ["purchases.view", "purchases.manage", "orders.manage"],
     });
   });
 
@@ -650,5 +651,76 @@ describe("marketplace account payment start route", () => {
     expect(redirectUrl.searchParams.has("afterWrite")).toBe(false);
     expect(redirectUrl.searchParams.has("postWriteHandoff")).toBe(false);
     expect((await readResolvedFreshWriteToken(redirectUrl))?.sources).toEqual([paymentCommitSource]);
+  });
+});
+
+describe("marketplace account payment start route without payment authority", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  async function refusal(run: () => Promise<unknown>) {
+    const thrown = await run().then(
+      () => null,
+      (error: unknown) => error,
+    );
+    expect(thrown).toBeInstanceOf(Response);
+    return thrown as Response;
+  }
+
+  function loadFor(orderIds: string) {
+    return () =>
+      loader({
+        request: new Request(`http://localhost/account/payments/new?orderIds=${orderIds}`),
+        params: {},
+        context: undefined,
+      } as never);
+  }
+
+  function submitFor(orderIds: string) {
+    return () =>
+      action({
+        request: new Request("http://localhost/account/payments/new", {
+          method: "POST",
+          body: new URLSearchParams({ orderIds }),
+        }),
+        params: {},
+        context: undefined,
+      } as never);
+  }
+
+  it("sends a buyer whose orders.manage awaits email verification to verify and return to the purchase", async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    mockRequireActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["orders.view"],
+    });
+
+    for (const run of [loadFor("ord_1"), submitFor("ord_1")]) {
+      const response = await refusal(run);
+      expect(response.status).toBe(302);
+      const location = new URL(response.headers.get("Location")!, "http://localhost");
+      expect(location.pathname).toBe("/sign-in");
+      expect(location.searchParams.get("returnTo")).toBe("/account/purchases/ord_1?verifyEmail=pay-purchase");
+    }
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("returns a buyer who cannot pay to the purchase instead of answering Forbidden", async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    mockRequireActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      roleKey: "viewer",
+      permissions: ["orders.view"],
+    });
+
+    expect((await refusal(loadFor("ord_1"))).headers.get("Location")).toBe("/account/purchases/ord_1");
+    expect((await refusal(loadFor("ord_1,ord_2"))).headers.get("Location")).toBe("/account/purchases");
+    expect((await refusal(submitFor("ord_1"))).headers.get("Location")).toBe("/account/purchases/ord_1");
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

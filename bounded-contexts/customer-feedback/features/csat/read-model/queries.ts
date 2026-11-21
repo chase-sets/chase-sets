@@ -1,7 +1,12 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { CsatInvitationPublicReference } from "../domain/invitation";
 import type { CsatWorkflowOutcomeCode } from "../domain/workflow-outcomes";
-import type { CsatAdminQueueItem, CsatAdminQueuePage, CsatAdminQueueQuery } from "../api/analytics-contract";
+import {
+  CsatQueryRefusal,
+  type CsatAdminQueueItem,
+  type CsatAdminQueuePage,
+  type CsatAdminQueueQuery,
+} from "../api/analytics-contract";
 
 export type CsatInvitationPageRow = Readonly<{
   invitation_id: string;
@@ -143,11 +148,11 @@ export async function listCsatAdminQueue(db: PgQueryable, params: CsatAdminQueue
   const predicates: string[] = [];
 
   if (params.from) {
-    values.push(new Date(Date.parse(params.from)).toISOString());
+    values.push(queueTimestamp(params.from, "from"));
     predicates.push(`i.eligible_at >= $${values.length}`);
   }
   if (params.to) {
-    values.push(new Date(Date.parse(params.to)).toISOString());
+    values.push(queueTimestamp(params.to, "to"));
     predicates.push(`i.eligible_at < $${values.length}`);
   }
   if (params.surveyVersion) {
@@ -247,6 +252,12 @@ function decodeQueueCursor(value: string): QueueCursor {
     }
     return decoded as QueueCursor;
   } catch {
-    throw new Error("Invalid CSAT queue cursor.");
+    throw new CsatQueryRefusal("cursor-invalid", "Invalid CSAT queue cursor.");
   }
+}
+
+function queueTimestamp(value: string, field: string): string {
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) throw new CsatQueryRefusal("timestamp-invalid", `Invalid CSAT ${field} timestamp.`);
+  return new Date(parsed).toISOString();
 }

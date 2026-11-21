@@ -37,6 +37,11 @@ function fullRefund(sale: SellerSaleFact): boolean {
     sale.refundedOrderTotalCents === sale.orderRefundCapCents
   );
 }
+/**
+ * catalogItemId matches exactly. For gradedCard, "graded" and "true" match any value except
+ * null, absent, or false. Other rule values match the exact string or gradingCompany.
+ * @see https://github.com/chase-sets/chase-sets/issues/7145 Q4.1
+ */
 function matchesRule(value: Record<string, unknown>, rule: SellerComplianceClassificationRule): boolean {
   if (rule.source === "productId" || rule.source === "catalogItemId") return value[rule.source] === rule.value;
   if (rule.source === "selectedOptionId") {

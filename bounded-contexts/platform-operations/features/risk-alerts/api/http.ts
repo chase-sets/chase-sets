@@ -35,11 +35,16 @@ function requireActor(c: { get(key: "actor"): AuthenticatedApiEnv["Variables"]["
   return { actor, response: null };
 }
 
-function normalizeAction(value: unknown): RiskAlertAction {
-  if (value === "request-manual-payout-review" || value === "acknowledge") {
-    return value;
+function normalizeActionBody(body: unknown): { action: RiskAlertAction; note: string | null } {
+  if (body === null || typeof body !== "object" || Array.isArray(body) || !("action" in body)) {
+    throw new Error("Risk alert action is invalid.");
   }
-  throw new Error("Risk alert action is invalid.");
+  const { action } = body;
+  if (action !== "request-manual-payout-review" && action !== "acknowledge") {
+    throw new Error("Risk alert action is invalid.");
+  }
+  const note = "note" in body && typeof body.note === "string" ? body.note.trim() : "";
+  return { action, note: note || null };
 }
 
 export function createRiskAlertRoutes(services: RiskAlertServices) {
@@ -76,21 +81,28 @@ export function createRiskAlertRoutes(services: RiskAlertServices) {
   app.post("/:alertId/actions", async (c) => {
     const access = requireActor(c);
     if (access.response) return access.response;
-    const context = c.get("context");
-    if (!context) {
-      return c.json(
-        { error: { code: "authentication_required", message: t("experience.api.authentication.context.missing") } },
-        401,
-      );
-    }
     try {
-      const body = await c.req.json().catch(() => ({}));
+      const { action, note } = normalizeActionBody(await c.req.json<unknown>().catch(() => null));
+      if (
+        action === "request-manual-payout-review" &&
+        !access.actor.permissions.includes("payout-review-holds.manage")
+      ) {
+        return c.json({ error: { code: "authorization_forbidden", message: t("experience.api.forbidden") } }, 403);
+      }
+      const context = c.get("context");
+      if (!context) {
+        return c.json(
+          { error: { code: "authentication_required", message: t("experience.api.authentication.context.missing") } },
+          401,
+        );
+      }
       const result = await services.recordRiskAlertAction(
         {
           alertId: c.req.param("alertId"),
-          action: normalizeAction(body.action),
-          note: typeof body.note === "string" && body.note.trim() ? body.note.trim() : null,
+          action,
+          note,
           operatorUserId: access.actor.userId,
+          ...(action === "request-manual-payout-review" ? { actorPermissions: access.actor.permissions } : {}),
         },
         context,
       );

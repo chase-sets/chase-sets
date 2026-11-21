@@ -1,11 +1,12 @@
 # Seller Listing Availability
 
-Seller Listing Availability is Marketplace's account-level overlay for temporarily turning active listings off without changing each listing's own lifecycle status.
+Seller Listing Availability is Marketplace's account-level Away overlay. It covers Listings, Offers, or both without changing Listing or Offer Status.
 
 ## Model
 
 - The overlay is scoped by account id and is event-sourced on a Marketplace-owned stream.
-- The states are `available` and `unavailable`.
+- Each side is independently `available` or `unavailable`, with its own reason, provenance, and Resume Instant.
+- A seller's Disable replaces the scope. When narrowing from both sides without choosing a new date, the retained side keeps its exact Resume Instant. A settlement Listings disable preserves a pending Offers window or the Offers leg of a pending Both window. An unscoped Disable or scheduled window defaults to Listings, including on replay. An unscoped Enable restores both sides; scheduled restores check the observed Resume Instant on the side being restored.
 - Disabling may record a structured reason category, an optional `availableAgainOn` display date, and an optional `availableAgainAt` Resume Instant.
 - `availableAgainAt` is the authoritative Resume Instant. When present it is asserted to be strictly after the disable time. It is the only field an automated resume sweep may act on.
 - `availableAgainOn` is a display-only date. When both fields are sent, the domain derives `availableAgainOn` from `availableAgainAt` (a UTC calendar-day slice) rather than trusting the two independently, so they can never disagree.
@@ -20,7 +21,7 @@ Seller Listing Availability is Marketplace's account-level overlay for temporari
 2. Active listings from unavailable sellers are not shown in buyer browse, search, item-detail purchase sections, seller listing lists, sitemap listing output, or listing product-alert notifications.
 3. Direct listing URLs remain reachable and render as unavailable with no purchase action.
 4. Ordering must reject stale checkout attempts for unavailable seller listings.
-5. Offer Matches remain visible while unavailable, but Offer Acceptance is blocked.
+5. Listings away leaves the buyer's Offers visible and still blocks that account from accepting Offers. Offers away hides that buyer's Offers from demand surfaces, alert eligibility, and acceptance. It does not affect that account's Listings or its ability to accept other buyers' Offers.
 6. Existing carts, checkout sessions, orders, payments, fulfillment, and account buying ability are not changed by this overlay.
 7. A Resume Instant, when present, is always strictly after the disable time that recorded it.
 
@@ -30,5 +31,7 @@ Marketplace publishes:
 
 - `marketplace.seller-listing-availability.disabled`
 - `marketplace.seller-listing-availability.enabled`
+- `marketplace.seller-listing-availability.offers-disabled`
+- `marketplace.seller-listing-availability.offers-enabled`
 
-Discovery projects these facts into public seller/listing views. Ordering projects them into supply eligibility. Downstream contexts consume the facts; they do not decide seller availability truth. Discovery and Ordering mirrors of `availableAgainOn`/`availableAgainAt` are out of scope for this slice; they land with the buyer-facing "back on {date}" messaging milestone.
+The original events remain Listings-only and continue to drive existing Listing consumers. Discovery and Checkout project the Offers events into their own buyer Offer standing rows. Marketplace checks the buyer's authoritative Away stream and guards its version when submitting or accepting an Offer. A completed submission can still be replayed while Away.

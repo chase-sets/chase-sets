@@ -8,8 +8,7 @@
 //! |---|---|
 //! | `GET /platform/insights/ops-dashboard?rangeDays&granularity` | the page: the last 7, 30 (when absent), 90 or 365 days, by day (when absent), week or month |
 //!
-//! admin-web's range form has no submit control, so its range cannot be applied
-//! (chase-sets/chase-sets#10874); the pilot's has one.
+//! The range form applies the range and granularity with its Apply button, as admin-web's does.
 use corten::{http::HeaderMap, prelude::*};
 use jiff::{Timestamp, ToSpan, civil::Date, tz::TimeZone};
 use serde::{Deserialize, Serialize};

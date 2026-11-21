@@ -1,6 +1,12 @@
 import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 
-export const discoveryMarketSchemaSql = `CREATE TABLE IF NOT EXISTS discovery_market_accounts (
+export const discoveryMarketSchemaSql = `CREATE TABLE IF NOT EXISTS discovery_buyer_offer_standing (
+  account_id text PRIMARY KEY,
+  offers_away boolean NOT NULL,
+  away_stream_version integer NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS discovery_market_accounts (
   account_id text PRIMARY KEY,
   seller_slug text NOT NULL DEFAULT '',
   seller_display_name text NULL,

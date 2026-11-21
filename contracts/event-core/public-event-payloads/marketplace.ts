@@ -44,6 +44,8 @@ export type MarketplaceOfferAcceptedPayload = Readonly<{
   sellerAccountId: AccountId;
   listingId: string;
   inventoryItemId: string;
+  /** Inventory Item stream version Marketplace relied on for this acceptance. */
+  inventoryItemVersion?: number;
   listingVersion: number;
   catalogItemId: string;
   productId: string;
@@ -528,6 +530,21 @@ export type MarketplaceSellerListingAvailabilityPayload = Readonly<{
   accountId: AccountId;
 }>;
 
+type MarketplaceSellerOffersDisabledPayload = MarketplaceSellerListingAvailabilityPayload &
+  Readonly<{
+    reasonCategory: "travel" | "audit" | "operations" | "other" | null;
+    availableAgainOn: string | null;
+    availableAgainAt: string | null;
+    disabledAt: string;
+    disabledBy: "seller" | "scheduled";
+  }>;
+
+type MarketplaceSellerOffersEnabledPayload = MarketplaceSellerListingAvailabilityPayload &
+  Readonly<{
+    enabledAt: string;
+    enabledBy: "seller" | "scheduled";
+  }>;
+
 /** Closed provenance of a Listing Enforcement Action; the source grants no permission. */
 export const marketplaceListingEnforcementSources = ["operator-unlist", "automatic-report-threshold"] as const;
 
@@ -865,6 +882,8 @@ export type MarketplaceEventPayloads = Readonly<{
   "marketplace.listing.withdrawn": EmptyEventPayload;
   "marketplace.seller-listing-availability.disabled": MarketplaceSellerListingAvailabilityPayload;
   "marketplace.seller-listing-availability.enabled": MarketplaceSellerListingAvailabilityPayload;
+  "marketplace.seller-listing-availability.offers-disabled": MarketplaceSellerOffersDisabledPayload;
+  "marketplace.seller-listing-availability.offers-enabled": MarketplaceSellerOffersEnabledPayload;
   "marketplace.report.submitted": MarketplaceReportSubmittedPayload;
   "platform-operations.reported-content.action-recorded": PlatformOperationsReportedContentActionRecordedPayload;
   "platform-operations.reported-content.listing-removal-directed": PlatformOperationsListingRemovalDirectedPayload;
