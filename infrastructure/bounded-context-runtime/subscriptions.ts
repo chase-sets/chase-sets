@@ -1721,16 +1721,17 @@ function projectionDependencyWaitEventId(error: unknown): string | null {
 }
 
 /**
- * Runs every runner until a pass applies nothing. A runner held by a
- * dependency wait keeps the drain going while other runners still apply
- * events or the held runner moves on to a later event; a pass that changes
- * neither rethrows the wait, so a dependency that never catches up fails the
- * drain instead of spinning.
+ * Runs every runner until a pass applies nothing, and answers how many events
+ * the passes applied. A runner held by a dependency wait keeps the drain going
+ * while other runners still apply events or the held runner moves on to a
+ * later event; a pass that changes neither rethrows the wait, so a dependency
+ * that never catches up fails the drain instead of spinning.
  */
-export async function drainSubscriptionRunners(
+async function drainRunnerPasses(
   runners: readonly ContextSubscriptionRunner[],
   context?: ProjectionRunContext,
-): Promise<void> {
+): Promise<number> {
+  let totalProcessed = 0;
   let previousHolds: string | null = null;
 
   for (;;) {
@@ -1748,9 +1749,10 @@ export async function drainSubscriptionRunners(
         holds.push({ key: `${runner.checkpointKey} ${heldEventId}`, error });
       }
     }
+    totalProcessed += processed;
 
     if (holds.length === 0) {
-      if (processed === 0) return;
+      if (processed === 0) return totalProcessed;
       continue;
     }
 
@@ -1760,6 +1762,13 @@ export async function drainSubscriptionRunners(
     }
     previousHolds = holdKey;
   }
+}
+
+export async function drainSubscriptionRunners(
+  runners: readonly ContextSubscriptionRunner[],
+  context?: ProjectionRunContext,
+): Promise<void> {
+  await drainRunnerPasses(runners, context);
 }
 
 export async function drainLocalProjectionHandlerSets(
@@ -1823,20 +1832,7 @@ export async function drainContextProcesses(
   processSet: ContextProcessSet,
   context?: ProjectionRunContext,
 ): Promise<number> {
-  let processed = 0;
-  let totalProcessed = 0;
-
-  do {
-    processed = 0;
-
-    for (const runner of sortSubscriptionRunners(processSet.subscriptionRunners ?? [])) {
-      context?.throwIfLeaseLost?.();
-      const result = await runner.runOnce(context);
-      processed += result.processed;
-      totalProcessed += result.processed;
-    }
-  } while (processed > 0);
-  return totalProcessed;
+  return drainRunnerPasses(processSet.subscriptionRunners ?? [], context);
 }
 
 export async function syncContextSubscriptions(

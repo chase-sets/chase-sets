@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   createProjectionDependencyWaitError,
+  drainContextProcesses,
   drainSubscriptionRunners,
   type ContextSubscriptionRunner,
 } from "./subscriptions";
@@ -22,30 +23,41 @@ function runner(
 }
 
 describe("drainSubscriptionRunners", () => {
-  it("gives a projection the dependency it waits on has not reached another pass in the same drain", async () => {
-    // The source applies at most 100 events a pass; the dependent runs first
-    // and waits for event 101, which the source reaches only on its second pass.
-    let sourcePosition = 0;
-    let dependentPosition = 0;
+  // The source applies at most 100 events a pass; the dependent runs first and
+  // waits for event 101, which the source reaches only on its second pass.
+  function mixedBacklog() {
+    const positions = { source: 0, dependent: 0 };
     const source = runner("b-source", async () => {
-      const next = Math.min(101, sourcePosition + 100);
-      const processed = next - sourcePosition;
-      sourcePosition = next;
+      const next = Math.min(101, positions.source + 100);
+      const processed = next - positions.source;
+      positions.source = next;
       return { processed };
     });
     const dependent = runner("a-dependent", async () => {
-      if (dependentPosition === 101) return { processed: 0 };
-      if (sourcePosition < 101) {
+      if (positions.dependent === 101) return { processed: 0 };
+      if (positions.source < 101) {
         throw createProjectionDependencyWaitError("b-source has not applied evt_101 yet.", "evt_101");
       }
-      dependentPosition = 101;
+      positions.dependent = 101;
       return { processed: 1 };
     });
+    return { positions, runners: [source, dependent] };
+  }
 
-    await drainSubscriptionRunners([source, dependent]);
+  it("gives a projection the dependency it waits on has not reached another pass in the same drain", async () => {
+    const backlog = mixedBacklog();
 
-    expect(sourcePosition).toBe(101);
-    expect(dependentPosition).toBe(101);
+    await drainSubscriptionRunners(backlog.runners);
+
+    expect(backlog.positions).toEqual({ source: 101, dependent: 101 });
+  });
+
+  it("drains the same backlog through the context drain and counts every pass", async () => {
+    const backlog = mixedBacklog();
+
+    await expect(drainContextProcesses({ subscriptionRunners: backlog.runners })).resolves.toBe(102);
+
+    expect(backlog.positions).toEqual({ source: 101, dependent: 101 });
   });
 
   it("fails when a pass leaves the same wait and applies nothing", async () => {
@@ -58,6 +70,10 @@ describe("drainSubscriptionRunners", () => {
 
     await expect(drainSubscriptionRunners([source, dependent])).rejects.toThrow("b-source has not applied evt_7 yet.");
     expect(dependentRuns).toBe(2);
+    await expect(drainContextProcesses({ subscriptionRunners: [source, dependent] })).rejects.toThrow(
+      "b-source has not applied evt_7 yet.",
+    );
+    expect(dependentRuns).toBe(4);
   });
 
   it("rethrows any other failure at once", async () => {
