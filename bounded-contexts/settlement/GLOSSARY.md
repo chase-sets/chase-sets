@@ -125,7 +125,7 @@ A **Payout Release Hold** is the Settlement-owned pending state that keeps sale 
 Notes:
 
 - Payout Release Holds apply to account wallet credits, not to Stripe charge authorization or capture.
-- Returned shipments, fulfillment exceptions, active support holds, manual payout review, untrusted account state, and high-dollar seller exposure can extend or prevent release.
+- Returned shipments, fulfillment exceptions, active support holds, a Settlement Payout Review Hold, untrusted account state, and high-dollar seller exposure can extend or prevent release. An unprojected payout review hold decision keeps the credit on extended clearance until caught up; the frozen Identity badge no longer affects release.
 - Settlement owns the release decision even when Stripe payment risk checks pass.
 
 ## Chargeback Clawback

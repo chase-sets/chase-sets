@@ -5,13 +5,13 @@
       "subscriptionName": "payments.account-risk-source-projection",
       "handlerKind": "projection",
       "projectionName": "payments-account-risk-source-projection",
-      "sourceContextName": "identity",
+      "sourceContextName": "settlement",
       "targetContextName": "payments",
       "subscriptionVersion": 1,
-      "checkpointKey": "payments-account-risk-source-projection:identity:v1",
+      "checkpointKey": "payments-account-risk-source-projection:settlement:v1",
       "handlers": {
-        "identity.account.badge-assigned": "<function>",
-        "identity.account.badge-removed": "<function>"
+        "settlement.payout-review-hold.placed": "<function>",
+        "settlement.payout-review-hold.released": "<function>"
       },
       "inlineApply": false,
       "errorPolicy": "strict-per-stream",
@@ -19,7 +19,7 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": ["identity.account.badge-assigned", "identity.account.badge-removed"],
+      "eventTypes": ["settlement.payout-review-hold.placed", "settlement.payout-review-hold.released"],
       "streamPrefixes": "<undefined>",
       "order": 30
     },
@@ -435,14 +435,14 @@
     {
       "subscriptionName": "payments.account-risk-source-projection",
       "handlerKind": "projection",
-      "sourceContextName": "identity",
+      "sourceContextName": "settlement",
       "projectionName": "payments-account-risk-source-projection",
       "subscriptionVersion": 1,
       "handlers": {
-        "identity.account.badge-assigned": "<function>",
-        "identity.account.badge-removed": "<function>"
+        "settlement.payout-review-hold.placed": "<function>",
+        "settlement.payout-review-hold.released": "<function>"
       },
-      "eventTypes": ["identity.account.badge-assigned", "identity.account.badge-removed"],
+      "eventTypes": ["settlement.payout-review-hold.placed", "settlement.payout-review-hold.released"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",
