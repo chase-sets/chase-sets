@@ -60,12 +60,12 @@ export function createOfferResponseAttentionSourceFromReadModel(db: PgQueryable)
       const result = await db.query<{
         offer_id: string;
         item_title: string;
-        created_at: string;
+        observed_at: string;
       }>(
         `SELECT DISTINCT ON (offer.offer_id)
            offer.offer_id,
            offer.item_title,
-           offer.created_at
+           to_char(offer.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS observed_at
          FROM marketplace_offer_pages AS offer
          INNER JOIN marketplace_listing_pages AS listing
            ON listing.product_id = offer.product_id
@@ -91,7 +91,7 @@ export function createOfferResponseAttentionSourceFromReadModel(db: PgQueryable)
         offerId: row.offer_id,
         reference: row.item_title || row.offer_id,
         expiresAt: null,
-        observedAt: row.created_at,
+        observedAt: row.observed_at,
       }));
     },
   });
