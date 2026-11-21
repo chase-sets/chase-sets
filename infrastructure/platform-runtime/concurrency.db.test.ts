@@ -866,7 +866,8 @@ describe("platform runtime Postgres concurrency guards", () => {
     };
     const [operationRunner] = collectProjectionOperationRunners(runtime, {
       controlPlane,
-      leaseTtlMs: 200,
+      // Outlast the rebuild deadline so this test does not require timely renewal.
+      leaseTtlMs: 30_000,
       leaseRenewIntervalMs: 50,
       claimTtlMs: 3_000,
       leaseAcquireTimeoutMs: 0,
@@ -882,7 +883,7 @@ describe("platform runtime Postgres concurrency guards", () => {
     try {
       await gate.entered;
       const operationAcquire = acquisitions.find((entry) => entry.ownerId === "worker-a:projection-operations");
-      expect(operationAcquire?.fencingToken).not.toBeNull();
+      expect(operationAcquire?.fencingToken).toEqual(expect.any(String));
       scheduledLoop = createWorkerRunnerLoop({
         workerId: "worker-a",
         controlPlane,
@@ -904,6 +905,7 @@ describe("platform runtime Postgres concurrency guards", () => {
         .filter((entry) => entry.ownerId === "worker-a:projection-operations" && entry.fencingToken)
         .map((entry) => entry.fencingToken);
       expect(new Set(heldTokens)).toEqual(new Set([operationAcquire!.fencingToken]));
+      await expectGroupLeaseRow(pools.platform, leaseName, operationAcquire!.ownerId, operationAcquire!.fencingToken!);
 
       gate.resolve();
       await expect(operationRun).resolves.toMatchObject({ processed: 1 });
