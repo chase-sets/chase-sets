@@ -19,13 +19,16 @@ import {
   type PostWriteTokenStore,
   type RedirectAfterWriteOptions,
 } from "@chase-sets/http/responses";
+import { createTranslator } from "@chase-sets/localization/core";
 import {
   recordPlatformPostWriteConsistencyEvent,
   type PlatformPostWriteConsistencyEvent,
   type PlatformPostWriteConsistencyOutcome,
 } from "./post-write-consistency";
-import { t } from "@chase-sets/localization";
 import type { ResolvedActor } from "./auth";
+import { platformRuntimeEnglishTranslations } from "./localization/locales/en";
+
+const { t } = createTranslator({ catalogs: { en: platformRuntimeEnglishTranslations } });
 
 export const PLATFORM_INTERNAL_AUTH_HEADER = "x-chase-sets-internal-auth";
 export const PLATFORM_INTERNAL_AUTH_SECRET_ENV = "PLATFORM_INTERNAL_AUTH_SECRET";
