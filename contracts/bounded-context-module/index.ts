@@ -479,6 +479,8 @@ export type BcAnonymousRoute = Readonly<{
 }>;
 
 export type BcEventSubscriptionDeclaration = Readonly<{
+  /** Defer the whole non-required projection group when this declared host port is absent. */
+  readonly deferUntilHostPort?: string;
   readonly sourceContextName: string;
   readonly projectionName: string;
   readonly subscriptionVersion: number;
@@ -607,6 +609,7 @@ export type BcEventSubscription = Readonly<{
 
 export type BcContextManifest = Readonly<{
   readonly contextName: string;
+  readonly hostPorts?: readonly BcHostPort[];
   readonly scheduledJobs?: readonly ScheduledJobDeclaration[];
   readonly apiBasePath: string;
   readonly streamPrefix: string;
@@ -930,6 +933,8 @@ export interface BcApiModule<
   TProjectionHandlerSet extends BcProjectionHandlerSet = BcProjectionHandlerSet,
 > {
   readonly contextName: string;
+  readonly hostPorts?: readonly BcHostPort[];
+  hasHostPort?(services: TServices, portName: string): boolean;
   readonly routePrefix: string;
   readonly streamPrefix: string;
   readonly schemaSql: string;
@@ -981,6 +986,7 @@ export type DefineBoundedContextModuleInput<
 > = Readonly<{
   manifest: BcContextManifestInput;
   schemaSql: string;
+  hasHostPort?: BcApiModule<TServices, TPool, THostPorts, TRouter, TProjectionHandlerSet>["hasHostPort"];
   schemaMigrations?: readonly BcSchemaMigration[];
   retentionSweeps?: readonly BcRetentionSweep[];
   retentionExemptions?: readonly BcRetentionExemption[];
@@ -1025,8 +1031,17 @@ export function defineBoundedContextModule<
 ): BcApiModule<TServices, TPool, THostPorts, TRouter, TProjectionHandlerSet> {
   const manifest = normalizeContextManifest(input.manifest);
 
+  if (
+    manifest.eventSubscriptions?.some((declaration) => declaration.deferUntilHostPort !== undefined) &&
+    typeof input.hasHostPort !== "function"
+  ) {
+    throw new Error(`Context '${manifest.contextName}' declares deferUntilHostPort but has no hasHostPort resolver.`);
+  }
+
   return {
     contextName: manifest.contextName,
+    ...(manifest.hostPorts ? { hostPorts: manifest.hostPorts } : {}),
+    ...(input.hasHostPort ? { hasHostPort: input.hasHostPort } : {}),
     routePrefix: manifest.apiBasePath,
     streamPrefix: manifest.streamPrefix,
     schemaSql: input.schemaSql,
@@ -1054,8 +1069,17 @@ export function defineBoundedContextModule<
 }
 
 export function normalizeContextManifest(manifest: BcContextManifestInput): BcContextManifest {
+  const eventSubscriptions = manifest.eventSubscriptions?.map((declaration) => {
+    const normalized = normalizeEventSubscriptionDeclaration(manifest.contextName, declaration);
+    const portName = normalized.deferUntilHostPort;
+    if (portName !== undefined && !manifest.hostPorts?.some((port) => port.portName === portName)) {
+      throw new Error(`Context '${manifest.contextName}' declares unknown deferUntilHostPort '${portName}'.`);
+    }
+    return normalized;
+  });
   return {
     contextName: manifest.contextName,
+    ...(manifest.hostPorts ? { hostPorts: manifest.hostPorts } : {}),
     ...(manifest.scheduledJobs
       ? { scheduledJobs: normalizeScheduledJobs(manifest.contextName, manifest.scheduledJobs) }
       : {}),
@@ -1073,13 +1097,7 @@ export function normalizeContextManifest(manifest: BcContextManifestInput): BcCo
           ),
         }
       : {}),
-    ...(manifest.eventSubscriptions
-      ? {
-          eventSubscriptions: manifest.eventSubscriptions.map((declaration) =>
-            normalizeEventSubscriptionDeclaration(manifest.contextName, declaration),
-          ),
-        }
-      : {}),
+    ...(eventSubscriptions ? { eventSubscriptions } : {}),
     ...(manifest.eventReactions
       ? {
           eventReactions: manifest.eventReactions.map((declaration) =>
@@ -1217,6 +1235,10 @@ function normalizeEventSubscriptionDeclaration(
   contextName: string,
   declaration: BcEventSubscriptionManifestDeclaration,
 ): BcEventSubscriptionDeclaration {
+  const portName = declaration.deferUntilHostPort;
+  if (portName !== undefined && (typeof portName !== "string" || !portName || portName !== portName.trim())) {
+    throw new Error(`Context '${contextName}' declares an invalid deferUntilHostPort.`);
+  }
   const { sourceContextMount: rawSourceContextMount, ...rest } = declaration;
   const sourceContextMount = normalizeOptionalSourceContextMount(
     contextName,
