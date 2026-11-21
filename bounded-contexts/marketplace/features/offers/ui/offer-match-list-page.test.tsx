@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useState } from "react";
@@ -154,12 +154,11 @@ async function awaitDeclineSettle(
       }
     });
   });
-  await act(async () => {
-    await Promise.resolve();
+  await waitFor(() => {
+    expect(router.state.navigation.state).toBe("idle");
+    expect(form.dataset.formStatus).not.toBe("submitting");
+    expect(form.hasAttribute("aria-busy")).toBe(false);
   });
-  expect(router.state.navigation.state).toBe("idle");
-  expect(form.dataset.formStatus).not.toBe("submitting");
-  expect(form.hasAttribute("aria-busy")).toBe(false);
   expect(sent).toEqual(expectedSent);
 }
 
