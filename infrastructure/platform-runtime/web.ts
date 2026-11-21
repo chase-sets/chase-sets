@@ -6,7 +6,7 @@ import type {
   BcShellContributionSlot,
   BcShellContributionVisibility,
 } from "@chase-sets/bounded-context-module";
-import { t } from "@chase-sets/localization";
+import type { Translate } from "@chase-sets/localization/core";
 import type { NavigationItem } from "@chase-sets/design-system";
 import { assertMarketplaceRouteContract } from "./portable-route-contract";
 
@@ -228,13 +228,14 @@ function badgeCount(
 
 function toNavigationItem(
   contribution: ShellContributionItemRecord,
+  translate: Translate,
   dynamicValues: Readonly<Record<string, number | undefined>>,
   limited: boolean,
 ): NavigationItem {
   const count = badgeCount(contribution, dynamicValues);
   return {
     key: contribution.key,
-    label: contribution.labelKey ? t(contribution.labelKey) : contribution.label,
+    label: contribution.labelKey ? translate(contribution.labelKey) : contribution.label,
     icon: contribution.icon as NavigationItem["icon"],
     ...(contribution.href ? { href: contribution.href } : {}),
     ...(contribution.placement ? { placement: contribution.placement } : {}),
@@ -244,7 +245,7 @@ function toNavigationItem(
     ...(contribution.children?.length
       ? {
           children: sortForRendering(contribution.children, limited).map((child) =>
-            toNavigationItem(child, dynamicValues, limited),
+            toNavigationItem(child, translate, dynamicValues, limited),
           ),
         }
       : {}),
@@ -476,19 +477,32 @@ function resolveShellTree(
   return composeShellTree(resolveShellContributionRecords(registry, hostName, slot), options.limit !== undefined);
 }
 
-function renderShellTree(tree: readonly ShellContributionItemRecord[], actor: ShellActor, options: WebHostNavOptions) {
+function selectVisibleShellTree(
+  tree: readonly ShellContributionItemRecord[],
+  actor: ShellActor,
+  options: WebHostNavOptions,
+) {
   const dynamicValues = options.dynamicValues ?? {};
-  let visible = tree
+  const visible = tree
     .filter((item) => !options.section || item.section === options.section)
     .map((node) => filterShellContributionTree(actor, node, dynamicValues))
     .filter((node): node is ShellContributionItemRecord => node !== null);
-  if (options.limit !== undefined) {
-    visible = visible
-      .sort((left, right) => right.packingPriority! - left.packingPriority! || compareOrderAndKey(left, right))
-      .slice(0, options.limit);
-  }
-  return sortForRendering(visible, options.limit !== undefined).map((node) =>
-    toNavigationItem(node, dynamicValues, options.limit !== undefined),
+  return options.limit === undefined
+    ? visible
+    : visible
+        .sort((left, right) => right.packingPriority! - left.packingPriority! || compareOrderAndKey(left, right))
+        .slice(0, options.limit);
+}
+
+function renderShellTree(
+  tree: readonly ShellContributionItemRecord[],
+  translate: Translate,
+  actor: ShellActor,
+  options: WebHostNavOptions,
+): NavigationItem[] {
+  const limited = options.limit !== undefined;
+  return sortForRendering(selectVisibleShellTree(tree, actor, options), limited).map((node) =>
+    toNavigationItem(node, translate, options.dynamicValues ?? {}, limited),
   );
 }
 
@@ -496,10 +510,11 @@ export function resolveWebHostNavItems(
   registry: WebContextRegistry,
   hostName: WebHostName,
   slot: BcShellContributionSlot,
+  translate: Translate,
   actor?: ShellActor,
   options: WebHostNavOptions = {},
 ): NavigationItem[] {
-  return renderShellTree(resolveShellTree(registry, hostName, slot, options), actor, options);
+  return renderShellTree(resolveShellTree(registry, hostName, slot, options), translate, actor, options);
 }
 
 function normalizeActivePath(pathname: string) {
@@ -553,9 +568,9 @@ export function resolveWebHostActiveKeyAcrossSlots(
   )
     return undefined;
   const key = best?.key ?? options.defaultKey;
-  const hasKey = (items: readonly NavigationItem[]): boolean =>
+  const hasKey = (items: readonly ShellContributionItemRecord[]): boolean =>
     items.some((item) => item.key === key || hasKey(item.children ?? []));
-  return key !== undefined && trees.some(({ tree, options }) => hasKey(renderShellTree(tree, actor, options)))
+  return key !== undefined && trees.some(({ tree, options }) => hasKey(selectVisibleShellTree(tree, actor, options)))
     ? key
     : undefined;
 }
