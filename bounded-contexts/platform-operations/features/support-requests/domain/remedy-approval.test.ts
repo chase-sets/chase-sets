@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AccountId, CoverageId, RemedyId, SupportRequestId } from "@chase-sets/primitives/typed-ids";
 import { normalizeSupportRequestRemedyAuthorizedV1 } from "@chase-sets/event-core/platform-coverage-facts";
+import { SupportDomainError } from "./common";
 import {
   applyRemedyApproval,
   applyRemedyReservationFact,
@@ -114,5 +115,73 @@ describe("remedy approval workflow", () => {
     expect(() => createRemedyApproval(state, approval(approver, false, "2026-07-15T00:00:00.000Z"))).toThrow(
       "reservation expired",
     );
+  });
+
+  describe("workflow status guard", () => {
+    function reservedWorkflow() {
+      return applyRemedyReservationFact(workflow(), {
+        effect: "coverage-reservation",
+        outcome: "satisfied",
+        sourceFactType: "settlement.protection-coverage.reserved.v1",
+        sourceFactId: "evt_reserved",
+        idempotencyKey: "coverage-reserved",
+        occurredAt: "2026-07-14T01:00:00.000Z",
+        reasonCode: "coverage-reserved",
+        refundId: null,
+        amount: "500.00",
+        currencyCode: "usd",
+        allocation: null,
+      });
+    }
+
+    it("accepts an approval while the workflow is approval-pending", () => {
+      const state = reservedWorkflow();
+      expect(state.status).toBe("approval-pending");
+      expect(createRemedyApproval(state, approval(approver))).toMatchObject({
+        approvedByAccountId: approver,
+        idempotencyKey: `approval:${approver}`,
+      });
+    });
+
+    it.each(["correction-requested", "approved", "authorized", "expired"] as const)(
+      "refuses a new approval while the workflow is %s",
+      (status) => {
+        const state = { ...reservedWorkflow(), status };
+        expect(() => createRemedyApproval(state, approval(approver))).toThrow(SupportDomainError);
+        expect(() => createRemedyApproval(state, approval(approver))).toThrow(
+          `A remedy can only be approved while its workflow is approval-pending; this workflow is ${status}.`,
+        );
+      },
+    );
+
+    it("keeps refusing reservation-pending and reservation-rejected workflows through the reservation checks", () => {
+      const pending = workflow();
+      expect(pending.status).toBe("reservation-pending");
+      expect(() => createRemedyApproval(pending, approval(approver))).toThrow("must be reserved before approval");
+      const rejected = applyRemedyReservationFact(pending, {
+        effect: "coverage-reservation",
+        outcome: "failed-terminal",
+        sourceFactType: "settlement.protection-coverage.rejected.v1",
+        sourceFactId: "evt_rejected",
+        idempotencyKey: "coverage-rejected",
+        occurredAt: "2026-07-14T01:00:00.000Z",
+        reasonCode: "coverage-exhausted",
+        refundId: null,
+        amount: null,
+        currencyCode: null,
+        allocation: null,
+      });
+      expect(rejected.status).toBe("reservation-rejected");
+      expect(() => createRemedyApproval(rejected, approval(approver))).toThrow(
+        "Protection coverage was rejected: coverage-exhausted.",
+      );
+    });
+
+    it("still returns an already recorded approval when replayed after the workflow left approval-pending", () => {
+      const pending = reservedWorkflow();
+      const recorded = createRemedyApproval(pending, approval(approver));
+      const state = { ...applyRemedyApproval(pending, recorded), status: "correction-requested" as const };
+      expect(createRemedyApproval(state, approval(approver))).toBe(recorded);
+    });
   });
 });

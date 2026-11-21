@@ -1071,6 +1071,8 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listingEvidencePolicy.ui.hash": "Policy hash",
   "marketplace.features.listingEvidencePolicy.ui.effective.from": "Effective from",
   "marketplace.features.listingEvidencePolicy.ui.effective.until": "Effective until",
+  "marketplace.features.listingEvidencePolicy.ui.effective.invalid":
+    "Enter each effective time as a date and time. The policy was not activated.",
   "marketplace.features.listingEvidencePolicy.ui.effective.required":
     "Choose a valid effective time before activation.",
   "marketplace.features.listingEvidencePolicy.ui.open.ended": "Open ended",
