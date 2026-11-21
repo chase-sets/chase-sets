@@ -24,7 +24,6 @@ import type { Account } from "./contracts";
 import type { CurrentActorDisplay } from "../../../support/shell-support/current-actor-display";
 import { AccountBadgeList } from "./account-badges";
 import { AccountMutationForm as Form, type MutationNotification } from "../../account-management/ui/controller";
-import type { MutationFailure } from "../../account-management/ui/transport";
 import type { DisplayNameRejectionCode } from "../domain/display-name-safeguard";
 import {
   accountStatusLabel,
@@ -75,11 +74,16 @@ export function AccountProfilePage({
   errorMessage?: string;
 }) {
   const fieldId = useId();
-  const [failure, setFailure] = useState<MutationFailure | null>(null);
-  const displayNameRejection = failure?.displayNameRejection;
+  const [displayNameRejection, setDisplayNameRejection] = useState<DisplayNameRejectionCode | null>(null);
   const displayNameLabel = t("identity.features.accounts.ui.accountProfilePage.marketplace.name");
-  function onMutation(notification: MutationNotification) {
-    setFailure(notification.type === "failure" ? notification.failure : null);
+  function onMutation(notification: MutationNotification): void | false {
+    if (notification.type === "accepted") {
+      setDisplayNameRejection(null);
+      return;
+    }
+    const code = notification.failure.displayNameRejection;
+    if (!code) return false;
+    setDisplayNameRejection(code);
   }
   const updatedAt = account.updated_at
     ? formatDate(account.updated_at, { fallback: identityDateUnavailable() })
@@ -108,8 +112,6 @@ export function AccountProfilePage({
                     { fieldId, fieldName: displayNameLabel, message: t(displayNameRecovery[displayNameRejection]) },
                   ]}
                 />
-              ) : failure ? (
-                <Banner tone="danger" title={failure.message} />
               ) : null}
               <Stack direction={{ base: "column", md: "row" }} align={{ base: "stretch", md: "end" }} gap={2}>
                 <HiddenInput type="hidden" name="intent" value="update-profile" readOnly />

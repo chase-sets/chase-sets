@@ -43,6 +43,35 @@ afterEach(() => {
 });
 
 describe("AccountProfilePage", () => {
+  it("focuses the shared recovery notice after a lost submission is confirmed not recorded", async () => {
+    const transport = stubHeldAccountManagementTransport();
+    const fetch = vi.fn<typeof transport.fetch>((input, init) =>
+      init?.method === "POST"
+        ? Promise.reject(new TypeError("synthetic connection loss"))
+        : transport.fetch(input, init),
+    );
+    vi.stubGlobal("fetch", fetch);
+    renderAccountManagementPage(<AccountProfilePage account={account} />);
+    const submit = screen.getByRole<HTMLButtonElement>("button", { name: "Update Profile" });
+    await waitFor(() => expect(submit.disabled).toBe(false));
+    const name = screen.getByRole<HTMLInputElement>("textbox", { name: /Marketplace name/i });
+    fireEvent.change(name, { target: { value: "Updated Card Vault" } });
+    fireEvent.submit(submit.closest("form")!);
+    await waitFor(() => expect(transport.requests).toHaveLength(1));
+    await act(async () => transport.requests[0].respond({ outcome: "not-recorded", code: "not-recorded" }));
+
+    const notice = await screen.findByText("No change was recorded. Review and submit again.");
+    const status = document.querySelector('[role="status"][tabindex="-1"]');
+    expect(status?.contains(notice)).toBe(true);
+    expect(document.activeElement).toBe(status);
+    expect(fetch.mock.calls.map(([, init]) => init?.method)).toEqual(["POST", "GET"]);
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Update Profile" }).disabled).toBe(false);
+    expect(screen.getByRole<HTMLInputElement>("textbox", { name: /Marketplace name/i }).value).toBe(
+      "Updated Card Vault",
+    );
+    expect(screen.queryByText("Your change was saved")).toBeNull();
+  });
+
   it("account-profile-marker-scan: guides recovery without reflecting rejected text outside the retained draft", async () => {
     const transport = stubHeldAccountManagementTransport();
     renderAccountManagementPage(<AccountProfilePage account={account} />);

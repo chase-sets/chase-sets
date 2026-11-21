@@ -125,11 +125,32 @@
       "composition": "invitation-acceptance"
     },
     {
+      "path": "bounded-contexts/identity/features/accounts/api/mcp.test.ts",
+      "command": "CreateAccount",
+      "occurrences": 1,
+      "disposition": "test-fixture",
+      "reason": "This fixture seeds an existing account to test rejected profile updates through MCP."
+    },
+    {
+      "path": "bounded-contexts/identity/features/accounts/api/route.test.ts",
+      "command": "CreateAccount",
+      "occurrences": 1,
+      "disposition": "test-fixture",
+      "reason": "This fixture seeds an existing account for the rejected profile update case in the HTTP route test."
+    },
+    {
       "path": "bounded-contexts/identity/features/accounts/api/route.ts",
       "command": "CreateAccount",
       "occurrences": 1,
       "disposition": "exempt-permanent",
       "reason": "This permission-guarded Identity administration route creates an account for an operator and is not a personal registration surface."
+    },
+    {
+      "path": "bounded-contexts/identity/features/accounts/domain/display-name-safeguard.test.ts",
+      "command": "CreateAccount",
+      "occurrences": 1,
+      "disposition": "test-fixture",
+      "reason": "This fixture exercises the Account display-name safeguard directly through the decider."
     },
     {
       "path": "bounded-contexts/identity/features/accounts/domain/domain.test.ts",
