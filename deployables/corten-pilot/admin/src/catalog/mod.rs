@@ -526,6 +526,17 @@ async fn command(caller: &Caller<'_>, method: Method, kind: Kind, rest: &str, bo
     }
 }
 
+/// `command`, checked against the revision its form was drawn from (`Catalog::command_at`).
+async fn command_at(caller: &Caller<'_>, method: Method, kind: Kind, rest: &str, body: &Value, revision: &str) -> Sent {
+    match caller.command_at(method, kind, rest, body, revision).await {
+        Ok(written) => Sent::Written(written),
+        Err(error) => match refused(error) {
+            Ok(errors) => Sent::Refused(errors),
+            Err(denied) => Sent::Denied(denied),
+        },
+    }
+}
+
 fn receipt(written: &Written) -> Option<String> {
     written.receipt.as_ref().map(Receipt::param)
 }

@@ -146,12 +146,14 @@ export function updateSourceObservationProviderProfileSection(
   profileVersion: string,
   section: CatalogProviderProfileEditableSectionKey,
   command: CatalogProviderProfileSectionUpdateCommand,
+  sectionFingerprint: string,
 ) {
   return api.updateSourceObservationProviderProfileSection<CatalogProviderProfileVersionReview>(
     providerKey,
     profileVersion,
     section,
     command,
+    sectionFingerprint,
   );
 }
 

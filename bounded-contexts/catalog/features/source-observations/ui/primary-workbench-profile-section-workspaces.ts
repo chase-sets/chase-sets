@@ -105,6 +105,7 @@ export function profileSectionWorkspacesFor(input: {
       saveOutcome,
       submitHref: input.submitHref,
       commandKey: "provider-profile.edit-section",
+      sectionFingerprint: input.profile.sectionFingerprints[metadata.section],
       fields: profileSectionFields(input.profile, metadata.section, disabled),
       optionQueries: profileSectionOptionQueries(input.profile, metadata.section, input.controlPlaneOverview),
       importScopeControls: profileSectionImportScopeControls({

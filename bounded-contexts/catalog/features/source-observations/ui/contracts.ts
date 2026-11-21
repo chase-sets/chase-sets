@@ -440,6 +440,8 @@ export interface CatalogProviderProfileVersionReview {
     updatedByUserId?: string | null;
     updatedForAccountId?: string | null;
   } | null;
+  /** Each editable section's revision; a section save sends the one its form was drawn from. */
+  sectionFingerprints: Record<CatalogProviderProfileEditableSectionKey, string>;
   validation: {
     status: "valid" | "invalid";
     diagnostics: CatalogProviderProfileReviewDiagnostic[];
