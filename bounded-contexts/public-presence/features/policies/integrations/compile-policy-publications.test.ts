@@ -498,11 +498,11 @@ describe("public policy corpus compiler", () => {
     // Re-derived for the Marketplace Checkout Fee glossary line move in
     // [#7864 Break the Auth and Payments dependency cycle and reject cycles in the structure gate](https://github.com/chase-sets/chase-sets/issues/7864).
     // Re-derived for the Identity account-domain citation shift that the required profile name check makes.
-    // Re-derived after the payout review hold moves the Settlement and Identity source citations.
+    // Re-derived for the payout review hold and whole-construct registration citations.
     // Re-derived for the Identity account-domain citation shift from Account Profile safeguards.
     expect(
       fingerprint(baseline.find(({ relativePath }) => relativePath === "terms-of-service-publication.ts")?.content),
-    ).toBe("sha256:62e7f0def7ce668b161e3a5b23f85441d25c43f60bdb4528b4cc6bcb278abe88");
+    ).toBe("sha256:6448d54eeceb84a6fd783fc3949d05ed668c4745dc01d8bf2516e3de211e0446");
 
     for (const module of changed) {
       const before = baseline.find((candidate) => candidate.relativePath === module.relativePath)?.content;
@@ -541,9 +541,9 @@ describe("public policy corpus compiler", () => {
         sectionId: "children",
         carrier: "assumptionEvidenceRef",
         before:
-          "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:370; bounded-contexts/auth/features/registration/ui/register-page.tsx:60-66",
+          "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:370; bounded-contexts/auth/features/registration/ui/register-page.tsx:67-73,137-195,417-582",
         after:
-          "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:345; bounded-contexts/auth/features/registration/ui/register-page.tsx:60-66",
+          "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:345; bounded-contexts/auth/features/registration/ui/register-page.tsx:67-73,137-195,417-582",
         module: "privacy-policy-publication.ts",
       },
       {

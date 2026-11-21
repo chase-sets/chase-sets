@@ -289,9 +289,8 @@ async fn draw(req: &Req, viewer: &Viewer, config: &Shared, headers: &HeaderMap, 
     let mut catching_up = false;
     let hub = match api::hub(&caller, id).await {
         Ok(hub) => hub,
-        // admin-web's `onPending`: the write is not readable yet, so the page is read without it
-        // and says so (chase-sets/chase-sets#10828: the receipted read times out on projections
-        // the write did not touch; drop the note when it is fixed, keep the fallback).
+        // admin-web's `onPending`: the write is not readable within the receipt's wait, so the
+        // page is read without it and says so.
         Err(error) if shown.receipt.is_some() && error.catching_up() => {
             catching_up = true;
             match api::hub(&config.platform.caller(headers, config.proto, None), id).await {

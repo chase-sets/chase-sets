@@ -443,6 +443,7 @@
     "bounded-contexts/pricing/features/market-rollups/read-model/rollup-maintenance.ts",
     "bounded-contexts/pricing/features/market-rollups/read-model/stat-hygiene-policy-revision.ts",
     "bounded-contexts/pricing/features/market-trades/integrations/integrity/integrity-projection.ts",
+    "bounded-contexts/pricing/features/market-trades/integrations/payout-review-lock.ts",
     "bounded-contexts/pricing/features/market-trades/integrations/source/source-projection.ts",
     "bounded-contexts/pricing/features/market-trades/read-model/queries.ts",
     "bounded-contexts/pricing/features/market-trades/read-model/rollup-rederive-queue.ts",

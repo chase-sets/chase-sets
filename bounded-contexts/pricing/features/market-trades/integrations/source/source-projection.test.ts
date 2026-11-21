@@ -65,12 +65,17 @@ describe("pricing market-trades source projection", () => {
       timing: { recordedAt: "2026-07-01T00:00:00.000Z" },
     } as never);
 
-    expect(calls[0]?.sql).toContain("DELETE FROM pricing_market_trades");
-    expect(calls[1]?.sql).toContain("INSERT INTO pricing_market_trades");
-    expect(calls[1]?.sql).toContain("FROM pricing_market_trade_linkage_clusters");
-    expect(calls[1]?.sql).toContain("LEFT JOIN pricing_market_trade_denominations");
-    expect(calls[1]?.sql).toContain("CASE WHEN linkage.self_dealing THEN 'self-dealing'");
-    expect(calls[1]?.params).toEqual([
+    expect(calls[0]?.sql).toContain("pg_advisory_xact_lock");
+    expect(calls[0]?.params).toEqual([["seller_1", "buyer_1"]]);
+    expect(calls[1]?.sql).toContain("DELETE FROM pricing_market_trades");
+    expect(calls[1]?.sql).toContain("NOT (line_id = ANY($2::text[]))");
+    expect(calls[1]?.params).toEqual(["ord_1", ["line_1"]]);
+    expect(calls[2]?.sql).toContain("INSERT INTO pricing_market_trades");
+    expect(calls[2]?.sql).toContain("FROM pricing_market_trade_linkage_clusters");
+    expect(calls[2]?.sql).toContain("LEFT JOIN pricing_market_trade_denominations");
+    expect(calls[2]?.sql).toContain("CASE WHEN linkage.self_dealing THEN 'self-dealing'");
+    expect(calls[2]?.sql).toContain("COALESCE(trade.order_created_at, EXCLUDED.order_created_at)");
+    expect(calls[2]?.params).toEqual([
       "ord_1",
       "line_1",
       null,
@@ -83,6 +88,9 @@ describe("pricing market-trades source projection", () => {
       "listing",
       "2026-07-01T00:00:00.000Z",
     ]);
+    expect(calls[3]?.sql).toContain("trade.order_created_at <= cutoff.placed_at");
+    expect(calls[3]?.sql).toContain("FROM pricing_market_trade_payout_review_cutoffs");
+    expect(calls[3]?.params).toEqual(["ord_1", ["seller_1", "buyer_1"]]);
   });
 
   it("maps every order sourceType to the tape's own sale-channel vocabulary", async () => {
@@ -112,7 +120,7 @@ describe("pricing market-trades source projection", () => {
         timing: { recordedAt: "2026-07-01T00:00:00.000Z" },
       } as never);
 
-      expect(calls[1]?.params?.[9]).toBe(expectedChannel);
+      expect(calls[2]?.params?.[9]).toBe(expectedChannel);
     }
   });
 

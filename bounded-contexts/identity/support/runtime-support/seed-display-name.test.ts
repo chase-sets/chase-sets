@@ -31,6 +31,7 @@ describe("display-name seed entrypoints", () => {
       const background = { commandHandler: vi.fn(), getUserState: vi.fn(), getMembershipState: vi.fn() };
       vi.mocked(createIdentityServices).mockReturnValue({
         db: { query: vi.fn(async () => ({ rows: [] })) },
+        auth: { hashSecret: vi.fn(() => "a".repeat(64)) },
         accounts: { commandHandler: captured, getAccountState: vi.fn() },
         users: background,
         memberships: background,

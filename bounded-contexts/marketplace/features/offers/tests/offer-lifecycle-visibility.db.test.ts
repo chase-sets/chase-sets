@@ -184,4 +184,38 @@ describeDb("Offer lifecycle visibility on Postgres", () => {
     );
     await expectOpenAt("5.00");
   });
+
+  it("hides a paused Offer from an inventory-only seller and restores it on resume", async () => {
+    const db = pools.marketplace;
+    await db.query(
+      `INSERT INTO marketplace_supply_items (
+        item_id, account_id, catalog_catalog_item_id, product_id, storage_location_id, total_quantity
+      ) VALUES ('inv_stock', 'acc_stock', 'cat_one', 'cat_one::', 'loc_fixture', 3)`,
+    );
+    await project("marketplace.offer.submitted", 1, {
+      catalogItemId: "cat_one",
+      productId: "cat_one::",
+      itemTitle: "Item",
+      itemSubtitle: null,
+      selectedOptions: [],
+      productSummary: null,
+      shippingDestinationSnapshot: {},
+      priceAmount: "5.00",
+      priceCurrencyCode: "USD",
+      quantityRequested: 1,
+    });
+    expect(await getOfferMatch(db, "off_one", "acc_stock")).toMatchObject({
+      fill_source: "inventory",
+      inventory_item_id: "inv_stock",
+    });
+
+    await project("marketplace.offer.paused", 2);
+    expect(await getOfferMatch(db, "off_one", "acc_stock")).toBeNull();
+    expect((await listOfferMatches(db, { sellerAccountId: "acc_stock" })).items).toEqual([]);
+
+    await project("marketplace.offer.resumed", 3);
+    expect((await listOfferMatches(db, { sellerAccountId: "acc_stock" })).items).toEqual([
+      expect.objectContaining({ offer_id: "off_one", fill_source: "inventory" }),
+    ]);
+  });
 });

@@ -136,7 +136,8 @@ Notes:
 - Submitted offers are public marketplace-wide demand on product detail surfaces. Public offer rows expose the same account-level attribution style as public listings and must not expose shipping destinations or private contact details.
 - Accounts see their submitted demand as Submitted Offers.
 - Offers may be captured through Checkout Offer Intent, but Marketplace remains the owner of validation, lifecycle, visibility, matching, and acceptance.
-- Accounts can review Offer Matches only when they have matching active listings.
+- An Offer Match is a visible Offer on a Product the account could fill: from an active Listing in the Offer's currency, or from an inventory item with available quantity. A Match suggests a fill; it does not tie the Offer to a Listing, and an account never matches its own Offers. When both sources qualify, the Listing wins.
+- Accepting or declining an Offer Match needs a Listing. An inventory Match links to the new-Listing form prefilled with the item and the Offer's price; once listed, the Offer becomes a Listing Match.
 - Offer Match source lists can add selected offers to Checkout Sell List; Checkout owns durable Sell List review state.
 - Discovery Product Alerts may consume limited offer demand signals for subscribed accounts without exposing buyer identity or full Offer detail.
 - When accepted, an offer leaves public marketplace-wide demand and becomes a commitment input for the selling account in Ordering.

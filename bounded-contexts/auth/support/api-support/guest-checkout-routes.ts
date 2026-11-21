@@ -203,29 +203,13 @@ async function claimGuestAccountAndStartSession(
 
 export function registerGuestCheckoutRoutes(app: AuthApiApp, services: AuthServices) {
   app.post("/guest-checkout/start", async (c) => {
-    const body = await c.req.json();
-    const email = services.identity.normalizeEmail(String(body.email ?? ""));
-    const hasContact = email.length > 0;
-    const displayName = hasContact ? normalizeDisplayName(body.displayName, email) : "Guest";
-    if (hasContact) {
-      const existingUser = await services.identity.getUserByEmail(email);
-      if (existingUser) {
-        return c.json(
-          {
-            error: {
-              code: "account_sign_in_required",
-              message: t("auth.support.apiSupport.guestCheckoutRoutes.sign.in.to.continue.checkout.with.this.email"),
-            },
-          },
-          409,
-        );
-      }
-    }
-
     const identityMutations = createIdentityMutations(c);
     let account: Awaited<ReturnType<typeof identityMutations.createGuestAccount>>;
     try {
-      account = await identityMutations.createGuestAccount({ email, displayName });
+      account = await identityMutations.createGuestAccount({
+        email: "",
+        displayName: "Guest",
+      });
     } catch (error) {
       const displayNameRejection = readIdentityDisplayNameRejection(error);
       if (displayNameRejection) return c.json(displayNameRejection, 400);
@@ -238,8 +222,8 @@ export function registerGuestCheckoutRoutes(app: AuthApiApp, services: AuthServi
     await upsertGuestCheckoutToken(services.db, {
       tokenId,
       accountId: account.accountId,
-      contactEmail: hasContact ? email : null,
-      contactName: hasContact ? displayName : null,
+      contactEmail: null,
+      contactName: null,
       tokenHash: services.auth.hashSecret(guestToken),
       expiresAt,
     });

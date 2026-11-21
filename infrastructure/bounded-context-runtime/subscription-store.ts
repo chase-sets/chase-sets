@@ -73,7 +73,7 @@ export async function clearCascadeProgress(db: PgQueryable, projectionKey: strin
 export function createDbProjectionCascadeController(
   db: PgQueryable,
   input: Readonly<{ projectionKey: string; eventId: string; budget: number }>,
-): ProjectionCascadeController & Readonly<{ refreshedCount: () => number }> {
+): ProjectionCascadeController & Readonly<{ refreshedCount: () => number; hasVisitedSite: () => boolean }> {
   let ordinal = -1;
   let remaining = Math.max(0, Math.floor(input.budget));
   let exhausted = false;
@@ -83,6 +83,7 @@ export function createDbProjectionCascadeController(
     nextOrdinal: () => (ordinal += 1),
     budgetRemaining: () => remaining,
     isExhausted: () => exhausted,
+    hasVisitedSite: () => ordinal >= 0,
     consume: (count: number) => {
       remaining -= count;
       refreshed += count;
@@ -491,6 +492,54 @@ export async function readReceiptApplicationOutputs(
     state: "applied",
     outputPositions: [...new Set(applications.flatMap((application) => application.output_global_positions!))],
   };
+}
+
+/**
+ * Whether a projection has applied one event and still holds what it wrote:
+ * its checkpoint has reached the event and the checkpoint's recovery marker
+ * covers it, with no failed row for the event and the event's stream not
+ * blocked for the projection. The marker table is unlogged like the tables a
+ * projection may write, so after crash recovery a checkpoint without its
+ * marker is not taken as evidence until the projection has rebuilt past the
+ * event. A projection that reads tables another projection writes uses this
+ * to wait until the writer has seen the event.
+ */
+export async function hasProjectionAppliedEvent(
+  db: PgQueryable,
+  projectionKey: string,
+  event: Readonly<{ id: string; streamId: string; globalPosition: string }>,
+): Promise<boolean> {
+  const result = await db.query<Readonly<{ applied: boolean }>>(
+    `SELECT
+       EXISTS (
+         SELECT 1
+         FROM ${SUBSCRIPTION_CHECKPOINTS_TABLE} AS checkpoint
+         JOIN ${PROJECTION_RECOVERY_MARKERS_TABLE} AS recovery
+           ON recovery.projection_kind = 'subscription'
+          AND recovery.projection_key = checkpoint.checkpoint_key
+         WHERE checkpoint.checkpoint_key = $1
+           AND checkpoint.last_global_position >= $4::bigint
+           AND recovery.last_global_position >= checkpoint.last_global_position
+       )
+       AND NOT EXISTS (
+         SELECT 1
+         FROM event_subscription_applications
+         WHERE projection_key = $1
+           AND event_id = $2
+           AND status <> 'applied'
+       )
+       AND NOT EXISTS (
+         SELECT 1
+         FROM event_projection_blocked_streams
+         WHERE projection_key = $1
+           AND stream_id = $3
+           AND state IN ('blocked', 'retrying')
+           AND first_blocked_global_position <= $4::bigint
+       ) AS applied`,
+    [projectionKey, event.id, event.streamId, event.globalPosition],
+  );
+
+  return result.rows[0]?.applied === true;
 }
 
 export async function readOutputApplicationStatus(

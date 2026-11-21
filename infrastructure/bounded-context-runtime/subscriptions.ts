@@ -343,6 +343,8 @@ class BatchEventApplyError extends Error {
   }
 }
 
+class BatchCascadeNeedsOwnTransaction extends Error {}
+
 function leaseFencingToken(context: ProjectionRunContext | undefined): string | null {
   return context?.fencingToken && /^\d+$/.test(context.fencingToken) ? context.fencingToken : null;
 }
@@ -524,6 +526,11 @@ export function createSubscriptionRunner(
     subscription.projectionTransactionBudgetEscalationMs,
   );
   const cascadeChunkSize = normalizeCascadeChunkSize(subscription.projectionCascadeChunkSize);
+  const batchBoundedCascades =
+    handlerKind === "projection" &&
+    subscription.checkpointBatchSize !== undefined &&
+    checkpointBatchSize > 1 &&
+    subscription.projectionCascadeChunkSize !== undefined;
   const subscriptionEventTypes = subscription.eventTypes ?? Object.keys(subscription.handlers).sort();
   const withProjectionTransaction: typeof runProjectionTransaction = (pool, context, work, telemetry, control) =>
     runProjectionTransaction(
@@ -1206,10 +1213,9 @@ export function createSubscriptionRunner(
                     continue;
                   }
 
-                  // Single-event transaction-budget watchdog. `checkpointBatchSize === 1`
-                  // is the smallest replay unit — there is no smaller batch to fall back
-                  // to — so an event whose projection work can never fit its transaction
-                  // budget would otherwise roll back and be re-read forever, silently
+                  // Single-event transaction-budget watchdog. There is no smaller
+                  // replay unit to fall back to, so an event that can never fit its
+                  // transaction budget would roll back and be re-read forever,
                   // stalling the whole projection (and monopolising the shared runner
                   // slot). Once such an event has been stuck longer than the escalation
                   // budget, quarantine it as poison so the checkpoint advances and the
@@ -1217,7 +1223,7 @@ export function createSubscriptionRunner(
                   // path once the underlying handler is bounded. Only deterministic
                   // budget overruns escalate — ordinary transient blips still retry.
                   if (
-                    checkpointBatchSize === 1 &&
+                    (checkpointBatchSize === 1 || batchBoundedCascades) &&
                     isProjectionTransactionBudgetExceededError(error) &&
                     ((await loadSubscriptionApplicationAgeMs(targetPool, checkpointKey, String(event.id))) ?? 0) >=
                       transactionBudgetEscalationMs
@@ -1270,12 +1276,7 @@ export function createSubscriptionRunner(
           events: readonly SubscriptionTransportEvent[],
         ): Promise<SubscriptionBatchProgress> => {
           const progress = initialProgress();
-          // A single-event projection batch (the shape a `checkpointBatchSize`-1
-          // cascade projection produces once only one event is pending) supports the
-          // bounded/resumable cascade too, so a fan-out does not blow the budget just
-          // because it happened to be the last event in the stream. Multi-event
-          // batches never carry cascades (those projections commit per event).
-          const cascadeEvent = handlerKind !== "reaction" && events.length === 1 ? events[0] : undefined;
+          const singleEventCascade = handlerKind === "projection" && events.length === 1;
           let cascadeIncomplete = false;
           let cascadeRefreshed = 0;
           await withProjectionTransaction(
@@ -1332,7 +1333,7 @@ export function createSubscriptionRunner(
                 }
 
                 const cascadeController =
-                  cascadeEvent && String(cascadeEvent.id) === eventId
+                  singleEventCascade || batchBoundedCascades
                     ? createDbProjectionCascadeController(client, {
                         projectionKey: checkpointKey,
                         eventId,
@@ -1356,13 +1357,16 @@ export function createSubscriptionRunner(
                 }
                 context?.throwIfLeaseLost?.();
                 if (cascadeController?.isExhausted()) {
+                  // Roll back the batch before retrying in order, with the existing
+                  // per-event transactions that can commit a partial cascade safely.
+                  if (!singleEventCascade) throw new BatchCascadeNeedsOwnTransaction();
                   // The cascade committed a chunk but is not done; leave the event
                   // `started` and signal the pass so the checkpoint stays pinned.
                   cascadeIncomplete = true;
                   cascadeRefreshed = cascadeController.refreshedCount();
                   continue;
                 }
-                if (cascadeController) {
+                if (cascadeController && (!batchBoundedCascades || cascadeController.hasVisitedSite())) {
                   await clearCascadeProgress(client, checkpointKey, eventId);
                 }
                 completedEventIds.push(eventId);
@@ -1394,6 +1398,12 @@ export function createSubscriptionRunner(
           handlerKind === "reaction" || storedEvents.length > checkpointBatchSize
             ? await applyStoredEventsIndividually(events)
             : await applyStoredEventsAsBatch(events).catch((error: unknown) => {
+                if (
+                  error instanceof BatchCascadeNeedsOwnTransaction ||
+                  (batchBoundedCascades && isProjectionTransactionBudgetExceededError(error))
+                ) {
+                  return applyStoredEventsIndividually(events);
+                }
                 if (!(error instanceof BatchEventApplyError)) {
                   throw error;
                 }
@@ -1646,6 +1656,17 @@ function allProjectionSourcesMounted(
   return sourceContextNames.every((sourceContextName) => mountedContextNames.has(sourceContextName));
 }
 
+const LOCAL_PROJECTION_SUBSCRIPTION_VERSION = 1;
+
+/** The checkpoint key of a context's own projection handler set (its local subscription). */
+export function localProjectionCheckpointKey(contextName: string, projectionName: string): string {
+  return createCheckpointKey({
+    projectionName,
+    sourceContextName: contextName,
+    subscriptionVersion: LOCAL_PROJECTION_SUBSCRIPTION_VERSION,
+  });
+}
+
 function createLocalProjectionSubscription(
   contextName: string,
   projection: BcProjectionHandlerSet,
@@ -1656,7 +1677,7 @@ function createLocalProjectionSubscription(
     handlerKind: "projection",
     sourceContextName: contextName,
     projectionName: projection.projectionName,
-    subscriptionVersion: 1,
+    subscriptionVersion: LOCAL_PROJECTION_SUBSCRIPTION_VERSION,
     handlers: projection.handlers,
     inlineApply: projection.inlineApply === true,
     eventTypes: projection.eventTypes,
@@ -1685,21 +1706,79 @@ function validateSubscriptionEventFilters(contextName: string, subscription: BcE
   }
 }
 
+const PROJECTION_DEPENDENCY_WAIT_EVENT_ID = "projectionDependencyWaitEventId";
+
+/**
+ * A transient failure raised by a handler that waits for another projection to
+ * apply the event first. A background runner retries it like any transient
+ * failure; a synchronous drain takes it as a reason for another pass, so the
+ * projection it waits on can catch up within the same drain.
+ */
+export function createProjectionDependencyWaitError(message: string, eventId: string): Error {
+  const error = createTransientProjectionError(message) as Error & {
+    [PROJECTION_DEPENDENCY_WAIT_EVENT_ID]: string;
+  };
+  error[PROJECTION_DEPENDENCY_WAIT_EVENT_ID] = eventId;
+  return error;
+}
+
+function projectionDependencyWaitEventId(error: unknown): string | null {
+  if (typeof error !== "object" || error === null || !(PROJECTION_DEPENDENCY_WAIT_EVENT_ID in error)) {
+    return null;
+  }
+  const eventId = (error as Record<string, unknown>)[PROJECTION_DEPENDENCY_WAIT_EVENT_ID];
+  return typeof eventId === "string" ? eventId : null;
+}
+
+/**
+ * Runs every runner until a pass applies nothing, and answers how many events
+ * the passes applied. A runner held by a dependency wait keeps the drain going
+ * while other runners still apply events or the held runner moves on to a
+ * later event; a pass that changes neither rethrows the wait, so a dependency
+ * that never catches up fails the drain instead of spinning.
+ */
+async function drainRunnerPasses(
+  runners: readonly ContextSubscriptionRunner[],
+  context?: ProjectionRunContext,
+): Promise<number> {
+  let totalProcessed = 0;
+  let previousHolds: string | null = null;
+
+  for (;;) {
+    let processed = 0;
+    const holds: { readonly key: string; readonly error: unknown }[] = [];
+
+    for (const runner of sortSubscriptionRunners(runners)) {
+      context?.throwIfLeaseLost?.();
+      try {
+        const result = await runner.runOnce(context);
+        processed += result.processed;
+      } catch (error) {
+        const heldEventId = projectionDependencyWaitEventId(error);
+        if (heldEventId === null) throw error;
+        holds.push({ key: `${runner.checkpointKey} ${heldEventId}`, error });
+      }
+    }
+    totalProcessed += processed;
+
+    if (holds.length === 0) {
+      if (processed === 0) return totalProcessed;
+      continue;
+    }
+
+    const holdKey = holds.map((hold) => hold.key).join("\n");
+    if (processed === 0 && holdKey === previousHolds) {
+      throw holds[0]!.error;
+    }
+    previousHolds = holdKey;
+  }
+}
+
 export async function drainSubscriptionRunners(
   runners: readonly ContextSubscriptionRunner[],
   context?: ProjectionRunContext,
 ): Promise<void> {
-  let processed = 0;
-
-  do {
-    processed = 0;
-
-    for (const runner of sortSubscriptionRunners(runners)) {
-      context?.throwIfLeaseLost?.();
-      const result = await runner.runOnce(context);
-      processed += result.processed;
-    }
-  } while (processed > 0);
+  await drainRunnerPasses(runners, context);
 }
 
 export async function drainLocalProjectionHandlerSets(
@@ -1763,20 +1842,7 @@ export async function drainContextProcesses(
   processSet: ContextProcessSet,
   context?: ProjectionRunContext,
 ): Promise<number> {
-  let processed = 0;
-  let totalProcessed = 0;
-
-  do {
-    processed = 0;
-
-    for (const runner of sortSubscriptionRunners(processSet.subscriptionRunners ?? [])) {
-      context?.throwIfLeaseLost?.();
-      const result = await runner.runOnce(context);
-      processed += result.processed;
-      totalProcessed += result.processed;
-    }
-  } while (processed > 0);
-  return totalProcessed;
+  return drainRunnerPasses(processSet.subscriptionRunners ?? [], context);
 }
 
 export async function syncContextSubscriptions(

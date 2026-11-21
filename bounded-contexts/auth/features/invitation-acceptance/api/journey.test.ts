@@ -89,7 +89,9 @@ function fixture(kind: "password" | "passkey", existing: boolean, storedPassword
     auth: {
       hashSecret: (value: string) => `synthetic-hash:${value}`,
       hashPassword: async (value: string) => `synthetic-password:${value}`,
-      verifyPassword: async (value: string, hash: string) => ({ valid: hash === `synthetic-password:${value}` }),
+      verifyPassword: vi.fn<AuthServices["auth"]["verifyPassword"]>(async (value, hash) => ({
+        valid: hash === `synthetic-password:${value}`,
+      })),
     },
     sessions: { getSessionState: async (id: string) => sessions.get(id) ?? null },
   } as unknown as AuthServices;

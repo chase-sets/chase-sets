@@ -91,7 +91,7 @@ export type ItemDetailPageViewArgs = {
   setMarketIntent: Dispatch<SetStateAction<MarketIntent>>;
   setMarketBookTab: Dispatch<SetStateAction<MarketBookTab>>;
   activeMobileCommerce: "buy" | "sell" | "watch" | null;
-  setActiveMobileCommerce: Dispatch<SetStateAction<"buy" | "sell" | "watch" | null>>;
+  setActiveMobileCommerce: (action: "buy" | "sell" | "watch" | null) => void;
   selections: Record<string, string>;
   optionSummaries: Record<string, Record<string, string>>;
   onProductSelectionChange: (dimensionId: string, optionId: string) => void;

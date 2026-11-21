@@ -1450,6 +1450,7 @@
       "surfaces": [
         "post-form:bounded-contexts/identity/features/memberships/ui/account-team-page.tsx:H2df726441e2a#1",
         "post-form:bounded-contexts/identity/features/memberships/ui/account-team-page.tsx:H2df726441e2a#5",
+        "post-form:bounded-contexts/identity/features/memberships/ui/account-team-page.tsx:H2df726441e2a#6",
         "route-action:bounded-contexts/identity/routes/marketplace/account-team.tsx"
       ],
       "visibleDestination": {
@@ -1459,7 +1460,7 @@
         "readModelTables": ["identity_invitations"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Account team invitation forms redirect with Identity command receipts and reload team invitations through the invitation projection freshness route."
+          "behavior": "Account team invitation forms (invite, resend, cancel) redirect with Identity command receipts and reload team invitations through the invitation projection freshness route."
         }
       },
       "proof": {

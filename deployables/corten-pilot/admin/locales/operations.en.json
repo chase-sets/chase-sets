@@ -562,6 +562,7 @@
   "lep.hash": "Policy hash",
   "lep.effective.from": "Effective from",
   "lep.effective.until": "Effective until",
+  "lep.effective.invalid": "Enter each effective time as a date and time. The policy was not activated.",
   "lep.effective.required": "Choose a valid effective time before activation.",
   "lep.open.ended": "Open ended",
   "lep.compiled.fallback": "Compiled fallback",
