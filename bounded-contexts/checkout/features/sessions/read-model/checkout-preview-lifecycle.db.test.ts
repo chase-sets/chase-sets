@@ -530,9 +530,17 @@ describeDb("checkout preview lifecycle", () => {
       const forwarded = new Request(input, init);
       const url = new URL(forwarded.url);
       if (url.origin !== origin) throw new Error("Probe cannot call an external surface.");
-      // Payments is not mounted here; it answers the page's fee quote with its own quoting policy.
+      // Payments is not mounted here; it answers the page's fee quote with its own quoting policy,
+      // and the call is recorded with the others.
       const paymentsPreview = await paymentsCheckoutPreviewStatusResponse(forwarded);
-      if (paymentsPreview) return paymentsPreview;
+      if (paymentsPreview) {
+        const answer = await paymentsPreview
+          .clone()
+          .json()
+          .catch(() => null);
+        requests.push({ path: url.pathname, status: paymentsPreview.status, code: readApiErrorCode(answer) });
+        return paymentsPreview;
+      }
       const body =
         forwarded.method === "POST"
           ? await forwarded
