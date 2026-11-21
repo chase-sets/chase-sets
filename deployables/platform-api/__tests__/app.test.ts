@@ -3152,6 +3152,7 @@ describe("platform API payment provider mode observation", () => {
       "bounded-contexts/payments/features/wallet-funding/api/runtime.test.ts",
       "bounded-contexts/payments/index.ts",
       "bounded-contexts/payments/support/runtime-support/seed.ts",
+      "bounded-contexts/payments/tests/payment-reservation-sweep.db.test.ts",
       "bounded-contexts/payments/tests/provider-journal.db.test.ts",
     ]);
     const seedSource = readFileSync(

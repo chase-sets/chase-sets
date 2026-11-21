@@ -222,7 +222,7 @@ describe("Payment reservation sweep against separate Payments and Settlement sto
     expect((await wallets().loadWalletState(accountId)).heldBalanceAmount).toBe("20.00");
   });
 
-  it("reservation-sweep-releases-once: rechecks a stream appended between selection and the lock", async () => {
+  it("bounded-contexts/payments/features/payments/api/reservation-sweep.ts#readStream#1", async () => {
     const paymentId = await reserve("append_race");
     await place(paymentId);
     const lockRequested = signal();

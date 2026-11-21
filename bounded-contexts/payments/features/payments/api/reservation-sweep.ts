@@ -36,6 +36,7 @@ export async function sweepPaymentCreationReservations(
       if (!stale && !pending) return null;
 
       // Selection is advisory: creation can append while the sweep waits for the reservation lock.
+      // @stream-read-contract bounded-contexts/payments/tests/payment-reservation-sweep.db.test.ts
       const events = await eventStore.readStream({ streamId: `payments.payment-${paymentId}`, limit: 1 });
       if (events.length > 0) return null;
       if (!pending && !(await failMarkedPaymentCreationReservation(db, paymentId))) return null;
