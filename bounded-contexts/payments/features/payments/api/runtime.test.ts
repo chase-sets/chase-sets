@@ -17,12 +17,18 @@ import {
 } from "./runtime";
 import { createPaymentTransactionRunner, createPaymentWebhookRunner } from "./webhook-transaction";
 import type { PgTransactionalPool, PostgresEventStore } from "@chase-sets/event-core-postgres";
-import { ProviderWebhookError, type ProviderWebhookTelemetryEvent } from "@chase-sets/http/provider-errors";
+import {
+  ProviderAdapterError,
+  ProviderWebhookError,
+  type ProviderWebhookTelemetryEvent,
+} from "@chase-sets/http/provider-errors";
+import type { CreateProcessorPaymentInput, ProcessorPaymentReconciliationResult } from "@chase-sets/payment-processing";
 import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments";
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import ts from "@chase-sets/typescript-compiler-api";
 import * as money from "@chase-sets/primitives/money";
+import type { PaymentId } from "@chase-sets/primitives/typed-ids";
 import { normalizeMoneyAmount as normalizeDomainMoneyAmount } from "../../../support/runtime-support/common";
 
 // The high-value allocation witness cannot enter checkout: its combined payment
@@ -332,7 +338,7 @@ function createProcessorGateway() {
       dynamicPaymentMethods: true,
       sensitivePaymentDetailsHandledByProcessor: true,
     })),
-    createPaymentSession: vi.fn(async (input: { paymentId: string; amount: string; returnUrl?: string | null }) => ({
+    createPaymentSession: vi.fn(async (input: CreateProcessorPaymentInput) => ({
       processorName: "stripe" as const,
       processorPaymentKind: "payment-intent" as const,
       processorPaymentReference: `pi_${input.paymentId}`,
@@ -681,6 +687,10 @@ function createOrderInputDb(
       }
 
       if (sql.includes("UPDATE payments_payment_creation_reservations")) {
+        expect(params?.[1]).toMatch(/^(failed|released)$/);
+        for (const [key, reservation] of reservations) {
+          if (reservation.payment_id === params?.[0]) reservations.delete(key);
+        }
         return { rows: [] };
       }
 
@@ -1339,6 +1349,248 @@ describe("payment runtime", () => {
       source_reference_id: "chk_1",
       processor_publishable_key: "pk_test_123",
     });
+    expect(processorGateway.createPaymentSession).not.toHaveBeenCalled();
+  });
+
+  it("possible send does not resend after an empty provider search and an explicit replay", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const processorGateway = createProcessorGateway();
+    processorGateway.createPaymentSession.mockRejectedValue(new Error("create response lost"));
+    const services = createPaymentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: createOrderInputDb() as never,
+      processorGateway,
+    });
+    const accountId = "acc_buyer" as never;
+    const orderIds = ["ord_1" as never];
+    const status = await services.getCheckoutStatus({ accountId, orderIds, paymentMethodCategory: "card" });
+    const input = {
+      accountId,
+      orderIds,
+      paymentMethodCategory: "card",
+      isGuestCheckout: true,
+      sourceContext: "checkout",
+      sourceReferenceId: "chk_1",
+      confirmationTokenId: "ctoken_first",
+      marketplaceCheckoutFeeQuoteFingerprint: status.marketplace_checkout_fee.quote_fingerprint,
+    };
+    await expect(services.createAccountPayment(input, context)).rejects.toMatchObject({
+      code: "payment_start_ambiguous",
+    });
+    await expect(services.getCheckoutPaymentStart("chk_1", accountId)).resolves.toEqual({ state: "ambiguous" });
+    await expect(
+      services.createAccountPayment({ ...input, confirmationTokenId: "ctoken_new" }, context),
+    ).rejects.toMatchObject({ code: "payment_start_ambiguous" });
+    expect(processorGateway.createPaymentSession).toHaveBeenCalledTimes(1);
+    expect(processorGateway.retrievePaymentResultByPaymentId).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { scenario: "402", providerStatus: 402, hit: null, expected: "decline" },
+    {
+      scenario: "failed search hit",
+      providerStatus: null,
+      hit: { processorStatus: "requires_payment_method", outcome: "failed" },
+      expected: "decline",
+    },
+    {
+      scenario: "cancelled search hit",
+      providerStatus: null,
+      hit: { processorStatus: "canceled", outcome: "cancelled" },
+      expected: "decline",
+    },
+    {
+      scenario: "pending search hit",
+      providerStatus: null,
+      hit: { processorStatus: "processing", outcome: "pending" },
+      expected: "pending",
+    },
+    {
+      scenario: "requires_action search hit",
+      providerStatus: null,
+      hit: { processorStatus: "requires_action", outcome: "pending" },
+      expected: "pending",
+    },
+    { scenario: "500 with a search miss", providerStatus: 500, hit: null, expected: "ambiguous" },
+    { scenario: "429 with a search miss", providerStatus: 429, hit: null, expected: "ambiguous" },
+  ] as const)(
+    "lets a new token retry only after a deferred decline ($scenario)",
+    async ({ providerStatus, hit, expected }) => {
+      const { eventStore, readAllEvents } = createInMemoryEventStore();
+      const message = "Your card was declined.";
+      const processorPaymentReference = "pi_synthetic_recovered";
+      const processorGateway = {
+        ...createProcessorGateway(),
+        retrievePaymentResultByPaymentId: vi.fn(
+          async (paymentId: PaymentId): Promise<ProcessorPaymentReconciliationResult | null> =>
+            hit
+              ? {
+                  processorName: "stripe",
+                  processorPaymentKind: "payment-intent",
+                  processorPaymentReference,
+                  internalPaymentId: paymentId,
+                  ...hit,
+                  failureMessage: hit.outcome === "failed" ? message : null,
+                  occurredAt: "2026-11-20T00:00:00.000Z",
+                }
+              : null,
+        ),
+      };
+      processorGateway.createPaymentSession.mockRejectedValueOnce(
+        providerStatus === 402
+          ? new ProviderAdapterError("provider_declined", message, providerStatus)
+          : providerStatus
+            ? new ProviderAdapterError("provider_unavailable", "Create request failed", providerStatus)
+            : new Error("response lost"),
+      );
+      const balanceCreditResolver = {
+        resolveBalanceCredit: vi.fn(async () => ({
+          requestedAmount: "10.00",
+          appliedAmount: "10.00",
+          remainingExternalAmount: "14.99",
+        })),
+        placeSpendHold: vi.fn(async () => ({ heldAmount: "10.00" })),
+        releaseSpendHold: vi.fn(async () => undefined),
+      };
+      const db = createOrderInputDb();
+      const services = createPaymentRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: db as never,
+        processorGateway,
+        balanceCreditResolver,
+      });
+      const accountId = "acc_buyer" as never;
+      const orderIds = ["ord_1" as never];
+      const requestedBalanceCreditAmount = "10.00";
+      const status = await services.getCheckoutStatus({
+        accountId,
+        orderIds,
+        requestedBalanceCreditAmount,
+        paymentMethodCategory: "card",
+      });
+      const input = {
+        accountId,
+        orderIds,
+        requestedBalanceCreditAmount,
+        paymentMethodCategory: "card",
+        isGuestCheckout: true,
+        sourceContext: "checkout",
+        sourceReferenceId: "chk_1",
+        confirmationTokenId: "ctoken_first",
+        marketplaceCheckoutFeeQuoteFingerprint: status.marketplace_checkout_fee.quote_fingerprint,
+      };
+
+      const replay = { ...input, confirmationTokenId: "ctoken_new" };
+      const start = services.createAccountPayment(input, context);
+      if (expected !== "decline") {
+        const pending =
+          expected === "pending"
+            ? {
+                status: "pending-confirmation",
+                processor_status: hit.processorStatus,
+                processor_payment_reference: processorPaymentReference,
+                failure_code: null,
+              }
+            : null;
+        if (pending) {
+          await expect(start).resolves.toMatchObject(pending);
+        } else {
+          await expect(start).rejects.toMatchObject({ code: "payment_start_ambiguous" });
+          expect(readAllEvents()).toHaveLength(0);
+        }
+
+        const [first] = processorGateway.createPaymentSession.mock.calls[0]!;
+        if (pending) {
+          await expect(services.getCheckoutPaymentStart("chk_1", accountId)).resolves.toEqual({
+            state: "recorded",
+            paymentId: first.paymentId,
+          });
+          await expect(services.createAccountPayment(replay, context)).resolves.toMatchObject({
+            ...pending,
+            payment_id: first.paymentId,
+          });
+        } else {
+          await expect(services.getCheckoutPaymentStart("chk_1", accountId)).resolves.toEqual({ state: "ambiguous" });
+          await expect(services.createAccountPayment(replay, context)).rejects.toMatchObject({
+            code: "payment_start_ambiguous",
+          });
+        }
+        expect(processorGateway.retrievePaymentResultByPaymentId).toHaveBeenCalledExactlyOnceWith(first.paymentId);
+        expect(processorGateway.createPaymentSession).toHaveBeenCalledTimes(1);
+        expect(balanceCreditResolver.placeSpendHold).toHaveBeenCalledExactlyOnceWith(
+          { paymentId: first.paymentId, buyerAccountId: accountId, currencyCode: "usd", requestedAmount: "10.00" },
+          context,
+        );
+        expect(balanceCreditResolver.releaseSpendHold).not.toHaveBeenCalled();
+        return;
+      }
+
+      const declineMessage = hit?.outcome === "cancelled" ? "Payment failed" : message;
+      await expect(start).rejects.toMatchObject({
+        code: "payment_declined",
+        message: declineMessage,
+      });
+      await expect(services.getCheckoutPaymentStart("chk_1", accountId)).resolves.toEqual({ state: "not-started" });
+      expect(readAllEvents()).toHaveLength(0);
+      expect(processorGateway.retrievePaymentResultByPaymentId).toHaveBeenCalledTimes(providerStatus === 402 ? 0 : 1);
+
+      const first = processorGateway.createPaymentSession.mock.calls[0]![0];
+      expect(db.query).toHaveBeenCalledWith(expect.stringContaining("SET status = 'failed'"), [
+        `payment:${first.paymentId}:create`,
+        declineMessage,
+        expect.any(String),
+      ]);
+      expect(balanceCreditResolver.releaseSpendHold).toHaveBeenCalledExactlyOnceWith(
+        { paymentId: first.paymentId, buyerAccountId: accountId, reason: "payment-cancelled" },
+        context,
+      );
+      await services.createAccountPayment(replay, context);
+      expect(processorGateway.createPaymentSession).toHaveBeenCalledTimes(2);
+      const second = processorGateway.createPaymentSession.mock.calls[1]![0];
+      expect(second.paymentId).not.toBe(first.paymentId);
+      expect(first.idempotencyKey).toBe(`payments:payment:${first.paymentId}:create`);
+      expect(second.idempotencyKey).toBe(`payments:payment:${second.paymentId}:create`);
+      expect(second).toMatchObject({ confirmationTokenId: "ctoken_new" });
+    },
+  );
+
+  it("reads a recorded deferred intent on the status surface without exposing its old authentication link", async () => {
+    const recorded = {
+      ...existingPaymentRow(),
+      processor_client_secret: null,
+      processor_status: "requires_action",
+      processor_redirect_url: "https://hooks.stripe.test/old",
+    };
+    const db = {
+      query: vi.fn(async (sql: string) => ({ rows: sql.includes("payments_payment_pages") ? [recorded] : [] })),
+    };
+    const retrievePaymentResult = vi.fn(async () => ({
+      processorName: "stripe" as const,
+      processorPaymentKind: "payment-intent" as const,
+      processorPaymentReference: "pi_existing",
+      internalPaymentId: "pay_existing" as never,
+      processorStatus: "succeeded",
+      outcome: "captured" as const,
+      occurredAt: "2026-11-20T00:00:00.000Z",
+    }));
+    const processorGateway = { ...createProcessorGateway(), retrievePaymentResult };
+    const services = createPaymentRuntime({
+      eventStore: createUnusedEventStore(),
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      processorGateway,
+    });
+
+    await expect(services.getAccountPayment("pay_existing", "acc_buyer", true)).resolves.toMatchObject({
+      payment_id: "pay_existing",
+      processor_status: "succeeded",
+      processor_client_secret: null,
+      processor_redirect_url: null,
+      status: "pending-confirmation",
+    });
+    expect(retrievePaymentResult).toHaveBeenCalledExactlyOnceWith("pi_existing");
     expect(processorGateway.createPaymentSession).not.toHaveBeenCalled();
   });
 

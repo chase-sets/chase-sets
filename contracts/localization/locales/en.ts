@@ -4792,6 +4792,7 @@ export const englishTranslations = {
   "checkout.routes.checkoutSession.fulfillment.preview.temporarily.unavailable": "Checkout totals are temporarily unavailable. Refresh before confirming payment.",
   "checkout.routes.checkoutSession.guest.checkout.access.expired": "Guest checkout access expired",
   "checkout.routes.checkoutSession.guest.checkout.access.expired.description": "This guest checkout link is no longer active.",
+  "checkout.routes.checkoutSession.payment.details.required": "Enter your payment details before selecting Pay now.",
   "checkout.routes.checkoutSession.payment.has.not.started": "Your payment has not started.",
   "checkout.routes.checkoutSession.request.failed": "Request failed.",
   "checkout.routes.checkoutSession.secure.checkout": "Secure checkout",
