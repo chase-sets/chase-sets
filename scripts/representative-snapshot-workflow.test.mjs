@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { parse } from "yaml";
 
 import { releaseQualificationScopeRegistry } from "./release-qualification-scope.mjs";
 import { checkWorkflowSpacesEvidenceCredentials } from "./workflow-provider-credentials.mjs";
@@ -35,7 +36,9 @@ describe("representative Catalog snapshot publish workflow", () => {
       /name: Publish Coordinated Representative Snapshot\r?\n    runs-on: ubuntu-latest\r?\n    timeout-minutes: 300/,
     );
     const platformPr = readFileSync(resolve(".github/workflows/platform-pr.yml"), "utf8");
-    expect(platformPr).toMatch(/name: DB Profile Tests[\s\S]*?timeout-minutes: 45/);
+    expect(parse(platformPr).jobs["db-tests"]["timeout-minutes"]).toBe(
+      "${{ matrix.db-workspace-group == 'api' && 30 || 45 }}",
+    );
   });
 
   it("threads only the scoped seed-pack credential pair into the provider-touching publish step", () => {

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   createPostgresWorkSignalStore,
   type WorkSignalPriorityLane,
@@ -79,6 +79,11 @@ describe("work signal store", () => {
       correlationId: "corr_1",
       payload: {
         outcome: "created",
+        wakeIntentId: "projection-wake-1",
+        state: "queued",
+        attemptCount: 0,
+        claimedUntil: null,
+        expiresAt: "2026-06-10T12:05:00.000Z",
         sourceContextName: "catalog",
         targetContextName: "checkout",
         projectionName: "checkout-session-projection",
@@ -92,6 +97,12 @@ describe("work signal store", () => {
     expect(enqueuedEvents).toEqual([
       {
         outcome: "created",
+        wakeIntentId: "projection-wake-1",
+        requiredPosition: "12",
+        state: "queued",
+        attemptCount: 0,
+        claimedUntil: null,
+        expiresAt: "2026-06-10T12:05:00.000Z",
         sourceContextName: "catalog",
         targetContextName: "checkout",
         projectionName: "checkout-session-projection",
@@ -100,6 +111,42 @@ describe("work signal store", () => {
         routingMode: "unspecified",
       },
     ]);
+  });
+
+  it("carries the persisted claim deadline on both enqueue ingress paths", async () => {
+    const claimedUntil = new Date(NOW.getTime() - 10_000).toISOString();
+    const observer = vi.fn();
+    const notify = vi.fn();
+    const store = createPostgresWorkSignalStore(
+      {
+        query: async (sql: string, values: readonly unknown[] = []) => {
+          if (sql.includes("pg_notify")) {
+            notify(JSON.parse(String(values[1])).payload);
+            return { rows: [], rowCount: 0 };
+          }
+          return {
+            rows: [
+              wakeIntentRow({
+                wake_intent_id: "synthetic-expired-claim",
+                enqueue_outcome: "coalesced",
+                priority_lane: "hot",
+                required_position: WAKE_REQUEST.requiredPosition,
+                state: "claimed",
+                attempt_count: 3,
+                claimed_until: claimedUntil,
+              }),
+            ],
+            rowCount: 1,
+          };
+        },
+      },
+      { observer: { projectionWakeIntentEnqueued: observer }, now: () => NOW },
+    );
+    await store.enqueueProjectionWakeIntent({ ...WAKE_REQUEST, priorityLane: "hot", origin: "api-wait" });
+
+    const demand = expect.objectContaining({ outcome: "coalesced", state: "claimed", attemptCount: 3, claimedUntil });
+    expect(observer).toHaveBeenCalledExactlyOnceWith(demand);
+    expect(notify).toHaveBeenCalledExactlyOnceWith(demand);
   });
 
   it("bounds the enqueue lock wait over a transactional pool and yields a blocked outcome for pinned rows", async () => {
@@ -165,6 +212,12 @@ describe("work signal store", () => {
     expect(enqueuedEvents).toEqual([
       {
         outcome: "blocked",
+        wakeIntentId: "projection-wake-1",
+        requiredPosition: "1",
+        state: "queued",
+        attemptCount: 0,
+        claimedUntil: null,
+        expiresAt: "2026-06-10T12:05:00.000Z",
         sourceContextName: "catalog",
         targetContextName: "checkout",
         projectionName: "checkout-session-projection",
