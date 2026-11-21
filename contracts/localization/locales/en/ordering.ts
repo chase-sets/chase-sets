@@ -221,6 +221,13 @@ export const orderingEnglishTranslations = {
     "Verify your email to cancel this {projectionLabel}",
   "ordering.features.orders.ui.orderDetailPage.verify.email.to.cancel.description":
     "Cancelling needs a verified email. We will email you a link; opening it verifies your email and brings you back here.",
+  "ordering.features.orders.ui.orderDetailPage.verify.email.to.pay.title":
+    "Verify your email to pay for this {projectionLabel}",
+  "ordering.features.orders.ui.orderDetailPage.verify.email.to.pay.or.cancel.title":
+    "Verify your email to pay for or cancel this {projectionLabel}",
+  "ordering.features.orders.ui.orderDetailPage.verify.email.to.pay.description":
+    "Paying needs a verified email. We will email you a link; opening it verifies your email and brings you back here.",
+  "ordering.features.orders.ui.orderDetailPage.payment.authority.unavailable": "This account cannot pay for purchases.",
   "ordering.features.orders.ui.orderDetailPage.verify.email": "Verify email",
   "ordering.features.orders.ui.orderDetailPage.purchase": "Purchase",
   "ordering.features.orders.ui.orderDetailPage.quantity": "Quantity",
