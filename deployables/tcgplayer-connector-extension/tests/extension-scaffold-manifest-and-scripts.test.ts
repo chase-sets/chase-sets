@@ -9,7 +9,7 @@ describe("extension-scaffold-manifest-and-scripts", () => {
     expect(JSON.parse(read("package.json")).scripts).toEqual({
       build: "vite build --mode connector-local --configLoader runner",
       "build:handoff": "node ../../scripts/build-connector-extension-handoff.mjs",
-      typecheck: "tsc -p ./tsconfig.json --noEmit",
+      typecheck: "node ../../scripts/verify-typecheck.mjs --workspace=@chase-sets/app-tcgplayer-connector-extension",
       test: "vitest run --config ./vitest.config.ts",
       "test:watch": "vitest --config ./vitest.config.ts",
       "test:chromium":
