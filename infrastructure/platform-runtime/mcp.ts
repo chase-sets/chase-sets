@@ -54,6 +54,8 @@ import {
 import { agentGrantIdFromActor, type AgentGrantRateLimiter } from "./agent-guardrails";
 import { resolveClientAddress, resolvePublicRequestOrigin } from "./http";
 import { createMcpHttpOriginPolicyMiddleware, type McpHttpOriginPolicyOptions } from "./mcp-http";
+import { mcpWidgetResourceContent, type McpWidgetResourceProvider } from "./mcp-widget-resources";
+import { UCP_MCP_APP_RESOURCE_MIME_TYPE, UCP_MCP_PRODUCT_CARDS_RESOURCE_URI } from "./ucp-contracts";
 
 export type McpRuntimeEnv = {
   Variables: {
@@ -112,6 +114,7 @@ export type CreateMcpRoutesOptions = Readonly<{
   services?: readonly McpServiceDescriptor[];
   toolHandlers?: Readonly<Record<string, McpToolHandler>>;
   resourceHandlers?: Readonly<Record<string, McpResourceHandler>>;
+  widgetResources?: McpWidgetResourceProvider;
   extensionCapabilities?: McpExtensionCapabilities;
   originPolicy?: McpHttpOriginPolicyOptions;
   audit?: McpAuditSink;
@@ -795,6 +798,9 @@ function toToolListItem(tool: McpToolDescriptor) {
 function toResourceListItem(resource: McpResourceDescriptor) {
   return {
     uriTemplate: resource.uriTemplate,
+    ...(isProductCardsResource(resource)
+      ? { uri: resource.uriTemplate, mimeType: UCP_MCP_APP_RESOURCE_MIME_TYPE }
+      : {}),
     name: resource.title,
     title: resource.title,
     description: resource.description,
@@ -807,6 +813,10 @@ function toResourceListItem(resource: McpResourceDescriptor) {
       expectedUsage: resource.expectedUsage,
     },
   };
+}
+
+function isProductCardsResource(resource: McpResourceDescriptor) {
+  return resource.serviceId === "marketplace" && resource.uriTemplate === UCP_MCP_PRODUCT_CARDS_RESOURCE_URI;
 }
 
 function mcpServerInfo() {
@@ -1506,6 +1516,7 @@ async function readResource(
   options: Required<Pick<CreateMcpRoutesOptions, "services" | "resourceHandlers">> &
     Pick<CreateMcpRoutesOptions, "audit"> &
     Readonly<{
+      productCardsHtml?: string;
       operatorAuthority: RequestOperatorAuthority;
       onScopeChallenge?: (scopes: readonly AgentOAuthScope[]) => void;
     }>,
@@ -1524,6 +1535,9 @@ async function readResource(
   }
 
   const { resource, variables } = resourceMatch;
+  if (isProductCardsResource(resource) && !options.productCardsHtml) {
+    return jsonRpcError(null, -32002, "Product cards widget resource not found.");
+  }
   const pseudoTool: McpToolDescriptor = {
     name: `resources/read:${resource.uriTemplate}`,
     title: resource.title,
@@ -1608,7 +1622,8 @@ async function readResource(
   }
 
   const handler = options.resourceHandlers[resource.uriTemplate];
-  if (!handler) {
+  const html = isProductCardsResource(resource) ? options.productCardsHtml : undefined;
+  if (!html && !handler) {
     const reason = `No runtime handler is registered for MCP resource '${resource.uriTemplate}'.`;
     await audit(options.audit, {
       outcome: "denied",
@@ -1626,13 +1641,13 @@ async function readResource(
   }
 
   try {
-    const result = await handler({
-      actor,
-      resource,
-      uri: params.uri,
-      request,
-      protocol,
-    });
+    const content = html
+      ? mcpWidgetResourceContent(request, params.uri, html, resource.description)
+      : {
+          uri: params.uri,
+          mimeType: "application/json",
+          text: JSON.stringify(await handler({ actor, resource, uri: params.uri, request, protocol })),
+        };
     await audit(options.audit, {
       outcome: "allowed",
       method: "resources/read",
@@ -1643,13 +1658,7 @@ async function readResource(
     });
 
     return jsonRpcResult(null, {
-      contents: [
-        {
-          uri: params.uri,
-          mimeType: "application/json",
-          text: JSON.stringify(result),
-        },
-      ],
+      contents: [content],
     });
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
@@ -1669,7 +1678,20 @@ async function readResource(
 
 export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
   const app = new Hono<McpRuntimeEnv>();
-  const services = options.services ?? mcpServiceCatalog;
+  const productCardsHtml = options.widgetResources?.(UCP_MCP_PRODUCT_CARDS_RESOURCE_URI);
+  const catalog: readonly McpServiceDescriptor[] = options.services ?? mcpServiceCatalog;
+  const services = productCardsHtml
+    ? catalog.map((service) =>
+        service.serviceId === "marketplace"
+          ? {
+              ...service,
+              resources: service.resources.map((resource) =>
+                isProductCardsResource(resource) ? { ...resource, availability: "available" as const } : resource,
+              ),
+            }
+          : service,
+      )
+    : catalog;
   const toolHandlers = options.toolHandlers ?? {};
   const resourceHandlers = options.resourceHandlers ?? {};
   const extensionCapabilities = options.extensionCapabilities ?? {};
@@ -1817,6 +1839,7 @@ export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
         const result = await readResource(c.req.raw, actor, protocol, params, {
           services,
           resourceHandlers,
+          productCardsHtml,
           audit: options.audit,
           operatorAuthority,
           onScopeChallenge: (scopes) => {

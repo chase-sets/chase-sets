@@ -73,7 +73,6 @@ const canonicalReserveZeroConsumerExports = [
   "layoutWidthClasses",
   "MarketplaceActionSheet",
   "MarketplaceFacetStrip",
-  "MarketplaceProductCard",
   "MarketplaceProductCommerceRail",
   "MarketplaceProductMobileActionDock",
   "Menu",

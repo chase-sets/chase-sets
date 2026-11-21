@@ -1796,6 +1796,10 @@ describe("UCP Postgres idempotency store", () => {
 });
 
 describe("UCP MCP routes", () => {
+  const productCardsHtml = "<!doctype html><title>Chase Sets Product Cards</title>";
+  const widgets = {
+    widgetResources: (uri: string) => (uri === UCP_MCP_PRODUCT_CARDS_RESOURCE_URI ? productCardsHtml : undefined),
+  };
   const modernMeta = {
     [MCP_META_PROTOCOL_VERSION_KEY]: "2026-07-28",
     [MCP_META_CLIENT_CAPABILITIES_KEY]: {},
@@ -1810,7 +1814,10 @@ describe("UCP MCP routes", () => {
 
   it("UCP MCP 2026-07-28 stateless scripted HTTP client without initialize", async () => {
     const handler = vi.fn(() => ({ ucp: { version: UCP_VERSION, status: "success" as const }, products: [] }));
-    const app = new Hono().route("/ucp/mcp", createUcpMcpRoutes({ mcpToolHandlers: { search_catalog: handler } }));
+    const app = new Hono().route(
+      "/ucp/mcp",
+      createUcpMcpRoutes({ ...widgets, mcpToolHandlers: { search_catalog: handler } }),
+    );
     // Raw JSON-RPC fetch adapter: the pinned SDK supports legacy revisions only.
     const scriptedFetch: typeof fetch = async (input, init) => app.request(new Request(input, init));
     const calls = [
@@ -1900,7 +1907,7 @@ describe("UCP MCP routes", () => {
         code: -32602,
       })),
     ])("target encoding and routing $method $name", async (row) => {
-      const app = new Hono().route("/ucp/mcp", createUcpMcpRoutes());
+      const app = new Hono().route("/ucp/mcp", createUcpMcpRoutes(widgets));
       const response = await app.request("/ucp/mcp", {
         method: "POST",
         headers: modernHeaders(row.method, row.name),
@@ -2287,7 +2294,7 @@ describe("UCP MCP routes", () => {
   });
 
   it("lists UCP tool names instead of Chase Sets-native MCP descriptors", async () => {
-    const app = new Hono().route("/ucp/mcp", createUcpMcpRoutes());
+    const app = new Hono().route("/ucp/mcp", createUcpMcpRoutes(widgets));
 
     const response = await app.request("/ucp/mcp", {
       method: "POST",
@@ -2316,14 +2323,52 @@ describe("UCP MCP routes", () => {
     });
   });
 
-  it("lists and reads the MCP Apps widget resources", async () => {
-    const app = new Hono().route("/ucp/mcp", createUcpMcpRoutes());
+  it("mcp app resource absent: serves catalog data but neither advertises nor reads its widget", async () => {
+    const empty = () => createUcpEnvelope("success", { products: [] });
+    const notFound = () =>
+      createUcpEnvelope("error", {}, [{ code: "product_not_found", content: "Product not found." }]);
+    const app = createUcpMcpRoutes({
+      mcpToolHandlers: { search_catalog: empty, lookup_catalog: empty, get_product: notFound },
+    });
+    const call = async (method: string, params?: object) => {
+      const response = await app.request("/", {
+        method: "POST",
+        body: JSON.stringify({ jsonrpc: "2.0", id: "absent", method, params }),
+      });
+      return response.json();
+    };
+    const list = await call("tools/list");
+    const catalogTools = list.result.tools.filter((tool: { name: string }) =>
+      ["search_catalog", "lookup_catalog", "get_product"].includes(tool.name),
+    );
+    expect(catalogTools).toHaveLength(3);
+    for (const tool of catalogTools) {
+      expect(tool._meta).not.toHaveProperty("ui");
+      expect(tool._meta).not.toHaveProperty("openai/outputTemplate");
+      const invocation = await call("tools/call", { name: tool.name, arguments: {} });
+      expect(invocation.result.structuredContent).toEqual(tool.name === "get_product" ? notFound() : empty());
+      expect(invocation.result._meta ?? {}).not.toHaveProperty("ui");
+      expect(invocation.result._meta ?? {}).not.toHaveProperty("openai/outputTemplate");
+    }
+    const resources = await call("resources/list");
+    expect(resources.result.resources).not.toContainEqual(
+      expect.objectContaining({ uri: UCP_MCP_PRODUCT_CARDS_RESOURCE_URI }),
+    );
+    expect(await call("resources/read", { uri: UCP_MCP_PRODUCT_CARDS_RESOURCE_URI })).toMatchObject({
+      error: { code: -32002 },
+    });
+  });
+
+  it("mcp app metadata keys: lists and reads MCP Apps widget resources with only the current metadata", async () => {
+    vi.stubEnv("CATALOG_ASSET_PUBLIC_BASE_URL", "https://assets.example/path");
+    vi.stubEnv("MARKETPLACE_LISTING_PHOTO_PUBLIC_BASE_URL", "https://photos.example/path");
+    const app = new Hono().route("/ucp/mcp", createUcpMcpRoutes(widgets));
 
     const listResponse = await app.request("/ucp/mcp", {
       method: "POST",
       body: JSON.stringify({ jsonrpc: "2.0", id: "1", method: "resources/list" }),
     });
-    const readResponse = await app.request("/ucp/mcp", {
+    const readResponse = await app.request("https://marketplace.example/ucp/mcp", {
       method: "POST",
       body: JSON.stringify({
         jsonrpc: "2.0",
@@ -2367,40 +2412,31 @@ describe("UCP MCP routes", () => {
       ]),
     );
     expect(readResponse.status).toBe(200);
-    await expect(readResponse.json()).resolves.toMatchObject({
+    const readBody = await readResponse.json();
+    expect(readBody).toMatchObject({
       result: {
         contents: [
           {
             uri: UCP_MCP_PRODUCT_CARDS_RESOURCE_URI,
             mimeType: "text/html;profile=mcp-app",
-            text: expect.stringContaining("Chase Sets Product Cards"),
+            text: productCardsHtml,
             _meta: {
-              "openai/widgetCSP": {
-                connect_domains: [],
-                resource_domains: [],
+              ui: {
+                csp: {
+                  connectDomains: [],
+                  resourceDomains: ["https://marketplace.example", "https://assets.example", "https://photos.example"],
+                },
+                prefersBorder: true,
               },
-              "openai/widgetDescription": "Interactive Chase Sets product cards from marketplace listing search.",
-              "openai/widgetPrefersBorder": true,
+              "openai/widgetDescription": expect.any(String),
             },
           },
         ],
       },
     });
-    const productCardsBody = await app.request("/ucp/mcp", {
-      method: "POST",
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: "5",
-        method: "resources/read",
-        params: {
-          uri: UCP_MCP_PRODUCT_CARDS_RESOURCE_URI,
-        },
-      }),
-    });
-    const productCardsJson = await productCardsBody.json();
-    expect(productCardsJson.result.contents[0].text).not.toContain("<img");
     expect(cartReadResponse.status).toBe(200);
-    await expect(cartReadResponse.json()).resolves.toMatchObject({
+    const cartBody = await cartReadResponse.json();
+    expect(cartBody).toMatchObject({
       result: {
         contents: [
           {
@@ -2424,6 +2460,70 @@ describe("UCP MCP routes", () => {
     });
     expect(handoffBody.result.contents[0].text).toContain("payload.continue_url");
     expect(handoffBody.result.contents[0].text).not.toContain("action.url");
+    for (const body of [readBody, cartBody, handoffBody]) {
+      const meta = body.result.contents[0]._meta;
+      expect(Object.keys(meta).sort()).toEqual(["openai/widgetDescription", "ui"]);
+      expect(Object.keys(meta.ui).sort()).toEqual(["csp", "prefersBorder"]);
+    }
+    const retired = await app.request("/ucp/mcp", {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "old",
+        method: "resources/read",
+        params: { uri: "ui://chase-sets/product-cards/v1.html" },
+      }),
+    });
+    await expect(retired.json()).resolves.toMatchObject({ error: { code: -32602 } });
+  });
+
+  it("keeps checkout widget HTML and tool bindings without inheriting product asset origins", async () => {
+    const app = new Hono().route("/ucp/mcp", createUcpMcpRoutes(widgets));
+    const call = async (method: string, params?: { uri: string }) => {
+      const response = await app.request("https://marketplace.example/ucp/mcp", {
+        method: "POST",
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+      });
+      expect(response.status).toBe(200);
+      return (await response.json()).result;
+    };
+    const uris = [UCP_MCP_CART_REVIEW_RESOURCE_URI, UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI];
+    vi.stubEnv("CATALOG_ASSET_PUBLIC_BASE_URL", "");
+    vi.stubEnv("MARKETPLACE_LISTING_PHOTO_PUBLIC_BASE_URL", "");
+    const before = await Promise.all(uris.map((uri) => call("resources/read", { uri })));
+
+    vi.stubEnv("CATALOG_ASSET_PUBLIC_BASE_URL", "https://assets.example/catalog");
+    vi.stubEnv("MARKETPLACE_LISTING_PHOTO_PUBLIC_BASE_URL", "https://photos.example/listings");
+    for (const [index, uri] of uris.entries()) {
+      const { contents } = await call("resources/read", { uri });
+      expect(contents).toEqual([
+        {
+          uri,
+          mimeType: "text/html;profile=mcp-app",
+          text: before[index].contents[0].text,
+          _meta: {
+            ui: { csp: { connectDomains: [], resourceDomains: [] }, prefersBorder: true },
+            "openai/widgetDescription": expect.any(String),
+          },
+        },
+      ]);
+    }
+
+    const { tools } = await call("tools/list");
+    for (const [name, uri] of Object.entries({
+      create_checkout: UCP_MCP_CART_REVIEW_RESOURCE_URI,
+      get_checkout: UCP_MCP_CART_REVIEW_RESOURCE_URI,
+      update_checkout: UCP_MCP_CART_REVIEW_RESOURCE_URI,
+      cancel_checkout: UCP_MCP_CART_REVIEW_RESOURCE_URI,
+      complete_checkout: UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI,
+    })) {
+      expect(tools).toContainEqual(
+        expect.objectContaining({
+          name,
+          _meta: expect.objectContaining({ ui: { resourceUri: uri }, "openai/outputTemplate": uri }),
+        }),
+      );
+    }
   });
 
   it("checkout handoff action.url-only payload renders the empty state", async () => {
@@ -2644,6 +2744,7 @@ describe("UCP MCP routes", () => {
     const app = new Hono().route(
       "/ucp/mcp",
       createUcpMcpRoutes({
+        ...widgets,
         mcpToolHandlers: {
           search_catalog: handler,
         },

@@ -29,9 +29,7 @@ import {
   createUcpEnvelope,
   UCP_MCP_CART_REVIEW_RESOURCE_URI,
   UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI,
-  UCP_MCP_PRODUCT_CARDS_RESOURCE_URI,
   UCP_MCP_RESOURCES,
-  UCP_MCP_APP_RESOURCE_MIME_TYPE,
   UCP_MCP_TOOLS,
   UCP_VERSION,
   ucpErrorSeverity,
@@ -54,6 +52,7 @@ import {
 } from "./agent-guardrails";
 import { platformMcpAuditLogSchemaSql } from "./mcp-audit-log";
 import { type UcpProfileResolver } from "./ucp-profile-resolver";
+import { mcpWidgetResourceContent, type McpWidgetResourceProvider } from "./mcp-widget-resources";
 export { createUcpProfileResolver, type UcpProfileResolver, type UcpProfileResolution } from "./ucp-profile-resolver";
 
 export {
@@ -204,6 +203,7 @@ export type UcpRuntimeToolLimitEvent = Readonly<{
 export type CreateUcpRoutesOptions = Readonly<{
   restHandlers?: Readonly<Record<string, UcpOperationHandler>>;
   mcpToolHandlers?: Readonly<Record<string, UcpOperationHandler>>;
+  widgetResources?: McpWidgetResourceProvider;
   /** Explicitly overrides the middleware context for focused route fixtures. */
   contextOverride?: EventStoreContext | null;
   idempotencyStore?: UcpIdempotencyStore;
@@ -223,96 +223,6 @@ const JSON_RPC_VERSION = "2.0";
 const SIGNED_WRITE_HEADERS = ["Signature-Input", "Signature", "Content-Digest", "UCP-Agent"] as const;
 
 export const DEFAULT_UCP_SIGNATURE_CREATED_FRESHNESS_WINDOW_MS = 5 * 60 * 1000;
-const UCP_MCP_PRODUCT_CARDS_HTML = `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Chase Sets Product Cards</title>
-  <style>
-    :root { color-scheme: light dark; --background: Canvas; --foreground: CanvasText; --card: color-mix(in srgb, Canvas 96%, CanvasText 4%); --border: color-mix(in srgb, CanvasText 16%, transparent); --muted: color-mix(in srgb, CanvasText 68%, transparent); --primary: LinkText; --surface-2: color-mix(in srgb, CanvasText 8%, transparent); font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    body { margin: 0; padding: 12px; background: transparent; color: var(--foreground); }
-    .results { display: grid; gap: 10px; }
-    .card { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 10px; align-items: center; border: 1px solid var(--border); border-radius: 8px; padding: 10px; background: var(--card); }
-    .image { display: grid; width: 72px; height: 96px; place-items: center; border-radius: 6px; background: var(--surface-2); color: var(--muted); font-size: 24px; font-weight: 800; }
-    .title { margin: 0; font-size: 15px; font-weight: 700; line-height: 1.25; overflow-wrap: anywhere; }
-    .meta { margin: 3px 0 0; font-size: 12px; color: var(--muted); line-height: 1.35; overflow-wrap: anywhere; }
-    .signals { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-    .signal { border: 1px solid var(--border); border-radius: 999px; padding: 3px 8px; font-size: 12px; line-height: 1.25; }
-    .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-    .action { color: var(--primary); font-weight: 650; font-size: 13px; text-decoration: none; }
-    .empty { border: 1px solid var(--border); border-radius: 8px; padding: 14px; font-size: 14px; }
-  </style>
-</head>
-<body>
-  <main id="app" class="results" aria-live="polite"></main>
-  <script>
-    const app = document.getElementById("app");
-    let latestResult = null;
-
-    function productUrl(product) {
-      const url = product?.extensions?.chase_sets?.actions?.view_product?.url || product?.url || "";
-      return typeof url === "string" ? url : "";
-    }
-
-    function render(result) {
-      latestResult = result;
-      const products = Array.isArray(result?.structuredContent?.products)
-        ? result.structuredContent.products
-        : Array.isArray(result?.products)
-          ? result.products
-          : [];
-
-      if (!products.length) {
-        app.innerHTML = '<section class="empty">No matching marketplace products are available right now.</section>';
-        return;
-      }
-
-      app.innerHTML = products.slice(0, 8).map((product) => {
-        const chaseSets = product.extensions?.chase_sets ?? {};
-        const href = productUrl(product);
-        const market = chaseSets.marketplace ?? {};
-        const price = chaseSets.price_display ?? "Not currently listed";
-        const availability = chaseSets.availability_display ?? "Unavailable";
-        const subtitle = product.subtitle || product.description || "";
-        const initial = String(product.title || "?").trim().slice(0, 1).toUpperCase() || "?";
-        return '<article class="card">' +
-          '<div class="image" aria-hidden="true">' + escapeHtml(initial) + '</div>' +
-          '<div>' +
-            '<h2 class="title">' + escapeHtml(product.title || "Marketplace product") + '</h2>' +
-            (subtitle ? '<p class="meta">' + escapeHtml(subtitle) + '</p>' : '') +
-            '<div class="signals">' +
-              '<span class="signal">' + escapeHtml(price) + '</span>' +
-              '<span class="signal">' + escapeHtml(availability) + '</span>' +
-              '<span class="signal">' + escapeHtml(String(market.active_listing_count ?? 0)) + ' listings</span>' +
-            '</div>' +
-            (href ? '<div class="actions"><a class="action" href="' + escapeHtml(href) + '">View product</a></div>' : '') +
-          '</div>' +
-        '</article>';
-      }).join("");
-    }
-
-    function escapeHtml(value) {
-      return String(value ?? "").replace(/[&<>"']/g, (char) => ({
-        "&": "&amp;",
-        "<": "&lt;",
-        ">": "&gt;",
-        '"': "&quot;",
-        "'": "&#39;"
-      }[char]));
-    }
-
-    window.addEventListener("message", (event) => {
-      const message = event.data;
-      if (message?.method === "ui/notifications/tool-result") {
-        render(message.params?.result ?? message.params ?? {});
-      }
-    });
-
-    render(latestResult ?? {});
-  </script>
-</body>
-</html>`;
 const UCP_MCP_CART_REVIEW_HTML = `<!doctype html>
 <html lang="en">
 <head>
@@ -467,20 +377,11 @@ const UCP_MCP_CHECKOUT_HANDOFF_HTML = `<!doctype html>
   </script>
 </body>
 </html>`;
-const UCP_MCP_APP_RESOURCES_BY_URI: Readonly<Record<string, Readonly<{ html: string; description: string }>>> = {
-  [UCP_MCP_PRODUCT_CARDS_RESOURCE_URI]: {
-    html: UCP_MCP_PRODUCT_CARDS_HTML,
-    description: "Interactive Chase Sets product cards from marketplace listing search.",
-  },
-  [UCP_MCP_CART_REVIEW_RESOURCE_URI]: {
-    html: UCP_MCP_CART_REVIEW_HTML,
-    description: "Interactive Chase Sets cart and checkout review.",
-  },
-  [UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI]: {
-    html: UCP_MCP_CHECKOUT_HANDOFF_HTML,
-    description: "Interactive Chase Sets trusted checkout handoff.",
-  },
-};
+// The existing checkout widgets are not part of the product-cards build.
+const checkoutWidgetHtml = new Map<string, string>([
+  [UCP_MCP_CART_REVIEW_RESOURCE_URI, UCP_MCP_CART_REVIEW_HTML],
+  [UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI, UCP_MCP_CHECKOUT_HANDOFF_HTML],
+]);
 
 export const platformUcpRuntimeSchemaSql = `
 CREATE TABLE IF NOT EXISTS platform_ucp_idempotency_records (
@@ -583,15 +484,15 @@ function ucpMcpServerInfo() {
   return { name: "chase-sets-ucp", title: "Chase Sets UCP", version: "0.1.0" };
 }
 
-function toolResult(tool: UcpMcpToolDescriptor, result: UcpEnvelope) {
+function toolResult(tool: UcpMcpToolDescriptor, result: UcpEnvelope, resourceUri: string | undefined) {
   const meta = {
     ...(requiresOAuthChallenge(result) ? { "mcp/www_authenticate": oauthChallenge(tool) } : {}),
-    ...(tool.resultResourceUri
+    ...(resourceUri
       ? {
           ui: {
-            resourceUri: tool.resultResourceUri,
+            resourceUri,
           },
-          "openai/outputTemplate": tool.resultResourceUri,
+          "openai/outputTemplate": resourceUri,
           chase_sets: {
             result_kind: tool.name,
           },
@@ -642,7 +543,7 @@ function readArray(value: unknown): readonly unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
-function toMcpToolListItem(tool: UcpMcpToolDescriptor) {
+function toMcpToolListItem(tool: UcpMcpToolDescriptor, resourceUri: string | undefined) {
   return {
     name: tool.name,
     title: tool.title,
@@ -659,12 +560,12 @@ function toMcpToolListItem(tool: UcpMcpToolDescriptor) {
       securitySchemes: tool.securitySchemes,
       "openai/toolInvocation/invoking": tool.invoking,
       "openai/toolInvocation/invoked": tool.invoked,
-      ...(tool.resultResourceUri
+      ...(resourceUri
         ? {
             ui: {
-              resourceUri: tool.resultResourceUri,
+              resourceUri,
             },
-            "openai/outputTemplate": tool.resultResourceUri,
+            "openai/outputTemplate": resourceUri,
           }
         : {}),
     },
@@ -706,34 +607,6 @@ function summarizeUcpMcpResult(tool: UcpMcpToolDescriptor, result: UcpEnvelope) 
   }
 
   return `${tool.title} completed.`;
-}
-
-function readUcpMcpResource(uri: string) {
-  const resource = UCP_MCP_APP_RESOURCES_BY_URI[uri];
-  if (!resource) {
-    return null;
-  }
-
-  return {
-    contents: [
-      {
-        uri,
-        mimeType: UCP_MCP_APP_RESOURCE_MIME_TYPE,
-        text: resource.html,
-        _meta: {
-          ui: {
-            preferredBorder: true,
-          },
-          "openai/widgetDescription": resource.description,
-          "openai/widgetCSP": {
-            connect_domains: [],
-            resource_domains: [],
-          },
-          "openai/widgetPrefersBorder": true,
-        },
-      },
-    ],
-  };
 }
 
 function missingSignedWriteHeaders(request: Request) {
@@ -1775,6 +1648,14 @@ export function createUcpRestRoutes(options: CreateUcpRoutesOptions = {}) {
 export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
   const app = new Hono<UcpRuntimeEnv>();
   const idempotencyStore = resolveUcpIdempotencyStore(options, "MCP");
+  const widgets = new Map<string, { resource: UcpMcpResourceDescriptor; html: string }>(
+    UCP_MCP_RESOURCES.flatMap((resource) => {
+      const html = checkoutWidgetHtml.get(resource.uri) ?? options.widgetResources?.(resource.uri);
+      return html ? [[resource.uri, { resource, html }] as const] : [];
+    }),
+  );
+  const availableUri = (tool: UcpMcpToolDescriptor) =>
+    tool.resultResourceUri && widgets.has(tool.resultResourceUri) ? tool.resultResourceUri : undefined;
 
   app.use("*", createMcpHttpOriginPolicyMiddleware(options.mcpOriginPolicy));
 
@@ -1848,11 +1729,11 @@ export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
     }
 
     if (request.method === "tools/list") {
-      return respondResult({ tools: UCP_MCP_TOOLS.map(toMcpToolListItem) });
+      return respondResult({ tools: UCP_MCP_TOOLS.map((tool) => toMcpToolListItem(tool, availableUri(tool))) });
     }
 
     if (request.method === "resources/list") {
-      return respondResult({ resources: UCP_MCP_RESOURCES.map(toMcpResourceListItem) });
+      return respondResult({ resources: [...widgets.values()].map(({ resource }) => toMcpResourceListItem(resource)) });
     }
 
     if (request.method === "tools/call") {
@@ -1862,6 +1743,7 @@ export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
       if (!tool) {
         return c.json(jsonRpcError(request.id, -32602, `Unknown UCP MCP tool '${toolName}'.`));
       }
+      const respondTool = (result: UcpEnvelope) => respondResult(toolResult(tool, result, availableUri(tool)));
 
       const meta = readUcpRequestMeta(c.req.raw, normalizeArguments(params.arguments));
       c.set("ucpRequestMeta", meta);
@@ -1873,8 +1755,7 @@ export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
           code: negotiationFailure.code,
           profileHost: meta.profile.kind === "supplied" ? new URL(meta.profile.url).hostname : null,
         });
-        if (negotiationFailure.code === "capabilities_incompatible")
-          return respondResult(toolResult(tool, negotiationFailure.envelope));
+        if (negotiationFailure.code === "capabilities_incompatible") return respondTool(negotiationFailure.envelope);
         return c.json(
           jsonRpcError(
             request.id,
@@ -1898,10 +1779,10 @@ export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
             (tool.name === "complete_checkout" || tool.name === "cancel_checkout")
           ) {
             const accessFailure = unsignedCheckoutAccessFailure(actor ?? null);
-            if (accessFailure) return respondResult(toolResult(tool, accessFailure));
+            if (accessFailure) return respondTool(accessFailure);
           }
           if (unsignedAgentGrant) {
-            return respondResult(toolResult(tool, await invokeNonIdempotentMcpTool(c, options, tool, args, meta)));
+            return respondTool(await invokeNonIdempotentMcpTool(c, options, tool, args, meta));
           }
           emitObserver(options.observer?.signedWriteRejected, {
             transport: "mcp",
@@ -1935,27 +1816,30 @@ export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
         tool.idempotencyKeyRequired &&
         result.messages?.some((message) => message.code === "idempotency_key_conflict")
       ) {
-        return respondResult(toolResult(tool, result));
+        return respondTool(result);
       }
       if (
         tool.idempotencyKeyRequired &&
         result.messages?.some((message) => message.code === "idempotency_key_in_progress")
       ) {
-        return respondResult(toolResult(tool, result));
+        return respondTool(result);
       }
 
-      return respondResult(toolResult(tool, result));
+      return respondTool(result);
     }
 
     if (request.method === "resources/read") {
       const params = normalizeResourceReadParams(request.params);
       const uri = typeof params.uri === "string" ? params.uri : "";
-      const result = readUcpMcpResource(uri);
-      if (!result) {
-        return c.json(jsonRpcError(request.id, -32602, `Unknown UCP MCP resource '${uri}'.`));
+      const widget = widgets.get(uri);
+      if (!widget) {
+        const code = UCP_MCP_RESOURCES.some((resource) => resource.uri === uri) ? -32002 : -32602;
+        return c.json(jsonRpcError(request.id, code, `Unknown UCP MCP resource '${uri}'.`));
       }
 
-      return respondResult(result);
+      return respondResult({
+        contents: [mcpWidgetResourceContent(c.req.raw, uri, widget.html, widget.resource.description)],
+      });
     }
 
     return c.json(
