@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import { isSocialLoginProviderKey } from "@chase-sets/auth-context";
+import { isSocialLoginProviderKey, resolveRolePermissions, type PermissionKey } from "@chase-sets/auth-context";
 import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import {
   authSecurityLifetimesOf,
@@ -47,6 +47,7 @@ const ACCESS_ADMIN_ROUTE_REQUIRED_PERMISSIONS = [
   { path: "/access/sessions", permissions: ["security.manage"] },
   { path: "/access/memberships", permissions: ["memberships.view"] },
   { path: "/access/invitations", permissions: ["memberships.view"] },
+  { path: "/catalog", permissions: ["catalog.view"] },
   { path: "/growth/google-shopping", permissions: ["google-shopping.view"] },
   { path: "/growth/waitlist", permissions: ["public-presence.view"] },
   { path: "/growth/promo-bar", permissions: ["public-presence.view"] },
@@ -219,13 +220,14 @@ function requireAllowedAdminWorkspaceDomain(
 
 function hasRequiredAdminPermission(
   membership: Readonly<{
-    rolePermissions: readonly string[];
+    roleKey: string;
   }>,
   journey: AdminSocialLoginJourney,
   returnTo: string,
 ) {
   const requiredPermissions = getRequiredAdminPermissions(journey, returnTo);
-  return requiredPermissions.some((permission) => membership.rolePermissions.includes(permission));
+  const rolePermissions = resolveRolePermissions(membership.roleKey);
+  return requiredPermissions.some((permission) => rolePermissions.includes(permission));
 }
 
 function getReturnToPathname(returnTo: string) {
@@ -236,7 +238,7 @@ function isSameRouteFamily(pathname: string, routePath: string) {
   return pathname === routePath || pathname.startsWith(`${routePath}/`);
 }
 
-function getRequiredAdminPermissions(journey: AdminSocialLoginJourney, returnTo: string) {
+function getRequiredAdminPermissions(journey: AdminSocialLoginJourney, returnTo: string): readonly PermissionKey[] {
   const pathname = getReturnToPathname(returnTo);
   const sectionRootPermissions = ACCESS_ADMIN_SECTION_ROOT_REQUIRED_PERMISSIONS.find(
     (entry) => pathname === entry.path,

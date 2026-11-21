@@ -47,13 +47,13 @@ function grantedDecisionWithRole(roleKey: string): Extract<OperatorAuthorityDeci
   return decision;
 }
 
-it("renews a grant when the live creator authority is granted", async () => {
+it("renews a grant when the live creator's role grants catalog.manage even with an empty snapshot", async () => {
   const fake = pool(true);
   const forGrantCreator = vi.fn(async () => ({
     kind: "granted" as const,
     membershipId: "mbr_creator",
     roleKey: "platform-admin" as const,
-    rolePermissions: ["catalog.manage"],
+    rolePermissions: [],
   }));
   const services = createOperatorSessionGrants(fake.value, { forActor: vi.fn(), forGrantCreator });
 
@@ -69,11 +69,7 @@ it("renews a grant when the live creator authority is granted", async () => {
 
 it.each([
   ["a denied non-admin authority", { kind: "denied", reason: "not-platform-admin" }],
-  [
-    "missing catalog.manage",
-    { kind: "granted", membershipId: "mbr_creator", roleKey: "platform-admin", rolePermissions: [] },
-  ],
-  ["a granted non-platform-admin authority", grantedDecisionWithRole("owner")],
+  ["a stale owner grant containing catalog.manage", grantedDecisionWithRole("owner")],
 ] as const satisfies readonly [string, OperatorAuthorityDecision][])(
   "revokes when the authority decision has %s",
   async (_label, decision) => {
