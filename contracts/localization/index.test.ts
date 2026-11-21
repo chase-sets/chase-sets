@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EnglishTranslationKey } from "./locales/en";
+import { fixtureEnglishTranslations } from "./test-fixtures/localization/locales/en";
 import {
   createTranslator,
   coerceLocalizedTextMap,
@@ -46,7 +47,10 @@ describe("localization", () => {
     expect(hasTranslation("absent.root.key")).toBe(false);
     expect(t("absent.root.key")).toBe("[missing:en:absent.root.key]");
     expect(translationCatalogs.en["localization.testGreeting"]).toBe(
-      localizationEnglishTranslations["localization.testGreeting"],
+      fixtureEnglishTranslations["localization.testGreeting"],
+    );
+    expect(translationCatalogs.en["localization.localeName"]).toBe(
+      localizationEnglishTranslations["localization.localeName"],
     );
     const translate = (key: string) => `owner:${key}`;
     expect(formatLanguageCodeLabel("en", translate)).toBe("owner:localization.languageCode.en");

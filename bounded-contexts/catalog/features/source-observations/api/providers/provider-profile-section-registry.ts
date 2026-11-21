@@ -185,6 +185,8 @@ export type CatalogProviderProfileEditableSectionMetadata = Readonly<{
 export type CatalogProviderProfileSectionDefinition = Readonly<{
   section: CatalogProviderProfileEditableSectionKey;
   displayName: string;
+  /** The stored values this section's command composes over, which its fingerprint covers. */
+  readState: (version: CatalogProviderIntegrationProfileVersionRecord) => unknown;
   validateCommand: (command: JsonObject) => void;
   composePatch: (
     existing: CatalogProviderIntegrationProfileVersionRecord,
@@ -204,6 +206,15 @@ export const catalogProviderProfileSectionRegistry = [
   defineSection<CatalogProviderProfileBasicsUpdateCommand>({
     section: "basics",
     displayName: "Basics",
+    readState: (version) => ({
+      lifecycle: version.lifecycle,
+      displayName: version.profile.displayName,
+      status: version.profile.status,
+      capabilities: version.profile.capabilities,
+      supportedScopes: version.profile.supportedScopes,
+      languageOptions: version.profile.languageOptions,
+      mappingDisplayName: version.executableMappingContract?.displayName ?? null,
+    }),
     validateCommand: (command) => {
       assertOptionalString(command.displayName, "displayName");
       assertOptionalEnum(command.status, ["active", "planned"], "status");
@@ -238,6 +249,7 @@ export const catalogProviderProfileSectionRegistry = [
   defineSection<CatalogProviderProfileProviderOptionsUpdateCommand>({
     section: "provider-options",
     displayName: "Provider Options",
+    readState: (version) => ({ optionQueries: version.profile.optionQueries }),
     validateCommand: (command) => assertRequiredArray(command.optionQueries, "optionQueries"),
     composePatch: (existing, command) => ({
       profile: {
@@ -249,6 +261,10 @@ export const catalogProviderProfileSectionRegistry = [
   defineSection<CatalogProviderProfileConnectorUpdateCommand>({
     section: "connector",
     displayName: "Connector",
+    readState: (version) => ({
+      connector: version.profile.connector,
+      mappingConnector: version.executableMappingContract?.connector ?? null,
+    }),
     validateCommand: (command) => {
       assertRequiredObject(command.connector, "connector");
       assertOptionalObject(command.mappingConnector, "mappingConnector");
@@ -271,6 +287,7 @@ export const catalogProviderProfileSectionRegistry = [
   defineSection<CatalogProviderProfileCatalogFieldMappingUpdateCommand>({
     section: "catalog-field-mapping",
     displayName: "Catalog Field Mapping",
+    readState: (version) => ({ catalogFieldMapping: version.profile.catalogFieldMapping }),
     validateCommand: (command) => assertRequiredObject(command.catalogFieldMapping, "catalogFieldMapping"),
     composePatch: (existing, command) => ({
       profile: {
@@ -282,6 +299,10 @@ export const catalogProviderProfileSectionRegistry = [
   defineSection<CatalogProviderProfileSourceContractUpdateCommand>({
     section: "source-contract",
     displayName: "Source Contract",
+    readState: (version) => ({
+      sourceContract: version.sourceContract,
+      mappingSourceContract: version.executableMappingContract?.sourceContract ?? null,
+    }),
     validateCommand: (command) => assertSourceContract(command.sourceContract),
     composePatch: (existing, command) => ({
       sourceContract: command.sourceContract,
@@ -296,6 +317,10 @@ export const catalogProviderProfileSectionRegistry = [
   defineSection<CatalogProviderProfileFixturesUpdateCommand>({
     section: "fixtures",
     displayName: "Fixtures",
+    readState: (version) => ({
+      fixtures: version.fixtures,
+      mappingFixtures: version.executableMappingContract?.fixtures ?? null,
+    }),
     validateCommand: (command) => assertFixtureContract(command.fixtures),
     composePatch: (existing, command) => ({
       fixtures: command.fixtures as CatalogProviderProfileFixtureContract,
@@ -310,6 +335,9 @@ export const catalogProviderProfileSectionRegistry = [
   defineSection<CatalogProviderProfileSourceObservationUpdateCommand>({
     section: "source-observation",
     displayName: "Source Observation",
+    readState: (version) => ({
+      sourceObservation: version.executableMappingContract?.sourceObservation ?? null,
+    }),
     validateCommand: (command) => {
       if (command.sourceObservation !== null) {
         assertRequiredObject(command.sourceObservation, "sourceObservation");
@@ -329,6 +357,10 @@ export const catalogProviderProfileSectionRegistry = [
   defineSection<CatalogProviderProfileNormalizedObservationUpdateCommand>({
     section: "normalized-observation",
     displayName: "Normalized Observation",
+    readState: (version) => ({
+      normalizedObservationMapping: version.profile.normalizedObservationMapping,
+      normalizedObservationContract: version.executableMappingContract?.normalizedObservation ?? null,
+    }),
     validateCommand: (command) => {
       assertAtLeastOneSectionField(command, ["normalizedObservationMapping", "normalizedObservationContract"]);
       assertOptionalObject(command.normalizedObservationMapping, "normalizedObservationMapping");
@@ -354,6 +386,10 @@ export const catalogProviderProfileSectionRegistry = [
   defineSection<CatalogProviderProfileExternalReferencesUpdateCommand>({
     section: "external-references",
     displayName: "External References",
+    readState: (version) => ({
+      externalReferenceExtractionRules: version.profile.externalReferenceExtractionRules,
+      externalReferenceContracts: version.executableMappingContract?.externalReferences ?? null,
+    }),
     validateCommand: (command) => {
       assertAtLeastOneSectionField(command, ["externalReferenceExtractionRules", "externalReferenceContracts"]);
       assertOptionalObject(command.externalReferenceExtractionRules, "externalReferenceExtractionRules");
@@ -381,6 +417,7 @@ export const catalogProviderProfileSectionRegistry = [
   defineSection<CatalogProviderProfileSelectedOptionsUpdateCommand>({
     section: "selected-options",
     displayName: "Selected Options",
+    readState: (version) => ({ selectedOptionMapping: version.profile.selectedOptionMapping ?? null }),
     validateCommand: (command) => {
       if (command.selectedOptionMapping !== null) {
         assertRequiredObject(command.selectedOptionMapping, "selectedOptionMapping");
@@ -401,6 +438,10 @@ export const catalogProviderProfileSectionRegistry = [
   defineSection<CatalogProviderProfileReferenceHierarchyUpdateCommand>({
     section: "reference-hierarchy",
     displayName: "Reference Hierarchy",
+    readState: (version) => ({
+      referenceHierarchyMapping: version.profile.referenceHierarchyMapping,
+      referenceHierarchyContracts: version.executableMappingContract?.referenceHierarchy ?? null,
+    }),
     validateCommand: (command) => {
       assertAtLeastOneSectionField(command, ["referenceHierarchyMapping", "referenceHierarchyContracts"]);
       assertOptionalObject(command.referenceHierarchyMapping, "referenceHierarchyMapping");
@@ -428,6 +469,11 @@ export const catalogProviderProfileSectionRegistry = [
   defineSection<CatalogProviderProfileDuplicatePreventionUpdateCommand>({
     section: "duplicate-prevention",
     displayName: "Duplicate Prevention",
+    readState: (version) => ({
+      duplicatePreventionMapping: version.profile.duplicatePreventionMapping,
+      ambiguityRules: version.profile.ambiguityRules,
+      duplicatePreventionContract: version.executableMappingContract?.duplicatePrevention ?? null,
+    }),
     validateCommand: (command) => {
       assertAtLeastOneSectionField(command, [
         "duplicatePreventionMapping",
@@ -463,6 +509,9 @@ export const catalogProviderProfileSectionRegistry = [
   defineSection<CatalogProviderProfilePromotionPlanUpdateCommand>({
     section: "promotion-plan",
     displayName: "Promotion Plan",
+    readState: (version) => ({
+      promotionCommandPlan: version.executableMappingContract?.promotionCommandPlan ?? null,
+    }),
     validateCommand: (command) => assertRequiredObject(command.promotionCommandPlan, "promotionCommandPlan"),
     composePatch: (existing, command) => ({
       executableMappingContract: {
@@ -474,6 +523,7 @@ export const catalogProviderProfileSectionRegistry = [
   defineSection<CatalogProviderProfileRetirementPlanUpdateCommand>({
     section: "retirement-plan",
     displayName: "Retirement Plan",
+    readState: (version) => ({ retirementPlan: version.retirementPlan }),
     validateCommand: (command) => {
       if (command.retirementPlan !== null) {
         assertRetirementPlan(command.retirementPlan);
@@ -486,6 +536,7 @@ export const catalogProviderProfileSectionRegistry = [
   defineSection<CatalogProviderProfileMigrationEvidenceUpdateCommand>({
     section: "migration-evidence",
     displayName: "Migration Evidence",
+    readState: (version) => ({ migrationEvidence: version.migrationEvidence ?? null }),
     validateCommand: (command) => {
       if (command.migrationEvidence !== null) {
         assertMigrationEvidence(command.migrationEvidence);
@@ -571,6 +622,7 @@ export function toCatalogProviderProfileSectionPatch(
 function defineSection<TCommand extends CatalogProviderProfileSectionUpdateCommand>(input: {
   section: TCommand["section"];
   displayName: string;
+  readState: (version: CatalogProviderIntegrationProfileVersionRecord) => unknown;
   validateCommand: (command: JsonObject) => void;
   composePatch: (
     existing: CatalogProviderIntegrationProfileVersionRecord,
@@ -581,6 +633,7 @@ function defineSection<TCommand extends CatalogProviderProfileSectionUpdateComma
   return {
     section: input.section,
     displayName: input.displayName,
+    readState: input.readState,
     validateCommand: input.validateCommand,
     composePatch: (existing, command, context) => input.composePatch(existing, command as TCommand, context),
   };
