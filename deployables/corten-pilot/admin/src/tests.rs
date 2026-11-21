@@ -168,7 +168,13 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
         headers: headers.clone(),
         body: body.clone(),
     });
-    let cookie = headers.get(header::COOKIE).and_then(|v| v.to_str().ok()).unwrap_or_default();
+    // The API takes a bearer session token where there is no session cookie (`readAuthSessionToken`).
+    let bearer = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()).and_then(|v| v.strip_prefix("Bearer "));
+    let session_cookie = match headers.get(header::COOKIE).and_then(|v| v.to_str().ok()) {
+        Some(cookie) => cookie.to_owned(),
+        None => bearer.map(|token| format!("chase_sets_session={token}")).unwrap_or_default(),
+    };
+    let cookie = session_cookie.as_str();
     if let Some(answer) = workspace_sso(&method, &uri, &headers) {
         return answer;
     }
@@ -1459,6 +1465,34 @@ async fn a_user_of_two_accounts_chooses_one() {
         pilot.send(visitor_post(chosen, Some("chase_sets_account_selection=sel_1"), "accountId=acc_platform")).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     let (status, headers, _) = pilot.send(get(chosen, None)).await;
+    assert_eq!(
+        (status, &headers[header::LOCATION]),
+        (StatusCode::SEE_OTHER, &header::HeaderValue::from_static("/access/sign-in?returnTo=%2Fcommerce%2Fpostage-policies"))
+    );
+}
+
+/// A session token sent as `Authorization: Bearer`, as the deploy smoke signs in, is a session as
+/// the cookie is (admin-web's `readAuthSessionToken`), and each API call forwards it; another
+/// scheme is no one.
+#[tokio::test]
+async fn a_bearer_session_token_signs_in_as_the_session_cookie_does() {
+    let pilot = Pilot::new().await;
+    let request = |authorization: &str| {
+        Request::get("/commerce/postage-policies")
+            .header(header::HOST, "localhost:7790")
+            .header(header::AUTHORIZATION, authorization)
+            .body(Body::empty())
+            .unwrap()
+    };
+    let (status, _, html) = pilot.send(request("Bearer staff")).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shell = html.split_once("<main>").unwrap().0;
+    assert!(shell.contains(r#"aria-label="Account menu""#) && shell.contains("Commerce"), "{shell}");
+    let calls = pilot.calls.lock().unwrap().clone();
+    assert!(calls.iter().any(|c| c.path == "/api/auth/session"), "{calls:?}");
+    assert!(calls.iter().all(|c| c.headers.get(header::AUTHORIZATION).is_some_and(|v| v == "Bearer staff")), "{calls:?}");
+
+    let (status, headers, _) = pilot.send(request("Basic c3RhZmY6eA==")).await;
     assert_eq!(
         (status, &headers[header::LOCATION]),
         (StatusCode::SEE_OTHER, &header::HeaderValue::from_static("/access/sign-in?returnTo=%2Fcommerce%2Fpostage-policies"))
