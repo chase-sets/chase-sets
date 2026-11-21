@@ -74,6 +74,42 @@ export function applyMarketplaceListPatch<T>(
   return next;
 }
 
+type OfferMatchRankFields = Readonly<{
+  offer_id: string;
+  fill_source?: string | null;
+  price_amount: string;
+  quantity_requested: number;
+  created_at: string;
+  inventory_available_quantity?: number;
+}>;
+
+/**
+ * Offer Match list snapshot. Listing Matches stay ahead of inventory Matches whatever a patch inserts or
+ * replaces: Listing rows keep their order (a new one joins at the top), and inventory rows follow in the
+ * server's rank, covering stock first, then higher Offer price, then the older Offer.
+ */
+export function applyOfferMatchListPatch<T extends OfferMatchRankFields>(
+  current: ListResponse<T>,
+  patch: RealtimeProjectionPatch,
+): ListResponse<T> {
+  const next = applyMarketplaceListPatch(current, patch, { entity: "marketplace.offerMatch", idField: "offer_id" });
+  if (next === current) return current;
+  const listingRows = next.items.filter((item) => item.fill_source !== "inventory");
+  const inventoryRows = next.items.filter((item) => item.fill_source === "inventory").sort(compareInventoryMatches);
+  return { ...next, items: [...listingRows, ...inventoryRows] };
+}
+
+function compareInventoryMatches(left: OfferMatchRankFields, right: OfferMatchRankFields) {
+  const covers = (row: OfferMatchRankFields) =>
+    Number((row.inventory_available_quantity ?? 0) >= row.quantity_requested);
+  return (
+    covers(right) - covers(left) ||
+    Number(right.price_amount) - Number(left.price_amount) ||
+    Date.parse(left.created_at) - Date.parse(right.created_at) ||
+    (left.offer_id < right.offer_id ? -1 : left.offer_id > right.offer_id ? 1 : 0)
+  );
+}
+
 /**
  * Submitted Offers list snapshot: rows follow the active status filter, and
  * `countRevision` advances whenever a patch may move an Offer between status
