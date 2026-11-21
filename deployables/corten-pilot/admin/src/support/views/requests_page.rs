@@ -726,7 +726,13 @@ fn Proposal<'a>(t: Sup, propose: &'a ActionOffer, screen: &'a QueueScreen, detai
             </label>
             <input type="hidden" name={f.idempotency_key} value={&propose.idempotency_key}>
             <div class={Actions}>
-                <button type="submit" class={(Button, Secondary)} name={f.intent} value="preview-remedy" disabled={!propose.allowed}>
+                <button
+                    type="submit"
+                    class={(Button, Secondary)}
+                    name={f.intent}
+                    value="preview-remedy"
+                    disabled={!propose.allowed}
+                >
                     {t.ops_remedy_preview_submit()}
                 </button>
                 <button
@@ -851,36 +857,36 @@ fn Workflow<'a>(
             </ul>
         }
         if let Some(correct) = &offer.correct {
-        <section class={Card}>
-            <form class={Form} method="post" action={href}>
-                <input type="hidden" name={f.idempotency_key} value={&correct.idempotency_key}>
-                <label class={Field}>
-                    <span>{t.ops_remedy_correction_reason()}</span>
-                    <select name={f.reason_code} required>
-                        for value in &offer.choices.escalation_reason_codes {
-                            <option value={value}>{value}</option>
-                        }
-                    </select>
-                </label>
-                <label class={Field}>
-                    <span>{t.ops_remedy_rationale()}</span>
-                    <textarea name={f.rationale} rows="2" required></textarea>
-                </label>
-                <label class={Field}>
-                    <span>{t.ops_remedy_evidence_references()}</span>
-                    <textarea name={f.evidence_references} rows="2" required></textarea>
-                </label>
-                <button
-                    type="submit"
-                    class={(Button, Secondary)}
-                    name={f.intent}
-                    value="request-remedy-correction"
-                    disabled={!correct.allowed}
-                >
-                    {t.ops_remedy_correction_submit()}
-                </button>
-            </form>
-        </section>
+            <section class={Card}>
+                <form class={Form} method="post" action={href}>
+                    <input type="hidden" name={f.idempotency_key} value={&correct.idempotency_key}>
+                    <label class={Field}>
+                        <span>{t.ops_remedy_correction_reason()}</span>
+                        <select name={f.reason_code} required>
+                            for value in &offer.choices.escalation_reason_codes {
+                                <option value={value}>{value}</option>
+                            }
+                        </select>
+                    </label>
+                    <label class={Field}>
+                        <span>{t.ops_remedy_rationale()}</span>
+                        <textarea name={f.rationale} rows="2" required></textarea>
+                    </label>
+                    <label class={Field}>
+                        <span>{t.ops_remedy_evidence_references()}</span>
+                        <textarea name={f.evidence_references} rows="2" required></textarea>
+                    </label>
+                    <button
+                        type="submit"
+                        class={(Button, Secondary)}
+                        name={f.intent}
+                        value="request-remedy-correction"
+                        disabled={!correct.allowed}
+                    >
+                        {t.ops_remedy_correction_submit()}
+                    </button>
+                </form>
+            </section>
         }
         if !workflow.audit_trail.is_empty() {
             <div class={Scroll}>
@@ -1005,7 +1011,13 @@ fn EffectEntry<'a>(
                         <span>{t.ops_remedy_recovery_reason()}</span>
                         <input type="text" name={f.reason_code} required>
                     </label>
-                    <button type="submit" class={Button} name={f.intent} value="release-remedy-refund" disabled={!release.allowed}>
+                    <button
+                        type="submit"
+                        class={Button}
+                        name={f.intent}
+                        value="release-remedy-refund"
+                        disabled={!release.allowed}
+                    >
                         {t.ops_remedy_release_submit()}
                     </button>
                 </form>
