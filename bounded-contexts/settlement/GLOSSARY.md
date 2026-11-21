@@ -2,6 +2,10 @@
 
 This glossary defines the canonical terminology for the Settlement bounded context.
 
+## Payout Review Hold
+
+A **Payout Review Hold** is a Settlement-owned, account-scoped event stream recording an operator or risk-alert review signal. It extends maturity clearance while active and is never a payout block; Identity's historical manual-payout-review badge is migrated into this stream.
+
 ## Wallet
 
 A **Wallet** is the balance container for an account within the marketplace ledger.

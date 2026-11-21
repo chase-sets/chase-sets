@@ -28,8 +28,9 @@ import {
   requiredSchema,
 } from "./item-detail-commerce-panel-test-harness";
 
-vi.mock("@chase-sets/platform-runtime/realtime-react", () => ({
-  useRealtimePatchedSnapshot: ({ initialSnapshot }: { initialSnapshot: unknown }) => initialSnapshot,
+vi.mock(import("@chase-sets/platform-runtime/realtime-web"), async (importOriginal) => ({
+  ...(await importOriginal()),
+  subscribeRealtimePatches: () => ({ close() {} }),
 }));
 
 afterEach(() => {

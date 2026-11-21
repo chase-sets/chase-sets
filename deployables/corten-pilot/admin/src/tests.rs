@@ -215,6 +215,8 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
             actor(&["projection-operations.view"])
         } else if cookie.contains("chase_sets_session=feedback-manager") || cookie.contains("chase_sets_session=feedback-lag") {
             actor(&["platform-feedback.view", "platform-feedback.manage", "platform-feedback.export"])
+        } else if cookie.contains("chase_sets_session=feedback-exporter") {
+            actor(&["platform-feedback.view", "customer-feedback.privacy.export-sensitive-feedback"])
         } else if cookie.contains("chase_sets_session=feedback-viewer") {
             actor(&["platform-feedback.view"])
         } else if cookie.contains("chase_sets_session=support-viewer") || cookie.contains("chase_sets_session=attention-down") {
@@ -324,6 +326,12 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
     }
     if uri.path() == "/api/customer-feedback" {
         return csat_dashboard(uri.query().unwrap_or_default());
+    }
+    if uri.path() == "/api/customer-feedback/export" {
+        return csat_export(uri.query().unwrap_or_default());
+    }
+    if let Some(id) = uri.path().strip_prefix("/api/customer-feedback/export/") {
+        return csat_export_file(id);
     }
     if uri.path() == "/api/customer-feedback/attention" {
         return feedback_attention(cookie);
@@ -1026,6 +1034,35 @@ fn csat_dashboard(query: &str) -> Response {
         "filters": {},
     }))
     .into_response()
+}
+
+/// Customer Feedback's export: created (201, with its metadata) for a reason, else refused as the
+/// API refuses it.
+fn csat_export(query: &str) -> Response {
+    if !query.split('&').any(|pair| pair.starts_with("reason=") && pair.len() > "reason=".len()) {
+        return refusal(StatusCode::BAD_REQUEST, "export_reason_code_required", "");
+    }
+    let body = json!({
+        "exportId": "cse_1", "rowCount": 1, "status": "completed",
+        "artifactExpiresAt": "2099-01-01T00:00:00.000Z", "downloadHref": "/export/cse_1",
+    });
+    (StatusCode::CREATED, Json(body)).into_response()
+}
+
+/// An export's file, as the API answers it.
+fn csat_export_file(id: &str) -> Response {
+    if id != "cse_1" {
+        return refusal(StatusCode::NOT_FOUND, "export_not_found_or_expired", "");
+    }
+    (
+        [
+            (header::CONTENT_TYPE, "text/csv; charset=utf-8"),
+            (header::CONTENT_DISPOSITION, r#"attachment; filename="customer-feedback-export.csv""#),
+            (header::CACHE_CONTROL, "no-store"),
+        ],
+        "invitation_id,state\n\"csi_1\",\"submitted\"\n",
+    )
+        .into_response()
 }
 
 /// Support's reference lookup: an order, a record whose link is not a path here, a failure, and
@@ -6094,13 +6131,14 @@ const CSAT: &str = "/api/customer-feedback";
 #[tokio::test]
 async fn the_csat_dashboard_reads_customer_feedback_with_the_filters_admin_web_offers() {
     let pilot = Pilot::new().await;
-    let at = "/support/csat?from=2026-10-01&to=oops&surveyVersion=v1&outcomeCodes=order.delivered&customerRoles=pirate&ratings=4";
+    let at =
+        "/support/csat?from=2026-10-01&to=oops&surveyVersion=csat.v1&outcomeCodes=order.delivered&customerRoles=pirate&ratings=4";
     let (status, _, html) = pilot.send(get(at, Some("feedback-viewer"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert_eq!(
         pilot.calls_to(CSAT).last().unwrap().path,
         format!("{CSAT}?from=2026-10-01&surveyVersion=csat.v1&outcomeCodes=order.delivered&ratings=4"),
-        "admin-web's v1 is the registered version; what admin-web does not offer is left out"
+        "what admin-web does not offer is left out"
     );
     for text in [
         r#"<dd class="stats__value">Insufficient sample</dd>"#,
@@ -6134,6 +6172,37 @@ async fn a_csat_read_that_fails_keeps_the_filters_on_the_page_with_a_banner() {
     assert!(html.contains(r#"role="alert""#) && html.contains(r#"value="2026-10-01""#), "{html}");
     assert!(html.contains(r#"<option value="expired" selected>Expired</option>"#), "{html}");
     assert!(!html.contains("These filters can&#39;t be applied") && !html.contains("These filters can't be applied"), "{html}");
+}
+
+#[tokio::test]
+async fn the_csat_export_creates_the_apis_export_for_its_reason_and_relays_the_file() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/support/csat?ratings=4", Some("feedback-viewer"))).await;
+    assert!(!html.contains("/support/csat/export"), "only an exporter is offered it: {html}");
+    let (status, _, html) = pilot.send(get("/support/csat?ratings=4", Some("feedback-exporter"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"method="post" action="/support/csat/export?ratings=4""#), "{html}");
+    assert!(html.contains(r#"<option value="quality-review">Quality review</option>"#), "{html}");
+
+    let (status, headers, body) =
+        pilot.send(post_as("feedback-exporter", "/support/csat/export?ratings=4", "reason=quality-review", false)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(headers[header::CONTENT_DISPOSITION], r#"attachment; filename="customer-feedback-export.csv""#);
+    assert_eq!(headers[header::CACHE_CONTROL], "no-store");
+    assert!(body.starts_with("invitation_id,state"), "{body}");
+    let exports =
+        |pilot: &Pilot| -> Vec<String> { pilot.calls_to("/api/customer-feedback/export").into_iter().map(|c| c.path).collect() };
+    assert_eq!(
+        exports(&pilot),
+        ["/api/customer-feedback/export?ratings=4&reason=quality-review", "/api/customer-feedback/export/cse_1"]
+    );
+
+    let (status, headers, _) = pilot.send(post_as("feedback-exporter", "/support/csat/export?ratings=4", "reason=", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "no reason: back to the dashboard");
+    assert_eq!(headers[header::LOCATION], "/support/csat?ratings=4");
+    let (status, _, _) = pilot.send(post_as("feedback-viewer", "/support/csat/export", "reason=case-review", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "the export needs its own grant");
+    assert_eq!(exports(&pilot).len(), 2, "neither created an export");
 }
 
 #[tokio::test]

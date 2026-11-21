@@ -173,4 +173,18 @@ describe("FacilityIntakePage", () => {
     expect(screen.getByText("Intake routed to quarantine")).toBeTruthy();
     expect(screen.getAllByText("CUST-REVIEW-1")).toHaveLength(2);
   });
+
+  it.each([
+    ["Complete intake", props()],
+    ["Record unidentified", props({ resolved: null, expectedVersion: null })],
+  ])("%s sends its receipt time as the instant the operator's browser read", (_form, pageProps) => {
+    const { container } = render(
+      <MemoryRouter>
+        <FacilityIntakePage {...pageProps} />
+      </MemoryRouter>,
+    );
+    const shown = container.querySelector<HTMLInputElement>('input[name="receivedAtLocal"]');
+    expect(shown?.type).toBe("datetime-local");
+    expect(shown?.form?.querySelector<HTMLInputElement>('input[name="receivedAt"]')?.type).toBe("hidden");
+  });
 });

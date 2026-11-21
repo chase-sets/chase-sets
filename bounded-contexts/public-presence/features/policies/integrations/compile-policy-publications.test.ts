@@ -498,9 +498,10 @@ describe("public policy corpus compiler", () => {
     // Re-derived for the Marketplace Checkout Fee glossary line move in
     // [#7864 Break the Auth and Payments dependency cycle and reject cycles in the structure gate](https://github.com/chase-sets/chase-sets/issues/7864).
     // Re-derived for the Identity account-domain citation shift that the required profile name check makes.
+    // Re-derived after the payout review hold moves the Settlement and Identity source citations.
     expect(
       fingerprint(baseline.find(({ relativePath }) => relativePath === "terms-of-service-publication.ts")?.content),
-    ).toBe("sha256:a009624e67efaefb3c8b9eb7884b6142d87ef6bd3674d2c36834dc4c2b60b910");
+    ).toBe("sha256:6d6069c4139241a072a39e34b3475fd8a5b7b2131f327b853328b3e387a5914c");
 
     for (const module of changed) {
       const before = baseline.find((candidate) => candidate.relativePath === module.relativePath)?.content;

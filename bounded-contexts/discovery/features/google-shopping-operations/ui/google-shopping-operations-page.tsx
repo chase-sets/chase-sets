@@ -43,6 +43,8 @@ import type { GoogleShoppingExclusionReason } from "../api/export-row";
 const routeKey = "discovery.googleShoppingOperations";
 const routePath = "/growth/google-shopping";
 const liveGateIssueHref = "https://github.com/chase-sets/chase-sets/issues/3032";
+// `selected` once the operator closed the detail; a row ID always starts "google-shopping:".
+const closedDetail = "none";
 
 const exclusionReasonKeys = {
   "listing-not-active": `${routeKey}.exclusionReason.listing-not-active`,
@@ -235,7 +237,7 @@ export function GoogleShoppingOperationsPage({
 
       <GoogleShoppingFilters filters={filters} />
 
-      {selectedRow ? <SelectedRowDetail row={selectedRow} /> : null}
+      {selectedRow ? <SelectedRowDetail row={selectedRow} filters={filters} /> : null}
 
       <PageSection title={t(`${routeKey}.feedRows`)} description={t(`${routeKey}.feedRowsDescription`)}>
         <DataTable
@@ -248,7 +250,7 @@ export function GoogleShoppingOperationsPage({
             {
               key: "listing",
               header: t(`${routeKey}.listing`),
-              cell: (row) => <ListingCell row={row} actorPermissions={actorPermissions} />,
+              cell: (row) => <ListingCell row={row} filters={filters} actorPermissions={actorPermissions} />,
             },
             {
               key: "eligibility",
@@ -280,7 +282,7 @@ export function GoogleShoppingOperationsPage({
               header: t(`${routeKey}.action`),
               align: "right",
               cell: (row) => (
-                <LinkButton href={withSelected(row.rowId)} size="sm" tone="secondary">
+                <LinkButton href={withSelected(filters, row.rowId)} size="sm" tone="secondary">
                   {t(`${routeKey}.inspect`)}
                 </LinkButton>
               ),
@@ -417,11 +419,16 @@ function GoogleShoppingFilters({ filters }: Readonly<{ filters: GoogleShoppingOp
 
 function ListingCell({
   row,
+  filters,
   actorPermissions,
-}: Readonly<{ row: GoogleShoppingFeedRowListItem; actorPermissions: readonly string[] }>) {
+}: Readonly<{
+  row: GoogleShoppingFeedRowListItem;
+  filters: GoogleShoppingOperationsFilters;
+  actorPermissions: readonly string[];
+}>) {
   return (
     <Stack gap={1}>
-      <LinkText href={withSelected(row.rowId)}>{row.listingId}</LinkText>
+      <LinkText href={withSelected(filters, row.rowId)}>{row.listingId}</LinkText>
       <Text size="xs" tone="secondary">
         {row.merchantOfferId}
       </Text>
@@ -489,7 +496,10 @@ function DiagnosticsCell({ row }: Readonly<{ row: GoogleShoppingFeedRowListItem 
   );
 }
 
-function SelectedRowDetail({ row }: Readonly<{ row: GoogleShoppingFeedRowListItem }>) {
+function SelectedRowDetail({
+  row,
+  filters,
+}: Readonly<{ row: GoogleShoppingFeedRowListItem; filters: GoogleShoppingOperationsFilters }>) {
   return (
     <DetailPanel
       title={
@@ -505,7 +515,7 @@ function SelectedRowDetail({ row }: Readonly<{ row: GoogleShoppingFeedRowListIte
           <LinkButton href={liveGateIssueHref} tone="secondary" size="sm" target="_blank" rel="noreferrer">
             {t(`${routeKey}.liveGateAction`)}
           </LinkButton>
-          <LinkButton href={routePath} tone="secondary" size="sm">
+          <LinkButton href={withSelected(filters, closedDetail)} tone="secondary" size="sm">
             {t(`${routeKey}.closeDetail`)}
           </LinkButton>
         </Inline>
@@ -624,11 +634,28 @@ function buildAppliedFilters(filters: GoogleShoppingOperationsFilters) {
 }
 
 function resolveSelectedRow(rows: readonly GoogleShoppingFeedRowListItem[], selected: string) {
+  if (selected === closedDetail) {
+    return null;
+  }
   return rows.find((row) => row.rowId === selected) ?? rows.find((row) => row.blockingIssueCount > 0) ?? null;
 }
 
-function withSelected(rowId: string) {
-  const query = new URLSearchParams({ selected: rowId });
+// Keeps the operator's search, filter, limit and refresh window; only the open detail changes.
+function withSelected(filters: GoogleShoppingOperationsFilters, selected: string) {
+  const query = new URLSearchParams();
+  if (filters.search) {
+    query.set("search", filters.search);
+  }
+  if (filters.filter !== "all") {
+    query.set("filter", filters.filter);
+  }
+  if (filters.limit !== 100) {
+    query.set("limit", String(filters.limit));
+  }
+  if (filters.refreshWindowDays !== 25) {
+    query.set("refreshWindowDays", String(filters.refreshWindowDays));
+  }
+  query.set("selected", selected);
   return `${routePath}?${query.toString()}`;
 }
 
