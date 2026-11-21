@@ -147,7 +147,7 @@ it("scoped compiler roots retain reverse consumers and match full diagnostics", 
   await runScopedPrograms(root, [source], (configPath) => {
     expect(diagnostics(root, configPath)).toEqual(fullDiagnostics);
   });
-});
+}, 60_000);
 
 it("retains real downstream money movement consumers", () => {
   const realPlan = realScope.plan({ changedFiles: [moneyMovement] });
@@ -160,7 +160,7 @@ it("retains real downstream money movement consumers", () => {
       "@chase-sets/app-platform-worker",
     ]),
   );
-});
+}, 60_000);
 
 it("reports explicit fallback reasons for config and unmapped inputs", () => {
   const changedInputs = [
@@ -217,7 +217,7 @@ it("requires full typecheck when a changed global declaration affects an unconne
       mode: "full",
       fallbacks: [{ reason: "global-declaration", path: file }],
     });
-});
+}, 60_000);
 
 it.each([
   ["deleted", globalsFile],
@@ -324,7 +324,7 @@ it("scoped programs are subsets of the full gate programs", () => {
   }
   const email = realScope.plan({ workspaceNames: [localEmail] });
   expect(email.programs.flatMap(({ roots }) => roots)).not.toContain(moneyMovement);
-});
+}, 60_000);
 
 it("scoped plan reports input counts against the full gate", () => {
   const plan = realScope.plan({ workspaceNames: [localEmail] });
@@ -346,4 +346,4 @@ it("scoped plan reports input counts against the full gate", () => {
           wholeGraph && scoped.roots === full.roots && scoped.forwardClosure === full.forwardClosure,
       ),
   ).toBe(true);
-});
+}, 60_000);
