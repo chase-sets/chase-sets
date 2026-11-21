@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import ts from "@chase-sets/typescript-compiler-api";
 import { describe, expect, it } from "vitest";
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 
 const repo = new URL("../../", import.meta.url);
 const technicalWorkspaces = [
@@ -41,6 +42,7 @@ describe("technical localization ownership", () => {
     const files = execFileSync("git", ["ls-files", "-z", "--", ...technicalWorkspaces], {
       cwd: repo,
       encoding: "utf8",
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
     })
       .split("\0")
       .filter((file) => /\.[cm]?[jt]sx?$/.test(file));
