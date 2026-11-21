@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   areSubscribedReceiptEventsApplied,
   createCheckpointKey,
+  hasProjectionAppliedEvent,
   loadSubscriptionCheckpointRecoveryState,
   saveSubscriptionCheckpoint,
 } from "./subscription-store";
@@ -222,6 +223,28 @@ describe("areSubscribedReceiptEventsApplied", () => {
       ["evt_subscribed", "evt_ignored"],
       ["inline.item-recorded"],
     ]);
+  });
+});
+
+describe("hasProjectionAppliedEvent", () => {
+  it("answers the database's verdict for the projection, event, stream and position", async () => {
+    const calls: (readonly unknown[])[] = [];
+    const verdicts = [true, false];
+    const db = {
+      query: async (_sql: string, params: readonly unknown[]) => {
+        calls.push(params);
+        return { rows: [{ applied: verdicts.shift() }] };
+      },
+    };
+    const event = { id: "evt_1", streamId: "catalog.category-ctg_1", globalPosition: "6083" };
+
+    await expect(hasProjectionAppliedEvent(db as never, "catalog-category-projection:catalog:v1", event)).resolves.toBe(
+      true,
+    );
+    await expect(hasProjectionAppliedEvent(db as never, "catalog-category-projection:catalog:v1", event)).resolves.toBe(
+      false,
+    );
+    expect(calls[0]).toEqual(["catalog-category-projection:catalog:v1", "evt_1", "catalog.category-ctg_1", "6083"]);
   });
 });
 
