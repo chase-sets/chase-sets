@@ -188,10 +188,7 @@ describe("identity creation path registry", () => {
     ]);
     expect(
       references(
-        [
-          "getBootstrapContext, type AuthApiApp }",
-          "getBootstrapContext, resolveUnaffirmedRegistrationConsent as mint, type AuthApiApp }",
-        ],
+        ["getBootstrapContext,", "getBootstrapContext, resolveUnaffirmedRegistrationConsent as mint,"],
         [
           "const existingUser = await services.identity.getUserByEmail(params.email);",
           "await mint(identityMutations);\nconst existingUser = await services.identity.getUserByEmail(params.email);",

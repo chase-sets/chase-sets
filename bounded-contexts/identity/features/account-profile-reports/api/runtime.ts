@@ -2,7 +2,11 @@ import { createHash } from "node:crypto";
 import { parseIdentityAccountProfileReportSubmittedPayload } from "@chase-sets/event-core/public-event-payloads";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createId, parseStrictTypedUlid, type AccountId } from "@chase-sets/primitives/typed-ids";
-import { eligibilityScopeKeys, type IdentityMutationPersistence } from "../../account-management/api/fences";
+import {
+  eligibilityScopeKeys,
+  type IdentityMutationPersistence,
+  type IdentityMutationTransaction,
+} from "../../account-management/api/fences";
 import type { AccountProfileReportSubmission } from "../domain/submission";
 
 const received = { status: "received" } as const;
@@ -37,7 +41,8 @@ export function createAccountProfileReportRuntime(persistence: Pick<IdentityMuta
     const targetId = readTargetId(target);
     const targetStream = targetId && targetId !== reporterAccountId ? `identity.account-${targetId}` : null;
     const reportStream = `identity.account-profile-report-${digest([tenantId, reporterAccountId, targetId])}`;
-    return persistence.transaction(targetStream ? eligibilityScopeKeys(tenantId, targetStream, []) : [], async (tx) => {
+    const scopes = targetStream ? eligibilityScopeKeys(tenantId, targetStream, []) : [];
+    return persistence.transaction(scopes, async (tx: IdentityMutationTransaction) => {
       const inserted = await tx.db.query(
         `INSERT INTO identity_account_profile_report_attempts (attempt_key, request_digest)
          VALUES ($1, $2) ON CONFLICT (attempt_key) DO NOTHING RETURNING attempt_key`,
