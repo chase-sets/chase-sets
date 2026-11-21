@@ -241,7 +241,7 @@ describe("issue-9909 controller hand-off", () => {
     },
   );
   it("consumer preservation keeps the non-opted account profile Banner and focus", async () => {
-    const fetch = setup({ outcome: "not-recorded", code: "validation-failed" });
+    const fetch = setup({ outcome: "not-recorded", code: "not-recorded" });
     renderAccountManagementPage(
       <AccountMutationForm method="post">
         <HiddenInput name="intent" value="update-profile" />
@@ -376,13 +376,13 @@ describe("issue-7168-ac9-transport-state", () => {
     vi.stubGlobal("crypto", webcrypto);
     const observe = vi.fn();
     vi.spyOn(routerApi, "UNSAFE_decodeViaTurboStream").mockResolvedValue({
-      value: { data: { outcome: "not-recorded", code: "validation-failed" } },
+      value: { data: { outcome: "not-recorded", code: "not-recorded" } },
     } as never);
     const fetch = vi
       .fn()
       .mockRejectedValueOnce(new TypeError("synthetic lost response"))
       .mockResolvedValueOnce(Response.json({ outcome: "indeterminate", code: "INDETERMINATE" }))
-      .mockResolvedValueOnce(Response.json({ outcome: "not-recorded", code: "validation-failed" }, { status: 400 }));
+      .mockResolvedValueOnce(Response.json({ outcome: "not-recorded", code: "not-recorded" }, { status: 400 }));
     vi.stubGlobal("fetch", fetch);
     function DuplicateRevoke() {
       const [mounted, setMounted] = useState(true);
