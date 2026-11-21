@@ -66,7 +66,8 @@ export const identitySeedIds = {
     accountId: "acc_seed_support_account" as AccountId,
     userId: "usr_seed_support_user" as UserId,
     membershipId: "mbr_seed_support_membership" as MembershipId,
-    invitationId: "ivt_seed_support_accept" as InvitationId,
+    // Keep the old seed stream with its non-hex token hash as history.
+    invitationId: "ivt_seed_support_accept_sha256" as InvitationId,
     sessionId: "ses_seed_support_session" as SessionId,
   },
   suspended: {
