@@ -501,7 +501,7 @@ describe("public policy corpus compiler", () => {
     // Re-derived for the payout review hold and whole-construct registration citations.
     expect(
       fingerprint(baseline.find(({ relativePath }) => relativePath === "terms-of-service-publication.ts")?.content),
-    ).toBe("sha256:e76fe01de71cbe4cd5677538a04819bc1027cfe46399d0c8315030193b8ea805");
+    ).toBe("sha256:19e9617af28a2119e449c147ed08b676f75ce9f6f334f68c9c9241f424c6a7da");
 
     for (const module of changed) {
       const before = baseline.find((candidate) => candidate.relativePath === module.relativePath)?.content;
