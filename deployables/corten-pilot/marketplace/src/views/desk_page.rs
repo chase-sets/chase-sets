@@ -218,7 +218,7 @@ pub fn DeskPage<'a>(t: DeskMsg, screen: &'a DeskScreen) -> impl Render {
                 </span>
             </p>
             if !unavailable.is_empty() {
-                // The source's name only: the API's reason is internal (chase-sets/chase-sets#8766).
+                // The source's name only: the API's reason is internal.
                 <div class={Banner} role="status" data-seller-desk-degraded="true">
                     <p class={Strong}>{t.degraded_title()}</p>
                     <p>{t.degraded_description()}</p>

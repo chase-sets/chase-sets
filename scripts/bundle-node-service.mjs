@@ -14,11 +14,19 @@ const assetCopies = [
     reference: "./__fixtures__/evidence/",
     destination: "__fixtures__/evidence",
   },
+  {
+    source: "deployables/platform-api/src/main.ts",
+    reference: "../../agent-apps/build/product-cards.html",
+    destination: "product-cards.html",
+    // Standalone API builds can run without the widget. Docker builds Agent Apps first.
+    optional: true,
+  },
 ];
 const portable = (value) => value.replaceAll("\\", "/");
 
-function checkAssetReferences(contents, source, copies) {
+function relocateAssetReferences(contents, source, usedAssets) {
   const file = ts.createSourceFile(source, contents, ts.ScriptTarget.Latest, true);
+  const replacements = [];
   function visit(node) {
     if (
       ts.isPropertyAccessExpression(node) &&
@@ -28,23 +36,33 @@ function checkAssetReferences(contents, source, copies) {
       node.expression.name.text === "meta"
     ) {
       const parent = node.parent;
-      const reference =
+      const literal =
         ts.isNewExpression(parent) &&
         ts.isIdentifier(parent.expression) &&
         parent.expression.text === "URL" &&
         parent.arguments?.[1] === node &&
         ts.isStringLiteral(parent.arguments[0])
-          ? parent.arguments[0].text
+          ? parent.arguments[0]
           : undefined;
-      if (!copies.some((copy) => copy.source === source && copy.reference === reference)) {
+      const copy = literal && assetCopies.find((copy) => copy.source === source && copy.reference === literal.text);
+      if (!copy) {
         throw new Error(
           `Unlisted import.meta.url asset reference in ${source}:${file.getLineAndCharacterOfPosition(node.pos).line + 1}`,
         );
+      }
+      usedAssets.add(copy);
+      const bundledReference = `./${copy.destination}${copy.reference.endsWith("/") ? "/" : ""}`;
+      if (bundledReference !== literal.text) {
+        replacements.push({ start: literal.getStart(file), end: literal.end, text: JSON.stringify(bundledReference) });
       }
     }
     ts.forEachChild(node, visit);
   }
   visit(file);
+  for (const { start, end, text } of replacements.reverse()) {
+    contents = contents.slice(0, start) + text + contents.slice(end);
+  }
+  return contents;
 }
 
 export async function bundleNodeService({ repoRoot = defaultRepoRoot, deployable }) {
@@ -100,9 +118,14 @@ export async function bundleNodeService({ repoRoot = defaultRepoRoot, deployable
           bundler.onLoad({ filter: /\.[cm]?[jt]sx?$/ }, async (args) => {
             const source = portable(path.relative(root, args.path));
             const contents = await readFile(args.path, "utf8");
-            checkAssetReferences(contents, source, assetCopies);
-            for (const copy of assetCopies) if (copy.source === source) usedAssets.add(copy);
-            return undefined;
+            const relocated = relocateAssetReferences(contents, source, usedAssets);
+            if (relocated !== contents) {
+              return {
+                contents: relocated,
+                loader: path.extname(args.path).replace(/^\.[cm]?/, ""),
+                resolveDir: path.dirname(args.path),
+              };
+            }
           });
         },
       },
@@ -112,7 +135,11 @@ export async function bundleNodeService({ repoRoot = defaultRepoRoot, deployable
     const source = path.resolve(root, path.dirname(copy.source), copy.reference);
     const destination = path.join(outdir, copy.destination);
     await mkdir(path.dirname(destination), { recursive: true });
-    await cp(source, destination, { recursive: true });
+    try {
+      await cp(source, destination, { recursive: true });
+    } catch (error) {
+      if (!copy.optional || error.code !== "ENOENT" || error.path !== source) throw error;
+    }
   }
   // Static service imports must not run until the prelude has installed instrumentation.
   await writeFile(

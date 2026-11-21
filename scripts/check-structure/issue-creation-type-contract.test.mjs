@@ -82,6 +82,7 @@ const reviewedSites = {
   "scripts/staging-refresh-preflight.mjs": 1,
   "scripts/staging-wake-drills.mjs": 1,
   "scripts/stripe-money-smoke-test.mjs": 13,
+  "scripts/stripe-payment-create-uncertain-outcome-probe.mjs": 1, // Stripe test fixture attachment, not a GitHub issue.
   "scripts/stripe-webhook-endpoint.mjs": 5,
 };
 const reviewedSiteContexts = {
@@ -146,6 +147,8 @@ const reviewedSiteContexts = {
   "scripts/staging-refresh-preflight.mjs": "8327da03d2d0ea8d486d3f456f9daf2fd5301ba15068a034ddf30f28b41267e3",
   "scripts/staging-wake-drills.mjs": "3c5544f6031c2473f2e69b9bf20f4c2c64f55afb08bb0be1e93a481a51c50937",
   "scripts/stripe-money-smoke-test.mjs": "b7dd30be0469e9226d03894debd4aaadb468d40657c6f2e7ce58508d7ad4672d",
+  "scripts/stripe-payment-create-uncertain-outcome-probe.mjs":
+    "22daa7b7296f5934175d4e7033c6735a975c0eac67cf33efbc0676818d0b4a08",
   "scripts/stripe-webhook-endpoint.mjs": "d6e3f6d474afd012e8062e469b5253477dd04fa481a67ad011abd728c94a20cd",
 };
 const sharedCallers = [

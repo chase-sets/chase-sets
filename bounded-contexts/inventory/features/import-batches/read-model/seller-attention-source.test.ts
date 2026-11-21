@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { isSellerAttentionItem, type SellerAttentionContext } from "@chase-sets/seller-attention-queue";
+import {
+  aggregateSellerAttentionQueue,
+  isSellerAttentionItem,
+  type SellerAttentionContext,
+} from "@chase-sets/seller-attention-queue";
 import {
   createImportResolutionAttentionSource,
   createImportResolutionAttentionSourceFromReadModel,
@@ -8,6 +12,12 @@ import {
 } from "./seller-attention-source";
 
 const CONTEXT: SellerAttentionContext = { accountId: "acct-1", now: "2026-07-14T12:00:00.000Z" };
+
+// node-postgres hands back a timestamptz column as a Date unless the query reads
+// it as text; this fake answers the same way for the column it is asked about.
+function pgTimestamp(sql: string, column: string, iso: string): string | Date {
+  return sql.includes(`to_char(${column} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`) ? iso : new Date(iso);
+}
 
 function row(overrides: Partial<ImportResolutionAttentionRow> = {}): ImportResolutionAttentionRow {
   return {
@@ -47,6 +57,26 @@ describe("createImportResolutionAttentionSourceFromReadModel", () => {
     expect(query).toHaveBeenCalledWith(expect.stringContaining("row.resolution_status = 'unresolved'"), ["acct-1"]);
     expect(query).toHaveBeenCalledWith(expect.not.stringContaining("source_filename"), ["acct-1"]);
     expect(items[0]?.summary.params).toEqual({ reference: "batch-1", count: 2 });
+  });
+
+  it("reads the batch's time as ISO text, so the queue keeps a nonempty batch", async () => {
+    const query = vi.fn(async (sql: string) => ({
+      rows: [
+        {
+          batch_id: "batch-1",
+          unresolved_count: 2,
+          observed_at: pgTimestamp(sql, "MIN(row.updated_at)", "2026-07-13T00:00:00.000Z"),
+        },
+      ],
+    }));
+
+    const queue = await aggregateSellerAttentionQueue(
+      [createImportResolutionAttentionSourceFromReadModel({ query } as never)],
+      CONTEXT,
+    );
+
+    expect(queue.sources).toEqual([{ id: "inventory-resolution", status: "available", itemCount: 1 }]);
+    expect(queue.items[0]?.observedAt).toBe("2026-07-13T00:00:00.000Z");
   });
 });
 
