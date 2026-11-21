@@ -69,11 +69,12 @@ const guardInputs = new Map<string, unknown>();
 const guardClasses = new Map<string, Set<string>>();
 let currentTest: RunnerTestCase | undefined;
 
-function checkBootstrapDbEnrollment(...args: Parameters<typeof evaluateBootstrapDbEnrollment>) {
-  const result = evaluateBootstrapDbEnrollment(...args);
+function checkBootstrapDbEnrollment(options?: Parameters<typeof evaluateBootstrapDbEnrollment>[0]) {
+  const fixture = options?.manifest && options.manifest !== bootstrapDbEnrollmentManifest;
+  const result = evaluateBootstrapDbEnrollment(fixture ? { requiredBootBearingCapacity: 0, ...options } : options);
   const input = {
     files: result.schedule.files,
-    model: result.schedule.files.length ? (args[0]?.scheduleModel ?? bootstrapDbScheduleModel) : null,
+    model: result.schedule.files.length ? (options?.scheduleModel ?? bootstrapDbScheduleModel) : null,
     observedUnitCount: result.schedule.observedUnitCount,
     fileCount: result.fileCount,
   };
@@ -276,11 +277,12 @@ function buildManifest(files: readonly FixtureFile[], identityFor: (caseName: st
   );
 }
 
-function runFixture(fixture: Fixture) {
+function runFixture(fixture: Fixture, requiredBootBearingCapacity = 0) {
   return checkBootstrapDbEnrollment({
     platformApiRoot: fixture.root,
     manifest: fixture.manifest,
     executionUnitBootBearingCaseCeilings: fixture.ceilings,
+    requiredBootBearingCapacity,
     scheduleModel: fixture.model,
     nonBootstrapCensus: fixture.nonBootstrapCensus,
   });
@@ -314,12 +316,15 @@ async function createDbCensusFixture(): Promise<Fixture> {
   return underAcceptedScheduleModel({ ...fixture, nonBootstrapCensus: { ...fixture.nonBootstrapCensus, entries } });
 }
 
-/** The shipped file set, case names, durations, and unit membership, with synthetic bodies. */
-function shippedShapedFiles(): FixtureFile[] {
+/** The shipped corpus with synthetic bodies, on the measured three-unit assignment by default. */
+function shippedShapedFiles(includeReserveUnit = false): FixtureFile[] {
   return Object.entries(bootstrapDbEnrollmentManifest).map(([fileName, partition]) => ({
     fileName,
     databaseSuffix: partition.databaseSuffix,
-    executionUnit: partition.executionUnit,
+    executionUnit:
+      !includeReserveUnit && fileName === "bootstrap-shared-seed-command.db.test.ts"
+        ? "test:db:2"
+        : partition.executionUnit,
     bootBearingCases: partition.bootBearingCases,
     cases: partition.cases.map((testCase, index) => ({
       name: testCase.name,
@@ -623,22 +628,28 @@ function withUnappliedMeasuredFloor<T extends { schedule: { minimumUnitCount: nu
 // The current schedule model's own minimum unit count for the current manifest.
 // Enrollment-derived projections; new reference estimates are not measured costs.
 const currentMinimumUnitCount = 2;
-const currentProjectedMakespans = [275267, 251960, 194055];
-const derivedShippedAssignment: Readonly<Record<string, "test:db:1" | "test:db:2" | "test:db:3">> = Object.freeze({
-  "bootstrap-production-reconciliation.db.test.ts": "test:db:1",
-  "authoritative-seed-resume-core.db.test.ts": "test:db:1",
-  "authoritative-seed-resume-reconciliation.db.test.ts": "test:db:1",
-  "connector-mount-gate-isolation.db.test.ts": "test:db:2",
-  "bootstrap-lock-contention.db.test.ts": "test:db:2",
-  "seed-command-full-pools.db.test.ts": "test:db:2",
-  "bootstrap-scenario.db.test.ts": "test:db:2",
-  "catalog-seed-aggregate-state.db.test.ts": "test:db:2",
-  "bootstrap-shared-seed-command.db.test.ts": "test:db:2",
-  "inventory-seed-resume.db.test.ts": "test:db:3",
-  "catalog-seed-interruption-resume.db.test.ts": "test:db:3",
-  "authoritative-seed-resume-recovery.db.test.ts": "test:db:3",
+const currentProjectedMakespans = [275267, 207566, 194055, 102651];
+const derivedShippedAssignment: Readonly<Record<string, BootstrapDbEnrollmentPartition["executionUnit"]>> =
+  Object.freeze({
+    "bootstrap-production-reconciliation.db.test.ts": "test:db:1",
+    "authoritative-seed-resume-core.db.test.ts": "test:db:1",
+    "authoritative-seed-resume-reconciliation.db.test.ts": "test:db:1",
+    "connector-mount-gate-isolation.db.test.ts": "test:db:2",
+    "bootstrap-lock-contention.db.test.ts": "test:db:2",
+    "seed-command-full-pools.db.test.ts": "test:db:2",
+    "bootstrap-scenario.db.test.ts": "test:db:2",
+    "catalog-seed-aggregate-state.db.test.ts": "test:db:2",
+    "bootstrap-shared-seed-command.db.test.ts": "test:db:4",
+    "inventory-seed-resume.db.test.ts": "test:db:3",
+    "catalog-seed-interruption-resume.db.test.ts": "test:db:3",
+    "authoritative-seed-resume-recovery.db.test.ts": "test:db:3",
+  });
+const derivedBootBearingCaseCeilings = Object.freeze({
+  "test:db:1": 26,
+  "test:db:2": 32,
+  "test:db:3": 19,
+  "test:db:4": 2,
 });
-const derivedBootBearingCaseCeilings = Object.freeze({ "test:db:1": 26, "test:db:2": 32, "test:db:3": 19 });
 
 // Non-bootstrap composition proof keeps its frozen identities independently of
 // the seed-bootstrap scheduling corpus.
@@ -1337,11 +1348,10 @@ describe("Platform API bootstrap DB enrollment", () => {
         schedule: {
           ...oldRepository.schedule,
           effectiveMinimumUnitCount: observedUnitCount,
-          measuredOneFewerUnitFloor: expectedMeasuredFloorVerdict(
-            bootstrapDbMeasuredOneFewerUnitFloor,
-            bootstrapDbScheduleModel,
-            candidateRepository.schedule.files,
-          ),
+          measuredOneFewerUnitFloor: {
+            applied: false,
+            reason: "the measured one-fewer-unit floor measures 2 unit(s), not one fewer than the 4 observed",
+          },
         },
       }),
     );
@@ -1372,7 +1382,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(result.expectedCaseCount).toBe(79);
     expect(result.caseCount).toBe(result.expectedCaseCount);
     expect(result.fileCount).toBe(12);
-    expect(result.partitionUnitCount).toBe(3);
+    expect(result.partitionUnitCount).toBe(4);
   });
 
   it("preserves all 63 non-bootstrap composition case identities and their DB enrollment", () => {
@@ -2891,7 +2901,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     };
     expect(capture.provenance).toMatchObject(provenance);
     if (current) {
-      expect(bootstrapDbScheduleModel).toEqual(capture.model);
+      expect(bootstrapDbScheduleModel).toEqual({ ...capture.model, maximumScheduledFileCount: 13 });
       expect(capture.acceptedBootBearingCaseCeilings).toEqual({
         "test:db:1": 18,
         "test:db:2": 32,
@@ -2949,7 +2959,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       capture.files.map((file) => ({
         ...bootstrapDbEnrollmentManifest[file.fileName]!,
         fileName: file.fileName,
-        executionUnit: current ? derivedShippedAssignment[file.fileName]! : file.executionUnit,
+        executionUnit: file.executionUnit,
         cases: file.cases.map((testCase, index) => ({ ...testCase, body: `  expect(${index}).toBe(${index});` })),
       })),
       { model: capture.model },
@@ -3048,7 +3058,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(bootstrapDbScheduleModel.aggregateCeilingMs).toBe(1_080_000);
     expect(bootstrapDbScheduleModel.jobOverheadMs).toBe(55667);
     expect(bootstrapDbScheduleModel.maxWorkersPerExecutionUnit).toBe(3);
-    expect(bootstrapDbScheduleModel.maximumScheduledFileCount).toBe(12);
+    expect(bootstrapDbScheduleModel.maximumScheduledFileCount).toBe(13);
     expect(bootstrapDbScheduleModel.maximumEnumeratedUnitCount).toBe(4);
     expect(bootstrapDbScheduleModel.maximumCaseReferenceDurationMs).toBe(600_000);
     expect(checkBootstrapDbEnrollment().schedule.files.reduce((total, file) => total + file.caseDurationMs, 0)).toBe(
@@ -3065,14 +3075,15 @@ describe("Platform API bootstrap DB enrollment", () => {
     );
     expect(schedule.units.map((unit) => [unit.bootBearingCaseCount, unit.bootBearingCeiling])).toEqual([
       [26, 26],
-      [32, 32],
+      [31, 32],
       [19, 19],
+      [1, 2],
     ]);
-    expect(schedule.aggregateMs).toBe(721282);
-    expect(schedule.aggregateWithOverheadMs).toBe(776949);
+    expect(schedule.aggregateMs).toBe(779539);
+    expect(schedule.aggregateWithOverheadMs).toBe(835206);
     expect(schedule.minimumUnitCount).toBe(currentMinimumUnitCount);
-    expect(schedule.effectiveMinimumUnitCount).toBe(3);
-    expect(schedule.observedUnitCount).toBe(3);
+    expect(schedule.effectiveMinimumUnitCount).toBe(4);
+    expect(schedule.observedUnitCount).toBe(4);
   });
 
   it("accepts the shipped schedule model as a null-prototype plain record", () => {
@@ -3556,24 +3567,65 @@ describe("Platform API bootstrap DB enrollment", () => {
     );
   });
 
-  it("computes and accepts the canonical three-unit topology for the shipped manifest", () => {
-    const enrollment = defaultPathEnrollment(currentMinimumUnitCount);
-    const { schedule } = enrollment.result;
-
-    // The model's own minimum, or the shipped count when a bound declared floor lifts it.
-    expectDefaultPathFloorRole(enrollment);
-    expect(schedule.effectiveMinimumUnitCount).toBe(3);
-    expect(schedule.observedUnitCount).toBe(3);
-    for (const unit of schedule.units) {
-      expect(unit.makespanMs).toBeLessThanOrEqual(bootstrapDbScheduleModel.executionUnitCeilingMs);
-    }
-    expect(schedule.aggregateWithOverheadMs).toBeLessThanOrEqual(bootstrapDbScheduleModel.aggregateCeilingMs);
+  it("rejects the previous topology when it has no spare boot-bearing slot", async () => {
+    const fixture = underAcceptedScheduleModel(
+      await createShippedFixture(shippedShapedFiles(), { model: acceptedTimingInputs() }),
+    );
+    const previous = defaultPathEnrollment(currentMinimumUnitCount, {
+      platformApiRoot: fixture.root,
+      manifest: fixture.manifest,
+      executionUnitBootBearingCaseCeilings: fixture.ceilings,
+      scheduleModel: fixture.model,
+      nonBootstrapCensus: fixture.nonBootstrapCensus,
+    });
+    expectDefaultPathFloorRole(previous);
+    expectOneFewerUnitInfeasible(previous);
+    expect(runFixture(fixture, 78).violations).toEqual([
+      "the shipped topology provides 77 boot-bearing case slots, below the required 78",
+    ]);
   });
 
-  it("shows a one-fewer-unit alternative whose binding unit is above the 420-second ceiling", () => {
-    // One fewer than the shipped three units is a bound declared floor's
-    // measured capture, or else the model's own alternative.
-    expectOneFewerUnitInfeasible(defaultPathEnrollment(currentMinimumUnitCount));
+  it("does not let the boot-bearing reserve justify a fifth execution unit", async () => {
+    const files = shippedShapedFiles(true).map((file) =>
+      file.fileName === "seed-command-full-pools.db.test.ts" ? { ...file, executionUnit: "test:db:5" } : file,
+    );
+    const fixture = underAcceptedScheduleModel(
+      await createShippedFixture(files, {
+        model: acceptedTimingInputs(),
+        ceilings: { ...derivedBootBearingCaseCeilings, "test:db:5": 2 },
+      }),
+    );
+    expect(runFixture(fixture, 78).violations).toEqual([minimalityViolationFor(5, 4)]);
+  });
+
+  it("admits one more boot-bearing file in the reserve unit but not a second", async () => {
+    const files = shippedShapedFiles(true);
+    files.push(unitFileFor("synthetic-reserve-fit", "test:db:4", 203_000));
+    const fixture = underAcceptedScheduleModel(
+      await createShippedFixture(files, {
+        model: acceptedTimingInputs(),
+        ceilings: derivedBootBearingCaseCeilings,
+      }),
+    );
+    const { violations, schedule } = runFixture(fixture, 78);
+    expect(violations).toEqual([]);
+    expect(schedule.effectiveMinimumUnitCount).toBe(4);
+    expect(schedule.units.at(-1)).toMatchObject({ bootBearingCaseCount: 2, bootBearingCeiling: 2 });
+    expect(schedule.aggregateWithOverheadMs).toBeLessThanOrEqual(bootstrapDbScheduleModel.aggregateCeilingMs);
+
+    const extra = await createShippedFixture(
+      [...files, unitFileFor("synthetic-reserve-overflow", "test:db:4", 1_000)],
+      {
+        model: acceptedTimingInputs(),
+        ceilings: derivedBootBearingCaseCeilings,
+      },
+    );
+    expect(runFixture(extra, 78).violations).toEqual(
+      expect.arrayContaining([
+        "test:db:4 has 3 boot-bearing cases, exceeding its declared ceiling of 2",
+        expect.stringContaining("refuses to enumerate 14 files, above its declared bound of 13"),
+      ]),
+    );
   });
 
   it("rejects an extra execution unit that satisfies every other invariant", async () => {
@@ -3641,7 +3693,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     const fixture = underAcceptedScheduleModel(
       await createShippedFixture(shippedShapedFiles(), {
         model: acceptedTimingInputs(),
-        ceilings: { ...bootstrapDbExecutionUnitBootBearingCaseCeilings, "test:db:5": 0 },
+        ceilings: { "test:db:1": 26, "test:db:2": 32, "test:db:3": 19, "test:db:5": 0 },
         extraSources: {
           "plain-unit.test.ts": ['import { it } from "vitest";', 'it("needs no database", () => {});'].join("\n"),
         },
@@ -3691,14 +3743,15 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(runFixture(fixture).violations).toEqual([]);
   });
 
-  it("keeps the shipped three-unit topology exactly as hosted CI selects it", () => {
+  it("keeps the shipped four-unit topology exactly as hosted CI selects it", () => {
     const packageScripts = JSON.parse(readFileSync(join(testDirectory, "..", "package.json"), "utf8"))
       .scripts as Record<string, string>;
     const selected = Object.keys(packageScripts)
       .filter((name) => name.startsWith("test:db:") && typeof packageScripts[name] === "string")
       .sort((left, right) => left.localeCompare(right, "en", { numeric: true }));
 
-    expect(selected).toEqual(["test:db:1", "test:db:2", "test:db:3"]);
+    expect(selected).toEqual(["test:db:1", "test:db:2", "test:db:3", "test:db:4"]);
+    expect(packageScripts["test:db"]).toBe(selected.map((name) => `pnpm run ${name}`).join(" && "));
     expect(checkBootstrapDbEnrollment().schedule.units.map((unit) => unit.scriptName)).toEqual(selected);
   });
 
@@ -4302,7 +4355,6 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(result.fileCount).toBe(12);
     expect(result.caseCount).toBe(74);
     expect(result.schedule.minimumUnitCount).toBe(2);
-    expect(bootstrapDbScheduleModel.maximumScheduledFileCount).toBe(12);
     expect(runFixture({ ...fixture, model: { ...fixture.model, maximumScheduledFileCount: 11 } }).violations).toContain(
       "the schedule model refuses to enumerate 12 files, above its declared bound of 11; " +
         "re-derive the bound deliberately rather than sampling assignments",
@@ -4602,26 +4654,23 @@ describe("Platform API bootstrap DB enrollment", () => {
       expect(expectNotApplied(fixture, syntheticFloor, reason).violations).toContain(violation);
     });
 
-    it("T6: binds the declared floor to its measured pair and applies it exactly when it binds the current model", () => {
+    it("T6: binds the declared floor to its measured pair, not the four-unit topology", () => {
       const { shipped, paired } = readCurrentMeasuredCaptures();
       const derived = deriveBootstrapDbMeasuredOneFewerUnitFloor({ shippedCapture: shipped, pairedCapture: paired });
       expect(derived.refusal).toBeNull();
       expect(bootstrapDbMeasuredOneFewerUnitFloor).toEqual(derived.floor);
       expect(bootstrapDbMeasuredOneFewerUnitFloor).not.toBeNull();
-      const enrollment = defaultPathEnrollment(currentMinimumUnitCount);
-      expect(enrollment.result.schedule).toMatchObject({
-        measuredOneFewerUnitFloor: expectedMeasuredFloorVerdict(
-          enrollment.floor,
-          enrollment.model,
-          enrollment.result.schedule.files,
-        ),
+      const result = checkBootstrapDbEnrollment();
+      expect(result.schedule).toMatchObject({
+        measuredOneFewerUnitFloor: {
+          applied: false,
+          reason: "the measured one-fewer-unit floor measures 2 unit(s), not one fewer than the 4 observed",
+        },
         minimumUnitCount: currentMinimumUnitCount,
-        effectiveMinimumUnitCount: 3,
-        observedUnitCount: 3,
+        effectiveMinimumUnitCount: 4,
+        observedUnitCount: 4,
       });
-      expect(enrollment.result.violations).toEqual([]);
-      expectDefaultPathFloorRole(enrollment);
-      expectOneFewerUnitInfeasible(enrollment);
+      expect(result.violations).toEqual([]);
     });
 
     it("T7: pins both paired capture fixtures to their bytes and their live artifact digests", () => {
@@ -4637,7 +4686,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     });
 
     let retainedEnrollment: Promise<DefaultPathEnrollment> | undefined;
-    let naturallyMinimalEnrollment: DefaultPathEnrollment | undefined;
+    let naturallyMinimalEnrollment: Promise<DefaultPathEnrollment> | undefined;
 
     function deriveNaturallyMinimalExecutionUnitFixedCost() {
       const model = {
@@ -4674,25 +4723,23 @@ describe("Platform API bootstrap DB enrollment", () => {
       return retainedEnrollment;
     }
 
-    /**
-     * The current manifest and census under the accepted model's timing and
-     * ceilings with unmistakably synthetic provenance, which the declared floor
-     * does not bind, and the model's own minimum is the shipped three units.
-     */
+    /** Synthetic timing minimum of three on the three-unit workload, with no applicable floor. */
     function naturallyMinimalDefaultPathEnrollment() {
       const scheduleModel = {
         ...bootstrapDbScheduleModel,
         ...syntheticScheduleModelProvenance,
         executionUnitFixedCostMs: deriveNaturallyMinimalExecutionUnitFixedCost(),
       };
-      naturallyMinimalEnrollment ??= defaultPathEnrollment(3, {
-        scheduleModel,
-        nonBootstrapCensus: {
-          ...platformApiProductDbProofCensus,
-          referenceRunId: scheduleModel.referenceRunId,
-          referenceJobId: scheduleModel.referenceJobId,
-        },
-      });
+      naturallyMinimalEnrollment ??= createShippedFixture(shippedShapedFiles(), { model: scheduleModel }).then(
+        (fixture) =>
+          defaultPathEnrollment(3, {
+            platformApiRoot: fixture.root,
+            manifest: fixture.manifest,
+            executionUnitBootBearingCaseCeilings: fixture.ceilings,
+            scheduleModel: fixture.model,
+            nonBootstrapCensus: fixture.nonBootstrapCensus,
+          }),
+      );
       return naturallyMinimalEnrollment;
     }
 
@@ -4707,8 +4754,8 @@ describe("Platform API bootstrap DB enrollment", () => {
       };
     }
 
-    it("holds the default-path floor role on a naturally minimal enrollment the declared floor does not bind", () => {
-      const enrollment = naturallyMinimalDefaultPathEnrollment();
+    it("holds the default-path floor role on a naturally minimal enrollment the declared floor does not bind", async () => {
+      const enrollment = await naturallyMinimalDefaultPathEnrollment();
       expect(enrollment.model).toMatchObject(syntheticScheduleModelProvenance);
       expect(enrollment.result.schedule.measuredOneFewerUnitFloor).toEqual({
         applied: false,
@@ -4890,7 +4937,7 @@ describe("bootstrap DB evidence", () => {
   it("keeps the guard prefix and both reporters on every numbered DB script", () => {
     const { scripts } = JSON.parse(readFileSync(join(testDirectory, "../package.json"), "utf8"));
     const units = Object.keys(scripts).filter((name) => /^test:db:\d+$/.test(name));
-    expect(units).toEqual(["test:db:1", "test:db:2", "test:db:3"]);
+    expect(units).toEqual(["test:db:1", "test:db:2", "test:db:3", "test:db:4"]);
     for (const name of units) {
       expect(scripts[name]).toMatch(/^node \.\/scripts\/check-bootstrap-db-enrollment\.mjs && vitest run /);
       expect(scripts[name]).toContain(
