@@ -368,7 +368,7 @@ async function planProviderUnit(input: {
   required: boolean;
   explicitlySelected: boolean;
 }): Promise<CatalogSyncProviderParticipationUnit> {
-  const blockers = eligibilityBlockers(input.version, input.unitKey, input.scope, input.mapping);
+  const blockers = catalogSyncProfileEligibilityBlockers(input.version, input.unitKey, input.scope, input.mapping);
   const adapter = input.registry.get(input.version.providerKey);
   const rolloutEvidence: Array<
     NonNullable<CatalogSyncProviderParticipationUnit["planningEvidence"]>["rollout"][number]
@@ -583,7 +583,7 @@ function declaresNoImportPlanning(registry: ProviderAdapterRegistry, providerKey
   return registry.get(providerKey)?.capabilities.supportsImportPlanning === false;
 }
 
-function eligibilityBlockers(
+export function catalogSyncProfileEligibilityBlockers(
   version: CatalogProviderIntegrationProfileVersionRecord,
   unitKey: CatalogIntegrationUnitKey,
   scope: CatalogSyncScope,

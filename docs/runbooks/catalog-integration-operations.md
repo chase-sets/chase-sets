@@ -152,6 +152,16 @@ Do not manually patch Catalog Items outside the engine-generated promotion/reapp
 
 A failed promotion outcome carries an optional `diagnosticCode` beside its free-text `reason`. `asset-processing-failed` means the Catalog asset download, processing, or storage write failed ([Catalog Asset Storage](./catalog-asset-storage.md) Failure Policy); retry the promotion once storage is healthy. A failed outcome without a code has no classified cause.
 
+## Freeze Catalog Completion Manifest
+
+Dispatch `Production Catalog Completion Manifest` from `main` in the protected `production` environment. Supply the existing production Scope Sync Batch ID and the agreed UTC `launch_cutoff` and `expires_at`. The manifest is batch-bound: this workflow neither creates a batch nor replaces the pre-confirm preview. For partitioned coverage, reconcile the batch manifests against the approved full selection before signing off.
+
+The workflow reads Catalog in one `REPEATABLE READ READ ONLY` transaction using the Catalog context connection. It compares the batch's stored plan with active Catalog Scope Records, accepted Provider Scope Mappings, and production-capable provider profile versions. A missing, ambiguous, or changed expected pair stops the freeze. The workflow does not run provider previews, check credentials or spend, or pull Source Observations. TCGplayer units appear only as `browser-extension-only` exclusions; browser-extension approvals remain separate.
+
+Download `catalog-completion-manifest-<run_id>-<run_attempt>` and verify the exact JSON bytes with `sha256sum -c catalog-completion-manifest.json.sha256` from the download directory. Bind the host's approval to that SHA-256 and the exact main commit, batch ID, and plan fingerprint in the manifest. The artifact records source versions and coverage counts, not live provider authority. Re-preview and freeze again if it expires or if the release, scope, mapping, profile, rollout, provider authority, or cost changes. Do not hand-edit the artifact or treat it as execution approval.
+
+Use the artifact name and run ID in the production **Catalog Completion Report**. Its database mode refreshes outcome facts, including any unknown at freeze time, against the frozen universe. Do not use the freeze snapshot alone as completion proof.
+
 ## Catalog Completion Report
 
 The `Catalog Completion Report` workflow (`.github/workflows/catalog-completion-report.yml`) generates the Production Catalog Completion Report for one Scope Sync Batch from a deployed environment. Dispatch it with `environment` (`staging` or `production`) and `batch_id`. To prove completion, also pass `manifest_run_id` and `manifest_artifact`, naming an artifact that holds the frozen `catalog-completion-manifest.json`.

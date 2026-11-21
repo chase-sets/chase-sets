@@ -273,6 +273,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "backlog-roadmap-status.yml": "ci",
     "browser-boundary-diagnostics.yml": "ci",
     "browser-boundary-timeout-verifier.yml": "ci",
+    "catalog-completion-manifest.yml": "ci",
     "catalog-completion-report.yml": "ci",
     "catalog-integration-staging-reset.yml": "release",
     "catalog-provider-refresh-watch.yml": "release",
