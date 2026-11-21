@@ -38,14 +38,23 @@ test.describe("marketplace buyer purchase journey", () => {
 
     const search = page.getByRole("combobox", { name: "Search marketplace" });
     await expect(search).toBeVisible();
+    const searchResults = /\/search\?q=charizard$/;
+    const submitSearch = page.getByRole("option", { name: "Search for 'charizard'", exact: true });
     await expect(async () => {
-      await search.tap();
-      await search.fill("charizard");
-      await search.press("Enter");
-      await expect(page).toHaveURL(/\/search\?q=charizard$/, { timeout: 1_000 });
+      if (!searchResults.test(page.url())) {
+        await search.tap();
+        await search.fill("charizard");
+        await submitSearch.tap({ timeout: 1_000 });
+      }
+      await expect(page).toHaveURL(searchResults, { timeout: 1_000 });
     }).toPass({ timeout: 20_000 });
-    const detailPath = marketplaceBrowserE2eSeedContract.itemDetail.routePath;
-    const result = page.locator(`article > a[href="${detailPath}"]`);
+    await expect(page.getByRole("listbox", { name: "Search marketplace" })).toBeHidden();
+
+    const detailPath = `${marketplaceBrowserE2eSeedContract.itemDetail.routePath}?market=buy`;
+    // The card's primary action sits above the full-card details link on narrow results.
+    const result = page
+      .getByRole("link", { name: "Add product to Buy Cart", exact: true })
+      .and(page.locator(`a[href="${detailPath}"]`));
     await expect(result).toBeVisible();
     await expectNoHorizontalOverflow("Search results");
     await result.tap();

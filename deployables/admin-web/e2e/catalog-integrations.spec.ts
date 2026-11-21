@@ -202,13 +202,7 @@ test("tablet operator navigates to import review and uses the bulk action bar @c
   await expect(selected).toBeHidden();
 });
 
-test("catalog operator can inspect integration health triage @catalog-admin-integrations @tablet", async ({ page }) => {
-  test.setTimeout(120_000);
-  test.skip(
-    skipDeployedAdminE2e,
-    "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
-  );
-
+async function openIntegrationHealthTriage(page: Page) {
   await authenticateAdmin(page, "/catalog/integrations/health", "/access/sign-in");
 
   // Health triage now lives on the real /catalog/integrations/health surface route.
@@ -217,9 +211,9 @@ test("catalog operator can inspect integration health triage @catalog-admin-inte
     "/catalog/integrations/health?providerKey=tcgdex&section=triage&filter.status=changed&selectedObservationIds=obs_001",
   );
   await expect(page).toHaveURL(/\/catalog\/integrations\/health\?.*section=triage/);
-  const trail = page.getByRole("navigation", { name: "Current section" });
-  await expect(trail.getByText("Integration health")).toHaveAttribute("aria-current", "page");
+}
 
+async function expectIntegrationHealthTriage(page: Page) {
   // There is no page-local workflow nav or mobile combobox; cross-surface
   // navigation is the admin shell's responsibility.
   await expect(page.getByRole("navigation", { name: "Catalog control plane workflows" })).toHaveCount(0);
@@ -232,25 +226,24 @@ test("catalog operator can inspect integration health triage @catalog-admin-inte
   await expect(page.getByRole("button", { name: /Preview promotion/i })).toHaveCount(0);
   const healthTriageRegion = page.getByRole("region", { name: "Integration health triage" });
   await expect(healthTriageRegion).toBeVisible();
-  for (const queryKey of [
+  // DataTable renders both cards and a table; only one is visible at a given width.
+  for (const label of [
     "integration-health-summary",
     "provider-transport-readiness-summary",
     "import-job-progress-summary",
     "audit-evidence-timeline",
+    "Read model",
+    "Ingestion unit",
+    "Catalog semantic",
+    "Provider transport",
+    "Provider adapter",
+    "Adapter capabilities",
+    "API",
+    "Payload",
+    /No active or failed import jobs|Import job|Active jobs/i,
   ]) {
-    await expect(healthTriageRegion.getByText(queryKey).first()).toBeVisible();
+    await expect(healthTriageRegion.getByText(label).filter({ visible: true }).first()).toBeVisible();
   }
-  await expect(healthTriageRegion.getByText("Read model").first()).toBeVisible();
-  await expect(healthTriageRegion.getByText("Ingestion unit").first()).toBeVisible();
-  await expect(healthTriageRegion.getByText("Catalog semantic").first()).toBeVisible();
-  await expect(healthTriageRegion.getByText("Provider transport").first()).toBeVisible();
-  await expect(healthTriageRegion.getByText("Provider adapter").first()).toBeVisible();
-  await expect(healthTriageRegion.getByText("Adapter capabilities").first()).toBeVisible();
-  await expect(healthTriageRegion.getByText("API").first()).toBeVisible();
-  await expect(healthTriageRegion.getByText("Payload").first()).toBeVisible();
-  await expect(
-    healthTriageRegion.getByText(/No active or failed import jobs|Import job|Active jobs/i).first(),
-  ).toBeVisible();
   // The health surface stacks three workspaces but renders the "Back to import
   // workbench" affordance exactly once, in the surface header (not once per
   // stacked workspace), so this needs no .first() disambiguator.
@@ -267,6 +260,15 @@ test("catalog operator can inspect integration health triage @catalog-admin-inte
   await expect(auditEvidenceWorkspace.getByRole("heading", { name: "Evidence links" })).toBeVisible();
   await expect(auditEvidenceWorkspace.getByText("source payload body download")).toBeVisible();
   await expect(auditEvidenceWorkspace.getByText("operator identity expansion")).toBeVisible();
+}
+
+test("catalog operator can inspect integration health triage @catalog-admin-integrations @tablet", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  await openIntegrationHealthTriage(page);
+  const trail = page.getByRole("navigation", { name: "Current section" });
+  await expect(trail.getByText("Integration health")).toHaveAttribute("aria-current", "page");
+  await expectIntegrationHealthTriage(page);
 });
 
 test.describe.serial("catalog admin integrations", () => {
@@ -756,6 +758,22 @@ test.describe.serial("catalog admin integrations", () => {
     });
     expect(retiredListResponse?.status() ?? 0).toBeGreaterThanOrEqual(400);
     await expect(page.getByRole("heading", { name: "Source Observations" })).toHaveCount(0);
+  });
+
+  test("catalog operator can inspect integration health triage @catalog-admin-integrations", async ({ page }) => {
+    test.setTimeout(120_000);
+    test.skip(
+      skipDeployedAdminE2e,
+      "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
+    );
+
+    await openIntegrationHealthTriage(page);
+    await expect(page.locator('a[href="/catalog/integrations/health"]').first()).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    await expect(page.locator('a[href="/catalog/integrations"]').first()).toBeVisible();
+    await expectIntegrationHealthTriage(page);
   });
 
   test("catalog operator can inspect provider setup readiness on the v2 Provider detail page @catalog-admin-integrations", async ({

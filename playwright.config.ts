@@ -16,7 +16,9 @@ const renderedCopySweep = process.argv.some(
   (argument, index) => argument === "--grep" && process.argv[index + 1] === "@rendered-copy",
 );
 const skipWebServer = process.env.PLAYWRIGHT_SKIP_WEB_SERVER === "true";
-const seedOnly = /@browser-e2e-(?:seed|dev-source)/;
+const deployedProfile = {
+  grepInvert: skipWebServer ? /@browser-e2e-(?:seed|dev-source)/ : undefined,
+};
 const mobile = /(?:^|\s)@mobile(?:\s|$)/;
 const tablet = /(?:^|\s)@tablet(?:\s|$)/;
 const includeAdminWebProject = !skipWebServer || Boolean(process.env.ADMIN_WEB_URL);
@@ -27,42 +29,26 @@ const includeAdminWebProject = !skipWebServer || Boolean(process.env.ADMIN_WEB_U
 const includePublicWebProject = Boolean(process.env.PUBLIC_WEB_URL);
 const browserE2eSystemTarget = resolveBrowserE2eSystemTarget();
 const browserE2eEvidenceEnvironment = createBrowserE2eRunEvidenceEnvironment(sandbox);
+const marketplaceDesktop = {
+  name: "marketplace-chromium",
+  testMatch: "deployables/marketplace/e2e/**/*.spec.ts",
+  use: { ...devices["Desktop Chrome"], baseURL: marketplaceBaseUrl },
+};
+const adminWebDesktop = {
+  name: "admin-web-chromium",
+  testMatch: "deployables/admin-web/e2e/**/*.spec.ts",
+  use: { ...devices["Desktop Chrome"], baseURL: adminWebBaseUrl },
+};
 const projects = [
   {
-    name: "marketplace-chromium",
-    testMatch: "deployables/marketplace/e2e/**/*.spec.ts",
-    grepInvert: skipWebServer ? [mobile, seedOnly] : mobile,
-    use: { ...devices["Desktop Chrome"], baseURL: marketplaceBaseUrl },
-  },
-  {
-    name: "marketplace-mobile",
-    testMatch: "deployables/marketplace/e2e/**/*.spec.ts",
-    grep: mobile,
-    use: {
-      ...devices["iPhone 13"],
-      defaultBrowserType: "chromium",
-      viewport: { width: 390, height: 844 },
-      baseURL: marketplaceBaseUrl,
-    },
+    ...marketplaceDesktop,
+    grepInvert: deployedProfile.grepInvert ? [mobile, deployedProfile.grepInvert] : mobile,
   },
   ...(includeAdminWebProject
     ? [
         {
-          name: "admin-web-chromium",
-          testMatch: "deployables/admin-web/e2e/**/*.spec.ts",
-          grepInvert: skipWebServer ? [tablet, seedOnly] : tablet,
-          use: { ...devices["Desktop Chrome"], baseURL: adminWebBaseUrl },
-        },
-        {
-          name: "admin-web-tablet",
-          testMatch: "deployables/admin-web/e2e/**/*.spec.ts",
-          grep: tablet,
-          use: {
-            ...devices["Desktop Chrome"],
-            viewport: { width: 768, height: 1024 },
-            hasTouch: true,
-            baseURL: adminWebBaseUrl,
-          },
+          ...adminWebDesktop,
+          grepInvert: deployedProfile.grepInvert ? [tablet, deployedProfile.grepInvert] : tablet,
         },
       ]
     : []),
@@ -75,6 +61,32 @@ const projects = [
         },
       ]
     : []),
+  // Responsive journeys belong to the seeded browser stack used by local runs and PR CI.
+  ...(skipWebServer
+    ? []
+    : [
+        {
+          ...marketplaceDesktop,
+          name: "marketplace-mobile",
+          grep: mobile,
+          use: {
+            ...devices["iPhone 13"],
+            defaultBrowserType: "chromium",
+            viewport: { width: 390, height: 844 },
+            baseURL: marketplaceDesktop.use.baseURL,
+          },
+        },
+        {
+          ...adminWebDesktop,
+          name: "admin-web-tablet",
+          grep: tablet,
+          use: {
+            ...adminWebDesktop.use,
+            viewport: { width: 768, height: 1024 },
+            hasTouch: true,
+          },
+        },
+      ]),
 ];
 
 export default defineConfig({
@@ -85,7 +97,7 @@ export default defineConfig({
     identityDatabaseUrl: sandbox.contextDatabaseUrls.identity,
     channelsDatabaseUrl: sandbox.contextDatabaseUrls.channels,
   },
-  grepInvert: skipWebServer ? seedOnly : undefined,
+  ...deployedProfile,
   outputDir: "artifacts/playwright/test-results",
   fullyParallel: !renderedCopySweep,
   forbidOnly: isCi,
