@@ -14,7 +14,11 @@ import {
   paymentsDisputeEvidenceSourceSchemaMigrations,
   paymentsDisputeEvidenceSourceSchemaSql,
 } from "../../features/payments/integrations/dispute-evidence/dispute-evidence-schema";
-import { paymentsPaymentSchemaMigrations, paymentsPaymentSchemaSql } from "../../features/payments/read-model/schema";
+import {
+  paymentsAccountRiskSourceExpansionSchemaSql,
+  paymentsPaymentSchemaMigrations,
+  paymentsPaymentSchemaSql,
+} from "../../features/payments/read-model/schema";
 import {
   paymentsOrderCancellationRefundEffectSchemaMigrations,
   paymentsOrderCancellationRefundEffectSchemaSql,
@@ -55,6 +59,7 @@ export const paymentsSchemaSql = [
   paymentsOrderCancellationRefundEffectSchemaSql,
   paymentsSupportRefundEffectSchemaSql,
   paymentsPaymentSchemaSql,
+  paymentsAccountRiskSourceExpansionSchemaSql,
   paymentsRefundSchemaSql,
   paymentsWorkClaimSchemaSql,
   paymentsCardDeclineSchemaSql,
