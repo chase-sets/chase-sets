@@ -80,6 +80,16 @@ export function catalogScopeRecordIdFromPath(pathname: string | null | undefined
  * hierarchy decides it.
  */
 export function catalogScopeDetailDailyLocation(location: URL, scope: CatalogScopeDetailWorkbenchScope): URL {
+  return scopeDetailDailyLocation(location, scope, location.searchParams.get("providerKey"));
+}
+
+// The daily location with the address's import scope read as `providerKey`
+// reads it.
+function scopeDetailDailyLocation(
+  location: URL,
+  scope: CatalogScopeDetailWorkbenchScope,
+  providerKey: string | null,
+): URL {
   const url = new URL(location);
   url.pathname = DAILY_WORKBENCH_PATH;
   for (const key of [...url.searchParams.keys()]) {
@@ -88,7 +98,7 @@ export function catalogScopeDetailDailyLocation(location: URL, scope: CatalogSco
     }
   }
   const importScope = url.searchParams.get("importScope");
-  if (importScope && !importScopeInsideScopeRecord(importScope, url.searchParams.get("providerKey"), scope)) {
+  if (importScope && !importScopeInsideScopeRecord(importScope, providerKey, scope)) {
     url.searchParams.delete("importScope");
   }
 
@@ -104,12 +114,12 @@ export function catalogScopeDetailDailyLocation(location: URL, scope: CatalogSco
 /**
  * A Scope Detail command bound to the Scope Record its path names, or null when
  * the address or form restates a hierarchy value or Scope Record id the record
- * does not have. The bound address is the same one the Scope's read composes,
- * on the Scope's own path; the form keeps every selection and loses only the
- * hierarchy fields, which the address now names, and an import scope the read
- * would drop, which yields to the address's. The form names the record and its
- * kind, so a sync that submits no reference runs on this record rather than on
- * a level inferred from the selection.
+ * does not have. The bound address is the one the Scope's read composes with
+ * the command's provider, on the Scope's own path; the form keeps every
+ * selection and loses only the hierarchy fields, which the address now names,
+ * and an import scope the read would drop, which yields to the address's. The
+ * form names the record and its kind, so a sync that submits no reference runs
+ * on this record rather than on a level inferred from the selection.
  */
 export function catalogScopeDetailCommandSubmission(
   location: URL,
@@ -131,12 +141,18 @@ export function catalogScopeDetailCommandSubmission(
     return null;
   }
 
-  const boundLocation = catalogScopeDetailDailyLocation(location, scope);
-  boundLocation.pathname = location.pathname;
+  // The command reads every import scope, the address's too, with the provider
+  // its form submits, else the address's. Both are checked with that provider,
+  // and the bound address names it, so parsing that address reads them alike.
   const submittedProviderKey = formData.get("providerKey");
   const providerKey =
     (typeof submittedProviderKey === "string" && submittedProviderKey.trim()) ||
-    boundLocation.searchParams.get("providerKey");
+    location.searchParams.get("providerKey");
+  const boundLocation = scopeDetailDailyLocation(location, scope, providerKey);
+  boundLocation.pathname = location.pathname;
+  if (providerKey) {
+    boundLocation.searchParams.set("providerKey", providerKey);
+  }
   const boundFormData = new FormData();
   for (const [key, value] of formData) {
     const recordOwned =

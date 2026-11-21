@@ -364,4 +364,44 @@ describe("Catalog scope-detail route action", () => {
       }
     },
   );
+
+  // A compact coordinate names a series for TCGdex and an expansion for Scryfall.
+  // The command reads the address's import scope with the provider its form
+  // submits, so the Scope checks it with that provider: a foreign expansion never
+  // reaches a series Scope's import as its set.
+  it.each([
+    ["tcgdex", "scryfall", "scryfall:mtg:card:import"],
+    ["scryfall", "tcgdex", SELECTION.unitKey],
+  ] as const)(
+    "reads a %s address's compact import scope with the %s provider its form submits",
+    async (addressProviderKey, providerKey, unitKey) => {
+      const [, record] = NO_EXPANSION_RECORDS[0];
+      getCatalogScopeRecord.mockResolvedValue({ ...SCOPE_RECORD, ...record });
+      const enqueueSourceObservationIntegrationJob = vi
+        .fn()
+        .mockResolvedValue({ jobId: "job_import", status: "queued" });
+      createApi.mockReturnValue({ enqueueSourceObservationIntegrationJob });
+      const address = `https://admin.example/catalog/scopes/${record.scopeRecordId}?${new URLSearchParams({
+        ...SELECTION,
+        providerKey: addressProviderKey,
+        importScope: "en:synthetic-other-expansion",
+      })}`;
+
+      const target = redirectTarget(
+        await runScopeAction(record.scopeRecordId, address, { _intent: "scope.import", providerKey, unitKey }),
+      );
+
+      expect(enqueueSourceObservationIntegrationJob).toHaveBeenCalledTimes(1);
+      const [, scope] = enqueueSourceObservationIntegrationJob.mock.calls[0] ?? [];
+      expect(scope).toMatchObject({
+        provider: providerKey,
+        ingestionUnitKey: unitKey,
+        productLineId: PRODUCT_LINE_ID,
+        seriesId: record.scopeRecordId,
+      });
+      expect(JSON.stringify(scope)).not.toContain("synthetic-other");
+      expect(target.pathname).toBe(`/catalog/scopes/${record.scopeRecordId}`);
+      expect(target.searchParams.get("providerKey")).toBe(providerKey);
+    },
+  );
 });

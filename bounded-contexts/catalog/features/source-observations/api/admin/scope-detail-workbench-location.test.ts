@@ -238,6 +238,44 @@ describe("Scope Detail daily workbench location", () => {
     }
   });
 
+  // A command parses the address's import scope with the provider its form
+  // submits, so the address is checked with that provider and names it.
+  it("checks a command's address import scope with the provider its form submits", () => {
+    const series = scope({
+      scopeRecordId: "scope_1",
+      scopeKind: "series",
+      name: "Scope 1",
+      productLineScopeRecordId: "pl_1",
+      seriesScopeRecordId: null,
+    });
+    const compact = "en:synthetic-other-expansion";
+    const submit = (addressProviderKey: string, providerKey: string) => {
+      const address = new URL(
+        `https://admin.example/catalog/scopes/scope_1?${new URLSearchParams({ providerKey: addressProviderKey, importScope: compact })}`,
+      );
+      const formData = new FormData();
+      formData.set("_intent", "scope.import");
+      formData.set("providerKey", providerKey);
+      return {
+        read: catalogScopeDetailDailyLocation(address, series),
+        bound: catalogScopeDetailCommandSubmission(address, formData, series),
+      };
+    };
+
+    // TCGdex reads the compact coordinate as a series the record overrides,
+    // Scryfall as an expansion the series record does not name.
+    const toScryfall = submit("tcgdex", "scryfall");
+    expect(toScryfall.read.searchParams.get("importScope")).toBe(compact);
+    expect(toScryfall.bound?.location.searchParams.get("importScope")).toBeNull();
+    expect(toScryfall.bound?.location.searchParams.get("providerKey")).toBe("scryfall");
+    expect(toScryfall.bound?.formData.get("providerKey")).toBe("scryfall");
+
+    const toTcgdex = submit("scryfall", "tcgdex");
+    expect(toTcgdex.read.searchParams.get("importScope")).toBeNull();
+    expect(toTcgdex.bound?.location.searchParams.get("importScope")).toBe(compact);
+    expect(toTcgdex.bound?.location.searchParams.get("providerKey")).toBe("tcgdex");
+  });
+
   it("names the record and its kind on a command, whatever reference the form submits", () => {
     const series = scope({ scopeRecordId: "scope_1", scopeKind: "series", name: "Scope 1", seriesScopeRecordId: null });
     const formData = new FormData();
