@@ -1,11 +1,14 @@
 import { formatDate, t } from "@chase-sets/localization";
+import { useId, useState } from "react";
 import {
   HiddenInput,
   ActorIdentityCue,
   Button,
   Banner,
   InlineTextGroup,
+  Inline,
   LinkButton,
+  LinkText,
   MarketplaceDashboardPanel,
   Page,
   PageHeader,
@@ -15,11 +18,14 @@ import {
   Stack,
   Text,
   TextInput,
+  ValidationSummary,
 } from "@chase-sets/design-system";
 import type { Account } from "./contracts";
 import type { CurrentActorDisplay } from "../../../support/shell-support/current-actor-display";
 import { AccountBadgeList } from "./account-badges";
-import { AccountMutationForm as Form } from "../../account-management/ui/controller";
+import { AccountMutationForm as Form, type MutationNotification } from "../../account-management/ui/controller";
+import type { MutationFailure } from "../../account-management/ui/transport";
+import type { DisplayNameRejectionCode } from "../domain/display-name-safeguard";
 import {
   accountStatusLabel,
   accountTypeLabel,
@@ -30,6 +36,13 @@ import {
 function displayActorAccountName(display: CurrentActorDisplay) {
   return display.account.display_name ?? display.account.name ?? display.account.account_id;
 }
+
+const displayNameRecovery = {
+  text_control_character: "identity.features.accounts.ui.accountProfilePage.removeControlCharacters",
+  text_direction_override: "identity.features.accounts.ui.accountProfilePage.removeDirectionOverrides",
+  text_unsafe_link: "identity.features.accounts.ui.accountProfilePage.useHttps",
+  text_duplicate_link: "identity.features.accounts.ui.accountProfilePage.removeDuplicateLinks",
+} as const satisfies Record<DisplayNameRejectionCode, string>;
 
 function displayActorUserName(display: CurrentActorDisplay) {
   return display.user.display_name ?? display.user.primary_email ?? display.user.user_id;
@@ -61,6 +74,13 @@ export function AccountProfilePage({
   actorDisplay?: CurrentActorDisplay | null;
   errorMessage?: string;
 }) {
+  const fieldId = useId();
+  const [failure, setFailure] = useState<MutationFailure | null>(null);
+  const displayNameRejection = failure?.displayNameRejection;
+  const displayNameLabel = t("identity.features.accounts.ui.accountProfilePage.marketplace.name");
+  function onMutation(notification: MutationNotification) {
+    setFailure(notification.type === "failure" ? notification.failure : null);
+  }
   const updatedAt = account.updated_at
     ? formatDate(account.updated_at, { fallback: identityDateUnavailable() })
     : t("identity.features.accounts.ui.accountProfilePage.not.available");
@@ -79,7 +99,18 @@ export function AccountProfilePage({
         description={t("identity.features.accounts.ui.accountProfilePage.profile.and.commercial.ownership.details.for")}
         actions={
           <Stack direction={{ base: "column", md: "row" }} align={{ base: "stretch", md: "end" }} gap={2}>
-            <Form spacing="none" method="post">
+            <Form spacing="none" method="post" onMutation={onMutation}>
+              {displayNameRejection ? (
+                <ValidationSummary
+                  title={t("identity.features.accounts.ui.accountProfilePage.displayNameRejected")}
+                  description={t("identity.features.accounts.ui.accountProfilePage.draftKept")}
+                  errors={[
+                    { fieldId, fieldName: displayNameLabel, message: t(displayNameRecovery[displayNameRejection]) },
+                  ]}
+                />
+              ) : failure ? (
+                <Banner tone="danger" title={failure.message} />
+              ) : null}
               <Stack direction={{ base: "column", md: "row" }} align={{ base: "stretch", md: "end" }} gap={2}>
                 <HiddenInput type="hidden" name="intent" value="update-profile" readOnly />
                 <TextInput
@@ -89,8 +120,9 @@ export function AccountProfilePage({
                   required
                 />
                 <TextInput
+                  id={fieldId}
                   name="displayName"
-                  label={t("identity.features.accounts.ui.accountProfilePage.marketplace.name")}
+                  label={displayNameLabel}
                   defaultValue={account.display_name}
                   required
                 />
@@ -98,6 +130,17 @@ export function AccountProfilePage({
                   {t("identity.features.accounts.ui.accountProfilePage.update.profile")}
                 </Button>
               </Stack>
+              <Text size="sm" tone="secondary">
+                {t("identity.features.accounts.ui.accountProfilePage.publicNameGuidance")}
+              </Text>
+              <Inline gap={3}>
+                <LinkText href="/help/buying/community-guidelines-and-enforcement">
+                  {t("identity.features.accounts.ui.accountProfilePage.communityGuidelines")}
+                </LinkText>
+                <LinkText href="/contact">
+                  {t("identity.features.accounts.ui.accountProfilePage.contactSupport")}
+                </LinkText>
+              </Inline>
             </Form>
             <LinkButton href="/account/shipping-addresses" tone="secondary">
               {t("identity.features.accounts.ui.accountProfilePage.manage.shipping.addresses")}

@@ -55,7 +55,7 @@ function fixture() {
       work({
         db: db as never,
         read: async (streamId) => [...(memory.streams.get(streamId) ?? [])],
-        append: memory.eventStore.appendToStreams,
+        append: (inputs) => memory.eventStore.appendToStreams!(inputs),
         projectionPredicate: health,
       }),
   };
@@ -111,6 +111,15 @@ describe("issue-7168-ac3-atomic-replay", () => {
     if (recovered.outcome === "committed") {
       expect(recovered).toHaveProperty("destination", expect.stringMatching(/^\/account\?afterWrite=/));
     }
+  });
+  it("account-profile-marker-scan: refuses a keyed unsafe name without a receipt or event", async () => {
+    const before = f.memory.allEvents.length;
+    const body = { name: "Store", displayName: "account-profile-marker-scan http://test.example" };
+    const refusal = await f.runtime.submit({ ...input, body });
+    expect(refusal).toEqual({ outcome: "not-recorded", code: "text_unsafe_link" });
+    expect(JSON.stringify(refusal)).not.toContain("account-profile-marker-scan");
+    expect(f.memory.allEvents).toHaveLength(before);
+    expect(await f.runtime.lookup(input)).not.toMatchObject({ outcome: "committed" });
   });
   it.each([
     [{ name: "  ", displayName: "New" }, "name"],

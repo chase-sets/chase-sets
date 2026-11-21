@@ -8,6 +8,7 @@ import type { IdentityApiEnv } from "../../../api";
 import { PLATFORM_ADMIN_ROLE_KEY } from "../../../support/runtime-support/common";
 import { accountBadgeKeys, type AccountBadgeKey } from "../domain/domain";
 import { AccountProfileFieldError } from "../domain/errors";
+import { DisplayNameRejectedError } from "../domain/display-name-safeguard";
 import type { AccountServices } from "./runtime";
 import type { AccountEnforcementRequest } from "./contracts";
 import { readAccountEnforcementRequest, submitAccountEnforcement } from "./account-enforcement";
@@ -58,18 +59,23 @@ export function accountRoutes(services: AccountServices, accountManagement?: Acc
     const body = await c.req.json();
     const context = c.get("context");
     const accountId = parseTypedIdBoundary(body.accountId, "acc", "accountId");
-    const result = await services.commandHandler({
-      streamId: `identity.account-${accountId}`,
-      command: {
-        type: "CreateAccount",
-        accountId,
-        name: body.name,
-        accountType: body.accountType,
-        displayName: body.displayName,
-      },
-      context,
-    });
-    return c.json({ id: accountId, version: result.version, status: result.state.status }, 201);
+    try {
+      const result = await services.commandHandler({
+        streamId: `identity.account-${accountId}`,
+        command: {
+          type: "CreateAccount",
+          accountId,
+          name: body.name,
+          accountType: body.accountType,
+          displayName: body.displayName,
+        },
+        context,
+      });
+      return c.json({ id: accountId, version: result.version, status: result.state.status }, 201);
+    } catch (error) {
+      if (error instanceof DisplayNameRejectedError) return c.json({ error: { code: error.code } }, 400);
+      throw error;
+    }
   });
 
   app.put("/:id", async (c) => {
@@ -96,6 +102,7 @@ export function accountRoutes(services: AccountServices, accountManagement?: Acc
       });
       return c.json({ id: accountId, version: result.version, status: result.state.status });
     } catch (error) {
+      if (error instanceof DisplayNameRejectedError) return c.json({ error: { code: error.code } }, 400);
       if (!(error instanceof AccountProfileFieldError)) throw error;
       const message = error.message;
       return c.json(

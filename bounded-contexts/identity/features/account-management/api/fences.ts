@@ -25,7 +25,7 @@ type ScopeEvent = Readonly<{ eventType: string; payload: Readonly<Record<string,
 export type IdentityMutationTransaction = Readonly<{
   db: PgQueryable;
   read: (streamId: string) => Promise<readonly StoredEvent[]>;
-  append: PostgresEventStore["appendToStreams"];
+  append: (inputs: readonly AppendToStreamInput[]) => ReturnType<PostgresEventStore["appendToStreamsInTransaction"]>;
   projectionPredicate: (
     projectionName: "identity-membership-projection" | "identity-consent-current-state-projection",
     parameters: readonly unknown[],

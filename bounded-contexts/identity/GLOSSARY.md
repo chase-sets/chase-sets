@@ -302,6 +302,10 @@ Notes:
 
 An **Account Profile** is an Account's Profile as other users meet it. It is the `account-profile` noun in Identity's public facts: an **Account Profile Report** (`identity.account-profile.report-submitted` v1, `contracts/event-core/public-event-payloads/identity.ts`) records that one Account reported another Account's profile, and Platform Operations queues it as Reported Content. The reporting user, route and attempt stay Identity-private.
 
+An authenticated Account can submit one **Account Profile Report** per target Account. The response acknowledges receipt without identifying an eligible target or confirming that a Report was recorded.
+
+**Profile display-name redaction** replaces the current public display name with “Name removed” after an authorized Reported Content action. Identity records the action and operator alongside an ordinary Account Profile update. It does not change the legal name, Account status, or historical records, and an older action cannot replace a newer display name.
+
 ### Contact Method
 
 A **Contact Method** is a way to reach or verify a user.

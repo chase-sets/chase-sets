@@ -37,6 +37,7 @@ import {
   jsonWithMutationReceipts,
   readIdentityMutationConflict,
   readRegistrationConsentRejection,
+  readIdentityDisplayNameRejection,
   resolveUnaffirmedRegistrationConsent,
   type AuthApiApp,
 } from "./support";
@@ -290,6 +291,8 @@ export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices
                 ? 409
                 : 503,
           );
+        const displayNameRejection = readIdentityDisplayNameRejection(error);
+        if (displayNameRejection) return c.json(displayNameRejection, 400);
         const consent = readRegistrationConsentRejection(error);
         if (consent) return c.json(consent, 400);
         return c.json(
@@ -372,6 +375,8 @@ export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices
           foundersBetaAccessStartedAt: new Date().toISOString(),
         });
       } catch (error) {
+        const displayNameRejection = readIdentityDisplayNameRejection(error);
+        if (displayNameRejection) return c.json(displayNameRejection, 400);
         const consentRejection = readRegistrationConsentRejection(error);
         if (consentRejection) {
           return c.json(consentRejection, 400);

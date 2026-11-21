@@ -5,6 +5,7 @@
   "ownedNouns": [
     "user",
     "account",
+    "account-profile-report",
     "account-capability",
     "membership",
     "invitation",
@@ -23,6 +24,7 @@
     "agent-grants",
     "access-hub",
     "accounts",
+    "account-profile-reports",
     "account-capabilities",
     "account-management",
     "users",
@@ -58,6 +60,18 @@
       "idempotencyPolicy": "idempotent-command-dispatch",
       "retryPolicy": "retry-from-last-checkpoint",
       "failurePolicy": "surface-as-reaction-failure"
+    },
+    {
+      "sourceContextName": "platform-operations",
+      "reactionName": "identity-profile-redaction-reaction",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": ["platform-operations.reported-content.action-recorded"],
+      "order": 20,
+      "reactionHandlerSetNames": ["identity-profile-redaction-reaction"],
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure"
     }
   ],
   "projectionGroups": [
@@ -79,6 +93,14 @@
       "projectionName": "identity-founder-claim-reaction",
       "handlerKind": "reaction",
       "sourceContextNames": ["marketplace"],
+      "ownedTables": [],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "identity-profile-redaction-reaction",
+      "handlerKind": "reaction",
+      "sourceContextNames": ["platform-operations"],
       "ownedTables": [],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"

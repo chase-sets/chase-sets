@@ -13,7 +13,11 @@ import { realtimeOutboxSchemaSql } from "@chase-sets/platform-runtime/realtime";
 import { module as discoveryModule } from "../../index";
 import { createDiscoveryServices } from "../runtime-support/services";
 import { buildDiscoveryMarketProjectionHandlers } from "./projection";
-import { getDiscoveryPublicListingById, getDiscoveryPublicListingBySlug } from "./queries";
+import {
+  getDiscoveryPublicAccountBySlug,
+  getDiscoveryPublicListingById,
+  getDiscoveryPublicListingBySlug,
+} from "./queries";
 import {
   getDiscoveryItemDetail,
   getDiscoveryItemDetailSellerOverlay,
@@ -71,6 +75,46 @@ describeDb("Discovery Listing and Offer visibility parity on Postgres", () => {
   });
   afterAll(async () => {
     if (pool) await closeMultiContextTestPools({ discovery: pool });
+  });
+
+  it("projects the ordinary Identity redaction update to public profiles, listing sellers and realtime without changing reputation or status", async () => {
+    await pool.query(
+      "UPDATE discovery_market_accounts SET average_rating_as_seller = 4.8, review_count_as_seller = 8 WHERE account_id = 'acc_active'",
+    );
+    const handlers = buildDiscoveryMarketProjectionHandlers(pool);
+    const profileUpdated = "identity.account.profile-updated";
+    for (const id of ["acc_active", "acc_suspended"]) {
+      await handlers[profileUpdated]!(
+        buildTransportEvent(
+          profileUpdated,
+          {
+            name: "Store LLC",
+            displayName: "Name removed",
+          },
+          { streamId: `identity.account-${id}`, streamVersion: 3 },
+        ),
+      );
+    }
+    const account = await getDiscoveryPublicAccountBySlug(pool, "acc_active");
+    expect(account).toMatchObject({
+      account_display_name: "Name removed",
+      review_count_as_seller: 8,
+      status: "active",
+      listings: expect.arrayContaining([expect.objectContaining({ seller_display_name: "Name removed" })]),
+    });
+    expect(Number(account?.average_rating_as_seller)).toBe(4.8);
+    expect(await getDiscoveryPublicListingById(pool, "lst_active")).toMatchObject({
+      seller_display_name: "Name removed",
+    });
+    expect(await getDiscoveryPublicAccountBySlug(pool, "acc_suspended")).toMatchObject({
+      status: "suspended",
+      listings: [],
+    });
+    const outbox = await pool.query<{ payload_json: string }>("SELECT payload_json FROM realtime_projection_outbox");
+    const patches = JSON.stringify(outbox.rows.map((row) => JSON.parse(row.payload_json)));
+    expect(patches).toContain('"seller_display_name":"Name removed"');
+    expect(patches).toContain("acc_active");
+    expect(patches).not.toContain("acc_suspended");
   });
 
   it("old schedule, disable and enable facts never write buyer Offer standing", async () => {

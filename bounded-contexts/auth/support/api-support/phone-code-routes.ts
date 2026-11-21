@@ -15,6 +15,7 @@ import {
   jsonWithMutationReceipts,
   readIdentityMutationConflict,
   readRegistrationConsentRejection,
+  readIdentityDisplayNameRejection,
   resolveUnaffirmedRegistrationConsent,
   type AuthApiApp,
 } from "./support";
@@ -151,6 +152,8 @@ export function registerPhoneCodeRoutes(app: AuthApiApp, services: AuthServices)
           registrationConsent: await resolveUnaffirmedRegistrationConsent(identityMutations),
         });
       } catch (error) {
+        const displayNameRejection = readIdentityDisplayNameRejection(error);
+        if (displayNameRejection) return c.json(displayNameRejection, 400);
         const consentRejection = readRegistrationConsentRejection(error);
         if (consentRejection) {
           return c.json(consentRejection, 400);
