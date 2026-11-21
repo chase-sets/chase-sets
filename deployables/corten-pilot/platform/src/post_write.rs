@@ -8,7 +8,10 @@ use std::cell::RefCell;
 
 use serde::Deserialize;
 
-use crate::receipt::{Freshness, Receipt};
+use crate::{
+    api::ApiError,
+    receipt::{Freshness, Receipt},
+};
 
 /// What a semantic handoff expects the page to show after its write (`PostWriteHandoff`).
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
@@ -151,6 +154,76 @@ impl Event {
             ("fallback_category", label(None)),
         ]
     }
+}
+
+/// A page that reports its writes' redirects and its reads after them (`PlatformPostWriteTelemetry`,
+/// passed to `navigateAfterWrite` and `loadAfterWrite`).
+#[derive(Clone, Copy, Debug)]
+pub struct Surface {
+    pub context: &'static str,
+    pub surface: &'static str,
+    pub route_id: &'static str,
+    pub route_template: &'static str,
+}
+
+impl Surface {
+    fn event(&self, outcome: &'static str) -> Event {
+        Event {
+            context: self.context,
+            surface: self.surface,
+            strategy: "fresh-read",
+            outcome,
+            route_id: self.route_id,
+            route_template: self.route_template,
+            ..Event::default()
+        }
+    }
+
+    /// A write's redirect to the page (`navigateAfterWrite`): carrying the write's receipt, or
+    /// without one when the write answered none. `handoff` is the kind of what the page waits for.
+    pub fn navigated(&self, receipt: Option<&Receipt>, handoff: Option<&str>) {
+        let outcome = if receipt.is_some() { "navigation_encoded" } else { "navigation_missing_receipt" };
+        record(Event { correction_source: handoff.map(|kind| format!("semantic-handoff:{kind}")), ..self.event(outcome) });
+    }
+
+    /// The page's read (`loadAfterWrite`), made after a fresh write (`fresh`) or not: its data, a
+    /// write not readable yet, or a failure the page cannot wait out (`classifyFreshWriteReadError`).
+    pub fn read<T>(&self, read: &Result<T, ApiError>, fresh: bool) {
+        self.answered(read.as_ref().err().map_or(Answer::Data, Answer::Failed), fresh);
+    }
+
+    /// [`read`](Self::read) for a read that answers a 404 as none: none is the 404, which after a
+    /// fresh write is one not readable yet.
+    pub fn read_found<T>(&self, read: &Result<Option<T>, ApiError>, fresh: bool) {
+        let answer = match read {
+            Ok(Some(_)) => Answer::Data,
+            Ok(None) => Answer::NotFound,
+            Err(error) => Answer::Failed(error),
+        };
+        self.answered(answer, fresh);
+    }
+
+    fn answered(&self, answer: Answer<'_>, fresh: bool) {
+        let waits = match answer {
+            Answer::Data => None,
+            Answer::NotFound => Some(true),
+            Answer::Failed(error) => Some(error.catching_up()),
+        };
+        let (outcome, recovery, freshness) = match waits {
+            None => ("read_data", "none", "fresh"),
+            Some(true) if fresh => ("read_pending", "refreshable-catching-up", "fresh-write-read-transient"),
+            Some(_) if fresh => ("read_permanent", "action-required", "fresh-write-read-permanent"),
+            Some(_) => ("read_permanent", "terminal-failure", "fresh-write-read-permanent"),
+        };
+        record(Event { recovery_action: Some(recovery), freshness_outcome: Some(freshness), ..self.event(outcome) });
+    }
+}
+
+/// What a page's read answered.
+enum Answer<'a> {
+    Data,
+    NotFound,
+    Failed(&'a ApiError),
 }
 
 thread_local! {

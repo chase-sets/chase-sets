@@ -37,7 +37,7 @@ use corten::{
     prelude::*,
 };
 use futures_util::StreamExt;
-use platform::{realtime::Tick, receipt::Receipt};
+use platform::{post_write::Surface, realtime::Tick, receipt::Receipt};
 use serde::Deserialize;
 
 use crate::{
@@ -404,8 +404,18 @@ enum OfferRead {
     Preparing,
 }
 
+/// An offer's page's post-write reports (marketplace's `SUBMITTED_OFFER_POST_WRITE_TELEMETRY`).
+const OFFER: Surface = Surface {
+    context: "marketplace",
+    surface: "account-offer-submitted",
+    route_id: "account-offer-submitted",
+    route_template: "/account/offers/submitted/:offerId",
+};
+
 async fn read_offer(config: &Shared, headers: &HeaderMap, id: &str, receipt: Option<&Receipt>) -> Result<OfferRead, ApiError> {
-    match config.platform.caller(headers, config.proto, receipt).submitted_offer(id).await {
+    let read = config.platform.caller(headers, config.proto, receipt).submitted_offer(id).await;
+    OFFER.read_found(&read, receipt.is_some());
+    match read {
         Ok(Some(offer)) => Ok(OfferRead::Found(Box::new(offer))),
         // Not found after a write: the read has not caught up with it yet (`loadAfterWrite`'s isNotFound).
         Ok(None) if receipt.is_some() => Ok(OfferRead::Preparing),

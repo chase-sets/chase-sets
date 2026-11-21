@@ -50,7 +50,7 @@ use corten::{
     prelude::*,
 };
 use futures_util::StreamExt;
-use platform::receipt::Receipt;
+use platform::{post_write::Surface, receipt::Receipt};
 use serde_json::{Value, json};
 
 use crate::{
@@ -599,6 +599,7 @@ async fn render(
         caller.repricing_dry_runs(20),
         caller.repricing_configuration_requests(),
     );
+    DESK.read(&policies, receipt.is_some());
     if [policies.as_ref().err(), halt.as_ref().err(), dry_runs.as_ref().err(), requests.as_ref().err()]
         .into_iter()
         .flatten()
@@ -811,6 +812,7 @@ async fn opened(req: &Req, viewer: &Viewer, config: &Shared, headers: &HeaderMap
             let name = candidate["name"].as_str().unwrap_or_default().trim().to_owned();
             match caller.create_repricing_policy(form.attempt.as_ref().map(SubmitKey::as_str), &run_id, &name).await {
                 Ok(Configured { receipt, after }) if receipt.applied() => {
+                    DESK.navigated(after.as_ref(), None);
                     req.redirect(&url::Repricing { place: Place::list(after.as_ref()) })
                 }
                 Ok(Configured { receipt, .. }) => {
@@ -826,6 +828,15 @@ async fn opened(req: &Req, viewer: &Viewer, config: &Shared, headers: &HeaderMap
         _ => again(revise, StatusCode::OK, Vec::new()).await,
     }
 }
+
+/// The desk's post-write reports (Pricing's `REPRICING_DESK_POST_WRITE_TELEMETRY`): a policy's
+/// writes report the redirect; the halt's do not, as it is read without a receipt.
+const DESK: Surface = Surface {
+    context: "pricing",
+    surface: "account-desk-repricing",
+    route_id: "account-desk-repricing",
+    route_template: "/account/desk/repricing",
+};
 
 /// Pause, Resume, the halt, Preview and Activate (marketplace's action's intents). Each list write
 /// goes back to the list, a policy's with its receipt; Preview goes to the editor with its run and
@@ -849,6 +860,7 @@ pub(crate) async fn write(
             let change = if intent == "pause-policy" { "pause" } else { "resume" };
             match caller.repricing_lifecycle(attempt, form.policy_id.trim(), change).await {
                 Ok(Configured { receipt, after }) if receipt.applied() => {
+                    DESK.navigated(after.as_ref(), None);
                     req.redirect(&url::Repricing { place: Place::list(after.as_ref()) })
                 }
                 Ok(Configured { receipt, .. }) => list_requested(&req, &viewer, &config, &headers, receipt).await,
@@ -920,6 +932,7 @@ pub(crate) async fn write(
             // The address editor's form is a GET form and holds no attempt (the module's doc).
             match caller.create_repricing_policy(attempt, run_id, &editor.name).await {
                 Ok(Configured { receipt, after }) if receipt.applied() => {
+                    DESK.navigated(after.as_ref(), None);
                     req.redirect(&url::Repricing { place: Place::list(after.as_ref()) })
                 }
                 Ok(Configured { receipt, .. }) => {
