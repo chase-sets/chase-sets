@@ -27,7 +27,16 @@ function catalogDb(): PgQueryable {
   return {
     query: vi.fn(async (sql: string) => ({
       rows: sql.includes("FROM checkout_catalog_items")
-        ? [{ catalog_item_id: "cat_synthetic_lookup", language_code: "en", status: "active", product_schema: null }]
+        ? [
+            {
+              catalog_item_id: "cat_synthetic_lookup",
+              language_code: "en",
+              title: "Synthetic lookup item",
+              subtitle: null,
+              status: "active",
+              product_schema: null,
+            },
+          ]
         : [],
     })) as never,
   };

@@ -2,7 +2,7 @@
 import { renderToString } from "react-dom/server";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { PromoBarAdminPage } from "./admin-pages";
 import type { PromoBarMessage } from "../api/contracts";
 
@@ -39,6 +39,15 @@ const expiredMessage = {
 
 afterEach(() => {
   cleanup();
+});
+
+// The operator works in Chicago.
+const zone = process.env.TZ;
+beforeAll(() => {
+  process.env.TZ = "America/Chicago";
+});
+afterAll(() => {
+  process.env.TZ = zone;
 });
 
 describe("PromoBarAdminPage", () => {
@@ -166,5 +175,20 @@ describe("PromoBarAdminPage", () => {
       screen.getByText('The message "Fee lock" will be permanently removed from the promo bar. This cannot be undone.'),
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
+  });
+
+  it("edits a scheduled start in the operator's zone and keeps it unless changed", async () => {
+    const user = userEvent.setup();
+    render(<PromoBarAdminPage messages={[scheduledMessage]} actionMessage={null} marketplaceOrigin={null} />);
+
+    const [editButton] = screen.getAllByRole("button", { name: "Edit" });
+    await user.click(editButton!);
+    await screen.findByText("Edit message");
+
+    const shown = (screen.getAllByLabelText("Starts at") as HTMLInputElement[]).find((input) => input.value);
+    expect(shown?.value).toBe("2026-07-01T19:00");
+    const sent = shown?.form?.querySelector<HTMLInputElement>('input[name="startsAt"]');
+    expect(sent?.type).toBe("hidden");
+    expect(sent?.value).toBe("2026-07-02T00:00:00.000Z");
   });
 });

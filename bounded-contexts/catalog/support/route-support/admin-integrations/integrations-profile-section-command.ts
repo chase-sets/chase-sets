@@ -336,7 +336,8 @@ export function profileSectionFailureResult(
   "section-conflict" | "section-invalid" | "command-failed"
 > {
   if (error instanceof CatalogApiError) {
-    if (error.status === 409) {
+    // 428: the form carried no section revision, so it was drawn before revisions were sent.
+    if (error.status === 409 || error.status === 428) {
       return "section-conflict";
     }
     if (error.status === 400) {

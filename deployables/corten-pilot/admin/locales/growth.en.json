@@ -70,6 +70,7 @@
   "promo.action.deactivated": "Promo bar message deactivated.",
   "promo.action.failed": "Promo bar action failed.",
   "promo.action.noop": "No promo bar change was applied.",
+  "promo.action.invalid_time": "Enter each start and end as a date and time, or leave it blank. Nothing was saved.",
   "promo.action.updated": "Promo bar message updated.",
   "promo.activate.action": "Activate",
   "promo.admin.description": "Manage the marketplace-wide messages shown above public marketplace pages.",

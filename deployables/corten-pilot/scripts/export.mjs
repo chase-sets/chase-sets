@@ -262,15 +262,17 @@ const apps = ["admin", "marketplace", "public"];
 
 const snake = (text) => text.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
 
+function catalog(file, exportName, rules) {
+  return catalogFrom(`contracts/localization/locales/en/${file}`, exportName, rules);
+}
+
 /**
  * The entries of a localization catalog the rules pick, renamed: a rule is [prefix, name] for
  * every key under `prefix` (named `name.<rest>`, or `<rest>` for an empty name) or [key, name]
  * for one key.
  */
-async function catalog(file, exportName, rules) {
-  const all = (await import(pathToFileURL(path.join(repo, "contracts/localization/locales/en", file)).href))[
-    exportName
-  ];
+async function catalogFrom(file, exportName, rules) {
+  const all = (await import(pathToFileURL(path.join(repo, file)).href))[exportName];
   const out = {};
   for (const [key, text] of Object.entries(all)) {
     let name;
@@ -1181,9 +1183,11 @@ const outputs = [
         ["inventory.routes.marketplace.accountInventoryRestockDecisions.description", "route.description"],
       ])),
       // What marketplace's resource route says when the read after a write fails for good.
-      ...(await catalog("localization.ts", "localizationEnglishTranslations", [
-        ["localization.routeResource.unverified", "unverified"],
-      ])),
+      ...(await catalogFrom(
+        "infrastructure/platform-runtime/localization/locales/en.ts",
+        "platformRuntimeEnglishTranslations",
+        [["localization.routeResource.unverified", "unverified"]],
+      )),
     }),
   ],
   [
@@ -1338,12 +1342,16 @@ const outputs = [
         // A set's page (`routes/set.tsx`), whose cards are search's.
         ["discovery.routes.set.", "set"],
       ])),
+      // A result's language badge, its picture's words and its card (`ListingCard`).
       ...(await catalog("localization.ts", "localizationEnglishTranslations", [
-        // A result's card (`ListingCard`), its language badge and its picture's words.
-        ["localization.listingCard.", "card"],
         ["localization.languageCode.", "language"],
         ["localization.displayIdentity.", "identity"],
       ])),
+      ...(await catalogFrom(
+        "packages/design-system/src/localization/locales/en.ts",
+        "designSystemEnglishTranslations",
+        [["localization.listingCard.", "card"]],
+      )),
     }),
   ],
   [
@@ -1667,10 +1675,17 @@ const outputs = [
         ["marketplace.features.sellerDesk.", ""],
       ])),
       ...(await catalog("channels.ts", "channelsEnglishTranslations", [
-        ["channels.manualSync.attention.", "manual"],
-        ["channels.attention.reason.", "channel_reason"],
         ["channels.attention.ordersCount", "orders_count"],
         ["channels.attention.ordersOverflow", "orders_overflow"],
+      ])),
+      ...(await catalogFrom(
+        "contracts/seller-attention-queue/localization/locales/en.ts",
+        "sellerAttentionQueueEnglishTranslations",
+        [["channels.attention.reason.", "channel_reason"]],
+      )),
+      ...(await catalog("channels.ts", "channelsEnglishTranslations", [
+        ["channels.attention.reason.", "channel_reason"],
+        ["channels.manualSync.attention.", "manual"],
       ])),
     }),
   ],

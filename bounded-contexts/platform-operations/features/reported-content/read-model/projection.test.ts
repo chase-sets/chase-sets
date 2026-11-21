@@ -1,4 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { toTransportEvent } from "@chase-sets/event-core/transport";
+import { createMarketplaceReportRuntime } from "../../../../marketplace/features/reports/api/runtime";
 import {
   buildIdentityReportedContentProjectionHandlers,
   buildMarketplaceReportedContentProjectionHandlers,
@@ -467,6 +471,79 @@ describe("reported content projection", () => {
       last_action: "dismiss",
       last_action_at: "2026-07-07T00:01:00.000Z",
     });
+  });
+
+  it("projects a re-unlist from the post-republish report over an earlier operator action", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const db = createDb();
+      const handlers = await seed(db);
+      const { eventStore, allEvents } = createInMemoryEventStore();
+      const reports = createMarketplaceReportRuntime({ eventStore, db });
+      const context: EventStoreContext = {
+        tenantId: "tnt_marketplace" as never,
+        audit: { performedByUserId: "usr_reporter" as never, forAccountId: "acc_reporter" as never },
+      };
+      const streamId = "marketplace.listing-lst_1";
+      const published = { eventType: "marketplace.listing.published", payload: {} };
+      const at = (time: string) => new Date(`2026-07-07T00:${time}.000Z`);
+      vi.setSystemTime(at("00:00"));
+      await eventStore.appendToStream({
+        streamId,
+        expectedVersion: 0,
+        events: [
+          {
+            eventType: "marketplace.listing.created",
+            payload: { listingId: "lst_1", accountId: enforcement.accountId, evidence: [] },
+          },
+          published,
+        ],
+        context,
+      });
+      const report = (index: number) => {
+        vi.setSystemTime(at(`0${index}:00`));
+        return reports.reportListing(
+          {
+            attemptId: `projection_listing_report_${index}`,
+            listingId: "lst_1",
+            reporterKind: "visitor",
+            reporterKey: `anon_reporter_${index}`,
+            reporterAccountId: null,
+            reporterUserId: null,
+            reason: "counterfeit-concern",
+            sourceRoutePath: "/listings/lst_1",
+          },
+          context,
+        );
+      };
+      for (let index = 1; index <= 4; index += 1) await report(index);
+      const recordedAt = at("04:15").toISOString();
+      await handlers["platform-operations.reported-content.action-recorded"]!(
+        actionRecorded({
+          targetType: "listing",
+          targetId: "lst_1",
+          action: "dismiss",
+          note: null,
+          operatorUserId: "usr_ops",
+          recordedAt,
+        }),
+      );
+      expect(db.rows.get("listing:lst_1")).toMatchObject({ status: "dismissed", last_action_at: recordedAt });
+
+      vi.setSystemTime(at("04:30"));
+      await eventStore.appendToStream({ streamId, expectedVersion: 3, events: [published], context });
+      const fifth = await report(5);
+      const removals = allEvents.filter(({ eventType }) => eventType === "marketplace.listing.auto-unlisted");
+      expect(removals).toHaveLength(2);
+      await handlers["marketplace.listing.auto-unlisted"]!(toTransportEvent(removals[1]!));
+      expect(db.rows.get("listing:lst_1")).toMatchObject({
+        status: "auto-unlisted",
+        auto_unlist_report_id: fifth.reportId,
+        last_action_at: recordedAt,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("maps review-scoped moderation actions to review-specific queue statuses (m108, #4269)", async () => {
