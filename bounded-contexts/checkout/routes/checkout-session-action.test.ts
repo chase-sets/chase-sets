@@ -400,6 +400,12 @@ describe("checkout web routes: checkout session action", () => {
       "checkout.features.sessions.api.route.payment.email.verification.required",
     ],
     ["a role that never pays", "viewer", [], "checkout.features.sessions.api.route.payment.authority.required"],
+    [
+      "an owner without orders.manage whose withheld permissions Auth did not report",
+      "owner",
+      undefined,
+      "checkout.features.sessions.api.route.payment.authority.required",
+    ],
   ] as const)(
     "refuses Pay now for %s before the address book, the Session or confirm is written",
     async (_label, roleKey, withheldPermissions, messageKey) => {

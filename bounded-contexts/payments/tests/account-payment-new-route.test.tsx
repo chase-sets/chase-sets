@@ -724,4 +724,18 @@ describe("marketplace account payment start route without payment authority", ()
     expect((await refusal(submitFor("ord_1"))).headers.get("Location")).toBe("/account/purchases/ord_1");
     expect(fetch).not.toHaveBeenCalled();
   });
+
+  it("returns an owner without orders.manage and no withheld report to the purchase, not to verification", async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    mockRequireActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["orders.view"],
+    });
+
+    expect((await refusal(loadFor("ord_1"))).headers.get("Location")).toBe("/account/purchases/ord_1");
+    expect((await refusal(submitFor("ord_1"))).headers.get("Location")).toBe("/account/purchases/ord_1");
+    expect(fetch).not.toHaveBeenCalled();
+  });
 });

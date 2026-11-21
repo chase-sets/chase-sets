@@ -277,6 +277,8 @@ describe("checkout web routes: checkout session loader", () => {
     ],
     ["an owner who may pay", { roleKey: "owner", permissions: ["orders.view", "orders.manage"] }, false],
     ["a role that never pays", { roleKey: "fulfillment", permissions: ["orders.view", "fulfillment.view"] }, false],
+    // No report of what Auth withheld is not a reason to offer verification: the refusal stays generic.
+    ["an owner whose withheld permissions are absent", { roleKey: "owner", permissions: ["orders.view"] }, false],
   ])("offers email verification instead of Pay now only to %s", async (_label, actor, expected) => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", ...actor });
     mockGetCheckoutSession.mockResolvedValue(walletCheckoutSession());

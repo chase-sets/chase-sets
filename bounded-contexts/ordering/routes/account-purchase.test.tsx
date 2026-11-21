@@ -119,6 +119,9 @@ const viewerMember = {
   withheldPermissions: [],
 };
 
+// An owner without orders.manage whose session carries no report of what Auth withheld.
+const { withheldPermissions: _unreported, ...unreportedOwner } = unverifiedCollector;
+
 let actor: typeof unverifiedCollector = unverifiedCollector;
 const cancelledOrderIds: string[] = [];
 
@@ -282,6 +285,18 @@ describe("purchase cancellation authority on the account purchase route", () => 
     expect(
       screen.getByText(t("ordering.features.orders.ui.orderDetailPage.payment.authority.unavailable")),
     ).toBeTruthy();
+  });
+
+  it("gives an owner without orders.manage and no withheld report the generic refusal, not a verify prompt", async () => {
+    actor = unreportedOwner as typeof unverifiedCollector;
+    purchaseApi({ ord_1: pendingPurchase("ord_1") });
+
+    const data = await renderPurchase("ord_1");
+
+    expect(data.cancelAuthority).toBe("unavailable");
+    expect(screen.queryByRole("button", { name: cancelButtonName })).toBeNull();
+    expect(screen.queryByRole("link", { name: verifyLinkName })).toBeNull();
+    expect(screen.queryByRole("link", { name: payNowName })).toBeNull();
   });
 
   it("keeps a purchase with an unresolved payment protected and visibly unresolved, even for an authorized buyer", async () => {
