@@ -1,8 +1,8 @@
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import type { RegistrationConsentSubmission } from "@chase-sets/identity/server";
 import { createAuthSessionEpochs, type AuthSessionEpochs } from "../../features/sessions/api/owner-epochs";
 import { sessionExpiry } from "../../features/sessions/api/session-authority";
 import type { AuthMethod } from "../../features/sessions/domain/auth-flow";
+import type { RegistrationConsentSubmission } from "../api-support/support";
 
 export type PendingRegistrationPasskey = Readonly<{
   credentialId: string;

@@ -15,7 +15,7 @@ import {
 } from "@chase-sets/identity/server";
 import type { Context, Hono, MiddlewareHandler } from "hono";
 
-export type { IdentityAuthMutationClient };
+export type { IdentityAuthMutationClient, RegistrationConsentSubmission };
 
 export type AuthApiEnv = {
   Variables: {
