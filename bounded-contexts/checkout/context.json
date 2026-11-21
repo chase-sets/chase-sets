@@ -472,8 +472,8 @@
     ],
     "resources": [
       { "uriTemplate": "chase-sets://checkout/{accountId}/cart", "ownerSlice": "cart" },
-      { "uriTemplate": "ui://chase-sets/cart-review/v1.html", "ownerSlice": "cart" },
-      { "uriTemplate": "ui://chase-sets/checkout-handoff/v1.html", "ownerSlice": "sessions" }
+      { "uriTemplate": "ui://chase-sets/cart-review/v2.html", "ownerSlice": "cart" },
+      { "uriTemplate": "ui://chase-sets/checkout-handoff/v2.html", "ownerSlice": "sessions" }
     ]
   },
   "readAfterWriteRouteInventory": [
