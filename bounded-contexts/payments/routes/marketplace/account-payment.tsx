@@ -254,10 +254,12 @@ export default function MarketplaceAccountPaymentRoute() {
   const actionData = useActionData<typeof action>();
   const retryActionError =
     actionData && "error" in actionData && actionData.scope === "retry" ? actionData.error : null;
+  // Payments cannot tell whether Auth can claim this order, so the link promises nothing; the claim
+  // page says what is possible.
   const guestClaimSection =
     data.isGuestCheckoutPayment && isClaimablePayment(data.payment) ? (
       <LinkButton href={data.guestClaimPath}>
-        {t("payments.routes.marketplace.accountPayment.save.this.order")}
+        {t("payments.routes.marketplace.accountPayment.account.options")}
       </LinkButton>
     ) : null;
   return (

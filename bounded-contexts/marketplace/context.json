@@ -993,7 +993,7 @@
         "ownerSlice": "reviews"
       },
       {
-        "uriTemplate": "ui://chase-sets/product-cards/v1.html",
+        "uriTemplate": "ui://chase-sets/product-cards/v2.html",
         "ownerSlice": "listings"
       }
     ]

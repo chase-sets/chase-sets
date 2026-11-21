@@ -103,7 +103,7 @@ for (const javaScriptEnabled of [true, false]) {
     check((await banner.locator("li").count()) === unavailable.length, `${label}: one line per unavailable source`);
     check(
       !unavailable.some((source) => source.reason && said.includes(source.reason)),
-      `${label}: without the API's internal reason (chase-sets/chase-sets#8766)`,
+      `${label}: without the API's internal reason`,
     );
   }
   const tiles = await page.locator("dl dd").allTextContents();

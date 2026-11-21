@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { createHash } from "node:crypto";
-import { readFileSync, cpSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, readdirSync, cpSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { execFileSync, spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -2232,11 +2232,13 @@ describe("platform Kubernetes deployment", () => {
       const fetch = vi.fn(async (url) => {
         const request = new URL(url);
         let body;
-        if (request.pathname.endsWith("/actions/runs")) {
+        if (request.pathname.includes("/actions/workflows/")) {
+          const workflow = request.pathname.split("/").at(-2);
           const workflow_runs = (overrides.omitCurrent ? [successor] : [current, successor]).filter(
             (run) =>
+              run.path.endsWith(`/${workflow}`) &&
               (run === successor ? (overrides.listStatus ?? run.status) : run.status) ===
-              request.searchParams.get("status"),
+                request.searchParams.get("status"),
           );
           body = overrides.runsBody ?? { total_count: workflow_runs.length, workflow_runs };
         } else if (request.pathname === `/repos/synthetic/repository/actions/runs/${current.id}`) {
@@ -2340,7 +2342,6 @@ describe("platform Kubernetes deployment", () => {
         { successor: { name: "Platform Production Stale Helm Recovery", path: recoveryPath, workflow_id: 911 } },
       ],
       ["environment wait", { successor: { status: "waiting" } }],
-      ["unknown status", { successor: { status: "unknown" }, listStatus: "pending" }],
       ["requested status", { successor: { status: "requested" } }],
       ["active peer", { successor: { status: "in_progress" } }],
       ["missing workflow id", { successor: { workflow_id: undefined } }],
@@ -2382,6 +2383,11 @@ describe("platform Kubernetes deployment", () => {
       ["malformed runs response", { runsBody: { total_count: 0 } }, /run census.*invalid response/],
       ["missing run identity", { successor: { id: undefined } }, /malformed run identity/],
       ["duplicate run identity", { successor: { id: 91001 } }, /duplicate or moving run/],
+      [
+        "a status that differs from the query",
+        { successor: { status: "unknown" }, listStatus: "pending" },
+        /duplicate or moving run/,
+      ],
     ])("fails closed for %s", async (_label, overrides, error) => {
       await expect(collect(overrides)).rejects.toThrow(error);
     });
@@ -2732,8 +2738,11 @@ describe("platform Kubernetes deployment", () => {
     } = {}) {
       const fetch = vi.fn(async (url) => {
         const request = new URL(url);
-        if (request.pathname.endsWith("/actions/runs")) {
-          const workflow_runs = listed.filter((run) => run.status === request.searchParams.get("status"));
+        if (request.pathname.includes("/actions/workflows/")) {
+          const workflow = request.pathname.split("/").at(-2);
+          const workflow_runs = listed.filter(
+            (run) => run.path.endsWith(`/${workflow}`) && run.status === request.searchParams.get("status"),
+          );
           return { ok: true, json: async () => ({ total_count: workflow_runs.length, workflow_runs }) };
         }
         expect(request.pathname).toBe(`/repos/synthetic/repository/actions/runs/${current.id}`);
@@ -2751,34 +2760,28 @@ describe("platform Kubernetes deployment", () => {
       ]);
       expect(census.writerRuns).toEqual(census.runs);
       expect(() => assertExclusiveMarkerWriter(census, env.GITHUB_RUN_ID)).not.toThrow();
-      expect(fetch.mock.calls.map(([url]) => new URL(url).search)).toEqual([
-        "?status=requested&per_page=100&page=1",
-        "?status=pending&per_page=100&page=1",
-        "?status=queued&per_page=100&page=1",
-        "?status=in_progress&per_page=100&page=1",
-        "?status=waiting&per_page=100&page=1",
-        "",
-      ]);
+      expect(fetch).toHaveBeenCalledTimes(11);
+      expect(new URL(fetch.mock.lastCall[0]).pathname).toBe(`/repos/synthetic/repository/actions/runs/${current.id}`);
       expect(sleep).not.toHaveBeenCalled();
     });
 
-    it.each(["Platform Deploy", "Platform Production Stale Helm Recovery"])(
-      "direct-GET fallback preserves a listed conflicting writer (%s)",
-      async (name) => {
-        const conflicting = { ...current, id: current.id - 1, name };
-        const { census } = await collect({ listed: [conflicting] });
-        expect(census.runs.map(({ id }) => id)).toEqual([conflicting.id, current.id]);
-        expect(census.writerRuns).toEqual(census.runs);
-        expect(() => assertExclusiveMarkerWriter(census, env.GITHUB_RUN_ID)).toThrow(
-          "active or conflicting production writer",
-        );
-      },
-    );
+    it.each([
+      ["Platform Deploy", current.path],
+      ["Platform Production Stale Helm Recovery", ".github/workflows/platform-production-stale-helm-recovery.yml"],
+    ])("direct-GET fallback preserves a listed conflicting writer (%s)", async (name, path) => {
+      const conflicting = { ...current, id: current.id - 1, name, path };
+      const { census } = await collect({ listed: [conflicting] });
+      expect(census.runs.map(({ id }) => id)).toEqual([conflicting.id, current.id]);
+      expect(census.writerRuns).toEqual(census.runs);
+      expect(() => assertExclusiveMarkerWriter(census, env.GITHUB_RUN_ID)).toThrow(
+        "active or conflicting production writer",
+      );
+    });
 
     it("does not direct-GET or duplicate the current run already in the stable lists", async () => {
       const { census, fetch } = await collect({ listed: [current], direct: null });
       expect(census.runs).toHaveLength(1);
-      expect(fetch).toHaveBeenCalledTimes(5);
+      expect(fetch).toHaveBeenCalledTimes(10);
       expect(() => assertExclusiveMarkerWriter(census, env.GITHUB_RUN_ID)).not.toThrow();
     });
 
@@ -2862,26 +2865,114 @@ describe("platform Kubernetes deployment", () => {
     });
   });
 
-  describe("moving active run census", () => {
+  it("admits marker publication without reading five noisy repo-wide census passes", async () => {
+    const deployPath = ".github/workflows/platform-production.yml";
+    const current = { id: 98401, name: "Platform Deploy", path: deployPath, status: "in_progress" };
+    const page = (total_count, workflow_runs) => ({ total_count, workflow_runs });
+    const ci = (status, count) =>
+      Array.from({ length: count }, (_, index) => ({
+        id: { pending: 100, queued: 200, in_progress: 300 }[status] + index,
+        name: "Synthetic CI",
+        path: ".github/workflows/synthetic-ci.yml",
+        status,
+      }));
+    const shortInProgress = (total, collected) => [
+      page(total, [current, ...ci("in_progress", collected - 1)]),
+      page(total, []),
+    ];
+    const repoPasses = [
+      shortInProgress(9, 7),
+      shortInProgress(8, 7),
+      shortInProgress(8, 6),
+      [page(8, [current, ...ci("in_progress", 5)]), page(9, ci("in_progress", 1))],
+      [], // The fifth pass stops at queued, before in_progress.
+    ].map((in_progress, index) => {
+      const queuedTotal = [7, 8, 8, 9, 10][index];
+      const pendingTotal = [1, 1, 2, 2, 3][index];
+      return {
+        pending: [page(pendingTotal, ci("pending", pendingTotal))],
+        queued:
+          index === 4
+            ? [page(queuedTotal, ci("queued", 9)), page(queuedTotal, [])]
+            : [page(queuedTotal, ci("queued", queuedTotal))],
+        in_progress,
+      };
+    });
+    let repoPass = -1;
+    const listPaths = new Set();
+    const fetch = async (url) => {
+      const { pathname, searchParams } = new URL(url);
+      const status = searchParams.get("status");
+      const pageNumber = Number(searchParams.get("page"));
+      const path = pathname.replace("/repos/synthetic/repository/", "");
+      listPaths.add(path);
+      let body;
+      if (path === "actions/runs") {
+        if (status === "requested" && pageNumber === 1) repoPass += 1;
+        body = repoPasses[repoPass][status]?.[pageNumber - 1] ?? page(0, []);
+      } else {
+        const runs =
+          path === "actions/workflows/platform-production.yml/runs" && status === current.status ? [current] : [];
+        body = page(runs.length, runs);
+      }
+      return { ok: true, json: async () => body };
+    };
+    const census = await readGitHubProductionWriterCensus({
+      fetch,
+      sleep: async () => {},
+      stderrSink: { write: () => {} },
+      env: {
+        GITHUB_TOKEN: "synthetic-token",
+        GITHUB_REPOSITORY: "synthetic/repository",
+        GITHUB_RUN_ID: String(current.id),
+        GITHUB_API_URL: "https://api.example.invalid",
+      },
+    });
+    expect(() => assertExclusiveMarkerWriter(census, String(current.id))).not.toThrow();
+    expect(census.runs.map(({ id }) => id)).toEqual([current.id]);
+    expect([...listPaths].sort()).toEqual([
+      "actions/workflows/platform-production-stale-helm-recovery.yml/runs",
+      "actions/workflows/platform-production.yml/runs",
+    ]);
+  });
+
+  describe("moving writer workflow census", () => {
     // Synthetic identities; reproduces #8982's moving in_progress total, not its live evidence.
-    const deploy = { id: 98201, name: "Platform Deploy", status: "in_progress" };
-    const recovery = { id: 98202, name: "Platform Production Stale Helm Recovery", status: "in_progress" };
-    const ci = (id, status = "in_progress") => ({ id, name: "Synthetic CI", status });
-    const ciBatch = (from, count) => Array.from({ length: count }, (_, index) => ci(from + index));
+    const deployFile = "platform-production.yml";
+    const recoveryFile = "platform-production-stale-helm-recovery.yml";
+    const deploy = {
+      id: 98201,
+      name: "Platform Deploy",
+      status: "in_progress",
+      path: `.github/workflows/${deployFile}`,
+    };
+    const recovery = {
+      id: 98202,
+      name: "Platform Production Stale Helm Recovery",
+      status: "in_progress",
+      path: `.github/workflows/${recoveryFile}`,
+    };
+    const peer = (id, status = "in_progress") => ({ ...deploy, id, status });
+    const peerBatch = (from, count) => Array.from({ length: count }, (_, index) => peer(from + index));
     const page = (total, runs) => ({ total_count: total, workflow_runs: runs });
-    const movingPass = { in_progress: [page(101, [deploy, ...ciBatch(1, 99)]), page(102, [ci(150), ci(151)])] };
-    const stablePass = { in_progress: [page(101, [deploy, ...ciBatch(1, 99)]), page(101, [ci(200)])] };
-    const passRequests = (pass, inProgressPages = 1) => [
+    const movingPass = { in_progress: [page(101, [deploy, ...peerBatch(1, 99)]), page(102, [peer(150), peer(151)])] };
+    const stablePass = { in_progress: [page(101, [deploy, ...peerBatch(1, 99)]), page(101, [peer(200)])] };
+    const runQuery = (status, pageNumber, file = deployFile) =>
+      `actions/workflows/${file}/runs?status=${status}&per_page=100&page=${pageNumber}`;
+    const inProgressKey = `${deployFile}:in_progress`;
+    const deployPassRequests = (pass, inProgressPages = 1) => [
       `${pass}:requested:1`,
       `${pass}:pending:1`,
       `${pass}:queued:1`,
       ...Array.from({ length: inProgressPages }, (_, index) => `${pass}:in_progress:${index + 1}`),
       `${pass}:waiting:1`,
     ];
+    const passRequests = (pass, pages) => [
+      ...deployPassRequests(pass, pages),
+      ...deployPassRequests(pass).map((request) => request.replace(`${pass}:`, `${pass}:recovery:`)),
+    ];
 
-    // Each pass is a status -> pages script, plus `windows`: created -> pages (a map or a
-    // function) for partition reads; the last pass repeats once the script runs out. A page
-    // given as an array answers successive reads of that page in order, its last entry repeating.
+    // Script each workflow/status's pages. A page array answers repeated reads in order.
     async function readPasses(passes, { token = "synthetic-token", headers = {} } = {}) {
       let pass = 0;
       const requests = [];
@@ -2890,20 +2981,18 @@ describe("platform Kubernetes deployment", () => {
       const served = new Map();
       const fetch = vi.fn(async (url, init) => {
         const request = new URL(url);
+        const workflow = request.pathname.match(/\/actions\/workflows\/([^/]+)\/runs$/)?.[1];
+        expect([deployFile, recoveryFile]).toContain(workflow);
         const status = request.searchParams.get("status");
-        const created = request.searchParams.get("created");
+        expect(request.searchParams.has("created")).toBe(false);
         const pageNumber = Number(request.searchParams.get("page"));
-        if (status === "requested" && pageNumber === 1) pass += 1;
-        const key = created === null ? `${pass}:${status}:${pageNumber}` : `${pass}:${status}:${created}:${pageNumber}`;
+        const isRecovery = workflow === recoveryFile;
+        if (!isRecovery && status === "requested" && pageNumber === 1) pass += 1;
+        const key = `${pass}:${isRecovery ? "recovery:" : ""}${status}:${pageNumber}`;
         requests.push(key);
         inits.push(init);
         const script = passes[Math.min(pass, passes.length) - 1];
-        const pages =
-          created === null
-            ? script[status]
-            : typeof script.windows === "function"
-              ? script.windows(created)
-              : script.windows?.[created];
+        const pages = isRecovery ? script.recovery?.[status] : script[status];
         let body = (pages ?? [page(0, [])])[pageNumber - 1];
         if (Array.isArray(body)) {
           const index = served.get(key) ?? 0;
@@ -2912,7 +3001,7 @@ describe("platform Kubernetes deployment", () => {
         }
         const responseHeaders = new Headers({
           "x-github-request-id": `SYNTH:${pass}:${status}:${pageNumber}`,
-          link: `<https://api.example.invalid/repositories/1/actions/runs?status=${status}&per_page=100&page=${pageNumber + 1}>; rel="next"`,
+          link: `<https://api.example.invalid/repositories/1/${runQuery(status, pageNumber + 1, workflow)}>; rel="next"`,
           ...headers,
         });
         if (body?.transportError) throw new TypeError("fetch failed", { cause: { code: "ECONNRESET" } });
@@ -2992,21 +3081,21 @@ describe("platform Kubernetes deployment", () => {
       expect(ids).toHaveLength(101);
       expect(ids).toContain(200);
       expect(ids).not.toContain(150);
-      expect(census.writerRuns.map(({ id }) => id)).toEqual([deploy.id]);
-      expect(() => assertExclusiveMarkerWriter(census, String(deploy.id))).not.toThrow();
+      expect(census.writerRuns).toEqual(census.runs);
+      expect(census.writerRuns).toHaveLength(101);
     });
 
     it.each([
       [
         "a duplicate or moving run",
-        { queued: [page(1, [ci(300, "queued")])], in_progress: [page(2, [deploy, ci(300)])] },
-        { in_progress: [page(2, [deploy, ci(300)])] },
+        { queued: [page(1, [peer(300, "queued")])], in_progress: [page(2, [deploy, peer(300)])] },
+        { in_progress: [page(2, [deploy, peer(300)])] },
         1,
       ],
       [
         "an empty page under a stable total",
-        { in_progress: [page(102, [deploy, ...ciBatch(1, 99)]), page(102, [])] },
-        { in_progress: [page(101, [deploy, ...ciBatch(1, 99)]), page(101, [ci(300)])] },
+        { in_progress: [page(102, [deploy, ...peerBatch(1, 99)]), page(102, [])] },
+        { in_progress: [page(101, [deploy, ...peerBatch(1, 99)]), page(101, [peer(300)])] },
         2,
       ],
     ])("re-reads the whole census after %s and trusts only the stable pass", async (_label, moving, stable, pages) => {
@@ -3015,7 +3104,7 @@ describe("platform Kubernetes deployment", () => {
       expect(requests.filter((request) => request.startsWith("2:"))).toEqual(passRequests(2, pages));
       expect(sleep.mock.calls).toEqual([[1_000]]);
       expect(census.runs.find(({ id }) => id === 300)).toMatchObject({ status: "in_progress" });
-      expect(census.writerRuns.map(({ id }) => id)).toEqual([deploy.id]);
+      expect(census.writerRuns).toEqual(census.runs);
     });
 
     it("keeps refusing with the original error when every bounded pass moves", async () => {
@@ -3023,7 +3112,7 @@ describe("platform Kubernetes deployment", () => {
       expect(census).toBeUndefined();
       // Every pass repeats the same moved total, so the provider answer is stable (N3 keeps the sub-reason).
       expect(error.message).toBe(
-        "census-stable-count-list-drift after 5 passes: GitHub Actions in_progress run census total moved during pagination. Final pass per-status total/collected: requested 0/0, pending 0/0, queued 0/0, in_progress 101/100.",
+        `census-stable-count-list-drift after 5 passes: GitHub Actions ${deployFile} in_progress run census total moved during pagination. Final pass per-status total/collected: ${deployFile}:requested 0/0, ${deployFile}:pending 0/0, ${deployFile}:queued 0/0, ${inProgressKey} 101/100.`,
       );
       expect(requests.filter((request) => request.endsWith(":requested:1"))).toHaveLength(5);
       expect(requests.at(-1)).toBe("5:in_progress:2");
@@ -3031,7 +3120,7 @@ describe("platform Kubernetes deployment", () => {
     });
 
     it("still refuses a conflicting writer that only the stable pass observed", async () => {
-      const conflicting = { in_progress: [page(101, [deploy, ...ciBatch(1, 99)]), page(101, [recovery])] };
+      const conflicting = { in_progress: [page(1, [deploy])], recovery: { in_progress: [page(1, [recovery])] } };
       const { census, error } = await readPasses([movingPass, conflicting]);
       expect(error).toBeUndefined();
       expect(census.writerRuns.map(({ id }) => id)).toEqual([deploy.id, recovery.id]);
@@ -3051,6 +3140,12 @@ describe("platform Kubernetes deployment", () => {
         "census-malformed",
       ],
       [
+        "a writer name at a different path in the scoped response",
+        [page(1, [{ ...deploy, path: ".github/workflows/synthetic.yml" }])],
+        /malformed run identity/,
+        "census-malformed",
+      ],
+      [
         "an invalid response",
         [{ total_count: 1 }],
         /in_progress run census returned an invalid response/,
@@ -3064,7 +3159,7 @@ describe("platform Kubernetes deployment", () => {
       ],
       [
         "an exceeded page bound",
-        Array.from({ length: 10 }, (_, index) => page(1001, ciBatch(1 + index * 100, 100))),
+        Array.from({ length: 10 }, (_, index) => page(1001, peerBatch(1 + index * 100, 100))),
         /exceeded the bounded 10-page limit/,
         "census-page-limit",
       ],
@@ -3080,13 +3175,13 @@ describe("platform Kubernetes deployment", () => {
     it("records the HTTP status and request ID of every refused read and each 5xx retry", async () => {
       const { evidence } = await readPasses([{ in_progress: [{ httpStatus: 502 }] }]);
       const refused = {
-        path: "actions/runs?status=in_progress&per_page=100&page=1",
+        path: runQuery("in_progress", 1),
         httpStatus: 502,
         requestId: "SYNTH:1:in_progress:1",
         linkPages: { next: 2 },
       };
       const line = evidence();
-      expect(line.passes[0].statuses.in_progress.requests).toEqual([refused, refused, refused]);
+      expect(line.passes[0].statuses[inProgressKey].requests).toEqual([refused, refused, refused]);
       expect(line.serverErrorRetries).toEqual([
         { ...refused, delayMs: 1_000 },
         { ...refused, delayMs: 2_000 },
@@ -3102,35 +3197,35 @@ describe("platform Kubernetes deployment", () => {
           { in_progress: [[{ httpStatus: 503 }, { httpStatus: 503 }, { httpStatus: 503 }, ok]] },
           3,
           [[1_000], [2_000]],
-          "census-http-status after 1 pass: GitHub Actions in_progress run census failed with HTTP 503.",
+          `census-http-status after 1 pass: GitHub Actions ${deployFile} in_progress run census failed with HTTP 503.`,
         ],
         [
           "404 is read once",
           { in_progress: [[{ httpStatus: 404 }, ok]] },
           1,
           [],
-          "census-http-status after 1 pass: GitHub Actions in_progress run census failed with HTTP 404.",
+          `census-http-status after 1 pass: GitHub Actions ${deployFile} in_progress run census failed with HTTP 404.`,
         ],
         [
           "429 is read once",
           { in_progress: [[{ httpStatus: 429 }, ok]] },
           1,
           [],
-          "census-http-status after 1 pass: GitHub Actions in_progress run census failed with HTTP 429.",
+          `census-http-status after 1 pass: GitHub Actions ${deployFile} in_progress run census failed with HTTP 429.`,
         ],
         [
           "malformed JSON is read once",
           { in_progress: [[{ malformedJson: true }, ok]] },
           1,
           [],
-          "census-invalid-response after 1 pass: GitHub Actions in_progress run census returned an invalid response.",
+          `census-invalid-response after 1 pass: GitHub Actions ${deployFile} in_progress run census returned an invalid response.`,
         ],
         [
           "an invalid page is read once",
           { in_progress: [[{ total_count: 1 }, ok]] },
           1,
           [],
-          "census-invalid-response after 1 pass: GitHub Actions in_progress run census returned an invalid response.",
+          `census-invalid-response after 1 pass: GitHub Actions ${deployFile} in_progress run census returned an invalid response.`,
         ],
         [
           "the exhausted six-retry budget refuses",
@@ -3142,7 +3237,7 @@ describe("platform Kubernetes deployment", () => {
           },
           3,
           [[1_000], [2_000], [1_000], [2_000], [1_000], [2_000]],
-          "census-http-status after 1 pass: GitHub Actions waiting run census failed with HTTP 502.",
+          `census-http-status after 1 pass: GitHub Actions ${deployFile} waiting run census failed with HTTP 502.`,
         ],
       ])("%s", async (_label, pass, inProgressReads, sleeps, refusal) => {
         const { census, error, requests, sleep, lines, evidence } = await readPasses([pass]);
@@ -3155,7 +3250,7 @@ describe("platform Kubernetes deployment", () => {
           expect(evidence()).toMatchObject({
             outcome: "admitted",
             passes: [{ pass: 1, reason: null }],
-            serverErrorRetries: [{ path: "actions/runs?status=in_progress&per_page=100&page=1", httpStatus: 502 }],
+            serverErrorRetries: [{ path: runQuery("in_progress", 1), httpStatus: 502 }],
           });
         } else {
           expect(census).toBeUndefined();
@@ -3168,7 +3263,7 @@ describe("platform Kubernetes deployment", () => {
 
     describe("census transport errors", () => {
       const ok = page(1, [deploy]);
-      const transportPath = "actions/runs?status=in_progress&per_page=100&page=1";
+      const transportPath = runQuery("in_progress", 1);
 
       it.each([
         [
@@ -3202,7 +3297,7 @@ describe("platform Kubernetes deployment", () => {
         ]);
         expect(census).toBeUndefined();
         expect(error.message).toBe(
-          "census-transport after 1 pass: GitHub Actions in_progress run census encountered transport error (ECONNRESET). Final pass per-status total/collected: requested 0/0, pending 0/0, queued 0/0.",
+          `census-transport after 1 pass: GitHub Actions ${deployFile} in_progress run census encountered transport error (ECONNRESET). Final pass per-status total/collected: ${deployFile}:requested 0/0, ${deployFile}:pending 0/0, ${deployFile}:queued 0/0.`,
         );
         expect(requests.filter((request) => request === "1:in_progress:1")).toHaveLength(3);
         expect(sleep.mock.calls).toEqual([[1_000], [2_000]]);
@@ -3227,7 +3322,9 @@ describe("platform Kubernetes deployment", () => {
           },
         ]);
         expect(census).toBeUndefined();
-        expect(error.message.startsWith("census-transport after 1 pass: GitHub Actions waiting run census")).toBe(true);
+        expect(
+          error.message.startsWith(`census-transport after 1 pass: GitHub Actions ${deployFile} waiting run census`),
+        ).toBe(true);
         expect(sleep.mock.calls).toEqual([[1_000], [2_000], [1_000], [2_000], [1_000], [2_000]]);
         expect(evidence()).toMatchObject({
           refusalClass: "census-transport",
@@ -3253,20 +3350,17 @@ describe("platform Kubernetes deployment", () => {
     });
 
     // Synthetic reproduction of #10842's refusal shape: page 1 lists nine runs, page 2 is empty, total_count is 10.
-    const countListDrift = { in_progress: [page(10, [deploy, ...ciBatch(1, 8)]), page(10, [])] };
-    const movingShortfall = (pass) => ({ in_progress: [page(10, [deploy, ...ciBatch(pass * 100, 8)]), page(10, [])] });
+    const countListDrift = { in_progress: [page(10, [deploy, ...peerBatch(1, 8)]), page(10, [])] };
+    const movingShortfall = (pass) => ({
+      in_progress: [page(10, [deploy, ...peerBatch(pass * 100, 8)]), page(10, [])],
+    });
 
-    it("partitions five identical shortfall passes and refuses windows that do not reconcile", async () => {
-      // No window lists a run here, so the partition reads 0 + 0 against the total of 10.
+    it("refuses five identical shortfalls in a writer workflow", async () => {
       const { census, error, requests, sleep, inits, evidence } = await readPasses([countListDrift]);
       expect(census).toBeUndefined();
-      expect(error.message).toBe(
-        "census-partition-unreconciled after 5 passes: GitHub Actions in_progress run census partition did not reconcile: window totals sum to 0, not the global total 10. Final pass per-status total/collected: requested 0/0, pending 0/0, queued 0/0, in_progress 10/9.",
-      );
-      expect(error.message.length).toBeLessThanOrEqual(512);
-      expect(requests.filter((request) => request.endsWith(":requested:1"))).toHaveLength(5);
+      expect(error.message).toMatch(/^census-stable-count-list-drift after 5 passes: .*collected 9 of 10\./);
+      expect(requests).toEqual([1, 2, 3, 4, 5].flatMap((pass) => deployPassRequests(pass, 2).slice(0, -1)));
       expect(sleep.mock.calls).toEqual([[1_000], [2_000], [3_000], [4_000]]);
-      expect(inits).toHaveLength(27);
       for (const init of inits) {
         expect(init.method).toBe("GET");
         expect(init).not.toHaveProperty("body");
@@ -3277,72 +3371,44 @@ describe("platform Kubernetes deployment", () => {
         repository: "synthetic/repository",
         currentRunId: String(deploy.id),
         outcome: "refused",
-        refusalClass: "census-partition-unreconciled",
+        refusalClass: "census-stable-count-list-drift",
         message: error.message,
         reads: [],
         truncated: false,
       });
-      expect(line.partitions).toMatchObject([
-        {
-          status: "in_progress",
-          totalCount: 10,
-          windows: [
-            { totalCounts: [0], runIds: [] },
-            { totalCounts: [0], runIds: [] },
-          ],
-          reread: null,
-          statuses: {},
-        },
-      ]);
       expect(line.passes.map(({ pass }) => pass)).toEqual([1, 2, 3, 4, 5]);
       for (const pass of line.passes) {
-        expect(pass.reason).toBe("GitHub Actions in_progress run census pagination was incomplete; collected 9 of 10.");
-        // The incomplete status ends the pass before waiting is read.
-        expect(Object.keys(pass.statuses)).toEqual(["requested", "pending", "queued", "in_progress"]);
-        expect(pass.statuses.in_progress).toMatchObject({
+        expect(pass.statuses[inProgressKey]).toMatchObject({
           readAt: expect.stringMatching(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/),
           totalCounts: [10, 10],
           pageLengths: [9, 0],
           runIds: [deploy.id, 1, 2, 3, 4, 5, 6, 7, 8],
+          requests: [
+            { path: runQuery("in_progress", 1), requestId: `SYNTH:${pass.pass}:in_progress:1`, linkPages: { next: 2 } },
+            { path: runQuery("in_progress", 2), requestId: `SYNTH:${pass.pass}:in_progress:2`, linkPages: { next: 3 } },
+          ],
         });
-        expect(
-          pass.statuses.in_progress.requests.map(({ path, requestId, linkPages }) => [path, requestId, linkPages]),
-        ).toEqual([
-          ["actions/runs?status=in_progress&per_page=100&page=1", `SYNTH:${pass.pass}:in_progress:1`, { next: 2 }],
-          ["actions/runs?status=in_progress&per_page=100&page=2", `SYNTH:${pass.pass}:in_progress:2`, { next: 3 }],
-        ]);
       }
-      // Only the writer candidate keeps full identity; unchanged non-writers stay IDs per status.
-      expect(line.runs).toEqual([
-        {
-          id: deploy.id,
-          status: "in_progress",
-          name: "Platform Deploy",
-          path: null,
-          event: null,
-          headSha: null,
-          headBranch: null,
-          runAttempt: null,
-          createdAt: null,
-          updatedAt: null,
-          passes: [1, 2, 3, 4, 5],
-        },
-      ]);
+      expect(line.runs.find(({ id }) => id === deploy.id)).toMatchObject({
+        name: "Platform Deploy",
+        path: deploy.path,
+        passes: [1, 2, 3, 4, 5],
+      });
     });
 
     it("classifies a shortfall whose run IDs change between passes as moving", async () => {
       const { error, requests, sleep, evidence } = await readPasses([1, 2, 3, 4, 5].map(movingShortfall));
       expect(error.message).toBe(
-        "census-moving after 5 passes: GitHub Actions in_progress run census pagination was incomplete; collected 9 of 10. Final pass per-status total/collected: requested 0/0, pending 0/0, queued 0/0, in_progress 10/9.",
+        `census-moving after 5 passes: GitHub Actions ${deployFile} in_progress run census pagination was incomplete; collected 9 of 10. Final pass per-status total/collected: ${deployFile}:requested 0/0, ${deployFile}:pending 0/0, ${deployFile}:queued 0/0, ${inProgressKey} 10/9.`,
       );
-      // Moving passes never engage the partition: five passes, no window read.
-      expect(requests).toEqual([1, 2, 3, 4, 5].flatMap((pass) => passRequests(pass, 2).slice(0, -1)));
+      // Every partial pass stops before waiting or the recovery workflow is read.
+      expect(requests).toEqual([1, 2, 3, 4, 5].flatMap((pass) => deployPassRequests(pass, 2).slice(0, -1)));
       expect(sleep.mock.calls).toEqual([[1_000], [2_000], [3_000], [4_000]]);
       const line = evidence();
       expect(line.refusalClass).toBe("census-moving");
       // Runs whose membership differs across passes keep full identity, with the passes that listed them.
-      expect(line.runs.find(({ id }) => id === 100)).toMatchObject({ name: "Synthetic CI", passes: [1] });
-      expect(line.runs.find(({ id }) => id === 500)).toMatchObject({ name: "Synthetic CI", passes: [5] });
+      expect(line.runs.find(({ id }) => id === 100)).toMatchObject({ name: "Platform Deploy", passes: [1] });
+      expect(line.runs.find(({ id }) => id === 500)).toMatchObject({ name: "Platform Deploy", passes: [5] });
       expect(line.runs).toHaveLength(41);
     });
 
@@ -3354,11 +3420,11 @@ describe("platform Kubernetes deployment", () => {
         refusalClass: null,
         message: null,
         passes: [
-          { pass: 1, reason: "GitHub Actions in_progress run census total moved during pagination." },
+          { pass: 1, reason: `GitHub Actions ${deployFile} in_progress run census total moved during pagination.` },
           { pass: 2, reason: null },
         ],
       });
-      const stable = await readPasses([stablePass]);
+      const stable = await readPasses([{ in_progress: [page(1, [deploy])] }]);
       expect(stable.census.writerRuns.map(({ id }) => id)).toEqual([deploy.id]);
       expect(stable.lines).toEqual([]);
     });
@@ -3371,7 +3437,7 @@ describe("platform Kubernetes deployment", () => {
         "SENTINEL-COMMIT-10850",
       ];
       const leaky = (id) => ({
-        ...ci(id),
+        ...peer(id),
         display_title: "SENTINEL-TITLE-10850",
         head_commit: { message: "SENTINEL-COMMIT-10850", author: { email: "SENTINEL-COMMIT-10850" } },
       });
@@ -3389,35 +3455,13 @@ describe("platform Kubernetes deployment", () => {
       };
       const refused = await readPasses(passes, options);
       const admitted = await readPasses([passes[0], { in_progress: [page(3, [deploy, leaky(1), leaky(2)])] }], options);
-      // Window and 5xx records: stable drift, a 502 window read, then a recovered leaky run.
-      const dated = (run, minute) => ({ ...run, created_at: `2026-10-31T08:0${minute}:00Z` });
-      const listed = [dated(deploy, 0), dated(leaky(1), 1), dated(leaky(2), 2)];
-      const partitioned = await readPasses(
-        [
-          {
-            in_progress: [page(4, listed), page(4, [])],
-            windows: {
-              "<2026-10-31T08:01:00Z": [page(1, listed.slice(0, 1))],
-              ">=2026-10-31T08:01:00Z": [[{ httpStatus: 502 }, page(3, [...listed.slice(1), dated(leaky(3), 3)])]],
-            },
-          },
-        ],
-        options,
-      );
       expect(refused.error.message.startsWith("census-moving after 5 passes: ")).toBe(true);
       expect(admitted.error).toBeUndefined();
-      expect(partitioned.error).toBeUndefined();
-      expect(partitioned.evidence()).toMatchObject({
-        partitions: [{ windows: [{ totalCounts: [1] }, { totalCounts: [3], pageLengths: [3] }] }],
-        serverErrorRetries: [{ httpStatus: 502, linkPages: { last: 4 }, delayMs: 1_000 }],
-      });
       const outputs = [
         refused.lines.join(""),
         refused.error.message,
         admitted.lines.join(""),
         JSON.stringify(admitted.census),
-        partitioned.lines.join(""),
-        JSON.stringify(partitioned.census),
       ];
       for (const output of outputs) {
         for (const sentinel of sentinels) expect(output).not.toContain(sentinel);
@@ -3427,23 +3471,23 @@ describe("platform Kubernetes deployment", () => {
         const line = evidence();
         expect(lines[0]).toContain(String.raw`"name":"Synthetic CI\n::error::injected"`);
         expect(lines[0].split("\n")).toEqual([expect.stringMatching(/^production-writer-census-evidence \{/), ""]);
-        expect(line.passes[0].statuses.in_progress.requests[0].linkPages).toEqual({ last: 4 });
+        expect(line.passes[0].statuses[inProgressKey].requests[0].linkPages).toEqual({ last: 4 });
         expect(line.runs.find(({ id }) => id === 77)).toMatchObject({ name: "Synthetic CI\n::error::injected" });
       }
     });
 
     it.each([
       [
-        "writer-candidate identities only",
+        "current run identity and per-read IDs",
         1,
-        (line) => expect(line.passes[0].statuses.in_progress.runIds).toHaveLength(900),
+        (line) => expect(line.passes[0].statuses[inProgressKey].runIds).toHaveLength(900),
       ],
       [
         "run ID counts",
         1_000_000_000_000,
         (line) => {
-          expect(line.passes[0].statuses.in_progress).not.toHaveProperty("runIds");
-          expect(line.passes[0].statuses.in_progress.runIdCount).toBe(900);
+          expect(line.passes[0].statuses[inProgressKey]).not.toHaveProperty("runIds");
+          expect(line.passes[0].statuses[inProgressKey].runIdCount).toBe(900);
         },
       ],
     ])("caps the evidence line at 64 KiB by keeping %s", async (_label, idBase, expectKept) => {
@@ -3453,7 +3497,7 @@ describe("platform Kubernetes deployment", () => {
           ...Array.from({ length: 9 }, (_, index) =>
             page(
               1_000,
-              ciBatch(idBase + pass * 10_000 + index * 100, 100).map((run, offset) =>
+              peerBatch(idBase + pass * 10_000 + index * 100, 100).map((run, offset) =>
                 index === 0 && offset === 0 ? deploy : run,
               ),
             ),
@@ -3471,685 +3515,48 @@ describe("platform Kubernetes deployment", () => {
       expectKept(line);
     });
 
-    describe("stable count/list drift partition", () => {
-      // Synthetic identities created a minute apart; #10842's shape lists nine runs under a total of 10.
-      const deployPath = ".github/workflows/platform-production.yml";
-      const recoveryPath = ".github/workflows/platform-production-stale-helm-recovery.yml";
-      const signaturesPath = ".github/workflows/platform-merge-group-failure-signatures.yml";
-      const at = (minute) => `2026-10-31T08:${String(minute).padStart(2, "0")}:00Z`;
-      const datedDeploy = { ...deploy, path: deployPath, created_at: at(0) };
-      const dated = (id, overrides = {}) => ({
-        ...ci(id),
-        path: ".github/workflows/synthetic-ci.yml",
-        created_at: at(id),
-        ...overrides,
-      });
-      const datedBatch = (from, count) => Array.from({ length: count }, (_, index) => dated(from + index));
-      const listed = [datedDeploy, ...datedBatch(1, 8)];
-      const recovered = dated(9);
-      // The median of the nine listed creation times.
-      const split = at(4);
-      const before = `<${split}`;
-      const after = `>=${split}`;
-      const reconciled = {
-        [before]: [page(4, listed.slice(0, 4))],
-        [after]: [page(6, [...listed.slice(4), recovered])],
-      };
-      const drift = (windows, overrides = {}) => ({
-        in_progress: [page(10, listed), page(10, [])],
-        windows,
-        ...overrides,
-      });
-      const driftPasses = [1, 2, 3, 4, 5].flatMap((pass) => passRequests(pass, 2).slice(0, -1));
-      const onePerPage = (total, runs) => runs.map((run) => page(total, [run]));
-      const earlier = (run) => ({ ...run, created_at: "2026-10-31T07:59:00Z" });
-      const nonWriterMovement = (lists, hidden = dated(20)) => {
-        const final = lists.at(-1);
-        const boundary = final.map((run) => run.created_at).sort()[Math.floor(final.length / 2)];
-        const all = [...final, hidden];
-        const windows = Object.fromEntries(
-          ["<", ">="].map((operator) => {
-            const runs = all.filter((run) =>
-              operator === "<" ? run.created_at < boundary : run.created_at >= boundary,
-            );
-            return [`${operator}${boundary}`, [page(runs.length, runs)]];
-          }),
-        );
-        return lists.map((runs) => ({
-          in_progress: [page(runs.length + 1, runs), page(runs.length + 1, [])],
-          windows,
-        }));
-      };
-      const growingLists = [1, 2, 3, 4, 5].map((count) => [datedDeploy, ...datedBatch(1, count)]);
-
-      it.each([
-        ["start", growingLists],
-        ["finish", [...growingLists].reverse()],
-      ])(
-        "reconciles the missing run when only identified non-writers %s between shortfall passes",
-        async (_label, lists) => {
-          const { census, error, sleep, requests, evidence } = await readPasses(nonWriterMovement(lists));
-          expect(error).toBeUndefined();
-          expect(census.runs.map(({ id }) => id)).toEqual(
-            [...lists.at(-1).map(({ id }) => id), 20].sort((a, b) => a - b),
-          );
-          expect(census.writerRuns.map(({ id }) => id)).toEqual([deploy.id]);
-          expect(() => assertExclusiveMarkerWriter(census, String(deploy.id))).not.toThrow();
-          expect(sleep.mock.calls).toEqual([[1_000], [2_000], [3_000], [4_000]]);
-          expect(requests.filter((request) => request.includes(":requested:1"))).toHaveLength(5);
-          expect(evidence()).toMatchObject({ outcome: "admitted", partitions: [{ status: "in_progress" }] });
-        },
-      );
-
-      it.each([
-        ["writer name at a non-writer path", { name: "Platform Deploy", head_sha: "b".repeat(40) }],
-        ["writer path with a non-writer name", { path: deployPath, head_sha: "b".repeat(40) }],
-        ["recovery writer", { name: "Platform Production Stale Helm Recovery", path: recoveryPath }],
-      ])("still refuses a hidden %s after non-writer movement", async (_label, overrides) => {
-        const { census, error } = await readPasses(nonWriterMovement(growingLists, dated(20, overrides)));
-        expect(error).toBeUndefined();
-        expect(census.writerRuns.map(({ id }) => id)).toEqual([20, deploy.id]);
-        expect(() => assertExclusiveMarkerWriter(census, String(deploy.id))).toThrow(
-          "active or conflicting production writer",
-        );
-        expect(() => assertExclusiveProductionHelmWriter(census, { currentRunId: String(deploy.id) })).toThrow(
-          /only active writer; observed 2/,
-        );
-      });
-
-      it.each([
-        ["a possible writer in an earlier pass", { name: "Platform Deploy", head_sha: "b".repeat(40) }],
-        ["an unknown path", { path: undefined }],
-        ["a changed non-writer identity", { head_sha: "b".repeat(40) }],
-      ])("does not reconcile movement containing %s", async (_label, overrides) => {
-        const lists = growingLists.map((runs, index) =>
-          index === 0 ? runs.map((run) => (run.id === 1 ? { ...run, ...overrides } : run)) : runs,
-        );
-        const { census, error, requests } = await readPasses(nonWriterMovement(lists));
-        expect(census).toBeUndefined();
-        expect(error.message).toMatch(/^census-moving after 5 passes:/);
-        expect(requests.some((request) => /[<>]/.test(request))).toBe(false);
-      });
-
-      it("does not assume a counted but unlisted run is a non-writer after non-writer movement", async () => {
-        const passes = nonWriterMovement(growingLists);
-        for (const pass of passes) pass.windows = reconciled;
-        const { census, error } = await readPasses(passes);
-        expect(census).toBeUndefined();
-        expect(error.message).toMatch(/^census-partition-unreconciled after 5 passes:/);
-      });
-
-      it("refuses a recovered run whose writer path cannot be ruled out after non-writer movement", async () => {
-        const { census, error } = await readPasses(nonWriterMovement(growingLists, dated(20, { path: undefined })));
-        expect(census).toBeUndefined();
-        expect(error.message).toContain("window run 20 has an unknown writer identity");
-      });
-
-      it.each(["requested", "waiting"])(
-        "refuses an ambiguous run outside the partitioned status in %s after non-writer movement",
-        async (status) => {
-          const passes = nonWriterMovement(growingLists);
-          for (const pass of passes) pass[status] = [page(1, [dated(30, { status, path: undefined })])];
-          const { census, error } = await readPasses(passes);
-          expect(census).toBeUndefined();
-          expect(error.message).toMatch(/^census-partition-unreconciled after 5 passes:/);
-          expect(error.message).toContain("run 30 has an unknown writer identity");
-        },
-      );
-
-      it("refuses a changing unexplained count even when all listed movement is non-writers", async () => {
-        const passes = nonWriterMovement(growingLists);
-        passes[0].in_progress = [page(4, growingLists[0]), page(4, [])];
-        const { census, error, requests } = await readPasses(passes);
-        expect(census).toBeUndefined();
-        expect(error.message).toMatch(/^census-moving after 5 passes:/);
-        expect(requests.some((request) => /[<>]/.test(request))).toBe(false);
-      });
-
-      describe("queued total moves during pagination", () => {
-        // Synthetic controls: each queued read lists one run under 2, then an empty page under 1.
-        const persistent = dated(10, { status: "queued" });
-        const unlisted = dated(11, { status: "queued" });
-        const observer = dated(12, { status: "pending" });
-        const before = `<${persistent.created_at}`;
-        const after = `>=${persistent.created_at}`;
-        const totalMoves = () =>
-          Array.from({ length: 5 }, (_, index) => ({
-            pending: [index === 2 ? page(0, []) : page(1, [observer])],
-            queued: [page(2, [persistent]), page(1, [])],
-            in_progress: [page(1, [datedDeploy])],
-            windows: { [before]: [page(0, [])], [after]: [page(2, [persistent, unlisted])] },
-          }));
-
-        it("admits the marker after reconciling an empty queued page with a moved total", async () => {
-          const { census, error, requests, sleep, evidence } = await readPasses(totalMoves());
-          expect(error).toBeUndefined();
-          expect(census.runs.map(({ id }) => id)).toEqual([10, 11, 12, deploy.id]);
-          expect(census.writerRuns.map(({ id }) => id)).toEqual([deploy.id]);
-          expect(() => assertExclusiveMarkerWriter(census, String(deploy.id))).not.toThrow();
-          expect(sleep.mock.calls).toEqual([[1_000], [2_000], [3_000], [4_000]]);
-          expect(requests.slice(-6)).toEqual([
-            `5:queued:${before}:1`,
-            `5:queued:${after}:1`,
-            "5:queued:1",
-            "5:queued:2",
-            "5:in_progress:1",
-            "5:waiting:1",
-          ]);
-          expect(evidence()).toMatchObject({
-            outcome: "admitted",
-            partitions: [{ status: "queued", totalCount: 2, reread: { totalCounts: [2, 1], pageLengths: [1, 0] } }],
-          });
-        });
-
-        it.each([
-          ["an unstable writer candidate", { name: "Platform Deploy" }],
-          ["an unknown path", { path: undefined }],
-          ["a changed run identity", { head_sha: "c".repeat(40) }],
-        ])("refuses a moved total when an earlier pass shows %s", async (_label, overrides) => {
-          const passes = totalMoves();
-          passes[0].pending = [page(1, [{ ...observer, ...overrides }])];
-          const { census, error, requests } = await readPasses(passes);
-          expect(census).toBeUndefined();
-          expect(error.message).toMatch(/^census-moving after 5 passes:.*total moved during pagination/);
-          expect(requests.some((request) => /[<>]/.test(request))).toBe(false);
-        });
-
-        it("refuses a moved total when the queued windows do not reconcile", async () => {
-          const passes = totalMoves();
-          passes[4].windows[after] = [page(1, [persistent])];
-          const { census, error } = await readPasses(passes);
-          expect(census).toBeUndefined();
-          expect(error.message).toMatch(/^census-partition-unreconciled after 5 passes:.*window totals sum to 1/);
-        });
-
-        it("refuses changed identities even when moved-total passes repeat the same counts and IDs", async () => {
-          const passes = totalMoves();
-          passes[2].pending = passes[4].pending;
-          passes[0].pending = [page(1, [{ ...observer, path: deployPath }])];
-          const { census, error, requests } = await readPasses(passes);
-          expect(census).toBeUndefined();
-          expect(error.message).toMatch(
-            /^census-stable-count-list-drift after 5 passes:.*total moved during pagination/,
-          );
-          expect(requests.some((request) => /[<>]/.test(request))).toBe(false);
-        });
-
-        it.each(["an earlier pass", "the final global re-read"])(
-          "refuses a populated changed-total page in %s",
-          async (stage) => {
-            const passes = totalMoves();
-            const populated = page(1, [{ ...unlisted, name: "Platform Deploy" }]);
-            if (stage === "an earlier pass") passes[0].queued[1] = populated;
-            else passes[4].queued[1] = [page(1, []), populated];
-            const { census, error } = await readPasses(passes);
-            expect(census).toBeUndefined();
-            expect(error.message).toMatch(
-              stage === "an earlier pass"
-                ? /^census-moving after 5 passes:.*total moved during pagination/
-                : /^census-partition-unreconciled after 5 passes:.*total moved during pagination/,
-            );
-          },
-        );
-      });
-
-      // Captured identity of the provider-side queued ghost (marker-go-1030-r2.run-37642385358.json), unchanged.
-      const ghost = {
-        id: 37642385358,
-        name: "Platform Delivery Failure Signatures",
-        workflow_id: 311990192,
-        path: signaturesPath,
-        status: "queued",
-        event: "workflow_run",
-        head_sha: "7bef4f208a3586d4f6e1150b129b64b4216de485",
-        head_branch: "main",
-        run_attempt: 1,
-        created_at: "2026-10-07T15:09:11Z",
-        run_started_at: "2026-10-07T15:09:11Z",
-        updated_at: "2026-10-07T15:09:11Z",
-      };
-      const unknownQueued = {
-        id: 98599,
-        name: "Synthetic Unknown Workflow",
-        path: ".github/workflows/synthetic-unknown.yml",
-        status: "queued",
-        created_at: at(30),
-      };
-      // The ghost is listed; an unknown queued run is counted but unlisted until the windows.
-      const queuedDrift = (windowGhost) => ({
-        queued: [page(2, [ghost]), page(2, [])],
-        in_progress: [page(1, [datedDeploy])],
-        windows: {
-          [`<${ghost.created_at}`]: [page(0, [])],
-          [`>=${ghost.created_at}`]: [page(2, [windowGhost, unknownQueued])],
-        },
-      });
-
-      it("admits the drifted status when complementary windows list exactly its total", async () => {
-        const { census, error, requests, sleep, inits, evidence } = await readPasses([drift(reconciled)]);
-        expect(error).toBeUndefined();
-        expect(requests).toEqual([
-          ...driftPasses,
-          `5:in_progress:${before}:1`,
-          `5:in_progress:${after}:1`,
-          "5:in_progress:1",
-          "5:in_progress:2",
-          "5:waiting:1",
-        ]);
-        expect(requests.length - driftPasses.length).toBeLessThanOrEqual(20);
-        for (const init of inits) {
-          expect(init.method).toBe("GET");
-          expect(init).not.toHaveProperty("body");
-        }
-        expect(sleep.mock.calls).toEqual([[1_000], [2_000], [3_000], [4_000]]);
-        expect(census.runs.map(({ id }) => id)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, deploy.id]);
-        expect(census.writerRuns.map(({ id }) => id)).toEqual([deploy.id]);
-        expect(() => assertExclusiveMarkerWriter(census, String(deploy.id))).not.toThrow();
-        const line = evidence();
-        expect(line).toMatchObject({
-          outcome: "admitted",
-          refusalClass: null,
-          truncated: false,
-          partitions: [
-            {
-              pass: "partition",
-              status: "in_progress",
-              totalCount: 10,
-              split,
-              windows: [
-                {
-                  created: before,
-                  totalCounts: [4],
-                  pageLengths: [4],
-                  runIds: [deploy.id, 1, 2, 3],
-                  requests: [
-                    {
-                      path: `actions/runs?status=in_progress&created=${encodeURIComponent(before)}&per_page=100&page=1`,
-                      httpStatus: 200,
-                      requestId: "SYNTH:5:in_progress:1",
-                    },
-                  ],
-                },
-                { created: after, totalCounts: [6], pageLengths: [6], runIds: [4, 5, 6, 7, 8, 9] },
-              ],
-              reread: { totalCounts: [10, 10], pageLengths: [9, 0] },
-              statuses: { waiting: { totalCounts: [0], runIds: [] } },
-            },
-          ],
-        });
-        // Only the partition listed the recovered run, so it keeps full identity.
-        expect(line.runs.find(({ id }) => id === 9)).toMatchObject({ name: "Synthetic CI", passes: ["partition"] });
-      });
-
-      it("recovers an unknown queued non-writer beside the unchanged ghost and leaves writerRuns identical", async () => {
-        const baseline = await readPasses([
-          { queued: [page(2, [ghost, unknownQueued])], in_progress: [page(1, [datedDeploy])] },
-        ]);
-        const { census, error, requests } = await readPasses([queuedDrift(ghost)]);
-        expect(error).toBeUndefined();
-        expect(requests.slice(-6)).toEqual([
-          `5:queued:<${ghost.created_at}:1`,
-          `5:queued:>=${ghost.created_at}:1`,
-          "5:queued:1",
-          "5:queued:2",
-          "5:in_progress:1",
-          "5:waiting:1",
-        ]);
-        expect(census.runs.map(({ id }) => id)).toEqual(baseline.census.runs.map(({ id }) => id));
-        expect(census.writerRuns).toEqual(baseline.census.writerRuns);
-        expect(census.writerRuns.map(({ id }) => id)).toEqual([deploy.id]);
-      });
-
-      it("splits at the final global read time when no listed run is dated", async () => {
-        const { census, error, requests, evidence } = await readPasses([
-          {
-            queued: [page(1, [])],
-            in_progress: [page(1, [datedDeploy])],
-            windows: (created) => (created.startsWith("<") ? [page(1, [ghost])] : [page(0, [])]),
-          },
-        ]);
-        expect(error).toBeUndefined();
-        const readAt = evidence().passes[4].statuses.queued.readAt;
-        expect(requests.filter((request) => /[<>]/.test(request))).toEqual([
-          `5:queued:<${readAt.slice(0, 19)}Z:1`,
-          `5:queued:>=${readAt.slice(0, 19)}Z:1`,
-        ]);
-        expect(census.runs.map(({ id }) => id)).toEqual([deploy.id, ghost.id]);
-        expect(census.writerRuns.map(({ id }) => id)).toEqual([deploy.id]);
-      });
-
-      it.each([
-        ["Platform Deploy at the failure-signatures path", dated(9, { name: "Platform Deploy", path: signaturesPath })],
-        [
-          "Platform Delivery Failure Signatures at the Platform Deploy path",
-          dated(9, { name: "Platform Delivery Failure Signatures", path: deployPath }),
-        ],
-      ])("refuses the marker when the recovered run is %s", async (_label, writer) => {
-        const { census, error } = await readPasses([
-          drift({ [before]: reconciled[before], [after]: [page(6, [...listed.slice(4), writer])] }),
-        ]);
-        expect(error).toBeUndefined();
-        expect(census.writerRuns.map(({ id }) => id)).toEqual([9, deploy.id]);
-        expect(() => assertExclusiveMarkerWriter(census, String(deploy.id))).toThrow(
-          "active or conflicting production writer",
-        );
-        expect(() => assertExclusiveProductionHelmWriter(census, { currentRunId: String(deploy.id) })).toThrow(
-          /only active writer; observed 2/,
-        );
-      });
-
-      const listed21 = [datedDeploy, ...datedBatch(1, 20)];
-      const listed19 = [datedDeploy, ...datedBatch(1, 18)];
-      const cappedWriter = earlier(
-        dated(98502, { name: "Platform Production Stale Helm Recovery", path: recoveryPath }),
-      );
-      it.each([
-        [
-          "an unknown queued run counted but never listed in its window",
-          {
-            queued: [page(2, [unknownQueued]), page(2, [])],
-            in_progress: [page(1, [datedDeploy])],
-            windows: { [`<${at(30)}`]: [page(1, [])], [`>=${at(30)}`]: [page(1, [unknownQueued])] },
-          },
-          /window created<2026-10-31T08:30:00Z pagination was incomplete; collected 0 of 1\./,
-        ],
-        [
-          "a window with an empty page before its total",
-          drift({ [before]: reconciled[before], [after]: [page(6, listed.slice(4)), page(6, [])] }),
-          /window created>=2026-10-31T08:04:00Z pagination was incomplete; collected 5 of 6\./,
-        ],
-        [
-          "a window that lists more runs than it counts",
-          drift({ [before]: [page(3, listed.slice(0, 4))], [after]: [page(7, [...listed.slice(4), recovered])] }),
-          /window created<2026-10-31T08:04:00Z pagination was incomplete; collected 4 of 3\./,
-        ],
-        [
-          "window totals that differ from total_count",
-          drift({ [before]: reconciled[before], [after]: [page(5, listed.slice(4))] }),
-          /window totals sum to 9, not the global total 10\./,
-        ],
-        [
-          "a duplicate ID across windows",
-          drift({
-            [before]: reconciled[before],
-            [after]: [page(6, [...listed.slice(4), dated(3, { created_at: at(9) })])],
-          }),
-          /duplicate or moving run 3\./,
-        ],
-        [
-          "a window run with another status",
-          drift({
-            [before]: reconciled[before],
-            [after]: [page(6, [...listed.slice(4), dated(9, { status: "queued" })])],
-          }),
-          /window created>=2026-10-31T08:04:00Z listed run 9 with status "queued"\./,
-        ],
-        [
-          "the ghost renamed between the passes and the windows",
-          queuedDrift({ ...ghost, name: "Synthetic Renamed Workflow" }),
-          /listed run 37642385358 is absent from or changed in the windows\./,
-        ],
-        [
-          "the ghost with a changed head between the passes and the windows",
-          queuedDrift({ ...ghost, head_sha: "c".repeat(40) }),
-          /listed run 37642385358 is absent from or changed in the windows\./,
-        ],
-        [
-          "the ghost with a changed status between the passes and the windows",
-          queuedDrift({ ...ghost, status: "in_progress" }),
-          /listed run 37642385358 with status "in_progress"\./,
-        ],
-        [
-          "a final global re-read that no longer repeats the drift",
-          drift(reconciled, { in_progress: [[page(10, listed), page(10, [...listed, recovered])], page(10, [])] }),
-          /the final global re-read did not repeat the drift signature\./,
-        ],
-        [
-          "a writer-named run only beyond a window's 10-page bound",
-          {
-            in_progress: [page(22, listed21), page(22, [])],
-            windows: {
-              [`<${at(10)}`]: onePerPage(11, [...listed21.slice(0, 10), cappedWriter]),
-              [`>=${at(10)}`]: [page(11, listed21.slice(10))],
-            },
-          },
-          /window created<2026-10-31T08:10:00Z exceeded the bounded 10-page limit\./,
-        ],
-        [
-          "an exceeded GET bound",
-          {
-            in_progress: [page(20, listed19), page(20, [])],
-            windows: {
-              [`<${at(9)}`]: onePerPage(10, [...listed19.slice(0, 9), earlier(dated(19))]),
-              [`>=${at(9)}`]: onePerPage(10, listed19.slice(9)),
-            },
-          },
-          /the fallback exceeded the bounded 20-read limit\./,
-        ],
-      ])("refuses %s as census-partition-unreconciled", async (_label, pass, reason) => {
-        const { census, error, evidence } = await readPasses([pass]);
-        expect(census).toBeUndefined();
-        expect(error.message).toMatch(
-          /^census-partition-unreconciled after 5 passes: GitHub Actions (in_progress|queued) run census partition did not reconcile: /,
-        );
-        expect(error.message).toMatch(reason);
-        expect(evidence()).toMatchObject({ outcome: "refused", refusalClass: "census-partition-unreconciled" });
-      });
-    });
-  });
-
-  describe("writer candidates by name or path", () => {
-    const deployPath = ".github/workflows/platform-production.yml";
-    const recoveryPath = ".github/workflows/platform-production-stale-helm-recovery.yml";
-    const signaturesPath = ".github/workflows/platform-merge-group-failure-signatures.yml";
-    // Synthetic current writer runs.
-    const deploy = {
-      id: 98401,
-      name: "Platform Deploy",
-      workflow_id: 984,
-      path: deployPath,
-      status: "in_progress",
-      event: "workflow_dispatch",
-      head_sha: "a".repeat(40),
-      head_branch: "main",
-      run_attempt: 1,
-      created_at: "2026-10-30T23:00:00Z",
-      updated_at: "2026-10-30T23:00:01Z",
-    };
-    const recovery = {
-      ...deploy,
-      id: 98402,
-      name: "Platform Production Stale Helm Recovery",
-      workflow_id: 985,
-      path: recoveryPath,
-    };
-    // Captured identity of the provider-side queued ghost (marker-go-1030-r2.run-37642385358.json), unchanged.
-    const ghost = {
-      id: 37642385358,
-      name: "Platform Delivery Failure Signatures",
-      workflow_id: 311990192,
-      path: signaturesPath,
-      status: "queued",
-      event: "workflow_run",
-      head_sha: "7bef4f208a3586d4f6e1150b129b64b4216de485",
-      head_branch: "main",
-      run_attempt: 1,
-      created_at: "2026-10-07T15:09:11Z",
-      run_started_at: "2026-10-07T15:09:11Z",
-      updated_at: "2026-10-07T15:09:11Z",
-    };
-    const workflowSource = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
-
-    // Lists `current` and `listed` by status; serves real workflow sources and zero jobs so that
-    // only the writer projection, never the fixture, can keep a candidate out of writerRuns.
-    async function collect({ current = deploy, listed = [] } = {}) {
-      const fetch = vi.fn(async (url) => {
-        const request = new URL(url);
-        let body;
-        if (request.pathname.endsWith("/actions/runs")) {
-          const workflow_runs = [current, ...listed].filter((run) => run.status === request.searchParams.get("status"));
-          body = { total_count: workflow_runs.length, workflow_runs };
-        } else if (request.pathname.includes("/contents/")) {
-          const content = workflowSource(request.pathname.split("/contents/")[1]);
-          body = { type: "file", encoding: "base64", content: Buffer.from(content).toString("base64") };
-        } else if (/\/actions\/runs\/\d+\/attempts\/\d+\/jobs$/.test(request.pathname)) {
-          body = { total_count: 0, jobs: [] };
-        } else {
-          throw new Error(`Unexpected synthetic request: ${url}`);
-        }
-        return { ok: true, status: 200, json: async () => body };
-      });
-      return readGitHubProductionWriterCensus({
-        fetch,
-        sleep: async () => {},
-        stderrSink: { write: () => {} },
-        env: {
-          GITHUB_TOKEN: "synthetic-token",
-          GITHUB_REPOSITORY: "synthetic/repository",
-          GITHUB_RUN_ID: String(current.id),
-          GITHUB_RUN_ATTEMPT: String(current.run_attempt),
-          GITHUB_WORKFLOW: current.name,
-          GITHUB_API_URL: "https://api.example.invalid",
-        },
-      });
-    }
-
-    it.each([
-      ["none of them", []],
-      ["the ghost's captured identity", [ghost]],
-      [
-        "the ghost ID with a synthetic changed name, head and status (still non-writer)",
-        [{ ...ghost, name: "Synthetic Renamed Workflow", head_sha: "c".repeat(40), status: "pending" }],
-      ],
-      [
-        "an unknown queued non-writer",
-        [{ ...ghost, id: 98499, name: "Synthetic Unknown Workflow", path: ".github/workflows/synthetic-unknown.yml" }],
-      ],
-    ])("admits the current Platform Deploy with %s", async (_label, listed) => {
-      const census = await collect({ listed });
-      expect(census.writerRuns).toEqual((await collect()).writerRuns);
-      expect(census.writerRuns.map(({ id }) => id)).toEqual([deploy.id]);
-      expect(() => assertExclusiveMarkerWriter(census, String(deploy.id))).not.toThrow();
-      // Non-writers stay recorded as evidence in runs.
-      expect(census.runs.map(({ id }) => id)).toEqual([deploy.id, ...listed.map(({ id }) => id)].sort((a, b) => a - b));
-    });
-
-    it("records the ghost with its created and updated times", async () => {
-      const census = await collect({ listed: [ghost] });
-      expect(census.runs.find(({ id }) => id === ghost.id)).toMatchObject({
-        name: "Platform Delivery Failure Signatures",
-        path: signaturesPath,
-        status: "queued",
-        createdAt: "2026-10-07T15:09:11Z",
-        updatedAt: "2026-10-07T15:09:11Z",
-      });
-    });
-
-    it.each([
-      ["a Platform Deploy run at a non-writer path", deploy, { ...deploy, id: 98410, path: signaturesPath }],
-      [
-        "a non-writer name at the Platform Deploy path",
-        deploy,
-        { ...deploy, id: 98411, name: "Platform Delivery Failure Signatures", workflow_id: 311990192 },
-      ],
-      ["the ghost identity renamed Platform Deploy", deploy, { ...ghost, name: "Platform Deploy" }],
-      [
-        "a queued zero-job Platform Production Stale Helm Recovery",
-        deploy,
-        { ...recovery, id: 98412, status: "queued", head_sha: "b".repeat(40) },
-      ],
-      [
-        "a non-writer name at the Platform Deploy path while the recovery is current",
-        recovery,
-        { ...deploy, id: 98413, name: "Platform Delivery Failure Signatures", workflow_id: 311990192 },
-      ],
-    ])("refuses %s as a writer candidate", async (_label, current, candidate) => {
-      const census = await collect({ current, listed: [candidate] });
-      // Admission is asserted first, so each caller's refusal is proven on its own.
-      expect(() => assertExclusiveMarkerWriter(census, String(current.id))).toThrow(
+    it.each(["pending", "queued", "in_progress"])("blocks on a %s second writer even if renamed", async (status) => {
+      const renamed = { ...recovery, name: "Synthetic Renamed Workflow", status };
+      const { census, error } = await readPasses([
+        { in_progress: [page(1, [deploy])], recovery: { [status]: [page(1, [renamed])] } },
+      ]);
+      expect(error).toBeUndefined();
+      expect(census.writerRuns.map(({ id }) => id)).toEqual([deploy.id, recovery.id]);
+      expect(() => assertExclusiveMarkerWriter(census, String(deploy.id))).toThrow(
         "active or conflicting production writer",
       );
-      expect(() => assertExclusiveProductionHelmWriter(census, { currentRunId: String(current.id) })).toThrow(
+      expect(() => assertExclusiveProductionHelmWriter(census, { currentRunId: String(deploy.id) })).toThrow(
         /only active writer; observed 2/,
       );
-      expect(census.writerRuns.map(({ id }) => id)).toEqual([current.id, candidate.id].sort((a, b) => a - b));
-      expect(census.concurrencyQueuedRuns).toEqual([]);
+    });
+
+    it("refuses an incomplete recovery workflow even after a complete deploy workflow", async () => {
+      const { census, error, evidence } = await readPasses([
+        { in_progress: [page(1, [deploy])], recovery: { queued: [page(1, [])] } },
+      ]);
+      expect(census).toBeUndefined();
+      expect(error.message).toMatch(
+        /platform-production-stale-helm-recovery\.yml queued run census pagination was incomplete/,
+      );
+      expect(evidence().passes.at(-1).statuses["platform-production-stale-helm-recovery.yml:queued"]).toMatchObject({
+        totalCounts: [1],
+        runIds: [],
+      });
     });
   });
 
-  it("collects the complete bounded active workflow census before selecting Helm writers", async () => {
-    const requestedUrls = [];
-    const fetch = vi.fn(async (url) => {
-      requestedUrls.push(url);
-      const status = new URL(url).searchParams.get("status");
-      const workflowRuns =
-        status === "in_progress"
-          ? [
-              {
-                id: 7504,
-                name: "Platform Production Stale Helm Recovery",
-                status,
-                event: "workflow_dispatch",
-                head_sha: "a".repeat(40),
-                head_branch: "main",
-                run_attempt: 1,
-                actor: { login: "synthetic-operator" },
-                created_at: "2026-08-27T07:30:00Z",
-                run_started_at: "2026-08-27T07:30:01Z",
-                updated_at: "2026-08-27T07:30:02Z",
-                html_url: "https://example.invalid/runs/7504",
-              },
-            ]
-          : status === "pending"
-            ? [
-                {
-                  id: 7400,
-                  name: "Platform Production Restore Point Cleanup",
-                  status,
-                  event: "schedule",
-                  head_sha: "b".repeat(40),
-                  head_branch: "main",
-                  run_attempt: 1,
-                  actor: { login: "synthetic-scheduler" },
-                  created_at: "2026-08-27T07:00:00Z",
-                  run_started_at: "2026-08-27T07:00:01Z",
-                  updated_at: "2026-08-27T07:00:02Z",
-                  html_url: "https://example.invalid/runs/7400",
-                },
-              ]
-            : [];
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({ total_count: workflowRuns.length, workflow_runs: workflowRuns }),
-      };
-    });
-
-    const census = await readGitHubProductionWriterCensus({
-      fetch,
-      checkedAt: "2026-08-27T07:31:00Z",
-      env: {
-        GITHUB_TOKEN: "synthetic-token",
-        GITHUB_REPOSITORY: "synthetic/repository",
-        GITHUB_RUN_ID: "7504",
-        GITHUB_API_URL: "https://api.example.invalid",
-      },
-    });
-
-    expect(requestedUrls).toHaveLength(5);
-    expect(requestedUrls.map((url) => new URL(url).searchParams.get("status"))).toEqual([
-      "requested",
-      "pending",
-      "queued",
-      "in_progress",
-      "waiting",
-    ]);
-    expect(census).toMatchObject({
-      schemaVersion: "github-actions-production-writer-census/v1",
-      currentRunId: "7504",
-      runs: [{ id: 7400 }, { id: 7504 }],
-      writerRuns: [{ id: 7504, name: "Platform Production Stale Helm Recovery", status: "in_progress" }],
-    });
+  it("reserves production writer names for their canonical workflow files", () => {
+    const directory = new URL("../.github/workflows/", import.meta.url);
+    const expected = [
+      ["platform-production-stale-helm-recovery.yml", "Platform Production Stale Helm Recovery"],
+      ["platform-production.yml", "Platform Deploy"],
+    ];
+    const writerNames = new Set(expected.map(([, name]) => name));
+    const declared = readdirSync(directory)
+      .filter((file) => /\.ya?ml$/.test(file))
+      .map((file) => [file, parseYaml(readFileSync(new URL(file, directory), "utf8"))?.name])
+      .filter(([, name]) => writerNames.has(name));
+    expect(declared.sort()).toEqual(expected);
   });
 
   it("records and rejects an active Helm hook operation without confusing application pods", async () => {
