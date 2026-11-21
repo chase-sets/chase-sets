@@ -42,7 +42,7 @@ const sourceModule = defineBoundedContextModule<TestServices, PgTransactionalPoo
   buildApis: () => NO_API_ENTRIES,
 });
 
-function createCascadeSubscription(): BcEventSubscription {
+function createCascadeSubscription(checkpointBatchSize: number): BcEventSubscription {
   return {
     subscriptionName: "target.pages",
     sourceContextName: "source",
@@ -51,7 +51,7 @@ function createCascadeSubscription(): BcEventSubscription {
     eventTypes: ["source.structure-changed", "source.marker"],
     streamPrefixes: ["source."],
     batchSize: 10,
-    checkpointBatchSize: 1,
+    checkpointBatchSize,
     projectionCascadeChunkSize: CASCADE_CHUNK_SIZE,
     handlers: {
       // A structural event fans out to every page — the discovery cascade shape.
@@ -124,7 +124,7 @@ function createTargetModule(): BcApiModule<TestServices, PgTransactionalPool, Re
     `,
     createServices: (pool) => ({ pool }),
     buildApis: () => NO_API_ENTRIES,
-    buildSubscriptions: () => [createCascadeSubscription()],
+    buildSubscriptions: () => [createCascadeSubscription(1)],
   });
 }
 
@@ -240,37 +240,45 @@ describeDb("bounded cascade resume Postgres integration", () => {
     expect(afterCaughtUp.processed).toBe(0);
   });
 
-  it("does not process later events until the in-progress cascade completes", async () => {
-    await seedPages(3);
-    const sourceEventStore = createPostgresEventStore({ pool: pools.source });
-    await sourceEventStore.appendToStream({
-      streamId: "source.structure-a",
-      expectedVersion: "no_stream",
-      context: createEventStoreContext(),
-      events: [{ eventType: "source.structure-changed", payload: {} }],
-    });
-    await sourceEventStore.appendToStream({
-      streamId: "source.marker-a",
-      expectedVersion: "no_stream",
-      context: createEventStoreContext(),
-      events: [{ eventType: "source.marker", payload: { markerId: "m1" } }],
-    });
+  it.each([1, 10])(
+    "does not process later events until the in-progress cascade completes (batch=%s)",
+    async (batchSize) => {
+      await seedPages(3);
+      const sourceEventStore = createPostgresEventStore({ pool: pools.source });
+      await sourceEventStore.appendToStream({
+        streamId: "source.structure-a",
+        expectedVersion: "no_stream",
+        context: createEventStoreContext(),
+        events: [{ eventType: "source.structure-changed", payload: {} }],
+      });
+      await sourceEventStore.appendToStream({
+        streamId: "source.marker-a",
+        expectedVersion: "no_stream",
+        context: createEventStoreContext(),
+        events: [{ eventType: "source.marker", payload: { markerId: "m1" } }],
+      });
 
-    const context = createProjectionRunContext();
-    const subscriptionRunner = runner();
+      const context = createProjectionRunContext();
+      const subscriptionRunner = createSubscriptionRunner(
+        "target",
+        pools.target,
+        pools.source,
+        createCascadeSubscription(batchSize),
+      );
 
-    // Pass 1: the cascade (3 pages, chunk size 2) is incomplete, so the later
-    // marker event must NOT be processed and the checkpoint stays pinned.
-    await subscriptionRunner.runOnce(context);
-    expect(await loadSubscriptionCheckpoint(pools.target, subscriptionRunner.checkpointKey)).toBeNull();
-    expect(await readMarkers()).toEqual([]);
-    expect((await readPages()).map((row) => row.refreshed_count)).toEqual([1, 1, 0]);
+      // Pass 1: the cascade (3 pages, chunk size 2) is incomplete, so the later
+      // marker event must NOT be processed and the checkpoint stays pinned.
+      await subscriptionRunner.runOnce(context);
+      expect(await loadSubscriptionCheckpoint(pools.target, subscriptionRunner.checkpointKey)).toBeNull();
+      expect(await readMarkers()).toEqual([]);
+      expect((await readPages()).map((row) => row.refreshed_count)).toEqual([1, 1, 0]);
 
-    // Pass 2: the cascade completes (page 3), the structural event is applied,
-    // and only then is the marker event processed in the same pass.
-    await subscriptionRunner.runOnce(context);
-    expect(await loadSubscriptionCheckpoint(pools.target, subscriptionRunner.checkpointKey)).toBe("2");
-    expect(await readMarkers()).toEqual(["m1"]);
-    expect((await readPages()).map((row) => row.refreshed_count)).toEqual([1, 1, 1]);
-  });
+      // Pass 2: the cascade completes (page 3), the structural event is applied,
+      // and only then is the marker event processed in the same pass.
+      await subscriptionRunner.runOnce(context);
+      expect(await loadSubscriptionCheckpoint(pools.target, subscriptionRunner.checkpointKey)).toBe("2");
+      expect(await readMarkers()).toEqual(["m1"]);
+      expect((await readPages()).map((row) => row.refreshed_count)).toEqual([1, 1, 1]);
+    },
+  );
 });
