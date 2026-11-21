@@ -93,7 +93,7 @@ async function main(argv: readonly string[]) {
     if (destination) writeFileSync(destination, output, "utf8");
     else process.stdout.write(output);
   } finally {
-    await pool.end();
+    await (pool as PgTransactionalPool & { end: () => Promise<void> }).end();
   }
 }
 

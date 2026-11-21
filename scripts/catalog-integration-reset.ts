@@ -351,7 +351,7 @@ async function main(): Promise<void> {
     process.stdout.write(`${serialized}\n`);
     process.exitCode = catalogIntegrationResetExitCode(record);
   } finally {
-    await pool.end();
+    await (pool as PgTransactionalPool & { end: () => Promise<void> }).end();
   }
 }
 

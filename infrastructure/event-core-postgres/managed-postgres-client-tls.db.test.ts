@@ -10,8 +10,6 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import pg from "pg";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { createCatalogIntegrationResetPool } from "../../scripts/catalog-integration-reset.ts";
-import { createProviderSendWindowPool } from "../../scripts/catalog-provider-send-window.ts";
 import {
   ManagedPostgresClientError,
   createPgClient,
@@ -62,6 +60,9 @@ type Certificates = Readonly<{
 type TlsProxy = Readonly<{ port: number; connections: () => number; close: () => Promise<void> }>;
 
 type ScriptModule = Record<string, (databaseUrl: string) => Promise<pg.Client | PgTransactionalPool>>;
+// The seam returns a pg.Pool; this package types it by its transactional surface.
+type ClosablePool = PgTransactionalPool & Readonly<{ end: () => Promise<void> }>;
+type PoolFactoryModule = Record<string, (databaseUrl: string) => PgTransactionalPool>;
 
 describeDb("managed Postgres client TLS against real PostgreSQL", () => {
   const suffix = randomUUID().replaceAll("-", "").slice(0, 10);
@@ -193,7 +194,7 @@ describeDb("managed Postgres client TLS against real PostgreSQL", () => {
     try {
       return await selectOne(pool as unknown as pg.Pool);
     } finally {
-      await pool.end();
+      await (pool as ClosablePool).end();
     }
   }
 
@@ -239,12 +240,15 @@ describeDb("managed Postgres client TLS against real PostgreSQL", () => {
     const caPath = runnerContext();
     await writeFile(caPath, await readFile(certificates.caA));
     const url = managedUrl(proxyA, caPath);
+    // Loaded by URL so the scripts keep their own compiler settings.
+    const reset = (await import(scriptUrl("catalog-integration-reset.ts"))) as PoolFactoryModule;
+    const sendWindow = (await import(scriptUrl("catalog-provider-send-window.ts"))) as PoolFactoryModule;
     const redaction = (await import(scriptUrl("collections-anonymous-owner-redaction.mjs"))) as ScriptModule;
     const capture = (await import(scriptUrl("collections-cutover-authority-capture.mjs"))) as ScriptModule;
     const start = proxyA.connections();
 
-    expect(await poolSelectOne(createCatalogIntegrationResetPool(url))).toBe(1);
-    expect(await poolSelectOne(createProviderSendWindowPool(url))).toBe(1);
+    expect(await poolSelectOne(reset.createCatalogIntegrationResetPool!(url))).toBe(1);
+    expect(await poolSelectOne(sendWindow.createProviderSendWindowPool!(url))).toBe(1);
     expect(await poolSelectOne((await redaction.openRedactionPool!(url)) as PgTransactionalPool)).toBe(1);
     expect(await clientSelectOne((await capture.createCaptureDatabaseClient!(url)) as pg.Client)).toBe(1);
     expect(await clientSelectOne((await capture.createCapturePooledClient!(url)) as pg.Client)).toBe(1);
@@ -345,8 +349,8 @@ describeDb("managed Postgres client TLS against real PostgreSQL", () => {
   it("trusts only the rotated CA for fresh connections after the CA file changes from A to B", async () => {
     const caPath = runnerContext();
     await writeFile(caPath, await readFile(certificates.caA));
-    const poolA = createPgPool(managedUrl(proxyA, caPath));
-    const poolB = createPgPool(managedUrl(proxyB, caPath));
+    const poolA = createPgPool(managedUrl(proxyA, caPath)) as ClosablePool;
+    const poolB = createPgPool(managedUrl(proxyB, caPath)) as ClosablePool;
     const fresh = async (pool: PgTransactionalPool) => {
       const client = await (pool as unknown as pg.Pool).connect();
       try {

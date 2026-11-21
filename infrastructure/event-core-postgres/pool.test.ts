@@ -11,6 +11,7 @@ import {
   resolveManagedPostgresCaPath,
   type PostgresClientEnvironment,
 } from "./pool";
+import type { PgTransactionalPool } from "./types";
 
 const runnerTemp = "/home/runner/work/_temp";
 const runnerCaPath = managedPostgresRunnerCaPath(runnerTemp);
@@ -240,7 +241,7 @@ describe("managed client seam", () => {
         message: "certificate-authority-file-unavailable",
       });
     } finally {
-      await pool.end();
+      await (pool as PgTransactionalPool & { end: () => Promise<void> }).end();
     }
 
     const client = createPgClient(managedUrl(managedPostgresPodCaPath));
