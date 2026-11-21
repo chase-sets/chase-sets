@@ -85,13 +85,25 @@ export function SessionListPage({
   hrefBase = "/access/sessions",
   initialData,
   filters = { status: "all", search: "" },
+  searchable = true,
 }: {
   hrefBase?: string;
   initialData: SessionListResponse;
   filters?: AuthSessionListFilters;
+  /** Whether the list can be searched; marketplace's own-sessions list cannot. */
+  searchable?: boolean;
 }) {
   const appliedFilters = buildSessionAppliedFilters(filters);
   const onPageChange = useAdminResourceListPageChange(listPagination(initialData));
+  const statusFilter = (
+    <NativeSelect
+      key="status"
+      label={t("auth.features.sessions.ui.sessionListPage.status")}
+      name="status"
+      defaultValue={filters.status}
+      items={sessionStatusFilterItems()}
+    />
+  );
 
   return (
     <AdminResourceListPage
@@ -105,25 +117,23 @@ export function SessionListPage({
           <Form method="get" spacing="none">
             <FilterArea
               activeFilterCount={appliedFilters.length}
-              primaryFilterCount={2}
+              primaryFilterCount={searchable ? 2 : 1}
               panelTitle={t("auth.features.sessions.ui.sessionListPage.filters")}
               overflowTriggerLabel={t("auth.features.sessions.ui.sessionListPage.more.filters")}
-              filters={[
-                <TextInput
-                  key="search"
-                  label={t("auth.features.sessions.ui.sessionListPage.search")}
-                  name="search"
-                  defaultValue={filters.search}
-                  placeholder={t("auth.features.sessions.ui.sessionListPage.search.placeholder")}
-                />,
-                <NativeSelect
-                  key="status"
-                  label={t("auth.features.sessions.ui.sessionListPage.status")}
-                  name="status"
-                  defaultValue={filters.status}
-                  items={sessionStatusFilterItems()}
-                />,
-              ]}
+              filters={
+                searchable
+                  ? [
+                      <TextInput
+                        key="search"
+                        label={t("auth.features.sessions.ui.sessionListPage.search")}
+                        name="search"
+                        defaultValue={filters.search}
+                        placeholder={t("auth.features.sessions.ui.sessionListPage.search.placeholder")}
+                      />,
+                      statusFilter,
+                    ]
+                  : [statusFilter]
+              }
               actions={
                 <Inline>
                   <Button type="submit" leadingIcon="filter">
