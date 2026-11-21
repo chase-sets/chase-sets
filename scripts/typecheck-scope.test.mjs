@@ -58,7 +58,7 @@ function fixture() {
     "packages/unrelated/index.ts": "export const sentinel = 1;",
     "packages/unrelated/globals.ts":
       "export {}; declare /* preserve this augmentation */ global { interface FixtureGlobal { id: typeof TypeReferenceValue } }",
-    "packages/unrelated/module.ts": "declare module FixtureModule { export interface Settings { id: number } }",
+    "packages/unrelated/module.ts": 'declare module "fixture-module" { export interface Settings { id: number } }',
     "packages/unrelated/type-reference.ts": '/// <reference types="fixture-global" />\nexport {};',
     "packages/unrelated/node_modules/@types/fixture-global/index.d.ts": "declare const TypeReferenceValue: number;",
   }))
