@@ -2,9 +2,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DiscoveryPublicAccount } from "../support/client-support/contracts";
-import { buildTransportEvent } from "@chase-sets/event-core/test-support";
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { buildDiscoveryMarketProjectionHandlers } from "../support/market-support/projection";
+import { projectRedactedPublicAccount } from "../features/item-detail/tests/public-account-route-fixture";
 
 const { mockUseLoaderData, mockUseActionData, mockUseNavigation, mockUseRevalidator, mockSubscribeRealtimePatches } =
   vi.hoisted(() => ({
@@ -366,30 +364,7 @@ describe("discovery public account route", () => {
 
   it("renders the projected redaction placeholder on the public account while keeping feedback and listings", async () => {
     const account = accountFixture();
-    const db: PgQueryable = {
-      async query<Row>(sql: string, values: readonly unknown[] = []) {
-        if (sql.includes("INSERT INTO discovery_market_accounts")) {
-          account.account_slug = String(values[1]);
-          account.account_display_name = String(values[2]);
-          account.listings[0]!.seller_display_name = String(values[2]);
-          return { rows: [{ status: account.status }] as Row[] };
-        }
-        if (sql.includes("SELECT seller_slug")) return { rows: [{ seller_slug: account.account_slug }] as Row[] };
-        if (sql.includes("RETURNING outbox_id")) return { rows: [{ outbox_id: 1 }] as Row[] };
-        return { rows: [] };
-      },
-    };
-    const type = "identity.account.profile-updated";
-    await buildDiscoveryMarketProjectionHandlers(db)[type]!(
-      buildTransportEvent(
-        type,
-        {
-          name: "North Store LLC",
-          displayName: "Name removed",
-        },
-        { streamId: "identity.account-acc_seller" },
-      ),
-    );
+    await projectRedactedPublicAccount(account);
     mockUseLoaderData.mockReturnValue({
       account,
       notFound: false,
