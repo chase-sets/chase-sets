@@ -22,7 +22,7 @@ import {
 } from "@chase-sets/http/responses";
 import * as journey from "../../features/invitation-acceptance/api/journey";
 import { InvitationAttemptError } from "../../features/invitation-acceptance/domain/attempt";
-import type { AuthServices } from "../runtime-support/services";
+import type { AuthServices, RegistrationAdmissionHostConfig } from "../runtime-support/services";
 import { createInvitationProjectionFreshnessWaiter } from "../runtime-support/invitation-projection-freshness";
 import { registerInvitationRoutes } from "./invitation-routes";
 import type { AuthApiEnv } from "./support";
@@ -1050,5 +1050,116 @@ describe("invitation auth routes", () => {
     expect(identityMutations.createPersonalIdentity).toHaveBeenCalledWith(
       expect.objectContaining({ registrationConsent: SERVER_MINTED_REGISTRATION_CONSENT_SUBMISSION }),
     );
+  });
+
+  describe("Founders Window qualification at acceptance", () => {
+    const admittedSignup = { signup_id: "wls_admitted", beta_invitation_id: "bin_admitted", admitted_wave: 1 };
+    type WaveLookup = NonNullable<RegistrationAdmissionHostConfig["findAdmittedWaitlistSignupByEmail"]>;
+
+    function arrange(mode: RegistrationAdmissionHostConfig["mode"], lookup: WaveLookup) {
+      const registrationAdmission: RegistrationAdmissionHostConfig = {
+        mode,
+        disposableEmailMode: "log-only",
+        disposableEmailDomains: [],
+        findAdmittedWaitlistSignupByEmail: lookup,
+      };
+      const services = { ...createServices(), registrationAdmission };
+      const identityMutations = createIdentityMutations();
+      mockCreateIdentityAuthRequestClient.mockReturnValue(identityMutations);
+      mockStartInteractiveAuth.mockResolvedValue({ type: "session-started", sessionToken: "session_token" });
+      return { services, identityMutations };
+    }
+
+    function accept(services: unknown, credential: Record<string, unknown>) {
+      return buildApp(services).request("/invitations/accept", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-forwarded-for": "203.0.113.210" },
+        body: JSON.stringify({ invitationId: "ivt_1", token: "invite_token", ...credential }),
+      });
+    }
+
+    const password = { password: "correct horse battery staple" };
+
+    it.each([
+      ["no admitted Waitlist Signup", "invitation", null],
+      ["open registration, even with an admitted Waitlist Signup", "open", admittedSignup],
+    ] as const)("creates a new User without a founders start given %s", async (_label, mode, signup) => {
+      const { services, identityMutations } = arrange(
+        mode,
+        vi.fn(async () => signup),
+      );
+
+      const response = await accept(services, password);
+
+      expect(response.status).toBe(200);
+      expect(identityMutations.createPersonalIdentity).toHaveBeenCalledTimes(1);
+      expect(identityMutations.createPersonalIdentity).toHaveBeenCalledWith(
+        expect.not.objectContaining({ foundersBetaAccessStartedAt: expect.anything() }),
+      );
+    });
+
+    it("passes a founders start for an admitted wave member who also holds an Invitation", async () => {
+      const lookup = vi.fn<WaveLookup>(async () => admittedSignup);
+      const { services, identityMutations } = arrange("invitation", lookup);
+      const before = Date.now();
+
+      const response = await accept(services, password);
+
+      expect(response.status).toBe(200);
+      expect(lookup).toHaveBeenCalledWith("seller@example.com");
+      const params = identityMutations.createPersonalIdentity.mock.calls[0] as unknown as [
+        { foundersBetaAccessStartedAt?: string },
+      ];
+      const startedAt = Date.parse(params[0].foundersBetaAccessStartedAt ?? "");
+      expect(startedAt).toBeGreaterThanOrEqual(before);
+      expect(startedAt).toBeLessThanOrEqual(Date.now());
+    });
+
+    it("answers 500 when the wave lookup fails, before spending the passkey challenge or registering", async () => {
+      const { services, identityMutations } = arrange(
+        "invitation",
+        vi.fn<WaveLookup>(async () => {
+          throw new Error("synthetic wave lookup fault");
+        }),
+      );
+
+      const response = await accept(services, {
+        challengeId: "cmd_challenge",
+        challenge: "challenge",
+        webauthnResponse: "response",
+      });
+
+      expect(response.status).toBe(500);
+      expect(await response.text()).not.toContain("synthetic wave lookup fault");
+      expect(mockConsumeChallenge).not.toHaveBeenCalled();
+      expect(identityMutations.createPersonalIdentity).not.toHaveBeenCalled();
+    });
+
+    it("never reads the wave for an existing User", async () => {
+      const lookup = vi.fn<WaveLookup>(async () => admittedSignup);
+      const { services, identityMutations } = arrange("invitation", lookup);
+      services.identity.getUserByEmail.mockResolvedValue({ user_id: "usr_existing" });
+
+      const response = await accept(services, password);
+
+      expect(response.status).toBe(200);
+      expect(lookup).not.toHaveBeenCalled();
+      expect(identityMutations.createPersonalIdentity).not.toHaveBeenCalled();
+    });
+
+    it("answers 503 ambiguous when the keyed attempt fails on the wave lookup", async () => {
+      const attempt = vi
+        .spyOn(journey, "acceptInvitationAttempt")
+        .mockRejectedValueOnce(new Error("synthetic wave lookup fault"));
+      try {
+        const response = await buildApp(createServices()).request("/invitations/accept", keyedRequest);
+        expect(response.status).toBe(503);
+        const body = await response.text();
+        expect(JSON.parse(body)).toMatchObject({ error: { code: "invitation_attempt_ambiguous" } });
+        expect(body).not.toContain("synthetic wave lookup fault");
+      } finally {
+        attempt.mockRestore();
+      }
+    });
   });
 });

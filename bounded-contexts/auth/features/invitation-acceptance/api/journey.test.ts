@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { IdentityAuthMutationClient } from "@chase-sets/identity/server";
-import type { AuthServices } from "../../../support/runtime-support/services";
+import type { AuthServices, RegistrationAdmissionHostConfig } from "../../../support/runtime-support/services";
 import { createAuthSessionEpochsFake } from "../../../support/auth-support/test-support";
 import {
   createInternalSystemTestActor,
@@ -45,7 +45,20 @@ const context = createTestEventStoreContext(createInternalSystemTestActor());
 const attemptId = "01c9f50d-cb3e-42ac-a0a8-8b5f887a01ea";
 const request = new Request("https://marketplace.test/invite/ivt_invited");
 
-function fixture(kind: "password" | "passkey", existing: boolean, storedPassword = false) {
+const admittedSignup = { signup_id: "wls_admitted", beta_invitation_id: "bin_admitted", admitted_wave: 1 };
+function admission(
+  mode: RegistrationAdmissionHostConfig["mode"],
+  findAdmittedWaitlistSignupByEmail: NonNullable<RegistrationAdmissionHostConfig["findAdmittedWaitlistSignupByEmail"]>,
+): RegistrationAdmissionHostConfig {
+  return { mode, disposableEmailMode: "log-only", disposableEmailDomains: [], findAdmittedWaitlistSignupByEmail };
+}
+
+function fixture(
+  kind: "password" | "passkey",
+  existing: boolean,
+  storedPassword = false,
+  registrationAdmission?: RegistrationAdmissionHostConfig,
+) {
   const store = createInMemoryEventStore();
   const counts = { registration: 0, acceptance: 0, email: 0, credential: 0, session: 0, token: 0, store: 0 };
   let userId: string | null = existing ? "usr_existing" : null;
@@ -94,6 +107,7 @@ function fixture(kind: "password" | "passkey", existing: boolean, storedPassword
       })),
     },
     sessions: { getSessionState: async (id: string) => sessions.get(id) ?? null },
+    registrationAdmission,
   } as unknown as AuthServices;
   const identity = {
     readInvitationAcceptanceAuthority: vi.fn(
@@ -182,8 +196,9 @@ beforeEach(() => {
   start.mockReset();
 });
 describe("invitation-acceptance-stage-recovery", () => {
-  it("F1 replays the registration-started instant for the new User Founders Window", async () => {
-    const f = fixture("password", false);
+  it("F1 replays the registration-started instant for an admitted wave member's Founders Window", async () => {
+    const lookup = vi.fn(async () => admittedSignup);
+    const f = fixture("password", false, false, admission("invitation", lookup));
     const create = f.identity.createPersonalIdentity;
     vi.mocked(create).mockRejectedValueOnce(new Error("synthetic registration fault"));
     await expect(acceptInvitationAttempt(f.services, f.identity, f.input, request, context)).rejects.toThrow();
@@ -192,6 +207,40 @@ describe("invitation-acceptance-stage-recovery", () => {
     expect(vi.mocked(create).mock.calls.at(-1)?.[0].foundersBetaAccessStartedAt).toBe(at);
     await acceptInvitationAttempt(f.services, f.identity, f.input, request, context);
     expect(vi.mocked(create).mock.calls.at(-1)?.[0].foundersBetaAccessStartedAt).toBe(at);
+    expect(lookup).toHaveBeenCalledWith("recipient@example.com");
+  });
+  it.each([
+    ["no admitted Waitlist Signup", admission("invitation", async () => null)],
+    ["open registration, even with an admitted Waitlist Signup", admission("open", async () => admittedSignup)],
+  ])("F1 opens no Founders Window for a new User with %s, on the first try or a replay", async (_label, config) => {
+    const f = fixture("password", false, false, config);
+    const create = f.identity.createPersonalIdentity;
+    vi.mocked(create).mockRejectedValueOnce(new Error("synthetic registration fault"));
+    await expect(acceptInvitationAttempt(f.services, f.identity, f.input, request, context)).rejects.toThrow();
+    expect(vi.mocked(create).mock.calls.at(-1)?.[0]).not.toHaveProperty("foundersBetaAccessStartedAt");
+    await acceptInvitationAttempt(f.services, f.identity, f.input, request, context);
+    expect(vi.mocked(create)).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(create).mock.calls.at(-1)?.[0]).not.toHaveProperty("foundersBetaAccessStartedAt");
+  });
+  it("F1 fails the attempt without registering when the wave lookup fails, and stays resumable", async () => {
+    const lookup = vi.fn<() => Promise<typeof admittedSignup | null>>(async () => {
+      throw new Error("synthetic wave lookup fault");
+    });
+    const f = fixture("password", false, false, admission("invitation", lookup));
+    await expect(acceptInvitationAttempt(f.services, f.identity, f.input, request, context)).rejects.toThrow(
+      "synthetic wave lookup fault",
+    );
+    expect(f.identity.createPersonalIdentity).not.toHaveBeenCalled();
+    lookup.mockResolvedValue(null);
+    await acceptInvitationAttempt(f.services, f.identity, f.input, request, context);
+    expect(f.counts.registration).toBe(1);
+  });
+  it("F1 never reads the wave for an existing User", async () => {
+    const lookup = vi.fn(async () => admittedSignup);
+    const f = fixture("password", true, false, admission("invitation", lookup));
+    await acceptInvitationAttempt(f.services, f.identity, f.input, request, context);
+    expect(lookup).not.toHaveBeenCalled();
+    expect(f.identity.createPersonalIdentity).not.toHaveBeenCalled();
   });
   it("F6 carries this request's acceptance snapshots and excludes them from replay and lookup", async () => {
     const f = fixture("password", true);

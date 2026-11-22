@@ -11,6 +11,7 @@ import {
 import { verifyPasskeyRegistration } from "../../../support/auth-support/webauthn";
 import { ROLE_PERMISSIONS } from "@chase-sets/auth-context";
 import { startInteractiveAuth, type AuthServices } from "../../../support/runtime-support/services";
+import { qualifiesForFoundersWindow } from "../../../support/api-support/registration-gates";
 import {
   resolveUnaffirmedRegistrationConsent,
   createOwnedUserDisplayName,
@@ -286,11 +287,12 @@ export async function acceptInvitationAttempt(
           authority = await readOwner();
           if (!authority.user) {
             if (!state.registrationStartedAt) throw new InvitationAttemptError("invitation_attempt_ambiguous");
+            const foundersQualified = await qualifiesForFoundersWindow(services, authority.email);
             const created = await identity.createPersonalIdentity({
               email: authority.email,
               displayName: createOwnedUserDisplayName(authority.email),
               reservedUserId: binding.userId,
-              foundersBetaAccessStartedAt: state.registrationStartedAt,
+              ...(foundersQualified ? { foundersBetaAccessStartedAt: state.registrationStartedAt } : {}),
               registrationConsent: await resolveUnaffirmedRegistrationConsent(identity),
             });
             if (created.userId !== binding.userId) throw new InvitationAttemptError("invitation_attempt_conflict");
