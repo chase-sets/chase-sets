@@ -1,4 +1,4 @@
-import { catalogSeedIds } from "@chase-sets/catalog-seed";
+import { catalogSeedIds, scenarioSeedFallbackAssets } from "@chase-sets/catalog-seed";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   decideSourceObservation,
@@ -33,6 +33,12 @@ function syntheticSeedDisplayIdentityDb(fallback?: {
         catalog_item_id: catalogSeedIds.items.pikachuJungle,
         status: "active",
         title: "Synthetic Pikachu",
+        image_fallback: {
+          url: scenarioSeedFallbackAssets.pokemonEnglishCardBack,
+          alt: "Pokemon TCG English card back",
+          usage: "permanent",
+          variants: {},
+        },
       }),
     ],
     ...(fallback ? { fallback: fallback as never } : {}),

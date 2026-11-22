@@ -1,4 +1,4 @@
-import { catalogSeedIds } from "@chase-sets/catalog-seed";
+import { catalogSeedIds, scenarioSeedFallbackAssets } from "@chase-sets/catalog-seed";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { describe, expect, it } from "vitest";
 import { syntheticReferenceRecordEvents } from "./synthetic-display-identity-queryable";
@@ -116,6 +116,12 @@ function scenarioDb(history: Row[] = []): PgQueryable {
             title: "Pikachu",
             subtitle: "Jungle 60/64 Common",
             blueprint_id: catalogSeedIds.blueprints.pokemonCardSingle,
+            image_fallback: {
+              url: scenarioSeedFallbackAssets.pokemonEnglishCardBack,
+              alt: "Pokemon TCG English card back",
+              usage: "permanent",
+              variants: {},
+            },
             field_values: [
               { fieldId: catalogSeedIds.fields.cardNumber, value: "60" },
               { fieldId: catalogSeedIds.fields.cardName, value: { defaultLocale: "en", values: { en: "Pikachu" } } },
