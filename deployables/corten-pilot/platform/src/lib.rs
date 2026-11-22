@@ -12,6 +12,7 @@ pub mod glyphs;
 pub mod jobs;
 pub mod money;
 pub mod nav;
+pub mod post_write;
 pub mod realtime;
 pub mod receipt;
 pub mod search;
