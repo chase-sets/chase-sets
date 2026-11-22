@@ -2,6 +2,10 @@ export { deriveProjectionTriage } from "./features/projection-operations/read-mo
 export { normalizeProjectionOperationsSnapshot } from "./features/projection-operations/read-model/contracts";
 export { deriveWakeAttentionItems } from "./features/projection-operations/read-model/wake-status-contracts";
 export { normalizeWakeStatusSnapshot } from "./features/projection-operations/read-model/wake-status-contracts";
+export {
+  platformOperationsRealtimeManifest,
+  platformOperationsRealtimeTopicPolicyManifest,
+} from "./features/operations-attention-queue/api/realtime-topics";
 export type {
   PlatformFeedbackDetail,
   PlatformFeedbackListItem,

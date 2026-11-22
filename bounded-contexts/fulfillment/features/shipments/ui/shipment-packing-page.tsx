@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { formatDateTime, t } from "@chase-sets/localization";
+import { formatDateTime } from "@chase-sets/localization/core";
+import { t } from "./localization/translator";
 import { deriveDisplayReferenceOrRaw } from "@chase-sets/primitives/display-reference";
 import type { OrderId } from "@chase-sets/primitives/typed-ids";
 import {

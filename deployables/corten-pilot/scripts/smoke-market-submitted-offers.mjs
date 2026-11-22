@@ -10,8 +10,8 @@
 //   its row stays Open; the offer then stays open, and the next run reuses it.
 // - The row's price is drawn again live when the offer's price changes, without a reload.
 // - Without JavaScript: Resume works as a form, and Withdraw from its dialog.
-// - The collector, who may read offers but not change them, sees no
-//   boxes or buttons.
+// - The collector, whose offers.manage Auth withholds until its email is verified, may still
+//   change its open offers: its rows have boxes and buttons.
 // - No console errors.
 // Usage: node scripts/smoke-market-submitted-offers.mjs [pilot-url] [seller-state] [collector-state] [api-url]
 import { readFileSync } from "node:fs";
@@ -238,13 +238,13 @@ try {
     await ctx.close();
   }
 
-  // The collector reads, with nothing to change.
+  // The collector reads, and may still change its own open offers.
   {
     const { ctx, page } = await context(collectorState);
     const res = await page.goto(`${base}/account/offers/submitted`);
     check(res?.status() === 200, `the collector's list answers 200 (${res?.status()})`);
     const boxes = await page.locator("main input[type=checkbox], main button[name=row]").count();
-    check(boxes === 0, `the collector has no boxes or buttons (${boxes})`);
+    check(boxes > 0, `the collector has boxes and buttons for its open offers (${boxes})`);
     await ctx.close();
   }
 } finally {

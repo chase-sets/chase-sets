@@ -3,6 +3,7 @@ import {
   publicClientRequestKey,
   rateLimitExceededJsonResponse,
 } from "@chase-sets/http/rate-limit";
+import { permissionAwaitsEmailVerification } from "@chase-sets/auth-context";
 import { t } from "@chase-sets/localization";
 import { Hono, type Context } from "hono";
 import { parseOptionalTypedIdBoundary, parseTypedIdBoundary } from "@chase-sets/http/typed-id";
@@ -117,6 +118,19 @@ function requireOfferAccess(
   }
 
   return { actor, response: null };
+}
+
+/**
+ * A buyer changing the lifecycle of their own Offers. Submitting and re-pricing need only a signed-in
+ * account, so an owner whose `offers.manage` Auth withholds until their email is verified may still
+ * pause, resume and withdraw what they submitted; a role without `offers.manage` may not.
+ */
+function requireOfferLifecycleAccess(c: { get(key: "actor"): MarketplaceApiEnv["Variables"]["actor"] }) {
+  const actor = c.get("actor");
+  if (actor && permissionAwaitsEmailVerification(actor, "offers.manage")) {
+    return { actor, response: null };
+  }
+  return requireOfferAccess(c, "offers.manage");
 }
 
 /** Offer Matches show the seller's own Listings and inventory, so reading them needs listings.view as well. */
@@ -337,7 +351,7 @@ export function createAccountSubmittedOfferRoutes(services: MarketplaceOfferServ
   });
 
   app.post("/offers/submitted/bulk", async (c) => {
-    const access = requireOfferAccess(c, "offers.manage");
+    const access = requireOfferLifecycleAccess(c);
     if (access.response) {
       return access.response;
     }
@@ -386,7 +400,7 @@ export function createAccountSubmittedOfferRoutes(services: MarketplaceOfferServ
   });
 
   const changeLifecycle = (action: OfferLifecycleAction) => async (c: Context<MarketplaceApiEnv>) => {
-    const access = requireOfferAccess(c, "offers.manage");
+    const access = requireOfferLifecycleAccess(c);
     if (access.response) {
       return access.response;
     }

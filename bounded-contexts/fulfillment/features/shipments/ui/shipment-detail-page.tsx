@@ -1,4 +1,5 @@
-import { formatDateTime, formatMoney, t } from "@chase-sets/localization";
+import { formatDateTime, formatMoney } from "@chase-sets/localization/core";
+import { t } from "./localization/translator";
 import { deriveDisplayReferenceOrRaw } from "@chase-sets/primitives/display-reference";
 import { centsToMoneyAmount } from "@chase-sets/primitives/money";
 import type { OrderId } from "@chase-sets/primitives/typed-ids";

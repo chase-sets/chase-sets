@@ -30,6 +30,7 @@ import {
 import { IdentityDomainError } from "../../../support/runtime-support/common";
 import { ShippingAddressFieldError, ShippingAddressUndeliverableError } from "../../shipping-addresses/domain/errors";
 import { AccountProfileFieldError } from "../../accounts/domain/errors";
+import { DisplayNameRejectedError } from "../../accounts/domain/display-name-safeguard";
 import { UserProfileFieldError } from "../../users/domain/errors";
 import type { ShippingAddressSnapshot } from "../../shipping-addresses/domain/domain";
 
@@ -406,6 +407,7 @@ export function createAccountManagementRuntime(
         };
       if (error instanceof AccountProfileFieldError)
         return { outcome: "not-recorded", code: "validation-failed", accountProfileField: error.field };
+      if (error instanceof DisplayNameRejectedError) return { outcome: "not-recorded", code: error.code };
       if (error instanceof UserProfileFieldError)
         return { outcome: "not-recorded", code: "validation-failed", userProfileField: error.field };
       if (error instanceof IdentityDomainError) return conflictResult("owner-state-conflict");

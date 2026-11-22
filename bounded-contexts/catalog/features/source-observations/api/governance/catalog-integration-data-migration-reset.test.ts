@@ -3,6 +3,8 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { evaluateCatalogIntegrationLegacyCleanupReadiness } from "../../../../../../scripts/check-structure/catalog-integration-legacy-cleanup";
 import {
   CATALOG_SOURCE_OBSERVATION_EVENT_STREAM_RESET_TARGET,
+  PRODUCTION_CATALOG_DATABASE_NAME,
+  catalogIntegrationProductionResetTargetTables,
   catalogIntegrationDataBackfillDecisions,
   catalogIntegrationDataReleaseVerificationQueries,
   catalogIntegrationDataResetDeleteStatements,
@@ -13,6 +15,7 @@ import {
   collectCatalogIntegrationDataVerificationReport,
   evaluateCatalogIntegrationDataResetEvidence,
   resetCatalogIntegrationPreLaunchData,
+  runCatalogIntegrationProductionReset,
 } from "./catalog-integration-data-migration-reset";
 
 const seedCatalogProviderIntegrationProfileVersions = vi.hoisted(() =>
@@ -29,6 +32,148 @@ vi.mock("../providers/provider-integration-profile-store", () => ({
   seedCatalogProviderIntegrationProfileVersions,
   seedCatalogProviderIntegrationProfileVersionsInTransaction: seedCatalogProviderIntegrationProfileVersions,
 }));
+
+describe("production Catalog integration reset transaction", () => {
+  const observedAt = () => "2026-11-21T12:00:00.000Z";
+  const fresh = () => "2026-11-21T12:05:00.000Z";
+  const expired = () => "2026-11-21T12:30:01.000Z";
+  const dryRun = (db: ProductionResetDb) => runCatalogIntegrationProductionReset(db, { action: "dry-run" }, observedAt);
+  const apply = (db: ProductionResetDb, fingerprint: string, now = fresh, approvalReference = "synthetic-approval") =>
+    runCatalogIntegrationProductionReset(
+      db,
+      { action: "apply", approvalReference, backupReference: "synthetic-restore-point", fingerprint },
+      now,
+    );
+  const writes = (db: ProductionResetDb) =>
+    db.statements.filter((sql) => sql.startsWith("WITH deleted AS (") || /^\s*INSERT/.test(sql));
+
+  it("sets PostgreSQL read-only before the first read and reports the exact scoped counts", async () => {
+    const db = new ProductionResetDb({
+      sourceObservations: 30,
+      sourceObservationEventStreams: 30,
+      sourceObservationEvents: 42,
+      activeIntegrationDurableJobs: 1,
+      activeBulkReviewJobs: 2,
+      adminAuthoredProfileVersions: 4,
+    });
+    db.promotionEvidence = [3, 7, 2];
+    db.integrationJobEvents = 12;
+    db.bulkReviewJobEvents = 8;
+    const report = await dryRun(db);
+    expect(db.statements.slice(0, 3)).toEqual([
+      "BEGIN ISOLATION LEVEL REPEATABLE READ",
+      "SET TRANSACTION READ ONLY",
+      "SELECT current_database() AS database_name",
+    ]);
+    expect(db.statements.at(-1)).toBe("COMMIT");
+    expect(db.statements.slice(2, -1).every((sql) => /^(SELECT|WITH referenced_versions)/.test(sql))).toBe(true);
+    expect(writes(db)).toEqual([]);
+    expect(Object.keys(report.before.rowCounts)).toEqual(catalogIntegrationProductionResetTargetTables());
+    expect(report.before.rowCounts).toMatchObject({
+      catalog_source_observations: 30,
+      catalog_source_observation_integration_job_events: 12,
+      catalog_source_observation_bulk_review_job_events: 8,
+      "event_store_events WHERE stream_id LIKE 'catalog.source-observation-%'": 42,
+    });
+    expect(report.before.verification).toMatchObject({ activeIntegrationDurableJobs: 1, activeBulkReviewJobs: 2 });
+    expect(report.before.provenance).toEqual({
+      promotedSourceObservations: 3,
+      sourceObservationPromotionEvents: 7,
+      mergeCandidatePromotionEvents: 2,
+      retainedProfileVersions: 4,
+    });
+    expect(report.after).toBeNull();
+  });
+
+  it("refuses the wrong database before starting the reset", async () => {
+    const db = new ProductionResetDb();
+    db.databaseName = "chase_sets_staging_catalog";
+    await expect(apply(db, "synthetic-fingerprint")).rejects.toThrow("requires the exact Catalog database");
+    expect(db.statements.at(-1)).toBe("ROLLBACK");
+    expect(writes(db)).toEqual([]);
+  });
+
+  it("refuses when the job and mutation locks cannot be acquired", async () => {
+    const db = new ProductionResetDb();
+    const { fingerprint } = await dryRun(db);
+    db.lockFailure = true;
+    await expect(apply(db, fingerprint)).rejects.toThrow("could not obtain lock");
+    expect(db.statements.at(-1)).toBe("ROLLBACK");
+    expect(writes(db)).toEqual([]);
+  });
+
+  it.each(["activeIntegrationDurableJobs", "activeBulkReviewJobs"] as const)("refuses nonzero %s", async (jobCount) => {
+    const db = new ProductionResetDb({ [jobCount]: 1 });
+    const { fingerprint } = await dryRun(db);
+    await expect(apply(db, fingerprint)).rejects.toThrow("queued or running integration or bulk-review jobs");
+    expect(writes(db)).toEqual([]);
+  });
+
+  it.each([0, 1, 2])("refuses promotion provenance from source %i", async (source) => {
+    const db = new ProductionResetDb();
+    db.promotionEvidence[source] = 1;
+    const { fingerprint } = await dryRun(db);
+    await expect(apply(db, fingerprint)).rejects.toThrow("promotion provenance");
+    expect(writes(db)).toEqual([]);
+  });
+
+  it("refuses an expired dry-run fingerprint despite unchanged counts", async () => {
+    const db = new ProductionResetDb();
+    const { fingerprint } = await dryRun(db);
+    await expect(apply(db, fingerprint, expired)).rejects.toThrow("requires a fresh dry-run fingerprint");
+    expect(writes(db)).toEqual([]);
+  });
+
+  it("refuses a matching-age dry-run fingerprint when even a job event count changed", async () => {
+    const db = new ProductionResetDb();
+    const { fingerprint } = await dryRun(db);
+    db.integrationJobEvents = 1;
+    await expect(apply(db, fingerprint)).rejects.toThrow("does not match the locked Catalog counts");
+    expect(writes(db)).toEqual([]);
+  });
+
+  it("holds the locks through wipe and receipt commit; a retry returns the first reports without wiping", async () => {
+    const db = new ProductionResetDb({ sourceObservations: 1, adminAuthoredProfileVersions: 1 });
+    const { fingerprint } = await dryRun(db);
+    db.statements.length = 0;
+    const applied = await apply(db, fingerprint);
+    expect(applied.before.rowCounts.catalog_source_observations).toBe(1);
+    expect(applied.after?.rowCounts.catalog_source_observations).toBe(0);
+    expect(db.statements[3]).toContain("stream_version >= ");
+    expect(db.statements[4]).toMatch(
+      /LOCK TABLE .*catalog_source_observation_integration_durable_jobs.*catalog_source_observation_bulk_review_jobs.*SHARE ROW EXCLUSIVE MODE NOWAIT/,
+    );
+    expect(db.statements[5]).toContain("stream_version >= ");
+    expect(db.statements.at(-1)).toBe("COMMIT");
+    expect(writes(db).at(-1)).toContain("INSERT INTO event_store_events");
+    expect(writes(db).filter((sql) => sql.startsWith("WITH deleted AS ("))).toHaveLength(11);
+
+    db.statements.length = 0;
+    db.lockFailure = true;
+    await expect(apply(db, fingerprint, expired)).resolves.toEqual({ ...applied, alreadyApplied: true });
+    expect(writes(db)).toEqual([]);
+    expect(db.statements.some((sql) => sql.startsWith("LOCK TABLE"))).toBe(false);
+    await expect(apply(db, fingerprint, fresh, "different-synthetic-approval")).rejects.toThrow(
+      "already recorded under a different approval reference",
+    );
+    expect(writes(db)).toEqual([]);
+  });
+
+  it("rolls back a failed postcondition and returns attempted before and after evidence without a receipt", async () => {
+    const db = new ProductionResetDb({ sourceObservations: 1 });
+    db.integrationJobEvents = 1;
+    const { fingerprint } = await dryRun(db);
+    const report = await apply(db, fingerprint);
+
+    expect(report.before.rowCounts.catalog_source_observations).toBe(1);
+    expect(report.after?.rowCounts.catalog_source_observations).toBe(0);
+    expect(report.rollbackReasons).toEqual([
+      "Post-reset verification has 1 row(s) remaining in catalog_source_observation_integration_job_events.",
+    ]);
+    expect(db.statements.at(-1)).toBe("ROLLBACK");
+    expect(writes(db).every((sql) => !sql.includes("INSERT INTO event_store_events"))).toBe(true);
+  });
+});
 
 describe("catalog integration data migration reset", () => {
   beforeEach(() => {
@@ -372,7 +517,7 @@ describe("catalog integration data migration reset", () => {
     ]);
   });
 
-  it("accepts production/prelaunch evidence when data loss is approved and reset postconditions are clean", () => {
+  it("accepts production/prelaunch evidence with a recorded backup and clean postconditions", () => {
     expect(
       evaluateCatalogIntegrationDataResetEvidence({
         environment: "production-prelaunch",
@@ -382,12 +527,13 @@ describe("catalog integration data migration reset", () => {
         stagingRehearsalReference: "private-evidence://catalog/prelaunch-reset/staging-rehearsal-20260609",
         smokeVerificationReference: "private-evidence://catalog/prelaunch-reset/prod-smoke-20260609",
         backupDecision: {
-          kind: "skip-backup-accepted-data-loss",
-          approver: "catalog-release-lead",
-          rationale: "Only unlaunched Catalog integration data is targeted; fresh import rebuilds source data.",
-          targetDataSet: "Catalog integration prelaunch state",
+          kind: "create-backup-snapshot-export",
+          reference: "synthetic-restore-point",
+          owner: "catalog-release-lead",
+          retentionUntil: "2026-06-30",
+          restoreVerificationReference: "synthetic-restore-check",
         },
-        targetTables: catalogIntegrationDataResetTargetTables(),
+        targetTables: catalogIntegrationProductionResetTargetTables(),
         dryRun: cleanVerificationReport({
           sourceObservations: 12,
           legacySourceObservationReferences: 4,
@@ -418,7 +564,7 @@ describe("catalog integration data migration reset", () => {
         retentionUntil: "2026-06-30",
         restoreVerificationReference: "private-evidence://catalog/prelaunch-reset/restore-check-20260609",
       },
-      targetTables: [...catalogIntegrationDataResetTargetTables(), "orders"],
+      targetTables: [...catalogIntegrationProductionResetTargetTables(), "orders"],
       dryRun: cleanVerificationReport({ activeIntegrationDurableJobs: 1 }),
       before: cleanVerificationReport({ activeIntegrationDurableJobs: 1 }),
       after: cleanVerificationReport({
@@ -448,7 +594,7 @@ describe("catalog integration data migration reset", () => {
     ]);
   });
 
-  it("requires production evidence to identify staging rehearsal, smoke verification, and target tables", () => {
+  it("requires production evidence to identify a backup, staging rehearsal, smoke verification, and target tables", () => {
     const findings = evaluateCatalogIntegrationDataResetEvidence({
       environment: "production-prelaunch",
       generatedAt: "2026-06-09T00:00:00.000Z",
@@ -467,6 +613,7 @@ describe("catalog integration data migration reset", () => {
     });
 
     expect(findings.map((finding) => finding.code)).toEqual([
+      "incomplete-backup-decision",
       "missing-staging-rehearsal-reference",
       "missing-smoke-verification-reference",
       "missing-target-tables",
@@ -788,5 +935,62 @@ class InMemoryCatalogIntegrationDataDb {
       return this.counts.providerOptionQueryCacheEntries;
     }
     return 0;
+  }
+}
+
+class ProductionResetDb extends InMemoryCatalogIntegrationDataDb {
+  databaseName = PRODUCTION_CATALOG_DATABASE_NAME;
+  promotionEvidence = [0, 0, 0];
+  integrationJobEvents = 0;
+  bulkReviewJobEvents = 0;
+  lockFailure = false;
+  private receipt: Record<string, unknown> | undefined;
+  private pendingReceipt: Record<string, unknown> | undefined;
+
+  override async query<T>(sql: string, values: readonly unknown[] = []): Promise<{ rows: T[] }> {
+    this.statements.push(sql);
+    const count = (n: number) => ({ rows: [{ count: n } as T] });
+    if (sql.includes("current_database()")) return { rows: [{ database_name: this.databaseName } as T] };
+    if (sql.startsWith("BEGIN ") || sql.startsWith("SET ")) return { rows: [] };
+    if (sql.startsWith("LOCK TABLE") && this.lockFailure) throw new Error("could not obtain lock");
+    if (sql === "COMMIT") this.receipt ??= this.pendingReceipt;
+    if (sql === "ROLLBACK") this.pendingReceipt = undefined;
+    if (sql.includes("stream_version >= ")) return { rows: this.receipt ? [this.receipt as T] : [] };
+    if (sql.includes("current_version") && sql.includes("FOR UPDATE")) return { rows: [{ current_version: "0" } as T] };
+    if (sql.includes("event_id = ANY")) return { rows: [] };
+    if (sql.trimStart().startsWith("INSERT INTO event_store_events")) {
+      this.pendingReceipt = {
+        global_position: "1",
+        event_id: values[0],
+        stream_id: values[1],
+        stream_version: values[2],
+        tenant_id: values[3],
+        event_type: values[6],
+        payload: values[7],
+        metadata: values[8],
+        occurred_at: values[9],
+        recorded_at: values[10],
+        performed_by_user_id: values[11],
+        for_account_id: values[12],
+      };
+      return { rows: [this.pendingReceipt as T] };
+    }
+    if (
+      /^\s*(INSERT INTO event_store_streams|UPDATE event_store_streams|SELECT pg_advisory_xact_lock_shared)/.test(sql)
+    ) {
+      return { rows: [] };
+    }
+    if (sql.includes("status = 'promoted'")) return count(this.promotionEvidence[0]);
+    if (sql.includes("catalog.source-observation.reference-promoted")) return count(this.promotionEvidence[1]);
+    if (sql.includes("catalog.merge-candidate.promotion-applied")) return count(this.promotionEvidence[2]);
+    if (sql.includes("active = true AND lifecycle = 'active'")) return count(3);
+    if (sql.startsWith("SELECT COUNT(*) AS count FROM catalog_source_observation_integration_job_events")) {
+      return count(this.integrationJobEvents);
+    }
+    if (sql.startsWith("SELECT COUNT(*) AS count FROM catalog_source_observation_bulk_review_job_events")) {
+      return count(this.bulkReviewJobEvents);
+    }
+    this.statements.pop();
+    return super.query<T>(sql);
   }
 }

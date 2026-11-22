@@ -22,14 +22,17 @@ function sourceFiles(directory: string): string[] {
   });
 }
 
-describe("account-profile-report-no-producer", () => {
-  it("names the Account Profile Report only in its contract, its one consumer and the declared graph", () => {
+const producer = "bounded-contexts/identity/features/account-profile-reports/api/runtime.ts";
+
+describe("account-profile-report ownership", () => {
+  it("names the Account Profile Report only in Identity's producer, its contract, its consumer and the declared graph", () => {
     const mentions = sourceRoots
       .flatMap((root) => sourceFiles(join(repoRoot, root)))
       .filter((path) => readFileSync(path, "utf8").includes(eventType))
       .map((path) => relative(repoRoot, path).split(sep).join("/"))
       .sort();
     expect(mentions).toEqual([
+      producer,
       "bounded-contexts/platform-operations/context.json",
       "bounded-contexts/platform-operations/features/reported-content/read-model/projection.ts",
       "bounded-contexts/platform-operations/tests/worker-graph.contract.json",
@@ -37,7 +40,10 @@ describe("account-profile-report-no-producer", () => {
     ]);
   });
 
-  it("has no append site: the contract module only declares and parses it", () => {
+  it("has exactly one Identity append site; the contract and projection cannot produce it", () => {
+    const producerSource = readFileSync(join(repoRoot, producer), "utf8");
+    expect(producerSource.match(/eventType:\s*"identity\.account-profile\.report-submitted"/g)).toHaveLength(1);
+    expect(producerSource).toContain("await tx.append(");
     const contractSource = readFileSync(
       join(repoRoot, "contracts/event-core/public-event-payloads/identity.ts"),
       "utf8",
