@@ -33,18 +33,45 @@
   ],
   "contextName": "payments",
   "packageName": "@chase-sets/payments",
-  "localeCatalogs": ["contracts/localization/locales/en/payments.ts"],
-  "ownedNouns": ["payment", "refund", "wallet-funding"],
+  "localeCatalogs": [
+    "contracts/localization/locales/en/payments.ts"
+  ],
+  "ownedNouns": [
+    "payment",
+    "refund",
+    "wallet-funding"
+  ],
   "streamPrefix": "payments.",
   "apiBasePath": "/api/marketplace",
-  "slices": ["payments", "refunds", "wallet-funding"],
-  "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support", "ucp-support", "ui-support"],
-  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./web"],
+  "slices": [
+    "payments",
+    "refunds",
+    "wallet-funding"
+  ],
+  "allowedSupportDirectories": [
+    "request-support",
+    "runtime-support",
+    "seed-support",
+    "ucp-support",
+    "ui-support"
+  ],
+  "publicExports": [
+    ".",
+    "./context",
+    "./routes/*",
+    "./seed-support/*",
+    "./server",
+    "./web"
+  ],
   "allowedContextDependencies": [
     "@chase-sets/marketplace",
     "@chase-sets/ordering"
   ],
-  "seedRequirements": ["identity", "marketplace", "ordering"],
+  "seedRequirements": [
+    "identity",
+    "marketplace",
+    "ordering"
+  ],
   "eventSubscriptions": [
     {
       "sourceContextName": "ordering",
@@ -57,7 +84,9 @@
         "ordering.order.ready-for-fulfillment-recorded"
       ],
       "order": 10,
-      "projectionHandlerSetNames": ["payments-order-input-projection"]
+      "projectionHandlerSetNames": [
+        "payments-order-input-projection"
+      ]
     },
     {
       "sourceContextName": "fulfillment",
@@ -72,7 +101,9 @@
         "fulfillment.shipment.returned"
       ],
       "order": 11,
-      "projectionHandlerSetNames": ["payments-fulfillment-dispute-evidence-source-projection"]
+      "projectionHandlerSetNames": [
+        "payments-fulfillment-dispute-evidence-source-projection"
+      ]
     },
     {
       "sourceContextName": "platform-operations",
@@ -87,7 +118,9 @@
         "support.support-request.refund-released.v1"
       ],
       "order": 70,
-      "projectionHandlerSetNames": ["payments-support-refund-effect"]
+      "projectionHandlerSetNames": [
+        "payments-support-refund-effect"
+      ]
     },
     {
       "sourceContextName": "fulfillment",
@@ -100,24 +133,35 @@
         "fulfillment.return-shipment.label-voided.v1"
       ],
       "order": 71,
-      "projectionHandlerSetNames": ["payments-support-refund-effect"]
+      "projectionHandlerSetNames": [
+        "payments-support-refund-effect"
+      ]
     },
     {
       "sourceContextName": "ordering",
       "projectionName": "payments-order-cancellation-refund-effect",
       "subscriptionVersion": 1,
       "filterToEventTypes": true,
-      "eventTypes": ["ordering.order.cancelled"],
+      "eventTypes": [
+        "ordering.order.cancelled"
+      ],
       "order": 20,
-      "projectionHandlerSetNames": ["payments-order-cancellation-refund-effect"]
+      "projectionHandlerSetNames": [
+        "payments-order-cancellation-refund-effect"
+      ]
     },
     {
       "sourceContextName": "settlement",
       "projectionName": "payments-account-risk-source-projection",
       "subscriptionVersion": 1,
-      "eventTypes": ["settlement.payout-review-hold.placed", "settlement.payout-review-hold.released"],
+      "eventTypes": [
+        "settlement.payout-review-hold.placed",
+        "settlement.payout-review-hold.released"
+      ],
       "order": 30,
-      "projectionHandlerSetNames": ["payments-account-risk-source-projection"]
+      "projectionHandlerSetNames": [
+        "payments-account-risk-source-projection"
+      ]
     },
     {
       "sourceContextName": "payments",
@@ -125,9 +169,13 @@
       "subscriptionVersion": 1,
       "subscriptionName": "payments.payment-capture-cancellation-refund-effect",
       "filterToEventTypes": true,
-      "eventTypes": ["payments.payment-captured"],
+      "eventTypes": [
+        "payments.payment-captured"
+      ],
       "order": 21,
-      "projectionHandlerSetNames": ["payments-order-cancellation-refund-effect"]
+      "projectionHandlerSetNames": [
+        "payments-order-cancellation-refund-effect"
+      ]
     },
     {
       "sourceContextName": "payments",
@@ -139,7 +187,9 @@
         "payments.payment-fraud-review-closed"
       ],
       "order": 31,
-      "projectionHandlerSetNames": ["payments-account-risk-source-projection"]
+      "projectionHandlerSetNames": [
+        "payments-account-risk-source-projection"
+      ]
     }
   ],
   "eventReactions": [
@@ -147,9 +197,13 @@
       "sourceContextName": "payments",
       "reactionName": "payments-dispute-evidence-submission",
       "subscriptionVersion": 1,
-      "eventTypes": ["payments.payment-disputed"],
+      "eventTypes": [
+        "payments.payment-disputed"
+      ],
       "order": 32,
-      "reactionHandlerSetNames": ["payments-dispute-evidence-submission"],
+      "reactionHandlerSetNames": [
+        "payments-dispute-evidence-submission"
+      ],
       "idempotencyPolicy": "idempotent-command-dispatch",
       "retryPolicy": "retry-from-last-checkpoint",
       "failurePolicy": "surface-as-reaction-failure"
@@ -158,72 +212,116 @@
   "projectionGroups": [
     {
       "projectionName": "payments-wallet-funding-projection",
-      "sourceContextNames": ["payments"],
-      "ownedTables": ["payments_wallet_funding_pages"],
+      "sourceContextNames": [
+        "payments"
+      ],
+      "ownedTables": [
+        "payments_wallet_funding_pages"
+      ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     },
     {
       "projectionName": "platform-policy-document-projection",
-      "sourceContextNames": ["payments"],
-      "ownedTables": ["platform_policy_documents", "platform_policy_document_history"],
+      "sourceContextNames": [
+        "payments"
+      ],
+      "ownedTables": [
+        "platform_policy_documents",
+        "platform_policy_document_history"
+      ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     },
     {
       "projectionName": "payments-order-input-projection",
-      "sourceContextNames": ["ordering"],
-      "ownedTables": ["payments_order_inputs"],
+      "sourceContextNames": [
+        "ordering"
+      ],
+      "ownedTables": [
+        "payments_order_inputs"
+      ],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     },
     {
       "projectionName": "payments-fulfillment-dispute-evidence-source-projection",
-      "sourceContextNames": ["fulfillment"],
-      "ownedTables": ["payments_fulfillment_dispute_evidence_sources"],
+      "sourceContextNames": [
+        "fulfillment"
+      ],
+      "ownedTables": [
+        "payments_fulfillment_dispute_evidence_sources"
+      ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
     },
     {
       "projectionName": "payments-support-refund-effect",
-      "sourceContextNames": ["platform-operations", "fulfillment"],
-      "ownedTables": ["payments_support_refund_effects", "payments_return_label_sources"],
+      "sourceContextNames": [
+        "platform-operations",
+        "fulfillment"
+      ],
+      "ownedTables": [
+        "payments_support_refund_effects",
+        "payments_return_label_sources"
+      ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
     },
     {
       "projectionName": "payments-order-cancellation-refund-effect",
-      "sourceContextNames": ["ordering", "payments"],
-      "ownedTables": ["payments_order_cancellation_refund_effects"],
+      "sourceContextNames": [
+        "ordering",
+        "payments"
+      ],
+      "ownedTables": [
+        "payments_order_cancellation_refund_effects"
+      ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
     },
     {
       "projectionName": "payments-payment-projection",
-      "sourceContextNames": ["payments"],
-      "ownedTables": ["payments_payment_orders", "payments_payment_pages"],
+      "sourceContextNames": [
+        "payments"
+      ],
+      "ownedTables": [
+        "payments_payment_orders",
+        "payments_payment_pages"
+      ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     },
     {
       "projectionName": "payments-account-risk-source-projection",
-      "sourceContextNames": ["settlement", "payments"],
-      "ownedTables": ["payments_account_risk_sources"],
+      "sourceContextNames": [
+        "settlement",
+        "payments"
+      ],
+      "ownedTables": [
+        "payments_account_risk_sources"
+      ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
     },
     {
       "projectionName": "payments-dispute-evidence-submission",
       "handlerKind": "reaction",
-      "sourceContextNames": ["payments"],
+      "sourceContextNames": [
+        "payments"
+      ],
       "ownedTables": [],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
     },
     {
       "projectionName": "payments-fraud-alert-projection",
-      "sourceContextNames": ["payments"],
-      "ownedTables": ["notification_outbox"],
+      "sourceContextNames": [
+        "payments"
+      ],
+      "ownedTables": [
+        "notification_outbox"
+      ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
     }
@@ -280,7 +378,9 @@
       "purpose": "Read the current admitted provider evidence window immediately before a provider call without gaining registration write authority."
     }
   ],
-  "apiDeployables": ["platform-api"],
+  "apiDeployables": [
+    "platform-api"
+  ],
   "apiMounts": [
     {
       "mountPath": "/api/marketplace",
@@ -289,7 +389,10 @@
       "readFreshnessRoutes": [
         {
           "routePath": "/account/payments/:id",
-          "methods": ["GET", "HEAD"],
+          "methods": [
+            "GET",
+            "HEAD"
+          ],
           "dependencies": [
             {
               "readModelTable": "payments_payment_pages"
@@ -298,7 +401,10 @@
         },
         {
           "routePath": "/account/checkout/status",
-          "methods": ["GET", "HEAD"],
+          "methods": [
+            "GET",
+            "HEAD"
+          ],
           "dependencies": [
             {
               "readModelTable": "payments_order_inputs"
@@ -317,15 +423,39 @@
       "requiresAuth": false
     }
   ],
-  "anonymousRoutes": [{ "routePath": "/api/marketplace/payment-provider-mode", "methods": ["GET"] }],
+  "anonymousRoutes": [
+    {
+      "routePath": "/api/marketplace/payment-provider-mode",
+      "methods": [
+        "GET"
+      ]
+    }
+  ],
   "mcpCapabilities": {
     "tools": [
-      { "name": "payments.start-payment-method-setup", "ownerSlice": "payments" },
-      { "name": "payments.confirm-payment-method-setup", "ownerSlice": "payments" },
-      { "name": "payments.get-payment", "ownerSlice": "payments" },
-      { "name": "payments.get-refund-status", "ownerSlice": "refunds" }
+      {
+        "name": "payments.start-payment-method-setup",
+        "ownerSlice": "payments"
+      },
+      {
+        "name": "payments.confirm-payment-method-setup",
+        "ownerSlice": "payments"
+      },
+      {
+        "name": "payments.get-payment",
+        "ownerSlice": "payments"
+      },
+      {
+        "name": "payments.get-refund-status",
+        "ownerSlice": "refunds"
+      }
     ],
-    "resources": [{ "uriTemplate": "chase-sets://payments/{accountId}/payments/{paymentId}", "ownerSlice": "payments" }]
+    "resources": [
+      {
+        "uriTemplate": "chase-sets://payments/{accountId}/payments/{paymentId}",
+        "ownerSlice": "payments"
+      }
+    ]
   },
   "readAfterWriteRouteInventory": [
     {
@@ -339,23 +469,33 @@
       },
       "source": {
         "routeId": "account-payment-new",
-        "actions": ["Accept current Terms of Service before using wallet credit"],
+        "actions": [
+          "Accept current Terms of Service before using wallet credit"
+        ],
         "command": "Identity Terms of Service acceptance command",
-        "helperUses": ["navigateAfterWriteWithPlatformPostWriteToken"]
+        "helperUses": [
+          "navigateAfterWriteWithPlatformPostWriteToken"
+        ]
       },
       "destination": {
         "routeId": "account-payment-new",
         "apiContextName": "payments",
         "apiRoutePath": "/account/checkout/status",
-        "readModelTables": ["payments_order_inputs"],
-        "helperUses": ["loadAfterWrite"],
+        "readModelTables": [
+          "payments_order_inputs"
+        ],
+        "helperUses": [
+          "loadAfterWrite"
+        ],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Terms acceptance carries Identity's receipt. The matching Payments readFreshnessRoutes entry also declares targetContextName identity and readModelTable identity_consent_current_states; the exact-dependency gate waits on that Identity projection before this status read. This inventory table list names the Payments-owned dependency only. Timeout retains orders and manual recovery without restoring wallet eligibility."
         }
       },
       "proof": {
-        "tests": ["bounded-contexts/payments/tests/account-payment-new-wallet-status.test.tsx"]
+        "tests": [
+          "bounded-contexts/payments/tests/account-payment-new-wallet-status.test.tsx"
+        ]
       }
     },
     {
@@ -369,16 +509,24 @@
       },
       "source": {
         "routeId": "account-payment-new",
-        "actions": ["Create account payment"],
+        "actions": [
+          "Create account payment"
+        ],
         "command": "Payments payment creation command",
-        "helperUses": ["navigateAfterWriteWithPlatformPostWriteToken"]
+        "helperUses": [
+          "navigateAfterWriteWithPlatformPostWriteToken"
+        ]
       },
       "destination": {
         "routeId": "account-payment",
         "apiContextName": "payments",
         "apiRoutePath": "/account/payments/:id",
-        "readModelTables": ["payments_payment_pages"],
-        "helperUses": ["loadAfterWrite"],
+        "readModelTables": [
+          "payments_payment_pages"
+        ],
+        "helperUses": [
+          "loadAfterWrite"
+        ],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Payment detail uses exact Payments payment-page freshness and shared fresh-write transient recovery."
@@ -396,14 +544,21 @@
       },
       "source": {
         "routeId": "buy-checkout-session",
-        "actions": ["Create checkout orders before payment start"],
+        "actions": [
+          "Create checkout orders before payment start"
+        ],
         "command": "Ordering checkout order creation command"
       },
       "destination": {
-        "routeIds": ["account-payment", "checkout-payment"],
+        "routeIds": [
+          "account-payment",
+          "checkout-payment"
+        ],
         "apiContextName": "payments",
         "apiRoutePath": "/account/checkout/status",
-        "readModelTables": ["payments_order_inputs"],
+        "readModelTables": [
+          "payments_order_inputs"
+        ],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Checkout payment start preflights Payments checkout status with the Ordering write receipt so payments_order_inputs catches up before creating the payment."
@@ -427,16 +582,25 @@
       },
       "source": {
         "routeId": "account-payment",
-        "actions": ["Refresh or continue payment detail after payment command"],
+        "actions": [
+          "Refresh or continue payment detail after payment command"
+        ],
         "command": "Payments detail commands",
-        "helperUses": ["navigateAfterWriteWithPlatformPostWriteToken", "loadAfterWrite"]
+        "helperUses": [
+          "navigateAfterWriteWithPlatformPostWriteToken",
+          "loadAfterWrite"
+        ]
       },
       "destination": {
         "routeId": "account-payment",
         "apiContextName": "payments",
         "apiRoutePath": "/account/payments/:id",
-        "readModelTables": ["payments_payment_pages"],
-        "helperUses": ["loadAfterWrite"],
+        "readModelTables": [
+          "payments_payment_pages"
+        ],
+        "helperUses": [
+          "loadAfterWrite"
+        ],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Payment detail self-refresh uses exact Payments payment-page freshness and shared fresh-write transient recovery."
@@ -451,20 +615,24 @@
       "risk": "critical",
       "strategy": "fresh-read",
       "surfaces": [
-        "post-form:bounded-contexts/payments/routes/marketplace/account-payment-new.tsx:Hb08a81ecfd73#1"
+        "post-form:bounded-contexts/payments/features/payments/ui/routes/account-payment-new.tsx:Hb08a81ecfd73#1"
       ],
       "visibleDestination": {
         "routeId": "account-payment-new",
         "apiContextName": "payments",
         "apiRoutePath": "/account/checkout/status",
-        "readModelTables": ["payments_order_inputs"],
+        "readModelTables": [
+          "payments_order_inputs"
+        ],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Terms acceptance carries Identity's receipt. The matching Payments readFreshnessRoutes entry also declares targetContextName identity and readModelTable identity_consent_current_states; the exact-dependency gate waits on that Identity projection before this status read. This inventory table list names the Payments-owned dependency only. Timeout retains orders and manual recovery without restoring wallet eligibility."
         }
       },
       "proof": {
-        "tests": ["bounded-contexts/payments/tests/account-payment-new-wallet-status.test.tsx"]
+        "tests": [
+          "bounded-contexts/payments/tests/account-payment-new-wallet-status.test.tsx"
+        ]
       }
     },
     {
@@ -481,7 +649,9 @@
       },
       "proof": {
         "authoritativeResponse": "The Wallet Funding command result and refund operation are loaded from the event stream before returning.",
-        "tests": ["bounded-contexts/payments/features/wallet-funding/api/runtime.test.ts"]
+        "tests": [
+          "bounded-contexts/payments/features/wallet-funding/api/runtime.test.ts"
+        ]
       }
     },
     {
@@ -501,7 +671,7 @@
         "tests": [
           "bounded-contexts/payments/features/payments/api/route.test.ts",
           "bounded-contexts/payments/tests/account-payment-new-route.test.tsx",
-          "bounded-contexts/payments/tests/guest-payment-claim-action.test.ts"
+          "bounded-contexts/payments/features/payments/ui/routes/guest-payment-claim-action.test.ts"
         ]
       }
     },
@@ -511,14 +681,16 @@
       "risk": "critical",
       "strategy": "fresh-read",
       "surfaces": [
-        "post-form:bounded-contexts/payments/routes/marketplace/account-payment-new.tsx:Hb2c20eae8fce#1",
-        "route-action:bounded-contexts/payments/routes/marketplace/account-payment-new.tsx"
+        "post-form:bounded-contexts/payments/features/payments/ui/routes/account-payment-new.tsx:Hb2c20eae8fce#1",
+        "route-action:bounded-contexts/payments/features/payments/ui/routes/account-payment-new.tsx"
       ],
       "visibleDestination": {
         "routeId": "account-payment",
         "apiContextName": "payments",
         "apiRoutePath": "/account/payments/:id",
-        "readModelTables": ["payments_payment_pages"],
+        "readModelTables": [
+          "payments_payment_pages"
+        ],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Payment creation redirects carry the Payments command receipt as afterWrite; payment detail waits on payments_payment_pages and renders preparing-payment recovery while the receipt is fresh."
@@ -527,7 +699,7 @@
       "proof": {
         "tests": [
           "bounded-contexts/payments/tests/account-payment-new-route.test.tsx",
-          "bounded-contexts/payments/tests/guest-payment-claim-action.test.ts"
+          "bounded-contexts/payments/features/payments/ui/routes/guest-payment-claim-action.test.ts"
         ]
       }
     },
@@ -538,20 +710,24 @@
       "strategy": "fresh-read",
       "surfaces": [
         "post-form:bounded-contexts/payments/features/payments/ui/account-payment/account-payment-page.tsx:Hb08a81ecfd73#1",
-        "route-action:bounded-contexts/payments/routes/marketplace/account-payment.tsx"
+        "route-action:bounded-contexts/payments/features/payments/ui/routes/account-payment.tsx"
       ],
       "visibleDestination": {
         "routeId": "account-payment",
         "apiContextName": "payments",
         "apiRoutePath": "/account/payments/:id",
-        "readModelTables": ["payments_payment_pages"],
+        "readModelTables": [
+          "payments_payment_pages"
+        ],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Guest payment retry redirects carry the recovered Payments command receipt as afterWrite; payment detail waits on payments_payment_pages and keeps fresh 404 or projection timeout as temporary recovery."
         }
       },
       "proof": {
-        "tests": ["bounded-contexts/payments/tests/guest-payment-claim-action.test.ts"]
+        "tests": [
+          "bounded-contexts/payments/features/payments/ui/routes/guest-payment-claim-action.test.ts"
+        ]
       }
     },
     {
@@ -571,7 +747,9 @@
       },
       "proof": {
         "authoritativeResponse": "The API serializes only user-visible setup and saved-method fields from Payments-owned rows after the provider/setup command completes; reconcile also returns the authoritative saved-method list snapshot.",
-        "tests": ["bounded-contexts/payments/features/payments/api/route.test.ts"]
+        "tests": [
+          "bounded-contexts/payments/features/payments/api/route.test.ts"
+        ]
       }
     },
     {
@@ -580,16 +758,18 @@
       "risk": "important",
       "strategy": "snapshot-return",
       "surfaces": [
-        "post-form:bounded-contexts/payments/routes/marketplace/account-payment-methods.tsx:Hb08a81ecfd73#1",
-        "post-form:bounded-contexts/payments/routes/marketplace/account-payment-methods.tsx:Hb08a81ecfd73#2",
-        "route-action:bounded-contexts/payments/routes/marketplace/account-payment-methods.tsx"
+        "post-form:bounded-contexts/payments/features/payments/ui/routes/account-payment-methods.tsx:Hb08a81ecfd73#1",
+        "post-form:bounded-contexts/payments/features/payments/ui/routes/account-payment-methods.tsx:Hb08a81ecfd73#2",
+        "route-action:bounded-contexts/payments/features/payments/ui/routes/account-payment-methods.tsx"
       ],
       "visibleDestination": {
         "description": "The saved payment methods route renders action-returned Payments snapshots for default, remove, setup reconciliation, and reconcile results instead of depending on realtime or a stale loader after mutation."
       },
       "proof": {
         "authoritativeResponse": "The route action returns the sanitized saved-method list from Payments immediately after the mutation, and the component prefers that action snapshot over stale loader data. Each setup, default and remove form carries its own Saved Checkout Instrument Attempt id and keeps an unconfirmed outcome across later revalidations.",
-        "tests": ["bounded-contexts/payments/tests/account-payment-methods-route.test.tsx"]
+        "tests": [
+          "bounded-contexts/payments/tests/account-payment-methods-route.test.tsx"
+        ]
       }
     },
     {
@@ -597,7 +777,9 @@
       "owner": "payments",
       "risk": "internal",
       "strategy": "non-user-visible",
-      "surfaces": ["api-route:bounded-contexts/payments/features/payments/api/route.ts:POST /webhooks"],
+      "surfaces": [
+        "api-route:bounded-contexts/payments/features/payments/api/route.ts:POST /webhooks"
+      ],
       "exception": {
         "owner": "payments",
         "reason": "As of 2026-06-15 this is a provider-to-server webhook endpoint with no browser-visible destination; account payment and method pages read through their own GET/fresh-read or setup reconciliation paths.",
@@ -727,59 +909,94 @@
       "order": 210,
       "visibility": "signed-in",
       "requiredPermissions": [],
-      "excludedRoleKeys": ["guest-buyer"]
+      "excludedRoleKeys": [
+        "guest-buyer"
+      ]
     }
   ],
   "directoryIntent": {
     "wallet-funding": {
       "classification": "slice",
       "purpose": "Own Wallet Funding card charges, fee quotes and reserved refund execution without order payments or wallet ledger writes.",
-      "expectedConsumers": ["platform-api", "platform-worker", "settlement"]
+      "expectedConsumers": [
+        "platform-api",
+        "platform-worker",
+        "settlement"
+      ]
     },
     "payments": {
       "classification": "slice",
       "purpose": "Own payments feature behavior, read models, and UI contracts for the payments context.",
-      "expectedConsumers": ["Internal payments module composition"]
+      "expectedConsumers": [
+        "Internal payments module composition"
+      ]
     },
     "refunds": {
       "classification": "slice",
       "purpose": "Own refunds feature behavior, read models, and UI contracts for the payments context.",
-      "expectedConsumers": ["Internal payments module composition"]
+      "expectedConsumers": [
+        "Internal payments module composition"
+      ]
     },
     "request-support": {
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by payments-owned features and composition seams.",
-      "expectedConsumers": ["payments"],
+      "expectedConsumers": [
+        "payments"
+      ],
       "crossCuttingRuntimeComposition": true
     },
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by payments-owned features and composition seams.",
-      "expectedConsumers": ["payments", "refunds", "wallet-funding"]
+      "expectedConsumers": [
+        "payments",
+        "refunds",
+        "wallet-funding"
+      ]
     },
     "seed-support": {
       "classification": "support",
       "purpose": "Provide reusable seed-support assets shared by payments-owned features and composition seams.",
-      "expectedConsumers": ["Multiple payments slices", "Deployable composition for payments"],
+      "expectedConsumers": [
+        "Multiple payments slices",
+        "Deployable composition for payments"
+      ],
       "crossCuttingRuntimeComposition": true
     },
     "ucp-support": {
       "classification": "support",
       "purpose": "Provide Payments-owned UCP payment-handler declarations and stored-payment-method completion decisions coordinated by Checkout sessions.",
-      "expectedConsumers": ["Checkout UCP completion adapter", "Platform UCP route composition"]
+      "expectedConsumers": [
+        "Checkout UCP completion adapter",
+        "Platform UCP route composition"
+      ]
     },
     "ui-support": {
       "classification": "support",
       "purpose": "Expose the Payments-owned provider confirmation card through the deployable-facing web surface.",
-      "expectedConsumers": ["web.ts", "checkout routes"]
+      "expectedConsumers": [
+        "web.ts",
+        "checkout routes"
+      ]
     },
     "routes": {
       "classification": "routes",
       "purpose": "Expose payments-owned route modules consumed by generated deployable adapters.",
-      "expectedConsumers": ["Generated deployable route adapters"]
+      "expectedConsumers": [
+        "Generated deployable route adapters"
+      ]
     }
   },
-  "runtimeDeployables": ["platform-worker"],
-  "apiRuntimeProfiles": ["proof", "public"],
-  "workerRuntimeProfiles": ["proof", "public"]
+  "runtimeDeployables": [
+    "platform-worker"
+  ],
+  "apiRuntimeProfiles": [
+    "proof",
+    "public"
+  ],
+  "workerRuntimeProfiles": [
+    "proof",
+    "public"
+  ]
 }

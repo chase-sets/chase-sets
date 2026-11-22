@@ -2391,12 +2391,8 @@ describe("Catalog integrations route", () => {
     expect(response.headers.get("Location")).toContain("commandResult=invalid-intent");
   });
 
-  it("bridges guided profile section saves through the typed section PATCH API", async () => {
-    const getSourceObservationProviderProfileAuthoringModel = vi.fn().mockResolvedValue(
-      profileAuthoringModel({
-        review: profileReview({ active: false, lifecycle: "draft", profileVersion: "2026.06.04-draft" }),
-      }),
-    );
+  it("sends a guided profile section save as the section's posted fields", async () => {
+    const getSourceObservationProviderProfileAuthoringModel = vi.fn();
     const updateSourceObservationProviderProfileSection = vi.fn().mockResolvedValue({
       providerKey: "tcgdex",
       profileKey: "tcgdex-pokemon-card",
@@ -2427,21 +2423,24 @@ describe("Catalog integrations route", () => {
       promotionPreviewId: "preview-stale",
     });
 
-    // The save carries the revision the form was drawn from, so Catalog can refuse a newer one.
+    // Only the section's own fields, as posted: Catalog composes them over the stored section, so
+    // the save reads nothing first. It carries the revision the form was drawn from, so Catalog can
+    // refuse a newer one.
     expect(updateSourceObservationProviderProfileSection).toHaveBeenCalledWith(
       "tcgdex",
       "2026.06.04-draft",
       "basics",
-      expect.objectContaining({
-        section: "basics",
+      {
         displayName: "TCGdex Pokemon cards draft",
         lifecycle: "draft",
         status: "planned",
-        capabilities: ["source-observation-import", "catalog-item-promotion"],
-        languageOptions: ["en", "fr"],
-      }),
+        capabilities: "source-observation-import, catalog-item-promotion",
+        supportedScopes: "pokemon/card",
+        languageOptions: "en, fr",
+      },
       "sha256:basics-read",
     );
+    expect(getSourceObservationProviderProfileAuthoringModel).not.toHaveBeenCalled();
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toContain("/catalog/providers/tcgdex");
     expect(response.headers.get("Location")).toContain("profileVersion=2026.06.04-draft");
@@ -2503,11 +2502,8 @@ describe("Catalog integrations route", () => {
       "2026.06.04",
       "migration-evidence",
       {
-        section: "migration-evidence",
-        migrationEvidence: {
-          evidenceText: "Dry-run and replay evidence reviewed for the activation decision.",
-          fixtureRunId: "fixture-run-1037",
-        },
+        migrationEvidenceText: "Dry-run and replay evidence reviewed for the activation decision.",
+        migrationFixtureRunId: "fixture-run-1037",
       },
       "sha256:migration-evidence-read",
     );
@@ -2569,7 +2565,7 @@ describe("Catalog integrations route", () => {
       "tcgdex",
       "2026.06.04",
       "migration-evidence",
-      { section: "migration-evidence", migrationEvidence: { evidenceText: "", fixtureRunId: null } },
+      { migrationEvidenceText: "   " },
       "",
     );
   });
