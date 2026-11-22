@@ -23,6 +23,9 @@ export function createMemoryRepricingConfigurationWriter(eventStore: EventStore)
   const heads = new Map<string, number>();
   const client: PgPoolClient = { query: async () => ({ rows: [] }), release: () => undefined };
   return {
+    async captureAccount() {
+      throw new Error("Use the durable writer fixture for installed Pricing standing.");
+    },
     async request(input) {
       const requestKey = input.requestKey ?? randomUUID();
       const original = requests.get(`${input.accountId}:${requestKey}`);

@@ -25,6 +25,7 @@ import {
 } from "./target-validation";
 import type {
   ListingConfigurationAuthority,
+  ListingAuthorizationEvidence,
   ListingMutationResult,
   ListingTargetAuthority,
   ListingTargetServices,
@@ -98,7 +99,15 @@ export function createListingTargetRuntime(
       initialMarketplaceListingState,
     );
     assert(state?.listingId === input.listingId && state.accountId === input.accountId, "Listing not found.");
-    return { state, version: history.length };
+    return {
+      state,
+      version: history.length,
+      createdAt: new Date(history[0]!.recordedAt).toISOString(),
+      basePriceRevision: history.reduce(
+        (revision, event) => (event.eventType === "marketplace.listing.price-updated" ? event.streamVersion : revision),
+        1,
+      ),
+    };
   }
   function parseResult(value: unknown): ListingMutationResult {
     assert(value && typeof value === "object", "Missing Listing result.");
@@ -123,12 +132,40 @@ export function createListingTargetRuntime(
     async acceptListingTargetPrice(raw, context, principal) {
       const input = acceptListingTargetPriceSchema.parse(raw);
       const pair = normalizeAcceptedListingPrice(input.priceAmount, input.priceCurrencyCode);
+      const pricing = input.decision.kind === "pricing-evaluation" ? deps.authority?.pricing : undefined;
       return execute({
         accountId: input.accountId,
         idempotencyKey: input.idempotencyKey,
         command: { ...input, ...pair },
         context,
         principal,
+        ...(input.decision.kind === "pricing-evaluation"
+          ? {
+              checkEvidence: (evidence: readonly ListingAuthorizationEvidence[]) => {
+                const entries = evidence.filter((entry) => entry.owner === "pricing");
+                assert(
+                  entries.length === 4 &&
+                    entries.some(
+                      (entry) => entry.key === `repricing-account/${input.accountId}` && entry.epoch !== undefined,
+                    ) &&
+                    entries.some(
+                      (entry) =>
+                        entry.key === "repricing-platform-policy/pricing.repricing-engine" && entry.epoch !== undefined,
+                    ) &&
+                    entries.some(
+                      (entry) =>
+                        entry.key.startsWith('predicate:["repricing-decision"') && entry.promiseId !== undefined,
+                    ) &&
+                    entries.some(
+                      (entry) => entry.key.startsWith('predicate:["repricing-budget"') && entry.promiseId !== undefined,
+                    ) &&
+                    new Set(entries.map((entry) => entry.storeIncarnation)).size === 1,
+                  "Pricing decision authority is incomplete.",
+                );
+              },
+              ...(pricing ? { settle: pricing.settle } : {}),
+            }
+          : {}),
         parseResult(value) {
           const result = parseResult(value);
           const accepted = result.state.acceptedTargetPrices[listingPriceTargetKey(input.target)];
@@ -149,7 +186,7 @@ export function createListingTargetRuntime(
           return { ...result, acceptedTargetPrice: accepted };
         },
         prepare: async (preparation) => {
-          assert(input.decision.kind === "seller-reference", "Pricing decision authority is unavailable.");
+          assert(input.decision.kind === "seller-reference" || pricing, "Pricing decision authority is unavailable.");
           assert(input.target.kind === "channel-connection", "Only channel target acceptance is enrolled.");
           assert(
             deps.authority &&
@@ -172,7 +209,72 @@ export function createListingTargetRuntime(
           configurationAuthority(connection, [`connection/${input.target.connectionId}`]);
           const loaded = await owned(input, context.tenantId);
           assert(loaded.version === input.expectedListingVersion, "Listing revision changed.");
-          const grants = assertConfigurationGrantVector([...manage.grants, ...connection.grants]);
+          const pricingPreparation =
+            input.decision.kind === "pricing-evaluation" && pricing
+              ? await pricing.prepare(
+                  {
+                    ...preparation,
+                    input: { ...input, ...pair, target: input.target, decision: input.decision },
+                    principal,
+                    listing: loaded.state,
+                    createdAt: loaded.createdAt,
+                    basePriceRevision: loaded.basePriceRevision,
+                  },
+                  context,
+                )
+              : undefined;
+          const pricingEvidence: ListingAuthorizationEvidence[] = [];
+          if (pricingPreparation) {
+            const { terminal, grants, evidenceHash } = pricingPreparation;
+            assertRequestTerminalBinding(terminal);
+            const pricingReservations = terminal.reservations.filter(
+              ({ purpose }) => purpose === "pricing-evaluated-decision" || purpose === "pricing-daily-change-budget",
+            );
+            assert(
+              /^[a-f0-9]{64}$/.test(evidenceHash) &&
+                terminal.preparationNotBefore &&
+                terminal.requestId === preparation.requestId &&
+                terminal.commandFingerprint === preparation.commandFingerprint &&
+                terminal.target.evidenceHash === evidenceHash &&
+                terminal.target.accountId === input.accountId &&
+                terminal.target.listingId === input.listingId &&
+                terminal.target.productId === loaded.state.productId &&
+                terminal.target.priceAmount === pair.priceAmount &&
+                terminal.target.priceCurrencyCode === pair.priceCurrencyCode &&
+                reservationIdentity(terminal.target.target) === reservationIdentity(input.target) &&
+                reservationIdentity(terminal.target.decision) === reservationIdentity(input.decision) &&
+                grants.length === 2 &&
+                grants.every(
+                  (grant) =>
+                    grant.consumer.storeId === terminal.consumerStoreId &&
+                    grant.consumer.incarnation === terminal.consumerIncarnation,
+                ) &&
+                pricingReservations.length === 2 &&
+                new Set(pricingReservations.map((r) => r.purpose)).size === 2,
+              "Pricing decision authority is incomplete.",
+            );
+            pricingEvidence.push(
+              ...grants.map((grant) => ({
+                owner: "pricing",
+                key: grant.key,
+                storeIncarnation: grant.sourceIncarnation,
+                sealVersion: grant.epoch + 1,
+                epoch: grant.epoch,
+              })),
+              ...pricingReservations.map((member) => ({
+                owner: "pricing",
+                key: member.ownerStreamId,
+                storeIncarnation: member.seal.storeIncarnation,
+                sealVersion: member.seal.version,
+                promiseId: member.reservationId,
+              })),
+            );
+          }
+          const grants = assertConfigurationGrantVector([
+            ...manage.grants,
+            ...connection.grants,
+            ...(pricingPreparation?.grants ?? []),
+          ]);
           const eventId = createId("evt");
           const accepted: AcceptedListingTargetPriceV1 = {
             schemaVersion: 1,
@@ -191,6 +293,7 @@ export function createListingTargetRuntime(
           const events = decideMarketplaceListing(loaded.state, {
             type: "AcceptListingTargetPrice",
             acceptedTargetPrice: accepted,
+            ...(pricingPreparation ? { pricingEvidenceHash: pricingPreparation.evidenceHash } : {}),
             expectedTargetPriceRevision: input.expectedTargetPriceRevision,
           });
           const state = events.reduce(evolveMarketplaceListing, loaded.state);
@@ -201,13 +304,14 @@ export function createListingTargetRuntime(
               state,
               acceptedTargetPrice: accepted,
             },
-            evidence: [...manage.evidence, ...connection.evidence],
+            evidence: [...manage.evidence, ...connection.evidence, ...pricingEvidence],
             appends: [
               {
                 streamId: `marketplace.listing-${input.listingId}`,
                 expectedVersion: loaded.version,
                 context,
                 configurationGrants: grants,
+                ...(pricingPreparation ? { requestTerminal: pricingPreparation.terminal } : {}),
                 events: events.map((event) => ({ ...codec.encode(event), eventId })),
               },
             ],
