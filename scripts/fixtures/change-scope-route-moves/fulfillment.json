@@ -1,0 +1,12 @@
+{
+  "addedCaseCount": 1,
+  "families": {
+    "boundedContextRouteSuiteOwnership:52": {
+      "pattern": "/^bounded-contexts\\/fulfillment\\/routes\\/seller-shipping-setup\\.tsx$/",
+      "suites": ["marketplace_checkout"],
+      "path": "bounded-contexts/fulfillment/routes/seller-shipping-setup.tsx",
+      "trackedCandidates": 1,
+      "synthetic": false
+    }
+  }
+}

@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -998,40 +998,33 @@ describe("shared E2E setup selection", () => {
     const fallback = captured.cases.find(({ changedFiles }) =>
       changedFiles.includes("deployables/marketplace/e2e/unmapped.spec.ts"),
     );
+    const routeMovesDir = new URL("./fixtures/change-scope-route-moves/", import.meta.url);
+    const routeMoves = readdirSync(routeMovesDir, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+      .map(({ name }) => JSON.parse(readFileSync(new URL(name, routeMovesDir), "utf8")));
+    // Five agent/MCP cases and the Chromium install setup case were added independently of route moves.
+    const nonRouteCasesAdded = 6;
+    const routeCasesAdded = routeMoves.reduce((total, { addedCaseCount }) => total + addedCaseCount, 0);
     expect(captured.cases).toHaveLength(150);
-    expect(candidate.cases).toHaveLength(158);
-    expect(candidate.families).toEqual([
-      ...captured.families
+    expect(candidate.cases).toHaveLength(captured.cases.length + nonRouteCasesAdded + routeCasesAdded);
+
+    const expectedFamilies = new Map(
+      captured.families
         .filter((family) => family.path !== retired)
         .map((family) =>
-          family.family === "boundedContextRouteSuiteOwnership:45"
-            ? {
-                ...family,
-                pattern:
-                  "/^bounded-contexts\\/discovery\\/routes\\/item-detail(?:\\.|-market-history\\.|-rail-analytics\\.)/",
-              }
-            : family.family === "boundedContextRouteSuiteOwnership:51"
-              ? {
-                  ...family,
-                  pattern:
-                    "/^bounded-contexts\\/notifications\\/(?:routes|features\\/notification-center\\/ui\\/routes)\\/account-notifications\\./",
-                  path: "bounded-contexts/notifications/features/notification-center/ui/routes/account-notifications.tsx",
-                  trackedCandidates: 2,
-                }
-              : family.family === "e2eNoSuiteExclusions:4"
-                ? { ...family, family: "e2eNoSuiteExclusions:3" }
-                : family,
-        ),
-      {
-        family: "boundedContextRouteSuiteOwnership:52",
-        pattern: "/^bounded-contexts\\/fulfillment\\/routes\\/seller-shipping-setup\\.tsx$/",
-        suites: ["marketplace_checkout"],
-        path: "bounded-contexts/fulfillment/routes/seller-shipping-setup.tsx",
-        trackedCandidates: 1,
-        synthetic: false,
-      },
-    ]);
-    expect(candidate.families).toHaveLength(143);
+          family.family === "e2eNoSuiteExclusions:4" ? { ...family, family: "e2eNoSuiteExclusions:3" } : family,
+        )
+        .map((family) => [family.family, family]),
+    );
+    const familyDeltas = routeMoves.flatMap(({ families }) => Object.entries(families));
+    // Updates retain captured order; new route families are appended in registry order.
+    for (const [family, delta] of familyDeltas.sort(([left], [right]) =>
+      left.localeCompare(right, "en", { numeric: true }),
+    )) {
+      expectedFamilies.set(family, { family, ...expectedFamilies.get(family), ...delta });
+    }
+    expect(candidate.families).toEqual([...expectedFamilies.values()]);
+    expect(candidate.families).toHaveLength(expectedFamilies.size);
     expect(
       candidate.cases.find(({ changedFiles }) =>
         changedFiles.includes("bounded-contexts/fulfillment/routes/seller-shipping-setup.tsx"),
