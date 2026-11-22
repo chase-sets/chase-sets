@@ -1,6 +1,7 @@
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
 import { notificationOutboxSchemaSql } from "@chase-sets/notification-outbox";
 import { platformPolicySchemaSql } from "@chase-sets/platform-policy/schema";
+import { realtimeOutboxSchemaSql } from "@chase-sets/platform-runtime/realtime";
 import { platformFeedbackSchemaSql } from "../../features/platform-feedback/read-model/schema";
 import { publicDocReviewSchemaSql } from "../../features/public-doc-reviews/read-model/schema";
 import { commercialTermsEffectiveDateAttentionSchemaSql } from "../../features/commercial-terms-attention/read-model/schema";
@@ -18,6 +19,7 @@ import { accountAppealSchemaSql } from "../../features/account-appeals/read-mode
 export const platformOperationsSchemaSql = [
   eventCorePostgresSchemaSql,
   notificationOutboxSchemaSql,
+  realtimeOutboxSchemaSql,
   platformFeedbackSchemaSql,
   commercialTermsEffectiveDateAttentionSchemaSql,
   publicDocReviewSchemaSql,

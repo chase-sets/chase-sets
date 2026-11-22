@@ -475,6 +475,21 @@
       "portName": "channelConnectionIdentityReader",
       "providedBy": "channels",
       "purpose": "Resolve account-qualified Channel Connection identity before provider selection for the channel-connection Economics scope."
+    },
+    {
+      "portName": "pricingPredicateConsumerPool",
+      "providedBy": "composition root",
+      "purpose": "Route Pricing predicate invalidation to the original Marketplace request terminal."
+    },
+    {
+      "portName": "pricingEvaluationOwners",
+      "providedBy": "composition root",
+      "purpose": "Supply the Marketplace, Inventory, and Catalog stores for authoritative evaluation inputs and reservations."
+    },
+    {
+      "portName": "pricingEvaluationConsumers",
+      "providedBy": "composition root",
+      "purpose": "Identify the Marketplace consumer store and incarnation for Pricing standing grants and closure."
     }
   ],
   "apiDeployables": ["platform-api"],

@@ -69,6 +69,7 @@ import type { WalletFundingEligibilityResolver } from "@chase-sets/payments/serv
 import { walletFundingLimitsPolicy } from "@chase-sets/payments/server";
 import {
   createInventoryExternalChannelSaleRecorderForPool,
+  createInventoryStockAuthorityForPool,
   createStorageLocationAuthority,
   createImportResolutionAttentionSourceFromReadModel,
   createInventoryHoldCleanupAuthorityForPool,
@@ -106,6 +107,8 @@ import {
   normalizeProjectionOperationsSnapshot,
   normalizeWakeStatusSnapshot,
   type OfferEconomicsCrossContextPort,
+  platformOperationsRealtimeManifest,
+  platformOperationsRealtimeTopicPolicyManifest,
   rateLimitPolicy,
   type OpsMarketAnalyticsCrossContextPort,
   type PolicyConsoleCrossContextPort,
@@ -374,6 +377,7 @@ export function createPlatformApiHost(
       ? createPlatformListingTargetAuthority({
           marketplace: marketplacePool,
           inventory: inventoryPool,
+          pricing: () => (runtime?.services.pricing as PricingServices | undefined)?.evaluationAuthority,
           auth: () => {
             if (!runtime) throw new Error("Auth runtime is unavailable.");
             return runtime.services.auth as ReturnType<typeof authModule.createServices>;
@@ -748,6 +752,17 @@ export function createPlatformApiHost(
             sessionConsumers: listingTargets.consumer.topology,
             connectionConsumers: listingTargets.consumer.topology,
             stockReservationConsumerPool: marketplacePool,
+            pricingEvaluationConsumers: listingTargets.consumer.topology,
+            ...(marketplacePool && inventoryPool && catalogPool
+              ? {
+                  pricingEvaluationOwners: {
+                    marketplace: marketplacePool,
+                    inventory: inventoryPool,
+                    catalog: catalogPool,
+                    captureInventoryStock: createInventoryStockAuthorityForPool(inventoryPool, marketplacePool).capture,
+                  },
+                }
+              : {}),
           }
         : {}),
       operationsAttentionRuntimeReads: {
@@ -1070,6 +1085,7 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
         entry.contextName === "catalog" ||
         entry.contextName === "discovery" ||
         entry.contextName === "marketplace" ||
+        entry.contextName === "platform-operations" ||
         entry.contextName === "pricing",
     )
     .map((entry) => ({
@@ -1079,7 +1095,9 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
           ? discoveryRealtimeManifest
           : entry.contextName === "marketplace"
             ? marketplaceRealtimeManifest
-            : pricingRealtimeManifest),
+            : entry.contextName === "platform-operations"
+              ? platformOperationsRealtimeManifest
+              : pricingRealtimeManifest),
       contextName: entry.contextName,
       db: entry.pool,
     }));
@@ -1087,6 +1105,7 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     catalogRealtimeTopicPolicyManifest,
     discoveryRealtimeTopicPolicyManifest,
     marketplaceRealtimeTopicPolicyManifest,
+    platformOperationsRealtimeTopicPolicyManifest,
   ]);
   const identityServices = {
     auth: runtime.services.auth as ReturnType<typeof authModule.createServices>,

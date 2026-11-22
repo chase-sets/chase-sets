@@ -17,5 +17,7 @@ pub mod receipt;
 pub mod search;
 pub mod section;
 pub mod session;
+#[cfg(feature = "otlp")]
+pub mod telemetry;
 pub mod theme;
 pub mod ui;
