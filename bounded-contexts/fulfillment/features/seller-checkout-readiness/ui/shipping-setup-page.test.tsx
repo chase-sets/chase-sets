@@ -1,6 +1,6 @@
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import type { SellerShippingSetupResult } from "../../../support/request-support/api-client";
+import type { SellerShippingSetupResult } from "../api/runtime";
 import { ShippingSetupPage, emptyShippingSetupValues, shippingSetupValues } from "./shipping-setup-page";
 
 describe("shipping setup presentation", () => {

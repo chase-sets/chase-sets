@@ -633,20 +633,23 @@ describe("real repository execution membership", () => {
       );
       expect(
         normalized.filter(
-          ({ relativeFile }) => relativeFile === "bounded-contexts/fulfillment/routes/seller-shipping-setup.test.tsx",
+          ({ relativeFile }) =>
+            relativeFile ===
+            "bounded-contexts/fulfillment/features/seller-checkout-readiness/ui/routes/seller-shipping-setup.test.tsx",
         ),
       ).toEqual([
         {
-          relativeFile: "bounded-contexts/fulfillment/routes/seller-shipping-setup.test.tsx",
+          relativeFile:
+            "bounded-contexts/fulfillment/features/seller-checkout-readiness/ui/routes/seller-shipping-setup.test.tsx",
           form: "import",
-          specifier: "../context.json",
+          specifier: "../../../../context.json",
           attributeText: null,
           resolved: "bounded-contexts/fulfillment/context.json",
           disposition: "vitest-excluded",
         },
       ]);
       expect(createHash("sha256").update(JSON.stringify(normalized)).digest("hex")).toBe(
-        "bcd5020ae3781c1220808dbc225745a91295f07a7fad47b5f44dbc5c24de5ea8",
+        "df0ea5f24bdeaed06a07c827eb1616c640f47cefef147d6fb3abc65d63e7356c",
       );
       expect(
         normalized.filter(

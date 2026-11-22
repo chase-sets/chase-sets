@@ -4,18 +4,18 @@
 // stored state. The page posts only the shipment and the action, so no state the page was
 // drawn with can admit or refuse an action.
 
-import type { createFulfillmentRequestApiClient } from "../../../support/request-support/api-client";
+import type { createShipmentRequestClient } from "../api/request-client";
 import type { ShipmentActionName } from "../domain/shipment-action";
 
 export type { FulfillmentCommandCenter } from "../read-model/command-center";
 export type { ShipmentActionName } from "../domain/shipment-action";
 
-type FulfillmentRequestApi = ReturnType<typeof createFulfillmentRequestApiClient>;
+type ShipmentRequestClient = ReturnType<typeof createShipmentRequestClient>;
 
 export type ShipmentCommandCenterActionOutcome = Readonly<{ ok: true } | { ok: false; error: string }>;
 
 async function sendShipmentAction(
-  api: FulfillmentRequestApi,
+  api: ShipmentRequestClient,
   action: ShipmentActionName,
   shipmentId: string,
   mutationAttemptId: string,
@@ -57,7 +57,7 @@ async function sendShipmentAction(
 // Sends one named shipment action for the web command center. The Fulfillment API refuses an
 // action the shipment's stored state does not allow; that refusal is the outcome's error.
 export async function runShipmentCommandCenterAction(
-  api: FulfillmentRequestApi,
+  api: ShipmentRequestClient,
   action: ShipmentActionName,
   formData: FormData,
 ): Promise<ShipmentCommandCenterActionOutcome> {

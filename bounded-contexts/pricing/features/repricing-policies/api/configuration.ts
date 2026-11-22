@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
 import { ConfigurationEpochError } from "@chase-sets/event-core/configuration-epoch";
+import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import type { AppendToStreamInput, StoredEvent } from "@chase-sets/event-core/storage";
 import {
   createPostgresConfigurationEpochStore,
@@ -22,8 +24,20 @@ import {
   type RepricingConfigurationStatus,
 } from "../domain/configuration-receipt";
 import { parseRepricingPolicyState, parseRepricingHaltState } from "../domain/configuration-state";
-import type { RepricingPolicyState } from "../domain/domain";
-import type { RepricingHaltState } from "../domain/halt";
+import {
+  evolveRepricingPolicy,
+  initialRepricingPolicyState,
+  type RepricingPolicyState,
+  type RepricingPolicyEvent,
+} from "../domain/domain";
+import {
+  evolveRepricingHalt,
+  initialRepricingHaltState,
+  repricingHaltStreamId,
+  type RepricingHaltState,
+  type RepricingHaltEvent,
+} from "../domain/halt";
+import { repricingPolicyStreamId } from "../read-model/projection";
 import { canonicalJson } from "../../repricing-engine/api/dry-run";
 
 export class RepricingConfigurationConflict extends Error {
@@ -58,6 +72,16 @@ export type RepricingConfigurationWriter = Readonly<{
   list: (
     accountId: string,
   ) => Promise<readonly RepricingConfigurationReceipt<RepricingPolicyState | RepricingHaltState>[]>;
+  captureAccount: (
+    client: PgQueryable,
+    accountId: string,
+    role: "installed" | "competitor",
+  ) => Promise<
+    Readonly<{
+      policies: readonly Readonly<{ state: RepricingPolicyState; version: number }>[];
+      halt: Readonly<{ state: RepricingHaltState; version: number }>;
+    }>
+  >;
 }>;
 
 const sourceIncarnation = "pricing-repricing-configuration-v1";
@@ -81,6 +105,49 @@ type Head = Readonly<{ creation_revision: number; requested_revision: number; in
 export const repricingPolicyConfigurationKey = (accountId: string, policyId: string) =>
   `pricing.repricing-policy:${accountId}:${policyId}`;
 export const repricingHaltConfigurationKey = (accountId: string) => `pricing.repricing-halt:${accountId}`;
+export const repricingStandingKey = (accountId: string) => `repricing-account/${accountId}`;
+
+export function createRepricingStandingEpochStore(
+  deps: Pick<Parameters<typeof createPostgresConfigurationEpochStore>[0], "pool" | "consumers" | "sourceIncarnation">,
+) {
+  return createPostgresConfigurationEpochStore({
+    ...deps,
+    readCanonicalCreation: async (client, key) => {
+      const standing = await client.query<{ incarnation: string; epoch: number; has_history: boolean }>(
+        `SELECT incarnation, epoch, EXISTS (SELECT 1 FROM event_configuration_journal_heads WHERE role = 'source' AND key = $1) AS has_history
+         FROM pricing_repricing_standing WHERE key = $1`,
+        [key],
+      );
+      const row = standing.rows[0];
+      if (!row || row.incarnation !== deps.sourceIncarnation) return undefined;
+      if (row.epoch !== 0 && !row.has_history)
+        throw new ConfigurationEpochError("partial Pricing standing source history");
+      return { kind: "CREATED", sourceIncarnation: row.incarnation, keyCreationEpoch: 0 };
+    },
+  });
+}
+
+type StandingEpochs = ReturnType<typeof createRepricingStandingEpochStore>;
+export type RepricingStanding = Readonly<{
+  source: () => Promise<{ incarnation: string; epochs: StandingEpochs }>;
+}>;
+
+/** Establish a single account creation boundary before the first account closure. */
+export async function lockRepricingStanding(client: PgQueryable, key: string, incarnation: string) {
+  await client.query("SELECT pg_advisory_xact_lock(hashtextextended('configuration_epoch:' || $1::text, 0))", [key]);
+  await client.query(
+    "INSERT INTO pricing_repricing_standing (key, incarnation, epoch) VALUES ($1, $2, 0) ON CONFLICT DO NOTHING",
+    [key, incarnation],
+  );
+  const row = (
+    await client.query<{ incarnation: string; epoch: number }>(
+      "SELECT incarnation, epoch FROM pricing_repricing_standing WHERE key = $1",
+      [key],
+    )
+  ).rows[0];
+  if (!row || row.incarnation !== incarnation) throw new ConfigurationEpochError("foreign Pricing standing");
+  return row.epoch;
+}
 
 export function createRepricingConfigurationEpochStore(
   deps: Pick<Parameters<typeof createPostgresConfigurationEpochStore>[0], "pool" | "consumers">,
@@ -111,8 +178,10 @@ export function createRepricingConfigurationEpochStore(
 export function createRepricingConfigurationWriter(
   deps: Readonly<{
     pool: PgTransactionalPool;
-    eventStore: Pick<PostgresEventStore, "appendToStreamInTransaction">;
+    eventStore: Pick<PostgresEventStore, "appendToStreamInTransaction"> &
+      Partial<Pick<PostgresEventStore, "readStreamInTransaction">>;
     pricingPredicateConsumerPool?: PgTransactionalPool | undefined;
+    standing?: RepricingStanding | undefined;
     epochs?: Pick<
       ReturnType<typeof createPostgresConfigurationEpochStore>,
       "beginClosureInTransaction" | "installClosureInTransaction" | "driveClosure"
@@ -193,7 +262,115 @@ export function createRepricingConfigurationWriter(
     }
     return value;
   }
+  async function captureAccount(client: PgQueryable, accountId: string, role: "installed" | "competitor") {
+    const origins = await client.query<{ stream_id: string }>(
+      `SELECT stream_id FROM event_store_events WHERE event_type = 'pricing.repricing-policy.created'
+         AND payload->>'accountId' = $1 ORDER BY stream_id LIMIT 1001`,
+      [accountId],
+    );
+    const heads = await client.query<{ key: string }>(
+      `SELECT key FROM pricing_repricing_configuration_heads WHERE seller_account_id = $1 ORDER BY key LIMIT 1001`,
+      [accountId],
+    );
+    if (origins.rows.length > 1000 || heads.rows.length > 1000)
+      throw new Error("Pricing account authority is too large to capture.");
+    const policyCodec = createPassthroughDomainEventCodec<RepricingPolicyEvent>();
+    const haltCodec = createPassthroughDomainEventCodec<RepricingHaltEvent>();
+    const store = {
+      readStream: (input: Parameters<PostgresEventStore["readStream"]>[0]) => {
+        if (!deps.eventStore.readStreamInTransaction) throw new Error("Pricing policy history is unavailable.");
+        return deps.eventStore.readStreamInTransaction(client, input);
+      },
+    };
+    const policies = new Map<string, { state: RepricingPolicyState; version: number }>();
+    const installedKeys = new Map<string, RepricingPolicyState | RepricingHaltState>();
+    const installedProofs = new Set<string>();
+    for (const { stream_id } of origins.rows) {
+      const events = await readCompleteStream(store, { streamId: stream_id, maxEvents: 10000 });
+      const state = parseRepricingPolicyState(
+        events.reduce(
+          (prior, event) => evolveRepricingPolicy(prior, policyCodec.decode(event)),
+          initialRepricingPolicyState,
+        ),
+      );
+      if (!state.policyId || state.accountId !== accountId || repricingPolicyStreamId(state.policyId) !== stream_id)
+        throw new Error("Foreign Pricing policy history.");
+      policies.set(state.policyId, { state, version: events.length });
+      installedKeys.set(repricingPolicyConfigurationKey(accountId, state.policyId), state);
+    }
+    const haltKey = repricingHaltConfigurationKey(accountId);
+    const haltEvents = await readCompleteStream(store, {
+      streamId: repricingHaltStreamId(accountId),
+      maxEvents: 10000,
+    });
+    let halt = {
+      state: parseRepricingHaltState(
+        haltEvents.reduce(
+          (prior, event) => evolveRepricingHalt(prior, haltCodec.decode(event)),
+          initialRepricingHaltState,
+        ),
+      ),
+      version: haltEvents.length,
+    };
+    installedKeys.set(haltKey, halt.state);
+    for (const { key } of heads.rows) {
+      const current = await head(client, key);
+      if (!current) throw new Error("Missing Pricing configuration head.");
+      const pending = current.installed_revision !== current.requested_revision;
+      if (pending && role === "installed") throw new Error("Pricing standing is closing.");
+      if (current.requested_revision === current.creation_revision) throw new Error("Missing Pricing request history.");
+      const revision = role === "competitor" ? current.requested_revision : current.installed_revision;
+      const row = (
+        await client.query<RequestRow>(
+          `SELECT key, requested_revision, request_key, fingerprint, prepared, prepared_hash, receipt, committed_events
+           FROM pricing_repricing_configuration_requests WHERE seller_account_id = $1 AND key = $2 AND requested_revision = $3`,
+          [accountId, key, revision],
+        )
+      ).rows[0];
+      if (!row) throw new Error("Missing Pricing configuration receipt.");
+      if (key === haltKey) {
+        const value = receipt(row, current, parseRepricingHaltState);
+        if (value.status === "applied" && canonicalJson(value.state) !== canonicalJson(halt.state))
+          throw new Error("Installed halt receipt disagrees with its stream.");
+        if (value.status === "applied") installedProofs.add(haltKey);
+        if (pending && value.status === "accepted-pending")
+          halt = { state: parseRepricingHaltState(JSON.parse(row.prepared).state), version: revision };
+        else if (value.status !== "applied") throw new Error("Invalid Pricing halt receipt.");
+      } else {
+        const value = receipt(row, current, parseRepricingPolicyState);
+        const state =
+          value.status === "applied" ? value.state : parseRepricingPolicyState(JSON.parse(row.prepared).state);
+        if (
+          !state.policyId ||
+          state.accountId !== accountId ||
+          (key !== repricingPolicyConfigurationKey(accountId, state.policyId) &&
+            !key.startsWith(`pricing.repricing-activation:${accountId}:`))
+        )
+          throw new Error("Foreign Pricing configuration receipt.");
+        if (value.status === "applied") {
+          const policyKey = repricingPolicyConfigurationKey(accountId, state.policyId);
+          const baseline = installedKeys.get(policyKey);
+          // The original activation receipt remains valid after a later revision.
+          if (
+            !baseline ||
+            (!key.startsWith("pricing.repricing-activation:") && canonicalJson(baseline) !== canonicalJson(value.state))
+          )
+            throw new Error("Installed policy receipt disagrees with its stream.");
+          if (canonicalJson(baseline) === canonicalJson(value.state)) installedProofs.add(policyKey);
+        } else if (pending && value.status === "accepted-pending") {
+          policies.set(state.policyId, { state, version: revision });
+        } else throw new Error("Invalid Pricing policy receipt.");
+      }
+    }
+    if (
+      role === "installed" &&
+      [...installedKeys.keys()].some((key) => (key !== haltKey || halt.version > 0) && !installedProofs.has(key))
+    )
+      throw new Error("Pricing configuration has no installed receipt.");
+    return { policies: [...policies.values()], halt };
+  }
   return {
+    captureAccount,
     async list(accountId) {
       const result = await deps.pool.query<{ key: string }>(
         `SELECT key FROM pricing_repricing_configuration_heads
@@ -234,6 +411,8 @@ export function createRepricingConfigurationWriter(
       if (!requestKey.length || requestKey.length > 200)
         throw new RepricingConfigurationConflict("Invalid request key.");
       const accountPredicate = [ownerPredicateKey("repricing-account", input.accountId)];
+      const accountKey = repricingStandingKey(input.accountId);
+      const standing = await deps.standing?.source();
       const recorded = await write(async (client) => {
         await lock(client, `${input.accountId}:request:${requestKey}`);
         await lock(client, input.key);
@@ -254,6 +433,10 @@ export function createRepricingConfigurationWriter(
         const prepared = await input.prepare(client);
         if (!prepared) return null;
         await enrollOwnerPredicateWriteInTransaction(client, accountPredicate);
+        if (standing) {
+          await lockRepricingStanding(client, accountKey, standing.incarnation);
+          await standing.epochs.beginClosureInTransaction(client, accountKey);
+        }
         await client.query(
           "INSERT INTO pricing_repricing_configuration_heads (key, seller_account_id, creation_revision, requested_revision, installed_revision) VALUES ($1, $2, $3, $3, $3) ON CONFLICT DO NOTHING",
           [
@@ -341,6 +524,7 @@ export function createRepricingConfigurationWriter(
       try {
         const closure = await epochs.driveClosure(input.key);
         if (closure.pendingConsumers.length) return accepted;
+        if (standing && (await standing.epochs.driveClosure(accountKey)).pendingConsumers.length) return accepted;
       } catch (error) {
         const outcome = await recoverPending(
           error,
@@ -366,6 +550,7 @@ export function createRepricingConfigurationWriter(
           if (!(await input.installationGuard.allowsInstallation(client))) return { receipt: current, events: [] };
         }
         await enrollOwnerPredicateWriteInTransaction(client, accountPredicate);
+        if (standing) await lockRepricingStanding(client, accountKey, standing.incarnation);
         await epochs.installClosureInTransaction(client, input.key);
         const events = await deps.eventStore.appendToStreamInTransaction(client, prepared.append);
         const applied: RepricingConfigurationReceipt<State> = {
@@ -382,6 +567,20 @@ export function createRepricingConfigurationWriter(
           input.key,
           current.requestedRevision,
         ]);
+        if (standing) {
+          const pending = await client.query(
+            "SELECT 1 FROM pricing_repricing_configuration_heads WHERE seller_account_id = $1 AND requested_revision <> installed_revision LIMIT 1",
+            [input.accountId],
+          );
+          if (!pending.rows.length) {
+            const opened = await standing.epochs.installClosureInTransaction(client, accountKey);
+            if (opened.status !== "OPEN") throw new ConfigurationEpochError("Pricing standing did not reopen");
+            await client.query("UPDATE pricing_repricing_standing SET epoch = $2 WHERE key = $1", [
+              accountKey,
+              opened.epoch,
+            ]);
+          }
+        }
         return { receipt: applied, events };
       }).catch(recoverPending);
       recordCommittedEvents(installed.events, "pricing");

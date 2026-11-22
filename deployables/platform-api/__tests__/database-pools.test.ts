@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
+import type { PricingServices } from "@chase-sets/pricing/server";
 import { createPlatformApiHost } from "../src/app";
 import { closePlatformApiPools, createPlatformApiPools } from "../src/database-pools";
 import { resolveApiHostMounts } from "@chase-sets/platform-runtime/api";
@@ -61,6 +62,8 @@ describe("platform api database pools", () => {
         pools.contextWaiters.catalog,
       );
       expect(runtime.mountedContexts.find((entry) => entry.contextName === "payments")?.pool).toBe(pools.payments);
+      const pricing = runtime.services.pricing as PricingServices;
+      expect(pricing.evaluationAuthority?.prepare).toBeTypeOf("function");
     } finally {
       await closePlatformApiPools(pools);
     }

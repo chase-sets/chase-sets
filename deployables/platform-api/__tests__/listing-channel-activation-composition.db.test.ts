@@ -30,6 +30,11 @@ import {
 import { getApiHostContextNames } from "@chase-sets/platform-runtime/api";
 import { module as authModule } from "@chase-sets/auth";
 import { module as channelsModule } from "@chase-sets/channels";
+import { module as catalogModule } from "@chase-sets/catalog";
+import { module as pricingModule } from "@chase-sets/pricing";
+import type { PricingServices } from "@chase-sets/pricing/server";
+import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
+import { Hono } from "hono";
 import type { ChannelsServices } from "@chase-sets/channels/server";
 import { module as identityModule } from "@chase-sets/identity";
 import type { IdentityServices } from "@chase-sets/identity/server";
@@ -178,7 +183,15 @@ vi.mock("@chase-sets/event-core-postgres", async (importOriginal) => {
 
 describe("listing channel activation real composition", () => {
   let pools: PlatformApiTestPools;
-  const activeContextNames = ["auth", "identity", "channels", "inventory", "marketplace"] as const;
+  const activeContextNames = [
+    "auth",
+    "identity",
+    "channels",
+    "inventory",
+    "marketplace",
+    "catalog",
+    "pricing",
+  ] as const;
   beforeAll(async () => {
     const databaseBaseUrl = process.env.TEST_DATABASE_URL;
     if (!databaseBaseUrl) throw new Error("TEST_DATABASE_URL is required for listing composition DB proofs.");
@@ -237,8 +250,23 @@ describe("listing channel activation real composition", () => {
     });
   }
 
-  async function fixture() {
-    const runtime = host();
+  function hostWithoutPricingEvaluation() {
+    const createServices = pricingModule.createServices;
+    const omit = vi.spyOn(pricingModule, "createServices").mockImplementationOnce((pool, ports) => {
+      const { pricingEvaluationOwners: _omitted, ...remaining } = ports;
+      return createServices(pool, remaining);
+    });
+    try {
+      const runtime = host();
+      expect(omit).toHaveBeenCalledOnce();
+      expect((runtime.services.pricing as PricingServices).evaluationAuthority).toBeUndefined();
+      return runtime;
+    } finally {
+      omit.mockRestore();
+    }
+  }
+
+  async function fixture(runtime = hostWithoutPricingEvaluation()) {
     await runtime.initializeListingAuthority();
     const identity = runtime.services.identity as IdentityServices;
     const auth = runtime.services.auth as ReturnType<typeof authModule.createServices>;
@@ -410,6 +438,103 @@ describe("listing channel activation real composition", () => {
       holdId: createId("hld"),
       store,
     };
+  }
+
+  async function pricingFixture(categoryScoped = false) {
+    await bootstrapContextDatabase(catalogModule, pools.catalog);
+    await bootstrapContextDatabase(pricingModule, pools.pricing);
+    const f = await fixture(host());
+    const pricing = f.runtime.services.pricing as PricingServices;
+    const catalog = f.runtime.services.catalog as ReturnType<typeof catalogModule.createServices>;
+    const streamId = `catalog.item-${f.catalogItemId}`;
+    const categories = [createId("ctg"), createId("ctg")] as const;
+    const app = new Hono<AuthenticatedApiEnv>();
+    app.use("*", async (c, next) => {
+      c.set("context", f.context);
+      c.set("actor", {
+        ...f.principal,
+        accountId: f.accountId,
+        tenantId: f.context.tenantId,
+        roleKey: "manager",
+        permissions: ["catalog.manage", "listings.manage"],
+      });
+      await next();
+    });
+    const categoryRoutes = catalogModule.buildApis!(catalog)[0]!.router;
+    if (!(categoryRoutes instanceof Hono)) throw new Error("Catalog route was not mounted.");
+    app.route("/", categoryRoutes);
+    const category = (method: "POST" | "DELETE", categoryId: string) =>
+      app.request(`/items/${f.catalogItemId}/categories/${categoryId}`, { method });
+    await catalog.items.commandHandler({
+      streamId,
+      context: f.context,
+      command: {
+        type: "CreateCatalogItem",
+        itemId: f.catalogItemId,
+        title: { defaultLocale: "en", values: { en: "Synthetic exact Pricing item" } },
+      },
+    });
+    if (categoryScoped) for (const key of categories) expect((await category("POST", key)).status).toBe(201);
+    const run = await pricing.repricingEngine.enqueueDryRun(
+      {
+        sellerAccountId: f.accountId,
+        body: {
+          scope: categoryScoped ? { kind: "catalog-filter", categoryIds: categories } : { kind: "all-listings" },
+          excludedListingIds: [],
+          maxChangesPerDay: 3,
+          rules: [
+            {
+              conditions: [],
+              directive: {
+                currencyCode: "USD",
+                anchorChain: [{ source: "market-estimate" }],
+                offset: { mode: "absolute", amount: "0.00" },
+                floor: { mode: "absolute", amount: "1.00" },
+                ceiling: null,
+                tolerance: { mode: "absolute", amount: "0.01" },
+                rounding: { mode: "none" },
+                maxMovePercent: null,
+                terminal: { kind: "fallback-price", amount: f.accept.priceAmount },
+              },
+            },
+          ],
+        },
+      },
+      f.context,
+    );
+    expect(
+      await pricing.repricingEngine.processNextDryRunJob({ claimOwnerId: "synthetic-pricing", claimTtlMs: 30_000 }),
+    ).toBe(1);
+    const installed = await pricing.repricingPolicies.activateRepricingPolicy(
+      {
+        accountId: f.accountId,
+        dryRunId: run!.dryRunId,
+        name: "Synthetic exact Pricing policy",
+      },
+      f.context,
+    );
+    expect(installed?.status).toBe("applied");
+    expect((await pools.pricing.query("SELECT 1 FROM pricing_evaluated_decisions")).rows).toHaveLength(0);
+    expect((await pools.pricing.query("SELECT 1 FROM pricing_repricing_daily_change_budgets")).rows).toHaveLength(0);
+    const acceptance: AcceptListingTargetPriceInput = {
+      ...f.accept,
+      decision: {
+        kind: "pricing-evaluation",
+        evaluationId: "evd_synthetic_host",
+        evaluationRevision: "1",
+        basePriceRevision: 1,
+        standingAuthorizationId: `repricing-account/${f.accountId}`,
+        standingAuthorizationRevision: "1",
+      },
+    };
+    const accept = (command = acceptance) => f.listings.acceptListingTargetPrice(command, f.context, f.principal);
+    const latestTerminal = async () =>
+      (
+        await pools.marketplace.query<{ status: string }>(
+          "SELECT status FROM event_request_terminals ORDER BY created_at DESC LIMIT 1",
+        )
+      ).rows[0]?.status;
+    return { ...f, pricing, categories, category, acceptance, acceptPricing: accept, latestTerminal };
   }
 
   it("composes the real owner ports and committed target routes", () => {
@@ -1538,4 +1663,128 @@ describe("listing channel activation real composition", () => {
     ).rejects.toThrow("Pricing");
     expect(await f.businessEvents()).toEqual(before);
   });
+
+  it("commits the exact Pricing pair and original terminal without native price, fee, or anchor feedback", async () => {
+    const f = await pricingFixture();
+    appendProbe.loseReply = true;
+    const accepted = await f.acceptPricing();
+    expect(accepted.acceptedTargetPrice).toMatchObject({
+      decision: f.acceptance.decision,
+      priceAmount: "12.00",
+      priceCurrencyCode: "USD",
+    });
+    expect(accepted.state).toMatchObject({
+      priceAmount: "10.00",
+      nativeVisibility: "disabled",
+      nativeFeeState: "not-enrolled",
+      feeLocks: [],
+    });
+    expect(await f.latestTerminal()).toBe("COMMITTED");
+    expect(await f.acceptPricing()).toEqual(accepted);
+    await expect(f.acceptPricing({ ...f.acceptance, priceAmount: "13.00" })).rejects.toThrow("different command");
+    const events = (await f.businessEvents()).map((event) => event.eventType);
+    expect(events).toContain("marketplace.listing.target-price-accepted");
+    expect(events).not.toContain("marketplace.listing.price-updated");
+    expect(events).not.toContain("marketplace.listing.published");
+    expect((await pools.pricing.query("SELECT 1 FROM pricing_market_listing_inputs")).rows).toHaveLength(0);
+  });
+
+  it("refuses a real decision when standing closes first and accepts only on a fresh epoch", async () => {
+    const f = await pricingFixture();
+    const before = await f.businessEvents();
+    appendProbe.before = async () => {
+      expect(
+        (await f.pricing.repricingPolicies.setHalt(f.accountId, true, f.context, "synthetic-close-first")).status,
+      ).toBe("applied");
+    };
+    await expect(f.acceptPricing()).rejects.toThrow();
+    expect(await f.businessEvents()).toEqual(before);
+    expect(await f.latestTerminal()).toBe("ABORTED");
+    expect((await f.pricing.repricingPolicies.setHalt(f.accountId, false, f.context, "synthetic-reopen")).status).toBe(
+      "applied",
+    );
+    if (f.acceptance.decision.kind !== "pricing-evaluation") throw new Error("Expected Pricing decision.");
+    await expect(
+      f.acceptPricing({
+        ...f.acceptance,
+        idempotencyKey: "synthetic-next-epoch",
+        decision: {
+          ...f.acceptance.decision,
+          evaluationId: "evd_synthetic_reopened",
+          standingAuthorizationRevision: "3",
+        },
+      }),
+    ).resolves.toMatchObject({ acceptedTargetPrice: { priceAmount: "12.00" } });
+  });
+
+  it("holds real Pricing standing until terminal-first COMMIT before installing the halt", async () => {
+    const f = await pricingFixture();
+    const before = await f.pricing.repricingPolicies.getHalt(f.accountId);
+    let halted: ReturnType<PricingServices["repricingPolicies"]["setHalt"]> | undefined;
+    let settled = false;
+    appendProbe.beforeCommit = async () => {
+      halted = f.pricing.repricingPolicies
+        .setHalt(f.accountId, true, f.context, "synthetic-terminal-first")
+        .finally(() => {
+          settled = true;
+        });
+      void halted.catch(() => undefined);
+      expect(
+        await waitForLock("configuration_epoch:", `repricing-account/${f.accountId}`, () => settled),
+      ).toBeGreaterThan(0);
+      expect(await f.pricing.repricingPolicies.getHalt(f.accountId)).toEqual(before);
+    };
+    try {
+      await expect(f.acceptPricing()).resolves.toMatchObject({ acceptedTargetPrice: { priceAmount: "12.00" } });
+    } finally {
+      expect(await halted).toMatchObject({ status: "applied" });
+    }
+    expect(await f.latestTerminal()).toBe("COMMITTED");
+  });
+
+  it("orders a real Listing withdrawal ahead of the open Pricing terminal without accepting a target", async () => {
+    const f = await pricingFixture();
+    appendProbe.before = async () => {
+      await f.listings.withdrawListing(
+        {
+          accountId: f.accountId,
+          listingId: f.acceptance.listingId,
+          expectedVersion: f.acceptance.expectedListingVersion,
+          idempotencyKey: "synthetic-pricing-withdraw",
+        },
+        f.context,
+      );
+    };
+    await expect(f.acceptPricing()).rejects.toThrow();
+    expect(await f.latestTerminal()).toBe("ABORTED");
+    const events = (await f.businessEvents()).map((event) => event.eventType);
+    expect(events).toContain("marketplace.listing.withdrawn");
+    expect(events).not.toContain("marketplace.listing.target-price-accepted");
+  });
+
+  it.each([
+    [0, false],
+    [1, false],
+    [0, true],
+    [1, true],
+  ] as const)(
+    "orders enrolled Catalog removal %s for P on both categories (terminal first: %s)",
+    async (first, terminalFirst) => {
+      const f = await pricingFixture(true);
+      const before = await f.businessEvents();
+      if (!terminalFirst)
+        appendProbe.before = async () => {
+          expect((await f.category("DELETE", f.categories[first])).status).toBe(200);
+        };
+      if (terminalFirst) {
+        await f.acceptPricing();
+        expect((await f.category("DELETE", f.categories[first])).status).toBe(200);
+      } else {
+        await expect(f.acceptPricing()).rejects.toThrow();
+        expect(await f.businessEvents()).toEqual(before);
+      }
+      expect(await f.latestTerminal()).toBe(terminalFirst ? "COMMITTED" : "ABORTED");
+      expect((await f.category("DELETE", f.categories[first === 0 ? 1 : 0])).status).toBe(200);
+    },
+  );
 });
