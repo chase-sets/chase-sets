@@ -281,6 +281,8 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
         } else if cookie.contains("chase_sets_session=payouts-operator") || cookie.contains("chase_sets_session=payouts-blocked")
         {
             actor(&["payouts.reconcile"])
+        } else if cookie.contains("chase_sets_session=payouts-readiness") {
+            actor(&["payouts.reconcile", "payouts.view"])
         } else if cookie.contains("chase_sets_session=wallet-admin") || cookie.contains("chase_sets_session=wallet-stepup") {
             actor(&[
                 "wallet-adjustments.view",
@@ -8049,11 +8051,24 @@ async fn payout_operations_forwards_the_filter_and_reads_the_rest_only_to_reconc
     assert!(html[failed..].contains(r#">7</span>"#), "Settlement's count, not the rows': {html}");
     assert!(!html.contains("Payout setup blocked"), "the setup rows need payouts.reconcile: {html}");
 
+    // `payouts.reconcile` alone, as a platform admin holds it: the attempts, not the seller's
+    // payout setup, whose read needs `payouts.view` too.
     let (_, _, html) = pilot.send(get("/commerce/payout-operations?filter=nonsense", Some("payouts-operator"))).await;
     let reads: Vec<String> = pilot.calls_to_path(SETTLEMENT).into_iter().skip(1).map(|c| c.path).collect();
     assert!(reads.contains(&"/api/settlement/payouts/reconciliation".to_owned()), "an unknown filter is All: {reads:?}");
-    assert!(reads.contains(&"/api/settlement/payout-readiness".to_owned()));
+    assert!(!reads.contains(&"/api/settlement/payout-readiness".to_owned()), "{reads:?}");
     assert!(reads.contains(&"/api/settlement/payouts/provider-idempotency?limit=10".to_owned()));
+    assert!(html.contains("Protected retry key") && !html.contains("Payout destination"), "no setup table: {html}");
+    // As admin-web does, the setup's attention rows stay, counting nothing without the read.
+    let blocked = html.find("Payout setup blocked").unwrap();
+    assert!(html[blocked..].contains(r#">0</span>"#), "{html}");
+
+    let seen = pilot.calls_to_path(SETTLEMENT).len();
+    let (_, _, html) = pilot.send(get("/commerce/payout-operations?filter=nonsense", Some("payouts-readiness"))).await;
+    let reads: Vec<String> = pilot.calls_to_path(SETTLEMENT).into_iter().skip(seen).map(|c| c.path).collect();
+    assert!(reads.contains(&"/api/settlement/payout-readiness".to_owned()), "{reads:?}");
+    assert!(reads.contains(&"/api/settlement/payouts/provider-idempotency?limit=10".to_owned()));
+    assert!(html.contains("Payout destination"), "{html}");
     assert!(html.contains("Ready to reconcile") && !html.contains("Needs provider reference"), "{html}");
     assert!(html.contains("Protected retry key") && !html.contains("secret-key"), "the key itself is not shown: {html}");
     assert!(html.contains("Not checked in this session"), "{html}");

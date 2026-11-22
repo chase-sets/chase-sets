@@ -20,7 +20,7 @@ const MARKETPLACE_DESCRIPTION = t("ordering.routes.accountPurchase.inspect.a.pur
 // /account/payments/new). They are offered only to an actor holding it; one
 // whose orders.manage Auth withholds pending email verification is told how to
 // verify instead, and no permission is granted here.
-function purchaseOrderAuthority(actor: Pick<ResolvedActor, "roleKey" | "permissions" | "agentGrant"> | null) {
+function purchaseOrderAuthority(actor: Pick<ResolvedActor, "permissions" | "withheldPermissions"> | null) {
   if (actor?.permissions.includes("orders.manage")) {
     return "allowed" as const;
   }

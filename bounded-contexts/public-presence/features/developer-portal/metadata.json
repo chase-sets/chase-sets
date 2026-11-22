@@ -1,0 +1,36 @@
+{
+  "publicWebRoutes": [
+    {
+      "routeId": "developer-portal",
+      "routePath": "developers",
+      "fileExport": "./routes/developers/portal",
+      "routeType": "route",
+      "sourceContext": "public-presence",
+      "placement": "root"
+    },
+    {
+      "routeId": "developer-article",
+      "routePath": "developers/:slug",
+      "fileExport": "./routes/developers/article",
+      "routeType": "route",
+      "sourceContext": "public-presence",
+      "placement": "root"
+    },
+    {
+      "routeId": "developer-manifest",
+      "routePath": "developers/manifest.json",
+      "fileExport": "./routes/developers/manifest",
+      "routeType": "route",
+      "sourceContext": "public-presence",
+      "placement": "root"
+    },
+    {
+      "routeId": "developer-llms",
+      "routePath": "llms.txt",
+      "fileExport": "./routes/developers/llms",
+      "routeType": "route",
+      "sourceContext": "public-presence",
+      "placement": "root"
+    }
+  ]
+}
