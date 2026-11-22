@@ -15,11 +15,12 @@ import {
   Text,
 } from "@chase-sets/design-system";
 import { PublicPresencePageShell } from "../../waitlist/ui/public-pages";
-import { publicPresenceT as t } from "../../waitlist/ui/public-presence-translator";
+import { publicPresenceT as centralT } from "../../waitlist/ui/public-presence-translator";
 import { ArticleTableOfContents, CompiledArticleBody, formatArticleReviewedAt } from "../../help/ui/help-pages";
 import { developerArticles, listDeveloperToolsByAvailability } from "../domain/developer-article-catalog";
 import { agentConnectorTermsDeveloperLink } from "../domain/developer-manifest";
 import type { DeveloperArticle, DeveloperMcpToolCatalogEntry } from "../domain/developer-article-model";
+import { t } from "./localization/translator";
 
 export function DeveloperPortalPage() {
   return (
@@ -82,7 +83,7 @@ export function DeveloperArticlePage({ article }: { article: DeveloperArticle })
           description={article.description}
         />
         <Text size="sm" tone="tertiary">
-          {t("publicPresence.help.lastReviewed", {
+          {centralT("publicPresence.help.lastReviewed", {
             date: formatArticleReviewedAt(article.reviewedAt, article.locale),
           })}
         </Text>

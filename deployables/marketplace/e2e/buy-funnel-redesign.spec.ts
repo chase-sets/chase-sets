@@ -1,4 +1,5 @@
 import path from "node:path";
+import { defaultProductImageUrl } from "@chase-sets/catalog-seed/fallback-assets";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import { captureResponsiveEvidence } from "@chase-sets/playwright-evidence";
 import { registerSyntheticAccount, signInWithPassword, syntheticAccountFor } from "./support/auth";
@@ -35,6 +36,8 @@ const configuredMarketplaceAccount = {
 };
 
 const authProjectionTimeoutMs = 90_000;
+
+const cartFallbackImageSelector = `img[src*='${defaultProductImageUrl}']`;
 
 const screenshotDir = path.join("artifacts", "playwright", "buy-funnel-screenshots");
 
@@ -266,7 +269,7 @@ test.describe("buy funnel redesign — defect verification", () => {
     await page.setExtraHTTPHeaders({ "Cache-Control": "no-cache" });
     const fallbackResponseBytes: Promise<number>[] = [];
     page.on("response", (response) => {
-      if (response.url().includes("/fake-cdn/assets/pokemon-card-back.png") && response.status() === 200) {
+      if (response.url().includes(defaultProductImageUrl) && response.status() === 200) {
         fallbackResponseBytes.push(response.body().then((body) => body.byteLength));
       }
     });
@@ -318,7 +321,7 @@ test.describe("buy funnel redesign — defect verification", () => {
       ).toBe(true);
     }
 
-    const fallbackImages = page.locator("img[src*='/fake-cdn/assets/pokemon-card-back.png']");
+    const fallbackImages = cartLines.locator(cartFallbackImageSelector);
     await expect(
       fallbackImages.first(),
       "the populated cart must visibly render its image-less line with the optimized fallback",
@@ -329,15 +332,16 @@ test.describe("buy funnel redesign — defect verification", () => {
       })
       .toBeGreaterThan(0);
 
-    const lineImageStates = await cartLines.evaluateAll((lines) =>
-      lines.map((line) => {
-        const images = Array.from(line.querySelectorAll<HTMLImageElement>("img"));
-        const fallbackPath = "/fake-cdn/assets/pokemon-card-back.png";
-        return {
-          fallbackCount: images.filter((image) => image.src.includes(fallbackPath)).length,
-          realImageCount: images.filter((image) => image.src && !image.src.includes(fallbackPath)).length,
-        };
-      }),
+    const lineImageStates = await cartLines.evaluateAll(
+      (lines, fallbackPath) =>
+        lines.map((line) => {
+          const images = Array.from(line.querySelectorAll<HTMLImageElement>("img"));
+          return {
+            fallbackCount: images.filter((image) => image.src.includes(fallbackPath)).length,
+            realImageCount: images.filter((image) => image.src && !image.src.includes(fallbackPath)).length,
+          };
+        }),
+      defaultProductImageUrl,
     );
     const imageLessLineCount = lineImageStates.filter(({ realImageCount }) => realImageCount === 0).length;
     const fallbackLineCount = lineImageStates.filter(({ fallbackCount }) => fallbackCount > 0).length;
@@ -435,7 +439,7 @@ test.describe("buy funnel redesign — defect verification", () => {
     await page.setExtraHTTPHeaders({ "Cache-Control": "no-cache" });
     const fallbackResponseBytes: Promise<number>[] = [];
     page.on("response", (response) => {
-      if (response.url().includes("/fake-cdn/assets/pokemon-card-back.png") && response.status() === 200) {
+      if (response.url().includes(defaultProductImageUrl) && response.status() === 200) {
         fallbackResponseBytes.push(response.body().then((body) => body.byteLength));
       }
     });
@@ -466,13 +470,11 @@ test.describe("buy funnel redesign — defect verification", () => {
       .toBe(true);
     const cartLines = page.locator("[data-marketplace-cart-line]");
     await expect(cartLines, claim).toHaveCount(marketplaceBrowserE2eSeedContract.cart.lineCount);
-    const fallbackOwner = cartLines
-      .filter({ has: page.locator("img[src*='/fake-cdn/assets/pokemon-card-back.png']") })
-      .first();
+    const fallbackOwner = cartLines.filter({ has: page.locator(cartFallbackImageSelector) }).first();
     await expect(fallbackOwner, claim).toHaveCount(1);
     await expect(fallbackOwner, claim).toBeVisible();
     await expect(fallbackOwner.getByRole("spinbutton", { name: "Quantity" }), claim).toBeVisible();
-    const fallbackImage = fallbackOwner.locator("img[src*='/fake-cdn/assets/pokemon-card-back.png']");
+    const fallbackImage = fallbackOwner.locator(cartFallbackImageSelector);
     await expect(fallbackImage, claim).toBeVisible();
     await expect(fallbackImage, claim).toHaveCSS("opacity", "1");
     await expect

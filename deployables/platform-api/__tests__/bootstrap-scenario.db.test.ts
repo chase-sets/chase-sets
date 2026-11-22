@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   bootstrapContextDatabase,
+  drainLocalProjectionHandlerSets,
   refreshProjectionReplaySummary,
   SCHEMA_MIGRATIONS_TABLE,
 } from "@chase-sets/bounded-context-runtime";
 import { module as identityModule } from "@chase-sets/identity";
+import { resolveOfferPaymentEnforcement, type MarketplaceServices } from "@chase-sets/marketplace/server";
 import { module as paymentsModule } from "@chase-sets/payments";
 import { getApiHostSeedOrder, nonProductionDataProfiles, seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
@@ -32,6 +34,58 @@ createPlatformApiBootstrapTestHarness("platform_api_bootstrap_scenario", (state)
 });
 
 describe("platform api bootstrap scenario", () => {
+  it("exposes the Offer payment consent policy in the console without enabling enforcement on revision", async () => {
+    const runtime = createPlatformApiHost({
+      runtimeProfile: "public",
+      pools,
+      hostPorts: {
+        capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
+        deploymentEnvironment: "staging",
+        processorGateway: createFakePaymentProcessorGateway(),
+        listingPhotoStorage,
+      },
+    });
+    const marketplaceContext = runtime.mountedContexts.find((context) => context.contextName === "marketplace");
+    if (!marketplaceContext) throw new Error("Expected Marketplace to be mounted in the public profile.");
+    await bootstrapContextDatabase(marketplaceContext.module, marketplaceContext.pool);
+    const platformAdmin: ResolvedActor = {
+      sessionId: "ses_offer_payment_consent_admin",
+      tenantId: "tnt_platform",
+      userId: "usr_offer_payment_consent_admin",
+      accountId: "acc_offer_payment_consent_admin",
+      membershipId: "mem_offer_payment_consent_admin",
+      roleKey: "platform-admin",
+      permissions: ["platform-policy.view", "platform-policy.manage"],
+    };
+    const app = buildPlatformApiApp(runtime, { runtimeProfile: "public", resolveActor: async () => platformAdmin });
+    const services = runtime.services.marketplace as MarketplaceServices;
+    const detailPath = "/api/platform/policy-console/marketplace.offer-payment-consent";
+    expect(services.deploymentEnvironment).toBe("staging");
+    const initialDetail = await app.request(detailPath);
+    expect(initialDetail.status).toBe(200);
+    await expect(initialDetail.json()).resolves.toMatchObject({
+      current: { source: "fallback", value: { approvedConsentVersion: null } },
+    });
+
+    const value = { approvedConsentVersion: "offer-automatic-charge-v1" };
+    const revision = await app.request(`${detailPath}/revisions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ value, status: "active", effectiveFrom: "2026-01-01T00:00:00.000Z" }),
+    });
+    expect(revision.status).toBe(201);
+    await expect(revision.json()).resolves.toMatchObject({ version: 1, scheduled: false });
+    await drainLocalProjectionHandlerSets("marketplace", pools.marketplace, services.policies.projectors);
+
+    const detail = await app.request(detailPath);
+    expect(detail.status).toBe(200);
+    await expect(detail.json()).resolves.toMatchObject({ current: { source: "policy", value } });
+    await expect(resolveOfferPaymentEnforcement(services.policies.consentActivation)).resolves.toMatchObject({
+      version: null,
+      snapshot: { status: "never-activated", authorityVersion: 0 },
+    });
+  });
+
   it("boots with context-owned pools and replays cross-context projections", async () => {
     const runtime = createPlatformApiHost({
       runtimeProfile: "public",

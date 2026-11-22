@@ -5,7 +5,8 @@
 //! needing reconciliation by filter, what needs attention, the payout setup's readiness, recent
 //! provider attempts and a reconciliation run. Read from Settlement's `/api/settlement` as the
 //! signed-in staff member: either page needs `payouts.reconcile` or `payouts.platform.view`, as its
-//! nav entry does; the readiness, the attempts and a run need `payouts.reconcile`.
+//! nav entry does; the attempts and a run need `payouts.reconcile`, and the readiness needs
+//! `payouts.view` as well, as admin-web's loader asks.
 //!
 //! | Route | Answers |
 //! |---|---|
@@ -37,6 +38,9 @@ use crate::{
 
 const CONTEXT: &str = "settlement";
 const BASE: &str = "/api/settlement";
+
+/// Settlement's seller payout grant, which its readiness read requires.
+const PAYOUTS_VIEW: &str = "payouts.view";
 /// What a run asks for (admin-web's `runPayoutReconciliation({ limit: 100 })`).
 const RUN_LIMIT: u32 = 100;
 /// The filters, in admin-web's order; `all` asks the API for no filter.
@@ -343,8 +347,10 @@ fn layout<'a, V: Render + 'a>(req: &'a Req, viewer: &'a Viewer, title: &'a str, 
     }
 }
 
-/// Payout Operations' reads: the payouts by filter, and with `payouts.reconcile` the setup's
-/// readiness and the last 10 provider attempts (admin-web's loader); and the run asked for.
+/// Payout Operations' reads: the payouts by filter; with `payouts.reconcile` the last 10 provider
+/// attempts, and the setup's readiness if the staff member also holds `payouts.view`, which
+/// Settlement's readiness read requires and a platform admin does not hold (admin-web's loader);
+/// and the run asked for.
 async fn read(
     config: &Shared,
     headers: &HeaderMap,
@@ -353,6 +359,7 @@ async fn read(
 ) -> Result<OperationsScreen, crate::api::ApiError> {
     let caller = config.platform.caller(headers, config.proto, None);
     let can_reconcile = viewer.can(crate::auth::RECONCILE);
+    let can_read_readiness = can_reconcile && viewer.can(PAYOUTS_VIEW);
     let filter = view.filter();
     let list = match filter {
         "all" => format!("{BASE}/payouts/reconciliation"),
@@ -363,7 +370,7 @@ async fn read(
     let job_path = view.job().map(|j| format!("{BASE}/payouts/reconciliation/jobs/{}", segment(j)));
     let (payouts, readiness, attempts, run) = tokio::try_join!(
         caller.read::<PayoutList>(&list, CONTEXT),
-        async { if can_reconcile { caller.read::<Readiness>(&readiness_path, CONTEXT).await.map(Some) } else { Ok(None) } },
+        async { if can_read_readiness { caller.read::<Readiness>(&readiness_path, CONTEXT).await.map(Some) } else { Ok(None) } },
         async {
             if can_reconcile {
                 caller.read::<List<Attempt>>(&attempts_path, CONTEXT).await.map(|l| l.items)

@@ -9,6 +9,8 @@ import {
   consentActivationGuardAppendInput,
   CONSENT_ACTIVATION_AUTHORITY_STREAM_PREFIX,
   decodeConsentActivationAuthoritySnapshot,
+  decideConsentActivationAuthority,
+  initialConsentActivationAuthorityState,
   readConsentActivationAuthority,
   type ValidatedConsentActivationAuthoritySnapshot,
   type ValidatedConsentActivationGuard,
@@ -91,6 +93,44 @@ function activatedPayload(policyKey: string, version: string, overrides: Record<
 }
 
 const canonicalStreamId = consentActivationAuthorityStreamId(consentPolicy.policyKey);
+
+describe("advance-only consent activation", () => {
+  it.each([
+    [null, "offer-automatic-charge-v1", true],
+    [null, "offer-automatic-charge-v01", false],
+    [null, "v1", false],
+    [null, "offer-automatic-charge-v1-extra", false],
+    ["offer-automatic-charge-v9", "offer-automatic-charge-v10", true],
+    ["offer-automatic-charge-v3", "offer-automatic-charge-v2", false],
+    ["offer-automatic-charge-v3", "offer-automatic-charge-v3", false],
+    ["offer-automatic-charge-v9007199254740992", "offer-automatic-charge-v9007199254740993", true],
+    ["v1", "offer-automatic-charge-v2", false],
+  ] as const)("from %s to %s (advances: %s)", (activeVersion, version, advances) => {
+    const decide = () =>
+      decideConsentActivationAuthority(
+        {
+          ...initialConsentActivationAuthorityState,
+          policyKey: consentPolicy.policyKey,
+          registered: true,
+          status: activeVersion === null ? "never-activated" : "active",
+          activeVersion,
+          activeDocumentId: activeVersion === null ? null : "pol_existing",
+        },
+        {
+          type: "ActivateConsentPolicyVersion",
+          policyKey: consentPolicy.policyKey,
+          version,
+          documentId: "pol_new",
+          activatedAt: "2026-07-25T01:00:00.000Z",
+          actorUserId: "usr_admin",
+          advanceOnly: true,
+        },
+      );
+
+    if (advances) expect(decide()).toHaveLength(1);
+    else expect(decide).toThrow(expect.objectContaining({ code: "version_not_newer" }));
+  });
+});
 
 function snapshotCandidate(overrides: Record<string, unknown> = {}, guardOverrides: Record<string, unknown> = {}) {
   return {

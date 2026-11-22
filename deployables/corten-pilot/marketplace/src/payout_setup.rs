@@ -299,17 +299,20 @@ pub(crate) async fn write(
     }
 }
 
-/// `path` carrying a write's receipt as its `afterWrite` (`navigateAfterWrite`), in place of any it had.
+/// `path` carrying a write's receipt as its `afterWrite` (`navigateAfterWrite`), in place of any
+/// receipt or post-write handoff it had, with its fragment kept last.
 fn carrying(path: &str, receipt: Option<&Receipt>) -> String {
     let Some(receipt) = receipt else { return path.to_owned() };
+    let (path, fragment) = path.split_once('#').map_or((path, None), |(path, fragment)| (path, Some(fragment)));
     let (path, query) = path.split_once('?').unwrap_or((path, ""));
     let mut pairs: Vec<String> = query
         .split('&')
-        .filter(|pair| !pair.is_empty() && pair.split('=').next() != Some("afterWrite"))
+        .filter(|pair| !pair.is_empty() && !matches!(pair.split('=').next(), Some("afterWrite" | "postWriteHandoff")))
         .map(str::to_owned)
         .collect();
     pairs.push(format!("afterWrite={}", segment(&receipt.param())));
-    format!("{path}?{}", pairs.join("&"))
+    let fragment = fragment.map(|fragment| format!("#{fragment}")).unwrap_or_default();
+    format!("{path}?{}{fragment}", pairs.join("&"))
 }
 
 /// Which session the script asks for.
@@ -367,4 +370,19 @@ pub(crate) async fn session(
 
 fn refused(error: ApiError) -> Session {
     Session { secret: None, code: error.code().map(str::to_owned), message: error.refusal().map(str::to_owned) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_return_carries_the_receipt_before_its_fragment_and_drops_a_stale_handoff() {
+        let receipt = Receipt::of_event("settlement", "42", "evt_1");
+        let param = segment(&receipt.as_ref().unwrap().param());
+        let to = carrying("/account/desk?tab=money&afterWrite=old&postWriteHandoff=%7B%7D#payouts", receipt.as_ref());
+        assert_eq!(to, format!("/account/desk?tab=money&afterWrite={param}#payouts"));
+        assert_eq!(carrying("/account/desk", receipt.as_ref()), format!("/account/desk?afterWrite={param}"));
+        assert_eq!(carrying("/account/desk#payouts", None), "/account/desk#payouts");
+    }
 }

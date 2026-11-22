@@ -12,6 +12,10 @@ export type ProviderWriterKind =
   | "connect-manage"
   | "connect-notification";
 
+export function isPaymentCreateWriter(kind: ProviderWriterKind): boolean {
+  return kind === "payment-saved" || kind === "payment-checkout";
+}
+
 export type ProviderWriteKey = Readonly<{
   windowId: string;
   objectClass: ProviderObjectClass;
@@ -41,6 +45,15 @@ export type ProviderWriteEnvelope = Readonly<{
   apiVersion: string;
 }>;
 
+/** Validated provider evidence for private payment-create recovery. */
+export type PaymentCreateRejection = Readonly<{
+  status: 402;
+  type: "card_error";
+  code: string | null;
+  paymentIntentId: string;
+  paymentIntentStatus: "requires_payment_method";
+}>;
+
 /** Private recovery data. Never include this value in logs, public results or events. */
 export type ProviderWriteRow = Readonly<{
   key: ProviderWriteKey;
@@ -48,6 +61,7 @@ export type ProviderWriteRow = Readonly<{
   envelope: ProviderWriteEnvelope | null;
   digest: string | null;
   state: "pending" | "succeeded" | "failed" | "ambiguous";
+  rejection?: PaymentCreateRejection;
   version: number;
   observedClass: ProviderObjectClass | null;
   reusedExisting: boolean;
@@ -88,7 +102,8 @@ export type ReserveProviderWrite = Readonly<{
 
 export type ProviderWriteCompletion =
   | Readonly<{ state: "succeeded"; providerReference: string | null; responseExpiresAt?: string | null }>
-  | Readonly<{ state: "failed" | "ambiguous" }>;
+  | Readonly<{ state: "failed"; rejection?: PaymentCreateRejection }>
+  | Readonly<{ state: "ambiguous" }>;
 
 export type EvidenceWindowProviderWrite = Readonly<{
   reserveOrResolve: (input: ReserveProviderWrite) => Promise<ProviderWriteResult>;

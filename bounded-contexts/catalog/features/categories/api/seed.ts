@@ -199,8 +199,8 @@ function allCategoryDefs(): CategoryDef[] {
     {
       key: "magic-card-prints",
       categoryId: catalogSeedIds.categories.magicCardPrints as CategoryId,
-      name: "Card Prints",
-      description: "Individual Magic card prints",
+      name: "Singles",
+      description: "Individual Magic cards",
       parentKey: "magic-the-gathering",
       displayOrder: 0,
     },
@@ -237,8 +237,8 @@ function allCategoryDefs(): CategoryDef[] {
     {
       key: "one-piece-card-prints",
       categoryId: catalogSeedIds.categories.onePieceCardPrints as CategoryId,
-      name: "Card Prints",
-      description: "Individual One Piece card prints",
+      name: "Singles",
+      description: "Individual One Piece cards",
       parentKey: "one-piece-card-game",
       displayOrder: 0,
     },
@@ -299,8 +299,8 @@ function allCategoryDefs(): CategoryDef[] {
     {
       key: "lorcana-card-prints",
       categoryId: catalogSeedIds.categories.lorcanaCardPrints as CategoryId,
-      name: "Card Prints",
-      description: "Individual Disney Lorcana card prints",
+      name: "Singles",
+      description: "Individual Disney Lorcana cards",
       parentKey: "lorcana",
       displayOrder: 1,
     },

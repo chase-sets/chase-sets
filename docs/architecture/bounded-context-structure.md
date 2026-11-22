@@ -171,7 +171,10 @@ The source seam does not change the public `context.json` shape or runtime
 discovery. Nested fragment-only directories are not admitted contexts, and
 duplicate identities within a contribution family are rejected. Once a source
 exists, route files under `routes/` are public thin adapters only; behavior and
-metadata belong under the owning feature. A feature localization export may be
+metadata belong under the owning feature. During the staged Public Presence
+migration, the structure guard lists the existing unmigrated route paths.
+New routes must be thin adapters, and each listed path must leave that list
+when it becomes an adapter. A feature localization export may be
 declared as `./localization` only when its target is browser-safe and has no
 server/runtime reachability.
 

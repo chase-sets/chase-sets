@@ -717,6 +717,12 @@ export async function runSellerFlow(baseUrl, options = {}) {
   const env = options.env ?? process.env;
   const fetchImpl = options.fetchImpl ?? fetch;
   const marketplaceWebBaseUrl = resolveMarketplaceWebBaseUrl(baseUrl, env);
+  const adminEmail = readEnv("PLATFORM_ADMIN_EMAIL", env) ?? readEnv("TF_VAR_platform_admin_email", env);
+  const adminPassword = readEnv("PLATFORM_ADMIN_PASSWORD", env) ?? readEnv("TF_VAR_platform_admin_password", env);
+  assert(
+    adminEmail && adminPassword,
+    "Missing PLATFORM_ADMIN_EMAIL or TF_VAR_platform_admin_email, PLATFORM_ADMIN_PASSWORD or TF_VAR_platform_admin_password. Both are required for platform-wide payout checks.",
+  );
   const headers = await resolveAuthHeaders(env, fetchImpl);
   assert(
     headers.has("Authorization") || headers.has("Cookie"),
@@ -742,10 +748,21 @@ export async function runSellerFlow(baseUrl, options = {}) {
     headers,
     "marketplace checkout fee policy",
   );
+  const adminSessionToken = await signInWithPassword(
+    {
+      authBaseUrl: readEnv("PLATFORM_AUTH_BASE_URL", env) ?? readEnv("PLATFORM_ADMIN_BASE_URL", env) ?? baseUrl,
+      email: adminEmail,
+      password: adminPassword,
+      accountId: readEnv("PLATFORM_ADMIN_ACCOUNT_ID", env),
+      label: "platform admin password sign-in",
+    },
+    fetchImpl,
+  );
+  const adminHeaders = new Headers({ Authorization: `Bearer ${adminSessionToken}` });
   const settlementProviderHealth = await getJsonOk(
     fetchImpl,
     `${baseUrl}/api/settlement/provider-health`,
-    headers,
+    adminHeaders,
     "settlement provider health",
   );
   assert(
@@ -756,13 +773,13 @@ export async function runSellerFlow(baseUrl, options = {}) {
   await getJsonOk(
     fetchImpl,
     `${baseUrl}/api/settlement/payouts/provider-idempotency`,
-    headers,
+    adminHeaders,
     "payout provider idempotency",
   );
   await getJsonOk(
     fetchImpl,
     `${baseUrl}/api/settlement/payouts/platform-balance-forecast`,
-    headers,
+    adminHeaders,
     "platform balance forecast",
   );
 

@@ -78,6 +78,9 @@
       "@chase-sets/catalog-seed": [
         "./contracts/catalog-seed/index.ts"
       ],
+      "@chase-sets/catalog-seed/fallback-assets": [
+        "./contracts/catalog-seed/fallback-assets.ts"
+      ],
       "@chase-sets/catalog-seed/ids": [
         "./contracts/catalog-seed/ids.ts"
       ],

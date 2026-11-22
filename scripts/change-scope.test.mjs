@@ -999,7 +999,7 @@ describe("shared E2E setup selection", () => {
       changedFiles.includes("deployables/marketplace/e2e/unmapped.spec.ts"),
     );
     expect(captured.cases).toHaveLength(150);
-    expect(candidate.cases).toHaveLength(164);
+    expect(candidate.cases).toHaveLength(165);
     expect(candidate.families).toEqual([
       ...captured.families
         .filter((family) => family.path !== retired)
@@ -1024,6 +1024,14 @@ describe("shared E2E setup selection", () => {
                 ...family,
                 pattern:
                   "/^bounded-contexts\\/discovery\\/routes\\/item-detail(?:\\.|-market-history\\.|-rail-analytics\\.)/",
+              };
+            case "boundedContextRouteSuiteOwnership:51":
+              return {
+                ...family,
+                pattern:
+                  "/^bounded-contexts\\/notifications\\/(?:routes|features\\/notification-center\\/ui\\/routes)\\/account-notifications\\./",
+                path: "bounded-contexts/notifications/features/notification-center/ui/routes/account-notifications.tsx",
+                trackedCandidates: 2,
               };
             case "e2eNoSuiteExclusions:4":
               return { ...family, family: "e2eNoSuiteExclusions:3" };
@@ -4062,6 +4070,17 @@ describe("change-scope", () => {
     const root = "bounded-contexts/commercial-terms";
     expect(e2eSuiteIdsForChangedFile(`${root}/routes/${segment}/${route}.tsx`)).toEqual([suite]);
     expect(e2eSuiteIdsForChangedFile(`${root}/features/${slice}/ui/routes/${route}.tsx`)).toEqual([suite]);
+  });
+
+  it.each([
+    ["bounded-contexts/notifications/routes/account-notifications.tsx", ["marketplace_account"]],
+    [
+      "bounded-contexts/notifications/features/notification-center/ui/routes/account-notifications.tsx",
+      ["marketplace_account"],
+    ],
+    ["bounded-contexts/notifications/routes/account-notifications.test.tsx", []],
+  ])("selects the owning E2E suite for account notification files: %s", (file, suites) => {
+    expect(e2eSuiteIdsForChangedFile(file)).toEqual(suites);
   });
 
   it("routes context changes to the consolidated marketplace seed DB acceptance suite", () => {

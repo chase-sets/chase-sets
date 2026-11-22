@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createStripePaymentProcessorGateway } from "./index";
+import { classifyPaymentCreateRejection, createStripePaymentProcessorGateway, PaymentCreateRejected } from "./index";
+import { ProviderAdapterError } from "@chase-sets/http/provider-errors";
 import { STRIPE_API_VERSION } from "@chase-sets/stripe-config";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import type { EvidenceWindowProviderWrite } from "@chase-sets/evidence-window-provider-write";
@@ -15,7 +16,10 @@ import { providerWriterShape } from "@chase-sets/evidence-window-provider-write/
 import type { ProviderWriteRow } from "@chase-sets/evidence-window-provider-write";
 import type { CreateProcessorPaymentInput, CreateProcessorSetupSessionInput } from "@chase-sets/payment-processing";
 import type { PaymentId } from "@chase-sets/primitives/typed-ids";
-import { executeGovernedProviderWrite } from "@chase-sets/platform-runtime/evidence-window-provider-write-executor";
+import {
+  executeGovernedProviderWrite,
+  readPaymentCreateRejection,
+} from "@chase-sets/platform-runtime/evidence-window-provider-write-executor";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -133,6 +137,7 @@ function casJournal() {
         row: bump({
           state: result.state,
           providerReference: result.state === "succeeded" ? result.providerReference : null,
+          ...(result.state === "failed" && result.rejection ? { rejection: result.rejection } : {}),
         }),
       };
     },
@@ -156,6 +161,195 @@ function casJournal() {
   };
   return { port, current: () => row, completions };
 }
+
+// Synthetic identifiers and text, preserving the captured TEST 402 error shape.
+const declined = {
+  type: "card_error",
+  code: "card_declined",
+  message: "Synthetic card decline.",
+  decline_code: "generic_decline",
+  payment_intent: { id: "pi_SYNTHETIC", status: "requires_payment_method", customer: "cus_SYNTHETIC" },
+};
+const invalidRequest = {
+  type: "invalid_request_error",
+  code: "parameter_missing",
+  message: "Synthetic invalid input.",
+};
+const rejection = {
+  status: 402,
+  type: "card_error",
+  code: "card_declined",
+  paymentIntentId: "pi_SYNTHETIC",
+  paymentIntentStatus: "requires_payment_method",
+};
+const rejectionWindow = { windowId: "a".repeat(32), expiresAt: "2099-01-01T00:00:00.000Z" };
+const rejectionInput: CreateProcessorPaymentInput = {
+  paymentId: "pay_SYNTHETIC" as PaymentId,
+  buyerAccountId: "acc_SYNTHETIC" as AccountId,
+  orderIds: [],
+  amount: "1.00",
+  currencyCode: "usd",
+  paymentMethodCategory: "card",
+  description: "Synthetic payment",
+  providerCustomerReference: "cus_SYNTHETIC",
+  returnUrl: `${GOVERNED_RETURN_ORIGIN}/account/payments/pay_SYNTHETIC`,
+};
+const rejectionInputs = [
+  { kind: "Checkout", input: rejectionInput },
+  {
+    kind: "saved PaymentIntent",
+    input: {
+      ...rejectionInput,
+      savedCheckoutInstrument: {
+        instrumentId: "sci_SYNTHETIC",
+        providerReference: "pm_SYNTHETIC",
+        confirmationExperience: "off-session-token",
+      },
+    },
+  },
+] satisfies ReadonlyArray<{ kind: string; input: CreateProcessorPaymentInput }>;
+
+function rejectionGateway(journal?: EvidenceWindowProviderWrite) {
+  return createStripePaymentProcessorGateway({
+    secretKey: journal ? "sk_test_SYNTHETIC" : "sk_live_SYNTHETIC",
+    publishableKey: journal ? "pk_test_SYNTHETIC" : "pk_live_SYNTHETIC",
+    webhookSecret: "whsec_SYNTHETIC",
+    apiBaseUrl: "https://stripe.test",
+    ...(journal && {
+      evidenceWindowCorrelation: { currentOpenWindow: async () => rejectionWindow },
+      evidenceWindowProviderWrite: journal,
+    }),
+  });
+}
+
+it.each([
+  { name: "captured shape", status: 402, body: { error: declined }, expected: rejection },
+  { name: "400 with no PI", status: 400, body: { error: invalidRequest } },
+  { name: "400 with PI", status: 400, body: { error: { ...declined, ...invalidRequest } } },
+  { name: "400 with otherwise matching body", status: 400, body: { error: declined } },
+  { name: "idempotency error", status: 402, body: { error: { ...declined, type: "idempotency_error" } } },
+  { name: "other 402 type", status: 402, body: { error: { ...declined, type: "api_error" } } },
+  { name: "missing PI", status: 402, body: { error: { ...declined, payment_intent: undefined } } },
+  { name: "expanded PI required", status: 402, body: { error: { ...declined, payment_intent: "pi_SYNTHETIC" } } },
+  { name: "malformed JSON", status: 402, body: "{not json" },
+  ...["processing", "requires_action", "succeeded", null].map((status) => ({
+    name: `PI state ${status}`,
+    status: 402,
+    body: { error: { ...declined, payment_intent: { ...declined.payment_intent, status } } },
+  })),
+  ...["pi_", "pm_SYNTHETIC", "pi_SYNTHETIC_secret_SYNTHETIC", "pi_BAD/ID", "pi_TRAILING\n"].map((id) => ({
+    name: `malformed PI id ${JSON.stringify(id)}`,
+    status: 402,
+    body: { error: { ...declined, payment_intent: { ...declined.payment_intent, id } } },
+  })),
+  ...[401, 403, 404, 409, 429, 500].map((status) => ({ name: String(status), status, body: { error: declined } })),
+] as ReadonlyArray<{ name: string; status: number; body: unknown; expected?: typeof rejection }>)(
+  "payment-create-rejection-classifier: $name",
+  ({ status, body, expected }) => {
+    expect(classifyPaymentCreateRejection(status, body)).toEqual(expected ?? null);
+  },
+);
+
+it.each(rejectionInputs)("payment-create-rejection-same-on-both-paths: $kind", async ({ input }) => {
+  const fetch = vi.fn(async () => Response.json({ error: declined }, { status: 402 }));
+  vi.stubGlobal("fetch", fetch);
+  const journal = casJournal();
+
+  await expect.soft(rejectionGateway().createPaymentSession(input)).rejects.toMatchObject({
+    name: "PaymentCreateRejected",
+    rejection,
+  });
+  await expect.soft(rejectionGateway(journal.port).createPaymentSession(input)).rejects.toMatchObject({
+    name: "PaymentCreateRejected",
+    message: "Payment create was rejected by the provider.",
+    rejection,
+  });
+  expect(journal.current()).toMatchObject({ state: "failed", rejection, replayAttempts: 0 });
+  expect(journal.completions).toEqual(["failed"]);
+
+  const wireKey = providerWriteIdempotencyKey(journal.current()!.key);
+  await expect(rejectionGateway(journal.port).createPaymentSession(input)).rejects.toMatchObject({
+    name: "PaymentCreateRejected",
+    rejection,
+  });
+  await expect(readPaymentCreateRejection(journal.port, wireKey)).resolves.toEqual(rejection);
+  expect(fetch).toHaveBeenCalledTimes(2);
+  expect(journal.current()).toMatchObject({ replayAttempts: 0, version: 2 });
+});
+
+it("payment-create-rejection lookup only reads an exact failed wire key", async () => {
+  const key = { windowId: rejectionWindow.windowId, objectClass: 2, creationOrdinal: 1, operation: "create" } as const;
+  const wireKey = providerWriteIdempotencyKey(key);
+  const readWindow = vi.fn().mockResolvedValue([{ key, state: "failed", rejection }]);
+  const journal = { ...casJournal().port, readWindow };
+
+  await expect(readPaymentCreateRejection(journal, `${wireKey}:`)).resolves.toBeNull();
+  await expect(readPaymentCreateRejection(journal, wireKey.replace(":2:1:", ":2:01:"))).resolves.toBeNull();
+  expect(readWindow).not.toHaveBeenCalled();
+
+  await expect(readPaymentCreateRejection(journal, wireKey.replace(":2:1:", ":4:1:"))).resolves.toBeNull();
+  await expect(readPaymentCreateRejection(journal, wireKey.replace(":2:1:", ":2:2:"))).resolves.toBeNull();
+  await expect(readPaymentCreateRejection(journal, wireKey.replace(":create", ":dispose"))).resolves.toBeNull();
+  await expect(readPaymentCreateRejection(journal, wireKey)).resolves.toEqual(rejection);
+  expect(readWindow).toHaveBeenLastCalledWith(key.windowId);
+  readWindow.mockResolvedValue([{ key, state: "failed" }]);
+  await expect(readPaymentCreateRejection(journal, wireKey)).resolves.toBeNull();
+});
+
+it.each(rejectionInputs)("uncertain payment-create 4xx keeps the same key replayable: $kind", async ({ input }) => {
+  const fetch = vi.fn(async (_url: string, _init: RequestInit) =>
+    Response.json({ error: invalidRequest }, { status: 400 }),
+  );
+  vi.stubGlobal("fetch", fetch);
+  const journal = casJournal();
+  const create = () => rejectionGateway(journal.port).createPaymentSession(input);
+  await expect(create()).rejects.toMatchObject({ code: "write-unresolved" });
+  expect(journal.current()).toMatchObject({ state: "pending", replayAttempts: 0 });
+  await expect(create()).rejects.toMatchObject({ code: "write-unresolved" });
+  expect(journal.current()).toMatchObject({ state: "pending", replayAttempts: 1 });
+  await expect(create()).rejects.toMatchObject({ code: "write-unresolved" });
+  expect(journal.current()).toMatchObject({ state: "ambiguous", replayAttempts: 1 });
+  expect(journal.completions).toEqual([]);
+  expect(fetch).toHaveBeenCalledTimes(2);
+  const keys = fetch.mock.calls.map(([, init]) => new Headers(init.headers).get("Idempotency-Key"));
+  expect(keys).toEqual(Array(2).fill(providerWriteIdempotencyKey(journal.current()!.key)));
+});
+
+it.each([
+  {
+    status: 402,
+    error: { ...declined, message: "Synthetic decline: insufficient balance." },
+    category: "balance_insufficient",
+  },
+  { status: 400, error: invalidRequest, category: "configuration" },
+] as const)("payment-create-rejection-direct-parity: $status", async ({ status, error, category }) => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => Response.json({ error }, { status })),
+  );
+  const gateway = rejectionGateway();
+  const baseline = new ProviderAdapterError(category, error.message, status);
+  const agenticPayment = { kind: "stripe-shared-payment-token", sharedPaymentGrantedToken: "spt_SYNTHETIC" } as const;
+  for (const [kind, create, typed] of [
+    ...rejectionInputs.map(
+      ({ kind, input }) => [kind, () => gateway.createPaymentSession(input), status === 402] as const,
+    ),
+    ["wallet funding", () => gateway.createPaymentSession({ ...rejectionInput, purpose: "wallet-funding" }), false],
+    ["agentic", () => gateway.createAgenticPaymentSession!({ ...rejectionInput, agenticPayment }), false],
+  ] as const) {
+    const actual = await create().catch((failure: unknown) => failure);
+    expect(actual).toBeInstanceOf(ProviderAdapterError);
+    expect(actual).toMatchObject({
+      category: baseline.category,
+      providerStatus: baseline.providerStatus,
+      message: baseline.message,
+    });
+    expect(actual).not.toHaveProperty("code");
+    expect
+      .soft((actual as ProviderAdapterError).constructor, kind)
+      .toBe(typed ? PaymentCreateRejected : ProviderAdapterError);
+  }
+});
 
 it("J4 a concurrent same-key replay answered 409 idempotency_key_in_use stays pending, then ambiguous, never failed", async () => {
   const journal = casJournal();
