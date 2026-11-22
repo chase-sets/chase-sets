@@ -254,6 +254,7 @@
     "bounded-contexts/identity/api.ts",
     "bounded-contexts/identity/features/access-hub/read-model/queries.ts",
     "bounded-contexts/identity/features/account-management/api/fences.ts",
+    "bounded-contexts/identity/features/account-profile-reports/api/runtime.ts",
     "bounded-contexts/identity/features/accounts/api/listing-activation-authority.ts",
     "bounded-contexts/identity/features/accounts/api/owner-epochs.ts",
     "bounded-contexts/identity/features/accounts/read-model/projection.ts",

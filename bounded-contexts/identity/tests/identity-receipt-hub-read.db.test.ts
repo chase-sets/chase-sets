@@ -54,7 +54,7 @@ if (!databaseBaseUrl && process.env.CI) {
 }
 const describeDb = databaseBaseUrl ? describe : describe.skip;
 
-const contextNames = ["identity", "marketplace", "control"] as const;
+const contextNames = ["identity", "marketplace", "platform-operations", "control"] as const;
 const actor: ResolvedActor = {
   tenantId: parseTypedId("tnt_receipthub", "tnt"),
   userId: parseTypedId("usr_receipthubowner", "usr"),
@@ -73,6 +73,15 @@ const marketplaceModule: BcApiModule<Record<string, never>, PgTransactionalPool,
   contextName: "marketplace",
   routePrefix: "/api/marketplace",
   streamPrefix: "marketplace.",
+  schemaSql: "",
+  apiMounts: [],
+  createServices: () => ({}),
+  buildApis: () => [],
+};
+const platformOperationsSourceModule: BcApiModule<Record<string, never>, PgTransactionalPool, Record<string, never>> = {
+  contextName: "platform-operations",
+  routePrefix: "/api/platform-operations",
+  streamPrefix: "platform-operations.",
   schemaSql: "",
   apiMounts: [],
   createServices: () => ({}),
@@ -105,6 +114,7 @@ describeDb("Identity receipted access workspace read", () => {
     await bootstrapPlatformControlPlane(pools.control);
     await bootstrapContextDatabase(identityModule, pools.identity);
     await bootstrapContextDatabase(marketplaceModule, pools.marketplace);
+    await bootstrapContextDatabase(platformOperationsSourceModule, pools["platform-operations"]);
   });
 
   afterAll(async () => {
@@ -125,6 +135,14 @@ describeDb("Identity receipted access workspace read", () => {
         contextName: "marketplace",
         module: marketplaceModule,
         pool: pools.marketplace,
+        services: {},
+        projectionHandlerSets: [],
+        mountRole: "source-only",
+      },
+      {
+        contextName: "platform-operations",
+        module: platformOperationsSourceModule,
+        pool: pools["platform-operations"],
         services: {},
         projectionHandlerSets: [],
         mountRole: "source-only",

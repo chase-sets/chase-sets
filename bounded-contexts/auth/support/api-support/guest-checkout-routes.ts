@@ -23,7 +23,13 @@ import {
 import { verifyPasskeyRegistration } from "../auth-support/webauthn";
 import { startInteractiveAuth, type AuthServices } from "../runtime-support/services";
 import { isGuestCheckoutActor } from "../runtime-support/runtime";
-import { createIdentityMutations, createOwnedUserDisplayName, getBootstrapContext, type AuthApiApp } from "./support";
+import {
+  createIdentityMutations,
+  createOwnedUserDisplayName,
+  getBootstrapContext,
+  readIdentityDisplayNameRejection,
+  type AuthApiApp,
+} from "./support";
 
 const GUEST_CHECKOUT_CLAIM_LINK_NOTIFICATION_PROJECTION = "auth-guest-checkout-claim-link-notification-intent";
 const guestCheckoutClaimIpRateLimiter = createConfiguredInMemoryRateLimiter("auth.guest-checkout.claim.ip", {
@@ -198,10 +204,17 @@ async function claimGuestAccountAndStartSession(
 export function registerGuestCheckoutRoutes(app: AuthApiApp, services: AuthServices) {
   app.post("/guest-checkout/start", async (c) => {
     const identityMutations = createIdentityMutations(c);
-    const account = await identityMutations.createGuestAccount({
-      email: "",
-      displayName: "Guest",
-    });
+    let account: Awaited<ReturnType<typeof identityMutations.createGuestAccount>>;
+    try {
+      account = await identityMutations.createGuestAccount({
+        email: "",
+        displayName: "Guest",
+      });
+    } catch (error) {
+      const displayNameRejection = readIdentityDisplayNameRejection(error);
+      if (displayNameRejection) return c.json(displayNameRejection, 400);
+      throw error;
+    }
     const tokenId = createId("cmd");
     const guestToken = services.auth.issueOpaqueToken("guest");
     const expiresAt = createExpiryTimestamp(authSecurityLifetimesOf(services).guestCheckoutTtlMs);

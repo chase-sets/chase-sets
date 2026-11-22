@@ -12,7 +12,7 @@ on:
           - dry-run
           - apply
       environment:
-        description: Target environment. Production/prelaunch is explicitly refused by this staging workflow.
+        description: Target environment. Production/prelaunch runs only from main.
         required: true
         default: staging
         type: choice
@@ -20,7 +20,7 @@ on:
           - staging
           - production-prelaunch
       confirm:
-        description: For apply, type "reset staging catalog integration data" exactly.
+        description: For apply, type "reset staging catalog integration data" or "reset production catalog integration data" exactly.
         required: false
         type: string
       approval_reference:
@@ -59,52 +59,65 @@ on:
         description: Required for apply; durable reference to post-reset smoke verification evidence.
         required: false
         type: string
+      dry_run_fingerprint:
+        description: Required for production apply; copy production.fingerprint from the production dry-run report.
+        required: false
+        type: string
+      staging_rehearsal_reference:
+        description: Required for production apply; successful staging reset rehearsal reference.
+        required: false
+        type: string
 
 permissions:
   actions: read
   contents: read
 
 concurrency:
-  group: platform-staging-mutating-operations
+  group: ${{ inputs.environment == 'production-prelaunch' && 'catalog-production-prelaunch-reset' || 'platform-staging-mutating-operations' }}
   cancel-in-progress: false
 
 jobs:
-  refuse-production:
-    name: Refuse Production Catalog Integration Reset
+  refuse-unadmitted-target:
+    name: Refuse Unadmitted Catalog Integration Reset Target
     runs-on: ubuntu-latest
-    if: inputs.environment != 'staging'
+    if: >-
+      (inputs.environment != 'staging' && inputs.environment != 'production-prelaunch') ||
+      (inputs.environment == 'production-prelaunch' && github.ref != 'refs/heads/main')
     steps:
-      - name: Refuse production/prelaunch
+      - name: Refuse unknown target or non-main production ref
         run: |
-          echo "Production/prelaunch requires separately reviewed machinery after a successful staging rehearsal." >&2
+          echo "Choose staging or production-prelaunch; production-prelaunch requires refs/heads/main." >&2
           exit 1
 
   refuse-unconfirmed-apply:
     name: Refuse Unconfirmed Catalog Integration Reset
     runs-on: ubuntu-latest
-    if: inputs.action == 'apply' && inputs.confirm != 'reset staging catalog integration data'
+    if: >-
+      inputs.action == 'apply' &&
+      ((inputs.environment == 'staging' && inputs.confirm != 'reset staging catalog integration data') ||
+       (inputs.environment == 'production-prelaunch' && inputs.confirm != 'reset production catalog integration data'))
     steps:
       - name: Refuse unconfirmed destructive apply
         run: |
-          echo 'Confirmation text did not match exactly; expected "reset staging catalog integration data".' >&2
+          echo 'Confirmation text did not match the selected target.' >&2
           exit 1
 
   catalog-integration-reset:
-    name: Catalog Integration Staging Reset
+    name: ${{ inputs.environment == 'production-prelaunch' && 'Catalog Integration Production Prelaunch Reset' || 'Catalog Integration Staging Reset' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    environment: staging
+    environment: ${{ inputs.environment == 'production-prelaunch' && 'production' || 'staging' }}
     needs:
-      - refuse-production
+      - refuse-unadmitted-target
       - refuse-unconfirmed-apply
     if: >-
       always() &&
-      needs.refuse-production.result == 'skipped' &&
+      needs.refuse-unadmitted-target.result == 'skipped' &&
       needs.refuse-unconfirmed-apply.result == 'skipped'
     env:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
-      DEPLOYMENT_ENVIRONMENT: staging
+      DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment == 'production-prelaunch' && 'production' || 'staging' }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -119,20 +132,21 @@ jobs:
         env:
           NODE_OPTIONS: --no-deprecation
 
-      - name: Export staging Catalog database URL and TLS trust
+      - name: Export Catalog database URL and TLS trust
         uses: ./.github/actions/export-managed-postgres-authority
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
           DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
         with:
-          environment: staging
+          environment: ${{ env.DEPLOYMENT_ENVIRONMENT }}
           contexts: catalog
           connection-mode: pooled
 
       - name: Run Catalog integration reset policy
         env:
           RESET_ACTION: ${{ inputs.action }}
+          RESET_ENVIRONMENT: ${{ inputs.environment }}
           RESET_CONFIRM: ${{ inputs.confirm }}
           RESET_APPROVAL_REFERENCE: ${{ inputs.approval_reference }}
           RESET_OPERATOR: ${{ inputs.operator }}
@@ -142,12 +156,14 @@ jobs:
           RESET_BACKUP_FIELD_3: ${{ inputs.backup_retention_or_target_data_set }}
           RESET_BACKUP_RESTORE_REFERENCE: ${{ inputs.backup_restore_verification_reference }}
           RESET_SMOKE_VERIFICATION_REFERENCE: ${{ inputs.smoke_verification_reference }}
+          RESET_DRY_RUN_FINGERPRINT: ${{ inputs.dry_run_fingerprint }}
+          RESET_STAGING_REHEARSAL_REFERENCE: ${{ inputs.staging_rehearsal_reference }}
         run: |
           set -euo pipefail
           mkdir -p artifacts/catalog-integration-reset
           args=(
             --action "$RESET_ACTION"
-            --environment staging
+            --environment "$RESET_ENVIRONMENT"
             --out artifacts/catalog-integration-reset/catalog-integration-reset.json
           )
           if [ "$RESET_ACTION" = "apply" ]; then
@@ -170,6 +186,12 @@ jobs:
                 --backup-approver "$RESET_BACKUP_FIELD_1"
                 --backup-rationale "$RESET_BACKUP_FIELD_2"
                 --backup-target-data-set "$RESET_BACKUP_FIELD_3"
+              )
+            fi
+            if [ "$RESET_ENVIRONMENT" = "production-prelaunch" ]; then
+              args+=(
+                "--dry-run-fingerprint=$RESET_DRY_RUN_FINGERPRINT"
+                "--staging-rehearsal-reference=$RESET_STAGING_REHEARSAL_REFERENCE"
               )
             fi
           fi

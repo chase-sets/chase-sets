@@ -134,6 +134,30 @@ describe("registration auth routes", () => {
     return Object.assign(new Error("synthetic Identity failure"), { status, body });
   }
 
+  it("account-profile-marker-scan: relays only the closed display-name rejection", async () => {
+    const services = createServices();
+    const marker = "account-profile-marker-scan";
+    mockCreateIdentityAuthRequestClient.mockReturnValue({
+      createPersonalIdentity: vi.fn(async () => {
+        throw identityError(400, { error: { code: "text_unsafe_link", message: marker } });
+      }),
+      enablePasswordCredential: vi.fn(),
+    });
+    const response = await buildApp(services).request("/register", {
+      method: "POST",
+      headers: registrationRequestHeaders("203.0.113.241"),
+      body: JSON.stringify({
+        email: "display-name-rejected@chasesets.test",
+        displayName: `${marker} http://test.example`,
+      }),
+    });
+    expect(response.status).toBe(400);
+    const body = await response.text();
+    expect(JSON.parse(body)).toEqual({ error: { code: "text_unsafe_link" } });
+    expect(body).not.toContain(marker);
+    expect(mockStartInteractiveAuth).not.toHaveBeenCalled();
+  });
+
   it.each(consentRejections)("relays the recognized $code rejection body unchanged", async (rejection) => {
     const services = createServices();
     const createPersonalIdentity = vi.fn(async () => {

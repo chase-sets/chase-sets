@@ -23,6 +23,7 @@ import { identityAccountSchemaMigrations } from "./features/accounts/read-model/
 import { identityAgentGrantRevocationSchemaMigrations } from "./features/agent-grants/read-model/schema";
 import { inspectIdentitySeedState, seedIdentityDatabase } from "./support/runtime-support/seed";
 import { buildFounderClaimReactionHandlers } from "./features/founders-cohort/integrations/marketplace/founder-claim-reaction";
+import { buildProfileRedactionReactionHandlers } from "./features/account-profile-reports/integrations/moderation/profile-redaction-reaction";
 
 const identityContextManifest = contextManifest as BcContextManifest;
 
@@ -72,6 +73,8 @@ export const module = defineBoundedContextModule<IdentityServices, PgTransaction
       contextName: "identity",
       manifest: identityContextManifest,
       handlers: {
+        "platform-operations.identity-profile-redaction-reaction": () =>
+          buildProfileRedactionReactionHandlers(services.mutationPersistence),
         "marketplace.identity-founder-claim-reaction": () =>
           buildFounderClaimReactionHandlers(services.foundersCohort.claimFounderNumber),
       },

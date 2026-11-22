@@ -17,6 +17,27 @@ const pages = {
 function parse(file: string, source = readFileSync(file, "utf8")) {
   return ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 }
+function importsAccountMutationForm(file: ts.SourceFile) {
+  return file.statements.some((statement) => {
+    if (
+      !ts.isImportDeclaration(statement) ||
+      !ts.isStringLiteral(statement.moduleSpecifier) ||
+      statement.moduleSpecifier.text !== "../../account-management/ui/controller"
+    )
+      return false;
+    const clause = statement.importClause;
+    return (
+      clause !== undefined &&
+      !clause.isTypeOnly &&
+      clause.namedBindings !== undefined &&
+      ts.isNamedImports(clause.namedBindings) &&
+      clause.namedBindings.elements.some(
+        (binding) =>
+          !binding.isTypeOnly && binding.propertyName?.text === "AccountMutationForm" && binding.name.text === "Form",
+      )
+    );
+  });
+}
 function routeIntents(file: ts.SourceFile) {
   const intents: string[] = [];
   function visit(node: ts.Node) {
@@ -76,8 +97,9 @@ describe("issue-7168-ac1-derived-partition", () => {
       expect(routeIntents(file)).toEqual([...actions].sort());
       derived.push(...routeIntents(file));
       const source = readFileSync(path.join(root, `features/${pages[route as keyof typeof pages]}`), "utf8");
-      expect(source).toContain("import { AccountMutationForm as Form }");
-      const forms = formPartition(parse("page.tsx", source));
+      const page = parse("page.tsx", source);
+      expect(importsAccountMutationForm(page), route).toBe(true);
+      const forms = formPartition(page);
       expect(forms.flatMap((form) => form.intents).sort()).toEqual([...actions].sort());
       for (const form of forms) {
         const action = form.intents[0] as keyof typeof actionFields;
@@ -100,5 +122,16 @@ describe("issue-7168-ac1-derived-partition", () => {
     expect(manifest.slices).toContain("account-management");
     const mutant = parse("mutant.tsx", 'const x = { intents: { "seventeenth": () => 1 } };');
     expect(routeIntents(mutant).every((action) => Object.hasOwn(actionFields, action))).toBe(false);
+  });
+
+  it("rejects type-only or substitute Form imports", () => {
+    for (const source of [
+      'import type { AccountMutationForm as Form } from "../../account-management/ui/controller";',
+      'import { type AccountMutationForm as Form } from "../../account-management/ui/controller";',
+      'import { AccountMutationForm as Form } from "./substitute";',
+      'import { OtherForm as Form } from "../../account-management/ui/controller";',
+    ]) {
+      expect(importsAccountMutationForm(parse("mutant.tsx", source)), source).toBe(false);
+    }
   });
 });

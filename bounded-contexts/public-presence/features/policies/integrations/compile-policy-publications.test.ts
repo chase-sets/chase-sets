@@ -516,10 +516,10 @@ describe("public policy corpus compiler", () => {
     // [#7864 Break the Auth and Payments dependency cycle and reject cycles in the structure gate](https://github.com/chase-sets/chase-sets/issues/7864).
     // Re-derived for the Identity account-domain citation shift that the required profile name check makes.
     // Re-derived for the payout review hold and whole-construct registration citations.
-    // Re-derived with both the inline card confirmation and reservation-sweep citation changes.
+    // Re-derived with the inline card confirmation, Account Profile, and reservation-sweep citation changes.
     expect(
       fingerprint(baseline.find(({ relativePath }) => relativePath === "terms-of-service-publication.ts")?.content),
-    ).toBe("sha256:9eab9e6f19b612ed8287d11a522b7ef71ad477eb2cc6a14f557d91a6a9aed1f4");
+    ).toBe("sha256:b24facf822eb379808b27403212f97cec1372a091f0e2004f92c08ad1eaaceed");
 
     for (const module of changed) {
       const before = baseline.find((candidate) => candidate.relativePath === module.relativePath)?.content;

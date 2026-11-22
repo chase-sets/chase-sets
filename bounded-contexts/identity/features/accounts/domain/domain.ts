@@ -12,7 +12,12 @@ import {
   type IdentityAccountReactivatedPayload,
   type IdentityAccountSuspendedPayload,
 } from "@chase-sets/event-core";
-import { parseStrictTypedUlid, type AccountId, type EnforcementActionId } from "@chase-sets/primitives/typed-ids";
+import {
+  parseStrictTypedUlid,
+  type AccountId,
+  type EnforcementActionId,
+  type ReportedContentActionId,
+} from "@chase-sets/primitives/typed-ids";
 import {
   assert,
   assertNever,
@@ -22,6 +27,7 @@ import {
   type AccountType,
 } from "../../../support/runtime-support/common";
 import { AccountProfileFieldError, type AccountProfileField } from "./errors";
+import { assertSafeDisplayName } from "./display-name-safeguard";
 
 export type AccountState = Readonly<{
   id: AccountId | null;
@@ -131,6 +137,25 @@ export type AccountProfileUpdatedEvent = DomainEvent<
   }>
 >;
 
+export type AccountProfileDisplayNameRedactedEvent = DomainEvent<
+  "identity.account.display-name-redacted",
+  Readonly<{ actionId: ReportedContentActionId; operatorUserId: string }>
+>;
+
+export const redactedAccountDisplayName = "Name removed";
+
+export function decideProfileDisplayNameRedaction(
+  state: AccountState,
+  data: AccountProfileDisplayNameRedactedEvent["data"],
+): readonly [AccountProfileDisplayNameRedactedEvent, AccountProfileUpdatedEvent] {
+  requireCreatedAccount(state);
+  assert(state.name !== null && state.status !== "closed", "Account profile cannot be redacted.");
+  return [
+    { type: "identity.account.display-name-redacted", data },
+    { type: "identity.account.profile-updated", data: { name: state.name, displayName: redactedAccountDisplayName } },
+  ];
+}
+
 export type AccountSuspendedEvent = DomainEvent<"identity.account.suspended", IdentityAccountSuspendedPayload>;
 export type AccountReactivatedEvent = DomainEvent<"identity.account.reactivated", IdentityAccountReactivatedPayload>;
 export type AccountClosedEvent = DomainEvent<"identity.account.closed", IdentityAccountClosedPayload>;
@@ -150,6 +175,7 @@ export type AccountBadgeRemovedEvent = DomainEvent<
 export type AccountEvent =
   | AccountCreatedEvent
   | AccountProfileUpdatedEvent
+  | AccountProfileDisplayNameRedactedEvent
   | AccountSuspendedEvent
   | AccountReactivatedEvent
   | AccountClosedEvent
@@ -159,8 +185,10 @@ export type AccountEvent =
 
 export const decideAccount: AggregateDecider<AccountState, AccountCommand, AccountEvent> = (state, command) => {
   switch (command.type) {
-    case "CreateAccount":
+    case "CreateAccount": {
       assert(state.id === null, "Account has already been created.");
+      const displayName = normalizeLabel(command.displayName ?? command.name);
+      assertSafeDisplayName(displayName);
       return [
         {
           type: "identity.account.created",
@@ -168,22 +196,27 @@ export const decideAccount: AggregateDecider<AccountState, AccountCommand, Accou
             accountId: command.accountId,
             name: normalizeLabel(command.name),
             accountType: command.accountType,
-            displayName: normalizeLabel(command.displayName ?? command.name),
+            displayName,
           },
         },
       ];
-    case "UpdateAccountProfile":
+    }
+    case "UpdateAccountProfile": {
       requireCreatedAccount(state);
       assert(state.status !== "closed", "Closed accounts cannot be updated.");
+      const name = requiredProfileLabel(command.name, "name");
+      const displayName = requiredProfileLabel(command.displayName ?? command.name, "displayName");
+      assertSafeDisplayName(displayName, state.displayName);
       return [
         {
           type: "identity.account.profile-updated",
           data: {
-            name: requiredProfileLabel(command.name, "name"),
-            displayName: requiredProfileLabel(command.displayName ?? command.name, "displayName"),
+            name,
+            displayName,
           },
         },
       ];
+    }
     case "SuspendAccount": {
       requireCreatedAccount(state);
       assert(state.status === "active", "Only active accounts can be suspended.");
@@ -307,6 +340,8 @@ export const evolveAccount: AggregateEvolver<AccountState, AccountEvent> = (stat
         name: event.data.name,
         displayName: event.data.displayName,
       };
+    case "identity.account.display-name-redacted":
+      return state;
     case "identity.account.suspended":
       return evolveAccountEnforcement(state, event.data, "suspension", "suspended");
     case "identity.account.reactivated":

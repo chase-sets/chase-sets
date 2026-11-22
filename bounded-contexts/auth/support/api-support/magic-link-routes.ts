@@ -15,6 +15,7 @@ import {
   jsonWithMutationReceipts,
   readIdentityMutationConflict,
   readRegistrationConsentRejection,
+  readIdentityDisplayNameRejection,
   resolveUnaffirmedRegistrationConsent,
   type AuthApiApp,
 } from "./support";
@@ -140,6 +141,8 @@ export function registerMagicLinkRoutes(app: AuthApiApp, services: AuthServices)
           foundersBetaAccessStartedAt: admission.foundersBetaAccessStartedAt,
         });
       } catch (error) {
+        const displayNameRejection = readIdentityDisplayNameRejection(error);
+        if (displayNameRejection) return c.json(displayNameRejection, 400);
         const consentRejection = readRegistrationConsentRejection(error);
         if (consentRejection) {
           return c.json(consentRejection, 400);

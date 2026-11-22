@@ -9,6 +9,7 @@ import {
 } from "@chase-sets/http/responses";
 import {
   createIdentityAuthRequestClient,
+  isDisplayNameRejectionCode,
   isRegistrationConsentRejectionCode,
   type IdentityAuthMutationClient,
   type RegistrationConsentSubmission,
@@ -16,6 +17,16 @@ import {
 import type { Context, Hono, MiddlewareHandler } from "hono";
 
 export type { IdentityAuthMutationClient };
+
+export function readIdentityDisplayNameRejection(error: unknown) {
+  if (!error || typeof error !== "object" || !("status" in error) || error.status !== 400 || !("body" in error))
+    return null;
+  const body = error.body;
+  if (!body || typeof body !== "object" || !("error" in body)) return null;
+  const rejection = body.error;
+  if (!rejection || typeof rejection !== "object" || !("code" in rejection)) return null;
+  return isDisplayNameRejectionCode(rejection.code) ? { error: { code: rejection.code } } : null;
+}
 
 export type AuthApiEnv = {
   Variables: {
