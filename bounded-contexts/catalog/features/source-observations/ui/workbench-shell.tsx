@@ -10,16 +10,20 @@ import {
 import { t } from "@chase-sets/localization";
 import type { CatalogPrimaryWorkbenchReadModel } from "../api/primary-workbench-admin-contracts";
 import type { CatalogControlPlaneRouteSurfaceKey } from "./admin-control-plane/information-architecture";
+import { CatalogIntegrationCommandActionProvider } from "./admin-control-plane/import-to-promotion/command-action-context";
 import { CatalogImportContextBar } from "./admin-control-plane/import-to-promotion/import-context-bar";
 import { CatalogImportJobReceipt } from "./admin-control-plane/import-to-promotion/import-job-receipt";
 import type { SourceObservationImportJobReceipt } from "./contracts";
 import { WorkbenchReturnLink } from "./admin-control-plane/import-to-promotion/workbench-formatting";
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "./primary-workbench-command-feedback";
+import { catalogPrimaryWorkbenchSurfacePathForSection } from "./primary-workbench-route-context";
 import {
   commandErrorTitle,
   commandFeedbackDescription,
   commandSuccessTitle,
 } from "./primary-workbench-command-feedback";
+
+const DAILY_SURFACE_PATH = catalogPrimaryWorkbenchSurfacePathForSection("import-to-promotion");
 
 export interface CatalogWorkbenchShellProps {
   readModel: CatalogPrimaryWorkbenchReadModel;
@@ -62,7 +66,7 @@ export function CatalogWorkbenchShell({
   // header renders (rather than each stacked workspace repeating it).
   const showReturnLink = surface !== "daily";
 
-  return (
+  const workbench = (
     <DenseAdminWorkbench data-catalog-primary-workbench="true">
       <DenseAdminWorkbenchHeader
         eyebrow={t("catalog.features.sourceObservations.ui.primaryWorkbench.eyebrow")}
@@ -136,6 +140,16 @@ export function CatalogWorkbenchShell({
         <WorkbenchStack>{children}</WorkbenchStack>
       </BulkActionSurface>
     </DenseAdminWorkbench>
+  );
+
+  // While the daily surface remains, it owns its import-context and
+  // import-to-promotion controls on its fixed path; the other surfaces render none.
+  return surface === "daily" ? (
+    <CatalogIntegrationCommandActionProvider actionPath={DAILY_SURFACE_PATH}>
+      {workbench}
+    </CatalogIntegrationCommandActionProvider>
+  ) : (
+    workbench
   );
 }
 

@@ -1,13 +1,28 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen, within } from "@testing-library/react";
+import type { ComponentProps } from "react";
+import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
+import { parseCatalogPrimaryWorkbenchRouteContext } from "../../../primary-workbench-route-context";
+import { CatalogIntegrationCommandActionProvider } from "../../import-to-promotion/command-action-context";
 import { CatalogIntegrationLanguageEditionsPanel } from "./language-editions-panel";
 import { buildCatalogScopeLanguageEditionReviewReadModel } from "../../../../../scope-registry/api/scope-journey";
 import type { CatalogAliasReviewCandidateSummary } from "../../../../../alias-equivalence/api/alias-review-admin-contracts";
 
 afterEach(cleanup);
 
-const ACTION_HREF = "/admin/catalog/scopes/scope_expansion_paldean_fates";
+const ACTION_HREF = "/catalog/scopes/scope_expansion_paldean_fates";
+
+function renderPanel(
+  readModel: ReturnType<typeof buildCatalogScopeLanguageEditionReviewReadModel>,
+  props: Partial<Omit<ComponentProps<typeof CatalogIntegrationLanguageEditionsPanel>, "readModel">> = {},
+) {
+  return render(
+    <CatalogIntegrationCommandActionProvider actionPath={ACTION_HREF}>
+      <CatalogIntegrationLanguageEditionsPanel readModel={readModel} routeContext={null} {...props} />
+    </CatalogIntegrationCommandActionProvider>,
+  );
+}
 const REFERENCE_RECORD_ID = "ref_expansion_paldean_fates";
 
 function candidate(overrides: Partial<CatalogAliasReviewCandidateSummary> = {}): CatalogAliasReviewCandidateSummary {
@@ -58,7 +73,7 @@ describe("CatalogIntegrationLanguageEditionsPanel", () => {
       candidates: [candidate()],
     });
 
-    render(<CatalogIntegrationLanguageEditionsPanel readModel={readModel} actionHref={ACTION_HREF} />);
+    renderPanel(readModel);
 
     expect(screen.getByText(/EN/)).toBeTruthy();
     expect(screen.getByText(/JA/)).toBeTruthy();
@@ -69,13 +84,13 @@ describe("CatalogIntegrationLanguageEditionsPanel", () => {
     ).toBeTruthy();
   });
 
-  it("posts the accept intent with the candidate's alias hash to the supplied action href", () => {
+  it("posts the accept intent with the candidate's alias hash to the owning page", () => {
     const readModel = buildCatalogScopeLanguageEditionReviewReadModel({
       scope,
       candidates: [candidate()],
     });
 
-    render(<CatalogIntegrationLanguageEditionsPanel readModel={readModel} actionHref={ACTION_HREF} />);
+    renderPanel(readModel);
 
     const acceptForm = document.querySelector('form[data-language-edition-command="alias.accept"]');
     expect(acceptForm).not.toBeNull();
@@ -86,13 +101,51 @@ describe("CatalogIntegrationLanguageEditionsPanel", () => {
     expect(hiddenHashes?.getAttribute("value")).toBe("hash_ja_set_equivalent");
   });
 
+  it("posts accept and reject to the owning page with its current journey context", () => {
+    const readModel = buildCatalogScopeLanguageEditionReviewReadModel({
+      scope,
+      candidates: [candidate()],
+    });
+    const routeContext = parseCatalogPrimaryWorkbenchRouteContext(
+      `https://admin.example${ACTION_HREF}?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&reviewOffset=25&filter.status=eligible&selectedObservationIds=obs_001`,
+    );
+
+    renderPanel(readModel, { routeContext });
+
+    for (const command of ["alias.accept", "alias.reject"]) {
+      const action = new URL(
+        document.querySelector(`form[data-language-edition-command="${command}"]`)?.getAttribute("action") ?? "",
+        "https://admin.example",
+      );
+      expect(action.pathname, command).toBe(ACTION_HREF);
+      expect(parseCatalogPrimaryWorkbenchRouteContext(action), command).toMatchObject({
+        providerKey: "tcgdex",
+        unitKey: "tcgdex:pokemon:card:import",
+        reviewOffset: 25,
+        sourceObservationFilters: { status: "eligible" },
+        selectedObservationIds: ["obs_001"],
+      });
+    }
+  });
+
+  it("fails closed without an owning page", () => {
+    const readModel = buildCatalogScopeLanguageEditionReviewReadModel({
+      scope,
+      candidates: [candidate()],
+    });
+
+    expect(() =>
+      renderToString(<CatalogIntegrationLanguageEditionsPanel readModel={readModel} routeContext={null} />),
+    ).toThrow("Catalog integration controls require an owning page action path.");
+  });
+
   it("requires a reason for reject and revoke actions", () => {
     const readModel = buildCatalogScopeLanguageEditionReviewReadModel({
       scope,
       candidates: [candidate()],
     });
 
-    render(<CatalogIntegrationLanguageEditionsPanel readModel={readModel} actionHref={ACTION_HREF} />);
+    renderPanel(readModel);
 
     const rejectForm = document.querySelector('form[data-language-edition-command="alias.reject"]');
     const reasonInput = rejectForm?.querySelector('input[name="reason"]');
@@ -105,7 +158,7 @@ describe("CatalogIntegrationLanguageEditionsPanel", () => {
       candidates: [candidate({ reviewStatus: "accepted", availableActions: ["alias.revoke"] })],
     });
 
-    render(<CatalogIntegrationLanguageEditionsPanel readModel={readModel} actionHref={ACTION_HREF} />);
+    renderPanel(readModel);
 
     expect(document.querySelector('form[data-language-edition-command="alias.revoke"]')).not.toBeNull();
   });
@@ -116,13 +169,7 @@ describe("CatalogIntegrationLanguageEditionsPanel", () => {
       candidates: [candidate()],
     });
 
-    render(
-      <CatalogIntegrationLanguageEditionsPanel
-        readModel={readModel}
-        actionHref={ACTION_HREF}
-        canManageAliases={false}
-      />,
-    );
+    renderPanel(readModel, { canManageAliases: false });
 
     const acceptButton = within(
       document.querySelector('form[data-language-edition-command="alias.accept"]') as HTMLElement,
@@ -136,7 +183,7 @@ describe("CatalogIntegrationLanguageEditionsPanel", () => {
       candidates: [],
     });
 
-    render(<CatalogIntegrationLanguageEditionsPanel readModel={readModel} actionHref={ACTION_HREF} />);
+    renderPanel(readModel);
 
     expect(document.querySelectorAll("form").length).toBe(0);
   });

@@ -17,8 +17,9 @@ type RouteContext = CatalogIntegrationsCommandResult["context"];
 //   alias.revoke → RevokeCatalogAlias (reason required)
 //   alias.defer  → keeps the candidate pending (no aggregate write)
 //
-// The daily surface owns these intents, so every result names the
-// import-to-promotion section and stays on the daily route with a status banner.
+// The result names no page: the route action that received the form (Scope
+// language editions, the home disclosure, or the daily surface) keeps it on
+// that page with a status banner.
 export type AliasReviewCommandIntent = "alias.accept" | "alias.reject" | "alias.revoke" | "alias.defer";
 
 const ALIAS_REVIEW_COMMAND_INTENTS = new Set<string>([
@@ -116,6 +117,5 @@ function aliasResult(
   return {
     feedback: { status, intent, result },
     context,
-    section: "import-to-promotion",
   };
 }
