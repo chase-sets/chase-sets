@@ -115,7 +115,10 @@ export default {
       routes: {
         "bounded-contexts/payments/routes/marketplace/account-payment.tsx": "payment-record",
       },
-      paths: ["bounded-contexts/payments/features/payments/ui/account-payment/"],
+      paths: [
+        "bounded-contexts/payments/features/payments/ui/account-payment/",
+        "bounded-contexts/payments/features/payments/ui/routes/account-payment.tsx",
+      ],
     },
     {
       id: "buyer-pending-purchase",
