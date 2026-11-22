@@ -107,6 +107,19 @@ const valueKindOptions = [
   { label: t("catalog.features.dimensions.ui.dimensionDetailPage.numeric"), value: "numeric" },
 ];
 
+function optionMatchingLabel(optionMatching: string): string {
+  return optionMatching === "or-better"
+    ? t("catalog.features.dimensions.ui.dimensionDetailPage.or.better")
+    : t("catalog.features.dimensions.ui.dimensionDetailPage.exact");
+}
+
+function optionMatchingOptions(valueKind: string) {
+  return [
+    { label: optionMatchingLabel("exact"), value: "exact" },
+    { label: optionMatchingLabel("or-better"), value: "or-better", disabled: valueKind === "unordered" },
+  ];
+}
+
 interface LabelEntry {
   locale: string;
   value: string;
@@ -140,6 +153,7 @@ export function DimensionDetailPage({
   const [editName, setEditName] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editValueKind, setEditValueKind] = useState("unordered");
+  const [editOptionMatching, setEditOptionMatching] = useState("exact");
 
   // Add option
   const [showAddOption, setShowAddOption] = useState(false);
@@ -179,6 +193,7 @@ export function DimensionDetailPage({
       name: localizedTextMapFromEnglish(editName),
       description: localizedTextMapFromEnglish(editDescription),
       valueKind: editValueKind,
+      optionMatching: editOptionMatching,
     });
     addToast(t("catalog.features.dimensions.ui.dimensionDetailPage.dimension.revised"), "success");
     setEditing(false);
@@ -260,7 +275,15 @@ export function DimensionDetailPage({
       setEditName(data.name);
       setEditDescription(data.description ?? "");
       setEditValueKind(data.value_kind);
+      setEditOptionMatching(data.option_matching);
       setEditing(true);
+    }
+  }
+
+  function changeEditValueKind(nextValueKind: string) {
+    setEditValueKind(nextValueKind);
+    if (nextValueKind === "unordered") {
+      setEditOptionMatching("exact");
     }
   }
 
@@ -342,6 +365,10 @@ export function DimensionDetailPage({
                   value: data.description ?? "—",
                 },
                 { key: t("catalog.features.dimensions.ui.dimensionDetailPage.value.kind"), value: data.value_kind },
+                {
+                  key: t("catalog.features.dimensions.ui.dimensionDetailPage.option.matching"),
+                  value: optionMatchingLabel(data.option_matching),
+                },
                 { key: t("catalog.features.dimensions.ui.dimensionDetailPage.status"), value: data.status },
                 { key: t("catalog.features.dimensions.ui.dimensionDetailPage.updated"), value: data.updated_at },
               ]}
@@ -500,7 +527,14 @@ export function DimensionDetailPage({
             label={t("catalog.features.dimensions.ui.dimensionDetailPage.value.kind")}
             items={valueKindOptions}
             value={editValueKind}
-            onValueChange={setEditValueKind}
+            onValueChange={changeEditValueKind}
+          />
+          <Select
+            label={t("catalog.features.dimensions.ui.dimensionDetailPage.option.matching")}
+            description={t("catalog.features.dimensions.ui.dimensionDetailPage.option.matching.description")}
+            items={optionMatchingOptions(editValueKind)}
+            value={editOptionMatching}
+            onValueChange={setEditOptionMatching}
           />
         </Stack>
       </Dialog>

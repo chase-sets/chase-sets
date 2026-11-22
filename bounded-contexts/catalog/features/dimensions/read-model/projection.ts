@@ -8,20 +8,21 @@ const STREAM_PREFIX = "catalog.dimension-";
 export function buildDimensionProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "catalog.dimension.created": async (event) => {
-      const { dimensionId, key, name, description, valueKind } = event.data as {
+      const { dimensionId, key, name, description, valueKind, optionMatching } = event.data as {
         dimensionId: string;
         key: string;
         name: LocalizedTextMap | string;
         description: LocalizedTextMap | string;
         valueKind?: string;
+        optionMatching?: string;
       };
       const nameI18n = coerceLocalizedTextMap(name);
       const descriptionI18n = coerceLocalizedTextMap(description ?? "");
 
       await db.query(
-        `INSERT INTO catalog_dimensions (dimension_id, key, name_i18n, name, description_i18n, description, value_kind, status, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, 'draft', $8)
-         ON CONFLICT (dimension_id) DO UPDATE SET key = $2, name_i18n = $3, name = $4, description_i18n = $5, description = $6, value_kind = $7, updated_at = $8`,
+        `INSERT INTO catalog_dimensions (dimension_id, key, name_i18n, name, description_i18n, description, value_kind, option_matching, status, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $9, 'draft', $8)
+         ON CONFLICT (dimension_id) DO UPDATE SET key = $2, name_i18n = $3, name = $4, description_i18n = $5, description = $6, value_kind = $7, option_matching = $9, updated_at = $8`,
         [
           dimensionId,
           key,
@@ -31,24 +32,26 @@ export function buildDimensionProjectionHandlers(db: PgQueryable): ProjectorHand
           resolveLocalizedTextMap(descriptionI18n),
           valueKind ?? "unordered",
           event.timing.recordedAt,
+          optionMatching ?? "exact",
         ],
       );
     },
 
     "catalog.dimension.revised": async (event) => {
       const dimensionId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
-      const { key, name, description, valueKind } = event.data as {
+      const { key, name, description, valueKind, optionMatching } = event.data as {
         key: string;
         name: LocalizedTextMap | string;
         description: LocalizedTextMap | string;
         valueKind?: string;
+        optionMatching?: string;
       };
       const nameI18n = coerceLocalizedTextMap(name);
       const descriptionI18n = coerceLocalizedTextMap(description ?? "");
 
       await db.query(
         `UPDATE catalog_dimensions
-         SET key = $2, name_i18n = $3, name = $4, description_i18n = $5, description = $6, value_kind = COALESCE($7, value_kind), updated_at = $8
+         SET key = $2, name_i18n = $3, name = $4, description_i18n = $5, description = $6, value_kind = COALESCE($7, value_kind), option_matching = $9, updated_at = $8
          WHERE dimension_id = $1`,
         [
           dimensionId,
@@ -59,6 +62,7 @@ export function buildDimensionProjectionHandlers(db: PgQueryable): ProjectorHand
           resolveLocalizedTextMap(descriptionI18n),
           valueKind ?? null,
           event.timing.recordedAt,
+          optionMatching ?? "exact",
         ],
       );
     },

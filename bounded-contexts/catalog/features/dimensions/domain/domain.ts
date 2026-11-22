@@ -24,12 +24,19 @@ export type DimensionOption = Readonly<{
 
 export type DimensionValueKind = "unordered" | "ordered" | "numeric";
 
+/**
+ * How a want for one Option is satisfied. `exact` accepts only that Option. `or-better` also
+ * accepts every Option ordered before it: an or-better Dimension lists its Options best first.
+ */
+export type DimensionOptionMatching = "exact" | "or-better";
+
 export type DimensionState = Readonly<{
   id: DimensionId | null;
   key: string | null;
   name: LocalizedTextMap | null;
   description: LocalizedTextMap;
   valueKind: DimensionValueKind;
+  optionMatching: DimensionOptionMatching;
   status: CatalogLifecycleStatus;
   options: DimensionOption[];
 }>;
@@ -40,6 +47,7 @@ export const initialDimensionState: DimensionState = {
   name: null,
   description: localizedTextMapFromEnglish(""),
   valueKind: "unordered",
+  optionMatching: "exact",
   status: "draft",
   options: [],
 };
@@ -51,6 +59,7 @@ export type CreateDimensionCommand = Readonly<{
   name: LocalizedTextMap;
   description?: LocalizedTextMap;
   valueKind?: DimensionValueKind;
+  optionMatching?: DimensionOptionMatching;
 }>;
 
 export type ReviseDimensionCommand = Readonly<{
@@ -59,6 +68,7 @@ export type ReviseDimensionCommand = Readonly<{
   name: LocalizedTextMap;
   description?: LocalizedTextMap;
   valueKind?: DimensionValueKind;
+  optionMatching?: DimensionOptionMatching;
 }>;
 
 export type AddOptionCommand = Readonly<{
@@ -133,6 +143,7 @@ export type DimensionCreatedEvent = DomainEvent<
     name: LocalizedTextMap;
     description: LocalizedTextMap;
     valueKind?: DimensionValueKind;
+    optionMatching?: DimensionOptionMatching;
   }>
 >;
 
@@ -143,6 +154,7 @@ export type DimensionRevisedEvent = DomainEvent<
     name: LocalizedTextMap;
     description: LocalizedTextMap;
     valueKind?: DimensionValueKind;
+    optionMatching?: DimensionOptionMatching;
   }>
 >;
 
@@ -191,10 +203,14 @@ export type DimensionEvent =
 
 export const decideDimension: AggregateDecider<DimensionState, DimensionCommand, DimensionEvent> = (state, command) => {
   switch (command.type) {
-    case "CreateDimension":
+    case "CreateDimension": {
       assert(state.id === null, "Dimension has already been created.");
 
-      assertValueKind(command.valueKind ?? "unordered");
+      const valueKind = command.valueKind ?? "unordered";
+      const optionMatching = command.optionMatching ?? "exact";
+
+      assertValueKind(valueKind);
+      assertOptionMatching(valueKind, optionMatching);
 
       return [
         {
@@ -206,16 +222,22 @@ export const decideDimension: AggregateDecider<DimensionState, DimensionCommand,
             description: command.description
               ? normalizeLocalizedTextMap(command.description)
               : localizedTextMapFromEnglish(""),
-            valueKind: command.valueKind ?? "unordered",
+            valueKind,
+            optionMatching,
           },
         },
       ];
-    case "ReviseDimension":
+    }
+    case "ReviseDimension": {
       requireCreatedDimension(state);
       assert(state.status !== "archived", "Archived dimensions cannot be revised.");
 
-      assertValueKind(command.valueKind ?? state.valueKind);
-      assertNumericDimensionHasValues(command.valueKind ?? state.valueKind, state.options);
+      const valueKind = command.valueKind ?? state.valueKind;
+      const optionMatching = command.optionMatching ?? state.optionMatching;
+
+      assertValueKind(valueKind);
+      assertNumericDimensionHasValues(valueKind, state.options);
+      assertOptionMatching(valueKind, optionMatching);
 
       return [
         {
@@ -224,10 +246,12 @@ export const decideDimension: AggregateDecider<DimensionState, DimensionCommand,
             key: command.key.trim(),
             name: normalizeLocalizedTextMap(command.name, { requiredEnglish: true }),
             description: command.description ? normalizeLocalizedTextMap(command.description) : state.description,
-            valueKind: command.valueKind ?? state.valueKind,
+            valueKind,
+            optionMatching,
           },
         },
       ];
+    }
     case "AddOption":
       requireCreatedDimension(state);
       assert(state.status !== "archived", "Archived dimensions cannot add options.");
@@ -373,6 +397,7 @@ export const evolveDimension: AggregateEvolver<DimensionState, DimensionEvent> =
         name: event.data.name,
         description: event.data.description,
         valueKind: event.data.valueKind ?? "unordered",
+        optionMatching: event.data.optionMatching ?? "exact",
         status: "draft",
       };
     case "catalog.dimension.revised":
@@ -382,6 +407,7 @@ export const evolveDimension: AggregateEvolver<DimensionState, DimensionEvent> =
         name: event.data.name,
         description: event.data.description,
         valueKind: event.data.valueKind ?? "unordered",
+        optionMatching: event.data.optionMatching ?? "exact",
       };
     case "catalog.dimension.option-added":
       return {
@@ -482,6 +508,20 @@ function assertValueKind(valueKind: string): asserts valueKind is DimensionValue
   assert(
     valueKind === "unordered" || valueKind === "ordered" || valueKind === "numeric",
     "Dimension value kind must be unordered, ordered, or numeric.",
+  );
+}
+
+function assertOptionMatching(
+  valueKind: DimensionValueKind,
+  optionMatching: string,
+): asserts optionMatching is DimensionOptionMatching {
+  assert(
+    optionMatching === "exact" || optionMatching === "or-better",
+    "Dimension option matching must be exact or or-better.",
+  );
+  assert(
+    optionMatching === "exact" || valueKind !== "unordered",
+    "Or-better option matching requires an ordered or numeric dimension.",
   );
 }
 

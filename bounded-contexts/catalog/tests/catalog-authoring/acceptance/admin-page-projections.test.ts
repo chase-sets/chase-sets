@@ -177,6 +177,7 @@ describe("Admin page projections", () => {
       name: l10n("Condition"),
       description: l10n("Card condition"),
       valueKind: "ordered",
+      optionMatching: "or-better",
     });
     await sendCommand(services.dimensions.commandHandler, `catalog.dimension-${dimensionId}`, {
       type: "AddOption",
@@ -340,7 +341,7 @@ describe("Admin page projections", () => {
 
     const dimensionDetail = await getJson(`/api/catalog/dimensions/${dimensionId}`);
     expect(dimensionDetail.response.status).toBe(200);
-    expect(dimensionDetail.json).toMatchObject({ value_kind: "ordered" });
+    expect(dimensionDetail.json).toMatchObject({ value_kind: "ordered", option_matching: "or-better" });
     expect(dimensionDetail.json.options[0]).toMatchObject({
       option_id: optionId,
       display_order: 0,
