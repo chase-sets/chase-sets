@@ -1147,7 +1147,8 @@ describe("invitation auth routes", () => {
       expect(identityMutations.createPersonalIdentity).not.toHaveBeenCalled();
     });
 
-    it("answers 503 ambiguous when the keyed attempt fails on the wave lookup", async () => {
+    // The journey lets a failed wave lookup propagate unclassified (journey.test.ts); this is the route's half.
+    it("answers 503 ambiguous for an unclassified keyed attempt failure such as a failed wave lookup", async () => {
       const attempt = vi
         .spyOn(journey, "acceptInvitationAttempt")
         .mockRejectedValueOnce(new Error("synthetic wave lookup fault"));
