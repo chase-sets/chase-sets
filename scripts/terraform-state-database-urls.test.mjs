@@ -876,7 +876,7 @@ describe("Terraform state database URL export", () => {
       [
         "catalog-integration-staging-reset.yml",
         "catalog-integration-reset",
-        "Export staging Catalog database URL and TLS trust",
+        "Export Catalog database URL and TLS trust",
         "url-export",
         "pooled",
         undefined,

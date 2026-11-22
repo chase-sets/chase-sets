@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 // Support-safe operator entry point for the one-time Catalog Integration
-// Control Plane pre-launch wipe/rebuild policy. Production/prelaunch is
-// deliberately refused until it has separate release machinery.
+// Control Plane pre-launch wipe/rebuild policy.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import process from "node:process";
@@ -12,10 +11,13 @@ import {
   type PgTransactionalPool,
 } from "../infrastructure/event-core-postgres/index.ts";
 import {
+  PRODUCTION_CATALOG_DATABASE_NAME,
+  catalogIntegrationProductionResetTargetTables,
   catalogIntegrationDataResetTargetTables,
   collectCatalogIntegrationDataVerificationReport,
   evaluateCatalogIntegrationDataResetEvidence,
   resetCatalogIntegrationPreLaunchData,
+  runCatalogIntegrationProductionReset,
   type CatalogIntegrationDataBackupDecision,
   type CatalogIntegrationDataResetEnvironment,
   type CatalogIntegrationDataResetEvidenceFinding,
@@ -29,6 +31,7 @@ import {
 
 export const CATALOG_INTEGRATION_RESET_VERSION = "catalog-integration-reset/v1";
 export const CATALOG_INTEGRATION_RESET_CONFIRMATION = "reset staging catalog integration data";
+export const PRODUCTION_CATALOG_INTEGRATION_RESET_CONFIRMATION = "reset production catalog integration data";
 export const STAGING_CATALOG_DATABASE_NAME = "chase_sets_staging_catalog";
 export const CATALOG_INTEGRATION_RESET_WORKFLOW_FILE = ".github/workflows/catalog-integration-staging-reset.yml";
 
@@ -42,6 +45,8 @@ export type CatalogIntegrationResetOptions = Readonly<{
   approvalReference: string | null;
   confirmation: string | null;
   backupDecision: CatalogIntegrationDataBackupDecision | null;
+  dryRunFingerprint?: string | null;
+  stagingRehearsalReference?: string | null;
   smokeVerificationReference: string | null;
   outPath: string | null;
 }>;
@@ -68,7 +73,7 @@ export type CatalogIntegrationResetRecord = Readonly<{
   action: CatalogIntegrationResetAction;
   environment: CatalogIntegrationDataResetEnvironment;
   mode: "pre-launch-wipe-and-rebuild";
-  result: "dry-run-complete" | "applied" | "failed";
+  result: "dry-run-complete" | "applied" | "already-applied" | "failed";
   operator: string | null;
   approvalReference: string | null;
   databaseIdentity: DatabaseIdentity;
@@ -77,6 +82,7 @@ export type CatalogIntegrationResetRecord = Readonly<{
   overlapPreflight: OverlapGateReport | null;
   reset: CatalogIntegrationDataResetReport | null;
   evidenceFindings: readonly CatalogIntegrationDataResetEvidenceFinding[];
+  production?: Awaited<ReturnType<typeof runCatalogIntegrationProductionReset>>;
 }>;
 
 type CatalogIntegrationResetDependencies = Readonly<{
@@ -95,12 +101,12 @@ type CatalogIntegrationResetDependencies = Readonly<{
   now?: () => string;
 }>;
 
-function readOption(argv: readonly string[], name: string): string | null {
+function readOption(argv: readonly string[], name: string, normalize = true): string | null {
   const inline = argv.find((argument) => argument.startsWith(`${name}=`));
-  if (inline) return inline.slice(name.length + 1).trim() || null;
   const index = argv.indexOf(name);
   const value = index >= 0 ? argv[index + 1] : undefined;
-  return value && !value.startsWith("--") ? value.trim() || null : null;
+  const found = inline ? inline.slice(name.length + 1) : value?.startsWith("--") ? undefined : value;
+  return (normalize ? found?.trim() : found) || null;
 }
 
 function readEnv(env: NodeJS.ProcessEnv, name: string): string | null {
@@ -121,8 +127,13 @@ export function parseCatalogIntegrationResetArgs(
     operator: readOption(argv, "--operator") ?? readEnv(env, "CATALOG_INTEGRATION_RESET_OPERATOR"),
     approvalReference:
       readOption(argv, "--approval-reference") ?? readEnv(env, "CATALOG_INTEGRATION_RESET_APPROVAL_REFERENCE"),
-    confirmation: readOption(argv, "--confirm") ?? readEnv(env, "CATALOG_INTEGRATION_RESET_CONFIRM"),
+    confirmation:
+      environment === "production-prelaunch"
+        ? readOption(argv, "--confirm", false)
+        : (readOption(argv, "--confirm") ?? readEnv(env, "CATALOG_INTEGRATION_RESET_CONFIRM")),
     backupDecision: parseBackupDecision(argv),
+    dryRunFingerprint: readOption(argv, "--dry-run-fingerprint"),
+    stagingRehearsalReference: readOption(argv, "--staging-rehearsal-reference"),
     smokeVerificationReference:
       readOption(argv, "--smoke-verification-reference") ??
       readEnv(env, "CATALOG_INTEGRATION_RESET_SMOKE_VERIFICATION_REFERENCE"),
@@ -165,28 +176,44 @@ export function validateCatalogIntegrationResetOptions(options: CatalogIntegrati
   if (options.action !== "dry-run" && options.action !== "apply") {
     errors.push("--action must be dry-run or apply.");
   }
-  if (options.environment === "production-prelaunch") {
-    errors.push(
-      "Production/prelaunch is refused by this staging operator entry point; create separately reviewed production machinery after a successful staging rehearsal.",
-    );
-  } else if (options.environment !== "staging") {
+  const production = options.environment === "production-prelaunch";
+  if (!production && options.environment !== "staging") {
     errors.push("--environment must be staging or production-prelaunch.");
   }
   if (!options.databaseUrl) {
     errors.push("DATABASE_URL_CATALOG is required.");
   }
   if (options.action === "apply") {
-    if (options.confirmation !== CATALOG_INTEGRATION_RESET_CONFIRMATION) {
-      errors.push(`--confirm must exactly equal \"${CATALOG_INTEGRATION_RESET_CONFIRMATION}\".`);
+    const confirmation = production
+      ? PRODUCTION_CATALOG_INTEGRATION_RESET_CONFIRMATION
+      : CATALOG_INTEGRATION_RESET_CONFIRMATION;
+    if (options.confirmation !== confirmation) {
+      errors.push(`--confirm must exactly equal "${confirmation}".`);
     }
-    if (!options.operator) errors.push("--operator is required for apply.");
-    if (!options.approvalReference) errors.push("--approval-reference is required for apply.");
-    errors.push(...validateBackupDecision(options.backupDecision));
+    if (!(production ? options.operator?.trim() : options.operator)) errors.push("--operator is required for apply.");
+    if (!(production ? options.approvalReference?.trim() : options.approvalReference))
+      errors.push("--approval-reference is required for apply.");
+    if (production) {
+      if (options.backupDecision?.kind !== "create-backup-snapshot-export") {
+        errors.push(
+          "Production apply requires a managed Postgres backup or restore point; skipping backup is not allowed.",
+        );
+      }
+      if (!options.dryRunFingerprint?.trim()) errors.push("--dry-run-fingerprint is required for production apply.");
+      if (!options.stagingRehearsalReference?.trim())
+        errors.push("--staging-rehearsal-reference is required for production apply.");
+      if (!options.smokeVerificationReference?.trim())
+        errors.push("--smoke-verification-reference is required for production apply.");
+    }
+    errors.push(...validateBackupDecision(options.backupDecision, production));
   }
   return errors;
 }
 
-function validateBackupDecision(decision: CatalogIntegrationDataBackupDecision | null): readonly string[] {
+function validateBackupDecision(
+  decision: CatalogIntegrationDataBackupDecision | null,
+  production: boolean,
+): readonly string[] {
   if (!decision) return ["--backup-decision is required for apply."];
   if (decision.kind === "retain-data-reset-unsafe") {
     return ["Retained reset-unsafe data blocks destructive apply."];
@@ -197,7 +224,7 @@ function validateBackupDecision(decision: CatalogIntegrationDataBackupDecision |
       [decision.owner, "--backup-owner"],
       [decision.retentionUntil, "--backup-retention-until"],
       [decision.restoreVerificationReference, "--backup-restore-verification-reference"],
-    ].filter(([value]) => !value);
+    ].filter(([value]) => !(production ? value.trim() : value));
     return missing.map(([, name]) => `${name} is required for the selected backup decision.`);
   }
   const missing = [
@@ -226,6 +253,10 @@ export async function runCatalogIntegrationReset(
 ): Promise<CatalogIntegrationResetRecord> {
   const errors = validateCatalogIntegrationResetOptions(options);
   if (errors.length > 0) throw new Error(errors.join(" "));
+
+  if (options.environment === "production-prelaunch") {
+    return runProductionReset(options, db, dependencies.now ?? (() => new Date().toISOString()));
+  }
 
   const collectVerificationReport =
     dependencies.collectVerificationReport ?? collectCatalogIntegrationDataVerificationReport;
@@ -317,6 +348,86 @@ export async function runCatalogIntegrationReset(
     overlapPreflight,
     reset,
     evidenceFindings,
+  };
+}
+
+async function runProductionReset(
+  options: CatalogIntegrationResetOptions,
+  db: PgTransactionalPool,
+  now: () => string,
+): Promise<CatalogIntegrationResetRecord> {
+  const generatedAt = now();
+  const {
+    action,
+    approvalReference,
+    backupDecision,
+    dryRunFingerprint,
+    operator,
+    smokeVerificationReference,
+    stagingRehearsalReference,
+  } = options;
+  const targetTables = catalogIntegrationProductionResetTargetTables();
+  const databaseIdentity = {
+    expectedDatabaseName: PRODUCTION_CATALOG_DATABASE_NAME,
+    actualDatabaseName: PRODUCTION_CATALOG_DATABASE_NAME,
+    matched: true,
+  } as const;
+  const base = {
+    schemaVersion: CATALOG_INTEGRATION_RESET_VERSION,
+    generatedAt,
+    action,
+    environment: "production-prelaunch",
+    mode: "pre-launch-wipe-and-rebuild",
+    operator,
+    approvalReference,
+    databaseIdentity,
+    targetTables,
+    overlapPreflight: null,
+  } as const;
+  if (action === "dry-run") {
+    const production = await runCatalogIntegrationProductionReset(db, { action }, now);
+    return {
+      ...base,
+      result: "dry-run-complete",
+      dryRun: production.before.verification,
+      reset: null,
+      evidenceFindings: [],
+      production,
+    };
+  }
+  if (
+    !approvalReference ||
+    backupDecision?.kind !== "create-backup-snapshot-export" ||
+    !dryRunFingerprint ||
+    !operator
+  ) {
+    throw new Error("Production apply is missing required evidence.");
+  }
+  const production = await runCatalogIntegrationProductionReset(
+    db,
+    { action, approvalReference, backupReference: backupDecision.reference, fingerprint: dryRunFingerprint },
+    now,
+  );
+  const { reset } = production;
+  const evidenceFindings = evaluateCatalogIntegrationDataResetEvidence({
+    ...base,
+    operator,
+    backupDecision,
+    smokeVerificationReference,
+    stagingRehearsalReference,
+    dryRun: production.before.verification,
+    before: reset?.before ?? null,
+    after: reset?.after ?? null,
+  });
+  const hasP0Finding = evidenceFindings.some((finding) => finding.severity === "p0");
+  return {
+    ...base,
+    result:
+      production.rollbackReasons || hasP0Finding ? "failed" : production.alreadyApplied ? "already-applied" : "applied",
+    dryRun: production.before.verification,
+    reset,
+    evidenceFindings,
+    production,
   };
 }
 

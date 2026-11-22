@@ -1,5 +1,7 @@
+import { createHash } from "node:crypto";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { escapeLikePattern, withPgTransaction } from "@chase-sets/event-core-postgres";
+import { createPostgresEventStore, escapeLikePattern, withPgTransaction } from "@chase-sets/event-core-postgres";
+import { parseTypedId } from "@chase-sets/primitives/typed-ids";
 import { seedCatalogProviderIntegrationProfileVersionsInTransaction } from "../providers/provider-integration-profile-store";
 import type { CatalogIntegrationSchemaCompatibilitySurfaceKey } from "./catalog-integration-schema-compatibility";
 
@@ -243,9 +245,9 @@ export const catalogIntegrationDataResetEnvironmentPlans: readonly CatalogIntegr
     unrelatedDataBoundary:
       "Only production/prelaunch Catalog integration rows in the named reset tables may be selected; customer, order, billing, auth, marketplace, inventory, and unrelated audit data are excluded.",
     executionEvidence: [
-      "backup/snapshot/export decision or accepted data-loss approval",
+      "managed Postgres backup or restore-point reference",
       "production/prelaunch approval reference",
-      "dry-run verification counts",
+      "fresh production dry-run fingerprint",
       "before/after reset report",
       "staging rehearsal reference",
       "production smoke verification",
@@ -465,7 +467,11 @@ export function evaluateCatalogIntegrationDataResetEvidence(
   const plan = catalogIntegrationDataResetEnvironmentPlans.find(
     (candidate) => candidate.environment === packet.environment,
   );
-  const allowedTables = new Set(catalogIntegrationDataResetTargetTables());
+  const allowedTables = new Set(
+    packet.environment === "production-prelaunch"
+      ? catalogIntegrationProductionResetTargetTables()
+      : catalogIntegrationDataResetTargetTables(),
+  );
 
   if (!packet.operator.trim()) {
     findings.push({
@@ -503,6 +509,18 @@ export function evaluateCatalogIntegrationDataResetEvidence(
       severity: "p0",
       message: resetEvidenceFindingMessage(
         "Backup/snapshot/export decision is missing owner, approval, restore, rationale, or expiry evidence.",
+      ),
+    });
+  }
+  if (
+    packet.environment === "production-prelaunch" &&
+    packet.backupDecision?.kind === "skip-backup-accepted-data-loss"
+  ) {
+    findings.push({
+      code: "incomplete-backup-decision",
+      severity: "p0",
+      message: resetEvidenceFindingMessage(
+        "Production reset evidence requires a managed Postgres backup or restore point.",
       ),
     });
   }
@@ -742,6 +760,293 @@ export async function collectCatalogIntegrationDataVerificationReport(
   };
 }
 
+export const PRODUCTION_CATALOG_DATABASE_NAME = "chase_sets_production_catalog";
+const productionResetReceiptStream = "catalog.integration-reset-production-prelaunch";
+const productionResetReceiptEvent = "catalog.integration-reset.applied";
+const productionDryRunMaxAgeMs = 30 * 60 * 1000;
+const productionDryRunVersion = "catalog-integration-production-dry-run-v1";
+
+const scopedEventTables = ["event_store_streams", "event_store_events", "event_store_aggregate_snapshots"] as const;
+const productionResetTables = [
+  ...catalogIntegrationDataResetDeleteStatements.map(({ tableName }) => tableName),
+  ...catalogIntegrationDataSurfacePolicies
+    .filter(({ resetAction }) => resetAction === "rebuild-from-profile-version")
+    .map(({ tableName }) => tableName),
+];
+const scopedEventTargets = scopedEventTables.map(
+  (table) => `${table} WHERE stream_id LIKE '${CATALOG_SOURCE_OBSERVATION_EVENT_STREAM_PREFIX}%'`,
+);
+
+export function catalogIntegrationProductionResetTargetTables(): readonly string[] {
+  return [...productionResetTables, ...scopedEventTargets];
+}
+
+type ProductionResetState = Readonly<{
+  verification: CatalogIntegrationDataVerificationReport;
+  rowCounts: Readonly<Record<string, number>>;
+  provenance: Readonly<{
+    promotedSourceObservations: number;
+    sourceObservationPromotionEvents: number;
+    mergeCandidatePromotionEvents: number;
+    retainedProfileVersions: number;
+  }>;
+}>;
+
+type ProductionResetReport = Readonly<{
+  fingerprint: string;
+  before: ProductionResetState;
+  after: ProductionResetState | null;
+  reset: CatalogIntegrationDataResetReport | null;
+  backupReference: string | null;
+  alreadyApplied: boolean;
+  rollbackReasons?: readonly string[];
+}>;
+
+type ProductionResetApplyRequest = Readonly<{
+  action: "apply";
+  approvalReference: string;
+  backupReference: string;
+  fingerprint: string;
+}>;
+
+class ProductionResetPostconditionError extends Error {
+  constructor(readonly report: ProductionResetReport) {
+    super("Production Catalog reset postconditions failed.");
+  }
+}
+
+async function collectProductionResetState(
+  db: PgQueryable,
+  verification?: CatalogIntegrationDataVerificationReport,
+): Promise<ProductionResetState> {
+  verification ??= await collectCatalogIntegrationDataVerificationReport(db);
+  const counts = {
+    catalog_source_observation_integration_work_units: verification.integrationWorkUnits,
+    catalog_source_observation_integration_durable_jobs: verification.integrationDurableJobs,
+    catalog_source_observation_bulk_review_jobs: verification.bulkReviewJobs,
+    catalog_source_observation_bulk_review_work_units: verification.bulkReviewWorkUnits,
+    catalog_source_observations: verification.sourceObservations,
+    catalog_provider_option_query_cache: verification.providerOptionQueryCacheEntries,
+    catalog_tcgplayer_automation_domain_rate_limits: verification.providerOptionRateLimits,
+    catalog_provider_integration_profile_versions: verification.providerProfileVersions,
+    catalog_provider_profile_version_sections: verification.profileSections,
+    catalog_provider_profile_version_section_diagnostics: verification.profileSectionDiagnostics,
+  } satisfies Record<string, number>;
+  const rowCounts: Record<string, number> = {};
+  for (const table of productionResetTables) {
+    // The identifiers come only from the existing reset plan.
+    rowCounts[table] = Object.hasOwn(counts, table)
+      ? counts[table as keyof typeof counts]
+      : await countRows(db, `SELECT COUNT(*) AS count FROM ${table}`);
+  }
+  rowCounts[scopedEventTargets[0]] = verification.sourceObservationEventStreams;
+  rowCounts[scopedEventTargets[1]] = verification.sourceObservationEvents;
+  rowCounts[scopedEventTargets[2]] = await countRows(
+    db,
+    "SELECT COUNT(*) AS count FROM event_store_aggregate_snapshots WHERE stream_id LIKE $1 ESCAPE '\\'",
+    [sourceObservationStreamLikePattern()],
+  );
+  const provenance = {
+    promotedSourceObservations: await countRows(
+      db,
+      `SELECT COUNT(*) AS count FROM catalog_source_observations
+       WHERE status = 'promoted' OR promoted_catalog_item_id IS NOT NULL
+          OR promoted_reference_record_id IS NOT NULL OR promoted_at IS NOT NULL`,
+    ),
+    sourceObservationPromotionEvents: await countRows(
+      db,
+      `SELECT COUNT(*) AS count FROM event_store_events WHERE stream_id LIKE $1 ESCAPE '\\'
+       AND event_type IN ('catalog.source-observation.promoted', 'catalog.source-observation.reference-promoted')`,
+      [sourceObservationStreamLikePattern()],
+    ),
+    mergeCandidatePromotionEvents: await countRows(
+      db,
+      `SELECT COUNT(*) AS count FROM event_store_events WHERE stream_id LIKE 'catalog.merge-candidate-%'
+       AND event_type IN ('catalog.merge-candidate.promoted', 'catalog.merge-candidate.promotion-planned',
+                          'catalog.merge-candidate.promotion-applied')`,
+    ),
+    retainedProfileVersions: verification.adminAuthoredProfileVersions,
+  };
+  if (
+    Object.values({ ...verification, ...rowCounts, ...provenance }).some(
+      (count) => !Number.isSafeInteger(count) || count < 0,
+    )
+  ) {
+    throw new Error("Production reset could not report exact Catalog row counts.");
+  }
+  return { verification, rowCounts, provenance };
+}
+
+function productionResetFingerprint(observedAt: string, state: ProductionResetState): string {
+  const digest = createHash("sha256")
+    .update(JSON.stringify([productionDryRunVersion, PRODUCTION_CATALOG_DATABASE_NAME, observedAt, state]))
+    .digest("hex");
+  return `${productionDryRunVersion}/${observedAt}/${digest}`;
+}
+
+function assertFreshProductionDryRun(fingerprint: string, state: ProductionResetState, now: string): void {
+  const [, observedAt] = fingerprint.split("/");
+  const time = Date.parse(observedAt);
+  const age = Date.parse(now) - time;
+  if (!Number.isFinite(age) || age < 0 || age > productionDryRunMaxAgeMs) {
+    throw new Error("Production reset requires a fresh dry-run fingerprint (at most 30 minutes old).");
+  }
+  if (fingerprint !== productionResetFingerprint(observedAt, state)) {
+    throw new Error("Production dry-run fingerprint does not match the locked Catalog counts and provenance.");
+  }
+}
+
+async function assertProductionCatalogDatabaseIdentity(db: PgQueryable): Promise<void> {
+  const result = await db.query<{ database_name: string }>("SELECT current_database() AS database_name");
+  if (result.rows[0]?.database_name !== PRODUCTION_CATALOG_DATABASE_NAME) {
+    throw new Error(`Production reset requires the exact Catalog database '${PRODUCTION_CATALOG_DATABASE_NAME}'.`);
+  }
+}
+
+export async function runCatalogIntegrationProductionReset(
+  db: PgTransactionalPool,
+  request: Readonly<{ action: "dry-run" }> | ProductionResetApplyRequest,
+  now: () => string,
+): Promise<ProductionResetReport> {
+  if (request.action === "dry-run") {
+    return withPgTransaction(
+      db,
+      async (client) => {
+        await client.query("SET TRANSACTION READ ONLY");
+        await assertProductionCatalogDatabaseIdentity(client);
+        const observedAt = now();
+        const before = await collectProductionResetState(client);
+        return {
+          fingerprint: productionResetFingerprint(observedAt, before),
+          before,
+          after: null,
+          reset: null,
+          backupReference: null,
+          alreadyApplied: false,
+        };
+      },
+      { isolationLevel: "repeatable read" },
+    );
+  }
+
+  return applyProductionReset(db, request, now).catch((error: unknown) => {
+    if (error instanceof ProductionResetPostconditionError) return error.report;
+    throw error;
+  });
+}
+
+async function applyProductionReset(
+  db: PgTransactionalPool,
+  request: ProductionResetApplyRequest,
+  now: () => string,
+): Promise<ProductionResetReport> {
+  const eventStore = createPostgresEventStore({ pool: db });
+  const readReceipt = async (client: PgQueryable): Promise<ProductionResetReport | null> => {
+    const receipts = await eventStore.readStreamInTransaction(client, {
+      streamId: productionResetReceiptStream,
+      limit: 2,
+    });
+    if (receipts.length === 0) return null;
+    const [receipt] = receipts;
+    if (receipts.length !== 1 || receipt.streamVersion !== 1 || receipt.eventType !== productionResetReceiptEvent) {
+      throw new Error("Production reset receipt is not recognized; refusing to run again.");
+    }
+    if (receipt.payload.approvalReference !== request.approvalReference) {
+      throw new Error(
+        "The one-time production Catalog reset is already recorded under a different approval reference.",
+      );
+    }
+    const report = receipt.payload.report as ProductionResetReport;
+    if (
+      !report?.before ||
+      !report.reset ||
+      !report.after ||
+      report.backupReference !== request.backupReference ||
+      report.fingerprint !== request.fingerprint
+    ) {
+      throw new Error("Production reset retry must use the original backup reference and dry-run fingerprint.");
+    }
+    return { ...report, alreadyApplied: true };
+  };
+
+  return withPgTransaction(
+    db,
+    async (client) => {
+      await assertProductionCatalogDatabaseIdentity(client);
+      await client.query("SET LOCAL lock_timeout = '5s'");
+      const priorReceipt = await readReceipt(client);
+      if (priorReceipt) return priorReceipt;
+      // Hold writers out of both job tables and every counted mutation/provenance
+      // surface from before the locked snapshot through commit. Do not queue up
+      // behind in-flight Catalog writes.
+      await client.query(
+        `LOCK TABLE ${[...productionResetTables, ...scopedEventTables].join(", ")} IN SHARE ROW EXCLUSIVE MODE NOWAIT`,
+      );
+      const receiptAfterLock = await readReceipt(client);
+      if (receiptAfterLock) return receiptAfterLock;
+
+      const before = await collectProductionResetState(client);
+      if (before.verification.activeIntegrationDurableJobs + before.verification.activeBulkReviewJobs > 0) {
+        throw new Error("Production reset is blocked by queued or running integration or bulk-review jobs.");
+      }
+      if (
+        before.provenance.promotedSourceObservations > 0 ||
+        before.provenance.sourceObservationPromotionEvents > 0 ||
+        before.provenance.mergeCandidatePromotionEvents > 0
+      ) {
+        throw new Error("Production reset is blocked by Source Observation or Merge Candidate promotion provenance.");
+      }
+      assertFreshProductionDryRun(request.fingerprint, before, now());
+
+      const reset = await wipeAndRebuildCatalogIntegrationData(client, before.verification, {
+        mode: "pre-launch-wipe-and-rebuild",
+        allowActiveJobReset: false,
+        rebuildSeedProfiles: true,
+        preserveAdminAuthoredProfileVersions: true,
+      });
+      const after = await collectProductionResetState(client, reset.after);
+      const report = {
+        fingerprint: request.fingerprint,
+        before,
+        after,
+        reset,
+        backupReference: request.backupReference,
+        alreadyApplied: false,
+      };
+      const rollbackReasons = catalogIntegrationDataResetPostconditionFindings(after.verification).map(
+        ({ message }) => message,
+      );
+      for (const table of [
+        "catalog_source_observation_integration_job_events",
+        "catalog_source_observation_bulk_review_job_events",
+        scopedEventTargets[2],
+      ]) {
+        const count = after.rowCounts[table];
+        if (count !== 0) rollbackReasons.push(`Post-reset verification has ${count} row(s) remaining in ${table}.`);
+      }
+      if (rollbackReasons.length > 0) throw new ProductionResetPostconditionError({ ...report, rollbackReasons });
+      // A Catalog audit receipt outside the wipe's Source Observation prefix is
+      // committed with the reset. Even a lost workflow response cannot rerun it.
+      await eventStore.appendToStreamInTransaction(client, {
+        streamId: productionResetReceiptStream,
+        expectedVersion: "no_stream",
+        events: [
+          { eventType: productionResetReceiptEvent, payload: { approvalReference: request.approvalReference, report } },
+        ],
+        context: {
+          tenantId: parseTypedId("tnt_00000000000000000000000000", "tnt"),
+          audit: {
+            performedByUserId: parseTypedId("usr_00000000000000000000000000", "usr"),
+            forAccountId: parseTypedId("acc_00000000000000000000000000", "acc"),
+          },
+        },
+      });
+      return report;
+    },
+    { isolationLevel: "read committed" },
+  );
+}
+
 export function catalogIntegrationDataBackfillDecisions(
   report: CatalogIntegrationDataVerificationReport,
 ): readonly CatalogIntegrationDataBackfillDecision[] {
@@ -795,49 +1100,57 @@ export async function resetCatalogIntegrationPreLaunchData(
       assertNoActiveCatalogIntegrationJobs(before);
     }
 
-    const steps: CatalogIntegrationDataResetStepReport[] = [];
-
-    for (const statement of catalogIntegrationDataResetDeleteStatements) {
-      if (
-        statement.tableName === "catalog_provider_integration_profile_versions" &&
-        !normalizedOptions.preserveAdminAuthoredProfileVersions
-      ) {
-        const rowsAffected = await deleteRows(queryable, `DELETE FROM ${statement.tableName}`);
-        steps.push({ tableName: statement.tableName, action: "delete-and-rebuild-seed", rowsAffected });
-        continue;
-      }
-
-      const rowsAffected = await deleteRows(queryable, statement.sql);
-      steps.push({ tableName: statement.tableName, action: statement.action, rowsAffected });
-    }
-
-    steps.push({
-      tableName: CATALOG_SOURCE_OBSERVATION_EVENT_STREAM_RESET_TARGET,
-      action: "delete",
-      rowsAffected: await deleteRows(queryable, "DELETE FROM event_store_streams WHERE stream_id LIKE $1 ESCAPE '\\'", [
-        sourceObservationStreamLikePattern(),
-      ]),
-    });
-
-    if (normalizedOptions.rebuildSeedProfiles) {
-      const seededProfiles = await seedCatalogProviderIntegrationProfileVersionsInTransaction(queryable);
-      steps.push({
-        tableName: "catalog_provider_integration_profile_versions",
-        action: "delete-and-rebuild-seed",
-        rowsAffected: seededProfiles.length,
-      });
-    }
-
-    const after = await collectCatalogIntegrationDataVerificationReport(queryable);
-    return {
-      mode: normalizedOptions.mode,
-      before,
-      after,
-      steps,
-      backfillDecisions: catalogIntegrationDataBackfillDecisions(after),
-      seedProfilesRebuilt: normalizedOptions.rebuildSeedProfiles,
-    };
+    return wipeAndRebuildCatalogIntegrationData(queryable, before, normalizedOptions);
   });
+}
+
+async function wipeAndRebuildCatalogIntegrationData(
+  queryable: PgQueryable,
+  before: CatalogIntegrationDataVerificationReport,
+  normalizedOptions: Required<CatalogIntegrationDataResetOptions>,
+): Promise<CatalogIntegrationDataResetReport> {
+  const steps: CatalogIntegrationDataResetStepReport[] = [];
+
+  for (const statement of catalogIntegrationDataResetDeleteStatements) {
+    if (
+      statement.tableName === "catalog_provider_integration_profile_versions" &&
+      !normalizedOptions.preserveAdminAuthoredProfileVersions
+    ) {
+      const rowsAffected = await deleteRows(queryable, `DELETE FROM ${statement.tableName}`);
+      steps.push({ tableName: statement.tableName, action: "delete-and-rebuild-seed", rowsAffected });
+      continue;
+    }
+
+    const rowsAffected = await deleteRows(queryable, statement.sql);
+    steps.push({ tableName: statement.tableName, action: statement.action, rowsAffected });
+  }
+
+  steps.push({
+    tableName: CATALOG_SOURCE_OBSERVATION_EVENT_STREAM_RESET_TARGET,
+    action: "delete",
+    rowsAffected: await deleteRows(queryable, "DELETE FROM event_store_streams WHERE stream_id LIKE $1 ESCAPE '\\'", [
+      sourceObservationStreamLikePattern(),
+    ]),
+  });
+
+  if (normalizedOptions.rebuildSeedProfiles) {
+    const seededProfiles = await seedCatalogProviderIntegrationProfileVersionsInTransaction(queryable);
+    steps.push({
+      tableName: "catalog_provider_integration_profile_versions",
+      action: "delete-and-rebuild-seed",
+      rowsAffected: seededProfiles.length,
+    });
+  }
+
+  const after = await collectCatalogIntegrationDataVerificationReport(queryable);
+  return {
+    mode: normalizedOptions.mode,
+    before,
+    after,
+    steps,
+    backfillDecisions: catalogIntegrationDataBackfillDecisions(after),
+    seedProfilesRebuilt: normalizedOptions.rebuildSeedProfiles,
+  };
 }
 
 export function catalogIntegrationDataRollbackChecklist(): readonly string[] {

@@ -1,3 +1,4 @@
+import { permissionAwaitsEmailVerification } from "@chase-sets/auth-context";
 import { t } from "@chase-sets/localization";
 import { useEffect, useRef } from "react";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
@@ -5,7 +6,7 @@ import { data, useLoaderData, useNavigate, useRevalidator, useRouteLoaderData } 
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
 import { type ListResponse } from "@chase-sets/http/responses";
-import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
+import { hasPermission, requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
   type SubmittedOfferLifecycleOutcome,
   type SubmittedOfferListItem,
@@ -73,11 +74,19 @@ async function submittedOfferLifecycleAction(
 }
 
 export async function action({ request }: ActionFunctionArgs) {
-  await requireActorFromAuthApi({ request, permission: "offers.manage" });
-  const api = createMarketplaceRequestApiClient(request);
+  const actor = await requireActorFromAuthApi({ request, permission: "offers.view" });
   const lifecycleForm = await request.clone().formData();
-  if (lifecycleForm.get("intent") === SUBMITTED_OFFER_LIFECYCLE_INTENT)
-    return data(await submittedOfferLifecycleAction(lifecycleForm, api));
+  const lifecycle = lifecycleForm.get("intent") === SUBMITTED_OFFER_LIFECYCLE_INTENT;
+  // Following the market needs offers.manage. A buyer may pause, resume and withdraw what they
+  // submitted while Auth withholds offers.manage pending email verification, as the Offers API allows.
+  if (
+    !hasPermission(actor, "offers.manage") &&
+    !(lifecycle && permissionAwaitsEmailVerification(actor, "offers.manage"))
+  ) {
+    throw new Response("Forbidden.", { status: 403 });
+  }
+  const api = createMarketplaceRequestApiClient(request);
+  if (lifecycle) return data(await submittedOfferLifecycleAction(lifecycleForm, api));
   const headers = new Headers();
   const result = await submittedOfferPolicyAction(request, {
     ...api,
