@@ -57,7 +57,7 @@ vi.mock("react-router", async (importOriginal) => {
 
 import AccountPaymentMethodsRoute, { action, loader } from "../routes/marketplace/account-payment-methods";
 import { PaymentsApiError } from "../client";
-import { classifySavedPaymentMethodAttemptFailure } from "../support/request-support/saved-payment-method-attempt";
+import { classifySavedPaymentMethodAttemptFailure } from "../features/payments/ui/saved-payment-method-attempt";
 
 const cardMethod = {
   instrument_id: "sci_card",

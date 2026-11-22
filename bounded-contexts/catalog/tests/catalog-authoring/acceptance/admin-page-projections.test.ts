@@ -19,6 +19,7 @@ import { toTransportEvent } from "@chase-sets/event-core";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { JsonObject } from "@chase-sets/primitives/json";
 import { buildCatalogAdminCatalogItemProjectionHandlers } from "../../../features/catalog-items/read-model/admin-projection";
+import { buildDimensionProjectionHandlers } from "../../../features/dimensions/read-model/projection";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 const catalogContextNames = ["catalog"] as const;
@@ -191,6 +192,7 @@ describe("Admin page projections", () => {
       name: l10n("Condition"),
       description: l10n("Card condition"),
       valueKind: "ordered",
+      optionMatching: "or-better",
     });
     await sendCommand(services.dimensions.commandHandler, `catalog.dimension-${dimensionId}`, {
       type: "AddOption",
@@ -354,7 +356,7 @@ describe("Admin page projections", () => {
 
     const dimensionDetail = await getJson(`/api/catalog/dimensions/${dimensionId}`);
     expect(dimensionDetail.response.status).toBe(200);
-    expect(dimensionDetail.json).toMatchObject({ value_kind: "ordered" });
+    expect(dimensionDetail.json).toMatchObject({ value_kind: "ordered", option_matching: "or-better" });
     expect(dimensionDetail.json.options[0]).toMatchObject({
       option_id: optionId,
       display_order: 0,
@@ -569,6 +571,29 @@ describe("Admin page projections", () => {
     });
 
     await drainCatalogProjectionSubscriptions();
+
+    // A build that predates option matching records revisions without it. The projection keeps the
+    // choice unless that revision left the Dimension unordered.
+    const projectDimensionRevision = async (valueKind: string, optionMatching?: string) => {
+      await buildDimensionProjectionHandlers(pool)["catalog.dimension.revised"]!({
+        type: "catalog.dimension.revised",
+        streamId: `catalog.dimension-${dimensionId}`,
+        data: {
+          key: "condition",
+          name: l10n("Card Condition"),
+          description: l10n("Card condition"),
+          valueKind,
+          optionMatching,
+        },
+        timing: { recordedAt: new Date().toISOString() },
+      } as never);
+
+      return (await getJson(`/api/catalog/dimensions/${dimensionId}`)).json.option_matching;
+    };
+    expect((await getJson(`/api/catalog/dimensions/${dimensionId}`)).json.option_matching).toBe("or-better");
+    expect(await projectDimensionRevision("ordered")).toBe("or-better");
+    expect(await projectDimensionRevision("unordered")).toBe("exact");
+    expect(await projectDimensionRevision("ordered", "or-better")).toBe("or-better");
 
     const updatedComponent = await getJson(`/api/catalog/components/${componentId}`);
     expect(updatedComponent.json.name).toBe("Base Card Info V2");

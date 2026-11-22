@@ -130,6 +130,7 @@ See [Catalog Concepts](#catalog-concepts) below for what each aggregate owns.
 
 Owns one axis of variation and its allowed `Option` set.
 
+- Option Matching: `exact` or `or-better`, carried on `catalog.dimension.created` and `catalog.dimension.revised`. An `or-better` Dimension (Condition, Grade) lists its Options best first, so a want for one Option also accepts every Option ordered before it; reordering its Options changes what satisfies a want. It requires an `ordered` or `numeric` value kind and defaults to `exact`.
 - State machine: `Draft -> Active -> Deprecated -> Archived`
 - Commands: `CreateDimension`, `ReviseDimension`, `AddOption`, `ReviseOption`, `ReorderOptions`, `DeprecateOption`, `ReactivateOption`, `ActivateDimension`, `DeprecateDimension`, `ArchiveDimension`
 - Events: `catalog.dimension.created`, `catalog.dimension.revised`, `catalog.dimension.option-added`, `catalog.dimension.option-revised`, `catalog.dimension.options-reordered`, `catalog.dimension.option-deprecated`, `catalog.dimension.option-reactivated`, `catalog.dimension.activated`, `catalog.dimension.deprecated`, `catalog.dimension.archived`
