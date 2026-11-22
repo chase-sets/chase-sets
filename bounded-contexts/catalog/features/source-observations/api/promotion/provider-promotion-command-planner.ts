@@ -19,6 +19,7 @@ import type {
   SourceObservationOnePieceSealedProductNormalized,
   SourceObservationPokemonCardNormalized,
   SourceObservationPokemonSealedProductNormalized,
+  SourceObservationYugiohCardPrintNormalized,
   SourceObservationYugiohSealedProductNormalized,
   SourceObservationProductContentsPromotion,
   SourceObservationProductContentsPromotionLine,
@@ -32,6 +33,7 @@ import {
   type CatalogPromotionDisplayIdentityOutcome,
   type CatalogPromotionCurrentItem,
 } from "./promotion-display-identity";
+import { promotionImageFallbackCommand } from "./promotion-image-fallback";
 
 export type CatalogProviderPromotionMode = "create" | "refresh";
 
@@ -196,13 +198,17 @@ export async function planCatalogProviderPromotionCommands(
     return { status: "blocked", plan: null, diagnostics: [validation.diagnostic] };
   }
 
+  const fallback = validation.currentItemHasNoImageFallback
+    ? promotionImageFallbackCommand(input.profile.catalogFieldMapping.blueprintKey, input.normalized.languageCode)
+    : null;
+  const commands = fallback ? [...constructed.commands, fallback] : constructed.commands;
   const planFingerprint = catalogProviderPromotionPlanFingerprint({
     providerKey: input.providerKey,
     profileKey: input.profileKey,
     profileVersion: input.profileVersion,
     mode: input.mode,
     mappingKind: input.profile.normalizedObservationMapping.kind,
-    commands: constructed.commands,
+    commands,
     productContents: constructed.productContents,
     displayIdentity: validation.outcome,
     promoteAsDraft,
@@ -220,13 +226,13 @@ export async function planCatalogProviderPromotionCommands(
       catalogItemId: input.catalogItemId,
       planFingerprint,
       requiresReview: true,
-      commands: constructed.commands,
+      commands,
       productContents: constructed.productContents,
       displayIdentity: validation.outcome,
       promoteAsDraft,
       review: {
         normalizedKind: input.normalized.kind,
-        commandCount: constructed.commands.length,
+        commandCount: commands.length,
         catalogItemReferencesLinked: uniqueExternalCatalogItemReferences(
           input.normalized.externalCatalogItemReferences ?? [],
         ).length,
@@ -306,6 +312,7 @@ function promotionDiagnostics(input: {
     input.normalized.kind !== "lorcana-sealed-product" &&
     input.normalized.kind !== "one-piece-card-print" &&
     input.normalized.kind !== "one-piece-sealed-product" &&
+    input.normalized.kind !== "yugioh-card-print" &&
     input.normalized.kind !== "yugioh-sealed-product"
   ) {
     diagnostics.push({
@@ -542,32 +549,25 @@ function promotionDiagnostics(input: {
     );
   }
 
-  if (input.normalized.kind === "yugioh-sealed-product") {
+  if (input.normalized.kind === "yugioh-card-print" || input.normalized.kind === "yugioh-sealed-product") {
+    const subject =
+      input.normalized.kind === "yugioh-card-print"
+        ? "Yu-Gi-Oh! card print promotion"
+        : "Yu-Gi-Oh! sealed product promotion";
     if (!input.setReferenceId) {
       diagnostics.push({
         code: "missing-reference-target",
         path: "setReferenceId",
-        diagnosticText: "Yu-Gi-Oh! sealed product promotion requires one resolved Set Reference Record.",
+        diagnosticText: `${subject} requires one resolved Set Reference Record.`,
       });
     }
-    requireNormalizedString(
-      input.normalized.name,
-      "normalized.name",
-      "Yu-Gi-Oh! sealed product promotion",
-      diagnostics,
-    );
-    requireNormalizedString(
-      input.normalized.sealedProductForm,
-      "normalized.sealedProductForm",
-      "Yu-Gi-Oh! sealed product promotion",
-      diagnostics,
-    );
-    requirePromotionField(
-      input.catalog.fieldIds.set,
-      "catalog.fieldIds.set",
-      "Yu-Gi-Oh! sealed product promotion",
-      diagnostics,
-    );
+    requireNormalizedString(input.normalized.name, "normalized.name", subject, diagnostics);
+    requirePromotionField(input.catalog.fieldIds.set, "catalog.fieldIds.set", subject, diagnostics);
+    if (input.normalized.kind === "yugioh-card-print") {
+      requireNormalizedString(input.normalized.cardNumber, "normalized.cardNumber", subject, diagnostics);
+    } else {
+      requireNormalizedString(input.normalized.sealedProductForm, "normalized.sealedProductForm", subject, diagnostics);
+    }
   }
 
   if (input.preflight?.status === "blocked") {
@@ -825,8 +825,9 @@ function commandsForNormalizedKind(input: {
         normalized: input.normalized,
         setReferenceId: input.setReferenceId as ReferenceRecordId,
       });
+    case "yugioh-card-print":
     case "yugioh-sealed-product":
-      return yugiohSealedProductCommands({
+      return yugiohCatalogItemCommands({
         ...input,
         normalized: input.normalized,
         setReferenceId: input.setReferenceId as ReferenceRecordId,
@@ -834,7 +835,6 @@ function commandsForNormalizedKind(input: {
     case "magic-set-reference":
     case "lorcana-set-reference":
     case "provider-product":
-    case "yugioh-card-print":
     case "yugioh-set-reference":
     case "yugioh-pack-reference":
     case "one-piece-set-reference":
@@ -842,13 +842,13 @@ function commandsForNormalizedKind(input: {
   }
 }
 
-function yugiohSealedProductCommands(input: {
+function yugiohCatalogItemCommands(input: {
   profile: CatalogProviderIntegrationProfile;
   providerKey: string;
   externalKey: string;
   mode: CatalogProviderPromotionMode;
   catalogItemId: CatalogItemId;
-  normalized: SourceObservationYugiohSealedProductNormalized;
+  normalized: SourceObservationYugiohCardPrintNormalized | SourceObservationYugiohSealedProductNormalized;
   catalog: CatalogProviderPromotionResolvedCatalogMapping;
   setReferenceId: ReferenceRecordId;
   metadata: Readonly<{ title: string; subtitle: string }>;
@@ -858,7 +858,7 @@ function yugiohSealedProductCommands(input: {
   commands.splice(
     input.mode === "create" ? 2 : 1,
     0,
-    ...yugiohSealedProductFieldCommands(input.normalized, input.catalog.fieldIds, input.setReferenceId),
+    ...yugiohCatalogItemFieldCommands(input.normalized, input.catalog.fieldIds, input.setReferenceId),
   );
   return commands;
 }
@@ -869,7 +869,7 @@ function commonYugiohCatalogItemCommands(
     externalKey: string;
     mode: CatalogProviderPromotionMode;
     catalogItemId: CatalogItemId;
-    normalized: SourceObservationYugiohSealedProductNormalized;
+    normalized: SourceObservationYugiohCardPrintNormalized | SourceObservationYugiohSealedProductNormalized;
     catalog: CatalogProviderPromotionResolvedCatalogMapping;
     metadata: Readonly<{ title: string; subtitle: string }>;
     productAssetSet: ProductAssetSet | null;
@@ -877,9 +877,7 @@ function commonYugiohCatalogItemCommands(
   tags: readonly string[],
 ): CatalogItemCommand[] {
   const commands: CatalogItemCommand[] = [];
-  const imageUrls = input.productAssetSet
-    ? productAssetSetCompatibilityImageUrls(input.productAssetSet)
-    : [...input.normalized.imageUrls];
+  const imageUrls = input.productAssetSet ? productAssetSetCompatibilityImageUrls(input.productAssetSet) : [];
 
   if (input.mode === "create") {
     commands.push({
@@ -1349,9 +1347,7 @@ function commonOnePieceCatalogItemCommands(
   tags: readonly string[],
 ): CatalogItemCommand[] {
   const commands: CatalogItemCommand[] = [];
-  const imageUrls = input.productAssetSet
-    ? productAssetSetCompatibilityImageUrls(input.productAssetSet)
-    : [...input.normalized.imageUrls];
+  const imageUrls = input.productAssetSet ? productAssetSetCompatibilityImageUrls(input.productAssetSet) : [];
 
   if (input.mode === "create") {
     commands.push({
@@ -1429,9 +1425,7 @@ function commonMagicCatalogItemCommands(
   tags: readonly string[],
 ): CatalogItemCommand[] {
   const commands: CatalogItemCommand[] = [];
-  const imageUrls = input.productAssetSet
-    ? productAssetSetCompatibilityImageUrls(input.productAssetSet)
-    : [...input.normalized.imageUrls];
+  const imageUrls = input.productAssetSet ? productAssetSetCompatibilityImageUrls(input.productAssetSet) : [];
 
   if (input.mode === "create") {
     commands.push({
@@ -1708,16 +1702,29 @@ function lorcanaSealedProductFieldCommands(
   return commands;
 }
 
-function yugiohSealedProductFieldCommands(
-  normalized: SourceObservationYugiohSealedProductNormalized,
+function yugiohCatalogItemFieldCommands(
+  normalized: SourceObservationYugiohCardPrintNormalized | SourceObservationYugiohSealedProductNormalized,
   fieldIds: CatalogProviderPromotionResolvedCatalogMapping["fieldIds"],
   setReferenceId: ReferenceRecordId,
 ): readonly CatalogItemCommand[] {
-  return [
+  const commands: CatalogItemCommand[] = [
     { type: "SetCatalogItemFieldValue", fieldId: fieldIds.cardName, value: localizedJsonText(normalized.name) },
     { type: "SetCatalogItemFieldValue", fieldId: fieldIds.set as FieldId, value: { referenceId: setReferenceId } },
-    { type: "SetCatalogItemFieldValue", fieldId: fieldIds.cardVariant, value: normalized.sealedProductForm },
   ];
+  if (normalized.kind === "yugioh-sealed-product") {
+    commands.push({
+      type: "SetCatalogItemFieldValue",
+      fieldId: fieldIds.cardVariant,
+      value: normalized.sealedProductForm,
+    });
+  } else {
+    commands.push({ type: "SetCatalogItemFieldValue", fieldId: fieldIds.cardNumber, value: normalized.cardNumber });
+    if (normalized.rarity)
+      commands.push({ type: "SetCatalogItemFieldValue", fieldId: fieldIds.rarity, value: normalized.rarity });
+    if (normalized.cardType)
+      commands.push({ type: "SetCatalogItemFieldValue", fieldId: fieldIds.cardVariant, value: normalized.cardType });
+  }
+  return commands;
 }
 
 function pokemonCatalogItemTags(
@@ -1801,15 +1808,18 @@ function lorcanaCatalogItemTags(
 
 function yugiohCatalogItemTags(
   profile: CatalogProviderIntegrationProfile,
-  normalized: SourceObservationYugiohSealedProductNormalized,
+  normalized: SourceObservationYugiohCardPrintNormalized | SourceObservationYugiohSealedProductNormalized,
 ): string[] {
-  const setId = normalized.boxOfSetEvidence?.find((candidate) => candidate.trim().length > 0);
+  const setId =
+    normalized.kind === "yugioh-sealed-product"
+      ? normalized.boxOfSetEvidence?.find((candidate) => candidate.trim().length > 0)
+      : normalized.setName;
   return [
     "yugioh",
     profile.providerKey,
     ...(setId ? [`set:${slugTagValue(setId)}`] : []),
     `kind:${normalized.kind}`,
-    `form:${normalized.sealedProductForm}`,
+    ...(normalized.kind === "yugioh-sealed-product" ? [`form:${normalized.sealedProductForm}`] : []),
   ];
 }
 

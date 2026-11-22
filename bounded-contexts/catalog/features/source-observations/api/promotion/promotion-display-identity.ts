@@ -1,5 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type { CatalogItemCommand } from "../../../catalog-items/domain/domain";
+import type { CatalogItemCommand, CatalogItemImageFallback } from "../../../catalog-items/domain/domain";
 import {
   resolveCatalogItemDisplayIdentity,
   type DisplayIdentityItem,
@@ -66,6 +66,7 @@ export type CatalogPromotionCurrentItem = Readonly<{
   blueprint_id: string | null;
   field_values: unknown;
   category_ids: unknown;
+  image_fallback: CatalogItemImageFallback | null;
 }>;
 
 export type CatalogPromotionDisplayIdentityValidation =
@@ -77,6 +78,7 @@ export type CatalogPromotionDisplayIdentityValidation =
       diagnostic: CatalogPromotionDisplayIdentityDiagnostic | null;
       /** Current Catalog Item status for refresh/link-existing; null for create. */
       currentItemStatus: string | null;
+      currentItemHasNoImageFallback: boolean;
     }>
   | Readonly<{ status: "missing-current-item" }>;
 
@@ -128,6 +130,7 @@ export async function validatePromotionDisplayIdentity(input: {
     },
     diagnostic: identity.resolutionStatus === "resolved" ? null : displayIdentityUnresolvableDiagnostic(identity),
     currentItemStatus: currentItem?.status ?? null,
+    currentItemHasNoImageFallback: currentItem === null || currentItem.image_fallback === null,
   };
 }
 
@@ -272,7 +275,7 @@ export async function loadCurrentCatalogItem(
   catalogItemId: string,
 ): Promise<CatalogPromotionCurrentItem | null> {
   const result = await db.query<CatalogPromotionCurrentItem>(
-    `SELECT catalog_item_id, language_code, status, title, subtitle, blueprint_id, field_values, category_ids
+    `SELECT catalog_item_id, language_code, status, title, subtitle, blueprint_id, field_values, category_ids, image_fallback
      FROM catalog_items
      WHERE catalog_item_id = $1
      LIMIT 1`,

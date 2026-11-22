@@ -1,4 +1,4 @@
-export const authenticityEnglishTranslations = {
+export const authenticityCasesEnglishTranslations = {
   "authenticity.api.authentication.required": "Authentication required.",
   "authenticity.api.case.not.found": "Authenticity case not found.",
   "authenticity.api.forbidden": "Forbidden.",

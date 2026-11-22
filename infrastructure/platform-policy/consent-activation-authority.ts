@@ -88,6 +88,8 @@ export type ConsentActivationAuthorityErrorCode =
   | "registration_conflict"
   /** A command requires the key to be registered as consent-capable first. */
   | "not_registered"
+  /** Advance-only activation requires a numbered version greater than the active version. */
+  | "version_not_newer"
   /** The snapshot is not a recursively closed object with bounded primitive fields. */
   | "invalid_snapshot_shape"
   /** The snapshot policy key differs from the key requested at the runtime boundary. */
@@ -238,6 +240,7 @@ export type RegisterConsentCapablePolicyCommand = Readonly<{
 
 export type ActivateConsentPolicyVersionCommand = Readonly<{
   type: "ActivateConsentPolicyVersion";
+  advanceOnly?: boolean;
   policyKey: string;
   version: string;
   documentId: string;
@@ -567,6 +570,11 @@ export const evolveConsentActivationAuthority: AggregateEvolver<
   }
 };
 
+function activationVersionNumber(version: string): bigint | null {
+  const suffix = /-v([1-9][0-9]*)$/.exec(version)?.[1];
+  return suffix === undefined ? null : BigInt(suffix);
+}
+
 export const decideConsentActivationAuthority: AggregateDecider<
   ConsentActivationAuthorityState,
   ConsentActivationAuthorityCommand,
@@ -626,6 +634,14 @@ export const decideConsentActivationAuthority: AggregateDecider<
         activatedAt: command.activatedAt,
         actorUserId: command.actorUserId,
       });
+
+      if (command.advanceOnly) {
+        const next = activationVersionNumber(activation.version);
+        const active = state.activeVersion === null ? 0n : activationVersionNumber(state.activeVersion);
+        if (next === null || active === null || next <= active) {
+          fail("version_not_newer", "Consent activation requires a numbered version newer than the active version.");
+        }
+      }
 
       if (state.status === "active") {
         if (state.activeVersion === activation.version && state.activeDocumentId === activation.documentId) {

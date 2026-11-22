@@ -30,6 +30,7 @@ import {
   type SourceObservationYugiohSetReferenceNormalized,
   type SourceObservationPokemonCardNormalized,
   type SourceObservationPokemonSealedProductNormalized,
+  type SourceObservationYugiohCardPrintNormalized,
   type SourceObservationYugiohSealedProductNormalized,
 } from "../domain/domain";
 import { type CatalogProviderIntegrationProfile } from "./provider-integration-profiles";
@@ -52,6 +53,7 @@ export type CatalogItemPromotableSourceObservationNormalized =
 
 export type ReferenceHierarchySourceObservationNormalized =
   | CatalogItemPromotableSourceObservationNormalized
+  | SourceObservationYugiohCardPrintNormalized
   | SourceObservationMagicSetReferenceNormalized
   | SourceObservationLorcanaSetReferenceNormalized
   | SourceObservationOnePieceSetReferenceNormalized

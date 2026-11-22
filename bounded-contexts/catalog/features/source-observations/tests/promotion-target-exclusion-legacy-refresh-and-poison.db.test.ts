@@ -60,7 +60,9 @@ describeDb("promotion target exclusion through real Catalog services", () => {
     const x = "cat_synthetic_field_match" as CatalogItemId;
     // Executable create plan without either late reference command: X is a
     // field match, not evidence of an A application or an R owner.
-    for (const command of retained.plan.commands.slice(0, -2)) {
+    for (const command of retained.plan.commands.filter(
+      (command) => !command.type.startsWith("LinkExternal") && command.type !== "SetCatalogItemImageFallback",
+    )) {
       await services.items.commandHandler({
         streamId: `catalog.item-${x}`,
         command: command.type === "CreateCatalogItem" ? { ...command, itemId: x } : command,
