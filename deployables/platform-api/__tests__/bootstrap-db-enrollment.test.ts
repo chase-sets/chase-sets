@@ -1425,7 +1425,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     const result = checkBootstrapDbEnrollment();
 
     expect(result.violations).toEqual([]);
-    expect(result.expectedCaseCount).toBe(80);
+    expect(result.expectedCaseCount).toBe(81);
     expect(result.caseCount).toBe(result.expectedCaseCount);
     expect(result.fileCount).toBe(13);
     expect(result.partitionUnitCount).toBe(4);

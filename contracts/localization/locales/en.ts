@@ -8819,6 +8819,7 @@ export const englishTranslations = {
   "marketplace.marketFollowing.target": "Proposed unit item amount: {amount}",
   "marketplace.marketFollowing.title": "Market-following Offers",
   "marketplace.marketFollowing.toggle": "Follow the market for selected Offers",
+  "marketplace.offerPaymentConsent.automaticChargeV1": "I authorize Chase Sets to charge my Wallet balance, card, or bank account for my Offers when they are accepted. Market-following Offer policies no longer have a separate lifetime spending cap.",
   "marketplace.recovery.acceptanceBindingInvalid": "Invalid Offer acceptance binding.",
   "marketplace.recovery.acceptanceBindingUnexpected": "Unexpected acceptance binding.",
   "marketplace.recovery.ambiguous": "We could not confirm the result. This action is disabled to avoid duplicating your work.",
