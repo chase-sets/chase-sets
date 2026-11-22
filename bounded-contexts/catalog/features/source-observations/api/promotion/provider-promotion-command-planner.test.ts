@@ -14,6 +14,7 @@ import type {
   SourceObservationPokemonCardNormalized,
   SourceObservationPokemonSealedProductNormalized,
   SourceObservationProviderProductNormalized,
+  SourceObservationYugiohCardPrintNormalized,
   SourceObservationYugiohSealedProductNormalized,
 } from "../../domain/domain";
 import {
@@ -24,6 +25,9 @@ import {
   tcgdexPokemonTcgProviderProfile,
   tcgplayerAutomationClientProviderProfile,
   tcgplayerPokemonSealedProductProviderProfile,
+  tcgplayerMtgSealedProductProviderProfile,
+  scrydexLorcanaSealedProductProviderProfile,
+  ygoprodeckYugiohCardReferenceProviderProfile,
   ygojsonYugiohSealedProductReferenceProviderProfile,
   type CatalogProviderIntegrationProfile,
 } from "../provider-integration-profiles";
@@ -56,6 +60,77 @@ function planPromotion(
 }
 
 describe("planCatalogProviderPromotionCommands", () => {
+  it("plans a permanent Yu-Gi-Oh! card back only for a profile authorized to promote card prints", async () => {
+    const input = {
+      ...profileIdentity(),
+      providerKey: "ygoprodeck",
+      externalKey: "synthetic-yugioh-print",
+      mode: "create" as const,
+      catalogItemId: "cat_yugioh_print" as CatalogItemId,
+      normalized: {
+        kind: "yugioh-card-print",
+        tcg: "yugioh",
+        languageCode: "en",
+        name: "Synthetic Yu-Gi-Oh! Card",
+        expansionName: null,
+        cardNumber: "SYN-001",
+        passcode: null,
+        setCode: "SYN-001",
+        setName: "Synthetic Set",
+        rarity: null,
+        cardType: null,
+        attribute: null,
+        archetype: null,
+        releaseDate: null,
+        imageUrls: [],
+        variants: {},
+      } satisfies SourceObservationYugiohCardPrintNormalized,
+      catalog: yugiohSealedProductCatalogMapping(),
+      setReferenceId: "ref_synthetic_yugioh_set" as ReferenceRecordId,
+      metadata: { title: "Synthetic Yu-Gi-Oh! Card", subtitle: "" },
+      productAssetSet: null,
+    };
+    const referenceOnly = await planPromotion({ ...input, profile: ygoprodeckYugiohCardReferenceProviderProfile });
+    const authorized = await planPromotion({
+      ...input,
+      profile: { ...ygoprodeckYugiohCardReferenceProviderProfile, capabilities: ["catalog-item-promotion"] },
+    });
+
+    expect(referenceOnly.plan).toBeNull();
+    expect(referenceOnly.diagnostics).toContainEqual(expect.objectContaining({ code: "missing-promotion-capability" }));
+    expect(authorized.status).toBe("planned");
+    expect(authorized.plan?.commands).toContainEqual(cardBack("yugioh-card-back.svg", "permanent"));
+  });
+
+  it.each(["missing", "operator-set"] as const)("refreshes a Magic item with a %s fallback", async (state) => {
+    const input = {
+      profile: scrydexScryfallCardProviderProfile,
+      ...profileIdentity(),
+      providerKey: "scrydex",
+      externalKey: "magic-card",
+      mode: "refresh" as const,
+      catalogItemId: "cat_magic_001" as CatalogItemId,
+      normalized: magicCardPrintObservation({ imageUrls: [] }),
+      catalog: magicCardPrintCatalogMapping(),
+      setReferenceId: "ref_seed_set_time_spiral" as ReferenceRecordId,
+      metadata: { title: "Fury Sliver", subtitle: "" },
+      productAssetSet: null,
+    };
+    const currentItem = syntheticCurrentCatalogItem({
+      catalog_item_id: input.catalogItemId,
+      image_fallback:
+        state === "operator-set"
+          ? { url: "/operator.png", alt: "Operator image", usage: "loading-only", variants: {} }
+          : null,
+    });
+    const result = await planPromotion(input, { currentItems: [currentItem] });
+
+    expect(result.status).toBe("planned");
+    expect(result.plan?.commands.filter((command) => command.type === "SetCatalogItemImageFallback")).toEqual(
+      state === "missing" ? [cardBack("magic-card-back.svg", "permanent")] : [],
+    );
+  });
+
   it("plans the TCGdex Pokemon card create command sequence from profile catalog mapping", async () => {
     const result = await planPromotion({
       profile: tcgdexPokemonTcgProviderProfile,
@@ -74,9 +149,10 @@ describe("planCatalogProviderPromotionCommands", () => {
 
     expect(result.status).toBe("planned");
     expect(result.plan?.requiresReview).toBe(true);
+    expect(result.plan?.commands).toContainEqual(cardBack("pokemon_tcg_back.png", "permanent"));
     expect(result.plan?.review).toEqual({
       normalizedKind: "pokemon-card",
-      commandCount: 15,
+      commandCount: 16,
       catalogItemReferencesLinked: 1,
       sourceProductReferencesLinked: 1,
     });
@@ -96,6 +172,7 @@ describe("planCatalogProviderPromotionCommands", () => {
       "SetCatalogItemProductAssetSets",
       "LinkExternalProductReference",
       "LinkExternalCatalogItemReference",
+      "SetCatalogItemImageFallback",
     ]);
     expect(result.plan?.commands[0]).toMatchObject({
       type: "CreateCatalogItem",
@@ -226,6 +303,7 @@ describe("planCatalogProviderPromotionCommands", () => {
       "SetCatalogItemProductAssetSets",
       "LinkExternalProductReference",
       "LinkExternalCatalogItemReference",
+      "SetCatalogItemImageFallback",
     ]);
     expect(result.plan?.commands[10]).toEqual({
       type: "SetCatalogItemProductAssetSets",
@@ -278,9 +356,10 @@ describe("planCatalogProviderPromotionCommands", () => {
     });
 
     expect(result.status).toBe("planned");
+    expect(result.plan?.commands).toContainEqual(cardBack("pokemon_tcg_back.png", "loading-only"));
     expect(result.plan?.review).toEqual({
       normalizedKind: "pokemon-sealed-product",
-      commandCount: 13,
+      commandCount: 14,
       catalogItemReferencesLinked: 1,
       sourceProductReferencesLinked: 2,
     });
@@ -298,6 +377,7 @@ describe("planCatalogProviderPromotionCommands", () => {
       "LinkExternalProductReference",
       "LinkExternalCatalogItemReference",
       "LinkExternalProductReference",
+      "SetCatalogItemImageFallback",
     ]);
     expect(result.plan?.commands).toEqual(
       expect.arrayContaining([
@@ -365,6 +445,7 @@ describe("planCatalogProviderPromotionCommands", () => {
       "LinkExternalProductReference",
       "LinkExternalCatalogItemReference",
       "LinkExternalProductReference",
+      "SetCatalogItemImageFallback",
     ]);
     expect(result.plan?.commands).toEqual(
       expect.arrayContaining([
@@ -403,9 +484,10 @@ describe("planCatalogProviderPromotionCommands", () => {
     });
 
     expect(result.status).toBe("planned");
+    expect(result.plan?.commands).toContainEqual(cardBack("yugioh-card-back.svg", "loading-only"));
     expect(result.plan?.review).toEqual({
       normalizedKind: "yugioh-sealed-product",
-      commandCount: 12,
+      commandCount: 13,
       catalogItemReferencesLinked: 1,
       sourceProductReferencesLinked: 2,
     });
@@ -422,6 +504,7 @@ describe("planCatalogProviderPromotionCommands", () => {
       "LinkExternalProductReference",
       "LinkExternalCatalogItemReference",
       "LinkExternalProductReference",
+      "SetCatalogItemImageFallback",
     ]);
     expect(result.plan?.commands).toEqual(
       expect.arrayContaining([
@@ -590,9 +673,10 @@ describe("planCatalogProviderPromotionCommands", () => {
     });
 
     expect(result.status).toBe("planned");
+    expect(result.plan?.commands).toContainEqual(cardBack("magic-card-back.svg", "permanent"));
     expect(result.plan?.review).toEqual({
       normalizedKind: "magic-card-print",
-      commandCount: 15,
+      commandCount: 16,
       catalogItemReferencesLinked: 1,
       sourceProductReferencesLinked: 1,
     });
@@ -612,6 +696,7 @@ describe("planCatalogProviderPromotionCommands", () => {
       "SetCatalogItemProductAssetSets",
       "LinkExternalProductReference",
       "LinkExternalCatalogItemReference",
+      "SetCatalogItemImageFallback",
     ]);
     expect(result.plan?.commands[4]).toEqual({
       type: "SetCatalogItemFieldValue",
@@ -645,6 +730,7 @@ describe("planCatalogProviderPromotionCommands", () => {
     });
 
     expect(result.status).toBe("planned");
+    expect(result.plan?.commands).toContainEqual(cardBack("magic-card-back.svg", "loading-only"));
     expect(result.plan?.commands).toEqual(
       expect.arrayContaining([
         {
@@ -683,9 +769,10 @@ describe("planCatalogProviderPromotionCommands", () => {
     });
 
     expect(result.status).toBe("planned");
+    expect(result.plan?.commands).toContainEqual(cardBack("one-piece-card-back.png", "permanent"));
     expect(result.plan?.review).toEqual({
       normalizedKind: "one-piece-card-print",
-      commandCount: 15,
+      commandCount: 16,
       catalogItemReferencesLinked: 1,
       sourceProductReferencesLinked: 2,
     });
@@ -732,6 +819,7 @@ describe("planCatalogProviderPromotionCommands", () => {
     });
 
     expect(result.status).toBe("planned");
+    expect(result.plan?.commands).toContainEqual(cardBack("one-piece-card-back.png", "loading-only"));
     expect(result.plan?.commands).toEqual(
       expect.arrayContaining([
         {
@@ -771,9 +859,10 @@ describe("planCatalogProviderPromotionCommands", () => {
     });
 
     expect(result.status).toBe("planned");
+    expect(result.plan?.commands).toContainEqual(cardBack("lorcana-card-back.png", "permanent"));
     expect(result.plan?.review).toEqual({
       normalizedKind: "lorcana-card-print",
-      commandCount: 15,
+      commandCount: 16,
       catalogItemReferencesLinked: 1,
       sourceProductReferencesLinked: 2,
     });
@@ -820,6 +909,7 @@ describe("planCatalogProviderPromotionCommands", () => {
     });
 
     expect(result.status).toBe("planned");
+    expect(result.plan?.commands).toContainEqual(cardBack("lorcana-card-back.png", "loading-only"));
     expect(result.plan?.commands).toEqual(
       expect.arrayContaining([
         {
@@ -1548,6 +1638,13 @@ describe("planCatalogProviderPromotionCommands", () => {
   });
 });
 
+function cardBack(fileName: string, usage: "permanent" | "loading-only") {
+  return {
+    type: "SetCatalogItemImageFallback",
+    imageFallback: expect.objectContaining({ url: `/fake-cdn/assets/${fileName}`, usage }),
+  };
+}
+
 function profileIdentity() {
   return {
     profileKey: "pokemon-tcg",
@@ -2120,6 +2217,7 @@ function lorcanaSealedProductObservation(
 function magicSealedProductProfile(): CatalogProviderIntegrationProfile {
   return {
     ...scrydexScryfallCardProviderProfile,
+    catalogFieldMapping: tcgplayerMtgSealedProductProviderProfile.catalogFieldMapping,
     providerKey: "tcgplayer",
     displayName: "TCGplayer Magic sealed fixture",
     capabilities: ["catalog-item-promotion"],
@@ -2133,6 +2231,7 @@ function magicSealedProductProfile(): CatalogProviderIntegrationProfile {
 function lorcanaSealedProductProfile(): CatalogProviderIntegrationProfile {
   return {
     ...lorcanajsonLorcanaCardReferenceProviderProfile,
+    catalogFieldMapping: scrydexLorcanaSealedProductProviderProfile.catalogFieldMapping,
     providerKey: "scrydex",
     displayName: "Scrydex Lorcana sealed fixture",
     capabilities: ["catalog-item-promotion"],

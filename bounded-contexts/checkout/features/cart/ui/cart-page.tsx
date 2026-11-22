@@ -1,4 +1,5 @@
 import { useEffect, useMemo } from "react";
+import { defaultProductImageUrl } from "@chase-sets/catalog-seed";
 import { formatLanguageCodeLabel, formatMoney, t } from "@chase-sets/localization";
 import { centsToSignedMoneyAmount, trySignedMoneyToCents } from "@chase-sets/primitives/money";
 import {
@@ -67,7 +68,6 @@ type CartRecoveryState = Readonly<
     }
 >;
 
-const CART_ITEM_FALLBACK_IMAGE_URL = "/fake-cdn/assets/pokemon-card-back.png";
 const BUY_READINESS_ROUTE = "/checkout/buy/readiness";
 
 function cartLinePresentationKey(line: CheckoutCartLine, presentation: CartReadinessLinePresentation | null) {
@@ -584,7 +584,7 @@ function CartLineRow({
 }) {
   return (
     <MarketplaceCartLineItem
-      imageSrc={line.item_image_url ?? CART_ITEM_FALLBACK_IMAGE_URL}
+      imageSrc={line.item_image_url ?? defaultProductImageUrl}
       imageAlt={t("checkout.features.cart.ui.cartPage.product.image.alt", { title: line.item_title })}
       imageSrcSet={line.item_image_srcset ?? undefined}
       imageSizes="6rem"
