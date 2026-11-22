@@ -285,8 +285,8 @@ const paymentSurfaceRootCounts = {
   "../account-payment/stripe-setup-card.tsx": 1,
   "../account-payment/stripe-confirmation-card.tsx": 1,
   "./account-payment.tsx": 0,
-  "../../../../routes/marketplace/account-payment-new.tsx": 4,
-  "../../../../routes/marketplace/account-payment-methods.tsx": 1,
+  "./account-payment-new.tsx": 4,
+  "./account-payment-methods.tsx": 1,
 } as const;
 
 type SurfaceTreatment = "flush" | "tinted" | "outlined" | "elevated";

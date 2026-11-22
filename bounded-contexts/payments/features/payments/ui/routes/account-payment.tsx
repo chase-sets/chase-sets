@@ -19,8 +19,8 @@ import type {
 import { isClaimablePayment } from "../account-payment/account-payment-display";
 import { AccountPaymentErrorBoundary } from "../account-payment/account-payment-error-boundary";
 import { AccountPaymentPage } from "../account-payment/account-payment-page";
-import contextManifest from "../../../../context.json";
-import { paymentsApiErrorAdapter } from "../../../../support/request-support/route-api-error";
+import { paymentsApiErrorAdapter } from "../route-api-error";
+import { paymentsRouteManifest } from "../route-manifest";
 
 export { AccountPaymentErrorBoundary as ErrorBoundary };
 
@@ -106,7 +106,7 @@ function needsPaymentElementDefaultValues(
 }
 
 export const loader = defineResourceRoute({
-  manifest: contextManifest,
+  manifest: paymentsRouteManifest,
   routeId: "account-payment",
   prepare: async (args) => {
     const resolvedRequest = await resolvePlatformPostWriteRequest(args.request);

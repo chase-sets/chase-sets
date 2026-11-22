@@ -615,7 +615,7 @@
       "risk": "critical",
       "strategy": "fresh-read",
       "surfaces": [
-        "post-form:bounded-contexts/payments/routes/marketplace/account-payment-new.tsx:Hb08a81ecfd73#1"
+        "post-form:bounded-contexts/payments/features/payments/ui/routes/account-payment-new.tsx:Hb08a81ecfd73#1"
       ],
       "visibleDestination": {
         "routeId": "account-payment-new",
@@ -681,8 +681,8 @@
       "risk": "critical",
       "strategy": "fresh-read",
       "surfaces": [
-        "post-form:bounded-contexts/payments/routes/marketplace/account-payment-new.tsx:Hb2c20eae8fce#1",
-        "route-action:bounded-contexts/payments/routes/marketplace/account-payment-new.tsx"
+        "post-form:bounded-contexts/payments/features/payments/ui/routes/account-payment-new.tsx:Hb2c20eae8fce#1",
+        "route-action:bounded-contexts/payments/features/payments/ui/routes/account-payment-new.tsx"
       ],
       "visibleDestination": {
         "routeId": "account-payment",
@@ -758,9 +758,9 @@
       "risk": "important",
       "strategy": "snapshot-return",
       "surfaces": [
-        "post-form:bounded-contexts/payments/routes/marketplace/account-payment-methods.tsx:Hb08a81ecfd73#1",
-        "post-form:bounded-contexts/payments/routes/marketplace/account-payment-methods.tsx:Hb08a81ecfd73#2",
-        "route-action:bounded-contexts/payments/routes/marketplace/account-payment-methods.tsx"
+        "post-form:bounded-contexts/payments/features/payments/ui/routes/account-payment-methods.tsx:Hb08a81ecfd73#1",
+        "post-form:bounded-contexts/payments/features/payments/ui/routes/account-payment-methods.tsx:Hb08a81ecfd73#2",
+        "route-action:bounded-contexts/payments/features/payments/ui/routes/account-payment-methods.tsx"
       ],
       "visibleDestination": {
         "description": "The saved payment methods route renders action-returned Payments snapshots for default, remove, setup reconciliation, and reconcile results instead of depending on realtime or a stale loader after mutation."

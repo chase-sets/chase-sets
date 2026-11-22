@@ -346,134 +346,16 @@ export const contextManifest = {
       },
     ],
   },
-  readAfterWriteRouteInventory: [
-    {
-      id: "payments.terms-accept-to-wallet-status",
-      owner: "payments",
-      risk: "critical",
-      freshnessSlo: {
-        flowClass: "critical-customer-handoff",
-        p95Ms: 1000,
-        p99Ms: 2250,
-      },
-      source: {
-        routeId: "account-payment-new",
-        actions: ["Accept current Terms of Service before using wallet credit"],
-        command: "Identity Terms of Service acceptance command",
-        helperUses: ["navigateAfterWriteWithPlatformPostWriteToken"],
-      },
-      destination: {
-        routeId: "account-payment-new",
-        apiContextName: "payments",
-        apiRoutePath: "/account/checkout/status",
-        readModelTables: ["payments_order_inputs"],
-        helperUses: ["loadAfterWrite"],
-        transientRecovery: {
-          kinds: "refreshable-catching-up",
-          behavior:
-            "Terms acceptance carries Identity's receipt. The matching Payments readFreshnessRoutes entry also declares targetContextName identity and readModelTable identity_consent_current_states; the exact-dependency gate waits on that Identity projection before this status read. This inventory table list names the Payments-owned dependency only. Timeout retains orders and manual recovery without restoring wallet eligibility.",
-        },
-      },
-      proof: {
-        tests: ["bounded-contexts/payments/tests/account-payment-new-wallet-status.test.tsx"],
-      },
-    },
-    {
-      id: "payments.create-to-detail",
-      owner: "payments",
-      risk: "critical",
-      freshnessSlo: {
-        flowClass: "critical-customer-handoff",
-        p95Ms: 1000,
-        p99Ms: 2250,
-      },
-      source: {
-        routeId: "account-payment-new",
-        actions: ["Create account payment"],
-        command: "Payments payment creation command",
-        helperUses: ["navigateAfterWriteWithPlatformPostWriteToken"],
-      },
-      destination: {
-        routeId: "account-payment",
-        apiContextName: "payments",
-        apiRoutePath: "/account/payments/:id",
-        readModelTables: ["payments_payment_pages"],
-        helperUses: ["loadAfterWrite"],
-        transientRecovery: {
-          kinds: "refreshable-catching-up",
-          behavior:
-            "Payment detail uses exact Payments payment-page freshness and shared fresh-write transient recovery.",
-        },
-      },
-    },
-    {
-      id: "payments.checkout-status-order-input-fresh-read",
-      owner: "payments",
-      risk: "critical",
-      freshnessSlo: {
-        flowClass: "critical-customer-handoff",
-        p95Ms: 1000,
-        p99Ms: 2250,
-      },
-      source: {
-        routeId: "buy-checkout-session",
-        actions: ["Create checkout orders before payment start"],
-        command: "Ordering checkout order creation command",
-      },
-      destination: {
-        routeIds: ["account-payment", "checkout-payment"],
-        apiContextName: "payments",
-        apiRoutePath: "/account/checkout/status",
-        readModelTables: ["payments_order_inputs"],
-        transientRecovery: {
-          kinds: "refreshable-catching-up",
-          behavior:
-            "Checkout payment start preflights Payments checkout status with the Ordering write receipt so payments_order_inputs catches up before creating the payment.",
-        },
-      },
-      proof: {
-        tests: [
-          "bounded-contexts/checkout/support/request-support/checkout-confirmation.test.ts",
-          "bounded-contexts/payments/support/request-support/api-client.test.ts",
-        ],
-      },
-    },
-    {
-      id: "payments.detail-self-refresh",
-      owner: "payments",
-      risk: "important",
-      freshnessSlo: {
-        flowClass: "important-self-refresh",
-        p95Ms: 2500,
-        p99Ms: 5000,
-      },
-      source: {
-        routeId: "account-payment",
-        actions: ["Refresh or continue payment detail after payment command"],
-        command: "Payments detail commands",
-        helperUses: ["navigateAfterWriteWithPlatformPostWriteToken", "loadAfterWrite"],
-      },
-      destination: {
-        routeId: "account-payment",
-        apiContextName: "payments",
-        apiRoutePath: "/account/payments/:id",
-        readModelTables: ["payments_payment_pages"],
-        helperUses: ["loadAfterWrite"],
-        transientRecovery: {
-          kinds: "refreshable-catching-up",
-          behavior:
-            "Payment detail self-refresh uses exact Payments payment-page freshness and shared fresh-write transient recovery.",
-        },
-      },
-    },
-  ],
+  readAfterWriteRouteInventory: payments.readAfterWriteRouteInventory,
   mutationConsistencyInventory: [
     {
       id: "payments.terms-accept-to-wallet-status-fresh-read",
       owner: "payments",
       risk: "critical",
       strategy: "fresh-read",
-      surfaces: ["post-form:bounded-contexts/payments/routes/marketplace/account-payment-new.tsx:Hb08a81ecfd73#1"],
+      surfaces: [
+        "post-form:bounded-contexts/payments/features/payments/ui/routes/account-payment-new.tsx:Hb08a81ecfd73#1",
+      ],
       visibleDestination: {
         routeId: "account-payment-new",
         apiContextName: "payments",
@@ -536,8 +418,8 @@ export const contextManifest = {
       risk: "critical",
       strategy: "fresh-read",
       surfaces: [
-        "post-form:bounded-contexts/payments/routes/marketplace/account-payment-new.tsx:Hb2c20eae8fce#1",
-        "route-action:bounded-contexts/payments/routes/marketplace/account-payment-new.tsx",
+        "post-form:bounded-contexts/payments/features/payments/ui/routes/account-payment-new.tsx:Hb2c20eae8fce#1",
+        "route-action:bounded-contexts/payments/features/payments/ui/routes/account-payment-new.tsx",
       ],
       visibleDestination: {
         routeId: "account-payment",
@@ -609,9 +491,9 @@ export const contextManifest = {
       risk: "important",
       strategy: "snapshot-return",
       surfaces: [
-        "post-form:bounded-contexts/payments/routes/marketplace/account-payment-methods.tsx:Hb08a81ecfd73#1",
-        "post-form:bounded-contexts/payments/routes/marketplace/account-payment-methods.tsx:Hb08a81ecfd73#2",
-        "route-action:bounded-contexts/payments/routes/marketplace/account-payment-methods.tsx",
+        "post-form:bounded-contexts/payments/features/payments/ui/routes/account-payment-methods.tsx:Hb08a81ecfd73#1",
+        "post-form:bounded-contexts/payments/features/payments/ui/routes/account-payment-methods.tsx:Hb08a81ecfd73#2",
+        "route-action:bounded-contexts/payments/features/payments/ui/routes/account-payment-methods.tsx",
       ],
       visibleDestination: {
         description:
