@@ -6,7 +6,7 @@ import { hydrateRoot, type Root } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system";
-import type { PaymentsPaymentDetail } from "../client";
+import type { PaymentsPaymentDetail } from "../../../../client";
 
 type PurchaseDetail = Readonly<{
   order_id: string;
@@ -142,8 +142,8 @@ vi.mock("@stripe/stripe-js", () => ({
   },
 }));
 
-import MarketplaceAccountPaymentRoute from "../routes/marketplace/account-payment";
-import { STRIPE_INITIALIZATION_DEADLINE_MS } from "../features/payments/ui/account-payment/stripe-confirmation-card";
+import MarketplaceAccountPaymentRoute from "./account-payment";
+import { STRIPE_INITIALIZATION_DEADLINE_MS } from "../account-payment/stripe-confirmation-card";
 
 // The unchanged readiness ceiling the account-payment UAT holds this surface
 // to (`deployables/marketplace/e2e/account-payment-stripe-embed.uat.spec.ts`).
@@ -281,12 +281,12 @@ async function findEnabledButton(name: string) {
 // Every payments Surface root and how many each file owns; the census below
 // fails when a root is added, removed, or left on the legacy recipe.
 const paymentSurfaceRootCounts = {
-  "../features/payments/ui/account-payment/account-payment-page.tsx": 8,
-  "../features/payments/ui/account-payment/stripe-setup-card.tsx": 1,
-  "../features/payments/ui/account-payment/stripe-confirmation-card.tsx": 1,
-  "../routes/marketplace/account-payment.tsx": 0,
-  "../routes/marketplace/account-payment-new.tsx": 4,
-  "../routes/marketplace/account-payment-methods.tsx": 1,
+  "../account-payment/account-payment-page.tsx": 8,
+  "../account-payment/stripe-setup-card.tsx": 1,
+  "../account-payment/stripe-confirmation-card.tsx": 1,
+  "./account-payment.tsx": 0,
+  "./account-payment-new.tsx": 4,
+  "./account-payment-methods.tsx": 1,
 } as const;
 
 type SurfaceTreatment = "flush" | "tinted" | "outlined" | "elevated";

@@ -64,6 +64,24 @@ const stripeEndpointRotationDelta = [
     purpose: "application-runtime",
   },
 ];
+// #11327: the advisory Corten admin smoke at deploy-staging position 43 shifts later anchors by one and reuses
+// the smoke's existing staging credentials; no new secret reaches the job.
+const cortenAdminSmokeStepInsertion = [{ file: workflowPath, jobId: "deploy-staging", position: 43 }];
+const cortenAdminSmokeDelta = [
+  "DIGITALOCEAN_ACCESS_TOKEN",
+  "SPACES_ACCESS_ID",
+  "SPACES_SECRET_KEY",
+  "SPACES_ACCESS_ID",
+  "SPACES_SECRET_KEY",
+  "PLATFORM_ADMIN_EMAIL",
+  "PLATFORM_ADMIN_PASSWORD",
+].map((secretName) => ({
+  file: workflowPath,
+  jobId: "deploy-staging",
+  stepAnchor: "name:Advisory Corten admin smoke#43",
+  secretName,
+  purpose: "terraform-infra",
+}));
 const fragmentPath = `${AUTHORITY_ROOT}/platform-production/deploy.json`;
 const boundaryTarget = "./.github/actions/export-managed-postgres-authority";
 // Rule for later grant changes: `migrationBase` and its 1609-grant assertion never move. A slice that adds grants
@@ -1127,7 +1145,9 @@ describe("managed Postgres authority source generator", () => {
         .map(applyTerraformProviderCacheStepInsertions)
         .concat(ebaySandboxOAuthDelta)
         .concat(stripeEndpointRotationDelta)
-        .concat(catalogCompletionManifestDelta),
+        .concat(catalogCompletionManifestDelta)
+        .map((record) => applyStepInsertions(record, cortenAdminSmokeStepInsertion))
+        .concat(cortenAdminSmokeDelta),
     };
     // Exact stable-record multiset parity below is the authority; a whole-corpus total would only re-conflict.
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";

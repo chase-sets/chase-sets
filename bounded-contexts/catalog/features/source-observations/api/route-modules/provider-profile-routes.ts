@@ -4,7 +4,7 @@ import type { CatalogAuthoringEnv } from "../../../../support/authoring-support/
 import type { CatalogProviderIntegrationProfileVersionStore } from "../providers/provider-integration-profile-store";
 import {
   CatalogProviderProfileSectionValidationError,
-  parseCatalogProviderProfileSectionUpdateCommand,
+  parseCatalogProviderProfileSectionEdit,
 } from "../admin/provider-profile-admin-contracts";
 import {
   activateCatalogProviderProfileVersionForReview,
@@ -179,8 +179,8 @@ export function providerProfileRoutes(
     }
 
     try {
-      const commandBody = isRecord(body.command) ? body.command : body;
-      const command = parseCatalogProviderProfileSectionUpdateCommand(commandBody, c.req.param("section"));
+      // The operator's fields only; Catalog composes the section over the stored version.
+      const command = parseCatalogProviderProfileSectionEdit(body.fields, c.req.param("section"));
       const result = await updateCatalogProviderProfileSectionForReview({
         store: profileVersions,
         providerKey: c.req.param("providerKey"),

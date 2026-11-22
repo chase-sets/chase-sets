@@ -1114,7 +1114,7 @@ describe("source observation routes: integration discovery and profile administr
     });
   });
 
-  it("updates provider profile sections through typed admin commands", async () => {
+  it("updates a provider profile section from the operator's fields", async () => {
     const services = {} as SourceObservationRouteServices;
     const store = mutableProfileStore([
       ...catalogProviderIntegrationProfileVersions,
@@ -1129,10 +1129,10 @@ describe("source observation routes: integration discovery and profile administr
     const response = await app.request("/source-observations/provider-profiles/tcgdex/2026.06.04/sections/basics", {
       method: "PATCH",
       body: JSON.stringify({
-        command: {
-          displayName: "TCGdex Admin Candidate",
+        fields: {
+          displayName: " TCGdex Admin Candidate ",
           lifecycle: "test",
-          languageOptions: ["en", "fr"],
+          languageOptions: "en, fr",
         },
       }),
       headers: { "content-type": "application/json", "if-match": await sectionIfMatch(store, "2026.06.04", "basics") },
@@ -1163,17 +1163,7 @@ describe("source observation routes: integration discovery and profile administr
       {
         method: "PATCH",
         body: JSON.stringify({
-          command: {
-            section: "migration-evidence",
-            migrationEvidence: {
-              evidenceText: "  Replayed the changed fixtures.  ",
-              fixtureRunId: "run_1",
-              recordedAt: "1970-01-01T00:00:00.000Z",
-              recordedByUserId: "usr_spoofed",
-              mappingFingerprintBefore: "client-before",
-              mappingFingerprintAfter: "client-after",
-            },
-          },
+          fields: { migrationEvidenceText: "  Replayed the changed fixtures.  ", migrationFixtureRunId: " run_1 " },
         }),
         headers: {
           "content-type": "application/json",
@@ -1192,8 +1182,36 @@ describe("source observation routes: integration discovery and profile administr
       recordedForAccountId: "acc_test",
     });
     expect(Date.parse(evidence?.recordedAt ?? "")).toBeGreaterThanOrEqual(before);
-    expect(evidence?.mappingFingerprintBefore).not.toBe("client-before");
-    expect(evidence?.mappingFingerprintAfter).not.toBe("client-after");
+    expect(evidence?.mappingFingerprintAfter).toMatch(/\S/);
+  });
+
+  it.each([
+    ["migration-evidence", { migrationRecordedAt: "1970-01-01T00:00:00.000Z" }, "has no field 'migrationRecordedAt'"],
+    ["fixtures", { liveProviderCallsAllowed: "true" }, "fields.liveProviderCallsAllowed must remain false."],
+    ["promotion-plan", { promotionRequiresReview: "false" }, "fields.promotionRequiresReview must remain true."],
+    ["basics", { capabilities: ["source-observation-import"] }, "fields.capabilities must be a string."],
+  ] as const)("refuses a %s edit that sets what Catalog owns, and writes nothing", async (section, fields, message) => {
+    const store = mutableProfileStore([
+      ...catalogProviderIntegrationProfileVersions,
+      profileVersion("tcgdex", { profileVersion: "2026.06.04", lifecycle: "draft", active: false }),
+    ]);
+    const upsert = vi.spyOn(store, "upsertProfileVersion");
+    const app = buildApp({} as SourceObservationRouteServices, store);
+
+    const response = await app.request(`/source-observations/provider-profiles/tcgdex/2026.06.04/sections/${section}`, {
+      method: "PATCH",
+      body: JSON.stringify({ fields }),
+      headers: {
+        "content-type": "application/json",
+        "if-match": await sectionIfMatch(store, "2026.06.04", section),
+      },
+    });
+
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe("invalid_profile_section_command");
+    expect(body.error.message).toContain(message);
+    expect(upsert).not.toHaveBeenCalled();
   });
 
   it("refuses migration evidence with a blank text", async () => {
@@ -1207,7 +1225,7 @@ describe("source observation routes: integration discovery and profile administr
       "/source-observations/provider-profiles/tcgdex/2026.06.04/sections/migration-evidence",
       {
         method: "PATCH",
-        body: JSON.stringify({ command: { section: "migration-evidence", migrationEvidence: { evidenceText: "  " } } }),
+        body: JSON.stringify({ fields: { migrationEvidenceText: "  " } }),
         headers: {
           "content-type": "application/json",
           "if-match": await sectionIfMatch(store, "2026.06.04", "migration-evidence"),
@@ -1383,10 +1401,10 @@ describe("source observation routes: integration discovery and profile administr
     const response = await app.request("/source-observations/provider-profiles/tcgdex/2026.06.04/sections/fixtures", {
       method: "PATCH",
       body: JSON.stringify({
-        fixtures: {
+        fields: {
           fixtureRoot: "bounded-contexts/catalog/fixtures/source-observations/tcgdex",
-          coveredFlows: ["normal"],
-          liveProviderCallsAllowed: true,
+          coveredFlows: "normal",
+          liveProviderCallsAllowed: "true",
         },
       }),
       headers: {
@@ -1399,7 +1417,7 @@ describe("source observation routes: integration discovery and profile administr
     await expect(response.json()).resolves.toMatchObject({
       error: {
         code: "invalid_profile_section_command",
-        message: "fixtures.liveProviderCallsAllowed must remain false.",
+        message: "fields.liveProviderCallsAllowed must remain false.",
       },
     });
   });
@@ -1417,12 +1435,7 @@ describe("source observation routes: integration discovery and profile administr
         "/source-observations/provider-profiles/tcgdex/2026.06.03/sections/migration-evidence",
         {
           method: "PATCH",
-          body: JSON.stringify({
-            command: {
-              section: "migration-evidence",
-              migrationEvidence: { evidenceText: "Synthetic evidence.", recordedAt: "2026-11-06T00:00:00.000Z" },
-            },
-          }),
+          body: JSON.stringify({ fields: { migrationEvidenceText: "Synthetic evidence." } }),
           headers: {
             "content-type": "application/json",
             "if-match": await sectionIfMatch(store, "2026.06.03", "migration-evidence"),
@@ -1447,7 +1460,7 @@ describe("source observation routes: integration discovery and profile administr
 
     const response = await app.request("/source-observations/provider-profiles/tcgdex/missing/sections/basics", {
       method: "PATCH",
-      body: JSON.stringify({ command: { section: "basics", displayName: "Synthetic" } }),
+      body: JSON.stringify({ fields: { displayName: "Synthetic" } }),
       headers: { "content-type": "application/json", "if-match": '"sha256:unread"' },
     });
 
@@ -1462,7 +1475,7 @@ describe("source observation routes: integration discovery and profile administr
         ...catalogProviderIntegrationProfileVersions,
         profileVersion("tcgdex", { profileVersion: "2026.06.04", lifecycle: "draft", active: false }),
       ]);
-    const renameTo = (displayName: string) => JSON.stringify({ command: { section: "basics", displayName } });
+    const renameTo = (displayName: string) => JSON.stringify({ fields: { displayName } });
 
     it.each([
       ["no If-Match", {}],
@@ -1636,7 +1649,7 @@ describe("source observation routes: integration discovery and profile administr
     await expect(response.json()).resolves.toMatchObject({ error: { code: "profile_version_not_found" } });
   });
 
-  it("returns structured bad requests for empty deep profile section commands", async () => {
+  it("refuses a whole-section command, which no longer carries the operator's fields", async () => {
     const services = {} as SourceObservationRouteServices;
     const store = mutableProfileStore([
       profileVersion("tcgdex", {
@@ -1651,7 +1664,7 @@ describe("source observation routes: integration discovery and profile administr
       "/source-observations/provider-profiles/tcgdex/2026.06.04/sections/normalized-observation",
       {
         method: "PATCH",
-        body: JSON.stringify({ command: {} }),
+        body: JSON.stringify({ command: { section: "normalized-observation", normalizedObservationContract: {} } }),
         headers: {
           "content-type": "application/json",
           "if-match": await sectionIfMatch(store, "2026.06.04", "normalized-observation"),
@@ -1663,7 +1676,7 @@ describe("source observation routes: integration discovery and profile administr
     await expect(response.json()).resolves.toMatchObject({
       error: {
         code: "invalid_profile_section_command",
-        message: "Profile section 'normalized-observation' must include at least one editable field.",
+        message: "fields must be a JSON object of the section's fields.",
       },
     });
   });
