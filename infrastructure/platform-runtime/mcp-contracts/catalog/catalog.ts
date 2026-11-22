@@ -3,7 +3,7 @@ import {
   booleanProperty,
   idempotencyKeyProperty,
   integerProperty,
-  mutationInput,
+  type McpJsonSchemaProperty,
   type McpToolDescriptor,
   type McpServiceDescriptor,
   objectSchema,
@@ -12,6 +12,7 @@ import {
   service,
   stringProperty,
   writeTool,
+  nullableProperty,
 } from "@chase-sets/platform-runtime/mcp-contracts/builders";
 
 const opRead = (
@@ -83,29 +84,351 @@ const baseCatalogService = service(
   { packageName: "@chase-sets/catalog" },
 );
 
-const plannedCatalogTools: readonly McpToolDescriptor[] = [
-  readTool(
-    "catalog",
-    "search-items",
-    "Search Catalog Items",
-    "Search published and administrative catalog item read models.",
-    "catalog.view",
-    objectSchema({
-      query: stringProperty("Catalog search term."),
-      blueprintId: stringProperty("Optional blueprint filter."),
-    }),
-    "catalog-item",
-    ["Use before mapping inventory, listings, or pricing to a canonical catalog item."],
+const itemQuery = {
+  search: stringProperty("Catalog Item search term."),
+  status: stringProperty("Catalog Item lifecycle status."),
+  blueprintId: stringProperty("Filter by Blueprint identifier."),
+  tag: stringProperty("Filter by tag."),
+  language: stringProperty("Filter by language code."),
+  source: stringProperty("Filter by source provider."),
+  blueprintState: stringProperty("Filter by Blueprint assignment state."),
+  hasImages: stringProperty("Filter by presence of images."),
+  hasSourceReferences: stringProperty("Filter by presence of source references."),
+  missingRequiredFields: stringProperty("Filter by missing required Fields."),
+};
+const page = { limit: integerProperty("Page size."), offset: integerProperty("Page offset.") };
+const itemId = { catalogItemId: stringProperty("Catalog Item identifier.") };
+const itemIds = arrayProperty("Explicit Catalog Item identifiers.", itemId.catalogItemId);
+const itemCategory = { categoryId: stringProperty("Category identifier.") };
+const itemBlueprint = { blueprintId: stringProperty("Blueprint identifier.") };
+const itemField = { fieldId: stringProperty("Field identifier.") };
+const requiredItemFields = arrayProperty("Required Field identifiers.", itemField.fieldId);
+const itemTags = { tags: arrayProperty("Complete set of tags, or tags to merge.", stringProperty("Tag.")) };
+const itemSelection = {
+  selection: {
+    description: "Select explicit ids or all Catalog Items matching a filter.",
+    anyOf: [
+      {
+        ...objectSchema({ mode: stringProperty("Selection mode.", ["ids"]), ids: itemIds }, ["mode", "ids"]),
+        description: "Explicit ids.",
+      },
+      {
+        ...objectSchema(
+          {
+            mode: stringProperty("Selection mode.", ["filter"]),
+            query: { ...objectSchema(itemQuery), description: "Catalog Item filters." },
+          },
+          ["mode", "query"],
+        ),
+        description: "Filter selection.",
+      },
+    ],
+  },
+};
+const itemBulkEdit = {
+  ...itemSelection,
+  operation: {
+    description: "Bulk edit operation with the payload required by its action.",
+    anyOf: [
+      itemEditOperation(["assignBlueprint"], itemBlueprint),
+      itemEditOperation(["assignCategory", "removeCategory"], itemCategory),
+      itemEditOperation(["setTags", "mergeTags"], itemTags),
+      itemEditOperation(["clearTags"], {}),
+    ],
+  },
+};
+
+function itemEditOperation(
+  actions: readonly string[],
+  fields: Parameters<typeof objectSchema>[0],
+): McpJsonSchemaProperty {
+  return {
+    ...objectSchema({ action: stringProperty("Bulk edit action.", actions), ...fields }, [
+      "action",
+      ...Object.keys(fields),
+    ]),
+    description: actions.join(" or "),
+  };
+}
+
+const itemLifecycle = { action: stringProperty("Lifecycle action.", ["archive"]), ...itemSelection };
+const itemText = {
+  ...objectSchema(
+    {
+      defaultLocale: stringProperty("Default language tag."),
+      values: {
+        type: "object",
+        description: "Text keyed by language tag.",
+        additionalProperties: stringProperty("Localized text."),
+      },
+    },
+    ["defaultLocale", "values"],
   ),
-  writeTool(
-    "catalog",
-    "publish-item",
-    "Publish Catalog Item",
-    "Publish a catalog item for marketplace use.",
+  description: "Localized text.",
+} as const;
+const itemMetadata = {
+  languageCode: stringProperty("Catalog Item language code."),
+  title: itemText,
+  subtitle: nullableProperty({ ...itemText, description: "Localized subtitle; null clears it explicitly." }),
+  description: itemText,
+};
+const itemReference = {
+  providerKey: stringProperty("External provider key."),
+  externalKey: stringProperty("External reference key."),
+};
+const selectedOptions = arrayProperty("Dimension and Option selections.", {
+  ...objectSchema(
+    { dimensionId: stringProperty("Dimension identifier."), optionId: stringProperty("Option identifier.") },
+    ["dimensionId", "optionId"],
+  ),
+  description: "One selected Option for a Dimension.",
+});
+const containerItem = { containerCatalogItemId: stringProperty("Container Catalog Item identifier.") };
+const containedItem = { containedCatalogItemId: stringProperty("Contained Catalog Item identifier.") };
+const containerOptions = {
+  ...selectedOptions,
+  description:
+    "Configured container selection. For the read tool, pass [] for the unconfigured authoring snapshot including its version, or omit to list projected contents.",
+};
+const jsonValue = { description: "A JSON value (including scalar values, objects, arrays, and null)." };
+const itemWrite = (
+  name: string,
+  title: string,
+  properties: Parameters<typeof objectSchema>[0],
+  required: readonly string[],
+  risk: "sensitive" | "destructive" = "sensitive",
+  target = "catalog-item",
+) => ({
+  ...opWrite(
+    name,
+    title,
     "catalog.manage",
-    mutationInput("catalogItemId", "Catalog item to publish."),
+    { ...properties, ...writeFields, confirmed: booleanProperty("Confirm this exact action.") },
+    [...required, ...writeRequired, "confirmed"],
+    target,
+  ),
+  risk,
+});
+const itemCommand = (
+  name: string,
+  title: string,
+  fields: Parameters<typeof objectSchema>[0] = {},
+  required: readonly string[] = [],
+  risk?: "sensitive" | "destructive",
+) => itemWrite(name, title, { ...itemId, ...fields }, ["catalogItemId", ...required], risk);
+
+const itemTools: readonly McpToolDescriptor[] = [
+  opRead("search-items", "Search Catalog Items", "catalog.view", { ...itemQuery, ...page }, [], "catalog-item"),
+  opRead("get-item", "Get Catalog Item", "catalog.view", itemId, ["catalogItemId"], "catalog-item"),
+  itemCommand("create-item", "Create Catalog Item", itemMetadata, ["title"]),
+  itemCommand("revise-item-metadata", "Revise Catalog Item Metadata", itemMetadata, ["title", "subtitle"]),
+  itemCommand("assign-blueprint", "Assign Blueprint", itemBlueprint, ["blueprintId"]),
+  itemCommand("assign-category", "Assign Category", itemCategory, ["categoryId"]),
+  itemCommand("remove-category", "Remove Category", itemCategory, ["categoryId"], "destructive"),
+  itemCommand("set-field-value", "Set Field Value", { ...itemField, value: jsonValue }, ["fieldId", "value"]),
+  itemCommand(
+    "clear-field-value",
+    "Clear Field Value",
+    { ...itemField, requiredFieldIds: requiredItemFields },
+    ["fieldId"],
+    "destructive",
+  ),
+  itemCommand("set-tags", "Set Tags", itemTags, ["tags"]),
+  itemCommand(
+    "set-image-urls",
+    "Set Image Urls",
+    { imageUrls: arrayProperty("Replacement image URLs.", stringProperty("Image URL.")) },
+    ["imageUrls"],
+  ),
+  itemCommand(
+    "set-image-fallback",
+    "Set Image Fallback",
+    {
+      imageFallback: {
+        ...objectSchema(
+          {
+            url: stringProperty("Fallback image URL."),
+            alt: stringProperty("Alt text."),
+            usage: stringProperty("Fallback usage; defaults to permanent.", ["loading-only", "permanent"]),
+            variants: {
+              type: "object",
+              description: "Image densities by size.",
+              additionalProperties: {
+                ...objectSchema({ oneX: stringProperty("1x image URL."), twoX: stringProperty("2x image URL.") }),
+                description: "Image URLs for this size.",
+              },
+            },
+          },
+          ["url"],
+        ),
+        description: "Replacement fallback image.",
+      },
+    },
+    ["imageFallback"],
+  ),
+  itemCommand("clear-image-fallback", "Clear Image Fallback", {}, [], "destructive"),
+  itemCommand("link-external-catalog-item-reference", "Link External Catalog Item Reference", itemReference, [
+    "providerKey",
+    "externalKey",
+  ]),
+  itemCommand(
+    "unlink-external-catalog-item-reference",
+    "Unlink External Catalog Item Reference",
+    itemReference,
+    ["providerKey", "externalKey"],
+    "destructive",
+  ),
+  itemCommand(
+    "link-external-product-reference",
+    "Link External Product Reference",
+    { ...itemReference, selectedOptions },
+    ["providerKey", "externalKey"],
+  ),
+  itemCommand(
+    "unlink-external-product-reference",
+    "Unlink External Product Reference",
+    itemReference,
+    ["providerKey", "externalKey"],
+    "destructive",
+  ),
+  itemCommand("publish-item", "Publish Catalog Item", {
+    expectedVersion: {
+      description: "Expected stream version: a non-negative integer, any, or no_stream.",
+      anyOf: [integerProperty("Stream version."), stringProperty("Stream version policy.", ["any", "no_stream"])],
+    },
+    blueprintIsActive: booleanProperty("Legacy client hint; publication verifies the current Blueprint on the server."),
+    requiredFieldIds: {
+      ...requiredItemFields,
+      description: "Legacy client hints; publication verifies required Fields on the server.",
+    },
+  }),
+  itemCommand("archive-item", "Archive Catalog Item", {}, [], "destructive"),
+  itemCommand("remove-draft-item", "Remove Draft Catalog Item", {}, [], "destructive"),
+  opRead(
+    "preview-bulk-publish-catalog-items",
+    "Preview Bulk Publish Catalog Items",
+    "catalog.manage",
+    itemSelection,
+    ["selection"],
     "catalog-item",
-    ["Use after validating dimensions, fields, and merchandising readiness."],
+  ),
+  itemWrite("confirm-bulk-publish-catalog-items", "Confirm Bulk Publish Catalog Items", { itemIds }, ["itemIds"]),
+  opRead(
+    "preview-bulk-catalog-item-lifecycle",
+    "Preview Bulk Catalog Item Lifecycle",
+    "catalog.manage",
+    itemLifecycle,
+    ["action", "selection"],
+    "catalog-item",
+  ),
+  itemWrite(
+    "confirm-bulk-catalog-item-lifecycle",
+    "Confirm Bulk Catalog Item Lifecycle",
+    itemLifecycle,
+    ["action", "selection"],
+    "destructive",
+  ),
+  opRead(
+    "preview-bulk-catalog-item-edit",
+    "Preview Bulk Catalog Item Edit",
+    "catalog.manage",
+    itemBulkEdit,
+    ["operation", "selection"],
+    "catalog-item",
+  ),
+  itemWrite("confirm-bulk-catalog-item-edit", "Confirm Bulk Catalog Item Edit", itemBulkEdit, [
+    "operation",
+    "selection",
+  ]),
+  opRead(
+    "list-fields",
+    "List Fields",
+    "catalog.view",
+    {
+      search: stringProperty("Field search term."),
+      status: stringProperty("Field lifecycle status."),
+      valueType: stringProperty("Field value type."),
+      filterable: stringProperty("Filter by filterable behavior."),
+      searchable: stringProperty("Filter by searchable behavior."),
+      sortable: stringProperty("Filter by sortable behavior."),
+      ...page,
+    },
+    [],
+    "field",
+  ),
+  opRead(
+    "list-reference-records",
+    "List Reference Records",
+    "catalog.view",
+    {
+      search: stringProperty("Reference Record search term."),
+      status: stringProperty("Reference Record lifecycle status."),
+      typeKey: stringProperty("Reference Type key."),
+      relationshipType: stringProperty("Relationship type."),
+      relatedReferenceId: stringProperty("Related Reference Record identifier."),
+      attributeKey: stringProperty("Attribute key."),
+      attributeValue: stringProperty("Attribute value."),
+      ...page,
+    },
+    [],
+    "reference-record",
+  ),
+  opRead("list-product-content-types", "List Product Content Types", "catalog.view"),
+  opRead("list-product-content-inclusion-policies", "List Product Content Inclusion Policies", "catalog.view"),
+  opRead(
+    "list-product-contents-for-container",
+    "List Product Contents For Container",
+    "catalog.view",
+    {
+      ...containerItem,
+      containerSelectedOptions: containerOptions,
+    },
+    ["containerCatalogItemId"],
+    "product-contents",
+  ),
+  opRead(
+    "list-product-containers-for-contained",
+    "List Product Containers For Contained",
+    "catalog.view",
+    containedItem,
+    ["containedCatalogItemId"],
+    "product-contents",
+  ),
+  itemWrite(
+    "replace-product-contents",
+    "Replace Product Contents",
+    {
+      ...containerItem,
+      containerSelectedOptions: containerOptions,
+      expectedVersion: integerProperty("Version from the Product Contents authoring snapshot."),
+      lines: arrayProperty("Complete replacement line set; [] removes all lines.", {
+        ...objectSchema(
+          {
+            containedCatalogItemId: nullableProperty({
+              type: "string",
+              description: "Contained Catalog Item identifier.",
+            }),
+            containedSelectedOptions: selectedOptions,
+            quantity: nullableProperty({ type: "number", description: "Line quantity; defaults to 1." }),
+            contentTypeId: stringProperty("Product Content Type identifier."),
+            inclusionPolicyId: nullableProperty({
+              type: "string",
+              description: "Product Content Inclusion Policy identifier.",
+            }),
+            provenance: {
+              type: "object",
+              description: "Provenance keys mapped to JSON values.",
+              additionalProperties: true,
+            },
+          },
+          ["contentTypeId"],
+        ),
+        description: "Product Contents line.",
+      }),
+    },
+    ["containerCatalogItemId", "expectedVersion", "lines"],
+    "sensitive",
+    "product-contents",
   ),
 ];
 
@@ -538,7 +861,7 @@ const toolsWithWorkflowGuidance = tools.map((tool) =>
 
 export const catalogService = {
   ...baseCatalogService,
-  tools: [...plannedCatalogTools, ...toolsWithWorkflowGuidance],
+  tools: [...itemTools, ...toolsWithWorkflowGuidance],
   resources: [
     resource(
       "catalog",

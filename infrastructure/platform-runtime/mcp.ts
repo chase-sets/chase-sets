@@ -534,6 +534,11 @@ function validateSchemaProperty(
   schema: McpJsonSchemaProperty,
   path: string,
 ): McpInputValidationIssue[] {
+  if (schema.anyOf && !schema.anyOf.some((branch) => validateSchemaProperty(value, branch, path).length === 0)) {
+    return [{ path, message: schema.description, expected: "one of the allowed shapes", actual: typeName(value) }];
+  }
+  if (schema.type === undefined) return [];
+
   // A nullable type is the tuple `[<T>, "null"]`; `null` passes only there.
   const nullable = typeof schema.type !== "string";
   const type = typeof schema.type === "string" ? schema.type : schema.type[0];
@@ -570,13 +575,13 @@ function validateSchemaProperty(
     });
   }
 
-  if (type === "object" && schema.properties) {
+  if (type === "object" && (schema.properties || schema.additionalProperties !== undefined)) {
     issues.push(
       ...validateObjectProperties(
         value as Readonly<Record<string, unknown>>,
         {
           additionalProperties: schema.additionalProperties,
-          properties: schema.properties,
+          properties: schema.properties ?? {},
           required: schema.required,
         },
         path,
@@ -589,7 +594,7 @@ function validateSchemaProperty(
 
 function validateObjectProperties(
   value: Readonly<Record<string, unknown>>,
-  schema: Pick<McpJsonSchema, "additionalProperties" | "properties" | "required">,
+  schema: Pick<McpJsonSchema, "properties" | "required"> & Pick<McpJsonSchemaProperty, "additionalProperties">,
   basePath = "",
 ): McpInputValidationIssue[] {
   const issues: McpInputValidationIssue[] = [];
@@ -606,13 +611,15 @@ function validateObjectProperties(
     }
   }
 
-  if (schema.additionalProperties === false) {
+  if (schema.additionalProperties === false || typeof schema.additionalProperties === "object") {
     for (const field of Object.keys(value)) {
       if (!Object.prototype.hasOwnProperty.call(properties, field)) {
-        issues.push({
-          path: basePath ? `${basePath}.${field}` : field,
-          message: "Unexpected field.",
-        });
+        const path = basePath ? `${basePath}.${field}` : field;
+        if (schema.additionalProperties === false) {
+          issues.push({ path, message: "Unexpected field." });
+        } else {
+          issues.push(...validateSchemaProperty(value[field], schema.additionalProperties, path));
+        }
       }
     }
   }
