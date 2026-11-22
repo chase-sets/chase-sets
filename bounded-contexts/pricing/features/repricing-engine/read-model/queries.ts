@@ -1,6 +1,7 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { normalizeMoneyAmount } from "@chase-sets/primitives/money";
 import type { EconomicsServices } from "../../economics/api/services";
+import type { EconomicsScope } from "../../economics/domain/contracts";
 import { toEconomicsForPricingGoal, type EconomicsResolution } from "../../economics/domain/resolution";
 import {
   listDemandCurvesAsOf,
@@ -34,6 +35,10 @@ export type RepricingRoundCapture = Readonly<{
   policy: RepricingEnginePolicyValue;
   economics: Pick<EconomicsServices, "resolve">;
   includeHealth?: boolean;
+  /** Exact acceptance has already captured the evaluated seller's canonical Listing and assignment. */
+  ownAuthority?: RepricingRoundListing;
+  capturedAsks?: RepricingRoundInputs["competingAsks"];
+  economicsScope?: EconomicsScope;
 }>;
 
 export type RepricingRoundListing = Readonly<{
@@ -76,6 +81,10 @@ export type RepricingRoundInputs = Readonly<{
   demandCurve: DemandCurveWithPoints | null;
   healthDemandCurve?: DemandCurveWithPoints | null;
   healthEconomics?: ReadonlyMap<string, EconomicsResolution>;
+  marketSources?: Readonly<{
+    estimate: Readonly<{ version: number; estimatedAt: string }> | null;
+    sale: Readonly<{ orderId: string; lineId: string; updatedAt: string }> | null;
+  }>;
 }>;
 
 type ListingRow = Readonly<{
@@ -158,11 +167,15 @@ export async function loadRepricingRoundInputsPage(
     });
   }
   if (!products.length) return rounds;
+  if (input.ownAuthority && (products.length !== 1 || input.candidate))
+    throw new Error("Exact authority captures one Product without a candidate.");
   const keys = [products.map((key) => key.catalogItemId), products.map((key) => key.productId)];
   const reads = [
     Promise.resolve().then(() =>
-      db.query<ListingRow>(
-        `WITH ${productKeysCte}, ${repricingCandidateCte}
+      input.ownAuthority
+        ? { rows: [] }
+        : db.query<ListingRow>(
+            `WITH ${productKeysCte}, ${repricingCandidateCte}
        SELECT listing.listing_id, listing.seller_account_id, listing.inventory_item_id,
          listing.catalog_catalog_item_id, listing.product_id, listing.price_amount::text,
          listing.price_currency_code, listing.quantity_cap, listing.last_stream_version,
@@ -189,20 +202,22 @@ export async function loadRepricingRoundInputsPage(
          AND ((candidate.seller_account_id IS NULL AND policy.status = 'active')
            OR (${candidateAssignmentSql}))
        ORDER BY policy_id, listing.listing_id`,
-        [...keys, input.candidate ? JSON.stringify(input.candidate) : null],
-      ),
+            [...keys, input.candidate ? JSON.stringify(input.candidate) : null],
+          ),
     ),
     Promise.resolve().then(() =>
-      db.query<
-        ProductRow & {
-          listing_id: string;
-          seller_account_id: string;
-          amount: string;
-          price_currency_code: string | null;
-          pricing_mode: "hard" | "derived";
-        }
-      >(
-        `WITH ${productKeysCte}
+      input.capturedAsks
+        ? { rows: [] }
+        : db.query<
+            ProductRow & {
+              listing_id: string;
+              seller_account_id: string;
+              amount: string;
+              price_currency_code: string | null;
+              pricing_mode: "hard" | "derived";
+            }
+          >(
+            `WITH ${productKeysCte}
        SELECT listing.catalog_catalog_item_id, listing.product_id, listing.listing_id,
          listing.seller_account_id, listing.price_amount::text AS amount, listing.price_currency_code,
          CASE WHEN assignment.listing_id IS NULL THEN 'hard' ELSE 'derived' END AS pricing_mode
@@ -210,24 +225,42 @@ export async function loadRepricingRoundInputsPage(
        JOIN pricing_market_listing_inputs AS listing USING (catalog_catalog_item_id, product_id)
        LEFT JOIN pricing_repricing_policy_assignments AS assignment ON assignment.listing_id = listing.listing_id
        WHERE listing.status = 'active' ORDER BY listing.listing_id`,
-        keys,
-      ),
+            keys,
+          ),
     ),
     Promise.resolve().then(() =>
-      db.query<ProductRow & { amount: string; currency_code: string; fresh_until: string }>(
+      db.query<
+        ProductRow & {
+          amount: string;
+          currency_code: string;
+          fresh_until: string;
+          estimate_version: string;
+          estimated_at: string;
+        }
+      >(
         `WITH ${productKeysCte}
        SELECT estimate.catalog_catalog_item_id, estimate.product_id, estimate.amount::text,
-         UPPER(estimate.currency_code) AS currency_code, estimate.fresh_until::text
+         UPPER(estimate.currency_code) AS currency_code, estimate.fresh_until::text,
+         estimate.estimate_version::text, estimate.estimated_at::text
        FROM products JOIN pricing_market_price_estimates AS estimate USING (catalog_catalog_item_id, product_id)`,
         keys,
       ),
     ),
     Promise.resolve().then(() =>
-      db.query<ProductRow & { unit_price_amount: string; currency_code: string | null; sold_at: string }>(
+      db.query<
+        ProductRow & {
+          unit_price_amount: string;
+          currency_code: string | null;
+          sold_at: string;
+          order_id: string;
+          line_id: string;
+          updated_at: string;
+        }
+      >(
         `WITH ${productKeysCte}
        SELECT DISTINCT ON (trade.catalog_catalog_item_id, trade.product_id)
          trade.catalog_catalog_item_id, trade.product_id, trade.unit_price_amount::text,
-         NULL::text AS currency_code, trade.sold_at::text
+         NULL::text AS currency_code, trade.sold_at::text, trade.order_id, trade.line_id, trade.updated_at::text
        FROM products JOIN pricing_market_trades AS trade USING (catalog_catalog_item_id, product_id)
        WHERE trade.sold_at IS NOT NULL AND trade.excluded = false
        ORDER BY trade.catalog_catalog_item_id, trade.product_id, trade.sold_at DESC, trade.order_id DESC, trade.line_id DESC`,
@@ -246,6 +279,11 @@ export async function loadRepricingRoundInputsPage(
         productId: row.product_id,
       }),
     )!;
+  if (input.ownAuthority) rounds.get(repricingProductKey(input.ownAuthority))!.listings.push(input.ownAuthority);
+  if (input.capturedAsks) {
+    if (products.length !== 1) throw new Error("Exact competitor capture belongs to one Product.");
+    rounds.get(repricingProductKey(products[0]!))!.competingAsks.push(...input.capturedAsks);
+  }
   for (const row of listings.rows)
     partition(row).listings.push({
       listingId: row.listing_id,
@@ -290,6 +328,19 @@ export async function loadRepricingRoundInputsPage(
       currencyCode: row.currency_code,
       soldAt: row.sold_at,
     };
+  if (input.ownAuthority) {
+    const sealed = rounds.get(repricingProductKey(input.ownAuthority))!;
+    const estimate = estimates.rows[0];
+    const sale = sales.rows[0];
+    sealed.marketSources = {
+      estimate: estimate
+        ? { version: Number(estimate.estimate_version), estimatedAt: new Date(estimate.estimated_at).toISOString() }
+        : null,
+      sale: sale
+        ? { orderId: sale.order_id, lineId: sale.line_id, updatedAt: new Date(sale.updated_at).toISOString() }
+        : null,
+    };
+  }
   await readGoalInputs(db, input, products, rounds);
   return rounds;
 }
@@ -302,6 +353,7 @@ type PageRound = {
   demandCurve: RepricingRoundInputs["demandCurve"];
   healthDemandCurve?: NonNullable<RepricingRoundInputs["demandCurve"]>;
   healthEconomics?: Map<string, EconomicsResolution>;
+  marketSources?: NonNullable<RepricingRoundInputs["marketSources"]>;
 };
 
 /**
@@ -335,7 +387,7 @@ async function readGoalInputs(
       if (!requiresGoalEconomics(round, listing, input.capturedAt, input.policy)) continue;
       const resolved = await resolveListingEconomics(input, round, listing);
       round.listings[index] = { ...listing, economics: resolved.goal };
-      if (input.includeHealth && resolved.resolution) {
+      if ((input.includeHealth || input.ownAuthority) && resolved.resolution) {
         round.healthEconomics ??= new Map();
         round.healthEconomics.set(listing.listingId, resolved.resolution);
       }
@@ -361,7 +413,7 @@ async function resolveListingEconomics(
   try {
     const resolution = await input.economics.resolve({
       accountId: listing.sellerAccountId,
-      scope: { kind: "native-marketplace" },
+      scope: input.economicsScope ?? { kind: "native-marketplace" },
       catalogItemId: listing.catalogItemId,
       inventoryItemId: listing.inventoryItemId,
       marketUnitPrice: {

@@ -30,6 +30,14 @@ jiff = "1"
 uuid = { version = "1", features = ["v4"] }
 http-body-util = "0.1"
 tower = { version = "0.5", features = ["util"] }
+# OpenTelemetry export for an app replacing a React host that exported it (platform's `otlp`).
+# The default batch processors run on threads of their own, so the exporters use the blocking client.
+opentelemetry = { version = "0.33", default-features = false, features = ["trace", "metrics", "logs"] }
+opentelemetry_sdk = { version = "0.33", default-features = false, features = ["trace", "metrics", "logs"] }
+opentelemetry-otlp = { version = "0.33", default-features = false, features = ["http-proto", "reqwest-blocking-client", "trace", "metrics", "logs"] }
+opentelemetry-appender-tracing = "0.33"
+tracing-opentelemetry = { version = "0.34", default-features = false }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "fmt", "std", "ansi"] }
 
 # Thin LTO, as `corten new` writes it (corten-run/corten#952): about 1.7% fewer instructions per page
 # than Cargo's default as Corten measured it, for a slower release build; `corten dev`, the checks

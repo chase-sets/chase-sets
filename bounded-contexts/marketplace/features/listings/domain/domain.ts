@@ -561,6 +561,7 @@ export type WithdrawListingCommand = Readonly<{ type: "WithdrawListing" }>;
 
 export type AcceptListingTargetPriceCommand = Readonly<{
   type: "AcceptListingTargetPrice";
+  pricingEvidenceHash?: string;
   acceptedTargetPrice: AcceptedListingTargetPriceV1;
   expectedTargetPriceRevision: number;
 }>;
@@ -905,7 +906,11 @@ export const decideMarketplaceListing: AggregateDecider<
         accepted.acceptedByUserId && accepted.sourceEventId && Number.isFinite(Date.parse(accepted.acceptedAt)),
         "Price provenance is incomplete.",
       );
-      assert(accepted.decision.kind === "seller-reference", "Pricing decision authority is unavailable.");
+      assert(
+        accepted.decision.kind === "seller-reference" ||
+          (typeof command.pricingEvidenceHash === "string" && /^[a-f0-9]{64}$/.test(command.pricingEvidenceHash)),
+        "Pricing decision authority is unavailable.",
+      );
       return [
         {
           type: "marketplace.listing.target-price-accepted",

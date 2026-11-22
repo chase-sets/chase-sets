@@ -2,7 +2,7 @@
 
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { formatDateTime } from "@chase-sets/localization";
+import { formatDateTime } from "@chase-sets/localization/core";
 import type {
   FulfillmentPostageLabelOperationDiagnostic,
   FulfillmentPostageProviderEventDiagnostic,

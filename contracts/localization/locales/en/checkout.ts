@@ -993,6 +993,7 @@ export const checkoutEnglishTranslations = {
     "Checkout totals are temporarily unavailable. Refresh before confirming payment.",
   "checkout.routes.checkoutSession.payment.has.not.started": "Your payment has not started.",
   "checkout.routes.checkoutSession.request.failed": "Request failed.",
+  "checkout.routes.checkoutSession.payment.details.required": "Enter your payment details before selecting Pay now.",
   "checkout.routes.checkoutSession.secure.checkout": "Secure checkout",
   "checkout.routes.checkoutSession.sign.in.to.continue": "Sign in to continue",
   "checkout.routes.checkoutSession.start.checkout.again": "Start checkout again",

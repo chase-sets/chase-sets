@@ -2,6 +2,7 @@ import { parseGlobalPosition } from "@chase-sets/event-core/storage";
 import { parseIsoUtcTimestamp } from "@chase-sets/primitives/iso-utc-timestamp";
 import { createNoopCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
 import type { PricingHostPorts } from "@chase-sets/pricing/server";
+import { MARKETPLACE_LABEL_POSTAGE_POLICY_VERSION } from "@chase-sets/settlement/server";
 import type { BcApiModule, BcEventSubscription } from "@chase-sets/bounded-context-module";
 import {
   buildProjectionInterestIndex,
@@ -947,6 +948,14 @@ function createPlatformWorkerHost(
       moneyMovementGateway: createFakeMoneyMovementGateway(),
       operationsRecorder: { record: () => undefined },
       postageLabelProvider: createSandboxPostageLabelProvider(),
+      ...(runtimeProfile === "landing"
+        ? {}
+        : {
+            marketplaceLabelPostageActivation: {
+              policyVersion: MARKETPLACE_LABEL_POSTAGE_POLICY_VERSION,
+              activatedAt: parseIsoUtcTimestamp("2026-06-26T12:00:00.000Z"),
+            },
+          }),
       // Real-registry composition: the worker states the Ordering
       // cleanup-authority capability explicitly as not-mounted (#7222).
       inventoryCleanupAuthority: { kind: "not-mounted" },

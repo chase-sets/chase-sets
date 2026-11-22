@@ -23147,3 +23147,47 @@ async fn seller_checkout_links_to_shipping_setup() {
     let (_, _, html) = pilot.send(get("/checkout/sell/session/chk_one", Some("trader"))).await;
     assert!(html.contains(r#"href="/sell/shipping-setup""#) && text(&html).contains("Shipping setup"), "{html}");
 }
+
+/// Each request is a server span named by its method and route, never its path or query, and each
+/// API call it makes carries that span's `traceparent`, so platform-api's spans join its trace.
+#[tokio::test]
+async fn each_request_is_a_span_named_by_its_route_and_its_api_calls_carry_it() {
+    use opentelemetry::trace::{SpanKind, TracerProvider as _};
+    use opentelemetry_sdk::{propagation::TraceContextPropagator, trace::InMemorySpanExporter};
+    use tracing_subscriber::layer::SubscriberExt;
+
+    let exporter = InMemorySpanExporter::default();
+    let provider = opentelemetry_sdk::trace::SdkTracerProvider::builder().with_simple_exporter(exporter.clone()).build();
+    opentelemetry::global::set_text_map_propagator(TraceContextPropagator::new());
+    let subscriber = tracing_subscriber::registry().with(tracing_opentelemetry::layer().with_tracer(provider.tracer("test")));
+    // With one dispatcher registered, tracing-core settles a callsite another test's thread meets
+    // first by that thread's default, which has no subscriber: never. A second, empty dispatcher
+    // makes every callsite ask each one, so this thread's subscriber is asked too.
+    let _others = tracing::Dispatch::new(tracing::subscriber::NoSubscriber::default());
+    let _traced = tracing::subscriber::set_default(subscriber);
+
+    let pilot = Pilot::new().await;
+    // And a callsite another thread was settling while the two were registered is asked again.
+    tracing::callsite::rebuild_interest_cache();
+    let (status, _, html) = pilot.send(get("/search?q=pika", Some("buyer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    provider.force_flush().unwrap();
+
+    let spans = exporter.get_finished_spans().unwrap();
+    let span = spans.iter().find(|s| s.name == "GET /search").unwrap_or_else(|| panic!("{spans:#?}"));
+    assert_eq!(span.span_kind, SpanKind::Server);
+    let attribute = |key: &str| span.attributes.iter().find(|kv| kv.key.as_str() == key).map(|kv| kv.value.to_string());
+    assert_eq!(attribute("http.route").as_deref(), Some("/search"));
+    assert_eq!(attribute("http.request.method").as_deref(), Some("GET"));
+    assert_eq!(attribute("http.response.status_code").as_deref(), Some("200"));
+    assert!(span.attributes.iter().all(|kv| !kv.value.to_string().contains("pika")), "no query: {span:#?}");
+
+    let trace = span.span_context.trace_id().to_string();
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    let parents: Vec<(&str, &str)> = calls
+        .iter()
+        .map(|c| (c.path.as_str(), c.headers.get("traceparent").and_then(|v| v.to_str().ok()).unwrap_or_default()))
+        .collect();
+    assert!(!parents.is_empty());
+    assert!(parents.iter().all(|(_, parent)| parent.starts_with(&format!("00-{trace}-"))), "{trace}: {parents:#?}");
+}
