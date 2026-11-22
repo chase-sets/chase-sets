@@ -1,5 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
-import { authenticateAdmin, expectAdminPageReady, expectPageOk, skipDeployedAdminE2e } from "./support/admin-e2e";
+import {
+  authenticatePlatformAdmin,
+  expectAdminPageReady,
+  expectPageOk,
+  skipDeployedAdminE2e,
+} from "./support/admin-e2e";
 import { logSeedContractGap } from "./support/seed-contract-gap";
 
 test.describe("growth admin google shopping and waitlist", () => {
@@ -10,7 +15,7 @@ test.describe("growth admin google shopping and waitlist", () => {
       "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
     );
 
-    await authenticateAdmin(page, "/growth/google-shopping", "/access/sign-in");
+    await authenticatePlatformAdmin(page, "/growth/google-shopping", "/access/sign-in");
     await expectGoogleShoppingOperations(page);
     await expectWaitlistReview(page);
   });

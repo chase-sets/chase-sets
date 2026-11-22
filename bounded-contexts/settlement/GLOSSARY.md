@@ -10,6 +10,10 @@ A **Payout Review Hold** is a Settlement-owned, account-scoped event stream reco
 
 A **Wallet** is the balance container for an account within the marketplace ledger.
 
+A **Spend Hold** reserves available Wallet balance for a Payment without moving money. Ordinary placement expires after 72 hours. **Expiry suspension** means the hold has no expiry and the expiry sweep cannot release it. `SetSpendHoldExpiry` restores expiry 72 hours after placement, only while the hold is active and has no expiry.
+
+A **Retired Hold ID** is a Payment's spend hold ID that can no longer reserve balance. `RetireSpendHold` releases an active hold or records a zero-amount released marker when the ID has not been seen. The marker does not represent a placement. An ordinary release of an unknown ID does not retire it.
+
 ## Ledger Entry
 
 A **Ledger Entry** is the atomic accounting record that explains a balance change.

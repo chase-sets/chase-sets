@@ -1,6 +1,7 @@
 import { expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { module as authModule } from "@chase-sets/auth";
+import { resolveRolePermissions } from "@chase-sets/auth-context";
 import { resolveActorFromSessionId } from "@chase-sets/auth/server";
 import { buildChannelsApi, type ChannelsApiEnv } from "../../../api";
 import * as feedRuntime from "../../connector-feed/api/runtime";
@@ -282,11 +283,12 @@ describeDb("manual-sync-connector-coverage / manual-sync-coverage-composition", 
 
   it("seller API authorization is independent of the grantor, with equal foreign/missing refusals and no connector read", async () => {
     const auth = authModule.createServices(h.authDb, {});
+    const remainingRole = "viewer";
     await h.authDb.query(
       `INSERT INTO auth_identity_user_memberships
       (membership_id,user_id,account_id,role_key,role_permissions,status)
-      VALUES ('membership_remaining','usr_remaining',$1,'seller','["channels.view"]','active')`,
-      [target.accountId],
+      VALUES ('membership_remaining','usr_remaining',$1,$2,$3,'active')`,
+      [target.accountId, remainingRole, JSON.stringify(resolveRolePermissions(remainingRole))],
     );
     for (const userId of [seller.userId, "usr_remaining"]) {
       await auth.sessions.commandHandler({

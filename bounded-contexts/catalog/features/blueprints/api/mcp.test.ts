@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
-import type { OperatorAuthorityDecision, ResolvedActor } from "@chase-sets/auth-context";
+import { resolveRolePermissions, type OperatorAuthorityDecision, type ResolvedActor } from "@chase-sets/auth-context";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { createMcpRoutes, type McpAuditSink } from "@chase-sets/platform-runtime/mcp";
-import { flattenMcpTools } from "@chase-sets/platform-runtime/mcp-contracts";
+import { findMcpTool, flattenMcpTools } from "@chase-sets/platform-runtime/mcp-contracts";
 import { contextManifest as manifest } from "../../../index";
 import type { CatalogAuthoringBulkJob } from "../../../support/authoring-support/bulk-authoring-jobs";
 import { decideBlueprint, evolveBlueprint, initialBlueprintState, type BlueprintEvent } from "../domain/domain";
@@ -38,7 +38,7 @@ const actor: ResolvedActor = {
   accountId: "account_operator",
   membershipId: "membership_operator",
   roleKey: "platform-admin",
-  permissions: ["catalog.view", "catalog.manage"],
+  permissions: resolveRolePermissions("platform-admin"),
 };
 const granted: OperatorAuthorityDecision = {
   kind: "granted",
@@ -379,22 +379,25 @@ describe("Blueprint MCP", () => {
 
   it("enforces each permission independently", async () => {
     const h = harness();
-    h.setAuthority({ ...granted, rolePermissions: ["catalog.view"] });
-    expect(
-      (await h.call("preview-bulk-blueprint-lifecycle", { action: "publish", selection: { mode: "ids", ids: [id] } }))
-        .result.isError,
-    ).toBe(true);
-    expect(
-      (
-        await h.call("create-blueprint", {
-          blueprintId: id,
-          key: "cards",
-          name: text,
-          ...confirmed("Create Blueprint"),
-        })
-      ).result.isError,
-    ).toBe(true);
-    expect((await h.call("get-blueprint", { blueprintId: id })).result.isError).not.toBe(true);
+    // MCP admission replaces snapshot permissions with the full role; test the handlers with only catalog.view.
+    const readOnlyActor: ResolvedActor = { ...actor, permissions: ["catalog.view"] };
+    const call = async (name: string, args: Record<string, unknown>) => {
+      const tool = findMcpTool(`catalog.${name}`)!;
+      return h.handlers[tool.name]!({
+        actor: readOnlyActor,
+        tool,
+        arguments: args,
+        request: new Request("https://api.test/mcp"),
+        protocol: { protocolVersion: "2025-06-18", stateless: false, clientInfo: null, clientCapabilities: null },
+      });
+    };
+    await expect(
+      call("preview-bulk-blueprint-lifecycle", { action: "publish", selection: { mode: "ids", ids: [id] } }),
+    ).rejects.toThrow("Missing required operator permission: catalog.manage.");
+    await expect(
+      call("create-blueprint", { blueprintId: id, key: "cards", name: text, ...confirmed("Create Blueprint") }),
+    ).rejects.toThrow("Missing required operator permission: catalog.manage.");
+    await expect(call("get-blueprint", { blueprintId: id })).resolves.toMatchObject({ blueprint_id: id });
     expect(h.services.commandHandler).not.toHaveBeenCalled();
     expect(h.services.bulkLifecycle.preview).not.toHaveBeenCalled();
   });

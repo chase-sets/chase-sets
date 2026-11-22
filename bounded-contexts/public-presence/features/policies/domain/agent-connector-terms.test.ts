@@ -116,7 +116,7 @@ const assertionToSourceMatrix = [
   {
     id: "account-permission-boundary",
     subjectId: "account-attribution-and-principal-liability",
-    ref: "infrastructure/platform-runtime/mcp-contracts.ts:156-190,239-261",
+    ref: "infrastructure/platform-runtime/mcp-contracts.ts:166-192,262-297",
     fragments: ["authenticated actor", "Missing required permission", "account-scoped actor"],
   },
   {

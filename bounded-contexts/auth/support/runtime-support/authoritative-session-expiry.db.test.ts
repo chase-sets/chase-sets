@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
+import { resolveRolePermissions } from "@chase-sets/auth-context";
 import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
@@ -179,9 +180,10 @@ describeDb("authoritative Auth Session actor resolution", () => {
     expect(actor).toMatchObject({
       accountId: NEW_ACCOUNT_ID,
       membershipId: "mbr_synthetic_new_account",
-      roleKey: "authoritative-role",
+      roleKey: "viewer",
     });
-    expect(actor?.permissions).toContain("authoritative.account.permission");
+    expect(actor?.permissions).toEqual(resolveRolePermissions("viewer"));
+    expect(actor?.permissions).not.toContain("authoritative.account.permission");
     expect(actor?.permissions).not.toContain("stale.account.permission");
   });
 
@@ -835,7 +837,7 @@ async function seedIdentityProjection(pool: PgTransactionalPool) {
        membership_id, user_id, account_id, role_key, role_permissions, status, updated_at
      ) VALUES
        ('mbr_synthetic_old_account', $1, $2, 'stale-role', $4::jsonb, 'active', now()),
-       ('mbr_synthetic_new_account', $1, $3, 'authoritative-role', $5::jsonb, 'active', now())`,
+       ('mbr_synthetic_new_account', $1, $3, 'viewer', $5::jsonb, 'active', now())`,
     membershipValues,
   );
   await pool.query(
@@ -843,7 +845,7 @@ async function seedIdentityProjection(pool: PgTransactionalPool) {
        membership_id, user_id, account_id, role_key, role_permissions, status, updated_at
      ) VALUES
        ('mbr_synthetic_old_account', $1, $2, 'stale-role', $4::jsonb, 'active', now()),
-       ('mbr_synthetic_new_account', $1, $3, 'authoritative-role', $5::jsonb, 'active', now())`,
+       ('mbr_synthetic_new_account', $1, $3, 'viewer', $5::jsonb, 'active', now())`,
     membershipValues,
   );
 }

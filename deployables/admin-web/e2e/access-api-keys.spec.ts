@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
-  authenticateAdmin,
+  authenticatePlatformAdmin,
   expectAdminPageReady,
   expectPageOk,
   skipDeployedAdminE2e,
@@ -20,7 +20,7 @@ test.describe("access admin api keys", () => {
       "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
     );
 
-    await authenticateAdmin(page, "/access", "/access/sign-in");
+    await authenticatePlatformAdmin(page, "/access", "/access/sign-in");
     const actor = await getCurrentActorDisplay(page);
     const accountHeading = actor.account.display_name ?? actor.account.name ?? actor.account.account_id;
     const accountApiAccessPath = `/access/accounts/${actor.account.account_id}?tab=api-access`;

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
-import type { OperatorAuthorityDecision } from "@chase-sets/auth-context";
+import { resolveRolePermissions, type OperatorAuthorityDecision } from "@chase-sets/auth-context";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import {
@@ -51,7 +51,7 @@ const authority: OperatorAuthorityDecision = {
   kind: "granted",
   membershipId: actor.membershipId,
   roleKey: "platform-admin",
-  rolePermissions: actor.permissions,
+  rolePermissions: resolveRolePermissions("platform-admin"),
 };
 const timestamp = "2026-10-16T00:00:00.000Z";
 const job: GoogleShoppingFullSyncJob = {
@@ -331,8 +331,15 @@ describe("Google Shopping MCP", () => {
       h.setActor(actor);
       h.setAuthority({ kind: "denied", reason: "not-platform-admin" });
       expect((await h.call(name, args)).result.isError).toBe(true);
-      h.setAuthority({ ...authority, rolePermissions: [] });
-      expect((await h.call(name, args)).result.isError).toBe(true);
+      await expect(
+        createGoogleShoppingMcpHandlers(h.sync).toolHandlers[name]!({
+          actor: { ...actor, permissions: [] },
+          tool: findMcpTool(name)!,
+          arguments: args,
+          request: new Request("https://api.test/mcp"),
+          protocol: { protocolVersion: "2025-06-18", stateless: false, clientInfo: null, clientCapabilities: null },
+        }),
+      ).rejects.toThrow("Missing required permission: google-shopping.manage.");
       expect(h.seen).not.toHaveBeenCalled();
       h.setAuthority(authority);
       h.setActor({ ...actor, agentGrant: { ...actor.agentGrant!, scopes: ["operations:read"] } });

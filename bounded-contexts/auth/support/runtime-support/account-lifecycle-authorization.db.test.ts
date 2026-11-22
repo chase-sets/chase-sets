@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
+import { resolveRolePermissions } from "@chase-sets/auth-context";
 import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
@@ -242,8 +243,14 @@ describeDb("Account lifecycle at Auth authorization boundaries", () => {
             });
             expect(actor?.permissions).not.toContain("support.evidence.any-case");
             expect(cookieActor).toEqual(actor);
-            expect(linkedActor).toMatchObject({ accountId: ACCOUNT, membershipId: MEMBERSHIP });
-            expect(linkedActor?.permissions).toEqual(["catalog.view"]);
+            expect(linkedActor).toMatchObject({
+              accountId: ACCOUNT,
+              membershipId: MEMBERSHIP,
+              roleKey: "owner",
+              agentGrant: { rolePermissions: resolveRolePermissions("owner") },
+            });
+            expect(linkedActor?.permissions).toEqual(["inventory.view"]);
+            expect(linkedActor?.permissions).not.toContain("catalog.view");
             expect(linkedActor?.permissions).not.toContain("payouts.request");
           } else {
             expect(actor).toBeNull();
@@ -583,7 +590,7 @@ describeDb("Account lifecycle at Auth authorization boundaries", () => {
             platform_profile_url: "https://agent.example/.well-known/ucp",
             user_id: USER,
             account_id: accountId,
-            scopes: ["catalog:read"],
+            scopes: ["catalog:read", "inventory:read"],
           }),
         },
       },

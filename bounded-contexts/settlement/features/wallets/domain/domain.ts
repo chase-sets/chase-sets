@@ -53,6 +53,13 @@ export type WalletSpendHoldReleaseReason = "payment-captured" | "payment-failed"
 
 export type WalletSpendHoldStatus = "active" | "released";
 
+/** Default lifetime before an ordinary spend hold becomes eligible for the expiry sweep. */
+export const DEFAULT_SPEND_HOLD_TTL_MS = 72 * 60 * 60 * 1000;
+
+export function balanceCreditHoldId(paymentId: string): string {
+  return `hold_balance_credit_${paymentId}`;
+}
+
 /**
  * A reservation ("spend hold") placed on wallet credit at checkout / payment
  * creation, before the balance-credit debit posts at capture. Holds reduce the
@@ -185,6 +192,21 @@ export type ReleaseSpendHoldCommand = Readonly<{
   releasedAt: string;
 }>;
 
+export type RetireSpendHoldCommand = Readonly<{
+  type: "RetireSpendHold";
+  accountId: AccountId;
+  paymentId: PaymentId;
+  holdId: string;
+  reason: "payment-cancelled";
+  retiredAt: string;
+}>;
+
+export type SetSpendHoldExpiryCommand = Readonly<{
+  type: "SetSpendHoldExpiry";
+  holdId: string;
+  setAt: string;
+}>;
+
 export type WalletCommand =
   | PostStagingProofCreditCommand
   | OpenWalletCommand
@@ -193,7 +215,9 @@ export type WalletCommand =
   | MarkLedgerEntryAvailableCommand
   | EvaluateNegativeBalanceCollectionsCommand
   | PlaceSpendHoldCommand
-  | ReleaseSpendHoldCommand;
+  | ReleaseSpendHoldCommand
+  | RetireSpendHoldCommand
+  | SetSpendHoldExpiryCommand;
 
 export type WalletOpenedEvent = DomainEvent<
   "settlement.wallet.opened",
@@ -287,6 +311,23 @@ export type WalletSpendHoldReleasedEvent = DomainEvent<
   }>
 >;
 
+export type WalletSpendHoldRetiredEvent = DomainEvent<
+  "settlement.wallet.spend-hold-retired.v1",
+  Readonly<{
+    accountId: AccountId;
+    holdId: string;
+    paymentId: PaymentId;
+    currencyCode: CurrencyCode;
+    reason: "payment-cancelled";
+    retiredAt: string;
+  }>
+>;
+
+export type WalletSpendHoldExpirySetEvent = DomainEvent<
+  "settlement.wallet.spend-hold-expiry-set.v1",
+  Readonly<{ accountId: AccountId; holdId: string; expiresAt: string; setAt: string }>
+>;
+
 export type WalletEvent =
   | StagingProofCreditPostedEvent
   | WalletOpenedEvent
@@ -296,7 +337,9 @@ export type WalletEvent =
   | WalletNegativeBalanceCollectionsOpenedEvent
   | WalletNegativeBalanceRecoveredEvent
   | WalletSpendHoldPlacedEvent
-  | WalletSpendHoldReleasedEvent;
+  | WalletSpendHoldReleasedEvent
+  | WalletSpendHoldRetiredEvent
+  | WalletSpendHoldExpirySetEvent;
 
 function hasLedgerEntry(entries: readonly WalletLedgerEntry[], ledgerEntryId: LedgerEntryId) {
   return entries.some((entry) => entry.ledgerEntryId === ledgerEntryId);
@@ -621,6 +664,53 @@ export const decideWallet: AggregateDecider<WalletState, WalletCommand, WalletEv
         },
       ];
     }
+    case "RetireSpendHold": {
+      assert(state.accountId !== null && state.currencyCode !== null, "Wallet must be opened first.");
+      assert(command.accountId === state.accountId, "Spend hold must belong to the Wallet account.");
+      assert(command.holdId === balanceCreditHoldId(command.paymentId), "Spend hold id must belong to the Payment.");
+      const hold = state.spendHolds.find((candidate) => candidate.holdId === command.holdId);
+      if (hold) {
+        assert(
+          hold.paymentId === null || hold.paymentId === command.paymentId,
+          "Spend hold must belong to the Payment.",
+        );
+        return decideWallet(state, {
+          type: "ReleaseSpendHold",
+          holdId: command.holdId,
+          reason: command.reason,
+          releasedAt: command.retiredAt,
+        });
+      }
+      return [
+        {
+          type: "settlement.wallet.spend-hold-retired.v1",
+          data: {
+            accountId: state.accountId,
+            holdId: command.holdId,
+            paymentId: command.paymentId,
+            currencyCode: state.currencyCode,
+            reason: command.reason,
+            retiredAt: ensureIsoTimestamp(command.retiredAt, "Spend hold retirement must record a timestamp."),
+          },
+        },
+      ];
+    }
+    case "SetSpendHoldExpiry": {
+      assert(state.accountId !== null, "Wallet must be opened first.");
+      const hold = state.spendHolds.find((candidate) => candidate.holdId === command.holdId);
+      if (!hold || hold.status !== "active" || hold.expiresAt !== null) return [];
+      return [
+        {
+          type: "settlement.wallet.spend-hold-expiry-set.v1",
+          data: {
+            accountId: state.accountId,
+            holdId: hold.holdId,
+            expiresAt: new Date(Date.parse(hold.placedAt) + DEFAULT_SPEND_HOLD_TTL_MS).toISOString(),
+            setAt: ensureIsoTimestamp(command.setAt, "Setting spend hold expiry must record a timestamp."),
+          },
+        },
+      ];
+    }
     default:
       return assertNever(command);
   }
@@ -768,6 +858,33 @@ export const evolveWallet: AggregateEvolver<WalletState, WalletEvent> = (state, 
             : hold,
         ),
         updatedAt: event.data.releasedAt,
+      };
+    case "settlement.wallet.spend-hold-retired.v1":
+      return {
+        ...state,
+        spendHolds: [
+          ...state.spendHolds,
+          {
+            holdId: event.data.holdId,
+            paymentId: event.data.paymentId,
+            amount: "0.00",
+            currencyCode: event.data.currencyCode,
+            status: "released",
+            placedAt: event.data.retiredAt,
+            expiresAt: null,
+            releasedAt: event.data.retiredAt,
+            releaseReason: event.data.reason,
+          },
+        ],
+        updatedAt: event.data.retiredAt,
+      };
+    case "settlement.wallet.spend-hold-expiry-set.v1":
+      return {
+        ...state,
+        spendHolds: state.spendHolds.map((hold) =>
+          hold.holdId === event.data.holdId ? { ...hold, expiresAt: event.data.expiresAt } : hold,
+        ),
+        updatedAt: event.data.setAt,
       };
     default:
       return assertNever(event);

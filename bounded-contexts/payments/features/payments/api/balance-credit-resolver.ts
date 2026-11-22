@@ -12,6 +12,9 @@ export type BalanceCreditResolution = Readonly<{
 
 /** Why a placed balance-credit hold is being released from the Payments side. */
 export type BalanceCreditHoldReleaseReason = "payment-failed" | "payment-cancelled";
+export type BalanceCreditHoldRetirement = "released" | "retired" | "already-settled" | "unwired";
+
+type PaymentSpendHold = Readonly<{ paymentId: PaymentId; buyerAccountId: AccountId }>;
 
 export interface BalanceCreditResolver {
   resolveBalanceCredit(
@@ -35,6 +38,8 @@ export interface BalanceCreditResolver {
       buyerAccountId: AccountId;
       currencyCode: CurrencyCode;
       requestedAmount: string;
+      /** Explicit null suspends expiry until the Payment no longer needs that protection. */
+      expiresAt?: null;
     }>,
     context: EventStoreContext,
   ): Promise<{ heldAmount: string }>;
@@ -47,4 +52,10 @@ export interface BalanceCreditResolver {
     }>,
     context: EventStoreContext,
   ): Promise<void>;
+  /** For fenced, marked Payment creation only. An unwired port is not an acknowledgement. */
+  retireSpendHold?(
+    input: PaymentSpendHold & Readonly<{ reason: "payment-cancelled" }>,
+    context: EventStoreContext,
+  ): Promise<BalanceCreditHoldRetirement>;
+  setSpendHoldExpiry?(input: PaymentSpendHold, context: EventStoreContext): Promise<void>;
 }
