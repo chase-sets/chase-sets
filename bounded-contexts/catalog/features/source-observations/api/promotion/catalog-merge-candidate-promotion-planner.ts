@@ -30,6 +30,7 @@ import {
   type CatalogPromotionDisplayIdentityEvidence,
   type CatalogPromotionDisplayIdentityOutcome,
 } from "./promotion-display-identity";
+import { promotionImageFallbackCommand } from "./promotion-image-fallback";
 
 export type CatalogMergeCandidatePromotionMode = "create" | "refresh" | "link-existing";
 export type CatalogMergeCandidatePromotionApprovalStatus = Extract<CatalogMergeCandidateStatus, "ready" | "promoted">;
@@ -57,6 +58,7 @@ export type CatalogMergeCandidatePromotionFieldMapping = Readonly<
 
 export type CatalogMergeCandidatePromotionCatalogMapping = Readonly<{
   blueprintId: BlueprintId;
+  blueprintKey?: string;
   categoryId: CategoryId;
   fields: readonly CatalogMergeCandidatePromotionFieldMapping[];
 }>;
@@ -239,11 +241,16 @@ export async function planCatalogMergeCandidatePromotionCommands(
     return { status: "blocked", plan: null, diagnostics: [validation.diagnostic] };
   }
 
+  const fallback =
+    constructed.mode !== "link-existing" && validation.currentItemHasNoImageFallback && input.catalog.blueprintKey
+      ? promotionImageFallbackCommand(input.catalog.blueprintKey, constructed.languageCode)
+      : null;
+  const commands = fallback ? [...constructed.commands, fallback] : constructed.commands;
   const planFingerprint = catalogMergeCandidatePromotionPlanFingerprint({
     candidateId: constructed.candidateId,
     mode: constructed.mode,
     catalogItemId: constructed.catalogItemId,
-    commands: constructed.commands,
+    commands,
     fieldChanges: constructed.fieldChanges,
     promotableChange: constructed.promotableChange,
     displayIdentity: validation.outcome,
@@ -259,11 +266,11 @@ export async function planCatalogMergeCandidatePromotionCommands(
       catalogItemId: constructed.catalogItemId,
       planFingerprint,
       requiresReview: true,
-      commands: constructed.commands,
+      commands,
       promotableChange: constructed.promotableChange,
       displayIdentity: validation.outcome,
       promoteAsDraft,
-      review: constructed.review,
+      review: { ...constructed.review, commandCount: commands.length },
     },
     diagnostics: validation.diagnostic ? [validation.diagnostic] : [],
   };
@@ -275,6 +282,7 @@ type ConstructedCatalogMergeCandidatePromotionCommands =
       candidateId: string;
       mode: CatalogMergeCandidatePromotionMode;
       catalogItemId: CatalogItemId;
+      languageCode: string;
       commands: readonly CatalogItemCommand[];
       fieldChanges: readonly CatalogMergeCandidatePromotionFieldChange[];
       promotableChange: PromotableCatalogItemProductChange;
@@ -371,6 +379,7 @@ function constructCatalogMergeCandidatePromotionCommands(
     mode,
     catalogItemId,
     commands,
+    languageCode: candidate.snapshot.identity.languageCode,
     fieldChanges,
     promotableChange,
     review: {

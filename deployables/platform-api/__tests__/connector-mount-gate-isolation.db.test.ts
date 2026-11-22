@@ -6,7 +6,11 @@ import { module as channelsModule, TCGPLAYER_CONNECTOR_REDIRECT_URI } from "@cha
 import { module as identityModule } from "@chase-sets/identity";
 import { createConnectorOAuthService, resolveActorFromRequest } from "@chase-sets/auth/server";
 import { isChannelsServices, type ChannelsServices } from "@chase-sets/channels/server";
-import { AUTH_SESSION_COOKIE_NAME, CHANNEL_CONNECTOR_SCOPE_FAMILY } from "@chase-sets/auth-context";
+import {
+  AUTH_SESSION_COOKIE_NAME,
+  CHANNEL_CONNECTOR_SCOPE_FAMILY,
+  resolveRolePermissions,
+} from "@chase-sets/auth-context";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import { buildPlatformApiApp, createPlatformApiHost } from "../src/app";
@@ -139,10 +143,11 @@ describe("connector-mount-gate-isolation / connector-redirect-pin", () => {
        ON CONFLICT (account_id) DO NOTHING`,
       [accountId, "Connector test seller"],
     );
+    const sellerRole = "owner";
     await pools.auth.query(
       `INSERT INTO auth_identity_user_memberships (membership_id, user_id, account_id, role_key, role_permissions, status)
-      VALUES ($1,$2,$3,'connector-test-seller','["channels.manage","channels.view"]','active')`,
-      [createId("mem"), userId, accountId],
+      VALUES ($1,$2,$3,$4,$5,'active')`,
+      [createId("mem"), userId, accountId, sellerRole, JSON.stringify(resolveRolePermissions(sellerRole))],
     );
     const expiresAt = new Date(Date.now() + 3_600_000).toISOString();
     await auth.sessions.commandHandler({

@@ -196,7 +196,7 @@ pub const OFFLINE: &[Component] = &[OfflinePage];
 
 /// The buy checkout page (`/checkout/buy/session/{id}`) and the script that says a changed field
 /// needs its totals updated.
-pub const CHECKOUT: &[Component] = &[CheckoutPage, checkout_page::handlers::COMPONENT, platform::ui::steps::Steps];
+pub const CHECKOUT: &[Component] = &[CheckoutPage, payment_page::stripe::COMPONENT, platform::ui::steps::Steps];
 
 /// Checkout start's components (`/checkout/buy/readiness`).
 pub const CHECKOUT_START: &[Component] = &[CheckoutStartPage];
@@ -807,11 +807,15 @@ pub fn cart_page<'a>(t: CartMsg, p: Pilot, screen: &'a CartScreen, notice: Optio
         }
         if screen.pending {
             <CartNotice title={t.page_cart_update_refreshing()} warning={false}>
-                <p role="status">{t.route_cart_pending_fresh_write()}</p>
+                if screen.adding {
+                    <p role="status">{t.route_adding_item_description()}</p>
+                } else {
+                    <p role="status">{t.route_cart_pending_fresh_write()}</p>
+                }
                 <p><CheckoutLink href={&url::Cart::default().href()} label={t.page_refresh_cart()} primary={false} /></p>
             </CartNotice>
         } else if screen.lines.is_empty() {
-            <EmptyCart t={t} />
+            <EmptyCart t={t} missing={screen.missing} />
         } else {
             <CartStack>
                 if needs_review {

@@ -34,7 +34,7 @@ use corten::{
     prelude::*,
 };
 use futures_util::StreamExt;
-use platform::{realtime::Tick, receipt::Receipt};
+use platform::{post_write::Surface, realtime::Tick, receipt::Receipt};
 
 use crate::{
     api::{
@@ -250,6 +250,14 @@ fn overlay(place: &Place, reads: &mut Reads) {
     }
 }
 
+/// The page's post-write reports (marketplace's `ACCOUNT_LISTINGS_POST_WRITE_TELEMETRY`).
+const LISTINGS: Surface = Surface {
+    context: "marketplace",
+    surface: "account-listings",
+    route_id: "account-listings",
+    route_template: "/account/listings",
+};
+
 /// The page, read after `receipt`'s write.
 #[allow(clippy::too_many_arguments)]
 async fn render(
@@ -283,6 +291,7 @@ async fn render(
     };
     let (fresh, metrics, open_orders, zone, recovery) =
         tokio::join!(reads(&caller, &query), plain.seller_metrics(), plain.open_order_count(), zone, recovery);
+    LISTINGS.read(&fresh, receipt.is_some());
     let action = naming(&filters, place.listing_recovery.clone());
     let reads = match (fresh, &recovery) {
         (Ok(reads), _) => reads,
@@ -562,7 +571,10 @@ pub(crate) async fn write(
         Err(_) => return sign_in(&req),
     };
     let error = match caller.seller_setting(&setting, &reference.batch_id).await {
-        Ok(receipt) => return req.redirect(&applied(&place, &reference, receipt.as_ref(), &setting)),
+        Ok(receipt) => {
+            LISTINGS.navigated(receipt.as_ref(), None);
+            return req.redirect(&applied(&place, &reference, receipt.as_ref(), &setting));
+        }
         Err(CommandError::Api(error)) => error,
         Err(other) => {
             tracing::warn!("a listing setting was refused with a listing's conflict: {other:?}");
@@ -664,7 +676,10 @@ async fn send_batch(
 ) -> HtmlResult {
     let caller = config.platform.caller(headers, config.proto, None);
     let error = match caller.retry_listing_batch(reference).await {
-        Ok(receipt) => return req.redirect(&changed(place, reference, receipt.as_ref())),
+        Ok(receipt) => {
+            LISTINGS.navigated(receipt.as_ref(), None);
+            return req.redirect(&changed(place, reference, receipt.as_ref()));
+        }
         Err(error) => error,
     };
     if error.status() == Some(StatusCode::UNAUTHORIZED) {

@@ -25,6 +25,8 @@ import type {
   CatalogScopeLanguageEditionReviewReadModel,
   CatalogScopeLanguageEditionSummary,
 } from "../../../../../scope-registry/ui/contracts";
+import type { CatalogPrimaryWorkbenchRouteContext } from "../../../../api/primary-workbench-admin-contracts";
+import { useCatalogIntegrationCommandHref } from "../../import-to-promotion/command-action-context";
 
 // The scope-detail language-editions section. Inline first, per
 // the v2 control-plane blueprint's disclosure rules: every edition's link
@@ -32,19 +34,22 @@ import type {
 // each non-canonical edition sit behind a per-edition disclosure so the
 // section stays scannable when a scope has many editions. Accept/reject/defer/
 // revoke dispatch the same alias-equivalence commands the generic alias-review
-// table uses, scoped to this scope's reference record only.
+// table uses, scoped to this scope's reference record only. The forms post to
+// the owning page with its current journey context, so the selection, filters
+// and paging stay on the page the result renders on.
 export type CatalogIntegrationLanguageEditionsPanelProps = Readonly<{
   readModel: CatalogScopeLanguageEditionReviewReadModel;
-  /** Route the accept/reject/defer/revoke forms POST to (supplied by the composition root). */
-  actionHref: string;
+  /** The owning page's current journey context, or null before it has one. */
+  routeContext: CatalogPrimaryWorkbenchRouteContext | null;
   canManageAliases?: boolean;
 }>;
 
 export function CatalogIntegrationLanguageEditionsPanel({
   readModel,
-  actionHref,
+  routeContext,
   canManageAliases = true,
 }: CatalogIntegrationLanguageEditionsPanelProps) {
+  const actionHref = useCatalogIntegrationCommandHref(routeContext);
   const totalPending = readModel.editions.reduce((sum, edition) => sum + edition.pendingCandidates.length, 0);
   const totalLinked = readModel.editions.filter((edition) => edition.linkState === "linked").length;
 

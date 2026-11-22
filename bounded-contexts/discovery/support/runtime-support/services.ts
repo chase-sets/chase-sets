@@ -20,10 +20,8 @@ import {
 import { createDiscoveryItemRuntime, type DiscoveryItemsServices } from "../item-support/runtime";
 import {
   DISCOVERY_SEARCH_EMBEDDINGS_ENV_VAR,
-  DISCOVERY_SEARCH_HYBRID_ENV_VAR,
   DISCOVERY_SEARCH_RESCUE_ENV_VAR,
   discoverySearchEmbeddingEnrichmentEnabled,
-  discoverySearchHybridEnabled,
   discoverySearchRescueEnabled,
 } from "../../features/search/domain/embedding-rollout";
 import { createQueryEmbeddingCache } from "../../features/search/domain/query-embedding-cache";
@@ -54,7 +52,6 @@ export type DiscoveryHostPorts = Readonly<{
     retryBackoffMaxMs?: number;
     rolloutValue?: string | null;
     rescueValue?: string | null;
-    hybridValue?: string | null;
     queryCacheMaxEntries?: number;
     queryCacheTtlMs?: number;
     queryTimeoutMs?: number;
@@ -143,11 +140,6 @@ export function createDiscoveryServices(pool: PgTransactionalPool, ports: Discov
       embeddingRolloutEnabled &&
       discoverySearchRescueEnabled({
         [DISCOVERY_SEARCH_RESCUE_ENV_VAR]: embeddingConfig?.rescueValue ?? undefined,
-      }),
-    hybridEnabled:
-      embeddingRolloutEnabled &&
-      discoverySearchHybridEnabled({
-        [DISCOVERY_SEARCH_HYBRID_ENV_VAR]: embeddingConfig?.hybridValue ?? undefined,
       }),
     recordSearchQuery: ports.searchTelemetry?.recordSearchQuery,
     recordQueryEmbeddingLoad: ports.searchTelemetry?.recordQueryEmbeddingLoad,

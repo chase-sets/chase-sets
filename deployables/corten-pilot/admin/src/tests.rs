@@ -281,6 +281,8 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
         } else if cookie.contains("chase_sets_session=payouts-operator") || cookie.contains("chase_sets_session=payouts-blocked")
         {
             actor(&["payouts.reconcile"])
+        } else if cookie.contains("chase_sets_session=payouts-readiness") {
+            actor(&["payouts.reconcile", "payouts.view"])
         } else if cookie.contains("chase_sets_session=wallet-admin") || cookie.contains("chase_sets_session=wallet-stepup") {
             actor(&[
                 "wallet-adjustments.view",
@@ -4478,14 +4480,14 @@ async fn the_alias_reviews_bulk_bar_posts_the_checked_candidates_and_auto_accept
         bodies,
         [
             json!({ "intent": "accept", "aliasHashes": "ah_glurak,ah_dracaufeu" }),
-            json!({ "intent": "accept", "aliasHashes": "ah_dracaufeu" }),
+            json!({ "intent": "accept", "aliasHashes": "ah_glurak,ah_dracaufeu", "eligibleOnly": true }),
             json!({ "intent": "reject", "aliasHashes": "ah_glurak", "reason": "Machine translation" })
         ],
-        "Auto-accept eligible sends only the eligible one (chase-sets/chase-sets#11024)"
+        "Auto-accept eligible sends the picked candidates and leaves the rule to Catalog"
     );
 
-    // None eligible, none checked, or a reject without its reason: the failed banner, nothing sent.
-    for body in ["intent=alias.accept-eligible&picked=ah_glurak", "intent=alias.accept", "intent=alias.reject&picked=ah_glurak"] {
+    // None checked, or a reject without its reason: the failed banner, nothing sent.
+    for body in ["intent=alias.accept", "intent=alias.reject&picked=ah_glurak"] {
         let (_, headers, _) = pilot.send(post("/catalog/scopes/aliases", body, false)).await;
         assert_eq!(headers[header::LOCATION], "/catalog/scopes?done=failed", "{body}");
     }
@@ -8049,11 +8051,24 @@ async fn payout_operations_forwards_the_filter_and_reads_the_rest_only_to_reconc
     assert!(html[failed..].contains(r#">7</span>"#), "Settlement's count, not the rows': {html}");
     assert!(!html.contains("Payout setup blocked"), "the setup rows need payouts.reconcile: {html}");
 
+    // `payouts.reconcile` alone, as a platform admin holds it: the attempts, not the seller's
+    // payout setup, whose read needs `payouts.view` too.
     let (_, _, html) = pilot.send(get("/commerce/payout-operations?filter=nonsense", Some("payouts-operator"))).await;
     let reads: Vec<String> = pilot.calls_to_path(SETTLEMENT).into_iter().skip(1).map(|c| c.path).collect();
     assert!(reads.contains(&"/api/settlement/payouts/reconciliation".to_owned()), "an unknown filter is All: {reads:?}");
-    assert!(reads.contains(&"/api/settlement/payout-readiness".to_owned()));
+    assert!(!reads.contains(&"/api/settlement/payout-readiness".to_owned()), "{reads:?}");
     assert!(reads.contains(&"/api/settlement/payouts/provider-idempotency?limit=10".to_owned()));
+    assert!(html.contains("Protected retry key") && !html.contains("Payout destination"), "no setup table: {html}");
+    // As admin-web does, the setup's attention rows stay, counting nothing without the read.
+    let blocked = html.find("Payout setup blocked").unwrap();
+    assert!(html[blocked..].contains(r#">0</span>"#), "{html}");
+
+    let seen = pilot.calls_to_path(SETTLEMENT).len();
+    let (_, _, html) = pilot.send(get("/commerce/payout-operations?filter=nonsense", Some("payouts-readiness"))).await;
+    let reads: Vec<String> = pilot.calls_to_path(SETTLEMENT).into_iter().skip(seen).map(|c| c.path).collect();
+    assert!(reads.contains(&"/api/settlement/payout-readiness".to_owned()), "{reads:?}");
+    assert!(reads.contains(&"/api/settlement/payouts/provider-idempotency?limit=10".to_owned()));
+    assert!(html.contains("Payout destination"), "{html}");
     assert!(html.contains("Ready to reconcile") && !html.contains("Needs provider reference"), "{html}");
     assert!(html.contains("Protected retry key") && !html.contains("secret-key"), "the key itself is not shown: {html}");
     assert!(html.contains("Not checked in this session"), "{html}");
@@ -10596,11 +10611,14 @@ async fn the_review_stage_folds_the_providers_alias_review_and_its_commands_land
     };
     assert_eq!(sent(&pilot), [json!({ "intent": "accept", "aliasHashes": "ah_glurak" })]);
 
-    // Auto-accept eligible keeps the eligible ones (chase-sets/chase-sets#11024); defer writes nothing.
+    // Auto-accept eligible leaves the rule to Catalog; defer writes nothing.
     let picked = "intent=alias.accept-eligible&picked=ah_glurak&picked=ah_dracaufeu";
     let (status, _, _) = pilot.send(post(&format!("/catalog/integrations/aliases?{at}"), picked, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
-    assert_eq!(sent(&pilot).last().unwrap(), &json!({ "intent": "accept", "aliasHashes": "ah_dracaufeu" }));
+    assert_eq!(
+        sent(&pilot).last().unwrap(),
+        &json!({ "intent": "accept", "aliasHashes": "ah_glurak,ah_dracaufeu", "eligibleOnly": true })
+    );
     let (status, headers, _) = pilot
         .send(post(&format!("/catalog/integrations/aliases?{at}"), "intent=alias.defer&alias_hashes=ah_glurak", false))
         .await;

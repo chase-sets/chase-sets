@@ -730,7 +730,6 @@ export interface SourceObservationPromotionReceipt {
 export type CatalogIntegrationsCommandResult = Readonly<{
   feedback: CatalogPrimaryWorkbenchCommandFeedback;
   context: CatalogPrimaryWorkbenchRouteContext;
-  section: string;
   commandSection?: string;
   attentionItemKey?: string;
   promotionReceipt?: SourceObservationPromotionReceipt | null;

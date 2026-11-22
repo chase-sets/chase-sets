@@ -1,0 +1,23 @@
+{
+  "structuredContent": {
+    "ucp": { "version": "2026-08-25", "status": "success" },
+    "id": "chk_retired",
+    "status": "requires_action",
+    "currency": "USD",
+    "line_items": [
+      {
+        "id": "lst_1",
+        "item": { "id": "lst_1", "title": "Retired checkout line", "price": 2000 },
+        "quantity": 1,
+        "totals": [{ "type": "total", "amount": 2000 }]
+      }
+    ],
+    "totals": [
+      { "type": "subtotal", "amount": 2000 },
+      { "type": "total", "amount": 2000 }
+    ],
+    "links": [],
+    "messages": [{ "type": "warning", "code": "payment_required", "content": "Retired buyer action." }],
+    "continue_url": "https://marketplace.example/checkout/buy/session/chk_retired"
+  }
+}

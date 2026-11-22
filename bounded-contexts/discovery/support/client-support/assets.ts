@@ -1,7 +1,7 @@
-const fakeCdnAssetBaseUrl = "/fake-cdn/assets";
+import { defaultProductImageUrl } from "@chase-sets/catalog-seed/fallback-assets";
 
 export const discoveryAssetUrls = {
-  defaultProductImage: `${fakeCdnAssetBaseUrl}/pokemon_tcg_back.png`,
+  defaultProductImage: defaultProductImageUrl,
 } as const;
 
 type ImageFallback = Readonly<{

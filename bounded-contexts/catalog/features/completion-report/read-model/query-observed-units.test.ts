@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { completeManifest } from "../domain/__fixtures__/manifest";
 import { parseProductionCatalogCompletionManifest, reconcileProductionCatalogCompletion } from "../domain/index";
+import { assertSupportSafe } from "../domain/redaction";
 import { queryProductionCatalogCompletionFacts } from "./query";
 
 const at = "2026-10-01T00:00:00.000Z";
@@ -15,9 +16,24 @@ const frozen = {
   providerUsage: [],
 };
 
-async function readFacts(state: "failed" | "settled", counts: readonly (number | null)[]) {
+async function readFacts(
+  state: "failed" | "settled",
+  counts: readonly (number | null)[],
+  failedImports: readonly object[] = [],
+) {
+  let inSnapshot = false;
   const client = {
-    async query(sql: string) {
+    async query(sql: string, params?: readonly unknown[]) {
+      if (sql === "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY") {
+        inSnapshot = true;
+        return { rows: [] };
+      }
+      expect(inSnapshot).toBe(true);
+      if (sql === "ROLLBACK") inSnapshot = false;
+      if (sql.includes("AS outcome_status")) {
+        expect(params).toEqual([frozen.batch.batchId]);
+        return { rows: failedImports };
+      }
       if (sql.includes("FROM catalog_scope_sync_batches")) {
         return {
           rows: [
@@ -49,7 +65,9 @@ async function readFacts(state: "failed" | "settled", counts: readonly (number |
       }
       return { rows: [] };
     },
-    release() {},
+    release() {
+      expect(inSnapshot).toBe(false);
+    },
   };
   return queryProductionCatalogCompletionFacts({ connect: async () => client } as PgTransactionalPool, {
     batchId: frozen.batch.batchId,
@@ -59,12 +77,65 @@ async function readFacts(state: "failed" | "settled", counts: readonly (number |
 }
 
 describe("completion facts for observed scope units (synthetic adapter)", () => {
+  it("reports batch-linked import failures without including provider values", async () => {
+    const link = {
+      scope_record_id: "synthetic_scope",
+      sync_run_id: "synthetic_run",
+      provider_key: "scrydex",
+      unit_key: "scrydex:lorcana:single-card:source-observation-import",
+    };
+    const providerText = "SYNTHETIC_CARD_TEXT https://provider.invalid/card Bearer SYNTHETIC_CREDENTIAL";
+    const facts = await readFacts(
+      "failed",
+      [0, 0, 1],
+      [
+        {
+          ...link,
+          integration_job_id: "synthetic_job_mapping",
+          outcome_status: "failed",
+          reason: `Catalog provider 'scrydex' source observation normalization failed at normalizedObservation.fields.cardNumber: ${providerText}`,
+        },
+        {
+          ...link,
+          integration_job_id: "synthetic_job_unclassified",
+          outcome_status: "failed",
+          reason: `Unexpected provider value: ${providerText}`,
+        },
+      ],
+    );
+    const expectedLink = {
+      scopeRecordId: link.scope_record_id,
+      syncRunId: link.sync_run_id,
+      providerKey: link.provider_key,
+      unitKey: link.unit_key,
+      outcomeStatus: "failed",
+    };
+    expect(facts.reportedFacts.failedImportUnits).toEqual([
+      {
+        ...expectedLink,
+        integrationJobId: "synthetic_job_mapping",
+        reason: {
+          code: "source-observation-normalization-failed",
+          fieldPath: "normalizedObservation.fields.cardNumber",
+        },
+      },
+      {
+        ...expectedLink,
+        integrationJobId: "synthetic_job_unclassified",
+        reason: { code: "provider-import-failed", fieldPath: null },
+      },
+    ]);
+    expect(JSON.stringify(facts)).not.toMatch(/SYNTHETIC_CARD_TEXT|provider\.invalid|SYNTHETIC_CREDENTIAL/);
+    expect(() => assertSupportSafe(facts.reportedFacts)).not.toThrow();
+  });
+
   it.each([
     { counts: [null, null, null], unknown: ["changedCount", "failedCount", "observedCount"] },
     { counts: [5, null, 0], unknown: ["changedCount"] },
     { counts: [0, 0, 0], unknown: [] },
   ])("retains failed coverage with counters $counts", async ({ counts, unknown }) => {
     const facts = await readFacts("failed", counts);
+    expect(facts.reportedFacts).not.toHaveProperty("failedImportUnits");
     const manifest = parseProductionCatalogCompletionManifest(facts.manifest);
     expect(manifest.observedUnits).toEqual([
       {

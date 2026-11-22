@@ -2,7 +2,9 @@
 //! `MarketplaceOfferMatchDetailPage`): the list with its best-match snapshot, the Sell List card
 //! and each match's item, listing, best offer, offer vs ask, quantities, status and actions; and an
 //! offer match's page with its overview, the fee terms accepting it would be priced with, the
-//! shipping allowance and the steps.
+//! shipping allowance and the steps. A match from inventory (`InventoryOfferMatchAction`) has no
+//! listing: its row and page show the inventory it could be filled from and link to Create listing
+//! for the item at the offer's price, or say there is not enough stock.
 //!
 //! Every action is a form and works without JavaScript; the list is drawn again live. One column
 //! on a phone, where a match's actions sit at the bottom of the screen on its page; a match's
@@ -18,7 +20,7 @@ use platform::{
 
 use super::listing_page::options;
 use crate::{
-    api::{AcceptanceTerms, OfferMatch, OfferMatches},
+    api::{AcceptanceTerms, OfferMatch, OfferMatches, segment},
     app::url,
     offer_matches::{OfferForm, OfferScreen},
     text::{OfferMatchesMsg, Pilot},
@@ -87,6 +89,27 @@ fn buyer(offer: &OfferMatch) -> &str {
     offer.buyer_display_name.as_deref().unwrap_or(&offer.buyer_account_id)
 }
 
+/// Create listing with the inventory item and the offer's unit price (`inventoryMatchListingHref`).
+fn inventory_listing_href(offer: &OfferMatch) -> String {
+    let item = offer.inventory_item_id.as_deref().unwrap_or_default();
+    format!("{}?inventoryItemId={}&recommendedPrice={}", url::NewListing.href(), segment(item), segment(&offer.price_amount))
+}
+
+/// List to fill this Offer, or that there is not enough stock to (`InventoryOfferMatchAction`);
+/// nothing once the offer is no longer submitted.
+#[component(css = OfferMatchesPage)]
+fn InventoryAction<'a>(t: OfferMatchesMsg, offer: &'a OfferMatch) -> impl Render {
+    html! {
+        if offer.status == "submitted" {
+            if offer.inventory_available_quantity >= offer.quantity_requested {
+                <a class={Button} href={&inventory_listing_href(offer)}>{t.source_list_to_fill_offer()}</a>
+            } else {
+                <p class={Hint}>{t.source_not_enough_stock()}</p>
+            }
+        }
+    }
+}
+
 /// The list.
 #[component(css)]
 pub fn OfferMatchesPage<'a>(t: OfferMatchesMsg, p: Pilot, matches: &'a OfferMatches) -> impl Render {
@@ -134,14 +157,16 @@ pub fn offer_matches_live_parts<'a>(t: OfferMatchesMsg, p: Pilot, matches: &'a O
     }
 }
 
-/// The best-match snapshot (`MarketplaceDashboardPanel`), and that listings are off.
+/// The best-match snapshot (`MarketplaceDashboardPanel`), and that listings are off. The ask and
+/// listings-off figures are the listings' matches only, since a match from inventory has no ask.
 #[component(css = OfferMatchesPage)]
 fn Snapshot<'a>(t: OfferMatchesMsg, matches: &'a OfferMatches) -> impl Patch {
     let items = &matches.items;
+    let listed = || items.iter().filter(|o| !o.is_from_inventory());
     let ready = items.iter().filter(|o| o.can_fulfill).count();
-    let at_ask = items.iter().filter(|o| o.offer_to_listing_price_bps >= 10_000).count();
-    let best = bps(t, items.iter().map(|o| o.offer_to_listing_price_bps).max().unwrap_or(0));
-    let off = items.iter().any(|o| o.seller_listing_availability_status == "unavailable");
+    let at_ask = listed().filter(|o| o.offer_to_listing_price_bps >= 10_000).count();
+    let best = bps(t, listed().map(|o| o.offer_to_listing_price_bps).max().unwrap_or(0));
+    let off = listed().any(|o| o.seller_listing_availability_status == "unavailable");
     html! {
         <div id={OfferSnapshotId} class={(KitStack { gap: Gap::App }, gap_3(), Stack)}>
             <section class={Panel} aria-labelledby="snapshot-title">
@@ -203,13 +228,16 @@ fn Rows<'a>(t: OfferMatchesMsg, p: Pilot, matches: &'a OfferMatches) -> impl Pat
     }
 }
 
-/// A match: the item, the listing, the best offer, offer vs ask, the quantities, the status and
-/// the actions, each labelled, since a phone shows them one under another.
+/// A match: the item, the listing or the inventory, the best offer, offer vs ask (a listing's), the
+/// quantities, the status and the actions, each labelled, since a phone shows them one under
+/// another.
 #[component(css = OfferMatchesPage)]
 fn MatchRow<'a>(t: OfferMatchesMsg, p: Pilot, offer: &'a OfferMatch) -> impl Render {
     let open = url::OfferMatch { id: &offer.offer_id };
     let submitted = offer.status == "submitted";
+    let inventory = offer.is_from_inventory();
     let (ready, tone) = readiness(t, offer);
+    let available = if inventory { offer.inventory_available_quantity } else { offer.seller_available_quantity };
     let f = OfferForm::FIELDS;
     let (who, title) = (buyer(offer), offer.item_title.as_str());
     html! {
@@ -227,17 +255,29 @@ fn MatchRow<'a>(t: OfferMatchesMsg, p: Pilot, offer: &'a OfferMatch) -> impl Ren
             }
             <p class={Badges}>
                 <span class={Badge} data-tone={if submitted { "accent" } else { "neutral" }}>{&offer.status}</span>
-                <span class={Badge} data-tone={tone}>{ready}</span>
+                if !inventory {
+                    <span class={Badge} data-tone={tone}>{ready}</span>
+                } else if let Some(state) = offer.managed_status.as_deref() {
+                    <span class={Badge} data-tone="warning">{managed(t, state)}</span>
+                }
             </p>
         </div>
         <dl class={Lines}>
             <div>
                 <dt>{t.list_your_listing()}</dt>
                 <dd>
-                    <span class={Strong}>{money(&offer.listing_price_amount, Some(&offer.listing_price_currency_code), t)}</span>
-                    <span class={Hint}>
-                        {t.list_listing_quantity(crate::text::offer_matches_msg::ListListingQuantity { visible: offer.listing_visible_quantity, cap: offer.listing_quantity_cap })}
-                    </span>
+                    if inventory {
+                        <span class={Badge} data-tone="neutral">{t.source_from_inventory()}</span>
+                        <span class={Hint}>{t.source_inventory_quantity(offer.inventory_available_quantity)}</span>
+                    } else {
+                        <span class={Badge} data-tone="neutral">{t.source_from_listing()}</span>
+                        <span class={Strong}>
+                            {money(&offer.listing_price_amount, Some(&offer.listing_price_currency_code), t)}
+                        </span>
+                        <span class={Hint}>
+                            {t.list_listing_quantity(crate::text::offer_matches_msg::ListListingQuantity { visible: offer.listing_visible_quantity, cap: offer.listing_quantity_cap })}
+                        </span>
+                    }
                 </dd>
             </div>
             <div>
@@ -247,20 +287,25 @@ fn MatchRow<'a>(t: OfferMatchesMsg, p: Pilot, offer: &'a OfferMatch) -> impl Ren
                     <Buyer t={t} p={p} offer={offer} />
                 </dd>
             </div>
-            <div>
-                <dt>{t.list_offer_vs_ask()}</dt>
-                <dd>
-                    <span class={Badge} data-tone={if offer.offer_to_listing_price_bps >= 10_000 { "success" } else { "accent" }}>
-                        {bps(t, offer.offer_to_listing_price_bps)}
-                    </span>
-                    <span class={Hint}>{gap(t, &offer.offer_price_gap_amount)}</span>
-                </dd>
-            </div>
+            if !inventory {
+                <div>
+                    <dt>{t.list_offer_vs_ask()}</dt>
+                    <dd>
+                        <span
+                            class={Badge}
+                            data-tone={if offer.offer_to_listing_price_bps >= 10_000 { "success" } else { "accent" }}
+                        >
+                            {bps(t, offer.offer_to_listing_price_bps)}
+                        </span>
+                        <span class={Hint}>{gap(t, &offer.offer_price_gap_amount)}</span>
+                    </dd>
+                </div>
+            }
             <div>
                 <dt>{t.list_quantity()}</dt>
                 <dd>
                     <span>{t.list_requested_quantity(offer.quantity_requested)}</span>
-                    <span class={Hint}>{t.list_available_quantity(offer.seller_available_quantity)}</span>
+                    <span class={Hint}>{t.list_available_quantity(available)}</span>
                 </dd>
             </div>
             <div>
@@ -268,39 +313,52 @@ fn MatchRow<'a>(t: OfferMatchesMsg, p: Pilot, offer: &'a OfferMatch) -> impl Ren
                 <dd>{date(t, &offer.updated_at)}</dd>
             </div>
         </dl>
-        <div class={Row}>
-            <form method="post" action={&open}>
-                <input type="hidden" name={f.intent} value="add-selected-offer">
-                {SubmitKey::field(f.attempt_id)}
-                <button
+        if inventory {
+            <div class={Row}>
+                <InventoryAction t={t} offer={offer} />
+                <a
                     class={(Button, Secondary)}
-                    type="submit"
-                    disabled={!offer.can_fulfill || !submitted}
-                    aria-label={p.offer_matches_add_for(crate::text::pilot::OfferMatchesAddFor { buyer: who, title }).to_string()}
+                    href={&open}
+                    aria-label={p.offer_matches_open_for(crate::text::pilot::OfferMatchesOpenFor { buyer: who, title }).to_string()}
                 >
-                    {t.list_add_to_sell_list()}
-                </button>
-            </form>
-            <a
-                class={(Button, Secondary)}
-                href={&open}
-                aria-label={p.offer_matches_open_for(crate::text::pilot::OfferMatchesOpenFor { buyer: who, title }).to_string()}
-            >
-                {t.list_open()}
-            </a>
-            <form method="post" action={&open}>
-                <input type="hidden" name={f.intent} value="decline-offer">
-                {SubmitKey::field(f.attempt_id)}
-                <button
+                    {t.list_open()}
+                </a>
+            </div>
+        } else {
+            <div class={Row}>
+                <form method="post" action={&open}>
+                    <input type="hidden" name={f.intent} value="add-selected-offer">
+                    {SubmitKey::field(f.attempt_id)}
+                    <button
+                        class={(Button, Secondary)}
+                        type="submit"
+                        disabled={!offer.can_fulfill || !submitted}
+                        aria-label={p.offer_matches_add_for(crate::text::pilot::OfferMatchesAddFor { buyer: who, title }).to_string()}
+                    >
+                        {t.list_add_to_sell_list()}
+                    </button>
+                </form>
+                <a
                     class={(Button, Secondary)}
-                    type="submit"
-                    disabled={!submitted}
-                    aria-label={p.offer_matches_decline_for(crate::text::pilot::OfferMatchesDeclineFor { buyer: who, title }).to_string()}
+                    href={&open}
+                    aria-label={p.offer_matches_open_for(crate::text::pilot::OfferMatchesOpenFor { buyer: who, title }).to_string()}
                 >
-                    {t.list_decline()}
-                </button>
-            </form>
-        </div>
+                    {t.list_open()}
+                </a>
+                <form method="post" action={&open}>
+                    <input type="hidden" name={f.intent} value="decline-offer">
+                    {SubmitKey::field(f.attempt_id)}
+                    <button
+                        class={(Button, Secondary)}
+                        type="submit"
+                        disabled={!submitted}
+                        aria-label={p.offer_matches_decline_for(crate::text::pilot::OfferMatchesDeclineFor { buyer: who, title }).to_string()}
+                    >
+                        {t.list_decline()}
+                    </button>
+                </form>
+            </div>
+        }
     }
 }
 
@@ -331,9 +389,92 @@ fn Buyer<'a>(t: OfferMatchesMsg, p: Pilot, offer: &'a OfferMatch) -> impl Render
     }
 }
 
-/// An offer match's page.
+/// An offer match's page: a listing's, or one from inventory, which the seller lists first.
 #[component(css = OfferMatchesPage)]
 pub fn OfferMatchPage<'a>(t: OfferMatchesMsg, p: Pilot, screen: &'a OfferScreen) -> impl Render {
+    html! {
+        if screen.offer.is_from_inventory() {
+            <InventoryMatchPage t={t} p={p} screen={screen} />
+        } else {
+            <ListingMatchPage t={t} p={p} screen={screen} />
+        }
+    }
+}
+
+/// A match from inventory's page (`InventoryOfferMatchDetailPage`): no listing to accept or
+/// decline it against, so its one action is to list the item.
+#[component(css = OfferMatchesPage)]
+fn InventoryMatchPage<'a>(t: OfferMatchesMsg, p: Pilot, screen: &'a OfferScreen) -> impl Render {
+    let offer = &screen.offer;
+    let submitted = offer.status == "submitted";
+    let label = |text: &'a str| text.trim_end_matches([':', ' ']);
+    html! {
+        <header class={Header}>
+            <div class={Heading}>
+                <p class={Eyebrow}>{t.detail_offer_match()}</p>
+                <h1 class={Title}>{&offer.item_title}</h1>
+                <p class={Muted}>{t.source_list_before_responding()}</p>
+            </div>
+            <p class={Actions}>
+                <a class={(Button, Secondary)} href={url::OfferMatches::default()}>{t.detail_back_to_offer_matches()}</a>
+            </p>
+        </header>
+        <div class={Notes} role="status" aria-live="polite">
+            if let Some(refusal) = &screen.refusal {
+                <div class={Banner} data-tone="danger" tabindex="-1">
+                    <p class={Strong}>{t.detail_offer_match_overview()}</p>
+                    <p>{refusal}</p>
+                </div>
+            }
+        </div>
+        if let Some(state) = offer.managed_status.as_deref() {
+            <div class={Banner} data-tone="warning">
+                <p class={Strong}>{t.detail_offer_match_overview()}</p>
+                <p>{managed(t, state)}</p>
+            </div>
+        }
+        <section class={Section} aria-labelledby="overview-title">
+            <h2 id="overview-title" class={PartTitle}>{t.detail_offer_match_overview()}</h2>
+            <div class={Card}>
+                <p class={Badges}>
+                    <span class={Badge} data-tone={if submitted { "accent" } else { "neutral" }}>{&offer.status}</span>
+                    <span class={Badge} data-tone="neutral">{t.source_from_inventory()}</span>
+                </p>
+                <p class={Big}>{money(&offer.price_amount, offer.price_currency_code.as_deref(), t)}</p>
+                <p class={Strong}>{&offer.item_title}</p>
+                if let Some(subtitle) = &offer.item_subtitle {
+                    <p class={Muted}>{subtitle}</p>
+                }
+                if offer.product_summary.is_some() {
+                    <p class={Tags}>
+                        for option in options(offer.product_summary.as_deref()) {
+                            <span class={Tag}>{option}</span>
+                        }
+                    </p>
+                }
+                <dl class={Facts}>
+                    <div>
+                        <dt>{label(t.detail_buyer())}</dt>
+                        <dd><Buyer t={t} p={p} offer={offer} /></dd>
+                    </div>
+                    <div>
+                        <dt>{label(t.detail_quantity_requested())}</dt>
+                        <dd>{offer.quantity_requested}</dd>
+                    </div>
+                    <div>
+                        <dt>{label(t.detail_active_supply_available())}</dt>
+                        <dd>{offer.inventory_available_quantity}</dd>
+                    </div>
+                </dl>
+                <div class={Actions}><InventoryAction t={t} offer={offer} /></div>
+            </div>
+        </section>
+    }
+}
+
+/// A listing's match's page.
+#[component(css = OfferMatchesPage)]
+fn ListingMatchPage<'a>(t: OfferMatchesMsg, p: Pilot, screen: &'a OfferScreen) -> impl Render {
     let offer = &screen.offer;
     let submitted = offer.status == "submitted";
     let (ready, tone) = readiness(t, offer);

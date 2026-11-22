@@ -1588,6 +1588,45 @@ export function isThinRouteAdapter(content) {
   return withoutExports.trim().length === 0;
 }
 
+// Public Presence composes its manifest one feature at a time. Remove paths
+// as their adapters move; no new or migrated route inherits this allowance.
+const unmigratedPublicPresenceRoutes = new Set(
+  [
+    "admin/campaign-analytics",
+    "admin/promo-bar",
+    "admin/waitlist",
+    "marketplace/agent-terms",
+    "marketplace/authenticity-terms",
+    "marketplace/compare-ebay",
+    "marketplace/compare-tcgplayer",
+    "marketplace/contact",
+    "marketplace/faq",
+    "marketplace/founders",
+    "marketplace/help-article",
+    "marketplace/help-category",
+    "marketplace/help",
+    "marketplace/home",
+    "marketplace/order-protection",
+    "marketplace/payments-terms",
+    "marketplace/press",
+    "marketplace/privacy",
+    "marketplace/refunds-and-returns",
+    "marketplace/seller-agreement",
+    "marketplace/terms",
+    "marketplace/welcome",
+  ].map((route) => `bounded-contexts/public-presence/routes/${route}.tsx`),
+);
+
+export function findSourceBackedRouteAdapterViolation(file, content) {
+  const thin = isThinRouteAdapter(content);
+  if (unmigratedPublicPresenceRoutes.has(file)) {
+    return thin ? "remove the migrated route from unmigratedPublicPresenceRoutes" : null;
+  }
+  return thin
+    ? null
+    : "migrated contexts must keep routes/ modules as thin public adapters; route behavior belongs under features/<slice>";
+}
+
 const catalogAdminMarker = ["catalog", "admin"].join("-");
 
 function resolveAdminWebSection(contextName, fileExportOrKey) {
@@ -3597,16 +3636,9 @@ export async function runStructureCheck(options = {}) {
       const contextRoot = getContextRoot(normalizedFile);
       const contextName = contextRoot ? (contextManifests.get(contextRoot)?.manifest.contextName ?? null) : null;
       const context = contextRoot ? contextManifests.get(contextRoot) : null;
-      if (
-        context?.sourceBacked &&
-        normalizedFile.startsWith(`${contextRoot}/routes/`) &&
-        !isTestFile(normalizedFile) &&
-        !isThinRouteAdapter(content)
-      ) {
-        addViolation(
-          file,
-          "migrated contexts must keep routes/ modules as thin public adapters; route behavior belongs under features/<slice>",
-        );
+      if (context?.sourceBacked && normalizedFile.startsWith(`${contextRoot}/routes/`) && !isTestFile(normalizedFile)) {
+        const violation = findSourceBackedRouteAdapterViolation(normalizedFile, content);
+        if (violation) addViolation(file, violation);
       }
       const routeSupportPlacementViolation = findRouteSupportPlacementViolation({
         relativeFile: normalizedFile,
@@ -3822,9 +3854,15 @@ export async function runStructureCheck(options = {}) {
       const message =
         `support file in ${usageRecord.supportDirectory} is imported by only one slice (${sliceName}); ` +
         `relocate it to bounded-contexts/.../${sliceName}/`;
+      // Keep the existing severity until Waitlist migrates; global strict mode still applies.
+      const unmigratedWaitlistSupport =
+        supportFile === "bounded-contexts/public-presence/support/runtime-support/services" &&
+        sliceName === "waitlist" &&
+        unmigratedPublicPresenceRoutes.has("bounded-contexts/public-presence/routes/admin/waitlist.tsx");
       if (
         singleSliceSupportSeverity({
-          sourceBacked: contextManifests.get(usageRecord.contextRoot)?.sourceBacked === true,
+          sourceBacked:
+            contextManifests.get(usageRecord.contextRoot)?.sourceBacked === true && !unmigratedWaitlistSupport,
           enforcementMode: singleSliceSupportEnforcementMode,
         }) === "warn"
       ) {

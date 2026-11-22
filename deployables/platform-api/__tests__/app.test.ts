@@ -2266,9 +2266,11 @@ describe("platform api app wiring", () => {
       }),
       {
         widgetResources: (uri) =>
-          uri === UCP_MCP_PRODUCT_CARDS_RESOURCE_URI
-            ? "<!doctype html><title>Chase Sets Product Cards</title>"
-            : undefined,
+          ({
+            [UCP_MCP_PRODUCT_CARDS_RESOURCE_URI]: "<!doctype html><title>Chase Sets Product Cards</title>",
+            [UCP_MCP_CART_REVIEW_RESOURCE_URI]: "<!doctype html><title>Chase Sets Cart Review</title>",
+            [UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI]: "<!doctype html><title>Chase Sets Checkout Handoff</title>",
+          })[uri],
         ucp: {
           profileResolver: async () => ({
             ok: true,
@@ -3205,6 +3207,7 @@ describe("platform API payment provider mode observation", () => {
       "bounded-contexts/payments/features/wallet-funding/api/runtime.test.ts",
       "bounded-contexts/payments/index.ts",
       "bounded-contexts/payments/support/runtime-support/seed.ts",
+      "bounded-contexts/payments/tests/payment-reservation-sweep.db.test.ts",
       "bounded-contexts/payments/tests/provider-journal.db.test.ts",
     ]);
     const seedSource = readFileSync(

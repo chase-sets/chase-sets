@@ -69,5 +69,7 @@ export const catalogSourceObservationsAliasReviewEnglishTranslations = {
   "catalog.features.aliasEquivalence.api.route.invalid.intent":
     "Alias review action must be accept, reject, or revoke.",
   "catalog.features.aliasEquivalence.api.route.no.candidates": "Select at least one alias candidate to review.",
+  "catalog.features.aliasEquivalence.api.route.eligible.only.accept":
+    "Only an accept can be limited to the auto-accept eligible candidates.",
   "catalog.features.aliasEquivalence.api.route.reason.required": "Rejecting or revoking an alias requires a reason.",
 } as const;

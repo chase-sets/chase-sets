@@ -1797,9 +1797,12 @@ describe("UCP Postgres idempotency store", () => {
 
 describe("UCP MCP routes", () => {
   const productCardsHtml = "<!doctype html><title>Chase Sets Product Cards</title>";
-  const widgets = {
-    widgetResources: (uri: string) => (uri === UCP_MCP_PRODUCT_CARDS_RESOURCE_URI ? productCardsHtml : undefined),
-  };
+  const builtWidgets = new Map([
+    [UCP_MCP_PRODUCT_CARDS_RESOURCE_URI, productCardsHtml],
+    [UCP_MCP_CART_REVIEW_RESOURCE_URI, "<!doctype html><title>Chase Sets Cart Review</title>"],
+    [UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI, "<!doctype html><title>Chase Sets Checkout Handoff</title>"],
+  ]);
+  const widgets = { widgetResources: (uri: string) => builtWidgets.get(uri) };
   const modernMeta = {
     [MCP_META_PROTOCOL_VERSION_KEY]: "2026-07-28",
     [MCP_META_CLIENT_CAPABILITIES_KEY]: {},
@@ -2323,7 +2326,7 @@ describe("UCP MCP routes", () => {
     });
   });
 
-  it("mcp app resource absent: serves catalog data but neither advertises nor reads its widget", async () => {
+  it("mcp app resource absent: serves tool data but neither advertises nor reads unbuilt widgets", async () => {
     const empty = () => createUcpEnvelope("success", { products: [] });
     const notFound = () =>
       createUcpEnvelope("error", {}, [{ code: "product_not_found", content: "Product not found." }]);
@@ -2350,13 +2353,20 @@ describe("UCP MCP routes", () => {
       expect(invocation.result._meta ?? {}).not.toHaveProperty("ui");
       expect(invocation.result._meta ?? {}).not.toHaveProperty("openai/outputTemplate");
     }
+    // Checkout tools stay callable but link no widget until its HTML is built.
+    for (const tool of list.result.tools) {
+      expect(tool._meta).not.toHaveProperty("ui");
+      expect(tool._meta).not.toHaveProperty("openai/outputTemplate");
+    }
     const resources = await call("resources/list");
-    expect(resources.result.resources).not.toContainEqual(
-      expect.objectContaining({ uri: UCP_MCP_PRODUCT_CARDS_RESOURCE_URI }),
-    );
-    expect(await call("resources/read", { uri: UCP_MCP_PRODUCT_CARDS_RESOURCE_URI })).toMatchObject({
-      error: { code: -32002 },
-    });
+    expect(resources.result.resources).toEqual([]);
+    for (const uri of [
+      UCP_MCP_PRODUCT_CARDS_RESOURCE_URI,
+      UCP_MCP_CART_REVIEW_RESOURCE_URI,
+      UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI,
+    ]) {
+      expect(await call("resources/read", { uri })).toMatchObject({ error: { code: -32002 } });
+    }
   });
 
   it("mcp app metadata keys: lists and reads MCP Apps widget resources with only the current metadata", async () => {
@@ -2441,7 +2451,7 @@ describe("UCP MCP routes", () => {
         contents: [
           {
             uri: UCP_MCP_CART_REVIEW_RESOURCE_URI,
-            text: expect.stringContaining("Chase Sets Cart Review"),
+            text: builtWidgets.get(UCP_MCP_CART_REVIEW_RESOURCE_URI),
           },
         ],
       },
@@ -2453,28 +2463,28 @@ describe("UCP MCP routes", () => {
         contents: [
           {
             uri: UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI,
-            text: expect.stringContaining("Chase Sets Checkout Handoff"),
+            text: builtWidgets.get(UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI),
           },
         ],
       },
     });
-    expect(handoffBody.result.contents[0].text).toContain("payload.continue_url");
-    expect(handoffBody.result.contents[0].text).not.toContain("action.url");
     for (const body of [readBody, cartBody, handoffBody]) {
       const meta = body.result.contents[0]._meta;
       expect(Object.keys(meta).sort()).toEqual(["openai/widgetDescription", "ui"]);
       expect(Object.keys(meta.ui).sort()).toEqual(["csp", "prefersBorder"]);
     }
-    const retired = await app.request("/ucp/mcp", {
-      method: "POST",
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: "old",
-        method: "resources/read",
-        params: { uri: "ui://chase-sets/product-cards/v1.html" },
-      }),
-    });
-    await expect(retired.json()).resolves.toMatchObject({ error: { code: -32602 } });
+    // Retired widget URIs are unknown, not unbuilt; the v2 URIs replaced them in the same change as the tools.
+    for (const uri of [
+      "ui://chase-sets/product-cards/v1.html",
+      "ui://chase-sets/cart-review/v1.html",
+      "ui://chase-sets/checkout-handoff/v1.html",
+    ]) {
+      const retired = await app.request("/ucp/mcp", {
+        method: "POST",
+        body: JSON.stringify({ jsonrpc: "2.0", id: "old", method: "resources/read", params: { uri } }),
+      });
+      await expect(retired.json()).resolves.toMatchObject({ error: { code: -32602 } });
+    }
   });
 
   it("keeps checkout widget HTML and tool bindings without inheriting product asset origins", async () => {
@@ -2524,48 +2534,6 @@ describe("UCP MCP routes", () => {
         }),
       );
     }
-  });
-
-  it("checkout handoff action.url-only payload renders the empty state", async () => {
-    const app = new Hono().route("/ucp/mcp", createUcpMcpRoutes());
-    const response = await app.request("https://marketplace.example/ucp/mcp", {
-      method: "POST",
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: "handoff-action-only",
-        method: "resources/read",
-        params: { uri: UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI },
-      }),
-    });
-    const html = (await response.json()).result.contents[0].text as string;
-    const scriptOpen = "<script>";
-    const scriptStart = html.indexOf(scriptOpen);
-    const scriptEnd = html.indexOf("</script>", scriptStart);
-    expect(scriptStart).toBeGreaterThanOrEqual(0);
-    expect(scriptEnd).toBeGreaterThan(scriptStart);
-    expect(html.indexOf("<script", scriptStart + scriptOpen.length)).toBe(-1);
-    const script = html.slice(scriptStart + scriptOpen.length, scriptEnd);
-    expect(script).toContain('window.addEventListener("message"');
-    let listener: ((event: { data: unknown }) => void) | undefined;
-    const root = { innerHTML: "" };
-    new Function("document", "window", script!)(
-      { getElementById: () => root },
-      {
-        addEventListener: (_type: string, callback: (event: { data: unknown }) => void) => {
-          listener = callback;
-        },
-      },
-    );
-    expect(listener).toBeTypeOf("function");
-    root.innerHTML = "";
-    listener!({
-      data: {
-        method: "ui/notifications/tool-result",
-        params: { result: { structuredContent: { action: { url: "https://x" } } } },
-      },
-    });
-    expect(root.innerHTML).toContain("Checkout handoff details will appear here");
-    expect(root.innerHTML).not.toContain("Open trusted checkout");
   });
 
   it("rejects UCP MCP JSON-RPC batches as transport-level invalid requests", async () => {
@@ -2924,6 +2892,7 @@ describe("UCP MCP routes", () => {
       app.route(
         "/ucp/mcp",
         createUcpMcpRoutes({
+          ...widgets,
           mcpToolHandlers: {
             complete_checkout: vi.fn(),
           },

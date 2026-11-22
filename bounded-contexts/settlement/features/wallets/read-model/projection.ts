@@ -1,5 +1,6 @@
 import { resolveProjectionDb, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { WalletSpendHoldExpirySetEvent, WalletSpendHoldRetiredEvent } from "../domain/domain";
 
 export function buildWalletProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
@@ -244,6 +245,28 @@ export function buildWalletProjectionHandlers(db: PgQueryable): ProjectorHandler
          WHERE hold_id = $1
            AND status = 'active'`,
         [data.holdId, data.reason, data.releasedAt],
+      );
+    },
+    "settlement.wallet.spend-hold-retired.v1": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
+      const data = event.data as WalletSpendHoldRetiredEvent["data"];
+      await projectionDb.query(
+        `INSERT INTO settlement_wallet_spend_holds (
+           hold_id, account_id, payment_id, amount, currency_code, status,
+           placed_at, expires_at, released_at, release_reason, updated_at
+         ) VALUES ($1, $2, $3, 0, $4, 'released', $5, NULL, $5, $6, $5)
+         ON CONFLICT (hold_id) DO NOTHING`,
+        [data.holdId, data.accountId, data.paymentId, data.currencyCode, data.retiredAt, data.reason],
+      );
+    },
+    "settlement.wallet.spend-hold-expiry-set.v1": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
+      const data = event.data as WalletSpendHoldExpirySetEvent["data"];
+      await projectionDb.query(
+        `UPDATE settlement_wallet_spend_holds
+         SET expires_at = $3, updated_at = $4
+         WHERE hold_id = $1 AND account_id = $2 AND status = 'active' AND expires_at IS NULL`,
+        [data.holdId, data.accountId, data.expiresAt, data.setAt],
       );
     },
   };

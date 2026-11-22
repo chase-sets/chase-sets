@@ -33,9 +33,14 @@ describe("settlement admin money health route", () => {
     process.env.CHASE_SETS_MARKETPLACE_ORIGIN = originalMarketplaceOrigin;
   });
 
-  it.each(["platform-admin", "owner"] as const)(
-    "loads populated and empty Money Health through real %s grants",
-    async (roleKey) => {
+  it.each([
+    { roleKey: "platform-admin", permissions: ROLE_PERMISSIONS["platform-admin"], accountId: null },
+    { roleKey: "owner", permissions: ROLE_PERMISSIONS.owner, accountId: "acc_a", denied: true },
+    { roleKey: "manager", permissions: ROLE_PERMISSIONS.manager, accountId: "acc_a", denied: true },
+    { roleKey: "synthetic-account-reconciler", permissions: ["payouts.reconcile"], accountId: "acc_a" },
+  ])(
+    "checks populated and empty Money Health through $roleKey grants",
+    async ({ roleKey, permissions, accountId, denied }) => {
       const actual = await vi.importActual<typeof import("../../support/request-support/api-client")>(
         "../../support/request-support/api-client",
       );
@@ -69,7 +74,7 @@ describe("settlement admin money health route", () => {
             accountId: "acc_a",
             membershipId: "mem_test",
             roleKey,
-            permissions: ROLE_PERMISSIONS[roleKey],
+            permissions,
           });
           await next();
         });
@@ -85,23 +90,25 @@ describe("settlement admin money health route", () => {
         );
         const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => app.request(String(input), init));
         vi.stubGlobal("fetch", fetch);
-        const result = await moneyHealthLoader({
+        const result = moneyHealthLoader({
           request: new Request("https://admin.test/commerce/money-health"),
           params: {},
           context: undefined,
         } as never);
-        expect(result).toMatchObject({
-          payouts_needing_attention: roleKey === "platform-admin" || empty ? rows : [rows[0]],
-          reconciliation_runs: runs,
-          platform_balance_forecast: forecast,
-          provider_health: provider,
-          negative_balance_accounts: balances,
-          negative_balance_total: balances.length,
-        });
-        expect(listPayoutsNeedingReconciliation).toHaveBeenCalledExactlyOnceWith({
-          accountId: roleKey === "platform-admin" ? null : "acc_a",
-          limit: 25,
-        });
+        if (denied) {
+          await expect(result).rejects.toMatchObject({ status: 403 });
+          expect(listPayoutsNeedingReconciliation).not.toHaveBeenCalled();
+        } else {
+          await expect(result).resolves.toMatchObject({
+            payouts_needing_attention: accountId === null || empty ? rows : [rows[0]],
+            reconciliation_runs: runs,
+            platform_balance_forecast: forecast,
+            provider_health: provider,
+            negative_balance_accounts: balances,
+            negative_balance_total: balances.length,
+          });
+          expect(listPayoutsNeedingReconciliation).toHaveBeenCalledExactlyOnceWith({ accountId, limit: 25 });
+        }
         expect(fetch.mock.calls.map(([url]) => new URL(String(url)).pathname)).toEqual([
           "/api/settlement/money-health",
         ]);

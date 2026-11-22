@@ -177,7 +177,7 @@ describe("Auth request actor resolution", () => {
         );
       }
       if (emailState === "unverified") {
-        // Stored-grant control, deliberately separate from the preset-positive resolution above.
+        // A stale snapshot cannot grant permissions missing from the current role.
         const membership = await services.identity.getActiveMembershipForUserAccount(
           "usr_synthetic_pricing",
           "acc_synthetic_pricing",
@@ -194,8 +194,10 @@ describe("Auth request actor resolution", () => {
           }),
         );
         expect(storedActor?.permissions).not.toContain("pricing.manage");
+        // Nothing is withheld that the current role does not grant, so no verify prompt.
+        expect(storedActor).not.toHaveProperty("withheldPermissions");
         expect(storedActor?.permissions).toContain("pricing.view");
-        expect(storedActor?.permissions).toContain("synthetic.retained");
+        expect(storedActor?.permissions).not.toContain("synthetic.retained");
       }
     }
   });
@@ -328,6 +330,15 @@ describe("Auth request actor resolution", () => {
     expect(unverifiedActor?.permissions).not.toContain("listings.manage");
     expect(unverifiedActor?.permissions).not.toContain("offers.manage");
     expect(unverifiedActor?.permissions).not.toContain("orders.manage");
+    // Auth says what it withheld and why, so a surface need not rebuild the rule from the role table.
+    expect(
+      unverifiedActor?.withheldPermissions?.map(({ permission, reason }) => `${permission}:${reason}`).sort(),
+    ).toEqual([
+      "listings.manage:email_verification_required",
+      "offers.manage:email_verification_required",
+      "orders.manage:email_verification_required",
+      "pricing.manage:email_verification_required",
+    ]);
 
     const verifiedServices = createServices({
       dbQuery,
@@ -356,6 +367,7 @@ describe("Auth request actor resolution", () => {
     expect(verifiedActor?.permissions).toEqual(
       expect.arrayContaining(["accounts.view", "listings.manage", "offers.manage", "orders.manage"]),
     );
+    expect(verifiedActor).not.toHaveProperty("withheldPermissions");
   });
 
   it("defines the guest checkout actor shape inside Auth", async () => {
@@ -473,7 +485,7 @@ describe("Auth request actor resolution", () => {
         user_id: "usr_1",
         account_id: "acc_1",
         role_key: "owner",
-        role_permissions: ["accounts.view", "catalog.view", "listings.view", "orders.manage", "orders.view"],
+        role_permissions: ["catalog.manage", "catalog.view"],
         status: "active",
         updated_at: new Date().toISOString(),
       },
@@ -504,12 +516,12 @@ describe("Auth request actor resolution", () => {
       accountId: "acc_1",
       membershipId: "mem_1",
       roleKey: "owner",
-      permissions: ["catalog.view", "orders.manage", "orders.view"],
+      permissions: ["orders.manage", "orders.view"],
       agentGrant: {
         grantId: "lpa_1",
         platformProfileUrl: "https://agent.example/.well-known/ucp",
         scopes: ["catalog:read", "dev.ucp.shopping.checkout:manage"],
-        rolePermissions: ["accounts.view", "catalog.view", "listings.view", "orders.manage", "orders.view"],
+        rolePermissions: ROLE_PERMISSIONS.owner,
       },
     });
     expect(linkedPlatformAuthorizations.resolveAccessToken).toHaveBeenCalledWith("hashed:ucp_at_secret");
@@ -592,7 +604,7 @@ describe("Auth request actor resolution", () => {
       agentGrant: {
         grantId: "lpa_1",
         scopes: ["payouts:request"],
-        rolePermissions: ["payouts.view"],
+        rolePermissions: ROLE_PERMISSIONS.viewer,
       },
     });
   });

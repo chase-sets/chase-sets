@@ -67,6 +67,21 @@ export type ResolvedActor = Readonly<{
    * `currentAuthSessionIdOf`, never from the ID's shape.
    */
   sessionProvenance?: AuthSessionProvenance;
+  /**
+   * The permissions this actor's role grants that Auth withheld when it
+   * resolved the actor, each with Auth's reason. Absent when Auth withheld
+   * nothing, and for actor kinds Auth does not restrict (guest checkout,
+   * UCP/agent bearer tokens). A surface reads this rather than rebuilding
+   * Auth's decision from the role table.
+   */
+  withheldPermissions?: readonly ResolvedActorWithheldPermission[];
+}>;
+
+export const AUTH_WITHHELD_PERMISSION_REASONS = ["email_verification_required"] as const;
+export type AuthWithheldPermissionReason = (typeof AUTH_WITHHELD_PERMISSION_REASONS)[number];
+export type ResolvedActorWithheldPermission = Readonly<{
+  permission: string;
+  reason: AuthWithheldPermissionReason;
 }>;
 
 export type ResolvedActorCapabilityAssignment = Readonly<{
@@ -252,19 +267,20 @@ export type PermissionKey = (typeof PERMISSION_KEYS)[number];
 
 export const PERMISSION_PRESETS = {
   paymentsOperator: ["orders.manage", "orders.view"],
-  payoutsOperator: ["payouts.manage", "payouts.reconcile", "payouts.request", "payouts.setup", "payouts.view"],
+  payoutsOperator: ["payouts.request", "payouts.setup", "payouts.view"],
   payoutsViewer: ["payouts.view"],
 } satisfies Readonly<Record<string, readonly PermissionKey[]>>;
 
 /**
- * The one role-to-permission table. Identity's membership projection writes a
- * role's entry into the membership's `role_permissions` snapshot, and Auth
- * resolves a session's permissions as that snapshot united with the role's
- * entry here.
+ * The source of authority for role grants. Membership projections copy these
+ * grants into `role_permissions` for display only; authorization resolves the
+ * current grants here without waiting for a projection rebuild.
  */
 export const ROLE_PERMISSIONS = {
   "platform-admin": [
     "payout-review-holds.manage",
+    "payouts.manage",
+    "payouts.reconcile",
     "payouts.platform.view",
     "provider-connections.view",
     "accounts.manage",
@@ -327,42 +343,25 @@ export const ROLE_PERMISSIONS = {
   owner: [
     "accounts.manage",
     "accounts.view",
-    "catalog.manage",
-    "catalog.view",
     "channels.manage",
     "channels.view",
-    "commercial-terms.manage",
-    "commercial-terms.view",
     "fulfillment.manage",
     "fulfillment.view",
-    "google-shopping.manage",
-    "google-shopping.view",
-    "insights-dashboards.view",
     "memberships.manage",
     "memberships.view",
     "inventory.manage",
     "inventory.view",
     "listings.manage",
     "listings.view",
-    "listing-evidence-policy.view",
     "offers.manage",
     "offers.view",
     "orders.manage",
     "orders.view",
-    "postage-policies.manage",
-    "postage-policies.view",
-    // Decision #9241 owns whether owner keeps projection-operations.*.
-    "projection-operations.operate",
-    "projection-operations.rebuild",
-    "projection-operations.view",
     ...PERMISSION_PRESETS.payoutsOperator,
     "pricing.manage",
     "pricing.view",
     // Customer feedback operator capabilities are platform-staff only;
     // an account owner does not enumerate/export/mutate platform feedback.
-    "platform-policy.view",
-    "public-presence.manage",
-    "public-presence.view",
     "reputation.manage",
     "reputation.view",
     "support.manage",
@@ -373,35 +372,22 @@ export const ROLE_PERMISSIONS = {
     "accounts.view",
     "channels.manage",
     "channels.view",
-    "catalog.manage",
-    "catalog.view",
-    "commercial-terms.manage",
-    "commercial-terms.view",
     "fulfillment.manage",
     "fulfillment.view",
-    "google-shopping.manage",
-    "google-shopping.view",
-    "insights-dashboards.view",
     "memberships.manage",
     "memberships.view",
     "inventory.manage",
     "inventory.view",
     "listings.manage",
     "listings.view",
-    "listing-evidence-policy.view",
     "offers.manage",
     "offers.view",
     "orders.manage",
     "orders.view",
-    "postage-policies.manage",
-    "postage-policies.view",
     ...PERMISSION_PRESETS.payoutsOperator,
     "pricing.manage",
     "pricing.view",
     // Customer feedback operator capabilities are platform-staff only.
-    "platform-policy.view",
-    "public-presence.manage",
-    "public-presence.view",
     "reputation.manage",
     "reputation.view",
     "support.manage",
@@ -421,7 +407,6 @@ export const ROLE_PERMISSIONS = {
     "return-intake.view",
     // No platform-feedback.* -- operator feedback is platform-staff only.
     "pricing.view",
-    "public-presence.view",
     "reputation.view",
     "support.manage",
     "support.view",
@@ -438,11 +423,14 @@ export const ROLE_PERMISSIONS = {
     ...PERMISSION_PRESETS.payoutsViewer,
     "pricing.view",
     // No platform-feedback.* -- operator feedback is platform-staff only.
-    "public-presence.view",
     "reputation.view",
     "support.view",
   ],
 } satisfies Readonly<Record<string, readonly PermissionKey[]>>;
+
+export function resolveRolePermissions(roleKey: string): readonly PermissionKey[] {
+  return Object.hasOwn(ROLE_PERMISSIONS, roleKey) ? ROLE_PERMISSIONS[roleKey as keyof typeof ROLE_PERMISSIONS] : [];
+}
 
 /**
  * Commerce permissions Auth withholds from a session whose primary email is not
@@ -457,23 +445,19 @@ export const EMAIL_VERIFICATION_RESTRICTED_PERMISSIONS = [
 ] as const satisfies readonly PermissionKey[];
 
 /**
- * True only when the actor's role grants `permission` and Auth withheld it
- * pending email verification, so a surface can truthfully ask the member to
- * verify their email rather than hide the action unexplained. Reads Auth's own
- * role table and grants nothing; agent-scoped actors are never told to verify.
+ * True only when Auth withheld `permission` from this actor pending email
+ * verification (`withheldPermissions`), so a surface can truthfully ask the
+ * member to verify their email rather than hide the action unexplained. Grants
+ * nothing; actors Auth does not restrict (agents, guests) never carry it.
  */
 export function permissionAwaitsEmailVerification(
-  actor: Pick<ResolvedActor, "roleKey" | "permissions" | "agentGrant"> | null | undefined,
+  actor: Pick<ResolvedActor, "withheldPermissions"> | null | undefined,
   permission: PermissionKey,
 ): boolean {
-  if (!actor || actor.agentGrant || actor.permissions.includes(permission)) {
-    return false;
-  }
-
-  const rolePermissions: readonly string[] = ROLE_PERMISSIONS[actor.roleKey as keyof typeof ROLE_PERMISSIONS] ?? [];
   return (
-    (EMAIL_VERIFICATION_RESTRICTED_PERMISSIONS as readonly string[]).includes(permission) &&
-    rolePermissions.includes(permission)
+    actor?.withheldPermissions?.some(
+      (withheld) => withheld.permission === permission && withheld.reason === "email_verification_required",
+    ) ?? false
   );
 }
 
@@ -829,6 +813,7 @@ export type OperatorAuthorityDecision =
       kind: "granted";
       membershipId: string;
       roleKey: "platform-admin";
+      /** Informational only; consumers resolve grants from the current role table. */
       rolePermissions: readonly string[];
     }>
   | Readonly<{ kind: "denied"; reason: OperatorAuthorityDenialReason }>;

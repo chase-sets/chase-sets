@@ -93,6 +93,15 @@ const reviewedCatalogDelta = [
     purpose: "managed-postgres-boundary",
   },
 ];
+const catalogCompletionManifestDelta = ["DIGITALOCEAN_ACCESS_TOKEN", "SPACES_ACCESS_ID", "SPACES_SECRET_KEY"].map(
+  (secretName) => ({
+    file: ".github/workflows/catalog-completion-manifest.yml",
+    jobId: "manifest",
+    stepAnchor: "uses:./.github/actions/export-managed-postgres-authority",
+    secretName,
+    purpose: "managed-postgres-boundary",
+  }),
+);
 // #10591 reviewed additions: the DOKS version-change preflight's step-local credentials.
 const doksVersionChangePreflightDelta = [
   "DIGITALOCEAN_ACCESS_TOKEN",
@@ -1117,7 +1126,8 @@ describe("managed Postgres authority source generator", () => {
         .concat(cortenAdminImageDelta)
         .map(applyTerraformProviderCacheStepInsertions)
         .concat(ebaySandboxOAuthDelta)
-        .concat(stripeEndpointRotationDelta),
+        .concat(stripeEndpointRotationDelta)
+        .concat(catalogCompletionManifestDelta),
     };
     // Exact stable-record multiset parity below is the authority; a whole-corpus total would only re-conflict.
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";

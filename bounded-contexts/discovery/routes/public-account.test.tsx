@@ -362,6 +362,25 @@ describe("discovery public account route", () => {
     vi.clearAllMocks();
   });
 
+  it("renders the game-neutral image for a Magic listing without a picture", () => {
+    const account = accountFixture();
+    account.listings = [{ ...account.listings[0], catalog_item_slug: "black-lotus", item_title: "Black Lotus" }];
+    mockUseLoaderData.mockReturnValue({
+      account,
+      notFound: false,
+      canonicalUrl: "http://localhost/accounts/north-store",
+      reviewRole: null,
+      reviewPage: 1,
+      search: "",
+    });
+
+    render(<PublicAccountRoute />);
+
+    expect(screen.getByRole("img", { name: "Black Lotus" }).getAttribute("src")).toBe(
+      "/fake-cdn/assets/product-image-placeholder.svg",
+    );
+  });
+
   it("renders the projected redaction placeholder on the public account while keeping feedback and listings", async () => {
     const account = accountFixture();
     await projectRedactedPublicAccount(account);

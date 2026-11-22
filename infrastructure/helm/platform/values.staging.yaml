@@ -368,8 +368,6 @@ components:
         value: "900000"
       - name: "DISCOVERY_SEARCH_EMBEDDINGS"
         value: "enabled"
-      - name: "DISCOVERY_SEARCH_HYBRID"
-        value: "off"
       - name: "DISCOVERY_SEARCH_RESCUE"
         value: "enabled"
       - name: "EASYPOST_API_BASE_URL"

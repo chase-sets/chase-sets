@@ -12,6 +12,7 @@ import {
   paymentsSupportRefundEffectSchemaMigrations,
   paymentsSupportRefundEffectSchemaSql,
 } from "../features/refunds/integrations/support/support-refund-effect-schema";
+import { paymentsSchemaSql } from "../support/runtime-support/schema";
 
 const paymentsRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = resolve(paymentsRoot, "..", "..");
@@ -46,6 +47,16 @@ describe("fresh payments schemas", () => {
     expect(localization).not.toContain("ALTER TABLE payments_");
     expect(localization).not.toContain("FROM payments_payment_pages");
     expect(localization).not.toMatch(/payments\.features\.[^"]*(?:schema|queries|Schema)\./);
+  });
+
+  it("expands retained payment creation reservations after creating the table at boot", () => {
+    const tableDefinition = paymentsSchemaSql.indexOf(
+      "CREATE TABLE IF NOT EXISTS payments_payment_creation_reservations",
+    );
+    const expansion = paymentsSchemaSql.indexOf("ALTER TABLE payments_payment_creation_reservations");
+
+    expect(tableDefinition).toBeGreaterThanOrEqual(0);
+    expect(expansion).toBeGreaterThan(tableDefinition);
   });
 
   it("keeps additive migrations for stale checkout payment read-model tables", () => {

@@ -387,11 +387,14 @@ pub(crate) fn is_guest(session: Option<&Session>) -> bool {
     !matches!(session, Some(Session::Account(viewer)) if !viewer.actor.can(GUEST_CHECKOUT))
 }
 
-/// The buy cart after a write whose receipt is `receipt` (empty for none): the pilot's, which
-/// reads the account's cart or the guest cart the browser carries.
+/// The buy cart after an add whose receipt is `receipt` (empty for none): the pilot's, which
+/// reads the account's cart or the guest cart the browser carries, and waits for the added line
+/// (`ACCOUNT_CART_ADD_LINE_HANDOFF`, as marketplace's View cart and Buy best match send it).
 pub fn cart_href(receipt: &str) -> String {
     let receipt = (!receipt.is_empty()).then_some(receipt);
-    url::Cart { after: AfterWrite { after_write: receipt.map(str::to_owned) } }.href()
+    let after_write = receipt.map(str::to_owned);
+    let post_write_handoff = receipt.map(|_| crate::cart::ADD_LINE_HANDOFF.to_owned());
+    url::Cart { after: AfterWrite { after_write, post_write_handoff } }.href()
 }
 
 async fn read_item(caller: &Caller<'_>, slug: &str) -> Result<Item, corten::Error> {

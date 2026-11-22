@@ -5,7 +5,7 @@ import path from "node:path";
 import { parse as parseYaml } from "yaml";
 import { expect, it, onTestFinished, vi } from "vitest";
 import { CI_GATE_DEFINITIONS } from "./ci-gate-plan.mjs";
-import { normalizeRelative, repoRoot } from "./lib/repo.mjs";
+import { listWorkspacePackages, normalizeRelative, repoRoot } from "./lib/repo.mjs";
 import { verifyTypecheck } from "./verify-typecheck.mjs";
 
 const fullCommands = [
@@ -38,6 +38,16 @@ function fixture() {
   }
   return root;
 }
+
+it("all workspace typecheck scripts use their own selector", () => {
+  const wrapperPath = path.join(repoRoot, "scripts", "verify-typecheck.mjs");
+  for (const { dir, name, packageJson, packageJsonPath } of listWorkspacePackages()) {
+    const wrapper = normalizeRelative(wrapperPath, dir);
+    expect(packageJson.scripts?.typecheck, normalizeRelative(packageJsonPath, repoRoot)).toBe(
+      `node ${wrapper} --workspace=${name}`,
+    );
+  }
+});
 
 it("workspace selectors alter actual compiler input sets", async () => {
   const root = fixture();

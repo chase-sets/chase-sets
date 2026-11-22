@@ -3,11 +3,8 @@
 //! `permissionAwaitsEmailVerification`), and the sign-in that verifies it
 //! (`emailVerificationSignInHref`).
 //!
-//! Auth's session lists only the permissions it kept, so this reads Auth's role table from
-//! `email-verification.json` (scripts/export.mjs), as marketplace-web does. It grants nothing. A
-//! workaround until Auth says what it withheld: chase-sets/chase-sets#10987.
-
-use std::{collections::HashMap, sync::LazyLock};
+//! Auth's session says which permissions it withheld and why (`withheldPermissions`); this reads
+//! that and grants nothing.
 
 use corten::Route;
 use platform::api::Actor;
@@ -39,17 +36,12 @@ impl Purpose {
     }
 }
 
-/// Each role's permissions Auth withholds until the member's email is verified.
-static WITHHELD: LazyLock<HashMap<String, Vec<String>>> = LazyLock::new(|| {
-    serde_json::from_str(include_str!("../email-verification.json")).expect("email-verification.json is the export's output")
-});
+/// Auth's reason for a permission it withholds until the member's email is verified.
+const REASON: &str = "email_verification_required";
 
-/// True only when the actor's role grants `permission` and Auth withheld it pending email
-/// verification. An agent's actor is never told to verify.
+/// True only when Auth withheld `permission` from the actor pending email verification.
 pub fn awaits(actor: &Actor, permission: &str) -> bool {
-    !actor.agent
-        && !actor.can(permission)
-        && WITHHELD.get(&actor.role_key).is_some_and(|withheld| withheld.iter().any(|p| p == permission))
+    actor.withheld(permission, REASON)
 }
 
 /// The sign-in that emails a magic link and, once it is opened (which verifies the email), returns
@@ -70,26 +62,30 @@ pub fn sign_in(return_path: &str, purpose: Purpose) -> url::SignIn {
 mod tests {
     use super::*;
 
-    fn actor(role: &str, permissions: &[&str], agent: bool) -> Actor {
+    fn actor(withheld: &[(&str, &str)]) -> Actor {
         Actor {
             user_id: "usr_1".into(),
             account_id: "acc_1".into(),
-            role_key: role.into(),
-            permissions: permissions.iter().map(|p| (*p).to_owned()).collect(),
+            role_key: "owner".into(),
+            permissions: vec!["orders.view".into()],
             session_id: "ses_1".into(),
-            agent,
+            withheld_permissions: withheld
+                .iter()
+                .map(|(permission, reason)| platform::api::WithheldPermission {
+                    permission: (*permission).into(),
+                    reason: (*reason).into(),
+                })
+                .collect(),
         }
     }
 
     #[test]
-    fn only_a_permission_the_role_grants_and_auth_withheld_awaits_verification() {
-        assert!(awaits(&actor("owner", &["orders.view"], false), "orders.manage"));
-        assert!(awaits(&actor("manager", &[], false), "listings.manage"));
-        // Kept, not granted by the role, not one Auth withholds, or an agent's.
-        assert!(!awaits(&actor("owner", &["orders.manage"], false), "orders.manage"));
-        assert!(!awaits(&actor("viewer", &["orders.view"], false), "orders.manage"));
-        assert!(!awaits(&actor("owner", &[], false), "accounts.manage"));
-        assert!(!awaits(&actor("owner", &[], true), "orders.manage"));
+    fn only_a_permission_auth_withheld_for_the_email_awaits_verification() {
+        assert!(awaits(&actor(&[("orders.manage", REASON)]), "orders.manage"));
+        // Nothing withheld (a verified member, an agent), another permission, or another reason.
+        assert!(!awaits(&actor(&[]), "orders.manage"));
+        assert!(!awaits(&actor(&[("orders.manage", REASON)]), "listings.manage"));
+        assert!(!awaits(&actor(&[("orders.manage", "another_reason")]), "orders.manage"));
     }
 
     #[test]

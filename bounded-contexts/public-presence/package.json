@@ -11,7 +11,7 @@
     "compile:developer-articles": "node ./features/developer-portal/integrations/compile-developer-articles.mjs",
     "check:developer-articles": "node ./features/developer-portal/integrations/compile-developer-articles.mjs --check",
     "pretest": "pnpm run check:public-policies && pnpm run check:help-articles && pnpm run check:developer-articles",
-    "typecheck": "tsc -p ./tests/tsconfig.json --noEmit",
+    "typecheck": "node ../../scripts/verify-typecheck.mjs --workspace=@chase-sets/public-presence",
     "test": "vitest run --config ./tests/vitest.config.mjs",
     "pretest:unit": "pnpm run check:public-policies && pnpm run check:help-articles && pnpm run check:developer-articles",
     "test:unit": "vitest run --config ./tests/vitest.config.mjs",

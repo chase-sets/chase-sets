@@ -397,6 +397,66 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
     return result.rows[0] ?? null;
   }
 
+  /**
+   * A selected-offer line's buyer, prices and versions come from Checkout's own
+   * read of the Offer match, not from the caller. A caller that names a Listing,
+   * price or version must name the ones that read returns, so a stale page is
+   * refused rather than silently committed to newer terms.
+   */
+  async function selectedOfferTerms(
+    params: Omit<AddCheckoutSellListLineInput, "attemptId" | "requestHash">,
+    productId: string,
+  ) {
+    const offerId = params.offerId?.trim() || null;
+    const listingId = params.listingId?.trim() || null;
+    const unread = {
+      offerId,
+      listingId,
+      buyerAccountId: null,
+      buyerDisplayName: null,
+      offerPriceAmount: null,
+      offerPriceCurrencyCode: null,
+      offerStreamVersion: null,
+      listingPriceAmount: null,
+      listingPriceCurrencyCode: null,
+      listingStreamVersion: null,
+    };
+    // Product lines carry no Offer terms. A selected-offer line without an Offer
+    // and Listing is refused by the domain with its own message.
+    if (params.lineType !== "selected-offer" || !offerId || !listingId) return unread;
+
+    const match = await getCheckoutSellOfferMatch(deps.db, params.sellerAccountId, offerId);
+    if (!match || match.catalog_catalog_item_id !== params.catalogItemId || match.product_id !== productId) {
+      throw new CheckoutDomainError("This Offer cannot be added to your Sell List.");
+    }
+
+    const supplied: readonly [unknown, unknown][] = [
+      [listingId, match.listing_id],
+      [params.offerPriceAmount, match.price_amount],
+      [params.offerPriceCurrencyCode?.toUpperCase(), match.price_currency_code.toUpperCase()],
+      [params.offerStreamVersion, match.offer_stream_version],
+      [params.listingPriceAmount, match.listing_price_amount],
+      [params.listingPriceCurrencyCode?.toUpperCase(), match.listing_price_currency_code.toUpperCase()],
+      [params.listingStreamVersion, match.listing_stream_version],
+    ];
+    if (supplied.some(([sent, read]) => sent !== null && sent !== undefined && sent !== read)) {
+      throw new CheckoutDomainError("This Offer or its Listing has changed. Reload it to see the current terms.");
+    }
+
+    return {
+      offerId: match.offer_id,
+      listingId: match.listing_id,
+      buyerAccountId: match.buyer_account_id,
+      buyerDisplayName: match.buyer_display_name,
+      offerPriceAmount: match.price_amount,
+      offerPriceCurrencyCode: match.price_currency_code,
+      offerStreamVersion: match.offer_stream_version,
+      listingPriceAmount: match.listing_price_amount,
+      listingPriceCurrencyCode: match.listing_price_currency_code,
+      listingStreamVersion: match.listing_stream_version,
+    };
+  }
+
   async function normalizeInput(params: Omit<AddCheckoutSellListLineInput, "attemptId" | "requestHash">) {
     const catalogItem = await getCatalogItemSnapshot(params.catalogItemId);
     if (!catalogItem) {
@@ -423,16 +483,7 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
 
     return {
       ...params,
-      offerId: params.offerId ?? null,
-      listingId: params.listingId ?? null,
-      buyerAccountId: params.buyerAccountId ?? null,
-      buyerDisplayName: params.buyerDisplayName ?? null,
-      offerPriceAmount: params.offerPriceAmount ?? null,
-      offerPriceCurrencyCode: params.offerPriceCurrencyCode ?? null,
-      offerStreamVersion: params.offerStreamVersion ?? null,
-      listingPriceAmount: params.listingPriceAmount ?? null,
-      listingPriceCurrencyCode: params.listingPriceCurrencyCode ?? null,
-      listingStreamVersion: params.listingStreamVersion ?? null,
+      ...(await selectedOfferTerms(params, product.productId)),
       productId: product.productId,
       selectedOptions: product.selection,
       itemTitle: catalogItem.title,

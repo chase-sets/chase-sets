@@ -10,6 +10,12 @@
 //! change to a delivery, shipping or payment field marks the page, whose stylesheet then shows
 //! "Totals need refresh" and Update totals in place of Pay now (marketplace's `markReviewStale`).
 //!
+//! A new card is the exception, as on marketplace's page since chase-sets/chase-sets#11670: with
+//! Stripe's key set, the payment step mounts Stripe's fields for the quoted amount (`DeferredCard`),
+//! Pay now stays off until they are ready, and pressing it has Stripe turn the card into a
+//! confirmation token that the form then posts, so Checkout confirms the payment as it starts it.
+//! Without the script Stripe's fields cannot load, and Pay now stays off.
+//!
 //! A purchase intent's page has no payment step, totals to refresh or notices: its summary prices
 //! each line at the offer and says No payment today, and its one control is Submit offer.
 use corten::{i18n::Currency, prelude::*, view::AttrValue};
@@ -19,13 +25,12 @@ use crate::{
     api::{FulfillmentPreview, SessionLine},
     app::url,
     checkout::{
-        CheckoutForm, ConfirmationScreen, Edit, MANUAL, Notice, Place, Recovery, SHIPPING, Screen, signature, support_reference,
+        CheckoutForm, ConfirmationScreen, DeferredCard, Edit, MANUAL, Notice, Place, Recovery, SHIPPING, Screen, signature,
+        support_reference,
     },
-    text::{CheckoutMsg, Pilot},
+    text::{CheckoutMsg, PaymentMsg, Pilot},
 };
 use platform::ui::steps::{Step, StepState, Steps as KitSteps, StepsLayout};
-
-corten::script::script!(pub mod handlers = "checkout_page.js");
 
 /// The checkout form, which the bar's Pay now also submits.
 #[derive(Id, Clone, Copy)]
@@ -164,8 +169,8 @@ pub fn CheckoutRecovery(t: CheckoutMsg, kind: Recovery) -> impl Render {
 }
 
 /// The page.
-#[component(css)]
-pub fn CheckoutPage<'a>(t: CheckoutMsg, p: Pilot, screen: &'a Screen) -> impl Render {
+#[component(css, js)]
+pub fn CheckoutPage<'a>(t: CheckoutMsg, p: Pilot, pm: PaymentMsg, screen: &'a Screen) -> impl Render {
     let empty = screen.session.lines.is_empty();
     html! {
         <div class={Checkout} data-checkout>
@@ -238,7 +243,7 @@ pub fn CheckoutPage<'a>(t: CheckoutMsg, p: Pilot, screen: &'a Screen) -> impl Re
                             if let Some(payment) = &screen.session.payment_id {
                                 <Confirmation t={t} screen={screen} payment={payment} />
                             } else {
-                                <CheckoutFormPart t={t} screen={screen} />
+                                <CheckoutFormPart t={t} pm={pm} screen={screen} />
                             }
                         }
                     </div>
@@ -358,8 +363,8 @@ fn PageNotice<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
 
 /// The checkout form: its hidden fields, the ready steps' rows, each open step, Pay now and the
 /// policies.
-#[component(css = CheckoutPage)]
-fn CheckoutFormPart<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
+#[component(css = CheckoutPage, js = CheckoutPage)]
+fn CheckoutFormPart<'a>(t: CheckoutMsg, pm: PaymentMsg, screen: &'a Screen) -> impl Render {
     let f = CheckoutForm::FIELDS;
     let s = &screen.session;
     let id = s.session_id.as_str();
@@ -385,8 +390,9 @@ fn CheckoutFormPart<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
             class={Form}
             method="post"
             action={url::BuyCheckout { id, place: Place::default() }}
-            on:change={handlers::stale(event)}
-            on:input={handlers::stale(event)}
+            on:change={js::stale(event)}
+            on:input={js::stale(event)}
+            on:submit={js::pay(event, f.confirmation_token_id)}
         >
             <input
                 type="hidden"
@@ -408,6 +414,8 @@ fn CheckoutFormPart<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
                 value={if screen.confirm_acknowledged { "true" } else { "" }}
             >
             <input type="hidden" name={f.accelerated_saved_payment} value={if screen.accelerated { "true" } else { "" }}>
+            // Stripe's token for the card the payment step took, which Pay now's handler fills.
+            <input type="hidden" name={f.confirmation_token_id} value="">
             if steps.rows() {
                 <SavedRows t={t} screen={screen} />
             }
@@ -591,7 +599,7 @@ fn CheckoutFormPart<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
                     value={offer.map_or("", |o| o.quote_fingerprint.as_str())}
                 >
             }
-            <PaymentPart t={t} screen={screen} />
+            <PaymentPart t={t} pm={pm} screen={screen} />
             <div class={CommitRow}>
                 <a class={(Button, Secondary)} href={url::Cart::default()}>{t.page_back_to_cart()}</a>
                 <Commit t={t} screen={screen} in_form />
@@ -621,9 +629,10 @@ fn TextField<'a, N: AttrValue>(label: &'a str, name: N, value: &'a str, auto: &'
     }
 }
 
-/// The Payment step: the method, a saved method, saving this one, and what comes next.
+/// The Payment step: the method, a saved method, a new card's fields, saving this one, and what
+/// comes next.
 #[component(css = CheckoutPage)]
-fn PaymentPart<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
+fn PaymentPart<'a>(t: CheckoutMsg, pm: PaymentMsg, screen: &'a Screen) -> impl Render {
     let f = CheckoutForm::FIELDS;
     let retry = html! {
         if screen.wallet_unavailable {
@@ -671,6 +680,11 @@ fn PaymentPart<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
                         </select>
                     </label>
                 }
+                // A new card's fields (`DeferredStripePayment`): Stripe mounts them once the
+                // page has its script, and Pay now turns on when they are ready.
+                if let Some(card) = &screen.card {
+                    <CardEntry pm={pm} card={card} />
+                }
                 if screen.can_save_payment && screen.instrument.is_none() && screen.method != "platform-credit" {
                     <label class={Check}>
                         <input type="checkbox" name={f.save_payment_method_for_future} value="true">
@@ -703,6 +717,31 @@ fn PaymentPart<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
                 <input type="hidden" name={f.saved_checkout_instrument_id} value={&i.instrument_id}>
             }
         }
+    }
+}
+
+/// A new card's fields (`DeferredStripePayment`'s entry): the skeleton until Stripe mounts them,
+/// what Stripe could not complete, and without the script that Stripe needs it.
+#[component(css = CheckoutPage, js = CheckoutPage)]
+fn CardEntry<'a>(pm: PaymentMsg, card: &'a DeferredCard) -> impl Render {
+    let (fields, skeleton, error, error_text) = refs();
+    let parts = js::Parts { fields, skeleton, error, error_text };
+    html! {
+        <div class={CardEntryPart}>
+            <div class={Provider} aria-busy="true">
+                <div ref={skeleton} class={Skeleton} aria-hidden="true"></div>
+                <div
+                    ref={fields}
+                    class={Fields}
+                    on:connect={js::mount(target, parts, scope, card, pm.the_secure_processor_could_not_complete(), signal)}
+                ></div>
+            </div>
+            <noscript><p class={Muted}>{pm.stripe_can_only_load_in_the()}</p></noscript>
+            <div ref={error} class={Banner} data-tone="danger" role="alert" hidden>
+                <p class={Strong}>{pm.payment_issue()}</p>
+                <p ref={error_text}></p>
+            </div>
+        </div>
     }
 }
 
@@ -808,7 +847,8 @@ fn SavedRow<'a>(
 /// The one commit control (`checkoutCommitButton`): Review buy cart while a line cannot be
 /// bought, Verify your email to pay while Auth withholds payment pending it, Update totals while
 /// there is no quote, else Pay now, which the page's script swaps for Update totals once a field
-/// changes.
+/// changes. With a new card's fields on the page, Pay now starts off and the script turns it on
+/// once they are ready (`paymentEntryPending`).
 #[component(css = CheckoutPage)]
 fn Commit<'a>(t: CheckoutMsg, screen: &'a Screen, in_form: bool) -> impl Render {
     let f = CheckoutForm::FIELDS;
@@ -856,7 +896,7 @@ fn Commit<'a>(t: CheckoutMsg, screen: &'a Screen, in_form: bool) -> impl Render 
                 name={f.intent}
                 value="confirm-checkout"
                 data-commit="pay"
-                disabled={screen.ambiguous}
+                disabled={screen.ambiguous || screen.card.is_some()}
             >
                 {pay}
             </button>

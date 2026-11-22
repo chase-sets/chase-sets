@@ -15,6 +15,29 @@ use crate::api::URI_COMPONENT as COMPONENT;
 const MAX_AGE_MS: u64 = 30_000;
 const CLOCK_SKEW_MS: u64 = 5_000;
 
+/// What a page's `after_write` parameter is, in `FreshWriteTokenState`'s kinds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Freshness {
+    Missing,
+    Malformed,
+    Future,
+    Expired,
+    Valid,
+}
+
+impl Freshness {
+    /// Its words in a post-write metric's `freshness_outcome` (`freshWriteOutcomeForRequest`).
+    pub fn outcome(self) -> &'static str {
+        match self {
+            Freshness::Missing => "missing-after-write",
+            Freshness::Malformed => "malformed-after-write",
+            Freshness::Future => "future-after-write",
+            Freshness::Expired => "expired-after-write",
+            Freshness::Valid => "valid-after-write",
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Receipt {
@@ -81,9 +104,48 @@ impl Receipt {
     }
 
     fn fresh(self, now: u64) -> Option<Self> {
-        let valid = self.observed_at_ms <= now + CLOCK_SKEW_MS && now.saturating_sub(self.observed_at_ms) <= MAX_AGE_MS;
-        let points = self.commit_position.is_some() || self.sources.get().trim() != "[]";
-        (valid && points).then_some(self)
+        (self.points() && self.timing(now) == Freshness::Valid).then_some(self)
+    }
+
+    /// Whether it names a write: a commit position or a source.
+    fn points(&self) -> bool {
+        self.commit_position.is_some() || self.sources.get().trim() != "[]"
+    }
+
+    fn timing(&self, now: u64) -> Freshness {
+        if self.observed_at_ms > now + CLOCK_SKEW_MS {
+            Freshness::Future
+        } else if now.saturating_sub(self.observed_at_ms) > MAX_AGE_MS {
+            Freshness::Expired
+        } else {
+            Freshness::Valid
+        }
+    }
+
+    /// What a page's `after_write` parameter is (`readFreshWriteTokenState`): none, not a receipt,
+    /// or a receipt from the future, too old, or fresh.
+    pub fn freshness(param: Option<&str>) -> Freshness {
+        Self::freshness_at(param, now_ms())
+    }
+
+    fn freshness_at(param: Option<&str>, now: u64) -> Freshness {
+        let Some(param) = param.filter(|p| !p.is_empty()) else { return Freshness::Missing };
+        match serde_json::from_str::<Receipt>(param) {
+            Ok(receipt) if receipt.points() => receipt.timing(now),
+            _ => Freshness::Malformed,
+        }
+    }
+
+    /// Whether the write was in `context` (one of its sources is that context's).
+    pub fn has_source(&self, context: &str) -> bool {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Source<'a> {
+            #[serde(borrow)]
+            source_context_name: Option<std::borrow::Cow<'a, str>>,
+        }
+        serde_json::from_str::<Vec<Source>>(self.sources.get())
+            .is_ok_and(|sources| sources.iter().any(|s| s.source_context_name.as_deref() == Some(context)))
     }
 
     /// The later of two receipts, by commit position: the one a read must wait for so both writes
@@ -146,5 +208,18 @@ mod tests {
         assert!(Receipt::from_response(&HeaderMap::new()).is_none());
         assert!(Receipt::from_param(Some("{not json")).is_none());
         assert!(Receipt::from_param(None).is_none());
+    }
+
+    #[test]
+    fn a_parameter_s_freshness_is_what_read_fresh_write_token_state_finds() {
+        let param = |at: u64| Receipt { observed_at_ms: at, ..Receipt::from_response(&written()).unwrap() }.param();
+        assert_eq!(Receipt::freshness_at(None, 0), Freshness::Missing);
+        assert_eq!(Receipt::freshness_at(Some("{not json"), 0), Freshness::Malformed);
+        assert_eq!(Receipt::freshness_at(Some(r#"{"observedAtMs":1,"sources":[]}"#), 1), Freshness::Malformed, "names no write");
+        assert_eq!(Receipt::freshness_at(Some(&param(1_000_000)), 1_030_000), Freshness::Valid);
+        assert_eq!(Receipt::freshness_at(Some(&param(1_000_000)), 1_030_001), Freshness::Expired);
+        assert_eq!(Receipt::freshness_at(Some(&param(1_005_001)), 1_000_000), Freshness::Future);
+        let receipt = Receipt::from_response(&written()).unwrap();
+        assert!(receipt.has_source("ordering") && !receipt.has_source("settlement"));
     }
 }

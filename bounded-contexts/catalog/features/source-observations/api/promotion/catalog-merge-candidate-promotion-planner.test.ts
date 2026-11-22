@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { JsonObject } from "@chase-sets/primitives/json";
 import type { BlueprintId, CatalogItemId, CategoryId, FieldId, ReferenceRecordId } from "../../../../ids";
 import type { CatalogMergeCandidateReviewSnapshot } from "../../domain/catalog-merge-candidate";
+import { scrydexScryfallCardProviderProfile } from "../provider-integration-profiles";
 import {
   planCatalogMergeCandidatePromotionCommands,
   type CatalogMergeCandidatePromotionCatalogMapping,
@@ -30,6 +31,57 @@ function planPromotion(
 }
 
 describe("Catalog Merge Candidate promotion planner", () => {
+  it.each(["create", "refresh", "operator-fallback", "link-existing"] as const)(
+    "plans the fallback for a Magic merge candidate in %s",
+    async (scenario) => {
+      const catalog = {
+        ...catalogMapping(),
+        blueprintKey: scrydexScryfallCardProviderProfile.catalogFieldMapping.blueprintKey,
+      };
+      const create = scenario === "create";
+      const target = syntheticCurrentCatalogItem({
+        catalog_item_id: "cat_existing",
+        image_fallback:
+          scenario === "operator-fallback"
+            ? { url: "/operator.png", alt: "Operator image", usage: "permanent", variants: {} }
+            : null,
+      });
+      const result = await planPromotion(
+        {
+          candidate: {
+            candidateId: "cand_magic",
+            status: "ready",
+            snapshot: create
+              ? candidateSnapshot()
+              : candidateSnapshot({
+                  matches: { catalogItemId: target.catalog_item_id, productIds: [] },
+                  promotionIntent: scenario === "link-existing" ? "link-existing-catalog-item" : "update-catalog-item",
+                }),
+          },
+          catalog,
+          createCatalogItemId: create ? ("cat_magic" as CatalogItemId) : null,
+        },
+        { currentItems: [target] },
+      );
+
+      expect(result.status).toBe("planned");
+      const fallbacks = result.plan?.commands.filter((command) => command.type === "SetCatalogItemImageFallback");
+      expect(fallbacks).toEqual(
+        scenario === "create" || scenario === "refresh"
+          ? [
+              {
+                type: "SetCatalogItemImageFallback",
+                imageFallback: expect.objectContaining({
+                  url: "/fake-cdn/assets/magic-card-back.svg",
+                  usage: "permanent",
+                }),
+              },
+            ]
+          : [],
+      );
+    },
+  );
+
   it("plans a previewable Catalog Item create with field provenance and separated external references", async () => {
     const result = await planPromotion({
       candidate: {

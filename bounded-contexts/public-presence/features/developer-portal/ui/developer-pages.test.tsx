@@ -43,6 +43,14 @@ describe("developer portal pages", () => {
     );
   });
 
+  it("renders the review date without missing translations on the developer quickstart", () => {
+    const article = findDeveloperArticle("developer-quickstart");
+    if (!article) throw new Error("missing developer quickstart article");
+    const { container } = render(<DeveloperArticlePage article={article} />, { wrapper: MemoryRouter });
+    expect(screen.queryByText(/^Last reviewed\b/)).not.toBeNull();
+    expect(container.textContent).not.toContain("[missing:");
+  });
+
   it("renders available and planned generated MCP descriptors with schemas", () => {
     const article = findDeveloperArticle("mcp-tool-catalog");
     if (!article) throw new Error("missing MCP tool catalog article");

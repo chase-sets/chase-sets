@@ -10,6 +10,7 @@ import {
   findBrowserUnsafeLocalizationExport,
   findBrowserUnsafeLocalizationReachability,
   findRouteSupportPlacementViolation,
+  findSourceBackedRouteAdapterViolation,
   isAdmittedFeatureMetadataFile,
   isAllowedPublicExportName,
   isCanonicalBoundedContextRootFile,
@@ -127,6 +128,23 @@ describe("route support placement guard", () => {
   it("recognizes thin route adapters and rejects behavior in migrated adapters", () => {
     expect(isThinRouteAdapter('export { loader, action } from "../features/catalog/ui/route";')).toBe(true);
     expect(isThinRouteAdapter('export async function loader() { return new Response("owned here"); }')).toBe(false);
+  });
+
+  it("allows only the existing Public Presence route debt and ratchets it down as adapters move", () => {
+    const legacy = "bounded-contexts/public-presence/routes/marketplace/help.tsx";
+    const body = 'export async function loader() { return new Response("owned here"); }';
+    const adapter = 'export { loader } from "../../features/help/ui/routes/help";';
+    expect(findSourceBackedRouteAdapterViolation(legacy, body)).toBeNull();
+    expect(findSourceBackedRouteAdapterViolation(legacy, adapter)).toContain("remove the migrated route");
+
+    for (const route of [
+      "bounded-contexts/public-presence/routes/developers/portal.tsx",
+      "bounded-contexts/public-presence/routes/marketplace/new.tsx",
+      "bounded-contexts/fulfillment/routes/marketplace/help.tsx",
+    ]) {
+      expect(findSourceBackedRouteAdapterViolation(route, body)).toContain("thin public adapters");
+      expect(findSourceBackedRouteAdapterViolation(route, adapter)).toBeNull();
+    }
   });
 
   it("keeps the exact localization surface browser-safe", () => {

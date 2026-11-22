@@ -125,7 +125,7 @@ describe("Discovery search relevance runner", () => {
       readJson("fixture-embeddings.json"),
     ]);
     const rankedInputs = Object.fromEntries(
-      ["lexical-only", "semantic-fallback", "hybrid"].map((mode) => [
+      ["lexical-only", "semantic-fallback"].map((mode) => [
         mode,
         Object.fromEntries(
           goldenQueries.map((goldenQuery) => {
@@ -187,7 +187,7 @@ describe("Discovery search relevance runner", () => {
       ).rejects.toThrow(/Discovery relevance gate failed/);
       const gatedFailureReport = JSON.parse(await readFile(gatedFailureJson, "utf8"));
       expect(gatedFailureReport.comparison.passed).toBe(false);
-      await expect(readFile(gatedFailureMarkdown, "utf8")).resolves.toContain("## Rollout gate");
+      await expect(readFile(gatedFailureMarkdown, "utf8")).resolves.toContain("## Relevance gates");
       const reportOnly = await runRankedInputEvaluation({
         rankedInput: gatedFailurePath,
         jsonOut: path.join(tempDir, "report-only.json"),
@@ -199,7 +199,7 @@ describe("Discovery search relevance runner", () => {
       );
 
       const missingRankedInput = structuredClone(rankedInput);
-      delete missingRankedInput.rankedInputs.hybrid["exact-01"];
+      delete missingRankedInput.rankedInputs["semantic-fallback"]["exact-01"];
       const missingRankedInputPath = path.join(tempDir, "missing-ranked-input.json");
       await writeFile(missingRankedInputPath, `${JSON.stringify(missingRankedInput)}\n`, "utf8");
       await expect(

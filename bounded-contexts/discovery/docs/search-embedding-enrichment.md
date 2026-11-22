@@ -18,25 +18,23 @@ discovery.search-embedding-enrichment is a leased platform-worker scheduled job.
 
 DISCOVERY_SEARCH_EMBEDDINGS=off (also disabled, false, 0, or kill) removes the enrichment service and runner. A missing VOYAGE_API_KEY has the same clean disabled result. Neither condition prevents the API, worker, schema bootstrap, projection replay, or lexical search from starting.
 
-## Hybrid retrieval rollout
+## Semantic Rescue
 
-`DISCOVERY_SEARCH_RESCUE` controls stage 1 and defaults open. For a fresh relevance query with fewer than three lexical results, Discovery keeps those text matches first and appends up to 24 filter-respecting semantic neighbors. The API returns `retrievalMode: rescue` and `lexicalCount`, and the search page labels the recovery block **Closest matches**. `DISCOVERY_SEARCH_RESCUE=off` disables only this stage.
+`DISCOVERY_SEARCH_RESCUE` defaults open. For a fresh relevance query with fewer than three lexical results, Discovery keeps those text matches first and appends up to 24 filter-respecting semantic neighbors. The API returns `retrievalMode: rescue` and `lexicalCount`, and the search page labels the recovery block **Closest matches**. `DISCOVERY_SEARCH_RESCUE=off` disables only Rescue.
 
-`DISCOVERY_SEARCH_HYBRID` controls stage 2 and defaults off. When explicitly enabled, Discovery fuses the top 200 lexical and vector candidates with reciprocal-rank fusion (`k=60`, lexical weight 0.7, semantic weight 0.3). Exact-title matches sort first and any lexical/base match stays ahead of semantic-only candidates. Pagination re-evaluates the bounded 200-candidate window and slices it with an opaque offset cursor; results beyond that window intentionally require lexical-only search rather than pretending the fused order is unbounded.
-
-Both modes require the parent `DISCOVERY_SEARCH_EMBEDDINGS` control and an API-side `VOYAGE_API_KEY`. They run only for non-empty relevance text queries, never browse, facet-only, title-sort, or newest-sort requests. A missing key, missing item embedding, invalid provider response, provider timeout, or vector-query/index error returns the lexical result unchanged and does not surface an error to the user.
+Rescue requires the parent `DISCOVERY_SEARCH_EMBEDDINGS` control and an API-side `VOYAGE_API_KEY`. It runs only for non-empty relevance text queries, never browse, facet-only, title-sort, or newest-sort requests. A missing key, missing item embedding, invalid provider response, provider timeout, or vector-query/index error returns the lexical result unchanged and does not surface an error to the user.
 
 Query embeddings use an in-process LRU with a 1,000-entry hard bound and 15-minute TTL by default. Keys are SHA-256 hashes of `(model, normalized query)`; concurrent misses share one provider request, failures are evicted, and hits refresh LRU order. `DISCOVERY_QUERY_EMBEDDING_CACHE_MAX_ENTRIES` and `DISCOVERY_QUERY_EMBEDDING_CACHE_TTL_MS` tune the bounds. No query-cache table is created, so the `BcRetentionSweep` table convention does not apply and horizontally scaled API replicas remain independent.
 
 ### Query embedding deadline
 
-Live rescue and hybrid retrieval use one embedding attempt and `DISCOVERY_QUERY_EMBEDDING_TIMEOUT_MS` (800 ms by default), independently of batch `VOYAGE_EMBEDDING_TIMEOUT_MS` (15,000 ms) and `VOYAGE_EMBEDDING_MAX_ATTEMPTS` (four). The cache passes this online policy on every provider invocation, including injected providers. Fetch and response-body parsing are abortable; online rate limits never sleep or retry. Enrichment and backfill retain their batch policy.
+Live Rescue uses one embedding attempt and `DISCOVERY_QUERY_EMBEDDING_TIMEOUT_MS` (800 ms by default), independently of batch `VOYAGE_EMBEDDING_TIMEOUT_MS` (15,000 ms) and `VOYAGE_EMBEDDING_MAX_ATTEMPTS` (four). The cache passes this online policy on every provider invocation, including injected providers. Fetch and response-body parsing are abortable; online rate limits never sleep or retry. Enrichment and backfill retain their batch policy.
 
 Each waiter's deadline starts when it begins awaiting the embedding, not at HTTP entry. HTTP cancellation stops only that wait; service, MCP and UCP callers without a transport signal still have the deadline. Pre-aborted calls are not attempted, even for warm entries. Shared loads have their own deadline from load start and continue after every waiter disconnects: success within that bound warms the cache, while failure or timeout evicts. Evicted or timed-out work cannot replace a newer entry on late completion. Timers and abort listeners are released on settlement.
 
-This is not a SQL or whole-request deadline. Failure preserves lexical results and metadata, rather than enabling hybrid retrieval or changing ranking. The online setting must be a positive millisecond duration within the platform timer range; the cache additionally requires integer milliseconds.
+This is not a SQL or whole-request deadline. Failure preserves lexical results and metadata, without changing ranking. The online setting must be a positive millisecond duration within the platform timer range; the cache additionally requires integer milliseconds.
 
-The API response records `lexical | rescue | hybrid` as `retrievalMode`, and the platform API emits the same redaction-safe dimension through `DiscoverySearchQuerySignal` for #3407. Raw query text is not added to telemetry, and telemetry failure is swallowed so it cannot become a search dependency.
+The API response records `lexical | rescue | structured | corrected` as `retrievalMode`, and the platform API emits the same redaction-safe dimension through `DiscoverySearchQuerySignal` for #3407. Raw query text is not added to telemetry, and telemetry failure is swallowed so it cannot become a search dependency.
 
 ## Similar items
 
@@ -46,13 +44,7 @@ The public /items/:id/similar response is cache-friendly and reports whether the
 
 ## HNSW and latency budget
 
-The ledger-owned `discovery_search_items_embedding_hnsw_idx` uses `halfvec_ip_ops` and includes only active rows with an embedding. Voyage vectors are normalized, so the negative inner-product `<#>` order is equivalent to cosine order. PostgreSQL pgvector defaults are retained deliberately at the current scale: `m=16` and `ef_construction=64`. Semantic SQL orders directly by `<#>` so the index is eligible, then applies the same category, tag, language, blueprint, field, reference, dimension, price/stock market-activity constraints as lexical retrieval. Pgvector 0.8 iterative scans improve selective post-filter recall; the query remains correct on 0.7 and the 100k-row probe measures the deployed version.
-
-Run the non-CI acceptance probe against a disposable test database:
-
-    pnpm run benchmark:discovery-hybrid-retrieval
-
-It creates a rolled-back 100,000-row fixture, builds the filtered HNSW and lexical GIN indexes, asserts the semantic plan names the HNSW index, samples 30 warm queries, and reports lexical p95, additional semantic-database p95, and combined hybrid-database p95. The report calls out Voyage network time separately because provider latency must come from API telemetry rather than a local PostgreSQL benchmark. This is the hybrid extension of the still-open #3399 lexical EXPLAIN work; once #3399 lands, the two probes should share their seed helper rather than duplicate a second 100k fixture.
+The ledger-owned `discovery_search_items_embedding_hnsw_idx` uses `halfvec_ip_ops` and includes only active rows with an embedding. Voyage vectors are normalized, so the negative inner-product `<#>` order is equivalent to cosine order. PostgreSQL pgvector defaults are retained deliberately at the current scale: `m=16` and `ef_construction=64`. Semantic SQL orders directly by `<#>` so the index is eligible, then applies the same category, tag, language, blueprint, field, reference, dimension, price/stock market-activity constraints as lexical retrieval. Pgvector 0.8 iterative scans improve selective post-filter recall; the query remains correct on 0.7.
 
 ## Backfill and capability check
 
@@ -81,11 +73,11 @@ Run the live retrieval evaluation against a dedicated, per-context test database
 
     pnpm run evaluate:discovery-search-relevance
 
-The fixture seeds isolated Catalog and market mirrors. The production projection writes the weighted English/simple vectors, aliases, filters and market facts; every mode calls `retrieveDiscoveryItems` with the same request and fixtures. Only rescue/hybrid enablement changes: lexical-only disables both, semantic-fallback enables live Rescue only, and hybrid enables both. The baseline still includes structured lookup, synonyms, spelling correction and Search Interpretation, without calling a provider.
+The fixture seeds isolated Catalog and market mirrors. The production projection writes the weighted English/simple vectors, aliases, filters and market facts; every mode calls `retrieveDiscoveryItems` with the same request and fixtures. Only Rescue enablement changes: `lexical-only` disables it, and `semantic-fallback` enables it. The baseline still includes structured lookup, synonyms, spelling correction and Search Interpretation, without calling a provider.
 
 GoldenQuery requests allow language, stock, nonnegative price bounds, the six live sort orders and at most ten dimension selections (five options per group). Search text is bounded to 256 code points and the live page limit is 50. Reports retain IDs/order, retrieval mode, interpretation, totals, facets and per-ID price/currency/stock/Buy summaries, including null summaries. Unknown request properties and out-of-bound inputs are rejected.
 
-A **gated golden case** constrains the applicable mode; a **report-only cross-mode delta** records unsupported relevance behavior without vetoing that mode. Baseline gates cover accepted exact/title-plus-subtitle, lexical, negative, typo, partial, nickname, attribute, identifier and variant-price cases. Rescue uses the same gates except unprotected extra-term negatives. Hybrid gates protect identifiers, explicit filters and variant summaries; all other categories are deltas. Pure semantic-intent cases are reported in every mode. Gate failures remain distinct from deltas even with real snapshots and `--report-only`, which writes failures without enforcing the process exit. The synthetic title-plus-subtitle counterexample demonstrates unchanged hybrid title-only exactness: live lexical ranks the exact title/subtitle first while hybrid can reorder it, reported as a delta rather than a ranking repair.
+A **gated golden case** constrains the applicable mode; a **report-only cross-mode delta** records unsupported relevance behavior without vetoing that mode. Baseline gates cover accepted exact/title-plus-subtitle, lexical, negative, typo, partial, nickname, attribute, identifier and variant-price cases. Rescue uses the same gates except unprotected extra-term negatives. Pure semantic-intent cases are reported in every mode. Gate failures remain distinct from deltas even with real snapshots and `--report-only`, which writes failures without enforcing the process exit.
 
 The 72 golden queries and 24 catalog items live in `bounded-contexts/discovery/tests/fixtures/search-relevance/`. The default snapshot uses the deterministic model `deterministic-relevance-v1`, requires no key and makes no network calls. Regenerate it after editing either source fixture:
 

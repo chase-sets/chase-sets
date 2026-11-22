@@ -24,3 +24,16 @@ export interface BillingDetails {
 export interface Defaults {
   billingDetails: BillingDetails;
 }
+
+/**
+ * What the payment step's card entry mounts with (marketplace's `DeferredStripePayment`):
+ * Stripe's publishable key, what the provider charges in cents and its currency, the quote it is
+ * for (another quote mounts new fields), and the buyer's details Stripe's fields start with.
+ */
+export interface DeferredCard {
+  amount: number;
+  currency: string;
+  defaults: Defaults | null;
+  publishableKey: string;
+  quote: string;
+}

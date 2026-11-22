@@ -9,7 +9,7 @@ import {
   CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
 } from "@chase-sets/http/responses";
 import { resolveLegacyNotificationCenterHref } from "../web";
-import AccountNotificationsRoute, { loader } from "./account-notifications";
+import AccountNotificationsRoute, { loader } from "../features/notification-center/ui/routes/account-notifications";
 
 const accountViewer = {
   sessionId: "ses_1",

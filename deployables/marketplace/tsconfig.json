@@ -4,17 +4,6 @@
     // TypeScript replaces inherited types; this web project also needs Vite ambient types.
     "types": ["vite/client", "vitest/globals"]
   },
-  "include": [
-    "app",
-    "src",
-    "../../bounded-contexts/discovery/**/*.ts",
-    "../../bounded-contexts/discovery/**/*.tsx",
-    "../../bounded-contexts/fulfillment/**/*.ts",
-    "../../bounded-contexts/fulfillment/**/*.tsx",
-    "../../bounded-contexts/marketplace/**/*.ts",
-    "../../bounded-contexts/marketplace/**/*.tsx",
-    "../../bounded-contexts/inventory/**/*.ts",
-    "../../bounded-contexts/inventory/**/*.tsx"
-  ],
+  "include": ["app", "src"],
   "exclude": ["../../bounded-contexts/**/*.test.ts", "../../bounded-contexts/**/*.test.tsx"]
 }

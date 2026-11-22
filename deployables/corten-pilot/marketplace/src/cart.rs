@@ -23,7 +23,11 @@ use corten::{
     prelude::*,
     security::cookie,
 };
-use platform::{money, receipt::Receipt};
+use platform::{
+    money,
+    post_write::{self, Handoff, HandoffState},
+    receipt::{Freshness, Receipt},
+};
 use serde::Serialize;
 
 use crate::chrome::CartCount;
@@ -52,11 +56,95 @@ pub fn anonymous_cart(headers: &HeaderMap) -> Option<&str> {
 }
 
 /// What the cart's address carries after a write: its receipt, which the cart read waits for
-/// (marketplace's `afterWrite`).
+/// (marketplace's `afterWrite`), and after an add what the add expects the cart to show
+/// (`postWriteHandoff`).
 #[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 pub struct AfterWrite {
     pub after_write: Option<String>,
+    pub post_write_handoff: Option<String>,
+}
+
+/// What marketplace's cart waits for after an add (`ACCOUNT_CART_ADD_LINE_HANDOFF`): a cart that
+/// is not empty.
+pub const ADD_LINE_HANDOFF: &str =
+    r#"{"kind":"checkout.cart.add-line","expectation":"collection-non-empty","surface":"account-cart"}"#;
+const ADD_LINE_KIND: &str = "checkout.cart.add-line";
+
+/// Whether a handoff is the add's (`isAccountCartAddLineHandoff`).
+fn adds_a_line(handoff: &Handoff) -> bool {
+    handoff.kind == ADD_LINE_KIND && handoff.expectation == "collection-non-empty"
+}
+
+/// A line whose locked listing is selected and available but is not yet among its seller options:
+/// Checkout has not caught up with the listing's supply (`selectedListingIsWaitingForCheckoutSupply`).
+fn waits_for_checkout_supply(line: &CartLine) -> bool {
+    let Some(locked) = line.locked_listing_id.as_deref().map(str::trim).filter(|id| !id.is_empty()) else { return false };
+    line.selected_listing_id.as_deref().map(str::trim) == Some(locked)
+        && line.availability_state.as_deref().map(str::trim).filter(|s| !s.is_empty()).unwrap_or("available") == "available"
+        && !line.seller_options.iter().any(|o| o.listing_id.trim() == locked)
+}
+
+/// What the cart shows after an add whose line it does not show yet.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AfterAdd {
+    /// The add's receipt is fresh: the line is still being added, and the page reads again.
+    Adding,
+    /// The receipt has expired and the cart is still empty: refresh, or add it again.
+    Missing,
+}
+
+/// The cart's post-write outcomes after an add, as marketplace records them
+/// (`recordAccountCartSemanticHandoffOutcome`), for an account's cart or a guest's.
+struct Outcomes {
+    actor: &'static str,
+}
+
+impl Outcomes {
+    fn record(&self, outcome: &'static str, state: &HandoffState, recovery: &'static str) {
+        // The cart's words for the state (its `freshnessOutcomeForHandoffState`).
+        let freshness = match state {
+            HandoffState::Valid(_) => "valid-after-write",
+            HandoffState::Malformed(_) => "malformed-handoff",
+            HandoffState::Missing(f) | HandoffState::NotFreshWrite(_, f) => f.outcome(),
+        };
+        post_write::record(post_write::Event {
+            context: "checkout",
+            surface: "account-cart",
+            strategy: "fresh-read",
+            outcome,
+            route_id: "account-cart",
+            route_template: "/account/cart",
+            correction_source: Some(format!("semantic-handoff:{ADD_LINE_KIND}")),
+            actor_mode: Some(self.actor),
+            recovery_action: Some(recovery),
+            freshness_outcome: Some(freshness),
+            ..Default::default()
+        });
+    }
+
+    /// What a read found against the add's handoff (`evaluatePostWriteHandoff`): an add whose
+    /// line is not there yet, or waits for its listing's supply, is still being added while its
+    /// receipt is fresh, and an empty cart after the receipt has expired is missing it.
+    fn read(&self, state: &HandoffState, empty: bool, waiting_for_supply: bool) -> Option<AfterAdd> {
+        match state {
+            HandoffState::Valid(h) if !adds_a_line(h) => self.record("handoff_invalid", state, "none"),
+            HandoffState::Valid(_) if empty || waiting_for_supply => {
+                self.record("handoff_pending", state, "pending_empty_state");
+                return Some(AfterAdd::Adding);
+            }
+            HandoffState::Valid(_) => self.record("handoff_satisfied", state, "none"),
+            HandoffState::NotFreshWrite(h, Freshness::Expired) if adds_a_line(h) && empty => {
+                self.record("handoff_expired", state, "action_required");
+                return Some(AfterAdd::Missing);
+            }
+            HandoffState::Missing(_) => {}
+            HandoffState::Malformed(_) => self.record("handoff_malformed", state, "none"),
+            HandoffState::NotFreshWrite(_, Freshness::Expired) => self.record("handoff_expired", state, "none"),
+            HandoffState::NotFreshWrite(..) => self.record("handoff_invalid", state, "none"),
+        }
+        None
+    }
 }
 
 /// A line write's form (marketplace's cart line forms): the attempt (`SubmitKey`), every line
@@ -152,6 +240,12 @@ pub struct CartScreen {
     /// The cart is not readable yet after a write (marketplace's `pending-fresh-write`): the page
     /// says so and reads it again shortly.
     pub pending: bool,
+    /// The write it waits for is an add whose line is not there yet: the page says the item was
+    /// added and is on its way.
+    pub adding: bool,
+    /// An add whose line the cart still does not show after its receipt expired
+    /// (`missing-after-fresh-write`).
+    pub missing: bool,
 }
 
 impl CartScreen {
@@ -178,12 +272,17 @@ impl CartScreen {
                 Line { line, line_ids, listing_id, reason, fulfillment_available, price }
             })
             .collect();
-        CartScreen { lines, readiness, pending: false }
+        CartScreen { lines, readiness, pending: false, adding: false, missing: false }
     }
 
     /// The cart while its read catches up to a write.
     pub fn pending() -> Self {
-        CartScreen { lines: Vec::new(), readiness: None, pending: true }
+        CartScreen { lines: Vec::new(), readiness: None, pending: true, adding: false, missing: false }
+    }
+
+    /// The cart when its read failed after an add whose receipt has expired: the add is missing.
+    fn missing() -> Self {
+        CartScreen { lines: Vec::new(), readiness: None, pending: false, adding: false, missing: true }
     }
 
     /// Every line's quantity, the cart's item count.
@@ -488,10 +587,12 @@ pub(crate) async fn page(
 ) -> HtmlResult {
     let after = route.after;
     let receipt = Receipt::from_param(after.after_write.as_deref());
-    render(&req, &buyer, &config, &headers, receipt.as_ref(), None).await
+    let handoff = HandoffState::of(after.post_write_handoff.as_deref(), after.after_write.as_deref());
+    render(&req, &buyer, &config, &headers, receipt.as_ref(), Some(&handoff), None).await
 }
 
-/// The cart page, read after `receipt`'s write when there is one, with `notice` above the lines:
+/// The cart page, read after `receipt`'s write when there is one, and against the address's
+/// `handoff` (the page's own address; a write's answer has none), with `notice` above the lines:
 /// a checkout or a write that applied nothing is 422, a write that applied part or may not have
 /// applied is 409. The nav's count is the one this read found, which the page gives the layout
 /// read (`chrome::CartCount`, which Corten starts no read of its own for on this page: `gives` on its
@@ -502,6 +603,7 @@ async fn render(
     config: &Config,
     headers: &HeaderMap,
     receipt: Option<&Receipt>,
+    handoff: Option<&HandoffState>,
     notice: Option<Notice>,
 ) -> HtmlResult {
     let caller = config.platform.caller(headers, config.proto, receipt);
@@ -510,10 +612,26 @@ async fn render(
         Buyer::Guest(_) => caller.guest_cart(anonymous_cart(headers)).await,
     };
     let viewer = buyer.viewer();
+    let outcomes = Outcomes { actor: if matches!(buyer, Buyer::Account(_)) { "account" } else { "guest" } };
+    let lapsed = matches!(handoff, Some(HandoffState::NotFreshWrite(h, Freshness::Expired)) if adds_a_line(h));
     let screen = match read {
-        Ok(cart) => CartScreen::of(cart),
+        Ok(cart) => {
+            let empty = cart.items.is_empty() && cart.count == 0;
+            let waiting_for_supply = cart.items.iter().any(waits_for_checkout_supply);
+            let mut screen = CartScreen::of(cart);
+            match handoff.and_then(|state| outcomes.read(state, empty, waiting_for_supply)) {
+                Some(AfterAdd::Adding) => (screen.pending, screen.adding) = (true, true),
+                Some(AfterAdd::Missing) => screen.missing = true,
+                None => {}
+            }
+            screen
+        }
         // marketplace's pending answer: the page says the change is saved and reads again.
         Err(error) if receipt.is_some() && error.catching_up() => CartScreen::pending(),
+        Err(error) if lapsed && error.catching_up() => {
+            outcomes.record("handoff_expired", handoff.expect("lapsed"), "action_required");
+            CartScreen::missing()
+        }
         Err(error) => {
             let t: CartMsg = req.t();
             // The page the route gives the count for (`gives(CartCount)`): a read that failed after a
@@ -539,7 +657,9 @@ async fn render(
     };
     let view = views::cart_page(t, req.t(), &screen, notice.as_ref());
     let title = t.route_cart_marketplace();
-    let cart = (!screen.pending).then(|| screen.item_count());
+    // While an added line catches up the read still found the cart, so its count is the nav's, as
+    // marketplace's root loader keeps reading it; only a read that failed has none to give.
+    let cart = (!screen.pending || screen.adding).then(|| screen.item_count());
     req.screen_with_status(status, &screen, html! { <Layout req={req} viewer={viewer} title={title} head={head}>{view}</Layout> })
         .map(|page| page.give::<CartCount>(cart))
 }
@@ -600,7 +720,7 @@ async fn write(req: &Req, buyer: &Buyer, config: &Config, headers: &HeaderMap, w
                 not_applied: Vec::new(),
                 resend: None,
             };
-            return render(req, buyer, config, headers, None, Some(Notice::Attempt(notice))).await;
+            return render(req, buyer, config, headers, None, None, Some(Notice::Attempt(notice))).await;
         }
     };
     let caller = config.platform.caller(headers, config.proto, None);
@@ -611,13 +731,13 @@ async fn write(req: &Req, buyer: &Buyer, config: &Config, headers: &HeaderMap, w
         Err(status) => return Err(corten::Error::status(status)),
     };
     if outcome.state == Attempted::Succeeded {
-        let after = AfterWrite { after_write: outcome.receipt.map(|r| r.param()) };
+        let after = AfterWrite { after_write: outcome.receipt.map(|r| r.param()), ..Default::default() };
         return req.redirect(&url::Cart { after });
     }
     let resend = (outcome.state == Attempted::Ambiguous).then_some((which, input));
     let notice = AttemptNotice { state: outcome.state, message: outcome.message, not_applied: outcome.not_applied, resend };
     // What applied (a partial write's) is read back as the API has it now.
-    render(req, buyer, config, headers, outcome.receipt.as_ref(), Some(Notice::Attempt(notice))).await
+    render(req, buyer, config, headers, outcome.receipt.as_ref(), None, Some(Notice::Attempt(notice))).await
 }
 
 /// Check out (marketplace's `/checkout/buy/readiness` action for a signed-in cart): move a guest
@@ -673,7 +793,7 @@ async fn refused(req: &Req, buyer: &Buyer, config: &Config, headers: &HeaderMap,
         Some(status) if status.is_client_error() => {
             let t: CartMsg = req.t();
             let reason = error.refusal().unwrap_or(t.route_request_failed()).to_owned();
-            render(req, buyer, config, headers, None, Some(Notice::Checkout(reason))).await
+            render(req, buyer, config, headers, None, None, Some(Notice::Checkout(reason))).await
         }
         _ => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
     }
