@@ -3,6 +3,10 @@ import { useLoaderData } from "react-router";
 import { classifyFreshWriteReadError } from "@chase-sets/http/responses";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
+import {
+  createNotificationCenterProductAlertsRequestClient,
+  createNotificationCenterRequestApiClient,
+} from "../../api/request-client";
 import { t } from "../localization/translator";
 import { readNotificationCenterLocation } from "../notification-center-location";
 import {
@@ -10,10 +14,6 @@ import {
   type NotificationCenterPageData,
   type NotificationCenterRead,
 } from "../notification-center-page";
-import {
-  createNotificationCenterProductAlertsRequestClient,
-  createNotificationCenterRequestApiClient,
-} from "../../../../support/request-support/api-client";
 
 const feedQuery = "limit=25&includeRead=true";
 
