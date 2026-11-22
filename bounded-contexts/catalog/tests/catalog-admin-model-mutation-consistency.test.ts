@@ -384,11 +384,17 @@ describe("catalog admin model mutation consistency", () => {
 
     expect([added.status, kept.status, cleared.status]).toEqual([201, 200, 200]);
     expect(rejected.map((response) => response.status)).toEqual([400, 400, 400, 400, 400, 400]);
-    expect(commandHandler.mock.calls.map(([call]) => (call as { command: Record<string, unknown> }).command)).toEqual([
-      expect.objectContaining({ type: "AddOption", appliesWhen: [clause] }),
-      expect.objectContaining({ type: "ReviseOption", appliesWhen: undefined }),
-      expect.objectContaining({ type: "ReviseOption", appliesWhen: [] }),
-    ]);
+    expect(commandHandler).toHaveBeenCalledTimes(3);
+    for (const [call, command] of [
+      [1, { type: "AddOption", appliesWhen: [clause] }],
+      [2, { type: "ReviseOption", appliesWhen: undefined }],
+      [3, { type: "ReviseOption", appliesWhen: [] }],
+    ] as const) {
+      expect(commandHandler).toHaveBeenNthCalledWith(
+        call,
+        expect.objectContaining({ command: expect.objectContaining(command) }),
+      );
+    }
   });
 
   it("routes dimension option reorder and revise commands without shadowing", async () => {
