@@ -161,6 +161,16 @@ pub fn value_kinds(t: Cat) -> [(&'static str, &'static str); 3] {
     [("unordered", t.dimension_unordered()), ("ordered", t.dimension_ordered()), ("numeric", t.dimension_numeric())]
 }
 
+/// How a dimension's options match, as the dimension pages list them.
+pub fn option_matchings(t: Cat) -> [(&'static str, &'static str); 2] {
+    [("exact", t.dimension_exact()), ("or-better", t.dimension_or_better())]
+}
+
+/// A dimension's Option Matching in words (Exact unless it is or better, as admin-web says it).
+pub fn option_matching(t: Cat, matching: &str) -> &'static str {
+    if matching == "or-better" { t.dimension_or_better() } else { t.dimension_exact() }
+}
+
 /// The value types a field takes.
 pub fn value_types(t: Cat) -> [(&'static str, &'static str); 7] {
     [
@@ -174,8 +184,11 @@ pub fn value_types(t: Cat) -> [(&'static str, &'static str); 7] {
     ]
 }
 
-/// A dimension's create form (with the id it was drawn with) or its edit form.
-#[component(css = CatalogDialog)]
+/// A dimension's create form (with the id it was drawn with) or its edit form. Or better is
+/// offered only for an ordered or numeric value kind: the script disables it and chooses Exact
+/// when Unordered is chosen, as admin-web's dialogs do, and without it the form sends Exact for an
+/// unordered dimension ([`DimensionInput::option_matching`]).
+#[component(css = CatalogDialog, js)]
 pub fn DimensionForm<'a, I: Id + AttrValue + Copy>(
     t: Cat,
     id: I,
@@ -185,9 +198,17 @@ pub fn DimensionForm<'a, I: Id + AttrValue + Copy>(
 ) -> impl Patch {
     let f = DimensionInput::FIELDS;
     let (i, e) = (&form.input, form.errors.within(id));
-    let kinds = value_kinds(t);
+    let (kinds, matchings) = (value_kinds(t), option_matchings(t));
     html! {
-        <form class={Form} id={id} method="post" action={action} data-patch>
+        <form
+            class={Form}
+            id={id}
+            method="post"
+            action={action}
+            data-patch
+            on:connect={js::matching(f.value_kind, f.option_matching)}
+            on:change={js::matching(f.value_kind, f.option_matching)}
+        >
             {form.errors.form_message()}
             if create {
                 <input type="hidden" name={f.dimension_id} value={&i.dimension_id}>
@@ -196,6 +217,14 @@ pub fn DimensionForm<'a, I: Id + AttrValue + Copy>(
             <Input label={t.dimension_name()} name={f.name} value={&i.name} errors={&e} />
             <Input label={t.dimension_description()} name={f.description} value={&i.description} errors={&e} />
             <Choice label={t.dimension_value_kind()} name={f.value_kind} options={&kinds} value={&i.value_kind} errors={&e} />
+            <Choice
+                label={t.dimension_option_matching()}
+                name={f.option_matching}
+                options={&matchings}
+                value={&i.option_matching}
+                errors={&e}
+            />
+            <p class={Hint}>{t.dimension_option_matching_description()}</p>
             <div class={Footer}>
                 <button type="submit">{if create { t.dimension_list_create() } else { t.dimension_save_3() }}</button>
             </div>
