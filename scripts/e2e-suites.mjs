@@ -526,7 +526,8 @@ const boundedContextRouteSuiteOwnership = [
     suites: ["marketplace_account"],
   },
   {
-    pattern: /^bounded-contexts\/payments\/routes\/marketplace\/account-payment(?:-methods|-new)/,
+    pattern:
+      /^bounded-contexts\/payments\/(?:routes\/marketplace|features\/payments\/ui\/routes)\/account-payment(?:-methods|-new)/,
     suites: ["marketplace_account"],
   },
   {

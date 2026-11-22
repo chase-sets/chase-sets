@@ -998,22 +998,46 @@ describe("shared E2E setup selection", () => {
     const fallback = captured.cases.find(({ changedFiles }) =>
       changedFiles.includes("deployables/marketplace/e2e/unmapped.spec.ts"),
     );
+    const paymentFeatureRoutes = "bounded-contexts/payments/features/payments/ui/routes/";
+    const movedPaymentRoutes = [
+      ["account-payment-methods.tsx", "marketplace_account"],
+      ["account-payment-new.tsx", "marketplace_account"],
+      ["account-payment.tsx", "marketplace_checkout"],
+      ["checkout-payment.tsx", "marketplace_checkout"],
+    ];
+    const familyDeltas = new Map([
+      [
+        "boundedContextRouteSuiteOwnership:41",
+        {
+          pattern:
+            "/^bounded-contexts\\/payments\\/(?:routes\\/marketplace|features\\/payments\\/ui\\/routes)\\/account-payment(?:-methods|-new)/",
+          trackedCandidates: 4,
+        },
+      ],
+      [
+        "boundedContextRouteSuiteOwnership:45",
+        {
+          pattern:
+            "/^bounded-contexts\\/discovery\\/routes\\/item-detail(?:\\.|-market-history\\.|-rail-analytics\\.)/",
+        },
+      ],
+      [
+        "boundedContextRouteSuiteOwnership:47",
+        {
+          pattern:
+            "/^bounded-contexts\\/payments\\/(?:routes\\/marketplace|features\\/payments\\/ui\\/routes)\\/(?:account-payment|checkout-payment)\\./",
+          path: `${paymentFeatureRoutes}account-payment.tsx`,
+          trackedCandidates: 4,
+        },
+      ],
+      ["e2eNoSuiteExclusions:4", { family: "e2eNoSuiteExclusions:3" }],
+    ]);
     expect(captured.cases).toHaveLength(150);
-    expect(candidate.cases).toHaveLength(157);
+    expect(candidate.cases).toHaveLength(157 + movedPaymentRoutes.length);
     expect(candidate.families).toEqual([
       ...captured.families
         .filter((family) => family.path !== retired)
-        .map((family) =>
-          family.family === "boundedContextRouteSuiteOwnership:45"
-            ? {
-                ...family,
-                pattern:
-                  "/^bounded-contexts\\/discovery\\/routes\\/item-detail(?:\\.|-market-history\\.|-rail-analytics\\.)/",
-              }
-            : family.family === "e2eNoSuiteExclusions:4"
-              ? { ...family, family: "e2eNoSuiteExclusions:3" }
-              : family,
-        ),
+        .map((family) => ({ ...family, ...familyDeltas.get(family.family) })),
       {
         family: "boundedContextRouteSuiteOwnership:52",
         pattern: "/^bounded-contexts\\/fulfillment\\/routes\\/seller-shipping-setup\\.tsx$/",
@@ -1024,6 +1048,23 @@ describe("shared E2E setup selection", () => {
       },
     ]);
     expect(candidate.families).toHaveLength(143);
+    expect(
+      candidate.cases.filter(({ changedFiles }) => changedFiles.some((file) => file.startsWith(paymentFeatureRoutes))),
+    ).toEqual(
+      movedPaymentRoutes.map(([file, suite]) => ({
+        changedFiles: [`${paymentFeatureRoutes}${file}`],
+        suiteIds: [suite],
+        batches: [suite],
+      })),
+    );
+    for (const [file, suite] of movedPaymentRoutes) {
+      const legacyPath = `bounded-contexts/payments/routes/marketplace/${file}`;
+      const featurePath = `${paymentFeatureRoutes}${file}`;
+      expect(baseline.classifyChanges({ changedFiles: [legacyPath] }).e2eSuiteIds, legacyPath).toEqual([suite]);
+      for (const route of [legacyPath, featurePath]) {
+        expect(classifyChanges({ changedFiles: [route], workspaces }).e2eSuiteIds, route).toEqual([suite]);
+      }
+    }
     expect(
       candidate.cases.find(({ changedFiles }) =>
         changedFiles.includes("bounded-contexts/fulfillment/routes/seller-shipping-setup.tsx"),
