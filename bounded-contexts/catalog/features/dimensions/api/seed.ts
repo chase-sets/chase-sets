@@ -10,6 +10,7 @@ import {
   initialDimensionState,
   type DimensionCommand,
   type DimensionEvent,
+  type DimensionOptionMatching,
   type DimensionState,
 } from "../domain/domain";
 
@@ -32,6 +33,7 @@ type DimensionDef = {
   name: string;
   description: string;
   valueKind: "unordered" | "ordered" | "numeric";
+  optionMatching: DimensionOptionMatching;
   options: DimensionOptionDef[];
 };
 
@@ -42,6 +44,7 @@ const dimensionDefs: DimensionDef[] = [
     name: "Form",
     description: "How the card is offered as a sellable Product",
     valueKind: "unordered",
+    optionMatching: "exact",
     options: [
       {
         optionId: catalogSeedIds.dimensions.form.optionIds.raw as OptionId,
@@ -61,6 +64,7 @@ const dimensionDefs: DimensionDef[] = [
     name: "Condition",
     description: "Conditioning guideline for a raw, ungraded card",
     valueKind: "ordered",
+    optionMatching: "or-better",
     options: [
       {
         optionId: catalogSeedIds.dimensions.condition.optionIds.pristine as OptionId,
@@ -184,6 +188,7 @@ const dimensionDefs: DimensionDef[] = [
     name: "Grading Company",
     description: "Professional grading service that authenticated and graded the card",
     valueKind: "unordered",
+    optionMatching: "exact",
     options: [
       {
         optionId: catalogSeedIds.dimensions.gradingCompany.optionIds.psa as OptionId,
@@ -223,6 +228,7 @@ const dimensionDefs: DimensionDef[] = [
     name: "Grade",
     description: "Numeric grade assigned by a professional grading company",
     valueKind: "numeric",
+    optionMatching: "or-better",
     options: [
       {
         optionId: catalogSeedIds.dimensions.grade.optionIds.pristine10 as OptionId,
@@ -335,6 +341,7 @@ export async function seedDimensions(services: CatalogServices): Promise<Dimensi
       name: localizedTextMapFromEnglish(def.name),
       description: localizedTextMapFromEnglish(def.description),
       valueKind: def.valueKind,
+      optionMatching: def.optionMatching,
     });
 
     for (const option of def.options) {

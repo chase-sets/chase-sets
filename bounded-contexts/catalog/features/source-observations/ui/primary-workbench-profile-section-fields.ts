@@ -232,6 +232,7 @@ export function profileSectionFields(
           "text",
           disabled,
         ),
+        // Shown, not edited: the section's edit does not take it.
         field(
           "selectedOptionSource",
           "Option source",
@@ -239,7 +240,7 @@ export function profileSectionFields(
             stringValue(selectedOptionMapping?.source) ??
             "",
           "text",
-          disabled,
+          true,
         ),
         field(
           "selectedOptionDimensionCount",
@@ -307,12 +308,13 @@ export function profileSectionFields(
             option("operator-reapply-active-version", "Operator reapply active version"),
           ],
         ),
+        // Shown, not edited: the section's edit does not take it.
         field(
           "duplicatePreventionMappingSource",
           "Mapping source",
           stringValue(duplicatePreventionMapping?.source) ?? "",
           "text",
-          disabled,
+          true,
         ),
       ];
     case "promotion-plan":
@@ -355,21 +357,22 @@ export function profileSectionFields(
       return [
         field("migrationEvidenceText", "Evidence", profile.migrationEvidence?.evidenceText ?? "", "textarea", disabled),
         field("migrationFixtureRunId", "Fixture run", profile.migrationEvidence?.fixtureRunId ?? "", "text", disabled),
+        // Catalog stamps these when it records the evidence.
         field(
           "migrationFingerprintBefore",
           "Mapping fingerprint before",
           profile.migrationEvidence?.mappingFingerprintBefore ?? "",
           "text",
-          disabled,
+          true,
         ),
         field(
           "migrationFingerprintAfter",
           "Mapping fingerprint after",
           profile.migrationEvidence?.mappingFingerprintAfter ?? "",
           "text",
-          disabled,
+          true,
         ),
-        field("migrationRecordedAt", "Recorded at", profile.migrationEvidence?.recordedAt ?? "", "text", disabled),
+        field("migrationRecordedAt", "Recorded at", profile.migrationEvidence?.recordedAt ?? "", "text", true),
       ];
   }
 }

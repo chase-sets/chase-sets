@@ -12,7 +12,10 @@ import {
 } from "../../features/catalog-items/read-model/schema";
 import { catalogCategorySchemaSql } from "../../features/categories/read-model/schema";
 import { catalogComponentSchemaSql } from "../../features/components/read-model/schema";
-import { catalogDimensionSchemaSql } from "../../features/dimensions/read-model/schema";
+import {
+  catalogDimensionSchemaMigrations,
+  catalogDimensionSchemaSql,
+} from "../../features/dimensions/read-model/schema";
 import { catalogDisplayTemplateSchemaSql } from "../../features/display-templates/read-model/schema";
 import { catalogFieldSchemaSql } from "../../features/fields/read-model/schema";
 import {
@@ -106,4 +109,5 @@ export const catalogAuthoringSchemaMigrations = [
   ...catalogProviderScopeDiscoverySchemaMigrations,
   ...catalogScopeSyncStateSchemaMigrations,
   ...catalogPromotionReferenceAccessPathMigrations,
+  ...catalogDimensionSchemaMigrations,
 ] as const;

@@ -30,6 +30,7 @@ import { createScopeRegistryMcpHandlers } from "./features/scope-registry/api/mc
 import { createScopeSyncBatchMcpHandlers } from "./features/scope-sync-batches/api/mcp";
 import { createSourceObservationsMcpHandlers } from "./features/source-observations/api/mcp";
 import { createBlueprintMcpHandlers } from "./features/blueprints/api/mcp";
+import { createCategoryMcpHandlers } from "./features/categories/api/mcp";
 
 const baseModule = defineBoundedContextModule<CatalogServices, PgTransactionalPool, CatalogHostPorts>({
   manifest: contextManifest,
@@ -56,6 +57,7 @@ const baseModule = defineBoundedContextModule<CatalogServices, PgTransactionalPo
     const batches = createScopeSyncBatchMcpHandlers(services.scopeSyncBatches);
     const observations = createSourceObservationsMcpHandlers(services.sourceObservations);
     const blueprints = createBlueprintMcpHandlers(services.blueprints, services.authoringBulkJobs);
+    const categories = createCategoryMcpHandlers(services.categories, services.authoringBulkJobs);
     return {
       toolHandlers: {
         ...items.toolHandlers,
@@ -68,6 +70,7 @@ const baseModule = defineBoundedContextModule<CatalogServices, PgTransactionalPo
         ...batches.toolHandlers,
         ...observations.toolHandlers,
         ...blueprints.toolHandlers,
+        ...categories.toolHandlers,
       },
       resourceHandlers: {},
     };

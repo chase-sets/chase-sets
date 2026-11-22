@@ -197,17 +197,10 @@ export type OrderPaymentDeadlinePolicyToken =
   | "ordering-payment-deadline-platform-credit-v1"
   | "ordering-payment-deadline-terminal-failure-grace-v1";
 
-export type OrderPaymentDeadlinePolicy = Readonly<{
-  card: Readonly<{ token: "ordering-payment-deadline-card-v1"; durationMs: number }>;
-  bankAccount: Readonly<{ token: "ordering-payment-deadline-bank-account-v1"; durationMs: number }>;
-  platformCredit: Readonly<{ token: "ordering-payment-deadline-platform-credit-v1"; durationMs: number }>;
-  terminalFailureGrace: Readonly<{
-    token: "ordering-payment-deadline-terminal-failure-grace-v1";
-    durationMs: number;
-  }>;
-}>;
+type OrderPaymentDeadline = Readonly<{ token: OrderPaymentDeadlinePolicyToken; durationMs: number }>;
 
-export const defaultOrderPaymentDeadlinePolicy: OrderPaymentDeadlinePolicy = {
+// Compiled on purpose: each token names its duration, so a new duration is a new token and a code change.
+const orderPaymentDeadlines = {
   card: { token: "ordering-payment-deadline-card-v1", durationMs: 60 * 60 * 1000 },
   bankAccount: { token: "ordering-payment-deadline-bank-account-v1", durationMs: 5 * 24 * 60 * 60 * 1000 },
   platformCredit: { token: "ordering-payment-deadline-platform-credit-v1", durationMs: 15 * 60 * 1000 },
@@ -215,7 +208,7 @@ export const defaultOrderPaymentDeadlinePolicy: OrderPaymentDeadlinePolicy = {
     token: "ordering-payment-deadline-terminal-failure-grace-v1",
     durationMs: 5 * 60 * 1000,
   },
-};
+} as const satisfies Record<string, OrderPaymentDeadline>;
 
 export function normalizeOrderPaymentMethodCategory(paymentMethodCategory?: string | null): OrderPaymentMethodCategory {
   if (paymentMethodCategory === "bank-account" || paymentMethodCategory === "platform-credit") {
@@ -225,26 +218,19 @@ export function normalizeOrderPaymentMethodCategory(paymentMethodCategory?: stri
   return "card";
 }
 
-export function resolveOrderPaymentDeadlinePolicy(
-  policy: OrderPaymentDeadlinePolicy,
-  paymentMethodCategory?: string | null,
-) {
+function orderPaymentDeadlineFor(paymentMethodCategory?: string | null): OrderPaymentDeadline {
   switch (normalizeOrderPaymentMethodCategory(paymentMethodCategory)) {
     case "bank-account":
-      return policy.bankAccount;
+      return orderPaymentDeadlines.bankAccount;
     case "platform-credit":
-      return policy.platformCredit;
+      return orderPaymentDeadlines.platformCredit;
     case "card":
-      return policy.card;
+      return orderPaymentDeadlines.card;
   }
 }
 
-export function resolveOrderPaymentDeadline(
-  pendingPaymentAt: string,
-  paymentMethodCategory?: string | null,
-  policy: OrderPaymentDeadlinePolicy = defaultOrderPaymentDeadlinePolicy,
-) {
-  const token = resolveOrderPaymentDeadlinePolicy(policy, paymentMethodCategory);
+export function resolveOrderPaymentDeadline(pendingPaymentAt: string, paymentMethodCategory?: string | null) {
+  const token = orderPaymentDeadlineFor(paymentMethodCategory);
   const startedAtMs = Date.parse(pendingPaymentAt);
   assert(Number.isFinite(startedAtMs), "Payment deadline requires a valid pending-payment timestamp.");
 
@@ -254,16 +240,13 @@ export function resolveOrderPaymentDeadline(
   };
 }
 
-export function resolveTerminalPaymentFailureDeadline(
-  failedAt: string,
-  policy: OrderPaymentDeadlinePolicy = defaultOrderPaymentDeadlinePolicy,
-) {
+export function resolveTerminalPaymentFailureDeadline(failedAt: string) {
   const failedAtMs = Date.parse(failedAt);
   assert(Number.isFinite(failedAtMs), "Terminal payment failure grace requires a valid failure timestamp.");
 
   return {
-    paymentDeadlineAt: new Date(failedAtMs + policy.terminalFailureGrace.durationMs).toISOString(),
-    paymentDeadlinePolicy: policy.terminalFailureGrace.token,
+    paymentDeadlineAt: new Date(failedAtMs + orderPaymentDeadlines.terminalFailureGrace.durationMs).toISOString(),
+    paymentDeadlinePolicy: orderPaymentDeadlines.terminalFailureGrace.token,
   };
 }
 

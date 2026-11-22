@@ -38,7 +38,11 @@ import type {
   CatalogProviderProfileSourceContractUpdateCommand,
   CatalogProviderProfileSourceObservationUpdateCommand,
 } from "../api/provider-profile-admin-contracts";
-export { catalogProviderProfileEditableSectionKeys } from "../api/provider-profile-admin-contracts";
+export {
+  catalogProviderProfileEditableSectionKeys,
+  catalogProviderProfileSectionFieldKeys,
+} from "../api/provider-profile-admin-contracts";
+export type { CatalogProviderProfileSectionEdit } from "../api/provider-profile-admin-contracts";
 
 export interface SourceObservationListItem {
   observation_id: string;

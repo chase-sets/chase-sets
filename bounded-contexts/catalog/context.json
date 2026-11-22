@@ -308,6 +308,15 @@
       { "name": "catalog.set-blueprint-dimensions", "ownerSlice": "blueprints" },
       { "name": "catalog.set-blueprint-fields", "ownerSlice": "blueprints" },
       { "name": "catalog.set-blueprint-product-resolution-rules", "ownerSlice": "blueprints" },
+      { "name": "catalog.archive-category", "ownerSlice": "categories" },
+      { "name": "catalog.confirm-bulk-category-lifecycle", "ownerSlice": "categories" },
+      { "name": "catalog.create-category", "ownerSlice": "categories" },
+      { "name": "catalog.deprecate-category", "ownerSlice": "categories" },
+      { "name": "catalog.get-category", "ownerSlice": "categories" },
+      { "name": "catalog.list-categories", "ownerSlice": "categories" },
+      { "name": "catalog.preview-bulk-category-lifecycle", "ownerSlice": "categories" },
+      { "name": "catalog.publish-category", "ownerSlice": "categories" },
+      { "name": "catalog.revise-category", "ownerSlice": "categories" },
       { "name": "catalog.list-provider-refresh-schedules", "ownerSlice": "provider-scope-discovery" },
       { "name": "catalog.run-provider-refresh", "ownerSlice": "provider-scope-discovery" },
       { "name": "catalog.pause-provider-refresh", "ownerSlice": "provider-scope-discovery" },
@@ -415,8 +424,12 @@
         "catalog.replace-product-contents"
       ]
     },
-    "categories": { "pending": "#9238" },
-    "categories-detail": { "pending": "#9238" },
+    "categories": {
+      "tools": ["catalog.list-categories", "catalog.create-category", "catalog.preview-bulk-category-lifecycle", "catalog.confirm-bulk-category-lifecycle", "catalog.get-authoring-job"]
+    },
+    "categories-detail": {
+      "tools": ["catalog.get-category", "catalog.publish-category", "catalog.deprecate-category", "catalog.archive-category", "catalog.revise-category"]
+    },
     "components": { "pending": "#9238" },
     "components-detail": { "pending": "#9238" },
     "dimensions": { "pending": "#9238" },
@@ -1627,7 +1640,7 @@
       "risk": "important",
       "strategy": "realtime-correction",
       "surfaces": [
-        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:PATCH He6bb0bc44c9d#1",
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:PATCH H18b1dec8f36c#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H0be18cbb16a4#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H17cd86e76cd7#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H2ccae70b986c#1",

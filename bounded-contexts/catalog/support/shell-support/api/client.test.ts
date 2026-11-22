@@ -627,7 +627,7 @@ data: ${JSON.stringify(jobSnapshot({ status: "completed", result: completedResul
     expect(new Headers(fetch.mock.calls[0][1]?.headers).get("if-match")).toBe('"sha256:basics-read"');
     expect(fetch.mock.calls[0][1]?.body).toBe(
       JSON.stringify({
-        command: {
+        fields: {
           displayName: "TCGdex Admin Candidate",
         },
       }),

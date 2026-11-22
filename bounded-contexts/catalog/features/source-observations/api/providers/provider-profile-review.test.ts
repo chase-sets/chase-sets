@@ -720,6 +720,61 @@ describe("Catalog provider profile review", () => {
     expect((await store.getProfileVersion("tcgdex", "2026.06.04"))?.profile.displayName).toBe("Landed in between");
   });
 
+  it("composes an edit over the version it reads again, keeping a save that landed in between", async () => {
+    const store = mutableProfileStore([tcgdexVersion("2026.06.04", "draft", false)]);
+    const basicsRead = await storedSectionFingerprint(store, "basics");
+    const racing = storeWithOneRacingSave(store, async () => {
+      await updateCatalogProviderProfileSectionForReview({
+        store,
+        providerKey: "tcgdex",
+        profileVersion: "2026.06.04",
+        expectedSectionFingerprint: basicsRead,
+        command: basicsCommand("Landed in between"),
+      });
+    });
+
+    const review = await updateCatalogProviderProfileSectionForReview({
+      store: racing,
+      providerKey: "tcgdex",
+      profileVersion: "2026.06.04",
+      expectedSectionFingerprint: await storedSectionFingerprint(store, "source-contract"),
+      command: { section: "source-contract", fields: { sourceCommit: " abc123 " } },
+    });
+
+    expect(review.displayName).toBe("Landed in between");
+    expect(review.sourceContract).toMatchObject({ commit: "abc123" });
+    expect(review.sourceContract.owner).toBe(tcgdexVersion("2026.06.04", "draft", false).sourceContract.owner);
+  });
+
+  // Each section's fields as the form would leave them unchanged: none posted. A checkbox is posted
+  // when it is checked, a retirement plan with its tracking issue, and evidence with its text.
+  it.each([
+    ["basics", {}],
+    ["provider-options", {}],
+    ["connector", {}],
+    ["catalog-field-mapping", {}],
+    ["source-contract", {}],
+    ["fixtures", {}],
+    ["source-observation", {}],
+    ["normalized-observation", {}],
+    ["selected-options", {}],
+    ["reference-hierarchy", {}],
+    ["promotion-plan", {}],
+  ] as const)("leaves the %s section as it was when an edit changes nothing", async (section, fields) => {
+    const store = mutableProfileStore([tcgdexVersion("2026.06.04", "draft", false)]);
+    const read = await storedSectionFingerprint(store, section);
+
+    const review = await updateCatalogProviderProfileSectionForReview({
+      store,
+      providerKey: "tcgdex",
+      profileVersion: "2026.06.04",
+      expectedSectionFingerprint: read,
+      command: { section, fields },
+    });
+
+    expect(review.sectionFingerprints[section]).toBe(read);
+  });
+
   it("blocks activation when fixture harness validation fails", async () => {
     await expect(
       activateCatalogProviderProfileVersionForReview({
