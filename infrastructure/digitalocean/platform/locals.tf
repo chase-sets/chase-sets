@@ -404,6 +404,7 @@ locals {
   app_serving_record_names = local.is_staging ? toset([
     "admin-corten",
     "admin",
+    "marketplace-corten",
     "marketplace",
     "www",
     ]) : local.is_production ? toset(concat(

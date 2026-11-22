@@ -91,6 +91,14 @@
       "authorityAnchor": "A10"
     },
     {
+      "host": "marketplace-corten.staging.chasesets.com",
+      "status": "current",
+      "environment": "staging",
+      "class": "application",
+      "templated": false,
+      "authorityAnchor": "A3"
+    },
+    {
       "host": "marketplace.chasesets.com",
       "status": "current",
       "environment": "production",

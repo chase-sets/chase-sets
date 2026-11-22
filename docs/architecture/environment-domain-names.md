@@ -29,6 +29,7 @@ static environment-topology guard verifies that the rendered block below is exac
 | `assets.staging.chasesets.com` | current | staging | service | A9 |
 | `doks.staging.chasesets.com` | current | staging | diagnostic | A6 |
 | `grafana.staging.chasesets.com` | current | staging | service | A10 |
+| `marketplace-corten.staging.chasesets.com` | current | staging | application | A3 |
 | `marketplace.doks.staging.chasesets.com` | current | staging | diagnostic | A6 |
 | `marketplace.staging.chasesets.com` | current | staging | application | A3 |
 | `otel.staging.chasesets.com` | current | staging | service | A10 |
@@ -93,7 +94,7 @@ The Gmail-compatible environment-root record shape is:
 - Child zone apex: platform Terraform-managed A routing for `staging.chasesets.com` to the DOKS ingress load balancer.
 - Child zone apex: `MX @` to Google Workspace and `TXT @` for Google Workspace SPF.
 - Child zone: provider records such as SES bounce/DKIM, DMARC, optional Google Workspace DKIM, and the catalog asset CDN CNAME.
-- Child zone nested hosts: platform Terraform-managed A records for `www`, `marketplace`, `admin`, and the staging-only `admin-corten` pilot, targeting the same DOKS ingress load balancer.
+- Child zone nested hosts: platform Terraform-managed A records for `www`, `marketplace`, `admin`, and the staging-only `admin-corten` and `marketplace-corten` pilots, targeting the same DOKS ingress load balancer.
 - No `CNAME @` in the child zone and no `CNAME staging` in the parent zone.
 
 Staging deployment workflows wait on both `marketplace.staging.chasesets.com` and `staging.chasesets.com`. DNS incident history and DigitalOcean recovery steps live in the [DigitalOcean Platform Deployment runbook](../runbooks/digitalocean-platform-deployment.md#staging-dns-operations).
@@ -105,6 +106,7 @@ Staging application hosts are:
 - `marketplace.staging.chasesets.com`
 - `admin.staging.chasesets.com`
 - `admin-corten.staging.chasesets.com`, the staging-only Corten admin pilot
+- `marketplace-corten.staging.chasesets.com`, the staging-only Corten marketplace pilot
 - `api.staging.chasesets.com`, only if a public staging API host is needed later
 
 During migration, legacy dash-based hosts should redirect to their nested equivalents when the hosting platform supports those redirects.
