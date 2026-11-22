@@ -367,6 +367,33 @@ describe("Dimension aggregate", () => {
       expect(revise([])).toMatchObject({ appliesWhen: [] });
     });
 
+    it("normalizes and validates option applicability named on a revision", () => {
+      const revise = (appliesWhen: { dimensionId: typeof dimId; optionIds: (typeof optionB)[] }[]) =>
+        decide(decideDimension, scopedOptionState(), {
+          type: "ReviseOption" as const,
+          optionId: optionA,
+          code: "black-label-10",
+          label: l10n("Black Label"),
+          appliesWhen,
+        })[0].data;
+
+      expect(
+        revise([
+          { dimensionId: otherDimId, optionIds: [optionC, optionB, optionC] },
+          { dimensionId: firstDimId, optionIds: [optionB] },
+        ]),
+      ).toMatchObject({
+        appliesWhen: [
+          { dimensionId: firstDimId, optionIds: [optionB] },
+          { dimensionId: otherDimId, optionIds: [optionB, optionC] },
+        ],
+      });
+      expectDomainError(
+        () => revise([{ dimensionId: dimId, optionIds: [optionB] }]),
+        "Option applicability cannot depend on the option's own dimension.",
+      );
+    });
+
     it("rejects duplicate option IDs", () => {
       const state = givenEvents(createdState(), evolveDimension, [
         {

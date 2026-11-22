@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { PgQueryable, PgQueryResult } from "@chase-sets/event-core-postgres";
 import type { CatalogItemId } from "../../ids";
 import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
-import { parseBlueprint, resolveCatalogProductSelection } from "./product-selection";
+import { parseBlueprint, parseOptionApplicability, resolveCatalogProductSelection } from "./product-selection";
 
 const rule = { dimensionId: "finish", required: true, allowedOptionIds: ["foil"] };
 
@@ -45,6 +45,35 @@ describe("stored Product Blueprint parser", () => {
     ["empty order id", [rule], [""]],
   ])("rejects %s", (_label, rules, order) => {
     expect(parseBlueprint(rules, order)).toBeNull();
+  });
+});
+
+describe("stored Option applicability parser", () => {
+  const row = { dimension_id: "grade", option_id: "black-label", applies_when: [clause("company", ["bgs"])] };
+
+  function clause(dimensionId: unknown, optionIds: unknown) {
+    return { dimensionId, optionIds };
+  }
+
+  it("accepts stored rows and no rows", () => {
+    expect(parseOptionApplicability([row])).toEqual([
+      { dimensionId: "grade", optionId: "black-label", appliesWhen: [clause("company", ["bgs"])] },
+    ]);
+    expect(parseOptionApplicability([])).toEqual([]);
+  });
+
+  it.each([
+    ["non-array rows", {}],
+    ["null row", [null]],
+    ["empty dimension id", [{ ...row, dimension_id: "" }]],
+    ["empty option id", [{ ...row, option_id: "" }]],
+    ["non-array applicability", [{ ...row, applies_when: {} }]],
+    ["null applicability clause", [{ ...row, applies_when: [null] }]],
+    ["non-string applicability dimension", [{ ...row, applies_when: [clause(3, ["bgs"])] }]],
+    ["missing applicability options", [{ ...row, applies_when: [{ dimensionId: "company" }] }]],
+    ["non-string applicability option", [{ ...row, applies_when: [clause("company", [3])] }]],
+  ])("rejects %s", (_label, rows) => {
+    expect(parseOptionApplicability(rows)).toBeNull();
   });
 });
 
