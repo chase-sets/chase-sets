@@ -11,7 +11,7 @@ import {
 import { commercialTermsApiErrorAdapter } from "../../integrations/admin-api-error";
 import { normalizeAgreementAccountIdText } from "../../../agreements/api/account-id";
 import { formatCommercialTermsAdminLoadError } from "../../integrations/admin-loader-error";
-import contextManifest from "../../../../context.json";
+import metadata from "../../metadata.json";
 
 function createKind(value: string | null): CommercialTermsCreateKind | null {
   return value === "schedule" || value === "agreement" ? value : null;
@@ -50,7 +50,10 @@ function unavailableHome(request: Request, error: unknown) {
 }
 
 export const loader = defineResourceRoute({
-  manifest: contextManifest,
+  manifest: {
+    contextName: "commercial-terms",
+    readAfterWriteRouteInventory: metadata.readAfterWriteRouteInventory,
+  },
   routeId: "commercial-terms-home",
   errorAdapter: commercialTermsApiErrorAdapter,
   load: async ({ request }) => {
