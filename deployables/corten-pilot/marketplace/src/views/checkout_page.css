@@ -530,3 +530,39 @@
 .protections a {
   color: var(--color-link, var(--color-primary));
 }
+
+/* A new card's fields (payment page's .provider): the skeleton until Stripe mounts them. */
+.card-entry-part {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.provider {
+  position: relative;
+  display: grid;
+  min-height: 12rem;
+  min-width: 0;
+}
+.skeleton {
+  grid-area: 1 / 1;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+.skeleton[hidden] {
+  display: none;
+}
+.fields {
+  grid-area: 1 / 1;
+  min-width: 0;
+}
+@keyframes pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+}
