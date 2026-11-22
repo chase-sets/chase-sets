@@ -1327,10 +1327,16 @@ const outputs = [
         ["localization.displayIdentity.", "identity"],
       ])),
       // Add to List (`AddToSavedListControl`) and the Collections API's refusals.
-      ...(await catalog("collections.ts", "collectionsEnglishTranslations", [
-        ["collections.features.savedLists.ui.addToList.", "saved"],
-        ["collections.features.savedLists.api.route.", "saved_api"],
-      ])),
+      ...(await catalogFrom(
+        "bounded-contexts/collections/features/saved-lists/api/localization/locales/en.ts",
+        "savedListsApiEnglishTranslations",
+        [["collections.features.savedLists.api.route.", "saved_api"]],
+      )),
+      ...(await catalogFrom(
+        "bounded-contexts/collections/features/saved-lists/ui/localization/locales/en.ts",
+        "savedListsUiEnglishTranslations",
+        [["collections.features.savedLists.ui.addToList.", "saved"]],
+      )),
       // A sell form's Sell List add that did not fully apply (`SellListAttemptBoundary`).
       ...(await catalog("checkout.ts", "checkoutEnglishTranslations", [
         ["checkout.sellList.attempt.", "sell_attempt"],
