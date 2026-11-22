@@ -1568,7 +1568,7 @@ async fn unit_states(caller: &Caller<'_>, read: &DailyRead) -> Vec<UnitState> {
     }
 }
 /// The alias review's query for the provider and profile version the surface names (admin-web's
-/// `selectedScopeAliasReview`), also what an Auto-accept eligible reads again.
+/// `selectedScopeAliasReview`).
 fn alias_query(provider_key: Option<&str>, profile_version: Option<&str>) -> String {
     let mut pairs: Vec<String> = Vec::new();
     if let Some(key) = provider_key.filter(|k| !k.is_empty()) {
@@ -2427,12 +2427,10 @@ pub(crate) async fn aliases(
 ) -> HtmlResult {
     let context = context_of(&uri);
     let caller = config.platform.caller(&headers, config.proto, None);
-    let query =
-        alias_query(context_value(&context, "providerKey").as_deref(), context_value(&context, "profileVersion").as_deref());
     let Some(done) = AliasDone::of(&input.intent).map(Ran::Alias) else {
         return answer(&req, &staff, &config, &headers, &context, Sent::Refused(super::not_offered(req.t())), Ran::Queued).await;
     };
-    let sent = match crate::catalog::attention::alias_command_body(&caller, &input, &query).await {
+    let sent = match crate::catalog::attention::alias_command_body(&input) {
         Ok(Some(body)) => command(&caller, Method::POST, Kind::AliasReview, "/commands", Some(&body)).await,
         Ok(None) => {
             let to = at(&home(&context), &with_query(&context, &[("done", Some(done.word()))]));
