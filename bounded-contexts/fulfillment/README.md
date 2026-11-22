@@ -83,6 +83,14 @@ Postage provider configuration and label smoke checks live in [Postage Operation
 4. Fulfillment issues facts that may trigger refunds, but it does not execute refunds.
 5. A shipment may be cancelled for buyer self-service cancellation only before packing starts.
 
+## Feature Ownership
+
+`shipments` owns the buyer and seller shipment routes, packing, and shipment command center.
+`return-shipments` owns the admin Return Intake route. `seller-checkout-readiness` owns the seller shipping setup route.
+Each feature owns its request endpoints, route tests, English catalog, and manifest contributions.
+The public `routes/` modules only re-export the feature routes; `context.source.mjs` composes the generated `context.json`.
+The context client and server compose the feature clients using the transport and request forwarding shared by all three features.
+
 ## Tests
 
 Run `pnpm --filter @chase-sets/fulfillment run test:watch` for the sub-second watch-mode inner loop. Run `pnpm --filter @chase-sets/fulfillment run test` before opening a PR.

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { t } from "@chase-sets/localization";
+import { t } from "./localization/translator";
 import {
   Form,
   Badge,

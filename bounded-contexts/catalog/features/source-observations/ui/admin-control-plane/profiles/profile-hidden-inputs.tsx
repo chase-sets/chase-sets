@@ -43,6 +43,7 @@ export function ProfileSectionHiddenInputs({
     <>
       <HiddenInput name="_intent" value="provider-profile.edit-section" />
       <HiddenInput name="sectionKey" value={workspace.sectionKey} />
+      <HiddenInput name="sectionFingerprint" value={workspace.sectionFingerprint} />
       <HiddenInput name="providerKey" value={selectedProfile?.providerKey ?? context.providerKey ?? ""} />
       <HiddenInput name="unitKey" value={context.unitKey ?? ""} />
       <HiddenInput name="importScope" value={context.importScope ?? ""} />

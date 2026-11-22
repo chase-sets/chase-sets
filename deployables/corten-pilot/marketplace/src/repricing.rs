@@ -10,10 +10,10 @@
 //!
 //! The editor is at its own address (`?create=1`) and works without a script: its controls are a
 //! GET form, so the address holds the policy being written and the page draws it, with the scope
-//! preview Pricing answers for it. Preview posts the form; the pilot compiles the preset into the
-//! dry run's body (`Editor::compile`, marketplace's `compileRepricingPreset`; Pricing does not
-//! compile it, chase-sets/chase-sets#10682), starts the dry run and goes to the editor's address
-//! with the run. While the run is not finished the page relays its status stream
+//! preview Pricing answers for it. The presets, their knobs' ranges and the currency and floor a
+//! policy starts from are Pricing's (`authoring-prerequisites`). Preview posts the form; Pricing
+//! compiles the preset's controls into the dry run's body (`presets/compile`), and the pilot starts
+//! the dry run and goes to the editor's address with the run. While the run is not finished the page relays its status stream
 //! (`<corten-live>` on `live`), which draws the result when it completes; without a script the
 //! result part has a link to read the page again. Activate posts the form with the run: the pilot
 //! activates only a completed, unused run whose body is the form's policy (marketplace's
@@ -55,13 +55,13 @@ use serde_json::{Value, json};
 
 use crate::{
     api::{
-        ApiError, ConfigurationReceipt, Configured, PRICING_CONTEXT, PricingRefusal, RepricingCalls as _, RepricingCategory,
-        RepricingDryRun, RepricingHalt, RepricingPolicyRow, RepricingPrerequisites, RepricingScope, RepricingScopePreview,
-        RepricingTrace, repricing_dry_run_events,
+        ApiError, ConfigurationReceipt, Configured, PRICING_CONTEXT, PresetControls, PricingRefusal, RepricingCalls as _,
+        RepricingCategory, RepricingDryRun, RepricingHalt, RepricingPolicyRow, RepricingPrerequisites, RepricingScope,
+        RepricingScopePreview, RepricingTrace, repricing_dry_run_events,
     },
     app::{PRICING_MANAGE, Shared, sign_in, url},
     auth::{PricingManager, Viewer},
-    repricing_body::{Op, body_key, compile_preset, distinct, number},
+    repricing_body::{Op, Source, body_key, distinct, number, recognize},
     repricing_policy::{Revise, ReviseEditor, ReviseScreen},
     text::{Pilot, RepricingMsg},
     views::{self, Layout},
@@ -92,14 +92,14 @@ impl Preset {
         Preset::ALL.into_iter().find(|preset| preset.key() == key)
     }
 
-    /// The knob's range and default (`min`, `max`, `defaultValue`).
-    pub fn knob(self) -> (i64, i64, i64) {
-        match self {
-            Preset::Track => (-25, 25, 0),
-            Preset::Beat => (0, 15, 2),
-            Preset::Premium => (0, 30, 5),
-            Preset::Slow => (0, 30, 10),
-        }
+    /// The presets Pricing offers that the pilot has words for, in Pricing's order.
+    pub fn offered(facts: &RepricingPrerequisites) -> impl Iterator<Item = Preset> + '_ {
+        facts.presets.iter().filter_map(|controls| Preset::read(&controls.preset))
+    }
+
+    /// The preset's controls as Pricing offers them; one it does not offer has none to draw.
+    pub fn controls(self, facts: &RepricingPrerequisites) -> PresetControls {
+        facts.preset(self.key()).cloned().unwrap_or_default()
     }
 
     pub fn title(self, t: RepricingMsg) -> &'static str {
@@ -111,9 +111,6 @@ impl Preset {
         }
     }
 }
-
-/// Slow stock's age bounds and default, in days (the editor's slider).
-pub const AGE: (i64, i64, i64) = (14, 180, 45);
 
 /// The price floor (`RepricingFloor`).
 #[derive(Clone, Debug, PartialEq)]
@@ -128,40 +125,47 @@ pub struct Editor {
     pub name: String,
     pub preset: Preset,
     pub knob: i64,
-    pub age: i64,
+    /// The listing age the preset reads, when it reads one (slow stock).
+    pub age: Option<i64>,
     pub currency: String,
     pub floor: Floor,
     pub scope: RepricingScope,
 }
 
 impl Editor {
-    /// The editor's controls read with what the account has (`listingCurrencyCodes`,
-    /// `hasCostBasis`): a preset chosen anew starts from its own name, knob and age, as
+    /// The editor's controls read with what Pricing offers and the account starts from (`presets`,
+    /// `editorDefaults`): a preset chosen anew starts from its own name, knob and age, as
     /// marketplace's Strategy select does; a value out of range is held to it.
     pub fn read(input: &EditorInput, facts: &RepricingPrerequisites, t: RepricingMsg) -> Editor {
         let text = |value: &Option<String>| value.as_deref().map(str::trim).unwrap_or_default().to_owned();
         let whole = |value: &Option<String>| {
             value.as_deref().and_then(|v| v.trim().parse::<f64>().ok()).filter(|v| v.is_finite()).map(|v| v.round() as i64)
         };
-        let preset = input.preset.as_deref().and_then(Preset::read).unwrap_or(Preset::Track);
+        let first = Preset::offered(facts).next().unwrap_or(Preset::Track);
+        let preset = input.preset.as_deref().and_then(Preset::read).filter(|p| facts.preset(p.key()).is_some()).unwrap_or(first);
         let changed = input.from.as_deref().and_then(Preset::read).is_some_and(|from| from != preset);
-        let (min, max, default) = preset.knob();
+        let controls = preset.controls(facts);
+        let held = |range: crate::api::PresetRange, value: &Option<String>| {
+            if changed { range.default_value } else { whole(value).map_or(range.default_value, |v| range.hold(v)) }
+        };
         let name = if changed || input.name.is_none() { preset.title(t).to_owned() } else { text(&input.name) };
-        let knob = if changed { default } else { whole(&input.knob).map_or(default, |k| k.clamp(min, max)) };
-        let age = if changed { AGE.2 } else { whole(&input.age).map_or(AGE.2, |a| a.clamp(AGE.0, AGE.1)) };
+        let knob = held(controls.knob, &input.knob);
+        let age = controls.age_days.map(|range| held(range, &input.age));
+        let defaults = &facts.editor_defaults;
         let currency = match input.currency.as_deref().map(str::trim) {
             Some(code) => code.to_owned(),
-            None if facts.listing_currency_codes.len() == 1 => facts.listing_currency_codes[0].clone(),
-            None => String::new(),
+            None => defaults.currency_code.clone().unwrap_or_default(),
         };
         let cost = match input.floor.as_deref() {
             Some("cost-basis-plus-margin") => true,
             Some("absolute") => false,
-            _ => facts.has_cost_basis,
+            _ => defaults.floor.mode == "cost-basis-plus-margin",
         };
         let floor = if cost {
             let margin = input.margin.as_deref().and_then(|m| m.trim().parse::<f64>().ok()).filter(|m| m.is_finite());
-            Floor::CostPlus { margin: margin.unwrap_or(10.0), fallback: text(&input.fallback) }
+            // A floor switched to cost starts from 10%, as marketplace's floor fields do.
+            let margin = margin.or(defaults.floor.margin_percent).unwrap_or(10.0);
+            Floor::CostPlus { margin, fallback: text(&input.fallback) }
         } else {
             Floor::Absolute { amount: text(&input.amount) }
         };
@@ -185,22 +189,37 @@ impl Editor {
         !self.currency.is_empty() && !amount.is_empty()
     }
 
-    /// The dry run's body for the preset (marketplace's `compileRepricingPreset`), with the name
-    /// and the authoring intent that opens it in these controls again.
-    pub fn compile(&self) -> Value {
-        let floor = match &self.floor {
+    /// The floor as the body says it (`RepricingFloor`).
+    fn floor_json(&self) -> Value {
+        match &self.floor {
             Floor::Absolute { amount } => json!({ "mode": "absolute", "amount": amount }),
             Floor::CostPlus { margin, fallback } => {
                 json!({ "mode": "cost-basis-plus-margin", "marginPercent": number(*margin), "absoluteFallbackAmount": fallback })
             }
-        };
-        let scope = serde_json::to_value(&self.scope).unwrap_or(Value::Null);
-        compile_preset(self.preset, &self.name, &self.currency, floor, self.knob as f64, self.age, scope)
+        }
+    }
+
+    /// The controls Pricing compiles into the dry run's body (`presets/compile`): the body, with
+    /// the name and the authoring intent that opens it in these controls again, is Pricing's.
+    pub fn request(&self) -> Value {
+        let mut request = json!({
+            "preset": self.preset.key(),
+            "knob": self.knob,
+            "name": self.name,
+            "currencyCode": self.currency,
+            "floor": self.floor_json(),
+            "scope": self.scope,
+        });
+        if let Some(age) = self.age {
+            request["ageDays"] = json!(age);
+        }
+        request
     }
 
     /// The preset's controls for a body whose intent is this preset (`recognizeAuthoringIntent`),
-    /// as a revise opens them: the policy's name, scope, currency and floor.
-    pub fn of_preset(body: &Value, preset: Preset, knob: f64, age: i64) -> Editor {
+    /// as a revise opens them: the policy's name, scope, currency and floor. `age` is the intent's
+    /// when the preset reads one.
+    pub fn of_preset(body: &Value, preset: Preset, knob: f64, age: Option<i64>) -> Editor {
         let directive = &body["rules"][0]["directive"];
         let floor = &directive["floor"];
         let floor = match floor["mode"].as_str() {
@@ -221,15 +240,23 @@ impl Editor {
         }
     }
 
-    /// Whether `run` previewed this policy: Pricing keeps the body without its name.
+    /// Whether `run` previewed this policy: its body is the one Pricing compiled from these
+    /// controls, so its intent is this preset, knob and age, and its currency, floor and scope are
+    /// these. (A name is not part of a run.)
     pub fn previewed_by(&self, run: &RepricingDryRun) -> bool {
-        let unnamed = |mut body: Value| {
-            if let Some(body) = body.as_object_mut() {
-                body.remove("name");
-            }
-            body
+        let body = &run.body;
+        let Some(Source::Preset { preset, knob, age }) = recognize(body) else {
+            return false;
         };
-        unnamed(self.compile()) == unnamed(run.body.clone())
+        let directive = &body["rules"][0]["directive"];
+        let excluded = body.get("excludedListingIds").and_then(Value::as_array).is_none_or(Vec::is_empty);
+        preset == self.preset
+            && knob == self.knob as f64
+            && self.age.is_none_or(|own| own == age)
+            && directive["currencyCode"].as_str() == Some(self.currency.as_str())
+            && directive["floor"] == self.floor_json()
+            && serde_json::to_value(&self.scope).is_ok_and(|scope| scope == body["scope"])
+            && excluded
     }
 
     /// The editor's address with this policy, and the dry run that previews it.
@@ -251,7 +278,7 @@ impl Editor {
             preset: Some(self.preset.key().into()),
             from: Some(self.preset.key().into()),
             knob: Some(self.knob.to_string()),
-            age: (self.preset == Preset::Slow).then(|| self.age.to_string()),
+            age: self.age.map(|age| age.to_string()),
             currency: Some(self.currency.clone()),
             floor: Some(floor.into()),
             amount,
@@ -770,6 +797,12 @@ async fn opened(req: &Req, viewer: &Viewer, config: &Shared, headers: &HeaderMap
         revise.errors = errors;
         answer_opened(req, viewer, config, headers, revise, status)
     };
+    if let Err(refusal) = revise.compile(&caller).await {
+        return match messages(req, refusal, t.editor_validation_failed()) {
+            Ok(errors) => again(revise, StatusCode::UNPROCESSABLE_ENTITY, errors).await,
+            Err(answer) => *answer,
+        };
+    }
     let invalid = || vec![t.editor_validation_failed().to_owned()];
     if matches!(form.intent.as_str(), "open-up" | "open-advanced") && !revise.complete() {
         return again(revise, StatusCode::UNPROCESSABLE_ENTITY, invalid()).await;
@@ -875,20 +908,26 @@ pub(crate) async fn write(
             };
             let editor = Editor::read(&form.input(), &facts, t);
             let run_id = form.dry_run.as_deref().map(str::trim).filter(|id| !id.is_empty());
-            if intent == "open-up" {
-                // Only a preset with what a preview needs opens up (`promptComplete`).
+            if intent != "create-policy" {
+                // Only a preset with what a preview needs previews or opens up (`promptComplete`).
                 if !editor.complete() {
                     let errors = vec![t.editor_validation_failed().to_owned()];
                     return editor_refused(&req, &viewer, &config, &headers, editor.place(None), errors).await;
                 }
-                return answer_opened(&req, &viewer, &config, &headers, Revise::opened(editor, &facts), StatusCode::OK).await;
-            }
-            if intent == "preview" {
-                if !editor.complete() {
-                    let errors = vec![t.editor_validation_failed().to_owned()];
-                    return editor_refused(&req, &viewer, &config, &headers, editor.place(None), errors).await;
+                let body = match caller.compile_repricing_preset(&editor.request()).await {
+                    Ok(body) => body,
+                    Err(refusal) => {
+                        return match messages(&req, refusal, t.editor_validation_failed()) {
+                            Ok(errors) => editor_refused(&req, &viewer, &config, &headers, editor.place(None), errors).await,
+                            Err(answer) => *answer,
+                        };
+                    }
+                };
+                if intent == "open-up" {
+                    let revise = Revise::opened(editor, body, &facts);
+                    return answer_opened(&req, &viewer, &config, &headers, revise, StatusCode::OK).await;
                 }
-                return match caller.start_repricing_dry_run(&editor.compile()).await {
+                return match caller.start_repricing_dry_run(&body).await {
                     Ok(run) => req.redirect(&url::Repricing { place: editor.place(Some(&run.dry_run_id)) }),
                     Err(refusal) => match messages(&req, refusal, t.editor_validation_failed()) {
                         Ok(errors) => editor_refused(&req, &viewer, &config, &headers, editor.place(None), errors).await,
@@ -1018,10 +1057,31 @@ pub(crate) async fn live(
 mod tests {
     use super::*;
 
+    /// The presets Pricing offers (`presets`).
+    fn catalog() -> Vec<PresetControls> {
+        let range = |min, max, default_value| crate::api::PresetRange { min, max, default_value };
+        let preset = |key: &str, knob, age_days| PresetControls { preset: key.to_owned(), knob, age_days };
+        vec![
+            preset("track-market", range(-25, 25, 0), None),
+            preset("beat-lowest", range(0, 15, 2), None),
+            preset("premium", range(0, 30, 5), None),
+            preset("slow-stock", range(0, 30, 10), Some(range(14, 180, 45))),
+        ]
+    }
+
+    /// What Pricing answers for an account listing in `codes`, with a cost basis or not.
     fn facts(codes: &[&str], cost: bool) -> RepricingPrerequisites {
         RepricingPrerequisites {
             listing_currency_codes: codes.iter().map(|c| (*c).to_owned()).collect(),
             has_cost_basis: cost,
+            presets: catalog(),
+            editor_defaults: crate::api::EditorDefaults {
+                currency_code: (codes.len() == 1).then(|| codes[0].to_owned()),
+                floor: crate::api::DefaultFloor {
+                    mode: if cost { "cost-basis-plus-margin" } else { "absolute" }.to_owned(),
+                    margin_percent: cost.then_some(10.0),
+                },
+            },
             ..RepricingPrerequisites::default()
         }
     }
@@ -1054,33 +1114,18 @@ mod tests {
         RepricingMsg::from_index(0)
     }
 
-    /// chase-sets/chase-sets#7905's complete compiled example: preset 2 (Beat the lowest listing),
-    /// knob 2, USD, a cost basis, fallback 4.00, from a fresh editor, with the authoring intent
-    /// marketplace's `compilePresetBody` binds for it.
+    /// A fresh Beat the lowest listing with a cost basis asks Pricing to compile its controls; the
+    /// listing age goes only with the preset that reads it.
     #[test]
-    fn a_preset_compiles_to_the_decisions_example() {
+    fn a_preset_asks_pricing_to_compile_its_controls() {
         let fresh = input(&[("preset", "beat-lowest"), ("from", "track-market"), ("fallback", "4.00")]);
         let editor = Editor::read(&fresh, &facts(&["USD"], true), en());
         assert_eq!(
-            editor.compile(),
-            json!({ "name": "Beat the lowest listing", "scope": { "kind": "all-listings" }, "excludedListingIds": [], "maxChangesPerDay": 250,
-              "rules": [ { "conditions": [], "directive": {
-                "currencyCode": "USD",
-                "anchorChain": [ { "source": "lowest-competing-ask" }, { "source": "market-estimate" } ],
-                "offset": { "mode": "percent", "percent": -2 },
-                "floor": { "mode": "cost-basis-plus-margin", "marginPercent": 10, "absoluteFallbackAmount": "4.00" },
-                "ceiling": null, "tolerance": { "mode": "percent", "percent": 1 }, "rounding": { "mode": "none" },
-                "maxMovePercent": 20, "terminal": { "kind": "hold" } } } ],
-              "authoringIntent": { "version": 1, "compilerVersion": 1,
-                "source": { "kind": "preset", "preset": "beat-lowest", "knob": 2, "ageDays": 45 },
-                "semanticBody": "{\"excludedListingIds\":[],\"maxChangesPerDay\":250,\"rules\":[{\"conditions\":[],\"directive\":{\"anchorChain\":[{\"source\":\"lowest-competing-ask\"},{\"source\":\"market-estimate\"}],\"ceiling\":null,\"currencyCode\":\"USD\",\"floor\":{\"absoluteFallbackAmount\":\"4.00\",\"marginPercent\":10,\"mode\":\"cost-basis-plus-margin\"},\"maxMovePercent\":20,\"offset\":{\"mode\":\"percent\",\"percent\":-2},\"rounding\":{\"mode\":\"none\"},\"terminal\":{\"kind\":\"hold\"},\"tolerance\":{\"mode\":\"percent\",\"percent\":1}}}],\"scope\":{\"kind\":\"all-listings\"}}" } })
+            editor.request(),
+            json!({ "preset": "beat-lowest", "knob": 2, "name": "Beat the lowest listing", "currencyCode": "USD",
+              "floor": { "mode": "cost-basis-plus-margin", "marginPercent": 10, "absoluteFallbackAmount": "4.00" },
+              "scope": { "kind": "all-listings" } })
         );
-    }
-
-    /// The other presets as `compileRepricingPreset` writes them: slow stock's aged rule before its
-    /// default, premium's 75th percentile, and track's chain; no `-0` for a zero undercut.
-    #[test]
-    fn each_preset_compiles_as_marketplaces_compiler_does() {
         let slow = Editor::read(
             &input(&[
                 ("name", "Slow"),
@@ -1096,54 +1141,12 @@ mod tests {
             &facts(&["USD"], true),
             en(),
         );
-        let directive = json!({
-            "currencyCode": "USD",
-            "anchorChain": [{ "source": "market-estimate" }, { "source": "lowest-competing-ask" }, { "source": "last-sold" }],
-            "offset": { "mode": "percent", "percent": -12 },
-            "floor": { "mode": "absolute", "amount": "1.00" },
-            "ceiling": null,
-            "tolerance": { "mode": "percent", "percent": 2 },
-            "rounding": { "mode": "none" },
-            "maxMovePercent": 25,
-            "terminal": { "kind": "hold" },
-        });
-        let mut rest = directive.clone();
-        rest["offset"]["percent"] = json!(0);
-        rest["tolerance"]["percent"] = json!(5);
-        rest["maxMovePercent"] = json!(10);
-        let mut compiled = slow.compile();
-        let intent = compiled.as_object_mut().and_then(|body| body.remove("authoringIntent")).unwrap_or_default();
-        assert_eq!(intent["source"], json!({ "kind": "preset", "preset": "slow-stock", "knob": 12, "ageDays": 60 }));
         assert_eq!(
-            crate::repricing_body::recognize(&slow.compile()),
-            Some(crate::repricing_body::Source::Preset { preset: Preset::Slow, knob: 12.0, age: 60 }),
-            "the intent opens the preset again"
+            slow.request(),
+            json!({ "preset": "slow-stock", "knob": 12, "ageDays": 60, "name": "Slow", "currencyCode": "USD",
+              "floor": { "mode": "absolute", "amount": "1.00" },
+              "scope": { "kind": "catalog-filter", "categoryIds": ["cat-1"] } })
         );
-        assert_eq!(
-            compiled,
-            json!({
-                "name": "Slow",
-                "scope": { "kind": "catalog-filter", "categoryIds": ["cat-1"] },
-                "excludedListingIds": [],
-                "maxChangesPerDay": 250,
-                "rules": [
-                    { "conditions": [{ "type": "listing-age-at-least", "days": 60 }], "directive": directive },
-                    { "conditions": [], "directive": rest },
-                ],
-            })
-        );
-        let beat =
-            Editor::read(&input(&[("preset", "beat-lowest"), ("knob", "0"), ("amount", "1")]), &facts(&["USD"], false), en());
-        assert_eq!(beat.compile()["rules"][0]["directive"]["offset"]["percent"], json!(0));
-        let premium = Editor::read(&input(&[("preset", "premium"), ("amount", "1")]), &facts(&["USD"], false), en());
-        let rule = &premium.compile()["rules"][0]["directive"];
-        assert_eq!(rule["anchorChain"][0], json!({ "source": "comp-percentile", "percentile": 75 }));
-        assert_eq!(
-            (&rule["offset"]["percent"], &rule["tolerance"]["percent"], &rule["maxMovePercent"]),
-            (&json!(5), &json!(3), &json!(15))
-        );
-        let track = Editor::read(&input(&[("knob", "-7"), ("amount", "1")]), &facts(&["USD"], false), en());
-        assert_eq!(track.compile()["rules"][0]["directive"]["offset"]["percent"], json!(-7));
     }
 
     #[test]
@@ -1169,7 +1172,17 @@ mod tests {
             &facts(&[], false),
             en(),
         );
-        assert_eq!((held.knob, held.age), (15, 14), "held to the range");
+        assert_eq!((held.knob, held.age), (15, None), "held to the range; Beat reads no age");
+        let aged = Editor::read(
+            &input(&[("preset", "slow-stock"), ("from", "slow-stock"), ("knob", "-3"), ("age", "3")]),
+            &facts(&[], false),
+            en(),
+        );
+        assert_eq!((aged.knob, aged.age), (0, Some(14)));
+        let mut fewer = facts(&[], false);
+        fewer.presets.retain(|controls| controls.preset != "slow-stock");
+        let unoffered = Editor::read(&input(&[("preset", "slow-stock"), ("age", "60")]), &fewer, en());
+        assert_eq!((unoffered.preset, unoffered.age), (Preset::Track, None), "a preset Pricing does not offer is not drawn");
         let scoped = Editor::read(&input(&[("scope", "listing-set"), ("listings", " a, b,,a ")]), &facts(&[], false), en());
         assert_eq!(scoped.scope, RepricingScope::ListingSet { listing_ids: vec!["a".into(), "b".into()] });
     }
@@ -1187,8 +1200,18 @@ mod tests {
             &facts(&["USD"], false),
             en(),
         );
-        let mut body = editor.compile();
-        body.as_object_mut().map(|body| body.remove("name"));
+        // The run's body as Pricing compiled the editor's controls, without the name.
+        let directive = json!({ "currencyCode": "USD", "anchorChain": [{ "source": "market-estimate" }],
+          "offset": { "mode": "percent", "percent": 3 },
+          "floor": { "mode": "cost-basis-plus-margin", "marginPercent": 12.5, "absoluteFallbackAmount": "1" } });
+        let compiled = |source: Value| {
+            let mut body = json!({ "scope": { "kind": "all-listings" }, "excludedListingIds": [], "maxChangesPerDay": 250,
+              "rules": [{ "conditions": [], "directive": directive }] });
+            crate::repricing_body::bind(&mut body, source);
+            body
+        };
+        let source = json!({ "kind": "preset", "preset": "track-market", "knob": 3, "ageDays": 45 });
+        let body = compiled(source.clone());
         let run = |body: Value| RepricingDryRun {
             dry_run_id: "repricing-dry-run:1".into(),
             body,
@@ -1200,9 +1223,19 @@ mod tests {
             updated_at: "2026-10-27 22:01:22.251019+00".into(),
         };
         assert!(editor.previewed_by(&run(body.clone())), "Pricing keeps the body without its name");
-        let mut other = body;
-        other["rules"][0]["directive"]["offset"]["percent"] = json!(4);
-        assert!(!editor.previewed_by(&run(other)));
+        let mut changed = body.clone();
+        changed["rules"][0]["directive"]["offset"]["percent"] = json!(4);
+        assert!(!editor.previewed_by(&run(changed)), "rules changed since its intent was bound");
+        let mut knob = source.clone();
+        knob["knob"] = json!(4);
+        assert!(!editor.previewed_by(&run(compiled(knob))));
+        let mut floor = body.clone();
+        floor["rules"][0]["directive"]["floor"]["marginPercent"] = json!(10);
+        crate::repricing_body::bind(&mut floor, source);
+        assert!(!editor.previewed_by(&run(floor)), "another floor");
+        let mut unbound = body;
+        unbound["authoringIntent"] = Value::Null;
+        assert!(!editor.previewed_by(&run(unbound)));
         let place = editor.place(Some("repricing-dry-run:1"));
         assert_eq!(Editor::read(&place.input(), &facts(&["USD"], false), en()), editor, "the address holds the policy it draws");
     }

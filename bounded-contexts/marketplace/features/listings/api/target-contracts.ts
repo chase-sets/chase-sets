@@ -62,6 +62,30 @@ export type ListingPreparation = Readonly<{
 }>;
 export type ListingTargetAuthority = Readonly<{
   recoverRequest(preparation: ListingPreparation): Promise<void>;
+  pricing?: Readonly<{
+    prepare(
+      request: ListingPreparation &
+        Readonly<{
+          input: AcceptListingTargetPriceInput &
+            Readonly<{
+              target: Extract<MarketplaceListingPriceTarget, { kind: "channel-connection" }>;
+              decision: Extract<MarketplaceListingPriceDecision, { kind: "pricing-evaluation" }>;
+            }>;
+          principal: ListingTargetPrincipal;
+          listing: MarketplaceListingState;
+          createdAt: string;
+          basePriceRevision: number;
+        }>,
+      context: EventStoreContext,
+    ): Promise<
+      Readonly<{
+        terminal: RequestTerminalBinding;
+        grants: readonly ConfigurationEpochGrant[];
+        evidenceHash: string;
+      }>
+    >;
+    settle(preparation: ListingPreparation, abort: boolean): Promise<void>;
+  }>;
   authorizeManage(
     input: Readonly<{ accountId: string; principal: ListingTargetPrincipal }>,
     context: EventStoreContext,

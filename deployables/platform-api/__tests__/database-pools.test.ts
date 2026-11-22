@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { managedPostgresPodCaPath } from "@chase-sets/event-core-postgres";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
 import { module as authModule } from "@chase-sets/auth";
+import type { PricingServices } from "@chase-sets/pricing/server";
 import { createPlatformApiHost } from "../src/app";
 import type { PlatformApiBaseConfig } from "../src/config";
 import {
@@ -72,6 +73,8 @@ describe("platform api database pools", () => {
         pools.contextWaiters.catalog,
       );
       expect(runtime.mountedContexts.find((entry) => entry.contextName === "payments")?.pool).toBe(pools.payments);
+      const pricing = runtime.services.pricing as PricingServices;
+      expect(pricing.evaluationAuthority?.prepare).toBeTypeOf("function");
     } finally {
       await closePlatformApiPools(pools);
     }

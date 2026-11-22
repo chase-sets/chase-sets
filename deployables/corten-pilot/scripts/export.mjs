@@ -266,15 +266,17 @@ const apps = ["admin", "marketplace", "public"];
 
 const snake = (text) => text.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
 
+function catalog(file, exportName, rules) {
+  return catalogFrom(`contracts/localization/locales/en/${file}`, exportName, rules);
+}
+
 /**
  * The entries of a localization catalog the rules pick, renamed: a rule is [prefix, name] for
  * every key under `prefix` (named `name.<rest>`, or `<rest>` for an empty name) or [key, name]
  * for one key.
  */
-async function catalog(file, exportName, rules) {
-  const all = (await import(pathToFileURL(path.join(repo, "contracts/localization/locales/en", file)).href))[
-    exportName
-  ];
+async function catalogFrom(file, exportName, rules) {
+  const all = (await import(pathToFileURL(path.join(repo, file)).href))[exportName];
   const out = {};
   for (const [key, text] of Object.entries(all)) {
     let name;
@@ -1117,7 +1119,11 @@ const outputs = [
   [
     "admin/locales/commerce.en.json",
     json({
-      ...(await catalog("fulfillment.ts", "fulfillmentEnglishTranslations", [["fulfillment.returnIntake.", "ri"]])),
+      ...(await catalogFrom(
+        "bounded-contexts/fulfillment/features/return-shipments/ui/localization/locales/en.ts",
+        "returnShipmentsEnglishTranslations",
+        [["fulfillment.returnIntake.", "ri"]],
+      )),
       ...(await catalog("inventory.ts", "inventoryEnglishTranslations", [
         ["inventory.features.recoveredItems.ui.page.", "rr"],
         ["inventory.routes.admin.recoveredItems.title", "rr.route_title"],
@@ -1193,9 +1199,11 @@ const outputs = [
         ["inventory.routes.marketplace.accountInventoryRestockDecisions.description", "route.description"],
       ])),
       // What marketplace's resource route says when the read after a write fails for good.
-      ...(await catalog("localization.ts", "localizationEnglishTranslations", [
-        ["localization.routeResource.unverified", "unverified"],
-      ])),
+      ...(await catalogFrom(
+        "infrastructure/platform-runtime/localization/locales/en.ts",
+        "platformRuntimeEnglishTranslations",
+        [["localization.routeResource.unverified", "unverified"]],
+      )),
     }),
   ],
   [
@@ -1263,9 +1271,11 @@ const outputs = [
         ["checkout.routes.sellCheckoutSession.", "route"],
         ["checkout.shared.policyLinks.", "policy"],
       ])),
-      ...(await catalog("fulfillment.ts", "fulfillmentEnglishTranslations", [
-        ["fulfillment.shippingSetup.title", "shipping_setup"],
-      ])),
+      ...(await catalogFrom(
+        "bounded-contexts/fulfillment/features/seller-checkout-readiness/ui/localization/locales/en.ts",
+        "sellerCheckoutReadinessEnglishTranslations",
+        [["fulfillment.shippingSetup.title", "shipping_setup"]],
+      )),
     }),
   ],
   [
@@ -1350,12 +1360,16 @@ const outputs = [
         // A set's page (`routes/set.tsx`), whose cards are search's.
         ["discovery.routes.set.", "set"],
       ])),
+      // A result's language badge, its picture's words and its card (`ListingCard`).
       ...(await catalog("localization.ts", "localizationEnglishTranslations", [
-        // A result's card (`ListingCard`), its language badge and its picture's words.
-        ["localization.listingCard.", "card"],
         ["localization.languageCode.", "language"],
         ["localization.displayIdentity.", "identity"],
       ])),
+      ...(await catalogFrom(
+        "packages/design-system/src/localization/locales/en.ts",
+        "designSystemEnglishTranslations",
+        [["localization.listingCard.", "card"]],
+      )),
     }),
   ],
   [
@@ -1421,25 +1435,33 @@ const outputs = [
   [
     "marketplace/locales/shipments.en.json",
     json(
-      await catalog("fulfillment.ts", "fulfillmentEnglishTranslations", [
-        ["fulfillment.features.shipments.ui.shipmentListPage.", "list"],
-        ["fulfillment.features.shipments.ui.shipmentDetailPage.", "detail"],
-        ["fulfillment.routes.marketplace.accountShipments.", "shipments"],
-        ["fulfillment.routes.marketplace.accountShipment.", "shipment"],
-        ["fulfillment.routes.marketplace.accountSaleShipment.", "sale_shipment"],
-        ["fulfillment.features.shipments.ui.shipmentPackingPage.", "packing"],
-        ["fulfillment.routes.marketplace.accountSaleShipmentPacking.", "pack_route"],
-        ["fulfillment.features.shipments.ui.packingSlipPage.", "slip"],
-        ["fulfillment.routes.marketplace.accountSaleShipmentPackingSlips.", "slips_route"],
-        ["fulfillment.features.shipments.ui.commandCenter.", "center"],
-        ["fulfillment.routes.marketplace.accountSaleShipments.", "sales_route"],
-      ]),
+      await catalogFrom(
+        "bounded-contexts/fulfillment/features/shipments/ui/localization/locales/en.ts",
+        "shipmentsEnglishTranslations",
+        [
+          ["fulfillment.features.shipments.ui.shipmentListPage.", "list"],
+          ["fulfillment.features.shipments.ui.shipmentDetailPage.", "detail"],
+          ["fulfillment.routes.marketplace.accountShipments.", "shipments"],
+          ["fulfillment.routes.marketplace.accountShipment.", "shipment"],
+          ["fulfillment.routes.marketplace.accountSaleShipment.", "sale_shipment"],
+          ["fulfillment.features.shipments.ui.shipmentPackingPage.", "packing"],
+          ["fulfillment.routes.marketplace.accountSaleShipmentPacking.", "pack_route"],
+          ["fulfillment.features.shipments.ui.packingSlipPage.", "slip"],
+          ["fulfillment.routes.marketplace.accountSaleShipmentPackingSlips.", "slips_route"],
+          ["fulfillment.features.shipments.ui.commandCenter.", "center"],
+          ["fulfillment.routes.marketplace.accountSaleShipments.", "sales_route"],
+        ],
+      ),
     ),
   ],
   [
     "marketplace/locales/shipping_setup.en.json",
     json({
-      ...(await catalog("fulfillment.ts", "fulfillmentEnglishTranslations", [["fulfillment.shippingSetup.", ""]])),
+      ...(await catalogFrom(
+        "bounded-contexts/fulfillment/features/seller-checkout-readiness/ui/localization/locales/en.ts",
+        "sellerCheckoutReadinessEnglishTranslations",
+        [["fulfillment.shippingSetup.", ""]],
+      )),
       ...(await catalog("checkout.ts", "checkoutEnglishTranslations", [
         ["checkout.features.sellList.ui.guestSellCheckoutPage.label.prepaid", "label_prepaid"],
         ["checkout.features.sellList.ui.guestSellCheckoutPage.label.later", "label_later"],
@@ -1680,10 +1702,17 @@ const outputs = [
         ["marketplace.features.sellerDesk.", ""],
       ])),
       ...(await catalog("channels.ts", "channelsEnglishTranslations", [
-        ["channels.manualSync.attention.", "manual"],
-        ["channels.attention.reason.", "channel_reason"],
         ["channels.attention.ordersCount", "orders_count"],
         ["channels.attention.ordersOverflow", "orders_overflow"],
+      ])),
+      ...(await catalogFrom(
+        "contracts/seller-attention-queue/localization/locales/en.ts",
+        "sellerAttentionQueueEnglishTranslations",
+        [["channels.attention.reason.", "channel_reason"]],
+      )),
+      ...(await catalog("channels.ts", "channelsEnglishTranslations", [
+        ["channels.attention.reason.", "channel_reason"],
+        ["channels.manualSync.attention.", "manual"],
       ])),
     }),
   ],

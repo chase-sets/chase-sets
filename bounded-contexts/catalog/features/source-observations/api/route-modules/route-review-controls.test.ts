@@ -724,6 +724,7 @@ describe("source observation routes: review and control-plane reads", () => {
       "/source-observations/provider-profiles/tcgdex/2026.06.04/sections/provider-options",
       {
         method: "PATCH",
+        headers: { "if-match": '"section-fingerprint"' },
         body: JSON.stringify({
           command: {
             optionQueries: {},

@@ -60,6 +60,12 @@ const contextModule = defineBoundedContextModule<SettlementServices, PgTransacti
     ...settlementRetentionSchemaMigrations,
   ],
   createServices: (pool, ports) => createSettlementServices(pool, ports),
+  hasHostPort: (services, portName) => {
+    if (portName !== "marketplaceLabelPostageActivation") {
+      throw new Error(`Settlement cannot resolve host port '${portName}'.`);
+    }
+    return services.marketplaceLabelPostageActivation !== undefined;
+  },
   buildApis: (services) => [
     { mountPath: "/api/settlement", contextMountOrdinal: 1, router: buildSettlementApi(services) },
     {
@@ -86,8 +92,9 @@ const contextModule = defineBoundedContextModule<SettlementServices, PgTransacti
     };
   },
   projectionHandlerSets: (services) => services.projectors,
-  buildSubscriptions: (services) =>
-    buildEventSubscriptionsFromManifest({
+  buildSubscriptions: (services) => {
+    const activation = services.marketplaceLabelPostageActivation;
+    return buildEventSubscriptionsFromManifest({
       contextName: "settlement",
       manifest: contextManifest,
       handlers: {
@@ -102,11 +109,15 @@ const contextModule = defineBoundedContextModule<SettlementServices, PgTransacti
           buildSettlementCoverageReservationHandlers(services.protectionCoverage),
         "platform-operations.settlement-support-hold-lifecycle-projection": () =>
           buildSupportHoldLifecycleReactionHandlers(services.supportHoldLifecycle),
-        "fulfillment.settlement-fulfillment-source-projection": () =>
-          buildSettlementFulfillmentSourceProjectionHandlers(services.db, {
-            wallets: services.wallets,
-            activation: services.marketplaceLabelPostageActivation,
-          }),
+        ...(activation === undefined
+          ? {}
+          : {
+              "fulfillment.settlement-fulfillment-source-projection": () =>
+                buildSettlementFulfillmentSourceProjectionHandlers(services.db, {
+                  wallets: services.wallets,
+                  activation,
+                }),
+            }),
         "inventory.settlement-inventory-recovery-workflow": () => ({
           "inventory.recovered-item.value-reported.v1": async (event: Parameters<BcEventSubscriptionHandler>[0]) => {
             const data = event.data as InventoryRecoveredItemValueReportedPayload;
@@ -150,7 +161,8 @@ const contextModule = defineBoundedContextModule<SettlementServices, PgTransacti
         "payments.settlement-account-risk-source-projection": () =>
           buildSettlementPaymentsAccountRiskSourceProjectionHandlers(services.db, { policies: services.policies }),
       },
-    }),
+    });
+  },
   seedProfiles: ["critical-bootstrap", "scenario-seed"],
   seed: seedSettlementDatabase,
   inspectSeedState: (pool, options) => inspectSettlementSeedState(pool, options),

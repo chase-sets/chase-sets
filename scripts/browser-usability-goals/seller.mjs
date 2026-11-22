@@ -42,7 +42,7 @@ export default {
         "bounded-contexts/fulfillment/features/seller-checkout-readiness/",
         "bounded-contexts/fulfillment/routes/seller-shipping-setup",
         "bounded-contexts/fulfillment/client.ts",
-        "bounded-contexts/fulfillment/support/request-support/api-client.ts",
+        "bounded-contexts/fulfillment/support/request-support/",
         "contracts/auth-context/",
         "bounded-contexts/checkout/features/sell-list/",
       ],

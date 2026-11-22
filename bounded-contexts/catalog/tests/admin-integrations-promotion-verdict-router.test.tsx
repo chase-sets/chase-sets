@@ -132,7 +132,17 @@ describe("held promotion verdict router transitions", () => {
             lifecycleStatus: "active",
             languageEditions: [],
           },
-          languageEditionAliasReview: null,
+          languageEditions: null,
+          journeyOverview: {
+            scopeRecordId: "synthetic-scope",
+            condition: "empty",
+            stages: [],
+            editionCount: 0,
+            linkedEditionCount: 0,
+            pendingCandidateCount: 0,
+            promotionReadiness: "live",
+            syncFreshness: "fresh",
+          },
           coverageMatrix: null,
           candidateReviewJobs: null,
         };

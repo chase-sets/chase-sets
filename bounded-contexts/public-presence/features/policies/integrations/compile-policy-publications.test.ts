@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -25,8 +25,25 @@ const siblingPublicationModules = [
 /** Runs the real compiler entrypoint in a fresh process, so the Privacy
  *  cited-source digest is re-resolved from the working tree rather than
  *  reusing this process's memoized value. */
-function runCompilerCheck() {
-  return spawnSync(process.execPath, [compilerScript, "--check"], {
+function runCompilerCheck(citedSource?: { path: string; content: string }) {
+  const nodeArgs = [];
+  if (citedSource) {
+    // Override one UTF-8 read in this child only. Parallel inventory readers
+    // still read the original file from the Git-indexed working tree.
+    const preload = `
+      import fs from "node:fs";
+      import { syncBuiltinESMExports } from "node:module";
+
+      const { readFileSync } = fs;
+      fs.readFileSync = (path, options) =>
+        path === ${JSON.stringify(citedSource.path)} && options === "utf8"
+          ? ${JSON.stringify(citedSource.content)}
+          : readFileSync(path, options);
+      syncBuiltinESMExports();
+    `;
+    nodeArgs.push("--import", `data:text/javascript,${encodeURIComponent(preload)}`);
+  }
+  return spawnSync(process.execPath, [...nodeArgs, compilerScript, "--check"], {
     cwd: packageRoot,
     encoding: "utf8",
   });
@@ -499,9 +516,10 @@ describe("public policy corpus compiler", () => {
     // [#7864 Break the Auth and Payments dependency cycle and reject cycles in the structure gate](https://github.com/chase-sets/chase-sets/issues/7864).
     // Re-derived for the Identity account-domain citation shift that the required profile name check makes.
     // Re-derived for the payout review hold and whole-construct registration citations.
+    // Re-derived again with the inline card confirmation Terms changes merged in.
     expect(
       fingerprint(baseline.find(({ relativePath }) => relativePath === "terms-of-service-publication.ts")?.content),
-    ).toBe("sha256:e76fe01de71cbe4cd5677538a04819bc1027cfe46399d0c8315030193b8ea805");
+    ).toBe("sha256:571c4b92a212b2c2a95aa67954373afe3e8d5fbecfaec6566594d01d3eb90fae");
 
     for (const module of changed) {
       const before = baseline.find((candidate) => candidate.relativePath === module.relativePath)?.content;
@@ -671,21 +689,20 @@ describe("public policy corpus compiler", () => {
     expect(original).toContain(marker);
 
     expect(runCompilerCheck().status).toBe(0);
-    try {
-      writeFileSync(citedModule, original.replace(marker, `${marker.slice(0, -1)}  ;`), "utf8");
-      const stale = runCompilerCheck();
-      expect(stale.status).not.toBe(0);
-      const staleModules = `${stale.stdout}${stale.stderr}`
-        .split(/\r?\n/)
-        .filter((line) => line.includes("stale generated module:"))
-        .map((line) => line.slice(line.lastIndexOf("stale generated module:")).trim());
-      expect(staleModules).toHaveLength(1);
-      expect(staleModules[0]).toContain("privacy-policy-publication.ts");
-      for (const sibling of [...siblingPublicationModules, "index.ts"]) {
-        expect(staleModules[0], sibling).not.toContain(sibling);
-      }
-    } finally {
-      writeFileSync(citedModule, original, "utf8");
+    const stale = runCompilerCheck({
+      path: citedModule,
+      content: original.replace(marker, `${marker.slice(0, -1)}  ;`),
+    });
+    expect(readFileSync(citedModule, "utf8")).toBe(original);
+    expect(stale.status).not.toBe(0);
+    const staleModules = `${stale.stdout}${stale.stderr}`
+      .split(/\r?\n/)
+      .filter((line) => line.includes("stale generated module:"))
+      .map((line) => line.slice(line.lastIndexOf("stale generated module:")).trim());
+    expect(staleModules).toHaveLength(1);
+    expect(staleModules[0]).toContain("privacy-policy-publication.ts");
+    for (const sibling of [...siblingPublicationModules, "index.ts"]) {
+      expect(staleModules[0], sibling).not.toContain(sibling);
     }
     expect(runCompilerCheck().status).toBe(0);
   }, 120_000);

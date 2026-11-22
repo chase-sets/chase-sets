@@ -36,13 +36,19 @@ describe("listing attempt caller partition", () => {
     const file = "deployables/platform-api/__tests__/listing-channel-activation-composition.db.test.ts";
     const source = readFileSync(path.join(root, file), "utf8");
     const callers = enumerateListingAttemptCallers([{ path: file, source }]);
-    expect(callers).toHaveLength(1);
+    expect(callers.map(({ method }) => method)).toEqual(["createListingFromInventorySnapshot", "withdrawListing"]);
     expect(unpartitionedListingAttemptCallers(callers)).toEqual([]);
-    const mutant = source.replace('idempotencyKey: "synthetic-listing-create-attempt",', "");
-    expect(mutant).not.toBe(source);
-    expect(
-      unpartitionedListingAttemptCallers(enumerateListingAttemptCallers([{ path: file, source: mutant }])),
-    ).toHaveLength(1);
+    for (const [method, key] of [
+      ["createListingFromInventorySnapshot", "synthetic-listing-create-attempt"],
+      ["withdrawListing", "synthetic-pricing-withdraw"],
+    ]) {
+      const mutant = source.replace(`idempotencyKey: "${key}",`, "");
+      expect(mutant).not.toBe(source);
+      const rejected = unpartitionedListingAttemptCallers(
+        enumerateListingAttemptCallers([{ path: file, source: mutant }]),
+      );
+      expect(rejected.map((caller) => caller.method)).toEqual([method]);
+    }
   });
   it("rejects the historical Checkout keyless caller and a current key-removal mutant", () => {
     const historicalFile =

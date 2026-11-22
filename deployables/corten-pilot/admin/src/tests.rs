@@ -168,7 +168,14 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
         headers: headers.clone(),
         body: body.clone(),
     });
-    let cookie = headers.get(header::COOKIE).and_then(|v| v.to_str().ok()).unwrap_or_default();
+    // The API takes a bearer session token where the cookies hold no session (`readAuthSessionToken`).
+    let bearer = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()).and_then(|v| v.strip_prefix("Bearer "));
+    let session_cookie =
+        match headers.get(header::COOKIE).and_then(|v| v.to_str().ok()).filter(|c| c.contains("chase_sets_session=")) {
+            Some(cookie) => cookie.to_owned(),
+            None => bearer.map(|token| format!("chase_sets_session={token}")).unwrap_or_default(),
+        };
+    let cookie = session_cookie.as_str();
     if let Some(answer) = workspace_sso(&method, &uri, &headers) {
         return answer;
     }
@@ -407,7 +414,7 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
     if let Some(answer) = daily_command(&method, uri.path(), &body) {
         return answer;
     }
-    if let Some(answer) = provider_api(&method, uri.path(), &body) {
+    if let Some(answer) = provider_api(&method, uri.path(), &headers, &body) {
         return answer;
     }
     if let Some(answer) = operator_session_api(&method, uri.path(), &headers) {
@@ -1465,6 +1472,37 @@ async fn a_user_of_two_accounts_chooses_one() {
     );
 }
 
+/// A session token sent as `Authorization: Bearer`, as the deploy smoke signs in, is a session as
+/// the cookie is (admin-web's `readAuthSessionToken`), and each API call forwards it; another
+/// scheme is no one.
+#[tokio::test]
+async fn a_bearer_session_token_signs_in_as_the_session_cookie_does() {
+    let pilot = Pilot::new().await;
+    let request = |authorization: &str| {
+        Request::get("/commerce/postage-policies")
+            .header(header::HOST, "localhost:7790")
+            .header(header::AUTHORIZATION, authorization)
+            .body(Body::empty())
+            .unwrap()
+    };
+    let (status, _, html) = pilot.send(request("Bearer staff")).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shell = html.split_once("<main>").unwrap().0;
+    assert!(shell.contains(r#"aria-label="Account menu""#) && shell.contains("Commerce"), "{shell}");
+    let calls = pilot.calls.lock().unwrap().clone();
+    assert!(calls.iter().any(|c| c.path == "/api/auth/session"), "{calls:?}");
+    assert!(calls.iter().all(|c| c.headers.get(header::AUTHORIZATION).is_some_and(|v| v == "Bearer staff")), "{calls:?}");
+
+    for refused in ["Basic c3RhZmY6eA==", "Bearer nobody"] {
+        let (status, headers, _) = pilot.send(request(refused)).await;
+        assert_eq!(
+            (status, &headers[header::LOCATION]),
+            (StatusCode::SEE_OTHER, &header::HeaderValue::from_static("/access/sign-in?returnTo=%2Fcommerce%2Fpostage-policies")),
+            "{refused}"
+        );
+    }
+}
+
 #[tokio::test]
 async fn the_account_menu_signs_out_and_the_cookies_go() {
     let pilot = Pilot::new().await;
@@ -1954,12 +1992,45 @@ fn scope_api(method: &Method, path: &str, query: &str, body: &str) -> Option<Res
         json!({ "jobId": id, "kind": kind, "status": status, "progress": { "completed": 1, "total": 2 },
                 "result": result, "errorMessage": error })
     };
+    let pending_ja = json!({
+        "aliasHash": "ah_ja", "targetKind": "reference-record", "targetId": "ref_scp_paf",
+        "nativePrintedName": "Shiny Treasure ex", "proposedAlias": "Paldean Fates", "aliasLanguageCode": "ja",
+        "confidence": "medium", "reviewStatus": "pending", "autoAccept": { "reasons": ["Confidence is below high."] },
+        "availableActions": ["alias.accept", "alias.reject", "alias.defer"],
+    });
+    // The scope as `/scope-records/{id}/journey` answers it: `stages` the five stages' statuses in
+    // order, the editions drawn as the API composed them.
+    let journey = |scope: Value, editions: Value, condition: &str, stages: [&str; 5], pending: usize| {
+        let count = scope["languageEditions"].as_array().map_or(0, Vec::len);
+        let keys = ["coverage", "sync", "jobs", "candidates", "promotion"];
+        let stages: Vec<Value> = keys.iter().zip(stages).map(|(k, s)| json!({ "key": k, "status": s })).collect();
+        json!({ "generatedAt": "2026-11-04T12:00:00.000Z", "languageEditions": editions,
+                "languageEditionReviewFailed": false,
+                "overview": { "scopeRecordId": scope["scopeRecordId"], "condition": condition, "stages": stages,
+                              "editionCount": count, "linkedEditionCount": count - pending.min(count),
+                              "pendingCandidateCount": pending, "promotionReadiness": scope["promotionReadiness"],
+                              "syncFreshness": scope["syncFreshness"] },
+                "scope": scope })
+    };
     let rest = path.strip_prefix(CATALOG)?;
     let answer = match (method.clone(), rest) {
-        (Method::GET, "/scope-records/scp_paf") => Json(scope("scp_paf", &["en", "ja"], "draft")).into_response(),
-        (Method::GET, "/scope-records/scp_one") => Json(scope("scp_one", &["en"], "active")).into_response(),
-        (Method::GET, "/scope-records/scp_down") => Json(scope("scp_down", &["en"], "active")).into_response(),
-        (Method::GET, "/scope-records/scp_gone") => refusal(StatusCode::NOT_FOUND, "not_found", "Scope record not found."),
+        (Method::GET, "/scope-records/scp_paf/journey") => {
+            let editions = json!({ "scopeRecordId": "scp_paf", "referenceRecordId": "ref_scp_paf", "editions": [
+                { "languageCode": "en", "isCanonical": true, "linkState": "linked", "acceptedAliasCount": 0,
+                  "pendingCandidates": [], "acceptedCandidates": [] },
+                { "languageCode": "ja", "isCanonical": false, "linkState": "pending-review", "acceptedAliasCount": 0,
+                  "pendingCandidates": [pending_ja], "acceptedCandidates": [] },
+            ] });
+            let stages = ["complete", "complete", "complete", "current", "upcoming"];
+            Json(journey(scope("scp_paf", &["en", "ja"], "draft"), editions, "conflict", stages, 1)).into_response()
+        }
+        (Method::GET, path @ ("/scope-records/scp_one/journey" | "/scope-records/scp_down/journey")) => {
+            let id = path.trim_start_matches("/scope-records/").trim_end_matches("/journey");
+            Json(journey(scope(id, &["en"], "active"), Value::Null, "ready", ["complete"; 5], 0)).into_response()
+        }
+        (Method::GET, "/scope-records/scp_gone/journey") => {
+            refusal(StatusCode::NOT_FOUND, "not_found", "Scope record not found.")
+        }
         (Method::GET, "/provider-scope-mappings/coverage/scp_down") | (Method::GET, "/source-observations/bulk-jobs/active")
             if query.contains("scp_down") || rest.ends_with("scp_down") =>
         {
@@ -2013,13 +2084,7 @@ fn scope_api(method: &Method, path: &str, query: &str, body: &str) -> Option<Res
         (Method::GET, "/source-observations/bulk-jobs/active" | "/source-observations/merge-candidate-bulk-jobs/failed") => {
             Json(json!({ "items": [] })).into_response()
         }
-        (Method::GET, "/alias-review") => Json(json!({ "candidates": [{
-            "aliasHash": "ah_ja", "targetKind": "reference-record", "targetId": "ref_scp_paf",
-            "nativePrintedName": "Shiny Treasure ex", "proposedAlias": "Paldean Fates", "aliasLanguageCode": "ja",
-            "confidence": "medium", "reviewStatus": "pending", "autoAccept": { "reasons": ["Confidence is below high."] },
-            "availableActions": ["alias.accept", "alias.reject", "alias.defer"],
-        }] }))
-        .into_response(),
+        (Method::GET, "/alias-review") => Json(json!({ "candidates": [pending_ja] })).into_response(),
         (Method::POST, "/provider-scope-mappings/commands" | "/provider-scope-mappings/propose") if body.contains("refuse") => {
             refusal(StatusCode::UNPROCESSABLE_ENTITY, "validation_failed", "The mapping moved meanwhile.")
         }
@@ -4639,15 +4704,15 @@ async fn a_scopes_page_draws_its_journey_coverage_jobs_and_editions_from_the_cat
     assert_eq!(status, StatusCode::OK, "{html}");
     let calls: Vec<String> = pilot.catalog_calls().into_iter().map(|c| c.path).collect();
     for path in [
-        "/api/catalog/scope-records/scp_paf",
+        "/api/catalog/scope-records/scp_paf/journey",
         "/api/catalog/provider-scope-mappings/coverage/scp_paf",
         "/api/catalog/source-observations/bulk-jobs/active?scopeRecordId=scp_paf",
         "/api/catalog/source-observations/bulk-jobs/active?scopeRecordId=scp_paf&status=completed",
         "/api/catalog/source-observations/merge-candidate-bulk-jobs/failed?scopeRecordId=scp_paf",
-        "/api/catalog/alias-review?targetKind=reference-record&targetId=ref_scp_paf",
     ] {
         assert!(calls.iter().any(|c| c == path), "{path} in {calls:?}");
     }
+    assert!(!calls.iter().any(|c| c.contains("alias-review")), "the API reads the editions' aliases: {calls:?}");
     assert!(html.contains("Paldean Fates") && html.contains(r#"href="/catalog/scopes""#), "{html}");
     // The journey: a pending Japanese alias is a conflict.
     assert!(html.contains(r#"data-status="current""#), "{html}");
@@ -4873,7 +4938,7 @@ async fn a_scope_with_one_edition_reads_no_alias_review_and_a_failed_read_is_its
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(get("/catalog/scopes/scp_one", Some("staff"))).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(!pilot.catalog_calls().iter().any(|c| c.path.contains("alias-review")), "one edition has nothing to review");
+    assert!(!pilot.catalog_calls().iter().any(|c| c.path.contains("alias-review")), "the API reads the editions' aliases");
     assert!(!html.contains("scope-editions"), "{html}");
 
     let (status, _, html) = pilot.send(get("/catalog/scopes/scp_down", Some("staff"))).await;
@@ -9093,7 +9158,7 @@ fn section_groups() -> Value {
 /// Two of provider detail's section workspaces: one the API lets be saved, one it does not.
 fn section_workspaces() -> Value {
     json!([
-        { "sectionKey": "basics", "displayName": "Basics", "groupLabel": "Profile foundation",
+        { "sectionKey": "basics", "displayName": "Basics", "groupLabel": "Profile foundation", "sectionFingerprint": "sha256:basics-read",
             "description": "The profile's name and scopes.", "domainConcept": "Provider profile", "status": "valid",
             "editable": true, "actionState": "available", "blockers": [], "dirtyState": "clean", "staleState": "fresh",
             "saveOutcome": "not-submitted", "anchorId": "profile-section-basics", "semanticChangeCount": 0,
@@ -9316,6 +9381,7 @@ fn validation_readiness(selected: &str) -> Value {
         "activationDecision": { "status": "blocked", "actionState": "blocked", "blockers": ["migration-evidence-missing"],
             "saveEvidenceState": "available", "saveEvidenceBlockers": [],
             "activationCommandKey": "provider-profile.activate", "evidenceCommandKey": "provider-profile.edit-section",
+            "evidenceSectionFingerprint": "sha256:migration-evidence-read",
             "workspaceHref": format!("/catalog/providers/tcgplayer?profileVersion={selected}"),
             "providerKey": "tcgplayer", "profileVersion": selected, "lifecycle": "draft", "importEligibility": "blocked",
             "affectedReferences": { "referenceCount": 4, "requiresMigrationEvidence": true,
@@ -9362,7 +9428,7 @@ const OPERATOR_GRANT: &str = "Q2hhc2VTZXRzT3BlcmF0b3JHcmFudEZvclRlc3RzXzA";
 /// API refuses it, and a deprecate of 2026.06.23 is refused as a lifecycle conflict. Migration
 /// evidence with a blank text is refused, as the API's section check does, and activating
 /// 2026.06.23 is refused for its missing evidence.
-fn provider_api(method: &Method, path: &str, body: &str) -> Option<Response> {
+fn provider_api(method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
     if let Some(rest) = path.strip_prefix("/api/catalog/provider-scope-discovery/refresh-schedule") {
         return Some(match (method.as_str(), rest) {
             ("POST", "/lorcast/run") => {
@@ -9380,16 +9446,21 @@ fn provider_api(method: &Method, path: &str, body: &str) -> Option<Response> {
             .into_response(),
         );
     }
+    // The API checks a section save against the revision its form was drawn from.
+    let revision = headers.get(header::IF_MATCH).and_then(|v| v.to_str().ok()).unwrap_or_default();
     if *method == Method::PATCH && rest == "tcgplayer/2026.07.13/sections/basics" {
-        let sent: Value = serde_json::from_str(body).unwrap_or(Value::Null);
-        return Some(if sent["command"]["displayName"] == "Stale" {
-            refusal(
+        return Some(match revision {
+            r#""sha256:basics-read""# => written(StatusCode::OK, "profile_1"),
+            "" | r#""""# => refusal(
+                StatusCode::PRECONDITION_REQUIRED,
+                "profile_section_fingerprint_required",
+                "Saving a profile section needs the section revision it was read at. Read the profile again and resend the change.",
+            ),
+            _ => refusal(
                 StatusCode::CONFLICT,
-                "profile_section_conflict",
-                "Catalog provider profile section 'basics' has changed; reload before saving.",
-            )
-        } else {
-            written(StatusCode::OK, "profile_1")
+                "profile_section_changed",
+                "This section changed after the page read it. Read the profile again before saving.",
+            ),
         });
     }
     if *method == Method::PATCH && rest.ends_with("/sections/migration-evidence") {
@@ -9783,7 +9854,7 @@ async fn the_activation_decision_saves_evidence_and_activates_and_draws_the_apis
     let pilot = Pilot::new().await;
     let at = "profileVersion=2026.07.13";
     let landed = |headers: &HeaderMap| headers[header::LOCATION].to_str().unwrap().to_owned();
-    let form = "profileVersion=2026.07.13&migrationEvidenceText=Replayed+the+changed+fixtures.&migrationFixtureRunId=";
+    let form = "profileVersion=2026.07.13&sectionFingerprint=sha256%3Amigration-evidence-read&migrationEvidenceText=Replayed+the+changed+fixtures.&migrationFixtureRunId=";
     let (status, headers, _) = pilot.send(post(&format!("/catalog/providers/tcgplayer/evidence?{at}"), form, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert!(
@@ -9793,6 +9864,7 @@ async fn the_activation_decision_saves_evidence_and_activates_and_draws_the_apis
     );
     let sent = pilot.calls.lock().unwrap().iter().find(|c| c.path.ends_with("/sections/migration-evidence")).cloned().unwrap();
     assert_eq!(sent.method, Method::PATCH);
+    assert_eq!(sent.headers[header::IF_MATCH], r#""sha256:migration-evidence-read""#);
     assert_eq!(
         serde_json::from_str::<Value>(&sent.body).unwrap(),
         json!({ "command": { "section": "migration-evidence", "migrationEvidence": {
@@ -12003,6 +12075,7 @@ async fn a_profile_section_is_drawn_from_its_workspace_and_saved_over_the_stored
     let basics = section("basics");
     assert!(basics.contains(r#"action="/catalog/providers/tcgplayer/sections/basics?profileVersion=2026.07.13""#), "{basics}");
     assert!(basics.contains(r#"name="profileVersion" value="2026.07.13""#), "{basics}");
+    assert!(basics.contains(r#"name="sectionFingerprint" value="sha256:basics-read""#), "{basics}");
     assert!(basics.contains(r#"name="displayName" value="TCGplayer Pokemon Cards" required"#), "{basics}");
     assert!(basics.contains(r#"<option value="active" selected>Active</option>"#), "{basics}");
     // A field the API disables is disabled, so it is not sent and its stored value stays.
@@ -12018,12 +12091,13 @@ async fn a_profile_section_is_drawn_from_its_workspace_and_saved_over_the_stored
     let save = &fixtures[fixtures.find(r#"type="submit""#).unwrap()..];
     assert!(save[..save.find('>').unwrap()].contains("disabled"), "{fixtures}");
 
-    // A save reads the version's authoring model and sends the posted fields over the stored ones.
+    // A save reads the version's authoring model and sends the posted fields over the stored ones,
+    // checked against the revision the form was drawn from.
     let at = "profileVersion=2026.07.13";
     let (status, headers, _) = pilot
         .send(post(
             &format!("/catalog/providers/tcgplayer/sections/basics?{at}"),
-            "profileVersion=2026.07.13&displayName=+Pokemon+Singles+&status=planned",
+            "profileVersion=2026.07.13&sectionFingerprint=sha256%3Abasics-read&displayName=+Pokemon+Singles+&status=planned",
             false,
         ))
         .await;
@@ -12032,6 +12106,7 @@ async fn a_profile_section_is_drawn_from_its_workspace_and_saved_over_the_stored
     assert!(landed.starts_with(&format!("/catalog/providers/tcgplayer?{at}&done=section-saved&after_write=")), "{landed}");
     let sent = pilot.calls.lock().unwrap().iter().find(|c| c.path.ends_with("/sections/basics")).cloned().unwrap();
     assert_eq!(sent.method, Method::PATCH);
+    assert_eq!(sent.headers[header::IF_MATCH], r#""sha256:basics-read""#);
     assert_eq!(
         serde_json::from_str::<Value>(&sent.body).unwrap(),
         json!({ "command": { "section": "basics", "displayName": "Pokemon Singles", "status": "planned",
@@ -12042,16 +12117,17 @@ async fn a_profile_section_is_drawn_from_its_workspace_and_saved_over_the_stored
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("Profile section saved"), "{html}");
 
-    // The API's refusal is the page's notice, patched in place.
+    // A form drawn from a revision another save replaced is the API's to refuse, and its refusal is
+    // the page's notice, patched in place.
     let (status, _, patch) = pilot
         .send(post(
             &format!("/catalog/providers/tcgplayer/sections/basics?{at}"),
-            "profileVersion=2026.07.13&displayName=Stale",
+            "profileVersion=2026.07.13&sectionFingerprint=sha256%3Aolder&displayName=Stale",
             true,
         ))
         .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{patch}");
-    assert!(patch.contains("has changed; reload before saving."), "{patch}");
+    assert!(patch.contains("This section changed after the page read it."), "{patch}");
 
     // A section the command does not take, or no version, sends nothing; a reader may not save.
     let before = provider_writes(&pilot).len();

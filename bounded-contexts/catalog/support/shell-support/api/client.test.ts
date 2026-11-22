@@ -611,15 +611,20 @@ data: ${JSON.stringify(jobSnapshot({ status: "completed", result: completedResul
     const client = createCatalogApiClient({ baseUrl: "/api/catalog", fetch });
 
     await expect(
-      client.updateSourceObservationProviderProfileSection("tcgdex", "2026.06.04", "basics", {
-        displayName: "TCGdex Admin Candidate",
-      }),
+      client.updateSourceObservationProviderProfileSection(
+        "tcgdex",
+        "2026.06.04",
+        "basics",
+        { displayName: "TCGdex Admin Candidate" },
+        "sha256:basics-read",
+      ),
     ).resolves.toEqual({ providerKey: "tcgdex", profileVersion: "2026.06.04" });
 
     expect(String(fetch.mock.calls[0][0])).toBe(
       "/api/catalog/source-observations/provider-profiles/tcgdex/2026.06.04/sections/basics",
     );
     expect(fetch.mock.calls[0][1]?.method).toBe("PATCH");
+    expect(new Headers(fetch.mock.calls[0][1]?.headers).get("if-match")).toBe('"sha256:basics-read"');
     expect(fetch.mock.calls[0][1]?.body).toBe(
       JSON.stringify({
         command: {

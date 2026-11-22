@@ -7,6 +7,57 @@ type ResolveAuthoringGoal = (
 ) => Readonly<{ lifecycle: string; parameterSchema: GoalParameterSchema }> | null;
 
 export type RepricingPreset = "track-market" | "beat-lowest" | "premium" | "slow-stock";
+export type RepricingPresetRange = Readonly<{ min: number; max: number; defaultValue: number }>;
+
+/** How far each preset's one knob may go and where it starts. */
+export const repricingPresetKnobs: Readonly<Record<RepricingPreset, RepricingPresetRange>> = {
+  "track-market": { min: -25, max: 25, defaultValue: 0 },
+  "beat-lowest": { min: 0, max: 15, defaultValue: 2 },
+  premium: { min: 0, max: 30, defaultValue: 5 },
+  "slow-stock": { min: 0, max: 30, defaultValue: 10 },
+};
+/** How old a listing must be before the slow-stock preset marks it down. */
+export const repricingPresetAgeDays: RepricingPresetRange = { min: 14, max: 180, defaultValue: 45 };
+/** The presets in the order an editor offers them. */
+export const repricingPresetOrder: readonly RepricingPreset[] = [
+  "track-market",
+  "beat-lowest",
+  "premium",
+  "slow-stock",
+];
+const presetMarginPercent = 10;
+
+export type RepricingPresetControls = Readonly<{
+  preset: RepricingPreset;
+  knob: RepricingPresetRange;
+  /** The listing-age control, for the one preset whose rules read it. */
+  ageDays: RepricingPresetRange | null;
+}>;
+export type RepricingEditorDefaults = Readonly<{
+  /** The account's one listing currency, or null when it lists in none or several. */
+  currencyCode: string | null;
+  /** Cost plus a margin when the account has a cost basis, else an amount the seller enters. */
+  floor: Readonly<{ mode: "cost-basis-plus-margin"; marginPercent: number }> | Readonly<{ mode: "absolute" }>;
+}>;
+
+export function repricingPresetControls(): readonly RepricingPresetControls[] {
+  return repricingPresetOrder.map((preset) => ({
+    preset,
+    knob: repricingPresetKnobs[preset],
+    ageDays: preset === "slow-stock" ? repricingPresetAgeDays : null,
+  }));
+}
+
+export function repricingEditorDefaults(
+  facts: Readonly<{ listingCurrencyCodes: readonly string[]; hasCostBasis: boolean }>,
+): RepricingEditorDefaults {
+  return {
+    currencyCode: facts.listingCurrencyCodes.length === 1 ? facts.listingCurrencyCodes[0]! : null,
+    floor: facts.hasCostBasis
+      ? { mode: "cost-basis-plus-margin", marginPercent: presetMarginPercent }
+      : { mode: "absolute" },
+  };
+}
 export type AuthoringBody = Readonly<{
   scope: RepricingPolicyScope;
   excludedListingIds?: readonly string[];
@@ -91,7 +142,12 @@ export function compilePresetBody(
       rules:
         input.preset === "slow-stock"
           ? [
-              { conditions: [{ type: "listing-age-at-least" as const, days: input.ageDays ?? 45 }], directive },
+              {
+                conditions: [
+                  { type: "listing-age-at-least" as const, days: input.ageDays ?? repricingPresetAgeDays.defaultValue },
+                ],
+                directive,
+              },
               {
                 conditions: [],
                 directive: {
@@ -104,7 +160,12 @@ export function compilePresetBody(
             ]
           : [{ conditions: [], directive }],
     },
-    { kind: "preset", preset: input.preset, knob: input.knob, ageDays: input.ageDays ?? 45 },
+    {
+      kind: "preset",
+      preset: input.preset,
+      knob: input.knob,
+      ageDays: input.ageDays ?? repricingPresetAgeDays.defaultValue,
+    },
   );
 }
 
@@ -119,23 +180,17 @@ export function recognizeAuthoringIntent(
     return null;
   const source = intent.source;
   if (source?.kind === "preset") {
-    const bounds = {
-      "track-market": [-25, 25],
-      "beat-lowest": [0, 15],
-      premium: [0, 30],
-      "slow-stock": [0, 30],
-    } as const;
-    const range = Object.hasOwn(bounds, source.preset) ? bounds[source.preset] : null;
+    const range = Object.hasOwn(repricingPresetKnobs, source.preset) ? repricingPresetKnobs[source.preset] : null;
     const directive = body.rules[0]?.directive;
     if (
       !range ||
       !directive?.currencyCode ||
       !Number.isFinite(source.knob) ||
-      source.knob < range[0] ||
-      source.knob > range[1] ||
+      source.knob < range.min ||
+      source.knob > range.max ||
       !Number.isInteger(source.ageDays) ||
-      source.ageDays < 14 ||
-      source.ageDays > 180
+      source.ageDays < repricingPresetAgeDays.min ||
+      source.ageDays > repricingPresetAgeDays.max
     )
       return null;
     const compiled = compilePresetBody({

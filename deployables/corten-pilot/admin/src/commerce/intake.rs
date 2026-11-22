@@ -14,13 +14,13 @@
 //! Every form posts `multipart/form-data` (two carry photos), read with Corten's `Upload`; each
 //! photo goes to the evidence endpoint before the intake that cites it, as admin-web sends them.
 //!
-//! Departures from admin-web:
-//! - The receipt time is drawn in the operator's time zone (`DrawZone::from(req.zone())`, UTC until
-//!   the browser has said, and named by the field), read in the zone the form sends back
-//!   (`FormZone`), and a time that cannot be read or comes without that zone is refused; admin-web
-//!   reads it in its server's zone and turns an unreadable one into now
-//!   (chase-sets/chase-sets#10857).
-//! - The unidentified-package form shows once a facility is open: without one the API refuses it.
+//! The receipt time is drawn in the operator's time zone (`DrawZone::from(req.zone())`, UTC until
+//! the browser has said, and named by the field), read in the zone the form sends back
+//! (`FormZone`), and a time that cannot be read or comes without that zone is refused, as admin-web
+//! refuses one.
+//!
+//! Departure from admin-web: the unidentified-package form shows once a facility is open, since
+//! without one the API refuses it.
 use bytes::Bytes;
 use corten::{
     Upload, UploadError,

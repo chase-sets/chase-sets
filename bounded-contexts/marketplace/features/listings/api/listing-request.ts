@@ -31,11 +31,12 @@ const evidenceSchema = z
         owner: z.string().min(1),
         key: z.string().min(1),
         storeIncarnation: z.string().min(1),
-        sealVersion: z.number().int().positive(),
+        sealVersion: z.number().int().nonnegative(),
         epoch: z.number().int().nonnegative().optional(),
         promiseId: z.string().min(1).optional(),
       })
-      .refine((value) => (value.epoch !== undefined) !== (value.promiseId !== undefined)),
+      .refine((value) => (value.epoch !== undefined) !== (value.promiseId !== undefined))
+      .refine((value) => value.sealVersion > 0 || (value.owner === "pricing" && value.promiseId !== undefined)),
   )
   .min(1)
   .max(32);
@@ -54,6 +55,8 @@ export function createListingRequestExecutor(eventStore: EventStore) {
       context: EventStoreContext;
       principal: ListingTargetPrincipal;
       parseResult: (value: unknown) => Result;
+      checkEvidence?: (value: readonly ListingAuthorizationEvidence[]) => void;
+      settle?: (preparation: ListingPreparation, abort: boolean) => Promise<void>;
       prepare: (preparation: ListingPreparation) => Promise<
         Readonly<{
           result: Result;
@@ -76,6 +79,8 @@ export function createListingRequestExecutor(eventStore: EventStore) {
       tokenHash: input.principal.tokenHash,
       audit: input.context.audit,
     });
+    const preparation = { requestId, commandFingerprint: fingerprint, target: input.command };
+    const settle = async (abort: boolean) => input.settle?.(preparation, abort).catch(() => undefined);
     const replay = async () => {
       let events: readonly StoredEvent[];
       try {
@@ -101,19 +106,24 @@ export function createListingRequestExecutor(eventStore: EventStore) {
         )
           throw new ListingRequestConflictError();
         if (event.payload.resultDigest !== hash(event.payload.result)) throw new ListingRequestConflictError();
-        parseEvidence(event.payload.authorizationEvidence);
+        const evidence = parseEvidence(event.payload.authorizationEvidence);
+        input.checkEvidence?.(evidence);
         return input.parseResult(event.payload.result);
       } catch {
         throw new ListingRequestConflictError();
       }
     };
     const prior = await replay();
-    if (prior !== null) return prior;
+    if (prior !== null) {
+      await settle(false);
+      return prior;
+    }
     if (!eventStore.appendToStreams) throw new ListingRequestIndeterminateError();
     let appendStarted = false;
     try {
-      const prepared = await input.prepare({ requestId, commandFingerprint: fingerprint, target: input.command });
-      parseEvidence(prepared.evidence);
+      const prepared = await input.prepare(preparation);
+      const evidence = parseEvidence(prepared.evidence);
+      input.checkEvidence?.(evidence);
       if (
         !prepared.evidence.length ||
         !prepared.appends.length ||
@@ -143,10 +153,15 @@ export function createListingRequestExecutor(eventStore: EventStore) {
         },
       ]);
       recordCommittedEvents(results.flatMap((r) => r.storedEvents));
+      await settle(false);
       return prepared.result;
     } catch (error) {
       const committed = await replay();
-      if (committed !== null) return committed;
+      if (committed !== null) {
+        await settle(false);
+        return committed;
+      }
+      await settle(true);
       if (
         appendStarted &&
         !(

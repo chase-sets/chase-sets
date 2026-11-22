@@ -1,5 +1,14 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  globSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -166,8 +175,14 @@ function copyRealTree() {
   const contextsRoot = path.join(repoRoot, "bounded-contexts");
   for (const entry of readdirSync(contextsRoot, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
-    for (const file of ["package.json", "context.json", "context.source.mjs"]) {
-      const source = path.join(contextsRoot, entry.name, file);
+    const contextDir = path.join(contextsRoot, entry.name);
+    const files = ["package.json", "context.json", "context.source.mjs"];
+    // The guard composes authored manifests from the copied source, not the generated JSON.
+    if (existsSync(path.join(contextDir, "context.source.mjs"))) {
+      files.push(...globSync("features/*/metadata.json", { cwd: contextDir }));
+    }
+    for (const file of files) {
+      const source = path.join(contextDir, file);
       if (existsSync(source))
         writeFiles(rootDir, { [`bounded-contexts/${entry.name}/${file}`]: readFileSync(source, "utf8") });
     }

@@ -1,4 +1,4 @@
-//! Seller shipping setup (Fulfillment's `seller-shipping-setup`, `shipping-setup-route-adapter.tsx`
+//! Seller shipping setup (Fulfillment's seller checkout readiness route `seller-shipping-setup.tsx`
 //! with `ShippingSetupPage`, at `/sell/shipping-setup`): where the seller ships from and how they
 //! want labels, saved for their account, or, before they have one, for the guest sell list the
 //! browser carries. Seller checkout links to it.

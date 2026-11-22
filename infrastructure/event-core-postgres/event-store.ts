@@ -42,7 +42,10 @@ import {
 } from "./types";
 import { assertSqlIdentifier } from "./sql-identifier";
 import { buildStreamPrefixFilterSql, streamCategory, streamContextName } from "./stream-prefix-filter";
-import { lockAndCommitRequestTerminalInTransaction } from "./owner-stream-reservation";
+import {
+  lockAndCommitRequestTerminalInTransaction,
+  lockOpenRequestTerminalInTransaction,
+} from "./owner-stream-reservation";
 import {
   enrollOwnerPredicateWriteInTransaction,
   withOwnerPredicateWrite,
@@ -898,19 +901,27 @@ async function appendEventsToStream(args: AppendInTransactionArgs): Promise<read
 
 async function appendEventsToStreams(args: AppendStreamsInTransactionArgs): Promise<readonly AppendToStreamsResult[]> {
   const results: AppendToStreamsResult[] = [];
-  const terminals = args.inputs.flatMap((input) => (input.requestTerminal ? [input.requestTerminal] : []));
+  const terminals = args.inputs
+    .flatMap((input) => (input.requestTerminal ? [input.requestTerminal] : []))
+    .sort((a, b) =>
+      JSON.stringify([a.consumerStoreId, a.requestId]).localeCompare(JSON.stringify([b.consumerStoreId, b.requestId])),
+    );
+  const grants = args.inputs.flatMap((input) => input.configurationGrants ?? []);
   if (terminals.length) {
     const keys = terminals.map((binding) => JSON.stringify([binding.consumerStoreId, binding.requestId]));
     if (new Set(keys).size !== keys.length)
       throw createEventStoreError("concurrency_conflict", "Each request terminal may participate once per append.");
     // Request-terminal locks are the first lock in the class-C append order.
-    // The CAS is consumer-local and therefore never reads an owner database.
-    for (const binding of [...terminals].sort((a, b) =>
-      JSON.stringify([a.consumerStoreId, a.requestId]).localeCompare(JSON.stringify([b.consumerStoreId, b.requestId])),
-    ))
-      await lockAndCommitRequestTerminalInTransaction(args.client, binding);
+    for (const binding of terminals) {
+      if (binding.preparationNotBefore !== undefined) {
+        if (!grants.length)
+          throw createEventStoreError("concurrency_conflict", "Exact request terminal requires configuration guards.");
+        await lockOpenRequestTerminalInTransaction(args.client, binding);
+      } else {
+        await lockAndCommitRequestTerminalInTransaction(args.client, binding);
+      }
+    }
   }
-  const grants = args.inputs.flatMap((input) => input.configurationGrants ?? []);
   if (grants.length) {
     assertUniqueStreamIds("appendToStreams", args.inputs);
     await lockConfigurationGrantVectorInTransaction(args.client, grants);
@@ -927,6 +938,10 @@ async function appendEventsToStreams(args: AppendStreamsInTransactionArgs): Prom
       EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY,
     ]);
     await validateConfigurationGrantVectorInTransaction(args.client, grants);
+    // A blocked lock acquisition cannot carry an exact request past its deadline.
+    for (const binding of terminals)
+      if (binding.preparationNotBefore !== undefined)
+        await lockAndCommitRequestTerminalInTransaction(args.client, binding);
     args = { ...args, preparedVersions: versions };
   }
 
