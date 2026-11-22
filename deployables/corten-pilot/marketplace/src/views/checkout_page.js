@@ -32,8 +32,8 @@ const DEADLINE_MS = 15_000;
 
 /**
  * The page's card: Stripe and its fields, whether Pay now may use them, whether a press is being
- * turned into a token, the choice to save the card the fields were last told, and the parts and
- * message a failure shows.
+ * turned into a token, the choice to save the card the fields were last told, the token this
+ * page view made for the send under way, and the parts and message a failure shows.
  * @typedef {object} State
  * @property {any} stripe
  * @property {any} elements
@@ -41,6 +41,7 @@ const DEADLINE_MS = 15_000;
  * @property {boolean} ready
  * @property {boolean} paying
  * @property {boolean} save
+ * @property {string} token
  * @property {Parts | null} parts
  * @property {ParentNode | null} scope
  * @property {string} couldNotComplete
@@ -56,6 +57,7 @@ const kept = () =>
         ready: false,
         paying: false,
         save: false,
+        token: "",
         parts: null,
         scope: null,
         couldNotComplete: "",
@@ -122,6 +124,7 @@ export async function mount(target, parts, scope, card, couldNotComplete, signal
   state.scope = scope;
   state.couldNotComplete = couldNotComplete;
   state.save = false;
+  state.token = "";
   let late = false;
   const deadline = setTimeout(() => {
     late = true;
@@ -173,9 +176,23 @@ export async function mount(target, parts, scope, card, couldNotComplete, signal
 }
 
 /**
+ * A page the browser keeps for Back and Forward comes back as it was left: Pay now off and the
+ * token it sent, which Stripe will not take twice. Forget that token and turn Pay now on again.
+ */
+addEventListener("pageshow", (event) => {
+  if (!event.persisted) return;
+  const state = kept();
+  state.token = "";
+  state.paying = false;
+  if (state.ready && state.scope) payNow(state.scope, false);
+});
+
+/**
  * Pay now with a new card: Stripe checks what the buyer entered and makes a confirmation token,
  * which the form then sends with Pay now. A refusal says Stripe's words and Pay now is on again.
- * Any other submit, or one already carrying the token, goes as it is.
+ * Any other submit, or the send carrying the token this page view just made, goes as it is. A
+ * token the browser put back in the field (restoring the form on Back) is spent, so it is
+ * dropped and a new one made.
  *
  * @param {SubmitEvent} event
  * @param {HTMLInputElement} token
@@ -185,8 +202,9 @@ export async function pay(event, token) {
   const form = event.target;
   const submitter = event.submitter;
   if (!(form instanceof HTMLFormElement) || submitter?.getAttribute("value") !== "confirm-checkout") return;
-  if (!state.elements || token.value) return;
+  if (!state.elements || (token.value && token.value === state.token)) return;
   event.preventDefault();
+  token.value = "";
   const { parts, scope } = state;
   if (!state.ready || state.paying || !parts || !scope) return;
   state.paying = true;
@@ -210,7 +228,7 @@ export async function pay(event, token) {
     const result = await state.stripe.createConfirmationToken({ elements });
     if (result?.error) return refused(result.error.message);
     if (state.elements !== elements) return refused();
-    token.value = result.confirmationToken.id;
+    state.token = token.value = result.confirmationToken.id;
     // A disabled button is left out of what the form sends, so Pay now is on for the send and
     // off again while the next page loads.
     const button = submitter instanceof HTMLButtonElement ? submitter : null;
