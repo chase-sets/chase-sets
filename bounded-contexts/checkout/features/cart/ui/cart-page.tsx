@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from "react";
-import { defaultProductImageUrl } from "@chase-sets/catalog-seed";
+import { defaultProductImageUrl } from "@chase-sets/catalog-seed/fallback-assets";
 import { formatLanguageCodeLabel, formatMoney, t } from "@chase-sets/localization";
 import { centsToSignedMoneyAmount, trySignedMoneyToCents } from "@chase-sets/primitives/money";
 import {

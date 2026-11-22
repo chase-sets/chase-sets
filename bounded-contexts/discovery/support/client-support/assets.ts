@@ -1,4 +1,4 @@
-import { defaultProductImageUrl } from "@chase-sets/catalog-seed";
+import { defaultProductImageUrl } from "@chase-sets/catalog-seed/fallback-assets";
 
 export const discoveryAssetUrls = {
   defaultProductImage: defaultProductImageUrl,
