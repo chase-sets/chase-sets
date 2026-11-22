@@ -4,6 +4,7 @@ import {
   idempotencyKeyProperty,
   integerProperty,
   mutationInput,
+  nullableProperty,
   type McpToolDescriptor,
   type McpServiceDescriptor,
   objectSchema,
@@ -275,8 +276,104 @@ const blueprintTools: readonly McpToolDescriptor[] = [
   blueprintWrite("archive-blueprint", "Archive Blueprint", {}, [], "destructive"),
 ];
 
+const categoryQuery = {
+  search: stringProperty("Category key or name search term."),
+  status: stringProperty("Category lifecycle status."),
+  parentCategoryId: stringProperty("Filter by parent Category identifier."),
+  hierarchy: stringProperty("Category hierarchy filter: root or child."),
+};
+const categoryId = { categoryId: stringProperty("Category identifier.") };
+const categoryMetadata = {
+  key: stringProperty("Category key."),
+  name: localizedText,
+  description: localizedText,
+  parentCategoryId: nullableProperty({
+    type: "string",
+    description: "Parent Category identifier; null for a root Category.",
+  }),
+  displayOrder: integerProperty("Category display order (signed 32-bit integer)."),
+};
+const categoryBulk = {
+  action: stringProperty("Lifecycle action.", ["publish", "deprecate", "archive"]),
+  selection: {
+    ...objectSchema(
+      {
+        mode: stringProperty("Selection mode.", ["ids", "filter"]),
+        ids: arrayProperty("Explicit Category identifiers.", categoryId.categoryId),
+        query: { ...objectSchema(categoryQuery), description: "Matching Categories; incomplete scans fail visibly." },
+      },
+      ["mode"],
+    ),
+    description: "ids mode requires ids; filter mode requires query. Branches are exclusive.",
+  },
+} as const;
+const categoryWrite = (
+  name: string,
+  title: string,
+  properties: Parameters<typeof objectSchema>[0],
+  required: readonly string[],
+  risk: "sensitive" | "destructive" = "sensitive",
+) => ({
+  ...opWrite(
+    name,
+    title,
+    "catalog.manage",
+    { ...properties, ...writeFields, confirmed: booleanProperty("Confirm this exact action.") },
+    [...required, ...writeRequired],
+    "category",
+  ),
+  risk,
+});
+
+const categoryTools: readonly McpToolDescriptor[] = [
+  opRead(
+    "list-categories",
+    "List Categories",
+    "catalog.view",
+    {
+      ...categoryQuery,
+      limit: { type: "number", description: "Category page size (default 50, maximum 500)." },
+      offset: { type: "number", description: "Category page offset (default 0, maximum 10000)." },
+    },
+    [],
+    "category",
+  ),
+  opRead("get-category", "Get Category", "catalog.view", categoryId, ["categoryId"], "category"),
+  opRead(
+    "preview-bulk-category-lifecycle",
+    "Preview Bulk Category Lifecycle",
+    "catalog.manage",
+    categoryBulk,
+    ["action", "selection"],
+    "category",
+  ),
+  categoryWrite(
+    "confirm-bulk-category-lifecycle",
+    "Confirm Bulk Category Lifecycle",
+    categoryBulk,
+    ["action", "selection"],
+    "destructive",
+  ),
+  categoryWrite("create-category", "Create Category", { ...categoryId, ...categoryMetadata }, [
+    "categoryId",
+    "key",
+    "name",
+  ]),
+  categoryWrite("revise-category", "Revise Category", { ...categoryId, ...categoryMetadata }, [
+    "categoryId",
+    "key",
+    "name",
+    "description",
+    "parentCategoryId",
+  ]),
+  categoryWrite("publish-category", "Publish Category", categoryId, ["categoryId"]),
+  categoryWrite("deprecate-category", "Deprecate Category", categoryId, ["categoryId"]),
+  categoryWrite("archive-category", "Archive Category", categoryId, ["categoryId"], "destructive"),
+];
+
 const tools: readonly McpToolDescriptor[] = [
   ...blueprintTools,
+  ...categoryTools,
   opRead(
     "list-provider-refresh-schedules",
     "List Provider Refresh Schedules",

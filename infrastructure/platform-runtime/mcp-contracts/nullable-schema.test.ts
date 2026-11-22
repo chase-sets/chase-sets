@@ -67,6 +67,8 @@ describe("nullable MCP input schema vocabulary", () => {
     ]);
 
     expect(nullablePaths.sort()).toEqual([
+      "catalog.create-category.input.parentCategoryId",
+      "catalog.revise-category.input.parentCategoryId",
       "identity.close-account.input.reference",
       "identity.reactivate-account.input.reference",
       "identity.suspend-account.input.reference",
