@@ -1,8 +1,8 @@
 //! The buyer's submitted offers (marketplace's `MarketplaceSubmittedOfferListPage`): the status
 //! filter with each status's count, what the change before did to each offer, and each offer's
 //! item, price, status, options, quantity, the accepting seller's reputation and when it changed,
-//! with Open and, for a reader with `offers.manage`, its Pause, Resume and Withdraw and a box to
-//! check it for the bulk bar.
+//! with Open and, for a reader who may change their offers, its Pause, Resume and Withdraw and a
+//! box to check it for the bulk bar.
 //!
 //! Every action is a form and works without JavaScript: Withdraw (one or the checked offers) asks
 //! first in a `<dialog>` its button opens (`command="show-modal"`). The page's script only counts
@@ -131,7 +131,7 @@ pub fn SubmittedOffersPage<'a>(t: SubmittedOffersMsg, p: Pilot, screen: &'a Offe
         <section class={Section} aria-labelledby="submitted-offers-title">
             <h2 id="submitted-offers-title" class={PartTitle}>{t.list_submitted_offers_2()}</h2>
             <Filters t={t} screen={screen} />
-            if screen.manage {
+            if screen.change {
                 <OffersForm t={t} p={p} screen={screen} />
             } else {
                 <Rows t={t} p={p} screen={screen} />
@@ -256,7 +256,7 @@ fn Rows<'a>(t: SubmittedOffersMsg, p: Pilot, screen: &'a OffersScreen) -> impl P
             } else {
                 <ul class={Offers}>
                     for offer in items {
-                        <li class={Offer}><OfferRow t={t} p={p} offer={offer} manage={screen.manage} /></li>
+                        <li class={Offer}><OfferRow t={t} p={p} offer={offer} manage={screen.change} /></li>
                     }
                 </ul>
             }
@@ -448,7 +448,7 @@ fn term(label: &str) -> &str {
 
 /// One offer's page (marketplace's `MarketplaceSubmittedOfferDetailPage`): the header with Back to
 /// submitted offers; Manage this Offer (the paused notice, what the change did, and Pause, Resume
-/// or Withdraw, Withdraw asking first) for a reader with `offers.manage`; and the overview: the
+/// or Withdraw, Withdraw asking first) for a reader who may change their offers; and the overview: the
 /// offer's card (price and status, options, quantity, that it is marketplace-wide, the accepting
 /// seller), the price lines, and where it is. Marketplace's protection module repeats the
 /// overview's own sentences and is left out. One column; the card and the price lines side by side
@@ -460,7 +460,7 @@ pub fn SubmittedOfferPage<'a>(t: SubmittedOffersMsg, p: Pilot, screen: &'a Offer
     let id = offer.offer_id.as_str();
     let title = offer.item_title.as_str();
     let status = offer.status.as_str();
-    let available: &[&str] = if screen.manage { actions(status) } else { &[] };
+    let available: &[&str] = if screen.change { actions(status) } else { &[] };
     let seller = offer.accepted_seller_account_id.as_deref().filter(|_| status == "accepted");
     let price = money(t, offer);
     let open = matches!(status, "submitted" | "paused");

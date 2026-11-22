@@ -557,6 +557,11 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             // Payout setup: `setter` has not started, `restricted_setter` is restricted with a
             // provider account (its management session asks it to sign in again).
             "setter" | "restricted_setter" => actor(&["payouts.view", "payouts.setup"]),
+            // An owner whose offers.manage Auth withholds until its email is verified.
+            "offers_unverified" => Json(json!({ "actor": {
+                "userId": "usr_seller", "accountId": "acc_seller", "roleKey": "owner", "permissions": ["offers.view", "listings.view"],
+            } }))
+            .into_response(),
             // An owner whose orders.manage Auth withholds until its email is verified, and an agent
             // acting for an owner with the same permissions (never asked to verify).
             "unverified" | "unverified_agent" => {
@@ -13001,7 +13006,7 @@ async fn submitted_offers_need_offers_view_to_read_and_offers_manage_to_change()
     let pilot = Pilot::new().await;
     let (status, _, _) = pilot.send(get(SUBMITTED_OFFERS, Some("lookout"))).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
-    // `lister` reads offers but may not change them: no boxes, no buttons (chase-sets#10660).
+    // `lister`'s role reads offers but may not change them: no boxes, no buttons.
     let (status, _, html) = pilot.send(get(SUBMITTED_OFFERS, Some("lister"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(
@@ -13014,6 +13019,45 @@ async fn submitted_offers_need_offers_view_to_read_and_offers_manage_to_change()
     let (status, headers, _) = pilot.send(get(SUBMITTED_OFFERS, None)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert!(headers[header::LOCATION].to_str().unwrap().contains("sign-in"));
+}
+
+#[tokio::test]
+async fn an_owner_whose_offers_manage_awaits_email_verification_may_still_change_its_offers() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(SUBMITTED_OFFERS, Some("offers_unverified"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"name="row" value="pause:off_open""#), "{html}");
+    assert!(html.contains(r#"name="offerIds""#), "{html}");
+    let (status, _, html) = pilot.send(post(SUBMITTED_OFFERS, "offers_unverified", "row=pause%3Aoff_open", false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Pikachu: now Paused"), "{html}");
+    let sent = list_calls(&pilot, "/api/marketplace/account/offers/submitted/off_open/pause");
+    assert!(sent.iter().any(|c| c.starts_with("POST")), "{sent:?}");
+    let (status, _, html) = pilot.send(get("/account/offers/submitted/off_open", Some("offers_unverified"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"name="row" value="pause:off_open""#), "{html}");
+}
+
+#[tokio::test]
+async fn an_owner_awaiting_email_verification_may_not_follow_the_market() {
+    // Following creates and authorizes a repricing policy, which needs offers.manage itself.
+    let pilot = Pilot::new().await;
+    let steps = [
+        format!(
+            "step=preview&policyId=bop_new2&expectedVersion=0&attemptId={POLICY_ATTEMPT}&operationId=op_1&offerId=off_open&cap.off_open=18.5&adjustment=-5"
+        ),
+        format!(
+            "step=authorize&policyId=bop_new2&expectedVersion=0&attemptId={POLICY_ATTEMPT}&operationId=op_1&offerId=off_open&cap.off_open=18.5&adjustment=-5"
+        ),
+    ];
+    for here in ["/account/offers/submitted/following", "/account/offers/submitted/off_open/following"] {
+        for step in &steps {
+            let (status, _, _) = pilot.send(post(here, "offers_unverified", step, false)).await;
+            assert_eq!(status, StatusCode::FORBIDDEN, "{here} {step}");
+        }
+    }
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    assert!(!calls.iter().any(|c| c.path.contains("/offer-policies")), "{calls:?}");
 }
 
 #[tokio::test]
