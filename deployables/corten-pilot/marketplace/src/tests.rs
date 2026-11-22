@@ -4080,6 +4080,42 @@ async fn a_cart_not_readable_yet_after_a_write_says_so_and_reads_again() {
     assert!(!html.contains("data-corten-read-again"), "a cart read as it is waits for nothing");
 }
 
+#[tokio::test]
+async fn after_an_add_the_cart_waits_for_its_line_and_says_when_it_is_missing() {
+    let pilot = Pilot::new().await;
+    let add = "semantic-handoff:checkout.cart.add-line".to_owned();
+    let handoff = crate::api::segment(crate::cart::ADD_LINE_HANDOFF);
+    post_write_outcomes();
+    // The added line is not in the cart yet: the item is on its way, and the page reads again.
+    let adding = format!("{CART_SCREEN}?after_write={}&post_write_handoff={handoff}", receipt_at("42"));
+    let (status, _, html) = pilot.send(get(&adding, Some("empty"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Your item was added. The Buy Cart is catching up"), "{html}");
+    assert!(html.contains("data-corten-read-again"), "{html}");
+    assert_eq!(post_write_outcomes(), [("handoff_pending", "pending_empty_state", "valid-after-write", add.clone())]);
+
+    // The line is there: the handoff is satisfied and the cart shows.
+    let (_, _, html) = pilot.send(get(&adding, Some("buyer"))).await;
+    assert!(html.contains("data-cart-line") && !html.contains("data-corten-read-again"), "{html}");
+    assert_eq!(post_write_outcomes(), [("handoff_satisfied", "none", "valid-after-write", add.clone())]);
+
+    // Still empty once the receipt has expired: the add may be missing, so refresh or keep shopping.
+    let missing = format!("{CART_SCREEN}?after_write={}&post_write_handoff={handoff}", expired_receipt("13"));
+    let (status, _, html) = pilot.send(get(&missing, Some("empty"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(
+        page.contains("did not catch up in time") && page.contains("Refresh cart") && page.contains("Keep shopping"),
+        "{page}"
+    );
+    assert!(!html.contains("data-corten-read-again"), "{html}");
+    assert_eq!(post_write_outcomes(), [("handoff_expired", "action_required", "expired-after-write", add)]);
+
+    // A cart read as it is records nothing.
+    pilot.send(get(CART_SCREEN, Some("buyer"))).await;
+    assert_eq!(post_write_outcomes(), []);
+}
+
 /// A Discovery item: a card that is raw (in one of three conditions) or graded (one of seven
 /// grades), with three listings and two offers, in the order the API ranks them.
 fn item() -> Value {
@@ -4639,6 +4675,7 @@ async fn the_product_goes_to_smart_match_and_buy_best_match_opens_the_cart() {
     assert_eq!(status, StatusCode::SEE_OTHER, "{body}");
     let to = headers[header::LOCATION].to_str().unwrap();
     assert!(to.starts_with("/account/cart?after_write="), "{to}");
+    assert_eq!(query(to)["post_write_handoff"], crate::cart::ADD_LINE_HANDOFF, "the cart waits for the added line: {to}");
     let lines: Vec<Value> = adds(&pilot).into_iter().map(|(_, line)| line).collect();
     for line in &lines {
         assert_eq!(line["fulfillmentMode"], "optimize", "{line}");
@@ -10827,8 +10864,10 @@ fn inventory_create<'a>(attempt: &'a str, intent: &'a str, item: &'a str, price:
 #[tokio::test]
 async fn create_listing_reads_the_sellers_inventory_and_only_a_listing_manager_writes() {
     let pilot = Pilot::new().await;
+    post_write_outcomes();
     let (status, _, html) = pilot.send(get(LISTING_NEW, Some("lister"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
+    assert_eq!(post_write_outcomes(), [("read_data", "none", "fresh", String::new())]);
     assert!(html.contains(r#"enctype="multipart/form-data""#), "the form posts its photos: {html}");
     assert!(html.contains(r#"accept="image/jpeg,image/png,image/webp""#), "{html}");
     let page = text(&html);
@@ -10888,8 +10927,10 @@ async fn a_draft_from_inventory_sends_its_photos_and_limits_and_goes_to_its_list
     let fields = inventory_create(&attempt, "create-listing", "inv_etb", "45.00");
     let files: [(&str, &str, &str, &[u8]); 2] =
         [("evidence", "front.png", "image/png", PNG), ("other", "notes.png", "image/png", PNG)];
+    post_write_outcomes();
     let (status, headers, html) = pilot.send(post_multipart(LISTING_NEW, "lister", &fields, &files)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(post_write_outcomes(), [("navigation_encoded", "none", "none", String::new())]);
     let id = crate::listing::listing_id(&attempt).unwrap();
     let to = headers[header::LOCATION].to_str().unwrap();
     assert!(to.starts_with(&format!("/account/listings/{id}?evidenceEvent=upload_completed&afterWrite=")), "{to}");
@@ -11830,10 +11871,12 @@ async fn preview_fees_is_a_get_of_the_page_and_the_price_form_sends_its_quote() 
 async fn a_listing_whose_read_is_catching_up_says_it_is_preparing_and_reads_again() {
     let pilot = Pilot::new().await;
     let receipt = receipt_at("43");
+    post_write_outcomes();
     let (status, _, html) = pilot
         .send(get(&format!("/account/listings/lst_draft?evidenceEvent=upload_completed&afterWrite={receipt}"), Some("lister")))
         .await;
     assert_eq!(status, StatusCode::OK, "{html}");
+    assert_eq!(post_write_outcomes(), [("read_pending", "refreshable-catching-up", "fresh-write-read-transient", String::new())]);
     let page = text(&html);
     assert!(page.contains("Preparing listing") && page.contains("Refresh listing"), "{page}");
     assert!(html.contains(r#"data-corten-read-again="2""#), "{html}");
@@ -11845,11 +11888,13 @@ async fn a_listing_whose_read_is_catching_up_says_it_is_preparing_and_reads_agai
 async fn a_drafts_photos_are_added_and_replaced_as_multipart_and_a_bad_file_is_refused() {
     let pilot = Pilot::new().await;
     let photos = "/account/listings/lst_draft/photos";
+    post_write_outcomes();
     let (status, headers, html) = pilot
         .send(post_multipart(photos, "lister", &[("intent", "add-photos")], &[("evidence", "front.png", "image/png", PNG)]))
         .await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     assert!(headers[header::LOCATION].to_str().unwrap().contains("evidenceEvent=upload_completed&afterWrite="));
+    assert_eq!(post_write_outcomes(), [("navigation_encoded", "none", "none", String::new())]);
     let call = listing_writes(&pilot, "lst_draft").pop().unwrap();
     assert_eq!(call.path, format!("{SELLER_LISTINGS}lst_draft/photos"));
     let parts = multipart_fields(&call.headers, &call.body).unwrap();
@@ -12232,8 +12277,10 @@ async fn pause_selected_prepares_the_checked_listings_as_one_change_and_the_list
     let body = format!(
         "intent=bulk-pause-listings&attempt={key}&listingIds=lst_active&listingIds=lst_locked&listingIds=lst_unsure&listingIds=lst_active"
     );
+    post_write_outcomes();
     let (status, headers, html) = pilot.send(post("/account/listings?status=active", "lister", &body, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(post_write_outcomes(), [("navigation_encoded", "none", "none", String::new())]);
     // Prepared as the form's attempt, each listing once, then sent; no listing's own command.
     let expected = json!({
         "intent": "bulk-pause-listings", "idempotencyKey": key, "listingId": null,
@@ -12251,6 +12298,7 @@ async fn pause_selected_prepares_the_checked_listings_as_one_change_and_the_list
     assert_eq!(serde_json::from_str::<Value>(&q["listingRecovery"]).unwrap(), reference, "{to}");
     let (status, _, html) = pilot.send(get(&to, Some("lister"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
+    assert_eq!(post_write_outcomes(), [("read_data", "none", "fresh", String::new())]);
     let calls = pilot.stand.calls.lock().unwrap().clone();
     let read = calls.iter().rev().find(|c| c.path.starts_with("/api/marketplace/account/listings?")).unwrap();
     assert_eq!(read.path, "/api/marketplace/account/listings?limit=100&offset=0&status=active");
@@ -12577,8 +12625,10 @@ async fn offer_matches_need_offers_and_listings_to_read_and_offers_manage_to_wri
 #[tokio::test]
 async fn an_offer_matchs_page_shows_its_terms_and_an_unknown_one_is_not_found() {
     let pilot = Pilot::new().await;
+    post_write_outcomes();
     let (status, _, html) = pilot.send(get("/account/offers/matches/off_ready", Some("trader"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
+    assert_eq!(post_write_outcomes(), [("read_data", "none", "fresh", String::new())]);
     let page = text(&html);
     for words in [
         "Offer match Pikachu",
@@ -12593,6 +12643,7 @@ async fn an_offer_matchs_page_shows_its_terms_and_an_unknown_one_is_not_found() 
     assert_eq!(hrefs(&html, "Back to offer matches"), ["/account/offers/matches"]);
     let (status, _, _) = pilot.send(get("/account/offers/matches/off_nobody", Some("trader"))).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(post_write_outcomes(), [("read_permanent", "terminal-failure", "fresh-write-read-permanent", String::new())]);
     // An accepted match has no actions and no terms preview.
     let (_, _, html) = pilot.send(get("/account/offers/matches/off_gone", Some("trader"))).await;
     assert!(!text(&html).contains("Accept offer match Add"), "{html}");
@@ -12626,12 +12677,17 @@ async fn adding_an_offer_match_sends_its_line_with_the_listing_and_goes_to_the_s
 async fn declining_goes_back_to_the_list_with_its_receipt_and_a_refusal_says_why() {
     let pilot = Pilot::new().await;
     let key = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
+    post_write_outcomes();
     let (status, headers, _) = pilot
         .send(post("/account/offers/matches/off_ready", "trader", &format!("intent=decline-offer&attemptId={key}"), false))
         .await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers[header::LOCATION].to_str().unwrap();
     assert!(to.starts_with("/account/offers/matches?afterWrite="), "{to}");
+    assert_eq!(post_write_outcomes(), [("navigation_encoded", "none", "none", String::new())]);
+    let (status, _, _) = pilot.send(get(to, Some("trader"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(post_write_outcomes(), [("read_data", "none", "fresh", String::new())]);
     let declined = list_calls(&pilot, "/api/marketplace/account/offers/matches/off_ready/decline");
     assert_eq!(declined, [format!(r#"POST /api/marketplace/account/offers/matches/off_ready/decline {{"attemptId":"{key}"}}"#)]);
     // A post without the form's attempt is still one attempt; one that is not a submit key is
@@ -14873,29 +14929,36 @@ async fn a_policys_page_reads_the_policy_then_its_halt_changes_and_activity() {
 async fn a_policys_writes_go_back_to_it_with_their_receipt_and_delete_goes_to_the_list() {
     let pilot = Pilot::new().await;
     let page = "/account/desk/repricing/pol_1";
+    post_write_outcomes();
     let (status, headers, _) = pilot.send(post(page, "pricer", "intent=pause-policy", false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(post_write_outcomes(), [("navigation_encoded", "none", "none", String::new())]);
     let to = headers[header::LOCATION].to_str().unwrap().to_owned();
     assert!(to.starts_with("/account/desk/repricing/pol_1?after_write="), "{to}");
     let (status, _, html) = pilot.send(get(&to, Some("pricer"))).await;
     assert_eq!(status, StatusCode::OK);
     assert!(text(&html).contains("Track"));
+    assert_eq!(post_write_outcomes(), [("read_data", "none", "fresh", String::new())]);
 
     let (_, headers, _) = pilot.send(post(page, "pricer", "intent=delete-policy", false)).await;
     let to = headers[header::LOCATION].to_str().unwrap().to_owned();
     assert!(to.starts_with("/account/desk/repricing?afterWrite="), "{to}");
     assert!(pricing_calls(&pilot).iter().any(|(m, p, _)| *m == Method::POST && p.ends_with("/pol_1/delete")));
+    assert_eq!(post_write_outcomes(), [("navigation_encoded", "none", "none", String::new())]);
 
     let (_, headers, _) = pilot.send(post(page, "pricer", "intent=engage-halt", false)).await;
     assert_eq!(headers[header::LOCATION].to_str().unwrap(), page, "the halt goes back without a receipt");
+    assert_eq!(post_write_outcomes(), [], "and reports nothing, as Pricing's does not");
     assert!(pricing_calls(&pilot).iter().any(|(m, p, b)| *m == Method::POST && p.ends_with("/halt") && b.contains("true")));
 
     // A policy just changed that the read does not have yet: the change is saved, read again.
     let (_, headers, _) = pilot.send(post("/account/desk/repricing/pol_2", "pricer", "intent=resume-policy", false)).await;
     let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    post_write_outcomes();
     let (status, _, html) = pilot.send(get(&to, Some("pricer"))).await;
     assert_eq!(status, StatusCode::OK);
     assert!(html.contains("Your change is saved") && html.contains("data-corten-read-again"), "{html}");
+    assert_eq!(post_write_outcomes(), [("read_pending", "refreshable-catching-up", "fresh-write-read-transient", String::new())]);
 
     // A refusal is drawn on the page with Pricing's words; an unknown intent says so.
     let (status, _, html) = pilot.send(post(page, "pricer", "intent=resume-policy", false)).await;
@@ -17421,12 +17484,24 @@ async fn refresh_reads_the_page_after_it_or_goes_back_once_setup_is_ready() {
         pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path == "/api/settlement/payout-readiness").cloned().unwrap();
     assert_eq!(waits_for(&read.headers).as_deref(), Some("51"), "read after the refresh");
 
-    // Ready, with an account page to go back to: there. Not an account page: the page.
+    // Ready, with an account page to go back to: there, carrying the refresh's receipt in place of
+    // any the page had. Not an account page: the page.
+    post_write_outcomes();
     let (status, headers, _) = pilot
-        .send(post(&format!("{PAYOUT_SETUP}?returnTo=%2Faccount%2Fdesk%2Fmoney"), "banker", "intent=refresh-payout-setup", false))
+        .send(post(
+            &format!("{PAYOUT_SETUP}?returnTo=%2Faccount%2Fdesk%2Fmoney%3FafterWrite%3Dold%26drawer%3Dx"),
+            "banker",
+            "intent=refresh-payout-setup",
+            false,
+        ))
         .await;
     assert_eq!(status, StatusCode::SEE_OTHER);
-    assert_eq!(headers[header::LOCATION], "/account/desk/money");
+    let back = headers[header::LOCATION].to_str().unwrap();
+    let (path, after_write) = back.split_once("&afterWrite=").expect(back);
+    assert_eq!(path, "/account/desk/money?drawer=x");
+    let receipt = percent_encoding::percent_decode_str(after_write).decode_utf8().unwrap();
+    assert!(receipt.contains(r#""commitPosition":"51""#), "{receipt}");
+    assert_eq!(post_write_outcomes(), [("navigation_encoded", "none", "none", String::new())]);
     let (_, headers, _) = pilot
         .send(post(&format!("{PAYOUT_SETUP}?returnTo=%2F%2Fevil.test%2F"), "banker", "intent=refresh-payout-setup", false))
         .await;
@@ -17595,13 +17670,16 @@ async fn a_payout_is_previewed_then_confirmed_with_its_attempt() {
     assert!(html.contains(r#"name="amount" value="5.00""#) && html.contains(r#"value="Rent""#), "{html}");
 
     let body = format!("intent=confirm-payout&amount=5.00&note=Rent&attempt={ATTEMPT}");
+    post_write_outcomes();
     let (status, headers, _) = pilot.send(post(MONEY, "banker", &body, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers[header::LOCATION].to_str().unwrap().to_owned();
     assert!(to.starts_with("/account/desk/payouts/pyo_new?requested=1&afterWrite="), "the pilot's payout: {to}");
+    assert_eq!(post_write_outcomes(), [("navigation_encoded", "none", "none", String::new())]);
     // Settlement has not caught up to it yet: the page says it is being prepared and reads again.
     let (status, _, html) = pilot.send(get(&to, Some("banker"))).await;
     assert_eq!(status, StatusCode::ACCEPTED, "{html}");
+    assert_eq!(post_write_outcomes(), [("read_pending", "refreshable-catching-up", "fresh-write-read-transient", String::new())]);
     assert!(text(&html).contains("Preparing payout"), "{html}");
     assert!(html.contains(r#"<noscript data-corten-read-again="2" data-corten-head>"#), "{html}");
     let (path, sent, key) = money_writes(&pilot).pop().unwrap();
@@ -17621,8 +17699,10 @@ async fn a_payout_is_previewed_then_confirmed_with_its_attempt() {
 #[tokio::test]
 async fn a_payouts_page_shows_its_status_amounts_moments_and_timeline() {
     let pilot = Pilot::new().await;
+    post_write_outcomes();
     let (status, _, html) = pilot.send(get("/account/desk/payouts/pyo_paid", Some("banker"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
+    assert_eq!(post_write_outcomes(), [("read_data", "none", "fresh", String::new())]);
     let words = text(&html);
     assert!(words.contains("Payout PYO-pyo_paid") && words.contains("Net payout: $9.73"), "{words}");
     assert!(words.contains("Payout account: Saved payout account"), "no note, no failure: {words}");
@@ -17661,8 +17741,10 @@ async fn a_payouts_page_shows_its_status_amounts_moments_and_timeline() {
     let body: Value = serde_json::from_str(&body).unwrap();
     assert_eq!(body["data"]["payout"]["status"], "in-transit", "{body}");
 
+    post_write_outcomes();
     let (status, _, _) = pilot.send(get("/account/desk/payouts/pyo_nope", Some("banker"))).await;
     assert_eq!(status, StatusCode::NOT_FOUND, "one the account has not");
+    assert_eq!(post_write_outcomes(), [("read_permanent", "terminal-failure", "fresh-write-read-permanent", String::new())]);
     let (status, _, _) = pilot.send(get("/account/desk/payouts/pyo_new", Some("banker"))).await;
     assert_eq!(status, StatusCode::NOT_FOUND, "with no receipt to wait for, not there is not found");
     let (status, _, _) = pilot.send(get("/account/desk/payouts/pyo_paid", Some("buyer"))).await;
@@ -17875,10 +17957,12 @@ async fn an_orders_review_form_needs_reputation_manage_and_asks_a_buyer_to_resol
     assert!(reviews_sent(&pilot).is_empty(), "nothing sent yet");
 
     let body = keyed("intent=feedback-only&feedbackOnlyAcknowledged=true&rating=2&feedback=meh");
+    post_write_outcomes();
     let (status, headers, _) = pilot.send(post(FORM, "reviewer", &body, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers[header::LOCATION].to_str().unwrap();
     assert!(to.starts_with("/account/reviews/rev_new?after_write="), "the review, read after it: {to}");
+    assert_eq!(post_write_outcomes(), [("navigation_encoded", "none", "none", String::new())]);
     assert_eq!(
         reviews_sent(&pilot),
         [json!({ "attemptId": KEY, "orderId": "ord_rev", "subjectAccountId": "acc_seller", "rating": 2, "feedback": "meh" })]
@@ -18105,16 +18189,19 @@ async fn a_reply_is_read_after_its_receipt_and_a_refused_one_keeps_its_words() {
     let pilot = Pilot::new().await;
     let at = format!("{REVIEWS}/rev_good");
     let send = |body: &str| post(&at, "reviewer", &keyed(body), false);
+    post_write_outcomes();
     let (status, headers, _) = pilot.send(send("intent=reply&feedback=Thank+you%21")).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers[header::LOCATION].to_str().unwrap().to_owned();
     assert!(to.starts_with("/account/reviews/rev_good?after_write="), "{to}");
+    assert_eq!(post_write_outcomes(), [("navigation_encoded", "none", "none", String::new())]);
     let sent = pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path.ends_with("/reply")).cloned().unwrap();
     assert_eq!(sent.path, "/api/marketplace/reviews/rev_good/reply");
     assert_eq!(serde_json::from_str::<Value>(&sent.body).unwrap(), json!({ "attemptId": KEY, "feedback": "Thank you!" }));
     let (status, _, html) = pilot.send(get(&to, Some("reviewer"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("Review is preparing") && html.contains("Refresh review"), "still catching up: {html}");
+    assert_eq!(post_write_outcomes(), [("read_pending", "refreshable-catching-up", "fresh-write-read-transient", String::new())]);
 
     let (status, _, html) = pilot.send(send("intent=reply&feedback=+++")).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
@@ -19536,29 +19623,64 @@ async fn back_from_registration_the_guest_sell_list_moves_into_the_account_and_i
     assert!(review.path.ends_with("?sellListPath=%2Faccount%2Fsell-list&includeStandardComparison=true"), "{}", review.path);
 }
 
+/// Each post-write outcome this thread recorded since the last call, as (outcome, recovery
+/// action, freshness outcome, correction source), checked against what marketplace-web records.
+fn post_write_outcomes() -> Vec<(&'static str, &'static str, &'static str, String)> {
+    platform::post_write::recorded()
+        .into_iter()
+        .map(|e| {
+            (
+                e.outcome,
+                e.recovery_action.unwrap_or("none"),
+                e.freshness_outcome.unwrap_or("none"),
+                e.correction_source.unwrap_or_default(),
+            )
+        })
+        .collect()
+}
+
 #[tokio::test]
 async fn a_sell_list_still_catching_up_reads_itself_again_and_a_missing_line_says_so() {
     let pilot = Pilot::new().await;
+    let add = "semantic-handoff:checkout.sell-list.add-line".to_owned();
     let handoff = crate::api::segment(crate::sell_list::ADD_LINE_HANDOFF);
     let pending = format!("{SELL_LIST_PAGE}?afterWrite={}&postWriteHandoff={handoff}", receipt_at("43"));
+    post_write_outcomes();
     let (status, _, html) = pilot.send(get(&pending, Some("trader"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(text(&html).contains("Your Sell List is catching up"), "{html}");
     assert!(html.contains(r#"data-corten-read-again="2""#), "{html}");
+    assert_eq!(post_write_outcomes(), [("freshness_timeout", "reload_prompt", "valid-after-write", "fresh-read".to_owned())]);
 
     let missing = format!("{SELL_LIST_PAGE}?afterWrite={}&postWriteHandoff={handoff}", expired_receipt("13"));
     let (status, _, html) = pilot.send(get(&missing, Some("empty"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(text(&html).contains("Sell List line not visible yet"), "{html}");
     assert!(!html.contains("data-corten-read-again"), "a missing line is not read again: {html}");
+    assert_eq!(post_write_outcomes(), [("handoff_expired", "action_required", "expired-after-write", add.clone())]);
+
+    // The add's line is there: the handoff is satisfied.
+    let arrived = format!("{SELL_LIST_PAGE}?afterWrite={}&postWriteHandoff={handoff}", receipt_at("72"));
+    let (_, _, html) = pilot.send(get(&arrived, Some("trader"))).await;
+    assert!(!html.contains("data-corten-read-again"), "{html}");
+    assert_eq!(post_write_outcomes(), [("handoff_satisfied", "none", "valid-after-write", add.clone())]);
+
+    // A receipt that is not one does not draw "missing", as marketplace's does not.
+    let malformed = format!("{SELL_LIST_PAGE}?afterWrite=%7Bnot&postWriteHandoff={handoff}");
+    let (_, _, html) = pilot.send(get(&malformed, Some("empty"))).await;
+    assert!(!text(&html).contains("Sell List line not visible yet"), "{html}");
+    assert_eq!(post_write_outcomes(), [("handoff_invalid", "none", "missing-after-write", add)]);
 
     // A seller confirmation still being saved waits for it; once it is there, it shows.
     let waiting = format!("{SELL_LIST_PAGE}?confirmation=preparing&pendingConfirmationId=slc_new");
     let (_, _, html) = pilot.send(get(&waiting, Some("trader"))).await;
     assert!(html.contains("data-corten-read-again") && !text(&html).contains("Latest seller confirmation"), "{html}");
+    let confirmation = "sell-checkout-confirmation".to_owned();
+    assert_eq!(post_write_outcomes(), [("handoff_pending", "pending_empty_state", "missing-after-write", confirmation)]);
     let arrived = format!("{SELL_LIST_PAGE}?confirmation=preparing&pendingConfirmationId=slc_01J");
     let (_, _, html) = pilot.send(get(&arrived, Some("trader"))).await;
     assert!(!html.contains("data-corten-read-again") && text(&html).contains("Latest seller confirmation"), "{html}");
+    assert_eq!(post_write_outcomes(), []);
 }
 
 #[tokio::test]
@@ -21082,8 +21204,10 @@ async fn an_offer_whose_read_has_not_caught_up_says_it_is_preparing_and_reads_ag
         let place = crate::submitted_offers::OfferPlace { after_write: Some(receipt), policy: None };
         crate::app::url::SubmittedOffer { id: "off_open", place }.href()
     };
+    post_write_outcomes();
     let (status, _, html) = pilot.send(get(&to, Some("trader"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
+    assert_eq!(post_write_outcomes(), [("read_pending", "refreshable-catching-up", "fresh-write-read-transient", String::new())]);
     let shown = text(&html);
     assert!(shown.contains("Preparing submitted offer We&#39;re preparing your submitted offer details."), "{shown}");
     assert!(shown.contains("Refresh offer Back to submitted offers"), "{shown}");
