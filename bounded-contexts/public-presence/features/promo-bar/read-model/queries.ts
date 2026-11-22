@@ -8,6 +8,10 @@ function optionalText(value: string | null | undefined, maxLength: number) {
   return text.length > 0 ? text.slice(0, maxLength) : null;
 }
 
+// A date and time with its zone ("Z" or an offset). A wall-clock time without
+// one would be read in this server's zone, not the operator's, so it is refused.
+const zonedTimestamp = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}(?::?\d{2})?)$/i;
+
 function normalizeTimestamp(value: string | null | undefined) {
   const text = value?.trim() ?? "";
   if (!text) {
@@ -15,8 +19,8 @@ function normalizeTimestamp(value: string | null | undefined) {
   }
 
   const date = new Date(text);
-  if (Number.isNaN(date.getTime())) {
-    throw new Error("Promo bar dates must be valid dates.");
+  if (!zonedTimestamp.test(text) || Number.isNaN(date.getTime())) {
+    throw new Error("Promo bar dates must be valid dates with a time zone.");
   }
 
   return date.toISOString();

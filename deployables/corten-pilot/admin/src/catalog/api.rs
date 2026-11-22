@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Map, Value};
 
-use corten::prelude::ToJson;
+use corten::{http::header, prelude::ToJson};
 
 use crate::api::{ApiError, Caller, Method, segment};
 use platform::receipt::Receipt;
@@ -80,6 +80,102 @@ pub enum Promotion {
 pub enum Sync {
     Fresh,
     Stale,
+}
+
+/// A scope with its language editions and journey (`CatalogScopeJourneyResponse`,
+/// `GET /scope-records/{id}/journey`): the Catalog API composes both, so a page draws them as given.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScopeJourney {
+    pub scope: ScopeRecord,
+    /// The editions to review; none when the scope has one edition or none.
+    #[serde(default)]
+    pub language_editions: Option<EditionReview>,
+    /// Whether the alias review could not be read (the editions then carry no candidates).
+    #[serde(default)]
+    pub language_edition_review_failed: bool,
+    pub overview: JourneyOverview,
+}
+
+/// `CatalogScopeLanguageEditionReviewReadModel`: the canonical edition first.
+#[derive(Clone, Debug, Deserialize)]
+pub struct EditionReview {
+    pub editions: Vec<EditionSummary>,
+}
+
+/// `CatalogScopeLanguageEditionSummary`.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditionSummary {
+    pub language_code: String,
+    pub is_canonical: bool,
+    pub link_state: EditionLinkState,
+    #[serde(default)]
+    pub pending_candidates: Vec<AliasCandidate>,
+    #[serde(default)]
+    pub accepted_candidates: Vec<AliasCandidate>,
+}
+
+/// `CatalogScopeLanguageEditionLinkState`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum EditionLinkState {
+    Linked,
+    PendingReview,
+    NotYetObserved,
+}
+
+/// `CatalogScopeJourneyOverviewReadModel`.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JourneyOverview {
+    pub condition: JourneyCondition,
+    pub stages: Vec<JourneyStage>,
+    pub edition_count: usize,
+    pub linked_edition_count: usize,
+    pub pending_candidate_count: usize,
+    pub promotion_readiness: Promotion,
+    pub sync_freshness: Sync,
+}
+
+/// `CatalogScopeJourneyCondition`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum JourneyCondition {
+    Empty,
+    PartialFailure,
+    Blocked,
+    Conflict,
+    ProjectionLag,
+    Ready,
+}
+
+/// `CatalogScopeJourneyStage`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+pub struct JourneyStage {
+    pub key: JourneyStageKey,
+    pub status: JourneyStageStatus,
+}
+
+/// `CatalogScopeJourneyStageKey`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum JourneyStageKey {
+    Coverage,
+    Sync,
+    Jobs,
+    Candidates,
+    Promotion,
+}
+
+/// `CatalogScopeJourneyStageStatus`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum JourneyStageStatus {
+    Complete,
+    Current,
+    Upcoming,
+    Blocked,
 }
 
 /// A page of Scope Records (`CatalogScopeRecordListResponse`): the page, the filtered total and the
@@ -572,18 +668,6 @@ pub struct Component {
     pub status: String,
 }
 
-/// A list row's rules as the API's command takes them (`Component.field_rules`,
-/// `.dimension_rules`): the list reads the component's own table, where the detail reads the
-/// admin page's, which can miss a change (chase-sets/chase-sets#10823).
-#[derive(Clone, Debug, Deserialize)]
-pub struct ComponentRules {
-    pub component_id: String,
-    #[serde(default)]
-    pub field_rules: Vec<Value>,
-    #[serde(default)]
-    pub dimension_rules: Vec<Value>,
-}
-
 /// `ComponentDetail`: the component and its rules, with the names of what they name.
 #[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
 pub struct ComponentDetail {
@@ -692,18 +776,41 @@ pub struct DimensionName {
     pub dimension_name: String,
 }
 
-/// A blueprint's rules as the list has them (the blueprint's own table, `Blueprint`): what its
-/// Set dialogs start from, since the detail reads the admin page's table, which can miss a change
-/// (chase-sets/chase-sets#10823).
-#[derive(Clone, Debug, Default, Deserialize)]
+/// A blueprint's rules by id, as its Set dialogs start from them: the detail's, without the names.
+/// The detail's admin page holds a change until the blueprint's own table has it
+/// (chase-sets/chase-sets#10823), so a rule it shows is every rule the Set would replace.
+#[derive(Clone, Debug, Default)]
 pub struct BlueprintRules {
-    pub blueprint_id: String,
-    #[serde(default)]
     pub field_rules: Vec<FieldRuleIds>,
-    #[serde(default)]
     pub dimension_rules: Vec<DimensionRuleIds>,
-    #[serde(default)]
     pub canonical_dimension_order: Vec<String>,
+}
+
+impl From<&BlueprintDetail> for BlueprintRules {
+    fn from(blueprint: &BlueprintDetail) -> Self {
+        BlueprintRules {
+            field_rules: blueprint
+                .field_rules
+                .iter()
+                .map(|r| FieldRuleIds { field_id: r.field_id.clone(), required: r.required })
+                .collect(),
+            dimension_rules: blueprint
+                .dimension_rules
+                .iter()
+                .map(|r| DimensionRuleIds {
+                    dimension_id: r.dimension_id.clone(),
+                    required: r.required,
+                    allowed_option_ids: r.allowed_options.iter().map(|o| o.option_id.clone()).collect(),
+                    applies_when: r
+                        .applies_when
+                        .iter()
+                        .map(|c| AppliesIds { dimension_id: c.dimension_id.clone(), option_ids: c.option_ids.clone() })
+                        .collect(),
+                })
+                .collect(),
+            canonical_dimension_order: blueprint.canonical_dimension_order.iter().map(|d| d.dimension_id.clone()).collect(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -1282,6 +1389,10 @@ pub trait Catalog {
     /// A command: `POST` or `PUT` to `/api/catalog/{kind}{rest}` with `body` (`rest` starts with
     /// `/`, or is empty for a create).
     async fn command(&self, method: Method, kind: Kind, rest: &str, body: Option<&Value>) -> Result<Written, ApiError>;
+    /// A command checked against the revision its form was drawn from, sent as `If-Match`: the API
+    /// refuses it when that revision has been replaced.
+    async fn command_at(&self, method: Method, kind: Kind, rest: &str, body: &Value, revision: &str)
+    -> Result<Written, ApiError>;
     /// What a bulk change of `kind` would do: `body` is `{ action, selection }`.
     async fn bulk_preview(&self, kind: Kind, body: &Value) -> Result<Preview, ApiError>;
     /// Starts a bulk change of `kind`: its job (202), which runs it.
@@ -1311,6 +1422,22 @@ impl Catalog for Caller<'_> {
         if let Some(body) = body {
             req = req.json(body);
         }
+        let (_, receipt): (Value, _) = self.write(req).await?;
+        Ok(Written { receipt })
+    }
+
+    async fn command_at(
+        &self,
+        method: Method,
+        kind: Kind,
+        rest: &str,
+        body: &Value,
+        revision: &str,
+    ) -> Result<Written, ApiError> {
+        let req = self
+            .request(method, &format!("{API}/{}{rest}", kind.path()), CATALOG)
+            .header(header::IF_MATCH, format!("\"{revision}\""))
+            .json(body);
         let (_, receipt): (Value, _) = self.write(req).await?;
         Ok(Written { receipt })
     }

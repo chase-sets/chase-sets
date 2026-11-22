@@ -19,12 +19,15 @@ Each context `README.md` follows a common shape — see [Fulfillment](./fulfillm
 | [Discovery](./discovery/README.md) | Own browse, search, and detail discovery experiences for catalog items. |
 | [Checkout](./checkout/README.md) | Own account cart intent and active checkout session orchestration. |
 | [Inventory](./inventory/README.md) | Own account-held stock and operational availability. |
+| [Collections](./collections/README.md) | Own Saved Lists: account-owned, ordered sets of exact Catalog Products for curation, tracking, sharing, copying, and later account workflows. |
 | [Channels](./channels/README.md) | Own marketplace Sales Channel connection and channel-sync language. |
 | [Commercial Terms](./commercial-terms/README.md) | Own seller-side marketplace sales fee policy and account-specific commercial agreements. |
 | [Marketplace](./marketplace/README.md) | Own listing and offer workflows before an order exists, plus post-transaction reviews and review summaries. |
 | [Ordering](./ordering/README.md) | Own per-seller orders, commercial commitment, provider-agnostic tax quotes, and tax nexus readiness. |
+| [Authenticity](./authenticity/README.md) | Own the judgment lifecycle for authenticity-checked orders: case creation, inspection verdict, and forward-or-return outcome. |
 | [Fulfillment](./fulfillment/README.md) | Own shipment execution and delivery state. |
 | [Notifications](./notifications/README.md) | Own account notification center, notification settings, feed read state, and delivery policy. |
+| [Customer Feedback](./customer-feedback/README.md) | Own customer-satisfaction capture: survey instruments and versions, invitations, eligibility, sampling, presentation, responses, CSAT and response-rate analytics, feedback cases, and feedback privacy. |
 | [Payments](./payments/README.md) | Own external money movement, charges, and refunds. |
 | [Settlement](./settlement/README.md) | Own internal ledger truth, balances, and payouts. |
 | [Pricing](./pricing/README.md) | Own fair-value estimation and repricing intelligence. |
@@ -72,14 +75,17 @@ Use Buyer and Seller when describing transaction endpoints: the buyer account pa
 - Catalog is upstream for canonical item references.
 - Discovery depends on Catalog for canonical item, category, blueprint, and field facts used to build browse/search views.
 - Inventory depends on Identity and Catalog product structure.
+- Collections projects Catalog and Pricing facts and declares no context package dependencies. Discovery declares a package allowance for Collections and projects its events.
 - Commercial Terms depends on Identity account references and account classification facts.
 - Marketplace depends on Identity, Auth journey entry points, Catalog product identity, Inventory availability signals, and Commercial Terms sales fee resolutions.
 - Marketplace is downstream of Discovery for browse entry points but remains the owner of listing and offer decisions.
 - Checkout depends on Discovery entry points, Catalog product identity, Ordering order creation, and Payments payment initialization.
 - Ordering depends on Marketplace product commitments and seller-confirmed fee snapshots, Identity account references, and inventory reservation outcomes published after order commitment.
+- Authenticity declares no upstream context package dependencies or cross-context event inputs. Pricing projects Authenticity events when Authenticity is mounted.
 - Fulfillment depends on Ordering.
 - Marketplace reviews depend on Identity for account references, Ordering for order references, and Fulfillment for delivery outcomes.
 - Notifications depends on source-context facts from Discovery, Ordering, Fulfillment, and future contexts for account-visible notification decisions.
+- Customer Feedback declares no context package dependencies. It projects facts from Auth, Identity, Discovery, Fulfillment, Payments, Settlement, Platform Operations, Marketplace, and Inventory, and separately reacts to the Notifications delivery-reported event. Notifications declares a package allowance for Customer Feedback and projects its events. Platform Operations declares a package allowance for Customer Feedback.
 - Payments depends on Ordering and on refund triggers informed by Fulfillment outcomes.
 - Settlement depends on Payments and Ordering.
 - Pricing consumes history from Catalog, Inventory, Marketplace, Ordering, and Fulfillment.

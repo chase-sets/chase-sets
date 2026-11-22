@@ -11,6 +11,7 @@ import {
   DataTable,
   Grid,
   Inline,
+  LocalDateTimeInput,
   NativeSelect,
   NumberField,
   Page,
@@ -31,10 +32,6 @@ const toneItems = [
   { value: "success", label: t("publicPresence.promoBar.tone.success") },
   { value: "warning", label: t("publicPresence.promoBar.tone.warning") },
 ];
-
-function dateTimeValue(value: string | null) {
-  return value ? new Date(value).toISOString().slice(0, 16) : "";
-}
 
 function messageStatusLabel(status: PromoBarMessageStatus) {
   return t(`publicPresence.promoBar.status.${status}`);
@@ -104,17 +101,15 @@ function PromoBarMessageFields({ message }: { message?: PromoBarMessage }) {
         name="displayOrder"
         defaultValue={message?.display_order ?? 100}
       />
-      <TextInput
+      <LocalDateTimeInput
         label={t("publicPresence.promoBar.field.startsAt")}
         name="startsAt"
-        type="datetime-local"
-        defaultValue={dateTimeValue(message?.starts_at ?? null)}
+        defaultInstant={message?.starts_at ?? null}
       />
-      <TextInput
+      <LocalDateTimeInput
         label={t("publicPresence.promoBar.field.endsAt")}
         name="endsAt"
-        type="datetime-local"
-        defaultValue={dateTimeValue(message?.ends_at ?? null)}
+        defaultInstant={message?.ends_at ?? null}
       />
       <Checkbox
         label={t("publicPresence.promoBar.field.active")}

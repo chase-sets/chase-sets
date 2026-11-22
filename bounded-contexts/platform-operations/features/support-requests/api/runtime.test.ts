@@ -28,6 +28,7 @@ import {
   createAttachmentManifest,
 } from "../domain/attachment-operation";
 import { getSupportResponsibilityReasonDefinitions } from "../domain/responsibility";
+import { PLATFORM_REMEDY_LAUNCH_POLICY_VALUE } from "../domain/platform-remedy-policy";
 
 function createCheckpointStore(): ProjectionCheckpointStore {
   const checkpoints = new Map<string, GlobalPosition>();
@@ -881,6 +882,57 @@ describe("support request runtime", () => {
       ),
     ).rejects.toThrow("Only the account that opened this support request can cancel it.");
     expect(allEvents).toHaveLength(0);
+  });
+
+  it("offers the remedy choices of the published platform-remedy policy, not the compiled launch defaults", async () => {
+    const published = {
+      ...PLATFORM_REMEDY_LAUNCH_POLICY_VALUE,
+      eligibleReasonCodes: ["published-goodwill"],
+      allowableRefundTriggers: ["delivered" as const],
+      escalationReasonCodes: ["published-escalation"],
+    };
+    const resolvePolicy = vi.fn(async () => ({
+      policyKey: "platform-operations.platform-remedies",
+      value: published,
+      source: "policy" as const,
+      documentId: "pol_remedies",
+      effectiveFrom: "2026-07-01T00:00:00.000Z",
+      effectiveUntil: null,
+      resolvedAt: "2026-07-14T00:00:00.000Z",
+    }));
+    const { eventStore } = createInMemoryEventStore();
+    const runtime = createSupportRequestRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: completeRuntimeDb({ query: async () => ({ rows: [] }) }),
+      policies: { resolvePolicy: resolvePolicy as never },
+      now: () => "2026-07-14T02:00:00.000Z",
+    });
+
+    const offer = await runtime.describeSupportRemedyOffer(
+      {
+        support_request_id: "sup_1",
+        status: "resolved",
+        resolution: { refundAmount: "40.00" },
+        affected_line_items: [],
+        remedy: null,
+        remedy_approval: null,
+      },
+      { accountId: "acc_operator", permissions: ["support.remedies.propose"] },
+    );
+
+    expect(resolvePolicy).toHaveBeenCalledWith(
+      expect.objectContaining({ policyKey: "platform-operations.platform-remedies" }),
+    );
+    expect(offer).toMatchObject({
+      policyVersion: "platform-operations.platform-remedies:pol_remedies:2026-07-01T00:00:00.000Z",
+      choices: {
+        refundTriggers: ["delivered"],
+        eligibleReasonCodes: ["published-goodwill"],
+        escalationReasonCodes: ["published-escalation"],
+      },
+      propose: { idempotencyKey: "sup_1:platform-remedy-proposal", allowed: true },
+    });
   });
 
   it("stamps deadlines from the support-deadline policy's resolved value at open time when a policies dependency is wired", async () => {

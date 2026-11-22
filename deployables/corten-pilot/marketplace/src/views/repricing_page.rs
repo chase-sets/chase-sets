@@ -665,7 +665,8 @@ pub fn PresetFields<'a>(
     names: PresetNames,
 ) -> impl Render {
     let e = editor;
-    let (min, max, _) = e.preset.knob();
+    let controls = e.preset.controls(facts);
+    let (min, max) = (controls.knob.min, controls.knob.max);
     let knob_label = match e.preset {
         Preset::Track => t.editor_adjust(),
         Preset::Beat => t.editor_undercut(),
@@ -719,7 +720,7 @@ pub fn PresetFields<'a>(
             <label class={Field}>
                 <span class={Label}>{t.editor_strategy()}</span>
                 <select class={Input} name={names.preset}>
-                    for preset in Preset::ALL {
+                    for preset in Preset::offered(facts) {
                         <option value={preset.key()} selected={preset == e.preset}>{preset.title(t)}</option>
                     }
                 </select>
@@ -738,7 +739,7 @@ pub fn PresetFields<'a>(
                     step="1"
                 >
             </label>
-            if e.preset == Preset::Slow {
+            if let (Some(age), Some(range)) = (e.age, controls.age_days) {
                 <label class={Field}>
                     <span class={Label}>{t.editor_age()}</span>
                     <input
@@ -746,9 +747,9 @@ pub fn PresetFields<'a>(
                         type="number"
                         inputmode="numeric"
                         name={names.age}
-                        value={e.age.to_string()}
-                        min="14"
-                        max="180"
+                        value={age.to_string()}
+                        min={range.min.to_string()}
+                        max={range.max.to_string()}
                         step="1"
                     >
                 </label>

@@ -949,6 +949,7 @@ export function createCheckoutApiClient({
         requestedBalanceCreditAmount?: string | null;
         paymentMethodCategory?: string;
         marketplaceCheckoutFeeQuoteFingerprint?: string | null;
+        confirmationTokenId?: string | null;
         savedCheckoutInstrumentId?: string | null;
         savePaymentMethodForFuture?: boolean;
         fulfillmentPreviewRevision?: string | null;
@@ -960,6 +961,7 @@ export function createCheckoutApiClient({
         payment_id?: string;
         order_ids?: readonly string[];
         offer_id?: string;
+        payment_authentication_url?: string | null;
         status: string;
       }>
     > {

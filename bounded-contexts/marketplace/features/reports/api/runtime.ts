@@ -237,7 +237,23 @@ export function createMarketplaceReportRuntime(
         );
         autoUnlisted = appliedSources.has(reportId);
         if (current.state.status !== "active") break;
-        const source = eligibleReports.find((candidate) => !appliedSources.has(candidate.reportId));
+
+        let state = initialMarketplaceListingState;
+        let activatedAt: string | undefined;
+        for (const [index, event] of current.events.entries()) {
+          const next = evolveMarketplaceListing(state, event);
+          if (state.status !== "active" && next.status === "active") {
+            activatedAt = current.storedEvents[index]!.occurredAt;
+          }
+          state = next;
+        }
+        assert(activatedAt, "Active listing has no activation event.");
+        const activatedAtMs = Date.parse(activatedAt);
+        const unapplied = eligibleReports.filter((candidate) => !appliedSources.has(candidate.reportId));
+        // A pre-activation report can only source removal when its own interrupted attempt is retried.
+        const source =
+          unapplied.find((candidate) => Date.parse(candidate.submittedAt) >= activatedAtMs) ??
+          unapplied.find((candidate) => candidate.reportId === reportId);
         if (!source) break;
         try {
           const removal = await listingRuntime.commandHandler({
@@ -248,7 +264,7 @@ export function createMarketplaceReportRuntime(
               reportId: source.reportId,
               reportCount: reporterKeys.size,
               threshold: LISTING_REPORT_AUTO_UNLIST_THRESHOLD,
-              autoUnlistedAt: source.submittedAt,
+              autoUnlistedAt: Date.parse(source.submittedAt) < activatedAtMs ? activatedAt : source.submittedAt,
               listingEnforcementActionId: createId("lea"),
             },
             context,
