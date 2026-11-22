@@ -140,9 +140,11 @@ export default {
         "bounded-contexts/ordering/routes/account-purchases.tsx": "pending-count",
         "bounded-contexts/ordering/routes/account-purchase.tsx": "amount-and-deadline",
         "bounded-contexts/payments/routes/marketplace/account-payment-new.tsx": "payment-start-screen",
-        "bounded-contexts/payments/features/payments/ui/routes/account-payment-new.tsx": "payment-start-screen",
       },
-      paths: ["bounded-contexts/ordering/features/orders/"],
+      paths: [
+        "bounded-contexts/ordering/features/orders/",
+        "bounded-contexts/payments/features/payments/ui/routes/account-payment-new.tsx",
+      ],
     },
     {
       id: "buyer-payment-methods",
@@ -158,9 +160,11 @@ export default {
       },
       routes: {
         "bounded-contexts/payments/routes/marketplace/account-payment-methods.tsx": "saved-methods",
-        "bounded-contexts/payments/features/payments/ui/routes/account-payment-methods.tsx": "saved-methods",
       },
-      paths: ["bounded-contexts/payments/routes/marketplace/account-payment-methods"],
+      paths: [
+        "bounded-contexts/payments/routes/marketplace/account-payment-methods",
+        "bounded-contexts/payments/features/payments/ui/routes/account-payment-methods.tsx",
+      ],
     },
     {
       id: "buyer-offers",
