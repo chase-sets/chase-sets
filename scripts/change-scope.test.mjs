@@ -4033,6 +4033,27 @@ describe("change-scope", () => {
     expect(scope.e2eSuiteIds).toEqual(["marketplace_browse", "marketplace_checkout"]);
   });
 
+  it.each([
+    {
+      file: "bounded-contexts/payments/features/payments/ui/routes/account-payment.tsx",
+      suites: ["marketplace_checkout"],
+    },
+    {
+      file: "bounded-contexts/payments/features/payments/ui/routes/checkout-payment.tsx",
+      suites: ["marketplace_checkout"],
+    },
+    {
+      file: "bounded-contexts/fulfillment/features/shipments/ui/routes/account-shipments.tsx",
+      suites: ["marketplace_account"],
+    },
+    {
+      file: "bounded-contexts/payments/features/payments/ui/routes/account-payment-route.test.tsx",
+      suites: [],
+    },
+  ])("selects the owning E2E suites for feature-local route files: $file", ({ file, suites }) => {
+    expect(e2eSuiteIdsForChangedFile(file)).toEqual(suites);
+  });
+
   it("routes context changes to the consolidated marketplace seed DB acceptance suite", () => {
     const baseDir = path.join(process.cwd(), "repo");
     const scope = classifyChanges({
