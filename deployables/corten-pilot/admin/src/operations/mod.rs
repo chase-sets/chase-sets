@@ -12,9 +12,8 @@
 //!
 //! The page follows the realtime topic admin-web follows,
 //! `platform-operations:admin:operations-attention`, and draws the queue again on each change, as
-//! admin-web revalidates its route. The platform does not register that topic yet, so the API
-//! refuses the stream and the page stays as it was drawn (admin-web's says Connecting);
-//! chase-sets/chase-sets#10607.
+//! admin-web revalidates its route. Platform Operations publishes to it when a support request,
+//! a reported-content response or platform feedback changes.
 use corten::{LiveResponse, LiveSince, http::HeaderMap, prelude::*};
 use serde::Serialize;
 
