@@ -1,6 +1,7 @@
 import { Badge, Stack, Stat, StatGrid, Surface, Text } from "@chase-sets/design-system";
-import { formatDateTime, formatMoney, t } from "@chase-sets/localization";
+import { formatDateTime, formatMoney } from "@chase-sets/localization/core";
 import type { SavedListValuationSummary as SavedListValuationSummaryContract } from "../domain/contracts";
+import { t } from "./localization/translator";
 
 export type SavedListValuationSummaryProps = Readonly<{
   valuation: SavedListValuationSummaryContract;

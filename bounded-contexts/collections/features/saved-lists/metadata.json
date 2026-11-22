@@ -1,0 +1,387 @@
+{
+  "slice": "saved-lists",
+  "localeCatalogs": [
+    "bounded-contexts/collections/features/saved-lists/api/localization/locales/en.ts",
+    "bounded-contexts/collections/features/saved-lists/ui/localization/locales/en.ts"
+  ],
+  "ownedNouns": [
+    "saved-list",
+    "saved-list-line",
+    "tracked-quantity",
+    "saved-list-visibility",
+    "saved-list-cover",
+    "saved-list-sharing",
+    "anonymous-saved-list-intent"
+  ],
+  "hostPorts": [
+    {
+      "portName": "savedListProductCatalog",
+      "providedBy": "platform-api",
+      "purpose": "Validates exact Catalog Product selections before they enter a Saved List without Collections reading Catalog tables."
+    },
+    {
+      "portName": "inventorySavedListImportBatchCreator",
+      "providedBy": "platform-api",
+      "purpose": "Creates an Inventory-owned review-first import batch from an authorized immutable Saved List source snapshot."
+    },
+    {
+      "portName": "savedListCapabilities",
+      "providedBy": "platform-api",
+      "purpose": "Issues and verifies high-entropy unlisted Saved List capabilities from deployment-managed key material."
+    },
+    {
+      "portName": "savedListSharingRateLimits",
+      "providedBy": "platform-api",
+      "purpose": "Applies horizontally scalable request limits to shared views, unlisted exchanges, and abuse reports."
+    },
+    {
+      "portName": "savedListSharingAudit",
+      "providedBy": "platform-api",
+      "purpose": "Records bounded Saved List access decisions without capability secrets."
+    },
+    {
+      "portName": "savedListAbuseReports",
+      "providedBy": "platform-api",
+      "purpose": "Adapts Saved List reports into the existing moderation workflow without creating a second reporting system."
+    },
+    {
+      "portName": "rateLimitPolicyResolver",
+      "providedBy": "platform-api",
+      "purpose": "Resolves the bounded anonymous Saved List intent capture limit through the platform policy seam."
+    }
+  ],
+  "eventSubscriptions": [
+    {
+      "sourceContextName": "catalog",
+      "projectionName": "collections-catalog-product-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "catalog.catalog-item.created",
+        "catalog.catalog-item.blueprint-assigned",
+        "catalog.catalog-item.published",
+        "catalog.catalog-item.display-identity-resolved",
+        "catalog.catalog-item.retired",
+        "catalog.catalog-item.archived",
+        "catalog.blueprint.created",
+        "catalog.blueprint.revised",
+        "catalog.blueprint.dimensions-set",
+        "catalog.blueprint.product-resolution-rules-set",
+        "catalog.blueprint.published",
+        "catalog.dimension.created",
+        "catalog.dimension.revised",
+        "catalog.dimension.option-added",
+        "catalog.dimension.option-revised"
+      ],
+      "order": 10,
+      "projectionHandlerSetNames": ["collections-catalog-product-projection"]
+    },
+    {
+      "sourceContextName": "collections",
+      "projectionName": "collections-saved-list-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "collections.saved-list.created",
+        "collections.saved-list.details-changed",
+        "collections.saved-list.archived",
+        "collections.saved-list.visibility-changed",
+        "collections.saved-list.cover-changed",
+        "collections.saved-list.line-added",
+        "collections.saved-list.line-changed",
+        "collections.saved-list.line-removed",
+        "collections.saved-list.line-reordered"
+      ],
+      "order": 20,
+      "projectionHandlerSetNames": ["collections-saved-list-projection"]
+    },
+    {
+      "sourceContextName": "collections",
+      "projectionName": "collections-saved-list-picker-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "collections.saved-list.created",
+        "collections.saved-list.details-changed",
+        "collections.saved-list.archived",
+        "collections.saved-list.visibility-changed",
+        "collections.saved-list.cover-changed",
+        "collections.saved-list.line-added",
+        "collections.saved-list.line-changed",
+        "collections.saved-list.line-removed",
+        "collections.saved-list.line-reordered"
+      ],
+      "order": 10,
+      "projectionHandlerSetNames": ["collections-saved-list-picker-projection"]
+    }
+  ],
+  "projectionGroups": [
+    {
+      "projectionName": "collections-catalog-product-projection",
+      "sourceContextNames": ["catalog"],
+      "ownedTables": [
+        "collections_catalog_items",
+        "collections_catalog_blueprints",
+        "collections_catalog_dimensions",
+        "collections_catalog_dimension_options"
+      ],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "collections-saved-list-projection",
+      "sourceContextNames": ["collections"],
+      "ownedTables": ["collections_saved_list_summaries", "collections_saved_list_lines"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "collections-saved-list-picker-projection",
+      "sourceContextNames": ["collections"],
+      "ownedTables": ["collections_saved_list_picker"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "collections.saved-list-shared-page-projection",
+      "sourceContextNames": ["collections"],
+      "ownedTables": [
+        "collections_saved_list_shared_pages",
+        "collections_saved_list_shared_lines",
+        "collections_saved_list_access_policies"
+      ],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    }
+  ],
+  "mutationConsistencyInventory": [
+    {
+      "id": "collections.saved-list-discovery-command-snapshots",
+      "owner": "collections",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-client:bounded-contexts/collections/features/saved-lists/api/client.ts:POST Hbb197db09eed#1",
+        "api-client:bounded-contexts/collections/features/saved-lists/api/client.ts:POST H8f7de280cfe0#1",
+        "api-client:bounded-contexts/collections/features/saved-lists/api/client.ts:POST H889f0611e195#1",
+        "api-route:bounded-contexts/collections/features/saved-lists/api/route.ts:POST /account/list-additions",
+        "api-route:bounded-contexts/collections/features/saved-lists/api/route.ts:POST /account/saved-list-intents/:id/claim",
+        "api-route:bounded-contexts/collections/features/saved-lists/api/route.ts:POST /saved-list-intents"
+      ],
+      "visibleDestination": {
+        "routeIds": ["search", "item-detail"],
+        "description": "Search and item detail remain visible after the command and render the Saved List aggregate snapshot, line result, and List title returned by Collections. Guest capture returns the durable anonymous intent and claim returns the same command snapshot without requiring the recent-List projection to catch up."
+      },
+      "proof": {
+        "authoritativeResponse": "Direct add and guest claim responses carry the #5016 Saved List command snapshot and receipt. Claimed retries validate aggregate receipts against the original semantic payload; claimed_response is compatibility data only. Recent Lists remain picker input only.",
+        "tests": [
+          "bounded-contexts/collections/features/saved-lists/api/discovery-runtime.test.ts",
+          "bounded-contexts/collections/features/saved-lists/api/route.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "collections.saved-list-durable-recovery",
+      "owner": "collections",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-client:bounded-contexts/collections/features/saved-lists/api/client.ts:POST H1c67c07f06b0#1",
+        "api-client:bounded-contexts/collections/features/saved-lists/api/client.ts:POST H95dafcbea2e8#1",
+        "api-client:bounded-contexts/collections/features/saved-lists/api/client.ts:POST H8ddb0e177e2f#1",
+        "api-client:bounded-contexts/collections/features/saved-lists/api/client.ts:POST Ha1637960d3f4#1",
+        "api-client:bounded-contexts/collections/features/saved-lists/api/client.ts:POST Hb958ac3d51f6#1",
+        "api-route:bounded-contexts/collections/features/saved-lists/api/recovery-route.ts:POST /account/list-operations",
+        "api-route:bounded-contexts/collections/features/saved-lists/api/recovery-route.ts:POST /account/list-operations/:id/apply",
+        "api-route:bounded-contexts/collections/features/saved-lists/api/recovery-route.ts:POST /account/list-operations/:id/begin-send",
+        "api-route:bounded-contexts/collections/features/saved-lists/api/recovery-route.ts:POST /account/list-operations/:id/confirm",
+        "api-route:bounded-contexts/collections/features/saved-lists/api/recovery-route.ts:POST /account/list-operations/anonymous"
+      ],
+      "visibleDestination": {
+        "description": "No UI is activated by this slice. Recovery returns bounded canonical operational data directly, independent of picker projections."
+      },
+      "proof": {
+        "authoritativeResponse": "An operation row is durable intent, not success authority. Exact operation GET returns success only after complete semantic aggregate receipt validation; absence is unknown and only explicit resubmission can send a command. Production activation remains disabled pending #8934.",
+        "tests": [
+          "bounded-contexts/collections/features/saved-lists/api/recovery-route.test.ts",
+          "bounded-contexts/collections/features/saved-lists/api/recovery-runtime.db.test.ts"
+        ]
+      }
+    }
+  ],
+  "readFreshnessRoutes": [
+    {
+      "routePath": "/saved-lists",
+      "methods": ["GET", "HEAD"],
+      "dependencies": [
+        {
+          "readModelTable": "collections_saved_list_summaries"
+        },
+        {
+          "readModelTable": "collections_saved_list_lines"
+        },
+        {
+          "readModelTable": "collections_catalog_items"
+        },
+        {
+          "readModelTable": "collections_catalog_dimensions"
+        },
+        {
+          "readModelTable": "collections_catalog_dimension_options"
+        }
+      ]
+    },
+    {
+      "routePath": "/saved-lists/:listId",
+      "methods": ["GET", "HEAD"],
+      "dependencies": [
+        {
+          "readModelTable": "collections_saved_list_summaries"
+        },
+        {
+          "readModelTable": "collections_saved_list_lines"
+        },
+        {
+          "readModelTable": "collections_catalog_items"
+        },
+        {
+          "readModelTable": "collections_catalog_dimensions"
+        },
+        {
+          "readModelTable": "collections_catalog_dimension_options"
+        }
+      ]
+    }
+  ],
+  "readAfterWriteRouteInventory": [
+    {
+      "id": "collections.saved-list-create-to-detail",
+      "owner": "collections",
+      "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
+      "source": {
+        "routeId": "account-inventory",
+        "actions": ["Create Saved List"],
+        "command": "CreateSavedList"
+      },
+      "destination": {
+        "routeId": "account-inventory",
+        "apiContextName": "collections",
+        "apiRoutePath": "/saved-lists/:listId",
+        "readModelTables": [
+          "collections_saved_list_summaries",
+          "collections_saved_list_lines",
+          "collections_catalog_items",
+          "collections_catalog_dimensions",
+          "collections_catalog_dimension_options"
+        ],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "The create receipt is forwarded as a compact afterWrite handoff so Saved List detail waits for the exact Collections projection position before deciding that the new list is missing."
+        }
+      }
+    },
+    {
+      "id": "collections.saved-list-detail-self-refresh",
+      "owner": "collections",
+      "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
+      "source": {
+        "routeId": "account-inventory",
+        "actions": ["Change Saved List details", "Change Saved List visibility", "Change Saved List cover"],
+        "command": "Saved List detail commands"
+      },
+      "destination": {
+        "routeId": "account-inventory",
+        "apiContextName": "collections",
+        "apiRoutePath": "/saved-lists/:listId",
+        "readModelTables": [
+          "collections_saved_list_summaries",
+          "collections_saved_list_lines",
+          "collections_catalog_items",
+          "collections_catalog_dimensions",
+          "collections_catalog_dimension_options"
+        ],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Saved List edits retain the authoritative command snapshot for immediate rendering and use the compact receipt on refetch so projection correction cannot regress the visible version."
+        }
+      }
+    },
+    {
+      "id": "collections.saved-list-bulk-to-detail",
+      "owner": "collections",
+      "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
+      "source": {
+        "routeId": "account-inventory",
+        "actions": ["Apply Saved List line changes"],
+        "command": "ApplySavedListLineChanges"
+      },
+      "destination": {
+        "routeId": "account-inventory",
+        "apiContextName": "collections",
+        "apiRoutePath": "/saved-lists/:listId",
+        "readModelTables": [
+          "collections_saved_list_summaries",
+          "collections_saved_list_lines",
+          "collections_catalog_items",
+          "collections_catalog_dimensions",
+          "collections_catalog_dimension_options"
+        ],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Bulk completion forwards one compact command receipt; the detail read waits for that committed position and returns deterministic line order and totals after projection catch-up."
+        }
+      }
+    },
+    {
+      "id": "collections.saved-list-list-self-refresh",
+      "owner": "collections",
+      "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
+      "source": {
+        "routeId": "account-inventory",
+        "actions": ["Archive Saved List"],
+        "command": "ArchiveSavedList"
+      },
+      "destination": {
+        "routeId": "account-inventory",
+        "apiContextName": "collections",
+        "apiRoutePath": "/saved-lists",
+        "readModelTables": [
+          "collections_saved_list_summaries",
+          "collections_saved_list_lines",
+          "collections_catalog_items",
+          "collections_catalog_dimensions",
+          "collections_catalog_dimension_options"
+        ],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "List refresh carries the archive receipt so the account list cannot briefly restore a Saved List that the owner just archived."
+        }
+      }
+    }
+  ],
+  "directoryIntent": {
+    "classification": "slice",
+    "purpose": "The saved-lists slice owns the event-sourced Saved List lifecycle, exact Product membership, tracked quantity, private line metadata, deterministic ordering, visibility state, cover selection, owner read models, Catalog display enrichment, and versioned command/event/query contracts.",
+    "expectedConsumers": [
+      "Internal Collections module composition",
+      "Saved List projection, valuation, sharing, Inventory handoff, sell-through, and My Collection slices"
+    ]
+  }
+}
