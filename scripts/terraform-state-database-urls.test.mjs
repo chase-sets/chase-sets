@@ -827,6 +827,7 @@ describe("Terraform state database URL export", () => {
 
   it("keeps every shared-exporter workflow consumer behind the canonical byte-equivalent trust action", async () => {
     const expectedConsumers = [
+      "catalog-completion-manifest.yml",
       "catalog-completion-report.yml",
       "catalog-integration-staging-reset.yml",
       "catalog-provider-refresh-watch.yml",
@@ -863,8 +864,16 @@ describe("Terraform state database URL export", () => {
         count + (source.match(/uses: \.\/\.github\/actions\/export-managed-postgres-authority/g) ?? []).length,
       0,
     );
-    expect(invocationCount).toBe(19);
+    expect(invocationCount).toBe(20);
     const expectedAuthorityCalls = [
+      [
+        "catalog-completion-manifest.yml",
+        "manifest",
+        "Export Catalog database URL and TLS trust",
+        "url-export",
+        "direct",
+        undefined,
+      ],
       [
         "catalog-completion-report.yml",
         "completion-report",
@@ -1026,7 +1035,7 @@ describe("Terraform state database URL export", () => {
           .map((step) => ({ name, jobName, step, key: [name, jobName, step.name ?? step.id].join("|") })),
       );
     });
-    expect(authorityCalls).toHaveLength(19);
+    expect(authorityCalls).toHaveLength(20);
     expect(authorityCalls.map(({ key }) => key).sort()).toEqual(
       expectedAuthorityCalls.map(([name, jobName, stepName]) => [name, jobName, stepName].join("|")).sort(),
     );
