@@ -657,7 +657,9 @@ async fn render(
     };
     let view = views::cart_page(t, req.t(), &screen, notice.as_ref());
     let title = t.route_cart_marketplace();
-    let cart = (!screen.pending).then(|| screen.item_count());
+    // While an added line catches up the read still found the cart, so its count is the nav's, as
+    // marketplace's root loader keeps reading it; only a read that failed has none to give.
+    let cart = (!screen.pending || screen.adding).then(|| screen.item_count());
     req.screen_with_status(status, &screen, html! { <Layout req={req} viewer={viewer} title={title} head={head}>{view}</Layout> })
         .map(|page| page.give::<CartCount>(cart))
 }
