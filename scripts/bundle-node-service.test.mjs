@@ -169,21 +169,26 @@ describe("bundle-node-service", () => {
     ).toBe(files.join("\n"));
   });
 
-  it.each([true, false])("loads the bundled product cards HTML only when built (built: %s)", async (built) => {
+  it.each(
+    ["product-cards", "cart-review", "checkout-handoff"].flatMap((widget) => [
+      [widget, true],
+      [widget, false],
+    ]),
+  )("loads the bundled %s HTML only when built (built: %s)", async (widget, built) => {
     const f = await fixture();
-    const html = "<!doctype html><title>Product cards</title>";
-    const asset = "deployables/agent-apps/build/product-cards.html";
+    const html = `<!doctype html><title>${widget}</title>`;
+    const asset = `deployables/agent-apps/build/${widget}.html`;
     if (built) await put(f.root, asset, html);
     await put(
       f.root,
       `${f.service}/src/main.ts`,
       `import { readFile } from "node:fs/promises";
-const html = await readFile(new URL("../../agent-apps/build/product-cards.html", import.meta.url), "utf8")
+const html = await readFile(new URL("../../agent-apps/build/${widget}.html", import.meta.url), "utf8")
   .catch((error) => { if (error.code !== "ENOENT") throw error; });
 console.log(html ?? "unavailable");`,
     );
     await bundleNodeService({ repoRoot: f.root, deployable: f.name });
-    const copy = readFile(path.join(f.dist, "product-cards.html"), "utf8");
+    const copy = readFile(path.join(f.dist, `${widget}.html`), "utf8");
     if (built) {
       await expect(copy).resolves.toBe(html);
       await rm(path.join(f.root, asset));

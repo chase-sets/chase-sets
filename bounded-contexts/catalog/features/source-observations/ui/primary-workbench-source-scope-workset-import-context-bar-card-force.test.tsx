@@ -1,12 +1,15 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render as renderUi, within } from "@testing-library/react";
+import type { ReactElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CatalogImportContextBar } from "./admin-control-plane/import-to-promotion/import-context-bar";
 import {
   buildCatalogPrimaryWorkbenchReadModelForSurface,
   buildCatalogPrimaryWorkbenchSourceOptionRequests,
 } from "./primary-workbench-read-model";
-import { controlPlaneOverview, profileReview } from "./primary-workbench-test-fixtures";
+import { controlPlaneOverview, DailyCommandOwner, profileReview } from "./primary-workbench-test-fixtures";
+
+const render = (ui: ReactElement) => renderUi(ui, { wrapper: DailyCommandOwner });
 
 const submissions: Array<{ params: string; options: Record<string, unknown> }> = [];
 vi.mock("react-router", async () => {

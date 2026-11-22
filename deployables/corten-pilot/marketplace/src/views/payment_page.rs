@@ -387,6 +387,11 @@ pub fn PaymentEntry<'a>(t: PaymentMsg, screen: &'a PaymentScreen, total: &'a str
                             <p>{t.payment_is_ready_continue_to_the()}</p>
                             <p><a class={(Button, Wide)} href={redirect.as_str()}>{t.continue_to_secure_checkout()}</a></p>
                         </div>
+                    } else if crate::payment::deferred_checkout(payment) {
+                        <div class={Banner} data-tone="info" role="status">
+                            <p class={Strong}>{t.payment_in_progress()}</p>
+                            <p>{t.the_payment_is_being_updated_by()}</p>
+                        </div>
                     } else {
                         <div class={Card}>
                             <p class={Muted}>{t.secure_payment_confirmation_is_not_configured()}</p>

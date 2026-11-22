@@ -48,6 +48,7 @@ import {
 import { buildSupportReturnLabelSourceProjectionHandlers } from "./features/support-requests/integrations/source/return-label-source-projection";
 import { buildInventoryCollisionSupportReactionHandlers } from "./features/support-requests/integrations/inventory-collision/inventory-collision-reaction";
 import { platformOperationsSchemaSql } from "./support/runtime-support/schema";
+import { publishOperationsAttentionSubscriptionChanges } from "./support/runtime-support/operations-attention-realtime";
 import { supportRequestSchemaMigrations } from "./features/support-requests/read-model/schema";
 import { riskAlertsSchemaMigrations } from "./features/risk-alerts/read-model/schema";
 import { sellerComplianceSalesSchemaMigrations } from "./features/seller-compliance-sales/read-model/schema";
@@ -68,6 +69,18 @@ import {
 } from "./support/runtime-support/services";
 
 const platformOperationsContextManifest = contextManifest as BcContextManifest;
+
+function publishReportedContentQueueChanges(
+  handlers: Parameters<typeof publishOperationsAttentionSubscriptionChanges>[0],
+  db: Parameters<typeof publishOperationsAttentionSubscriptionChanges>[1],
+  sourceContextName: string,
+) {
+  return publishOperationsAttentionSubscriptionChanges(handlers, db, {
+    sourceContextName,
+    projectionName: "reported-content-queue-projection",
+    source: "reported-content-response",
+  });
+}
 
 const contextModule = defineBoundedContextModule<
   PlatformOperationsServices,
@@ -133,11 +146,24 @@ const contextModule = defineBoundedContextModule<
           buildSupportShipmentSourceProjectionHandlers(services.db, services.supportRequests),
         "fulfillment.support-return-label-source-projection": () =>
           buildSupportReturnLabelSourceProjectionHandlers(services.db),
-        "identity.reported-content-queue-projection": () => buildIdentityReportedContentProjectionHandlers(services.db),
+        "identity.reported-content-queue-projection": () =>
+          publishReportedContentQueueChanges(
+            buildIdentityReportedContentProjectionHandlers(services.db),
+            services.db,
+            "identity",
+          ),
         "marketplace.reported-content-queue-projection": () =>
-          buildMarketplaceReportedContentProjectionHandlers(services.db),
+          publishReportedContentQueueChanges(
+            buildMarketplaceReportedContentProjectionHandlers(services.db),
+            services.db,
+            "marketplace",
+          ),
         "platform-operations.reported-content-queue-projection": () =>
-          buildPlatformOperationsReportedContentProjectionHandlers(services.db),
+          publishReportedContentQueueChanges(
+            buildPlatformOperationsReportedContentProjectionHandlers(services.db),
+            services.db,
+            "platform-operations",
+          ),
         "commercial-terms.public-doc-review-queue-projection": () =>
           buildCommercialTermsPublicDocReviewProjectionHandlers(services.db),
         "commercial-terms.commercial-terms-effective-date-attention-projection": () =>

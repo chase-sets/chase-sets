@@ -33,7 +33,7 @@ describe("handleAttentionQueueCommand", () => {
       context,
       formData: form({ itemKey: "merge-conflict:c1", kind: "merge-conflict", reason: "waiting" }),
     });
-    expect(result.section).toBe("import-to-promotion");
+    expect(result).not.toHaveProperty("section");
     expect(result.feedback.status).toBe("success");
     expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ intent: "dismiss", itemKey: "merge-conflict:c1" }));
   });
@@ -46,7 +46,7 @@ describe("handleAttentionQueueCommand", () => {
       context,
       formData: form({ itemKey: "import-job:j1", kind: "import-job", reason: "later", deferHours: "48" }),
     });
-    expect(result.section).toBe("import-to-promotion");
+    expect(result).not.toHaveProperty("section");
     expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ intent: "defer", deferHours: 48 }));
   });
 
@@ -58,7 +58,7 @@ describe("handleAttentionQueueCommand", () => {
       context,
       formData: form({ itemKey: "alias-candidate:h1" }),
     });
-    expect(result.section).toBe("import-to-promotion");
+    expect(result).not.toHaveProperty("section");
     expect(dispatch).toHaveBeenCalledWith(
       expect.objectContaining({ intent: "restore", itemKey: "alias-candidate:h1" }),
     );
@@ -72,7 +72,7 @@ describe("handleAttentionQueueCommand", () => {
       context,
       formData: form({ itemKey: "merge-conflict:c1", kind: "merge-conflict" }),
     });
-    expect(result.section).toBe("import-to-promotion");
+    expect(result).not.toHaveProperty("section");
     expect(result.feedback.status).toBe("error");
     expect(result.feedback.result).toBe("reason-required");
     expect(dispatch).not.toHaveBeenCalled();

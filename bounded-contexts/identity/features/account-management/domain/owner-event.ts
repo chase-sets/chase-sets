@@ -1,12 +1,21 @@
 import { closedObject, isInstant } from "./contract";
 import { ROLE_KEYS } from "../../../support/runtime-support/common";
 import type { ShippingAddressSnapshot } from "../../shipping-addresses/domain/domain";
+import { parseStrictTypedUlid } from "@chase-sets/primitives/typed-ids";
 
 type Validator = (value: unknown) => boolean;
 const text: Validator = (value) => typeof value === "string" && value.length <= 2000;
 const nullableText: Validator = (value) => value === null || text(value);
 const boolean: Validator = (value) => typeof value === "boolean";
 const instant: Validator = isInstant;
+const redactionActionId: Validator = (value) => {
+  if (typeof value !== "string") return false;
+  try {
+    return parseStrictTypedUlid(value, "rca") === value;
+  } catch {
+    return false;
+  }
+};
 const enumeration =
   (...values: readonly unknown[]): Validator =>
   (value) =>
@@ -79,6 +88,7 @@ const schemas: Readonly<Record<string, Validator>> = {
     displayName: text,
   }),
   "identity.account.profile-updated": object({ name: text, displayName: text }),
+  "identity.account.display-name-redacted": object({ actionId: redactionActionId, operatorUserId: text }),
   "identity.account.suspended": enforcementEvent,
   "identity.account.reactivated": enforcementEvent,
   "identity.account.closed": enforcementEvent,

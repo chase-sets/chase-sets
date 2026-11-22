@@ -18,6 +18,7 @@ import {
   ProgressiveDisclosure,
   TextInput,
   WorkbenchActionRow,
+  WorkbenchDataCell,
   WorkbenchDetailPanel,
   WorkbenchForm,
   WorkbenchFormGrid,
@@ -38,16 +39,18 @@ import {
 } from "../../primary-workbench-source-option-refresh";
 import { catalogPrimaryWorkbenchScopeQueryKeys } from "../../primary-workbench-scope-context";
 import { sourceOptionPageStateTone, sourceOptionsStatusTone } from "../../primary-workbench-source-scope-fields";
+import { useCatalogIntegrationCommandActionPath, useCatalogIntegrationHrefRebase } from "./command-action-context";
 
 // The import-context bar: "Step 0 / Choose import scope". The act of *choosing
 // what to import* (provider / unit / guided scope / profile selection + the
 // synced source-options status) is a distinct concern from the import -> promote
 // flow that follows, so it is extracted out of the shell into one cohesive,
-// collapsible component that decongests the top of the daily surface. It is
-// deliberately self-contained and prop-driven (`readModel` + the deferred
-// source-options promise) so the providers / governance / release surfaces — which
-// also need provider/unit context — could adopt it later without reaching back
-// into the shell.
+// collapsible component. It is self-contained and prop-driven (`readModel` + the
+// deferred source-options promise); its form and refresh controls target the
+// owning page's CatalogIntegrationCommandActionProvider path, so Scope Detail and
+// the daily surface each keep the selection on their own page. A page whose
+// address fixes part of the scope (Scope Detail's record hierarchy) names those
+// fields as `recordOwnedFieldNames`; they render as fixed values, not controls.
 //
 // Collapse policy: the bar opens when no scope is chosen yet (the operator must
 // pick one to do anything) and collapses to a one-line summary once a scope is set
@@ -60,9 +63,11 @@ import { sourceOptionPageStateTone, sourceOptionsStatusTone } from "../../primar
 export function CatalogImportContextBar({
   readModel,
   deferredSourceOptions = null,
+  recordOwnedFieldNames = [],
 }: Readonly<{
   readModel: CatalogPrimaryWorkbenchReadModel;
   deferredSourceOptions?: Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> | null;
+  recordOwnedFieldNames?: readonly string[];
 }>) {
   useSingleUseCardForceRefreshIntent(deferredSourceOptions);
   const summary = readModel.sourceOptions.contextSummary ?? null;
@@ -90,7 +95,11 @@ export function CatalogImportContextBar({
       }
     >
       <WorkbenchStack>
-        <ProviderImportContextForm readModel={readModel} deferredSourceOptions={deferredSourceOptions} />
+        <ProviderImportContextForm
+          readModel={readModel}
+          deferredSourceOptions={deferredSourceOptions}
+          recordOwnedFieldNames={recordOwnedFieldNames}
+        />
         <DeferredSourceOptionsStatusPanel readModel={readModel} deferredSourceOptions={deferredSourceOptions} />
       </WorkbenchStack>
     </ProgressiveDisclosure>
@@ -150,11 +159,14 @@ const staleImportContextHiddenFieldNames = new Set([
 function ProviderImportContextForm({
   readModel,
   deferredSourceOptions,
+  recordOwnedFieldNames,
 }: {
   readModel: CatalogPrimaryWorkbenchReadModel;
   deferredSourceOptions: Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> | null;
+  recordOwnedFieldNames: readonly string[];
 }) {
   const submit = useSubmit();
+  const actionPath = useCatalogIntegrationCommandActionPath();
   const providerOptions = readModel.providerScope.providers.map((provider) => ({
     value: provider.providerKey,
     label: provider.displayName,
@@ -175,7 +187,7 @@ function ProviderImportContextForm({
   const skeletonScopeFields = readModel.sourceOptions.guidedFields ?? [];
 
   return (
-    <WorkbenchForm method="get" action="/catalog/integrations" onSubmit={(event) => submitImportContext(event, submit)}>
+    <WorkbenchForm method="get" action={actionPath} onSubmit={(event) => submitImportContext(event, submit)}>
       <WorkbenchFormGrid columns="three">
         <NativeSelect
           name="providerKey"
@@ -210,6 +222,7 @@ function ProviderImportContextForm({
         <DeferredGuidedSourceScopeFields
           skeletonScopeFields={skeletonScopeFields}
           deferredSourceOptions={deferredSourceOptions}
+          recordOwnedFieldNames={recordOwnedFieldNames}
           submit={submit}
         />
       ) : null}
@@ -325,24 +338,34 @@ function clearStaleImportContextHiddenState(form: HTMLFormElement): void {
 function DeferredGuidedSourceScopeFields({
   skeletonScopeFields,
   deferredSourceOptions,
+  recordOwnedFieldNames,
   submit,
 }: {
   skeletonScopeFields: readonly CatalogPrimaryWorkbenchGuidedScopeField[];
   deferredSourceOptions: Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> | null;
+  recordOwnedFieldNames: readonly string[];
   submit: SubmitFunction;
 }) {
+  const skeleton = (
+    <GuidedSourceScopeFields
+      fields={skeletonScopeFields}
+      recordOwnedFieldNames={recordOwnedFieldNames}
+      submit={submit}
+    />
+  );
   if (!deferredSourceOptions) {
-    return <GuidedSourceScopeFields fields={skeletonScopeFields} submit={submit} />;
+    return skeleton;
   }
 
   return (
-    <Suspense fallback={<GuidedSourceScopeFields fields={skeletonScopeFields} submit={submit} />}>
-      <Await
-        resolve={deferredSourceOptions}
-        errorElement={<GuidedSourceScopeFields fields={skeletonScopeFields} submit={submit} />}
-      >
+    <Suspense fallback={skeleton}>
+      <Await resolve={deferredSourceOptions} errorElement={skeleton}>
         {(sourceOptions) => (
-          <GuidedSourceScopeFields fields={sourceOptions.guidedFields ?? skeletonScopeFields} submit={submit} />
+          <GuidedSourceScopeFields
+            fields={sourceOptions.guidedFields ?? skeletonScopeFields}
+            recordOwnedFieldNames={recordOwnedFieldNames}
+            submit={submit}
+          />
         )}
       </Await>
     </Suspense>
@@ -365,11 +388,16 @@ function DeferredGuidedSourceScopeFields({
 // revalidation the DOM would then keep showing whatever was selected at that
 // first mount forever, even though `field.selectedValue` (route-derived) moved on
 // — the exact blank-control defect this fixes.
+//
+// A record-owned field is the page's fixed identity: it renders its value with no
+// form control, so the form never submits, clears or hydrates it.
 function GuidedSourceScopeFields({
   fields,
+  recordOwnedFieldNames,
   submit,
 }: {
   fields: readonly CatalogPrimaryWorkbenchGuidedScopeField[];
+  recordOwnedFieldNames: readonly string[];
   submit: SubmitFunction;
 }) {
   return (
@@ -380,12 +408,22 @@ function GuidedSourceScopeFields({
       <WorkbenchFormGrid columns="three">
         {fields.map((field, index) => (
           <Fragment key={field.queryKind}>
-            <RouteControlledGuidedScopeSelect
-              field={field}
-              onChange={(event) =>
-                submitSourceScopeFilter(event, submit, fields.slice(0, index), field, fields.slice(index + 1))
-              }
-            />
+            {recordOwnedFieldNames.includes(field.fieldName) ? (
+              field.selectedValue ? (
+                <WorkbenchDataCell
+                  data-catalog-record-owned-scope-field={field.fieldName}
+                  title={field.selectedLabel || field.selectedValue}
+                  description={field.label}
+                />
+              ) : null
+            ) : (
+              <RouteControlledGuidedScopeSelect
+                field={field}
+                onChange={(event) =>
+                  submitSourceScopeFilter(event, submit, fields.slice(0, index), field, fields.slice(index + 1))
+                }
+              />
+            )}
           </Fragment>
         ))}
       </WorkbenchFormGrid>
@@ -643,6 +681,7 @@ function SourceOptionRefreshButton({
   children: ReactNode;
 }) {
   const submit = useSubmit();
+  const rebase = useCatalogIntegrationHrefRebase();
 
   return (
     <Button
@@ -651,7 +690,7 @@ function SourceOptionRefreshButton({
       tone={tone}
       leadingIcon={leadingIcon}
       disabled={disabled}
-      onClick={() => submitSourceOptionRefresh(href, submit)}
+      onClick={() => submitSourceOptionRefresh(rebase(href), submit)}
     >
       {children}
     </Button>
@@ -664,13 +703,12 @@ function submitSourceOptionRefresh(href: string, submit: SubmitFunction): void {
 }
 
 // A compact sync/status panel for the synced provider option groups, rendered next
-// to the context form on the daily surface. It names each option group with its
-// natural label, surfaces freshness/degraded/missing-parent state per group, and
-// exposes reload (cache) and force-refresh (live) controls. The controls navigate
-// back to the Catalog Integrations workbench with a source-option intent — never to
-// the raw provider-options API hrefs — so the operator stays in the workbench and
-// the loader re-fetches the option pages. Renders nothing when the selected
-// provider declares no option kinds.
+// to the context form. It names each option group with its natural label,
+// surfaces freshness/degraded/missing-parent state per group, and exposes reload
+// (cache) and force-refresh (live) controls. The controls navigate back to the
+// owning page with a source-option intent — never to the raw provider-options API
+// hrefs — so the operator stays on that page and its loader re-fetches the option
+// pages. Renders nothing when the selected provider declares no option kinds.
 function SourceOptionsStatusPanel({
   sourceOptions,
   routeContext,

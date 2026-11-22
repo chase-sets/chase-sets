@@ -14,28 +14,55 @@ import {
 } from "../../primary-workbench-test-fixtures";
 import type { CatalogAliasReviewCandidateSummary } from "../../../../alias-equivalence/api/alias-review-admin-contracts";
 import type { CatalogScopeRecordDetail } from "../../../../scope-registry/ui/contracts";
+import { CATALOG_SCOPE_RECORD_QUERY_KEYS } from "../../../api/admin/scope-detail-workbench-location";
+import { commandSuccessTitle } from "../../primary-workbench-command-feedback";
+import { parseCatalogPrimaryWorkbenchRouteContext } from "../../primary-workbench-route-context";
 import {
   buildCatalogScopeJourneyOverviewReadModel,
   buildCatalogScopeLanguageEditionReviewReadModel,
   catalogScopeHasLanguageEditionsToReview,
 } from "../../../../scope-registry/api/scope-journey";
 
-vi.mock("../import-to-promotion/import-to-promotion-workspace", () => ({
-  CatalogIntegrationImportToPromotionWorkspace: (props: {
-    commandActionPath?: string;
-    showSourceScopeWorkset?: boolean;
-  }) => (
-    <div
-      data-testid="scope-journey-workspace"
-      data-action-path={props.commandActionPath}
-      data-show-source-workset={String(props.showSourceScopeWorkset)}
-    >
-      Sync, live jobs, candidate review, and promotion
-    </div>
-  ),
+// The mocks record what the page hands them and read the owning path from the
+// real provider, so the test sees which page each control would post to.
+const mounted = vi.hoisted(() => ({
+  bar: [] as Array<Record<string, unknown>>,
+  workspace: [] as Array<Record<string, unknown>>,
 }));
 
-afterEach(cleanup);
+vi.mock("../import-to-promotion/import-to-promotion-workspace", async () => {
+  const { useCatalogIntegrationCommandActionPath } = await import("../import-to-promotion/command-action-context");
+  return {
+    CatalogIntegrationImportToPromotionWorkspace: function Workspace(props: { showSourceScopeWorkset?: boolean }) {
+      mounted.workspace.push(props);
+      return (
+        <div
+          data-testid="scope-journey-workspace"
+          data-action-path={useCatalogIntegrationCommandActionPath()}
+          data-show-source-workset={String(props.showSourceScopeWorkset)}
+        >
+          Sync, live jobs, candidate review, and promotion
+        </div>
+      );
+    },
+  };
+});
+
+vi.mock("../import-to-promotion/import-context-bar", async () => {
+  const { useCatalogIntegrationCommandActionPath } = await import("../import-to-promotion/command-action-context");
+  return {
+    CatalogImportContextBar: function ImportContextBar(props: Record<string, unknown>) {
+      mounted.bar.push(props);
+      return <div data-testid="scope-import-context-bar" data-action-path={useCatalogIntegrationCommandActionPath()} />;
+    },
+  };
+});
+
+afterEach(() => {
+  cleanup();
+  mounted.bar.length = 0;
+  mounted.workspace.length = 0;
+});
 
 it.each([true, false])(
   "preserves Scope-member health and job guidance with manage permission %s",
@@ -320,7 +347,9 @@ describe("CatalogScopeDetailPage", () => {
     expect(screen.getByText("Loading the scope journey…")).toBeTruthy();
   });
 
-  it("composes coverage and the interactive journey on Scope Detail without the unit-first workset", () => {
+  it("composes coverage, the Scope import context and the source workset on Scope Detail", () => {
+    const journey = journeyFixture();
+    const deferredSourceOptions = Promise.resolve(journey.readModel.sourceOptions);
     render(
       <CatalogScopeDetailPage
         scope={paldeanFatesScope()}
@@ -341,7 +370,7 @@ describe("CatalogScopeDetailPage", () => {
             ],
           } as never
         }
-        journey={journeyFixture()}
+        journey={{ ...journey, deferredSourceOptions }}
       />,
     );
 
@@ -349,8 +378,84 @@ describe("CatalogScopeDetailPage", () => {
     expect(screen.getAllByText("tcgdex").length).toBeGreaterThan(0);
     const workspace = screen.getByTestId("scope-journey-workspace");
     expect(workspace.getAttribute("data-action-path")).toBe(ACTION_HREF);
-    expect(workspace.getAttribute("data-show-source-workset")).toBe("false");
+    expect(workspace.getAttribute("data-show-source-workset")).toBe("true");
+    expect(mounted.workspace.at(-1)).toMatchObject({ deferredSourceOptions });
+    expect(screen.getByTestId("scope-import-context-bar").getAttribute("data-action-path")).toBe(ACTION_HREF);
+    expect(mounted.bar.at(-1)).toMatchObject({
+      readModel: journey.readModel,
+      deferredSourceOptions,
+      recordOwnedFieldNames: CATALOG_SCOPE_RECORD_QUERY_KEYS,
+    });
   });
+
+  // A queued job redirects back here, so its feedback arrives with the journey
+  // rather than as action data.
+  it("shows the feedback a queued-job redirect carried back to the Scope", () => {
+    render(
+      <CatalogScopeDetailPage
+        scope={paldeanFatesScope()}
+        {...scopeJourney(paldeanFatesScope(), [])}
+        actionHref={ACTION_HREF}
+        journey={{
+          ...journeyFixture(),
+          commandFeedback: { status: "success", intent: "scope.import", result: "job-queued" },
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Command queued")).toBeTruthy();
+    expect(mounted.workspace.at(-1)).toMatchObject({
+      commandFeedback: { status: "success", intent: "scope.import", result: "job-queued" },
+    });
+  });
+
+  // Both language-edition form branches post to this Scope with the journey's
+  // current context, so the next load keeps the selection, filters and paging,
+  // and the alias result renders on this page.
+  it.each([true, false])(
+    "posts language-edition accept and reject to this Scope with its journey context (manage %s)",
+    (canManageAliases) => {
+      const journey = journeyFixture();
+      const routeContext = {
+        ...journey.readModel.routeContext,
+        providerKey: "tcgdex",
+        unitKey: "tcgdex:pokemon:card:import" as const,
+        reviewOffset: 25,
+        sourceObservationFilters: { status: "eligible" },
+        selectedObservationIds: ["obs_001"],
+      };
+      const feedback = { status: "success", intent: "alias.accept", result: "alias-accepted" } as const;
+      render(
+        <CatalogScopeDetailPage
+          scope={paldeanFatesScope()}
+          {...scopeJourney(paldeanFatesScope(), [candidate()])}
+          actionHref={ACTION_HREF}
+          canManageAliases={canManageAliases}
+          journey={{ ...journey, readModel: { ...journey.readModel, routeContext } }}
+          commandFeedback={feedback}
+        />,
+      );
+
+      for (const command of ["alias.accept", "alias.reject"]) {
+        const form = document.querySelector<HTMLFormElement>(`form[data-language-edition-command="${command}"]`);
+        const action = new URL(form?.getAttribute("action") ?? "", "https://admin.example");
+        expect(action.pathname, command).toBe(ACTION_HREF);
+        expect(parseCatalogPrimaryWorkbenchRouteContext(action), command).toMatchObject({
+          providerKey: "tcgdex",
+          unitKey: "tcgdex:pokemon:card:import",
+          scopeRecordId: "scope_expansion_paldean_fates",
+          reviewOffset: 25,
+          sourceObservationFilters: { status: "eligible" },
+          selectedObservationIds: ["obs_001"],
+          promotionPreviewId: null,
+        });
+        expect(within(form!).getByRole<HTMLButtonElement>("button").disabled, command).toBe(!canManageAliases);
+      }
+      const reason = document.querySelector('form[data-language-edition-command="alias.reject"] input[name="reason"]');
+      expect(reason?.hasAttribute("required")).toBe(true);
+      expect(screen.getByText(commandSuccessTitle(feedback.result))).toBeTruthy();
+    },
+  );
 
   it("omits the language-editions section for a single-edition scope", () => {
     render(

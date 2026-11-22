@@ -4,6 +4,7 @@ import { bootstrapPlatformAdminIdentity } from "../support/runtime-support/produ
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { buildMembershipProjectionHandlers } from "../features/memberships/read-model/projection";
+import { decideAccount, initialAccountState } from "../features/accounts/domain/domain";
 
 type CommandEnvelope = Readonly<{
   streamId?: unknown;
@@ -63,6 +64,23 @@ function createServices(existing: boolean, existingRoleKey = "platform-admin") {
 }
 
 describe("platform admin production bootstrap", () => {
+  it("applies the Account safeguard before bootstrap writes any event", async () => {
+    const { services, records } = createServices(false);
+    const append = vi.fn();
+    vi.mocked(services.accounts.commandHandler).mockImplementation(async ({ command }) => {
+      append(decideAccount(initialAccountState, command));
+      throw new Error("Unexpected success");
+    });
+    await expect(
+      bootstrapPlatformAdminIdentity(services, {
+        email: "ops@example.test",
+        displayName: "Ops",
+        accountName: "account-profile-marker-scan http://test.example",
+      }),
+    ).rejects.toThrow(/^text_unsafe_link$/);
+    expect(append).not.toHaveBeenCalled();
+    expect(Object.values(records).flat()).toEqual([]);
+  });
   it.each(["create", "repair", "idempotent"])(
     "keeps pricing absent through bootstrap and projection: %s",
     async (mode) => {

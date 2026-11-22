@@ -2089,6 +2089,9 @@ pub struct AuthenticityOffer {
 /// reads it.
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct PaymentPreview {
+    /// The quote's currency (`usd`), which a card entered on the page is charged in.
+    #[serde(default)]
+    pub currency_code: String,
     pub marketplace_checkout_fee: FeeQuote,
     #[serde(default)]
     pub payment_method_quotes: Vec<FeeQuote>,
@@ -2188,6 +2191,10 @@ pub struct ConfirmBody {
     pub requested_balance_credit_amount: Option<String>,
     pub payment_method_category: String,
     pub marketplace_checkout_fee_quote_fingerprint: Option<String>,
+    /// The card the buyer entered on the checkout page, as Stripe's single-use confirmation token
+    /// (`ctoken_..`): Payments confirms the payment with it as it starts it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confirmation_token_id: Option<String>,
     pub saved_checkout_instrument_id: Option<String>,
     pub save_payment_method_for_future: bool,
     pub fulfillment_preview_revision: Option<String>,
@@ -2202,6 +2209,23 @@ pub struct Confirmed {
     pub payment_id: Option<String>,
     #[serde(default)]
     pub offer_id: Option<String>,
+    /// Where the card's issuer asks the buyer to authenticate (3-D Secure), for a payment
+    /// confirmed with a card entered on the page that needs it.
+    #[serde(default)]
+    pub payment_authentication_url: Option<String>,
+}
+
+/// Whether a payment started from a checkout session (`GET /account/checkout/payment-start/{id}`,
+/// `getCheckoutPaymentStart`): Payments recorded one, recorded none, or cannot yet tell.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(tag = "state", rename_all = "kebab-case")]
+pub enum PaymentStart {
+    NotStarted,
+    Ambiguous,
+    Recorded {
+        #[serde(rename = "paymentId")]
+        payment_id: String,
+    },
 }
 
 #[derive(Deserialize)]
@@ -2234,6 +2258,8 @@ pub trait CheckoutSessions {
     async fn confirm_checkout(&self, id: &str, body: &ConfirmBody) -> Result<(Confirmed, Option<Receipt>), ApiError>;
     /// A started payment's amount and status (`GET /account/checkout-payment-summaries/{id}`).
     async fn checkout_payment_summary(&self, payment: &str) -> Result<PaymentSummary, ApiError>;
+    /// Whether Payments recorded a payment for the session (`getCheckoutPaymentStart`).
+    async fn checkout_payment_start(&self, id: &str) -> Result<PaymentStart, ApiError>;
 }
 
 /// A started payment as the checkout shows it (`CheckoutPaymentSummaryRow`).
@@ -2261,6 +2287,10 @@ impl CheckoutSessions for Caller<'_> {
 
     async fn checkout_payment_summary(&self, payment: &str) -> Result<PaymentSummary, ApiError> {
         self.read(&format!("/api/marketplace/account/checkout-payment-summaries/{}", segment(payment)), CHECKOUT).await
+    }
+
+    async fn checkout_payment_start(&self, id: &str) -> Result<PaymentStart, ApiError> {
+        self.read(&format!("/api/marketplace/account/checkout/payment-start/{}", segment(id)), "payments").await
     }
 
     async fn wallet(&self) -> Result<Wallet, ApiError> {
@@ -8547,6 +8577,9 @@ pub struct AccountPayment {
     pub processor_redirect_url: Option<String>,
     pub processor_status: String,
     pub processor_publishable_key: Option<String>,
+    /// `checkout-session`, `payment-intent` or `balance-credit`.
+    pub processor_payment_kind: String,
+    pub saved_checkout_instrument_id: Option<String>,
     pub source_context: Option<String>,
     pub source_reference_id: Option<String>,
     /// `pending-confirmation`, `captured`, `failed`, `cancelled` or another (in progress).
@@ -8621,6 +8654,9 @@ struct PaymentOrders {
 pub trait PaymentCalls {
     /// The buyer's payment; `None` when the account has none by `id`.
     async fn account_payment(&self, id: &str) -> Result<Option<AccountPayment>, ApiError>;
+    /// The buyer's payment after Payments asked the provider for its status
+    /// (`?readProcessorStatus=1`), as the payment page's loader reads it.
+    async fn account_payment_from_processor(&self, id: &str) -> Result<Option<AccountPayment>, ApiError>;
     /// The payment's orders (`GET /account/order-inputs?orderIds=..`).
     async fn payment_orders(&self, ids: &[String]) -> Result<Vec<PaymentOrder>, ApiError>;
     /// What Payments quotes for paying a payment's orders again (`GET /account/checkout/status`),
@@ -8657,6 +8693,14 @@ pub trait PaymentCalls {
 impl PaymentCalls for Caller<'_> {
     async fn account_payment(&self, id: &str) -> Result<Option<AccountPayment>, ApiError> {
         match self.read(&format!("{ACCOUNT_PAYMENTS}/{}", segment(id)), PAYMENTS).await {
+            Ok(payment) => Ok(Some(payment)),
+            Err(error) if error.status() == Some(StatusCode::NOT_FOUND) => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    async fn account_payment_from_processor(&self, id: &str) -> Result<Option<AccountPayment>, ApiError> {
+        match self.read(&format!("{ACCOUNT_PAYMENTS}/{}?readProcessorStatus=1", segment(id)), PAYMENTS).await {
             Ok(payment) => Ok(Some(payment)),
             Err(error) if error.status() == Some(StatusCode::NOT_FOUND) => Ok(None),
             Err(error) => Err(error),

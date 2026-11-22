@@ -251,5 +251,5 @@ function candidateResult(
   result: CatalogIntegrationsCommandResult["feedback"]["result"],
   context: RouteContext,
 ): CatalogIntegrationsCommandResult {
-  return { feedback: { status, intent, result }, context, section: "import-to-promotion" };
+  return { feedback: { status, intent, result }, context };
 }

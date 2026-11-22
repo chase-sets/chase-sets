@@ -152,6 +152,16 @@ Do not manually patch Catalog Items outside the engine-generated promotion/reapp
 
 A failed promotion outcome carries an optional `diagnosticCode` beside its free-text `reason`. `asset-processing-failed` means the Catalog asset download, processing, or storage write failed ([Catalog Asset Storage](./catalog-asset-storage.md) Failure Policy); retry the promotion once storage is healthy. A failed outcome without a code has no classified cause.
 
+## Freeze Catalog Completion Manifest
+
+Dispatch `Production Catalog Completion Manifest` from `main` in the protected `production` environment. Supply the existing production Scope Sync Batch ID and the agreed UTC `launch_cutoff` and `expires_at`. The manifest is batch-bound: this workflow neither creates a batch nor replaces the pre-confirm preview. For partitioned coverage, reconcile the batch manifests against the approved full selection before signing off.
+
+The workflow reads Catalog in one `REPEATABLE READ READ ONLY` transaction using the Catalog context connection. It compares the batch's stored plan with active Catalog Scope Records, accepted Provider Scope Mappings, and production-capable provider profile versions. A missing, ambiguous, or changed expected pair stops the freeze. The workflow does not run provider previews, check credentials or spend, or pull Source Observations. TCGplayer units appear only as `browser-extension-only` exclusions; browser-extension approvals remain separate.
+
+Download `catalog-completion-manifest-<run_id>-<run_attempt>` and verify the exact JSON bytes with `sha256sum -c catalog-completion-manifest.json.sha256` from the download directory. Bind the host's approval to that SHA-256 and the exact main commit, batch ID, and plan fingerprint in the manifest. The artifact records source versions and coverage counts, not live provider authority. Re-preview and freeze again if it expires or if the release, scope, mapping, profile, rollout, provider authority, or cost changes. Do not hand-edit the artifact or treat it as execution approval.
+
+Use the artifact name and run ID in the production **Catalog Completion Report**. Its database mode refreshes outcome facts, including any unknown at freeze time, against the frozen universe. Do not use the freeze snapshot alone as completion proof.
+
 ## Catalog Completion Report
 
 The `Catalog Completion Report` workflow (`.github/workflows/catalog-completion-report.yml`) generates the Production Catalog Completion Report for one Scope Sync Batch from a deployed environment. Dispatch it with `environment` (`staging` or `production`) and `batch_id`. To prove completion, also pass `manifest_run_id` and `manifest_artifact`, naming an artifact that holds the frozen `catalog-completion-manifest.json`.
@@ -230,8 +240,51 @@ reset disabled. The wipe deletes both `catalog_source_observations` and the
 authoritative `catalog.source-observation-*` event streams; postconditions count
 both stream and event rows. Any P0 evidence finding produces `result: failed`,
 an exact remaining-row report, and a non-zero command exit.
-`production-prelaunch` is recognized but refused; production requires separate
-reviewed machinery after a successful staging rehearsal.
+
+For the one-time production reset, use the same workflow
+(`catalog-integration-staging-reset.yml`) on `main` with
+`environment: production-prelaunch`. It uses the protected `production`
+environment and the existing managed Postgres Catalog URL and TLS authority.
+The command refuses a database other than `chase_sets_production_catalog`.
+
+1. Record the durable approval and successful staging rehearsal. Take and
+   record a managed Postgres backup or restore point before apply; accepted
+   data loss is not a substitute. Use only support-safe references as inputs,
+   never credentials.
+   Pause provider automation before dry-run and keep it paused through apply so provider traffic cannot change the counts and invalidate the fingerprint.
+2. Dispatch `dry-run` and inspect the JSON artifact. PostgreSQL enforces a
+   read-only, repeatable-read transaction. The report lists exact row counts
+   for the existing reset plan, including cascaded Source Observation
+   events/snapshots and rebuilt profile sections/diagnostics. Review active
+   integration and bulk-review jobs, promotion provenance, and retained
+   admin-authored/migration-evidenced profiles.
+3. Stop if either job count or any promotion provenance count is nonzero.
+   Source Observation promotion markers and authoritative promotion events
+   (including Reference Record promotion and Merge Candidate approval or
+   application) are treated as protected provenance. Resolve any explicit
+   retained-data exception before apply; the reset does not delete
+   admin-authored or migration-evidenced profile versions.
+4. Dispatch `apply` with `reset production catalog integration data` exactly,
+   the operator and approval reference, `create-backup-snapshot-export` and
+   its backup/restore fields, the staging rehearsal and smoke verification
+   references, and `dry_run_fingerprint` copied from `production.fingerprint`.
+   For smoke, name the durable record where post-reset verification will be
+   attached. The fingerprint must be at most 30 minutes old when checked.
+   Apply holds write-conflicting locks through commit, rechecks jobs and
+   provenance, and compares the fingerprint against the locked counts before
+   wiping. If a lock is unavailable, counts changed, or the fingerprint
+   expired, stop and collect a new dry run after resolving the cause.
+5. Retain the JSON artifact with `production.before` and `production.after`
+   and attach the post-reset smoke results. If postconditions fail, the
+   transaction rolls back; `production.after` describes the uncommitted
+   attempt and `production.rollbackReasons` explains why. The only mutation outside the
+   scoped wipe/rebuild is a Catalog audit receipt in the same event store.
+   PostgreSQL commits it together with the reset. Retry with the original
+   approval, backup reference, and fingerprint returns `already-applied`
+   and the original reports even after the fingerprint expires; it does
+   not wipe again. A different approval cannot repeat this one-time reset.
+   After any database restore, reconcile the receipt and external run
+   evidence before considering another apply.
 
 For the Catalog Scope Registry / Merge Candidate v2 destructive reset (`catalog-scope-merge-candidate-reset.ts`, #3807, required before #3794/#3799 deploy), also record:
 

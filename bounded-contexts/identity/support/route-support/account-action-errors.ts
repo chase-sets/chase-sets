@@ -2,9 +2,17 @@ import { t } from "@chase-sets/localization";
 import { data } from "react-router";
 import type { FormActionContext } from "@chase-sets/platform-runtime/http";
 import { identityApiErrorAdapter } from "../request-support/route-api-error";
+import {
+  isDisplayNameRejectionCode,
+  type DisplayNameRejectionCode,
+} from "../../features/accounts/domain/display-name-safeguard";
 
 type ExpectedAccountActionError =
-  | Readonly<{ kind: "validation"; status: 400 | 422; code: "validation_failed" | "validation_error" }>
+  | Readonly<{
+      kind: "validation";
+      status: 400 | 422;
+      code: "validation_failed" | "validation_error" | DisplayNameRejectionCode;
+    }>
   | Readonly<{ kind: "domain"; status: 404; code: "not_found" }>
   | Readonly<{ kind: "domain"; status: 409; code: "conflict" }>;
 
@@ -15,6 +23,14 @@ export type AccountActionFailureResult = Readonly<{
 export function classifyAccountActionError(error: unknown) {
   const status = identityApiErrorAdapter.getStatus(error);
   const code = identityApiErrorAdapter.getErrorCode(error);
+  if (status === 400 && isDisplayNameRejectionCode(code)) {
+    return {
+      kind: "validation",
+      status,
+      code,
+      message: t("identity.features.accounts.ui.accountProfilePage.displayNameRejected"),
+    } as const;
+  }
   if ((status === 400 || status === 422) && (code === "validation_failed" || code === "validation_error")) {
     return {
       kind: "validation",

@@ -330,6 +330,25 @@
       "eventTypes": ["platform-policy.document.created", "platform-policy.document.revised"],
       "streamPrefixes": ["platform-policy.document-"],
       "order": 10
+    },
+    {
+      "subscriptionName": "identity.profile-redaction-reaction",
+      "handlerKind": "reaction",
+      "projectionName": "identity-profile-redaction-reaction",
+      "sourceContextName": "platform-operations",
+      "targetContextName": "identity",
+      "subscriptionVersion": 1,
+      "checkpointKey": "identity-profile-redaction-reaction:platform-operations:v1",
+      "handlers": { "platform-operations.reported-content.action-recorded": "<function>" },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 1,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": ["platform-operations.reported-content.action-recorded"],
+      "streamPrefixes": "<undefined>",
+      "order": 20
     }
   ],
   "subscriptions": [
@@ -351,6 +370,22 @@
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "order": 10
+    },
+    {
+      "subscriptionName": "identity.profile-redaction-reaction",
+      "handlerKind": "reaction",
+      "sourceContextName": "platform-operations",
+      "projectionName": "identity-profile-redaction-reaction",
+      "reactionName": "identity-profile-redaction-reaction",
+      "subscriptionVersion": 1,
+      "handlers": { "platform-operations.reported-content.action-recorded": "<function>" },
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure",
+      "eventTypes": ["platform-operations.reported-content.action-recorded"],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "order": 20
     }
   ]
 }

@@ -5,6 +5,7 @@
   "ownedNouns": [
     "user",
     "account",
+    "account-profile-report",
     "account-capability",
     "membership",
     "invitation",
@@ -23,6 +24,7 @@
     "agent-grants",
     "access-hub",
     "accounts",
+    "account-profile-reports",
     "account-capabilities",
     "account-management",
     "users",
@@ -58,6 +60,18 @@
       "idempotencyPolicy": "idempotent-command-dispatch",
       "retryPolicy": "retry-from-last-checkpoint",
       "failurePolicy": "surface-as-reaction-failure"
+    },
+    {
+      "sourceContextName": "platform-operations",
+      "reactionName": "identity-profile-redaction-reaction",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": ["platform-operations.reported-content.action-recorded"],
+      "order": 20,
+      "reactionHandlerSetNames": ["identity-profile-redaction-reaction"],
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure"
     }
   ],
   "projectionGroups": [
@@ -79,6 +93,14 @@
       "projectionName": "identity-founder-claim-reaction",
       "handlerKind": "reaction",
       "sourceContextNames": ["marketplace"],
+      "ownedTables": [],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "identity-profile-redaction-reaction",
+      "handlerKind": "reaction",
+      "sourceContextNames": ["platform-operations"],
       "ownedTables": [],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
@@ -1064,6 +1086,23 @@
     }
   ],
   "mutationConsistencyInventory": [
+    {
+      "id": "identity.account-profile-report-acknowledgement",
+      "owner": "identity",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": ["api-route:bounded-contexts/identity/features/account-profile-reports/api/route.ts:POST /:accountId/profile-reports"],
+      "visibleDestination": {
+        "description": "The caller receives only the generic received acknowledgement; there is no follow-up read or disclosure of target eligibility or whether a report was appended."
+      },
+      "proof": {
+        "authoritativeResponse": "submitAccountProfileReport returns the same acknowledgement after the transaction for a new report, an identical replay, a duplicate or an ineligible target, without reading a projection.",
+        "tests": [
+          "bounded-contexts/identity/features/account-profile-reports/api/route.test.ts",
+          "bounded-contexts/identity/features/account-profile-reports/api/account-profile-reports.db.test.ts"
+        ]
+      }
+    },
     {
       "id": "identity.invitation-acceptance-authority-snapshot",
       "owner": "identity",
@@ -2199,6 +2238,11 @@
       "purpose": "Own private interruption-safe mutation receipts, read-only owner-history lookup, eligibility fences, and the five marketplace form controllers; business facts remain with their existing owners.",
       "expectedConsumers": ["Identity owner APIs", "Identity marketplace account routes"]
     },
+    "account-profile-reports": {
+      "classification": "slice",
+      "purpose": "Own Account Profile Report submission and react to authorized profile display-name redaction actions.",
+      "expectedConsumers": ["Identity API composition", "Identity worker composition"]
+    },
     "access-hub": {
       "classification": "slice",
       "purpose": "Own the account-centric Access home, account hub read model, route behavior, and UI composition across Identity aggregates.",
@@ -2272,6 +2316,7 @@
         "access-hub",
         "account-capabilities",
         "account-management",
+        "account-profile-reports",
         "accounts",
         "api-keys",
         "consents",
