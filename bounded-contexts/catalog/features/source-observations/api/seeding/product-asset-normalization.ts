@@ -336,7 +336,8 @@ export function extractApprovedOnePieceImageEvidence(input: {
   sourceUpdatedAt?: string | null;
 }): OnePieceImageEvidenceResult {
   const providerKey = normalizeProviderKey(input.providerKey);
-  const approvedProvider = PROMOTION_IMAGE_PROVIDERS.onePiece.includes(providerKey);
+  // Retaining a source URI does not authorize fetching it during promotion.
+  const approvedProvider = providerKey === "scrydex" || providerKey === "tcgplayer";
   if (!approvedProvider) {
     return {
       status: "unapproved",
