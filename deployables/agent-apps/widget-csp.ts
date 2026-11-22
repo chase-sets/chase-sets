@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 
-export function addProductCardsBundleHashes(html: string): string {
+export function addWidgetBundleHashes(html: string): string {
   const meta = /<meta\s+http-equiv="Content-Security-Policy"\s+content="([^"]+)"/.exec(html);
-  if (!meta?.[1]) throw new Error("Product Cards document CSP is missing.");
+  if (!meta?.[1]) throw new Error("Widget document CSP is missing.");
 
   // vite-plugin-singlefile emits one inline script and one inline stylesheet.
   const bundles = [...html.matchAll(/<(script|style)\b[^>]*>([\s\S]*?)<\/\1>/gi)];
@@ -11,7 +11,7 @@ export function addProductCardsBundleHashes(html: string): string {
     const [bundle, ...extra] = bundles.filter((match) => match[1] === tag);
     const marker = `'sha256-BUNDLED_${tag.toUpperCase()}'`;
     if (!bundle?.[2] || extra.length || bundle.index < meta.index || !policy.includes(marker)) {
-      throw new Error(`Product Cards document CSP needs one bundled ${tag} after the policy.`);
+      throw new Error(`Widget document CSP needs one bundled ${tag} after the policy.`);
     }
     const hash = createHash("sha256").update(bundle[2].replace(/\r\n?/g, "\n")).digest("base64");
     policy = policy.replace(marker, `'sha256-${hash}'`);

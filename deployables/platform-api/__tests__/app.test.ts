@@ -2266,9 +2266,11 @@ describe("platform api app wiring", () => {
       }),
       {
         widgetResources: (uri) =>
-          uri === UCP_MCP_PRODUCT_CARDS_RESOURCE_URI
-            ? "<!doctype html><title>Chase Sets Product Cards</title>"
-            : undefined,
+          ({
+            [UCP_MCP_PRODUCT_CARDS_RESOURCE_URI]: "<!doctype html><title>Chase Sets Product Cards</title>",
+            [UCP_MCP_CART_REVIEW_RESOURCE_URI]: "<!doctype html><title>Chase Sets Cart Review</title>",
+            [UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI]: "<!doctype html><title>Chase Sets Checkout Handoff</title>",
+          })[uri],
         ucp: {
           profileResolver: async () => ({
             ok: true,
