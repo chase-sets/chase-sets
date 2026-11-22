@@ -6,6 +6,7 @@ import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api
 import { commandSnapshotResponse } from "../../../support/authoring-support/api-command-response";
 import type { CatalogAuthoringBulkJobServices } from "../../../support/authoring-support/bulk-authoring-jobs";
 import { normalizeBulkSelection, toOptionalString } from "../../../support/runtime-support/bulk-lifecycle";
+import { CatalogDomainError } from "../../../support/runtime-support/common";
 
 export function dimensionRoutes(services: DimensionServices, authoringBulkJobs: CatalogAuthoringBulkJobServices) {
   const app = new Hono<CatalogAuthoringEnv>();
@@ -248,8 +249,11 @@ function parseOptionApplicabilityBoundary(value: unknown) {
   if (value === undefined) {
     return undefined;
   }
+  if (!Array.isArray(value)) {
+    throw new CatalogDomainError("appliesWhen must be a list of applicability clauses.");
+  }
 
-  return (Array.isArray(value) ? value : [value]).map((clause, index) => {
+  return value.map((clause, index) => {
     const candidate = (typeof clause === "object" && clause !== null ? clause : {}) as {
       dimensionId?: unknown;
       optionIds?: unknown;

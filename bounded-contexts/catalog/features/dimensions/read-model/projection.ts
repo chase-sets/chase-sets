@@ -130,7 +130,7 @@ export function buildDimensionProjectionHandlers(db: PgQueryable): ProjectorHand
           displayOrder,
           numericValue,
           status,
-          appliesWhen === undefined ? null : JSON.stringify(appliesWhen),
+          appliesWhen == null ? null : JSON.stringify(appliesWhen),
         ],
       );
     },

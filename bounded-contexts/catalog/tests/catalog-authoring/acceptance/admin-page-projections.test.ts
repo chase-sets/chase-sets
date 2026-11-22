@@ -162,6 +162,7 @@ describe("Admin page projections", () => {
   it("serves inline page DTOs and fans out referenced name changes", async () => {
     const dimensionId = "dim_condition";
     const optionId = "chc_near_mint";
+    const optionAppliesWhen = [{ dimensionId: "dim_form", optionIds: ["chc_raw"] }];
     const fieldId = "fld_card_name";
     const componentId = "cmp_base_card_info";
     const blueprintId = "bpr_raw_pokemon_card";
@@ -527,6 +528,7 @@ describe("Admin page projections", () => {
       code: "mint",
       label: l10n("Mint"),
       numericValue: null,
+      appliesWhen: optionAppliesWhen,
     });
     await sendCommand(services.components.commandHandler, `catalog.component-${componentId}`, {
       type: "ReviseComponent",
@@ -577,7 +579,9 @@ describe("Admin page projections", () => {
 
       return (await getJson(`/api/catalog/dimensions/${dimensionId}`)).json.option_matching;
     };
-    expect((await getJson(`/api/catalog/dimensions/${dimensionId}`)).json.option_matching).toBe("or-better");
+    const revisedDimension = (await getJson(`/api/catalog/dimensions/${dimensionId}`)).json;
+    expect(revisedDimension.options[0].applies_when).toEqual(optionAppliesWhen);
+    expect(revisedDimension.option_matching).toBe("or-better");
     expect(await projectDimensionRevision("ordered")).toBe("or-better");
     expect(await projectDimensionRevision("unordered")).toBe("exact");
     expect(await projectDimensionRevision("ordered", "or-better")).toBe("or-better");

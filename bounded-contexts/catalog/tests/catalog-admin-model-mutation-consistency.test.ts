@@ -334,6 +334,63 @@ describe("catalog admin model mutation consistency", () => {
     });
   });
 
+  it("parses Option applicability at the route boundary", async () => {
+    const commandHandler = vi.fn(async () =>
+      commandResult({
+        id: "dim_grade",
+        key: "grade",
+        name: englishName,
+        description: englishName,
+        valueKind: "numeric",
+        status: "active",
+        options: [],
+      }),
+    );
+    const app = buildApp((app) =>
+      app.route(
+        "/dimensions",
+        dimensionRoutes(
+          {
+            commandHandler,
+            listDimensions: async () => ({ items: [], total: 0 }),
+            getDimension: async () => null,
+            bulkLifecycle: createBulkLifecycle(),
+            projectors: [],
+          } as unknown as DimensionServices,
+          createJobServices(),
+        ),
+      ),
+    );
+    const option = { code: "black-label-10", label: englishName, numericValue: 10 };
+    const clause = { dimensionId: "dim_company", optionIds: ["chc_bgs"] };
+    const revise = (appliesWhen?: unknown) =>
+      app.fetch(jsonRequest("/dimensions/dim_grade/options/chc_black", { ...option, appliesWhen }, "PUT"));
+
+    const added = await app.fetch(
+      jsonRequest("/dimensions/dim_grade/options", { ...option, optionId: "chc_black", appliesWhen: [clause] }, "POST"),
+    );
+    const kept = await revise();
+    const cleared = await revise([]);
+    const rejected = await Promise.all(
+      [
+        null,
+        "dim_company",
+        clause,
+        [null],
+        [{ dimensionId: "company", optionIds: ["chc_bgs"] }],
+        [{ ...clause, optionIds: "chc_bgs" }],
+      ].map(revise),
+    );
+
+    expect([added.status, kept.status, cleared.status]).toEqual([201, 200, 200]);
+    expect(rejected.map((response) => response.status)).toEqual([400, 400, 400, 400, 400, 400]);
+    expect(commandHandler.mock.calls.map(([call]) => (call as { command: Record<string, unknown> }).command)).toEqual([
+      expect.objectContaining({ type: "AddOption", appliesWhen: [clause] }),
+      expect.objectContaining({ type: "ReviseOption", appliesWhen: undefined }),
+      expect.objectContaining({ type: "ReviseOption", appliesWhen: [] }),
+    ]);
+  });
+
   it("routes dimension option reorder and revise commands without shadowing", async () => {
     const commandHandler = vi.fn(async () =>
       commandResult({
