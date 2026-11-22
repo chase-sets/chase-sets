@@ -76,14 +76,14 @@ describe("public presence promo bar admin route", () => {
     );
   });
 
-  function save(values: Record<string, string>, fetch: ReturnType<typeof vi.fn>) {
+  function save(values: Record<string, string>, fetch: ReturnType<typeof vi.fn>, intent = "create") {
     vi.stubGlobal("fetch", fetch);
     return action({
       request: new Request("https://admin.chasesets.test/promo-bar", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
-          intent: "create",
+          intent,
           title: "Fee holiday",
           tone: "info",
           isActive: "true",
@@ -117,6 +117,15 @@ describe("public presence promo bar admin route", () => {
 
     const sent = JSON.parse(String((fetch.mock.calls[0]![1] as RequestInit).body)) as Record<string, unknown>;
     expect(sent).toMatchObject({ startsAt: "2026-11-10T15:00:00.000Z", endsAt: null });
+  });
+
+  it("clears a schedule left blank on an update", async () => {
+    const fetch = api();
+    await save({ id: "pbm_1", startsAtLocal: "", startsAt: "", endsAtLocal: "", endsAt: "" }, fetch, "update");
+
+    const [url, init] = fetch.mock.calls[0]! as [RequestInfo | URL, RequestInit];
+    expect(String(url)).toContain("/promo-bar-messages/pbm_1");
+    expect(JSON.parse(String(init.body))).toMatchObject({ startsAt: null, endsAt: null });
   });
 
   it.each([

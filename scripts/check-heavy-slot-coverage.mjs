@@ -14,7 +14,6 @@ const reviewedCheapNodeEntrypoints = new Set([
   "bounded-contexts/public-presence/features/waitlist/ui/assets/generate-image-variants.mjs",
   "bounded-contexts/public-presence/features/waitlist/ui/assets/generate-og-images.mjs",
   "deployables/platform-api/scripts/check-bootstrap-db-enrollment.mjs",
-  "scripts/benchmark-discovery-hybrid-retrieval.mjs",
   "scripts/campaign-market-data-snippets.mjs",
   "scripts/check-buyer-seller-jargon.mjs",
   "scripts/check-design-system-color-utilities.mjs",

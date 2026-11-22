@@ -346,7 +346,7 @@ describe("Terms reconciliation with ratified decisions and shipped controls", ()
       for (const fragment of row.sourceFragments) expect(cited!.text, row.proposition).toContain(fragment);
     }
     expect(refs).toEqual([
-      `${settlementGlossaryPath}:131-139,162-170,172-180,182-190`,
+      `${settlementGlossaryPath}:135-143,166-174,176-184,186-194`,
       `${walletAdjustmentAdrPath}:70-82`,
     ]);
     expect(section.reviewManifest.assumptions[0]!.evidenceRef).toBe(

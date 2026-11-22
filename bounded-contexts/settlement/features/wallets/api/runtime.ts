@@ -35,6 +35,8 @@ import {
   type WalletLedgerEntryPostedEvent,
   type WalletCommand,
   type WalletEvent,
+  type RetireSpendHoldCommand,
+  type SetSpendHoldExpiryCommand,
   type WalletSpendHoldPlacedEvent,
   type WalletSpendHoldReleaseReason,
   type WalletState,
@@ -172,6 +174,14 @@ export type WalletServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<{ accountId: AccountId; holdId: string; released: boolean }>;
+  retireSpendHold: (
+    params: Omit<RetireSpendHoldCommand, "type" | "retiredAt"> & Readonly<{ retiredAt?: string }>,
+    context: EventStoreContext,
+  ) => Promise<"released" | "retired" | "already-settled">;
+  setSpendHoldExpiry: (
+    params: Readonly<{ accountId: AccountId; holdId: string; setAt?: string }>,
+    context: EventStoreContext,
+  ) => Promise<void>;
   /** Releases active spend holds whose expiry has elapsed -- the backstop against holds leaking on payments that never conclude. */
   sweepExpiredSpendHolds: (
     params: Readonly<{ now?: string; limit?: number }>,
@@ -303,6 +313,21 @@ export function createWalletRuntime(deps: WalletRuntimeDeps): WalletServices {
       }
     }
     throw new SettlementDomainError("Spend hold release did not converge.");
+  }
+
+  async function commitSpendHoldChange(
+    accountId: AccountId,
+    command: RetireSpendHoldCommand | SetSpendHoldExpiryCommand,
+    context: EventStoreContext,
+  ) {
+    for (let attempt = 0; attempt < WALLET_MAX_COMMIT_ATTEMPTS; attempt += 1) {
+      try {
+        return await commandHandler({ streamId: `settlement.wallet-${accountId}`, command, context });
+      } catch (error) {
+        if (!isConcurrencyConflict(error) || attempt === WALLET_MAX_COMMIT_ATTEMPTS - 1) throw error;
+      }
+    }
+    throw new SettlementDomainError("Spend hold change did not converge.");
   }
 
   return {
@@ -461,6 +486,27 @@ export function createWalletRuntime(deps: WalletRuntimeDeps): WalletServices {
       throw new SettlementDomainError("Spend hold placement did not converge.");
     },
     releaseSpendHold: (params, context) => releaseSpendHoldImpl(params, context),
+    async retireSpendHold(params, context) {
+      const result = await commitSpendHoldChange(
+        params.accountId,
+        { ...params, type: "RetireSpendHold", retiredAt: params.retiredAt ?? new Date().toISOString() },
+        context,
+      );
+      const eventType = result.newEvents[0]?.type;
+      if (eventType === "settlement.wallet.spend-hold-released") return "released";
+      if (eventType === "settlement.wallet.spend-hold-retired.v1") return "retired";
+      if (result.state.spendHolds.some((hold) => hold.holdId === params.holdId && hold.status === "released")) {
+        return "already-settled";
+      }
+      throw new SettlementDomainError("Spend hold retirement has no durable acknowledgement.");
+    },
+    async setSpendHoldExpiry(params, context) {
+      await commitSpendHoldChange(
+        params.accountId,
+        { type: "SetSpendHoldExpiry", holdId: params.holdId, setAt: params.setAt ?? new Date().toISOString() },
+        context,
+      );
+    },
     async sweepExpiredSpendHolds(params, context) {
       const now = params.now ?? new Date().toISOString();
       const expired = await listExpiredActiveSpendHolds(deps.db, { now, limit: params.limit });

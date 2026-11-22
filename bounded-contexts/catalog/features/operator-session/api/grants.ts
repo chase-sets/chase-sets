@@ -6,7 +6,12 @@ import {
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
 import { createInMemoryRateLimiter } from "@chase-sets/http/rate-limit";
-import type { OperatorAuthority, OperatorAuthorityDecision, ResolvedActor } from "@chase-sets/auth-context";
+import {
+  resolveRolePermissions,
+  type OperatorAuthority,
+  type OperatorAuthorityDecision,
+  type ResolvedActor,
+} from "@chase-sets/auth-context";
 import { observationWriteLockId, withOperatorSessionBackend } from "./operation";
 import { OperatorSessionRequestError, readGrantBearer, requireEmptyBody } from "./request";
 import { createMarketObservationRoutes, type MarketObservationDeps } from "./market-observations";
@@ -35,7 +40,7 @@ function grantsCatalogManage(
   return (
     decision.kind === "granted" &&
     decision.roleKey === "platform-admin" &&
-    decision.rolePermissions.includes("catalog.manage")
+    resolveRolePermissions(decision.roleKey).includes("catalog.manage")
   );
 }
 

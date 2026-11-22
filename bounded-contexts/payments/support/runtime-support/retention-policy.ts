@@ -9,6 +9,7 @@ export const paymentsRetentionSweeps: readonly BcRetentionSweep[] = [
     name: "terminal-payment-creation-reservations",
     tableName: "payments_payment_creation_reservations",
     predicateSql: `candidate.status IN ('failed', 'released')
+      AND candidate.release_pending IS NOT TRUE
       AND candidate.updated_at < now() - interval '90 days'`,
     orderBySql: "candidate.updated_at ASC",
     intervalMs: SIX_HOURS_MS,

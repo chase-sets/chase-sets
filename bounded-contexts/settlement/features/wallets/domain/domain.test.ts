@@ -349,6 +349,85 @@ describe("settlement wallet domain", () => {
   });
 
   describe("buyer-spend holds", () => {
+    const place = {
+      type: "PlaceSpendHold",
+      holdId: "hold_balance_credit_pay_1",
+      paymentId: "pay_1" as never,
+      amount: "20.00",
+      currencyCode: "usd",
+      placedAt: "2026-04-02T00:02:00.000Z",
+      expiresAt: null,
+    } as const;
+    const retire = {
+      type: "RetireSpendHold",
+      accountId: "acc_buyer" as never,
+      holdId: place.holdId,
+      paymentId: place.paymentId,
+      reason: "payment-cancelled",
+      retiredAt: "2026-04-02T00:03:00.000Z",
+    } as const;
+    const setExpiry = { type: "SetSpendHoldExpiry", holdId: place.holdId, setAt: retire.retiredAt } as const;
+
+    it.each([false, true])("fences the same hold id on replay (placement first: %s)", (placementFirst) => {
+      const opened = walletWithAvailableCredit("50.00");
+      const placement = placementFirst ? decideWallet(opened, place) : [];
+      const cleanup = decideWallet(placement.reduce(evolveWallet, opened), retire);
+      expect(cleanup.map((event) => event.type)).toEqual([
+        placementFirst ? "settlement.wallet.spend-hold-released" : "settlement.wallet.spend-hold-retired.v1",
+      ]);
+      const replayed = [...placement, ...cleanup].reduce(evolveWallet, opened);
+      expect(replayed.heldBalanceAmount).toBe("0.00");
+      expect(replayed.spendHolds).toMatchObject([{ holdId: place.holdId, status: "released" }]);
+      expect(decideWallet(replayed, place)).toEqual([]);
+      expect(decideWallet(replayed, retire)).toEqual([]);
+      expect(decideWallet(replayed, setExpiry)).toEqual([]);
+      expect(
+        decideWallet(replayed, { ...place, holdId: "hold_balance_credit_pay_2", paymentId: "pay_2" as never }),
+      ).toMatchObject([{ type: "settlement.wallet.spend-hold-placed", data: { amount: "20.00" } }]);
+    });
+
+    it("refuses to retire a different Payment's id or an unopened wallet", () => {
+      const opened = walletWithAvailableCredit("50.00");
+      expect(() => decideWallet(opened, { ...retire, holdId: "hold_balance_credit_pay_2" })).toThrow(
+        "Spend hold id must belong to the Payment.",
+      );
+      expect(() => decideWallet(initialWalletState, retire)).toThrow("Wallet must be opened first.");
+    });
+
+    it("leaves a legacy zero placement and ordinary unknown release eventless", () => {
+      const opened = walletWithAvailableCredit("50.00");
+      expect(decideWallet(opened, { ...place, amount: "0.00" })).toEqual([]);
+      expect(
+        decideWallet(opened, {
+          type: "ReleaseSpendHold",
+          holdId: place.holdId,
+          reason: "payment-cancelled",
+          releasedAt: retire.retiredAt,
+        }),
+      ).toEqual([]);
+      expect(decideWallet(opened, place)).toHaveLength(1);
+    });
+
+    it("sets expiry once from placement, never on a captured hold", () => {
+      const opened = walletWithAvailableCredit("50.00");
+      const held = decideWallet(opened, place).reduce(evolveWallet, opened);
+      const expiry = decideWallet(held, setExpiry);
+      expect(expiry).toMatchObject([
+        { type: "settlement.wallet.spend-hold-expiry-set.v1", data: { expiresAt: "2026-04-05T00:02:00.000Z" } },
+      ]);
+      const expires = expiry.reduce(evolveWallet, held);
+      expect(expires.spendHolds[0]?.expiresAt).toBe("2026-04-05T00:02:00.000Z");
+      expect(decideWallet(expires, setExpiry)).toEqual([]);
+      const captured = decideWallet(held, {
+        type: "ReleaseSpendHold",
+        holdId: place.holdId,
+        reason: "payment-captured",
+        releasedAt: retire.retiredAt,
+      }).reduce(evolveWallet, held);
+      expect(decideWallet(captured, setExpiry)).toEqual([]);
+      expect(decideWallet(captured, retire)).toEqual([]);
+    });
+
     it("reserves against available balance and reduces spendable without moving money", () => {
       const held = decideWallet(walletWithAvailableCredit("50.00"), {
         type: "PlaceSpendHold",

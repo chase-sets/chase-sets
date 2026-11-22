@@ -10,12 +10,12 @@ import type { DiscoveryEmbeddingProvider } from "../integrations/voyage-embeddin
 import { createHash } from "node:crypto";
 import { normalizeSimpleSearchText } from "../domain/normalization";
 import {
-  classifyDiscoverySearchCursor,
   retrieveDiscoveryItems,
-  type DiscoveryHybridRetrievalDependencies,
+  type DiscoveryRetrievalDependencies,
   type DiscoverySearchResult,
 } from "../read-model/hybrid-retrieval";
 import {
+  discoverySearchCursorState,
   previewBulkAddSearchResults,
   normalizeCategorySet,
   type DiscoveryBulkCartPreview,
@@ -73,7 +73,6 @@ export type DiscoverySearchRetrievalOptions = Readonly<{
   provider?: DiscoveryEmbeddingProvider;
   cache?: QueryEmbeddingCache;
   rescueEnabled?: boolean;
-  hybridEnabled?: boolean;
   recordSearchQuery?: (signal: DiscoverySearchQuerySignal) => void;
   recordQueryEmbeddingLoad?: (observation: QueryEmbeddingLoadObservation) => void;
   recordSearchRetrievalFailure?: (event: Readonly<{ correlationId?: string; error: unknown }>) => void;
@@ -97,12 +96,11 @@ export function createDiscoveryItemSearchRuntime(
       let result: DiscoverySearchResult | undefined;
       let lexicalZero: boolean | null = null;
       let embeddingWait: QueryEmbeddingWaitObservation = { outcome: "not-attempted", waiterDurationMs: 0 };
-      const retrievalDependencies: DiscoveryHybridRetrievalDependencies = {
+      const retrievalDependencies: DiscoveryRetrievalDependencies = {
         db: deps.db,
         provider: retrieval.provider,
         cache: retrieval.cache,
         rescueEnabled: retrieval.rescueEnabled ?? false,
-        hybridEnabled: retrieval.hybridEnabled ?? false,
         signal: options.signal,
         onLexicalObservation: (observation) => {
           lexicalZero = observation;
@@ -134,7 +132,7 @@ export function createDiscoveryItemSearchRuntime(
             filterState: filterState(params),
             sortOrder: observedSortOrder(params.sort),
             // Effective state: a failed retrieval still reports how its cursor classified.
-            cursorState: result?.cursorState ?? classifyDiscoverySearchCursor(retrievalDependencies, params),
+            cursorState: result?.cursorState ?? discoverySearchCursorState(params),
             resultCount: result?.items.length ?? null,
             total: result?.total ?? null,
             zeroResults: result ? result.items.length === 0 : null,

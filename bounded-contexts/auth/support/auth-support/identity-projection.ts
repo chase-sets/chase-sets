@@ -159,6 +159,7 @@ export type AuthIdentityMembershipRow = Readonly<{
   user_id: string;
   account_id: string;
   role_key: string;
+  /** Display snapshot; resolve authority from role_key and the current role table. */
   role_permissions: readonly string[];
   status: string;
   updated_at: string;
@@ -187,6 +188,7 @@ export type AuthIdentitySessionMembership = Readonly<{
   accountId: string;
   roleKey: string;
   status: string;
+  /** Display snapshot; not a source of grants. */
   rolePermissions: readonly string[];
 }>;
 

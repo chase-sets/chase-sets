@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import type { OperatorAuthority, ResolvedActor } from "@chase-sets/auth-context";
+import { resolveRolePermissions, type OperatorAuthority, type ResolvedActor } from "@chase-sets/auth-context";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createActorEventStoreContext } from "@chase-sets/platform-runtime/auth";
@@ -96,10 +96,14 @@ async function fixture() {
   const handlers = createAuthSessionMcpHandlers(services).toolHandlers;
   let actor: ResolvedActor | null = admin;
   let allowed = true;
-  let permissions: readonly string[] = ["security.manage"];
   const authority = vi.fn<OperatorAuthority>(async () =>
     allowed
-      ? { kind: "granted", membershipId: admin.membershipId, roleKey: "platform-admin", rolePermissions: permissions }
+      ? {
+          kind: "granted",
+          membershipId: admin.membershipId,
+          roleKey: "platform-admin",
+          rolePermissions: resolveRolePermissions("platform-admin"),
+        }
       : { kind: "denied", reason: "inactive" },
   );
   const audit = vi.fn(async (_record: unknown) => undefined);
@@ -151,9 +155,6 @@ async function fixture() {
     },
     setAllowed: (value: boolean) => {
       allowed = value;
-    },
-    setPermissions: (value: readonly string[]) => {
-      permissions = value;
     },
   };
 }
@@ -347,9 +348,15 @@ describe("auth session MCP contracts", () => {
       f.setActor(admin);
       f.setAllowed(false);
       expect((await f.call(tool, input)).result.isError).toBe(true);
-      f.setAllowed(true);
-      f.setPermissions([]);
-      expect((await f.call(tool, input)).result.isError).toBe(true);
+      await expect(
+        f.handlers[tool]!({
+          actor: { ...admin, permissions: [] },
+          tool: findMcpTool(tool)!,
+          arguments: input,
+          request: new Request("https://api.test/mcp"),
+          protocol: { protocolVersion: "2025-06-18", stateless: false, clientInfo: null, clientCapabilities: null },
+        }),
+      ).rejects.toThrow("Missing required permission: security.manage.");
       expect(f.services.getSession).not.toHaveBeenCalled();
       expect(f.services.listSessions).not.toHaveBeenCalled();
       expect(f.services.commandHandler).not.toHaveBeenCalled();

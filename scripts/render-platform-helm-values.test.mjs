@@ -1294,9 +1294,9 @@ spec:
     ).toEqual({
       "admin-web": 5,
       marketplace: 12,
-      "platform-api": 133,
+      "platform-api": 132,
       "platform-bootstrap": 59,
-      "platform-worker": 134,
+      "platform-worker": 133,
       "public-web": 13,
     });
     const retiredNames = Object.values(values.components).flatMap((component) =>

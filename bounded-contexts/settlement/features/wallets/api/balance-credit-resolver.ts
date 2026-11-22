@@ -9,8 +9,10 @@ import {
   type CurrencyCode,
 } from "../../../support/runtime-support/common";
 import { getAccountActiveSpendHoldAmount, getWallet } from "../read-model/queries";
-import type { WalletSpendHoldReleaseReason } from "../domain/domain";
+import { balanceCreditHoldId, DEFAULT_SPEND_HOLD_TTL_MS, type WalletSpendHoldReleaseReason } from "../domain/domain";
 import type { WalletServices } from "./runtime";
+
+export { balanceCreditHoldId } from "../domain/domain";
 
 export type SettlementBalanceCreditResolution = Readonly<{
   requestedAmount: string;
@@ -27,14 +29,12 @@ export type SettlementBalanceCreditResolution = Readonly<{
  * port. Absent in read-only/preview wirings, in which case no reservation is
  * placed and behavior matches the pre-hold path.
  */
-export type WalletSpendHoldPort = Pick<WalletServices, "placeSpendHold" | "releaseSpendHold">;
+export type WalletSpendHoldPort = Pick<
+  WalletServices,
+  "placeSpendHold" | "releaseSpendHold" | "retireSpendHold" | "setSpendHoldExpiry"
+>;
 
-/** Default life of a buyer-spend hold before the stale-hold sweep may release it (72h -- far beyond any checkout/session TTL). */
-const DEFAULT_SPEND_HOLD_TTL_MS = 72 * 60 * 60 * 1000;
-
-export function balanceCreditHoldId(paymentId: string): string {
-  return `hold_balance_credit_${paymentId}`;
-}
+type PaymentSpendHold = Readonly<{ paymentId: PaymentId; buyerAccountId: AccountId }>;
 
 export type SettlementBalanceCreditResolver = Readonly<{
   resolveBalanceCredit(
@@ -57,6 +57,7 @@ export type SettlementBalanceCreditResolver = Readonly<{
       buyerAccountId: AccountId;
       currencyCode: CurrencyCode | string;
       requestedAmount: string;
+      expiresAt?: null;
     }>,
     context: EventStoreContext,
   ): Promise<{ heldAmount: string }>;
@@ -69,6 +70,11 @@ export type SettlementBalanceCreditResolver = Readonly<{
     }>,
     context: EventStoreContext,
   ): Promise<void>;
+  retireSpendHold(
+    input: PaymentSpendHold & Readonly<{ reason: "payment-cancelled" }>,
+    context: EventStoreContext,
+  ): Promise<Awaited<ReturnType<WalletSpendHoldPort["retireSpendHold"]>> | "unwired">;
+  setSpendHoldExpiry(input: PaymentSpendHold, context: EventStoreContext): Promise<void>;
 }>;
 
 /**
@@ -198,7 +204,7 @@ export function createSettlementBalanceCreditResolver(
           amount: requestedAmount,
           currencyCode: normalizeCurrencyCode(String(input.currencyCode)),
           placedAt,
-          expiresAt: new Date(Date.parse(placedAt) + spendHoldTtlMs).toISOString(),
+          expiresAt: input.expiresAt === null ? null : new Date(Date.parse(placedAt) + spendHoldTtlMs).toISOString(),
         },
         context,
       );
@@ -214,6 +220,24 @@ export function createSettlementBalanceCreditResolver(
           holdId: balanceCreditHoldId(input.paymentId),
           reason: input.reason,
         },
+        context,
+      );
+    },
+    async retireSpendHold(input, context) {
+      if (!deps.walletSpendHolds) return "unwired";
+      return deps.walletSpendHolds.retireSpendHold(
+        {
+          accountId: input.buyerAccountId,
+          holdId: balanceCreditHoldId(input.paymentId),
+          paymentId: input.paymentId,
+          reason: input.reason,
+        },
+        context,
+      );
+    },
+    async setSpendHoldExpiry(input, context) {
+      await deps.walletSpendHolds?.setSpendHoldExpiry(
+        { accountId: input.buyerAccountId, holdId: balanceCreditHoldId(input.paymentId) },
         context,
       );
     },

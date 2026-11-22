@@ -66,11 +66,19 @@ function normalizeInput(input: SavePromoBarMessageRequest) {
   };
 }
 
+// PostgreSQL's text form of a timestamptz ("2026-07-02 00:00:00+00") is not ISO 8601, and a browser
+// may not read it, which would show an empty schedule field that an untouched save then clears.
+function isoInstant(value: string | null) {
+  return value === null ? null : new Date(value).toISOString();
+}
+
 function mapRow(row: PromoBarMessage): PromoBarMessage {
   return {
     ...row,
     display_order: Number(row.display_order),
     is_active: Boolean(row.is_active),
+    starts_at: isoInstant(row.starts_at),
+    ends_at: isoInstant(row.ends_at),
   };
 }
 

@@ -1,6 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
 import {
-  authenticateAdmin,
   authenticatePlatformAdmin,
   expectAdminPageReady,
   expectAdminWebHydrated,
@@ -58,7 +57,7 @@ test.describe("admin tablet navigation", () => {
       "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
     );
 
-    await authenticateAdmin(page, "/catalog/integrations", "/access/sign-in");
+    await authenticatePlatformAdmin(page, "/catalog/integrations", "/access/sign-in");
 
     for (const viewport of tabletViewports) {
       await page.setViewportSize(viewport);
@@ -149,7 +148,7 @@ test.describe("admin tablet navigation", () => {
       "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
     );
 
-    await authenticateAdmin(page, "/catalog/integrations", "/access/sign-in");
+    await authenticatePlatformAdmin(page, "/catalog/integrations", "/access/sign-in");
 
     // Phone (<768): bottom nav with More overflow still owns navigation; the
     // drawer trigger must not appear, while the orientation trail may.

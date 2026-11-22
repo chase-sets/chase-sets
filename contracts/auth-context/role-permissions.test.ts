@@ -1,9 +1,30 @@
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { PERMISSION_KEYS, PERMISSION_PRESETS, ROLE_PERMISSIONS } from "./index";
+import { PERMISSION_KEYS, PERMISSION_PRESETS, ROLE_PERMISSIONS, type PermissionKey } from "./index";
+
+const PLATFORM_ONLY_PERMISSIONS = [
+  "catalog.manage",
+  "catalog.view",
+  "commercial-terms.manage",
+  "commercial-terms.view",
+  "google-shopping.manage",
+  "google-shopping.view",
+  "insights-dashboards.view",
+  "listing-evidence-policy.view",
+  "payouts.manage",
+  "payouts.reconcile",
+  "platform-policy.view",
+  "postage-policies.manage",
+  "postage-policies.view",
+  "projection-operations.operate",
+  "projection-operations.rebuild",
+  "projection-operations.view",
+  "public-presence.manage",
+  "public-presence.view",
+] as const satisfies readonly PermissionKey[];
+const platformOnly = new Set<string>(PLATFORM_ONLY_PERMISSIONS);
 
 type PreMoveFixture = Readonly<{
   source: Readonly<{ commit: string; path: string; blob: string; export: string }>;
@@ -25,30 +46,40 @@ function gitGrep(args: readonly string[]): readonly string[] {
   return result.stdout.split("\n").filter(Boolean);
 }
 
-function assertHistoricalPermissionsWithHold(roles: Readonly<Record<string, readonly string[]>>) {
+function assertAuthorizedPermissionChanges(roles: Readonly<Record<string, readonly string[]>>) {
   expect({
     ...roles,
     "platform-admin": roles["platform-admin"]!.filter(
       (key) => key !== "customer-feedback.privacy.export-sensitive-feedback",
     ),
   }).toEqual({
-    ...preMove.rolePermissions,
-    "platform-admin": ["payout-review-holds.manage", ...preMove.rolePermissions["platform-admin"]!],
+    ...Object.fromEntries(
+      Object.entries(preMove.rolePermissions).map(([role, grants]) => [
+        role,
+        grants.filter((key) => !platformOnly.has(key)),
+      ]),
+    ),
+    "platform-admin": [
+      "payout-review-holds.manage",
+      "payouts.manage",
+      "payouts.reconcile",
+      ...preMove.rolePermissions["platform-admin"]!,
+    ],
   });
 }
 
 describe("canonical role-to-permission table", () => {
-  it("canonical role table preserves the pre-move Auth table plus the authorized platform-admin additions", () => {
+  it("preserves the historical grants except for the authorized changes", () => {
     expect(preMove.source).toEqual({
       commit: "15e1e56fc71665b8aabb699c8f00688233136be8",
       path: "bounded-contexts/auth/support/auth-support/constants.ts",
       blob: "0c4214790c27b9937e91f09e565c5c9f298bd8b1",
       export: "AUTH_ROLE_PERMISSIONS",
     });
-    assertHistoricalPermissionsWithHold(ROLE_PERMISSIONS);
+    assertAuthorizedPermissionChanges(ROLE_PERMISSIONS);
   });
 
-  it.each(["deleted hold", "owner hold", "unrelated grant"] as const)(
+  it.each(["deleted hold", "owner hold", "unrelated grant", "restored owner catalog", "deleted seller grant"] as const)(
     "rejects an unauthorized historical permission delta: %s",
     (change) => {
       const roles: Record<keyof typeof ROLE_PERMISSIONS, readonly string[]> = { ...ROLE_PERMISSIONS };
@@ -56,10 +87,14 @@ describe("canonical role-to-permission table", () => {
         roles["platform-admin"] = roles["platform-admin"].filter((key) => key !== "payout-review-holds.manage");
       } else if (change === "owner hold") {
         roles.owner = [...roles.owner, "payout-review-holds.manage"];
-      } else {
+      } else if (change === "unrelated grant") {
         roles["platform-admin"] = [...roles["platform-admin"], "unrelated.manage"];
+      } else if (change === "restored owner catalog") {
+        roles.owner = [...roles.owner, "catalog.manage"];
+      } else {
+        roles.owner = roles.owner.filter((key) => key !== "orders.view");
       }
-      expect(() => assertHistoricalPermissionsWithHold(roles)).toThrow();
+      expect(() => assertAuthorizedPermissionChanges(roles)).toThrow();
     },
   );
 
@@ -92,6 +127,15 @@ describe("canonical role-to-permission table", () => {
 });
 
 describe("role permission grants", () => {
+  it.each(PLATFORM_ONLY_PERMISSIONS)("grants %s once to platform-admin and never to another role or preset", (key) => {
+    for (const [role, grants] of Object.entries(ROLE_PERMISSIONS)) {
+      expect(grants.filter((grant) => grant === key)).toEqual(role === "platform-admin" ? [key] : []);
+    }
+    for (const grants of Object.values(PERMISSION_PRESETS)) {
+      expect(grants).not.toContain(key);
+    }
+  });
+
   it("declares payout review hold management once and grants it only once to platform-admin, never a preset", () => {
     expect(PERMISSION_KEYS.filter((key) => key === "payout-review-holds.manage")).toEqual([
       "payout-review-holds.manage",
@@ -135,8 +179,6 @@ describe("role permission grants", () => {
       expect(permissions.filter((permission) => permission === "payouts.platform.view")).toEqual(
         role === "platform-admin" ? ["payouts.platform.view"] : [],
       );
-      const grants = new Set<string>(permissions);
-      expect(grants.has("payouts.platform.view") && grants.has("payouts.reconcile")).toBe(false);
     }
     for (const permissions of Object.values(PERMISSION_PRESETS)) {
       expect(permissions).not.toContain("payouts.platform.view");
@@ -189,10 +231,6 @@ describe("role permission grants", () => {
       expect.arrayContaining([
         "inventory.manage",
         "inventory.view",
-        "commercial-terms.manage",
-        "commercial-terms.view",
-        "postage-policies.manage",
-        "postage-policies.view",
         "listings.manage",
         "listings.view",
         "offers.manage",
@@ -200,28 +238,6 @@ describe("role permission grants", () => {
         "orders.manage",
         "orders.view",
         "payouts.view",
-      ]),
-    );
-  });
-
-  it("grants commercial terms, postage policy and projection operations authority to live account roles", () => {
-    expect(ROLE_PERMISSIONS.owner).toEqual(
-      expect.arrayContaining([
-        "commercial-terms.manage",
-        "commercial-terms.view",
-        "postage-policies.manage",
-        "postage-policies.view",
-        "projection-operations.operate",
-        "projection-operations.rebuild",
-        "projection-operations.view",
-      ]),
-    );
-    expect(ROLE_PERMISSIONS.manager).toEqual(
-      expect.arrayContaining([
-        "commercial-terms.manage",
-        "commercial-terms.view",
-        "postage-policies.manage",
-        "postage-policies.view",
       ]),
     );
   });
@@ -234,8 +250,8 @@ describe("role permission grants", () => {
     expect(ROLE_PERMISSIONS.viewer).not.toContain("platform-policy.manage");
 
     expect(ROLE_PERMISSIONS["platform-admin"]).toContain("platform-policy.view");
-    expect(ROLE_PERMISSIONS.owner).toContain("platform-policy.view");
-    expect(ROLE_PERMISSIONS.manager).toContain("platform-policy.view");
+    expect(ROLE_PERMISSIONS.owner).not.toContain("platform-policy.view");
+    expect(ROLE_PERMISSIONS.manager).not.toContain("platform-policy.view");
     expect(ROLE_PERMISSIONS.fulfillment).not.toContain("platform-policy.view");
     expect(ROLE_PERMISSIONS.viewer).not.toContain("platform-policy.view");
   });
@@ -248,10 +264,9 @@ describe("role permission grants", () => {
     for (const permissions of Object.values(ROLE_PERMISSIONS)) {
       expect(permissions).not.toContain("wallet-adjustments.operate");
     }
-    // Owner and manager hold payouts.manage, but that must never carry the
+    // Platform admins hold payouts.manage, but that must never carry the
     // authority to post a cash-equivalent ledger entry to an arbitrary wallet.
-    expect(ROLE_PERMISSIONS.owner).toContain("payouts.manage");
-    expect(ROLE_PERMISSIONS.manager).toContain("payouts.manage");
+    expect(ROLE_PERMISSIONS["platform-admin"]).toContain("payouts.manage");
   });
 
   it("grants the platform Wallet Adjustment authority (ADR 0020) to platform-admin only", () => {
@@ -273,10 +288,10 @@ describe("role permission grants", () => {
         expect(permissions).not.toContain(permission);
       }
     }
-    // Owner/manager hold payouts.manage, but the platform Wallet Adjustment
+    // Owner/manager can request payouts, but the platform Wallet Adjustment
     // authority must never ride along with account-scoped payout authority.
-    expect(ROLE_PERMISSIONS.owner).toContain("payouts.manage");
-    expect(ROLE_PERMISSIONS.manager).toContain("payouts.manage");
+    expect(ROLE_PERMISSIONS.owner).toContain("payouts.request");
+    expect(ROLE_PERMISSIONS.manager).toContain("payouts.request");
   });
 
   it("restricts customer feedback operator capabilities to platform-staff, with export granted separately (#5145)", () => {
@@ -316,17 +331,15 @@ describe("role permission grants", () => {
     expect(ROLE_PERMISSIONS["platform-admin"]).toEqual(
       expect.arrayContaining(["listing-evidence-policy.view", ...elevated]),
     );
-    expect(ROLE_PERMISSIONS.owner).toContain("listing-evidence-policy.view");
-    expect(ROLE_PERMISSIONS.manager).toContain("listing-evidence-policy.view");
-    for (const permission of elevated) {
+    for (const permission of ["listing-evidence-policy.view", ...elevated]) {
       expect(ROLE_PERMISSIONS.owner).not.toContain(permission);
       expect(ROLE_PERMISSIONS.manager).not.toContain(permission);
     }
   });
 
   it("keeps payout scheduling as an authority permission instead of an account capability", () => {
-    expect(ROLE_PERMISSIONS.owner).toContain("payouts.manage");
-    expect(ROLE_PERMISSIONS.owner).toContain("payouts.reconcile");
+    expect(ROLE_PERMISSIONS["platform-admin"]).toContain("payouts.manage");
+    expect(ROLE_PERMISSIONS["platform-admin"]).toContain("payouts.reconcile");
     expect(ROLE_PERMISSIONS.owner).toContain("payouts.request");
     expect(ROLE_PERMISSIONS.owner).toContain("payouts.setup");
     expect(ROLE_PERMISSIONS.viewer).toContain("payouts.view");
@@ -356,14 +369,6 @@ describe("pricing preset contract", () => {
     viewer: ["pricing.view"],
     "platform-admin": [],
   };
-  // Sorted non-pricing sets, including the platform-admin-only reported-content grant.
-  const predecessor = {
-    "platform-admin": "783c68e9b946919206e54caa8767d024561c343adfc28b9752cffadb1083995f",
-    owner: "2f44a3531ad460bb8c0e8813515adfccb5299c697e75d0c66afa5880566344d4",
-    manager: "4f7bafd3ac8326d8486dcdc7ddeb5c4fe63c76f8615ce4c307f1438af27332c1",
-    fulfillment: "968211cfdf02d5d689838226c846197ac9c41fdd96806aa5fe84bfb32b551248",
-    viewer: "9b653b5afb093be2612860fcb672d437fc50eac3b929b20cb902c0fbe93a9caa",
-  };
   it("grants pricing permissions to the intended account roles", () => {
     for (const [role, permissions] of Object.entries(ROLE_PERMISSIONS)) {
       const pricing = permissions.filter((key) => key.startsWith("pricing.")).sort();
@@ -371,18 +376,6 @@ describe("pricing preset contract", () => {
       for (const key of ["pricing.view", "pricing.manage"]) {
         expect(new Set<string>(permissions).has(key), role + ":" + key).toBe(expected[role]!.includes(key));
       }
-      const other = [
-        ...new Set(
-          permissions.filter(
-            (key) =>
-              !key.startsWith("pricing.") &&
-              !(role === "platform-admin" && key === "customer-feedback.privacy.export-sensitive-feedback"),
-          ),
-        ),
-      ].sort();
-      expect(createHash("sha256").update(JSON.stringify(other)).digest("hex")).toBe(
-        predecessor[role as keyof typeof predecessor],
-      );
     }
   });
 });

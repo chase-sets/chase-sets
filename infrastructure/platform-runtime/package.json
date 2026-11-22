@@ -75,7 +75,7 @@
     "./worker-event-capability": "./worker-event-capability.ts"
   },
   "scripts": {
-    "typecheck": "tsc -p ./tsconfig.json --noEmit",
+    "typecheck": "node ../../scripts/verify-typecheck.mjs --workspace=@chase-sets/platform-runtime",
     "test": "vitest run --config ./vitest.config.ts",
     "test:watch": "vitest --config ./vitest.config.ts",
     "test:unit": "vitest run --config ./vitest.config.ts --exclude durable-job-store.db.test.ts --exclude realtime.db.test.ts --exclude retention-sweep.db.test.ts --exclude concurrency.db.test.ts --exclude agent-guardrails.db.test.ts --exclude bulk-append-lane.db.test.ts --exclude mcp-audit-log.db.test.ts --exclude evidence-window-journal-principal.db.test.ts",

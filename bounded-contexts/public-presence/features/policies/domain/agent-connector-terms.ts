@@ -82,7 +82,7 @@ export const agentConnectorTermsPolicyArtifact: PublicPolicyArtifact<
           "State the shipped Account and permission attribution boundary while leaving the extent of principal responsibility and liability unresolved.",
         decisionRefs: [6817, 7223],
         productTruthRefs: [
-          "infrastructure/platform-runtime/mcp-contracts.ts:156-190,239-261",
+          "infrastructure/platform-runtime/mcp-contracts.ts:166-192,262-297",
           "bounded-contexts/public-presence/features/developer-portal/domain/articles/agent-authentication.en.md:22-24,50-60,75-77",
           "bounded-contexts/identity/GLOSSARY.md:168-218",
         ],

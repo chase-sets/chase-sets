@@ -452,6 +452,9 @@ pub struct CartLine {
     pub selected_listing_stream_version: Option<u64>,
     pub seller_preference_id: Option<String>,
     pub seller_options: Vec<SellerOption>,
+    /// The selected listing's availability; none is `available`.
+    #[serde(default)]
+    pub availability_state: Option<String>,
     pub updated_at: String,
 }
 
@@ -4818,7 +4821,8 @@ pub enum AccountAnswer {
     /// `destination`).
     Committed(Option<String>),
     /// Nothing was recorded, for `code`: `validation-failed` (with the field a required-field
-    /// refusal names), `address-standardization-suggested` (with the address), and the rest.
+    /// refusal names), one of [`DISPLAY_NAME_REJECTIONS`] (with `displayName`),
+    /// `address-standardization-suggested` (with the address), and the rest.
     NotRecorded { code: String, field: Option<String>, suggested: Option<Box<SuggestedAddress>> },
     /// The address book changed under the write (`owner-state-conflict`, `attempt-hash-conflict`, ..).
     Conflict,
@@ -4847,6 +4851,11 @@ struct AnswerError {
 struct AnswerDetail {
     field: Option<String>,
 }
+
+/// The codes Identity refuses a new marketplace name with (`displayNameRejectionCodes`), each
+/// answered 400 `{ "error": { "code": .. } }` to `update-profile`.
+pub const DISPLAY_NAME_REJECTIONS: [&str; 4] =
+    ["text_control_character", "text_direction_override", "text_unsafe_link", "text_duplicate_link"];
 
 /// The `afterWrite` a lookup's `destination` carries (`/account/shipping-addresses?afterWrite=..`,
 /// the receipt's JSON encoded twice), as the page's `after_write`.
@@ -4885,6 +4894,10 @@ impl AccountAnswer {
                         field: details.into_iter().find_map(|d| d.field),
                         suggested: None,
                     }),
+                    // Identity's closed refusals of a marketplace name (`DisplayNameRejectionCode`).
+                    Some(AnswerError { code: Some(c), .. }) if DISPLAY_NAME_REJECTIONS.contains(&c.as_str()) => {
+                        Ok(AccountAnswer::NotRecorded { code: c, field: Some("displayName".into()), suggested: None })
+                    }
                     error => Err(ApiError::Status {
                         status: StatusCode::BAD_REQUEST,
                         code: error.and_then(|e| e.code),
@@ -6033,6 +6046,15 @@ mod address_tests {
             panic!("a suggestion")
         };
         assert_eq!(address.postal_code, "78701-0001");
+        for code in DISPLAY_NAME_REJECTIONS {
+            let refused = format!(r#"{{"error":{{"code":"{code}"}}}}"#);
+            assert_eq!(
+                AccountAnswer::read(400, &refused, None).unwrap(),
+                AccountAnswer::NotRecorded { code: code.into(), field: Some("displayName".into()), suggested: None }
+            );
+        }
+        let unknown = r#"{"error":{"code":"text_something_new"}}"#;
+        assert!(AccountAnswer::read(400, unknown, None).is_err(), "a code the pilot does not know is not a field refusal");
         let conflict =
             r#"{"outcome":"conflict","code":"owner-state-conflict","current":{"id":"adr_1","version":3,"status":"archived"}}"#;
         assert_eq!(AccountAnswer::read(409, conflict, None).unwrap(), AccountAnswer::Conflict);
@@ -6703,7 +6725,7 @@ impl SellerListingList for Caller<'_> {
     }
 }
 
-/// A submitted offer that matches a listing of the seller's (`OfferMatchListItem`, the same row
+/// A submitted offer that matches a listing or an inventory item of the seller's (`OfferMatchListItem`, the same row
 /// for the list and an offer match's page; Checkout's sell-list read adds `offer_stream_version`).
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(default)]
@@ -6743,6 +6765,19 @@ pub struct OfferMatch {
     /// `unavailable`, `held` or `refresh_required` for a managed offer.
     pub managed_status: Option<String>,
     pub updated_at: String,
+    /// `listing`, or `inventory` for an offer the seller could fill from an inventory item: such a
+    /// match has no listing fields until the seller lists the item, and cannot be accepted, declined
+    /// or added to the sell list. A row without it is a listing's.
+    pub fill_source: Option<String>,
+    pub inventory_item_id: Option<String>,
+    pub inventory_available_quantity: u64,
+}
+
+impl OfferMatch {
+    /// Whether it is a match from inventory, with no listing to accept it against.
+    pub fn is_from_inventory(&self) -> bool {
+        self.fill_source.as_deref() == Some("inventory")
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]

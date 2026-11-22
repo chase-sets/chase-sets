@@ -330,7 +330,16 @@ describe("resolveActorFromSessionId on a session-projection miss", () => {
       SYNTHETIC_USER_ID,
       SYNTHETIC_ACCOUNT_ID,
     );
-    for (const roleKey of ["platform-admin", "owner", "manager", "fulfillment", "viewer", "synthetic-no-grants"]) {
+    for (const roleKey of [
+      "platform-admin",
+      "owner",
+      "manager",
+      "fulfillment",
+      "viewer",
+      "synthetic-no-grants",
+      "constructor",
+      "__proto__",
+    ]) {
       vi.mocked(services.identity.getActiveMembershipForUserAccount).mockResolvedValue({
         ...membership!,
         role_key: roleKey,
@@ -340,18 +349,13 @@ describe("resolveActorFromSessionId on a session-projection miss", () => {
       expect(actor).not.toBeNull();
       expect(actor?.roleKey).toBe(roleKey);
       expect(actor?.permissions.includes("reported-content.view")).toBe(roleKey === "platform-admin");
-      if (roleKey === "synthetic-no-grants") expect(actor?.permissions).toEqual([]);
+      if (!Object.hasOwn(ROLE_PERMISSIONS, roleKey)) expect(actor?.permissions).toEqual([]);
     }
   });
   it.each(["platform-admin", "owner", "manager", "fulfillment", "viewer"] as const)(
-    "resolves the canonical role permissions at sign-in from empty, pre-move Identity and current snapshots: %s",
+    "resolves the canonical role permissions at sign-in from empty, stale and current snapshots: %s",
     async (roleKey) => {
-      // Identity's pre-move table withheld projection-operations.* from owner;
-      // rows it projected before the move still carry that snapshot.
-      const preMoveIdentitySnapshot = ROLE_PERMISSIONS[roleKey].filter(
-        (permission) => roleKey !== "owner" || !permission.startsWith("projection-operations."),
-      );
-      for (const stored of [[], preMoveIdentitySnapshot, [...ROLE_PERMISSIONS[roleKey]]]) {
+      for (const stored of [[], ["catalog.manage", "public-presence.view"], [...ROLE_PERMISSIONS[roleKey]]]) {
         const { services } = createServicesWithProjectionMiss(SYNTHETIC_FRESH_RECORDED_AT);
         vi.mocked(services.identity.getActiveMembershipForUserAccount).mockResolvedValue({
           membership_id: SYNTHETIC_MEMBERSHIP_ID,
@@ -367,7 +371,7 @@ describe("resolveActorFromSessionId on a session-projection miss", () => {
       }
     },
   );
-  it("preserves explicit stored pricing grants separately from the preset matrix", async () => {
+  it("ignores stored pricing grants outside the current role", async () => {
     const { services } = createServicesWithProjectionMiss(SYNTHETIC_FRESH_RECORDED_AT);
     const membership = await services.identity.getActiveMembershipForUserAccount(
       SYNTHETIC_USER_ID,
@@ -379,7 +383,7 @@ describe("resolveActorFromSessionId on a session-projection miss", () => {
       role_permissions: ["pricing.manage"],
     });
     const actor = await resolveActorFromSessionId(services, SYNTHETIC_SESSION_ID);
-    expect(actor?.permissions).toContain("pricing.manage");
+    expect(actor?.permissions).not.toContain("pricing.manage");
     expect(actor?.permissions).toContain("pricing.view");
   });
   it.each(["owner", "manager", "fulfillment", "viewer", "platform-admin"])(
@@ -417,7 +421,7 @@ describe("resolveActorFromSessionId on a session-projection miss", () => {
           expect(actor?.roleKey).toBe(roleKey);
           expect(actor?.permissions.includes("pricing.view")).toBe(roleKey !== "platform-admin");
           expect(actor?.permissions.includes("pricing.manage")).toBe(["owner", "manager"].includes(roleKey));
-          expect(actor?.permissions).toEqual(expect.arrayContaining(stored));
+          expect(actor?.permissions).not.toContain("synthetic.retained");
           expect(services.sessions.readAuthenticatedSession).toHaveBeenCalledWith(SYNTHETIC_SESSION_ID);
         }
       }
