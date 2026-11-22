@@ -1,4 +1,5 @@
 import type { CatalogProviderProfileEditableSectionKey } from "../api/provider-profile-section-registry";
+import { catalogProviderProfileSectionFields } from "../api/provider-profile-admin-contracts";
 import type { CatalogPrimaryWorkbenchReadModel } from "../api/primary-workbench-admin-contracts";
 import type { CatalogProviderProfileVersionReview } from "./contracts";
 import {
@@ -41,353 +42,191 @@ export function profileSectionFields(
   const duplicatePreventionMapping = recordValue(profileRecord?.duplicatePreventionMapping);
   const retirementPlan = recordValue(profile.retirementPlan);
 
+  const edit = (key: string, value: string, options?: ProfileSectionField["options"]) =>
+    editableField(section, key, value, disabled, options);
+
   switch (section) {
     case "basics":
       return [
-        field("displayName", "Display name", profile.displayName, "text", disabled, true),
-        field("lifecycle", "Lifecycle", profile.lifecycle, "select", disabled, true, null, [
-          option("draft", "Draft"),
-          option("test", "Test"),
-        ]),
-        field("status", "Status", profile.status, "select", disabled, true, null, [
-          option("active", "Active"),
-          option("planned", "Planned"),
-        ]),
-        field("capabilities", "Capabilities", profile.capabilities.join(", "), "tags", disabled),
-        field("supportedScopes", "Supported scopes", profile.supportedScopes.join(", "), "tags", disabled),
-        field("languageOptions", "Languages", profile.languageOptions.join(", "), "tags", disabled),
+        edit("displayName", profile.displayName),
+        edit("lifecycle", profile.lifecycle),
+        edit("status", profile.status),
+        edit("capabilities", profile.capabilities.join(", ")),
+        edit("supportedScopes", profile.supportedScopes.join(", ")),
+        edit("languageOptions", profile.languageOptions.join(", ")),
       ];
     case "provider-options":
       return [
-        field("optionQueryIndex", "Option query", "0", "select", disabled || optionQueries.length === 0, true, null, [
-          ...optionQueries.map((value, index) => {
-            const record = recordValue(value);
-            return option(String(index), stringValue(record?.displayName) ?? `Option query ${index + 1}`);
-          }),
-        ]),
-        field(
-          "optionQueryDisplayName",
-          "Option label",
-          stringValue(firstOptionQuery?.displayName) ?? "",
-          "text",
-          disabled,
-        ),
-        field("optionQueryScope", "Scope", stringValue(firstOptionQuery?.scope) ?? "", "text", disabled),
-        field("optionQueryOperation", "Operation", stringValue(firstOptionQuery?.operation) ?? "", "text", disabled),
+        // Its choices are the stored option queries, so the read model lists them.
+        {
+          ...edit(
+            "optionQueryIndex",
+            "0",
+            optionQueries.map((value, index) => {
+              const record = recordValue(value);
+              return option(String(index), stringValue(record?.displayName) ?? `Option query ${index + 1}`);
+            }),
+          ),
+          disabled: disabled || optionQueries.length === 0,
+        },
+        edit("optionQueryDisplayName", stringValue(firstOptionQuery?.displayName) ?? ""),
+        edit("optionQueryScope", stringValue(firstOptionQuery?.scope) ?? ""),
+        edit("optionQueryOperation", stringValue(firstOptionQuery?.operation) ?? ""),
       ];
     case "connector":
       return [
-        field("connectorKind", "Connector kind", profile.connectorKind, "text", disabled, true),
-        field("connectorBaseUrl", "Base URL", stringValue(connector?.baseUrl) ?? "", "text", disabled),
-        field(
-          "connectorTransportOwns",
-          "Transport responsibilities",
-          stringArrayValue(mappingConnector?.transportOwns).join(", "),
-          "tags",
-          disabled,
-        ),
-        field(
-          "connectorMappingOwns",
-          "Mapping responsibilities",
-          stringArrayValue(mappingConnector?.mappingOwns).join(", "),
-          "tags",
-          disabled,
-        ),
+        edit("connectorKind", profile.connectorKind),
+        edit("connectorBaseUrl", stringValue(connector?.baseUrl) ?? ""),
+        edit("connectorTransportOwns", stringArrayValue(mappingConnector?.transportOwns).join(", ")),
+        edit("connectorMappingOwns", stringArrayValue(mappingConnector?.mappingOwns).join(", ")),
       ];
     case "catalog-field-mapping":
       return [
-        field("blueprintKey", "Blueprint key", stringValue(catalogFieldMapping?.blueprintKey) ?? "", "text", disabled),
-        field("categoryKey", "Category key", stringValue(catalogFieldMapping?.categoryKey) ?? "", "text", disabled),
-        field(
-          "fieldKeyCount",
-          "Mapped field count",
-          String(recordKeys(catalogFieldMapping?.fieldKeys).length),
-          "text",
-          true,
-        ),
+        edit("blueprintKey", stringValue(catalogFieldMapping?.blueprintKey) ?? ""),
+        edit("categoryKey", stringValue(catalogFieldMapping?.categoryKey) ?? ""),
+        shown("fieldKeyCount", "Mapped field count", String(recordKeys(catalogFieldMapping?.fieldKeys).length)),
       ];
     case "source-contract":
       return [
-        field("sourceOwner", "Owner", profile.sourceContract.owner, "text", disabled, true),
-        field("sourceRepository", "Repository", profile.sourceContract.repository ?? "", "text", disabled),
-        field("sourceCommit", "Commit", profile.sourceContract.commit ?? "", "text", disabled),
-        field("sourceDocumentPath", "Document path", profile.sourceContract.documentPath, "text", disabled, true),
-        field(
-          "fixtureSetVersion",
-          "Fixture set version",
-          profile.sourceContract.fixtureSetVersion,
-          "text",
-          disabled,
-          true,
-        ),
+        edit("sourceOwner", profile.sourceContract.owner),
+        edit("sourceRepository", profile.sourceContract.repository ?? ""),
+        edit("sourceCommit", profile.sourceContract.commit ?? ""),
+        edit("sourceDocumentPath", profile.sourceContract.documentPath),
+        edit("fixtureSetVersion", profile.sourceContract.fixtureSetVersion),
       ];
     case "fixtures":
       return [
-        field("fixtureRoot", "Fixture root", profile.fixtures.fixtureRoot, "text", disabled, true),
-        field("coveredFlows", "Covered flows", profile.fixtures.coveredFlows.join(", "), "tags", disabled),
-        field(
-          "liveProviderCallsAllowed",
-          "Live provider calls",
-          String(profile.fixtures.liveProviderCallsAllowed),
-          "checkbox",
-          true,
-          false,
-          "Offline fixture validation is required for launch.",
-        ),
+        edit("fixtureRoot", profile.fixtures.fixtureRoot),
+        edit("coveredFlows", profile.fixtures.coveredFlows.join(", ")),
+        edit("liveProviderCallsAllowed", String(profile.fixtures.liveProviderCallsAllowed)),
       ];
     case "source-observation":
       return [
-        field(
-          "observationIdPath",
-          "Observation id source",
-          expressionSummary(sourceObservation?.observationId),
-          "text",
-          disabled,
-        ),
-        field(
-          "externalKeyPath",
-          "External key source",
-          expressionSummary(sourceObservation?.externalKey),
-          "text",
-          disabled,
-        ),
-        field("sourceUrlPath", "Source URL source", expressionSummary(sourceObservation?.sourceUrl), "text", disabled),
-        field(
-          "sourceUpdatedAtPath",
-          "Source updated source",
-          expressionSummary(sourceObservation?.sourceUpdatedAt),
-          "text",
-          disabled,
-        ),
+        edit("observationIdPath", expressionSummary(sourceObservation?.observationId)),
+        edit("externalKeyPath", expressionSummary(sourceObservation?.externalKey)),
+        edit("sourceUrlPath", expressionSummary(sourceObservation?.sourceUrl)),
+        edit("sourceUpdatedAtPath", expressionSummary(sourceObservation?.sourceUpdatedAt)),
       ];
     case "normalized-observation":
       return [
-        field(
-          "normalizedOutputKind",
-          "Output kind",
-          stringValue(normalizedObservation?.outputKind) ?? profile.mappingOutputKind,
-          "text",
-          disabled,
-          true,
-        ),
-        field(
-          "normalizedLanguagePath",
-          "Language source",
-          expressionSummary(normalizedObservation?.languageCode),
-          "text",
-          disabled,
-        ),
-        field(
+        edit("normalizedOutputKind", stringValue(normalizedObservation?.outputKind) ?? profile.mappingOutputKind),
+        edit("normalizedLanguagePath", expressionSummary(normalizedObservation?.languageCode)),
+        shown(
           "normalizedFieldCount",
           "Normalized field count",
           String(recordKeys(normalizedObservation?.fields).length),
-          "text",
-          true,
         ),
-        field(
-          "hashMaterialCount",
-          "Hash material count",
-          String(arrayValue(normalizedObservation?.hashMaterial).length),
-          "text",
-          true,
-        ),
+        shown("hashMaterialCount", "Hash material count", String(arrayValue(normalizedObservation?.hashMaterial).length)),
       ];
     case "external-references":
       return [
-        field(
-          "externalReferenceProviderKey",
-          "Reference provider",
-          stringValue(externalReferences?.providerKey) ?? "",
-          "text",
-          disabled,
-        ),
-        field(
-          "externalReferenceTarget",
-          "Reference target",
-          stringValue(externalReferences?.target) ?? "",
-          "text",
-          disabled,
-        ),
-        field(
-          "externalKeyPrefix",
-          "External key prefix",
-          stringValue(externalReferences?.externalKeyPrefix) ?? "",
-          "text",
-          disabled,
-        ),
-        field(
+        edit("externalReferenceProviderKey", stringValue(externalReferences?.providerKey) ?? ""),
+        edit("externalReferenceTarget", stringValue(externalReferences?.target) ?? ""),
+        edit("externalKeyPrefix", stringValue(externalReferences?.externalKeyPrefix) ?? ""),
+        shown(
           "externalReferenceCount",
           "Reference contract count",
           String(arrayValue(contractRecord?.externalReferences).length),
-          "text",
-          true,
         ),
       ];
     case "selected-options":
       return [
-        field(
-          "selectedOptionDimensionKey",
-          "Dimension key",
-          stringValue(selectedOptionDimension?.dimensionKey) ?? "",
-          "text",
-          disabled,
-        ),
-        // Shown, not edited: the section's edit does not take it.
-        field(
+        edit("selectedOptionDimensionKey", stringValue(selectedOptionDimension?.dimensionKey) ?? ""),
+        shown(
           "selectedOptionSource",
           "Option source",
-          stringValue(selectedOptions?.missingOrUnknownOptionPolicy) ??
-            stringValue(selectedOptionMapping?.source) ??
-            "",
-          "text",
-          true,
+          stringValue(selectedOptions?.missingOrUnknownOptionPolicy) ?? stringValue(selectedOptionMapping?.source) ?? "",
         ),
-        field(
+        shown(
           "selectedOptionDimensionCount",
           "Dimension count",
           String(arrayValue(selectedOptionMapping?.dimensions).length),
-          "text",
-          true,
         ),
       ];
     case "reference-hierarchy":
       return [
-        field(
-          "referenceHierarchyType",
-          "Reference type",
-          stringValue(referenceHierarchy?.targetTypeKey) ?? "",
-          "text",
-          disabled,
-        ),
-        field(
+        edit("referenceHierarchyType", stringValue(referenceHierarchy?.targetTypeKey) ?? ""),
+        edit(
           "referenceHierarchyProviderAttribute",
-          "Provider attribute",
           stringValue(referenceHierarchy?.providerAttributeKey) ??
             stringValue(referenceHierarchyMapping?.providerAttributeKey) ??
             "",
-          "text",
-          disabled,
         ),
-        field(
+        shown(
           "referenceHierarchyContractCount",
           "Hierarchy contract count",
           String(arrayValue(contractRecord?.referenceHierarchy).length),
-          "text",
-          true,
         ),
       ];
     case "duplicate-prevention":
       return [
-        field(
+        edit(
           "exactExternalCatalogItemReferencesFirst",
-          "Check external references first",
           String(booleanValue(duplicatePrevention?.exactExternalCatalogItemReferencesFirst) ?? false),
-          "checkbox",
-          disabled,
         ),
-        field(
-          "ambiguousCandidatePolicy",
-          "Ambiguous candidate policy",
-          stringValue(duplicatePrevention?.ambiguousCandidatePolicy) ?? "",
-          "select",
-          disabled,
-          true,
-          null,
-          [option("block-promotion", "Block promotion"), option("review-only", "Review only")],
-        ),
-        field(
-          "replayPolicy",
-          "Replay policy",
-          stringValue(duplicatePrevention?.replayPolicy) ?? "",
-          "select",
-          disabled,
-          true,
-          null,
-          [
-            option("same-profile-version", "Same profile version"),
-            option("operator-reapply-active-version", "Operator reapply active version"),
-          ],
-        ),
-        // Shown, not edited: the section's edit does not take it.
-        field(
-          "duplicatePreventionMappingSource",
-          "Mapping source",
-          stringValue(duplicatePreventionMapping?.source) ?? "",
-          "text",
-          true,
-        ),
+        edit("ambiguousCandidatePolicy", stringValue(duplicatePrevention?.ambiguousCandidatePolicy) ?? ""),
+        edit("replayPolicy", stringValue(duplicatePrevention?.replayPolicy) ?? ""),
+        shown("duplicatePreventionMappingSource", "Mapping source", stringValue(duplicatePreventionMapping?.source) ?? ""),
       ];
     case "promotion-plan":
       return [
-        field(
-          "promotionPlanKind",
-          "Plan kind",
-          stringValue(promotionCommandPlan?.planKind) ?? "",
-          "text",
-          disabled,
-          true,
-        ),
-        field(
-          "promotionRequiresReview",
-          "Requires review",
-          String(booleanValue(promotionCommandPlan?.requiresReview) ?? true),
-          "checkbox",
-          true,
-        ),
-        field(
-          "promotionCommandCount",
-          "Command count",
-          String(arrayValue(promotionCommandPlan?.commands).length),
-          "text",
-          true,
-        ),
+        edit("promotionPlanKind", stringValue(promotionCommandPlan?.planKind) ?? ""),
+        edit("promotionRequiresReview", String(booleanValue(promotionCommandPlan?.requiresReview) ?? true)),
+        shown("promotionCommandCount", "Command count", String(arrayValue(promotionCommandPlan?.commands).length)),
       ];
     case "retirement-plan":
       return [
-        field(
-          "retirementTrackingIssue",
-          "Tracking issue",
-          numberString(retirementPlan?.trackingIssue),
-          "text",
-          disabled,
-        ),
-        field("retirementReason", "Removal reason", stringValue(retirementPlan?.reason) ?? "", "textarea", disabled),
+        edit("retirementTrackingIssue", numberString(retirementPlan?.trackingIssue)),
+        edit("retirementReason", stringValue(retirementPlan?.reason) ?? ""),
       ];
     case "migration-evidence":
       return [
-        field("migrationEvidenceText", "Evidence", profile.migrationEvidence?.evidenceText ?? "", "textarea", disabled),
-        field("migrationFixtureRunId", "Fixture run", profile.migrationEvidence?.fixtureRunId ?? "", "text", disabled),
+        edit("migrationEvidenceText", profile.migrationEvidence?.evidenceText ?? ""),
+        edit("migrationFixtureRunId", profile.migrationEvidence?.fixtureRunId ?? ""),
         // Catalog stamps these when it records the evidence.
-        field(
+        shown(
           "migrationFingerprintBefore",
           "Mapping fingerprint before",
           profile.migrationEvidence?.mappingFingerprintBefore ?? "",
-          "text",
-          true,
         ),
-        field(
+        shown(
           "migrationFingerprintAfter",
           "Mapping fingerprint after",
           profile.migrationEvidence?.mappingFingerprintAfter ?? "",
-          "text",
-          true,
         ),
-        field("migrationRecordedAt", "Recorded at", profile.migrationEvidence?.recordedAt ?? "", "text", true),
+        shown("migrationRecordedAt", "Recorded at", profile.migrationEvidence?.recordedAt ?? ""),
       ];
   }
 }
 
-function field(
+// A field of the section's edit, drawn from Catalog's definition of the section's form. A fixed
+// field is shown read-only, so a form does not post it.
+function editableField(
+  section: CatalogProviderProfileEditableSectionKey,
   key: string,
-  label: string,
   value: string,
-  control: ProfileSectionField["control"],
   disabled: boolean,
-  required = false,
-  helpText: string | null = null,
-  options: readonly ProfileSectionField["options"][number][] = [],
+  options?: ProfileSectionField["options"],
 ): ProfileSectionField {
-  return { key, label, value, control, required, disabled, helpText, options };
+  const definition = catalogProviderProfileSectionFields[section].find((candidate) => candidate.key === key);
+  if (!definition) {
+    throw new Error(`Profile section '${section}' has no field '${key}'.`);
+  }
+  return {
+    key,
+    label: definition.label,
+    value,
+    control: definition.control,
+    required: definition.required,
+    disabled: disabled || definition.fixedValue !== null,
+    helpText: definition.helpText,
+    options: options ?? definition.options,
+  };
+}
+
+// A value the section shows but its edit does not take (a count, a source, a Catalog stamp).
+function shown(key: string, label: string, value: string): ProfileSectionField {
+  return { key, label, value, control: "text", required: false, disabled: true, helpText: null, options: [] };
 }
 
 function option(value: string, label: string): ProfileSectionField["options"][number] {
