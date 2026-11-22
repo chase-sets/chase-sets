@@ -999,21 +999,38 @@ describe("shared E2E setup selection", () => {
       changedFiles.includes("deployables/marketplace/e2e/unmapped.spec.ts"),
     );
     expect(captured.cases).toHaveLength(150);
-    expect(candidate.cases).toHaveLength(157);
+    expect(candidate.cases).toHaveLength(164);
     expect(candidate.families).toEqual([
       ...captured.families
         .filter((family) => family.path !== retired)
-        .map((family) =>
-          family.family === "boundedContextRouteSuiteOwnership:45"
-            ? {
+        .map((family) => {
+          switch (family.family) {
+            case "boundedContextRouteSuiteOwnership:10":
+              return {
+                ...family,
+                pattern:
+                  "/^bounded-contexts\\/commercial-terms\\/(?:routes\\/admin|features\\/(?:agreements|home|schedules)\\/ui\\/routes)\\//",
+                trackedCandidates: 12,
+              };
+            case "boundedContextRouteSuiteOwnership:11":
+              return {
+                ...family,
+                pattern:
+                  "/^bounded-contexts\\/commercial-terms\\/(?:routes\\/public|features\\/marketplace-sales-fee\\/ui\\/routes)\\//",
+                trackedCandidates: 2,
+              };
+            case "boundedContextRouteSuiteOwnership:45":
+              return {
                 ...family,
                 pattern:
                   "/^bounded-contexts\\/discovery\\/routes\\/item-detail(?:\\.|-market-history\\.|-rail-analytics\\.)/",
-              }
-            : family.family === "e2eNoSuiteExclusions:4"
-              ? { ...family, family: "e2eNoSuiteExclusions:3" }
-              : family,
-        ),
+              };
+            case "e2eNoSuiteExclusions:4":
+              return { ...family, family: "e2eNoSuiteExclusions:3" };
+            default:
+              return family;
+          }
+        }),
       {
         family: "boundedContextRouteSuiteOwnership:52",
         pattern: "/^bounded-contexts\\/fulfillment\\/routes\\/seller-shipping-setup\\.tsx$/",
@@ -4031,6 +4048,20 @@ describe("change-scope", () => {
 
     expect(scope.e2eTestsRequired).toBe(true);
     expect(scope.e2eSuiteIds).toEqual(["marketplace_browse", "marketplace_checkout"]);
+  });
+
+  it.each([
+    ["agreements", "account-agreement-new", "admin", "admin_commerce"],
+    ["agreements", "agreements-detail", "admin", "admin_commerce"],
+    ["agreements", "agreements", "admin", "admin_commerce"],
+    ["home", "home", "admin", "admin_commerce"],
+    ["schedules", "schedules-detail", "admin", "admin_commerce"],
+    ["schedules", "schedules", "admin", "admin_commerce"],
+    ["marketplace-sales-fee", "sales-fees", "public", "marketplace_browse"],
+  ])("preserves the E2E suite for the %s/%s route and adapter", (slice, route, segment, suite) => {
+    const root = "bounded-contexts/commercial-terms";
+    expect(e2eSuiteIdsForChangedFile(`${root}/routes/${segment}/${route}.tsx`)).toEqual([suite]);
+    expect(e2eSuiteIdsForChangedFile(`${root}/features/${slice}/ui/routes/${route}.tsx`)).toEqual([suite]);
   });
 
   it("routes context changes to the consolidated marketplace seed DB acceptance suite", () => {

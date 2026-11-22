@@ -1,4 +1,4 @@
-import { PublicHelpArticlePage } from "@chase-sets/public-presence/web";
+import type { ComponentType } from "react";
 import { findPublicHelpArticleByPath, resolvePublicPolicyArticle } from "@chase-sets/public-presence/server";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
@@ -21,6 +21,8 @@ export function headers() {
   return { "Cache-Control": "public, max-age=60, s-maxage=300, stale-while-revalidate=60" };
 }
 
-export default function SalesFeesRoute() {
-  return <PublicHelpArticlePage {...useLoaderData<typeof loader>()} />;
+export function createSalesFeesRoute(ArticlePage: ComponentType<Awaited<ReturnType<typeof loader>>>) {
+  return function SalesFeesRoute() {
+    return <ArticlePage {...useLoaderData<typeof loader>()} />;
+  };
 }

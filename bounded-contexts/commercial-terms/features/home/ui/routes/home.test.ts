@@ -49,19 +49,14 @@ const {
   };
 });
 
-vi.mock("../../features/home/integrations/admin-api-client", () => ({
+vi.mock("../../integrations/admin-api-client", () => ({
   CommercialTermsApiError: MockCommercialTermsApiError,
   createCommercialTermsRequestApiClient: mockCreateCommercialTermsRequestApiClient,
   createCommercialTermsPublicRequestApiClient: mockCreateCommercialTermsPublicRequestApiClient,
 }));
 
-import { action as homeAction, loader as homeLoader } from "./home";
-import { loader as schedulesRedirectLoader } from "./schedules";
-import { loader as scheduleRedirectLoader } from "./schedules-detail";
-import { loader as agreementsRedirectLoader } from "./agreements";
-import { loader as agreementRedirectLoader } from "./agreements-detail";
-import { loader as accountAgreementRedirectLoader } from "./account-agreement-new";
-import contextManifest from "../../context.json";
+import { action as homeAction, loader as homeLoader } from "../../../../routes/admin/home";
+import contextManifest from "../../../../context.json";
 
 const home = {
   resolvedAt: "2026-07-15T12:00:00.000Z",
@@ -241,36 +236,5 @@ describe("commercial terms admin home route", () => {
       accounts: [],
       loadError: "Commercial Terms projection is catching up.",
     });
-  });
-
-  it("redirects all retired route shapes into the home query-state contract", async () => {
-    const args = (request: string, params: Record<string, string> = {}) => ({
-      request: new Request(request),
-      params,
-      context: undefined,
-    });
-    const responses = await Promise.all([
-      schedulesRedirectLoader(args("https://admin.chasesets.com/commerce/terms/schedules") as never),
-      scheduleRedirectLoader(
-        args("https://admin.chasesets.com/commerce/terms/schedules/cts_active", { id: "cts_active" }) as never,
-      ),
-      agreementsRedirectLoader(args("https://admin.chasesets.com/commerce/terms/agreements") as never),
-      agreementRedirectLoader(
-        args("https://admin.chasesets.com/commerce/terms/agreements/cag_active", { id: "cag_active" }) as never,
-      ),
-      accountAgreementRedirectLoader(
-        args("https://admin.chasesets.com/commerce/terms/accounts/acc_seller/agreements/new", {
-          accountId: "acc_seller",
-        }) as never,
-      ),
-    ]);
-
-    expect(responses.map((response) => response.headers.get("Location"))).toEqual([
-      "/commerce/terms",
-      "/commerce/terms?schedule=cts_active",
-      "/commerce/terms",
-      "/commerce/terms?agreement=cag_active",
-      "/commerce/terms?create=agreement&account=acc_seller",
-    ]);
   });
 });

@@ -312,7 +312,7 @@ export const contextManifest = {
       strategy: "fresh-read",
       surfaces: [
         "post-form:bounded-contexts/commercial-terms/features/home/ui/commercial-terms-home-page.tsx:Hb08a81ecfd73#1",
-        "route-action:bounded-contexts/commercial-terms/routes/admin/home.tsx",
+        "route-action:bounded-contexts/commercial-terms/features/home/ui/routes/home.tsx",
       ],
       visibleDestination: {
         routeId: "commercial-terms-home",
@@ -326,7 +326,7 @@ export const contextManifest = {
         },
       },
       proof: {
-        tests: ["bounded-contexts/commercial-terms/routes/admin/admin-routes.test.ts"],
+        tests: ["bounded-contexts/commercial-terms/features/home/ui/routes/home.test.ts"],
       },
     },
     {
@@ -336,7 +336,7 @@ export const contextManifest = {
       strategy: "fresh-read",
       surfaces: [
         "post-form:bounded-contexts/commercial-terms/features/home/ui/commercial-terms-home-page.tsx:Hb08a81ecfd73#2",
-        "route-action:bounded-contexts/commercial-terms/routes/admin/home.tsx",
+        "route-action:bounded-contexts/commercial-terms/features/home/ui/routes/home.tsx",
       ],
       visibleDestination: {
         routeId: "commercial-terms-home",
@@ -350,7 +350,7 @@ export const contextManifest = {
         },
       },
       proof: {
-        tests: ["bounded-contexts/commercial-terms/routes/admin/admin-routes.test.ts"],
+        tests: ["bounded-contexts/commercial-terms/features/home/ui/routes/home.test.ts"],
       },
     },
     {
@@ -360,7 +360,7 @@ export const contextManifest = {
       strategy: "fresh-read",
       surfaces: [
         "post-form:bounded-contexts/commercial-terms/features/home/ui/commercial-terms-home-page.tsx:Hb08a81ecfd73#3",
-        "route-action:bounded-contexts/commercial-terms/routes/admin/home.tsx",
+        "route-action:bounded-contexts/commercial-terms/features/home/ui/routes/home.tsx",
       ],
       visibleDestination: {
         routeId: "commercial-terms-home",
@@ -374,7 +374,7 @@ export const contextManifest = {
         },
       },
       proof: {
-        tests: ["bounded-contexts/commercial-terms/routes/admin/admin-routes.test.ts"],
+        tests: ["bounded-contexts/commercial-terms/features/home/ui/routes/home.test.ts"],
       },
     },
     {
@@ -384,7 +384,7 @@ export const contextManifest = {
       strategy: "fresh-read",
       surfaces: [
         "post-form:bounded-contexts/commercial-terms/features/home/ui/commercial-terms-home-page.tsx:Hb08a81ecfd73#4",
-        "route-action:bounded-contexts/commercial-terms/routes/admin/home.tsx",
+        "route-action:bounded-contexts/commercial-terms/features/home/ui/routes/home.tsx",
       ],
       visibleDestination: {
         routeId: "commercial-terms-home",
@@ -398,7 +398,7 @@ export const contextManifest = {
         },
       },
       proof: {
-        tests: ["bounded-contexts/commercial-terms/routes/admin/admin-routes.test.ts"],
+        tests: ["bounded-contexts/commercial-terms/features/home/ui/routes/home.test.ts"],
       },
     },
   ],
