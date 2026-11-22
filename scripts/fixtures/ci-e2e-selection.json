@@ -1212,10 +1212,10 @@
     },
     {
       "family": "boundedContextRouteSuiteOwnership:41",
-      "pattern": "/^bounded-contexts\\/payments\\/routes\\/marketplace\\/account-payment(?:-methods|-new)/",
+      "pattern": "/^bounded-contexts\\/payments\\/(?:routes\\/marketplace|features\\/payments\\/ui\\/routes)\\/account-payment(?:-methods|-new)/",
       "suites": ["marketplace_account"],
       "path": "bounded-contexts/payments/routes/marketplace/account-payment-methods.tsx",
-      "trackedCandidates": 2,
+      "trackedCandidates": 4,
       "synthetic": false
     },
     {
@@ -1260,10 +1260,10 @@
     },
     {
       "family": "boundedContextRouteSuiteOwnership:47",
-      "pattern": "/^bounded-contexts\\/payments\\/routes\\/marketplace\\/(?:account-payment|checkout-payment)\\./",
+      "pattern": "/^bounded-contexts\\/payments\\/(?:routes\\/marketplace|features\\/payments\\/ui\\/routes)\\/(?:account-payment|checkout-payment)\\./",
       "suites": ["marketplace_checkout"],
-      "path": "bounded-contexts/payments/routes/marketplace/account-payment.tsx",
-      "trackedCandidates": 2,
+      "path": "bounded-contexts/payments/features/payments/ui/routes/account-payment.tsx",
+      "trackedCandidates": 4,
       "synthetic": false
     },
     {
@@ -1829,6 +1829,26 @@
     },
     {
       "changedFiles": ["bounded-contexts/payments/routes/marketplace/account-payment.tsx"],
+      "suiteIds": ["marketplace_checkout"],
+      "batches": ["marketplace_checkout"]
+    },
+    {
+      "changedFiles": ["bounded-contexts/payments/features/payments/ui/routes/account-payment-methods.tsx"],
+      "suiteIds": ["marketplace_account"],
+      "batches": ["marketplace_account"]
+    },
+    {
+      "changedFiles": ["bounded-contexts/payments/features/payments/ui/routes/account-payment-new.tsx"],
+      "suiteIds": ["marketplace_account"],
+      "batches": ["marketplace_account"]
+    },
+    {
+      "changedFiles": ["bounded-contexts/payments/features/payments/ui/routes/account-payment.tsx"],
+      "suiteIds": ["marketplace_checkout"],
+      "batches": ["marketplace_checkout"]
+    },
+    {
+      "changedFiles": ["bounded-contexts/payments/features/payments/ui/routes/checkout-payment.tsx"],
       "suiteIds": ["marketplace_checkout"],
       "batches": ["marketplace_checkout"]
     },

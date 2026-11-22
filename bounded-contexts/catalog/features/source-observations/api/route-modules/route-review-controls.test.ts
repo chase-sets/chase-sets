@@ -726,8 +726,8 @@ describe("source observation routes: review and control-plane reads", () => {
         method: "PATCH",
         headers: { "if-match": '"section-fingerprint"' },
         body: JSON.stringify({
-          command: {
-            optionQueries: {},
+          fields: {
+            optionQueryIndex: 1,
           },
         }),
       },
@@ -737,7 +737,7 @@ describe("source observation routes: review and control-plane reads", () => {
     await expect(response.json()).resolves.toEqual({
       error: {
         code: "invalid_profile_section_command",
-        message: "optionQueries must be an array.",
+        message: "fields.optionQueryIndex must be a string.",
       },
     });
   });

@@ -41,6 +41,17 @@ const valueKindOptions = [
   { label: t("catalog.features.dimensions.ui.dimensionListPage.numeric"), value: "numeric" },
 ];
 const ALL_VALUE_KINDS = "__all__";
+
+function optionMatchingOptions(valueKind: string) {
+  return [
+    { label: t("catalog.features.dimensions.ui.dimensionListPage.exact"), value: "exact" },
+    {
+      label: t("catalog.features.dimensions.ui.dimensionListPage.or.better"),
+      value: "or-better",
+      disabled: valueKind === "unordered",
+    },
+  ];
+}
 const lifecycleActions = [
   { value: "activate", label: t("catalog.features.dimensions.ui.dimensionDetailPage.activate") },
   { value: "deprecate", label: t("catalog.features.dimensions.ui.dimensionDetailPage.deprecate") },
@@ -56,7 +67,15 @@ export function DimensionListPage({ data, query }: CatalogListRouteData<Dimensio
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [valueKind, setValueKind] = useState("unordered");
+  const [optionMatching, setOptionMatching] = useState("exact");
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+
+  function changeValueKind(nextValueKind: string) {
+    setValueKind(nextValueKind);
+    if (nextValueKind === "unordered") {
+      setOptionMatching("exact");
+    }
+  }
 
   async function handleCreate() {
     const dimensionId = createId("dim");
@@ -66,6 +85,7 @@ export function DimensionListPage({ data, query }: CatalogListRouteData<Dimensio
       name: localizedTextMapFromEnglish(name),
       description: localizedTextMapFromEnglish(description),
       valueKind,
+      optionMatching,
     });
     addToast(t("catalog.features.dimensions.ui.dimensionListPage.dimension.created"), "success");
     setShowCreate(false);
@@ -73,6 +93,7 @@ export function DimensionListPage({ data, query }: CatalogListRouteData<Dimensio
     setName("");
     setDescription("");
     setValueKind("unordered");
+    setOptionMatching("exact");
     void revalidator.revalidate();
   }
 
@@ -154,7 +175,14 @@ export function DimensionListPage({ data, query }: CatalogListRouteData<Dimensio
             label={t("catalog.features.dimensions.ui.dimensionListPage.value.kind.2")}
             items={valueKindOptions}
             value={valueKind}
-            onValueChange={setValueKind}
+            onValueChange={changeValueKind}
+          />
+          <Select
+            label={t("catalog.features.dimensions.ui.dimensionListPage.option.matching")}
+            description={t("catalog.features.dimensions.ui.dimensionListPage.option.matching.description")}
+            items={optionMatchingOptions(valueKind)}
+            value={optionMatching}
+            onValueChange={setOptionMatching}
           />
         </Stack>
       </Dialog>

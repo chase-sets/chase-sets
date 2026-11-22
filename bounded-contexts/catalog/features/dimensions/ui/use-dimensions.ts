@@ -23,13 +23,20 @@ export function createDimension(body: {
   name: LocalizedTextMap;
   description?: LocalizedTextMap;
   valueKind?: string;
+  optionMatching?: string;
 }) {
   return api.createDimension<CommandResponse>(body);
 }
 
 export function reviseDimension(
   id: string,
-  body: { key: string; name: LocalizedTextMap; description?: LocalizedTextMap; valueKind?: string },
+  body: {
+    key: string;
+    name: LocalizedTextMap;
+    description?: LocalizedTextMap;
+    valueKind?: string;
+    optionMatching?: string;
+  },
 ) {
   return api.reviseDimension<CommandResponse>(id, body);
 }

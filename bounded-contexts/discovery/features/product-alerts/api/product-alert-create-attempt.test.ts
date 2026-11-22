@@ -22,20 +22,35 @@ const request = {
   accountId: "acc_buyer",
   marketSide: "listing" as const,
   catalogItemId: "cat_1",
-  productId: "cat_1::form",
+  productId: "cat_1::dim_form:chc_raw",
   selectedOptions: [{ dimensionId: "dim_form", optionId: "chc_raw" }],
   productSummary: "Raw",
   thresholdAmount: "300.00",
   thresholdCurrencyCode: "USD",
 };
 
+const productSchema = {
+  canonicalDimensionOrder: [{ dimensionId: "dim_form", dimensionName: "Form" }],
+  dimensions: [
+    {
+      dimensionId: "dim_form",
+      dimensionName: "Form",
+      valueKind: "unordered",
+      required: true,
+      appliesWhen: [],
+      allowedOptions: [{ optionId: "chc_raw", code: "raw", label: "Raw", displayOrder: 1, numericValue: null }],
+    },
+  ],
+};
+
 function setUp() {
   const { eventStore } = createInMemoryEventStore();
-  const services = createProductAlertRuntime({
-    eventStore,
-    checkpointStore,
-    db: { query: vi.fn(async () => ({ rows: [] })) } as never,
-  });
+  const query = vi.fn(async (sql: string, params: readonly unknown[] = []) =>
+    sql.includes("FROM discovery_item_detail_pages") && params[0] === "cat_1"
+      ? { rows: [{ catalog_item_id: "cat_1", status: "active", product_schema: productSchema }] }
+      : { rows: [] },
+  );
+  const services = createProductAlertRuntime({ eventStore, checkpointStore, db: { query } as never });
   const created = async () =>
     (await eventStore.readAll()).filter((event) => event.eventType === "discovery.product-alert.created");
   return { services, created };
@@ -79,7 +94,7 @@ describe("an account Product Alert create attempt", () => {
       {
         ...request,
         attemptId: ` ${ATTEMPT} `,
-        productId: " cat_1::form ",
+        productId: " cat_1::dim_form:chc_raw ",
         thresholdAmount: "300",
         thresholdCurrencyCode: "usd",
         productSummary: "Raw / Near Mint",

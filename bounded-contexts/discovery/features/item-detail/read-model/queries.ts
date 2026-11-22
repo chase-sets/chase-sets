@@ -18,6 +18,7 @@ import type {
   DiscoveryProductContentLine,
   DiscoveryProductContentItemRef,
   DiscoverySellerInventoryItem,
+  ProductSchema,
 } from "../../../support/client-support/contracts";
 import {
   sortAccountOfferMatchesForReview,
@@ -335,6 +336,33 @@ async function listProductContentsForItem(
   );
 
   return result.rows.map(productContentLineFromDb);
+}
+
+export type DiscoveryItemProductCatalog = Readonly<{
+  catalogItemId: string;
+  status: string;
+  productSchema: ProductSchema | null;
+}>;
+
+/**
+ * The catalog facts a write naming one of an item's products is checked against: whether the
+ * item is active, and the product schema its products and their option labels come from. The
+ * same row the item page is drawn from, so a product the page offered is one this accepts.
+ */
+export async function getDiscoveryItemProductCatalog(
+  db: PgQueryable,
+  catalogItemId: string,
+): Promise<DiscoveryItemProductCatalog | null> {
+  const result = await db.query<{ catalog_item_id: string; status: string; product_schema: ProductSchema | null }>(
+    `SELECT catalog_item_id, status, product_schema
+     FROM discovery_item_detail_pages
+     WHERE catalog_item_id = $1`,
+    [catalogItemId],
+  );
+  const row = result.rows[0];
+  return row
+    ? { catalogItemId: row.catalog_item_id, status: row.status, productSchema: row.product_schema ?? null }
+    : null;
 }
 
 export async function getDiscoveryItemDetail(

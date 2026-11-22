@@ -24,6 +24,7 @@ export function dimensionRoutes(services: DimensionServices, authoringBulkJobs: 
         name: coerceLocalizedTextMap(body.name),
         description: coerceLocalizedTextMap(body.description ?? ""),
         valueKind: body.valueKind,
+        optionMatching: body.optionMatching,
       },
       context,
     });
@@ -67,6 +68,7 @@ export function dimensionRoutes(services: DimensionServices, authoringBulkJobs: 
         name: coerceLocalizedTextMap(body.name),
         description: coerceLocalizedTextMap(body.description ?? ""),
         valueKind: body.valueKind,
+        optionMatching: body.optionMatching,
       },
       context,
     });

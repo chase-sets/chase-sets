@@ -41,14 +41,15 @@ const EXPECTED_PARTITION: Readonly<Record<string, string>> = {
   "bounded-contexts/payments/features/payments/api/route.ts#setSavedCheckoutInstrumentDefault": "attempt-producing",
   "bounded-contexts/payments/features/payments/ui/account-payment/stripe-setup-card.tsx#reconcileSavedPaymentSetupSession":
     "setup reconcile",
-  "bounded-contexts/payments/routes/marketplace/account-payment-methods.tsx#createSavedPaymentSetupSession":
+  "bounded-contexts/payments/features/payments/ui/routes/account-payment-methods.tsx#createSavedPaymentSetupSession":
     "attempt-producing",
-  "bounded-contexts/payments/routes/marketplace/account-payment-methods.tsx#reconcilePaymentMethods":
+  "bounded-contexts/payments/features/payments/ui/routes/account-payment-methods.tsx#reconcilePaymentMethods":
     "instrument reconcile",
-  "bounded-contexts/payments/routes/marketplace/account-payment-methods.tsx#reconcileSavedPaymentSetupSession":
+  "bounded-contexts/payments/features/payments/ui/routes/account-payment-methods.tsx#reconcileSavedPaymentSetupSession":
     "setup reconcile",
-  "bounded-contexts/payments/routes/marketplace/account-payment-methods.tsx#removePaymentMethod": "attempt-producing",
-  "bounded-contexts/payments/routes/marketplace/account-payment-methods.tsx#setDefaultPaymentMethod":
+  "bounded-contexts/payments/features/payments/ui/routes/account-payment-methods.tsx#removePaymentMethod":
+    "attempt-producing",
+  "bounded-contexts/payments/features/payments/ui/routes/account-payment-methods.tsx#setDefaultPaymentMethod":
     "attempt-producing",
 };
 
