@@ -40,6 +40,11 @@ import {
   catalogProviderProfileEditableSectionFingerprints,
 } from "./provider-profile-section-fingerprint";
 import { stableJsonStringify } from "../source-observation-job-serialization";
+import {
+  type CatalogProviderProfileSectionEdit,
+  catalogProviderProfileSectionCommandFromEdit,
+  isCatalogProviderProfileSectionEdit,
+} from "./provider-profile-section-edit";
 import { catalogProviderRequiredFixtureFlows } from "./provider-integration-mapping-contract";
 import {
   catalogProviderProfileEditableSectionMetadata,
@@ -725,7 +730,8 @@ export async function updateCatalogProviderProfileSectionForReview(input: {
   profileVersion: string;
   profileKey?: string | null;
   ingestionUnitKey?: string | null;
-  command: CatalogProviderProfileSectionUpdateCommand;
+  /** An operator's edit, composed over each read of the version, or a whole section command. */
+  command: CatalogProviderProfileSectionUpdateCommand | CatalogProviderProfileSectionEdit;
   /** The section's fingerprint when the operator's form was drawn (`sectionFingerprints`). */
   expectedSectionFingerprint: string;
   audit?: CatalogProviderIntegrationProfileAuthoringAudit | null;
@@ -739,9 +745,13 @@ export async function updateCatalogProviderProfileSectionForReview(input: {
       input.profileVersion,
       profileVersionSelectorFromInput(input),
     );
-    const patch = toCatalogProviderProfileSectionPatch(existing, input.command, {
+    // An edit is composed over this read, so a retry after another section's save keeps that save.
+    const command = isCatalogProviderProfileSectionEdit(input.command)
+      ? catalogProviderProfileSectionCommandFromEdit(existing, input.command)
+      : input.command;
+    const patch = toCatalogProviderProfileSectionPatch(existing, command, {
       migrationEvidenceRecording:
-        input.command.section === "migration-evidence"
+        command.section === "migration-evidence"
           ? await migrationEvidenceRecording(input.store, existing, input.audit ?? null)
           : null,
     });

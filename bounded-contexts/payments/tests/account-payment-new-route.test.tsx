@@ -443,7 +443,7 @@ describe("marketplace account payment start route", () => {
   });
 
   it("routes money calculations without the retired float helpers", () => {
-    const source = readFileSync(resolve("routes/marketplace/account-payment-new.tsx"), "utf8");
+    const source = readFileSync(resolve("features/payments/ui/routes/account-payment-new.tsx"), "utf8");
     expect(source).not.toMatch(/parseFloat|toFixed|decimalMoney|parseMoneyAmount/);
   });
 

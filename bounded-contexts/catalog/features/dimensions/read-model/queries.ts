@@ -16,6 +16,7 @@ export type DimensionRow = Readonly<{
   description_i18n: unknown;
   description: string;
   value_kind: string;
+  option_matching: string;
   status: string;
   updated_at: string;
 }>;

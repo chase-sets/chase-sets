@@ -22,7 +22,6 @@ import type {
   CatalogProviderProfileDryRunResult,
   CatalogIntegrationControlPlaneOverview,
   CatalogIntegrationControlPlaneReadiness,
-  CatalogProviderProfileSectionUpdateCommand,
   CatalogProviderProfileVersionReview,
   SourceObservationDetail,
   SourceObservationListItem,
@@ -145,14 +144,14 @@ export function updateSourceObservationProviderProfileSection(
   providerKey: string,
   profileVersion: string,
   section: CatalogProviderProfileEditableSectionKey,
-  command: CatalogProviderProfileSectionUpdateCommand,
+  fields: Readonly<Record<string, string>>,
   sectionFingerprint: string,
 ) {
   return api.updateSourceObservationProviderProfileSection<CatalogProviderProfileVersionReview>(
     providerKey,
     profileVersion,
     section,
-    command,
+    fields,
     sectionFingerprint,
   );
 }
