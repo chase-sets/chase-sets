@@ -117,12 +117,24 @@ test.describe("marketplace search scroll restoration", () => {
       value: storedSnapshot,
     });
 
-    const restartResponse = page.waitForResponse((response) => {
-      const url = new URL(response.url());
-      return url.pathname === "/api/marketplace/items" && url.searchParams.get("cursor") === formerHybridCursor;
+    const isFormerHybridRequest = (url: URL) =>
+      url.pathname === "/api/marketplace/items" && url.searchParams.get("cursor") === formerHybridCursor;
+    let allowRestart: () => void = () => undefined;
+    const restartAllowed = new Promise<void>((resolve) => {
+      allowRestart = resolve;
     });
-    await page.goto(`/search?q=${encodeURIComponent(searchQuery)}`, { waitUntil: "domcontentloaded" });
-    await page.getByText(/former-hybrid item 24$/).scrollIntoViewIfNeeded();
+    // Auto-pagination can start before scrolling. Keep the restored page observable until then.
+    await page.route(isFormerHybridRequest, async (route) => {
+      await restartAllowed;
+      await route.continue();
+    });
+    const restartResponse = page.waitForResponse((response) => isFormerHybridRequest(new URL(response.url())));
+    try {
+      await page.goto(`/search?q=${encodeURIComponent(searchQuery)}`, { waitUntil: "domcontentloaded" });
+      await page.getByText(/former-hybrid item 24$/).scrollIntoViewIfNeeded();
+    } finally {
+      allowRestart();
+    }
 
     const response = await restartResponse;
     expect(response.ok()).toBe(true);
