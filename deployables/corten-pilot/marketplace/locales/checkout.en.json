@@ -243,6 +243,7 @@
   "route.fulfillment.preview.temporarily.unavailable": "Checkout totals are temporarily unavailable. Refresh before confirming payment.",
   "route.payment.has.not.started": "Your payment has not started.",
   "route.request.failed": "Request failed.",
+  "route.payment.details.required": "Enter your payment details before selecting Pay now.",
   "route.secure.checkout": "Secure checkout",
   "route.sign.in.to.continue": "Sign in to continue",
   "route.start.checkout.again": "Start checkout again",

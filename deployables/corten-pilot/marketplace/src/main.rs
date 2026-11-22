@@ -91,5 +91,7 @@ mod tests;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
+    // marketplace-web's traces, logs and metrics, under its name, when a collector is configured.
+    let _telemetry = platform::telemetry::init("marketplace-web", env!("CARGO_PKG_VERSION"));
     corten::serve(app::app(app::Config::from_env())).await
 }

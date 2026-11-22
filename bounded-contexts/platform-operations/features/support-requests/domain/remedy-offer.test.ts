@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 import type { AccountId, CoverageId, RemedyId, SupportRequestId } from "@chase-sets/primitives/typed-ids";
 import { normalizeSupportRequestRemedyAuthorizedV1 } from "@chase-sets/event-core/platform-coverage-facts";
 import { PLATFORM_REMEDY_LAUNCH_POLICY_VALUE, type PlatformRemedyPolicyValue } from "./platform-remedy-policy";
-import { applyRemedyReservationFact, createRemedyApprovalWorkflow } from "./remedy-approval";
+import {
+  applyRemedyApproval,
+  applyRemedyReservationFact,
+  createRemedyApproval,
+  createRemedyApprovalWorkflow,
+  type RemedyApprovalWorkflow,
+} from "./remedy-approval";
 import type { RemedyEffect, RemedyExecution } from "./remedy";
 import { describeSupportRemedyOffer, type SupportRemedyOfferRequest } from "./remedy-offer";
 
@@ -57,6 +63,19 @@ function reserved(amount = "600.00") {
     amount: null,
     currencyCode: null,
     allocation: null,
+  });
+}
+
+function approveAs(workflow: RemedyApprovalWorkflow, accountId: string, attempt = 1) {
+  return createRemedyApproval(workflow, {
+    type: "ApproveSupportRemedy",
+    approvedByAccountId: accountId as AccountId,
+    permissionUsed: "support.remedies.approve-elevated",
+    reasonCode: "customer-protection",
+    rationale: "The evidence supports the remedy.",
+    evidenceReferences: ["evidence-1"],
+    idempotencyKey: `approval-${accountId}-${attempt}`,
+    approvedAt: now,
   });
 }
 
@@ -152,6 +171,65 @@ describe("support remedy offer", () => {
     // Coverage is not reserved yet, so the proposal is not waiting on approval.
     expect(offer({ remedy_approval: proposal() }, ["support.remedies.approve-elevated"]).approve).toBeNull();
     expect(offer({}, ["support.remedies.approve-elevated"]).approve).toBeNull();
+  });
+
+  it("does not let an operator approve twice, as the approval command refuses", () => {
+    const once = applyRemedyApproval(reserved(), approveAs(reserved(), "acc_operator"));
+    expect(once.status).toBe("approval-pending");
+
+    expect(() => approveAs(once, "acc_operator", 2)).toThrow("distinct operator");
+    expect(offer({ remedy_approval: once }, ["support.remedies.approve-elevated"]).approve?.allowed).toBe(false);
+    expect(() => approveAs(once, "acc_second")).not.toThrow();
+    expect(offer({ remedy_approval: once }, ["support.remedies.approve-elevated"], "acc_second").approve?.allowed).toBe(
+      true,
+    );
+  });
+
+  it("does not offer approval once the coverage reservation has lapsed or was rejected", () => {
+    const lapsed: RemedyApprovalWorkflow = { ...reserved(), reservationExpiresAt: "2026-07-14T01:30:00.000Z" };
+    expect(() => approveAs(lapsed, "acc_operator")).toThrow("expired");
+    expect(offer({ remedy_approval: lapsed }, ["support.remedies.approve-elevated"]).approve?.allowed).toBe(false);
+
+    const expired: RemedyApprovalWorkflow = { ...reserved(), reservationStatus: "expired" };
+    expect(offer({ remedy_approval: expired }, ["support.remedies.approve-elevated"]).approve?.allowed).toBe(false);
+
+    const rejected = applyRemedyReservationFact(proposal(), {
+      effect: "coverage-reservation",
+      outcome: "failed-terminal",
+      sourceFactType: "settlement.protection-coverage.rejected.v1",
+      sourceFactId: "evt_rejected",
+      idempotencyKey: "coverage-rejected",
+      occurredAt: "2026-07-14T01:00:00.000Z",
+      reasonCode: "coverage-exhausted",
+      refundId: null,
+      amount: null,
+      currencyCode: null,
+      allocation: null,
+    });
+    expect(rejected.reservationStatus).toBe("rejected");
+    expect(() => approveAs(rejected, "acc_operator")).toThrow("rejected");
+    expect(offer({ remedy_approval: rejected }, ["support.remedies.approve-elevated"]).approve).toBeNull();
+  });
+
+  it("offers retry, waiver and release without allowing them to an operator who lacks each permission", () => {
+    const remedy = execution([
+      effect("return-delivered", "failed-retryable"),
+      effect("facility-intake", "failed-terminal"),
+      effect("operator-release", "pending"),
+    ]);
+    const without = offer({ remedy, remedy_approval: reserved() }, []).effects;
+    expect(without.map((e) => [e.retry?.allowed, e.waive?.allowed, e.release?.allowed])).toEqual([
+      [false, undefined, undefined],
+      [undefined, false, undefined],
+      [undefined, undefined, false],
+    ]);
+
+    const releaser = offer({ remedy, remedy_approval: reserved() }, ["support.remedies.override-return"]).effects;
+    expect(releaser.map((e) => [e.retry?.allowed, e.waive?.allowed, e.release?.allowed])).toEqual([
+      [false, undefined, undefined],
+      [undefined, false, undefined],
+      [undefined, undefined, true],
+    ]);
   });
 
   it("offers a correction on any proposed remedy to an operator who may correct", () => {

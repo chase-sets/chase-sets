@@ -402,17 +402,22 @@ function conditionMatches(
       return listing.costBasisAmount === null;
     case "competing-listing-count-at-least":
       return competingListingCount >= condition.count;
-    case "schedule-window": {
-      const now = new Date(snapshot.capturedAt);
-      const time = `${String(now.getUTCHours()).padStart(2, "0")}:${String(now.getUTCMinutes()).padStart(2, "0")}`;
-      return (
-        condition.daysOfWeek.includes(now.getUTCDay()) &&
-        (condition.startTime <= condition.endTime
-          ? time >= condition.startTime && time < condition.endTime
-          : time >= condition.startTime || time < condition.endTime)
-      );
-    }
+    case "schedule-window":
+      return scheduleWindowMatches(condition, new Date(snapshot.capturedAt));
   }
+}
+
+export function scheduleWindowMatches(
+  condition: Extract<RepricingRuleCondition, { type: "schedule-window" }>,
+  at: Date,
+): boolean {
+  const time = `${String(at.getUTCHours()).padStart(2, "0")}:${String(at.getUTCMinutes()).padStart(2, "0")}`;
+  return (
+    condition.daysOfWeek.includes(at.getUTCDay()) &&
+    (condition.startTime <= condition.endTime
+      ? time >= condition.startTime && time < condition.endTime
+      : time >= condition.startTime || time < condition.endTime)
+  );
 }
 
 /** A solved curve objective, kept so the trace can read the goal back at the final price. */

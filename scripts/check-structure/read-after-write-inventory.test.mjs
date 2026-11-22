@@ -3,10 +3,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  collectFreshWriteHelperUsage,
   collectMutationConsistencySurfaces,
   collectReadAfterWriteRouteIndexes,
   validateReadAfterWriteRouteInventory,
 } from "./read-after-write-inventory.mjs";
+import { findFeatureRouteReexports } from "./feature-route-reexports.mjs";
 
 const tempRoots = [];
 
@@ -248,6 +250,38 @@ afterEach(() => {
 });
 
 describe("read-after-write route inventory guard", () => {
+  it("attributes helpers and actions behind a same-context feature route re-export", async () => {
+    const root = createTempRepo();
+    const adapter = "bounded-contexts/checkout/routes/checkout-start.tsx";
+    const implementation = "bounded-contexts/checkout/features/sessions/ui/routes/checkout-start.tsx";
+    writeRoute(root, implementation, ["appendFreshWriteToken"]);
+    writeFileSync(
+      path.join(root, adapter),
+      'export { action } from "../features/sessions/ui/routes/checkout-start";\n',
+    );
+    const options = { repoRoot: root, contextManifests: createContextManifest(root) };
+    expect(await collectFreshWriteHelperUsage(options)).toContainEqual({
+      file: implementation,
+      helpers: ["appendFreshWriteToken"],
+      routeIds: ["buy-checkout-readiness"],
+    });
+    const routeActions = (await collectMutationConsistencySurfaces(options)).filter(
+      ({ kind }) => kind === "route-action",
+    );
+    expect(routeActions).toMatchObject([{ file: implementation, routeIds: ["buy-checkout-readiness"] }]);
+
+    writeRoute(root, "bounded-contexts/other/features/sessions/ui/routes/checkout-start.tsx", [
+      "appendFreshWriteToken",
+    ]);
+    const nonRouteExports = [
+      'export type { action } from "../features/sessions/ui/routes/checkout-start";',
+      'export { action } from "../features/sessions/api/route";',
+      'export { action } from "../../other/features/sessions/ui/routes/checkout-start";',
+      'export { action } from "../features/sessions/ui/routes/missing";',
+    ];
+    for (const content of nonRouteExports) expect(findFeatureRouteReexports(root, adapter, content)).toEqual([]);
+  });
+
   it("discovers Review mutation POST forms alongside canonical forms without including GET forms", async () => {
     const root = createTempRepo();
     const relative = "bounded-contexts/checkout/routes/review.tsx";

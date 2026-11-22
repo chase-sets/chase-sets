@@ -6,6 +6,8 @@ import {
   decideMarketplaceLabelPostageDebit,
 } from "./fulfillment-source-projection";
 import { MARKETPLACE_LABEL_POSTAGE_POLICY_VERSION } from "./label-postage-policy";
+import { module as settlementModule } from "../../../../index";
+import type { SettlementHostPorts } from "../../../../support/runtime-support/services";
 
 const syntheticActivation = {
   policyVersion: MARKETPLACE_LABEL_POSTAGE_POLICY_VERSION,
@@ -25,6 +27,55 @@ function event(type: string, data: Record<string, unknown>, streamVersion = 1): 
 }
 
 describe("settlement fulfillment source projection", () => {
+  it("defers just fulfillment until validated activation is supplied to services", () => {
+    const pool = { query: vi.fn(), connect: vi.fn() };
+    const absent = settlementModule.createServices(pool, {});
+    const present = settlementModule.createServices(pool, { marketplaceLabelPostageActivation: syntheticActivation });
+    expect(settlementModule.hasHostPort!(absent, "marketplaceLabelPostageActivation")).toBe(false);
+    expect(settlementModule.hasHostPort!(present, "marketplaceLabelPostageActivation")).toBe(true);
+    expect(() => settlementModule.hasHostPort!(absent, "unknown")).toThrow("cannot resolve host port");
+    const absentSubscriptions = settlementModule.buildSubscriptions!(absent);
+    const presentSubscriptions = settlementModule.buildSubscriptions!(present);
+    expect(absentSubscriptions.map(({ subscriptionName }) => subscriptionName)).toEqual(
+      presentSubscriptions
+        .filter(({ sourceContextName }) => sourceContextName !== "fulfillment")
+        .map(({ subscriptionName }) => subscriptionName),
+    );
+    const fulfillment = presentSubscriptions.filter(({ sourceContextName }) => sourceContextName === "fulfillment");
+    expect(fulfillment).toHaveLength(1);
+    expect(fulfillment[0]!.subscriptionVersion).toBe(2);
+    expect(Object.keys(fulfillment[0]!.handlers)).toHaveLength(8);
+  });
+
+  it.each([
+    null,
+    false,
+    {},
+    { policyVersion: "wrong", activatedAt: syntheticActivation.activatedAt },
+    { policyVersion: MARKETPLACE_LABEL_POSTAGE_POLICY_VERSION, activatedAt: "invalid" },
+  ])("rejects present malformed activation %j", (activation) => {
+    const ports = { marketplaceLabelPostageActivation: activation } as SettlementHostPorts;
+    const pool = { query: vi.fn(), connect: vi.fn() };
+    expect(() => settlementModule.createServices(pool, ports)).toThrow(/activation/);
+  });
+
+  it("refuses direct label handling without activation before any financial or row write", async () => {
+    const db = { query: vi.fn(async () => ({ rows: [] })) };
+    const handlers = buildSettlementFulfillmentSourceProjectionHandlers(db, { wallets: {} as never });
+    await expect(
+      handlers["fulfillment.shipment.label-attached"]!(
+        event("fulfillment.shipment.label-attached", {
+          shipmentId: "shp_1",
+          postageProviderLabelId: "synthetic-label",
+          postageAmountCents: 525,
+          postageCurrency: "usd",
+        }),
+        { db },
+      ),
+    ).rejects.toThrow(/activation/);
+    expect(db.query).not.toHaveBeenCalled();
+  });
+
   it("projects shipment creation and delivery as payout release inputs", async () => {
     const db = {
       query: vi.fn(async () => ({ rows: [] })),

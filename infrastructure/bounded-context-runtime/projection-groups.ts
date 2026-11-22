@@ -13,7 +13,12 @@ import type {
   MountedContextRuntimeEntry,
   SubscriptionReplayState,
 } from "./subscriptions";
-import { drainContextProcesses, resolveModuleSubscriptions, sortSubscriptionRunners } from "./subscriptions";
+import {
+  drainContextProcesses,
+  resolveDeferredProjectionNames,
+  resolveModuleSubscriptions,
+  sortSubscriptionRunners,
+} from "./subscriptions";
 
 // Status-refresh fan-out is nested (groups x each group's subscription runners),
 // so this bound squares: at 4 it demanded up to 4 x 4 = 16 concurrent status
@@ -897,6 +902,7 @@ export function resolveModuleProjectionGroups(
     }
 
     const contextGroups = resolveContextProjectionGroups(entry);
+    const deferredProjectionNames = resolveDeferredProjectionNames(entry, contextGroups);
 
     for (const group of contextGroups) {
       if (group.sourceContextNames.length === 0) {
@@ -911,14 +917,16 @@ export function resolveModuleProjectionGroups(
           (runner) => runner.targetContextName === entry.contextName && runner.projectionName === group.projectionName,
         ),
       );
+      const deferred = deferredProjectionNames.has(group.projectionName);
       if (
+        !deferred &&
         group.sourceContextMount === "when-all-sources-mounted" &&
         !group.sourceContextNames.every((sourceContextName) => mountedContextNames.has(sourceContextName))
       ) {
         continue;
       }
 
-      if (groupRunners.length === 0) {
+      if (!deferred && groupRunners.length === 0) {
         const onlyUnmountedOptionalSources = group.sourceContextNames.every(
           (sourceContextName) =>
             optionalSourceContextNames.has(sourceContextName) && !mountedContextNames.has(sourceContextName),
@@ -937,6 +945,29 @@ export function resolveModuleProjectionGroups(
           );
         }
         ownedTableOwners.set(ownershipKey, group.projectionName);
+      }
+
+      if (deferred) {
+        if (
+          groupRunners.length > 0 ||
+          entry.projectionHandlerSets.some((set) => set.projectionName === group.projectionName)
+        ) {
+          throw new Error(
+            `Context '${entry.contextName}' deferred projection '${group.projectionName}' must not have runners or local handlers.`,
+          );
+        }
+        const missingSources = group.sourceContextNames.filter(
+          (source) =>
+            !mountedContextNames.has(source) &&
+            !optionalSourceContextNames.has(source) &&
+            group.sourceContextMount !== "when-all-sources-mounted",
+        );
+        if (missingSources.length > 0) {
+          throw new Error(
+            `Context '${entry.contextName}' deferred projection '${group.projectionName}' sources are not mounted: ${missingSources.join(", ")}.`,
+          );
+        }
+        continue;
       }
 
       const groupHandlerKind = group.handlerKind ?? "projection";

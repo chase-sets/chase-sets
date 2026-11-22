@@ -15,7 +15,6 @@ import { createSellerCheckoutReadinessReader, createSellerShippingSetupServices 
 import { actor, accountOwner, anonymousOwner, context, grantedAuthority, initialize, setup } from "./test-support";
 import type { SellerCheckoutReadinessKey } from "../domain/contract";
 import type { JsonObject } from "@chase-sets/primitives/json";
-import { seedFulfillmentDatabase, inspectFulfillmentSeedState } from "../../../support/runtime-support/seed";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseUrl && process.env.CI)
@@ -229,8 +228,8 @@ describeDb("seller shipping composed production source", () => {
     expect(revoked.label).toMatchObject({ status: "blocked", fact: "unavailable" });
     await services().changeSupport(actor, { ...initialize, operationId: "initialize_account_prepaid-label" }, context);
     await bootstrapContextDatabase(fulfillmentModule, pool);
-    await seedFulfillmentDatabase(pool);
-    await inspectFulfillmentSeedState(pool);
+    await fulfillmentModule.seed!(pool);
+    await fulfillmentModule.inspectSeedState!(pool);
     // Projection resets/replay cannot rewrite the canonical owner stream.
     for (const projector of fulfillmentModule.createServices(pool, {}).projectors)
       expect(projector.projectionName).not.toContain("seller-shipping");
@@ -310,7 +309,7 @@ describeDb("seller shipping composed production source", () => {
       expect(revoked.label).toMatchObject({ status: "blocked", fact: "unavailable" });
       expect((await services().readReadiness(key)).sourceRevision).toBeNull();
       await bootstrapContextDatabase(fulfillmentModule, pool);
-      await seedFulfillmentDatabase(pool);
+      await fulfillmentModule.seed!(pool);
       expect(await services().readReadiness(resolved.key)).toEqual(revoked);
     },
   );

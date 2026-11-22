@@ -8,21 +8,18 @@ import {
   type LoaderFunctionArgs,
   type MetaFunction,
 } from "react-router";
-import { t } from "@chase-sets/localization";
+import { t } from "../localization/translator";
 import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
-import {
-  createSellerShippingSetupRequestClient,
-  FulfillmentApiError,
-} from "../../../support/request-support/api-client";
-import { parseShippingSetup, SellerShippingError } from "../domain/shipping-setup";
+import { createSellerShippingSetupRequestClient, FulfillmentApiError } from "../../api/request-client";
+import { parseShippingSetup, SellerShippingError } from "../shipping-setup-form";
 import {
   emptyShippingSetupValues,
   ShippingSetupPage,
   shippingSetupFields,
   shippingSetupValues,
   type ShippingSetupValues,
-} from "./shipping-setup-page";
+} from "../shipping-setup-page";
 
 const privateHeaders = { "Cache-Control": "no-store" };
 export async function loader({ request }: LoaderFunctionArgs) {

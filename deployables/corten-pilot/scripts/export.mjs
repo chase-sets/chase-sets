@@ -1119,7 +1119,11 @@ const outputs = [
   [
     "admin/locales/commerce.en.json",
     json({
-      ...(await catalog("fulfillment.ts", "fulfillmentEnglishTranslations", [["fulfillment.returnIntake.", "ri"]])),
+      ...(await catalogFrom(
+        "bounded-contexts/fulfillment/features/return-shipments/ui/localization/locales/en.ts",
+        "returnShipmentsEnglishTranslations",
+        [["fulfillment.returnIntake.", "ri"]],
+      )),
       ...(await catalog("inventory.ts", "inventoryEnglishTranslations", [
         ["inventory.features.recoveredItems.ui.page.", "rr"],
         ["inventory.routes.admin.recoveredItems.title", "rr.route_title"],
@@ -1267,9 +1271,11 @@ const outputs = [
         ["checkout.routes.sellCheckoutSession.", "route"],
         ["checkout.shared.policyLinks.", "policy"],
       ])),
-      ...(await catalog("fulfillment.ts", "fulfillmentEnglishTranslations", [
-        ["fulfillment.shippingSetup.title", "shipping_setup"],
-      ])),
+      ...(await catalogFrom(
+        "bounded-contexts/fulfillment/features/seller-checkout-readiness/ui/localization/locales/en.ts",
+        "sellerCheckoutReadinessEnglishTranslations",
+        [["fulfillment.shippingSetup.title", "shipping_setup"]],
+      )),
     }),
   ],
   [
@@ -1429,25 +1435,33 @@ const outputs = [
   [
     "marketplace/locales/shipments.en.json",
     json(
-      await catalog("fulfillment.ts", "fulfillmentEnglishTranslations", [
-        ["fulfillment.features.shipments.ui.shipmentListPage.", "list"],
-        ["fulfillment.features.shipments.ui.shipmentDetailPage.", "detail"],
-        ["fulfillment.routes.marketplace.accountShipments.", "shipments"],
-        ["fulfillment.routes.marketplace.accountShipment.", "shipment"],
-        ["fulfillment.routes.marketplace.accountSaleShipment.", "sale_shipment"],
-        ["fulfillment.features.shipments.ui.shipmentPackingPage.", "packing"],
-        ["fulfillment.routes.marketplace.accountSaleShipmentPacking.", "pack_route"],
-        ["fulfillment.features.shipments.ui.packingSlipPage.", "slip"],
-        ["fulfillment.routes.marketplace.accountSaleShipmentPackingSlips.", "slips_route"],
-        ["fulfillment.features.shipments.ui.commandCenter.", "center"],
-        ["fulfillment.routes.marketplace.accountSaleShipments.", "sales_route"],
-      ]),
+      await catalogFrom(
+        "bounded-contexts/fulfillment/features/shipments/ui/localization/locales/en.ts",
+        "shipmentsEnglishTranslations",
+        [
+          ["fulfillment.features.shipments.ui.shipmentListPage.", "list"],
+          ["fulfillment.features.shipments.ui.shipmentDetailPage.", "detail"],
+          ["fulfillment.routes.marketplace.accountShipments.", "shipments"],
+          ["fulfillment.routes.marketplace.accountShipment.", "shipment"],
+          ["fulfillment.routes.marketplace.accountSaleShipment.", "sale_shipment"],
+          ["fulfillment.features.shipments.ui.shipmentPackingPage.", "packing"],
+          ["fulfillment.routes.marketplace.accountSaleShipmentPacking.", "pack_route"],
+          ["fulfillment.features.shipments.ui.packingSlipPage.", "slip"],
+          ["fulfillment.routes.marketplace.accountSaleShipmentPackingSlips.", "slips_route"],
+          ["fulfillment.features.shipments.ui.commandCenter.", "center"],
+          ["fulfillment.routes.marketplace.accountSaleShipments.", "sales_route"],
+        ],
+      ),
     ),
   ],
   [
     "marketplace/locales/shipping_setup.en.json",
     json({
-      ...(await catalog("fulfillment.ts", "fulfillmentEnglishTranslations", [["fulfillment.shippingSetup.", ""]])),
+      ...(await catalogFrom(
+        "bounded-contexts/fulfillment/features/seller-checkout-readiness/ui/localization/locales/en.ts",
+        "sellerCheckoutReadinessEnglishTranslations",
+        [["fulfillment.shippingSetup.", ""]],
+      )),
       ...(await catalog("checkout.ts", "checkoutEnglishTranslations", [
         ["checkout.features.sellList.ui.guestSellCheckoutPage.label.prepaid", "label_prepaid"],
         ["checkout.features.sellList.ui.guestSellCheckoutPage.label.later", "label_later"],
