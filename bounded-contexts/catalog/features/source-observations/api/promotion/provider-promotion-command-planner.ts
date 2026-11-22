@@ -877,9 +877,7 @@ function commonYugiohCatalogItemCommands(
   tags: readonly string[],
 ): CatalogItemCommand[] {
   const commands: CatalogItemCommand[] = [];
-  const imageUrls = input.productAssetSet
-    ? productAssetSetCompatibilityImageUrls(input.productAssetSet)
-    : [...input.normalized.imageUrls];
+  const imageUrls = input.productAssetSet ? productAssetSetCompatibilityImageUrls(input.productAssetSet) : [];
 
   if (input.mode === "create") {
     commands.push({
@@ -1349,9 +1347,7 @@ function commonOnePieceCatalogItemCommands(
   tags: readonly string[],
 ): CatalogItemCommand[] {
   const commands: CatalogItemCommand[] = [];
-  const imageUrls = input.productAssetSet
-    ? productAssetSetCompatibilityImageUrls(input.productAssetSet)
-    : [...input.normalized.imageUrls];
+  const imageUrls = input.productAssetSet ? productAssetSetCompatibilityImageUrls(input.productAssetSet) : [];
 
   if (input.mode === "create") {
     commands.push({
@@ -1429,9 +1425,7 @@ function commonMagicCatalogItemCommands(
   tags: readonly string[],
 ): CatalogItemCommand[] {
   const commands: CatalogItemCommand[] = [];
-  const imageUrls = input.productAssetSet
-    ? productAssetSetCompatibilityImageUrls(input.productAssetSet)
-    : [...input.normalized.imageUrls];
+  const imageUrls = input.productAssetSet ? productAssetSetCompatibilityImageUrls(input.productAssetSet) : [];
 
   if (input.mode === "create") {
     commands.push({

@@ -3,11 +3,12 @@ import { isDeepStrictEqual } from "node:util";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { EventStore } from "@chase-sets/event-core/event-store";
-import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
 import type { CatalogRuntimeDeps } from "../../../../support/authoring-support/runtime-support";
 import type { CatalogItemId, ReferenceRecordId } from "../../../../ids";
+import { productAssetSetCompatibilityImageUrls } from "../../../../support/runtime-support/product-assets";
 import type { ReferenceDataServices } from "../../../reference-data/api/runtime";
 import {
   decideCatalogItem,
@@ -17,7 +18,7 @@ import {
   type CatalogItemEvent,
   type CatalogItemState,
 } from "../../../catalog-items/domain/domain";
-import type { SourceObservationState } from "../../domain/domain";
+import type { SourceObservationState, SourceObservationYugiohCardPrintNormalized } from "../../domain/domain";
 import {
   decideCatalogMergeCandidate,
   evolveCatalogMergeCandidate,
@@ -35,19 +36,29 @@ import {
   type CatalogMergeCandidateState,
 } from "../../domain/catalog-merge-candidate";
 import {
+  CatalogIntegrationRolloutControlError,
   assertCatalogIntegrationProfileUnitAllowed,
   type CatalogIntegrationRolloutControlPolicy,
 } from "../governance/catalog-integration-rollout-controls";
 import type { CatalogProviderIntegrationProfileVersionRecord } from "../provider-integration-profiles";
 import { createCatalogProviderIntegrationProfileVersionStore } from "../providers/provider-integration-profile-store";
-import { catalogProviderProfileVersionsCompete } from "../providers/registry";
 import {
+  catalogProviderProfileVersionsCompete,
+  getCatalogProviderIntegrationProfileVersion,
+} from "../providers/registry";
+import {
+  CatalogAssetStorageError,
   executeCatalogItemPromotionCommands,
   loadCatalogItemPromotionProfile,
   normalizePromotionProductAssetSet,
   promotionReferenceFieldKey,
   requireCatalogItemPromotionObservation,
 } from "../source-observation-promotion-execution";
+import {
+  approvedPromotionImageUrls,
+  canSupplyCatalogOwnedPromotionImage,
+  isCatalogOwnedPromotionImageKind,
+} from "../seeding/product-asset-normalization";
 import {
   resolvePromotionReferenceHierarchy,
   type CatalogItemPromotableSourceObservationNormalized,
@@ -158,7 +169,7 @@ type ApplicationUnit = Readonly<{
 /** An approved member whose own reviewed unit promotes Catalog Items, with its active promotion profile. */
 type ItemAuthor = Readonly<{
   revision: SourceObservationState;
-  normalized: CatalogItemPromotableSourceObservationNormalized;
+  normalized: CatalogItemPromotableSourceObservationNormalized | SourceObservationYugiohCardPrintNormalized;
   version: CatalogProviderIntegrationProfileVersionRecord;
 }>;
 
@@ -172,7 +183,8 @@ type ResolvedMember = ItemAuthor &
  * scope promotion unit. Every decision folds the complete candidate, member and
  * target streams; projections only ever nominate reuse candidates.
  *
- * - applied: the initiating unit recovers its promoted result; any other unit skips.
+ * - applied: the initiating unit recovers its promoted result; later units may
+ *   fill missing pictures on the bound Item without replaying promotion.
  * - planned, not applied: resume the bound plan under the original target.
  * - no item-producing member: skip as reference-only before any write.
  * - ready: preflight, approve at the checked version, then bind the plan.
@@ -187,18 +199,29 @@ export async function applyCatalogMergeCandidatePromotion(
   if (state.id === null || state.snapshot === null) {
     return unappliedOutcome(unit.candidateId, "skipped-not-eligible", "Catalog Merge Candidate was not found.");
   }
-  const application = state.promotionApplication;
+  const { promotionApplication: application, promotionPlan: plan } = state;
   if (application) {
-    return application.jobId === unit.jobId && application.unitId === unit.unitId
+    if (application.jobId === unit.jobId && application.unitId === unit.unitId)
+      return promotedOutcome(unit.candidateId, state.snapshot, application, plan?.assetPlan);
+    const assets = plan
+      ? await reapplyMissingCandidateAssets(ports, unit, state.snapshot, plan).catch((error: unknown) => {
+          if (isCandidateAssetReplayRefusal(error)) return null;
+          throw error;
+        })
+      : null;
+    return assets?.productAssetSets && assets.imageUrls
       ? promotedOutcome(unit.candidateId, state.snapshot, application)
       : unappliedOutcome(
           unit.candidateId,
           "skipped-not-eligible",
-          "Catalog Merge Candidate application is already complete.",
+          assets?.diagnosticCode
+            ? "Catalog Merge Candidate application is already complete; its missing picture could not be backfilled."
+            : "Catalog Merge Candidate application is already complete.",
+          assets?.diagnosticCode,
         );
   }
-  if (state.promotionPlan) {
-    return resumeBoundPlan(ports, unit, loaded, state.snapshot, state.promotionPlan);
+  if (plan) {
+    return resumeBoundPlan(ports, unit, loaded, state.snapshot, plan);
   }
   if (state.status !== "ready" && state.status !== "promoted") {
     return unappliedOutcome(unit.candidateId, "skipped-not-eligible", `Catalog Merge Candidate is ${state.status}.`);
@@ -385,7 +408,7 @@ async function isReferenceOnlyMember(
 async function resolveMemberPromotionProfile(
   profileVersions: CatalogProviderIntegrationProfileVersionReader,
   revision: SourceObservationState,
-  normalized: CatalogItemPromotableSourceObservationNormalized,
+  normalized: ItemAuthor["normalized"],
 ): Promise<CatalogProviderIntegrationProfileVersionRecord | null> {
   const unit = `${revision.providerKey}/${revision.sourceProfileKey}@${revision.sourceProfileVersion}`;
   const versions = await profileVersions.listProfileVersions(revision.providerKey);
@@ -593,7 +616,7 @@ async function prepareApplicationPlan(
   if (mode === "create" && snapshot.promotionIntent !== "create-catalog-item")
     throw blocked("missing-catalog-item-target", "the reviewed intent requires an existing Catalog Item");
 
-  const assetPlan = await prepareCandidateAssets(deps, resolved, targetId as CatalogItemId);
+  const assetPlan = await prepareCandidateAssets(deps, resolved, targetId as CatalogItemId, target);
   const planned = await planCatalogMergeCandidatePromotionCommands({
     db: deps.db,
     candidate: {
@@ -735,7 +758,94 @@ async function executeBoundPlan(
     const reloaded = await loadCandidateApplication(ports.deps.eventStore, unit.candidateId);
     if (!isDeepStrictEqual(reloaded.state.promotionApplication, application)) throw error;
   }
-  return promotedOutcome(unit.candidateId, snapshot, application);
+  return promotedOutcome(unit.candidateId, snapshot, application, plan.assetPlan);
+}
+
+/**
+ * Whole-game replay preserves terminal candidates. Fill only missing pictures
+ * on an already applied target; never change its approval or retained plan.
+ */
+async function reapplyMissingCandidateAssets(
+  ports: CatalogMergeCandidateApplicationPorts,
+  unit: ApplicationUnit,
+  snapshot: CatalogMergeCandidateReviewSnapshot,
+  plan: CatalogMergeCandidatePromotionPlan,
+): Promise<CandidateAssetPlan | null> {
+  if (
+    plan.assetPlan?.productAssetSets ||
+    !snapshot.membership.some(({ providerKey }) => canSupplyCatalogOwnedPromotionImage(providerKey)) ||
+    !plan.profiles.some(({ providerKey, profileKey, profileVersion }) => {
+      const pinned = getCatalogProviderIntegrationProfileVersion(providerKey, profileVersion, { profileKey });
+      return pinned !== null && isCatalogOwnedPromotionImageKind(pinned.profile.normalizedObservationMapping.kind);
+    })
+  )
+    return null;
+
+  const streamId = `catalog.item-${plan.catalogItemId}`;
+  const codec = createPassthroughDomainEventCodec<CatalogItemEvent>();
+  const history = await readCompleteStream(ports.deps.eventStore, { streamId });
+  const item = history.map(codec.decode).reduce(evolveCatalogItem, initialCatalogItemState);
+  if (!needsCandidatePicture(item, history)) return null;
+
+  const authors = (await resolveItemAuthors(ports, snapshot)).filter(({ normalized }) =>
+    isCatalogOwnedPromotionImageKind(normalized.kind),
+  );
+  if (!authors.some(imageEvidence)) return null;
+  const session = await acquireCandidateTarget(ports, {
+    candidateId: unit.candidateId,
+    snapshot,
+    boundTargetId: plan.catalogItemId,
+    reuseCandidates: [],
+    blueprintId: String(plan.catalogMapping.blueprintId),
+    validateAuthority: pinnedProfileAuthority(uniqueProfiles(authors.map(({ version }) => version))),
+    context: unit.context,
+  });
+  const target = session.evidence.items.get(plan.catalogItemId)!;
+  const baseline = session.evidence.histories.get(streamId) ?? [];
+  if (
+    !needsCandidatePicture(target, baseline) ||
+    target.blueprintId !== plan.catalogMapping.blueprintId ||
+    target.languageCode !== snapshot.identity.languageCode
+  )
+    return null;
+  verifyBoundTargetHistory(baseline, plan, "applied-prefix");
+  const assets = await prepareCandidateAssets(ports.deps, authors, target.id!, target);
+  if (!assets?.productAssetSets || !assets.imageUrls) return assets;
+  const events = [
+    ...decideCatalogItem(target, { type: "SetCatalogItemImageUrls", imageUrls: assets.imageUrls }),
+    ...decideCatalogItem(target, { type: "SetCatalogItemProductAssetSets", productAssetSets: assets.productAssetSets }),
+  ];
+  // Both projections advance from one fenced Item append. If another writer
+  // changes the Item before this append, that version wins and this unit retries.
+  await session.append({
+    streamId,
+    expectedVersion: baseline.at(-1)!.streamVersion,
+    events: events.map(codec.encode),
+    context: unit.context,
+  });
+  return assets;
+}
+
+function isCandidateAssetReplayRefusal(error: unknown): boolean {
+  return (
+    error instanceof CatalogMergeCandidateApplicationError ||
+    error instanceof CatalogIntegrationRolloutControlError ||
+    (error instanceof Error &&
+      (error.message === "promotion-target-bound-elsewhere" ||
+        error.message === "promotion-target-inactive" ||
+        error.message === "promotion-target-missing-recorded-target" ||
+        error.message.startsWith("promotion-target-conflicting-")))
+  );
+}
+
+function needsCandidatePicture(item: CatalogItemState, history: readonly { eventType: string }[]): boolean {
+  return (
+    item.id !== null &&
+    (item.status === "draft" || item.status === "active") &&
+    item.productAssetSets.length === 0 &&
+    // Do not undo an earlier asset removal (for example a takedown).
+    !history.some(({ eventType }) => eventType === "catalog.catalog-item.product-asset-sets-set")
+  );
 }
 
 /**
@@ -749,6 +859,14 @@ async function requireBoundTargetHistory(
   expectation: "prefix" | "complete",
 ): Promise<void> {
   const history = await readCompleteStream(eventStore, { streamId: `catalog.item-${plan.catalogItemId}` });
+  verifyBoundTargetHistory(history, plan, expectation);
+}
+
+function verifyBoundTargetHistory(
+  history: readonly StoredEvent[],
+  plan: CatalogMergeCandidatePromotionPlan,
+  expectation: "prefix" | "complete" | "applied-prefix",
+): void {
   const baseline = plan.targetBaseline.streamVersion;
   if (history.length < baseline)
     throw refused("target-history-conflict", "the target is shorter than its bound baseline");
@@ -763,18 +881,18 @@ async function requireBoundTargetHistory(
     expected.push(...events.map((event) => ({ eventType: event.type, payload: jsonCopy(event.data) })));
   }
   const suffix = history
-    .slice(baseline)
+    .slice(baseline, expectation === "applied-prefix" ? baseline + expected.length : undefined)
     .map((event) => ({ eventType: event.eventType, payload: jsonCopy(event.payload) }));
   const matches =
-    expectation === "complete"
-      ? isDeepStrictEqual(suffix, expected)
-      : suffix.length <= expected.length && isDeepStrictEqual(suffix, expected.slice(0, suffix.length));
+    expectation === "prefix"
+      ? suffix.length <= expected.length && isDeepStrictEqual(suffix, expected.slice(0, suffix.length))
+      : isDeepStrictEqual(suffix, expected);
   if (!matches)
     throw refused(
       "target-history-conflict",
-      expectation === "complete"
-        ? "the target does not hold the bound plan's complete event sequence"
-        : "unrelated events follow the bound baseline",
+      expectation === "prefix"
+        ? "unrelated events follow the bound baseline"
+        : "the target does not hold the bound plan's complete event sequence",
     );
 }
 
@@ -924,9 +1042,10 @@ async function resolveApprovedMemberRevisions(
   return revisions;
 }
 
-function promotableNormalized(
-  revision: SourceObservationState,
-): CatalogItemPromotableSourceObservationNormalized | null {
+function promotableNormalized(revision: SourceObservationState): ItemAuthor["normalized"] | null {
+  // Candidate promotion uses its own command planner. Direct provider
+  // promotion still does not support this kind.
+  if (revision.normalized?.kind === "yugioh-card-print") return revision.normalized;
   try {
     return requireCatalogItemPromotionObservation(revision.normalized!, revision.providerKey);
   } catch {
@@ -974,31 +1093,51 @@ function candidateCatalogMapping(
  * evidence is an ambiguous plan, never a first-member choice. Storage writes
  * are idempotent preparation, and a failure inside this boundary is classified.
  */
+type CandidateAssetPlan = CatalogMergeCandidatePromotionAssetPlan & {
+  diagnosticCode?: CatalogMergeCandidateApplicationDiagnosticCode;
+};
+
 async function prepareCandidateAssets(
   deps: CatalogRuntimeDeps,
-  resolved: readonly ResolvedMember[],
+  members: readonly ItemAuthor[],
   catalogItemId: CatalogItemId,
-): Promise<CatalogMergeCandidatePromotionAssetPlan | null> {
-  const withImages = resolved.flatMap((member) => {
-    const evidence = imageEvidence(member.normalized);
+  target: CatalogItemState,
+): Promise<CandidateAssetPlan | null> {
+  const withImages = members.flatMap((member) => {
+    const evidence = imageEvidence(member);
     return evidence ? [{ member, evidence }] : [];
   });
   const source = withImages[0];
   if (!source) return null;
   if (withImages.some((entry) => !isDeepStrictEqual(entry.evidence, source.evidence)))
     throw blocked("asset-provenance-ambiguous", "approved members carry different product image evidence");
+  const { revision, normalized, version } = source.member;
+  const catalogOwned = isCatalogOwnedPromotionImageKind(normalized.kind);
   try {
     const productAssetSet = await normalizePromotionProductAssetSet({
       deps,
       catalogItemId,
-      normalized: source.member.normalized,
-      providerKey: source.member.revision.providerKey,
-      providerProfile: source.member.version.profile,
-      sourceUpdatedAt: source.member.revision.sourceUpdatedAt,
-      observedAt: source.member.revision.observedAt ?? new Date(0).toISOString(),
+      normalized,
+      providerKey: revision.providerKey,
+      providerProfile: version.profile,
+      sourceUpdatedAt: revision.sourceUpdatedAt,
+      observedAt: revision.observedAt ?? new Date(0).toISOString(),
+      currentProductAssetSets: target.productAssetSets,
     });
-    return productAssetSet ? { productAssetSets: [productAssetSet] } : null;
+    if (!productAssetSet) return null;
+    if (!catalogOwned) return { productAssetSets: [productAssetSet] };
+    if (target.productAssetSets.some((set) => set.sourceHash === productAssetSet.sourceHash)) return null;
+    return {
+      productAssetSets: [productAssetSet],
+      imageUrls: productAssetSetCompatibilityImageUrls(productAssetSet),
+    };
   } catch (error) {
+    if (catalogOwned) {
+      // Keep an image-only failure with the retained plan so a completed
+      // application reports the same diagnostic when its unit is replayed.
+      if (error instanceof CatalogAssetStorageError) return { diagnosticCode: "asset-processing-failed" };
+      throw error;
+    }
     throw new CatalogMergeCandidateApplicationError(
       "asset-processing-failed",
       errorText(error),
@@ -1007,14 +1146,20 @@ async function prepareCandidateAssets(
   }
 }
 
-function imageEvidence(normalized: CatalogItemPromotableSourceObservationNormalized): JsonObject | null {
+function imageEvidence({ normalized, revision }: ItemAuthor): JsonObject | null {
   if (normalized.kind === "pokemon-card" && normalized.imageBaseUrl) return { imageBaseUrl: normalized.imageBaseUrl };
   if (
     (normalized.kind === "lorcana-card-print" || normalized.kind === "lorcana-sealed-product") &&
     normalized.imageUrls.length
   )
     return { imageUrls: [...normalized.imageUrls] };
-  return null;
+  const imageUrls = approvedPromotionImageUrls({
+    normalized,
+    providerKey: revision.providerKey,
+    observedAt: revision.observedAt ?? new Date(0).toISOString(),
+    sourceUpdatedAt: revision.sourceUpdatedAt,
+  });
+  return imageUrls.length ? { imageUrls } : null;
 }
 
 type PinnedProfile = Readonly<{ providerKey: string; profileKey: string; profileVersion: string }>;
@@ -1100,6 +1245,7 @@ function promotedOutcome(
   candidateId: string,
   snapshot: CatalogMergeCandidateReviewSnapshot,
   application: CatalogMergeCandidatePromotionApplication,
+  assets?: Readonly<{ diagnosticCode?: JsonValue }> | null,
 ): CatalogMergeCandidateBulkUnitResult {
   return {
     candidateId,
@@ -1110,6 +1256,9 @@ function promotedOutcome(
     appliedMode: application.appliedMode,
     approvalVersion: application.approvalVersion,
     planFingerprint: application.planFingerprint,
+    ...(assets?.diagnosticCode === "asset-processing-failed"
+      ? { diagnosticCode: "asset-processing-failed" as const }
+      : {}),
   };
 }
 

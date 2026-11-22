@@ -266,7 +266,7 @@ export type CatalogMergeCandidateBulkWorkUnitPayload = Readonly<{
   candidateId: string;
 }>;
 
-/** Inner application failures a report can classify; anything else stays unclassified. */
+/** Image preparation can fail independently of the Catalog Item application. */
 export type CatalogMergeCandidateApplicationDiagnosticCode = "asset-processing-failed";
 
 export type CatalogMergeCandidateBulkUnitResult = Readonly<{

@@ -222,6 +222,10 @@ describe("candidate promotion application versioning", () => {
     ["a promoted result without applied facts", [legacyPromoted("cand_malformed")]],
     ["a promoted result with an unknown mode", [{ ...promoted("cand_bad_mode", "cat_x"), appliedMode: "publish" }]],
     [
+      "a promoted result with an unknown diagnostic code",
+      [{ ...promoted("cand_bad_diagnostic", "cat_x"), diagnosticCode: "unrecognized-synthetic-diagnostic" }],
+    ],
+    [
       "a failed result carrying an applied id",
       [{ ...promoted("cand_failed", "cat_x"), status: "failed" as const, appliedMode: null }],
     ],
@@ -291,6 +295,20 @@ describe("candidate promotion application versioning", () => {
         record(catalogMergeCandidatePromotionApplicationJobKind, { promotionApplicationVersion: 1 }, outcomes),
       ).result,
     ).toEqual({ requested: 2, promoted: 0, deferred: 0, skippedNotEligible: 2, failed: 0, outcomes });
+  });
+
+  it("counts a completed application with a picture diagnostic as promoted, not failed", () => {
+    const outcomes = [
+      {
+        ...promoted("cand_picture_failed", "cat_applied"),
+        diagnosticCode: "asset-processing-failed" as const,
+      },
+    ];
+    expect(
+      toCatalogMergeCandidateBulkJob(
+        record(catalogMergeCandidatePromotionApplicationJobKind, { promotionApplicationVersion: 1 }, outcomes),
+      ).result,
+    ).toEqual({ requested: 1, promoted: 1, deferred: 0, skippedNotEligible: 0, failed: 0, outcomes });
   });
 
   it("refuses a stored version-1 job with an unknown outcome status on get and completed-list readback", async () => {

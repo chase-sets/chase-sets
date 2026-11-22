@@ -23,13 +23,16 @@ import {
   type SourceObservationNormalized,
   type SourceObservationOnePieceSetReferenceNormalized,
   type SourceObservationYugiohSetReferenceNormalized,
+  type SourceObservationYugiohCardPrintNormalized,
   type SourceObservationPromotionProfileEvidence,
 } from "../domain/domain";
 import { ProviderSendStoppedError } from "./providers/provider-send-admission";
 import { normalizeTcgdexImageAsset } from "./providers/tcgdex-client";
 import {
+  approvedPromotionImageUrls,
   extractApprovedLorcanaImageEvidence,
   normalizeLorcanaImageAsset,
+  normalizePromotionImageAsset,
   normalizeProductAssetSet,
 } from "./seeding/product-asset-normalization";
 import { type PromotionAliasServices } from "./promotion/provider-promotion-alias-writer";
@@ -326,7 +329,7 @@ function setReferenceIdFor(
 
 /** Which mapped Catalog field receives the resolved hierarchy Reference Record for a promotable kind. */
 export function promotionReferenceFieldKey(
-  kind: CatalogItemPromotableSourceObservationNormalized["kind"],
+  kind: CatalogItemPromotableSourceObservationNormalized["kind"] | SourceObservationYugiohCardPrintNormalized["kind"],
 ): "expansion" | "set" | null {
   switch (kind) {
     case "pokemon-card":
@@ -548,12 +551,13 @@ export async function normalizePromotionProductAssetSet(
 async function storePromotionProductAssetSet(input: {
   deps: CatalogRuntimeDeps;
   catalogItemId: CatalogItemId;
-  normalized: CatalogItemPromotableSourceObservationNormalized;
+  normalized: CatalogItemPromotableSourceObservationNormalized | SourceObservationYugiohCardPrintNormalized;
   providerKey: string;
   providerProfile: CatalogProviderIntegrationProfile;
   sourceUpdatedAt: string | null;
   observedAt: string;
   productAssetSource?: RepresentativeCatalogProductAssetSource | null;
+  currentProductAssetSets?: readonly ProductAssetSet[];
 }): Promise<ProductAssetSet | null> {
   if (input.productAssetSource) {
     const existing = await findStoredProductAssetSetBySourceHash(
@@ -610,7 +614,21 @@ async function storePromotionProductAssetSet(input: {
     });
   }
 
-  return null;
+  const [sourceUrl] = approvedPromotionImageUrls(input);
+  if (!sourceUrl) return null;
+  const storageBaseKey = catalogItemAssetObjectBaseKey(input.catalogItemId);
+  return normalizePromotionImageAsset({
+    providerKey: input.providerKey,
+    sourceUrl,
+    observedAt: input.observedAt,
+    storageBaseKey,
+    fetcher: globalThis.fetch,
+    assetStorage: requireCatalogAssetStorage(input.deps.assetStorage),
+    findExisting: (sourceHash) =>
+      input.currentProductAssetSets
+        ? (input.currentProductAssetSets.find((set) => set.sourceHash === sourceHash) ?? null)
+        : findStoredProductAssetSetBySourceHash(input.deps.db, input.catalogItemId, sourceHash),
+  });
 }
 
 async function findStoredProductAssetSetBySourceHash(
