@@ -104,7 +104,7 @@ describe("CatalogIntegrationLanguageEditionsPanel", () => {
   it("posts accept and reject to the owning page with its current journey context", () => {
     const readModel = buildCatalogScopeLanguageEditionReviewReadModel({
       scope,
-      aliasReview: aliasReview([candidate()]),
+      candidates: [candidate()],
     });
     const routeContext = parseCatalogPrimaryWorkbenchRouteContext(
       `https://admin.example${ACTION_HREF}?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&reviewOffset=25&filter.status=eligible&selectedObservationIds=obs_001`,
@@ -131,7 +131,7 @@ describe("CatalogIntegrationLanguageEditionsPanel", () => {
   it("fails closed without an owning page", () => {
     const readModel = buildCatalogScopeLanguageEditionReviewReadModel({
       scope,
-      aliasReview: aliasReview([candidate()]),
+      candidates: [candidate()],
     });
 
     expect(() =>
