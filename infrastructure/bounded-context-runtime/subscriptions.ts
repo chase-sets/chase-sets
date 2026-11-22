@@ -70,7 +70,10 @@ import {
   refreshSubscriptionStatus,
   resolveProjectionBlockedStream,
   saveSubscriptionCheckpoint,
+  subscriptionCheckpointsRequireRecoverySql,
 } from "./subscription-store";
+
+export { subscriptionCheckpointsRequireRecoverySql };
 
 export type SubscriptionReplayState = "idle" | "behind" | "running" | "caught-up" | "degraded" | "error";
 

@@ -1,8 +1,33 @@
 import { describe, expect, it } from "vitest";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
-import { seedLorcanaCategories, seedOnePieceCategories } from "./seed";
+import type { CategoryCommand, CreateCategoryCommand } from "../domain/domain";
+import { seedCategories, seedLorcanaCategories, seedOnePieceCategories } from "./seed";
 
 describe("category seed", () => {
+  it("seeds single-card categories as Singles", async () => {
+    const categories: CreateCategoryCommand[] = [];
+    const services = {
+      db: { query: async <T>() => ({ rows: [] as T[] }) },
+      categories: {
+        commandHandler: async ({ command }: { command: CategoryCommand }) => {
+          if (command.type === "CreateCategory") {
+            categories.push(command);
+          }
+        },
+      },
+    };
+
+    await seedCategories(services as never);
+
+    const namesByKey = Object.fromEntries(categories.map(({ key, name }) => [key, name.values.en]));
+    expect(namesByKey).toMatchObject({
+      "magic-card-prints": "Singles",
+      "one-piece-card-prints": "Singles",
+      "lorcana-card-prints": "Singles",
+    });
+    expect(Object.values(namesByKey)).not.toContain("Card Prints");
+  });
+
   it("seeds the One Piece category branch with stable parentage", async () => {
     const commands: Array<{ streamId: string; command: { type: string } & Record<string, unknown> }> = [];
     const services = {

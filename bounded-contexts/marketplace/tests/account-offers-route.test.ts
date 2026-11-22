@@ -1223,6 +1223,7 @@ describe("Submitted Offers lifecycle route", () => {
     roleKey: "owner",
     permissions: ["offers.view", "offers.manage"],
   };
+  const awaitingVerification = { permission: "offers.manage", reason: "email_verification_required" } as const;
   const counts = (submitted: number, paused: number) => ({ submitted, paused, withdrawn: 0, accepted: 0 });
   const row = (offerId: string, status: string, itemTitle = "Charizard") => ({
     offer_id: offerId,
@@ -1366,16 +1367,16 @@ describe("Submitted Offers lifecycle route", () => {
   });
 
   it.each([
-    ["an owner whose offers.manage awaits email verification", "owner", true],
-    ["a role without offers.manage", "viewer", false],
-  ])("decides Offer lifecycle access for %s (role %s)", async (_label, roleKey, allowed) => {
+    ["an owner whose offers.manage awaits email verification", "owner", true, [awaitingVerification]],
+    ["a role without offers.manage", "viewer", false, []],
+  ])("decides Offer lifecycle access for %s (role %s)", async (_label, roleKey, allowed, withheldPermissions) => {
     const calls: string[] = [];
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: string | URL | Request) => {
         const url = String(input);
         if (url.includes("/api/auth/session"))
-          return jsonResponse({ actor: { ...actor, roleKey, permissions: ["offers.view"] } });
+          return jsonResponse({ actor: { ...actor, roleKey, permissions: ["offers.view"], withheldPermissions } });
         calls.push(new URL(url).pathname);
         return jsonResponse({ id: "off_1", version: 3, status: "withdrawn", outcome: "changed" });
       }),
@@ -1412,7 +1413,14 @@ describe("Submitted Offers lifecycle route", () => {
         vi.fn(async (input: string | URL | Request) => {
           const url = String(input);
           if (url.includes("/api/auth/session"))
-            return jsonResponse({ actor: { ...actor, roleKey: "owner", permissions: ["offers.view"] } });
+            return jsonResponse({
+              actor: {
+                ...actor,
+                roleKey: "owner",
+                permissions: ["offers.view"],
+                withheldPermissions: [awaitingVerification],
+              },
+            });
           calls.push(new URL(url).pathname);
           return jsonResponse({});
         }),
