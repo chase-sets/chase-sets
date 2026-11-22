@@ -2,15 +2,15 @@ import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { publicPresenceEnglishTranslations } from "./locales/en/public-presence";
 
-// Tripwire for unintended public-presence locale key changes. Rebaseline this
-// fingerprint in the same PR whenever you intentionally add/remove/rename keys.
+// Tripwire for unintended changes to the remaining central catalog. Rebaseline
+// when a key is intentionally added, removed, renamed, or moved to its owner.
 const englishPublicPresenceKeySet = {
-  count: 518,
-  sha256: "dacd3b93203c830e7f441c1c749e200a52807cecf893d5aff3a49bc2bdb02825",
+  count: 486,
+  sha256: "6c58f88921caa083f294e0c0005dad61a41a1fe6caf1cc4a516999d9942b2955",
 } as const;
 
 describe("public-presence locale key set", () => {
-  it("matches the committed English public-presence key set", () => {
+  it("matches the remaining central English public-presence key set", () => {
     expect(keySetFingerprint(Object.keys(publicPresenceEnglishTranslations))).toEqual(englishPublicPresenceKeySet);
   });
 });
