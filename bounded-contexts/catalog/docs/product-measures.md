@@ -14,6 +14,16 @@ Profiles match Catalog Items and resolved Products by:
 
 The profile produces a `Resolved Product Measure` for each matching Product. Downstream contexts consume the resolved snapshot rather than reading Catalog profile tables.
 
+## Publishing Resolved Product Measures
+
+Catalog publishes one Product Measure Publication per Catalog Item: the Resolved Product Measure of every Product a profile matches. The `catalog-product-measure-resolution` reaction publishes it when a Catalog Item is published and when a Category is assigned to or removed from it. Nothing else triggers it: a Blueprint cannot change once it is active, and a profile change does not republish existing Catalog Items.
+
+- Only an active Catalog Item with a Blueprint is resolved. An event for a draft, archived or removed item is handled without a publication.
+- An active item that no profile matches gets one publication with no Products. A Category change that leaves no match replaces the previous set with an empty one.
+- Equal measures are not published again: a publication is appended only when the resolved set differs from the latest complete one.
+- The reaction retries an event until the Catalog Item projection has applied it, the item's Blueprint is projected and no longer draft, and at least one profile exists. While it waits, the event shows as a `transient` failure and as lag on the `catalog-product-measure-resolution` checkpoint, and later events wait behind it.
+- Its first run starts from the first Catalog event, so it also publishes for the Catalog Items that were published before the reaction existed.
+
 ## Missing Measures
 
 If no profile applies, Catalog records an explicit missing measurement state for that Product. Checkout and Ordering must treat missing measures as a blocker instead of falling back to arbitrary package defaults.
@@ -46,4 +56,4 @@ The seeded profiles cover common Pokemon products:
 
 Irregular products such as metal cards, jumbo cards, and collection boxes should receive a more specific profile or override before checkout is allowed.
 
-In staging and production, bootstrap seeds the reusable profiles but does not resolve every existing Catalog Item during deployment. Bulk backfill of existing items is operational work outside App Platform pre-deploy. Dev, preview, and tests may resolve existing scenario Catalog Items during `scenario-seed` bootstrap.
+Bootstrap seeds the reusable profiles. Under the production data profiles it publishes no measures and does not run the reaction; the worker's reaction publishes them after deployment, existing Catalog Items included. A `scenario-seed` bootstrap also resolves every existing scenario Catalog Item, and the reaction's catch-up in that bootstrap publishes nothing further for them.

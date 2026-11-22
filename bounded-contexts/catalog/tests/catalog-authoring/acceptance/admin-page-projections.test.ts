@@ -142,6 +142,20 @@ describe("Admin page projections", () => {
     await resetMultiContextTestSchemas({ catalog: pool });
     await bootstrapContextDatabase(catalogModule, pool);
     services = createCatalogServices(pool);
+    // The Product Measure reaction waits while no profile exists. No item here uses this Blueprint.
+    await services.productMeasures.upsertProfile({
+      profileId: "pmp_harness_unmatched",
+      key: "harness-unmatched",
+      name: "Harness unmatched",
+      matchBlueprintId: "bpr_harness_unmatched",
+      unitLengthInches: 1,
+      unitWidthInches: 1,
+      unitHeightInches: 1,
+      unitWeightOunces: 1,
+      physicalFlags: [],
+      stackBehavior: "stackable-height",
+      confidence: "conservative-estimate",
+    });
     subscriptionRunners = resolveModuleSubscriptions([
       {
         contextName: "catalog",

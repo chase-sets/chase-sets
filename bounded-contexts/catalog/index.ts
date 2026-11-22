@@ -8,7 +8,11 @@ import { createCheckpointKey } from "@chase-sets/bounded-context-runtime";
 import { resetProductMeasurePublicationParts, type PgQueryable } from "@chase-sets/event-core-postgres";
 export { default as contextManifest } from "./context.json" with { type: "json" };
 
-import { defineBoundedContextModule } from "@chase-sets/bounded-context-module";
+import {
+  buildEventReactionsFromManifest,
+  defineBoundedContextModule,
+  type BcContextManifest,
+} from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json" with { type: "json" };
 import { catalogRetentionSweeps } from "./support/runtime-support/retention-policy";
@@ -28,8 +32,10 @@ import { createScopeSyncBatchMcpHandlers } from "./features/scope-sync-batches/a
 import { createSourceObservationsMcpHandlers } from "./features/source-observations/api/mcp";
 import { createBlueprintMcpHandlers } from "./features/blueprints/api/mcp";
 
+const catalogContextManifest = contextManifest as BcContextManifest;
+
 const baseModule = defineBoundedContextModule<CatalogServices, PgTransactionalPool, CatalogHostPorts>({
-  manifest: contextManifest,
+  manifest: catalogContextManifest,
   schemaSql: catalogAuthoringSchemaSql,
   retentionSweeps: catalogRetentionSweeps,
   schemaMigrations: [...catalogUnloggedProjectionSchemaMigrations, ...catalogAuthoringSchemaMigrations],
@@ -64,6 +70,18 @@ const baseModule = defineBoundedContextModule<CatalogServices, PgTransactionalPo
     };
   },
   projectionHandlerSets: (services) => services.projectors,
+  buildSubscriptions: (services) =>
+    buildEventReactionsFromManifest({
+      contextName: "catalog",
+      manifest: catalogContextManifest,
+      handlers: {
+        "catalog.catalog-product-measure-resolution": () => ({
+          "catalog.catalog-item.published": services.productMeasures.resolveMeasuresForCatalogItemEvent,
+          "catalog.catalog-item.category-assigned": services.productMeasures.resolveMeasuresForCatalogItemEvent,
+          "catalog.catalog-item.category-removed": services.productMeasures.resolveMeasuresForCatalogItemEvent,
+        }),
+      },
+    }),
   seedProfiles: [
     "catalog-integration-bootstrap",
     "scenario-seed",
