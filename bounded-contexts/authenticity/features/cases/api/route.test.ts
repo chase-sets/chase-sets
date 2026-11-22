@@ -1,8 +1,9 @@
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { AuthenticityApiEnv } from "../../../api";
+import { buildAuthenticityApi, type AuthenticityApiEnv } from "../../../api";
 import { AuthenticityDomainError } from "../../../support/runtime-support/common";
+import { createAuthenticityServices } from "../../../support/runtime-support/services";
 import { authenticityCaseRoutes } from "./route";
 import type { AuthenticityCaseServices } from "./runtime";
 
@@ -26,6 +27,39 @@ function buildApp(services: Readonly<Record<string, unknown>>) {
 }
 
 describe("authenticity case routes", () => {
+  it.each([
+    ["GET", "/cases", null, 401, "authentication_required", "Authentication required."],
+    ["POST", "/cases", ["authenticity.view"], 403, "authorization_forbidden", "Forbidden."],
+    [
+      "GET",
+      "/cases/case_missing",
+      ["authenticity.view"],
+      404,
+      "authenticity_case_not_found",
+      "Authenticity case not found.",
+    ],
+    ["POST", "/cases", ["authenticity.manage"], 400, "validation_failed", "Authenticity request failed."],
+  ])("keeps the mounted API error for %s %s (%j)", async (method, path, permissions, status, code, message) => {
+    const services = createAuthenticityServices({ query: vi.fn(), connect: vi.fn() });
+    const openCase = vi.fn<AuthenticityCaseServices["openCase"]>().mockRejectedValue("non-Error rejection");
+    const getCase = vi.fn<AuthenticityCaseServices["getCase"]>().mockResolvedValue(null);
+    const app = new Hono<AuthenticityApiEnv>();
+    app.use("*", async (c, next) => {
+      if (permissions) c.set("actor", { accountId: "acc_inspector", permissions });
+      c.set("context", context);
+      await next();
+    });
+    app.route(
+      "/api/authenticity",
+      buildAuthenticityApi({ ...services, cases: { ...services.cases, openCase, getCase } }),
+    );
+
+    const response = await app.request(`/api/authenticity${path}`, { method });
+
+    expect(response.status).toBe(status);
+    expect(await response.json()).toEqual({ error: { code, message } });
+  });
+
   it("opens a case and returns the committed snapshot", async () => {
     const openCase = vi.fn(async () => ({ caseId: "case_1", version: 1 }));
     const getCase = vi.fn(async () => ({ case_id: "case_1", status: "awaiting-inbound" }));

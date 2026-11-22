@@ -1,7 +1,7 @@
 import { Hono } from "hono";
-import { t } from "@chase-sets/localization";
 import type { AuthenticityApiEnv } from "../../../api";
 import { AuthenticityDomainError } from "../../../support/runtime-support/common";
+import { t } from "./localization/translator";
 import type { AuthenticityCaseServices } from "./runtime";
 
 function domainErrorResponse(error: unknown) {
