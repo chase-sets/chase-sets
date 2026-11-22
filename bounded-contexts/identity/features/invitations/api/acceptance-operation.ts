@@ -15,6 +15,7 @@ import {
 } from "../../memberships/domain/domain";
 import { evolveUser, initialUserState, type UserEvent } from "../../users/domain/domain";
 import { evolveAccount, initialAccountState, type AccountEvent } from "../../accounts/domain/domain";
+import { validateOwnerEvent } from "../../account-management/domain/owner-event";
 
 export type InvitationAcceptanceOperation = Readonly<{
   version: 1;
@@ -189,6 +190,9 @@ function accountState(events: readonly StoredEvent[]) {
         case "identity.account.profile-updated":
           closed(data, ["name", "displayName"]);
           if (typeof data.name !== "string" || typeof data.displayName !== "string") refuse();
+          break;
+        case "identity.account.display-name-redacted":
+          validateOwnerEvent(event.eventType, data);
           break;
         case "identity.account.founders-window-opened":
           closed(data, ["betaAccessStartedAt", "foundersWindowEndsAt"], ["recipientEmail"]);

@@ -1484,6 +1484,59 @@ describe("platform api app wiring", () => {
     });
   });
 
+  it("serves the Operations Attention topic to staff who may open the queue, from Platform Operations' store", async () => {
+    const realtimePool = {
+      query: async (sql: string) => (sql.includes("MAX(outbox_id)") ? { rows: [{ head: "7" }] } : { rows: [] }),
+    };
+    const platformOperationsModule = {
+      contextName: "platform-operations",
+      apiMounts: [],
+      buildApis: () => NO_API_ENTRIES,
+      projectionHandlerSets: () => [],
+    };
+    const buildApp = (permissions: readonly string[]) =>
+      buildPlatformApiApp(
+        {
+          mountedContexts: [
+            {
+              contextName: "platform-operations",
+              mountRole: "active",
+              module: platformOperationsModule,
+              services: {},
+              pool: realtimePool,
+              projectionHandlerSets: [],
+            },
+          ],
+          mountedModules: [{ module: platformOperationsModule, services: {} }],
+          services: { auth: {}, identity: {} },
+          projectionGroups: [],
+          subscriptionRunners: [],
+        } as never,
+        { resolveActor: vi.fn(async () => platformActor([...permissions])) },
+      );
+    const path = "/api/realtime/public/events?topic=platform-operations%3Aadmin%3Aoperations-attention";
+
+    const refused = await buildApp(["support.manage", "platform-feedback.view"]).request(path);
+    expect(refused.status).toBe(403);
+    await expect(refused.json()).resolves.toMatchObject({ error: { code: "authorization_forbidden" } });
+
+    const staffApp = buildApp(["projection-operations.view"]);
+    const abort = new AbortController();
+    const admitted = await staffApp.request(path, { signal: abort.signal });
+    try {
+      expect(admitted.status).toBe(200);
+      const first = await admitted.body!.getReader().read();
+      expect(new TextDecoder().decode(first.value)).toContain("event: heartbeat");
+    } finally {
+      abort.abort();
+    }
+
+    const status = await staffApp.request("/internal/realtime/status");
+    await expect(status.json()).resolves.toMatchObject({
+      stores: expect.arrayContaining([expect.objectContaining({ contextName: "platform-operations", head: "7" })]),
+    });
+  });
+
   it("registers Inventory import MCP handlers from the context module contract", async () => {
     const inventoryServices = inventoryImportMcpServices();
     const auditRecords: unknown[] = [];

@@ -32,7 +32,8 @@ const MutationContext = createContext<Controller | null>(null);
 export type MutationNotification =
   | Readonly<{ type: "accepted" }>
   | Readonly<{ type: "failure"; failure: MutationFailure }>;
-export type MutationNotificationHandler = (notification: MutationNotification) => void;
+/** Return false on a failure to keep its presentation and focus with the boundary. */
+export type MutationNotificationHandler = (notification: MutationNotification) => void | false;
 
 export function AccountMutationForm({
   onMutation,
@@ -263,8 +264,8 @@ export function AccountMutationBoundary({
     else if (!choice) activeNotification.current = undefined;
     const notify = (notification: MutationNotification) => {
       try {
-        activeNotification.current?.(notification);
-        return Boolean(activeNotification.current);
+        const handler = activeNotification.current;
+        return handler !== undefined && handler(notification) !== false;
       } catch {
         return false;
       }

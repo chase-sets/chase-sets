@@ -22,6 +22,7 @@ export const platformOperationsWakeRegistryEntry = registryEntry({
     "platform-operations:reported-content-queue-projection",
     "platform-operations:risk-alert-queue-projection",
     "fulfillment:fulfillment-support-return-source-projection",
+    "identity:identity-profile-redaction-reaction",
     "notifications:notifications-source-facts-outbox-projection",
     "platform-operations:support-evidence-cleanup-locator-projection",
     "platform-operations:support-request-projection",

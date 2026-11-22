@@ -3,6 +3,7 @@ import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import type { McpRequestProtocolContext } from "@chase-sets/platform-runtime/mcp";
 import { createAccountMcpHandlers } from "./mcp";
 import type { AccountServices } from "./runtime";
+import { decideAccount, evolveAccount, initialAccountState } from "../domain/domain";
 
 const actor = {
   sessionId: "sess_1",
@@ -58,6 +59,36 @@ function services(): AccountServices {
 }
 
 describe("identity account MCP handlers", () => {
+  it("account-profile-marker-scan: MCP exposes just the closed code and appends nothing", async () => {
+    const accountId = "acc_01ARYZ6S41TSV4RRFFQ69G5FAV";
+    const state = decideAccount(initialAccountState, {
+      type: "CreateAccount",
+      accountId,
+      accountType: "personal",
+      name: "Old",
+    }).reduce(evolveAccount, initialAccountState);
+    const append = vi.fn();
+    const commandHandler: AccountServices["commandHandler"] = async ({ command }) => {
+      append(decideAccount(state, command));
+      throw new Error("Unexpected success");
+    };
+    const handler = createAccountMcpHandlers({ ...services(), commandHandler }).toolHandlers[
+      "identity.update-account-profile"
+    ]!;
+    await expect(
+      handler(
+        mcpRequest(
+          {
+            accountId,
+            name: "Legal",
+            displayName: "account-profile-marker-scan http://test.example",
+          },
+          operatorActor,
+        ),
+      ),
+    ).rejects.toThrow(/^text_unsafe_link$/);
+    expect(append).not.toHaveBeenCalled();
+  });
   it("covers every operator account tool and preserves actor attribution", async () => {
     const fakeServices = services();
     const handlers = createAccountMcpHandlers(fakeServices).toolHandlers;

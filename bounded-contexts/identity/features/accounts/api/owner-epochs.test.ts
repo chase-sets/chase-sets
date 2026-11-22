@@ -1,10 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
+import { createId } from "@chase-sets/primitives/typed-ids";
 import { decideAccount, evolveAccount, initialAccountState, type AccountEvent } from "../domain/domain";
 import { decideUser, evolveUser, initialUserState, type UserEvent } from "../../users/domain/domain";
 import { createIdentityOwnerEpochs, identityAuthorityEventClassification, identityOwnerKey } from "./owner-epochs";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 const accountEvents: readonly AccountEvent[] = [
+  {
+    type: "identity.account.display-name-redacted",
+    data: { actionId: createId("rca"), operatorUserId: "usr_synthetic_operator" },
+  },
   { type: "identity.account.profile-updated", data: { name: "New", displayName: "New" } },
   { type: "identity.account.badge-assigned", data: { badgeKey: "founding-account", founderNumber: 1 } },
   { type: "identity.account.badge-removed", data: { badgeKey: "trusted-seller" } },
