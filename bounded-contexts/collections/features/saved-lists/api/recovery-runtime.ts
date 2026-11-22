@@ -34,7 +34,7 @@ import type {
   SavedListRecoveryOperation,
   SavedListRecoveryPage,
 } from "./recovery-contracts";
-import { readAnonymousOwnerActivation } from "./anonymous-owner-activation";
+import { readAnonymousOwnerActivation } from "../read-model/anonymous-owner-activation";
 
 const ttl = 30 * 24 * 60 * 60 * 1_000;
 type OperationRow = {

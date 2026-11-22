@@ -9,7 +9,7 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { module as collectionsModule } from "../../../index";
-import { activateAnonymousOwnerCutover } from "./anonymous-owner-activation";
+import { activateAnonymousOwnerCutover } from "../read-model/anonymous-owner-activation";
 import { redactLegacyAnonymousOwners } from "./anonymous-owner-redaction";
 import { savedListFingerprint } from "./anonymous-owner";
 

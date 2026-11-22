@@ -1,5 +1,8 @@
 import { type PgQueryable, type PgTransactionalPool, withPgTransaction } from "@chase-sets/event-core-postgres";
-import { anonymousOwnerActivationReadSql, readAnonymousOwnerActivation } from "./anonymous-owner-activation";
+import {
+  anonymousOwnerActivationReadSql,
+  readAnonymousOwnerActivation,
+} from "../read-model/anonymous-owner-activation";
 import { savedListCanonicalIdentifier, savedListFingerprint } from "./anonymous-owner";
 
 const schemaLedgerSql = "SELECT migration_id FROM bounded_context_schema_migrations ORDER BY migration_id";
