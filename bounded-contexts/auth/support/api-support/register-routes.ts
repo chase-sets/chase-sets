@@ -19,6 +19,7 @@ import {
   jsonWithMutationReceipts,
   readIdentityMutationConflict,
   readRegistrationConsentRejection,
+  readIdentityDisplayNameRejection,
   type AuthApiApp,
 } from "./support";
 import { requireRegistrationAdmission } from "./registration-gates";
@@ -75,6 +76,8 @@ export function registerRegistrationRoutes(app: AuthApiApp, services: AuthServic
         foundersBetaAccessStartedAt: admission.foundersBetaAccessStartedAt,
       });
     } catch (error) {
+      const displayNameRejection = readIdentityDisplayNameRejection(error);
+      if (displayNameRejection) return c.json(displayNameRejection, 400);
       const consentRejection = readRegistrationConsentRejection(error);
       if (consentRejection) {
         return c.json(consentRejection, 400);

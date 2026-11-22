@@ -4,6 +4,7 @@ import { parseAttemptKey, type MutationAction } from "../domain/contract";
 import type { AccountManagementServices, MutationResult } from "./runtime";
 import { SHIPPING_ADDRESS_REQUIRED_MESSAGES } from "../../shipping-addresses/domain/errors";
 import { ACCOUNT_PROFILE_REQUIRED_MESSAGES } from "../../accounts/domain/errors";
+import { isDisplayNameRejectionCode } from "../../accounts/domain/display-name-safeguard";
 import { USER_PROFILE_REQUIRED_MESSAGES } from "../../users/domain/errors";
 import { t } from "@chase-sets/localization";
 
@@ -25,6 +26,10 @@ export async function submitAccountManagement(
   if (!service) return c.json({ outcome: "indeterminate", code: "INDETERMINATE" }, 503);
   try {
     const result = await service.submit({ actor: c.var.actor, context: c.var.context, key, action, target, body });
+    if (action === "update-profile" && result.outcome === "not-recorded" && isDisplayNameRejectionCode(result.code)) {
+      c.header("Cache-Control", "no-store");
+      return c.json({ error: { code: result.code } }, 400);
+    }
     const required = requiredFieldRefusal(action, result);
     if (required) {
       c.header("Cache-Control", "no-store");

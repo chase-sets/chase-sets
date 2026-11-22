@@ -693,7 +693,7 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
         [accountId],
       );
 
-      await db.query(
+      const projected = await db.query<{ status: string }>(
         `INSERT INTO discovery_market_accounts (
           account_id,
             seller_slug,
@@ -705,7 +705,8 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
           seller_slug = EXCLUDED.seller_slug,
           seller_display_name = EXCLUDED.seller_display_name,
           seller_listing_availability_status = COALESCE(discovery_market_accounts.seller_listing_availability_status, EXCLUDED.seller_listing_availability_status),
-          updated_at = EXCLUDED.updated_at`,
+          updated_at = EXCLUDED.updated_at
+        RETURNING status`,
         [accountId, sellerSlug, displayName, event.timing.recordedAt],
       );
       await rememberSlugRedirect(db, {
@@ -715,6 +716,7 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
         nextSlug: sellerSlug,
         updatedAt: event.timing.recordedAt,
       });
+      if (projected.rows[0]?.status !== "active") return;
       await emitRealtimeChanges(
         db,
         event,

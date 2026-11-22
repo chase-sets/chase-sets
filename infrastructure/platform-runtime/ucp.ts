@@ -27,8 +27,6 @@ import { createMcpHttpOriginPolicyMiddleware, type McpHttpOriginPolicyOptions } 
 import {
   buildUcpBusinessProfile,
   createUcpEnvelope,
-  UCP_MCP_CART_REVIEW_RESOURCE_URI,
-  UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI,
   UCP_MCP_RESOURCES,
   UCP_MCP_TOOLS,
   UCP_VERSION,
@@ -223,165 +221,6 @@ const JSON_RPC_VERSION = "2.0";
 const SIGNED_WRITE_HEADERS = ["Signature-Input", "Signature", "Content-Digest", "UCP-Agent"] as const;
 
 export const DEFAULT_UCP_SIGNATURE_CREATED_FRESHNESS_WINDOW_MS = 5 * 60 * 1000;
-const UCP_MCP_CART_REVIEW_HTML = `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Chase Sets Cart Review</title>
-  <style>
-    :root { color-scheme: light dark; --background: Canvas; --foreground: CanvasText; --card: color-mix(in srgb, Canvas 96%, CanvasText 4%); --border: color-mix(in srgb, CanvasText 16%, transparent); --muted: color-mix(in srgb, CanvasText 68%, transparent); --primary: LinkText; --surface-2: color-mix(in srgb, CanvasText 8%, transparent); --success-soft: color-mix(in srgb, CanvasText 6%, Canvas); font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    body { margin: 0; padding: 12px; background: transparent; color: var(--foreground); }
-    .panel { display: grid; gap: 10px; border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: var(--card); }
-    .header { display: flex; align-items: start; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
-    .eyebrow { margin: 0 0 3px; color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; }
-    .title { margin: 0; font-size: 16px; line-height: 1.25; overflow-wrap: anywhere; }
-    .status { border: 1px solid var(--border); border-radius: 999px; padding: 4px 8px; background: var(--success-soft); font-size: 12px; font-weight: 650; white-space: nowrap; }
-    .lines { display: grid; gap: 8px; }
-    .line { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: start; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
-    .line:last-child { border-bottom: 0; padding-bottom: 0; }
-    .name { margin: 0; font-size: 14px; font-weight: 700; overflow-wrap: anywhere; }
-    .meta, .amount { margin: 3px 0 0; color: var(--muted); font-size: 12px; line-height: 1.35; }
-    .amount { color: var(--foreground); font-weight: 700; text-align: right; }
-    .totals { display: grid; gap: 5px; border-top: 1px solid var(--border); padding-top: 10px; }
-    .total { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
-    .total strong { font-size: 15px; }
-    .empty { border: 1px solid var(--border); border-radius: 8px; padding: 14px; font-size: 14px; }
-  </style>
-</head>
-<body>
-  <main id="app" aria-live="polite"></main>
-  <script>
-    const app = document.getElementById("app");
-
-    function render(result) {
-      const payload = result?.structuredContent ?? result ?? {};
-      const checkout = payload.checkout ?? payload.session ?? payload.cart ?? {};
-      const lines = Array.isArray(checkout.items) ? checkout.items
-        : Array.isArray(checkout.line_items) ? checkout.line_items
-        : Array.isArray(payload.items) ? payload.items
-        : Array.isArray(payload.line_items) ? payload.line_items
-        : [];
-      const totals = Array.isArray(checkout.totals) ? checkout.totals : Array.isArray(payload.totals) ? payload.totals : [];
-      const status = checkout.status || payload.status || payload.ucp?.status || "review";
-      const title = checkout.id ? "Checkout " + checkout.id : "Cart review";
-
-      if (!lines.length && !totals.length) {
-        app.innerHTML = '<section class="empty">Cart review details will appear here after checkout data is available.</section>';
-        return;
-      }
-
-      app.innerHTML = '<section class="panel">' +
-        '<header class="header"><div><p class="eyebrow">Chase Sets</p><h2 class="title">' + escapeHtml(title) + '</h2></div><span class="status">' + escapeHtml(status) + '</span></header>' +
-        '<div class="lines">' + lines.slice(0, 8).map(renderLine).join("") + '</div>' +
-        (totals.length ? '<div class="totals">' + totals.slice(0, 6).map(renderTotal).join("") + '</div>' : '') +
-      '</section>';
-    }
-
-    function renderLine(line) {
-      const name = line.item_title || line.title || line.name || line.product_id || line.catalog_item_id || "Cart line";
-      const quantity = Number(line.quantity ?? 1);
-      const seller = line.seller_name || line.seller || line.account_name || "";
-      const amount = line.amount_display || line.price_display || line.subtotal_display || "";
-      return '<article class="line"><div><p class="name">' + escapeHtml(name) + '</p><p class="meta">Qty ' + escapeHtml(quantity) + (seller ? " - " + escapeHtml(seller) : "") + '</p></div><p class="amount">' + escapeHtml(amount) + '</p></article>';
-    }
-
-    function renderTotal(total) {
-      const label = total.label || total.type || "Total";
-      const amount = total.amount_display || total.display || total.amount || "";
-      return '<div class="total"><span>' + escapeHtml(label) + '</span><strong>' + escapeHtml(amount) + '</strong></div>';
-    }
-
-    function escapeHtml(value) {
-      return String(value ?? "").replace(/[&<>"']/g, (char) => ({
-        "&": "&amp;",
-        "<": "&lt;",
-        ">": "&gt;",
-        '"': "&quot;",
-        "'": "&#39;"
-      }[char]));
-    }
-
-    window.addEventListener("message", (event) => {
-      const message = event.data;
-      if (message?.method === "ui/notifications/tool-result") {
-        render(message.params?.result ?? message.params ?? {});
-      }
-    });
-
-    render({});
-  </script>
-</body>
-</html>`;
-const UCP_MCP_CHECKOUT_HANDOFF_HTML = `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Chase Sets Checkout Handoff</title>
-  <style>
-    :root { color-scheme: light dark; --background: Canvas; --foreground: CanvasText; --card: color-mix(in srgb, Canvas 96%, CanvasText 4%); --border: color-mix(in srgb, CanvasText 16%, transparent); --muted: color-mix(in srgb, CanvasText 68%, transparent); --primary: LinkText; --warning-soft: color-mix(in srgb, CanvasText 7%, Canvas); font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    body { margin: 0; padding: 12px; background: transparent; color: var(--foreground); }
-    .handoff { display: grid; gap: 10px; border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: var(--card); }
-    .eyebrow { margin: 0; color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; }
-    .title { margin: 0; font-size: 16px; line-height: 1.25; overflow-wrap: anywhere; }
-    .message { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
-    .notice { border: 1px solid var(--border); border-radius: 8px; padding: 9px; background: var(--warning-soft); font-size: 13px; line-height: 1.4; }
-    .action { color: var(--primary); font-weight: 700; font-size: 14px; text-decoration: none; }
-    .empty { border: 1px solid var(--border); border-radius: 8px; padding: 14px; font-size: 14px; }
-  </style>
-</head>
-<body>
-  <main id="app" aria-live="polite"></main>
-  <script>
-    const app = document.getElementById("app");
-
-    function render(result) {
-      const payload = result?.structuredContent ?? result ?? {};
-      const message = payload.messages?.[0]?.content || "Use trusted Chase Sets checkout before any order or payment is finalized.";
-      const url = typeof payload.continue_url === "string" ? payload.continue_url : "";
-      const checkoutId = payload.id || "";
-
-      if (!url) {
-        app.innerHTML = '<section class="empty">Checkout handoff details will appear here when trusted UI is required.</section>';
-        return;
-      }
-
-      app.innerHTML = '<section class="handoff">' +
-        '<p class="eyebrow">Trusted checkout</p>' +
-        '<h2 class="title">' + escapeHtml(checkoutId ? "Checkout " + checkoutId : "Complete in Chase Sets") + '</h2>' +
-        '<p class="message">' + escapeHtml(message) + '</p>' +
-        '<div class="notice">Final order and payment authorization stay inside the trusted Chase Sets checkout surface.</div>' +
-        (url ? '<a class="action" href="' + escapeHtml(url) + '">Open trusted checkout</a>' : '') +
-      '</section>';
-    }
-
-    function escapeHtml(value) {
-      return String(value ?? "").replace(/[&<>"']/g, (char) => ({
-        "&": "&amp;",
-        "<": "&lt;",
-        ">": "&gt;",
-        '"': "&quot;",
-        "'": "&#39;"
-      }[char]));
-    }
-
-    window.addEventListener("message", (event) => {
-      const message = event.data;
-      if (message?.method === "ui/notifications/tool-result") {
-        render(message.params?.result ?? message.params ?? {});
-      }
-    });
-
-    render({});
-  </script>
-</body>
-</html>`;
-// The existing checkout widgets are not part of the product-cards build.
-const checkoutWidgetHtml = new Map<string, string>([
-  [UCP_MCP_CART_REVIEW_RESOURCE_URI, UCP_MCP_CART_REVIEW_HTML],
-  [UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI, UCP_MCP_CHECKOUT_HANDOFF_HTML],
-]);
 
 export const platformUcpRuntimeSchemaSql = `
 CREATE TABLE IF NOT EXISTS platform_ucp_idempotency_records (
@@ -1650,7 +1489,7 @@ export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
   const idempotencyStore = resolveUcpIdempotencyStore(options, "MCP");
   const widgets = new Map<string, { resource: UcpMcpResourceDescriptor; html: string }>(
     UCP_MCP_RESOURCES.flatMap((resource) => {
-      const html = checkoutWidgetHtml.get(resource.uri) ?? options.widgetResources?.(resource.uri);
+      const html = options.widgetResources?.(resource.uri);
       return html ? [[resource.uri, { resource, html }] as const] : [];
     }),
   );
