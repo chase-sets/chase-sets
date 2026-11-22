@@ -3,8 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { buildAuthenticityApi, type AuthenticityApiEnv } from "../../../api";
+import { module } from "../../../index";
 import { AuthenticityDomainError } from "../../../support/runtime-support/common";
-import { createAuthenticityServices } from "../../../support/runtime-support/services";
 import { authenticityCaseRoutes } from "./route";
 import type { AuthenticityCaseServices } from "./runtime";
 
@@ -42,7 +42,7 @@ describe("authenticity case routes", () => {
     ["POST", "/cases", ["authenticity.manage"], 400, "validation_failed", "Authenticity request failed."],
   ])("keeps the mounted API error for %s %s (%j)", async (method, path, permissions, status, code, message) => {
     const query = vi.fn<PgQueryable["query"]>().mockResolvedValue({ rows: [] });
-    const services = createAuthenticityServices({ query, connect: vi.fn() });
+    const services = module.createServices({ query, connect: vi.fn() }, {});
     const openCase = vi.fn<AuthenticityCaseServices["openCase"]>().mockRejectedValue("non-Error rejection");
     const app = new Hono<AuthenticityApiEnv>();
     app.use("*", async (c, next) => {
