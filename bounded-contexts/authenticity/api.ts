@@ -1,7 +1,7 @@
 import { Hono } from "hono";
-import { t } from "@chase-sets/localization";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AuthenticityServices } from "./support/runtime-support/services";
+import { t } from "./features/cases/api/localization/translator";
 import { authenticityCaseRoutes } from "./features/cases/api/route";
 
 export type AuthenticityActor = Readonly<{

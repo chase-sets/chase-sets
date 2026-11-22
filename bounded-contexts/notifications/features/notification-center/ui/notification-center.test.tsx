@@ -6,10 +6,10 @@ import { createRoutesStub, useLocation, type ActionFunctionArgs } from "react-ro
 import { appendFreshWriteToken, CHASE_SETS_READ_TARGET_CONTEXT_HEADER } from "@chase-sets/http/responses";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AccountNotificationsRoute, { loader } from "../../../routes/account-notifications";
-import * as requestSupport from "../../../support/request-support/api-client";
+import * as requestSupport from "../api/request-client";
 
-vi.mock("../../../support/request-support/api-client", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../../support/request-support/api-client")>();
+vi.mock("../api/request-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../api/request-client")>();
   return {
     ...actual,
     createNotificationCenterProductAlertsRequestClient: vi.fn(

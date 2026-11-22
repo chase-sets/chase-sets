@@ -37,12 +37,15 @@ import { centsToMoneyAmount, moneyToCents, tryMoneyToCents } from "@chase-sets/p
 import { STRIPE_API_VERSION } from "@chase-sets/stripe-config";
 import {
   executeGovernedProviderWrite,
+  PaymentCreateRejected,
   type GovernedProviderWriteOptions,
 } from "@chase-sets/platform-runtime/evidence-window-provider-write-executor";
 import {
   ProviderWriteRefused,
+  isPaymentCreateWriter,
   GOVERNED_RETURN_ORIGIN,
   GOVERNED_SETUP_PATH,
+  type PaymentCreateRejection,
   type ProviderWriteBinding,
   type ProviderWriteWindow,
   type ProviderCancelGovernance,
@@ -723,7 +726,41 @@ function mapSavedPaymentMethod(method: StripePaymentMethodResponse): ProcessorSa
   };
 }
 
-async function parseStripeResponse<T>(response: Response): Promise<T> {
+export { PaymentCreateRejected };
+
+export function classifyPaymentCreateRejection(status: number, body: unknown): PaymentCreateRejection | null {
+  if (status !== 402 || typeof body !== "object" || body === null || !("error" in body)) return null;
+  const error = body.error;
+  if (
+    typeof error !== "object" ||
+    error === null ||
+    !("type" in error) ||
+    error.type !== "card_error" ||
+    !("payment_intent" in error)
+  )
+    return null;
+  const intent = error.payment_intent;
+  if (
+    typeof intent !== "object" ||
+    intent === null ||
+    !("id" in intent) ||
+    typeof intent.id !== "string" ||
+    !/^pi_[A-Za-z0-9]{1,253}$/.test(intent.id) ||
+    !("status" in intent) ||
+    intent.status !== "requires_payment_method"
+  )
+    return null;
+  const code = "code" in error ? error.code : null;
+  return {
+    status,
+    type: error.type,
+    code: typeof code === "string" && /^[a-z][a-z0-9_]{0,127}$/.test(code) ? code : null,
+    paymentIntentId: intent.id,
+    paymentIntentStatus: intent.status,
+  };
+}
+
+async function parseStripeResponse<T>(response: Response, paymentCreate: boolean): Promise<T> {
   const body = await response.json().catch(() => null);
 
   if (!response.ok) {
@@ -742,11 +779,10 @@ async function parseStripeResponse<T>(response: Response): Promise<T> {
         ? (body as { error: { message: string } }).error.message
         : `Stripe request failed with status ${response.status}.`;
 
-    throw new ProviderAdapterError(
-      providerFailureCategoryFromText(message, providerFailureCategoryFromHttpStatus(response.status)),
-      message,
-      response.status,
-    );
+    const category = providerFailureCategoryFromText(message, providerFailureCategoryFromHttpStatus(response.status));
+    const rejection = paymentCreate ? classifyPaymentCreateRejection(response.status, body) : null;
+    if (rejection) throw new PaymentCreateRejected(rejection, message, category);
+    throw new ProviderAdapterError(category, message, response.status);
   }
 
   return body as T;
@@ -1278,7 +1314,7 @@ export function createStripePaymentProcessorGateway(
   async function rawStripeRequest<T>(
     path: string,
     init: RequestInit,
-    options: Readonly<{ idempotencyKey?: string | null }> = {},
+    options: Readonly<{ idempotencyKey?: string | null; paymentCreate?: boolean }> = {},
   ) {
     const headers = new Headers(init.headers);
     headers.set("Authorization", authorization);
@@ -1292,7 +1328,7 @@ export function createStripePaymentProcessorGateway(
       ...init,
       headers,
     });
-    return parseStripeResponse<T>(response);
+    return parseStripeResponse<T>(response, options.paymentCreate ?? false);
   }
 
   async function stripeRequest<T>(
@@ -1315,8 +1351,10 @@ export function createStripePaymentProcessorGateway(
         path,
       );
     if (!covered) return rawStripeRequest<T>(path, init, requestOptions);
+    const paymentCreate =
+      requestOptions.write !== undefined && isPaymentCreateWriter(requestOptions.write.binding.writerKind);
     const window = await resolveWriteWindow(requestOptions.write?.window);
-    if (!window) return rawStripeRequest<T>(path, init, requestOptions);
+    if (!window) return rawStripeRequest<T>(path, init, { ...requestOptions, paymentCreate });
     if (!requestOptions.write) throw new ProviderWriteRefused("invalid-identity");
     const target = path.endsWith("/cancel") ? path.split("/").at(-2)! : null;
     return executeGovernedProviderWrite(options, {
@@ -1340,7 +1378,7 @@ export function createStripePaymentProcessorGateway(
             method: envelope.method,
             ...(envelope.bodyKind === "form" ? { body: envelope.bodyText! } : {}),
           },
-          { idempotencyKey },
+          { idempotencyKey, paymentCreate },
         ),
       retrieve: (reference) =>
         rawStripeRequest<T>(

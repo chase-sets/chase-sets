@@ -999,7 +999,7 @@ describe("shared E2E setup selection", () => {
       changedFiles.includes("deployables/marketplace/e2e/unmapped.spec.ts"),
     );
     expect(captured.cases).toHaveLength(150);
-    expect(candidate.cases).toHaveLength(160);
+    expect(candidate.cases).toHaveLength(161);
     expect(candidate.families).toEqual([
       ...captured.families
         .filter((family) => family.path !== retired)
@@ -1010,9 +1010,17 @@ describe("shared E2E setup selection", () => {
                 pattern:
                   "/^bounded-contexts\\/discovery\\/routes\\/item-detail(?:\\.|-market-history\\.|-rail-analytics\\.)/",
               }
-            : family.family === "e2eNoSuiteExclusions:4"
-              ? { ...family, family: "e2eNoSuiteExclusions:3" }
-              : family,
+            : family.family === "boundedContextRouteSuiteOwnership:51"
+              ? {
+                  ...family,
+                  pattern:
+                    "/^bounded-contexts\\/notifications\\/(?:routes|features\\/notification-center\\/ui\\/routes)\\/account-notifications\\./",
+                  path: "bounded-contexts/notifications/features/notification-center/ui/routes/account-notifications.tsx",
+                  trackedCandidates: 2,
+                }
+              : family.family === "e2eNoSuiteExclusions:4"
+                ? { ...family, family: "e2eNoSuiteExclusions:3" }
+                : family,
         ),
       {
         family: "boundedContextRouteSuiteOwnership:52",
@@ -4048,6 +4056,17 @@ describe("change-scope", () => {
 
     expect(scope.e2eTestsRequired).toBe(true);
     expect(scope.e2eSuiteIds).toEqual(["marketplace_browse", "marketplace_checkout"]);
+  });
+
+  it.each([
+    ["bounded-contexts/notifications/routes/account-notifications.tsx", ["marketplace_account"]],
+    [
+      "bounded-contexts/notifications/features/notification-center/ui/routes/account-notifications.tsx",
+      ["marketplace_account"],
+    ],
+    ["bounded-contexts/notifications/routes/account-notifications.test.tsx", []],
+  ])("selects the owning E2E suite for account notification files: %s", (file, suites) => {
+    expect(e2eSuiteIdsForChangedFile(file)).toEqual(suites);
   });
 
   it("routes context changes to the consolidated marketplace seed DB acceptance suite", () => {

@@ -6,6 +6,7 @@ import {
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
+import type { DeploymentEnvironment } from "@chase-sets/platform-runtime/config-schema";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { RateLimitRuleResolver } from "@chase-sets/http/rate-limit";
 import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
@@ -39,6 +40,7 @@ import { buildManagedOfferProjectionHandlers } from "../../features/offers/read-
 import { createProjectionHandlerSet } from "@chase-sets/event-core/projector";
 
 export type MarketplaceServiceOptions = Readonly<{
+  deploymentEnvironment?: DeploymentEnvironment;
   listingTargetAuthority?: ListingTargetAuthority;
   managedOfferPricing?: ManagedOfferPricing;
   offerLifecycleAdmission?: MarketplaceOfferLifecycleAdmission;
@@ -62,8 +64,9 @@ export type MarketplaceServices = Readonly<{
   reviews: ReturnType<typeof createReviewRuntime>;
   sellerMetrics: ReturnType<typeof createSellerMetricsRuntime>;
   listingEvidencePolicies: ReturnType<typeof createListingEvidencePolicyRuntime>;
-  /** The shared platform-policy runtime, mounted for this context's `definePolicy` documents (listing-gate, seller-behavioral-metrics policies). */
+  /** The shared platform-policy runtime for Marketplace's policy documents and consent activation. */
   policies: PolicyRuntime;
+  deploymentEnvironment?: DeploymentEnvironment;
   projectors: readonly ProjectionHandlerSet[];
   commercialTermsResolver: CommercialTermsResolver;
   rateLimitPolicyResolver?: RateLimitRuleResolver;
@@ -173,6 +176,7 @@ export function createMarketplaceServices(
     sellerMetrics,
     listingEvidencePolicies,
     policies,
+    deploymentEnvironment: options.deploymentEnvironment,
     projectors: [
       createProjectionHandlerSet({
         projectionName: "marketplace-managed-offer-projection",
