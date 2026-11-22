@@ -834,7 +834,11 @@ describe("Catalog Merge Candidate Catalog-owned pictures", () => {
     vi.unstubAllGlobals();
   });
 
-  function member(providerKey: string, kind: ImageKind, url = imageUrls[providerKey] ?? imageUrls.ygoprodeck!) {
+  function member(
+    providerKey: string,
+    kind: ImageKind,
+    url = imageUrls[providerKey] ?? imageUrls.ygoprodeck!,
+  ): { observation: CatalogProviderSourceObservationInput; version: CatalogProviderIntegrationProfileVersionRecord } {
     const profile = {
       ...magic.profile,
       duplicatePreventionMapping: { ...magic.profile.duplicatePreventionMapping, rules: [] },
