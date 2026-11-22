@@ -613,10 +613,10 @@ describe("real repository execution membership", () => {
 
       expect(result.violations, result.violations.join("\n")).toEqual([]);
       expect(result.inventory.parserVersion).toBe("6.0.3");
-      expect(result.inventory.declarations).toHaveLength(140);
+      expect(result.inventory.declarations).toHaveLength(139);
       expect(result.inventory.partition).toEqual({
         "node-enforced": 58,
-        "vite-excluded": 54,
+        "vite-excluded": 53,
         "vitest-excluded": 28,
         "manifest-only": 0,
         indeterminate: 0,
@@ -631,6 +631,22 @@ describe("real repository execution membership", () => {
           disposition,
         }),
       );
+      expect(
+        normalized.filter(
+          (entry) =>
+            entry.resolved === "bounded-contexts/commercial-terms/context.json" &&
+            entry.relativeFile.includes("/ui/routes/"),
+        ),
+      ).toEqual([
+        {
+          relativeFile: "bounded-contexts/commercial-terms/features/home/ui/routes/home.test.ts",
+          form: "import",
+          specifier: "../../../../context.json",
+          attributeText: null,
+          resolved: "bounded-contexts/commercial-terms/context.json",
+          disposition: "vitest-excluded",
+        },
+      ]);
       expect(
         normalized.filter(
           ({ relativeFile }) =>
@@ -649,7 +665,7 @@ describe("real repository execution membership", () => {
         },
       ]);
       expect(createHash("sha256").update(JSON.stringify(normalized)).digest("hex")).toBe(
-        "df0ea5f24bdeaed06a07c827eb1616c640f47cefef147d6fb3abc65d63e7356c",
+        "89522b5a8474b219bec1af682d4656a17c53a301cbca51a3b96b9a3bd02a9528",
       );
       expect(
         normalized.filter(
