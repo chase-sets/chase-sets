@@ -9,7 +9,7 @@ const actors = new Map<RoleKey, Actor>();
 
 beforeAll(async () => {
   for (const roleKey of ROLE_KEYS) {
-    // Empty stored grants exercise ROLE_PERMISSIONS through Auth's public resolver.
+    // Include old platform grants to prove navigation uses resolved authority, not the snapshot.
     const actor = await resolveActorFromSessionId(
       {
         sessions: {
@@ -31,7 +31,13 @@ beforeAll(async () => {
           getActiveMembershipForUserAccount: async () => ({
             membership_id: "mbr_synthetic_role_matrix",
             role_key: roleKey,
-            role_permissions: [],
+            role_permissions: [
+              "catalog.manage",
+              "catalog.view",
+              "payouts.reconcile",
+              "public-presence.view",
+              "platform-policy.view",
+            ],
             status: "active",
           }),
           getUser: async () => ({ primary_email: null, contact_methods: [] }),
@@ -66,17 +72,25 @@ describe("admin RBAC matrix (role fixtures)", () => {
   });
   it.each([
     ["platform-admin", ["access", "catalog", "commerce", "growth", "platform", "support"]],
-    ["owner", ["access", "catalog", "commerce", "growth", "platform", "support"]],
-    ["manager", ["access", "catalog", "commerce", "growth", "platform", "support"]],
-    ["fulfillment", ["access", "commerce", "growth", "support"]],
+    ["owner", ["access", "support"]],
+    ["manager", ["access", "support"]],
+    ["fulfillment", ["access", "commerce", "support"]],
     // The Customer Feedback attention surface is visible with support.view;
     // Support Requests still requires support.manage.
-    ["viewer", ["access", "growth", "support"]],
+    ["viewer", ["access", "support"]],
   ] as const)("role %s sees exactly its authorized top-level sections", (roleKey, expectedSections) => {
     expect(visibleSectionKeys(roleKey)).toEqual([...expectedSections].sort());
   });
 
   it.each([
+    ["owner", "catalog"],
+    ["owner", "commerce"],
+    ["owner", "growth"],
+    ["owner", "platform"],
+    ["manager", "catalog"],
+    ["manager", "commerce"],
+    ["manager", "growth"],
+    ["manager", "platform"],
     ["fulfillment", "catalog"],
     ["fulfillment", "platform"],
     ["viewer", "catalog"],
@@ -113,37 +127,18 @@ describe("admin RBAC matrix (role fixtures)", () => {
     expect(platformAdminCommerceItems).toContainEqual(expect.objectContaining({ href: "/commerce/postage-policies" }));
     expect(platformAdminCommerceItems).toContainEqual(expect.objectContaining({ href: "/commerce/money-health" }));
     expect(platformAdminCommerceItems).toContainEqual(expect.objectContaining({ href: "/commerce/payout-operations" }));
-
-    // owner and manager both carry payouts.reconcile and see the full Commerce surface.
-    for (const roleKey of ["owner", "manager"] as const) {
-      const commerceItems = resolveAdminWebNavItems(actorForRole(roleKey), { section: "commerce" });
-      expect(commerceItems).toContainEqual(expect.objectContaining({ href: "/commerce/money-health" }));
-      expect(commerceItems).toContainEqual(expect.objectContaining({ href: "/commerce/payout-operations" }));
-    }
   });
 
   it.each(ROLE_KEYS)("shows each payout page once only to supported role %s", (role) => {
     const items = resolveAdminWebNavItems(actorForRole(role), { section: "commerce" });
     for (const href of ["/commerce/money-health", "/commerce/payout-operations"]) {
-      expect(items.filter((item) => item.href === href)).toHaveLength(
-        ["platform-admin", "owner", "manager"].includes(role) ? 1 : 0,
-      );
+      expect(items.filter((item) => item.href === href)).toHaveLength(role === "platform-admin" ? 1 : 0);
     }
   });
 
-  it("shows each payout page once when stored and role grants include both permissions", () => {
-    const actor = { permissions: [...actorForRole("platform-admin").permissions, "payouts.reconcile"] };
-    const items = resolveAdminWebNavItems(actor, { section: "commerce" });
-    for (const href of ["/commerce/money-health", "/commerce/payout-operations"]) {
-      expect(items.filter((item) => item.href === href)).toHaveLength(1);
-    }
-  });
-
-  it("keeps manager's Platform visibility distinct from its Projection Operations access", () => {
-    // manager sees the Platform section (platform-policy.view, insights-dashboards.view) but lacks
-    // projection-operations.view, so Projection Operations must not resolve as a shortcut.
-    const managerPlatformItems = resolveAdminWebNavItems(actorForRole("manager"), { section: "platform" });
-    expect(managerPlatformItems).toContainEqual(expect.objectContaining({ href: "/platform/policy-console" }));
-    expect(managerPlatformItems).not.toContainEqual(expect.objectContaining({ href: "/platform/projections" }));
+  it("retains the platform policy and projection shortcuts for platform-admin", () => {
+    const platformItems = resolveAdminWebNavItems(actorForRole("platform-admin"), { section: "platform" });
+    expect(platformItems).toContainEqual(expect.objectContaining({ href: "/platform/policy-console" }));
+    expect(platformItems).toContainEqual(expect.objectContaining({ href: "/platform/projections" }));
   });
 });

@@ -116,7 +116,11 @@ describe("payout operations trusted loader and action", () => {
     vi.unstubAllEnvs();
   });
 
-  async function setup(role: "platform-admin" | "owner" | "viewer" | null, empty = false) {
+  async function setup(
+    role: "platform-admin" | "owner" | "manager" | "viewer" | null,
+    empty = false,
+    permissions: readonly string[] = role ? ROLE_PERMISSIONS[role] : [],
+  ) {
     const actual = await vi.importActual<typeof import("../../support/request-support/api-client")>(
       "../../support/request-support/api-client",
     );
@@ -130,7 +134,7 @@ describe("payout operations trusted loader and action", () => {
           accountId: "acc_a",
           membershipId: "mem_test",
           roleKey: role,
-          permissions: ROLE_PERMISSIONS[role],
+          permissions,
         }
       : null;
     const rows = empty
@@ -184,7 +188,7 @@ describe("payout operations trusted loader and action", () => {
   }
 
   it.each([false, true])("loads platform grants with only reconciliation data, empty=%s", async (empty) => {
-    const s = await setup("platform-admin", empty);
+    const s = await setup("platform-admin", empty, ["payouts.platform.view"]);
     const result = await load();
     expect(result).toMatchObject({
       payouts: { items: s.rows },
@@ -206,17 +210,17 @@ describe("payout operations trusted loader and action", () => {
     ]);
   });
 
-  it.each([false, true])("preserves reconciler loader data and requests, empty=%s", async (empty) => {
-    const s = await setup("owner", empty);
+  it.each([false, true])("loads admin reconciliation data without seller readiness, empty=%s", async (empty) => {
+    const s = await setup("platform-admin", empty);
     const result = await load();
     expect(result).toMatchObject({
       canReconcile: true,
-      payouts: { items: empty ? [] : [s.rows[0]] },
+      payouts: { items: s.rows },
       idempotencyKeys: { items: [{ operation_key: "key_a" }] },
-      payoutReadiness: { status: "ready" },
+      payoutReadiness: null,
     });
     expect(s.listPayoutsNeedingReconciliation).toHaveBeenCalledExactlyOnceWith({
-      accountId: "acc_a",
+      accountId: null,
       limit: 100,
       filter: "failed",
     });
@@ -224,19 +228,49 @@ describe("payout operations trusted loader and action", () => {
       "/api/auth/session",
       "/api/settlement/payouts/reconciliation",
       "/api/settlement/payouts/provider-idempotency",
-      "/api/settlement/payout-readiness",
     ]);
   });
 
-  it.each(["viewer", null] as const)("preserves API denial rather than fabricating empty data for %s", async (role) => {
-    const s = await setup(role);
-    await expect(load()).rejects.toMatchObject({ status: role === null ? 401 : 403 });
-    expect(s.listPayoutsNeedingReconciliation).not.toHaveBeenCalled();
-    expect(s.listProviderIdempotencyKeys).not.toHaveBeenCalled();
-  });
+  it.each([false, true])(
+    "preserves account-scoped reconciliation and readiness when both are authorized, empty=%s",
+    async (empty) => {
+      const s = await setup("platform-admin", empty, ["payouts.reconcile", "payouts.view"]);
+      const result = await load();
+      expect(result).toMatchObject({
+        canReconcile: true,
+        payouts: { items: empty ? [] : [s.rows[0]] },
+        idempotencyKeys: { items: [{ operation_key: "key_a" }] },
+        payoutReadiness: { status: "ready" },
+      });
+      expect(s.listPayoutsNeedingReconciliation).toHaveBeenCalledExactlyOnceWith({
+        accountId: "acc_a",
+        limit: 100,
+        filter: "failed",
+      });
+      expect(s.fetch.mock.calls.map(([url]) => new URL(String(url)).pathname)).toEqual([
+        "/api/auth/session",
+        "/api/settlement/payouts/reconciliation",
+        "/api/settlement/payouts/provider-idempotency",
+        "/api/settlement/payout-readiness",
+      ]);
+    },
+  );
 
-  it.each(["platform-admin", "owner"] as const)("propagates data failure for %s", async (role) => {
-    const s = await setup(role);
+  it.each(["owner", "manager", "viewer", null] as const)(
+    "preserves API denial rather than fabricating empty data for %s",
+    async (role) => {
+      const s = await setup(role);
+      await expect(load()).rejects.toMatchObject({ status: role === null ? 401 : 403 });
+      expect(s.listPayoutsNeedingReconciliation).not.toHaveBeenCalled();
+      expect(s.listProviderIdempotencyKeys).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { label: "reconciler", permissions: ROLE_PERMISSIONS["platform-admin"] },
+    { label: "reader", permissions: ["payouts.platform.view"] },
+  ])("propagates data failure for an admin $label", async ({ permissions }) => {
+    const s = await setup("platform-admin", false, permissions);
     const original = s.fetch.getMockImplementation()!;
     s.fetch.mockImplementation(async (input, init) =>
       String(input).includes("/api/auth/session")
@@ -254,15 +288,18 @@ describe("payout operations trusted loader and action", () => {
     expect(s.listPayoutsNeedingReconciliation).not.toHaveBeenCalled();
   });
 
-  it("preserves the real API denial when platform readers forge the run action", async () => {
-    const s = await setup("platform-admin");
-    await expect(
-      payoutOperationsAction({
-        request: formRequest(new URLSearchParams({ intent: "run-reconciliation" })),
-        params: {},
-        context: undefined,
-      } as never),
-    ).rejects.toMatchObject({ status: 403 });
-    expect(s.enqueuePayoutReconciliationJob).not.toHaveBeenCalled();
-  });
+  it.each(["owner", "manager", "platform-admin"] as const)(
+    "denies %s without reconcile permission on the run action",
+    async (role) => {
+      const s = role === "platform-admin" ? await setup(role, false, ["payouts.platform.view"]) : await setup(role);
+      await expect(
+        payoutOperationsAction({
+          request: formRequest(new URLSearchParams({ intent: "run-reconciliation" })),
+          params: {},
+          context: undefined,
+        } as never),
+      ).rejects.toMatchObject({ status: 403 });
+      expect(s.enqueuePayoutReconciliationJob).not.toHaveBeenCalled();
+    },
+  );
 });

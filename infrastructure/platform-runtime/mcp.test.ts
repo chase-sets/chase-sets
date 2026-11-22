@@ -5,6 +5,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import {
   AGENT_OAUTH_COMMERCE_SCOPES,
+  ROLE_PERMISSIONS,
   isAgentOAuthOperatorScope,
   type AgentOAuthScope,
   type OperatorAuthority,
@@ -41,12 +42,7 @@ import {
 } from "./mcp-protocol";
 import type { ResolvedActor } from "./auth";
 import { CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV } from "./http";
-import {
-  flattenAvailableMcpResources,
-  flattenAvailableMcpTools,
-  validateMcpServiceCatalog,
-  type McpServiceDescriptor,
-} from "./mcp-contracts";
+import { flattenAvailableMcpTools, validateMcpServiceCatalog, type McpServiceDescriptor } from "./mcp-contracts";
 
 const actor: ResolvedActor = {
   sessionId: "sess_1",
@@ -673,17 +669,7 @@ describe("MCP runtime routes", () => {
     expect(full.tools.map((tool) => tool.name)).toContain("marketplace.get-seller-attention-queue");
   });
 
-  // Operator tools/list visibility depends only on the operator authority's role permissions, so a grant equal to
-  // the union every available operator capability requires lists every available tool without hand-listing them.
-  const operatorCapabilityPermissions = [
-    ...new Set(
-      [...flattenAvailableMcpTools(), ...flattenAvailableMcpResources()]
-        .filter((capability) => capability.permissionBoundary.scope === "operator")
-        .flatMap((capability) => capability.permissionBoundary.requiredPermissions),
-    ),
-  ].sort();
-
-  function listToolsWithOperatorRolePermissions(rolePermissions: readonly string[]) {
+  function listToolsWithPlatformAdminAuthority(rolePermissions: readonly string[] = []) {
     const app = createActorApp(
       { ...actor, roleKey: "platform-admin" },
       {
@@ -706,7 +692,7 @@ describe("MCP runtime routes", () => {
   }
 
   it("maps every cataloged tool risk model onto MCP standard annotations", async () => {
-    const response = await listToolsWithOperatorRolePermissions(operatorCapabilityPermissions);
+    const response = await listToolsWithPlatformAdminAuthority();
     const body = (await response.json()) as {
       result: {
         tools: Array<{
@@ -739,7 +725,7 @@ describe("MCP runtime routes", () => {
     }
   });
 
-  it("drops exactly the operator tools whose permission the derived operator grant lacks", async () => {
+  it("does not drop operator tools when the authority snapshot omits a current role permission", async () => {
     const availableTools = flattenAvailableMcpTools();
     const operatorTools = availableTools.filter((tool) => tool.permissionBoundary.scope === "operator");
     const operatorToolPermissions = [
@@ -748,21 +734,12 @@ describe("MCP runtime routes", () => {
     expect(operatorToolPermissions.length).toBeGreaterThan(0);
 
     for (const withheldPermission of operatorToolPermissions) {
-      const response = await listToolsWithOperatorRolePermissions(
-        operatorCapabilityPermissions.filter((permission) => permission !== withheldPermission),
+      const response = await listToolsWithPlatformAdminAuthority(
+        ROLE_PERMISSIONS["platform-admin"].filter((permission) => permission !== withheldPermission),
       );
       const body = (await response.json()) as { result: { tools: Array<{ name: string }> } };
-      const droppedToolNames = operatorTools
-        .filter((tool) => tool.permissionBoundary.requiredPermissions.includes(withheldPermission))
-        .map((tool) => tool.name);
-
       expect(response.status).toBe(200);
-      expect(body.result.tools.map((tool) => tool.name).sort()).toEqual(
-        availableTools
-          .map((tool) => tool.name)
-          .filter((name) => !droppedToolNames.includes(name))
-          .sort(),
-      );
+      expect(body.result.tools.map((tool) => tool.name).sort()).toEqual(availableTools.map((tool) => tool.name).sort());
     }
   });
 
@@ -2984,7 +2961,7 @@ describe("operator invocation context", () => {
   const offerEconomicsResource = "chase-sets://platform-operations/offer-economics/summary";
   const operatorWriteGrant = grantActor(["operations:write"]);
 
-  it("runs the offer-economics tool and resource for an operations:write grant with Identity role permissions", async () => {
+  it("runs the offer-economics tool and resource with the current role's permissions, not the supplied snapshot", async () => {
     const seen: ResolvedActor[] = [];
     const app = createActorApp(operatorWriteGrant, {
       operatorAuthority: async () => grantedPlatformAdmin,
@@ -3012,7 +2989,7 @@ describe("operator invocation context", () => {
       expect(handlerActor).toEqual({
         ...operatorWriteGrant,
         roleKey: "platform-admin",
-        permissions: grantedPlatformAdmin.rolePermissions,
+        permissions: ROLE_PERMISSIONS["platform-admin"],
       });
       expect(handlerActor.agentGrant).toEqual(operatorWriteGrant.agentGrant);
     }
@@ -3040,6 +3017,11 @@ describe("operator invocation context", () => {
 
   it.each([
     { label: "demotion", authority: async () => demoted, reason: "operator-authority-not-platform-admin" },
+    {
+      label: "a stale owner grant containing catalog.manage",
+      authority: async () => Object.defineProperty({ ...grantedPlatformAdmin }, "roleKey", { value: "owner" }),
+      reason: "operator-authority-not-platform-admin",
+    },
     {
       label: "revocation",
       authority: async () => ({ kind: "denied", reason: "inactive" }) as const,
