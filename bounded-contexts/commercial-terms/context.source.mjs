@@ -1,0 +1,616 @@
+import marketplaceSalesFee from "./features/marketplace-sales-fee/metadata.json" with { type: "json" };
+
+export const contextManifest = {
+  contextName: "commercial-terms",
+  packageName: "@chase-sets/commercial-terms",
+  localeCatalogs: ["contracts/localization/locales/en/commercial-terms.ts"],
+  ownedNouns: [
+    "commercial-terms-schedule",
+    "commercial-agreement",
+    "commercial-terms-resolution",
+    "marketplace-sales-fee-schedule",
+    "checkout-processing-fee-policy",
+    "authenticity-fee-policy",
+  ],
+  streamPrefix: "commercial-terms.",
+  apiBasePath: "/api/commercial-terms",
+  slices: [
+    "home",
+    "schedules",
+    "agreements",
+    "resolutions",
+    "marketplace-sales-fee",
+    "checkout-processing-fee",
+    "authenticity-fee",
+  ],
+  allowedSupportDirectories: ["runtime-support", "seed-support"],
+  publicExports: [".", "./context", "./routes/*", "./seed-support/*", "./server"],
+  allowedContextDependencies: ["@chase-sets/identity", "@chase-sets/public-presence"],
+  seedRequirements: ["identity"],
+  eventSubscriptions: [
+    {
+      sourceContextName: "identity",
+      projectionName: "commercial-terms-account-projection",
+      subscriptionVersion: 1,
+      eventTypes: [
+        "identity.account.created",
+        "identity.account.profile-updated",
+        "identity.account.founders-window-opened",
+        "identity.account.suspended",
+        "identity.account.reactivated",
+        "identity.account.closed",
+      ],
+      order: 10,
+      projectionHandlerSetNames: ["commercial-terms-account-projection"],
+    },
+  ],
+  eventReactions: [
+    {
+      sourceContextName: "identity",
+      reactionName: "commercial-terms-founders-window-reaction",
+      subscriptionVersion: 1,
+      filterToEventTypes: true,
+      eventTypes: ["identity.account.founders-window-opened"],
+      order: 11,
+      reactionHandlerSetNames: ["commercial-terms-founders-window-reaction"],
+      idempotencyPolicy: "idempotent-command-dispatch",
+      retryPolicy: "retry-from-last-checkpoint",
+      failurePolicy: "surface-as-reaction-failure",
+    },
+  ],
+  projectionGroups: [
+    {
+      projectionName: "commercial-terms-account-projection",
+      sourceContextNames: ["identity"],
+      ownedTables: ["commercial_terms_account_pages"],
+      requiredDuringBootstrap: true,
+      resetStrategy: "replay-only",
+    },
+    {
+      projectionName: "commercial-terms-founders-window-reaction",
+      handlerKind: "reaction",
+      sourceContextNames: ["identity"],
+      ownedTables: [],
+      requiredDuringBootstrap: false,
+      resetStrategy: "replay-only",
+    },
+    {
+      projectionName: "platform-policy-document-projection",
+      sourceContextNames: ["commercial-terms"],
+      ownedTables: ["platform_policy_documents", "platform_policy_document_history"],
+      requiredDuringBootstrap: false,
+      resetStrategy: "truncate-owned-tables",
+    },
+  ],
+  hostPorts: [],
+  apiDeployables: ["platform-api"],
+  apiMounts: [
+    {
+      mountPath: "/api/commercial-terms",
+      kind: "primary",
+      requiresAuth: true,
+      readFreshnessRoutes: [
+        {
+          routePath: "/home",
+          methods: ["GET", "HEAD"],
+          dependencies: [
+            {
+              readModelTable: "platform_policy_documents",
+            },
+          ],
+        },
+        {
+          routePath: "/schedules/:id",
+          methods: ["GET", "HEAD"],
+          dependencies: [
+            {
+              readModelTable: "platform_policy_documents",
+            },
+            {
+              readModelTable: "platform_policy_document_history",
+            },
+          ],
+        },
+        {
+          routePath: "/agreements/:id",
+          methods: ["GET", "HEAD"],
+          dependencies: [
+            {
+              readModelTable: "platform_policy_documents",
+            },
+            {
+              readModelTable: "platform_policy_document_history",
+            },
+          ],
+        },
+      ],
+    },
+    {
+      mountPath: "/api/public/commercial-terms",
+      kind: "additional",
+      requiresAuth: false,
+    },
+  ],
+  readAfterWriteRouteInventory: [
+    {
+      id: "commercial-terms.schedule-create-to-home",
+      owner: "commercial-terms",
+      risk: "important",
+      freshnessSlo: {
+        flowClass: "important-self-refresh",
+        p95Ms: 2500,
+        p99Ms: 5000,
+      },
+      source: {
+        routeId: "commercial-terms-home",
+        actions: ["Create commercial-terms schedule"],
+        command: "CreatePolicyDocument",
+        helperUses: ["formActionRedirect"],
+      },
+      destination: {
+        routeId: "commercial-terms-home",
+        apiContextName: "commercial-terms",
+        apiRoutePath: "/home",
+        readModelTables: ["platform_policy_documents"],
+        helperUses: ["loadAfterWrite"],
+        transientRecovery: {
+          kinds: "refreshable-catching-up",
+          behavior:
+            "Commercial Terms home waits on schedule projections after create and keeps projection lag inside the home-owned unavailable state.",
+        },
+      },
+    },
+    {
+      id: "commercial-terms.schedule-update-to-home",
+      owner: "commercial-terms",
+      risk: "important",
+      freshnessSlo: {
+        flowClass: "important-self-refresh",
+        p95Ms: 2500,
+        p99Ms: 5000,
+      },
+      source: {
+        routeId: "commercial-terms-home",
+        actions: ["Update commercial-terms schedule"],
+        command: "RevisePolicyDocument",
+        helperUses: ["formActionRedirect"],
+      },
+      destination: {
+        routeId: "commercial-terms-home",
+        apiContextName: "commercial-terms",
+        apiRoutePath: "/schedules/:id",
+        readModelTables: ["platform_policy_documents", "platform_policy_document_history"],
+        helperUses: ["loadAfterWrite"],
+        transientRecovery: {
+          kinds: "refreshable-catching-up",
+          behavior:
+            "Commercial Terms home reopens the schedule sheet after the exact fresh read has caught up, including revision history.",
+        },
+      },
+    },
+    {
+      id: "commercial-terms.agreement-create-to-home",
+      owner: "commercial-terms",
+      risk: "important",
+      freshnessSlo: {
+        flowClass: "important-self-refresh",
+        p95Ms: 2500,
+        p99Ms: 5000,
+      },
+      source: {
+        routeId: "commercial-terms-home",
+        actions: ["Create commercial agreement"],
+        command: "CreatePolicyDocument",
+        helperUses: ["formActionRedirect"],
+      },
+      destination: {
+        routeId: "commercial-terms-home",
+        apiContextName: "commercial-terms",
+        apiRoutePath: "/home",
+        readModelTables: ["platform_policy_documents"],
+        helperUses: ["loadAfterWrite"],
+        transientRecovery: {
+          kinds: "refreshable-catching-up",
+          behavior: "Commercial Terms home reopens the new account override after its exact fresh read has caught up.",
+        },
+      },
+    },
+    {
+      id: "commercial-terms.account-agreement-create-to-home",
+      owner: "commercial-terms",
+      risk: "important",
+      freshnessSlo: {
+        flowClass: "important-self-refresh",
+        p95Ms: 2500,
+        p99Ms: 5000,
+      },
+      source: {
+        routeId: "commercial-terms-home",
+        actions: ["Create commercial agreement for account"],
+        command: "CreatePolicyDocument",
+        helperUses: ["formActionRedirect"],
+      },
+      destination: {
+        routeId: "commercial-terms-home",
+        apiContextName: "commercial-terms",
+        apiRoutePath: "/home",
+        readModelTables: ["platform_policy_documents"],
+        helperUses: ["loadAfterWrite"],
+        transientRecovery: {
+          kinds: "refreshable-catching-up",
+          behavior:
+            "The inline account-scoped override flow reopens the created agreement after its exact fresh read has caught up.",
+        },
+      },
+    },
+    {
+      id: "commercial-terms.agreement-update-to-home",
+      owner: "commercial-terms",
+      risk: "important",
+      freshnessSlo: {
+        flowClass: "important-self-refresh",
+        p95Ms: 2500,
+        p99Ms: 5000,
+      },
+      source: {
+        routeId: "commercial-terms-home",
+        actions: ["Update commercial agreement"],
+        command: "RevisePolicyDocument",
+        helperUses: ["formActionRedirect"],
+      },
+      destination: {
+        routeId: "commercial-terms-home",
+        apiContextName: "commercial-terms",
+        apiRoutePath: "/agreements/:id",
+        readModelTables: ["platform_policy_documents", "platform_policy_document_history"],
+        helperUses: ["loadAfterWrite"],
+        transientRecovery: {
+          kinds: "refreshable-catching-up",
+          behavior:
+            "Commercial Terms home reopens the agreement sheet after the exact fresh read has caught up, including revision history.",
+        },
+      },
+    },
+  ],
+  mutationConsistencyInventory: [
+    {
+      id: "commercial-terms.api-command-snapshots",
+      owner: "commercial-terms",
+      risk: "important",
+      strategy: "snapshot-return",
+      surfaces: [
+        "api-route:bounded-contexts/commercial-terms/features/agreements/api/route.ts:POST /",
+        "api-route:bounded-contexts/commercial-terms/features/agreements/api/route.ts:PUT /:id",
+        "api-route:bounded-contexts/commercial-terms/features/schedules/api/route.ts:POST /",
+        "api-route:bounded-contexts/commercial-terms/features/schedules/api/route.ts:PUT /:id",
+        "api-route:bounded-contexts/commercial-terms/features/resolutions/api/route.ts:POST /preview",
+        "api-route:bounded-contexts/commercial-terms/features/checkout-processing-fee/api/route.ts:POST /",
+        "api-route:bounded-contexts/commercial-terms/features/checkout-processing-fee/api/route.ts:PUT /:id",
+        "api-route:bounded-contexts/commercial-terms/features/authenticity-fee/api/route.ts:POST /",
+        "api-route:bounded-contexts/commercial-terms/features/authenticity-fee/api/route.ts:PUT /:id",
+      ],
+      visibleDestination: {
+        description:
+          "Commercial Terms API command routes return command-local id/version snapshots, and resolution preview returns the calculated terms snapshot directly.",
+      },
+      proof: {
+        authoritativeResponse:
+          "Create and revise routes respond from the command result before projection reads; preview responds from the resolver calculation and does not redirect to a projection-backed browser page. The checkout processing-fee and authenticity-fee create/revise routes are the shared platform-policy document commands and respond the same way -- no browser destination exists for either policy yet (admin UI is tracked as follow-up work).",
+        tests: [
+          "bounded-contexts/commercial-terms/features/agreements/api/route.test.ts",
+          "bounded-contexts/commercial-terms/features/schedules/api/route.test.ts",
+          "bounded-contexts/commercial-terms/features/resolutions/api/route.test.ts",
+          "bounded-contexts/commercial-terms/features/checkout-processing-fee/api/route.test.ts",
+          "bounded-contexts/commercial-terms/features/authenticity-fee/api/route.test.ts",
+        ],
+      },
+    },
+    {
+      id: "commercial-terms.schedule-create-form-fresh-read",
+      owner: "commercial-terms",
+      risk: "important",
+      strategy: "fresh-read",
+      surfaces: [
+        "post-form:bounded-contexts/commercial-terms/features/home/ui/commercial-terms-home-page.tsx:Hb08a81ecfd73#1",
+        "route-action:bounded-contexts/commercial-terms/routes/admin/home.tsx",
+      ],
+      visibleDestination: {
+        routeId: "commercial-terms-home",
+        apiContextName: "commercial-terms",
+        apiRoutePath: "/home",
+        readModelTables: ["platform_policy_documents"],
+        transientRecovery: {
+          kinds: "refreshable-catching-up",
+          behavior:
+            "Schedule create redirects with afterWrite and the home loader waits before reopening the created schedule sheet.",
+        },
+      },
+      proof: {
+        tests: ["bounded-contexts/commercial-terms/routes/admin/admin-routes.test.ts"],
+      },
+    },
+    {
+      id: "commercial-terms.schedule-update-form-fresh-read",
+      owner: "commercial-terms",
+      risk: "important",
+      strategy: "fresh-read",
+      surfaces: [
+        "post-form:bounded-contexts/commercial-terms/features/home/ui/commercial-terms-home-page.tsx:Hb08a81ecfd73#2",
+        "route-action:bounded-contexts/commercial-terms/routes/admin/home.tsx",
+      ],
+      visibleDestination: {
+        routeId: "commercial-terms-home",
+        apiContextName: "commercial-terms",
+        apiRoutePath: "/schedules/:id",
+        readModelTables: ["platform_policy_documents", "platform_policy_document_history"],
+        transientRecovery: {
+          kinds: "refreshable-catching-up",
+          behavior:
+            "Schedule update redirects with afterWrite and the home loader waits before reopening the revised schedule sheet.",
+        },
+      },
+      proof: {
+        tests: ["bounded-contexts/commercial-terms/routes/admin/admin-routes.test.ts"],
+      },
+    },
+    {
+      id: "commercial-terms.agreement-create-form-fresh-read",
+      owner: "commercial-terms",
+      risk: "important",
+      strategy: "fresh-read",
+      surfaces: [
+        "post-form:bounded-contexts/commercial-terms/features/home/ui/commercial-terms-home-page.tsx:Hb08a81ecfd73#3",
+        "route-action:bounded-contexts/commercial-terms/routes/admin/home.tsx",
+      ],
+      visibleDestination: {
+        routeId: "commercial-terms-home",
+        apiContextName: "commercial-terms",
+        apiRoutePath: "/home",
+        readModelTables: ["platform_policy_documents"],
+        transientRecovery: {
+          kinds: "refreshable-catching-up",
+          behavior:
+            "Agreement create redirects with afterWrite and the home loader waits before reopening the created account override.",
+        },
+      },
+      proof: {
+        tests: ["bounded-contexts/commercial-terms/routes/admin/admin-routes.test.ts"],
+      },
+    },
+    {
+      id: "commercial-terms.agreement-update-form-fresh-read",
+      owner: "commercial-terms",
+      risk: "important",
+      strategy: "fresh-read",
+      surfaces: [
+        "post-form:bounded-contexts/commercial-terms/features/home/ui/commercial-terms-home-page.tsx:Hb08a81ecfd73#4",
+        "route-action:bounded-contexts/commercial-terms/routes/admin/home.tsx",
+      ],
+      visibleDestination: {
+        routeId: "commercial-terms-home",
+        apiContextName: "commercial-terms",
+        apiRoutePath: "/agreements/:id",
+        readModelTables: ["platform_policy_documents", "platform_policy_document_history"],
+        transientRecovery: {
+          kinds: "refreshable-catching-up",
+          behavior:
+            "Agreement update redirects with afterWrite and the home loader waits before reopening the revised account override.",
+        },
+      },
+      proof: {
+        tests: ["bounded-contexts/commercial-terms/routes/admin/admin-routes.test.ts"],
+      },
+    },
+  ],
+  crossContextFallbackInventory: [
+    {
+      id: "commercial-terms.identity-account-source-fresh-account",
+      owner: "commercial-terms",
+      category: "host-owned bridge",
+      sourceContextName: "identity",
+      targetContextName: "commercial-terms",
+      behaviorOwner: "Commercial Terms owns resolution; Identity owns Account source state.",
+      implementation: {
+        consumer: "bounded-contexts/commercial-terms/features/resolutions/read-model/resolve.ts",
+        hostBridges: ["deployables/platform-api/src/app.ts", "deployables/platform-worker/src/main.ts"],
+        providerSurface: "@chase-sets/identity services.accounts.getAccountState",
+      },
+      actorOwnershipGuard:
+        "The host composes the bridge from Identity services inside platform-api and platform-worker only; Commercial Terms receives no actor-identifying data and consumes only account id, account type, and status for the account id being resolved.",
+      catalogSourceGuard:
+        "Not catalog-scoped. The source guard is the requested account id and the Identity Account source state projected from identity.account.* events.",
+      freshnessScope:
+        "Commercial Terms resolution may recover account type/status for a fresh account when commercial_terms_account_pages has not yet projected the Identity Account event.",
+      projectionWaitedOn: {
+        projectionName: "commercial-terms-account-projection",
+        readModelTable: "commercial_terms_account_pages",
+        sourceContextName: "identity",
+      },
+      terminationRule:
+        "The resolver always reads commercial_terms_account_pages first and calls the Identity account source only when that row is missing. Once the projection catches up, the fallback is bypassed; missing account, missing account type, or inactive status fails closed.",
+      observability:
+        "Runtime records post-write.consistency outcomes projection_hit, fallback_used, and fallback_failed from bounded-contexts/commercial-terms/features/resolutions/read-model/resolve.ts with context, source context, projection, read model table, fallback id, and fallback category labels only; do not log account ids or Identity payloads.",
+      proof: {
+        tests: ["bounded-contexts/commercial-terms/features/resolutions/read-model/resolve.test.ts"],
+        testCases: [
+          "uses the host account source when the commercial terms account projection has not caught up",
+          "records projection_hit, fallback_used, and fallback_failed outcomes",
+          "fails when the account is missing, missing account type, or not active",
+        ],
+      },
+    },
+  ],
+  agentCoverage: {
+    "commercial-terms-home": {
+      pending: "#9238",
+    },
+    "commercial-terms-schedules": {
+      pending: "#9238",
+    },
+    "commercial-terms-schedules-detail": {
+      pending: "#9238",
+    },
+    "commercial-terms-agreements": {
+      pending: "#9238",
+    },
+    "commercial-terms-account-agreement-new": {
+      pending: "#9238",
+    },
+    "commercial-terms-agreements-detail": {
+      pending: "#9238",
+    },
+  },
+  deployableContributions: [
+    {
+      deployable: "admin-web",
+      routes: [
+        {
+          routeId: "commercial-terms-home",
+          routePath: "terms",
+          fileExport: "./routes/admin/home",
+          routeType: "route",
+          sourceContext: "commercial-terms",
+          section: "commerce",
+        },
+        {
+          routeId: "commercial-terms-schedules",
+          routePath: "terms/schedules",
+          fileExport: "./routes/admin/schedules",
+          routeType: "route",
+          sourceContext: "commercial-terms",
+          section: "commerce",
+        },
+        {
+          routeId: "commercial-terms-schedules-detail",
+          routePath: "terms/schedules/:id",
+          fileExport: "./routes/admin/schedules-detail",
+          routeType: "route",
+          sourceContext: "commercial-terms",
+          section: "commerce",
+        },
+        {
+          routeId: "commercial-terms-agreements",
+          routePath: "terms/agreements",
+          fileExport: "./routes/admin/agreements",
+          routeType: "route",
+          sourceContext: "commercial-terms",
+          section: "commerce",
+        },
+        {
+          routeId: "commercial-terms-account-agreement-new",
+          routePath: "terms/accounts/:accountId/agreements/new",
+          fileExport: "./routes/admin/account-agreement-new",
+          routeType: "route",
+          sourceContext: "commercial-terms",
+          section: "commerce",
+        },
+        {
+          routeId: "commercial-terms-agreements-detail",
+          routePath: "terms/agreements/:id",
+          fileExport: "./routes/admin/agreements-detail",
+          routeType: "route",
+          sourceContext: "commercial-terms",
+          section: "commerce",
+        },
+      ],
+    },
+    {
+      deployable: "public-web",
+      routes: marketplaceSalesFee.publicRoutes,
+    },
+  ],
+  shellContributions: [
+    {
+      deployable: "admin-web",
+      slot: "primary-nav",
+      key: "commercial-terms",
+      label: "Commercial Terms",
+      icon: "settings",
+      href: "/terms",
+      section: "commerce",
+      order: 70,
+      visibility: "signed-in",
+      requiredPermissions: ["commercial-terms.view"],
+    },
+  ],
+  directoryIntent: {
+    home: {
+      classification: "slice",
+      purpose:
+        "Own the Commercial Terms home card ordering, effective-date presentation, and inline schedule and agreement workflows.",
+      expectedConsumers: ["Commercial Terms admin route contribution"],
+    },
+    schedules: {
+      classification: "slice",
+      purpose: "Own commercial-terms schedule behavior, read models, and UI contracts.",
+      expectedConsumers: ["Internal commercial-terms module composition"],
+    },
+    agreements: {
+      classification: "slice",
+      purpose: "Own commercial-agreement behavior, read models, and UI contracts for account-specific overrides.",
+      expectedConsumers: ["Internal commercial-terms module composition"],
+    },
+    resolutions: {
+      classification: "slice",
+      purpose: "Own commercial-terms-resolution APIs, projections, and resolver queries.",
+      expectedConsumers: ["Internal commercial-terms module composition", "Downstream server resolution"],
+    },
+    "marketplace-sales-fee": {
+      classification: "slice",
+      purpose:
+        "Own the single published marketplace-sales-fee-schedule policy, capped fee calculation, public read API, and seller-fee page.",
+      expectedConsumers: [
+        "Internal commercial-terms resolution and seed composition",
+        "Public seller-fee presentation",
+        "Platform policy console",
+      ],
+    },
+    "checkout-processing-fee": {
+      classification: "slice",
+      purpose:
+        "Own the checkout-processing-fee-policy definition and admin-managed create/revise API on the shared platform-policy machinery.",
+      expectedConsumers: [
+        "Internal commercial-terms module composition",
+        "Payments (via checkoutProcessingFeePolicyResolver host port)",
+      ],
+    },
+    "authenticity-fee": {
+      classification: "slice",
+      purpose:
+        "Own the authenticity-fee-policy definition (bands + opt-in threshold) and admin-managed create/revise API on the shared platform-policy machinery.",
+      expectedConsumers: [
+        "Internal commercial-terms module composition",
+        "Ordering (via authenticityFeePolicyResolver host port)",
+      ],
+    },
+    "runtime-support": {
+      classification: "support",
+      purpose: "Provide commercial-terms event-store composition and common fee math shared by runtime services.",
+      expectedConsumers: [
+        "home",
+        "schedules",
+        "agreements",
+        "resolutions",
+        "marketplace-sales-fee",
+        "checkout-processing-fee",
+        "authenticity-fee",
+      ],
+    },
+    "seed-support": {
+      classification: "support",
+      purpose: "Provide deterministic commercial-terms schedule and agreement identifiers for bootstrap and tests.",
+      expectedConsumers: ["Multiple commercial-terms slices", "Deployable composition for commercial-terms"],
+      crossCuttingRuntimeComposition: true,
+    },
+    routes: {
+      classification: "routes",
+      purpose: "Expose commercial-terms-owned route modules consumed by generated deployable adapters.",
+      expectedConsumers: ["Generated deployable route adapters"],
+    },
+  },
+  runtimeDeployables: ["platform-worker"],
+  sourceRuntimeDeployables: ["platform-api"],
+  sourceRuntimeProfiles: ["landing"],
+  apiRuntimeProfiles: ["proof", "public"],
+  workerRuntimeProfiles: ["proof", "public"],
+};
