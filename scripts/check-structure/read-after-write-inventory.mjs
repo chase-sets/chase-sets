@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { readdir } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import path from "node:path";
+import { findFeatureRouteReexports } from "./feature-route-reexports.mjs";
 
 const sourceExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
 const ignoredDirectories = new Set([".git", "node_modules", "dist", "build", "coverage", "artifacts"]);
@@ -528,7 +529,7 @@ async function walkSourceFiles(rootDir) {
   return files;
 }
 
-export function collectReadAfterWriteRouteIndexes(contextManifests) {
+export function collectReadAfterWriteRouteIndexes(contextManifests, repoRoot) {
   const routesById = new Map();
   const routeIdsByFile = new Map();
   const contextsByName = new Map();
@@ -590,9 +591,12 @@ export function collectReadAfterWriteRouteIndexes(contextManifests) {
 
         if (isNonEmptyString(route.fileExport)) {
           for (const candidate of manifestRouteFileCandidates(context.root, route.fileExport)) {
-            const ids = routeIdsByFile.get(candidate) ?? new Set();
-            ids.add(route.routeId);
-            routeIdsByFile.set(candidate, ids);
+            const targets = repoRoot ? findFeatureRouteReexports(repoRoot, candidate) : [];
+            for (const file of [candidate, ...targets]) {
+              const ids = routeIdsByFile.get(file) ?? new Set();
+              ids.add(route.routeId);
+              routeIdsByFile.set(file, ids);
+            }
           }
         }
       }
@@ -612,7 +616,7 @@ export function collectReadAfterWriteRouteIndexes(contextManifests) {
 
 export async function collectFreshWriteHelperUsage(options) {
   const { repoRoot, contextManifests } = options;
-  const { routeIdsByFile, routesById } = collectReadAfterWriteRouteIndexes(contextManifests);
+  const { routeIdsByFile, routesById } = collectReadAfterWriteRouteIndexes(contextManifests, repoRoot);
   const boundedContextRoot = path.join(repoRoot, "bounded-contexts");
   const files = await walkSourceFiles(boundedContextRoot);
   const usages = [];
@@ -684,7 +688,7 @@ async function collectRawPostWriteHandoffMetadataUsage(options) {
 
 export async function collectMutationConsistencySurfaces(options) {
   const { repoRoot, contextManifests } = options;
-  const { routeIdsByFile, routesById } = collectReadAfterWriteRouteIndexes(contextManifests);
+  const { routeIdsByFile, routesById } = collectReadAfterWriteRouteIndexes(contextManifests, repoRoot);
   const scanRoots = ["bounded-contexts", "deployables"]
     .map((root) => path.join(repoRoot, root))
     .filter((root) => existsSync(root));
@@ -1770,7 +1774,7 @@ export async function validateReadAfterWriteRouteInventory(options) {
     reportOutputPath = "artifacts/read-after-write-route-inventory.md",
     frozenBaselineSurfaces = frozenMutationConsistencyBaselineSurfaces,
   } = options;
-  const indexes = collectReadAfterWriteRouteIndexes(contextManifests);
+  const indexes = collectReadAfterWriteRouteIndexes(contextManifests, repoRoot);
   const helperUsages = await collectFreshWriteHelperUsage({ repoRoot, contextManifests });
   const rawPostWriteHandoffMetadataUsages = await collectRawPostWriteHandoffMetadataUsage({ repoRoot });
   const mutationSurfaces = await collectMutationConsistencySurfaces({ repoRoot, contextManifests });

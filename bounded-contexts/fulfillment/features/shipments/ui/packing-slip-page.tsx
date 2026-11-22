@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { t } from "./localization/translator";
 import { deriveDisplayReferenceOrRaw } from "@chase-sets/primitives/display-reference";
 import type { OrderId } from "@chase-sets/primitives/typed-ids";
 import { PackingSlipPrintDocument, type PackingSlipPrintSlip } from "@chase-sets/design-system";

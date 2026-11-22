@@ -1505,11 +1505,25 @@ export function resolveModuleSubscriptions(
       continue;
     }
 
+    const declaredGroups = resolveDeclaredProjectionGroups(entry);
     const projectionSourcesByName = new Map(
-      resolveDeclaredProjectionGroups(entry).map((group) => [group.projectionName, group.sourceContextNames]),
+      declaredGroups.map((group) => [group.projectionName, group.sourceContextNames]),
     );
+    const deferredProjectionNames = resolveDeferredProjectionNames(entry, declaredGroups);
     const declaredSubscriptions = entry.module.buildSubscriptions?.(entry.services) ?? [];
-    validateModuleSubscriptionDeclarations(entry, declaredSubscriptions);
+    validateModuleSubscriptionDeclarations(entry, declaredSubscriptions, deferredProjectionNames);
+    for (const declaration of entry.module.eventSubscriptions ?? []) {
+      if (
+        deferredProjectionNames.has(declaration.projectionName) &&
+        !mountedContextNames.has(declaration.sourceContextName) &&
+        declaration.sourceContextMount !== "when-mounted" &&
+        declaration.sourceContextMount !== "when-all-sources-mounted"
+      ) {
+        throw new Error(
+          `Context '${entry.contextName}' deferred subscription source '${declaration.sourceContextName}' is not mounted in the runtime.`,
+        );
+      }
+    }
     const inlineProjectionNames = new Set(
       entry.projectionHandlerSets.filter((set) => set.inlineApply === true).map((set) => set.projectionName),
     );
@@ -1565,9 +1579,21 @@ export class LocalProjectorSubscriptionDeclarationError extends Error {
 function validateModuleSubscriptionDeclarations(
   entry: MountedContextRuntimeEntry,
   builtSubscriptions: readonly BcEventSubscription[],
+  deferredProjectionNames: ReadonlySet<string>,
 ): void {
   const eventSubscriptions = entry.module.eventSubscriptions ?? [];
   const eventReactions = entry.module.eventReactions ?? [];
+
+  for (const projectionName of deferredProjectionNames) {
+    if (
+      builtSubscriptions.some((subscription) => subscription.projectionName === projectionName) ||
+      entry.projectionHandlerSets.some((set) => set.projectionName === projectionName)
+    ) {
+      throw new Error(
+        `Context '${entry.contextName}' deferred projection '${projectionName}' must not build handlers.`,
+      );
+    }
+  }
 
   for (const subscription of builtSubscriptions.filter(
     (candidate) => (candidate.handlerKind ?? "projection") === "projection",
@@ -1598,6 +1624,7 @@ function validateModuleSubscriptionDeclarations(
   }
 
   for (const declaration of eventSubscriptions) {
+    if (deferredProjectionNames.has(declaration.projectionName)) continue;
     const hasRegisteredHandler = builtSubscriptions.some(
       (subscription) =>
         (subscription.handlerKind ?? "projection") === "projection" &&
@@ -1641,6 +1668,62 @@ function validateModuleSubscriptionDeclarations(
 
 function resolveDeclaredProjectionGroups(entry: MountedContextRuntimeEntry): readonly BcProjectionGroup[] {
   return entry.module.buildProjectionGroups?.(entry.services) ?? entry.module.projectionGroups ?? [];
+}
+
+export function resolveDeferredProjectionNames(
+  entry: MountedContextRuntimeEntry,
+  groups: readonly Pick<
+    BcProjectionGroup,
+    "projectionName" | "requiredDuringBootstrap" | "handlerKind" | "sourceContextNames"
+  >[],
+): ReadonlySet<string> {
+  const declarations = entry.module.eventSubscriptions ?? [];
+  const deferred = new Set<string>();
+  const checked = new Set<string>();
+  for (const { projectionName, deferUntilHostPort: portName } of declarations) {
+    if (portName === undefined || checked.has(projectionName)) continue;
+    if (
+      typeof portName !== "string" ||
+      !portName ||
+      portName !== portName.trim() ||
+      !entry.module.hostPorts?.some((port) => port.portName === portName)
+    ) {
+      throw new Error(`Context '${entry.contextName}' declares invalid or unknown deferUntilHostPort '${portName}'.`);
+    }
+    if (typeof entry.module.hasHostPort !== "function") {
+      throw new Error(`Context '${entry.contextName}' declares deferUntilHostPort but has no hasHostPort resolver.`);
+    }
+    const matchingGroups = groups.filter((group) => group.projectionName === projectionName);
+    const group = matchingGroups[0];
+    if (
+      matchingGroups.length !== 1 ||
+      !group ||
+      group.requiredDuringBootstrap !== false ||
+      (group.handlerKind ?? "projection") !== "projection"
+    ) {
+      throw new Error(
+        `Context '${entry.contextName}' host-port deferral requires exactly one non-required projection group '${projectionName}'.`,
+      );
+    }
+    const members = declarations.filter((candidate) => candidate.projectionName === projectionName);
+    if (
+      members.some((member) => member.deferUntilHostPort !== portName) ||
+      entry.module.eventReactions?.some((reaction) => reaction.reactionName === projectionName) ||
+      group.sourceContextNames.some((source) => !members.some((member) => member.sourceContextName === source)) ||
+      members.some((member) => !group.sourceContextNames.includes(member.sourceContextName))
+    ) {
+      throw new Error(
+        `Context '${entry.contextName}' host-port deferral cannot suppress a mixed or partial group '${projectionName}'; sources must match subscriptions.`,
+      );
+    }
+    const available = entry.module.hasHostPort(entry.services, portName);
+    if (typeof available !== "boolean") {
+      throw new Error(`Context '${entry.contextName}' hasHostPort '${portName}' must return a boolean.`);
+    }
+    if (!available) deferred.add(projectionName);
+    checked.add(projectionName);
+  }
+  return deferred;
 }
 
 function allProjectionSourcesMounted(

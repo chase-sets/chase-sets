@@ -220,10 +220,28 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(detachment.totals.detachmentEscapeSites).toBe(detachment.diagnostics.length);
   });
 
-  it("derives forty-three green grammar instances across thirty-eight live locations without a registry", () => {
+  it("derives forty-eight green grammar instances across forty-two live locations without a registry", () => {
     const green = productionGrammar;
-    expect(green).toHaveLength(43);
-    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(38);
+    expect(green).toHaveLength(48);
+    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(42);
+    expect(
+      green
+        .filter((entry) =>
+          [
+            "bounded-contexts/pricing/features/repricing-engine/api/evaluation-owner-inputs.ts",
+            "bounded-contexts/pricing/features/repricing-engine/read-model/evaluation-inputs.ts",
+            "bounded-contexts/pricing/features/repricing-policies/api/configuration.ts",
+          ].includes(entry.file),
+        )
+        .map(({ category, symbol }) => `${category}:${symbol}`)
+        .sort(),
+    ).toEqual([
+      "member-declaration:captureOwnInventory.history.readStream",
+      "member-declaration:capturePlatformPolicy.events.readStream",
+      "member-declaration:createRepricingConfigurationWriter.captureAccount.store.readStream",
+      "member-declaration:readCommittedCategories.history.readStream",
+      "type-position:createRepricingConfigurationWriter.captureAccount.store.readStream",
+    ]);
     expect(
       green
         .filter((entry) => entry.file.includes("/inventory-items/api/stock-"))

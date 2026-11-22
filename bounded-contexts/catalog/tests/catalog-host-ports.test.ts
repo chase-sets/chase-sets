@@ -21,6 +21,7 @@ describe("catalog host ports", () => {
         "catalogMarketObservationRequests",
         "catalogOperatorAuthority",
         "catalogAssetStorage",
+        "pricingPredicateConsumerPool",
         "sourceObservationTelemetry",
       ]),
     );

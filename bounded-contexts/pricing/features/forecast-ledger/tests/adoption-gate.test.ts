@@ -7,6 +7,7 @@ import {
   createMemoryRepricingConfigurationWriter,
   withMemoryConfigurationTransactions,
 } from "../../repricing-policies/tests/configuration-fixture";
+import { repricingPresetControls } from "../../repricing-policies/domain/authoring-intent";
 import { fixedPercentileGoal } from "../../repricing-policies/domain/goals/fixed-percentile";
 import type { PricingGoalDefinition } from "../../repricing-policies/domain/goals/registry";
 import { targetHorizonGoal } from "../../repricing-policies/domain/goals/target-horizon";
@@ -165,6 +166,8 @@ describe("Adoption Gate", () => {
     expect(prerequisites).toEqual({
       listingCurrencyCodes: ["USD"],
       hasCostBasis: true,
+      presets: repricingPresetControls(),
+      editorDefaults: { currencyCode: "USD", floor: { mode: "cost-basis-plus-margin", marginPercent: 10 } },
       goalAdoption: [
         {
           goalId: "fixed-percentile",

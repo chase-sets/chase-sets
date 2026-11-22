@@ -16,6 +16,7 @@ import {
   type ForecastCurve,
 } from "../../forecast-ledger/domain/forecast-kinds";
 import { loadConditionSales } from "../../forecast-ledger/read-model/queries";
+import { refundDailyChanges, reserveDailyChangesInTransaction } from "../read-model/daily-change-budget";
 import {
   activeProductFreeze,
   readProductRoundState,
@@ -853,51 +854,11 @@ async function reserveDailyChanges(
   limit: number,
   requested: number,
 ): Promise<number> {
-  if (requested === 0) {
-    return 0;
-  }
-  return withPgTransaction(db, async (client) => {
-    await client.query(
-      `INSERT INTO pricing_repricing_daily_change_budgets (seller_account_id, budget_day, changes_reserved, updated_at)
-       VALUES ($1, $2, 0, now())
-       ON CONFLICT (seller_account_id, budget_day) DO NOTHING`,
-      [sellerAccountId, day],
-    );
-    const current = await client.query<{ changes_reserved: number }>(
-      `SELECT changes_reserved
-       FROM pricing_repricing_daily_change_budgets
-       WHERE seller_account_id = $1 AND budget_day = $2
-       FOR UPDATE`,
-      [sellerAccountId, day],
-    );
-    const remaining = Math.max(0, limit - Number(current.rows[0]?.changes_reserved ?? 0));
-    const reserved = Math.min(remaining, requested);
-    if (reserved > 0) {
-      await client.query(
-        `UPDATE pricing_repricing_daily_change_budgets
-         SET changes_reserved = changes_reserved + $3,
-             updated_at = now()
-         WHERE seller_account_id = $1 AND budget_day = $2`,
-        [sellerAccountId, day, reserved],
+  return requested === 0
+    ? 0
+    : withPgTransaction(db, (client) =>
+        reserveDailyChangesInTransaction(client, sellerAccountId, day, limit, requested),
       );
-    }
-    return reserved;
-  });
-}
-
-async function refundDailyChanges(
-  db: PgTransactionalPool,
-  sellerAccountId: string,
-  day: string,
-  amount: number,
-): Promise<void> {
-  await db.query(
-    `UPDATE pricing_repricing_daily_change_budgets
-     SET changes_reserved = GREATEST(0, changes_reserved - $3),
-         updated_at = now()
-     WHERE seller_account_id = $1 AND budget_day = $2`,
-    [sellerAccountId, day, amount],
-  );
 }
 
 function evaluationJobId(eventId: string): string {

@@ -17,6 +17,9 @@ import {
   type CatalogScopePromotionReadiness,
   type CatalogScopeSyncFreshness,
 } from "../domain/scope-row-status";
+import type { CatalogAliasServices } from "../../alias-equivalence/api/runtime";
+import type { CatalogScopeJourneyResponse } from "../ui/contracts";
+import { readCatalogScopeJourney } from "./scope-journey";
 
 const catalogLifecycleStatuses = [
   "draft",
@@ -32,11 +35,10 @@ const SCOPE_LIST_MAX_LIMIT = 200;
 // Catalog Scope Registry HTTP API
 //
 // The composition seam that makes canonical Scope Records reachable from the
-// deployable. Read-only today: the Scope Detail page (and, later, the
-// scope-first Catalog Home list) fetch one Scope Record by id to drive the
-// journey for that scope, starting with the language-editions section. Every
-// state change still flows through the owning feature's own aggregate
-// (Catalog Alias for language-edition links); this route never accepts writes.
+// deployable. Read-only: the scope-first Catalog Home lists Scope Records, and
+// Scope Detail reads one scope's language editions and journey. Every state
+// change still flows through the owning feature's own aggregate (Catalog Alias
+// for language-edition links); this route never accepts writes.
 // ---------------------------------------------------------------------------
 
 export type CatalogScopeRegistryRouteServices = Pick<
@@ -117,7 +119,10 @@ export type CatalogScopeRecordListResponse = Readonly<{
   facets: CatalogScopeRecordListFacets;
 }>;
 
-export function catalogScopeRegistryRoutes(services: CatalogScopeRegistryRouteServices) {
+export function catalogScopeRegistryRoutes(
+  services: CatalogScopeRegistryRouteServices,
+  getAliasReview?: CatalogAliasServices["getCatalogAliasReviewReadModel"],
+) {
   const app = new Hono<CatalogAuthoringEnv>();
 
   // Scope-first landing (`GET /scope-records`): the canonical Scope Record list
@@ -147,21 +152,49 @@ export function catalogScopeRegistryRoutes(services: CatalogScopeRegistryRouteSe
 
     const scopeRecord = await services.getScopeRecord(c.req.param("id"));
     if (!scopeRecord) {
-      return c.json(
-        {
-          error: {
-            code: "not_found",
-            message: t("catalog.features.scopeRegistry.api.route.scope.record.not.found"),
-          },
-        },
-        404,
-      );
+      return scopeRecordNotFound(c);
     }
 
     return c.json(scopeRecordDetailFromRow(scopeRecord, new Date().toISOString()));
   });
 
+  // Scope Detail: the Scope Record with its language editions (each one's link
+  // state and its pending and accepted alias candidates) and its journey. A
+  // failed alias review read is reported, not thrown.
+  app.get("/:id/journey", async (c) => {
+    const permissionError = requireCatalogViewPermission(c);
+    if (permissionError) {
+      return permissionError;
+    }
+
+    const scopeRecord = await services.getScopeRecord(c.req.param("id"));
+    if (!scopeRecord) {
+      return scopeRecordNotFound(c);
+    }
+
+    const generatedAt = new Date().toISOString();
+    return c.json<CatalogScopeJourneyResponse>(
+      await readCatalogScopeJourney({
+        scope: scopeRecordDetailFromRow(scopeRecord, generatedAt),
+        generatedAt,
+        getAliasReview,
+      }),
+    );
+  });
+
   return app;
+}
+
+function scopeRecordNotFound(c: Context<CatalogAuthoringEnv>) {
+  return c.json(
+    {
+      error: {
+        code: "not_found",
+        message: t("catalog.features.scopeRegistry.api.route.scope.record.not.found"),
+      },
+    },
+    404,
+  );
 }
 
 function matchEnum<T extends string>(value: string | undefined, allowed: readonly T[]): T | undefined {

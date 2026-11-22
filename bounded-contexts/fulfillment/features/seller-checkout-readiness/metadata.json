@@ -1,0 +1,87 @@
+{
+  "localeCatalogs": ["bounded-contexts/fulfillment/features/seller-checkout-readiness/ui/localization/locales/en.ts"],
+  "directoryIntent": {
+    "classification": "slice",
+    "purpose": "Own the Fulfillment pre-checkout seller checkout label and provider readiness read for an account or anonymous owner, Ship-From Location and label preference; missing, stale, conflicting or unavailable owner facts block.",
+    "expectedConsumers": ["Checkout seller checkout adapter at readiness and immediately before confirm"]
+  },
+  "hostPorts": [
+    {
+      "portName": "operatorAuthority",
+      "providedBy": "platform-api",
+      "purpose": "Identity aggregate-backed platform-admin authority for audited seller shipping support initialization, enable and revoke."
+    }
+  ],
+  "mutationConsistencyInventory": [
+    {
+      "id": "fulfillment.seller-shipping-setup-form-snapshot",
+      "owner": "fulfillment",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-client:bounded-contexts/fulfillment/features/seller-checkout-readiness/api/client.ts:PUT Hc62954b23f06#1",
+        "post-form:bounded-contexts/fulfillment/features/seller-checkout-readiness/ui/shipping-setup-page.tsx:H1abed2c1c746#1",
+        "route-action:bounded-contexts/fulfillment/features/seller-checkout-readiness/ui/routes/seller-shipping-setup.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "seller-shipping-setup",
+        "description": "The setup action returns the committed owner snapshot; router revalidation reloads current setup and support from the canonical owner source, not an asynchronous projection."
+      },
+      "proof": {
+        "authoritativeResponse": "The request client returns the setup API command result unchanged. The action returns that snapshot, while the loader reads the current committed source so later support revocation remains visible.",
+        "tests": [
+          "bounded-contexts/fulfillment/features/seller-checkout-readiness/ui/routes/seller-shipping-setup.test.tsx"
+        ]
+      }
+    },
+    {
+      "id": "fulfillment.seller-shipping-command-snapshots",
+      "owner": "fulfillment",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/fulfillment/features/seller-checkout-readiness/api/route.ts:PUT /account/seller-shipping-setup",
+        "api-route:bounded-contexts/fulfillment/features/seller-checkout-readiness/api/route.ts:PUT /guest/seller-shipping-setup",
+        "api-route:bounded-contexts/fulfillment/features/seller-checkout-readiness/api/route.ts:POST /operations/seller-shipping-support"
+      ],
+      "visibleDestination": {
+        "description": "Setup and audited admin support commands return their committed owner snapshot, revision and recording instant, never a lagging projection or carrier-success promise."
+      },
+      "proof": {
+        "authoritativeResponse": "Seller shipping routes return the transactional command result. Setup GET and readiness resolve the indexed canonical stream head and exact committed event; reads do not initialize support.",
+        "tests": [
+          "bounded-contexts/fulfillment/features/seller-checkout-readiness/api/setup.test.ts",
+          "bounded-contexts/fulfillment/features/seller-checkout-readiness/api/support.test.ts",
+          "bounded-contexts/fulfillment/features/seller-checkout-readiness/api/production-source.db.test.ts"
+        ]
+      }
+    }
+  ],
+  "marketplaceRoutes": [
+    {
+      "routeId": "seller-shipping-setup",
+      "routePath": "sell/shipping-setup",
+      "fileExport": "./routes/seller-shipping-setup",
+      "routeType": "route",
+      "sourceContext": "fulfillment",
+      "delivery": "server-only",
+      "authorization": {
+        "kind": "public"
+      },
+      "canonicalLink": {
+        "kind": "not-applicable",
+        "reason": "Owner-scoped shipping setup is not a public canonical page."
+      },
+      "availability": {
+        "web": true,
+        "mobile": false
+      },
+      "pageComponentExport": "default",
+      "unsupportedMobile": {
+        "owner": "fulfillment",
+        "followUp": "#11113",
+        "reason": "Shipping setup is delivered on the marketplace web route."
+      }
+    }
+  ]
+}

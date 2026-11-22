@@ -31,6 +31,10 @@ export type {
 } from "./features/own-sale-observations/read-model/queries";
 export { createPricingRequestApiClient } from "./support/request-support/api-client";
 export type { PricingHostPorts, PricingServices } from "./support/runtime-support/services";
+export type {
+  PricingEvaluationAuthority,
+  PricingEvaluationListing,
+} from "./features/repricing-engine/api/evaluation-authority";
 export type { PricingRecommendationServices } from "./features/recommendations/api/runtime";
 export type { RepricingEngineServices } from "./features/repricing-engine/api/runtime";
 export type { BulkRepriceIngestionServices } from "./features/bulk-reprice-ingestion/api/runtime";

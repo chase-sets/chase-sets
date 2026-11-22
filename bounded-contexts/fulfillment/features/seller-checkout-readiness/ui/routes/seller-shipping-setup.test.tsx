@@ -11,7 +11,7 @@ import {
 } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CHECKOUT_ANONYMOUS_SELL_LIST_COOKIE_NAME } from "@chase-sets/auth-context";
-import { createFulfillmentApiClient, FulfillmentApiError } from "../client";
+import { createFulfillmentApiClient, FulfillmentApiError } from "../../../../client";
 import {
   actor,
   accountOwner,
@@ -20,9 +20,9 @@ import {
   createShippingTestHarness,
   initialize,
   setup,
-} from "../features/seller-checkout-readiness/api/test-support";
-import manifest from "../context.json";
-import ShippingSetupRoute, { action, loader } from "./seller-shipping-setup";
+} from "../../api/test-support";
+import manifest from "../../../../context.json";
+import ShippingSetupRoute, { action, loader } from "../../../../routes/seller-shipping-setup";
 
 const path = "/sell/shipping-setup";
 const cookie = `${CHECKOUT_ANONYMOUS_SELL_LIST_COOKIE_NAME}=${anonymousOwner.anonymousSellListId}`;

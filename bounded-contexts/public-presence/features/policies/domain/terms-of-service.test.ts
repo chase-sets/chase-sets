@@ -314,8 +314,8 @@ describe("Terms reconciliation with ratified decisions and shipped controls", ()
     const section = termsSection("marketplace-role-and-limited-payments-agent");
     expect(sellerProceedsErrors(section.draftText)).toEqual([]);
     expect(section.draftText).not.toContain("and the Marketplace Checkout Fee");
-    const [checkoutFee] = citedRanges("bounded-contexts/payments/GLOSSARY.md:105-107");
-    expect(section.reviewManifest.productTruthRefs).toContain("bounded-contexts/payments/GLOSSARY.md:105-107");
+    const [checkoutFee] = citedRanges("bounded-contexts/payments/GLOSSARY.md:109-111");
+    expect(section.reviewManifest.productTruthRefs).toContain("bounded-contexts/payments/GLOSSARY.md:109-111");
     expect(checkoutFee!.text).toContain("buyer-side payment-level marketplace fee");
     const sellerFeesRef = "bounded-contexts/public-presence/features/policies/domain/seller-agreement.ts:154";
     expect(section.reviewManifest.productTruthRefs).toContain(sellerFeesRef);

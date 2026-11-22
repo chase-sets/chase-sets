@@ -9,9 +9,14 @@ import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector
 import type { EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createNoopNotificationOutbox, type NotificationOutbox } from "@chase-sets/outbound-messaging";
+import { t } from "@chase-sets/localization";
 import { recordRateLimitExceeded } from "@chase-sets/http/rate-limit";
 import { cardDeclineSurface, type CardDeclineStore } from "./card-decline-store";
-import type { ProviderWebhookTelemetry, ProviderWebhookTelemetryEvent } from "@chase-sets/http/provider-errors";
+import {
+  ProviderAdapterError,
+  type ProviderWebhookTelemetry,
+  type ProviderWebhookTelemetryEvent,
+} from "@chase-sets/http/provider-errors";
 import { decideWebhookPayment, paymentWebhookErrorFromUnknown } from "./webhook-errors";
 import type { PaymentTransactionRunner, PaymentWebhookRunner, PaymentWebhookResult } from "./webhook-transaction";
 import { createId } from "@chase-sets/primitives/typed-ids";
@@ -29,6 +34,8 @@ import {
   type RefundId,
 } from "../../../support/runtime-support/common";
 import { checkoutUnavailableReasonLabel } from "./reason-codes";
+import { isDeferredCheckoutPayment } from "../domain/deferred-checkout-payment";
+import { DeferredPaymentNotSent, isPaymentConfirmationTokenId } from "@chase-sets/payment-processing";
 import type {
   AgenticProcessorPaymentInput,
   PaymentProcessorGateway,
@@ -86,6 +93,7 @@ import {
   upsertProviderCustomer,
   upsertSavedCheckoutInstrument,
   getActivePaymentByOrderSet,
+  getActivePaymentCreationReservationBySource,
   getPaymentBySource,
   type PaymentDetailRow,
   type PaymentAccountRiskSourceRow,
@@ -1148,6 +1156,7 @@ export type PaymentServices = Readonly<{
       requestedBalanceCreditAmount?: string | null;
       paymentMethodCategory?: string | null;
       marketplaceCheckoutFeeQuoteFingerprint?: string | null;
+      confirmationTokenId?: string | null;
       savedCheckoutInstrumentId?: string | null;
       savePaymentMethodForFuture?: boolean;
       returnUrlBase?: string | null;
@@ -1252,6 +1261,7 @@ export type PaymentServices = Readonly<{
   getAccountPayment: (
     paymentId: string,
     accountId: string,
+    readProcessorStatus?: boolean,
   ) => Promise<
     | (PaymentDetailRow &
         Readonly<{
@@ -1260,6 +1270,10 @@ export type PaymentServices = Readonly<{
         }>)
     | null
   >;
+  getCheckoutPaymentStart: (
+    sessionId: string,
+    accountId: AccountId,
+  ) => Promise<{ state: "not-started" | "ambiguous" } | { state: "recorded"; paymentId: string }>;
   getPaymentMoneyTimeline: (params: Readonly<{ paymentId: string; accountId: string }>) => Promise<Readonly<{
     payment_id: string;
     account_id: string;
@@ -2162,6 +2176,18 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       const accountId = normalizeRequiredText(params.accountId, "Account is required.") as AccountId;
       const sourceContext = params.sourceContext?.trim() || null;
       const sourceReferenceId = params.sourceReferenceId?.trim() || null;
+      const confirmationTokenId = params.confirmationTokenId ?? null;
+      if (
+        confirmationTokenId !== null &&
+        (!isPaymentConfirmationTokenId(confirmationTokenId) ||
+          sourceContext !== "checkout" ||
+          !sourceReferenceId ||
+          params.savedCheckoutInstrumentId ||
+          params.agenticPayment ||
+          params.paymentMethodCategory !== "card")
+      ) {
+        throw new PaymentsDomainError("Invalid new-card confirmation.", "invalid_payment_confirmation");
+      }
       if (sourceContext && sourceReferenceId) {
         const existing = await getPaymentBySource(deps.db, sourceContext, sourceReferenceId, accountId);
         if (existing) {
@@ -2269,7 +2295,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       const window = (await deps.evidenceWindowCorrelation?.currentOpenWindow()) ?? undefined;
       const windowInput = deps.evidenceWindowCorrelation ? { evidenceWindow: window ?? null } : {};
       if (window && compareMoney(processorAmount, "0.00") > 0) {
-        if (params.agenticPayment) throw new ProviderWriteRefused("unsafe-material");
+        if (params.agenticPayment || confirmationTokenId) throw new ProviderWriteRefused("unsafe-material");
         if (!savedCheckoutInstrument?.provider_reference) admitGovernedPaymentInput(params, paymentId);
       }
       const createdAt = new Date().toISOString();
@@ -2288,6 +2314,11 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         createdAt,
       });
       if (reservation.outcome === "same-source") {
+        if (confirmationTokenId) {
+          const payment = await loadExistingPaymentSnapshot(reservation.reservation.payment_id as PaymentId, accountId);
+          if (!payment) throw new PaymentsDomainError("Payment status is not yet known.", "payment_start_ambiguous");
+          return payment;
+        }
         return waitForExistingPaymentSnapshot(reservation.reservation.payment_id as PaymentId, accountId);
       }
       if (reservation.outcome === "source-conflict" || reservation.outcome === "same-order-set") {
@@ -2349,7 +2380,9 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
           paymentProviderCustomer ?? (await ensureProviderCustomer(deps, { accountId, ...windowInput }));
       }
       const returnUrlBase = params.returnUrlBase?.trim().replace(/\/+$/, "") ?? "";
-      const returnUrlPath = resolvePaymentReturnPath(params.returnUrlPath, paymentId);
+      const returnUrlPath = confirmationTokenId
+        ? `${params.isGuestCheckout ? "/checkout" : "/account"}/payments/${paymentId}`
+        : resolvePaymentReturnPath(params.returnUrlPath, paymentId);
       const providerIdempotencyKey = `payments:payment:${paymentId}:create`;
       const providerOperationKey = `payment:${paymentId}:create`;
       const providerRequest = {
@@ -2429,6 +2462,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
                 })
               : await deps.processorGateway.createPaymentSession({
                   ...windowInput,
+                  ...(confirmationTokenId ? { confirmationTokenId } : {}),
                   paymentId,
                   buyerAccountId: accountId,
                   orderIds,
@@ -2449,15 +2483,50 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
                   savePaymentMethod: providerRequest.savePaymentMethod,
                 });
       } catch (error) {
-        await recordPaymentProviderOperationFailed(deps.db, {
-          operationKey: providerOperationKey,
-          errorMessage: error instanceof Error ? error.message : "Payment processor session creation failed.",
-        });
-        await markPaymentCreationReservationInactive(deps.db, {
-          paymentId,
-          status: "failed",
-        });
-        throw error;
+        let decline: PaymentsDomainError | null = null;
+        let recovered: ProcessorPaymentReconciliationResult | null = null;
+        if (confirmationTokenId && error instanceof ProviderAdapterError && error.providerStatus === 402) {
+          decline = new PaymentsDomainError(error.message, "payment_declined");
+        } else if (confirmationTokenId && !(error instanceof DeferredPaymentNotSent)) {
+          const found = await deps.processorGateway.retrievePaymentResultByPaymentId?.(paymentId).catch(() => null);
+          if (!found || found.internalPaymentId !== paymentId || found.processorPaymentKind !== "payment-intent") {
+            // Keep the source reservation and pending operation. A finite search miss is not a
+            // refusal and must not clear the way for another create + confirm.
+            throw new PaymentsDomainError("Payment status is not yet known.", "payment_start_ambiguous");
+          }
+          if (found.outcome === "failed" || found.outcome === "cancelled") {
+            decline = new PaymentsDomainError(
+              found.failureMessage ?? t("payments.features.payments.api.runtime.payment.failed"),
+              "payment_declined",
+            );
+          } else {
+            recovered = found;
+          }
+        }
+        if (recovered) {
+          processorPayment = {
+            processorName: recovered.processorName,
+            processorPaymentKind: recovered.processorPaymentKind,
+            processorPaymentReference: recovered.processorPaymentReference,
+            processorClientSecret: null,
+            processorRedirectUrl: recovered.processorRedirectUrl ?? null,
+            processorStatus: recovered.processorStatus,
+          };
+        } else {
+          const failure = decline ?? error;
+          await recordPaymentProviderOperationFailed(deps.db, {
+            operationKey: providerOperationKey,
+            errorMessage: failure instanceof Error ? failure.message : "Payment processor session creation failed.",
+          });
+          await markPaymentCreationReservationInactive(deps.db, { paymentId, status: "failed" });
+          if ((decline || error instanceof DeferredPaymentNotSent) && compareMoney(balanceCreditAmount, "0.00") > 0) {
+            await deps.balanceCreditResolver?.releaseSpendHold?.(
+              { paymentId, buyerAccountId: accountId, reason: "payment-cancelled" },
+              context,
+            );
+          }
+          throw failure;
+        }
       }
 
       await commandHandler({
@@ -2633,8 +2702,20 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         checkout_status: checkoutStatus,
       };
     },
-    async getAccountPayment(paymentId, accountId) {
-      const payment = await getAccountPayment(deps.db, paymentId, accountId);
+    async getCheckoutPaymentStart(sessionId, accountId) {
+      const recorded = await getPaymentBySource(deps.db, "checkout", sessionId, accountId);
+      if (recorded) return { state: "recorded", paymentId: recorded.payment_id };
+      const reservation = await getActivePaymentCreationReservationBySource(deps.db, "checkout", sessionId);
+      if (!reservation || reservation.buyer_account_id !== accountId) return { state: "not-started" };
+      const payment = await loadExistingPaymentSnapshot(reservation.payment_id as PaymentId, accountId);
+      return payment ? { state: "recorded", paymentId: payment.payment_id } : { state: "ambiguous" };
+    },
+    async getAccountPayment(paymentId, accountId, readProcessorStatus) {
+      const payment =
+        (await getAccountPayment(deps.db, paymentId, accountId)) ??
+        (readProcessorStatus
+          ? await loadExistingPaymentSnapshot(paymentId as PaymentId, accountId as AccountId)
+          : null);
       if (!payment) {
         return null;
       }
@@ -2643,6 +2724,25 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         providerObjectReference: payment.processor_payment_reference,
         internalPaymentId: payment.payment_id,
       });
+      if (readProcessorStatus && isDeferredCheckoutPayment(payment)) {
+        const current = await deps.processorGateway
+          .retrievePaymentResult(payment.processor_payment_reference)
+          .catch(() => null);
+        // The recorded Payment binds the return to its actual Intent. The browser's redirect
+        // parameters are not evidence of either identity or success.
+        const matched =
+          current?.internalPaymentId === payment.payment_id &&
+          current.processorPaymentReference === payment.processor_payment_reference;
+        return exposePayment(
+          {
+            ...payment,
+            processor_status: matched ? current.processorStatus : payment.processor_status,
+            processor_redirect_url:
+              matched && current.processorStatus === "requires_action" ? (current.processorRedirectUrl ?? null) : null,
+          },
+          providerEvents,
+        );
+      }
       return exposePayment(payment, providerEvents);
     },
     async getPaymentMoneyTimeline(params) {

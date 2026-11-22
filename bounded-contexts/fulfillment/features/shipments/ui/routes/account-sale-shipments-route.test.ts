@@ -7,8 +7,8 @@ const { mockApi, mockCreateFulfillmentRequestApiClient, mockRequireActor } = vi.
 }));
 
 vi.mock("@chase-sets/platform-runtime/auth", () => ({ requireActorFromAuthApi: mockRequireActor }));
-vi.mock("../../support/request-support/api-client", () => ({
-  createFulfillmentRequestApiClient: mockCreateFulfillmentRequestApiClient,
+vi.mock("../../api/request-client", () => ({
+  createShipmentRequestClient: mockCreateFulfillmentRequestApiClient,
 }));
 
 import { action, loader } from "./account-sale-shipments";

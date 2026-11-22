@@ -683,6 +683,8 @@ describe("checkout cart routes", () => {
                 {
                   catalog_item_id: String(values[0]),
                   language_code: "en",
+                  title: "Charizard",
+                  subtitle: null,
                   status: "active",
                   product_schema: null,
                 },
@@ -1541,7 +1543,16 @@ describe("guest cart routes on a claimed anonymous key", () => {
         query: vi.fn(async (sql: string, values: readonly unknown[] = []) => {
           if (sql.includes("FROM checkout_catalog_items")) {
             return {
-              rows: [{ catalog_item_id: values[0], language_code: "en", status: "active", product_schema: null }],
+              rows: [
+                {
+                  catalog_item_id: values[0],
+                  language_code: "en",
+                  title: "New",
+                  subtitle: null,
+                  status: "active",
+                  product_schema: null,
+                },
+              ],
               rowCount: 1,
             };
           }

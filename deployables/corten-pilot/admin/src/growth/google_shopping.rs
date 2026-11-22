@@ -10,8 +10,7 @@
 //! | `POST /growth/google-shopping?..` | a dry run (`intent`), then the page with it |
 //! | `GET /growth/google-shopping/live?job` | the dry run again each time it moves, until it is done (`<corten-live>`) |
 //!
-//! Inspect keeps the filters, and Close closes the detail (`selected=none`): admin-web's Inspect
-//! drops the filters and its Close opens the first blocked row again (chase-sets/chase-sets#10872).
+//! Inspect keeps the filters, and Close closes the detail (`selected=none`), as admin-web's do.
 use corten::{
     Fragment, LiveResponse,
     http::{HeaderMap, StatusCode},

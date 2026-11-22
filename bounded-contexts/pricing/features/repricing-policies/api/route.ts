@@ -9,9 +9,18 @@ import {
   type ReviseRepricingPolicyCommand,
 } from "../domain/domain";
 import type { RepricingScopePreviewInput } from "../read-model/controls";
+import {
+  compilePresetBody,
+  repricingPresetAgeDays,
+  repricingPresetKnobs,
+  type RepricingPreset,
+} from "../domain/authoring-intent";
+import type { RepricingFloor, RepricingPolicyScope } from "../domain/domain";
 import { RepricingConfigurationConflict } from "./configuration";
 
-export function createRepricingPolicyRoutes(services: RepricingPolicyServices & RepricingPolicyActivationServices) {
+export function createRepricingPolicyRoutes(
+  services: Omit<RepricingPolicyServices, "commandHandler"> & RepricingPolicyActivationServices,
+) {
   const app = new Hono<PricingApiEnv>();
   app.onError((error, c) => {
     if (error instanceof RepricingConfigurationConflict)
@@ -81,6 +90,10 @@ export function createRepricingPolicyRoutes(services: RepricingPolicyServices & 
   app.get("/authoring-prerequisites", async (c) => {
     if (new URL(c.req.url).searchParams.size > 0) return c.json({ error: { code: "validation_failed" } }, 400);
     return c.json(await services.getAuthoringPrerequisites(c.get("actor")!.accountId));
+  });
+  app.post("/presets/compile", async (c) => {
+    const input = presetInput(await c.req.json<unknown>());
+    return input ? c.json(compilePresetBody(input)) : c.json({ error: { code: "validation_failed" } }, 400);
   });
   app.post("/scope-preview", async (c) => {
     const accountId = c.get("actor")!.accountId;
@@ -178,6 +191,50 @@ export function createRepricingPolicyRoutes(services: RepricingPolicyServices & 
   app.post("/:policyId/resume", lifecycle("resume"));
   app.post("/:policyId/delete", lifecycle("delete"));
   return app;
+}
+
+/**
+ * A preset's controls as an editor holds them. The amounts, currency and scope
+ * are checked when the compiled body is previewed or saved, so a half-written
+ * policy still compiles.
+ */
+function presetInput(value: unknown): Parameters<typeof compilePresetBody>[0] | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const { preset, knob, ageDays, name, currencyCode, floor, scope } = value as Record<string, unknown>;
+  if (typeof preset !== "string" || !Object.hasOwn(repricingPresetKnobs, preset)) return null;
+  const range = repricingPresetKnobs[preset as RepricingPreset];
+  if (typeof knob !== "number" || !Number.isFinite(knob) || knob < range.min || knob > range.max) return null;
+  if (
+    ageDays !== undefined &&
+    (preset !== "slow-stock" ||
+      !Number.isInteger(ageDays) ||
+      (ageDays as number) < repricingPresetAgeDays.min ||
+      (ageDays as number) > repricingPresetAgeDays.max)
+  )
+    return null;
+  if (typeof name !== "string" || typeof currencyCode !== "string") return null;
+  const floorMode = (floor as { mode?: unknown } | null)?.mode;
+  if (!floor || typeof floor !== "object" || (floorMode !== "absolute" && floorMode !== "cost-basis-plus-margin"))
+    return null;
+  const kind = (scope as { kind?: unknown } | null)?.kind;
+  const ids = (scope as { categoryIds?: unknown; listingIds?: unknown } | null) ?? {};
+  if (
+    !(
+      kind === "all-listings" ||
+      (kind === "catalog-filter" && Array.isArray(ids.categoryIds)) ||
+      (kind === "listing-set" && Array.isArray(ids.listingIds))
+    )
+  )
+    return null;
+  return {
+    preset: preset as RepricingPreset,
+    knob,
+    ...(ageDays === undefined ? {} : { ageDays: ageDays as number }),
+    name,
+    currencyCode,
+    floor: floor as RepricingFloor,
+    scope: scope as RepricingPolicyScope,
+  };
 }
 
 function idList(value: unknown): value is readonly string[] {
