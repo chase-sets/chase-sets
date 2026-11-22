@@ -1,8 +1,10 @@
 import {
   ProviderWriteRefused,
+  isPaymentCreateWriter,
   providerWriteIdempotencyKey,
   requireProviderWrite,
   type EvidenceWindowProviderWrite,
+  type PaymentCreateRejection,
   type ProviderWriteBinding,
   type ProviderWriteCorrelation,
   type ProviderWriteEnvelope,
@@ -11,6 +13,31 @@ import {
   type ProviderWriteRow,
 } from "@chase-sets/evidence-window-provider-write";
 import { providerWriteDigest, validateProviderMaterial } from "@chase-sets/evidence-window-provider-write/material";
+import { ProviderAdapterError, type ProviderFailureCategory } from "@chase-sets/http/provider-errors";
+
+export class PaymentCreateRejected extends ProviderAdapterError {
+  constructor(
+    readonly rejection: PaymentCreateRejection,
+    message = "Payment create was rejected by the provider.",
+    category: ProviderFailureCategory = "provider_declined",
+  ) {
+    super(category, message, rejection.status);
+    this.name = "PaymentCreateRejected";
+  }
+}
+
+export async function readPaymentCreateRejection(
+  journal: EvidenceWindowProviderWrite,
+  originalWireKey: string,
+): Promise<PaymentCreateRejection | null> {
+  const match = /^evidence-window\/v1:([0-9a-f]{32}):[1-6]:([1-9][0-9]?):(?:create|dispose)$/.exec(originalWireKey);
+  if (!match || Number(match[2]) > 64) return null;
+  const rows = await journal.readWindow(match[1]!);
+  return (
+    rows.find((row) => row.state === "failed" && providerWriteIdempotencyKey(row.key) === originalWireKey)?.rejection ??
+    null
+  );
+}
 
 export type GovernedProviderWriteOptions = Readonly<{
   evidenceWindowCorrelation?: ProviderWriteCorrelation;
@@ -45,6 +72,7 @@ export async function executeGovernedProviderWrite<T>(
   });
   let row = requireProviderWrite(reservation);
   const key = providerWriteIdempotencyKey(row.key);
+  const paymentCreate = isPaymentCreateWriter(input.binding.writerKind);
   if (
     input.governance?.kind === "governed" &&
     (providerWriteIdempotencyKey(input.governance.rowKey) !== key ||
@@ -92,6 +120,7 @@ export async function executeGovernedProviderWrite<T>(
       return response;
     } else throw new ProviderWriteRefused("write-unresolved");
   } else if (row.state !== "pending") {
+    if (paymentCreate && row.state === "failed" && row.rejection) throw new PaymentCreateRejected(row.rejection);
     throw new ProviderWriteRefused(row.state === "failed" ? "write-failed" : "write-unresolved");
   }
   if (row.state === "pending" && reservation.kind === "existing") {
@@ -112,8 +141,16 @@ export async function executeGovernedProviderWrite<T>(
   try {
     response = await input.send(row.envelope, key);
   } catch (error) {
-    if (input.definitiveFailure(error))
+    if (paymentCreate) {
+      if (error instanceof PaymentCreateRejected) {
+        requireProviderWrite(
+          await journal.complete(row.key, row.version, { state: "failed", rejection: error.rejection }),
+        );
+        throw error;
+      }
+    } else if (input.definitiveFailure(error)) {
       requireProviderWrite(await journal.complete(row.key, row.version, { state: "failed" }));
+    }
     throw new ProviderWriteRefused("write-unresolved");
   }
   const metadata = input.response(response);

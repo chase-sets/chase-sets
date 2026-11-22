@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { Hono } from "hono";
 import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
@@ -14,7 +15,9 @@ import {
   createPostgresEvidenceWindowProviderWrite,
   platformControlPlaneSchemaSql,
 } from "@chase-sets/platform-runtime/control-plane";
-import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments";
+import { createStripePaymentProcessorGateway, PaymentCreateRejected } from "@chase-sets/stripe-payments";
+import { readPaymentCreateRejection } from "@chase-sets/platform-runtime/evidence-window-provider-write-executor";
+import type { CreateProcessorPaymentInput } from "@chase-sets/payment-processing";
 import { createStripeConnectMoneyMovementGateway } from "@chase-sets/stripe-connect";
 import { STRIPE_API_VERSION } from "@chase-sets/stripe-config";
 import {
@@ -26,10 +29,11 @@ import {
   type ReserveProviderWrite,
 } from "@chase-sets/evidence-window-provider-write";
 import { providerWriteDigest } from "@chase-sets/evidence-window-provider-write/material";
-import type { AccountId, PaymentId } from "@chase-sets/primitives/typed-ids";
+import type { AccountId, OrderId, PaymentId } from "@chase-sets/primitives/typed-ids";
 import { module as paymentsModule } from "../index";
 import { createPaymentsServices } from "../support/runtime-support/services";
 import { createPaymentMcpHandlers } from "../features/payments/api/mcp";
+import { createAccountPaymentRoutes, type PaymentsApiEnv } from "../features/payments/api/route";
 import { DISPOSITION_RECEIPT_POLICY } from "../../../scripts/provider-object-disposition/disposition-receipt-policy.mjs";
 
 const windowId = "a".repeat(32);
@@ -85,13 +89,13 @@ describe("deployed provider journal J1-J6 (synthetic DB proof)", () => {
     if (pools) await closeMultiContextTestPools(pools);
   });
 
-  function gateway() {
+  function gateway(store = journal) {
     return createStripePaymentProcessorGateway({
       secretKey: "sk_test_SYNTHETIC_J",
       publishableKey: "pk_test_SYNTHETIC_J",
       webhookSecret: "whsec_SYNTHETIC_J",
       evidenceWindowCorrelation: correlation,
-      evidenceWindowProviderWrite: journal,
+      evidenceWindowProviderWrite: store,
     });
   }
   function services() {
@@ -693,22 +697,222 @@ describe("deployed provider journal J1-J6 (synthetic DB proof)", () => {
     expect(posts).toBe(2);
   });
 
-  it("J4 definitive provider refusal records failed while keeping the raw provider error private", async () => {
-    const fetch = vi.fn(async () =>
-      Response.json({ error: { message: "SYNTHETIC_PRIVATE_PROVIDER_ERROR" } }, { status: 400 }),
-    );
+  it.each([
+    { providerStatus: 402, saved: false },
+    { providerStatus: 402, saved: true },
+    { providerStatus: 400, saved: false },
+    { providerStatus: 400, saved: true },
+  ])(
+    "payment-create HTTP and operation message parity: $providerStatus saved=$saved",
+    async ({ providerStatus, saved }) => {
+      const orderId = "ord_SYNTHETIC" as OrderId;
+      const at = new Date().toISOString();
+      const pool = pools.payments;
+      await pool.query(
+        `INSERT INTO payments_order_inputs
+       (order_id, buyer_account_id, total_amount, marketplace_sales_fee_amount, marketplace_checkout_fee_amount, seller_net_amount, terms_resolved_at, status, created_at, updated_at)
+       VALUES ($1, $2, 10, 1, 0.5, 8.5, $3, 'pending-payment', $3, $3)`,
+        [orderId, accountId, at],
+      );
+      await pool.query(
+        `INSERT INTO payments_provider_customers
+       (account_id, provider, provider_customer_reference, display_name, created_at, updated_at)
+       VALUES ($1, 'stripe', 'cus_SYNTHETIC', 'Synthetic customer', $2, $2)`,
+        [accountId, at],
+      );
+      if (saved) {
+        await pool.query(
+          `INSERT INTO payments_saved_checkout_instruments
+         (instrument_id, account_id, payment_method_category, provider, provider_customer_reference, provider_reference, provider_fingerprint, display_label, confirmation_experience, readiness)
+         VALUES ('sci_SYNTHETIC', $1, 'card', 'stripe', 'cus_SYNTHETIC', 'pm_SYNTHETIC', 'synthetic_fingerprint', 'Synthetic card', 'off-session-token', 'ready')`,
+          [accountId],
+        );
+      }
+      const message = providerStatus === 402 ? "Synthetic card decline." : "Synthetic invalid input.";
+      const error =
+        providerStatus === 402
+          ? {
+              type: "card_error",
+              code: "card_declined",
+              payment_intent: { id: "pi_SYNTHETIC", status: "requires_payment_method" },
+              message,
+            }
+          : { type: "invalid_request_error", code: "parameter_missing", message };
+      const fetch = vi.fn(async (url: string) => {
+        expect(new URL(url).pathname).toBe(saved ? "/v1/payment_intents" : "/v1/checkout/sessions");
+        return Response.json({ error }, { status: providerStatus });
+      });
+      vi.stubGlobal("fetch", fetch);
+      const { payments } = createPaymentsServices(pool, {
+        processorGateway: createStripePaymentProcessorGateway({
+          secretKey: "sk_live_SYNTHETIC",
+          publishableKey: "pk_live_SYNTHETIC",
+          webhookSecret: "whsec_SYNTHETIC",
+          apiBaseUrl: "https://stripe.test",
+        }),
+      });
+      const app = new Hono<PaymentsApiEnv>();
+      app.use("*", async (c, next) => {
+        c.set("actor", {
+          sessionId: "ses_SYNTHETIC",
+          tenantId: setupAttemptContext.tenantId,
+          userId: setupAttemptContext.audit.performedByUserId,
+          accountId,
+          membershipId: "mbr_SYNTHETIC",
+          roleKey: "owner",
+          permissions: ["orders.view", "orders.manage"],
+        });
+        c.set("context", setupAttemptContext);
+        await next();
+      });
+      app.route("/", createAccountPaymentRoutes(payments));
+      const input = {
+        orderIds: [orderId],
+        paymentMethodCategory: "card",
+        ...(saved ? { savedCheckoutInstrumentId: "sci_SYNTHETIC" } : {}),
+      };
+      const quote = await payments.getCheckoutStatus({ ...input, accountId });
+      const response = await app.request("https://marketplace.test/payments", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          ...input,
+          marketplaceCheckoutFeeQuoteFingerprint: quote.marketplace_checkout_fee.quote_fingerprint,
+        }),
+      });
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({ error: { code: "validation_failed", message } });
+      const operations = await pool.query("SELECT status, error_message FROM payments_provider_operations");
+      expect(operations.rows).toEqual([{ status: "failed", error_message: message }]);
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(await journal.readWindow(windowId)).toEqual([]);
+    },
+  );
+
+  it("recorded-rejection-survives-restart", async () => {
+    const rejection = {
+      status: 402,
+      type: "card_error",
+      code: "card_declined",
+      paymentIntentId: "pi_SYNTHETIC",
+      paymentIntentStatus: "requires_payment_method",
+    };
+    const wireKeys: Array<string | null> = [];
+    const fetch = vi.fn(async (_url: string, init: RequestInit) => {
+      wireKeys.push(new Headers(init.headers).get("Idempotency-Key"));
+      return Response.json(
+        {
+          error: {
+            type: "card_error",
+            code: "card_declined",
+            message: "SYNTHETIC_PRIVATE_PROVIDER_ERROR",
+            decline_code: "generic_decline",
+            payment_intent: { id: "pi_SYNTHETIC", status: "requires_payment_method", customer: "cus_PRIVATE" },
+          },
+        },
+        { status: 402 },
+      );
+    });
     vi.stubGlobal("fetch", fetch);
-    await expect(gateway().createCustomer({ accountId })).rejects.toThrow(
-      "evidence-window-provider-write:write-unresolved",
+    const checkout: CreateProcessorPaymentInput = {
+      paymentId,
+      buyerAccountId: accountId,
+      orderIds: [],
+      amount: "1.00",
+      currencyCode: "usd",
+      paymentMethodCategory: "card",
+      description: "Synthetic payment",
+      returnUrl: `${origin}/account/payments/${paymentId}`,
+    };
+    const saved: CreateProcessorPaymentInput = {
+      ...checkout,
+      savedCheckoutInstrument: {
+        instrumentId: "sci_SYNTHETIC",
+        providerReference: "pm_SYNTHETIC",
+        confirmationExperience: "off-session-token",
+      },
+    };
+    for (const input of [checkout, saved]) {
+      await expect(gateway().createPaymentSession(input)).rejects.toBeInstanceOf(PaymentCreateRejected);
+    }
+    const restarted = createPostgresEvidenceWindowProviderWrite(pools.payments);
+    const failed = await restarted.readWindow(windowId);
+    expect(failed).toHaveLength(2);
+    for (const row of failed) {
+      expect(row).toMatchObject({ state: "failed", rejection, version: 2, replayAttempts: 0, providerReference: null });
+      expect(wireKeys).toContain(providerWriteIdempotencyKey(row.key));
+      expect(await restarted.complete(row.key, row.version, { state: "failed" })).toEqual({
+        kind: "stale-write-rejected",
+      });
+    }
+    for (const input of [checkout, saved]) {
+      const promise = gateway(restarted).createPaymentSession(input);
+      await expect(promise).rejects.toBeInstanceOf(PaymentCreateRejected);
+      await expect(promise).rejects.toMatchObject({ rejection });
+    }
+    expect(await restarted.readWindow(windowId)).toEqual(failed);
+    expect(JSON.stringify(failed)).not.toMatch(/SYNTHETIC_PRIVATE_PROVIDER_ERROR|generic_decline|cus_PRIVATE/);
+
+    // Model a pre-upgrade failed payment row with no validated rejection.
+    const legacy = { ...saved, paymentId: "pay_LEGACY" as PaymentId };
+    fetch.mockImplementationOnce(async () =>
+      Response.json({ error: { type: "invalid_request_error" } }, { status: 400 }),
     );
-    const rows = await journal.readWindow(windowId);
-    expect(rows[0]).toMatchObject({ state: "failed", providerReference: null });
-    await expect(gateway().createCustomer({ accountId })).rejects.toThrow(
-      "evidence-window-provider-write:write-failed",
-    );
-    expect(fetch).toHaveBeenCalledTimes(1);
-    expect(JSON.stringify(rows)).not.toContain("SYNTHETIC_PRIVATE_PROVIDER_ERROR");
+    await expect(gateway().createPaymentSession(legacy)).rejects.toMatchObject({ code: "write-unresolved" });
+    const pending = (await restarted.readWindow(windowId)).find(
+      (row) => row.binding.logicalOperationId === legacy.paymentId,
+    )!;
+    await expect(
+      pools.payments.query("UPDATE evidence_window_provider_write SET rejection = $1 WHERE logical_operation_id = $2", [
+        rejection,
+        legacy.paymentId,
+      ]),
+    ).rejects.toMatchObject({ code: "23514" });
+    requireProviderWrite(await restarted.complete(pending.key, pending.version, { state: "failed" }));
+    await expect(gateway(restarted).createPaymentSession(legacy)).rejects.toMatchObject({ code: "write-failed" });
+    const legacyKey = providerWriteIdempotencyKey(pending.key);
+
+    const beforeClose = await restarted.readWindow(windowId);
+    for (const wireKey of wireKeys) {
+      await expect(readPaymentCreateRejection(restarted, wireKey!)).resolves.toEqual(rejection);
+    }
+    await expect(readPaymentCreateRejection(restarted, legacyKey)).resolves.toBeNull();
+    await createPostgresEvidenceWindowRegistration(pools.payments).close({ windowId, expectedVersion: 1 });
+    expect(await correlation.currentOpenWindow()).toBeNull();
+    for (const wireKey of wireKeys) {
+      await expect(readPaymentCreateRejection(restarted, wireKey!)).resolves.toEqual(rejection);
+    }
+    await expect(readPaymentCreateRejection(restarted, legacyKey)).resolves.toBeNull();
+    expect(await restarted.readWindow(windowId)).toEqual(beforeClose);
+    expect(fetch).toHaveBeenCalledTimes(3);
   });
+
+  it.each(["customer", "setup"] as const)(
+    "J4 definitive %s refusal records failed without the raw error",
+    async (kind) => {
+      const fetch = vi.fn(async () =>
+        Response.json({ error: { message: "SYNTHETIC_PRIVATE_PROVIDER_ERROR" } }, { status: 400 }),
+      );
+      vi.stubGlobal("fetch", fetch);
+      const create = () =>
+        kind === "customer"
+          ? gateway().createCustomer({ accountId })
+          : gateway().createSetupSession({
+              accountId,
+              setupReferenceId: "scs_SYNTHETIC_J",
+              providerCustomerReference: "cus_SYNTHETIC",
+              uiMode: "embedded",
+              returnUrl: `${origin}/account/payment-methods`,
+            });
+      await expect(create()).rejects.toThrow("evidence-window-provider-write:write-unresolved");
+      const rows = await journal.readWindow(windowId);
+      expect(rows[0]).toMatchObject({ state: "failed", providerReference: null });
+      expect(rows[0]!.rejection).toBeUndefined();
+      await expect(create()).rejects.toThrow("evidence-window-provider-write:write-failed");
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(rows)).not.toContain("SYNTHETIC_PRIVATE_PROVIDER_ERROR");
+    },
+  );
 
   it("J1/J6 governed agentic material never reaches the journal or network", async () => {
     const fetch = vi.fn();
@@ -748,12 +952,14 @@ describe("deployed provider journal J1-J6 (synthetic DB proof)", () => {
   });
 
   it("J6 converges existing registration and fresh bootstrap to one private journal with bounded constraints", async () => {
+    const row = requireProviderWrite(await journal.reserveOrResolve(customerRequest()));
+    await pools.payments.query("ALTER TABLE evidence_window_provider_write DROP COLUMN rejection");
+    await pools.payments.query(platformControlPlaneSchemaSql);
     await pools.payments.query(platformControlPlaneSchemaSql);
     const columns = await pools.payments.query<{ count: string }>(
       "SELECT count(*) FROM information_schema.columns WHERE table_name = 'evidence_window'",
     );
     expect(Number(columns.rows[0]!.count)).toBe(8);
-    const row = requireProviderWrite(await journal.reserveOrResolve(customerRequest()));
     for (const assignment of [
       "version = 0",
       "creation_ordinal = 65",
