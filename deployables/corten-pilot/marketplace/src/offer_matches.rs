@@ -32,7 +32,7 @@ use corten::{
     prelude::*,
 };
 use futures_util::StreamExt;
-use platform::{realtime::Tick, receipt::Receipt};
+use platform::{post_write::Surface, realtime::Tick, receipt::Receipt};
 
 use crate::{
     api::{AcceptanceTerms, ApiError, CartWrite, CommandError, OfferMatch, OfferMatchCalls as _},
@@ -68,6 +68,22 @@ pub struct OfferScreen {
     pub refusal: Option<String>,
 }
 
+/// The list's post-write reports (marketplace's `OFFER_MATCH_LIST_POST_WRITE_TELEMETRY`).
+const MATCHES: Surface = Surface {
+    context: "marketplace",
+    surface: "account-offer-matches",
+    route_id: "account-offer-matches",
+    route_template: "/account/offers/matches",
+};
+
+/// An offer match's (`OFFER_MATCH_POST_WRITE_TELEMETRY`), which Decline reports too.
+const MATCH: Surface = Surface {
+    context: "marketplace",
+    surface: "account-offer-match",
+    route_id: "account-offer-match",
+    route_template: "/account/offers/matches/:offerId",
+};
+
 pub(crate) async fn list(
     req: Req,
     Caller(OfferReviewer(viewer)): Caller<OfferReviewer>,
@@ -78,7 +94,9 @@ pub(crate) async fn list(
     let place = route.place;
     let receipt = Receipt::from_param(place.after_write.as_deref());
     let caller = config.platform.caller(&headers, config.proto, receipt.as_ref());
-    let matches = match caller.offer_matches().await {
+    let read = caller.offer_matches().await;
+    MATCHES.read(&read, receipt.is_some());
+    let matches = match read {
         Ok(matches) => matches,
         Err(error) if receipt.is_some() && error.catching_up() => {
             match config.platform.caller(&headers, config.proto, None).offer_matches().await {
@@ -149,7 +167,10 @@ async fn render(
     status: StatusCode,
 ) -> HtmlResult {
     let caller = config.platform.caller(headers, config.proto, None);
-    let offer = match caller.offer_match(id).await {
+    let read = caller.offer_match(id).await;
+    // The page reads after no write of its own: Decline goes to the list.
+    MATCH.read_found(&read, false);
+    let offer = match read {
         Ok(Some(offer)) => offer,
         Ok(None) => return Err(corten::Error::status(StatusCode::NOT_FOUND)),
         Err(error) => return read_failed(req, Some(viewer), error, None),
@@ -233,6 +254,7 @@ pub(crate) async fn write(
         "decline-offer" => {
             match caller.decline_offer_match(&id, &crate::cart_attempt::attempt_id(attempt_text(&form.attempt_id))).await {
                 Ok(receipt) => {
+                    MATCH.navigated(receipt.as_ref(), None);
                     return req
                         .redirect(&url::OfferMatches { place: Place { after_write: receipt.as_ref().map(Receipt::param) } });
                 }

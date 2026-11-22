@@ -21,7 +21,7 @@ use corten::{
     http::{HeaderMap, StatusCode},
     prelude::*,
 };
-use platform::receipt::Receipt;
+use platform::{post_write::Surface, receipt::Receipt};
 
 use crate::{
     api::{
@@ -193,6 +193,7 @@ async fn render(
         }
     };
     let (listing, fees, recovery) = tokio::join!(caller.seller_listing(id), history.fee_history(id), recovery);
+    LISTING.read(&listing, receipt.is_some());
     if let Some(recovery) = &recovery
         && (listing.is_err() || fees.is_err())
     {
@@ -280,6 +281,14 @@ pub(crate) async fn page(
     render(&req, &viewer, &config, &headers, &id, read, place.listing_recovery.as_deref(), edits, None, StatusCode::OK).await
 }
 
+/// The page's post-write reports (marketplace's `ACCOUNT_LISTING_POST_WRITE_TELEMETRY`).
+const LISTING: Surface = Surface {
+    context: "marketplace",
+    surface: "account-listing",
+    route_id: "account-listing",
+    route_template: "/account/listings/:listingId",
+};
+
 /// The listing's page read after the write `receipt` follows, saying what came of its evidence
 /// (`evidenceEvent`): where a create or a photo write that applied goes.
 pub fn at<'a>(id: &'a str, receipt: Option<&Receipt>, event: Option<&str>) -> url::SellerListing<'a> {
@@ -303,6 +312,7 @@ fn changed<'a>(
 
 /// The page after a photo write that applied, read after its receipt.
 fn applied(req: &Req, id: &str, receipt: Option<Receipt>, event: Option<&str>) -> HtmlResult {
+    LISTING.navigated(receipt.as_ref(), None);
     req.redirect(&at(id, receipt.as_ref(), event))
 }
 
@@ -579,7 +589,10 @@ pub(crate) async fn write(
     };
     let attempt = reference.as_ref().map(|reference| reference.batch_id.as_str());
     match (caller.listing_command(&id, &command, attempt).await, &reference) {
-        (Ok(receipt), Some(reference)) => req.redirect(&changed(&id, reference, receipt.as_ref(), event(&command))),
+        (Ok(receipt), Some(reference)) => {
+            LISTING.navigated(receipt.as_ref(), None);
+            req.redirect(&changed(&id, reference, receipt.as_ref(), event(&command)))
+        }
         (Ok(receipt), None) => applied(&req, &id, receipt, event(&command)),
         (Err(CommandError::Api(error)), Some(reference)) if listing_recovery::interrupted(&error) => {
             tracing::warn!("a listing write's answer was lost: {error}");

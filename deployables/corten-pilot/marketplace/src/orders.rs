@@ -116,7 +116,7 @@ pub fn list_href(side: Side, page: Paging) -> String {
 
 /// The order's page, read after the write whose receipt it carries.
 pub fn order_href(side: Side, id: &str, receipt: Option<&Receipt>) -> String {
-    let after = AfterWrite { after_write: receipt.map(Receipt::param) };
+    let after = AfterWrite { after_write: receipt.map(Receipt::param), ..Default::default() };
     match side {
         Side::Buyer => url::Purchase { id, after }.href(),
         Side::Seller => url::Sale { id, after }.href(),
@@ -262,7 +262,7 @@ async fn cancel(req: &Req, viewer: &Viewer, config: &Config, headers: &HeaderMap
     let caller = config.platform.caller(headers, config.proto, None);
     let refused = match caller.cancel_order(side, id).await {
         Ok(receipt) => {
-            let after = AfterWrite { after_write: receipt.as_ref().map(Receipt::param) };
+            let after = AfterWrite { after_write: receipt.as_ref().map(Receipt::param), ..Default::default() };
             return match side {
                 Side::Buyer => req.redirect(&url::Purchase { id, after }),
                 Side::Seller => req.redirect(&url::Sale { id, after }),
