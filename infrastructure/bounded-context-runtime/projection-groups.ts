@@ -7,6 +7,7 @@ import type { ProjectionRunContext } from "@chase-sets/event-core/projector";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { withProjectionTransaction } from "./projection-transactions";
 import { PROJECTION_GROUP_GENERATIONS_TABLE, PROJECTION_GROUP_REVISIONS_TABLE, SQL_IDENTIFIER_RE } from "./schema";
+import { subscriptionCheckpointsRequireRecovery } from "./subscription-store";
 import type {
   ContextSubscriptionRunner,
   ContextSubscriptionStatus,
@@ -708,7 +709,10 @@ function sortProjectionGroups(groups: readonly ContextProjectionGroup[]): readon
   });
 }
 
-function resolveContextProjectionGroups(entry: MountedContextRuntimeEntry): readonly ContextProjectionGroup[] {
+function resolveContextProjectionGroups(
+  entry: MountedContextRuntimeEntry,
+  subscriptionRunners: readonly ContextSubscriptionRunner[],
+): readonly ContextProjectionGroup[] {
   const declaredGroups: readonly BcProjectionGroup[] =
     entry.module.buildProjectionGroups?.(entry.services) ??
     (entry.module.projectionGroups ?? []).map((group) => ({ ...group }));
@@ -754,6 +758,12 @@ function resolveContextProjectionGroups(entry: MountedContextRuntimeEntry): read
     const revisionStale = () =>
       revisionState.storedProjectionRevision !== null && revisionState.storedProjectionRevision !== projectionRevision;
     const customReset = group.reset;
+    const groupRunners = sortSubscriptionRunners(
+      subscriptionRunners.filter(
+        (runner) => runner.targetContextName === entry.contextName && runner.projectionName === group.projectionName,
+      ),
+    );
+    const checkpointKeys = groupRunners.map((runner) => runner.checkpointKey);
 
     return {
       projectionName: group.projectionName,
@@ -768,7 +778,7 @@ function resolveContextProjectionGroups(entry: MountedContextRuntimeEntry): read
       resetStrategy: group.resetStrategy,
       hasCustomReset: Boolean(customReset),
       requiredDuringBootstrap: group.requiredDuringBootstrap ?? false,
-      subscriptionRunners: [],
+      subscriptionRunners: groupRunners,
       targetPool: entry.pool,
       reset: customReset
         ? async (context, options) => {
@@ -808,14 +818,23 @@ function resolveContextProjectionGroups(entry: MountedContextRuntimeEntry): read
         subscriptions: [],
       }),
       refreshStatus: async (options) => {
+        const capturesToken = options?.captureRevisionSyncToken === true;
+        const usesTruncateReset = group.resetStrategy === "truncate-owned-tables";
         const revision = await loadProjectionGroupRevision(
           entry.pool,
           entry.contextName,
           group.projectionName,
-          options?.captureRevisionSyncToken === true || group.resetStrategy === "truncate-owned-tables",
+          capturesToken || usesTruncateReset,
         );
+        // A fresh worker cannot infer marker loss from a cached subscription status or from a revision mismatch.
+        const recoveryRequired =
+          usesTruncateReset &&
+          (revision.resetRequired ||
+            (capturesToken &&
+              checkpointKeys.length > 0 &&
+              (await subscriptionCheckpointsRequireRecovery(entry.pool, checkpointKeys))));
         revisionState.storedProjectionRevision = revision.revision;
-        revisionState.recoveryRequired = group.resetStrategy === "truncate-owned-tables" && revision.resetRequired;
+        revisionState.recoveryRequired = recoveryRequired;
         revisionState.updatedAt = new Date().toISOString();
         const status: RefreshedContextProjectionGroupStatus = {
           projectionName: group.projectionName,
@@ -901,7 +920,7 @@ export function resolveModuleProjectionGroups(
       continue;
     }
 
-    const contextGroups = resolveContextProjectionGroups(entry);
+    const contextGroups = resolveContextProjectionGroups(entry, subscriptionRunners);
     const deferredProjectionNames = resolveDeferredProjectionNames(entry, contextGroups);
 
     for (const group of contextGroups) {
@@ -912,11 +931,7 @@ export function resolveModuleProjectionGroups(
       }
 
       const optionalSourceContextNames = new Set(group.optionalSourceContextNames);
-      const groupRunners = sortSubscriptionRunners(
-        subscriptionRunners.filter(
-          (runner) => runner.targetContextName === entry.contextName && runner.projectionName === group.projectionName,
-        ),
-      );
+      const groupRunners = group.subscriptionRunners;
       const deferred = deferredProjectionNames.has(group.projectionName);
       if (
         !deferred &&
@@ -1015,7 +1030,6 @@ export function resolveModuleProjectionGroups(
 
       groups.push({
         ...group,
-        subscriptionRunners: groupRunners,
         getStatus: () => {
           const baseStatus = group.getStatus();
           const subscriptions = groupRunners.map((runner) => runner.getStatus());

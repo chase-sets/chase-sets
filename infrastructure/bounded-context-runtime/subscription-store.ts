@@ -104,6 +104,16 @@ type SubscriptionCheckpointRow = Readonly<{
   last_global_position: string | number | bigint;
 }>;
 
+type SubscriptionCheckpointRecoveryRow = SubscriptionCheckpointRow &
+  Readonly<{ recovery_global_position: string | number | bigint | null }>;
+
+const subscriptionCheckpointRecoverySql = `SELECT checkpoint.last_global_position,
+            recovery.last_global_position AS recovery_global_position
+     FROM ${SUBSCRIPTION_CHECKPOINTS_TABLE} AS checkpoint
+     LEFT JOIN ${PROJECTION_RECOVERY_MARKERS_TABLE} AS recovery
+       ON recovery.projection_kind = 'subscription'
+      AND recovery.projection_key = checkpoint.checkpoint_key`;
+
 export type SubscriptionCheckpointRecoveryState = Readonly<{
   checkpoint: GlobalPosition | null;
   recoveryRequired: boolean;
@@ -159,32 +169,36 @@ export async function loadSubscriptionCheckpointRecoveryState(
   db: PgQueryable,
   checkpointKey: string,
 ): Promise<SubscriptionCheckpointRecoveryState> {
-  const result = await db.query<
-    Readonly<{
-      last_global_position: string | number | bigint;
-      recovery_global_position: string | number | bigint | null;
-    }>
-  >(
-    `SELECT checkpoint.last_global_position,
-            recovery.last_global_position AS recovery_global_position
-     FROM ${SUBSCRIPTION_CHECKPOINTS_TABLE} AS checkpoint
-     LEFT JOIN ${PROJECTION_RECOVERY_MARKERS_TABLE} AS recovery
-       ON recovery.projection_kind = 'subscription'
-      AND recovery.projection_key = checkpoint.checkpoint_key
-     WHERE checkpoint.checkpoint_key = $1`,
+  const result = await db.query<SubscriptionCheckpointRecoveryRow>(
+    `${subscriptionCheckpointRecoverySql} WHERE checkpoint.checkpoint_key = $1`,
     [checkpointKey],
   );
   const row = result.rows[0];
-  if (!row) {
-    return { checkpoint: null, recoveryRequired: false };
-  }
+  return row ? parseSubscriptionCheckpointRecoveryState(row) : { checkpoint: null, recoveryRequired: false };
+}
 
+export async function subscriptionCheckpointsRequireRecovery(
+  db: PgQueryable,
+  checkpointKeys: readonly string[],
+): Promise<boolean> {
+  const result = await db.query<SubscriptionCheckpointRecoveryRow>(
+    `${subscriptionCheckpointRecoverySql} WHERE checkpoint.checkpoint_key = ANY($1::text[])`,
+    [checkpointKeys],
+  );
+  return result.rows.some((row) => parseSubscriptionCheckpointRecoveryState(row).recoveryRequired);
+}
+
+function parseSubscriptionCheckpointRecoveryState(
+  row: SubscriptionCheckpointRecoveryRow,
+): SubscriptionCheckpointRecoveryState {
   const checkpoint = parseGlobalPosition(String(row.last_global_position));
   const recoveryPosition =
     row.recovery_global_position === null ? null : parseGlobalPosition(String(row.recovery_global_position));
   return {
     checkpoint,
-    recoveryRequired: recoveryPosition === null || BigInt(recoveryPosition) < BigInt(checkpoint),
+    recoveryRequired:
+      checkpoint !== ZERO_GLOBAL_POSITION &&
+      (recoveryPosition === null || BigInt(recoveryPosition) < BigInt(checkpoint)),
   };
 }
 

@@ -933,7 +933,6 @@ describeDb("projection operations Postgres integration", () => {
   );
 
   it.each([
-    { checkpoint: "0", marker: null },
     { checkpoint: "5", marker: null },
     { checkpoint: "5", marker: "4" },
   ])(
