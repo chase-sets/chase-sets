@@ -103,6 +103,7 @@ pub const COMPONENTS: &[Component] = &[
     ListPage,
     DetailPage,
     CatalogDialog,
+    DimensionForm,
     BulkRows,
     ScopeRowView,
     ScopePage,
