@@ -588,6 +588,85 @@ describeDb("projection operations Postgres integration", () => {
     });
   });
 
+  describe("failover with retained subscription checkpoints", () => {
+    const mount = () =>
+      createMountedContextTestRuntime([
+        { contextName: "source", module: sourceModule, pool: pools.source, ports: {} },
+        { contextName: "target", module: createTargetModule(), pool: pools.target, ports: targetPorts },
+      ]);
+    const generationKey = { targetContextName: "target", projectionName: "items" };
+
+    it("runs a markerless checkpoint-zero group without resetting it", async () => {
+      const group = mount().projectionGroups[0];
+      const [{ checkpointKey }] = group.subscriptionRunners;
+      await syncProjectionGroup(group);
+      await expect(readCheckpointState(pools.target, checkpointKey)).resolves.toMatchObject({
+        checkpoint: "0",
+        recoveryMarker: "0",
+      });
+      await pools.target.query("TRUNCATE event_projection_recovery_markers");
+      await expect(readCheckpointState(pools.target, checkpointKey)).resolves.toMatchObject({
+        checkpoint: "0",
+        recoveryMarker: null,
+      });
+
+      const restarted = mount().projectionGroups[0];
+      await expect(createProjectionGroupWorkerRunner(restarted).runOnce()).resolves.toMatchObject({
+        processed: 0,
+        state: "caught-up",
+      });
+      expect(restarted.getStatus()).toMatchObject({ initialized: true, recoveryRequired: false, caughtUp: true });
+      await expect(loadProjectionGroupGeneration(pools.target, generationKey)).resolves.toEqual({
+        activeGeneration: "1",
+        rebuildingGeneration: null,
+        state: "active",
+      });
+    });
+
+    it("resets a markerless pre-revision group's surviving rows before replay", async () => {
+      const group = mount().projectionGroups[0];
+      const [{ checkpointKey }] = group.subscriptionRunners;
+      await createPostgresEventStore({ pool: pools.source }).appendToStream({
+        streamId: "source.item-retained",
+        expectedVersion: "no_stream",
+        context: createEventStoreContext(),
+        events: [{ eventType: "source.item-recorded", payload: { itemId: "retained" } }],
+      });
+      await syncProjectionGroup(group);
+      const generation = await pools.target.query(
+        `SELECT active_generation::text, target_projection_revision, state
+         FROM event_projection_group_generations WHERE target_context_name = $1 AND projection_name = $2`,
+        [generationKey.targetContextName, generationKey.projectionName],
+      );
+      expect(generation.rows).toEqual([{ active_generation: "1", target_projection_revision: null, state: "active" }]);
+      await expect(readProjectedItems()).resolves.toEqual([{ item_id: "retained", seen_count: 1 }]);
+      await pools.target.query("TRUNCATE event_projection_recovery_markers");
+      await expect(readCheckpointState(pools.target, checkpointKey)).resolves.toMatchObject({
+        checkpoint: "1",
+        recoveryMarker: null,
+      });
+
+      const worker = createProjectionGroupWorkerRunner(mount().projectionGroups[0]);
+      await expect(worker.runOnce()).resolves.toMatchObject({ processed: 1, lastGlobalPosition: "1" });
+      await expect(loadProjectionGroupGeneration(pools.target, generationKey)).resolves.toEqual({
+        activeGeneration: "1",
+        rebuildingGeneration: "2",
+        state: "rebuilding",
+      });
+      await expect(worker.runOnce()).resolves.toMatchObject({ processed: 0, state: "caught-up" });
+      await expect(loadProjectionGroupGeneration(pools.target, generationKey)).resolves.toEqual({
+        activeGeneration: "2",
+        rebuildingGeneration: null,
+        state: "active",
+      });
+      await expect(readProjectedItems()).resolves.toEqual([{ item_id: "retained", seen_count: 1 }]);
+      await expect(readCheckpointState(pools.target, checkpointKey)).resolves.toMatchObject({
+        checkpoint: "1",
+        recoveryMarker: "1",
+      });
+    });
+  });
+
   it.each(["projection", "reaction", "local", "inline"] as const)(
     "zero-source-first-checkpoint through real %s factory, group, refresh and restart",
     async (kind) => {
