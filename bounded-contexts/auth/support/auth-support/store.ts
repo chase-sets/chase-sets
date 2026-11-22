@@ -2,6 +2,120 @@ import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-po
 import { createAuthSessionEpochs, type AuthSessionEpochs } from "../../features/sessions/api/owner-epochs";
 import { sessionExpiry } from "../../features/sessions/api/session-authority";
 import type { AuthMethod } from "../../features/sessions/domain/auth-flow";
+import type { RegistrationConsentSubmission } from "../api-support/support";
+
+export type PendingRegistrationPasskey = Readonly<{
+  credentialId: string;
+  externalCredentialId: string;
+  label: string;
+  publicKey: string;
+  signCount: number;
+  credentialDeviceType: string;
+  credentialBackedUp: boolean;
+}>;
+
+/**
+ * A registration staged on its magic-link row until the link is consumed. It
+ * holds no plaintext password: only the hash computed when it was staged, the
+ * already verified passkey material, the signed consent submission, and the
+ * ids reserved for the User, its credentials and its Session. Finalization
+ * clears it; retention deletes it with the row.
+ */
+export type PendingRegistration = Readonly<{
+  displayName: string;
+  givenName: string;
+  familyName: string;
+  /** As staged, unchecked here: Identity's verifier classifies it, including its absence. */
+  registrationConsent: RegistrationConsentSubmission;
+  reservedUserId: string;
+  reservedSessionId: string;
+  password: Readonly<{ credentialId: string; secretHash: string }> | null;
+  passkey: PendingRegistrationPasskey | null;
+}>;
+
+/**
+ * The link's first successful registration admission, committed before any
+ * Identity write. While the link is live a retry reuses it instead of deciding
+ * admission again; consuming the link clears it with the staged payload.
+ */
+export type PendingRegistrationAdmission = Readonly<{ foundersBetaAccessStartedAt: string | null }>;
+
+export type PendingMagicLinkRegistration = Readonly<{
+  tokenId: string;
+  userId: string | null;
+  email: string;
+  pendingRegistration: PendingRegistration;
+  admission: PendingRegistrationAdmission | null;
+}>;
+
+class PendingRegistrationPayloadError extends Error {
+  constructor() {
+    // Never echo the payload: it carries a password hash and consent signature.
+    super("Pending Registration payload is malformed.");
+    this.name = "PendingRegistrationPayloadError";
+  }
+}
+
+function requireText(value: unknown, allowEmpty = false): string {
+  if (typeof value !== "string" || (!allowEmpty && value.trim().length === 0)) {
+    throw new PendingRegistrationPayloadError();
+  }
+  return value;
+}
+
+function requireRecord(value: unknown): Readonly<Record<string, unknown>> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new PendingRegistrationPayloadError();
+  }
+  return value as Readonly<Record<string, unknown>>;
+}
+
+/**
+ * Shape-checks the staged payload except its consent submission, which passes
+ * through as stored: Identity alone verifies it, so an absent or malformed
+ * submission reaches Identity's terminal consent rejection.
+ */
+export function parsePendingRegistration(value: unknown): PendingRegistration {
+  const record = requireRecord(value);
+  const password = record.password === null ? null : requireRecord(record.password);
+  const passkey = record.passkey === null ? null : requireRecord(record.passkey);
+  if (passkey && (!Number.isSafeInteger(passkey.signCount) || typeof passkey.credentialBackedUp !== "boolean")) {
+    throw new PendingRegistrationPayloadError();
+  }
+
+  return {
+    displayName: requireText(record.displayName),
+    givenName: requireText(record.givenName, true),
+    familyName: requireText(record.familyName, true),
+    registrationConsent: record.registrationConsent as RegistrationConsentSubmission,
+    reservedUserId: requireText(record.reservedUserId),
+    reservedSessionId: requireText(record.reservedSessionId),
+    password: password && {
+      credentialId: requireText(password.credentialId),
+      secretHash: requireText(password.secretHash),
+    },
+    passkey: passkey && {
+      credentialId: requireText(passkey.credentialId),
+      externalCredentialId: requireText(passkey.externalCredentialId),
+      label: requireText(passkey.label),
+      publicKey: requireText(passkey.publicKey),
+      signCount: passkey.signCount as number,
+      credentialDeviceType: requireText(passkey.credentialDeviceType),
+      credentialBackedUp: passkey.credentialBackedUp as boolean,
+    },
+  };
+}
+
+function parsePendingRegistrationAdmission(value: unknown): PendingRegistrationAdmission | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  const admission = requireRecord(value);
+  return {
+    foundersBetaAccessStartedAt:
+      admission.foundersBetaAccessStartedAt === null ? null : requireText(admission.foundersBetaAccessStartedAt),
+  };
+}
 
 export async function upsertPasswordCredential(
   db: PgQueryable,
@@ -107,6 +221,61 @@ export async function upsertPasskeyCredential(
   );
 }
 
+/**
+ * Pending Registration's password row: the staged hash is written once under
+ * its reserved credential id and never rehashed or overwritten on a retry.
+ */
+export async function insertPasswordCredentialIfAbsent(
+  db: PgQueryable,
+  params: Readonly<{ credentialId: string; userId: string; secretHash: string }>,
+) {
+  await db.query(
+    `INSERT INTO identity_password_credentials (credential_id, user_id, secret_hash, created_at, updated_at)
+     VALUES ($1, $2, $3, now(), now())
+     ON CONFLICT (credential_id) DO NOTHING`,
+    [params.credentialId, params.userId, params.secretHash],
+  );
+}
+
+/** Pending Registration's passkey rows: written once under the reserved credential id, never replaced. */
+export async function insertPasskeyCredentialIfAbsent(
+  db: PgQueryable,
+  params: PendingRegistrationPasskey & Readonly<{ userId: string }>,
+) {
+  await db.query(
+    `INSERT INTO identity_passkey_credentials (
+       credential_id,
+       user_id,
+       external_credential_id,
+       label,
+       public_key,
+       sign_count,
+       credential_device_type,
+       credential_backed_up,
+       created_at,
+       updated_at
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), now())
+     ON CONFLICT (credential_id) DO NOTHING`,
+    [
+      params.credentialId,
+      params.userId,
+      params.externalCredentialId,
+      params.label,
+      params.publicKey,
+      params.signCount,
+      params.credentialDeviceType,
+      params.credentialBackedUp,
+    ],
+  );
+  await db.query(
+    `INSERT INTO identity_passkey_lookup (external_credential_id, credential_id, user_id, label, updated_at)
+     VALUES ($1, $2, $3, $4, now())
+     ON CONFLICT (external_credential_id) DO NOTHING`,
+    [params.externalCredentialId, params.credentialId, params.userId, params.label],
+  );
+}
+
 export async function getPasskeyCredentialByExternalId(db: PgQueryable, externalCredentialId: string) {
   const result = await db.query<{
     credential_id: string;
@@ -163,6 +332,7 @@ export async function insertMagicLinkToken(
     tokenHash: string;
     deliveryToken: string | null;
     expiresAt: string;
+    pendingRegistration?: PendingRegistration | null;
   }>,
 ) {
   await db.query(
@@ -173,10 +343,19 @@ export async function insertMagicLinkToken(
        token_hash,
        delivery_token,
        expires_at,
+       pending_registration,
        created_at
      )
-     VALUES ($1, $2, $3, $4, $5, $6, now())`,
-    [params.tokenId, params.userId, params.email, params.tokenHash, params.deliveryToken, params.expiresAt],
+     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, now())`,
+    [
+      params.tokenId,
+      params.userId,
+      params.email,
+      params.tokenHash,
+      params.deliveryToken,
+      params.expiresAt,
+      params.pendingRegistration ? JSON.stringify(params.pendingRegistration) : null,
+    ],
   );
 }
 
@@ -216,11 +395,107 @@ export async function consumeMagicLinkToken(db: PgQueryable, tokenHash: string) 
      WHERE token_hash = $1
        AND consumed_at IS NULL
        AND expires_at > now()
+       AND pending_registration IS NULL
      RETURNING token_id, user_id, email, token_hash, expires_at, consumed_at`,
     [tokenHash],
   );
 
   return result.rows[0] ?? null;
+}
+
+/** Whether a live link still stages a Pending Registration; it does not lock or consume the row. */
+export async function hasPendingMagicLinkRegistration(db: PgQueryable, tokenHash: string): Promise<boolean> {
+  const result = await db.query(
+    `SELECT 1
+     FROM identity_magic_link_tokens
+     WHERE token_hash = $1
+       AND pending_registration IS NOT NULL
+       AND consumed_at IS NULL
+       AND expires_at > now()`,
+    [tokenHash],
+  );
+  return result.rows.length > 0;
+}
+
+/**
+ * Claims a live Pending Registration link for the caller's open transaction.
+ * READ COMMITTED re-checks these predicates after a row-lock wait, so a waiter
+ * behind a committed finalization reads nothing and one behind a rollback
+ * claims the still-pending row.
+ */
+export async function lockPendingMagicLinkRegistration(
+  db: PgQueryable,
+  tokenHash: string,
+): Promise<PendingMagicLinkRegistration | null> {
+  const result = await db.query<{
+    token_id: string;
+    user_id: string | null;
+    email: string;
+    pending_registration: unknown;
+  }>(
+    `SELECT token_id, user_id, email, pending_registration
+     FROM identity_magic_link_tokens
+     WHERE token_hash = $1
+       AND pending_registration IS NOT NULL
+       AND consumed_at IS NULL
+       AND expires_at > now()
+     FOR UPDATE`,
+    [tokenHash],
+  );
+  const row = result.rows[0];
+  if (!row) {
+    return null;
+  }
+  const payload = requireRecord(row.pending_registration);
+  return {
+    tokenId: row.token_id,
+    userId: row.user_id,
+    email: row.email,
+    pendingRegistration: parsePendingRegistration(payload),
+    admission: parsePendingRegistrationAdmission(payload.admission),
+  };
+}
+
+/**
+ * Records a claimed link's successful admission in the caller's transaction,
+ * which must commit before the first Identity write. An existing admission is
+ * kept, so the first decision and its timestamp stand for every retry.
+ */
+export async function recordPendingRegistrationAdmission(
+  db: PgQueryable,
+  tokenId: string,
+  admission: PendingRegistrationAdmission,
+): Promise<void> {
+  const result = await db.query(
+    `UPDATE identity_magic_link_tokens
+     SET pending_registration = jsonb_set(pending_registration, '{admission}', $2::jsonb)
+     WHERE token_id = $1
+       AND consumed_at IS NULL
+       AND pending_registration IS NOT NULL
+       AND pending_registration->'admission' IS NULL
+     RETURNING token_id`,
+    [tokenId, JSON.stringify(admission)],
+  );
+  if (result.rows.length !== 1) {
+    throw new Error("Pending Registration link was not claimed for admission by this transaction.");
+  }
+}
+
+/** Consumes a claimed Pending Registration link and clears its staged payload in the caller's transaction. */
+export async function finishPendingMagicLinkRegistration(db: PgQueryable, tokenId: string): Promise<void> {
+  const result = await db.query(
+    `UPDATE identity_magic_link_tokens
+     SET consumed_at = now(),
+         pending_registration = NULL
+     WHERE token_id = $1
+       AND consumed_at IS NULL
+       AND pending_registration IS NOT NULL
+     RETURNING token_id`,
+    [tokenId],
+  );
+  if (result.rows.length !== 1) {
+    throw new Error("Pending Registration link was not claimed by this transaction.");
+  }
 }
 
 export async function insertPhoneCodeToken(
@@ -373,19 +648,7 @@ export async function consumeChallenge(
   return result.rows[0] ?? null;
 }
 
-export async function upsertSessionToken(
-  pool: PgTransactionalPool,
-  params: Readonly<{
-    sessionId: string;
-    tokenHash: string;
-    expiresAt: string;
-  }>,
-  epochs: AuthSessionEpochs = createAuthSessionEpochs(pool),
-) {
-  sessionExpiry(params.expiresAt);
-  await epochs.transaction([`session/${params.sessionId}`], (db) =>
-    db.query(
-      `INSERT INTO identity_session_tokens (
+const SESSION_TOKEN_UPSERT_SQL = `INSERT INTO identity_session_tokens (
        session_id,
        token_hash,
        expires_at,
@@ -397,10 +660,40 @@ export async function upsertSessionToken(
      SET token_hash = $2,
          expires_at = $3,
          revision = identity_session_tokens.revision + 1,
-         updated_at = now()`,
-      [params.sessionId, params.tokenHash, params.expiresAt],
-    ),
+         updated_at = now()`;
+
+export async function upsertSessionToken(
+  pool: PgTransactionalPool,
+  params: Readonly<{
+    sessionId: string;
+    tokenHash: string;
+    expiresAt: string;
+  }>,
+  epochs: AuthSessionEpochs = createAuthSessionEpochs(pool),
+) {
+  sessionExpiry(params.expiresAt);
+  await epochs.transaction([`session/${params.sessionId}`], (db) =>
+    db.query(SESSION_TOKEN_UPSERT_SQL, [params.sessionId, params.tokenHash, params.expiresAt]),
   );
+}
+
+/**
+ * The same fenced Session Token write on a transaction the caller already
+ * holds (Pending Registration's lock client). Enrollment runs first on that
+ * client; a pending closure throws `SessionClosureRequired` before any write.
+ */
+export async function upsertSessionTokenOnClient(
+  client: PgQueryable,
+  params: Readonly<{
+    sessionId: string;
+    tokenHash: string;
+    expiresAt: string;
+  }>,
+  epochs: AuthSessionEpochs,
+) {
+  sessionExpiry(params.expiresAt);
+  await epochs.enrollOnClient(client, [`session/${params.sessionId}`]);
+  await client.query(SESSION_TOKEN_UPSERT_SQL, [params.sessionId, params.tokenHash, params.expiresAt]);
 }
 
 export async function getSessionByTokenHash(db: PgQueryable, tokenHash: string) {

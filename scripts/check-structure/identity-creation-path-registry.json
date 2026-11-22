@@ -38,11 +38,16 @@
       "label": "First-use magic link",
       "kind": "public-first-use",
       "disposition": "bound",
-      "reason": "Public first-use path; a consumed magic link for an unknown email creates a personal identity.",
+      "reason": "Public first-use path; a consumed magic link for an unknown email creates a personal identity, and consuming a Pending Registration link finishes the staged registration under its reserved User id.",
       "sites": [
         {
           "file": "bounded-contexts/auth/support/api-support/magic-link-routes.ts",
           "symbol": "registerMagicLinkRoutes",
+          "content": "identityMutations.createPersonalIdentity"
+        },
+        {
+          "file": "bounded-contexts/auth/support/api-support/magic-link-routes.ts",
+          "symbol": "finalizePendingRegistration",
           "content": "identityMutations.createPersonalIdentity"
         }
       ]

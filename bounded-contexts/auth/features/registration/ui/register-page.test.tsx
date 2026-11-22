@@ -190,12 +190,14 @@ describe("routed registration errors", () => {
       const form = screen.getByRole("button", { name: buttonName }).closest("form")!;
       fireEvent.submit(form);
       await waitFor(() => expect(route.requests).toHaveBeenCalledOnce());
+      await route.submissionCommitted();
       await route.settle(safeFailure(intent));
       expect(screen.getByRole("alert").querySelector("a")).toBeNull();
       expect(document.querySelector('[aria-invalid="true"]')).toBeNull();
       expect(document.body.textContent).not.toContain("RAW_AUTH_MARKER");
       fireEvent.submit(form);
       await waitFor(() => expect(route.requests).toHaveBeenCalledTimes(2));
+      await route.submissionCommitted();
       await route.settle(redirect("/done"));
       expect(screen.getByText("Authenticated destination")).toBeTruthy();
     },

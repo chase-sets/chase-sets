@@ -14275,11 +14275,10 @@ fn repricing_policy_stand() -> Value {
     })
 }
 
-/// `pol_4` as marketplace's editor writes Beat the lowest listing (knob 2, USD, a cost basis and
-/// fallback 4.00), its authoring intent bound.
-/// The body Pricing's `presets/compile` answers for `controls`, as far as the pages read it: the
-/// controls' currency, floor and scope in a complete rule, a second aged rule for slow stock, and
-/// the preset's intent bound.
+/// The body Pricing's `presets/compile` answers for `controls`, as far as the pages read it, in Beat
+/// the lowest listing's shape for every preset: the controls' currency, floor and scope in a complete
+/// rule below the lowest competing ask by the knob, a second aged rule for slow stock, and the
+/// preset's intent bound.
 fn compiled_stand(controls: &Value) -> Value {
     let knob = controls["knob"].as_f64().unwrap();
     let directive = json!({
@@ -14302,6 +14301,8 @@ fn compiled_stand(controls: &Value) -> Value {
     body
 }
 
+/// `pol_4` as marketplace's editor writes Beat the lowest listing (knob 2, USD, a cost basis and
+/// fallback 4.00), its authoring intent bound.
 fn repricing_preset_stand() -> Value {
     let floor = json!({ "mode": "cost-basis-plus-margin", "marginPercent": 10, "absoluteFallbackAmount": "4.00" });
     let body = compiled_stand(&json!({ "preset": "beat-lowest", "knob": 2, "name": "Beat", "currencyCode": "USD",
