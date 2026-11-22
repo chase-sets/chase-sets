@@ -126,6 +126,11 @@
   "seedRequirements": [],
   "hostPorts": [
     {
+      "portName": "pricingPredicateConsumerPool",
+      "providedBy": "composition root",
+      "purpose": "Route Catalog category predicate invalidation to the original Marketplace request terminal."
+    },
+    {
       "portName": "catalogMarketObservationRequests",
       "providedBy": "platform-api",
       "purpose": "Relays Pricing's current TCGplayer market observation request without reading Pricing policy; absent sources fail closed."
