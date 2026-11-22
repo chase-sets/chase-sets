@@ -42,8 +42,8 @@ use serde_json::{Value, json};
 
 use crate::{
     api::{
-        ApiError, ConfigurationReceipt, Configured, RepricingActivityPage, RepricingCalls as _, RepricingCategory, RepricingHalt,
-        RepricingPolicy, RepricingPrerequisites, RepricingScopePreview,
+        ApiError, ConfigurationReceipt, Configured, PricingRefusal, RepricingActivityPage, RepricingCalls as _,
+        RepricingCategory, RepricingHalt, RepricingPolicy, RepricingPrerequisites, RepricingScopePreview,
     },
     app::{PRICING_MANAGE, Shared, read_failed, sign_in, url},
     auth::{PricingManager, Viewer},
@@ -190,7 +190,7 @@ impl PolicyForm {
 pub struct Revise {
     pub tier: Tier,
     pub body: Value,
-    /// The preset tier's controls, which compile the body.
+    /// The preset tier's controls; Pricing compiles them into the body.
     pub preset: Option<Editor>,
     pub dry_run: Option<String>,
     pub after: Option<String>,
@@ -216,9 +216,9 @@ impl Revise {
         revise
     }
 
-    /// The create editor's preset, opened up (Open up this preset while creating a policy).
-    pub(crate) fn opened(editor: Editor, facts: &RepricingPrerequisites) -> Revise {
-        let body = editor.compile();
+    /// The create editor's preset, opened up (Open up this preset while creating a policy), with
+    /// the body Pricing compiled it into.
+    pub(crate) fn opened(editor: Editor, body: Value, facts: &RepricingPrerequisites) -> Revise {
         let mut revise = Revise {
             tier: Tier::Preset,
             body,
@@ -233,14 +233,13 @@ impl Revise {
     }
 
     /// The editor a post drew, with its controls laid over its body. None when the post carries
-    /// no body the editor can read.
+    /// no body the editor can read. In the preset tier the body is the one the post drew until
+    /// [`Revise::compile`] has Pricing compile the posted controls.
     pub(crate) fn posted(form: &PolicyForm, facts: &RepricingPrerequisites, t: RepricingMsg) -> Option<Revise> {
         let tier = form.tier.as_deref().and_then(Tier::read)?;
         let mut body: Value = serde_json::from_str(form.body.as_deref()?).ok().filter(Value::is_object)?;
         let preset = if tier == Tier::Preset {
-            let editor = Editor::read(&form.input(), facts, t);
-            body = editor.compile();
-            Some(editor)
+            Some(Editor::read(&form.input(), facts, t))
         } else {
             repricing_body::read(&mut body, tier, &form.posted());
             None
@@ -257,10 +256,20 @@ impl Revise {
         })
     }
 
+    /// The preset tier's controls as Pricing compiles them (`presets/compile`); the body is
+    /// left as it was when Pricing refuses them.
+    pub(crate) async fn compile(&mut self, caller: &crate::api::Caller<'_>) -> Result<(), PricingRefusal> {
+        if let Some(editor) = &self.preset {
+            self.body = caller.compile_repricing_preset(&editor.request()).await?;
+        }
+        Ok(())
+    }
+
     /// In a preset's tier, its controls from the body's intent.
     fn simple(&mut self, facts: &RepricingPrerequisites) {
         match (self.tier, repricing_body::recognize(&self.body)) {
             (Tier::Preset, Some(Source::Preset { preset, knob, age })) => {
+                let age = preset.controls(facts).age_days.map(|_| age);
                 self.preset = Some(Editor::of_preset(&self.body, preset, knob, age));
             }
             (Tier::Preset, _) => self.tier = Tier::opened(&self.body, |goal, version| facts.selectable(goal, version), None),
@@ -268,9 +277,9 @@ impl Revise {
         }
     }
 
-    /// The body the editor would save (`candidate`).
+    /// The body the editor would save (`candidate`): in the preset tier, Pricing's compiled body.
     pub fn candidate(&self) -> Value {
-        self.preset.as_ref().map_or_else(|| self.body.clone(), Editor::compile)
+        self.body.clone()
     }
 
     /// The editor has what a preview or a save needs (`promptComplete`): a preset's currency and
@@ -651,6 +660,15 @@ async fn editor(req: &Req, viewer: &Viewer, config: &Shared, headers: &HeaderMap
             .await;
     };
     let again = |revise: Revise, status: StatusCode| answer(req, viewer, config, headers, id, revise, status);
+    if let Err(refusal) = revise.compile(&caller).await {
+        return match messages(req, refusal, t.editor_validation_failed()) {
+            Ok(errors) => {
+                revise.errors = errors;
+                again(revise, StatusCode::UNPROCESSABLE_ENTITY).await
+            }
+            Err(answer) => *answer,
+        };
+    }
     // Open up a preset only once it has what a preview needs, as marketplace's button is off until
     // then (`promptComplete`); without the script the post is how the pilot finds out.
     if matches!(form.intent.as_str(), "open-up" | "open-advanced") && !revise.complete() {

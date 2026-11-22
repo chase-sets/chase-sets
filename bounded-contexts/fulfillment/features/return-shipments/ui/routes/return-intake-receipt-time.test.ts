@@ -13,9 +13,9 @@ vi.mock("@chase-sets/platform-runtime/auth", () => ({
   requireActorFromAuthApi: mockRequireActor,
 }));
 
-vi.mock("../../support/request-support/api-client", () => ({
+vi.mock("../../api/request-client", () => ({
   FulfillmentApiError: class extends Error {},
-  createFulfillmentRequestApiClient: () => mockApi,
+  createReturnIntakeRequestClient: () => mockApi,
 }));
 
 import { action } from "./return-intake";

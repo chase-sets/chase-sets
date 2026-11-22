@@ -428,7 +428,7 @@ export async function getActivePaymentByOrderSet(
   return row ? mapPaymentRow(row) : null;
 }
 
-async function getActivePaymentCreationReservationBySource(
+export async function getActivePaymentCreationReservationBySource(
   db: PgQueryable,
   sourceContext: string,
   sourceReferenceId: string,

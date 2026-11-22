@@ -110,13 +110,10 @@ for (const javaScriptEnabled of [true, false]) {
   await hydrated(page, javaScriptEnabled);
   const prerequisites = await (await page.request.get(`${policies}/authoring-prerequisites`)).json();
   const currency = await page.locator('select[name="currency"], input[name="currency"]').inputValue();
-  const one = prerequisites.listingCurrencyCodes.length === 1 ? prerequisites.listingCurrencyCodes[0] : "";
-  check(currency === one, `${label}: the currency is the account's one (${currency})`);
+  const defaults = prerequisites.editorDefaults;
+  check(currency === (defaults.currencyCode ?? ""), `${label}: the currency is the account's one (${currency})`);
   const floor = await page.locator('select[name="floor"]').inputValue();
-  check(
-    floor === (prerequisites.hasCostBasis ? "cost-basis-plus-margin" : "absolute"),
-    `${label}: the floor starts from the cost basis (${floor})`,
-  );
+  check(floor === defaults.floor.mode, `${label}: the floor starts from Pricing's default (${floor})`);
   const scope = await page.request.post(`${policies}/scope-preview`, {
     data: { scope: { kind: "all-listings" }, excludedListingIds: [] },
   });

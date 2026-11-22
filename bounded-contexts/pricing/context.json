@@ -475,6 +475,21 @@
       "portName": "channelConnectionIdentityReader",
       "providedBy": "channels",
       "purpose": "Resolve account-qualified Channel Connection identity before provider selection for the channel-connection Economics scope."
+    },
+    {
+      "portName": "pricingPredicateConsumerPool",
+      "providedBy": "composition root",
+      "purpose": "Route Pricing predicate invalidation to the original Marketplace request terminal."
+    },
+    {
+      "portName": "pricingEvaluationOwners",
+      "providedBy": "composition root",
+      "purpose": "Supply the Marketplace, Inventory, and Catalog stores for authoritative evaluation inputs and reservations."
+    },
+    {
+      "portName": "pricingEvaluationConsumers",
+      "providedBy": "composition root",
+      "purpose": "Identify the Marketplace consumer store and incarnation for Pricing standing grants and closure."
     }
   ],
   "apiDeployables": ["platform-api"],
@@ -625,10 +640,11 @@
         "api-route:bounded-contexts/pricing/features/repricing-policies/api/route.ts:POST /:policyId/resume",
         "api-route:bounded-contexts/pricing/features/repricing-policies/api/route.ts:POST /:policyId/delete",
         "api-route:bounded-contexts/pricing/features/repricing-policies/api/route.ts:POST /halt",
-        "api-route:bounded-contexts/pricing/features/repricing-policies/api/route.ts:POST /scope-preview"
+        "api-route:bounded-contexts/pricing/features/repricing-policies/api/route.ts:POST /scope-preview",
+        "api-route:bounded-contexts/pricing/features/repricing-policies/api/route.ts:POST /presets/compile"
       ],
       "visibleDestination": {
-        "description": "Policy and halt commands return folded aggregate state; scope preview returns the computed counts without mutation."
+        "description": "Policy and halt commands return folded aggregate state; scope preview returns the computed counts and preset compile returns the compiled body, both without mutation."
       },
       "proof": {
         "authoritativeResponse": "Creation appends and consumes atomically; owned commands fence the aggregate before dispatch and return its state.",

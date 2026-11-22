@@ -6708,6 +6708,7 @@ function syntheticPreviewProbeProfile(
     migrationEvidence: null,
     authoringAudit: null,
     validation: { status: "valid", diagnostics: [] },
+    sectionFingerprints: {} as SyntheticPreviewProbeReview["sectionFingerprints"],
     ...overrides,
   };
 }

@@ -14,7 +14,7 @@ import { useState, type ComponentProps, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { inventoryAdjustmentReasons } from "@chase-sets/event-core/public-event-payloads";
 import { hasTranslation } from "@chase-sets/localization";
-import { createInventoryApiClient, type InventoryOfflineSaleResult } from "../../../client";
+import { createInventoryApiClient, inventoryApi, type InventoryOfflineSaleResult } from "../../../client";
 import { InventoryMutationProvider } from "../../../support/request-support/mutation-form";
 import type { InventoryCatalogItemSnapshot } from "../integrations/catalog/queries";
 import { InventoryItemDetailPage } from "./inventory-item-detail-page";
@@ -775,7 +775,10 @@ const gradedCreateSchema: NonNullable<InventoryCatalogItemSnapshot["product_sche
 };
 
 describe("inventory create-item graded submission", () => {
-  afterEach(() => window.sessionStorage.clear());
+  afterEach(() => {
+    window.sessionStorage.clear();
+    vi.restoreAllMocks();
+  });
   const gradedSelections = [{ dimensionId: "dim_form", optionId: "opt_graded" }];
   const certificationLabel = "Certification number (optional)";
 
@@ -924,6 +927,9 @@ describe("inventory create-item graded submission", () => {
   it("settles a refused Graded submission without redirecting or resending", async () => {
     const user = userEvent.setup();
     const action = vi.fn<ActionFunction>(async () => ({ error: "Storage location not found." }));
+    const fetchReceipt = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 404 }));
+    const { getMutationAttempt } = createInventoryApiClient({ fetch: fetchReceipt });
+    vi.spyOn(inventoryApi, "getMutationAttempt").mockImplementation(getMutationAttempt);
     const { router, hydrate } = setup(action);
     await hydrate();
     await user.selectOptions(await screen.findByLabelText("Form"), "opt_graded");
@@ -932,15 +938,18 @@ describe("inventory create-item graded submission", () => {
     fireEvent.change(screen.getByLabelText("Total quantity"), { target: { value: "1" } });
     await user.click(createButton());
     await screen.findByText("Storage location not found.");
-    await waitFor(() => expect(screen.queryByText("Submitting Inventory change.")).toBeNull());
-    expect(
-      screen.getByText(
-        "The Inventory result is uncertain. Check the original result or contact support before making another change.",
-      ),
-    ).toBeTruthy();
+    await screen.findByText(
+      "The Inventory result is uncertain. Check the original result or contact support before making another change.",
+      { selector: '[role="status"]' },
+    );
+    expect(screen.queryByText("Submitting Inventory change.")).toBeNull();
     expect(screen.getByRole("button", { name: "Discard recovery metadata" })).toBeTruthy();
     expect(router.state.navigation.state).toBe("idle");
     expect(router.state.location.pathname).toBe("/");
+    expect(fetchReceipt).toHaveBeenCalledExactlyOnceWith(
+      expect.stringMatching(/^\/api\/inventory\/mutation-attempts\/[^/]+$/),
+      expect.objectContaining({ method: "GET" }),
+    );
     expect(action).toHaveBeenCalledTimes(1);
   });
 });

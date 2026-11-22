@@ -26,7 +26,7 @@ use serde_json::{Value, json};
 
 use super::{
     api::{Kind, under},
-    command, daily,
+    command, command_at, daily,
     provider::{self, Done, again, answer},
 };
 use crate::{
@@ -247,6 +247,9 @@ pub struct Decision {
     pub blockers: Vec<String>,
     pub save_evidence_state: String,
     pub save_evidence_blockers: Vec<String>,
+    /// Migration evidence's section revision as the page read it, which the evidence save is
+    /// checked against.
+    pub evidence_section_fingerprint: Option<String>,
     pub provider_key: Option<String>,
     pub profile_version: Option<String>,
     pub lifecycle: Option<String>,
@@ -307,6 +310,7 @@ pub struct SelectedScope {
 #[serde(default, rename_all = "camelCase")]
 pub struct EvidenceInput {
     pub profile_version: String,
+    pub section_fingerprint: String,
     pub migration_evidence_text: String,
     pub migration_fixture_run_id: String,
 }
@@ -351,7 +355,8 @@ pub(crate) async fn evidence(
     }
     let caller = config.platform.caller(&headers, config.proto, None);
     let rest = format!("/provider-profiles{}", under(&route.key, &[version, "sections", "migration-evidence"]));
-    let sent = command(&caller, Method::PATCH, Kind::SourceObservations, &rest, Some(&input.command())).await;
+    let revision = input.section_fingerprint.trim();
+    let sent = command_at(&caller, Method::PATCH, Kind::SourceObservations, &rest, &input.command(), revision).await;
     let changes = [("profileVersion", Some(version))];
     answer(&req, &staff, &config, &headers, &route.key, &context, sent, &changes, Done::EvidenceSaved).await
 }
@@ -385,6 +390,7 @@ mod tests {
     fn the_evidence_command_sends_the_text_as_typed_and_empty_values_as_none() {
         let input = EvidenceInput {
             profile_version: "2026.07.13".into(),
+            section_fingerprint: "sha256:migration-evidence-read".into(),
             migration_evidence_text: "  Replayed the changed fixtures.  ".into(),
             migration_fixture_run_id: " ".into(),
         };

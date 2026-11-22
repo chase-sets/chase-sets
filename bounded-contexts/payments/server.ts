@@ -33,6 +33,7 @@ export type {
   PaymentProcessorWebhookEvent,
 } from "@chase-sets/payment-processing";
 export { PaymentsDomainError } from "./support/runtime-support/common";
+export { isPaymentConfirmationTokenId } from "@chase-sets/payment-processing";
 export { createPaymentsUcpHandoff } from "./support/ucp-support/payment-handlers";
 export type { UcpPaymentHandlerHandoff } from "./support/ucp-support/payment-handlers";
 import {

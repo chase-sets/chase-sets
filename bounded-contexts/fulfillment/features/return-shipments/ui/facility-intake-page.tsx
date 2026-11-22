@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
-import { t } from "@chase-sets/localization";
+import { t } from "./localization/translator";
 import { returnIntakeHref } from "./admin-paths";
 import {
   Button,

@@ -2,6 +2,7 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { GoalAdoption } from "../../forecast-ledger/domain/adoption-gate";
 import { repricingCandidateCte } from "../../repricing-engine/read-model/queries";
 import type { RepricingPolicyScope } from "../domain/domain";
+import type { RepricingEditorDefaults, RepricingPresetControls } from "../domain/authoring-intent";
 import { candidateAssignmentSql, repricingPolicyAssignmentsSql, scopeMatchSql } from "./schema";
 
 export type RepricingAuthoringFacts = Readonly<{
@@ -12,10 +13,16 @@ export type RepricingAuthoringFacts = Readonly<{
 /**
  * The account's authoring facts, and which registered goal versions the
  * Adoption Gate lets a seller select and why; the platform-wide grades it
- * compared stay out of a seller's response.
+ * compared stay out of a seller's response. The preset catalog and the
+ * editor's starting currency and floor come with them, so every client
+ * authors from the same presets.
  */
 export type RepricingAuthoringPrerequisites = RepricingAuthoringFacts &
-  Readonly<{ goalAdoption: readonly Omit<GoalAdoption, "grades">[] }>;
+  Readonly<{
+    goalAdoption: readonly Omit<GoalAdoption, "grades">[];
+    presets: readonly RepricingPresetControls[];
+    editorDefaults: RepricingEditorDefaults;
+  }>;
 
 export async function getRepricingAuthoringFacts(db: PgQueryable, accountId: string): Promise<RepricingAuthoringFacts> {
   const result = await db.query<RepricingAuthoringFacts>(

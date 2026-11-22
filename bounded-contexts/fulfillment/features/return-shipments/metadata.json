@@ -1,0 +1,174 @@
+{
+  "localeCatalogs": ["bounded-contexts/fulfillment/features/return-shipments/ui/localization/locales/en.ts"],
+  "directoryIntent": {
+    "classification": "slice",
+    "purpose": "Own buyer-to-seller and buyer-to-platform return-shipment behavior, label issuance and voiding, destination selection, facility intake and discrepancy workflow, unidentified package reconciliation, and customer-safe and operator read models.",
+    "expectedConsumers": ["Internal fulfillment module composition"]
+  },
+  "scheduledJobs": [
+    {
+      "id": "fulfillment.return-shipment-deadline-sweep",
+      "schedule": {
+        "kind": "interval",
+        "intervalMs": 300000
+      },
+      "runnerExport": "createFulfillmentReturnShipmentDeadlineSweepRunners",
+      "group": "scheduled",
+      "order": 124,
+      "runtimeProfiles": ["proof", "public"],
+      "lockScope": "job:fulfillment.return-shipment-deadline-sweep"
+    },
+    {
+      "id": "fulfillment.return-label-purchase-reconciliation",
+      "schedule": {
+        "kind": "interval",
+        "intervalMs": 300000
+      },
+      "runnerExport": "createFulfillmentReturnLabelPurchaseReconciliationRunners",
+      "group": "scheduled",
+      "order": 125,
+      "runtimeProfiles": ["proof", "public"],
+      "lockScope": "job:fulfillment.return-label-purchase-reconciliation"
+    }
+  ],
+  "eventSubscriptions": [
+    {
+      "sourceContextName": "platform-operations",
+      "projectionName": "fulfillment-support-return-source-projection",
+      "subscriptionVersion": 2,
+      "filterToEventTypes": true,
+      "eventTypes": [
+        "support.support-request.opened",
+        "support.support-request.affected-line-items-recorded",
+        "support.support-request.remedy-authorized.v1",
+        "support.support-request.resolved",
+        "support.support-request.cancelled"
+      ],
+      "order": 40,
+      "projectionHandlerSetNames": ["fulfillment-support-return-source-projection"]
+    }
+  ],
+  "projectionGroups": [
+    {
+      "projectionName": "fulfillment-return-shipment-projection",
+      "sourceContextNames": ["fulfillment"],
+      "ownedTables": [
+        "fulfillment_return_shipment_customer_pages",
+        "fulfillment_return_shipment_operator_pages",
+        "fulfillment_unidentified_return_package_pages",
+        "fulfillment_return_shipment_provider_events"
+      ],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
+    }
+  ],
+  "hostPorts": [
+    {
+      "portName": "returnIntakeEvidenceStorage",
+      "providedBy": "platform-api",
+      "purpose": "Stores and verifies the private photos a facility records with a Return Intake, so fulfillment holds only their references."
+    }
+  ],
+  "mutationConsistencyInventory": [
+    {
+      "id": "fulfillment.return-intake-command-snapshots",
+      "owner": "fulfillment",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-client:bounded-contexts/fulfillment/features/return-shipments/api/client.ts:POST Hf450f96a7d7f#1",
+        "api-route:bounded-contexts/fulfillment/features/return-shipments/api/route.ts:POST /:returnShipmentId/complete",
+        "api-route:bounded-contexts/fulfillment/features/return-shipments/api/route.ts:POST /:returnShipmentId/corrections",
+        "api-route:bounded-contexts/fulfillment/features/return-shipments/api/route.ts:POST /evidence",
+        "api-route:bounded-contexts/fulfillment/features/return-shipments/api/route.ts:POST /unidentified",
+        "api-route:bounded-contexts/fulfillment/features/return-shipments/api/route.ts:POST /unidentified/:unidentifiedPackageId/reconcile",
+        "post-form:bounded-contexts/fulfillment/features/return-shipments/ui/facility-intake-page.tsx:H1abed2c1c746#1",
+        "post-form:bounded-contexts/fulfillment/features/return-shipments/ui/facility-intake-page.tsx:H1abed2c1c746#2",
+        "post-form:bounded-contexts/fulfillment/features/return-shipments/ui/facility-intake-page.tsx:H1abed2c1c746#3",
+        "post-form:bounded-contexts/fulfillment/features/return-shipments/ui/facility-intake-page.tsx:H1abed2c1c746#4",
+        "route-action:bounded-contexts/fulfillment/features/return-shipments/ui/routes/return-intake.tsx"
+      ],
+      "visibleDestination": {
+        "description": "Facility intake writes return authoritative attachment, aggregate-version, duplicate, custody, correction, or reconciliation results. The workstation derives its success state from that command response and treats projection-backed queues as refreshable operational context."
+      },
+      "proof": {
+        "authoritativeResponse": "The intake API builds mutation responses from private object-storage writes or aggregate command results. The admin action redirects only after those responses succeed, carries the authoritative outcome as its result state, and renders stale conflicts without claiming completion.",
+        "tests": [
+          "bounded-contexts/fulfillment/features/return-shipments/api/route.test.ts",
+          "bounded-contexts/fulfillment/features/return-shipments/ui/facility-intake-page.test.tsx"
+        ]
+      }
+    }
+  ],
+  "navigation": [
+    {
+      "deployable": "admin-web",
+      "slot": "primary-nav",
+      "key": "return-intake",
+      "label": "Return Intake",
+      "icon": "package",
+      "href": "/return-intake",
+      "section": "commerce",
+      "order": 20,
+      "visibility": "signed-in",
+      "requiredPermissions": ["return-intake.view"]
+    }
+  ],
+  "mcpCapabilities": {
+    "tools": [
+      {
+        "name": "fulfillment.complete-return-intake",
+        "ownerSlice": "return-shipments"
+      },
+      {
+        "name": "fulfillment.correct-return-intake",
+        "ownerSlice": "return-shipments"
+      },
+      {
+        "name": "fulfillment.get-return-intake-queue",
+        "ownerSlice": "return-shipments"
+      },
+      {
+        "name": "fulfillment.reconcile-unidentified-return-package",
+        "ownerSlice": "return-shipments"
+      },
+      {
+        "name": "fulfillment.record-unidentified-return-package",
+        "ownerSlice": "return-shipments"
+      },
+      {
+        "name": "fulfillment.resolve-return-intake",
+        "ownerSlice": "return-shipments"
+      }
+    ]
+  },
+  "agentCoverage": {
+    "return-intake": {
+      "tools": [
+        "fulfillment.complete-return-intake",
+        "fulfillment.correct-return-intake",
+        "fulfillment.get-return-intake-queue",
+        "fulfillment.reconcile-unidentified-return-package",
+        "fulfillment.record-unidentified-return-package",
+        "fulfillment.resolve-return-intake"
+      ]
+    }
+  },
+  "adminRoutes": [
+    {
+      "routeId": "return-intake",
+      "routePath": "return-intake",
+      "fileExport": "./routes/admin/return-intake",
+      "routeType": "route",
+      "sourceContext": "fulfillment",
+      "section": "commerce"
+    }
+  ],
+  "supportProjection": {
+    "projectionName": "fulfillment-support-return-source-projection",
+    "sourceContextNames": ["platform-operations"],
+    "ownedTables": ["fulfillment_support_return_sources", "fulfillment_support_return_remedy_sources"],
+    "requiredDuringBootstrap": true,
+    "resetStrategy": "replay-only"
+  }
+}

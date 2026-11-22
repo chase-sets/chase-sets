@@ -1710,6 +1710,85 @@ describe("Stripe payment processor gateway", () => {
     });
   });
 
+  it("checks card eligibility then creates and confirms one deferred PaymentIntent with matched options", async () => {
+    const fetchMock = vi
+      .fn<(url: string, init?: RequestInit) => Promise<Response>>()
+      .mockResolvedValueOnce(stripeResponse({ payment_method_preview: { type: "card" } }))
+      .mockResolvedValueOnce(
+        stripeResponse({
+          id: "pi_deferred_fixture",
+          client_secret: "pi_deferred_fixture_secret_not_for_browser",
+          status: "requires_action",
+          next_action: { type: "redirect_to_url", redirect_to_url: { url: "https://hooks.stripe.test/auth" } },
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const payment = await stripeGateway().createPaymentSession({
+      paymentId: "pay_deferred_fixture" as never,
+      buyerAccountId: "acc_buyer" as never,
+      orderIds: ["ord_1" as never],
+      amount: "26.05",
+      currencyCode: "usd",
+      paymentMethodCategory: "card",
+      description: "Deferred payment",
+      confirmationTokenId: "ctoken_fixture",
+      returnUrl: "http://localhost/account/payments/pay_deferred_fixture",
+      cardAuthentication: { requestThreeDSecure: "any", reasonCodes: ["fixture"] },
+      savePaymentMethod: {
+        providerCustomerReference: "cus_fixture",
+        consentId: "consent_fixture",
+        consentText: "Save this card",
+      },
+    });
+
+    expect(fetchMock.mock.calls.map(([url, init]) => [url, init?.method])).toEqual([
+      ["https://stripe.test/v1/confirmation_tokens/ctoken_fixture", "GET"],
+      ["https://stripe.test/v1/payment_intents", "POST"],
+    ]);
+    const init = fetchMock.mock.calls[1]![1];
+    expect(formSnapshot(init?.body)).toMatchObject({
+      amount: "2605",
+      currency: "usd",
+      capture_method: "automatic",
+      confirm: "true",
+      confirmation_token: "ctoken_fixture",
+      return_url: "http://localhost/account/payments/pay_deferred_fixture",
+      customer: "cus_fixture",
+      setup_future_usage: "off_session",
+      transfer_group: "payment:pay_deferred_fixture",
+      "payment_method_options[card][request_three_d_secure]": "any",
+      "metadata[payment_id]": "pay_deferred_fixture",
+      "metadata[saved_payment_consent_id]": "consent_fixture",
+    });
+    expect(new Headers(init?.headers).get("Stripe-Version")).toBe(STRIPE_API_VERSION);
+    expect(payment).toMatchObject({
+      processorPaymentKind: "payment-intent",
+      processorPaymentReference: "pi_deferred_fixture",
+      processorStatus: "requires_action",
+      processorRedirectUrl: "https://hooks.stripe.test/auth",
+      processorClientSecret: null,
+    });
+  });
+
+  it("does not widen a deferred card quote to non-card settlement methods", async () => {
+    const fetchMock = vi.fn(async () => stripeResponse({ payment_method_preview: { type: "us_bank_account" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(
+      stripeGateway().createPaymentSession({
+        paymentId: "pay_deferred_fixture" as never,
+        buyerAccountId: "acc_buyer" as never,
+        orderIds: ["ord_1" as never],
+        amount: "26.05",
+        currencyCode: "usd",
+        paymentMethodCategory: "card",
+        description: "Deferred payment",
+        confirmationTokenId: "ctoken_fixture",
+        returnUrl: "http://localhost/account/payments/pay_deferred_fixture",
+      }),
+    ).rejects.toThrow("Check your payment details");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("charges selected Stripe saved payment methods with customer and payment method references", async () => {
     const fetchMock = vi.fn(
       async () =>

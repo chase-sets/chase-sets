@@ -797,6 +797,11 @@ fn EvidenceForm<'a>(t: Cat, decision: &'a Decision, key: &'a str, context: &'a s
             data-catalog-validation-evidence-form="true"
         >
             <input type="hidden" name={f.profile_version} value={&version}>
+            <input
+                type="hidden"
+                name={f.section_fingerprint}
+                value={decision.evidence_section_fingerprint.as_deref().unwrap_or_default()}
+            >
             <label class={Field}>
                 <span>{t.wb_validation_activation_decision_evidence_label()}</span>
                 <textarea

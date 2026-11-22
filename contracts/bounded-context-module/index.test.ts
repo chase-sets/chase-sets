@@ -19,6 +19,43 @@ import {
 
 const NO_API_ENTRIES: readonly BcApiEntry[] = [];
 
+describe("named host port deferral declarations", () => {
+  const subscription = {
+    sourceContextName: "source",
+    projectionName: "facts",
+    subscriptionVersion: 1,
+    projectionHandlerSetNames: ["facts"],
+    deferUntilHostPort: "activation",
+  };
+  const manifest = {
+    contextName: "target",
+    apiBasePath: "/target",
+    streamPrefix: "target.",
+    hostPorts: [{ portName: "activation" }],
+    eventSubscriptions: [subscription],
+  };
+  const moduleInput = { manifest, schemaSql: "", createServices: () => ({}), buildApis: () => [] };
+
+  it("carries the declared port and resolver without evaluating it during module definition", () => {
+    const hasHostPort = vi.fn(() => false);
+    const module = defineBoundedContextModule({ ...moduleInput, hasHostPort });
+    expect(module.hostPorts).toEqual(manifest.hostPorts);
+    expect(module.eventSubscriptions?.[0]?.deferUntilHostPort).toBe("activation");
+    expect(module.hasHostPort).toBe(hasHostPort);
+    expect(hasHostPort).not.toHaveBeenCalled();
+  });
+
+  it.each(["", "unknown", " activation "])("rejects invalid or unknown port '%s'", (deferUntilHostPort) => {
+    expect(() =>
+      normalizeContextManifest({ ...manifest, eventSubscriptions: [{ ...subscription, deferUntilHostPort }] }),
+    ).toThrow(/deferUntilHostPort/);
+  });
+
+  it("rejects a declaration without a resolver", () => {
+    expect(() => defineBoundedContextModule(moduleInput)).toThrow("no hasHostPort resolver");
+  });
+});
+
 describe("shell contribution contract", () => {
   const base = {
     key: "account",

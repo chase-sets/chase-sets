@@ -25,6 +25,9 @@ import {
   sourceObservationScope,
 } from "../../ui/primary-workbench-read-model-test-support";
 import type { CatalogIntegrationControlPlaneOverview } from "../../ui/contracts";
+import type { CatalogProviderIntegrationProfileVersionStore } from "../providers/provider-integration-profile-store";
+import { catalogProviderProfileEditableSectionFingerprint } from "../providers/provider-profile-section-fingerprint";
+import type { CatalogProviderProfileEditableSectionKey } from "../providers/provider-profile-section-registry";
 
 type RouteControlPlaneOverview = CatalogIntegrationControlPlaneOverview & {
   activeJobs: NonNullable<CatalogIntegrationControlPlaneOverview["activeJobs"]>;
@@ -1132,7 +1135,7 @@ describe("source observation routes: integration discovery and profile administr
           languageOptions: ["en", "fr"],
         },
       }),
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", "if-match": await sectionIfMatch(store, "2026.06.04", "basics") },
     });
 
     expect(response.status).toBe(200);
@@ -1172,7 +1175,10 @@ describe("source observation routes: integration discovery and profile administr
             },
           },
         }),
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          "if-match": await sectionIfMatch(store, "2026.06.04", "migration-evidence"),
+        },
       },
     );
 
@@ -1202,7 +1208,10 @@ describe("source observation routes: integration discovery and profile administr
       {
         method: "PATCH",
         body: JSON.stringify({ command: { section: "migration-evidence", migrationEvidence: { evidenceText: "  " } } }),
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          "if-match": await sectionIfMatch(store, "2026.06.04", "migration-evidence"),
+        },
       },
     );
 
@@ -1380,7 +1389,10 @@ describe("source observation routes: integration discovery and profile administr
           liveProviderCallsAllowed: true,
         },
       }),
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        "if-match": await sectionIfMatch(store, "2026.06.04", "fixtures"),
+      },
     });
 
     expect(response.status).toBe(400);
@@ -1411,7 +1423,10 @@ describe("source observation routes: integration discovery and profile administr
               migrationEvidence: { evidenceText: "Synthetic evidence.", recordedAt: "2026-11-06T00:00:00.000Z" },
             },
           }),
-          headers: { "content-type": "application/json" },
+          headers: {
+            "content-type": "application/json",
+            "if-match": await sectionIfMatch(store, "2026.06.03", "migration-evidence"),
+          },
         },
       );
 
@@ -1433,11 +1448,90 @@ describe("source observation routes: integration discovery and profile administr
     const response = await app.request("/source-observations/provider-profiles/tcgdex/missing/sections/basics", {
       method: "PATCH",
       body: JSON.stringify({ command: { section: "basics", displayName: "Synthetic" } }),
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", "if-match": '"sha256:unread"' },
     });
 
     expect(response.status).toBe(404);
     await expect(response.json()).resolves.toMatchObject({ error: { code: "profile_version_not_found" } });
+  });
+
+  describe("section revisions", () => {
+    const basicsPath = "/source-observations/provider-profiles/tcgdex/2026.06.04/sections/basics";
+    const draftStore = () =>
+      mutableProfileStore([
+        ...catalogProviderIntegrationProfileVersions,
+        profileVersion("tcgdex", { profileVersion: "2026.06.04", lifecycle: "draft", active: false }),
+      ]);
+    const renameTo = (displayName: string) => JSON.stringify({ command: { section: "basics", displayName } });
+
+    it.each([
+      ["no If-Match", {}],
+      ["an empty If-Match", { "if-match": '""' }],
+      ["a wildcard If-Match", { "if-match": "*" }],
+    ])("refuses a section save with %s and writes nothing", async (_case, ifMatch: Record<string, string>) => {
+      const store = draftStore();
+      const upsert = vi.spyOn(store, "upsertProfileVersion");
+      const app = buildApp({} as SourceObservationRouteServices, store);
+
+      const response = await app.request(basicsPath, {
+        method: "PATCH",
+        body: renameTo("Synthetic"),
+        headers: { "content-type": "application/json", ...ifMatch },
+      });
+
+      expect(response.status).toBe(428);
+      await expect(response.json()).resolves.toMatchObject({
+        error: { code: "profile_section_fingerprint_required" },
+      });
+      expect(upsert).not.toHaveBeenCalled();
+    });
+
+    it("answers a section save drawn from a replaced revision with 409 and keeps the newer save", async () => {
+      const store = draftStore();
+      const app = buildApp({} as SourceObservationRouteServices, store);
+      const read = await sectionIfMatch(store, "2026.06.04", "basics");
+      const save = (displayName: string) =>
+        app.request(basicsPath, {
+          method: "PATCH",
+          body: renameTo(displayName),
+          headers: { "content-type": "application/json", "if-match": read },
+        });
+
+      expect((await save("First operator")).status).toBe(200);
+      const stale = await save("Second operator");
+
+      expect(stale.status).toBe(409);
+      await expect(stale.json()).resolves.toEqual({
+        error: {
+          code: "profile_section_changed",
+          message: "This section changed after the page read it. Read the profile again before saving.",
+        },
+      });
+      expect((await store.getProfileVersion("tcgdex", "2026.06.04"))?.profile.displayName).toBe("First operator");
+    });
+
+    it("takes a section's revision bare or as a quoted entity tag, and answers with the new one", async () => {
+      const store = draftStore();
+      const app = buildApp({} as SourceObservationRouteServices, store);
+      const quoted = await sectionIfMatch(store, "2026.06.04", "basics");
+
+      const first = await app.request(basicsPath, {
+        method: "PATCH",
+        body: renameTo("Quoted"),
+        headers: { "content-type": "application/json", "if-match": quoted },
+      });
+      expect(first.status).toBe(200);
+      const review = (await first.json()) as { sectionFingerprints: Record<string, string> };
+      expect(`"${review.sectionFingerprints.basics}"`).toBe(await sectionIfMatch(store, "2026.06.04", "basics"));
+      expect(`"${review.sectionFingerprints.basics}"`).not.toBe(quoted);
+
+      const second = await app.request(basicsPath, {
+        method: "PATCH",
+        body: renameTo("Bare"),
+        headers: { "content-type": "application/json", "if-match": review.sectionFingerprints.basics },
+      });
+      expect(second.status).toBe(200);
+    });
   });
 
   it("refuses to create a profile version that is not draft or test", async () => {
@@ -1558,7 +1652,10 @@ describe("source observation routes: integration discovery and profile administr
       {
         method: "PATCH",
         body: JSON.stringify({ command: {} }),
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          "if-match": await sectionIfMatch(store, "2026.06.04", "normalized-observation"),
+        },
       },
     );
 
@@ -1735,3 +1832,15 @@ describe("source observation routes: provider profile review without a profile s
     });
   });
 });
+
+async function sectionIfMatch(
+  store: CatalogProviderIntegrationProfileVersionStore,
+  version: string,
+  section: CatalogProviderProfileEditableSectionKey,
+): Promise<string> {
+  const record = await store.getProfileVersion("tcgdex", version);
+  if (!record) {
+    throw new Error(`Expected TCGdex profile version ${version}.`);
+  }
+  return `"${catalogProviderProfileEditableSectionFingerprint(record, section)}"`;
+}
