@@ -1,4 +1,4 @@
-// Admin-only entry to the platform smoke, for the Corten admin pilot (#11327). It smokes one admin origin and
+// Admin-only entry to the platform smoke, for the Corten admin pilot. It smokes one admin origin and
 // nothing else: no landing page, public routes, native MCP, waitlist write, marketplace or legacy redirect. The
 // platform smoke still needs a landing URL argument; with SMOKE_REQUIRE_LANDING=false it is never fetched.
 import { spawnSync } from "node:child_process";
