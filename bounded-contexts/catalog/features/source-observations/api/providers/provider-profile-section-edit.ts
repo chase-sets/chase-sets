@@ -150,12 +150,19 @@ export const catalogProviderProfileSectionFields: Readonly<
 /** The fields each section's edit takes, by the names its form gives them. */
 export const catalogProviderProfileSectionFieldKeys: Readonly<
   Record<CatalogProviderProfileEditableSectionKey, readonly string[]>
-> = Object.fromEntries(
-  Object.entries(catalogProviderProfileSectionFields).map(([section, fields]) => [
-    section,
-    fields.filter((field) => field.fixedValue === null).map((field) => field.key),
-  ]),
-) as Record<CatalogProviderProfileEditableSectionKey, readonly string[]>;
+> = editableFieldKeys();
+
+function editableFieldKeys(): Record<CatalogProviderProfileEditableSectionKey, readonly string[]> {
+  const keys = {} as Record<CatalogProviderProfileEditableSectionKey, readonly string[]>;
+  for (const section of Object.keys(
+    catalogProviderProfileSectionFields,
+  ) as CatalogProviderProfileEditableSectionKey[]) {
+    keys[section] = catalogProviderProfileSectionFields[section]
+      .filter((field) => field.fixedValue === null)
+      .map((field) => field.key);
+  }
+  return keys;
+}
 
 function sectionField(
   key: string,

@@ -116,7 +116,11 @@ export function profileSectionFields(
           "Normalized field count",
           String(recordKeys(normalizedObservation?.fields).length),
         ),
-        shown("hashMaterialCount", "Hash material count", String(arrayValue(normalizedObservation?.hashMaterial).length)),
+        shown(
+          "hashMaterialCount",
+          "Hash material count",
+          String(arrayValue(normalizedObservation?.hashMaterial).length),
+        ),
       ];
     case "external-references":
       return [
@@ -135,7 +139,9 @@ export function profileSectionFields(
         shown(
           "selectedOptionSource",
           "Option source",
-          stringValue(selectedOptions?.missingOrUnknownOptionPolicy) ?? stringValue(selectedOptionMapping?.source) ?? "",
+          stringValue(selectedOptions?.missingOrUnknownOptionPolicy) ??
+            stringValue(selectedOptionMapping?.source) ??
+            "",
         ),
         shown(
           "selectedOptionDimensionCount",
@@ -166,7 +172,11 @@ export function profileSectionFields(
         ),
         edit("ambiguousCandidatePolicy", stringValue(duplicatePrevention?.ambiguousCandidatePolicy) ?? ""),
         edit("replayPolicy", stringValue(duplicatePrevention?.replayPolicy) ?? ""),
-        shown("duplicatePreventionMappingSource", "Mapping source", stringValue(duplicatePreventionMapping?.source) ?? ""),
+        shown(
+          "duplicatePreventionMappingSource",
+          "Mapping source",
+          stringValue(duplicatePreventionMapping?.source) ?? "",
+        ),
       ];
     case "promotion-plan":
       return [
