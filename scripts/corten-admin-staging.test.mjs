@@ -242,6 +242,39 @@ describe("Corten admin staging deployment", () => {
     expect(smoke).toContain('"https://${admin_domain}"');
   });
 
+  it("runs the authenticated admin smoke against the pilot after admin-web's, without gating the deploy", () => {
+    const steps = workflow.jobs["deploy-staging"].steps;
+    const names = steps.map(({ name }) => name);
+    const advisory = steps.find(({ name }) => name === "Advisory Corten admin smoke");
+    expect(names.indexOf("Advisory Corten admin smoke")).toBe(names.indexOf("Smoke check") + 1);
+    expect(advisory["continue-on-error"]).toBe(true);
+    expect(advisory.if).toBe(steps.find(({ name }) => name === "Smoke check").if);
+    expect(advisory.env).toMatchObject({
+      SMOKE_REQUIRE_LANDING: "false",
+      SMOKE_REQUIRE_ADMIN: "true",
+      SMOKE_REQUIRE_MARKETPLACE: "false",
+      SMOKE_REQUIRE_MARKETPLACE_ROOT: "false",
+      SMOKE_WRITE_WAITLIST: "false",
+    });
+    const secrets = Object.values(advisory.env)
+      .flatMap((value) => [...String(value).matchAll(/secrets\.([A-Z_]+)/g)].map((match) => match[1]))
+      .sort();
+    expect(secrets).toEqual(
+      [
+        "DIGITALOCEAN_ACCESS_TOKEN",
+        "PLATFORM_ADMIN_EMAIL",
+        "PLATFORM_ADMIN_PASSWORD",
+        "SPACES_ACCESS_ID",
+        "SPACES_ACCESS_ID",
+        "SPACES_SECRET_KEY",
+        "SPACES_SECRET_KEY",
+      ].sort(),
+    );
+    expect(advisory.run).toContain("pnpm run smoke:platform --");
+    expect(advisory.run).toContain('"https://admin-corten.staging.chasesets.com"');
+    expect(advisory.run).not.toMatch(/PLATFORM_ADMIN_(EMAIL|PASSWORD)/);
+    expect(advisory.run).not.toContain("set -x");
+  });
   it("uses the existing release writer admission and passes its immutable output only to staging", () => {
     const build = workflow.jobs["build-image"];
     const step = build.steps.find(({ id }) => id === "corten_admin_image");

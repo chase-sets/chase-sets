@@ -2293,6 +2293,46 @@ jobs:
           fi
           echo "Catalog asset CDN root returned expected protected status 403."
 
+      # Advisory until admin.staging switches to the Corten admin (#11750):
+      # the same authenticated admin smoke admin-web passes above, with the
+      # pilot as the admin origin. Landing and marketplace are smoked above,
+      # so they are off here. It never fails Deploy Staging (#11327).
+      - name: Advisory Corten admin smoke
+        timeout-minutes: 12
+        if: env.SHOULD_DEPLOY != 'false'
+        continue-on-error: true
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+          SMOKE_REQUIRE_LANDING: "false"
+          SMOKE_REQUIRE_ADMIN: "true"
+          SMOKE_REQUIRE_MARKETPLACE: "false"
+          SMOKE_REQUIRE_MARKETPLACE_ROOT: "false"
+          SMOKE_WRITE_WAITLIST: "false"
+          SMOKE_SOURCE: staging-corten-admin-smoke
+          SMOKE_UTM_CAMPAIGN: staging-main
+          SMOKE_FETCH_ATTEMPTS: "24"
+          SMOKE_FETCH_RETRY_DELAY_MS: "5000"
+          SMOKE_FETCH_TIMEOUT_MS: "15000"
+        run: |
+          set -euo pipefail
+          landing_domain="$(terraform output -raw landing_domain)"
+          if [ -z "$landing_domain" ]; then
+            echo "The staging landing domain was not present in Terraform outputs." >&2
+            exit 1
+          fi
+          cd ../../..
+          echo "Smoking the Corten admin pilot at admin-corten.staging.chasesets.com (advisory)."
+          # The smoke's CLI takes a landing URL first; SMOKE_REQUIRE_LANDING=false skips it.
+          pnpm run smoke:platform -- \
+            "https://${landing_domain}" \
+            "https://admin-corten.staging.chasesets.com"
       - name: Resolve Playwright Chromium version
         env:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
