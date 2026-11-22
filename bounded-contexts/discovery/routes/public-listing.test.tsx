@@ -94,11 +94,12 @@ function answer(status: number, code: string, message: string) {
   );
 }
 
-async function report() {
-  return (await action({ request: request(), params: { listingSlug: "one" }, context: undefined } as never)) as {
-    data: Record<string, unknown>;
-    init: { status: number } | null;
-  };
+async function report(intent?: string) {
+  return (await action({
+    request: request(intent),
+    params: { listingSlug: "one" },
+    context: undefined,
+  } as never)) as { data: Record<string, unknown>; init: { status: number } | null };
 }
 
 describe("public Listing report refusals", () => {
@@ -107,6 +108,16 @@ describe("public Listing report refusals", () => {
     const result = await report();
     expect(result.init?.status).toBe(409);
     expect(result.data).toMatchObject({ attemptId, alreadyReported: true });
+  });
+
+  it("answers a confirm:report-listing duplicate replay as already reported, not failed-safe", async () => {
+    const serverMessage = "This reporter has already reported this content.";
+    answer(409, "report_already_submitted", serverMessage);
+    const result = await report("confirm:report-listing");
+    expect(result.init?.status).toBe(409);
+    expect(result.data).toMatchObject({ attemptId, alreadyReported: true, mutationPhase: "succeeded" });
+    expect(result.data).not.toHaveProperty("error");
+    expect(JSON.stringify(result.data)).not.toContain(serverMessage);
   });
 
   it("answers a rate-limited report with 429, says to try again later and keeps the report", async () => {

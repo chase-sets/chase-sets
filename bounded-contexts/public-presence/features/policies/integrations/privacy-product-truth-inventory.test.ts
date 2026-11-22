@@ -268,6 +268,7 @@ describe("privacy product-truth derivation over the real repository", () => {
       "@stripe/connect-js@bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-notification-banner.tsx",
       "@stripe/stripe-js@bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx",
       "@stripe/stripe-js@bounded-contexts/payments/features/payments/ui/account-payment/stripe-setup-card.tsx",
+      "@stripe/stripe-js@bounded-contexts/payments/features/payments/ui/account-payment/use-deferred-stripe-payment.tsx",
     ]);
 
     const confirmation = factFor(
@@ -291,6 +292,15 @@ describe("privacy product-truth derivation over the real repository", () => {
       "@stripe/stripe-js@bounded-contexts/payments/features/payments/ui/account-payment/stripe-setup-card.tsx",
     );
     expect(setup.detail.consumerRoutes).toEqual(["/account/payment-methods"]);
+
+    const deferred = factFor(
+      "provider-injected-client-storage",
+      "@stripe/stripe-js@bounded-contexts/payments/features/payments/ui/account-payment/use-deferred-stripe-payment.tsx",
+    );
+    expect(deferred.detail.loaderExports).toEqual(["loadStripe"]);
+    expect(deferred.detail.consumerRoutes).toEqual(["/checkout/buy/session/:sessionId"]);
+    expect(deferred.detail.dependencyOwners).toEqual(confirmation.detail.dependencyOwners);
+    expect(deferred.detail.cspScriptOrigins).toEqual(confirmation.detail.cspScriptOrigins);
 
     for (const module of ["payout-setup-page.tsx", "stripe-connect-notification-banner.tsx"]) {
       const connect = factFor(
@@ -419,6 +429,7 @@ describe("privacy product-truth one-variable controls", () => {
         "@stripe/connect-js@bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.tsx",
         "@stripe/connect-js@bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-notification-banner.tsx",
         "@stripe/stripe-js@bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx",
+        "@stripe/stripe-js@bounded-contexts/payments/features/payments/ui/account-payment/use-deferred-stripe-payment.tsx",
       ]);
 
       // Preserved variables stay green: cookies, Web Storage, CacheStorage, and
@@ -461,8 +472,9 @@ describe("privacy product-truth one-variable controls", () => {
       const surfaces = mutant.facts
         .filter((fact) => fact.factFamily === "provider-injected-client-storage")
         .map((fact) => fact.subject);
-      expect(surfaces).toContain(`@stripe/stripe-js@${arbitraryPath}`);
-      expect(surfaces).toHaveLength(5);
+      expect(surfaces).toEqual(
+        [...subjectsOf("provider-injected-client-storage"), `@stripe/stripe-js@${arbitraryPath}`].sort(),
+      );
       const derived = mutant.facts.find((fact) => fact.subject === `@stripe/stripe-js@${arbitraryPath}`);
       expect(derived?.detail.consumerRoutes).toEqual(["/account/payment-methods"]);
     },

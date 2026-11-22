@@ -23,7 +23,7 @@ import type { RepricingDryRun } from "../../repricing-engine/api/dry-run";
 import type { RepricingPolicyListingTrace } from "../../repricing-engine/domain/fact";
 import type { RepricingAuthoringPrerequisites } from "../read-model/controls";
 import type { RepricingFloor, RepricingPolicyScope, RepricingRuleCondition } from "../domain/domain";
-import { bindAuthoringIntent, recognizeAuthoringIntent } from "../domain/authoring-intent";
+import { bindAuthoringIntent, recognizeAuthoringIntent, repricingPresetAgeDays } from "../domain/authoring-intent";
 import { repricingGoalLabel } from "./policy-copy";
 import {
   compileRepricingPreset,
@@ -93,7 +93,7 @@ export function PolicyEditorDrawer({
   const [currency, setCurrency] = useState(initialDirective?.currencyCode ?? "");
   const [floor, setFloor] = useState<RepricingFloor>(initialDirective?.floor ?? { mode: "absolute", amount: "" });
   const [knob, setKnob] = useState(initialPreset?.knob ?? 0);
-  const [age, setAge] = useState(initialPreset?.ageDays ?? 45);
+  const [age, setAge] = useState(initialPreset?.ageDays ?? repricingPresetAgeDays.defaultValue);
   const [scope, setScope] = useState<RepricingPolicyScope>(initialBody?.scope ?? { kind: "all-listings" });
   const [body, setBody] = useState<PolicyEditorBody | null>(initialBody ?? null);
   const [tier, setTier] = useState<"preset" | "goal" | "structured" | "advanced">(
@@ -140,10 +140,11 @@ export function PolicyEditorDrawer({
         if (!initialized.current) {
           initialized.current = true;
           if (!initialBody) {
-            setCurrency(nextFacts.listingCurrencyCodes.length === 1 ? nextFacts.listingCurrencyCodes[0]! : "");
+            const defaults = nextFacts.editorDefaults;
+            setCurrency(defaults.currencyCode ?? "");
             setFloor(
-              nextFacts.hasCostBasis
-                ? { mode: "cost-basis-plus-margin", marginPercent: 10, absoluteFallbackAmount: "" }
+              defaults.floor.mode === "cost-basis-plus-margin"
+                ? { ...defaults.floor, absoluteFallbackAmount: "" }
                 : { mode: "absolute", amount: "" },
             );
           }
@@ -362,7 +363,7 @@ export function PolicyEditorDrawer({
                         setPreset(next);
                         setName(t(repricingPresets[next].titleKey));
                         setKnob(repricingPresets[next].defaultValue);
-                        setAge(45);
+                        setAge(repricingPresetAgeDays.defaultValue);
                       })
                     }
                   />
@@ -378,8 +379,8 @@ export function PolicyEditorDrawer({
                     <Slider
                       label={editorCopy("age")}
                       value={age}
-                      min={14}
-                      max={180}
+                      min={repricingPresetAgeDays.min}
+                      max={repricingPresetAgeDays.max}
                       onValueChange={(next) => edit(() => setAge(next))}
                     />
                   ) : null}

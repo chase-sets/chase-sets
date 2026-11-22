@@ -97,6 +97,22 @@ const listingPublished = {
   },
 };
 
+function reportListingAsVisitor(reports: ReturnType<typeof createMarketplaceReportRuntime>, index: number) {
+  return reports.reportListing(
+    {
+      attemptId: `activation_listing_report_${index}`,
+      listingId: "lst_reported",
+      reporterKind: "visitor",
+      reporterKey: `anon_reporter_${index}`,
+      reporterAccountId: null,
+      reporterUserId: null,
+      reason: "counterfeit-concern",
+      sourceRoutePath: "/listings/reported-listing",
+    },
+    context,
+  );
+}
+
 async function seedOldListingReport(eventStore: EventStore, listingId = "lst_reported") {
   const submittedAt = new Date(Date.now() - LISTING_REPORT_AUTO_UNLIST_WINDOW_MS - 60_000).toISOString();
   await eventStore.appendToStream({
@@ -347,6 +363,106 @@ describe("Marketplace report runtime", () => {
       { payload: { reportId: firstCrossing.reportId, listingEnforcement: { sourceActionId: firstCrossing.reportId } } },
       { payload: { reportId: fourth.reportId, listingEnforcement: { sourceActionId: fourth.reportId } } },
     ]);
+  });
+
+  it("attributes a re-unlist to the report after republish, not a report made while unlisted", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const { eventStore, allEvents } = createInMemoryEventStore();
+      vi.setSystemTime(new Date("2026-07-07T00:00:00.000Z"));
+      await seedActiveListing(eventStore);
+      const reports = createMarketplaceReportRuntime({ eventStore, db: createReviewModerationTargetDbStub({}) });
+      const report = (index: number) => {
+        vi.setSystemTime(new Date(`2026-07-07T00:0${index}:00.000Z`));
+        return reportListingAsVisitor(reports, index);
+      };
+
+      await report(1);
+      await report(2);
+      const crossing = await report(3);
+      expect(crossing.autoUnlisted).toBe(true);
+      expect((await report(4)).autoUnlisted).toBe(false);
+
+      vi.setSystemTime(new Date("2026-07-07T00:04:30.000Z"));
+      const [republished] = await eventStore.appendToStream({
+        streamId: "marketplace.listing-lst_reported",
+        expectedVersion: 3,
+        events: [listingPublished],
+        context,
+      });
+      const fifth = await report(5);
+      const removals = allEvents.filter((event) => event.eventType === "marketplace.listing.auto-unlisted");
+      expect(removals).toHaveLength(2);
+      expect(removals[1]!.payload).toMatchObject({
+        reportId: fifth.reportId,
+        listingEnforcement: { sourceActionId: fifth.reportId },
+        autoUnlistedAt: "2026-07-07T00:05:00.000Z",
+      });
+      expect(Date.parse(String(removals[1]!.payload.autoUnlistedAt))).toBeGreaterThanOrEqual(
+        Date.parse(republished!.occurredAt),
+      );
+      expect(fifth).toMatchObject({ reportCount: 5, autoUnlisted: true });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("clamps a retried crossing to the activation that made the listing active", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const { eventStore, allEvents } = createInMemoryEventStore();
+      const at = (minute: number) => new Date(`2026-07-07T00:0${minute}:00.000Z`);
+      vi.setSystemTime(at(0));
+      await seedActiveListing(eventStore);
+      const interrupted: EventStore = {
+        ...eventStore,
+        appendToStream: (input) => {
+          if (input.events.some(({ eventType }) => eventType === "marketplace.listing.auto-unlisted")) {
+            throw new Error("Effect interrupted");
+          }
+          return eventStore.appendToStream(input);
+        },
+      };
+      const report = (index: number, store = eventStore) =>
+        reportListingAsVisitor(
+          createMarketplaceReportRuntime({ eventStore: store, db: createReviewModerationTargetDbStub({}) }),
+          index,
+        );
+      vi.setSystemTime(at(1));
+      await report(1);
+      await report(2);
+      await expect(report(3, interrupted)).rejects.toThrow("Effect interrupted");
+      const crossing = allEvents.filter(({ eventType }) => eventType === "marketplace.report.submitted").at(-1)!;
+      const streamId = "marketplace.listing-lst_reported";
+      vi.setSystemTime(at(2));
+      await eventStore.appendToStream({
+        streamId,
+        expectedVersion: 2,
+        events: [{ eventType: "marketplace.listing.paused", payload: { reason: "seller" } }],
+        context,
+      });
+      vi.setSystemTime(at(3));
+      const [activation] = await eventStore.appendToStream({
+        streamId,
+        expectedVersion: 3,
+        events: [listingPublished],
+        context,
+      });
+      vi.setSystemTime(at(4));
+      const retry = await report(3);
+      expect(retry).toMatchObject({ reportId: crossing.payload.reportId, autoUnlisted: true });
+      expect(allEvents.filter(({ eventType }) => eventType === "marketplace.listing.auto-unlisted")).toMatchObject([
+        {
+          payload: {
+            reportId: crossing.payload.reportId,
+            listingEnforcement: { sourceActionId: crossing.payload.reportId, occurredAt: activation!.occurredAt },
+            autoUnlistedAt: activation!.occurredAt,
+          },
+        },
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("replays the first report and rejects duplicate reports using a different attempt", async () => {

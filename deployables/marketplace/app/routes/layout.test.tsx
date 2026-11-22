@@ -1445,6 +1445,10 @@ describe("marketplace-thin-host source-shape check", () => {
   const layout = source("./layout.tsx");
 
   it("keeps no navigation rule in the Marketplace host or layout", () => {
+    const translatorImport = 'import { t } from "@chase-sets/localization";';
+    expect(host).toContain(translatorImport);
+    const hostWithoutTranslatorImport = host.replace(translatorImport, "");
+    expect(hostWithoutTranslatorImport).not.toMatch(/\bt\s*\(/);
     for (const forbidden of [
       "traderNavOverrides",
       "buildMarketplaceBottomNav",
@@ -1464,7 +1468,7 @@ describe("marketplace-thin-host source-shape check", () => {
       '"/account',
       "guest-buyer",
     ]) {
-      expect(host, forbidden).not.toContain(forbidden);
+      expect(hostWithoutTranslatorImport, forbidden).not.toContain(forbidden);
     }
     expect(layout).not.toContain("getActiveKey");
     expect(layout).not.toContain("startsWith(");

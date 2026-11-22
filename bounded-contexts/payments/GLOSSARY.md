@@ -34,6 +34,10 @@ A **Refund Reservation** is Settlement's durable authorization of one account, f
 
 A **Payment Intent** is the buyer-facing authorization attempt created before capture.
 
+## Deferred Payment Intent
+
+A **Deferred Payment Intent** is a Payment Intent created and confirmed by Payments only after Checkout Pay. The browser mounts the Payment Element against the reviewed quote first and sends Stripe's single-use ConfirmationToken, not card details. Authentication returns to the recorded Payment's status; neither returning nor refreshing confirms again.
+
 ## Capture
 
 A **Capture** is the successful completion of a previously authorized charge.

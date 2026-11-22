@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import * as httpResponses from "@chase-sets/http/responses";
 import {
   CHASE_SETS_READ_AFTER_WRITE_HEADER,
   CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
@@ -66,6 +67,21 @@ function createTestPostWriteTokenStore() {
       return payloads.get(token) ?? null;
     },
   };
+}
+
+async function expectRouteResponse(result: Promise<unknown>, status: number, body: string, statusText?: string) {
+  const response = await result.then(
+    () => {
+      throw new Error(`Expected route to throw a ${status} response.`);
+    },
+    (error: unknown) => {
+      if (!(error instanceof Response)) throw error;
+      return error;
+    },
+  );
+  expect(response.status).toBe(status);
+  expect(await response.text()).toBe(body);
+  if (statusText !== undefined) expect(response.statusText).toBe(statusText);
 }
 
 describe("resolveInternalApiOrigin", () => {
@@ -921,6 +937,22 @@ describe("deep route contracts", () => {
     expect((response as Response).headers.get("Location")).toContain("/account/listings/lst_1?afterWrite=");
   });
 
+  it("rejects an unsupported form intent with the default localized response", async () => {
+    const action = defineFormAction({ intents: {} });
+
+    await expectRouteResponse(
+      action({
+        request: new Request("https://marketplace.chasesets.test/account/listings/lst_1", {
+          method: "POST",
+          body: new URLSearchParams({ intent: "unsupported" }),
+        }),
+        params: { listingId: "lst_1" },
+      }),
+      400,
+      "This action is not supported.",
+    );
+  });
+
   it("maps a registered context API error without route-local catch ceremony", async () => {
     const action = defineFormAction({
       errorAdapter: apiErrors,
@@ -980,5 +1012,66 @@ describe("deep route contracts", () => {
         map: (item) => item,
       }),
     ).toThrow("must declare loadAfterWrite in readAfterWriteRouteInventory");
+  });
+
+  it.each([
+    ["pending", 503, "This page is still updating. Reload it in a moment."],
+    ["unverified", 409, "The update could not be verified. Reload this page and try again."],
+    ["notFound", 404, "The requested resource was not found."],
+  ] as const)("uses the localized %s response unless the caller supplies a message", async (kind, status, body) => {
+    const path = "/account/inventory/items/inv_1";
+    const notFound = Object.assign(new Error("Missing item"), { status: 404, body: null });
+    const options = {
+      manifest: {
+        contextName: "inventory",
+        readAfterWriteRouteInventory: [
+          { destination: { routeId: "account-inventory-item", helperUses: ["loadAfterWrite"] } },
+        ],
+      },
+      routeId: "account-inventory-item",
+      errorAdapter: apiErrors,
+      load: async () => {
+        throw notFound;
+      },
+      map: (item: never) => item,
+    } as const;
+    const href =
+      kind === "pending"
+        ? appendFreshWriteToken(
+            path,
+            {
+              commitPositions: [{ sourceContextName: "inventory", maxGlobalPosition: "1", eventIds: ["evt_1"] }],
+              commitEventIds: ["evt_1"],
+            },
+            Date.now(),
+          )
+        : path;
+    const args = { request: new Request(`https://marketplace.chasesets.test${href}`), params: { itemId: "inv_1" } };
+    // This generic route does not supply a semantic handoff predicate; exercise its 409 mapping at the contract seam.
+    const read =
+      kind === "unverified"
+        ? vi.spyOn(httpResponses, "loadAfterWrite").mockResolvedValue({
+            kind: "permanent-failure",
+            reason: "semantic-handoff-malformed",
+            recoveryKind: "terminal-failure",
+            state: { kind: "malformed", handoff: null, freshWrite: { kind: "missing", receipt: null } },
+          })
+        : undefined;
+
+    try {
+      await expectRouteResponse(defineResourceRoute(options)(args), status, body);
+      const loader = defineResourceRoute({
+        ...options,
+        messages: { [kind]: `Caller ${kind}`, pendingStatusText: "Still working" },
+      });
+      await expectRouteResponse(
+        loader(args),
+        status,
+        `Caller ${kind}`,
+        kind === "pending" ? "Still working" : undefined,
+      );
+    } finally {
+      read?.mockRestore();
+    }
   });
 });
