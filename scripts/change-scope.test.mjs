@@ -30,6 +30,11 @@ import {
 
 const REPOSITORY_SCAN_TEST_TIMEOUT_MS = 120_000;
 
+const routeMovesDir = new URL("./fixtures/change-scope-route-moves/", import.meta.url);
+const routeMoves = readdirSync(routeMovesDir, { withFileTypes: true })
+  .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+  .map(({ name }) => JSON.parse(readFileSync(new URL(name, routeMovesDir), "utf8")));
+
 const settlementProofPaths = [
   "bounded-contexts/marketplace/features/offers/api/route.test.ts",
   "bounded-contexts/marketplace/features/offers/api/runtime.test.ts",
@@ -998,13 +1003,12 @@ describe("shared E2E setup selection", () => {
     const fallback = captured.cases.find(({ changedFiles }) =>
       changedFiles.includes("deployables/marketplace/e2e/unmapped.spec.ts"),
     );
-    const routeMovesDir = new URL("./fixtures/change-scope-route-moves/", import.meta.url);
-    const routeMoves = readdirSync(routeMovesDir, { withFileTypes: true })
-      .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
-      .map(({ name }) => JSON.parse(readFileSync(new URL(name, routeMovesDir), "utf8")));
     // Five agent/MCP cases and the Chromium install setup case were added independently of route moves.
     const nonRouteCasesAdded = 6;
-    const routeCasesAdded = routeMoves.reduce((total, { addedCaseCount }) => total + addedCaseCount, 0);
+    const routeCasesAdded = routeMoves.reduce(
+      (total, { addedCaseCount, movedRoutes }) => total + (addedCaseCount ?? movedRoutes.files.length),
+      0,
+    );
     expect(captured.cases).toHaveLength(150);
     expect(candidate.cases).toHaveLength(captured.cases.length + nonRouteCasesAdded + routeCasesAdded);
 
@@ -1025,6 +1029,28 @@ describe("shared E2E setup selection", () => {
     }
     expect(candidate.families).toEqual([...expectedFamilies.values()]);
     expect(candidate.families).toHaveLength(expectedFamilies.size);
+    for (const { movedRoutes } of routeMoves) {
+      if (!movedRoutes) continue;
+      const { legacyDirectory, featureDirectory, files } = movedRoutes;
+      expect(
+        candidate.cases.filter(({ changedFiles }) => changedFiles.some((file) => file.startsWith(featureDirectory))),
+        featureDirectory,
+      ).toEqual(
+        files.map(([file, suite]) => ({
+          changedFiles: [`${featureDirectory}${file}`],
+          suiteIds: [suite],
+          batches: [suite],
+        })),
+      );
+      for (const [file, suite] of files) {
+        const legacyPath = `${legacyDirectory}${file}`;
+        const featurePath = `${featureDirectory}${file}`;
+        expect(baseline.classifyChanges({ changedFiles: [legacyPath] }).e2eSuiteIds, legacyPath).toEqual([suite]);
+        for (const route of [legacyPath, featurePath]) {
+          expect(classifyChanges({ changedFiles: [route], workspaces }).e2eSuiteIds, route).toEqual([suite]);
+        }
+      }
+    }
     expect(
       candidate.cases.find(({ changedFiles }) =>
         changedFiles.includes("bounded-contexts/fulfillment/routes/seller-shipping-setup.tsx"),
@@ -4033,6 +4059,13 @@ describe("change-scope", () => {
     expect(scope.e2eTestsRequired).toBe(true);
     expect(scope.e2eSuiteIds).toEqual(["marketplace_browse", "marketplace_checkout"]);
   });
+
+  it.each(routeMoves.flatMap(({ selectorCases = [] }) => selectorCases))(
+    "selects the owning E2E suites for feature-local route files: $file",
+    ({ file, suites }) => {
+      expect(e2eSuiteIdsForChangedFile(file)).toEqual(suites);
+    },
+  );
 
   it.each([
     ["bounded-contexts/notifications/routes/account-notifications.tsx", ["marketplace_account"]],

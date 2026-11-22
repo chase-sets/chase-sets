@@ -1,5 +1,5 @@
 import { defineApiErrorAdapter } from "@chase-sets/platform-runtime/http";
-import { PaymentsApiError } from "../../client";
+import { PaymentsApiError } from "../../../client";
 
 export const paymentsApiErrorAdapter = defineApiErrorAdapter({
   isError: (error): error is PaymentsApiError =>

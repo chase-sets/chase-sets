@@ -8,5 +8,11 @@
       "trackedCandidates": 1,
       "synthetic": false
     }
-  }
+  },
+  "selectorCases": [
+    {
+      "file": "bounded-contexts/fulfillment/features/shipments/ui/routes/account-shipments.tsx",
+      "suites": ["marketplace_account"]
+    }
+  ]
 }

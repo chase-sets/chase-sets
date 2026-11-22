@@ -6,7 +6,7 @@ import type {
   AuthenticityPlanRef,
   AuthenticityVerdict,
   AuthenticityVerdictReasonCode,
-} from "../../../support/runtime-support/common";
+} from "../domain/case-primitives";
 
 export type AuthenticityCaseRow = Readonly<{
   case_id: string;

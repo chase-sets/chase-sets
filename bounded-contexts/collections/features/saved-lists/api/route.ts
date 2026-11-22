@@ -1,4 +1,3 @@
-import { t } from "@chase-sets/localization";
 import { createPolicyBackedRateLimiter, type RateLimitRuleResolver } from "@chase-sets/http/rate-limit";
 import { Hono } from "hono";
 import type { CollectionsApiEnv } from "../../../api";
@@ -15,6 +14,7 @@ import { additionAnalytics, recordSavedListAnalytics, type SavedListAnalyticsRec
 import { savedListCanonicalIdentifier, savedListCanonicalProduct } from "./anonymous-owner";
 import { createSavedListRecoveryRoutes } from "./recovery-route";
 import type { SavedListRecoveryServices } from "./recovery-runtime";
+import { t } from "./localization/translator";
 
 const CAPTURE_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const CAPTURE_RATE_LIMIT_MAX = 30;

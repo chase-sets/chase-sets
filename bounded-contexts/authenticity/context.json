@@ -1,8 +1,12 @@
 {
   "contextName": "authenticity",
   "packageName": "@chase-sets/authenticity",
-  "localeCatalogs": ["contracts/localization/locales/en/authenticity.ts"],
-  "ownedNouns": ["authenticity-case"],
+  "localeCatalogs": [
+    "bounded-contexts/authenticity/features/cases/api/localization/locales/en.ts"
+  ],
+  "ownedNouns": [
+    "authenticity-case"
+  ],
   "streamPrefix": "authenticity.",
   "accountCapabilities": [
     {
@@ -13,16 +17,27 @@
     }
   ],
   "apiBasePath": "/api/authenticity",
-  "slices": ["cases"],
-  "allowedSupportDirectories": ["runtime-support"],
-  "publicExports": [".", "./context"],
+  "slices": [
+    "cases"
+  ],
+  "allowedSupportDirectories": [
+    "runtime-support"
+  ],
+  "publicExports": [
+    ".",
+    "./context"
+  ],
   "allowedContextDependencies": [],
   "seedRequirements": [],
   "projectionGroups": [
     {
       "projectionName": "authenticity-case-projection",
-      "sourceContextNames": ["authenticity"],
-      "ownedTables": ["authenticity_cases"],
+      "sourceContextNames": [
+        "authenticity"
+      ],
+      "ownedTables": [
+        "authenticity_cases"
+      ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     }
@@ -34,7 +49,9 @@
       "purpose": "Platform-configured authenticity facility address and operating identity for the single platform-operated facility; the provider-port seam for later third-party authenticators."
     }
   ],
-  "apiDeployables": ["platform-api"],
+  "apiDeployables": [
+    "platform-api"
+  ],
   "apiMounts": [
     {
       "mountPath": "/api/authenticity",
@@ -43,7 +60,12 @@
     }
   ],
   "mcpCapabilities": {
-    "tools": [{ "name": "authenticity.get-case-status", "ownerSlice": "cases" }],
+    "tools": [
+      {
+        "name": "authenticity.get-case-status",
+        "ownerSlice": "cases"
+      }
+    ],
     "resources": [
       {
         "uriTemplate": "chase-sets://authenticity/cases/{caseId}",
@@ -84,20 +106,34 @@
     "cases": {
       "classification": "slice",
       "purpose": "Own the AuthenticityCase aggregate, verdict lifecycle, and case read models for the authenticity check context.",
-      "expectedConsumers": ["Internal authenticity module composition"]
+      "expectedConsumers": [
+        "Internal authenticity module composition"
+      ]
     },
     "runtime-support": {
       "classification": "support",
-      "purpose": "Provide authenticity event-store composition, the platform-operated facility directory port, and shared domain primitives.",
-      "expectedConsumers": ["cases"]
+      "purpose": "Compose the Authenticity runtime, including the platform-operated facility directory port, schema, and retention declarations.",
+      "expectedConsumers": [
+        "Internal authenticity module composition"
+      ]
     },
     "routes": {
       "classification": "routes",
       "purpose": "Reserve authenticity-case route metadata for future deployable page route contributions.",
-      "expectedConsumers": ["Future generated deployable route adapters"]
+      "expectedConsumers": [
+        "Future generated deployable route adapters"
+      ]
     }
   },
-  "runtimeDeployables": ["platform-worker"],
-  "apiRuntimeProfiles": ["proof", "public"],
-  "workerRuntimeProfiles": ["proof", "public"]
+  "runtimeDeployables": [
+    "platform-worker"
+  ],
+  "apiRuntimeProfiles": [
+    "proof",
+    "public"
+  ],
+  "workerRuntimeProfiles": [
+    "proof",
+    "public"
+  ]
 }

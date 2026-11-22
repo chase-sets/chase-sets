@@ -1,3 +1,17 @@
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+
+export const catalogDimensionSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20261121_catalog_dimension_option_matching",
+    description: "Store each Dimension's Option Matching; existing rows take exact.",
+    statements: [
+      "SET LOCAL lock_timeout = '5s';",
+      `ALTER TABLE catalog_dimensions
+  ADD COLUMN IF NOT EXISTS option_matching text NOT NULL DEFAULT 'exact'`,
+    ],
+  },
+];
+
 export const catalogDimensionSchemaSql = `CREATE TABLE IF NOT EXISTS catalog_dimensions (
   dimension_id text PRIMARY KEY,
   key text NOT NULL,
@@ -6,12 +20,14 @@ export const catalogDimensionSchemaSql = `CREATE TABLE IF NOT EXISTS catalog_dim
   description_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
   description text NOT NULL DEFAULT '',
   value_kind text NOT NULL DEFAULT 'unordered',
+  option_matching text NOT NULL DEFAULT 'exact',
   status text NOT NULL DEFAULT 'draft',
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
 ALTER TABLE catalog_dimensions
   ADD COLUMN IF NOT EXISTS value_kind text NOT NULL DEFAULT 'unordered',
+  ADD COLUMN IF NOT EXISTS option_matching text NOT NULL DEFAULT 'exact',
   ADD COLUMN IF NOT EXISTS name_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
   ADD COLUMN IF NOT EXISTS description_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb;
 

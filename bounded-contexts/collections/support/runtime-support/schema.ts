@@ -3,7 +3,7 @@ import { savedListValuationSchemaSql } from "../../features/saved-list-valuation
 import { savedListReadModelSchemaSql } from "../../features/saved-lists/read-model/schema";
 import { savedListSharedPageSchemaSql } from "../../features/saved-lists/read-model/shared-page-schema";
 import { anonymousOwnerExpandSql } from "./anonymous-owner-migrations";
-import { anonymousOwnerActivationSchemaSql } from "./anonymous-owner-activation";
+import { anonymousOwnerActivationSchemaSql } from "../../features/saved-lists/read-model/anonymous-owner-activation";
 import { savedListRecoverySchemaSql } from "./recovery-migrations";
 
 const savedListDiscoverySchemaSql = `CREATE TABLE IF NOT EXISTS collections_saved_list_picker (
