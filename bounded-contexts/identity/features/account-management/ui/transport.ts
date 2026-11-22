@@ -12,11 +12,16 @@ import type { ClientState } from "./descriptor";
 import { validateShippingAddressSnapshot } from "../domain/owner-event";
 import type { ShippingAddressSnapshot } from "../../shipping-addresses/domain/domain";
 import { parseStrictTypedUlid } from "@chase-sets/primitives/typed-ids";
+import {
+  isDisplayNameRejectionCode,
+  type DisplayNameRejectionCode,
+} from "../../accounts/domain/display-name-safeguard";
 
 export type MutationFailure = Readonly<{
   intent: MutationAction;
   target: string | null;
   message: string;
+  displayNameRejection?: DisplayNameRejectionCode;
   errors: Readonly<{
     fieldErrors: Readonly<Record<string, readonly string[]>>;
     formErrors: readonly string[];
@@ -58,6 +63,7 @@ export function resolveClientState(value: unknown, status: number): ClientState 
       )
         return "ambiguous";
       const admitted =
+        (status === 400 && failure.intent === "update-profile" && isDisplayNameRejectionCode(failure.code)) ||
         ((status === 400 || status === 422) &&
           ["validation_failed", "validation_error", "shipping_address_undeliverable"].includes(String(failure.code))) ||
         (status === 404 && failure.code === "not_found") ||
@@ -209,6 +215,9 @@ function validatedFailure(
       intent: action as MutationAction,
       target,
       message: failure.message,
+      ...(action === "update-profile" && isDisplayNameRejectionCode(failure.code)
+        ? { displayNameRejection: failure.code }
+        : {}),
       errors,
     });
   } catch {

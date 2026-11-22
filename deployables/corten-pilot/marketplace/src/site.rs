@@ -19,13 +19,12 @@
 //! (`views/rail_analytics.js`, marketplace's `trackItemDetailRailEvent` and its root's bridge): it
 //! refuses what marketplace's refuses, a name it does not know or a label that is not one, with a
 //! 400, and logs the rest with marketplace's fields (`marketplace.item_detail_rail.analytics_event`,
-//! leaving out the position and the keys, as its log does). Marketplace also counts them in an
-//! OpenTelemetry metric (`chase_sets_marketplace_item_detail_rail_events_total`); the pilot has no
-//! metrics, so the log is the record until it gets an OpenTelemetry layer (Corten leaves metrics to
-//! the app's `tracing` subscriber). The endpoint and its vocabulary are Discovery's to own, not a
+//! leaving out the position and the keys, as its log does), and counts them in marketplace-web's
+//! metric, `chase_sets_marketplace_item_detail_rail_events_total`, with its labels
+//! (`platform::telemetry`). The endpoint and its vocabulary are Discovery's to own, not a
 //! web host's (chase-sets/chase-sets#3494); the pilot keeps marketplace's copy until Discovery
 //! contributes it.
-use std::time::Duration;
+use std::{sync::OnceLock, time::Duration};
 
 use corten::{
     Media,
@@ -33,6 +32,7 @@ use corten::{
     prelude::*,
     seo,
 };
+use platform::telemetry::{Counter, KeyValue};
 use serde_json::{Map, Value};
 
 use crate::{
@@ -203,7 +203,18 @@ pub(crate) async fn rail_analytics(body: Bytes) -> Result<StatusCode, corten::Er
         surface = label("surface"),
         "Item detail rail analytics event captured."
     );
+    static EVENTS: OnceLock<Counter<u64>> = OnceLock::new();
+    platform::telemetry::counter(&EVENTS, "chase_sets_marketplace_item_detail_rail_events_total").add(1, &rail_labels(&event));
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// The metric's labels for `event`, as marketplace-web's `itemDetailRailAnalyticsAttributes`
+/// gives them: the context, the event and each label, `none` where it has none.
+pub fn rail_labels(event: &RailEvent) -> Vec<KeyValue> {
+    let mut labels =
+        vec![KeyValue::new("context", "marketplace"), KeyValue::new("event", platform::telemetry::label(Some(&event.event)))];
+    labels.extend(event.labels.iter().map(|(key, value)| KeyValue::new(*key, platform::telemetry::label(value.as_deref()))));
+    labels
 }
 
 /// The event in `body`, as marketplace's `parsePayload` reads it: a JSON object whose `event` is
@@ -271,7 +282,7 @@ fn offline_page<For>(req: &Req) -> corten::Result<corten::HtmlResponse<For>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{page_number, rail_event};
+    use super::{page_number, rail_event, rail_labels};
 
     #[test]
     fn a_sitemap_page_is_a_whole_number_from_one() {
@@ -311,5 +322,25 @@ mod tests {
         ] {
             assert_eq!(rail_event(body.as_bytes()), None, "{body}");
         }
+    }
+
+    #[test]
+    fn a_rail_event_is_counted_with_marketplace_web_s_labels() {
+        let event = rail_event(br#"{"event":"workflow_selected","workflow":"sell","viewer":"guest"}"#).expect("taken");
+        let labels: Vec<(String, String)> =
+            rail_labels(&event).iter().map(|kv| (kv.key.to_string(), kv.value.to_string())).collect();
+        let expected = [
+            ("context", "marketplace"),
+            ("event", "workflow_selected"),
+            ("intent", "none"),
+            ("workflow", "sell"),
+            ("selection", "none"),
+            ("topic", "none"),
+            ("outcome", "none"),
+            ("gate", "none"),
+            ("viewer", "guest"),
+            ("surface", "none"),
+        ];
+        assert_eq!(labels, expected.map(|(k, v)| (k.to_owned(), v.to_owned())));
     }
 }

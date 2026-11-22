@@ -557,6 +557,11 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             // Payout setup: `setter` has not started, `restricted_setter` is restricted with a
             // provider account (its management session asks it to sign in again).
             "setter" | "restricted_setter" => actor(&["payouts.view", "payouts.setup"]),
+            // An owner whose offers.manage Auth withholds until its email is verified.
+            "offers_unverified" => Json(json!({ "actor": {
+                "userId": "usr_seller", "accountId": "acc_seller", "roleKey": "owner", "permissions": ["offers.view", "listings.view"],
+            } }))
+            .into_response(),
             // An owner whose orders.manage Auth withholds until its email is verified, and an agent
             // acting for an owner with the same permissions (Auth withholds nothing from an agent).
             "unverified" | "unverified_agent" => {
@@ -13004,7 +13009,7 @@ async fn submitted_offers_need_offers_view_to_read_and_offers_manage_to_change()
     let pilot = Pilot::new().await;
     let (status, _, _) = pilot.send(get(SUBMITTED_OFFERS, Some("lookout"))).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
-    // `lister` reads offers but may not change them: no boxes, no buttons (chase-sets#10660).
+    // `lister`'s role reads offers but may not change them: no boxes, no buttons.
     let (status, _, html) = pilot.send(get(SUBMITTED_OFFERS, Some("lister"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(
@@ -13017,6 +13022,45 @@ async fn submitted_offers_need_offers_view_to_read_and_offers_manage_to_change()
     let (status, headers, _) = pilot.send(get(SUBMITTED_OFFERS, None)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert!(headers[header::LOCATION].to_str().unwrap().contains("sign-in"));
+}
+
+#[tokio::test]
+async fn an_owner_whose_offers_manage_awaits_email_verification_may_still_change_its_offers() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(SUBMITTED_OFFERS, Some("offers_unverified"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"name="row" value="pause:off_open""#), "{html}");
+    assert!(html.contains(r#"name="offerIds""#), "{html}");
+    let (status, _, html) = pilot.send(post(SUBMITTED_OFFERS, "offers_unverified", "row=pause%3Aoff_open", false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Pikachu: now Paused"), "{html}");
+    let sent = list_calls(&pilot, "/api/marketplace/account/offers/submitted/off_open/pause");
+    assert!(sent.iter().any(|c| c.starts_with("POST")), "{sent:?}");
+    let (status, _, html) = pilot.send(get("/account/offers/submitted/off_open", Some("offers_unverified"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"name="row" value="pause:off_open""#), "{html}");
+}
+
+#[tokio::test]
+async fn an_owner_awaiting_email_verification_may_not_follow_the_market() {
+    // Following creates and authorizes a repricing policy, which needs offers.manage itself.
+    let pilot = Pilot::new().await;
+    let steps = [
+        format!(
+            "step=preview&policyId=bop_new2&expectedVersion=0&attemptId={POLICY_ATTEMPT}&operationId=op_1&offerId=off_open&cap.off_open=18.5&adjustment=-5"
+        ),
+        format!(
+            "step=authorize&policyId=bop_new2&expectedVersion=0&attemptId={POLICY_ATTEMPT}&operationId=op_1&offerId=off_open&cap.off_open=18.5&adjustment=-5"
+        ),
+    ];
+    for here in ["/account/offers/submitted/following", "/account/offers/submitted/off_open/following"] {
+        for step in &steps {
+            let (status, _, _) = pilot.send(post(here, "offers_unverified", step, false)).await;
+            assert_eq!(status, StatusCode::FORBIDDEN, "{here} {step}");
+        }
+    }
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    assert!(!calls.iter().any(|c| c.path.contains("/offer-policies")), "{calls:?}");
 }
 
 #[tokio::test]
@@ -23148,4 +23192,48 @@ async fn seller_checkout_links_to_shipping_setup() {
     let pilot = Pilot::new().await;
     let (_, _, html) = pilot.send(get("/checkout/sell/session/chk_one", Some("trader"))).await;
     assert!(html.contains(r#"href="/sell/shipping-setup""#) && text(&html).contains("Shipping setup"), "{html}");
+}
+
+/// Each request is a server span named by its method and route, never its path or query, and each
+/// API call it makes carries that span's `traceparent`, so platform-api's spans join its trace.
+#[tokio::test]
+async fn each_request_is_a_span_named_by_its_route_and_its_api_calls_carry_it() {
+    use opentelemetry::trace::{SpanKind, TracerProvider as _};
+    use opentelemetry_sdk::{propagation::TraceContextPropagator, trace::InMemorySpanExporter};
+    use tracing_subscriber::layer::SubscriberExt;
+
+    let exporter = InMemorySpanExporter::default();
+    let provider = opentelemetry_sdk::trace::SdkTracerProvider::builder().with_simple_exporter(exporter.clone()).build();
+    opentelemetry::global::set_text_map_propagator(TraceContextPropagator::new());
+    let subscriber = tracing_subscriber::registry().with(tracing_opentelemetry::layer().with_tracer(provider.tracer("test")));
+    // With one dispatcher registered, tracing-core settles a callsite another test's thread meets
+    // first by that thread's default, which has no subscriber: never. A second, empty dispatcher
+    // makes every callsite ask each one, so this thread's subscriber is asked too.
+    let _others = tracing::Dispatch::new(tracing::subscriber::NoSubscriber::default());
+    let _traced = tracing::subscriber::set_default(subscriber);
+
+    let pilot = Pilot::new().await;
+    // And a callsite another thread was settling while the two were registered is asked again.
+    tracing::callsite::rebuild_interest_cache();
+    let (status, _, html) = pilot.send(get("/search?q=pika", Some("buyer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    provider.force_flush().unwrap();
+
+    let spans = exporter.get_finished_spans().unwrap();
+    let span = spans.iter().find(|s| s.name == "GET /search").unwrap_or_else(|| panic!("{spans:#?}"));
+    assert_eq!(span.span_kind, SpanKind::Server);
+    let attribute = |key: &str| span.attributes.iter().find(|kv| kv.key.as_str() == key).map(|kv| kv.value.to_string());
+    assert_eq!(attribute("http.route").as_deref(), Some("/search"));
+    assert_eq!(attribute("http.request.method").as_deref(), Some("GET"));
+    assert_eq!(attribute("http.response.status_code").as_deref(), Some("200"));
+    assert!(span.attributes.iter().all(|kv| !kv.value.to_string().contains("pika")), "no query: {span:#?}");
+
+    let trace = span.span_context.trace_id().to_string();
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    let parents: Vec<(&str, &str)> = calls
+        .iter()
+        .map(|c| (c.path.as_str(), c.headers.get("traceparent").and_then(|v| v.to_str().ok()).unwrap_or_default()))
+        .collect();
+    assert!(!parents.is_empty());
+    assert!(parents.iter().all(|(_, parent)| parent.starts_with(&format!("00-{trace}-"))), "{trace}: {parents:#?}");
 }

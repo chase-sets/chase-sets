@@ -1782,6 +1782,9 @@ importers:
 
   deployables/agent-apps:
     dependencies:
+      '@chase-sets/checkout':
+        specifier: workspace:*
+        version: link:../../bounded-contexts/checkout
       '@chase-sets/design-system':
         specifier: workspace:*
         version: link:../../packages/design-system

@@ -145,15 +145,31 @@ describe("Scope Sync Batch worker", () => {
       transportReason: `MTGJSON request failed with HTTP 503. ${syntheticResponseMarker}`,
       expected: partialProviderSummary,
     },
-  ])("reconciles a partial child with $diagnostic", async ({ transportReason, expected }) => {
+    {
+      diagnostic: "a Scrydex normalization failure with a provider-valued detail",
+      providerKey: "scrydex",
+      transportReason: `Catalog provider 'scrydex' source observation normalization failed at normalizedObservation.fields.cardNumber: ${syntheticResponseMarker} https://provider.invalid/card.`,
+      expected: "source-observation-normalization-failed: normalizedObservation.fields.cardNumber",
+    },
+    {
+      diagnostic: "a Scrydex failure with an unclassified provider-valued path",
+      providerKey: "scrydex",
+      transportReason: `Catalog provider 'scrydex' source observation normalization failed at normalizedObservation.fields.${syntheticResponseMarker}.`,
+      expected:
+        "Scope Sync Run ended partial: scrydex / scrydex:lorcana:single-card:source-observation-import (partial, 1 failed).",
+    },
+  ])("reconciles a partial child with $diagnostic", async ({ providerKey = "mtgjson", transportReason, expected }) => {
     const partialRun = run("partial");
-    const scope = { provider: "mtgjson", setName: "TSP" };
+    const scope = { provider: providerKey, setName: "TSP" };
     const reason =
       transportReason ?? (await new Response(syntheticResponseMarker).json().catch((error) => error.message));
     if (transportReason === null) expect(reason).toContain(syntheticResponseMarker);
     const child: CatalogSyncRun["childJobs"][number] = {
-      providerKey: "mtgjson",
-      unitKey: "mtgjson:mtg:single-card:reference-data",
+      providerKey,
+      unitKey:
+        providerKey === "scrydex"
+          ? "scrydex:lorcana:single-card:source-observation-import"
+          : "mtgjson:mtg:single-card:reference-data",
       profileKey: "mtg-single-card",
       profileVersion: "v1",
       displayName: "MTGJSON",
@@ -188,7 +204,7 @@ describe("Scope Sync Batch worker", () => {
           failed: 1,
           outcomes: [
             {
-              providerKey: "mtgjson",
+              providerKey,
               languageCode: "en",
               expansionId: "TSP",
               status: "failed",

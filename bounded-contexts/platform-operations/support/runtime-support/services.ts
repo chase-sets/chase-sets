@@ -50,6 +50,7 @@ import { createAccountAppealRuntime, type AccountAppealRuntime } from "../../fea
 import type { ProjectionOperationsSnapshot } from "../../features/projection-operations/read-model/contracts";
 import type { WakeStoreStatus } from "../../features/projection-operations/read-model/wake-status-contracts";
 import { buildAccountAppealProjectionHandlerSet } from "../../features/account-appeals/read-model/projection";
+import { publishOperationsAttentionChanges, SUPPORT_REQUEST_QUEUE_PROJECTION } from "./operations-attention-realtime";
 
 export type OperationsAttentionRuntimeReads = Readonly<{
   loadBlockedProjections: () => Promise<ProjectionOperationsSnapshot["blockedProjections"]>;
@@ -249,11 +250,16 @@ export function createPlatformOperationsServices(
     policyConsoleEntries,
     supportReferenceLookup,
     projectors: [
-      ...platformFeedback.projectors,
+      ...publishOperationsAttentionChanges(platformFeedback.projectors, db, "platform-feedback-unreviewed"),
       ...publicDocReviews.projectors,
-      ...reportedContent.projectors,
+      ...publishOperationsAttentionChanges(reportedContent.projectors, db, "reported-content-response"),
       ...riskAlerts.projectors,
-      ...supportRequests.projectors,
+      ...publishOperationsAttentionChanges(
+        supportRequests.projectors,
+        db,
+        "support-request-deadline",
+        (set) => set.projectionName === SUPPORT_REQUEST_QUEUE_PROJECTION,
+      ),
       ...policies.projectors,
       buildAccountAppealProjectionHandlerSet(db),
     ],

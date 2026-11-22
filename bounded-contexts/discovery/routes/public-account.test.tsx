@@ -2,6 +2,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DiscoveryPublicAccount } from "../support/client-support/contracts";
+import { projectRedactedPublicAccount } from "../features/item-detail/tests/public-account-route-fixture";
 
 const { mockUseLoaderData, mockUseActionData, mockUseNavigation, mockUseRevalidator, mockSubscribeRealtimePatches } =
   vi.hoisted(() => ({
@@ -359,6 +360,24 @@ describe("discovery public account route", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+  });
+
+  it("renders the projected redaction placeholder on the public account while keeping feedback and listings", async () => {
+    const account = accountFixture();
+    await projectRedactedPublicAccount(account);
+    mockUseLoaderData.mockReturnValue({
+      account,
+      notFound: false,
+      canonicalUrl: `http://localhost/accounts/${account.account_slug}`,
+      reviewRole: null,
+      reviewPage: 1,
+      search: "",
+    });
+    render(<PublicAccountRoute />);
+    expect(screen.getAllByText("Name removed").length).toBeGreaterThan(0);
+    expect(screen.queryByText("North Store")).toBeNull();
+    expect(screen.getByText("Packed well and shipped quickly.")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "View listing" }).getAttribute("href")).toBe("/listings/lst-1");
   });
 
   it("renders role-split reputation summaries and paginated, role-filterable reviews", () => {

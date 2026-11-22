@@ -2,7 +2,7 @@
 // platform admin, with JavaScript and without it, against the real platform API, beside admin-web's
 // own page: the same counts, the same items in the same order, each Open answering a page on
 // admin-web (admin-web's own links answer 404 until its fix lands), the live
-// stream (it ends while the API refuses the topic), and a phone's
+// stream staying live on Platform Operations' topic, and a phone's
 // width with no sideways scroll and Open at least 40 px tall. It changes no data.
 // Usage: node scripts/smoke-operations-attention.mjs [pilot-url] [admin-web-url] [state-file]   (state from scripts/sign-in.mjs)
 import { chromium } from "@playwright/test";
@@ -76,7 +76,7 @@ for (const javaScriptEnabled of [true, false]) {
   if (JSON.stringify(rows) !== JSON.stringify(theirRows)) console.log({ mine: rows, theirs: theirRows });
   check(Number(mine.values[0]) === rows.length, `${label}: the total is the rows' count (${mine.values[0]})`);
   if (javaScriptEnabled) {
-    // The stream opens, then ends while the API refuses the topic (or stays live once it does not).
+    // Platform Operations serves the queue's topic to staff, so the stream opens and stays live.
     await page
       .waitForFunction(
         () => ["live", "ended", "closed"].includes(document.querySelector("corten-live")?.getAttribute("status") ?? ""),
@@ -85,7 +85,7 @@ for (const javaScriptEnabled of [true, false]) {
       )
       .catch(() => {});
     const live = await page.evaluate(() => document.querySelector("corten-live")?.getAttribute("status"));
-    check(live === "ended" || live === "live", `the live stream is ${live} (ended while #10607 is open)`);
+    check(live === "live", `the live stream is ${live}`);
     check(problems.length === 0, `no console errors (${problems.join("; ")})`);
   }
   const links = await page.evaluate(() => [...document.querySelectorAll("main table tbody tr a")].map((a) => a.href));

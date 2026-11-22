@@ -30,6 +30,7 @@ export const identityAuthorityEventClassification = {
   "identity.account.reactivated": "consumed",
   "identity.account.closed": "consumed",
   "identity.account.profile-updated": "unchanged",
+  "identity.account.display-name-redacted": "unchanged",
   "identity.account.badge-assigned": "unchanged",
   "identity.account.badge-removed": "unchanged",
   "identity.account.founders-window-opened": "unchanged",
@@ -56,7 +57,11 @@ export const identityAuthorityEvents = new Set(
 );
 
 export function identityOwnerKey(streamId: string): string | undefined {
-  if (streamId.startsWith("identity.user-preferences-") || streamId.startsWith("identity.account-capability-"))
+  if (
+    streamId.startsWith("identity.user-preferences-") ||
+    streamId.startsWith("identity.account-capability-") ||
+    streamId.startsWith("identity.account-profile-report-")
+  )
     return undefined;
   for (const [kind, prefix] of Object.entries(prefixes)) {
     if (streamId.startsWith(prefix) && streamId.length > prefix.length)
