@@ -261,6 +261,7 @@ it.each(rejectionInputs)("payment-create-rejection-same-on-both-paths: $kind", a
   });
   await expect.soft(rejectionGateway(journal.port).createPaymentSession(input)).rejects.toMatchObject({
     name: "PaymentCreateRejected",
+    message: "Payment create was rejected by the provider.",
     rejection,
   });
   expect(journal.current()).toMatchObject({ state: "failed", rejection, replayAttempts: 0 });

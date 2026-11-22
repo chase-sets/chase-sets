@@ -902,7 +902,9 @@ describe("deployed provider journal J1-J6 (synthetic DB proof)", () => {
               setupReferenceId: "scs_SYNTHETIC_J",
               providerCustomerReference: "cus_SYNTHETIC",
               uiMode: "embedded",
-              returnUrl: `${origin}/account/payment-methods`,
+              currencyCode: "usd",
+              consentId: "consent_SYNTHETIC",
+              consentText: "Synthetic consent",
             });
       await expect(create()).rejects.toThrow("evidence-window-provider-write:write-unresolved");
       const rows = await journal.readWindow(windowId);

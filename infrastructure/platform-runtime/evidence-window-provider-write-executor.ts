@@ -143,10 +143,10 @@ export async function executeGovernedProviderWrite<T>(
   } catch (error) {
     if (paymentCreate) {
       if (error instanceof PaymentCreateRejected) {
-        requireProviderWrite(
+        const failed = requireProviderWrite(
           await journal.complete(row.key, row.version, { state: "failed", rejection: error.rejection }),
         );
-        throw error;
+        if (failed.rejection) throw new PaymentCreateRejected(failed.rejection);
       }
     } else if (input.definitiveFailure(error)) {
       requireProviderWrite(await journal.complete(row.key, row.version, { state: "failed" }));
