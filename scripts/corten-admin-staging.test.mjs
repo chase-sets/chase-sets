@@ -249,13 +249,7 @@ describe("Corten admin staging deployment", () => {
     expect(names.indexOf("Advisory Corten admin smoke")).toBe(names.indexOf("Smoke check") + 1);
     expect(advisory["continue-on-error"]).toBe(true);
     expect(advisory.if).toBe(steps.find(({ name }) => name === "Smoke check").if);
-    expect(advisory.env).toMatchObject({
-      SMOKE_REQUIRE_LANDING: "false",
-      SMOKE_REQUIRE_ADMIN: "true",
-      SMOKE_REQUIRE_MARKETPLACE: "false",
-      SMOKE_REQUIRE_MARKETPLACE_ROOT: "false",
-      SMOKE_WRITE_WAITLIST: "false",
-    });
+
     const secrets = Object.values(advisory.env)
       .flatMap((value) => [...String(value).matchAll(/secrets\.([A-Z_]+)/g)].map((match) => match[1]))
       .sort();
@@ -270,7 +264,8 @@ describe("Corten admin staging deployment", () => {
         "SPACES_SECRET_KEY",
       ].sort(),
     );
-    expect(advisory.run).toContain("pnpm run smoke:platform --");
+    expect(advisory.run).toContain("pnpm run smoke:corten-admin --");
+    expect(advisory.run).not.toContain("smoke:platform");
     expect(advisory.run).toContain('"https://admin-corten.staging.chasesets.com"');
     expect(advisory.run).not.toMatch(/PLATFORM_ADMIN_(EMAIL|PASSWORD)/);
     expect(advisory.run).not.toContain("set -x");

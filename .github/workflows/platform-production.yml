@@ -2310,11 +2310,6 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
           PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
           PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
-          SMOKE_REQUIRE_LANDING: "false"
-          SMOKE_REQUIRE_ADMIN: "true"
-          SMOKE_REQUIRE_MARKETPLACE: "false"
-          SMOKE_REQUIRE_MARKETPLACE_ROOT: "false"
-          SMOKE_WRITE_WAITLIST: "false"
           SMOKE_SOURCE: staging-corten-admin-smoke
           SMOKE_UTM_CAMPAIGN: staging-main
           SMOKE_FETCH_ATTEMPTS: "24"
@@ -2329,8 +2324,8 @@ jobs:
           fi
           cd ../../..
           echo "Smoking the Corten admin pilot at admin-corten.staging.chasesets.com (advisory)."
-          # The smoke's CLI takes a landing URL first; SMOKE_REQUIRE_LANDING=false skips it.
-          pnpm run smoke:platform -- \
+          # Admin-only entry: it smokes the admin origin and never fetches the landing URL.
+          pnpm run smoke:corten-admin -- \
             "https://${landing_domain}" \
             "https://admin-corten.staging.chasesets.com"
       - name: Resolve Playwright Chromium version
