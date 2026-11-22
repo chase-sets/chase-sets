@@ -31,6 +31,7 @@ use corten::{
     http::{HeaderMap, StatusCode},
     prelude::*,
 };
+use platform::post_write::Surface;
 use serde::Serialize;
 use serde_json::json;
 
@@ -151,6 +152,25 @@ enum For {
 }
 
 impl For {
+    /// The form's post-write reports (marketplace's `PURCHASE_REVIEW_POST_WRITE_TELEMETRY` and
+    /// `SALE_REVIEW_POST_WRITE_TELEMETRY`).
+    fn surface(self) -> Surface {
+        match self {
+            For::Purchase => Surface {
+                context: "marketplace",
+                surface: "account-purchase-review",
+                route_id: "account-purchase-review",
+                route_template: "/account/purchases/:purchaseId/review",
+            },
+            For::Sale => Surface {
+                context: "marketplace",
+                surface: "account-sale-review",
+                route_id: "account-sale-review",
+                route_template: "/account/sales/:orderId/review",
+            },
+        }
+    }
+
     fn back(self, id: &str) -> String {
         match self {
             For::Purchase => url::Purchase { id, after: Default::default() }.href(),
@@ -336,6 +356,7 @@ async fn submit(
     };
     match caller.submit_review(attempt, &order, &subject, rating, &input.feedback).await {
         Ok((review, receipt)) => {
+            which.surface().navigated(receipt.as_ref(), None);
             let place = ReviewPlace { after_write: receipt.map(|r| r.param()), reported: None };
             req.redirect(&url::Review { id: &review, place })
         }

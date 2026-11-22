@@ -1842,6 +1842,7 @@ const outputs = [
         ["marketplace.features.offers.ui.offerMatchListPage.", "list"],
         ["marketplace.features.offers.ui.offerMatchDetailPage.", "detail"],
         ["marketplace.features.offers.ui.priceGap.", "gap"],
+        ["marketplace.features.offers.ui.matchSource.", "source"],
         ["marketplace.routes.accountOfferMatch.", "route"],
         ["marketplace.routes.accountOfferMatches.", "routes"],
         ["marketplace.marketFollowing.seller.", "managed"],

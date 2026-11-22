@@ -7,6 +7,7 @@
 import {
   agentOAuthScopesForPermissions,
   missingAgentOAuthScopesForPermissions,
+  resolveRolePermissions,
   type AgentOAuthScope,
   type OperatorAuthorityDecision,
 } from "@chase-sets/auth-context";
@@ -255,15 +256,15 @@ export function authorizeMcpToolInvocation(
 }
 
 export type McpOperatorAdmission =
-  | Readonly<{ allowed: true; authority: Extract<OperatorAuthorityDecision, { kind: "granted" }> }>
+  | Readonly<{ allowed: true; roleKey: "platform-admin"; permissions: readonly string[] }>
   | Readonly<{ allowed: false; reason: string }>;
 
 /**
  * The single predicate for every `operator` capability on discovery,
  * invocation and resource reads. A grant must hold `operations:write`, or
  * `operations:read` for a read; a session actor needs no scope. The authority
- * must then grant, and its role permissions (never the actor's) must cover
- * the capability. Scopes are checked first, so a commerce-only grant costs
+ * must then grant, and the current role table (never a permission snapshot)
+ * must cover the capability. Scopes are checked first, so a commerce-only grant costs
  * no authority read. Denial reasons are audit codes that name no OAuth scope.
  */
 export async function isOperatorToolAllowed(
@@ -286,14 +287,14 @@ export async function isOperatorToolAllowed(
   if (decision.kind !== "granted") {
     return { allowed: false, reason: `operator-authority-${decision.reason}` };
   }
-  if (
-    !capability.permissionBoundary.requiredPermissions.every((permission) =>
-      decision.rolePermissions.includes(permission),
-    )
-  ) {
+  if (decision.roleKey !== "platform-admin") {
+    return { allowed: false, reason: "operator-authority-not-platform-admin" };
+  }
+  const permissions: readonly string[] = resolveRolePermissions(decision.roleKey);
+  if (!capability.permissionBoundary.requiredPermissions.every((permission) => permissions.includes(permission))) {
     return { allowed: false, reason: "operator-role-permission-missing" };
   }
-  return { allowed: true, authority: decision };
+  return { allowed: true, roleKey: decision.roleKey, permissions };
 }
 
 function missingOAuthScopesForAuthorization(

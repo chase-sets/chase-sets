@@ -46,7 +46,7 @@ describe("Discovery search golden-query relevance gate", () => {
     if (pool) await closeMultiContextTestPools({ discovery: pool });
   });
 
-  it("production projection/live dispatcher parity", async () => {
+  it("retained live-path gates after hybrid deletion", async () => {
     const [catalogItems, goldenQueries, embeddingFixture] = await Promise.all([
       readJson("catalog-items.json"),
       readJson("golden-queries.json"),
@@ -113,7 +113,6 @@ describe("Discovery search golden-query relevance gate", () => {
             provider,
             cache: createQueryEmbeddingCache(),
             rescueEnabled: mode !== "lexical-only",
-            hybridEnabled: mode === "hybrid",
           },
           { ...query.request, search: query.query, limit: 50, includeTotal: true },
         );
@@ -161,7 +160,7 @@ describe("Discovery search golden-query relevance gate", () => {
     }
   });
 
-  it("exact ranking comes from live search: title+subtitle hybrid reorder delta", async () => {
+  it("exact ranking comes from live search: title+subtitle leads in both modes", async () => {
     const items: readonly RelevanceCatalogFixtureItem[] = [
       {
         catalogItemId: "exact-title-subtitle",
@@ -198,7 +197,7 @@ describe("Discovery search golden-query relevance gate", () => {
       embed: async () => ({ vectors: [axis(0)], totalTokens: 0 }),
     };
     const query: relevanceDomain.GoldenQuery = {
-      id: "title+subtitle hybrid reorder delta",
+      id: "title+subtitle exact order",
       query: "Aurora Dragon",
       category: "exact",
       coverage: ["title-subtitle"],
@@ -212,14 +211,11 @@ describe("Discovery search golden-query relevance gate", () => {
           provider,
           cache: createQueryEmbeddingCache(),
           rescueEnabled: mode !== "lexical-only",
-          hybridEnabled: mode === "hybrid",
         },
         { search: query.query, includeTotal: true, limit: 50 },
       );
       const ids = page.items.map((item) => item.catalog_item_id);
-      expect(ids).toEqual(
-        mode === "hybrid" ? ["nonexact", "exact-title-subtitle"] : ["exact-title-subtitle", "nonexact"],
-      );
+      expect(ids).toEqual(["exact-title-subtitle", "nonexact"]);
       modes[mode] = relevanceDomain.summarizeRelevanceMode(mode, [
         relevanceDomain.evaluateGoldenQuery(
           query,
@@ -227,39 +223,7 @@ describe("Discovery search golden-query relevance gate", () => {
         ),
       ]);
     }
-    const fusion = relevanceDomain.composeRelevanceCandidates(
-      "hybrid",
-      [
-        {
-          catalogItemId: "exact-title-subtitle",
-          title: "Aurora",
-          exactTitleMatch: false,
-          lexicalRank: 1,
-          semanticRank: null,
-          semanticSimilarity: null,
-        },
-        {
-          catalogItemId: "nonexact",
-          title: "Aardvark Aurora",
-          exactTitleMatch: false,
-          lexicalRank: 2,
-          semanticRank: null,
-          semanticSimilarity: null,
-        },
-      ],
-      [
-        {
-          catalogItemId: "nonexact",
-          title: "Aardvark Aurora",
-          exactTitleMatch: false,
-          lexicalRank: null,
-          semanticRank: 1,
-          semanticSimilarity: 1,
-        },
-      ],
-    );
-    expect(fusion.map((item) => item.catalogItemId)).toEqual(["nonexact", "exact-title-subtitle"]);
-    const delta = relevanceDomain.buildRelevanceReport({
+    const exactOrder = relevanceDomain.buildRelevanceReport({
       generatedAt: new Date().toISOString(),
       sourceHash: "synthetic-adversarial",
       embeddingModel: provider.model,
@@ -268,10 +232,10 @@ describe("Discovery search golden-query relevance gate", () => {
       goldenQueries: [query],
       modes,
     });
-    expect(delta.comparison.gateFailures).toEqual([]);
-    expect(delta.comparison.deltas).toContainEqual(expect.stringContaining("title+subtitle hybrid reorder delta"));
-    expect(() => relevanceDomain.assertRelevanceGate(delta)).not.toThrow();
-    process.stdout.write(`\n${relevanceDomain.renderRelevanceMarkdown(delta)}\n`);
+    expect(exactOrder.comparison.gateFailures).toEqual([]);
+    expect(exactOrder.comparison.deltas).toEqual([]);
+    expect(() => relevanceDomain.assertRelevanceGate(exactOrder)).not.toThrow();
+    process.stdout.write(`\n${relevanceDomain.renderRelevanceMarkdown(exactOrder)}\n`);
   });
 
   it("live rescue below three", async () => {
@@ -330,13 +294,13 @@ describe("Discovery search golden-query relevance gate", () => {
       ["Aurora", 2],
     ] as const) {
       const baseline = await retrieveDiscoveryItems(
-        { db: pool, provider, cache: createQueryEmbeddingCache(), rescueEnabled: false, hybridEnabled: false },
+        { db: pool, provider, cache: createQueryEmbeddingCache(), rescueEnabled: false },
         { search, includeTotal: true },
       );
       expect(baseline.items).toHaveLength(count);
       const before = calls;
       const rescue = await retrieveDiscoveryItems(
-        { db: pool, provider, cache: createQueryEmbeddingCache(), rescueEnabled: true, hybridEnabled: false },
+        { db: pool, provider, cache: createQueryEmbeddingCache(), rescueEnabled: true },
         { search, includeTotal: true },
       );
       expect(calls).toBe(before + 1);

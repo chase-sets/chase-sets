@@ -11,7 +11,7 @@
     "./locales/en/*": "./locales/en/*.ts"
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json",
+    "typecheck": "node ../../scripts/verify-typecheck.mjs --workspace=@chase-sets/localization",
     "test": "vitest run --config vitest.config.ts",
     "test:watch": "vitest --config vitest.config.ts"
   },

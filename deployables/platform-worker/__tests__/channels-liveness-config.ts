@@ -42,7 +42,6 @@ export const livenessConfig: RegisteredScheduledRunnerConfig = {
     intervalMs: 60_000,
     rolloutValue: "false",
     rescueValue: "false",
-    hybridValue: "false",
     queryCacheMaxEntries: 1,
     queryCacheTtlMs: 1000,
     queryTimeoutMs: 800,

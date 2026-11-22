@@ -66,8 +66,8 @@ test.describe("admin cross-cutting API topology", () => {
       "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
     );
 
-    await authenticateAdmin(page, "/platform/projections", "/access/sign-in");
-    await expectPageOk(page, "/platform/projections");
+    await authenticateAdmin(page, "/access/accounts", "/access/sign-in");
+    await expectPageOk(page, "/access/accounts");
 
     const path = "/api/realtime/account/events?topic=account%3Atopology-smoke%3Alistings";
     // See catalog-modeling.spec.ts's authoring-stream probe for why this

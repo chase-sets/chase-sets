@@ -177,7 +177,7 @@ describe("Auth request actor resolution", () => {
         );
       }
       if (emailState === "unverified") {
-        // Stored-grant control, deliberately separate from the preset-positive resolution above.
+        // A stale snapshot cannot grant permissions missing from the current role.
         const membership = await services.identity.getActiveMembershipForUserAccount(
           "usr_synthetic_pricing",
           "acc_synthetic_pricing",
@@ -195,7 +195,7 @@ describe("Auth request actor resolution", () => {
         );
         expect(storedActor?.permissions).not.toContain("pricing.manage");
         expect(storedActor?.permissions).toContain("pricing.view");
-        expect(storedActor?.permissions).toContain("synthetic.retained");
+        expect(storedActor?.permissions).not.toContain("synthetic.retained");
       }
     }
   });
@@ -473,7 +473,7 @@ describe("Auth request actor resolution", () => {
         user_id: "usr_1",
         account_id: "acc_1",
         role_key: "owner",
-        role_permissions: ["accounts.view", "catalog.view", "listings.view", "orders.manage", "orders.view"],
+        role_permissions: ["catalog.manage", "catalog.view"],
         status: "active",
         updated_at: new Date().toISOString(),
       },
@@ -504,12 +504,12 @@ describe("Auth request actor resolution", () => {
       accountId: "acc_1",
       membershipId: "mem_1",
       roleKey: "owner",
-      permissions: ["catalog.view", "orders.manage", "orders.view"],
+      permissions: ["orders.manage", "orders.view"],
       agentGrant: {
         grantId: "lpa_1",
         platformProfileUrl: "https://agent.example/.well-known/ucp",
         scopes: ["catalog:read", "dev.ucp.shopping.checkout:manage"],
-        rolePermissions: ["accounts.view", "catalog.view", "listings.view", "orders.manage", "orders.view"],
+        rolePermissions: ROLE_PERMISSIONS.owner,
       },
     });
     expect(linkedPlatformAuthorizations.resolveAccessToken).toHaveBeenCalledWith("hashed:ucp_at_secret");
@@ -592,7 +592,7 @@ describe("Auth request actor resolution", () => {
       agentGrant: {
         grantId: "lpa_1",
         scopes: ["payouts:request"],
-        rolePermissions: ["payouts.view"],
+        rolePermissions: ROLE_PERMISSIONS.viewer,
       },
     });
   });

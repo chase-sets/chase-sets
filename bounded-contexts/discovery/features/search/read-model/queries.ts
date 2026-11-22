@@ -1087,7 +1087,7 @@ export async function searchDiscoverySemanticItems(
   db: PgQueryable,
   params: DiscoverySearchParams,
   queryEmbedding: readonly number[],
-  options: Readonly<{ limit?: number; minimumSimilarity?: number; loadMarketSummaries?: boolean }> = {},
+  options: Readonly<{ limit?: number; minimumSimilarity?: number }> = {},
 ): Promise<DiscoverySemanticSearchItem[]> {
   if (queryEmbedding.length !== 1_024 || queryEmbedding.some((value) => !Number.isFinite(value))) {
     throw new Error("Discovery semantic query embedding must contain 1024 finite values.");
@@ -1125,14 +1125,11 @@ export async function searchDiscoverySemanticItems(
      LIMIT $${limitParamIndex}`,
     values,
   );
-  const marketSummaries =
-    options.loadMarketSummaries === false
-      ? new Map<string, DiscoverySearchItemRow["market_summary"]>()
-      : await getMarketSummariesForItems(
-          db,
-          result.rows.map((row) => row.catalog_item_id),
-          params.dimensionFilters,
-        );
+  const marketSummaries = await getMarketSummariesForItems(
+    db,
+    result.rows.map((row) => row.catalog_item_id),
+    params.dimensionFilters,
+  );
 
   return result.rows.map((row) => ({
     item: {
@@ -1140,22 +1137,6 @@ export async function searchDiscoverySemanticItems(
       market_summary: marketSummaries.get(row.catalog_item_id) ?? null,
     },
     similarity: Number(row.semantic_similarity),
-  }));
-}
-
-export async function hydrateDiscoverySearchItemMarketSummaries(
-  db: PgQueryable,
-  items: readonly DiscoverySearchItemRow[],
-  params: Pick<DiscoverySearchParams, "dimensionFilters"> = {},
-): Promise<DiscoverySearchItemRow[]> {
-  const marketSummaries = await getMarketSummariesForItems(
-    db,
-    items.map((item) => item.catalog_item_id),
-    params.dimensionFilters,
-  );
-  return items.map((item) => ({
-    ...item,
-    market_summary: marketSummaries.get(item.catalog_item_id) ?? null,
   }));
 }
 

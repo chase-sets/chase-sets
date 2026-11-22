@@ -3,6 +3,7 @@ import {
   GUEST_CHECKOUT_SESSION_ID_PREFIX,
   LINKED_PLATFORM_SESSION_ID_PREFIX,
   normalizeAgentOAuthScopes,
+  resolveRolePermissions,
   type PermissionKey,
   type ResolvedActor,
 } from "@chase-sets/auth-context";
@@ -154,7 +155,7 @@ async function resolveLinkedPlatformActor(
   )
     return null;
 
-  const rolePermissions = membership.role_permissions as readonly string[];
+  const rolePermissions = resolveRolePermissions(membership.role_key);
   const scopes = normalizeAgentOAuthScopes(linked.scopes);
 
   return {

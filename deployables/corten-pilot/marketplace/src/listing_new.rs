@@ -27,6 +27,7 @@ use corten::{
     prelude::*,
     security::cookie,
 };
+use platform::post_write::Surface;
 
 use crate::{
     api::{
@@ -450,6 +451,14 @@ async fn supply(caller: &crate::api::Caller<'_>, draft: &Draft) -> Result<(Vec<S
     Ok((items, has))
 }
 
+/// The page's post-write reports (marketplace's `ACCOUNT_LISTINGS_NEW_POST_WRITE_TELEMETRY`).
+const NEW_LISTING: Surface = Surface {
+    context: "marketplace",
+    surface: "account-listings-new",
+    route_id: "account-listings-new",
+    route_template: "/account/listings/new",
+};
+
 /// Builds the page for `draft`.
 async fn screen(
     req: &Req,
@@ -459,9 +468,12 @@ async fn screen(
     errors: Errors,
 ) -> Result<NewListingScreen, Box<HtmlResult>> {
     let t: ListingNewMsg = req.t();
-    let ((items, has), catalog) = match tokio::join!(supply(caller, &draft), catalog(caller, &draft)) {
-        (Ok(read), catalog) => (read, catalog),
-        (Err(error), _) => return Err(Box::new(read_failed(req, Some(viewer), error, None))),
+    let (supply, catalog) = tokio::join!(supply(caller, &draft), catalog(caller, &draft));
+    // The page reads after no write of its own, so a failure is the page's (`isNotFound: () => false`).
+    NEW_LISTING.read(&supply, false);
+    let (items, has) = match supply {
+        Ok(read) => read,
+        Err(error) => return Err(Box::new(read_failed(req, Some(viewer), error, None))),
     };
     let notice = (!draft.inventory_item_id.is_empty() && !items.iter().any(|i| i.item_id == draft.inventory_item_id))
         .then(|| t.route_inventory_item_preparing().to_owned());
@@ -777,6 +789,7 @@ pub(crate) async fn create(
         },
         Intent::Draft => ((!photos.is_empty()).then_some("upload_completed"), created_receipt),
     };
+    NEW_LISTING.navigated(receipt.as_ref(), None);
     req.redirect(&crate::seller_listing::at(&created.id, receipt.as_ref(), event))
 }
 
