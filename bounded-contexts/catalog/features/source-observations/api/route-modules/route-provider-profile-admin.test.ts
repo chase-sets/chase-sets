@@ -1190,7 +1190,7 @@ describe("source observation routes: integration discovery and profile administr
     ["fixtures", { liveProviderCallsAllowed: "true" }, "fields.liveProviderCallsAllowed must remain false."],
     ["promotion-plan", { promotionRequiresReview: "false" }, "fields.promotionRequiresReview must remain true."],
     ["basics", { capabilities: ["source-observation-import"] }, "fields.capabilities must be a string."],
-  ])("refuses a %s edit that sets what Catalog owns, and writes nothing", async (section, fields, message) => {
+  ] as const)("refuses a %s edit that sets what Catalog owns, and writes nothing", async (section, fields, message) => {
     const store = mutableProfileStore([
       ...catalogProviderIntegrationProfileVersions,
       profileVersion("tcgdex", { profileVersion: "2026.06.04", lifecycle: "draft", active: false }),

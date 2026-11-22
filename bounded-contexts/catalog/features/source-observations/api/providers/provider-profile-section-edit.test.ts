@@ -125,7 +125,7 @@ describe("Catalog provider profile section edit", () => {
         ...contract,
         promotionCommandPlan: { ...contract.promotionCommandPlan, planKind: "stored-kind" },
       },
-    } as CatalogProviderIntegrationProfileVersionRecord;
+    } as unknown as CatalogProviderIntegrationProfileVersionRecord;
     expect(
       catalogProviderProfileSectionCommandFromEdit(stored, { section: "promotion-plan", fields: {} }),
     ).toMatchObject({
@@ -153,7 +153,7 @@ describe("Catalog provider profile section edit", () => {
         ...contract,
         sourceObservation: { ...contract.sourceObservation!, observationId: template },
       },
-    } as CatalogProviderIntegrationProfileVersionRecord;
+    } as unknown as CatalogProviderIntegrationProfileVersionRecord;
 
     const unchanged = catalogProviderProfileSectionCommandFromEdit(stored, {
       section: "source-observation",
