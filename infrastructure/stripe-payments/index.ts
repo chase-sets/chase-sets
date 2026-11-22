@@ -1,5 +1,9 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
-import { parseProcessorSetupSessionCancellationResult } from "@chase-sets/payment-processing";
+import {
+  DeferredPaymentNotSent,
+  isPaymentConfirmationTokenId,
+  parseProcessorSetupSessionCancellationResult,
+} from "@chase-sets/payment-processing";
 import type {
   CreatedProcessorPayment,
   CreatedProcessorRefund,
@@ -436,6 +440,7 @@ function mapPaymentIntentReconciliationResult(
     processorPaymentReference,
     processorStatus,
     outcome,
+    processorRedirectUrl: paymentIntentAuthenticationUrl(intent),
     occurredAt: new Date().toISOString(),
     internalPaymentId: normalizeOptionalText(
       intent.metadata?.payment_id ?? null,
@@ -1088,6 +1093,7 @@ function mapWebhookEvent(event: StripeEventEnvelope): PaymentProcessorWebhookEve
         failureCode: null,
         failureMessage: null,
         occurredAt,
+        ...(savedPaymentConsentId ? { savedPaymentConsentId, savedPaymentConsentText } : {}),
       };
     case "payment_intent.canceled":
       return {
@@ -1729,6 +1735,66 @@ export function createStripePaymentProcessorGateway(
           processorClientSecret: body.client_secret?.trim() ?? null,
           processorRedirectUrl: paymentIntentAuthenticationUrl(body),
           processorStatus: body.status?.trim() ?? "requires_confirmation",
+        };
+      }
+
+      if (input.confirmationTokenId) {
+        const returnUrl = normalizeOptionalText(input.returnUrl);
+        if (!returnUrl || !isPaymentConfirmationTokenId(input.confirmationTokenId) || window) {
+          throw new DeferredPaymentNotSent("New card confirmation is unavailable.");
+        }
+        // Dynamic methods are required. Keep Checkout's existing card/Link eligibility even if the
+        // Stripe account enables unrelated methods for another integration.
+        const token = await stripeRequest<{
+          payment_method_preview?: { type?: string };
+          setup_future_usage?: string | null;
+        }>(`/v1/confirmation_tokens/${encodeURIComponent(input.confirmationTokenId)}`, { method: "GET" }).catch(
+          () => null,
+        );
+        const method = token?.payment_method_preview?.type;
+        if ((method !== "card" && method !== "link") || (token?.setup_future_usage && !input.savePaymentMethod)) {
+          throw new DeferredPaymentNotSent("Check your payment details and try a new Pay submission.");
+        }
+        const intent = await stripeRequest<StripePaymentIntentResponse>(
+          "/v1/payment_intents",
+          {
+            method: "POST",
+            body: toFormBody({
+              amount: String(amount),
+              currency: input.currencyCode,
+              capture_method: "automatic",
+              confirm: "true",
+              confirmation_token: input.confirmationTokenId,
+              return_url: returnUrl,
+              description: input.description,
+              statement_descriptor_suffix: statementDescriptorSuffix,
+              transfer_group: `payment:${input.paymentId}`,
+              ...stripeCustomerEntry(
+                input.providerCustomerReference ?? input.savePaymentMethod?.providerCustomerReference,
+              ),
+              ...cardAuthenticationEntries(input),
+              ...paymentMetadataEntries(input, { funds_strategy: "platform-held" }),
+              ...cardAuthenticationMetadataEntries(input),
+              ...marketplaceRiskMetadataEntries(input),
+              ...(input.savePaymentMethod
+                ? {
+                    setup_future_usage: "off_session",
+                    "metadata[saved_payment_consent_id]": input.savePaymentMethod.consentId,
+                    "metadata[saved_payment_consent_text]": input.savePaymentMethod.consentText,
+                  }
+                : {}),
+            }),
+          },
+          { idempotencyKey: input.idempotencyKey ?? `payments:payment:${input.paymentId}:create` },
+        );
+        if (!intent.id?.trim()) throw new Error("Stripe did not return a payment intent id.");
+        return {
+          processorName: "stripe",
+          processorPaymentKind: "payment-intent",
+          processorPaymentReference: intent.id,
+          processorClientSecret: null,
+          processorRedirectUrl: paymentIntentAuthenticationUrl(intent),
+          processorStatus: intent.status?.trim() ?? "unknown",
         };
       }
 

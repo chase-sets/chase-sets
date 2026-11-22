@@ -301,8 +301,11 @@ async function writeEntry(fixture: Fixture, entry: string, source: string) {
   await writeFile(path, source);
 }
 
-async function createDbCensusFixture(): Promise<Fixture> {
-  const fixture = await createShippedFixture(shippedShapedFiles(), { model: acceptedTimingInputs() });
+async function createDbCensusFixture(includeReserveUnit = false): Promise<Fixture> {
+  const fixture = await createShippedFixture(shippedShapedFiles(includeReserveUnit), {
+    model: retainedTimingInputs(),
+    ...(includeReserveUnit ? { ceilings: derivedBootBearingCaseCeilings } : {}),
+  });
   const entries = platformApiNonBootstrapDbCensus.entries;
   for (const entry of Object.keys(entries)) {
     await writeEntry(fixture, entry, `const url = ${syntheticDatabaseUrlRead};\n`);
@@ -313,48 +316,71 @@ async function createDbCensusFixture(): Promise<Fixture> {
       for (const name of ["test:unit", "test:fast"]) scripts[name] += ` --exclude ${entry}`;
     }
   });
-  return underAcceptedScheduleModel({ ...fixture, nonBootstrapCensus: { ...fixture.nonBootstrapCensus, entries } });
+  return underRetainedScheduleModel({ ...fixture, nonBootstrapCensus: { ...fixture.nonBootstrapCensus, entries } });
 }
 
-/** The shipped corpus with synthetic bodies, on the measured three-unit assignment by default. */
+/** Preserve the earlier synthetic controls' file costs using their immutable oracle corpus. */
 function shippedShapedFiles(includeReserveUnit = false): FixtureFile[] {
-  return Object.entries(bootstrapDbEnrollmentManifest).map(([fileName, partition]) => ({
-    fileName,
-    databaseSuffix: partition.databaseSuffix,
-    executionUnit:
-      !includeReserveUnit && fileName === "bootstrap-shared-seed-command.db.test.ts"
-        ? "test:db:2"
-        : partition.executionUnit,
-    bootBearingCases: partition.bootBearingCases,
-    cases: partition.cases.map((testCase, index) => ({
-      name: testCase.name,
-      referenceDurationMs: testCase.referenceDurationMs,
-      body: `  expect(${index}).toBe(${index});`,
-    })),
-  }));
+  const entries = Object.entries(bootstrapDbEnrollmentManifest).filter(
+    ([fileName]) => fileName !== "settlement-label-postage-deferral.db.test.ts",
+  );
+  const memo = readOracleMemo();
+  const fullCorpus = Object.keys(memo.entries)
+    .map((key) => JSON.parse(key) as [number, number[]])
+    .find(([, durations]) => durations.length === entries.length);
+  if (!fullCorpus) throw new Error("The historical oracle is missing its full file-cost vector");
+  const [, durations] = fullCorpus;
+  const fixedCost = retainedTimingInputs().testFileFixedCostMs;
+  return entries.map(([fileName, partition], fileIndex) => {
+    const caseTotal = durations[fileIndex]! - fixedCost;
+    const count = partition.cases.length;
+    const perCase = Math.floor(caseTotal / count);
+    return {
+      fileName,
+      databaseSuffix: partition.databaseSuffix,
+      executionUnit:
+        !includeReserveUnit && fileName === "bootstrap-shared-seed-command.db.test.ts"
+          ? "test:db:2"
+          : partition.executionUnit,
+      bootBearingCases: partition.bootBearingCases,
+      cases: partition.cases.map((testCase, index) => ({
+        name: testCase.name,
+        referenceDurationMs: perCase + (index < caseTotal % count ? 1 : 0),
+        body: `  expect(${index}).toBe(${index});`,
+      })),
+    };
+  });
 }
 
-function acceptedTimingInputs(): SyntheticScheduleModelTimingOverrides {
+function readOracleMemo() {
+  return JSON.parse(readFileSync(join(testDirectory, "fixtures/bootstrap-db-oracle-schedule-memo.json"), "utf8")) as {
+    oracleSha256: string;
+    entries: Record<string, number>;
+  };
+}
+
+function retainedTimingInputs() {
+  const model = readCurrentMeasuredCaptures().shipped.model;
   return {
-    testFileFixedCostMs: bootstrapDbScheduleModel.testFileFixedCostMs,
-    executionUnitFixedCostMs: bootstrapDbScheduleModel.executionUnitFixedCostMs,
-    jobOverheadMs: bootstrapDbScheduleModel.jobOverheadMs,
+    testFileFixedCostMs: model.testFileFixedCostMs,
+    executionUnitFixedCostMs: model.executionUnitFixedCostMs,
+    jobOverheadMs: model.jobOverheadMs,
   };
 }
 
 /**
- * A fixture built with acceptedTimingInputs(), under the accepted schedule model
+ * A fixture built with retainedTimingInputs(), under the historical schedule model
  * itself. Only that model's reference run binds the declared measured
  * one-fewer-unit floor; the swap changes provenance and nothing else.
  */
-function underAcceptedScheduleModel(fixture: Fixture): Fixture {
-  const { referenceRunId, referenceJobId, referenceJobName, referenceHeadSha, referenceEvent } =
-    bootstrapDbScheduleModel;
+function underRetainedScheduleModel(fixture: Fixture): Fixture {
+  const model = { ...readCurrentMeasuredCaptures().shipped.model, maximumScheduledFileCount: 13 };
+  const { referenceRunId, referenceJobId, referenceJobName, referenceHeadSha, referenceEvent } = model;
   const provenance = { referenceRunId, referenceJobId, referenceJobName, referenceHeadSha, referenceEvent };
-  expect({ ...fixture.model, ...provenance }).toEqual({ ...bootstrapDbScheduleModel });
+  expect({ ...fixture.model, ...provenance }).toEqual(model);
   return {
     ...fixture,
-    model: bootstrapDbScheduleModel,
+    model,
     nonBootstrapCensus: { ...fixture.nonBootstrapCensus, referenceRunId, referenceJobId },
   };
 }
@@ -626,9 +652,10 @@ function withUnappliedMeasuredFloor<T extends { schedule: { minimumUnitCount: nu
 }
 
 // The current schedule model's own minimum unit count for the current manifest.
-// Enrollment-derived projections; new reference estimates are not measured costs.
-const currentMinimumUnitCount = 2;
-const currentProjectedMakespans = [275267, 207566, 194055, 102651];
+// Enrollment-derived projections from the frozen r3 measurement.
+const currentMinimumUnitCount = 3;
+const retainedMinimumUnitCount = 2;
+const currentProjectedMakespans = [483171, 327054, 340439, 276520];
 const derivedShippedAssignment: Readonly<Record<string, BootstrapDbEnrollmentPartition["executionUnit"]>> =
   Object.freeze({
     "bootstrap-production-reconciliation.db.test.ts": "test:db:1",
@@ -643,6 +670,7 @@ const derivedShippedAssignment: Readonly<Record<string, BootstrapDbEnrollmentPar
     "inventory-seed-resume.db.test.ts": "test:db:3",
     "catalog-seed-interruption-resume.db.test.ts": "test:db:3",
     "authoritative-seed-resume-recovery.db.test.ts": "test:db:3",
+    "settlement-label-postage-deferral.db.test.ts": "test:db:4",
   });
 const derivedBootBearingCaseCeilings = Object.freeze({
   "test:db:1": 26,
@@ -1289,20 +1317,20 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(createHash("sha256").update(memoBytes).digest("hex")).toBe(
       "b8e4d04c3be4ef1155813343533203d10c6e1615b1f688551ff22076b278bd6c",
     );
-    const memo = JSON.parse(memoBytes.toString("utf8"));
+    const memo = readOracleMemo();
     expect(memo.oracleSha256).toBe("d3b96de0c4051a7021f8f00869d19dd13314166b8dc81244c2bb554a2493847b");
     old.preload(memo.entries);
     const normalize = (value: unknown) => JSON.parse(JSON.stringify(value));
-    // The pinned oracle lives under __tests__/fixtures, so its import.meta.url-derived
-    // default root is __tests__; bind both guards to the one production platform-api root.
-    const platformApiRoot = join(testDirectory, "..");
-    // Compare both implementations against the same current enrollment corpus.
+    // Compare both guards on the complete historical oracle corpus. The separate
+    // r3 capture test binds the new timings to the shipping manifest.
+    const retained = await createDbCensusFixture(true);
     const repositoryInputs = {
-      platformApiRoot,
-      manifest: bootstrapDbEnrollmentManifest,
-      executionUnitBootBearingCaseCeilings: bootstrapDbExecutionUnitBootBearingCaseCeilings,
-      scheduleModel: bootstrapDbScheduleModel,
-      nonBootstrapCensus: platformApiProductDbProofCensus,
+      platformApiRoot: retained.root,
+      manifest: retained.manifest,
+      executionUnitBootBearingCaseCeilings: retained.ceilings,
+      scheduleModel: retained.model,
+      nonBootstrapCensus: retained.nonBootstrapCensus,
+      requiredBootBearingCapacity: 78,
     };
     const candidateRepository = checkBootstrapDbEnrollment(repositoryInputs);
     const { candidate: candidateScheduler } = exactScheduleProbes();
@@ -1320,8 +1348,6 @@ describe("Platform API bootstrap DB enrollment", () => {
       `bootstrap-enrollment-oracle ${JSON.stringify({ durationMs: performance.now() - started, fileCount: oldRepository.fileCount, schedulerCalls: old.schedulerCalls })}\n`,
     );
     expect(old.schedulerCalls.hits).toBeGreaterThan(0);
-    // Retain the historical memo byte-for-byte. New subsets use the same pinned
-    // independent oracle, rather than requiring a new capture or memo artifact.
     expect(Object.keys(memo.entries)).toHaveLength(4095);
     for (const key of Object.keys(memo.entries)) expect(old.requestedKeys.has(key), key).toBe(true);
     expect(old.requestedKeys).toHaveLength((1 << candidateRepository.schedule.files.length) - 1);
@@ -1336,8 +1362,8 @@ describe("Platform API bootstrap DB enrollment", () => {
       "test:db:1 references unmanifested bootstrap DB file 'listing-channel-activation-composition.db.test.ts'",
       "test:db:1 references unmanifested bootstrap DB file 'owner-predicate-enrollment.db.test.ts'",
       "test:db:2 references unmanifested bootstrap DB file 'seed-command-catalog.db.test.ts'",
-      ...(currentMinimumUnitCount < observedUnitCount
-        ? [minimalityViolationFor(observedUnitCount, currentMinimumUnitCount)]
+      ...(retainedMinimumUnitCount < observedUnitCount
+        ? [minimalityViolationFor(observedUnitCount, retainedMinimumUnitCount)]
         : []),
     ]);
     expect(candidateRepository.violations).toEqual([]);
@@ -1379,9 +1405,9 @@ describe("Platform API bootstrap DB enrollment", () => {
     const result = checkBootstrapDbEnrollment();
 
     expect(result.violations).toEqual([]);
-    expect(result.expectedCaseCount).toBe(79);
+    expect(result.expectedCaseCount).toBe(80);
     expect(result.caseCount).toBe(result.expectedCaseCount);
-    expect(result.fileCount).toBe(12);
+    expect(result.fileCount).toBe(13);
     expect(result.partitionUnitCount).toBe(4);
   });
 
@@ -1398,12 +1424,12 @@ describe("Platform API bootstrap DB enrollment", () => {
     );
   });
 
-  it("enrolls the owner predicate product proof once outside the frozen bootstrap capture", () => {
+  it("enrolls the owner predicate product proof once as measured non-bootstrap membership", () => {
     const entry = "__tests__/owner-predicate-enrollment.db.test.ts";
     const census = derivePlatformApiDbTestCensus();
     expect(census.dbEntries).toContain(entry);
     expect(census.bootstrapEntries).not.toContain(entry);
-    expect(Object.keys(platformApiNonBootstrapDbCensus.entries)).not.toContain(entry);
+    expect(platformApiNonBootstrapDbCensus.entries[entry]).toBe("test:db:1");
     expect(platformApiProductDbProofCensus.entries[entry]).toBe("test:db:1");
     expect(checkBootstrapDbEnrollment().violations).toEqual([]);
   });
@@ -1581,9 +1607,9 @@ describe("Platform API bootstrap DB enrollment", () => {
   });
 
   it("accepts a test entry that never reaches the bootstrap harness", async () => {
-    const fixture = underAcceptedScheduleModel(
+    const fixture = underRetainedScheduleModel(
       await createShippedFixture(shippedShapedFiles(), {
-        model: acceptedTimingInputs(),
+        model: retainedTimingInputs(),
         extraSources: {
           "plain-unit.test.ts": ['import { it } from "vitest";', 'it("needs no database", () => {});'].join("\n"),
         },
@@ -1632,7 +1658,7 @@ describe("Platform API bootstrap DB enrollment", () => {
   it("derives the complete frozen six-entry non-bootstrap census independently of suffixes", async () => {
     const fixture = await createDbCensusFixture();
     const census = derivePlatformApiDbTestCensus({ platformApiRoot: fixture.root });
-    expect(census.dbEntries).toHaveLength(17);
+    expect(census.dbEntries).toHaveLength(18);
     expect(census.bootstrapEntries).toHaveLength(12);
     expect(census.dbEntries).toEqual(census.suffixEntries);
     expect(census.dbEntries.filter((entry) => !census.bootstrapEntries.includes(entry)).sort()).toEqual(
@@ -2186,7 +2212,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(schedule.units[1]!.makespanMs).toBeGreaterThanOrEqual(186_210);
     expect(schedule.units[1]!.makespanMs).toBe(194_356);
     // ...and that layout is exactly what fails the per-unit ceiling this slice fixes.
-    expect(schedule.units[0]!.makespanMs).toBeGreaterThan(bootstrapDbScheduleModel.executionUnitCeilingMs);
+    expect(schedule.units[0]!.makespanMs).toBeGreaterThan(fixture.model.executionUnitCeilingMs);
   });
 
   it("preserves the immutable historical twelve-file capture without assigning its durations to new cases", async () => {
@@ -2828,8 +2854,8 @@ describe("Platform API bootstrap DB enrollment", () => {
       },
     },
     {
-      label: "enrolls the accepted current-source three-unit capture with its paired floor provenance",
-      current: true,
+      label: "retains the historical three-unit capture with its paired floor provenance",
+      current: false,
       fileName: "bootstrap-db-capture-41551303861.json",
       fixtureSha256: "730ed95091193a3079ff0d217ef96b880e8de27f983c90857161849f64235eac",
       minimumUnitCount: 2,
@@ -2842,6 +2868,30 @@ describe("Platform API bootstrap DB enrollment", () => {
         captureParent: "5a67def48f7a8e96ce8880e4c048cd9c15af0d9f",
         event: "workflow_dispatch",
         serialUnits: 3,
+        maxWorkers: 3,
+        modeledUnitCeilingMs: 420000,
+        modeledAggregateCeilingMs: 1080000,
+      },
+    },
+    {
+      label: "enrolls the four-unit Settlement r3 capture and its measured census",
+      current: true,
+      fileName: "bootstrap-db-capture-44915048546.json",
+      fixtureSha256: "cf9d7144664ac7097ac79ba42eef690507f975aa5e8956afba20b119fc40fed2",
+      minimumUnitCount: currentMinimumUnitCount,
+      unitProjections: currentProjectedMakespans,
+      provenance: {
+        runId: "44915048546",
+        runAttempt: "1",
+        referenceJobId: 136878756994,
+        jobName: "Diagnostic API Bootstrap Measurement Only",
+        checkoutSha: "4bd8e5165e3df2990b97f7dc0f5a27d2ce5fa2d6",
+        sourceBase: "837f0c4ad80267e45af20a5b788364d7e9e78648",
+        captureParent: "837f0c4ad80267e45af20a5b788364d7e9e78648",
+        artifactId: 14711643833,
+        artifactSha256: "f0946b9385b1efbe0e246e64eee3e40169f69622e1855874c1f0d2e14eb5d2e6",
+        event: "push",
+        serialUnits: 4,
         maxWorkers: 3,
         modeledUnitCeilingMs: 420000,
         modeledAggregateCeilingMs: 1080000,
@@ -2873,6 +2923,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     "bootstrap-db-capture-40787363393.json": 4,
     "bootstrap-db-capture-41043769783.json": 4,
     "bootstrap-db-capture-41551303861.json": 4,
+    "bootstrap-db-capture-44915048546.json": 6,
   });
 
   it.each(measuredCaptures)("$label", async ({ current, fileName, fixtureSha256, ...expected }) => {
@@ -2901,29 +2952,41 @@ describe("Platform API bootstrap DB enrollment", () => {
     };
     expect(capture.provenance).toMatchObject(provenance);
     if (current) {
-      expect(bootstrapDbScheduleModel).toEqual({ ...capture.model, maximumScheduledFileCount: 13 });
-      expect(capture.acceptedBootBearingCaseCeilings).toEqual({
-        "test:db:1": 18,
-        "test:db:2": 32,
-        "test:db:3": 19,
-      });
+      expect(bootstrapDbScheduleModel).toEqual(capture.model);
+      expect(capture.acceptedAssignment).toEqual(derivedShippedAssignment);
+      expect(capture.acceptedBootBearingCaseCeilings).toEqual(derivedBootBearingCaseCeilings);
       expect(bootstrapDbExecutionUnitBootBearingCaseCeilings).toEqual(derivedBootBearingCaseCeilings);
+      expect(platformApiNonBootstrapDbCensus).toEqual({
+        referenceRunId: capture.model.referenceRunId,
+        referenceJobId: capture.model.referenceJobId,
+        entries: Object.fromEntries(
+          capture.nonBootstrapFiles.map(({ testPath, executionUnit }) => [testPath, executionUnit]),
+        ),
+      });
     }
-    expect(capture.files).toHaveLength(12);
+    expect(capture.files).toHaveLength(current ? 13 : 12);
     expect(capture.nonBootstrapFiles).toHaveLength(measuredCaptureNonBootstrapFileCounts[fileName]);
     expect(capture.files.flatMap((file) => file.cases)).toHaveLength(
-      current ||
-        fileName === "bootstrap-db-capture-40191794836.json" ||
-        fileName === "bootstrap-db-capture-40503475846.json" ||
-        fileName === "bootstrap-db-capture-40787363393.json" ||
-        fileName === "bootstrap-db-capture-41043769783.json"
-        ? 71
-        : 68,
+      current
+        ? 80
+        : fileName === "bootstrap-db-capture-41551303861.json" ||
+            fileName === "bootstrap-db-capture-40191794836.json" ||
+            fileName === "bootstrap-db-capture-40503475846.json" ||
+            fileName === "bootstrap-db-capture-40787363393.json" ||
+            fileName === "bootstrap-db-capture-41043769783.json"
+          ? 71
+          : 68,
     );
     for (const file of capture.files) {
       if (current) {
-        expect(bootstrapDbEnrollmentManifest[file.fileName]!.executionUnit).toBe(
-          derivedShippedAssignment[file.fileName],
+        const partition = bootstrapDbEnrollmentManifest[file.fileName]!;
+        expect(partition.executionUnit).toBe(derivedShippedAssignment[file.fileName]);
+        expect(partition.cases).toEqual(
+          file.cases.map(({ name, identity, referenceDurationMs }) => ({
+            name,
+            identity,
+            referenceDurationMs,
+          })),
         );
       }
       for (const testCase of file.cases) {
@@ -2962,9 +3025,9 @@ describe("Platform API bootstrap DB enrollment", () => {
         executionUnit: file.executionUnit,
         cases: file.cases.map((testCase, index) => ({ ...testCase, body: `  expect(${index}).toBe(${index});` })),
       })),
-      { model: capture.model },
+      { model: capture.model, ...(current ? { ceilings: derivedBootBearingCaseCeilings } : {}) },
     );
-    const { schedule, violations } = runFixture(fixture);
+    const { schedule, violations } = runFixture(fixture, current ? 78 : 0);
     expect(violations).toEqual([
       ...unitProjections.flatMap((makespan, index) =>
         makespan > capture.model.executionUnitCeilingMs
@@ -2973,17 +3036,19 @@ describe("Platform API bootstrap DB enrollment", () => {
             ]
           : [],
       ),
-      ...(unitProjections.length < minimumUnitCount
-        ? [
-            `the shipped topology spends ${unitProjections.length} execution units below the schedule model's minimumUnitCount of ${minimumUnitCount}`,
-          ]
-        : unitProjections.length > minimumUnitCount
+      ...(current
+        ? []
+        : unitProjections.length < minimumUnitCount
           ? [
-              `the shipped topology spends ${unitProjections.length} execution units where the schedule model's minimumUnitCount for the same ` +
-                `file set is ${minimumUnitCount}; execution units of one workspace run serially, so an unnecessary unit is spent aggregate ` +
-                "budget",
+              `the shipped topology spends ${unitProjections.length} execution units below the schedule model's minimumUnitCount of ${minimumUnitCount}`,
             ]
-          : []),
+          : unitProjections.length > minimumUnitCount
+            ? [
+                `the shipped topology spends ${unitProjections.length} execution units where the schedule model's minimumUnitCount for the same ` +
+                  `file set is ${minimumUnitCount}; execution units of one workspace run serially, so an unnecessary unit is spent aggregate ` +
+                  "budget",
+              ]
+            : []),
     ]);
     expect(schedule.minimumUnitCount).toBe(minimumUnitCount);
     expect(schedule.units.map((unit) => unit.makespanMs)).toEqual(unitProjections);
@@ -3054,15 +3119,15 @@ describe("Platform API bootstrap DB enrollment", () => {
   });
 
   it("declares the settled ceilings and job overhead the aggregate expression is built from", () => {
-    expect(bootstrapDbScheduleModel.executionUnitCeilingMs).toBe(420_000);
-    expect(bootstrapDbScheduleModel.aggregateCeilingMs).toBe(1_080_000);
-    expect(bootstrapDbScheduleModel.jobOverheadMs).toBe(55667);
+    expect(bootstrapDbScheduleModel.executionUnitCeilingMs).toBe(540_000);
+    expect(bootstrapDbScheduleModel.aggregateCeilingMs).toBe(1_620_000);
+    expect(bootstrapDbScheduleModel.jobOverheadMs).toBe(49747);
     expect(bootstrapDbScheduleModel.maxWorkersPerExecutionUnit).toBe(3);
     expect(bootstrapDbScheduleModel.maximumScheduledFileCount).toBe(13);
     expect(bootstrapDbScheduleModel.maximumEnumeratedUnitCount).toBe(4);
     expect(bootstrapDbScheduleModel.maximumCaseReferenceDurationMs).toBe(600_000);
     expect(checkBootstrapDbEnrollment().schedule.files.reduce((total, file) => total + file.caseDurationMs, 0)).toBe(
-      1708003,
+      1919337,
     );
   });
 
@@ -3077,10 +3142,10 @@ describe("Platform API bootstrap DB enrollment", () => {
       [26, 26],
       [31, 32],
       [19, 19],
-      [1, 2],
+      [2, 2],
     ]);
-    expect(schedule.aggregateMs).toBe(779539);
-    expect(schedule.aggregateWithOverheadMs).toBe(835206);
+    expect(schedule.aggregateMs).toBe(1427184);
+    expect(schedule.aggregateWithOverheadMs).toBe(1476931);
     expect(schedule.minimumUnitCount).toBe(currentMinimumUnitCount);
     expect(schedule.effectiveMinimumUnitCount).toBe(4);
     expect(schedule.observedUnitCount).toBe(4);
@@ -3568,10 +3633,10 @@ describe("Platform API bootstrap DB enrollment", () => {
   });
 
   it("rejects the previous topology when it has no spare boot-bearing slot", async () => {
-    const fixture = underAcceptedScheduleModel(
-      await createShippedFixture(shippedShapedFiles(), { model: acceptedTimingInputs() }),
+    const fixture = underRetainedScheduleModel(
+      await createShippedFixture(shippedShapedFiles(), { model: retainedTimingInputs() }),
     );
-    const previous = defaultPathEnrollment(currentMinimumUnitCount, {
+    const previous = defaultPathEnrollment(retainedMinimumUnitCount, {
       platformApiRoot: fixture.root,
       manifest: fixture.manifest,
       executionUnitBootBearingCaseCeilings: fixture.ceilings,
@@ -3589,9 +3654,9 @@ describe("Platform API bootstrap DB enrollment", () => {
     const files = shippedShapedFiles(true).map((file) =>
       file.fileName === "seed-command-full-pools.db.test.ts" ? { ...file, executionUnit: "test:db:5" } : file,
     );
-    const fixture = underAcceptedScheduleModel(
+    const fixture = underRetainedScheduleModel(
       await createShippedFixture(files, {
-        model: acceptedTimingInputs(),
+        model: retainedTimingInputs(),
         ceilings: { ...derivedBootBearingCaseCeilings, "test:db:5": 2 },
       }),
     );
@@ -3601,9 +3666,9 @@ describe("Platform API bootstrap DB enrollment", () => {
   it("admits one more boot-bearing file in the reserve unit but not a second", async () => {
     const files = shippedShapedFiles(true);
     files.push(unitFileFor("synthetic-reserve-fit", "test:db:4", 203_000));
-    const fixture = underAcceptedScheduleModel(
+    const fixture = underRetainedScheduleModel(
       await createShippedFixture(files, {
-        model: acceptedTimingInputs(),
+        model: retainedTimingInputs(),
         ceilings: derivedBootBearingCaseCeilings,
       }),
     );
@@ -3611,12 +3676,12 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(violations).toEqual([]);
     expect(schedule.effectiveMinimumUnitCount).toBe(4);
     expect(schedule.units.at(-1)).toMatchObject({ bootBearingCaseCount: 2, bootBearingCeiling: 2 });
-    expect(schedule.aggregateWithOverheadMs).toBeLessThanOrEqual(bootstrapDbScheduleModel.aggregateCeilingMs);
+    expect(schedule.aggregateWithOverheadMs).toBeLessThanOrEqual(fixture.model.aggregateCeilingMs);
 
     const extra = await createShippedFixture(
       [...files, unitFileFor("synthetic-reserve-overflow", "test:db:4", 1_000)],
       {
-        model: acceptedTimingInputs(),
+        model: retainedTimingInputs(),
         ceilings: derivedBootBearingCaseCeilings,
       },
     );
@@ -3650,14 +3715,14 @@ describe("Platform API bootstrap DB enrollment", () => {
       ...file,
       executionUnit: extraUnitAssignment[file.fileName]!,
     }));
-    const fixture = underAcceptedScheduleModel(await createShippedFixture(files, { model: acceptedTimingInputs() }));
+    const fixture = underRetainedScheduleModel(await createShippedFixture(files, { model: retainedTimingInputs() }));
     const result = runFixture(fixture);
 
     for (const unit of result.schedule.units) {
-      expect(unit.makespanMs).toBeLessThanOrEqual(bootstrapDbScheduleModel.executionUnitCeilingMs);
+      expect(unit.makespanMs).toBeLessThanOrEqual(fixture.model.executionUnitCeilingMs);
     }
-    expect(result.schedule.aggregateWithOverheadMs).toBeLessThanOrEqual(bootstrapDbScheduleModel.aggregateCeilingMs);
-    expect(result.violations).toEqual([minimalityViolationFor(4, currentMinimumUnitCount)]);
+    expect(result.schedule.aggregateWithOverheadMs).toBeLessThanOrEqual(fixture.model.aggregateCeilingMs);
+    expect(result.violations).toEqual([minimalityViolationFor(4, retainedMinimumUnitCount)]);
     // On the retained shipped model it binds, the declared floor measures two
     // units, not one fewer than four, so it never excuses a wasteful unit.
     const { shipped, paired } = readMeasuredCaptures();
@@ -3690,9 +3755,9 @@ describe("Platform API bootstrap DB enrollment", () => {
     // The hidden unit is a real `test:db:5` script the `test:db*` selector runs.
     // It stands its own job up, so it has to own manifested executable entries
     // and be carried by the makespan, aggregate, and minimum-unit comparison.
-    const fixture = underAcceptedScheduleModel(
+    const fixture = underRetainedScheduleModel(
       await createShippedFixture(shippedShapedFiles(), {
-        model: acceptedTimingInputs(),
+        model: retainedTimingInputs(),
         ceilings: { "test:db:1": 26, "test:db:2": 32, "test:db:3": 19, "test:db:5": 0 },
         extraSources: {
           "plain-unit.test.ts": ['import { it } from "vitest";', 'it("needs no database", () => {});'].join("\n"),
@@ -3710,7 +3775,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       "test:db:5 selects non-DB test entry '__tests__/plain-unit.test.ts'",
       "test:db:5 is executed by hosted CI but owns no manifested bootstrap DB file; every numbered execution " +
         "unit must own manifested executable DB entries",
-      minimalityViolationFor(4, currentMinimumUnitCount),
+      minimalityViolationFor(4, retainedMinimumUnitCount),
     ]);
     await editScripts(fixture, (scripts) => {
       delete scripts["test:db:5"];
@@ -3720,9 +3785,9 @@ describe("Platform API bootstrap DB enrollment", () => {
   });
 
   it("rejects a selector-matching execution unit whose name is not numbered", async () => {
-    const fixture = underAcceptedScheduleModel(
+    const fixture = underRetainedScheduleModel(
       await createShippedFixture(shippedShapedFiles(), {
-        model: acceptedTimingInputs(),
+        model: retainedTimingInputs(),
         extraSources: {
           "plain-unit.test.ts": ['import { it } from "vitest";', 'it("needs no database", () => {});'].join("\n"),
         },
@@ -4542,7 +4607,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       const floor = derivedFloor();
       const fixture = await shippedCaptureFixture();
       // createShippedFixture's model carries unmistakably synthetic provenance.
-      const synthetic = await createShippedFixture(shippedShapedFiles(), { model: acceptedTimingInputs() });
+      const synthetic = await createShippedFixture(shippedShapedFiles(), { model: retainedTimingInputs() });
       expectNotApplied(
         synthetic,
         floor,
@@ -4664,7 +4729,8 @@ describe("Platform API bootstrap DB enrollment", () => {
       expect(result.schedule).toMatchObject({
         measuredOneFewerUnitFloor: {
           applied: false,
-          reason: "the measured one-fewer-unit floor measures 2 unit(s), not one fewer than the 4 observed",
+          reason:
+            "the measured one-fewer-unit floor binds shipped reference run 41551303861, not the schedule model's 44915048546",
         },
         minimumUnitCount: currentMinimumUnitCount,
         effectiveMinimumUnitCount: 4,
@@ -4690,17 +4756,15 @@ describe("Platform API bootstrap DB enrollment", () => {
 
     function deriveNaturallyMinimalExecutionUnitFixedCost() {
       const model = {
-        ...bootstrapDbScheduleModel,
+        ...readCurrentMeasuredCaptures().shipped.model,
         ...syntheticScheduleModelProvenance,
         executionUnitFixedCostMs: 0,
       };
       const probe = exactScheduleProbes().candidate;
-      const files = checkBootstrapDbEnrollment({ scheduleModel: model }).schedule.files.map(
-        ({ fileName, durationMs }) => ({
-          fileName,
-          durationMs,
-        }),
-      );
+      const files = shippedShapedFiles().map(({ fileName, cases }) => ({
+        fileName,
+        durationMs: cases.reduce((sum, test) => sum + test.referenceDurationMs, model.testFileFixedCostMs),
+      }));
       const twoUnitProjection = probe.bestAssignmentAt(files, 2, model) as {
         worstMakespanMs: number;
       } | null;
@@ -4726,7 +4790,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     /** Synthetic timing minimum of three on the three-unit workload, with no applicable floor. */
     function naturallyMinimalDefaultPathEnrollment() {
       const scheduleModel = {
-        ...bootstrapDbScheduleModel,
+        ...readCurrentMeasuredCaptures().shipped.model,
         ...syntheticScheduleModelProvenance,
         executionUnitFixedCostMs: deriveNaturallyMinimalExecutionUnitFixedCost(),
       };

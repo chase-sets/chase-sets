@@ -2,11 +2,8 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { CatalogIntegrationLanguageEditionsPanel } from "./language-editions-panel";
-import { buildCatalogScopeLanguageEditionReviewReadModel } from "./language-edition-review";
-import type {
-  CatalogAliasReviewCandidateSummary,
-  CatalogAliasReviewReadModel,
-} from "../../../../../alias-equivalence/api/alias-review-admin-contracts";
+import { buildCatalogScopeLanguageEditionReviewReadModel } from "../../../../../scope-registry/api/scope-journey";
+import type { CatalogAliasReviewCandidateSummary } from "../../../../../alias-equivalence/api/alias-review-admin-contracts";
 
 afterEach(cleanup);
 
@@ -48,43 +45,6 @@ function candidate(overrides: Partial<CatalogAliasReviewCandidateSummary> = {}):
   };
 }
 
-function aliasReview(candidates: readonly CatalogAliasReviewCandidateSummary[]): CatalogAliasReviewReadModel {
-  return {
-    schemaVersion: "catalog-alias-review-v1",
-    generatedAt: "2026-06-16T00:00:00.000Z",
-    filter: {
-      providerKey: null,
-      sourceProfileVersion: null,
-      aliasType: null,
-      reviewStatuses: [],
-      observationId: null,
-      targetKind: "reference-record",
-      targetId: REFERENCE_RECORD_ID,
-    },
-    counts: {
-      total: candidates.length,
-      pending: candidates.filter((c) => c.reviewStatus === "pending").length,
-      accepted: 0,
-      autoAccepted: 0,
-      rejected: 0,
-      revoked: 0,
-      needsReview: candidates.filter((c) => c.reviewStatus === "pending").length,
-      autoAcceptEligible: 0,
-      warned: 0,
-    },
-    candidates,
-    groups: [],
-    coverage: {
-      cardsWithAcceptedEnglishAlias: 0,
-      cardsWithOnlySpeciesAliases: 0,
-      cardsNeedingReview: 0,
-      expansionsAndSeriesNeedingReview: 0,
-      cards: [],
-      referenceScopes: [],
-    },
-  };
-}
-
 const scope = {
   scopeRecordId: "scope_expansion_paldean_fates",
   referenceRecordId: REFERENCE_RECORD_ID,
@@ -95,7 +55,7 @@ describe("CatalogIntegrationLanguageEditionsPanel", () => {
   it("shows both editions for a scope imported in en+ja, with the pending ja candidate visible", () => {
     const readModel = buildCatalogScopeLanguageEditionReviewReadModel({
       scope,
-      aliasReview: aliasReview([candidate()]),
+      candidates: [candidate()],
     });
 
     render(<CatalogIntegrationLanguageEditionsPanel readModel={readModel} actionHref={ACTION_HREF} />);
@@ -112,7 +72,7 @@ describe("CatalogIntegrationLanguageEditionsPanel", () => {
   it("posts the accept intent with the candidate's alias hash to the supplied action href", () => {
     const readModel = buildCatalogScopeLanguageEditionReviewReadModel({
       scope,
-      aliasReview: aliasReview([candidate()]),
+      candidates: [candidate()],
     });
 
     render(<CatalogIntegrationLanguageEditionsPanel readModel={readModel} actionHref={ACTION_HREF} />);
@@ -129,7 +89,7 @@ describe("CatalogIntegrationLanguageEditionsPanel", () => {
   it("requires a reason for reject and revoke actions", () => {
     const readModel = buildCatalogScopeLanguageEditionReviewReadModel({
       scope,
-      aliasReview: aliasReview([candidate()]),
+      candidates: [candidate()],
     });
 
     render(<CatalogIntegrationLanguageEditionsPanel readModel={readModel} actionHref={ACTION_HREF} />);
@@ -142,7 +102,7 @@ describe("CatalogIntegrationLanguageEditionsPanel", () => {
   it("offers revoke for an already-linked (accepted) edition candidate", () => {
     const readModel = buildCatalogScopeLanguageEditionReviewReadModel({
       scope,
-      aliasReview: aliasReview([candidate({ reviewStatus: "accepted", availableActions: ["alias.revoke"] })]),
+      candidates: [candidate({ reviewStatus: "accepted", availableActions: ["alias.revoke"] })],
     });
 
     render(<CatalogIntegrationLanguageEditionsPanel readModel={readModel} actionHref={ACTION_HREF} />);
@@ -153,7 +113,7 @@ describe("CatalogIntegrationLanguageEditionsPanel", () => {
   it("disables actions when the operator cannot manage aliases", () => {
     const readModel = buildCatalogScopeLanguageEditionReviewReadModel({
       scope,
-      aliasReview: aliasReview([candidate()]),
+      candidates: [candidate()],
     });
 
     render(
@@ -173,7 +133,7 @@ describe("CatalogIntegrationLanguageEditionsPanel", () => {
   it("renders no alias forms for the canonical english edition", () => {
     const readModel = buildCatalogScopeLanguageEditionReviewReadModel({
       scope,
-      aliasReview: aliasReview([]),
+      candidates: [],
     });
 
     render(<CatalogIntegrationLanguageEditionsPanel readModel={readModel} actionHref={ACTION_HREF} />);

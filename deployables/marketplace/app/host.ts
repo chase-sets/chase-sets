@@ -1,6 +1,7 @@
 import { resolveWebHostActiveKeyAcrossSlots, resolveWebHostNavItems } from "@chase-sets/platform-runtime/web";
 import { resolveWebHostRouteConfigRecords } from "@chase-sets/platform-runtime/web-route-config";
 import type { AccountMenuItem, NavigationItem } from "@chase-sets/design-system";
+import { t } from "@chase-sets/localization";
 import { webContextRegistry } from "./context-registry";
 
 type MarketplaceNavActor = Readonly<{ permissions?: readonly string[]; roleKey?: string | null }> | null | undefined;
@@ -30,11 +31,18 @@ export function resolveMarketplaceNavItems(
   actor?: MarketplaceNavActor,
   options: MarketplaceNavOptions = {},
 ): NavigationItem[] {
-  return resolveWebHostNavItems(webContextRegistry, "marketplace-web", slot, actor, marketplaceNavSlots(options)[slot]);
+  return resolveWebHostNavItems(
+    webContextRegistry,
+    "marketplace-web",
+    slot,
+    t,
+    actor,
+    marketplaceNavSlots(options)[slot],
+  );
 }
 
 export function resolveMarketplaceAccountMenuItems(actor?: MarketplaceNavActor): AccountMenuItem[] {
-  return resolveWebHostNavItems(webContextRegistry, "marketplace-web", "account-menu", actor).flatMap(
+  return resolveWebHostNavItems(webContextRegistry, "marketplace-web", "account-menu", t, actor).flatMap(
     ({ key, label, href, icon }) => (href ? [{ key, label, href, icon }] : []),
   );
 }

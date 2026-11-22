@@ -7350,9 +7350,59 @@ pub struct RepricingPrerequisites {
     pub has_cost_basis: bool,
     /// Which Pricing Goal versions a seller may choose (the Adoption Gate's `goalAdoption`).
     pub goal_adoption: Vec<GoalAdoption>,
+    /// The Repricing Presets Pricing offers, in its order.
+    pub presets: Vec<PresetControls>,
+    /// The currency and floor a new policy starts from.
+    pub editor_defaults: EditorDefaults,
+}
+
+/// A preset's controls (`RepricingPresetControls`): its knob, and the listing age it reads, if any.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PresetControls {
+    pub preset: String,
+    pub knob: PresetRange,
+    pub age_days: Option<PresetRange>,
+}
+
+/// How far a control goes and where it starts.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PresetRange {
+    pub min: i64,
+    pub max: i64,
+    pub default_value: i64,
+}
+
+impl PresetRange {
+    /// `value` held to the range.
+    pub fn hold(self, value: i64) -> i64 {
+        value.clamp(self.min, self.max)
+    }
+}
+
+/// The account's starting currency and floor (`RepricingEditorDefaults`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct EditorDefaults {
+    pub currency_code: Option<String>,
+    pub floor: DefaultFloor,
+}
+
+/// `cost-basis-plus-margin` with its margin, or `absolute`.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct DefaultFloor {
+    pub mode: String,
+    pub margin_percent: Option<f64>,
 }
 
 impl RepricingPrerequisites {
+    /// The controls of `preset`, when Pricing offers it.
+    pub fn preset(&self, preset: &str) -> Option<&PresetControls> {
+        self.presets.iter().find(|controls| controls.preset == preset)
+    }
+
     /// A seller may choose this Pricing Goal version now.
     pub fn selectable(&self, goal_id: &str, goal_version: f64) -> bool {
         self.goal_adoption.iter().any(|goal| goal.goal_id == goal_id && goal.goal_version == goal_version && goal.selectable)
@@ -7690,6 +7740,8 @@ pub trait RepricingCalls {
     async fn repricing_dry_run(&self, id: &str) -> Result<RepricingDryRun, ApiError>;
     async fn repricing_dry_run_traces(&self, id: &str, after: Option<&str>) -> Result<Vec<RepricingTrace>, ApiError>;
     async fn start_repricing_dry_run(&self, body: &serde_json::Value) -> Result<RepricingDryRun, PricingRefusal>;
+    /// The policy body a preset's controls compile to (`presets/compile`, a read, posted).
+    async fn compile_repricing_preset(&self, controls: &serde_json::Value) -> Result<serde_json::Value, PricingRefusal>;
     /// Each write is sent as the form's `attempt`, when it drew one, and answers its request's
     /// receipt: the same attempt sent again answers the same request.
     async fn create_repricing_policy(
@@ -7774,6 +7826,11 @@ impl RepricingCalls for Caller<'_> {
                 message: format!("a dry run the page cannot read: {error}"),
             })
         })
+    }
+
+    async fn compile_repricing_preset(&self, controls: &serde_json::Value) -> Result<serde_json::Value, PricingRefusal> {
+        let req = self.request(Method::POST, &format!("{REPRICING}/presets/compile"), PRICING).json(controls);
+        Ok(pricing_answer(req).await?.0)
     }
 
     async fn create_repricing_policy(

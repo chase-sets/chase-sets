@@ -88,6 +88,15 @@ function renderPage(overrides: Partial<AccountPaymentPageProps> = {}) {
   );
 }
 
+it("renders a deferred return as status while awaiting the webhook, with no second confirmation control", () => {
+  renderPage({
+    payment: buildPayment({ source_context: "checkout", source_reference_id: "chk_1", status: "pending-confirmation" }),
+  });
+  expect(screen.getByText("Payment in progress")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /confirm payment|pay now/i })).toBeNull();
+  expect(screen.queryByTestId("payment-element-container")).toBeNull();
+});
+
 // Both summary renders stay in the DOM: the mobile disclosure renders its
 // children while collapsed and the desktop aside is only CSS-hidden.
 function summaryScopes(container: HTMLElement) {

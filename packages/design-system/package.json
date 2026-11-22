@@ -41,6 +41,7 @@
     "./key-value-list": "./src/components/data-display/key-value-list.tsx",
     "./layout": "./src/primitives/layout.tsx",
     "./loading": "./src/components/feedback/loading.tsx",
+    "./localization": "./src/localization/locales/en.ts",
     "./menu": "./src/components/feedback/menu.tsx",
     "./motion": "./src/motion/primitives.tsx",
     "./motion/config": "./src/motion/config.ts",
