@@ -6,8 +6,12 @@ import * as article from "../../../../routes/developers/article";
 import * as llms from "../../../../routes/developers/llms";
 import * as manifest from "../../../../routes/developers/manifest";
 import * as portal from "../../../../routes/developers/portal";
-import { buildDeveloperLlmsTxt, buildDeveloperManifest } from "../../domain/developer-manifest";
-import { developerPortalResponseHeaders, developerPortalRobotsMeta } from "../../domain/developer-portal-readiness";
+import {
+  buildDeveloperLlmsTxt,
+  buildDeveloperManifest,
+  developerPortalResponseHeaders,
+  developerPortalRobotsMeta,
+} from "../developer-route-data";
 import { developerPortalEnglishTranslations } from "../localization/locales/en";
 import * as ownedArticle from "./article";
 import * as ownedLlms from "./llms";
