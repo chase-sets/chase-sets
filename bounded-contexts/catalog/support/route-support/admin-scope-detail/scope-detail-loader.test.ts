@@ -1,12 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { LoaderFunctionArgs } from "react-router";
+import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { ApiError as CatalogApiError } from "../../shell-support/api/client";
 import type { CatalogScopeJourneyResponse } from "../../../features/scope-registry/ui/contracts";
 import { buildCatalogPrimaryWorkbenchReadModelForSurface } from "../../../features/source-observations/ui/primary-workbench-read-model";
 import {
   controlPlaneOverview,
   sourceObservationScope,
+  syntheticPromotionPreviewResponse,
 } from "../../../features/source-observations/ui/primary-workbench-test-fixtures";
+import { parseCatalogPrimaryWorkbenchRouteContext } from "../../../features/source-observations/ui/primary-workbench-route-context";
+import { withCatalogSurfaceReads } from "../../../features/source-observations/tests/integrations-surface-read-test-client";
+import { commandFeedbackFromUrl } from "../admin-integrations/integrations-command-feedback";
 
 const { mockCreateCatalogRequestApiClient, mockResolveActorFromAuthApi, mockLoadDailySurfaceForRequest } = vi.hoisted(
   () => ({
@@ -32,6 +36,7 @@ vi.mock("../admin-integrations/integrations-loader-support", () => ({
 }));
 
 const { loader } = await import("./scope-detail-loader");
+const { action } = await import("./scope-detail-action");
 
 function paldeanFatesScope() {
   return {
@@ -300,5 +305,205 @@ describe("Catalog scope-detail route loader", () => {
     );
 
     expect(routeData.canManageAliases).toBe(false);
+  });
+});
+
+// A Scope command posts to the Scope's own address; a queued job redirects back to
+// it and the next loader reads that address. Only the Catalog API and the daily
+// surface read are stubbed: the stub answers with the real feedback and route
+// context parsed from the address the loader received.
+describe("Scope Detail action to next loader", () => {
+  // A compact import scope that names the record's expansion: a selection inside the Scope.
+  const selection = {
+    providerKey: "tcgdex",
+    unitKey: "tcgdex:pokemon:card:import",
+    importScope: "en:scope_expansion_paldean_fates",
+    profileVersion: "2026.06.04",
+  };
+  const scopeUrl = `https://admin.example/catalog/scopes/scope_expansion_paldean_fates?${new URLSearchParams({
+    ...selection,
+    reviewOffset: "25",
+    "filter.status": "eligible",
+  })}`;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockResolveActorFromAuthApi.mockResolvedValue({ permissions: ["catalog.view", "catalog.manage"] });
+    mockLoadDailySurfaceForRequest.mockImplementation(async (request: Request) => ({
+      readModel: { routeContext: parseCatalogPrimaryWorkbenchRouteContext(request.url) },
+      requestUrl: request.url,
+      commandFeedback: commandFeedbackFromUrl(request.url),
+    }));
+  });
+
+  function stubApi(commands: Record<string, unknown>) {
+    mockCreateCatalogRequestApiClient.mockImplementation((request: Request) =>
+      withCatalogSurfaceReads(
+        {
+          getCatalogScopeRecord: vi.fn().mockResolvedValue({ ...paldeanFatesScope(), languageEditions: ["en"] }),
+          getCatalogScopeJourney: vi
+            .fn()
+            .mockResolvedValue(journeyOf({ ...paldeanFatesScope(), languageEditions: ["en"] })),
+          ...commands,
+        },
+        request,
+      ),
+    );
+  }
+
+  function post(fields: Record<string, string>, query = "") {
+    return action({
+      request: new Request(`${scopeUrl}${query}`, { method: "POST", body: new URLSearchParams(fields) }),
+      params: { id: "scope_expansion_paldean_fates" },
+      context: {},
+    } as unknown as ActionFunctionArgs);
+  }
+
+  async function reloadAfter(response: unknown) {
+    expect(response).toBeInstanceOf(Response);
+    const location = (response as Response).headers.get("Location") ?? "";
+    expect(new URL(location, scopeUrl).pathname).toBe("/catalog/scopes/scope_expansion_paldean_fates");
+    return runLoader(new Request(new URL(location, scopeUrl)));
+  }
+
+  it.each([
+    [
+      "scope.sync",
+      {
+        productDomain: "pokemon",
+        productForm: "single-card",
+        languageCode: "en",
+        referenceKind: "expansion",
+        scopeRecordId: "scope_expansion_paldean_fates",
+        selectedUnitKeys: selection.unitKey,
+      },
+      "",
+      { enqueueCatalogSyncRun: async () => ({ syncRunId: "job_sync" }) },
+      "job_sync",
+    ],
+    [
+      "scope.import",
+      {},
+      "",
+      { enqueueSourceObservationIntegrationJob: async () => ({ jobId: "job_import", status: "queued" }) },
+      "job_import",
+    ],
+    [
+      "observation.reapply",
+      { selectedObservationIds: "obs_001" },
+      "",
+      { reapplySourceObservations: async () => ({ jobId: "job_reapply" }) },
+      "job_reapply",
+    ],
+    [
+      "observation.replay",
+      { selectedObservationIds: "obs_001" },
+      "",
+      { replaySourceObservations: async () => ({ jobId: "job_replay" }) },
+      "job_replay",
+    ],
+    [
+      "job.retry",
+      {},
+      "&jobId=job_failed",
+      { retrySourceObservationIntegrationJob: async () => ({ jobId: "job_failed" }) },
+      "job_failed",
+    ],
+  ] as const)(
+    "reloads the Scope with the queued %s job, its feedback, filters and selection",
+    async (intent, fields, query, commands, jobId) => {
+      stubApi(commands);
+
+      const routeData = await reloadAfter(await post({ _intent: intent, ...fields }, query));
+
+      expect(routeData.journey.commandFeedback).toMatchObject({ status: "success", intent, result: "job-queued" });
+      expect(routeData.journey.readModel.routeContext).toMatchObject({
+        ...selection,
+        jobId,
+        reviewOffset: 25,
+        sourceObservationFilters: { status: "eligible" },
+        promotionPreviewId: null,
+      });
+    },
+  );
+
+  // The held preview is action data: the loader the router runs after the POST
+  // reads the same Scope address, with no token in it, and the confirmed execute
+  // posts the token the action returned. A later fresh load holds no receipt by
+  // design (the token belongs to the POST only).
+  it("previews in place, keeps the next load's context, then reloads the confirmed promotion job", async () => {
+    const bulkPromoteSourceObservations = vi.fn().mockResolvedValue({ jobId: "job_promote" });
+    stubApi({
+      previewBulkPromoteSourceObservationIds: vi.fn().mockResolvedValue(syntheticPromotionPreviewResponse()),
+      bulkPromoteSourceObservations,
+    });
+    const fields = { _intent: "observation.promote", selectedObservationIds: "obs_001" };
+
+    const preview = await post({ ...fields, promotionPhase: "preview" });
+    expect(preview).not.toBeInstanceOf(Response);
+    const held = preview as Exclude<typeof preview, Response>;
+    const previewId = held.promotionReceipt?.previewId ?? "";
+    expect(previewId).toBeTruthy();
+    expect(held.promotionReceipt?.selection).toMatchObject({
+      ...selection,
+      scopeRecordId: "scope_expansion_paldean_fates",
+    });
+
+    const nextLoad = await runLoader(new Request(scopeUrl));
+    expect(mockLoadDailySurfaceForRequest).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ url: scopeUrl }));
+    expect(nextLoad.journey.readModel.routeContext).toMatchObject({
+      ...selection,
+      reviewOffset: 25,
+      sourceObservationFilters: { status: "eligible" },
+      promotionPreviewId: null,
+    });
+    expect(nextLoad.journey.requestUrl).not.toContain(previewId);
+
+    const routeData = await reloadAfter(
+      await post({ ...fields, promotionPhase: "execute", promotionPreviewId: previewId }),
+    );
+
+    expect(bulkPromoteSourceObservations).toHaveBeenCalledWith(
+      ["obs_001"],
+      expect.objectContaining({ previewToken: previewId }),
+    );
+    expect(routeData.journey.commandFeedback).toMatchObject({
+      status: "success",
+      intent: "observation.promote",
+      result: "job-queued",
+    });
+    expect(routeData.journey.readModel.routeContext).toMatchObject({
+      ...selection,
+      jobId: "job_promote",
+      promotionPreviewId: null,
+    });
+  });
+
+  // The language-edition forms post to the Scope's address with its context. The
+  // result stays on the page as data, and the loader the router runs next reads
+  // that same address, so the selection, filters and paging survive.
+  it("keeps language-edition accept and reject on the populated Scope, with the reason gate", async () => {
+    const dispatchCatalogAliasReviewCommand = vi.fn().mockResolvedValue({});
+    stubApi({ dispatchCatalogAliasReviewCommand });
+
+    const accepted = await post({ _intent: "alias.accept", aliasHashes: "hash_ja" });
+    const rejected = await post({ _intent: "alias.reject", aliasHashes: "hash_ja", reason: "Synthetic mismatch" });
+    const reasonless = await post({ _intent: "alias.reject", aliasHashes: "hash_ja" });
+
+    for (const [result, status, outcome] of [
+      [accepted, "success", "alias-accepted"],
+      [rejected, "success", "alias-rejected"],
+      [reasonless, "error", "reason-required"],
+    ] as const) {
+      expect(result, outcome).not.toBeInstanceOf(Response);
+      expect((result as Exclude<typeof result, Response>).feedback, outcome).toMatchObject({ status, result: outcome });
+    }
+    expect(dispatchCatalogAliasReviewCommand).toHaveBeenCalledTimes(2);
+    const nextLoad = await runLoader(new Request(scopeUrl));
+    expect(nextLoad.journey.readModel.routeContext).toMatchObject({
+      ...selection,
+      reviewOffset: 25,
+      sourceObservationFilters: { status: "eligible" },
+    });
   });
 });

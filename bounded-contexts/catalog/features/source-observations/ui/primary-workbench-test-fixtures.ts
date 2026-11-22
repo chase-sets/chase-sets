@@ -1,3 +1,4 @@
+import { createElement, type ReactNode } from "react";
 import { t } from "@chase-sets/localization";
 import type { ListResponse } from "@chase-sets/http/responses";
 import type {
@@ -20,6 +21,13 @@ import {
   tcgplayerAutomationClientProviderProfile,
   type CatalogProviderIntegrationProfile,
 } from "../api/provider-integration-profiles";
+import { CatalogIntegrationCommandActionProvider } from "./admin-control-plane/import-to-promotion/command-action-context";
+
+// Module tests render owner-path controls outside any page; the daily surface's
+// fixed path stands in for the page that would own them.
+export function DailyCommandOwner({ children }: Readonly<{ children: ReactNode }>) {
+  return createElement(CatalogIntegrationCommandActionProvider, { actionPath: "/catalog/integrations", children });
+}
 
 export function syntheticPromotionReceipt(
   overrides: Partial<SourceObservationPromotionReceipt> = {},

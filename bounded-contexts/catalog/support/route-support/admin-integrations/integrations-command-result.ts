@@ -1,14 +1,13 @@
 import type { CatalogIntegrationsCommandResult } from "../../../features/source-observations/ui/contracts";
-import { catalogPrimaryWorkbenchHref } from "../../../features/source-observations/ui/primary-workbench-route-context";
 
 export type { CatalogIntegrationsCommandResult } from "../../../features/source-observations/ui/contracts";
 
-// The post-command navigation a redirect-owning surface performs. The UI decides
-// this from the result rather than hard-coding it in the action. The href routes
-// to the canonical surface for the result's section and carries the command
-// feedback as query state so the destination loader can render the same banner.
-export function commandRedirectHref(result: CatalogIntegrationsCommandResult): string {
-  const url = new URL(catalogPrimaryWorkbenchHref(result.context, result.section), "https://admin.example");
+// The post-command navigation a redirect-owning route performs. The route names
+// its own page: `ownerHref` is that page's path with the command's checkpoints.
+// This adds the command feedback as query state so the owner's next loader renders
+// the same banner; it never derives a destination from the result.
+export function commandRedirectHref(ownerHref: string, result: CatalogIntegrationsCommandResult): string {
+  const url = new URL(ownerHref, "https://admin.example");
   url.searchParams.set("commandStatus", result.feedback.status);
   url.searchParams.set("commandIntent", result.feedback.intent);
   url.searchParams.set("commandResult", result.feedback.result);

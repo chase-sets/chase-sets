@@ -1,16 +1,20 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render as renderUi, screen, waitFor } from "@testing-library/react";
+import type { ReactElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CatalogIntegrationRecentJobSummary } from "../../contracts";
 import type { CatalogPrimaryWorkbenchReadModel } from "../../../api/primary-workbench-admin-contracts";
 import { buildCatalogPrimaryWorkbenchReadModelForSurface } from "../../primary-workbench-read-model";
 import {
   controlPlaneOverview,
+  DailyCommandOwner,
   integrationJobSummary,
   profileReview,
   sourceObservationScope,
 } from "../../primary-workbench-test-fixtures";
 import { CatalogIntegrationImportJobsModule } from "./import-jobs-module";
+
+const render = (ui: ReactElement) => renderUi(ui, { wrapper: DailyCommandOwner });
 
 const revalidate = vi.hoisted(() => vi.fn());
 

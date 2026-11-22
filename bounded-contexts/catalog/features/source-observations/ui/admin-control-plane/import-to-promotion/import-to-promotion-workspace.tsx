@@ -17,7 +17,6 @@ import {
   DailyHealthStatusIndicator,
   WorkspaceBlockerPanel,
 } from "./workbench-formatting";
-import { CatalogIntegrationCommandActionProvider } from "./command-action-context";
 
 // The daily import-to-promotion workspace, framed as an explicit three-stage
 // linear flow: Run sync -> Review changes -> Create / update items. The stepper
@@ -25,6 +24,7 @@ import { CatalogIntegrationCommandActionProvider } from "./command-action-contex
 // others collapse to a summary. Jobs and command-plan detail render as supporting
 // context inside their stage, and the promotion preview is folded into the inline
 // confirmation of the create/update action (no separate stale-able preview step).
+// Its forms target the owning page's CatalogIntegrationCommandActionProvider path.
 export function CatalogIntegrationImportToPromotionWorkspace({
   readModel,
   aliasVisibility = null,
@@ -33,7 +33,6 @@ export function CatalogIntegrationImportToPromotionWorkspace({
   deferredImportPreview = null,
   deferredCatalogSyncRun = null,
   deferredScopeSyncState = null,
-  commandActionPath = null,
   showSourceScopeWorkset = true,
 }: Readonly<{
   readModel: CatalogPrimaryWorkbenchReadModel;
@@ -47,7 +46,6 @@ export function CatalogIntegrationImportToPromotionWorkspace({
   deferredImportPreview?: Promise<CatalogDailyImportPreview> | null;
   deferredCatalogSyncRun?: Promise<CatalogSyncRun | null> | null;
   deferredScopeSyncState?: Promise<readonly CatalogScopeSyncUnitStateReadModel[] | null> | null;
-  commandActionPath?: string | null;
   showSourceScopeWorkset?: boolean;
 }>) {
   const {
@@ -109,7 +107,7 @@ export function CatalogIntegrationImportToPromotionWorkspace({
     ),
   };
 
-  const workspace = (
+  return (
     <WorkbenchStack>
       {/* Governance (denied/stopped) and health (degraded/blocked) are genuinely
           distinct signals — each fires only on its specific signal and renders
@@ -156,13 +154,5 @@ export function CatalogIntegrationImportToPromotionWorkspace({
         }))}
       />
     </WorkbenchStack>
-  );
-
-  return commandActionPath ? (
-    <CatalogIntegrationCommandActionProvider actionPath={commandActionPath}>
-      {workspace}
-    </CatalogIntegrationCommandActionProvider>
-  ) : (
-    workspace
   );
 }

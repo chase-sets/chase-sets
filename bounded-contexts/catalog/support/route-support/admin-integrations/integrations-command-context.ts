@@ -13,6 +13,7 @@ import type { createCatalogRequestApiClient } from "../../../support/request-sup
 import { parseCatalogPrimaryWorkbenchRouteContext } from "../../../features/source-observations/ui/primary-workbench-route-context";
 import {
   importScopeFromScopeContext,
+  importScopeMatchesStructuredSelection,
   integrationJobScopeForUnit,
   reapplyScopeForUnit,
   type CatalogPrimaryWorkbenchReapplyScope,
@@ -47,13 +48,18 @@ export function commandContextFromFormData(requestUrl: string, formData: FormDat
     : parsedContext.importScope;
   const baseScope = scopeContextFromRouteContext({ ...parsedContext, providerKey, importScope });
   const scope = clearExplicitEmptyScopeFields(scopeContextFromFormData(formData, baseScope), formData);
+  // The read keeps an import scope that still names the structured selection and
+  // derives one only otherwise; the command applies the same rule, so its receipt
+  // and descriptor carry the import scope the page was read with.
+  const selectedImportScope =
+    importScope && importScopeMatchesStructuredSelection(importScope, scope) ? importScope : null;
 
   return {
     ...parsedContext,
     providerKey,
     unitKey: (stringValue(formData.get("unitKey")) ?? parsedContext.unitKey) as typeof parsedContext.unitKey,
     scope,
-    importScope: importScopeFromScopeContext(scope) ?? importScope,
+    importScope: selectedImportScope ?? importScopeFromScopeContext(scope) ?? importScope,
     profileVersion: stringValue(formData.get("profileVersion")) ?? parsedContext.profileVersion,
     selectedObservationIds,
     jobId: stringValue(formData.get("jobId")) ?? parsedContext.jobId,

@@ -84,13 +84,15 @@ describe("Source Observation review evidence data router", () => {
           {
             path: "/catalog/integrations",
             element: (
-              <CatalogIntegrationSourceObservationReviewModule
-                readModel={readModel}
-                selectedObservationKeys={new Set()}
-                onSelectedObservationKeysChange={() => undefined}
-                selectedEligibleObservationCount={0}
-                selectedReviewableObservationCount={0}
-              />
+              <CatalogIntegrationCommandActionProvider actionPath="/catalog/integrations">
+                <CatalogIntegrationSourceObservationReviewModule
+                  readModel={readModel}
+                  selectedObservationKeys={new Set()}
+                  onSelectedObservationKeysChange={() => undefined}
+                  selectedEligibleObservationCount={0}
+                  selectedReviewableObservationCount={0}
+                />
+              </CatalogIntegrationCommandActionProvider>
             ),
             errorElement: <div data-testid="escaped-evidence-error">Evidence failure escaped to route boundary</div>,
           },
@@ -227,7 +229,11 @@ function renderLoadedReview(url: string) {
       {
         path: "/catalog/integrations",
         loader: loadDailySurface,
-        element: <LoadedReview />,
+        element: (
+          <CatalogIntegrationCommandActionProvider actionPath="/catalog/integrations">
+            <LoadedReview />
+          </CatalogIntegrationCommandActionProvider>
+        ),
       },
     ],
     { initialEntries: [url] },

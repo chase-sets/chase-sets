@@ -1599,7 +1599,7 @@
       ],
       "visibleDestination": {
         "routeId": "integrations",
-        "description": "The admin integrations route action returns same-page command results for daily workbench actions and redirects provider/governance actions with the command-owned feedback context instead of depending on an immediate stale projection read."
+        "description": "The admin integrations route action returns same-page command results for daily workbench actions and redirects queued Promote and Catalog sync jobs back to its own fixed path with the command-owned feedback context instead of depending on an immediate stale projection read."
       },
       "proof": {
         "authoritativeResponse": "integrationsAction dispatches CatalogIntegrationsCommandResult snapshots from command handlers; promotion execution re-previews live context to suppress stale preview submissions, durable job commands return job ids/status, and actions clear stale preview/job context when a new command snapshot supersedes it.",
