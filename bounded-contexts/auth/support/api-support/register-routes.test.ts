@@ -19,6 +19,7 @@ import {
 import type { AuthServices, RegistrationAdmissionHostConfig } from "../runtime-support/services";
 import type { AuthIdentityInvitationRow } from "../auth-support/identity-projection";
 import { registerRegistrationRoutes } from "./register-routes";
+import { qualifiesForFoundersWindow, requireRegistrationAdmission } from "./registration-gates";
 import type { AuthApiEnv } from "./support";
 import { createAuthApiClient } from "../../client";
 
@@ -926,5 +927,77 @@ describe("registration auth routes", () => {
       });
       expect(mockStartInteractiveAuth).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe("Founders Window qualification", () => {
+  const admittedSignup = { signup_id: "wls_admitted", beta_invitation_id: "bin_admitted", admitted_wave: 1 };
+  const pendingInvitation: AuthIdentityInvitationRow = {
+    invitation_id: "ivt_manual",
+    account_id: "acc_invited",
+    email: "new.user@chasesets.test",
+    role_key: "viewer",
+    status: "pending",
+    expires_at: new Date(Date.now() + 60_000).toISOString(),
+    accepted_by_user_id: null,
+    invited_by_user_id: "usr_inviter",
+    updated_at: new Date().toISOString(),
+  };
+
+  function arrange(mode: RegistrationAdmissionHostConfig["mode"], admitted: boolean, invited: boolean) {
+    const services = createServices();
+    const lookup = vi.fn(async (_email: string) => (admitted ? admittedSignup : null));
+    services.registrationAdmission = {
+      mode,
+      disposableEmailMode: "log-only",
+      disposableEmailDomains: [],
+      findAdmittedWaitlistSignupByEmail: lookup,
+    };
+    services.identity.findPendingInvitationByEmail.mockResolvedValue(invited ? pendingInvitation : null);
+    return { services: services as unknown as AuthServices, lookup };
+  }
+
+  const modes = ["invitation", "open"] as const;
+  const flags = [true, false] as const;
+  const matrix = modes.flatMap((mode) =>
+    flags.flatMap((admitted) => flags.map((invited) => ({ mode, admitted, invited }))),
+  );
+
+  it.each(matrix)(
+    "an admitted registration carries a founders start exactly when it qualifies: $mode, admitted $admitted, invited $invited",
+    async ({ mode, admitted, invited }) => {
+      const { services } = arrange(mode, admitted, invited);
+
+      const qualifies = await qualifiesForFoundersWindow(services, "new.user@chasesets.test");
+      const admission = await requireRegistrationAdmission(services, "new.user@chasesets.test");
+
+      expect(qualifies).toBe(mode === "invitation" && admitted);
+      expect(admission.ok).toBe(mode === "open" || admitted || invited);
+      if (admission.ok) {
+        expect(typeof admission.foundersBetaAccessStartedAt === "string").toBe(qualifies);
+      }
+    },
+  );
+
+  it("qualifies a mixed-case address by its normalized email", async () => {
+    const { services, lookup } = arrange("invitation", true, false);
+
+    await expect(qualifiesForFoundersWindow(services, "  New.User@ChaseSets.test ")).resolves.toBe(true);
+    expect(lookup).toHaveBeenCalledWith("new.user@chasesets.test");
+  });
+
+  it("never reads the wave in open mode and does not turn a failed lookup into not qualified", async () => {
+    const open = arrange("open", true, false);
+    await expect(qualifiesForFoundersWindow(open.services, "new.user@chasesets.test")).resolves.toBe(false);
+    expect(open.lookup).not.toHaveBeenCalled();
+
+    const failing = arrange("invitation", true, true);
+    failing.lookup.mockRejectedValue(new Error("synthetic wave lookup fault"));
+    await expect(qualifiesForFoundersWindow(failing.services, "new.user@chasesets.test")).rejects.toThrow(
+      "synthetic wave lookup fault",
+    );
+    await expect(requireRegistrationAdmission(failing.services, "new.user@chasesets.test")).rejects.toThrow(
+      "synthetic wave lookup fault",
+    );
   });
 });
