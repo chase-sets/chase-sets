@@ -71,7 +71,7 @@ export function buildDimensionProjectionHandlers(db: PgQueryable): ProjectorHand
 
     "catalog.dimension.option-added": async (event) => {
       const dimensionId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
-      const { optionId, code, label, labels, displayOrder, numericValue, status } = event.data as {
+      const { optionId, code, label, labels, displayOrder, numericValue, status, appliesWhen } = event.data as {
         optionId: string;
         code: string;
         label?: LocalizedTextMap | string;
@@ -79,14 +79,15 @@ export function buildDimensionProjectionHandlers(db: PgQueryable): ProjectorHand
         displayOrder: number;
         numericValue: number | null;
         status: string;
+        appliesWhen?: unknown;
       };
       const labelI18n = coerceDimensionOptionLabel(label ?? labels);
 
       await db.query(
-        `INSERT INTO catalog_dimension_options (option_id, dimension_id, code, label_i18n, label, display_order, numeric_value, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `INSERT INTO catalog_dimension_options (option_id, dimension_id, code, label_i18n, label, display_order, numeric_value, status, applies_when)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
          ON CONFLICT (dimension_id, option_id) DO UPDATE
-         SET code = $3, label_i18n = $4, label = $5, display_order = $6, numeric_value = $7, status = $8`,
+         SET code = $3, label_i18n = $4, label = $5, display_order = $6, numeric_value = $7, status = $8, applies_when = $9::jsonb`,
         [
           optionId,
           dimensionId,
@@ -96,13 +97,14 @@ export function buildDimensionProjectionHandlers(db: PgQueryable): ProjectorHand
           displayOrder,
           numericValue,
           status,
+          JSON.stringify(appliesWhen ?? []),
         ],
       );
     },
 
     "catalog.dimension.option-revised": async (event) => {
       const dimensionId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
-      const { optionId, code, label, labels, displayOrder, numericValue, status } = event.data as {
+      const { optionId, code, label, labels, displayOrder, numericValue, status, appliesWhen } = event.data as {
         optionId: string;
         code: string;
         label?: LocalizedTextMap | string;
@@ -110,12 +112,14 @@ export function buildDimensionProjectionHandlers(db: PgQueryable): ProjectorHand
         displayOrder: number;
         numericValue: number | null;
         status: string;
+        appliesWhen?: unknown;
       };
       const labelI18n = coerceDimensionOptionLabel(label ?? labels);
 
       await db.query(
         `UPDATE catalog_dimension_options
-         SET code = $3, label_i18n = $4, label = $5, display_order = $6, numeric_value = $7, status = $8
+         SET code = $3, label_i18n = $4, label = $5, display_order = $6, numeric_value = $7, status = $8,
+             applies_when = COALESCE($9::jsonb, applies_when)
          WHERE dimension_id = $1 AND option_id = $2`,
         [
           dimensionId,
@@ -126,6 +130,7 @@ export function buildDimensionProjectionHandlers(db: PgQueryable): ProjectorHand
           displayOrder,
           numericValue,
           status,
+          appliesWhen === undefined ? null : JSON.stringify(appliesWhen),
         ],
       );
     },

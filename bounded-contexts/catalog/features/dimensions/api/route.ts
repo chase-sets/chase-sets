@@ -89,6 +89,7 @@ export function dimensionRoutes(services: DimensionServices, authoringBulkJobs: 
         code: body.code,
         label: coerceOptionLabel(body.label),
         numericValue: body.numericValue,
+        appliesWhen: parseOptionApplicabilityBoundary(body.appliesWhen),
       },
       context,
     });
@@ -126,6 +127,7 @@ export function dimensionRoutes(services: DimensionServices, authoringBulkJobs: 
         code: body.code,
         label: coerceOptionLabel(body.label),
         numericValue: body.numericValue,
+        appliesWhen: parseOptionApplicabilityBoundary(body.appliesWhen),
       },
       context,
     });
@@ -239,6 +241,25 @@ function dimensionListQueryFromRecord(record: Record<string, unknown>) {
     status: toOptionalString(record.status),
     valueKind: toOptionalString(record.valueKind),
   };
+}
+
+/** Omitted applicability keeps what the Option has; an empty list clears it. */
+function parseOptionApplicabilityBoundary(value: unknown) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  return (Array.isArray(value) ? value : [value]).map((clause, index) => {
+    const candidate = (typeof clause === "object" && clause !== null ? clause : {}) as {
+      dimensionId?: unknown;
+      optionIds?: unknown;
+    };
+
+    return {
+      dimensionId: parseTypedIdBoundary(candidate.dimensionId, "dim", `appliesWhen[${index}].dimensionId`),
+      optionIds: parseTypedIdArrayBoundary(candidate.optionIds, "chc", `appliesWhen[${index}].optionIds`),
+    };
+  });
 }
 
 function coerceOptionLabel(value: unknown) {

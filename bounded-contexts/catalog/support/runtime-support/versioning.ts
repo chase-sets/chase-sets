@@ -46,10 +46,18 @@ export type ProductDefiningBlueprint = Readonly<{
   canonicalDimensionOrder: DimensionId[];
 }>;
 
+/** An Option that can be selected only when every clause holds for the rest of the selection. */
+export type SelectedOptionApplicability = Readonly<{
+  dimensionId: DimensionId;
+  optionId: OptionId;
+  appliesWhen: readonly ProductDimensionApplicabilityClause[];
+}>;
+
 export type ProductResolutionInput = Readonly<{
   catalogItemId: CatalogItemId;
   blueprint: ProductDefiningBlueprint;
   selectedOptions: readonly TypedSelectedOptionEntry[];
+  optionApplicability?: readonly SelectedOptionApplicability[];
 }>;
 
 export function resolveProduct(input: ProductResolutionInput): ProductDescriptor {
@@ -92,6 +100,15 @@ export function resolveProduct(input: ProductResolutionInput): ProductDescriptor
     selection.every((entry) => input.blueprint.dimensionRules.some((rule) => rule.dimensionId === entry.dimensionId)),
     "Selections cannot include dimensions not defined by the blueprint.",
   );
+
+  for (const applicability of input.optionApplicability ?? []) {
+    if (selectionByDimension.get(applicability.dimensionId) === applicability.optionId) {
+      assert(
+        everyClauseHolds(applicability.appliesWhen, selectionByDimension),
+        "Selections must use only options that apply to the other selected options.",
+      );
+    }
+  }
 
   const orderedSelection = input.blueprint.canonicalDimensionOrder
     .map((dimensionId) => {
@@ -181,7 +198,14 @@ function isDimensionRuleActive(
   rule: ProductDimensionRule,
   selectionByDimension: ReadonlyMap<DimensionId, OptionId>,
 ): boolean {
-  return (rule.appliesWhen ?? []).every((clause) => {
+  return everyClauseHolds(rule.appliesWhen ?? [], selectionByDimension);
+}
+
+function everyClauseHolds(
+  clauses: readonly ProductDimensionApplicabilityClause[],
+  selectionByDimension: ReadonlyMap<DimensionId, OptionId>,
+): boolean {
+  return clauses.every((clause) => {
     const selectedOptionId = selectionByDimension.get(clause.dimensionId);
     return selectedOptionId !== undefined && clause.optionIds.includes(selectedOptionId);
   });

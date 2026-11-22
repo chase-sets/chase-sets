@@ -347,6 +347,7 @@ describe("Admin page projections", () => {
       option_id: optionId,
       display_order: 0,
       numeric_value: 5,
+      applies_when: [],
     });
 
     const componentDetail = await getJson(`/api/catalog/components/${componentId}`);
