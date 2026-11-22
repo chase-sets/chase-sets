@@ -1,6 +1,6 @@
 export const RELEVANCE_RESULT_LIMIT = 10;
 export const RELEVANCE_CATEGORIES = ["exact", "lexical", "semantic", "negative"] as const;
-export const RELEVANCE_MODES = ["lexical-only", "semantic-fallback", "hybrid"] as const;
+export const RELEVANCE_MODES = ["lexical-only", "semantic-fallback"] as const;
 
 export type RelevanceCategory = (typeof RELEVANCE_CATEGORIES)[number];
 export type RelevanceMode = (typeof RELEVANCE_MODES)[number];
@@ -33,14 +33,6 @@ export type GoldenQuery = Readonly<{
         summaries?: Readonly<Record<string, RelevanceSummary | null>>;
       }>
     | Readonly<{ kind: "no-results" }>;
-}>;
-export type RelevanceCandidate = Readonly<{
-  catalogItemId: string;
-  title: string;
-  exactTitleMatch: boolean;
-  lexicalRank: number | null;
-  semanticRank: number | null;
-  semanticSimilarity: number | null;
 }>;
 export type GoldenQueryResult = Readonly<{
   id: string;
@@ -106,42 +98,6 @@ export type RelevanceReport = Readonly<{
     passed: boolean;
   }>;
 }>;
-
-export function composeRelevanceCandidates(
-  mode: "hybrid",
-  lexicalCandidates: readonly RelevanceCandidate[],
-  semanticCandidates: readonly RelevanceCandidate[],
-  limit = RELEVANCE_RESULT_LIMIT,
-): RelevanceCandidate[] {
-  void mode;
-
-  const combined = new Map<string, RelevanceCandidate>();
-  for (const candidate of [...lexicalCandidates, ...semanticCandidates]) {
-    const previous = combined.get(candidate.catalogItemId);
-    combined.set(candidate.catalogItemId, {
-      ...candidate,
-      exactTitleMatch: candidate.exactTitleMatch || previous?.exactTitleMatch === true,
-      lexicalRank: candidate.lexicalRank ?? previous?.lexicalRank ?? null,
-      semanticRank: candidate.semanticRank ?? previous?.semanticRank ?? null,
-      semanticSimilarity: candidate.semanticSimilarity ?? previous?.semanticSimilarity ?? null,
-    });
-  }
-
-  return [...combined.values()]
-    .sort((left, right) => {
-      if (left.exactTitleMatch !== right.exactTitleMatch) return left.exactTitleMatch ? -1 : 1;
-      const leftLexical = left.lexicalRank !== null;
-      const rightLexical = right.lexicalRank !== null;
-      if (leftLexical !== rightLexical) return leftLexical ? -1 : 1;
-      const scoreDifference = reciprocalRankFusionScore(right) - reciprocalRankFusionScore(left);
-      return (
-        scoreDifference ||
-        left.title.localeCompare(right.title, "en") ||
-        left.catalogItemId.localeCompare(right.catalogItemId)
-      );
-    })
-    .slice(0, limit);
-}
 
 export function scoreRankedRelevanceInputs(
   input: Readonly<{
@@ -260,29 +216,9 @@ export function summarizeRelevanceMode(mode: RelevanceMode, cases: readonly Gold
 
 export function relevanceAcceptance(
   mode: RelevanceMode,
-  query: Pick<GoldenQuery, "category" | "coverage" | "request"> & Readonly<{ requiresSummary?: boolean }>,
+  query: Pick<GoldenQuery, "category" | "coverage">,
 ): "gate" | "delta" {
-  const coverage = new Set(query.coverage);
-  const request = query.request;
-  const explicitFilters =
-    request &&
-    (request.language !== undefined ||
-      request.inStock !== undefined ||
-      request.priceMin !== undefined ||
-      request.priceMax !== undefined ||
-      (request.dimensionFilters?.length ?? 0) > 0 ||
-      request.sort === "price_asc" ||
-      request.sort === "price_desc");
-  if (mode === "hybrid")
-    return coverage.has("protected-identifier") ||
-      coverage.has("collector-number") ||
-      coverage.has("explicit-filters") ||
-      coverage.has("variant-summary") ||
-      explicitFilters ||
-      query.requiresSummary
-      ? "gate"
-      : "delta";
-  if (mode === "semantic-fallback" && coverage.has("unprotected-extra-term")) return "delta";
+  if (mode === "semantic-fallback" && query.coverage.includes("unprotected-extra-term")) return "delta";
   return query.category === "semantic" ? "delta" : "gate";
 }
 
@@ -388,9 +324,8 @@ export function buildRelevanceReport(
   }>,
 ): RelevanceReport {
   const baseline = input.modes["lexical-only"];
-  const hybrid = input.modes.hybrid;
   const semanticBaseline = baseline.categories.semantic;
-  const semanticHybrid = hybrid.categories.semantic;
+  const semanticRescue = input.modes["semantic-fallback"].categories.semantic;
   const gateFailures: string[] = [];
   const deltas: string[] = [];
   for (const mode of RELEVANCE_MODES) {
@@ -413,9 +348,9 @@ export function buildRelevanceReport(
   const comparison = {
     gateFailures,
     deltas,
-    semanticPassRateGain: semanticHybrid.passRate - semanticBaseline.passRate,
-    semanticRecallAt10Gain: nullableDifference(semanticHybrid.recallAt10, semanticBaseline.recallAt10),
-    semanticMrrGain: nullableDifference(semanticHybrid.meanReciprocalRank, semanticBaseline.meanReciprocalRank),
+    semanticPassRateGain: semanticRescue.passRate - semanticBaseline.passRate,
+    semanticRecallAt10Gain: nullableDifference(semanticRescue.recallAt10, semanticBaseline.recallAt10),
+    semanticMrrGain: nullableDifference(semanticRescue.meanReciprocalRank, semanticBaseline.meanReciprocalRank),
     passed: gateFailures.length === 0,
   };
   return {
@@ -454,13 +389,13 @@ export function renderRelevanceMarkdown(report: RelevanceReport): string {
     "",
     `Fixture: ${report.fixture.catalogItemCount} catalog items, ${report.fixture.goldenQueryCount} golden queries, \`${report.fixture.embeddingModel}\` (${report.fixture.source}).`,
     "",
-    "## Lexical baseline vs candidate modes",
+    "## Lexical baseline vs Semantic Rescue",
     "",
     "| Mode | Overall pass | Recall@10 | MRR | Exact top-1 | Lexical pass | Semantic pass | Negative pass |",
     "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ...rows,
     "",
-    "## Rollout gate",
+    "## Relevance gates",
     "",
     `- Result: **${report.comparison.passed ? "PASS" : "FAIL"}**`,
     ...report.comparison.gateFailures.map((failure) => `- GATE FAIL: ${failure}`),
@@ -473,13 +408,6 @@ export function renderRelevanceMarkdown(report: RelevanceReport): string {
     `- Semantic MRR gain: ${signedMetric(report.comparison.semanticMrrGain)}`,
     "",
   ].join("\n");
-}
-
-function reciprocalRankFusionScore(candidate: RelevanceCandidate): number {
-  return (
-    (candidate.lexicalRank === null ? 0 : 0.7 / (60 + candidate.lexicalRank)) +
-    (candidate.semanticRank === null ? 0 : 0.3 / (60 + candidate.semanticRank))
-  );
 }
 
 function calculateMetrics(cases: readonly GoldenQueryResult[]): RelevanceMetrics {

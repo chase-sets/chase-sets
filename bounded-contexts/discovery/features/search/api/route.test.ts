@@ -522,11 +522,16 @@ describe("discovery item search routes", () => {
     ["an unversioned legacy cursor", legacyRelevanceCursor, ""],
     ["an unversioned legacy cursor with an offset", legacyRelevanceCursor, "&offset=1"],
     ["a malformed cursor", "not-a-cursor", ""],
+    ["former hybrid cursor restarts result set", "eyJraW5kIjoiaHlicmlkIiwib2Zmc2V0IjoyNH0", "&offset=24"],
     ["array JSON", Buffer.from(JSON.stringify([0, 1, 0.9, "Old", "cat_old"])).toString("base64url"), ""],
   ])("legacy or invalid relevance cursor restarts with metadata over HTTP: %s", async (_, rejectedCursor, extra) => {
     const { db, listCalls } = scriptedSearchDb();
+    const recordSearchQuery = vi.fn();
     const app = discoveryItemSearchRoutes(
-      createDiscoveryItemSearchRuntime({ db, eventStore: {} as never, checkpointStore: {} as never }),
+      createDiscoveryItemSearchRuntime(
+        { db, eventStore: {} as never, checkpointStore: {} as never },
+        { recordSearchQuery },
+      ),
     );
 
     // A load-more request: a cursor and no includeTotal.
@@ -546,6 +551,7 @@ describe("discovery item search routes", () => {
     expect(restarted.items[0]).not.toHaveProperty("search_title_identity");
     expect(decodeCursorJson(restarted.nextCursor)).toMatchObject({ v: 2, id: "cat_exact", tier: 1 });
     expect(listCalls[0]).toEqual(["active", "Charizard ex", "Charizard ex", "Charizard ex", 2]);
+    expect(recordSearchQuery).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ cursorState: "restarted" }));
 
     // The v2 continuation pages on without a restart marker or first-page metadata.
     const next = await (await app.request(`/?search=Charizard%20ex&limit=1&cursor=${restarted.nextCursor}`)).json();

@@ -63,11 +63,13 @@ impl ProfileInput {
     }
 }
 
-/// A refused update's form, drawn again: what was sent and what is wrong with it.
+/// A refused update's form, drawn again: what was sent and what is wrong with it, and whether
+/// Identity refused the marketplace name itself (the page then says the draft is kept).
 #[derive(Clone, Debug)]
 pub struct Draft {
     pub input: ProfileInput,
     pub errors: Errors,
+    pub name_refused: bool,
 }
 
 /// The page: the account (the actor's fallback while it catches up with a write), who is signed
@@ -90,7 +92,11 @@ impl AccountScreen {
 
     /// The form: a refused one as it was sent, else the account's profile.
     pub fn draft(&self) -> Draft {
-        self.posted.clone().unwrap_or_else(|| Draft { input: ProfileInput::of(&self.account), errors: Errors::new() })
+        self.posted.clone().unwrap_or_else(|| Draft {
+            input: ProfileInput::of(&self.account),
+            errors: Errors::new(),
+            name_refused: false,
+        })
     }
 }
 
@@ -202,8 +208,8 @@ pub(crate) async fn update(
 ) -> HtmlResult {
     let (t, p): (AccountHomeMsg, Pilot) = (req.t(), req.t());
     let attempt = attempt_text(&input.attempt).to_owned();
-    let refuse = |errors: Errors| {
-        let draft = Draft { input: input.clone(), errors };
+    let refuse = |errors: Errors, name_refused: bool| {
+        let draft = Draft { input: input.clone(), errors, name_refused };
         render(&req, &viewer, &config, &headers, None, Said::Editing, Some(draft), StatusCode::UNPROCESSABLE_ENTITY)
     };
     let form = |message: &'static str| {
@@ -212,7 +218,7 @@ pub(crate) async fn update(
         errors
     };
     if !valid_attempt(&attempt) {
-        return refuse(form(p.check_attempt())).await;
+        return refuse(form(p.check_attempt()), false).await;
     }
     let caller = config.platform.caller(&headers, config.proto, None);
     let account = viewer.actor.account_id.as_str();
@@ -249,14 +255,34 @@ pub(crate) async fn update(
                 Some("displayName") => errors.add(f.display_name, t.errors_display_name_required()),
                 _ => errors.add_form(t.action_validation()),
             }
-            refuse(errors).await
+            refuse(errors, false).await
         }
-        AccountAnswer::NotRecorded { .. } => refuse(form(t.manage_state_failed_safe())).await,
+        AccountAnswer::NotRecorded { code, .. } => match name_fix(t, &code) {
+            // Identity refused the marketplace name for what it contains: how to fix it, on its field.
+            Some(fix) => {
+                let mut errors = Errors::new();
+                errors.add_form(t.page_display_name_rejected());
+                errors.add(ProfileInput::FIELDS.display_name, fix);
+                refuse(errors, true).await
+            }
+            None => refuse(form(t.manage_state_failed_safe()), false).await,
+        },
         AccountAnswer::Conflict => {
             render(&req, &viewer, &config, &headers, None, Said::Conflict, None, StatusCode::CONFLICT).await
         }
         AccountAnswer::Indeterminate => unreachable!("asked about above"),
     }
+}
+
+/// How to fix a marketplace name Identity refused with `code` (marketplace's `displayNameRecovery`).
+fn name_fix(t: AccountHomeMsg, code: &str) -> Option<&'static str> {
+    Some(match code {
+        "text_control_character" => t.page_remove_control_characters(),
+        "text_direction_override" => t.page_remove_direction_overrides(),
+        "text_unsafe_link" => t.page_use_https(),
+        "text_duplicate_link" => t.page_remove_duplicate_links(),
+        _ => return None,
+    })
 }
 
 /// A write the API refused for who is asking: sign in again, or the page saying they may not.

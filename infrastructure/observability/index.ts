@@ -282,7 +282,7 @@ export type DiscoverySearchQuerySignal = Readonly<{
   zeroResults: boolean | null;
   lexicalZero: boolean | null;
   interpretation: "applied" | "not-applied" | "unknown";
-  retrievalMode: "lexical" | "rescue" | "hybrid" | "structured" | "corrected" | null;
+  retrievalMode: "lexical" | "rescue" | "structured" | "corrected" | null;
   outcome: "success" | "failure";
   normalizationDurationMs: number;
   retrievalDurationMs: number;

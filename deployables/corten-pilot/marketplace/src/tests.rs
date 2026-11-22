@@ -9170,8 +9170,9 @@ const ACCOUNT_HOME: &str = "/account";
 /// The stand-in Identity account `acc_seller` and who is signed in to it. A read that waits for 45
 /// is still catching up. A profile update's attempt decides an answer as an address write's does
 /// (`NO_RECORD`, `APPLIED_BEFORE`, `CHECK_DOWN`); the name `Conflict Co` is a conflict, the
-/// marketplace name `Refused` is refused for its fields, and a blank name is refused as Identity
-/// refuses it, naming the field.
+/// marketplace name `Refused` is refused for its fields, a blank name is refused as Identity
+/// refuses it, naming the field, and a marketplace name with a link that is not `https` is
+/// refused with Identity's closed code (`text_unsafe_link`).
 fn identity_account(method: &Method, path: &str, headers: &HeaderMap, attempt: &str, body: &str) -> Option<Response> {
     if path == "/api/identity/current-actor-display" {
         return Some(
@@ -9216,6 +9217,9 @@ fn identity_account(method: &Method, path: &str, headers: &HeaderMap, attempt: &
             let details = json!([{ "field": field, "code": "required", "message": message }]);
             (StatusCode::BAD_REQUEST, Json(json!({ "error": { "code": "validation_failed", "message": message, "details": details } })))
                 .into_response()
+        }
+        "PUT" if sent["displayName"].as_str().is_some_and(|v| v.contains("http://")) => {
+            (StatusCode::BAD_REQUEST, Json(json!({ "error": { "code": "text_unsafe_link" } }))).into_response()
         }
         "PUT" if sent["displayName"] == "Refused" => {
             (StatusCode::BAD_REQUEST, Json(json!({ "outcome": "not-recorded", "code": "validation-failed" }))).into_response()
@@ -9339,6 +9343,35 @@ async fn a_blank_name_is_refused_on_its_own_field() {
         assert!(input.contains(r#"aria-invalid="true""#), "the refused field is marked: {input}");
     }
     assert_eq!(profile_writes(&pilot).len(), 2, "each blank name is sent for Identity to refuse");
+}
+
+#[tokio::test]
+async fn a_marketplace_name_identity_refuses_says_how_to_fix_it_and_keeps_the_draft() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(ACCOUNT_HOME, Some("addresser"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("Your Marketplace name is public. Follow the Community Guidelines."), "{shown}");
+    assert!(
+        html.contains(
+            r#"href="http://localhost:7753/help/buying/community-guidelines-and-enforcement">Community Guidelines</a>"#
+        ) && html.contains(r#"href="http://localhost:7753/contact">Contact support</a>"#),
+        "{html}"
+    );
+    assert!(!shown.contains("Your draft is still here"), "nothing was refused: {shown}");
+
+    let body = profile_body(ATTEMPT, "Synthetic Legal LLC", "Shop http://example.test");
+    let (status, _, html) = pilot.send(post(ACCOUNT_HOME, "addresser", &body, true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("Edit your Marketplace name"), "{shown}");
+    assert!(shown.contains("Your draft is still here. Edit it and try again."), "{shown}");
+    assert!(shown.contains("Remove unsafe links or use links that start with https://."), "{shown}");
+    assert!(html.contains(r#"value="Shop http://example.test""#), "the draft is kept: {html}");
+    let input = html.split(r#"name="display_name""#).nth(1).unwrap().split('>').next().unwrap();
+    assert!(input.contains(r#"aria-invalid="true""#), "the marketplace name is marked: {input}");
+    assert_ne!(drawn_attempt(&html), ATTEMPT, "drawn with a new attempt");
+    assert_eq!(profile_writes(&pilot).len(), 1, "Identity decides, once");
 }
 
 #[tokio::test]
