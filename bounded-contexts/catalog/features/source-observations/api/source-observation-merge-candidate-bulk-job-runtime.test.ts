@@ -293,6 +293,20 @@ describe("candidate promotion application versioning", () => {
     ).toEqual({ requested: 2, promoted: 0, deferred: 0, skippedNotEligible: 2, failed: 0, outcomes });
   });
 
+  it("counts a completed application with a picture diagnostic as promoted, not failed", () => {
+    const outcomes = [
+      {
+        ...promoted("cand_picture_failed", "cat_applied"),
+        diagnosticCode: "asset-processing-failed" as const,
+      },
+    ];
+    expect(
+      toCatalogMergeCandidateBulkJob(
+        record(catalogMergeCandidatePromotionApplicationJobKind, { promotionApplicationVersion: 1 }, outcomes),
+      ).result,
+    ).toEqual({ requested: 1, promoted: 1, deferred: 0, skippedNotEligible: 0, failed: 0, outcomes });
+  });
+
   it("refuses a stored version-1 job with an unknown outcome status on get and completed-list readback", async () => {
     const stored = record(catalogMergeCandidatePromotionApplicationJobKind, { promotionApplicationVersion: 1 }, [
       unapplied("cand_unknown", "unrecognized-synthetic-status"),

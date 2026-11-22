@@ -12,6 +12,8 @@ import {
   type ProductAssetVariant,
 } from "../../../../support/runtime-support/product-assets";
 import type { CatalogAssetStorage } from "./asset-storage";
+import type { SourceObservationNormalized } from "../../domain/domain";
+import { readBoundedHttpObject } from "../providers/bounded-http-object";
 
 const ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable";
 const DISPLAY_NORMALIZATION_VERSION = "trim-alpha-v1";
@@ -19,6 +21,17 @@ const ONE_PIECE_IMAGE_EVIDENCE_STALE_AFTER_DAYS = 365;
 const LORCANA_IMAGE_EVIDENCE_STALE_AFTER_DAYS = 365;
 
 const LORCANA_APPROVED_IMAGE_PROVIDER_PRECEDENCE = ["lorcanajson", "scrydex", "lorcast", "tcgplayer"] as const;
+const PROMOTION_IMAGE_PROVIDERS = {
+  magic: ["scryfall"],
+  onePiece: ["scrydex", "tcgplayer"],
+  yugioh: ["ygoprodeck", "tcgplayer"],
+};
+const PROMOTION_IMAGE_HOSTS: Readonly<Record<string, readonly string[]>> = {
+  scryfall: ["cards.scryfall.io"],
+  scrydex: ["images.scrydex.com", "cdn.scrydex.com"],
+  tcgplayer: ["tcgplayer-cdn.tcgplayer.com", "images.tcgplayer.com"],
+  ygoprodeck: ["images.ygoprodeck.com"],
+};
 
 export const CATALOG_PRODUCT_IMAGE_RETENTION_POLICY = {
   policyKey: "catalog-product-image-retention-v1",
@@ -324,7 +337,7 @@ export function extractApprovedOnePieceImageEvidence(input: {
   sourceUpdatedAt?: string | null;
 }): OnePieceImageEvidenceResult {
   const providerKey = normalizeProviderKey(input.providerKey);
-  const approvedProvider = providerKey === "scrydex" || providerKey === "tcgplayer";
+  const approvedProvider = PROMOTION_IMAGE_PROVIDERS.onePiece.includes(providerKey);
   if (!approvedProvider) {
     return {
       status: "unapproved",
@@ -363,6 +376,111 @@ export function extractApprovedOnePieceImageEvidence(input: {
     diagnostics: [],
     retentionPolicy: CATALOG_PRODUCT_IMAGE_RETENTION_POLICY,
   };
+}
+
+type PromotionImageEvidenceInput = Readonly<{
+  normalized: SourceObservationNormalized;
+  providerKey: string;
+  observedAt: string;
+  sourceUpdatedAt: string | null;
+}>;
+
+export function canSupplyCatalogOwnedPromotionImage(providerKey: string): boolean {
+  const key = normalizeProviderKey(providerKey);
+  return Object.values(PROMOTION_IMAGE_PROVIDERS).some((providers) => providers.includes(key));
+}
+
+export function isCatalogOwnedPromotionImageKind(kind: SourceObservationNormalized["kind"]): boolean {
+  return (
+    kind === "magic-card-print" ||
+    kind === "one-piece-card-print" ||
+    kind === "one-piece-sealed-product" ||
+    kind === "yugioh-card-print" ||
+    kind === "yugioh-sealed-product"
+  );
+}
+
+export function approvedPromotionImageUrls(input: PromotionImageEvidenceInput): readonly string[] {
+  const { normalized } = input;
+  const providerKey = normalizeProviderKey(input.providerKey);
+  switch (normalized.kind) {
+    case "magic-card-print":
+      return PROMOTION_IMAGE_PROVIDERS.magic.includes(providerKey)
+        ? safeImageUrls(providerKey, normalized.imageUrls)
+        : [];
+    case "one-piece-card-print":
+    case "one-piece-sealed-product": {
+      const evidence = extractApprovedOnePieceImageEvidence({ ...input, imageUrls: normalized.imageUrls });
+      return evidence.status === "current" ? safeImageUrls(providerKey, evidence.imageUrls) : [];
+    }
+    case "yugioh-card-print":
+    case "yugioh-sealed-product":
+      return PROMOTION_IMAGE_PROVIDERS.yugioh.includes(providerKey)
+        ? safeImageUrls(providerKey, normalized.imageUrls)
+        : [];
+    default:
+      return [];
+  }
+}
+
+function safeImageUrls(providerKey: string, urls: readonly string[]): string[] {
+  const hosts = PROMOTION_IMAGE_HOSTS[providerKey] ?? [];
+  return [
+    ...new Set(
+      urls
+        .map((url) => url.trim())
+        .filter((url) => {
+          const destination = URL.parse(url);
+          if (!destination || !hosts.includes(destination.hostname)) return false;
+          // Scryfall's public CDN can append a numeric cache-busting timestamp.
+          const scryfallTimestamp = providerKey === "scryfall" && /^\?\d+$/.test(destination.search);
+          return (
+            destination.protocol === "https:" &&
+            !destination.username &&
+            !destination.password &&
+            !destination.port &&
+            !destination.hash &&
+            (!destination.search || scryfallTimestamp)
+          );
+        }),
+    ),
+  ];
+}
+
+export async function normalizePromotionImageAsset(input: {
+  providerKey: string;
+  sourceUrl: string;
+  observedAt: string;
+  storageBaseKey: string;
+  fetcher: typeof globalThis.fetch;
+  assetStorage: CatalogAssetStorage;
+  findExisting: (sourceHash: string) => ProductAssetSet | null | Promise<ProductAssetSet | null>;
+}): Promise<ProductAssetSet> {
+  const response = await readBoundedHttpObject({
+    fetch: input.fetcher,
+    url: input.sourceUrl,
+    maxBytes: 10 * 1024 * 1024,
+    deadlineMs: 15_000,
+    accept: "image/*",
+    category: "asset",
+  });
+  if (!response.contentType.toLowerCase().startsWith("image/")) {
+    throw new Error("Catalog promotion image response must be an image.");
+  }
+  const sourceBody = await sharp(response.body).webp({ quality: 100 }).toBuffer();
+  const existing = await input.findExisting(hashBytes(sourceBody));
+  return (
+    existing ??
+    normalizeProductAssetSet({
+      sourceBody,
+      sourceContentType: "image/webp",
+      sourceProviderKey: input.providerKey,
+      sourceUrl: input.sourceUrl,
+      storageBaseKey: input.storageBaseKey,
+      generatedAt: input.observedAt,
+      assetStorage: input.assetStorage,
+    })
+  );
 }
 
 async function storeVariant(input: {

@@ -1,4 +1,5 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import sharp from "sharp";
 import { bootstrapContextDatabase, drainLocalProjectionHandlerSets } from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
@@ -22,6 +23,7 @@ import { seedCatalogDatabase } from "../../../../support/authoring-support/seed"
 import { createCatalogServices, type CatalogServices } from "../../../../support/authoring-support/services";
 import { seedContext as context } from "../../../../support/seed-support/context";
 import {
+  decideCatalogItem,
   evolveCatalogItem,
   initialCatalogItemState,
   type CatalogItemEvent,
@@ -36,9 +38,15 @@ import {
 } from "../../domain/catalog-merge-candidate";
 import { decideSourceObservation, initialSourceObservationState } from "../../domain/domain";
 import { getSourceObservationDetail } from "../../read-model/queries";
+import type { BlueprintId, CatalogItemId, ReferenceRecordId } from "../../../../ids";
 import { createCatalogIntegrationRolloutControlPolicyFromEnv } from "../governance/catalog-integration-rollout-controls";
 import { loadCatalogItemPromotionProfile } from "../source-observation-promotion-execution";
+import * as referenceHierarchy from "../source-observation-promotion-reference-hierarchy";
+import { createSyntheticDisplayIdentityQueryable } from "../seeding/synthetic-display-identity-queryable";
+import type { CatalogAssetStorage } from "../seeding/asset-storage";
 import { createPostgresPromotionTargetExclusion } from "./promotion-target-exclusion";
+import type { PromotionTargetExclusion } from "./promotion-target-exclusion";
+import type { PromotionTargetDiscovery } from "./promotion-target-discovery";
 import {
   magicCandidate,
   magicObservation,
@@ -781,6 +789,392 @@ describe("Catalog Item authority from each member's own reviewed provider unit (
 
     expect(error).toMatchObject({ message: "unexpected-database" });
     expect(touched).toEqual(["database"]);
+  });
+});
+
+describe("Catalog Merge Candidate Catalog-owned pictures", () => {
+  const scryfall = magicObservation("scryfall-card-print");
+  const at = scryfall.observedAt;
+  const existingId = "cat_synthetic_existing" as CatalogItemId;
+  const referenceId = "ref_synthetic_set" as ReferenceRecordId;
+  const reference = { targetReferenceRecordId: referenceId, referenceRecordIdsByTypeKey: {} };
+  const magic = registeredMagicProfile("scryfall-card-print");
+  const imageUrls: Readonly<Record<string, string>> = {
+    scryfall: "https://cards.scryfall.io/normal/front/synthetic.jpg?1790000000",
+    scrydex: "https://images.scrydex.com/onepiece/synthetic/large",
+    tcgplayer: "https://tcgplayer-cdn.tcgplayer.com/product/123_200w.jpg",
+    ygoprodeck: "https://images.ygoprodeck.com/images/cards/123.jpg",
+  };
+  type ImageKind =
+    | "magic-card-print"
+    | "one-piece-card-print"
+    | "one-piece-sealed-product"
+    | "yugioh-card-print"
+    | "yugioh-sealed-product";
+
+  beforeEach(() => {
+    vi.spyOn(referenceHierarchy, "resolvePromotionReferenceHierarchy").mockResolvedValue(reference);
+    vi.spyOn(referenceHierarchy, "resolvePromotionReferenceHierarchyReadOnly").mockResolvedValue(reference);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  function member(providerKey: string, kind: ImageKind, url = imageUrls[providerKey] ?? imageUrls.ygoprodeck!) {
+    const profile = {
+      ...magic.profile,
+      duplicatePreventionMapping: { ...magic.profile.duplicatePreventionMapping, rules: [] },
+      normalizedObservationMapping: { ...magic.profile.normalizedObservationMapping, kind },
+    };
+    const version = { ...magic, providerKey, profile };
+    const observation = {
+      ...scryfall,
+      observationId: `obs_synthetic_${providerKey}_${kind}`,
+      providerKey,
+      sourceUpdatedAt: null,
+      normalized: {
+        ...scryfall.normalized,
+        kind,
+        tcg: kind === "magic-card-print" ? "magic" : kind.startsWith("one-piece-") ? "one-piece" : "yugioh",
+        imageUrls: [url],
+      },
+    } as CatalogProviderSourceObservationInput;
+    return { observation, version };
+  }
+
+  async function arrange(
+    members: readonly ReturnType<typeof member>[],
+    existing: readonly CatalogItemEvent[] | null = null,
+  ) {
+    const candidateId = "cand_synthetic_picture";
+    const candidateStream = catalogMergeCandidateStreamId(candidateId);
+    const targetId = existing ? existingId : (catalogMergeCandidateTargetId(candidateId) as CatalogItemId);
+    const itemStream = `catalog.item-${targetId}`;
+    const snapshot: CatalogMergeCandidateReviewSnapshot = {
+      ...reviewSnapshot(),
+      matches: { catalogItemId: existing ? existingId : null, productIds: [] },
+      proposedCatalogItemFacts: { name: "Fury Sliver" },
+      membership: members.map(({ observation }) => ({
+        observationId: observation.observationId,
+        syncRunId: null,
+        providerKey: observation.providerKey,
+        externalKey: observation.externalKey,
+        sourceRecordHash: observation.sourceRecordHash,
+        sourceProfileKey: observation.sourceProfileKey,
+        sourceProfileVersion: observation.sourceProfileVersion,
+        sourceMappingFingerprint: observation.sourceMappingFingerprint,
+        observedAt: at,
+        addedAt: at,
+      })),
+    };
+    const created = decideCatalogMergeCandidate(initialCatalogMergeCandidateState, {
+      type: "CreateCatalogMergeCandidate",
+      candidateId,
+      snapshot,
+      createdAt: at,
+    });
+    let candidateState = created.reduce(evolveCatalogMergeCandidate, initialCatalogMergeCandidateState);
+    type Event = Readonly<{ type: string; data: unknown }>;
+    const streams = new Map<string, readonly Event[]>([
+      [candidateStream, created],
+      [itemStream, existing ?? []],
+    ]);
+    function recordCandidate(command: Parameters<typeof decideCatalogMergeCandidate>[1]) {
+      const events = decideCatalogMergeCandidate(candidateState, command);
+      streams.set(candidateStream, [...streams.get(candidateStream)!, ...events]);
+      candidateState = events.reduce(evolveCatalogMergeCandidate, candidateState);
+      return candidateState;
+    }
+    recordCandidate({
+      type: "PromoteCatalogMergeCandidate",
+      reason: "Synthetic approval.",
+      actor: { userId: "usr_synthetic", accountId: "acc_synthetic" },
+      promotedAt: at,
+    });
+    for (const { observation } of members) {
+      streams.set(
+        sourceObservationStreamId(observation.observationId),
+        decideSourceObservation(initialSourceObservationState, { type: "RecordSourceObservation", ...observation }),
+      );
+    }
+    let itemEvents = existing ?? [];
+    let item = itemEvents.reduce(evolveCatalogItem, initialCatalogItemState);
+    function recordItem(events: readonly CatalogItemEvent[]) {
+      itemEvents = [...itemEvents, ...events];
+      streams.set(itemStream, itemEvents);
+      item = events.reduce(evolveCatalogItem, item);
+    }
+    const rows = (streamId: string) =>
+      (streams.get(streamId) ?? []).map((event, index) => ({
+        eventType: event.type,
+        payload: structuredClone(event.data),
+        streamVersion: index + 1,
+      }));
+    const eventStore = {
+      readStream: async ({ streamId, fromVersion = 1, limit = 1000 }: Parameters<EventStore["readStream"]>[0]) =>
+        rows(streamId).slice(fromVersion - 1, fromVersion - 1 + limit),
+    } as EventStore;
+    const promotionTargetExclusion: PromotionTargetExclusion = {
+      async acquire({ selectTarget }) {
+        const evidence = {
+          items: new Map([[targetId, item]]),
+          histories: new Map([[itemStream, rows(itemStream)]]),
+          bindings: new Map(),
+          sources: new Map(),
+          keys: new Map(),
+        } as PromotionTargetDiscovery;
+        return {
+          targetId: await selectTarget(evidence, vi.fn()),
+          evidence,
+          append: async ({ expectedVersion, events }) => {
+            expect(expectedVersion).toBe(itemEvents.length);
+            const previousLength = itemEvents.length;
+            const codec = createPassthroughDomainEventCodec<CatalogItemEvent>();
+            recordItem(
+              events.map((event, index) =>
+                codec.decode({
+                  ...event,
+                  streamVersion: previousLength + index + 1,
+                } as Parameters<typeof codec.decode>[0]),
+              ),
+            );
+            return rows(itemStream).slice(previousLength) as Awaited<ReturnType<EventStore["readStream"]>>;
+          },
+          guard: vi.fn(),
+          preparePlan: async () => 0,
+          commandHandler: async ({ command }) => {
+            const events = decideCatalogItem(item, command);
+            const previousLength = itemEvents.length;
+            recordItem(events);
+            return {
+              version: itemEvents.length,
+              state: item,
+              newEvents: events,
+              storedEvents: rows(itemStream).slice(previousLength) as Awaited<ReturnType<EventStore["readStream"]>>,
+            };
+          },
+        } as Awaited<ReturnType<PromotionTargetExclusion["acquire"]>>;
+      },
+    };
+    const db = createSyntheticDisplayIdentityQueryable({
+      referenceRecords: [
+        {
+          reference_record_id: referenceId,
+          type_key: "set",
+          key: "synthetic-set",
+          name: "Synthetic set",
+          attributes: {},
+          relationships: [],
+          status: "active",
+        },
+      ],
+      fallback: {
+        async query<T>(sql: string, values: readonly unknown[] = []) {
+          const result = sql.includes(" AS id FROM catalog_")
+            ? [{ id: values[0] }]
+            : sql.includes("SELECT product_asset_sets FROM catalog_items")
+              ? [{ product_asset_sets: item.productAssetSets }]
+              : [];
+          return { rows: result as T[], rowCount: result.length };
+        },
+      },
+    });
+    const putObject = vi.fn<CatalogAssetStorage["putObject"]>(async ({ key }) => ({
+      key,
+      publicUrl: `https://assets.example/${key}`,
+    }));
+    const bytes = await sharp({
+      create: { width: 12, height: 16, channels: 3, background: "#633399" },
+    })
+      .png()
+      .toBuffer();
+    const fetcher = vi.fn(
+      async () => new Response(new Uint8Array(bytes), { headers: { "content-type": "image/png" } }),
+    );
+    vi.stubGlobal("fetch", fetcher);
+    const ports = {
+      deps: { eventStore, db, promotionTargetExclusion, assetStorage: { putObject } },
+      referenceData: {},
+      profileVersions: {
+        listProfileVersions: async (providerKey: string) =>
+          members.map(({ version }) => version).filter((entry) => entry.providerKey === providerKey),
+      },
+      rolloutControlPolicy: { assertAllowed: vi.fn() },
+      applyCandidateCommandAtVersion: async ({
+        command,
+      }: Parameters<CatalogMergeCandidateApplicationPorts["applyCandidateCommandAtVersion"]>[0]) =>
+        recordCandidate(command),
+    } as unknown as CatalogMergeCandidateApplicationPorts;
+    const apply = (jobId = "job_synthetic_picture") =>
+      applyCatalogMergeCandidatePromotion(ports, {
+        candidateId,
+        jobId,
+        unitId: candidateId,
+        approvalReason: "Synthetic approval.",
+        context,
+      });
+    return {
+      apply,
+      fetcher,
+      putObject,
+      plan: () => candidateState.promotionPlan!,
+      item: () => item,
+      itemEvents: () => itemEvents,
+    };
+  }
+
+  function expectCatalogPicture(fixture: Awaited<ReturnType<typeof arrange>>, providerKey: string) {
+    const [asset] = fixture.item().productAssetSets;
+    expect(asset?.sourcePolicy).toMatchObject({
+      sourceProviderKey: providerKey,
+      approval: "catalog-owned-rehost-approved",
+    });
+    const detail = asset!.variants.find((variant) => variant.role === "catalog-detail" && variant.density === 1)!;
+    expect(detail.publicUrl).toMatch(/^https:\/\/assets\.example\//);
+    expect(fixture.plan().commands).toEqual(
+      expect.arrayContaining([
+        { type: "SetCatalogItemImageUrls", imageUrls: [detail.publicUrl] },
+        { type: "SetCatalogItemProductAssetSets", productAssetSets: [asset] },
+      ]),
+    );
+    expect(fixture.item().imageUrls).toEqual([detail.publicUrl]);
+  }
+
+  it.each<[string, ImageKind]>([
+    ["scryfall", "magic-card-print"],
+    ["scrydex", "one-piece-card-print"],
+    ["scrydex", "one-piece-sealed-product"],
+    ["tcgplayer", "one-piece-card-print"],
+    ["tcgplayer", "one-piece-sealed-product"],
+    ["ygoprodeck", "yugioh-card-print"],
+    ["ygoprodeck", "yugioh-sealed-product"],
+    ["tcgplayer", "yugioh-card-print"],
+    ["tcgplayer", "yugioh-sealed-product"],
+  ])("rehosts %s %s evidence into a created Catalog Item", async (providerKey, kind) => {
+    const fixture = await arrange([member(providerKey, kind)]);
+    await expect(fixture.apply()).resolves.toMatchObject({ status: "promoted", appliedMode: "create" });
+    expectCatalogPicture(fixture, providerKey);
+    expect(fixture.fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores unapproved image evidence from an item-producing provider", async () => {
+    const fixture = await arrange([member("ygojson", "yugioh-sealed-product")]);
+    await expect(fixture.apply()).resolves.toMatchObject({ status: "promoted" });
+    expect(fixture.item().productAssetSets).toEqual([]);
+    expect(fixture.item().imageUrls).toEqual([]);
+    expect(fixture.fetcher).not.toHaveBeenCalled();
+    expect(fixture.putObject).not.toHaveBeenCalled();
+  });
+
+  it("does not let an unapproved provider block or supply the picture for an approved member", async () => {
+    const fixture = await arrange([
+      member("ygojson", "yugioh-sealed-product", "https://images.example/unapproved.jpg"),
+      member("tcgplayer", "yugioh-sealed-product"),
+    ]);
+    await expect(fixture.apply()).resolves.toMatchObject({ status: "promoted" });
+    expectCatalogPicture(fixture, "tcgplayer");
+    expect(fixture.fetcher).toHaveBeenCalledExactlyOnceWith(
+      imageUrls.tcgplayer,
+      expect.objectContaining({ redirect: "error" }),
+    );
+  });
+
+  it("never fetches an approved provider's non-image host", async () => {
+    const fixture = await arrange([
+      member("tcgplayer", "one-piece-card-print", "https://www.tcgplayer.com/product/synthetic.jpg"),
+    ]);
+    await expect(fixture.apply()).resolves.toMatchObject({ status: "promoted" });
+    expect(fixture.item().imageUrls).toEqual([]);
+    expect(fixture.fetcher).not.toHaveBeenCalled();
+  });
+
+  function itemWithoutPicture() {
+    const created = decideCatalogItem(initialCatalogItemState, {
+      type: "CreateCatalogItem",
+      itemId: existingId,
+      languageCode: "en",
+      title: { defaultLocale: "en", values: { en: "Fury Sliver" } },
+      subtitle: { defaultLocale: "en", values: { en: "" } },
+      description: { defaultLocale: "en", values: { en: "" } },
+    });
+    const assigned = decideCatalogItem(created.reduce(evolveCatalogItem, initialCatalogItemState), {
+      type: "AssignBlueprintToCatalogItem",
+      blueprintId: magic.profile.catalogFieldMapping.blueprintKey as BlueprintId,
+    });
+    return [...created, ...assigned];
+  }
+
+  it("adds a picture when application refreshes an existing Item without an asset set", async () => {
+    const fixture = await arrange([member("scryfall", "magic-card-print")], itemWithoutPicture());
+    await expect(fixture.apply()).resolves.toMatchObject({ status: "promoted", appliedMode: "refresh" });
+    expectCatalogPicture(fixture, "scryfall");
+  });
+
+  it("leaves a stored source hash unchanged even when the evidence URL changes", async () => {
+    const first = await arrange([member("scryfall", "magic-card-print")], itemWithoutPicture());
+    await first.apply();
+    expectCatalogPicture(first, "scryfall");
+    const second = await arrange(
+      [member("scryfall", "magic-card-print", "https://cards.scryfall.io/normal/front/renamed.jpg")],
+      first.itemEvents(),
+    );
+    await expect(second.apply()).resolves.toMatchObject({ status: "promoted", appliedMode: "refresh" });
+    expect(second.item().productAssetSets).toEqual(first.item().productAssetSets);
+    expect(second.item().imageUrls).toEqual(first.item().imageUrls);
+    expect(second.plan().commands.map(({ type }) => type)).not.toContain("SetCatalogItemProductAssetSets");
+    expect(second.plan().commands.map(({ type }) => type)).not.toContain("SetCatalogItemImageUrls");
+    expect(second.putObject).not.toHaveBeenCalled();
+  });
+
+  it("blocks disagreeing approved picture evidence before download", async () => {
+    const fixture = await arrange([
+      member("scrydex", "one-piece-card-print"),
+      member("tcgplayer", "one-piece-card-print"),
+    ]);
+    await expect(fixture.apply()).rejects.toMatchObject({ code: "promotion-plan-blocked:asset-provenance-ambiguous" });
+    expect(fixture.fetcher).not.toHaveBeenCalled();
+    expect(fixture.plan()).toBeNull();
+  });
+
+  it("classifies a failed download without failing Catalog Item promotion", async () => {
+    const fixture = await arrange([member("scryfall", "magic-card-print")]);
+    fixture.fetcher.mockRejectedValueOnce(new Error("synthetic transport failure"));
+    const outcome = await fixture.apply();
+    expect(outcome).toMatchObject({ status: "promoted", diagnosticCode: "asset-processing-failed" });
+    await expect(fixture.apply()).resolves.toEqual(outcome);
+    expect(fixture.item().id).not.toBeNull();
+    expect(fixture.item().productAssetSets).toEqual([]);
+    expect(fixture.putObject).not.toHaveBeenCalled();
+  });
+
+  it("fills an already-applied candidate's missing picture without rewriting its retained promotion", async () => {
+    const fixture = await arrange([member("scryfall", "magic-card-print")]);
+    fixture.fetcher.mockRejectedValueOnce(new Error("synthetic transport failure"));
+    const first = await fixture.apply();
+    const plan = fixture.plan();
+    const before = fixture.itemEvents().length;
+
+    const second = await fixture.apply("job_synthetic_picture_reapply");
+    expect(second).toMatchObject({ status: "promoted", planFingerprint: first.planFingerprint });
+    expect(second).not.toHaveProperty("diagnosticCode");
+    expect(fixture.plan()).toEqual(plan);
+    expect(
+      fixture
+        .itemEvents()
+        .slice(before)
+        .map(({ type }) => type),
+    ).toEqual(["catalog.catalog-item.image-urls-set", "catalog.catalog-item.product-asset-sets-set"]);
+    expect(fixture.item().productAssetSets).toHaveLength(1);
+    const writes = fixture.putObject.mock.calls.length;
+
+    await expect(fixture.apply("job_synthetic_picture_later")).resolves.toMatchObject({
+      status: "skipped-not-eligible",
+    });
+    expect(fixture.fetcher).toHaveBeenCalledTimes(2);
+    expect(fixture.putObject).toHaveBeenCalledTimes(writes);
+    await expect(fixture.apply()).resolves.toEqual(first);
   });
 });
 
