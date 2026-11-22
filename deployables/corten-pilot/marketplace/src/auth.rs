@@ -662,11 +662,12 @@ impl Identify<Shared> for OfferReviewer {
 }
 
 /// A buyer on their submitted offers (marketplace's `account-offers-submitted`): reading needs
-/// `offers.view`, as its loader requires, and Pause, Resume and Withdraw `offers.manage`, as its
-/// action does (the API checks again). A reader without it sees the offers with no changes to make
-/// (marketplace shows them and the API refuses them:
-/// [chase-sets/chase-sets#10660](https://github.com/chase-sets/chase-sets/issues/10660)). Anyone not
-/// signed in is sent to the sign-in, back to the page.
+/// `offers.view`, as its loader requires, and a change `offers.manage` or that Auth withholds it
+/// only until the member's email is verified (`submitted_offers::may_change`), as its action and
+/// the Offers API decide. A market-following step needs `offers.manage` itself, which its handlers
+/// check (`submitted_offers::may_follow`), because the Offer policy API checks only a sign-in. A
+/// reader who may not sees the offers with no changes to make. Anyone not signed in is sent to the
+/// sign-in, back to the page.
 #[derive(Clone, Debug, Hash)]
 pub struct OfferBuyer(pub Viewer);
 
@@ -674,7 +675,8 @@ impl Identify<Shared> for OfferBuyer {
     async fn identify(parts: &Parts, config: &Shared) -> Result<Self, Refused> {
         match find(parts, config).await {
             Found::Account(viewer)
-                if viewer.actor.can(OFFERS_VIEW) && (parts.method.is_safe() || viewer.actor.can(OFFERS_MANAGE)) =>
+                if viewer.actor.can(OFFERS_VIEW)
+                    && (parts.method.is_safe() || crate::submitted_offers::may_change(&viewer.actor)) =>
             {
                 Ok(OfferBuyer(viewer))
             }
