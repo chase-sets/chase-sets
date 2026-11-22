@@ -1,0 +1,322 @@
+import notificationCenter from "./features/notification-center/metadata.json" with { type: "json" };
+
+export const contextManifest = {
+  scheduledJobs: [
+    {
+      id: "{contextName}.notification-dispatcher",
+      runnerExport: "createNotificationDispatchRunners",
+      group: "dispatch",
+      order: 70,
+      runtimeProfiles: ["proof", "public"],
+      schedule: {
+        kind: "dispatch",
+      },
+      lockScope: "job:{contextName}.notification-dispatcher",
+    },
+  ],
+  contextName: "notifications",
+  packageName: "@chase-sets/notifications",
+  localeCatalogs: ["contracts/localization/locales/en/notifications.ts", ...notificationCenter.localeCatalogs],
+  ownedNouns: [
+    "notification-center",
+    "notification-feed-item",
+    "notification-preference",
+    "notification-delivery-report",
+  ],
+  streamPrefix: "notifications.",
+  apiBasePath: "/api/notifications",
+  slices: ["notification-center", "preferences"],
+  allowedSupportDirectories: ["request-support", "runtime-support", "shell-support"],
+  publicExports: [".", "./context", "./routes/*", "./server", "./web"],
+  allowedContextDependencies: [
+    "@chase-sets/customer-feedback",
+    "@chase-sets/fulfillment",
+    "@chase-sets/inventory",
+    "@chase-sets/marketplace",
+    "@chase-sets/ordering",
+    "@chase-sets/platform-operations",
+    "@chase-sets/pricing",
+    "@chase-sets/settlement",
+  ],
+  seedRequirements: [],
+  eventSubscriptions: [
+    {
+      sourceContextName: "pricing",
+      projectionName: "notifications-source-facts-outbox-projection",
+      subscriptionVersion: 1,
+      subscriptionName: "notifications.pricing-repricing-facts-projection",
+      eventTypes: ["pricing.repricing-activity.digest-requested"],
+      order: 90,
+      projectionHandlerSetNames: ["notifications-pricing-repricing-facts-projection"],
+    },
+    {
+      sourceContextName: "ordering",
+      projectionName: "notifications-source-facts-outbox-projection",
+      subscriptionVersion: 1,
+      subscriptionName: "notifications.ordering-facts-projection",
+      eventTypes: ["ordering.order.created", "ordering.order.cancelled"],
+      order: 20,
+      projectionHandlerSetNames: ["notifications-ordering-facts-projection"],
+    },
+    {
+      sourceContextName: "fulfillment",
+      projectionName: "notifications-source-facts-outbox-projection",
+      subscriptionVersion: 2,
+      subscriptionName: "notifications.fulfillment-facts-projection",
+      eventTypes: ["fulfillment.shipment.dispatched", "fulfillment.shipment.delivered"],
+      order: 30,
+      projectionHandlerSetNames: ["notifications-fulfillment-facts-projection"],
+    },
+    {
+      sourceContextName: "inventory",
+      projectionName: "notifications-source-facts-outbox-projection",
+      subscriptionVersion: 1,
+      subscriptionName: "notifications.inventory-facts-projection",
+      eventTypes: ["inventory.hold.consumed", "inventory.restock-decision.pending"],
+      order: 40,
+      projectionHandlerSetNames: ["notifications-inventory-facts-projection"],
+    },
+    {
+      sourceContextName: "settlement",
+      sourceContextMount: "when-mounted",
+      projectionName: "notifications-source-facts-outbox-projection",
+      subscriptionVersion: 1,
+      subscriptionName: "notifications.settlement-facts-projection",
+      eventTypes: ["settlement.payout-readiness.recorded"],
+      order: 50,
+      projectionHandlerSetNames: ["notifications-settlement-facts-projection"],
+    },
+    {
+      sourceContextName: "marketplace",
+      projectionName: "notifications-source-facts-outbox-projection",
+      subscriptionVersion: 1,
+      subscriptionName: "notifications.marketplace-facts-projection",
+      eventTypes: ["marketplace.seller-listing-availability.enabled"],
+      order: 60,
+      projectionHandlerSetNames: ["notifications-marketplace-facts-projection"],
+    },
+    {
+      sourceContextName: "customer-feedback",
+      projectionName: "notifications-source-facts-outbox-projection",
+      subscriptionVersion: 1,
+      subscriptionName: "notifications.customer-feedback-facts-projection",
+      eventTypes: [
+        "customer-feedback.case.attention-requested",
+        "customer-feedback.case.follow-up-requested",
+        "customer-feedback.attention.digest-requested",
+      ],
+      order: 70,
+      projectionHandlerSetNames: ["notifications-customer-feedback-facts-projection"],
+    },
+    {
+      sourceContextName: "platform-operations",
+      projectionName: "notifications-source-facts-outbox-projection",
+      subscriptionVersion: 1,
+      subscriptionName: "notifications.support-dispute-facts-projection",
+      eventTypes: [
+        "support.support-request.opened",
+        "support.support-request.response-recorded",
+        "support.support-request.offer-declined",
+        "support.support-request.escalated",
+        "support.support-request.resolved",
+        "support.support-request.cancelled",
+        "support.support-request.response-reminder-emitted",
+        "support.support-request.return-delivered",
+        "support.support-request.return-condition-disputed",
+        "support.support-request.return-refund-released",
+      ],
+      order: 80,
+      projectionHandlerSetNames: ["notifications-support-dispute-facts-projection"],
+    },
+  ],
+  projectionGroups: [
+    {
+      projectionName: "notifications-source-facts-outbox-projection",
+      sourceContextNames: [
+        "pricing",
+        "ordering",
+        "fulfillment",
+        "inventory",
+        "settlement",
+        "marketplace",
+        "customer-feedback",
+        "platform-operations",
+      ],
+      ownedTables: ["notification_outbox", "notification_support_cases"],
+      requiredDuringBootstrap: true,
+      resetStrategy: "append-only-no-reset",
+    },
+  ],
+  hostPorts: [
+    {
+      portName: "notificationOutbox",
+      providedBy: "platform-worker",
+      purpose: "Durable notification outbox owned by Notifications and dispatched through channel adapters.",
+    },
+    {
+      portName: "mobileMessageWebhookGateway",
+      providedBy: "platform-api",
+      purpose: "Provider-specific SMS/RCS webhook verifier and normalizer for mobile messaging interactions.",
+    },
+    {
+      portName: "emailWebhookGateway",
+      providedBy: "platform-api",
+      purpose: "Provider-specific email delivery webhook normalizer for bounce, complaint, and delivery events.",
+    },
+  ],
+  apiDeployables: ["platform-api"],
+  apiMounts: [
+    {
+      mountPath: "/api/notifications",
+      kind: "primary",
+      requiresAuth: true,
+    },
+    {
+      mountPath: "/api/notifications/provider",
+      kind: "additional",
+      requiresAuth: false,
+    },
+  ],
+  deployableContributions: [
+    {
+      deployable: "marketplace-web",
+      routes: [notificationCenter.accountNotificationsRoute],
+    },
+  ],
+  mutationConsistencyInventory: [
+    {
+      id: "notifications.notification-center-command-snapshots",
+      owner: "notifications",
+      risk: "important",
+      strategy: "snapshot-return",
+      surfaces: [
+        "api-client:bounded-contexts/notifications/client.ts:POST H5b2651e96967#1",
+        "api-client:bounded-contexts/notifications/client.ts:POST Hc873f0a9aa87#1",
+        "api-client:bounded-contexts/notifications/client.ts:POST He98167eab4d7#1",
+        "api-route:bounded-contexts/notifications/api.ts:POST /center/:deliveryId/read",
+        "api-route:bounded-contexts/notifications/api.ts:POST /center/read-all",
+        "api-route:bounded-contexts/notifications/api.ts:POST /preferences/:key",
+      ],
+      visibleDestination: {
+        description:
+          "The account notification-center route's feed and notification settings controls receive the committed feed read-state snapshot or saved preference item directly from the Notifications command response.",
+      },
+      proof: {
+        authoritativeResponse:
+          "Read-state commands return the same-context feed snapshot and unread count after the write commits; preference commands return the saved Notification Preference item for the account and key that was just written.",
+        tests: [
+          "bounded-contexts/notifications/features/notification-center/api/api.test.ts proves mark-read, mark-all-read, and preference writes return committed snapshots.",
+          "bounded-contexts/notifications/features/notification-center/api/client.test.ts proves the API client exposes the mutation snapshots to UI callers.",
+          "bounded-contexts/notifications/features/notification-center/ui/notification-center.test.tsx proves the account notification-center route reconciles from committed snapshots and preserves current state when write calls fail.",
+        ],
+      },
+    },
+    {
+      id: "notifications.notification-center-product-alert-controls",
+      owner: "notifications",
+      risk: "important",
+      strategy: "snapshot-return",
+      surfaces: [
+        "fetcher-submit:bounded-contexts/notifications/features/notification-center/ui/notification-center-page.tsx:H236bacc57616#1",
+      ],
+      visibleDestination: {
+        description:
+          "Notification settings Product Alert pause, resume, and delete controls submit the alert id and intent to Discovery's existing account Product Alert route action, which redirects back to the Product alerts settings view and its route loader rereads the summary.",
+      },
+      proof: {
+        authoritativeResponse:
+          "Discovery's account Product Alert action runs the Discovery pause, resume, or delete command, whose response carries the committed alert snapshot, before redirecting; Notifications adds no Product Alert command of its own.",
+        tests: [
+          "bounded-contexts/notifications/features/notification-center/ui/notification-center.test.tsx proves each control submits its intent and alert id to the account Product Alert action and follows its return to the refreshed settings view.",
+          "deployables/marketplace/app/routes/notification-center-compatibility.test.tsx proves a pause through the real Discovery action returns to the Product alerts settings section with the paused alert.",
+        ],
+      },
+    },
+    {
+      id: "notifications.provider-webhook-recording",
+      owner: "notifications",
+      risk: "internal",
+      strategy: "non-user-visible",
+      surfaces: [
+        "api-route:bounded-contexts/notifications/api.ts:POST /email/webhooks",
+        "api-route:bounded-contexts/notifications/api.ts:POST /mobile-messaging/webhooks",
+      ],
+      exception: {
+        owner: "notifications",
+        reviewBy: "2026-07-31",
+        issue: "#1826",
+        reason:
+          "Provider webhook routes are unauthenticated infrastructure callbacks under /api/notifications/provider that normalize email and SMS/RCS delivery events into provider event stores. They return provider acknowledgement metadata only and do not perform an immediate marketplace user-visible read.",
+      },
+    },
+  ],
+  shellContributions: [
+    {
+      deployable: "marketplace-web",
+      slot: "top-nav",
+      key: "notifications",
+      label: "Notifications",
+      labelKey: "notifications.shell.notifications.label",
+      icon: "bell",
+      href: "/account/notifications",
+      activation: "route",
+      order: 90,
+      visibility: "signed-in",
+      requiredPermissions: ["accounts.view"],
+      excludedRoleKeys: ["guest-buyer"],
+      placement: "utility",
+    },
+    {
+      deployable: "marketplace-web",
+      slot: "bottom-nav",
+      key: "notifications",
+      label: "Alerts",
+      icon: "bell",
+      href: "/account/notifications",
+      activation: "route",
+      order: 90,
+      visibility: "signed-in",
+      requiredPermissions: ["accounts.view"],
+      excludedRoleKeys: ["guest-buyer"],
+      placement: "utility",
+      packingPriority: 600,
+    },
+  ],
+  directoryIntent: {
+    "notification-center": {
+      classification: "slice",
+      purpose: "Own notification-center feed behavior, read state, APIs, and the account notification-center page UI.",
+      expectedConsumers: ["Internal notifications module composition", "Account notification-center route"],
+    },
+    preferences: {
+      classification: "slice",
+      purpose: "Own account notification preferences and settings behavior.",
+      expectedConsumers: ["notification-center"],
+    },
+    "request-support": {
+      classification: "support",
+      purpose:
+        "Provide request-scoped HTTP adapters that forward the signed-in request to the Notifications API and to Discovery's Marketplace-mounted Product Alert summary for the notification-center route loader.",
+      expectedConsumers: ["notification-center"],
+    },
+    "runtime-support": {
+      classification: "support",
+      purpose: "Provide Notifications schema, database adapter, and service composition for API and worker runtime.",
+      expectedConsumers: ["notification-center"],
+    },
+    "shell-support": {
+      classification: "support",
+      purpose:
+        "Provide marketplace-web the mapping from retired notification-sheet links to the account notification-center route.",
+      expectedConsumers: ["marketplace-web"],
+    },
+    routes: {
+      classification: "routes",
+      purpose: "Provide the account notification-center page route contributed to marketplace-web.",
+      expectedConsumers: ["marketplace-web"],
+    },
+  },
+  runtimeDeployables: ["platform-worker"],
+  apiRuntimeProfiles: ["proof", "public"],
+  workerRuntimeProfiles: ["proof", "public"],
+};
