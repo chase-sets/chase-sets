@@ -21,6 +21,8 @@ import {
   type ProductAlertStatus,
 } from "../domain/domain";
 import { getProductAlert, listProductAlerts, type ProductAlertPageRow } from "../read-model/queries";
+import { getDiscoveryItemProductCatalog } from "../../item-detail/read-model/queries";
+import { createDiscoveryProductDescriptor, summarizeSelections } from "../../item-detail/domain/product-resolution";
 import { buildProductAlertPageProjectionHandlers } from "../read-model/projection";
 import {
   PRODUCT_ALERT_ATTEMPT_ID_PATTERN,
@@ -236,6 +238,47 @@ export function createProductAlertRuntime(deps: DiscoveryRuntimeDeps): ProductAl
     return result.rows[0] ? normalizeAnonymousProductAlertIntentRow(result.rows[0]) : null;
   }
 
+  /**
+   * The product an alert names, checked against the catalog: the item must be active, and the
+   * product one of its products for the selected options. The summary is the catalog's option
+   * labels for that product, as the item page shows them, never the request's.
+   */
+  async function resolveCatalogProduct(
+    input: Readonly<{
+      catalogItemId: string;
+      productId: string;
+      selectedOptions: readonly ProductAlertSelectedOption[];
+    }>,
+  ) {
+    const catalogItemId = normalizeRequiredText(input.catalogItemId, "Product Alert requires a Catalog Item.");
+    const productId = normalizeRequiredText(input.productId, "Product Alert requires a Product.");
+    const requested = normalizeSelectedOptions(input.selectedOptions);
+    const catalogItem = await getDiscoveryItemProductCatalog(deps.db, catalogItemId);
+    assert(catalogItem?.status === "active", "Product Alert requires an active Catalog Item.");
+    const product = createDiscoveryProductDescriptor({
+      catalogItemId,
+      productSchema: catalogItem.productSchema,
+      selection: requested,
+    });
+    assert(
+      product.productId === productId && product.selection.length === requested.length,
+      "Product Alert product is not one of the Catalog Item's products for the selected options.",
+    );
+    const labels = catalogItem.productSchema
+      ? summarizeSelections(
+          catalogItem.productSchema,
+          Object.fromEntries(product.selection.map((selection) => [selection.dimensionId, selection.optionId])),
+        ).map((selection) => selection.optionLabel)
+      : [];
+
+    return {
+      catalogItemId,
+      productId,
+      selectedOptions: normalizeSelectedOptions(product.selection),
+      productSummary: labels.length > 0 ? labels.join(" / ") : null,
+    };
+  }
+
   async function createAccountProductAlert(
     input: CreateProductAlertRequest & Readonly<{ accountId: string }>,
     context: EventStoreContext,
@@ -265,6 +308,11 @@ export function createProductAlertRuntime(deps: DiscoveryRuntimeDeps): ProductAl
     input: CreateProductAlertRequest & Readonly<{ accountId: string; alertId: string }>,
     context: EventStoreContext,
   ) {
+    const product = await resolveCatalogProduct({
+      catalogItemId: input.catalogItemId,
+      productId: input.productId,
+      selectedOptions: input.selectedOptions ?? [],
+    });
     const result = await commandHandler({
       streamId: productAlertStreamId(input.alertId),
       expectedVersion: "no_stream",
@@ -274,10 +322,10 @@ export function createProductAlertRuntime(deps: DiscoveryRuntimeDeps): ProductAl
         alertId: input.alertId,
         accountId: input.accountId,
         marketSide: input.marketSide,
-        catalogItemId: input.catalogItemId,
-        productId: input.productId,
-        selectedOptions: input.selectedOptions ?? [],
-        productSummary: input.productSummary ?? null,
+        catalogItemId: product.catalogItemId,
+        productId: product.productId,
+        selectedOptions: product.selectedOptions,
+        productSummary: product.productSummary,
         thresholdAmount: input.thresholdAmount ?? null,
         thresholdCurrencyCode: input.thresholdCurrencyCode ?? null,
       },
@@ -344,16 +392,17 @@ export function createProductAlertRuntime(deps: DiscoveryRuntimeDeps): ProductAl
       const anonymousOwnerId = normalizeAnonymousOwnerId(input.anonymousOwnerId);
       const sourcePath = normalizeSourcePath(input.sourcePath);
       const marketSide = normalizeMarketSide(input.marketSide);
-      const catalogItemId = normalizeRequiredText(input.catalogItemId, "Product Alert requires a Catalog Item.");
-      const productId = normalizeRequiredText(input.productId, "Product Alert requires a Product.");
-      const selectedOptions = normalizeSelectedOptions(input.selectedOptions ?? []);
-      const productSummary = normalizeOptionalText(input.productSummary);
       const thresholdAmount = normalizeOptionalMoney(input.thresholdAmount);
       const thresholdCurrencyCode = normalizeOptionalCurrencyCode(input.thresholdCurrencyCode);
       assert(
         (thresholdAmount === null) === (thresholdCurrencyCode === null),
         "Price threshold must include both amount and currency.",
       );
+      const { catalogItemId, productId, selectedOptions, productSummary } = await resolveCatalogProduct({
+        catalogItemId: input.catalogItemId,
+        productId: input.productId,
+        selectedOptions: input.selectedOptions ?? [],
+      });
 
       await expireAnonymousProductAlertIntents(anonymousOwnerId);
 

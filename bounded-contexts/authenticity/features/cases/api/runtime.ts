@@ -1,10 +1,26 @@
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
-import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
+import type { EventStore } from "@chase-sets/event-core/event-store";
+import {
+  createProjectionHandlerSet,
+  type ProjectionCheckpointStore,
+  type ProjectionHandlerSet,
+} from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import {
+  AuthenticityDomainError,
+  type AuthenticityCaseId,
+  type AuthenticityChecklistResult,
+  type AuthenticityOrderLineNote,
+  type AuthenticityOrderSnapshotRef,
+  type AuthenticityPlanRef,
+  type AuthenticityVerdict,
+  type AuthenticityVerdictReasonCode,
+} from "../domain/case-primitives";
 import {
   decideAuthenticityCase,
   evolveAuthenticityCase,
@@ -20,17 +36,12 @@ import {
   listAuthenticityOperatorQueue,
   type AuthenticityOperatorQueueFilter,
 } from "../read-model/queries";
-import { AuthenticityDomainError } from "../../../support/runtime-support/common";
-import type { AuthenticityRuntimeDeps } from "../../../support/runtime-support";
-import type {
-  AuthenticityCaseId,
-  AuthenticityChecklistResult,
-  AuthenticityOrderLineNote,
-  AuthenticityOrderSnapshotRef,
-  AuthenticityPlanRef,
-  AuthenticityVerdict,
-  AuthenticityVerdictReasonCode,
-} from "../../../support/runtime-support/common";
+
+type AuthenticityRuntimeDeps = Readonly<{
+  eventStore: EventStore;
+  checkpointStore: ProjectionCheckpointStore;
+  db: PgQueryable;
+}>;
 
 export type OpenAuthenticityCaseParams = Readonly<{
   caseId?: AuthenticityCaseId | null;

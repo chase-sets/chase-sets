@@ -1,7 +1,12 @@
 {
   "contextName": "collections",
   "packageName": "@chase-sets/collections",
-  "localeCatalogs": ["contracts/localization/locales/en/collections.ts"],
+  "localeCatalogs": [
+    "bounded-contexts/collections/features/saved-lists/api/localization/locales/en.ts",
+    "bounded-contexts/collections/features/saved-lists/ui/localization/locales/en.ts",
+    "bounded-contexts/collections/features/saved-list-valuation/api/localization/locales/en.ts",
+    "bounded-contexts/collections/features/saved-list-valuation/ui/localization/locales/en.ts"
+  ],
   "ownedNouns": [
     "saved-list",
     "saved-list-line",
@@ -13,11 +18,22 @@
   ],
   "streamPrefix": "collections.",
   "apiBasePath": "/api/collections",
-  "slices": ["saved-lists", "saved-list-valuation"],
-  "allowedSupportDirectories": ["runtime-support"],
-  "publicExports": [".", "./context", "./server"],
+  "slices": [
+    "saved-lists",
+    "saved-list-valuation"
+  ],
+  "allowedSupportDirectories": [
+    "runtime-support"
+  ],
+  "publicExports": [
+    ".",
+    "./context",
+    "./server"
+  ],
   "allowedContextDependencies": [],
-  "seedRequirements": ["catalog"],
+  "seedRequirements": [
+    "catalog"
+  ],
   "hostPorts": [
     {
       "portName": "savedListAnalyticsRecorder",
@@ -83,7 +99,9 @@
         "catalog.dimension.option-revised"
       ],
       "order": 10,
-      "projectionHandlerSetNames": ["collections-catalog-product-projection"]
+      "projectionHandlerSetNames": [
+        "collections-catalog-product-projection"
+      ]
     },
     {
       "sourceContextName": "collections",
@@ -101,7 +119,9 @@
         "collections.saved-list.line-reordered"
       ],
       "order": 20,
-      "projectionHandlerSetNames": ["collections-saved-list-projection"]
+      "projectionHandlerSetNames": [
+        "collections-saved-list-projection"
+      ]
     },
     {
       "sourceContextName": "collections",
@@ -119,7 +139,9 @@
         "collections.saved-list.line-reordered"
       ],
       "order": 10,
-      "projectionHandlerSetNames": ["collections-saved-list-picker-projection"]
+      "projectionHandlerSetNames": [
+        "collections-saved-list-picker-projection"
+      ]
     },
     {
       "sourceContextName": "collections",
@@ -134,22 +156,30 @@
         "collections.saved-list.line-removed"
       ],
       "order": 30,
-      "projectionHandlerSetNames": ["collections-saved-list-valuation-projection"]
+      "projectionHandlerSetNames": [
+        "collections-saved-list-valuation-projection"
+      ]
     },
     {
       "sourceContextName": "pricing",
       "projectionName": "collections-saved-list-valuation-projection",
       "subscriptionVersion": 1,
-      "eventTypes": ["pricing.market-price.estimated"],
+      "eventTypes": [
+        "pricing.market-price.estimated"
+      ],
       "order": 40,
       "projectionCascadeChunkSize": 100,
-      "projectionHandlerSetNames": ["collections-saved-list-valuation-projection"]
+      "projectionHandlerSetNames": [
+        "collections-saved-list-valuation-projection"
+      ]
     }
   ],
   "projectionGroups": [
     {
       "projectionName": "collections-catalog-product-projection",
-      "sourceContextNames": ["catalog"],
+      "sourceContextNames": [
+        "catalog"
+      ],
       "ownedTables": [
         "collections_catalog_items",
         "collections_catalog_blueprints",
@@ -161,21 +191,32 @@
     },
     {
       "projectionName": "collections-saved-list-projection",
-      "sourceContextNames": ["collections"],
-      "ownedTables": ["collections_saved_list_summaries", "collections_saved_list_lines"],
+      "sourceContextNames": [
+        "collections"
+      ],
+      "ownedTables": [
+        "collections_saved_list_summaries",
+        "collections_saved_list_lines"
+      ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     },
     {
       "projectionName": "collections-saved-list-picker-projection",
-      "sourceContextNames": ["collections"],
-      "ownedTables": ["collections_saved_list_picker"],
+      "sourceContextNames": [
+        "collections"
+      ],
+      "ownedTables": [
+        "collections_saved_list_picker"
+      ],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     },
     {
       "projectionName": "collections.saved-list-shared-page-projection",
-      "sourceContextNames": ["collections"],
+      "sourceContextNames": [
+        "collections"
+      ],
       "ownedTables": [
         "collections_saved_list_shared_pages",
         "collections_saved_list_shared_lines",
@@ -186,7 +227,10 @@
     },
     {
       "projectionName": "collections-saved-list-valuation-projection",
-      "sourceContextNames": ["collections", "pricing"],
+      "sourceContextNames": [
+        "collections",
+        "pricing"
+      ],
       "ownedTables": [
         "collections_saved_list_valuation_lists",
         "collections_saved_list_valuation_lines",
@@ -211,7 +255,10 @@
         "api-route:bounded-contexts/collections/features/saved-lists/api/route.ts:POST /saved-list-intents"
       ],
       "visibleDestination": {
-        "routeIds": ["search", "item-detail"],
+        "routeIds": [
+          "search",
+          "item-detail"
+        ],
         "description": "Search and item detail remain visible after the command and render the Saved List aggregate snapshot, line result, and List title returned by Collections. Guest capture returns the durable anonymous intent and claim returns the same command snapshot without requiring the recent-List projection to catch up."
       },
       "proof": {
@@ -251,8 +298,13 @@
       }
     }
   ],
-  "apiDeployables": ["platform-api"],
-  "apiRuntimeProfiles": ["proof", "public"],
+  "apiDeployables": [
+    "platform-api"
+  ],
+  "apiRuntimeProfiles": [
+    "proof",
+    "public"
+  ],
   "apiMounts": [
     {
       "mountPath": "/api/collections",
@@ -261,39 +313,74 @@
       "readFreshnessRoutes": [
         {
           "routePath": "/saved-lists",
-          "methods": ["GET", "HEAD"],
+          "methods": [
+            "GET",
+            "HEAD"
+          ],
           "dependencies": [
-            { "readModelTable": "collections_saved_list_summaries" },
-            { "readModelTable": "collections_saved_list_lines" },
-            { "readModelTable": "collections_catalog_items" },
-            { "readModelTable": "collections_catalog_dimensions" },
-            { "readModelTable": "collections_catalog_dimension_options" }
+            {
+              "readModelTable": "collections_saved_list_summaries"
+            },
+            {
+              "readModelTable": "collections_saved_list_lines"
+            },
+            {
+              "readModelTable": "collections_catalog_items"
+            },
+            {
+              "readModelTable": "collections_catalog_dimensions"
+            },
+            {
+              "readModelTable": "collections_catalog_dimension_options"
+            }
           ]
         },
         {
           "routePath": "/saved-lists/:listId",
-          "methods": ["GET", "HEAD"],
+          "methods": [
+            "GET",
+            "HEAD"
+          ],
           "dependencies": [
-            { "readModelTable": "collections_saved_list_summaries" },
-            { "readModelTable": "collections_saved_list_lines" },
-            { "readModelTable": "collections_catalog_items" },
-            { "readModelTable": "collections_catalog_dimensions" },
-            { "readModelTable": "collections_catalog_dimension_options" }
+            {
+              "readModelTable": "collections_saved_list_summaries"
+            },
+            {
+              "readModelTable": "collections_saved_list_lines"
+            },
+            {
+              "readModelTable": "collections_catalog_items"
+            },
+            {
+              "readModelTable": "collections_catalog_dimensions"
+            },
+            {
+              "readModelTable": "collections_catalog_dimension_options"
+            }
           ]
         }
       ]
     }
   ],
-  "workerRuntimeProfiles": ["proof", "public"],
+  "workerRuntimeProfiles": [
+    "proof",
+    "public"
+  ],
   "readAfterWriteRouteInventory": [
     {
       "id": "collections.saved-list-create-to-detail",
       "owner": "collections",
       "risk": "important",
-      "freshnessSlo": { "flowClass": "important-self-refresh", "p95Ms": 2500, "p99Ms": 5000 },
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "account-inventory",
-        "actions": ["Create Saved List"],
+        "actions": [
+          "Create Saved List"
+        ],
         "command": "CreateSavedList"
       },
       "destination": {
@@ -317,10 +404,18 @@
       "id": "collections.saved-list-detail-self-refresh",
       "owner": "collections",
       "risk": "important",
-      "freshnessSlo": { "flowClass": "important-self-refresh", "p95Ms": 2500, "p99Ms": 5000 },
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "account-inventory",
-        "actions": ["Change Saved List details", "Change Saved List visibility", "Change Saved List cover"],
+        "actions": [
+          "Change Saved List details",
+          "Change Saved List visibility",
+          "Change Saved List cover"
+        ],
         "command": "Saved List detail commands"
       },
       "destination": {
@@ -344,10 +439,16 @@
       "id": "collections.saved-list-bulk-to-detail",
       "owner": "collections",
       "risk": "important",
-      "freshnessSlo": { "flowClass": "important-self-refresh", "p95Ms": 2500, "p99Ms": 5000 },
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "account-inventory",
-        "actions": ["Apply Saved List line changes"],
+        "actions": [
+          "Apply Saved List line changes"
+        ],
         "command": "ApplySavedListLineChanges"
       },
       "destination": {
@@ -371,10 +472,16 @@
       "id": "collections.saved-list-list-self-refresh",
       "owner": "collections",
       "risk": "important",
-      "freshnessSlo": { "flowClass": "important-self-refresh", "p95Ms": 2500, "p99Ms": 5000 },
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "account-inventory",
-        "actions": ["Archive Saved List"],
+        "actions": [
+          "Archive Saved List"
+        ],
         "command": "ArchiveSavedList"
       },
       "destination": {
@@ -395,7 +502,9 @@
       }
     }
   ],
-  "runtimeDeployables": ["platform-worker"],
+  "runtimeDeployables": [
+    "platform-worker"
+  ],
   "deployableContributions": [],
   "shellContributions": [],
   "directoryIntent": {
@@ -419,12 +528,16 @@
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide the Collections event-store schema and runtime service composition seam without taking Saved List behavior out of its slice.",
-      "expectedConsumers": ["saved-lists"]
+      "expectedConsumers": [
+        "saved-lists"
+      ]
     },
     "routes": {
       "classification": "routes",
       "purpose": "Reserve Collections route metadata for later My Collection and shared Saved List route contributions.",
-      "expectedConsumers": ["Future generated deployable route adapters"]
+      "expectedConsumers": [
+        "Future generated deployable route adapters"
+      ]
     }
   }
 }

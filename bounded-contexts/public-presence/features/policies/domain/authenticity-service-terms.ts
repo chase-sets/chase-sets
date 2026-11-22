@@ -59,7 +59,7 @@ export const authenticityServiceTermsPolicyArtifact: PublicPolicyArtifact<
           {
             assertion:
               "Authenticity Verdicts are a closed passed/failed/inconclusive set; there is no numeric or letter grading dimension in the shipped verdict model.",
-            evidenceRef: "bounded-contexts/authenticity/support/runtime-support/common.ts:18",
+            evidenceRef: "bounded-contexts/authenticity/features/cases/domain/case-primitives.ts:18",
           },
         ],
       },
@@ -139,7 +139,7 @@ export const authenticityServiceTermsPolicyArtifact: PublicPolicyArtifact<
           "Describe the shipped passed/failed/inconclusive verdict triad and distinguish it from unshipped cross-context verdict effects; flag inconclusive cost allocation as unresolved.",
         decisionRefs: [4284],
         productTruthRefs: [
-          "bounded-contexts/authenticity/support/runtime-support/common.ts:18",
+          "bounded-contexts/authenticity/features/cases/domain/case-primitives.ts:18",
           "bounded-contexts/authenticity/features/cases/domain/domain.ts:282-332",
           "bounded-contexts/authenticity/README.md:56-59",
         ],
@@ -151,7 +151,7 @@ export const authenticityServiceTermsPolicyArtifact: PublicPolicyArtifact<
           {
             assertion:
               "The verdict triad (passed/failed/inconclusive) is closed and evidence-photo-backed today; there is no fourth verdict value.",
-            evidenceRef: "bounded-contexts/authenticity/support/runtime-support/common.ts:18",
+            evidenceRef: "bounded-contexts/authenticity/features/cases/domain/case-primitives.ts:18",
           },
         ],
       },
@@ -168,7 +168,7 @@ export const authenticityServiceTermsPolicyArtifact: PublicPolicyArtifact<
         decisionRefs: [6428],
         productTruthRefs: [
           "bounded-contexts/authenticity/features/cases/domain/domain.ts:317-332",
-          "bounded-contexts/authenticity/support/runtime-support/common.ts:22-28",
+          "bounded-contexts/authenticity/features/cases/domain/case-primitives.ts:22-28",
         ],
         openQuestions: [
           "Issue #6428 (resolved 2026-08-02, Option B) establishes the future confirmed-counterfeit disposition described above: refund the buyer, never return a confirmed counterfeit to the seller, and retain it under Chase Sets custody until counsel-approved retention, disposal, or referral rules authorize the next step. The fixed-scope Authenticity follow-up that must distinguish 'counterfeit' from other failed reason codes before this posture can ship is not yet filed against a specific issue number as of this document's drafting and remains future design, not shipped behavior.",

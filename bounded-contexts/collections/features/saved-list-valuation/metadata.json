@@ -1,0 +1,55 @@
+{
+  "slice": "saved-list-valuation",
+  "localeCatalogs": [
+    "bounded-contexts/collections/features/saved-list-valuation/api/localization/locales/en.ts",
+    "bounded-contexts/collections/features/saved-list-valuation/ui/localization/locales/en.ts"
+  ],
+  "eventSubscriptions": [
+    {
+      "sourceContextName": "collections",
+      "projectionName": "collections-saved-list-valuation-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "collections.saved-list.created",
+        "collections.saved-list.archived",
+        "collections.saved-list.visibility-changed",
+        "collections.saved-list.line-added",
+        "collections.saved-list.line-changed",
+        "collections.saved-list.line-removed"
+      ],
+      "order": 30,
+      "projectionHandlerSetNames": ["collections-saved-list-valuation-projection"]
+    },
+    {
+      "sourceContextName": "pricing",
+      "projectionName": "collections-saved-list-valuation-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["pricing.market-price.estimated"],
+      "order": 40,
+      "projectionCascadeChunkSize": 100,
+      "projectionHandlerSetNames": ["collections-saved-list-valuation-projection"]
+    }
+  ],
+  "projectionGroups": [
+    {
+      "projectionName": "collections-saved-list-valuation-projection",
+      "sourceContextNames": ["collections", "pricing"],
+      "ownedTables": [
+        "collections_saved_list_valuation_lists",
+        "collections_saved_list_valuation_lines",
+        "collections_saved_list_market_estimates"
+      ],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "truncate-owned-tables"
+    }
+  ],
+  "directoryIntent": {
+    "classification": "slice",
+    "purpose": "The saved-list-valuation slice projects current Pricing market estimates against Saved List tracked quantities and exposes honest owner/viewer value coverage without inventory economics or history.",
+    "expectedConsumers": [
+      "Internal Collections module composition",
+      "My Collection Saved List detail",
+      "Shared Saved List presentation"
+    ]
+  }
+}

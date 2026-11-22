@@ -8,6 +8,7 @@ export interface Dimension {
   description_i18n: LocalizedTextMap;
   description: string;
   value_kind: "unordered" | "ordered" | "numeric";
+  option_matching: "exact" | "or-better";
   status: string;
   updated_at: string;
 }
