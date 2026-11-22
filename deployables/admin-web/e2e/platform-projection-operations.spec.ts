@@ -1,5 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
-import { authenticateAdmin, expectAdminPageReady, expectPageOk, skipDeployedAdminE2e } from "./support/admin-e2e";
+import {
+  authenticatePlatformAdmin,
+  expectAdminPageReady,
+  expectPageOk,
+  skipDeployedAdminE2e,
+} from "./support/admin-e2e";
 import { logSeedContractGap } from "./support/seed-contract-gap";
 
 type StreamProbeResult = Readonly<{
@@ -70,7 +75,7 @@ test.describe("platform admin projection operations", () => {
       "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
     );
 
-    await authenticateAdmin(page, "/platform/projections", "/access/sign-in");
+    await authenticatePlatformAdmin(page, "/platform/projections", "/access/sign-in");
     await expectPageOk(page, "/platform/projections");
 
     const path = "/api/platform/projections/operations/op_admin_e2e_missing/events";
@@ -90,7 +95,7 @@ test.describe("platform admin projection operations", () => {
       "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
     );
 
-    await authenticateAdmin(page, "/platform/projections", "/access/sign-in");
+    await authenticatePlatformAdmin(page, "/platform/projections", "/access/sign-in");
     await expectPageOk(page, "/platform/projections");
     await expect(page).toHaveURL(/\/platform\/projections$/);
     await expectAdminPageReady(page, { heading: "Projection Operations" });

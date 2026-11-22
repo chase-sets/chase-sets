@@ -15,7 +15,7 @@ const adminAccount = {
   email: configuredAdminEmail || "demo@chasesets.test",
   password: configuredAdminPassword || "demo1234",
 };
-const platformAdminAccount = {
+export const platformAdminAccount = {
   email: configuredAdminEmail || "browser-e2e-platform-admin@chasesets.test",
   password: configuredAdminPassword || "browser-e2e-platform-admin-password",
 };

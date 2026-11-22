@@ -1,7 +1,7 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { captureResponsiveEvidence } from "@chase-sets/playwright-evidence";
 import {
-  authenticateAdmin,
+  authenticatePlatformAdmin,
   expectAdminWebHydrated,
   expectPageOk,
   expectVisibleText,
@@ -137,7 +137,7 @@ test("tablet operator navigates to import review and uses the bulk action bar @c
   page,
 }, testInfo) => {
   test.setTimeout(120_000);
-  await authenticateAdmin(page, "/catalog/integrations", "/access/sign-in");
+  await authenticatePlatformAdmin(page, "/catalog/integrations", "/access/sign-in");
   await expectPageOk(page, "/catalog/integrations");
   await expectAdminWebHydrated(page);
 
@@ -203,7 +203,7 @@ test("tablet operator navigates to import review and uses the bulk action bar @c
 });
 
 async function openIntegrationHealthTriage(page: Page) {
-  await authenticateAdmin(page, "/catalog/integrations/health", "/access/sign-in");
+  await authenticatePlatformAdmin(page, "/catalog/integrations/health", "/access/sign-in");
 
   // Health triage now lives on the real /catalog/integrations/health surface route.
   await expectPageOk(
@@ -281,7 +281,7 @@ test.describe.serial("catalog admin integrations", () => {
       "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
     );
 
-    await authenticateAdmin(page, "/catalog/integrations", "/access/sign-in");
+    await authenticatePlatformAdmin(page, "/catalog/integrations", "/access/sign-in");
     await expectPageOk(page, "/catalog/integrations");
 
     for (const path of [
@@ -307,7 +307,7 @@ test.describe.serial("catalog admin integrations", () => {
       "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
     );
 
-    await authenticateAdmin(page, "/catalog/integrations", "/access/sign-in");
+    await authenticatePlatformAdmin(page, "/catalog/integrations", "/access/sign-in");
     await expectPageOk(page, "/catalog/integrations");
     // #1970: the daily loader now DEFERS the source-option fan-out and the
     // supplementary alias-review behind streamed Suspense boundaries, so the shell,
@@ -594,7 +594,7 @@ test.describe.serial("catalog admin integrations", () => {
     // against. The composition/wiring assertions (scope selector present, stage
     // reachable, handoff route resolves) stay unconditional because they hold
     // regardless of seed volume.
-    await authenticateAdmin(page, "/catalog/integrations", "/access/sign-in");
+    await authenticatePlatformAdmin(page, "/catalog/integrations", "/access/sign-in");
     await expectPageOk(page, "/catalog/integrations");
     await expectAdminWebHydrated(page);
 
@@ -692,7 +692,7 @@ test.describe.serial("catalog admin integrations", () => {
       "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
     );
 
-    await authenticateAdmin(page, "/catalog/integrations", "/access/sign-in");
+    await authenticatePlatformAdmin(page, "/catalog/integrations", "/access/sign-in");
     await expectPageOk(page, "/catalog/integrations");
 
     // #1966: the Source Observation review queue paginates past the first 25 rows. The
@@ -785,7 +785,7 @@ test.describe.serial("catalog admin integrations", () => {
       "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
     );
 
-    await authenticateAdmin(page, "/catalog/providers/tcgdex", "/access/sign-in");
+    await authenticatePlatformAdmin(page, "/catalog/providers/tcgdex", "/access/sign-in");
 
     // #3832: profile authoring, validation readiness, and the profile lifecycle
     // are one v2 page (/catalog/providers/:providerKey) reached by path param,
@@ -844,7 +844,7 @@ test.describe.serial("catalog admin integrations", () => {
       "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
     );
 
-    await authenticateAdmin(page, "/catalog/integrations", "/access/sign-in");
+    await authenticatePlatformAdmin(page, "/catalog/integrations", "/access/sign-in");
     await expectPageOk(page, "/catalog/integrations");
 
     // Import-job retry / resume / cancel is a distinct recovery surface from the
@@ -910,7 +910,7 @@ test.describe.serial("catalog admin integrations", () => {
       "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
     );
 
-    await authenticateAdmin(page, "/catalog/integrations/governance", "/access/sign-in");
+    await authenticatePlatformAdmin(page, "/catalog/integrations/governance", "/access/sign-in");
 
     // The governance surface hosts governance controls as a rare, privileged op off
     // the daily route (conflict resolution and lifecycle recovery moved elsewhere; see
