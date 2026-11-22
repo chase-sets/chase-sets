@@ -114,9 +114,9 @@ export const catalogDimensionsEnglishTranslations = {
   "catalog.features.dimensions.ui.dimensionDetailPage.edit.2": "Edit",
   "catalog.features.dimensions.ui.dimensionDetailPage.edit.dimension": "Edit Dimension",
   "catalog.features.dimensions.ui.dimensionDetailPage.edit.option": "Edit Option",
-  "catalog.features.dimensions.ui.dimensionDetailPage.exact": "Exact",
   "catalog.features.dimensions.ui.dimensionDetailPage.enter.option.ids.separated.by.commas":
     "Enter option IDs separated by commas in the desired order.",
+  "catalog.features.dimensions.ui.dimensionDetailPage.exact": "Exact",
   "catalog.features.dimensions.ui.dimensionDetailPage.key": "Key",
   "catalog.features.dimensions.ui.dimensionDetailPage.label": "Label",
   "catalog.features.dimensions.ui.dimensionDetailPage.labels": "Labels",

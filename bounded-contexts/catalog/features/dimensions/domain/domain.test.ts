@@ -481,6 +481,17 @@ describe("Dimension aggregate", () => {
       expect(revised.optionMatching).toBe("exact");
     });
 
+    it("keeps or-better across a revision recorded without a choice, unless it left the dimension unordered", () => {
+      const revisedWithoutChoice = (valueKind: string) =>
+        evolveDimension(orBetterState(), {
+          type: "catalog.dimension.revised",
+          data: { key: "condition", name: l10n("Condition"), description: l10n(""), valueKind },
+        } as DimensionEvent);
+
+      expect(revisedWithoutChoice("ordered").optionMatching).toBe("or-better");
+      expect(revisedWithoutChoice("unordered").optionMatching).toBe("exact");
+    });
+
     it("evolves activated event", () => {
       const state = evolveDimension(createdState(), {
         type: "catalog.dimension.activated",

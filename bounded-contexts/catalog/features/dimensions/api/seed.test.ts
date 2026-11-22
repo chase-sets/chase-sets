@@ -4,8 +4,7 @@ import { localizedTextMapFromEnglish } from "@chase-sets/localization";
 import type { CatalogServices } from "../../../support/authoring-support/services";
 import { seedDimensions } from "./seed";
 
-const conditionStream = `catalog.dimension-${catalogSeedIds.dimensions.condition.dimensionId}`;
-const gradeStream = `catalog.dimension-${catalogSeedIds.dimensions.grade.dimensionId}`;
+const streamOf = (dimensionId: string) => `catalog.dimension-${dimensionId}`;
 
 type StoredEvent = Readonly<{ event_type: string; payload: Record<string, unknown> }>;
 type SentCommand = Readonly<{ streamId: string; type: string; valueKind?: string; optionMatching?: string }>;
@@ -21,72 +20,25 @@ describe("dimension seed", () => {
         .filter((command) => command.type === "CreateDimension")
         .map((command) => [command.streamId, command.valueKind, command.optionMatching]),
     ).toEqual([
-      [`catalog.dimension-${catalogSeedIds.dimensions.form.dimensionId}`, "unordered", "exact"],
-      [conditionStream, "ordered", "or-better"],
-      [`catalog.dimension-${catalogSeedIds.dimensions.gradingCompany.dimensionId}`, "unordered", "exact"],
-      [gradeStream, "numeric", "or-better"],
+      [streamOf(catalogSeedIds.dimensions.form.dimensionId), "unordered", "exact"],
+      [streamOf(catalogSeedIds.dimensions.condition.dimensionId), "ordered", "or-better"],
+      [streamOf(catalogSeedIds.dimensions.gradingCompany.dimensionId), "unordered", "exact"],
+      [streamOf(catalogSeedIds.dimensions.grade.dimensionId), "numeric", "or-better"],
     ]);
-    expect(harness.commands.filter((command) => command.type === "ReviseDimension")).toEqual([]);
   });
 
-  it("gives Dimensions seeded before option matching existed their seeded choice once", async () => {
+  it("sends nothing to Dimensions that were seeded before option matching existed", async () => {
     const harness = createSeedDimensionsHarness(retainedDimensions());
 
     await seedDimensions(harness.services);
 
-    expect(harness.commands).toEqual([
-      { streamId: conditionStream, type: "ReviseDimension", valueKind: "ordered", optionMatching: "or-better" },
-      { streamId: gradeStream, type: "ReviseDimension", valueKind: "numeric", optionMatching: "or-better" },
-    ]);
-    expect(harness.revisedNames).toEqual(["Card Condition", "Grade"]);
-
-    harness.commands.length = 0;
-    await seedDimensions(harness.services);
-
     expect(harness.commands).toEqual([]);
-  });
-
-  it("leaves a retained Dimension whose stream already records an option matching choice", async () => {
-    const retained = retainedDimensions();
-    retained.get(conditionStream)?.push({
-      event_type: "catalog.dimension.revised",
-      payload: {
-        key: "condition",
-        name: localizedTextMapFromEnglish("Condition"),
-        description: localizedTextMapFromEnglish(""),
-        valueKind: "ordered",
-        optionMatching: "exact",
-      },
-    });
-    const harness = createSeedDimensionsHarness(retained);
-
-    await seedDimensions(harness.services);
-
-    expect(harness.commands.map((command) => command.streamId)).toEqual([gradeStream]);
-  });
-
-  it("leaves a retained Dimension an operator made unordered", async () => {
-    const retained = retainedDimensions();
-    retained.get(conditionStream)?.push({
-      event_type: "catalog.dimension.revised",
-      payload: {
-        key: "condition",
-        name: localizedTextMapFromEnglish("Condition"),
-        description: localizedTextMapFromEnglish(""),
-        valueKind: "unordered",
-      },
-    });
-    const harness = createSeedDimensionsHarness(retained);
-
-    await seedDimensions(harness.services);
-
-    expect(harness.commands.map((command) => command.streamId)).toEqual([gradeStream]);
   });
 });
 
 function retainedDimensions(): Map<string, StoredEvent[]> {
   const retained = (dimensionId: string, key: string, name: string, valueKind: string): [string, StoredEvent[]] => [
-    `catalog.dimension-${dimensionId}`,
+    streamOf(dimensionId),
     [
       {
         event_type: "catalog.dimension.created",
@@ -104,7 +56,7 @@ function retainedDimensions(): Map<string, StoredEvent[]> {
 
   return new Map([
     retained(catalogSeedIds.dimensions.form.dimensionId, "form", "Form", "unordered"),
-    retained(catalogSeedIds.dimensions.condition.dimensionId, "condition", "Card Condition", "ordered"),
+    retained(catalogSeedIds.dimensions.condition.dimensionId, "condition", "Condition", "ordered"),
     retained(catalogSeedIds.dimensions.gradingCompany.dimensionId, "grading-company", "Grading Company", "unordered"),
     retained(catalogSeedIds.dimensions.grade.dimensionId, "grade", "Grade", "numeric"),
   ]);
@@ -112,7 +64,6 @@ function retainedDimensions(): Map<string, StoredEvent[]> {
 
 function createSeedDimensionsHarness(streams: Map<string, StoredEvent[]>) {
   const commands: SentCommand[] = [];
-  const revisedNames: string[] = [];
   const services = {
     db: {
       query: async <T>(_sql: string, values: readonly unknown[]) => {
@@ -132,31 +83,17 @@ function createSeedDimensionsHarness(streams: Map<string, StoredEvent[]>) {
         command,
       }: {
         streamId: string;
-        command: {
-          type: string;
-          name?: { values: Record<string, string> };
-          valueKind?: string;
-          optionMatching?: string;
-        };
+        command: { type: string; valueKind?: string; optionMatching?: string };
       }) => {
-        if (command.type === "CreateDimension" || command.type === "ReviseDimension") {
-          commands.push({
-            streamId,
-            type: command.type,
-            valueKind: command.valueKind,
-            optionMatching: command.optionMatching,
-          });
-        }
-        if (command.type === "ReviseDimension") {
-          revisedNames.push(command.name?.values.en ?? "");
-          streams.get(streamId)?.push({
-            event_type: "catalog.dimension.revised",
-            payload: { ...command, type: undefined },
-          });
-        }
+        commands.push({
+          streamId,
+          type: command.type,
+          valueKind: command.valueKind,
+          optionMatching: command.optionMatching,
+        });
       },
     },
   } as unknown as CatalogServices;
 
-  return { commands, revisedNames, services };
+  return { commands, services };
 }

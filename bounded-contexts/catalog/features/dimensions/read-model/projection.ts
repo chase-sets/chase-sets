@@ -51,7 +51,9 @@ export function buildDimensionProjectionHandlers(db: PgQueryable): ProjectorHand
 
       await db.query(
         `UPDATE catalog_dimensions
-         SET key = $2, name_i18n = $3, name = $4, description_i18n = $5, description = $6, value_kind = COALESCE($7, value_kind), option_matching = $9, updated_at = $8
+         SET key = $2, name_i18n = $3, name = $4, description_i18n = $5, description = $6, value_kind = COALESCE($7, value_kind),
+             option_matching = COALESCE($9, CASE WHEN COALESCE($7, 'unordered') = 'unordered' THEN 'exact' ELSE option_matching END),
+             updated_at = $8
          WHERE dimension_id = $1`,
         [
           dimensionId,
@@ -62,7 +64,7 @@ export function buildDimensionProjectionHandlers(db: PgQueryable): ProjectorHand
           resolveLocalizedTextMap(descriptionI18n),
           valueKind ?? null,
           event.timing.recordedAt,
-          optionMatching ?? "exact",
+          optionMatching ?? null,
         ],
       );
     },

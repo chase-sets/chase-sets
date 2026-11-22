@@ -400,15 +400,19 @@ export const evolveDimension: AggregateEvolver<DimensionState, DimensionEvent> =
         optionMatching: event.data.optionMatching ?? "exact",
         status: "draft",
       };
-    case "catalog.dimension.revised":
+    case "catalog.dimension.revised": {
+      const valueKind = event.data.valueKind ?? "unordered";
+
       return {
         ...state,
         key: event.data.key,
         name: event.data.name,
         description: event.data.description,
-        valueKind: event.data.valueKind ?? "unordered",
-        optionMatching: event.data.optionMatching ?? "exact",
+        valueKind,
+        // A revision recorded without a choice keeps the current one, unless it left the Dimension unordered.
+        optionMatching: event.data.optionMatching ?? (valueKind === "unordered" ? "exact" : state.optionMatching),
       };
+    }
     case "catalog.dimension.option-added":
       return {
         ...state,
