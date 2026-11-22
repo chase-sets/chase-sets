@@ -363,6 +363,8 @@ const categoryTools: readonly McpToolDescriptor[] = [
     "categoryId",
     "key",
     "name",
+    "description",
+    "parentCategoryId",
   ]),
   categoryWrite("publish-category", "Publish Category", categoryId, ["categoryId"]),
   categoryWrite("deprecate-category", "Deprecate Category", categoryId, ["categoryId"]),

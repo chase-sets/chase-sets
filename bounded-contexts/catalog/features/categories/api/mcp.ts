@@ -14,17 +14,6 @@ import type { CategoryServices } from "./runtime";
 
 const categoryId = z.string().transform((value) => parseTypedIdBoundary(value, "ctg", "categoryId"));
 const localizedText = z.strictObject({ defaultLocale: z.string(), values: z.record(z.string(), z.string()) });
-const metadata = z.strictObject({
-  key: z.string(),
-  name: localizedText,
-  description: localizedText.optional(),
-  parentCategoryId: z
-    .string()
-    .nullable()
-    .optional()
-    .transform((value) => parseOptionalTypedIdBoundary(value, "ctg", "parentCategoryId")),
-  displayOrder: z.int32().optional(),
-});
 const query = z.strictObject({
   search: z.string().optional(),
   status: z.string().optional(),
@@ -42,7 +31,24 @@ const write = {
   confirmationText: z.string(),
 };
 const lifecycleInput = z.strictObject({ categoryId, ...write });
-const metadataInput = lifecycleInput.extend(metadata.shape);
+const metadataInput = lifecycleInput.extend({
+  key: z.string(),
+  name: localizedText,
+  displayOrder: z.int32().optional(),
+});
+const parentCategoryId = z.string().nullable();
+const createInput = metadataInput.extend({
+  description: localizedText.optional(),
+  parentCategoryId: parentCategoryId
+    .optional()
+    .transform((value) => parseOptionalTypedIdBoundary(value, "ctg", "parentCategoryId")),
+});
+const reviseInput = metadataInput.extend({
+  description: localizedText,
+  parentCategoryId: parentCategoryId.transform((value) =>
+    value === null ? null : parseTypedIdBoundary(value, "ctg", "parentCategoryId"),
+  ),
+});
 
 function operator(actor: ResolvedActor | null, permission: string): ResolvedActor {
   if (!actor || actor.roleKey !== "platform-admin" || !actor.permissions.includes(permission)) {
@@ -51,11 +57,10 @@ function operator(actor: ResolvedActor | null, permission: string): ResolvedActo
   return actor;
 }
 
-function categoryMetadata(input: z.output<typeof metadata>) {
+function categoryMetadata(input: z.output<typeof createInput> | z.output<typeof reviseInput>) {
   return {
     key: input.key,
     name: coerceLocalizedTextMap(input.name),
-    description: coerceLocalizedTextMap(input.description ?? ""),
     parentCategoryId: input.parentCategoryId,
     displayOrder: input.displayOrder,
   };
@@ -100,14 +105,16 @@ export function createCategoryMcpHandlers(
 
   return {
     toolHandlers: {
-      "catalog.create-category": command(metadataInput, (input) => ({
+      "catalog.create-category": command(createInput, (input) => ({
         type: "CreateCategory",
         categoryId: input.categoryId,
         ...categoryMetadata(input),
+        description: coerceLocalizedTextMap(input.description ?? ""),
       })),
-      "catalog.revise-category": command(metadataInput, (input) => ({
+      "catalog.revise-category": command(reviseInput, (input) => ({
         type: "ReviseCategory",
         ...categoryMetadata(input),
+        description: coerceLocalizedTextMap(input.description),
       })),
       "catalog.publish-category": command(lifecycleInput, () => ({ type: "PublishCategory" })),
       "catalog.deprecate-category": command(lifecycleInput, () => ({ type: "DeprecateCategory" })),

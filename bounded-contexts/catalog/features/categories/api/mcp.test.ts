@@ -320,7 +320,30 @@ describe("Category MCP", () => {
     expect(h.jobs.get).toHaveBeenCalledExactlyOnceWith(job.jobId, expect.objectContaining({ audit: auditContext }));
   });
 
-  it("returns a revised name without changing the category key or item count", async () => {
+  it("requires replacement metadata in the revise descriptor but not in the create descriptor", () => {
+    const create = findMcpTool("catalog.create-category")!.inputSchema;
+    const revise = findMcpTool("catalog.revise-category")!.inputSchema;
+    expect(create.required).not.toContain("description");
+    expect(create.required).not.toContain("parentCategoryId");
+    expect(revise.required).toEqual(expect.arrayContaining(["description", "parentCategoryId"]));
+    expect(revise.required).not.toContain("displayOrder");
+  });
+
+  it.each(["description", "parentCategoryId"] as const)(
+    "refuses to revise a child Category without %s",
+    async (field) => {
+      const h = harness();
+      expect((await h.call("create-category", { ...metadata, ...writeControls("Create Category") })).isError).not.toBe(
+        true,
+      );
+      const { [field]: _omitted, ...args } = { ...metadata, name: revisedName };
+      expect((await h.call("revise-category", { ...args, ...writeControls("Revise Category") })).isError).toBe(true);
+      expect(h.services.commandHandler).toHaveBeenCalledTimes(1);
+      expect(await h.eventStore.readStream({ streamId })).toHaveLength(1);
+    },
+  );
+
+  it("returns a revised name without changing the supplied metadata or item count", async () => {
     const h = harness();
     expect((await h.call("create-category", { ...metadata, ...writeControls("Create Category") })).isError).not.toBe(
       true,
@@ -341,7 +364,7 @@ describe("Category MCP", () => {
         .isError,
     ).not.toBe(true);
     const events = await h.eventStore.readStream({ streamId });
-    expect(events[2]?.payload).toMatchObject({ key: row.key, name: revisedName });
+    expect(events[2]?.payload).toMatchObject({ key: row.key, name: revisedName, description, parentCategoryId });
     const revisedRow = { ...activeRow, name: revisedName.values.en, name_i18n: revisedName };
     h.services.getCategoryDetail.mockResolvedValueOnce(revisedRow);
     h.services.listCategories.mockResolvedValueOnce({
@@ -434,7 +457,9 @@ describe("Category MCP", () => {
       h.setAuthority(granted);
     }
     expect(h.services.commandHandler).toHaveBeenCalledTimes(2);
-    expect(await h.eventStore.readStream({ streamId })).toHaveLength(2);
+    const events = await h.eventStore.readStream({ streamId });
+    expect(events).toHaveLength(2);
+    expect(events[1]?.payload).toMatchObject({ parentCategoryId: null });
     expect(h.jobs.enqueue).toHaveBeenCalledTimes(1);
     expect(audit).toHaveBeenCalledWith(
       expect.objectContaining({
