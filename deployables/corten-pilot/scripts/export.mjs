@@ -1029,9 +1029,11 @@ const outputs = [
         ["support.features.supportRequests.ui.attachments.", "att"],
       ])),
       ...(await catalog("channels.ts", "channelsEnglishTranslations", [["channels.ebayDeletion.", "ebay"]])),
-      ...(await catalog("customer-feedback.ts", "customerFeedbackEnglishTranslations", [
-        ["customer-feedback.attention.", "cfa"],
-      ])),
+      ...(await catalogFrom(
+        "bounded-contexts/customer-feedback/features/attention/ui/localization/locales/en.ts",
+        "feedbackAttentionEnglishTranslations",
+        [["customer-feedback.attention.", "cfa"]],
+      )),
     }),
   ],
   [

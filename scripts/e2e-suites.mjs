@@ -763,12 +763,6 @@ function ordinaryE2eSuiteIdsForChangedFile(filePath) {
     return ["platform_mcp_sdk"];
   }
 
-  // A deletion of the former combined catalog must select the same admin support
-  // suite as a change to the Attention catalog at its feature-owned path.
-  if (normalized === "contracts/localization/locales/en/customer-feedback.ts") {
-    return ["admin_support"];
-  }
-
   if (
     normalized.startsWith("deployables/tcgplayer-operator-extension/") ||
     normalized.startsWith("bounded-contexts/catalog/features/operator-session/domain/extension/") ||

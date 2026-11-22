@@ -1641,11 +1641,6 @@
       "batches": ["admin_support"]
     },
     {
-      "changedFiles": ["contracts/localization/locales/en/customer-feedback.ts"],
-      "suiteIds": ["admin_support"],
-      "batches": ["admin_support"]
-    },
-    {
       "changedFiles": ["bounded-contexts/discovery/features/browse/api/contracts.ts"],
       "suiteIds": ["marketplace_browse"],
       "batches": ["marketplace_browse"]
