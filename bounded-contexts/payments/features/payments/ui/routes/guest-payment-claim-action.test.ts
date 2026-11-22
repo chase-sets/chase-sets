@@ -32,7 +32,7 @@ vi.mock("@chase-sets/platform-runtime/auth", async () => {
   };
 });
 
-vi.mock("../support/request-support/api-client", () => ({
+vi.mock("../../../../support/request-support/api-client", () => ({
   createPaymentsRequestApiClient: mockCreatePaymentsRequestApiClient,
   PaymentsApiError: class PaymentsApiError extends Error {
     constructor(
@@ -44,7 +44,7 @@ vi.mock("../support/request-support/api-client", () => ({
   },
 }));
 
-import { action, loader } from "../routes/marketplace/account-payment";
+import { action, loader } from "./account-payment";
 
 const originalEnv = { ...process.env };
 
@@ -463,7 +463,7 @@ describe("guest payment claim action", () => {
   });
 
   it("uses the expired-link recovery response when guest retry loses payment access", async () => {
-    const { PaymentsApiError } = await import("../support/request-support/api-client");
+    const { PaymentsApiError } = await import("../../../../support/request-support/api-client");
     mockGetAccountPayment.mockRejectedValue(
       new PaymentsApiError(401, {
         error: "guest token expired",
@@ -493,7 +493,7 @@ describe("guest payment claim action", () => {
   });
 
   it("throws a controlled expired-link response for invalid guest payment access", async () => {
-    const { PaymentsApiError } = await import("../support/request-support/api-client");
+    const { PaymentsApiError } = await import("../../../../support/request-support/api-client");
     mockGetAccountPayment.mockRejectedValue(
       new PaymentsApiError(401, {
         error: "guest token expired",
@@ -516,7 +516,7 @@ describe("guest payment claim action", () => {
   });
 
   it("returns temporary recovery when a fresh payment handoff has not projected yet", async () => {
-    const { PaymentsApiError } = await import("../support/request-support/api-client");
+    const { PaymentsApiError } = await import("../../../../support/request-support/api-client");
     mockGetAccountPayment.mockRejectedValue(
       new PaymentsApiError(404, {
         error: { code: "not_found", message: "Payment not found." },
@@ -540,7 +540,7 @@ describe("guest payment claim action", () => {
   });
 
   it("returns temporary recovery when a fresh payment handoff hits projection freshness timeout", async () => {
-    const { PaymentsApiError } = await import("../support/request-support/api-client");
+    const { PaymentsApiError } = await import("../../../../support/request-support/api-client");
     mockGetAccountPayment.mockRejectedValue(
       new PaymentsApiError(503, {
         error: {
@@ -566,7 +566,7 @@ describe("guest payment claim action", () => {
   });
 
   it("does not treat provider failures as payment projection lag", async () => {
-    const { PaymentsApiError } = await import("../support/request-support/api-client");
+    const { PaymentsApiError } = await import("../../../../support/request-support/api-client");
     const failure = new PaymentsApiError(503, {
       error: {
         code: "provider_failed",
@@ -585,7 +585,7 @@ describe("guest payment claim action", () => {
   });
 
   it("returns permanent not-found recovery for stale or manual payment links", async () => {
-    const { PaymentsApiError } = await import("../support/request-support/api-client");
+    const { PaymentsApiError } = await import("../../../../support/request-support/api-client");
     mockGetAccountPayment.mockRejectedValue(
       new PaymentsApiError(404, {
         error: { code: "not_found", message: "Payment not found." },
@@ -609,7 +609,7 @@ describe("guest payment claim action", () => {
   });
 
   it("returns permanent not-found recovery for stale signed-in payment links", async () => {
-    const { PaymentsApiError } = await import("../support/request-support/api-client");
+    const { PaymentsApiError } = await import("../../../../support/request-support/api-client");
     mockGetAccountPayment.mockRejectedValue(
       new PaymentsApiError(404, {
         error: { code: "not_found", message: "Payment not found." },
@@ -637,7 +637,7 @@ describe("guest payment claim action", () => {
   });
 
   it("returns permanent not-found recovery when a payment handoff is expired", async () => {
-    const { PaymentsApiError } = await import("../support/request-support/api-client");
+    const { PaymentsApiError } = await import("../../../../support/request-support/api-client");
     mockGetAccountPayment.mockRejectedValue(
       new PaymentsApiError(404, {
         error: { code: "not_found", message: "Payment not found." },

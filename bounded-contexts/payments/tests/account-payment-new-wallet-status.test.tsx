@@ -304,7 +304,7 @@ describe("Start payment authoritative wallet status", () => {
     )!;
     expect(mutation).toMatchObject({ owner: "payments", risk: "critical", strategy: "fresh-read" });
     expect(mutation.surfaces).toEqual([
-      "post-form:bounded-contexts/payments/routes/marketplace/account-payment-new.tsx:Hb08a81ecfd73#1",
+      "post-form:bounded-contexts/payments/features/payments/ui/routes/account-payment-new.tsx:Hb08a81ecfd73#1",
     ]);
     const { helperUses: _helpers, ...destination } = inventory.destination;
     expect(mutation.visibleDestination).toEqual(destination);
