@@ -35,12 +35,13 @@ describeDb("promotion target exclusion through real Catalog services", () => {
     },
   );
 
-  it.each([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14])(
+  it.each([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])(
     "retained mapper-derived create boundary %s never creates a second target",
     async (boundary) => {
       const retained = await retainedPlan("retained-A", boundary >= 13 ? "PRODUCT:SYNTHETIC-493958" : undefined);
-      expect(retained.plan.commands).toHaveLength(14);
+      expect(retained.plan.commands).toHaveLength(15);
       expect(retained.plan.commands[13].type).toBe("LinkExternalCatalogItemReference");
+      expect(retained.plan.commands[14].type).toBe("SetCatalogItemImageFallback");
       for (const command of retained.plan.commands.slice(0, boundary))
         await services.items.commandHandler({ streamId: `catalog.item-${retained.targetId}`, command, context });
       await record("incoming-B");
