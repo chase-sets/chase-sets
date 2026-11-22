@@ -1,6 +1,11 @@
 import { expect, test, type Locator, type Page, type TestInfo } from "@playwright/test";
 import { createPgPool, withPgTransaction, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { authenticateAdmin, expectAdminPageReady, expectPageOk, skipDeployedAdminE2e } from "./support/admin-e2e";
+import {
+  authenticatePlatformAdmin,
+  expectAdminPageReady,
+  expectPageOk,
+  skipDeployedAdminE2e,
+} from "./support/admin-e2e";
 
 const SKIP_REASON = "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.";
 const SEED_SKIP_REASON = "The import job status filter journey seeds the local Catalog E2E database.";
@@ -37,7 +42,7 @@ test.describe.serial("catalog import job status filter", () => {
       test.skip(process.env.PLAYWRIGHT_SKIP_WEB_SERVER === "true", SEED_SKIP_REASON);
 
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
-      await authenticateAdmin(page, "/catalog/scopes", "/access/sign-in");
+      await authenticatePlatformAdmin(page, "/catalog/scopes", "/access/sign-in");
       await expectPageOk(page, "/catalog/scopes");
       await expectAdminPageReady(page, { heading: "Scopes" });
 

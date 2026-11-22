@@ -15,6 +15,7 @@ export type MembershipRow = Readonly<{
   account_display_name: string | null;
   account_name: string | null;
   role_key: string;
+  /** Display snapshot; not a source of grants. */
   role_permissions: readonly string[];
   status: string;
   updated_at: string;

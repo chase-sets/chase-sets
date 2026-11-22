@@ -1,7 +1,12 @@
 import { expect, test, type TestInfo } from "@playwright/test";
 import { createPgPool, withPgTransaction, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { captureResponsiveEvidence } from "@chase-sets/playwright-evidence";
-import { authenticateAdmin, expectAdminPageReady, expectPageOk, skipDeployedAdminE2e } from "./support/admin-e2e";
+import {
+  authenticatePlatformAdmin,
+  expectAdminPageReady,
+  expectPageOk,
+  skipDeployedAdminE2e,
+} from "./support/admin-e2e";
 
 const SKIP_REASON = "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.";
 
@@ -20,7 +25,7 @@ test.describe.serial("catalog admin scopes", () => {
     test.setTimeout(120_000);
     test.skip(skipDeployedAdminE2e, SKIP_REASON);
 
-    await authenticateAdmin(page, "/catalog/scopes", "/access/sign-in");
+    await authenticatePlatformAdmin(page, "/catalog/scopes", "/access/sign-in");
     await expectPageOk(page, "/catalog/scopes");
 
     await expectAdminPageReady(page, { heading: "Scopes" });
@@ -50,7 +55,7 @@ test.describe.serial("catalog admin scopes", () => {
     test.setTimeout(120_000);
     test.skip(skipDeployedAdminE2e, SKIP_REASON);
 
-    await authenticateAdmin(page, "/catalog/scopes", "/access/sign-in");
+    await authenticatePlatformAdmin(page, "/catalog/scopes", "/access/sign-in");
     await expectPageOk(page, "/catalog/scopes");
     await expectAdminPageReady(page, { heading: "Scopes" });
 
@@ -77,7 +82,7 @@ test.describe.serial("catalog admin scopes", () => {
     test.setTimeout(120_000);
     test.skip(skipDeployedAdminE2e, SKIP_REASON);
 
-    await authenticateAdmin(page, "/catalog/scopes", "/access/sign-in");
+    await authenticatePlatformAdmin(page, "/catalog/scopes", "/access/sign-in");
     await expectPageOk(page, "/catalog/scopes");
     await expectAdminPageReady(page, { heading: "Scopes" });
 
@@ -96,7 +101,7 @@ test.describe.serial("catalog admin scopes", () => {
     test.setTimeout(120_000);
     test.skip(skipDeployedAdminE2e, SKIP_REASON);
 
-    await authenticateAdmin(page, "/catalog/scopes", "/access/sign-in");
+    await authenticatePlatformAdmin(page, "/catalog/scopes", "/access/sign-in");
     await expectPageOk(page, "/catalog/scopes");
     await expectAdminPageReady(page, { heading: "Scopes" });
 
@@ -109,7 +114,7 @@ test.describe.serial("catalog admin scopes", () => {
     test.setTimeout(120_000);
     test.skip(skipDeployedAdminE2e, SKIP_REASON);
 
-    await authenticateAdmin(page, "/catalog/scopes/sync-batches", "/access/sign-in");
+    await authenticatePlatformAdmin(page, "/catalog/scopes/sync-batches", "/access/sign-in");
     await expectPageOk(page, "/catalog/scopes/sync-batches");
     await expectAdminPageReady(page, { heading: "Scope Sync Batches" });
     await seedHeldSetScopeSyncScenario(testInfo);
