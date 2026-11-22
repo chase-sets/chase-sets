@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import {
-  authenticateAdmin,
+  authenticatePlatformAdmin,
   createReadAfterWriteHeaderFactoryFromUrl,
   expectAdminPageReady,
   expectPageOk,
@@ -68,7 +68,7 @@ test.describe("commerce admin postage policies", () => {
     );
 
     await page.setViewportSize({ width: 1280, height: 900 });
-    await authenticateAdmin(page, "/commerce/postage-policies", "/access/sign-in");
+    await authenticatePlatformAdmin(page, "/commerce/postage-policies", "/access/sign-in");
     await expectPageOk(page, "/commerce/postage-policies");
     await expect(page).toHaveURL(/\/commerce\/postage-policies$/);
     await expectAdminPageReady(page, { heading: "Postage Policies" });

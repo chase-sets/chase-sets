@@ -33,6 +33,7 @@ export function resolveSettlementMarketplaceOrigin() {
 export async function loader({ request }: LoaderFunctionArgs) {
   const actor = await resolveActorFromAuthApi({ request });
   const canReconcile = actor?.permissions.includes("payouts.reconcile") ?? false;
+  const canViewPayoutReadiness = actor?.permissions.includes("payouts.view") ?? false;
   const settlementApi = createSettlementRequestApiClient(request);
   const requestUrl = new URL(request.url);
   const filter = requestUrl.searchParams.get("filter") ?? "all";
@@ -40,7 +41,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const [payouts, idempotencyKeys, payoutReadiness] = await Promise.all([
     settlementApi.listPayoutsNeedingReconciliation(query),
     canReconcile ? settlementApi.listPayoutProviderIdempotencyKeys("limit=10") : null,
-    canReconcile ? settlementApi.getPayoutReadiness() : null,
+    canReconcile && canViewPayoutReadiness ? settlementApi.getPayoutReadiness() : null,
   ]);
 
   return {

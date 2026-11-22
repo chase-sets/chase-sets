@@ -24,7 +24,7 @@ use corten::{
     http::{HeaderMap, StatusCode},
     prelude::*,
 };
-use platform::receipt::Receipt;
+use platform::{post_write::Surface, receipt::Receipt};
 use serde::Serialize;
 use serde_json::json;
 
@@ -123,6 +123,14 @@ impl ReviewScreen {
     }
 }
 
+/// The page's post-write reports (marketplace's `ACCOUNT_REVIEW_POST_WRITE_TELEMETRY`).
+const REVIEW: Surface = Surface {
+    context: "marketplace",
+    surface: "account-review",
+    route_id: "account-review",
+    route_template: "/account/reviews/:reviewId",
+};
+
 pub(crate) async fn page(
     req: Req,
     Caller(ReviewMember(viewer)): Caller<ReviewMember>,
@@ -134,7 +142,7 @@ pub(crate) async fn page(
     let receipt = Receipt::from_param(place.after_write.as_deref());
     let caller = config.platform.caller(&headers, config.proto, receipt.as_ref());
     let report = place.reported.as_deref().filter(|r| *r == id).map(|_| ReviewNotice::Submitted);
-    match read(&caller, &viewer, &id).await {
+    match read(&caller, &viewer, &id, receipt.is_some()).await {
         Ok(mut screen) => {
             screen.report = report;
             render(&req, &viewer, &screen, StatusCode::OK)
@@ -144,8 +152,11 @@ pub(crate) async fn page(
     }
 }
 
-async fn read(caller: &ApiCaller<'_>, viewer: &Viewer, id: &str) -> Result<ReviewScreen, ApiError> {
-    let review = caller.review(id).await?;
+/// The review, read after a fresh write (`fresh`) or not.
+async fn read(caller: &ApiCaller<'_>, viewer: &Viewer, id: &str, fresh: bool) -> Result<ReviewScreen, ApiError> {
+    let review = caller.review(id).await;
+    REVIEW.read(&review, fresh);
+    let review = review?;
     Ok(ReviewScreen { review, viewer_account: viewer.actor.account_id.clone(), report: None, reply: None })
 }
 
@@ -219,7 +230,7 @@ async fn again(
     status: StatusCode,
     said: impl FnOnce(&mut ReviewScreen),
 ) -> HtmlResult {
-    match read(caller, viewer, id).await {
+    match read(caller, viewer, id, false).await {
         Ok(mut screen) => {
             said(&mut screen);
             render(req, viewer, &screen, status)
@@ -256,6 +267,7 @@ async fn reply(req: &Req, viewer: &Viewer, caller: &ApiCaller<'_>, id: &str, att
     };
     match caller.reply_to_review(id, attempt, &feedback).await {
         Ok(receipt) => {
+            REVIEW.navigated(receipt.as_ref(), None);
             let after_write = receipt.map(|r| r.param());
             req.redirect(&url::Review { id, place: ReviewPlace { after_write, reported: None } })
         }

@@ -1,5 +1,10 @@
 import { expect, test } from "@playwright/test";
-import { authenticateAdmin, expectAdminWebHydrated, expectPageOk, skipDeployedAdminE2e } from "./support/admin-e2e";
+import {
+  authenticatePlatformAdmin,
+  expectAdminWebHydrated,
+  expectPageOk,
+  skipDeployedAdminE2e,
+} from "./support/admin-e2e";
 
 test.describe("growth admin promo bar", () => {
   test("operator creates and activates a promo bar message @admin-growth", async ({ page }) => {
@@ -9,7 +14,7 @@ test.describe("growth admin promo bar", () => {
       "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
     );
 
-    await authenticateAdmin(page, "/growth/promo-bar", "/access/sign-in");
+    await authenticatePlatformAdmin(page, "/growth/promo-bar", "/access/sign-in");
     await expectPageOk(page, "/growth/promo-bar");
     await expect(page).toHaveURL(/\/growth\/promo-bar$/);
     await expect(page.getByRole("heading", { name: "Promo Bar" })).toBeVisible();

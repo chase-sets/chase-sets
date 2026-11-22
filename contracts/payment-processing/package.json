@@ -9,7 +9,7 @@
     "./gateway-contract": "./gateway-contract.test-support.ts"
   },
   "scripts": {
-    "typecheck": "tsc -p ./tsconfig.json --noEmit",
+    "typecheck": "node ../../scripts/verify-typecheck.mjs --workspace=@chase-sets/payment-processing",
     "test": "vitest run --config ./vitest.config.ts",
     "test:watch": "vitest --config ./vitest.config.ts"
   },

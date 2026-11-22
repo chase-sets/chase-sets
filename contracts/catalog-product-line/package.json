@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "scripts": {
+    "typecheck": "node ../../scripts/verify-typecheck.mjs --workspace=@chase-sets/catalog-product-line"
+  },
   "exports": {
     ".": "./index.ts"
   }

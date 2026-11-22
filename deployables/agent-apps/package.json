@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "vite build --configLoader runner --mode product-cards && vite build --configLoader runner --mode cart-review && vite build --configLoader runner --mode checkout-handoff",
-    "typecheck": "tsc -p ./tsconfig.json --noEmit",
+    "typecheck": "node ../../scripts/verify-typecheck.mjs --workspace=@chase-sets/app-agent-apps",
     "test": "vitest run --config ./vitest.config.ts",
     "test:chromium": "pnpm run build && playwright test"
   },

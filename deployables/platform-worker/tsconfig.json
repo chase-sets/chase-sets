@@ -4,13 +4,7 @@
     "rootDir": "../..",
     "types": ["node"]
   },
-  "include": [
-    "src/**/*.ts",
-    "__tests__/**/*.ts",
-    "../../contracts/**/*.ts",
-    "../../bounded-contexts/**/*.ts",
-    "../../infrastructure/**/*.ts"
-  ],
+  "include": ["src/**/*.ts", "__tests__/**/*.ts"],
   "exclude": [
     "../../bounded-contexts/**/*.test.ts",
     "../../bounded-contexts/**/*.test.tsx",

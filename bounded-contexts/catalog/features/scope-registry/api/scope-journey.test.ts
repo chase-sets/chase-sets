@@ -354,9 +354,16 @@ describe("readCatalogScopeJourney", () => {
   });
 
   it("reports a failed alias review as a partial failure with editions but no candidates", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const getAliasReview = vi.fn().mockRejectedValue(new Error("alias review down"));
     const result = await readCatalogScopeJourney({ scope: scope(), generatedAt, getAliasReview });
 
+    expect(warn).toHaveBeenCalledExactlyOnceWith("[catalog] scope journey could not read the alias review", {
+      scopeRecordId: "scope_expansion_paldean_fates",
+      referenceRecordId: "ref_expansion_paldean_fates",
+      error: "alias review down",
+    });
+    warn.mockRestore();
     expect(result.languageEditionReviewFailed).toBe(true);
     expect(result.languageEditions?.editions.map((edition) => [edition.languageCode, edition.linkState])).toEqual([
       ["en", "linked"],
@@ -366,8 +373,17 @@ describe("readCatalogScopeJourney", () => {
   });
 
   it("reports a missing alias review reader as a partial failure", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const result = await readCatalogScopeJourney({ scope: scope(), generatedAt, getAliasReview: undefined });
 
+    expect(warn).toHaveBeenCalledExactlyOnceWith(
+      "[catalog] scope journey could not read the alias review",
+      expect.objectContaining({
+        scopeRecordId: "scope_expansion_paldean_fates",
+        error: "The alias review is unavailable.",
+      }),
+    );
+    warn.mockRestore();
     expect(result.languageEditionReviewFailed).toBe(true);
     expect(result.overview.condition).toBe("partial-failure");
   });

@@ -306,30 +306,23 @@ describe("recovered item MCP handlers", () => {
       total: 1,
     } as never);
     const boundary = native(fake);
-    expect((await boundary.call("list-recovered-items", {})).result.structuredContent).toMatchObject({
+    const handlers = createRecoveredItemMcpHandlers(fake);
+    await expect(
+      handlers.toolHandlers["inventory.list-recovered-items"]!({ actor, arguments: {} } as never),
+    ).resolves.toMatchObject({
       items: [{ evidence_references: [], disposition_authority: null }],
       count: 1,
       total: 1,
     });
-    boundary.state.authority = {
-      kind: "granted",
-      membershipId: "mem_op",
-      roleKey: "platform-admin",
-      rolePermissions: [...actor.permissions, "recovered-inventory.evidence"],
-    };
     expect(
       (await boundary.call("list-recovered-items", { limit: 250, offset: 250 })).result.structuredContent,
     ).toMatchObject({
       items: [{ evidence_references: ["private-evidence"], disposition_authority: { private: true } }],
     });
     expect(fake.list).toHaveBeenLastCalledWith({ status: null, limit: 250, offset: 250 });
-    boundary.state.authority = {
-      kind: "granted",
-      membershipId: "mem_op",
-      roleKey: "platform-admin",
-      rolePermissions: ["recovered-inventory.view"],
-    };
     const input = writeInput("inspect-recovered-item", { conditionGrade: "near-mint" });
+    boundary.state.authority = { kind: "denied", reason: "not-platform-admin" };
+    boundary.state.actor = { ...actor, roleKey: "owner" };
     expect((await boundary.call("inspect-recovered-item", input)).result.isError).toBe(true);
     boundary.state.authority = {
       kind: "granted",

@@ -36,7 +36,7 @@ use corten::{
     http::{HeaderMap, StatusCode},
     prelude::*,
 };
-use platform::receipt::Receipt;
+use platform::{post_write::Surface, receipt::Receipt};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -469,6 +469,7 @@ async fn render(
     let t: RepricingMsg = req.t();
     let receipt = Receipt::from_param(place.after_write.as_deref());
     let read = config.platform.caller(headers, config.proto, receipt.as_ref()).repricing_policy(id).await;
+    POLICY.read(&read, receipt.is_some());
     let (policy, raw) = match read {
         Ok(read) => read,
         // A write the read has not reached, or a policy just written that it does not have yet.
@@ -557,6 +558,15 @@ async fn render(
 }
 
 /// The page, read after the write its address names.
+/// A policy's post-write reports (Pricing's `REPRICING_POLICY_POST_WRITE_TELEMETRY`), which its
+/// Delete reports too; the halt's do not.
+const POLICY: Surface = Surface {
+    context: "pricing",
+    surface: "account-desk-repricing-policy",
+    route_id: "account-desk-repricing-policy",
+    route_template: "/account/desk/repricing/:policyId",
+};
+
 pub(crate) async fn page(
     req: Req,
     Caller(PricingManager(viewer)): Caller<PricingManager>,
@@ -595,9 +605,13 @@ pub(crate) async fn write(
             let change = intent.trim_end_matches("-policy");
             match caller.repricing_lifecycle(attempt, &id, change).await {
                 Ok(Configured { receipt, after }) if receipt.applied() && change == "delete" => {
+                    POLICY.navigated(after.as_ref(), None);
                     return req.redirect(&url::Repricing { place: crate::repricing::Place::list(after.as_ref()) });
                 }
-                Ok(Configured { receipt, after }) if receipt.applied() => return req.redirect(&here(after.as_ref())),
+                Ok(Configured { receipt, after }) if receipt.applied() => {
+                    POLICY.navigated(after.as_ref(), None);
+                    return req.redirect(&here(after.as_ref()));
+                }
                 answered => answered,
             }
         }
@@ -687,10 +701,13 @@ async fn editor(req: &Req, viewer: &Viewer, config: &Shared, headers: &HeaderMap
         }
         "revise-policy" => {
             match caller.revise_repricing_policy(form.attempt.as_ref().map(SubmitKey::as_str), id, &revise.candidate()).await {
-                Ok(Configured { receipt, after }) if receipt.applied() => req.redirect(&url::RepricingPolicy {
-                    id,
-                    place: Place { after_write: after.as_ref().map(Receipt::param), ..Place::default() },
-                }),
+                Ok(Configured { receipt, after }) if receipt.applied() => {
+                    POLICY.navigated(after.as_ref(), None);
+                    req.redirect(&url::RepricingPolicy {
+                        id,
+                        place: Place { after_write: after.as_ref().map(Receipt::param), ..Place::default() },
+                    })
+                }
                 Ok(Configured { receipt, .. }) => {
                     revise.requested = Some(Unsettled { receipt, attempt: form.attempt.clone() });
                     again(revise, StatusCode::OK).await

@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { expect, test, type Locator, type Page, type TestInfo } from "@playwright/test";
 import { createPgPool, withPgTransaction, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { authenticateAdmin, expectAdminWebHydrated, expectPageOk, skipDeployedAdminE2e } from "./support/admin-e2e";
+import {
+  authenticatePlatformAdmin,
+  expectAdminWebHydrated,
+  expectPageOk,
+  skipDeployedAdminE2e,
+} from "./support/admin-e2e";
 
 const SKIP_REASON = "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.";
 const PROVIDER_DETAIL_PATH = "/catalog/providers/tcgplayer";
@@ -33,7 +38,7 @@ test.describe.serial("catalog provider job diagnostics", () => {
       const consoleMessages: string[] = [];
       page.on("console", (message) => consoleMessages.push(message.text()));
 
-      await authenticateAdmin(page, PROVIDER_DETAIL_PATH, "/access/sign-in");
+      await authenticatePlatformAdmin(page, PROVIDER_DETAIL_PATH, "/access/sign-in");
       const actor = await currentActor(page);
       const jobs = await seedTerminalJobs(testInfo, actor);
       try {

@@ -7,6 +7,6 @@
     ".": "./index.ts"
   },
   "scripts": {
-    "typecheck": "tsc -p ./tsconfig.json --noEmit"
+    "typecheck": "node ../../scripts/verify-typecheck.mjs --workspace=@chase-sets/embedded-surface-theme"
   }
 }

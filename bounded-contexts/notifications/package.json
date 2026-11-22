@@ -7,7 +7,7 @@
     "testProfile": "db"
   },
   "scripts": {
-    "typecheck": "tsc -p ./tests/tsconfig.json --noEmit",
+    "typecheck": "node ../../scripts/verify-typecheck.mjs --workspace=@chase-sets/notifications",
     "test": "vitest run --config ./tests/vitest.config.mjs --exclude **/*.db.test.ts",
     "test:watch": "vitest --config ./tests/vitest.config.mjs --exclude **/*.db.test.ts",
     "test:fast": "vitest run --config ./tests/vitest.config.mjs --exclude **/*.db.test.ts",

@@ -1312,9 +1312,13 @@ describe("isOperatorToolAllowed", () => {
     },
   );
 
-  it("denies when the authority's role permissions lack the tool's required permission", async () => {
+  it("denies when the canonical role lacks a permission even if the authority snapshot supplies it", async () => {
+    const tool = {
+      ...readTool,
+      permissionBoundary: { ...readTool.permissionBoundary, requiredPermissions: ["orders.manage"] },
+    };
     await expect(
-      isOperatorToolAllowed(readTool, operatorActor, async () => ({ ...granted, rolePermissions: ["catalog.view"] })),
+      isOperatorToolAllowed(tool, operatorActor, async () => ({ ...granted, rolePermissions: ["orders.manage"] })),
     ).resolves.toEqual({ allowed: false, reason: "operator-role-permission-missing" });
   });
 

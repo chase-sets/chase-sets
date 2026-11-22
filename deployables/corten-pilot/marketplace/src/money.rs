@@ -36,7 +36,8 @@ use corten::{
     i18n::Currency,
     prelude::*,
 };
-use platform::receipt::Receipt;
+use platform::{post_write::Surface, receipt::Receipt};
+
 use serde::Serialize;
 
 use crate::{
@@ -74,6 +75,22 @@ impl Place {
         }
     }
 }
+
+/// The Money dashboard's post-write reports (marketplace's `MONEY_DASHBOARD_POST_WRITE_TELEMETRY`).
+const MONEY: Surface = Surface {
+    context: "settlement",
+    surface: "account-desk-money",
+    route_id: "account-desk-money",
+    route_template: "/account/desk/money",
+};
+
+/// A payout page's (`PAYOUT_DETAIL_POST_WRITE_TELEMETRY`).
+const PAYOUT: Surface = Surface {
+    context: "settlement",
+    surface: "account-desk-payout",
+    route_id: "account-desk-payout",
+    route_template: "/account/desk/payouts/:payoutId",
+};
 
 const ADJUSTMENT_DRAWER: &str = "wallet-adjustment";
 
@@ -252,6 +269,7 @@ pub(crate) async fn write(
             let amount = input.amount.trim();
             match caller.request_payout(attempt_text(&input.attempt), amount, input.note().as_deref()).await {
                 Ok((id, receipt)) => {
+                    MONEY.navigated(receipt.as_ref(), None);
                     let place = PayoutPlace { requested: Some("1".into()), after_write: receipt.map(|r| r.param()) };
                     req.redirect(&url::DeskPayout { id: &id, place })
                 }
@@ -309,7 +327,9 @@ pub(crate) async fn payout(
     let (id, place) = (route.id, route.place);
     let receipt = Receipt::from_param(place.after_write.as_deref());
     let caller = config.platform.caller(&headers, config.proto, receipt.as_ref());
-    let payout = match caller.payout(&id).await {
+    let read = caller.payout(&id).await;
+    PAYOUT.read_found(&read, receipt.is_some());
+    let payout = match read {
         Ok(Some(payout)) => payout,
         Ok(None) if receipt.is_some() => return preparing(&req, &viewer),
         Ok(None) => return Err(corten::Error::status(StatusCode::NOT_FOUND)),
