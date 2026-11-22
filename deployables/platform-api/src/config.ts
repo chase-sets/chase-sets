@@ -127,7 +127,6 @@ export type PlatformApiDiscoverySearchEmbeddingConfig = Readonly<{
   retryBackoffMaxMs: number;
   rolloutValue: string | null;
   rescueValue: string | null;
-  hybridValue: string | null;
   queryCacheMaxEntries: number;
   queryCacheTtlMs: number;
   queryTimeoutMs: number;
@@ -935,7 +934,6 @@ export function loadConfig(): PlatformApiConfig {
       retryBackoffMaxMs: getPositiveNumberEnv("VOYAGE_EMBEDDING_RETRY_BACKOFF_MAX_MS", 10_000),
       rolloutValue: getOptionalEnv("DISCOVERY_SEARCH_EMBEDDINGS"),
       rescueValue: getOptionalEnv("DISCOVERY_SEARCH_RESCUE"),
-      hybridValue: getOptionalEnv("DISCOVERY_SEARCH_HYBRID"),
       queryCacheMaxEntries: getPositiveNumberEnv("DISCOVERY_QUERY_EMBEDDING_CACHE_MAX_ENTRIES", 1_000),
       queryCacheTtlMs: getPositiveNumberEnv("DISCOVERY_QUERY_EMBEDDING_CACHE_TTL_MS", 900_000),
       queryTimeoutMs: getBoundedDurationEnv("DISCOVERY_QUERY_EMBEDDING_TIMEOUT_MS", 800, {

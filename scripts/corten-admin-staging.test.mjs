@@ -49,7 +49,7 @@ describe("Corten admin staging deployment", () => {
 
   it("preserves the production values at the deployment baseline", () => {
     for (const [file, digest] of Object.entries({
-      "values.yaml": "9a59ee732b8360e3d6d8aff6b474e52b75fb0c1078a5d4aa548117cf2bf48dd6",
+      "values.yaml": "fc374d3d46b6998cf31a553f16edbdbfd10e1c194f5e0c9e8e3ba1871dccbf6c",
       "values.production.yaml": "71515689eabc8c257834810ef7fbb65b4f69cc71e054055c9005a08c6dffb81e",
     })) {
       expect(

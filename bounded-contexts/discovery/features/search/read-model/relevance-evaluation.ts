@@ -106,15 +106,14 @@ export async function runDiscoveryRelevanceEvaluation(
   for (const goldenQuery of input.goldenQueries) {
     failProvider = goldenQuery.scenario === "provider-failure";
     for (const mode of RELEVANCE_MODES) {
-      const semantic = mode !== "lexical-only";
+      const rescueEnabled = mode === "semantic-fallback";
       const callsBefore = providerCalls;
       const result = await retrieveDiscoveryItems(
         {
           db,
           provider,
           cache: createQueryEmbeddingCache(),
-          rescueEnabled: mode !== "hybrid" ? semantic : true,
-          hybridEnabled: mode === "hybrid",
+          rescueEnabled,
         },
         { ...goldenQuery.request, search: goldenQuery.query, limit: 50, includeTotal: true },
       );
