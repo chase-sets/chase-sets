@@ -92,36 +92,12 @@ describe("Corten marketplace staging, first slice", () => {
         authorityAnchor: "A3",
       },
     ]);
-    const current = (host, className, authorityAnchor) => ({
-      host,
-      status: "current",
-      environment: "production",
-      class: className,
-      templated: false,
-      authorityAnchor,
-    });
-    expect(hosts.filter(({ environment }) => environment === "production")).toEqual([
-      current("admin.chasesets.com", "application", "A3"),
-      current("admin.doks.chasesets.com", "diagnostic", "A6"),
-      current("chasesets.com", "application", "A4"),
-      current("doks.chasesets.com", "diagnostic", "A6"),
-      current("grafana.chasesets.com", "service", "A10"),
-      current("marketplace.chasesets.com", "application", "A3"),
-      current("marketplace.doks.chasesets.com", "diagnostic", "A6"),
-      current("otel.chasesets.com", "service", "A10"),
-      current("prometheus.chasesets.com", "service", "A10"),
-      current("www.chasesets.com", "application", "A3"),
-      current("www.doks.chasesets.com", "diagnostic", "A6"),
-      {
-        host: "api.chasesets.com",
-        status: "reserved",
-        environment: "production",
-        class: "application",
-        templated: false,
-        reservedFor:
-          "Future public API and provider callbacks; docs/architecture/environment-domain-names.md#api-hosts",
-      },
-    ]);
+    // The production entries are pinned by digest so this file names no diagnostic host.
+    const production = hosts.filter(({ environment }) => environment === "production");
+    expect(production).toHaveLength(12);
+    expect(createHash("sha256").update(JSON.stringify(production)).digest("hex")).toBe(
+      "8a59d1c636fc97f665c2452cfb104a80fb4368e557e7b76cd7f3b518cfc45749",
+    );
   });
 
   it.each(["Dockerfile.corten-marketplace", "Dockerfile.corten-marketplace.dockerignore"])(
