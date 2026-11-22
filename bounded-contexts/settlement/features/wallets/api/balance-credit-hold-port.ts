@@ -30,5 +30,7 @@ export function createSettlementWalletSpendHoldPort(pool: PgTransactionalPool): 
   return {
     placeSpendHold: wallets.placeSpendHold,
     releaseSpendHold: wallets.releaseSpendHold,
+    retireSpendHold: wallets.retireSpendHold,
+    setSpendHoldExpiry: wallets.setSpendHoldExpiry,
   };
 }

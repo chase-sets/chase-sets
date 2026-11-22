@@ -58,6 +58,11 @@ const boundedSites = [
     pointer: "bounded-contexts/marketplace/features/reports/api/runtime.test.ts",
     consumption: "presence",
   },
+  {
+    id: "bounded-contexts/payments/features/payments/api/reservation-sweep.ts#readStream#1",
+    pointer: "bounded-contexts/payments/tests/payment-reservation-sweep.db.test.ts",
+    consumption: "presence",
+  },
 ];
 
 const expectedInventory = [
@@ -132,7 +137,7 @@ const program = ts.createProgram({
 const candidateInventory = deriveProgramInventory(program);
 
 describe("bounded-stream-contracts-acceptance-control", () => {
-  it("derives the exact tracked-call corpus and six production pointer/test bindings from one TypeScript Program", () => {
+  it("derives the exact tracked-call corpus and seven production pointer/test bindings from one TypeScript Program", () => {
     expect(acceptanceErrors(candidateInventory)).toEqual([]);
     expect(candidateInventory.map((site) => [site.id, site.limit])).toEqual(expectedInventory);
   });
