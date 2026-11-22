@@ -110,6 +110,23 @@ export async function screenRegistrationEmailDomain(
   return { ok: false, failure: disposableEmailFailure(domain, config.disposableEmailMode) };
 }
 
+/**
+ * A new User gets a Founders Window only when a beta wave admitted their Waitlist Signup.
+ * An Invitation admits registration but never qualifies on its own. A failed lookup throws.
+ */
+export async function qualifiesForFoundersWindow(services: AuthServices, email: string): Promise<boolean> {
+  if (registrationConfig(services).mode === "open") {
+    return false;
+  }
+
+  const normalizedEmail = services.identity.normalizeEmail(email);
+  if (!normalizedEmail) {
+    return false;
+  }
+
+  return Boolean(await services.registrationAdmission?.findAdmittedWaitlistSignupByEmail?.(normalizedEmail));
+}
+
 export async function requireRegistrationAdmission(
   services: AuthServices,
   email: string | null | undefined,
@@ -128,8 +145,7 @@ export async function requireRegistrationAdmission(
     return { ok: true };
   }
 
-  const waveAdmission = await services.registrationAdmission?.findAdmittedWaitlistSignupByEmail?.(normalizedEmail);
-  if (waveAdmission) {
+  if (await qualifiesForFoundersWindow(services, normalizedEmail)) {
     return { ok: true, foundersBetaAccessStartedAt: new Date().toISOString() };
   }
 

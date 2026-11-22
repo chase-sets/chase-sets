@@ -42,7 +42,9 @@ import {
 import { stableJsonStringify } from "../source-observation-job-serialization";
 import {
   type CatalogProviderProfileSectionEdit,
+  type CatalogProviderProfileSectionField,
   catalogProviderProfileSectionCommandFromEdit,
+  catalogProviderProfileSectionFields,
   isCatalogProviderProfileSectionEdit,
 } from "./provider-profile-section-edit";
 import { catalogProviderRequiredFixtureFlows } from "./provider-integration-mapping-contract";
@@ -255,7 +257,9 @@ export type CatalogProviderProfileDuplicatePreventionCandidatePreview = Readonly
   evidenceSummaries: JsonValue;
 }>;
 
-export type CatalogProviderProfileEditableSection = CatalogProviderProfileEditableSectionMetadata;
+/** An editable section and its form's fields, so a client draws the form from Catalog, not a copy. */
+export type CatalogProviderProfileEditableSection = CatalogProviderProfileEditableSectionMetadata &
+  Readonly<{ fields: readonly CatalogProviderProfileSectionField[] }>;
 
 export type CatalogProviderProfileFixtureMetadata = Readonly<{
   flow: CatalogProviderProfileFixtureCase["flow"];
@@ -880,7 +884,10 @@ export async function retireCatalogProviderProfileVersionForReview(input: {
 }
 
 function catalogProviderProfileEditableSections(): readonly CatalogProviderProfileEditableSection[] {
-  return catalogProviderProfileEditableSectionMetadata();
+  return catalogProviderProfileEditableSectionMetadata().map((metadata) => ({
+    ...metadata,
+    fields: catalogProviderProfileSectionFields[metadata.section],
+  }));
 }
 
 function authoringFixtureCasesForVersion(
