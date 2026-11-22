@@ -20,6 +20,7 @@ import {
   type ReserveOwnerStreamInput,
 } from "@chase-sets/event-core/owner-stream-reservation";
 import { ListingRequestConflictError } from "@chase-sets/marketplace/server";
+import type { PricingEvaluationAuthority } from "@chase-sets/pricing/server";
 
 export function createPlatformListingTargetAuthority(
   input: Readonly<{
@@ -28,6 +29,7 @@ export function createPlatformListingTargetAuthority(
     auth: () => ReturnType<typeof authModule.createServices>;
     identity: () => IdentityServices;
     channels: () => ChannelsServices;
+    pricing?: () => PricingEvaluationAuthority | undefined;
   }>,
 ) {
   const consumer = createMarketplaceListingConsumer(input.marketplace);
@@ -43,6 +45,65 @@ export function createPlatformListingTargetAuthority(
     },
   });
   const authority: ListingTargetAuthority = {
+    ...(input.pricing
+      ? {
+          pricing: {
+            async prepare(
+              { input: command, principal, listing, createdAt, basePriceRevision, requestId, commandFingerprint },
+              context,
+            ) {
+              const pricing = input.pricing?.();
+              if (
+                !pricing ||
+                !listing.productId ||
+                !listing.catalogItemId ||
+                !listing.inventoryItemId ||
+                !listing.priceAmount ||
+                !listing.priceCurrencyCode ||
+                listing.status === "withdrawn" ||
+                listing.publicationScope !== "channel-only"
+              )
+                throw new Error("Pricing decision authority is unavailable.");
+              return pricing.prepare(
+                {
+                  requestId,
+                  commandFingerprint,
+                  consumer: await consumer.initialize(),
+                  tenantId: context.tenantId,
+                  accountId: command.accountId,
+                  principal: {
+                    userId: principal.userId,
+                    membershipId: principal.membershipId,
+                    sessionId: principal.sessionId,
+                  },
+                  listingId: command.listingId,
+                  listingVersion: command.expectedListingVersion,
+                  catalogItemId: listing.catalogItemId,
+                  productId: listing.productId,
+                  target: command.target,
+                  decision: command.decision,
+                  priceAmount: command.priceAmount,
+                  priceCurrencyCode: command.priceCurrencyCode,
+                },
+                {
+                  inventoryItemId: listing.inventoryItemId,
+                  priceAmount: listing.priceAmount,
+                  priceCurrencyCode: listing.priceCurrencyCode,
+                  quantityCap: listing.quantityCap,
+                  createdAt,
+                  basePriceRevision,
+                  grading: listing.gradedCard ? "graded" : "raw",
+                  selectedOptions: listing.selectedOptions,
+                },
+                context,
+              );
+            },
+            async settle({ requestId, commandFingerprint }, abort) {
+              await input.pricing?.()?.settle(requestId, commandFingerprint, abort);
+            },
+          },
+        }
+      : {}),
     async recoverRequest(request) {
       const identity = await consumer.initialize();
       const values = await Promise.all(

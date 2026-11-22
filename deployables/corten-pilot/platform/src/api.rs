@@ -86,12 +86,14 @@ impl Platform {
         &self.origin
     }
 
-    /// Calls for one browser request: its cookies, its host and the receipt of a write it follows.
+    /// Calls for one browser request: its cookies, its bearer session token
+    /// ([`crate::session::bearer`]), its host and the receipt of a write it follows.
     pub fn caller(&self, headers: &HeaderMap, proto: &'static str, receipt: Option<&Receipt>) -> Caller<'_> {
         let text = |name| headers.get(name).and_then(|v| v.to_str().ok()).map(str::to_owned);
         Caller {
             platform: self,
             cookie: text(header::COOKIE),
+            bearer: crate::session::bearer(headers).and_then(|v| v.to_str().ok()).map(str::to_owned),
             host: text(header::HOST).unwrap_or_else(|| "localhost".into()),
             proto,
             receipt: receipt.map(Receipt::header),
@@ -102,7 +104,7 @@ impl Platform {
     /// configured instead of the request's, for a handler that cannot read who is asking
     /// (`corten::Public`).
     pub fn anonymous(&self, host: &str, proto: &'static str) -> Caller<'_> {
-        Caller { platform: self, cookie: None, host: host.to_owned(), proto, receipt: None }
+        Caller { platform: self, cookie: None, bearer: None, host: host.to_owned(), proto, receipt: None }
     }
 }
 
@@ -117,6 +119,7 @@ fn origin_from(var: impl Fn(&str) -> Option<String>) -> String {
 pub struct Caller<'a> {
     platform: &'a Platform,
     cookie: Option<String>,
+    bearer: Option<String>,
     host: String,
     proto: &'static str,
     receipt: Option<String>,
@@ -153,8 +156,15 @@ impl Caller<'_> {
         if let Some(cookie) = &self.cookie {
             req = req.header(header::COOKIE, cookie);
         }
+        if let Some(bearer) = &self.bearer {
+            req = req.header(header::AUTHORIZATION, bearer);
+        }
         if let Some(receipt) = &self.receipt {
             req = req.header("chase-sets-read-after-write", receipt);
+        }
+        #[cfg(feature = "otlp")]
+        for (name, value) in crate::telemetry::inject() {
+            req = req.header(name, value);
         }
         req
     }

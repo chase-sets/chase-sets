@@ -244,6 +244,7 @@ loop ([#11327 [infrastructure] Deploy the Corten admin app to staging next to ad
 | `PUBLIC_WEB_ORIGIN` | `http://localhost:7754` | public: public-web's pages it does not serve (the developer pages, `llms.txt`) and its analytics endpoint |
 | `PROXIES` | none | every app (read by Corten): the proxies in front, comma separated addresses or networks (`10.0.0.0/8`), whose `X-Forwarded-For` `ClientIp` follows back to the visitor; without it the visitor is the connection's peer. Set it where a deploy would have set `CHASE_SETS_TRUST_FORWARDED_HEADERS` for the Node apps. public's Join sends the address to the API |
 | `CHASE_SETS_DISCORD_INVITE_URL` | none | public: the Discord invite the home page links, when set |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | none | marketplace: the collector it sends traces, logs and metrics to over OTLP HTTP, as marketplace-web does ([telemetry.rs](platform/src/telemetry.rs)); without it nothing is exported. It reads marketplace-web's other variables too: `OBSERVABILITY_ENABLED` (`false` turns export off), `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_SERVICE_NAME` (else `marketplace-web`), `OTEL_SERVICE_VERSION`, `DEPLOYMENT_ENVIRONMENT`, `OTEL_RESOURCE_ATTRIBUTES`, `OTEL_TRACES_SAMPLER` and `OTEL_TRACES_SAMPLER_ARG` |
 
 The [export](scripts/export.mjs) writes what the apps read from Chase Sets' sources: each screen's English
 text (`*/locales/*.en.json`), each app's navigation, admin's defaults, the design system's tokens

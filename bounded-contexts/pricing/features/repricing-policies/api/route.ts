@@ -18,7 +18,9 @@ import {
 import type { RepricingFloor, RepricingPolicyScope } from "../domain/domain";
 import { RepricingConfigurationConflict } from "./configuration";
 
-export function createRepricingPolicyRoutes(services: RepricingPolicyServices & RepricingPolicyActivationServices) {
+export function createRepricingPolicyRoutes(
+  services: Omit<RepricingPolicyServices, "commandHandler"> & RepricingPolicyActivationServices,
+) {
   const app = new Hono<PricingApiEnv>();
   app.onError((error, c) => {
     if (error instanceof RepricingConfigurationConflict)
