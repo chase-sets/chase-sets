@@ -542,7 +542,7 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
   return app;
 }
 
-function toExpectedVersion(value: unknown): ExpectedStreamVersion | undefined {
+export function toExpectedVersion(value: unknown): ExpectedStreamVersion | undefined {
   if (value === undefined || value === "any" || value === "no_stream") {
     return value;
   }
@@ -552,7 +552,7 @@ function toExpectedVersion(value: unknown): ExpectedStreamVersion | undefined {
   throw new CatalogDomainError("expectedVersion must be a non-negative integer, any, or no_stream.");
 }
 
-function catalogItemListQueryFromRecord(record: Record<string, unknown>) {
+export function catalogItemListQueryFromRecord(record: Record<string, unknown>) {
   return {
     search: optionalStringFromBulk(record.search),
     status: optionalStringFromBulk(record.status),
@@ -648,7 +648,7 @@ function toLocalizedTextMap(value: unknown): LocalizedTextMap {
   };
 }
 
-function toImageFallback(value: unknown): CatalogItemImageFallback {
+export function toImageFallback(value: unknown): CatalogItemImageFallback {
   const fallback = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 
   return {

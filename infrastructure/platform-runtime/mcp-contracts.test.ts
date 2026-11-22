@@ -70,24 +70,29 @@ function matchesType(value: unknown, expected: McpJsonSchemaProperty["type"]): b
 }
 
 function validateProperty(value: unknown, schema: McpJsonSchemaProperty, path: string): string[] {
+  if (schema.anyOf && !schema.anyOf.some((branch) => validateProperty(value, branch, path).length === 0)) {
+    return [`${path} did not match any allowed shape.`];
+  }
+  if (schema.type === undefined || (value === null && Array.isArray(schema.type))) return [];
   if (!matchesType(value, schema.type)) {
     return [`${path} expected ${schema.type} but received ${actualType(value)}.`];
   }
 
   const errors: string[] = [];
+  const type = typeof schema.type === "string" ? schema.type : schema.type[0];
   if (schema.enum && typeof value === "string" && !schema.enum.includes(value)) {
     errors.push(`${path} expected one of ${schema.enum.join(", ")} but received ${value}.`);
   }
-  if (schema.type === "array" && schema.items) {
+  if (type === "array" && schema.items) {
     (value as readonly unknown[]).forEach((item, index) => {
       errors.push(...validateProperty(item, schema.items as McpJsonSchemaProperty, `${path}[${index}]`));
     });
   }
-  if (schema.type === "object" && schema.properties) {
+  if (type === "object" && (schema.properties || schema.additionalProperties !== undefined)) {
     errors.push(
       ...validateObject(value as Readonly<Record<string, unknown>>, {
         additionalProperties: schema.additionalProperties,
-        properties: schema.properties,
+        properties: schema.properties ?? {},
         required: schema.required,
       }),
     );
@@ -97,7 +102,7 @@ function validateProperty(value: unknown, schema: McpJsonSchemaProperty, path: s
 
 function validateObject(
   value: Readonly<Record<string, unknown>>,
-  schema: Pick<McpJsonSchema, "additionalProperties" | "properties" | "required">,
+  schema: Pick<McpJsonSchema, "properties" | "required"> & Pick<McpJsonSchemaProperty, "additionalProperties">,
 ) {
   const errors: string[] = [];
   for (const field of schema.required ?? []) {
@@ -105,10 +110,14 @@ function validateObject(
       errors.push(`${field} is required.`);
     }
   }
-  if (schema.additionalProperties === false) {
+  if (schema.additionalProperties === false || typeof schema.additionalProperties === "object") {
     for (const field of Object.keys(value)) {
       if (!Object.prototype.hasOwnProperty.call(schema.properties, field)) {
-        errors.push(`${field} is not allowed.`);
+        if (schema.additionalProperties === false) {
+          errors.push(`${field} is not allowed.`);
+        } else {
+          errors.push(...validateProperty(value[field], schema.additionalProperties, field));
+        }
       }
     }
   }
