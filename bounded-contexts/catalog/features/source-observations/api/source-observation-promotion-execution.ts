@@ -22,6 +22,7 @@ import {
   type SourceObservationMagicSetReferenceNormalized,
   type SourceObservationNormalized,
   type SourceObservationOnePieceSetReferenceNormalized,
+  type SourceObservationProviderProductNormalized,
   type SourceObservationYugiohSetReferenceNormalized,
   type SourceObservationYugiohCardPrintNormalized,
   type SourceObservationPromotionProfileEvidence,
@@ -551,9 +552,12 @@ export async function normalizePromotionProductAssetSet(
 async function storePromotionProductAssetSet(input: {
   deps: CatalogRuntimeDeps;
   catalogItemId: CatalogItemId;
-  normalized: CatalogItemPromotableSourceObservationNormalized | SourceObservationYugiohCardPrintNormalized;
+  normalized:
+    | CatalogItemPromotableSourceObservationNormalized
+    | SourceObservationYugiohCardPrintNormalized
+    | SourceObservationProviderProductNormalized;
   providerKey: string;
-  providerProfile: CatalogProviderIntegrationProfile;
+  providerProfile?: CatalogProviderIntegrationProfile;
   sourceUpdatedAt: string | null;
   observedAt: string;
   productAssetSource?: RepresentativeCatalogProductAssetSource | null;
@@ -582,6 +586,7 @@ async function storePromotionProductAssetSet(input: {
   }
 
   if (input.normalized.kind === "pokemon-card" && input.normalized.imageBaseUrl) {
+    if (!input.providerProfile) throw new Error("Catalog promotion requires the Pokemon image provider profile.");
     return normalizeTcgdexImageAsset({
       profile: input.providerProfile,
       imageBaseUrl: input.normalized.imageBaseUrl,

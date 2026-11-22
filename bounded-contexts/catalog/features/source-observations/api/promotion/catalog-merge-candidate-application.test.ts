@@ -12,6 +12,8 @@ import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import type { EventStore } from "@chase-sets/event-core/event-store";
+import { globalPositionFromBigInt, type StoredEvent } from "@chase-sets/event-core/storage";
+import type { JsonObject } from "@chase-sets/primitives/json";
 import {
   createPostgresEventStore,
   createPostgresProjectionStore,
@@ -40,7 +42,10 @@ import { decideSourceObservation, initialSourceObservationState } from "../../do
 import { getSourceObservationDetail } from "../../read-model/queries";
 import type { BlueprintId, CatalogItemId, ReferenceRecordId } from "../../../../ids";
 import { createCatalogIntegrationRolloutControlPolicyFromEnv } from "../governance/catalog-integration-rollout-controls";
-import { loadCatalogItemPromotionProfile } from "../source-observation-promotion-execution";
+import {
+  loadCatalogItemPromotionProfile,
+  requireSourceObservationMappingContract,
+} from "../source-observation-promotion-execution";
 import * as referenceHierarchy from "../source-observation-promotion-reference-hierarchy";
 import { createSyntheticDisplayIdentityQueryable } from "../seeding/synthetic-display-identity-queryable";
 import type { CatalogAssetStorage } from "../seeding/asset-storage";
@@ -55,7 +60,11 @@ import {
   registeredMagicProfiles,
 } from "../../tests/magic-provider-role-fixture";
 import type { CatalogProviderIntegrationProfileVersionRecord } from "../provider-integration-profiles";
-import { catalogProviderProfileVersionIngestionUnitKey } from "../providers/registry";
+import {
+  catalogProviderIntegrationProfileVersions,
+  catalogProviderProfileVersionIngestionUnitKey,
+} from "../providers/registry";
+import tcgplayerOnePieceCard from "../__fixtures__/tcgplayer-one-piece-single-card/normal.json";
 import { catalogMergeCandidateStreamId, sourceObservationStreamId } from "../source-observation-stream-identity";
 import {
   applyCatalogMergeCandidatePromotion,
@@ -66,7 +75,10 @@ import {
   shouldBlockDuplicatePrevention,
   type CatalogMergeCandidateApplicationPorts,
 } from "./catalog-merge-candidate-application";
-import type { CatalogProviderSourceObservationInput } from "./provider-source-observation-normalizer";
+import {
+  normalizeCatalogProviderSourceObservation,
+  type CatalogProviderSourceObservationInput,
+} from "./provider-source-observation-normalizer";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) {
@@ -906,25 +918,36 @@ describe("Catalog Merge Candidate Catalog-owned pictures", () => {
       streams.set(itemStream, itemEvents);
       item = events.reduce(evolveCatalogItem, item);
     }
-    const rows = (streamId: string) =>
+    const rows = (streamId: string): StoredEvent[] =>
       (streams.get(streamId) ?? []).map((event, index) => ({
+        eventId: `evt_synthetic_${index + 1}`,
+        streamId,
         eventType: event.type,
-        payload: structuredClone(event.data),
+        payload: structuredClone(event.data) as JsonObject,
         streamVersion: index + 1,
+        globalPosition: globalPositionFromBigInt(BigInt(index + 1)),
+        tenantId: context.tenantId,
+        performedByUserId: context.audit.performedByUserId,
+        forAccountId: context.audit.forAccountId,
+        occurredAt: at as StoredEvent["occurredAt"],
+        recordedAt: at as StoredEvent["recordedAt"],
+        metadata: {},
       }));
-    const eventStore = {
+    const eventStore: EventStore = {
       readStream: async ({ streamId, fromVersion = 1, limit = 1000 }: Parameters<EventStore["readStream"]>[0]) =>
         rows(streamId).slice(fromVersion - 1, fromVersion - 1 + limit),
-    } as EventStore;
+      appendToStream: vi.fn(),
+      readAll: vi.fn(),
+    };
     const promotionTargetExclusion: PromotionTargetExclusion = {
       async acquire({ selectTarget }) {
-        const evidence = {
+        const evidence: PromotionTargetDiscovery = {
           items: new Map([[targetId, item]]),
           histories: new Map([[itemStream, rows(itemStream)]]),
           bindings: new Map(),
           sources: new Map(),
           keys: new Map(),
-        } as PromotionTargetDiscovery;
+        };
         return {
           targetId: await selectTarget(evidence, vi.fn()),
           evidence,
@@ -940,7 +963,7 @@ describe("Catalog Merge Candidate Catalog-owned pictures", () => {
                 } as Parameters<typeof codec.decode>[0]),
               ),
             );
-            return rows(itemStream).slice(previousLength) as Awaited<ReturnType<EventStore["readStream"]>>;
+            return rows(itemStream).slice(previousLength);
           },
           guard: vi.fn(),
           preparePlan: async () => 0,
@@ -952,10 +975,10 @@ describe("Catalog Merge Candidate Catalog-owned pictures", () => {
               version: itemEvents.length,
               state: item,
               newEvents: events,
-              storedEvents: rows(itemStream).slice(previousLength) as Awaited<ReturnType<EventStore["readStream"]>>,
+              storedEvents: rows(itemStream).slice(previousLength),
             };
           },
-        } as Awaited<ReturnType<PromotionTargetExclusion["acquire"]>>;
+        };
       },
     };
     const db = createSyntheticDisplayIdentityQueryable({
@@ -1088,6 +1111,30 @@ describe("Catalog Merge Candidate Catalog-owned pictures", () => {
     await expect(fixture.apply()).resolves.toMatchObject({ status: "promoted" });
     expect(fixture.item().imageUrls).toEqual([]);
     expect(fixture.fetcher).not.toHaveBeenCalled();
+  });
+
+  it("uses the registered TCGplayer One Piece listing's picture without giving it Item authority", async () => {
+    const version = catalogProviderIntegrationProfileVersions.find(
+      (entry) => entry.providerKey === "tcgplayer" && entry.profileKey === "one-piece-single-card-product-sku",
+    )!;
+    const { observation, diagnostics } = normalizeCatalogProviderSourceObservation({
+      contract: requireSourceObservationMappingContract(version),
+      payload: { ...tcgplayerOnePieceCard, imageUrls: [imageUrls.tcgplayer!] },
+      observedAt: at,
+    });
+    expect(diagnostics).toEqual([]);
+    expect(observation?.normalized).toMatchObject({
+      kind: "provider-product",
+      tcg: "one-piece",
+      imageUrls: [imageUrls.tcgplayer],
+    });
+    const fixture = await arrange([
+      member("scrydex", "one-piece-card-print", ""),
+      { observation: observation!, version },
+    ]);
+    await expect(fixture.apply()).resolves.toMatchObject({ status: "promoted" });
+    expectCatalogPicture(fixture, "tcgplayer");
+    expect(fixture.plan().profiles.map(({ providerKey }) => providerKey)).toEqual(["scrydex"]);
   });
 
   function itemWithoutPicture() {

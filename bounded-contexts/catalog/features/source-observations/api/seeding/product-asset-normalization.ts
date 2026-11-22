@@ -418,6 +418,13 @@ export function approvedPromotionImageUrls(input: PromotionImageEvidenceInput): 
       return PROMOTION_IMAGE_PROVIDERS.yugioh.includes(providerKey)
         ? safeImageUrls(providerKey, normalized.imageUrls)
         : [];
+    case "provider-product":
+      if (providerKey !== "tcgplayer") return [];
+      if (normalized.tcg === "one-piece") {
+        const evidence = extractApprovedOnePieceImageEvidence({ ...input, imageUrls: normalized.imageUrls });
+        return evidence.status === "current" ? safeImageUrls(providerKey, evidence.imageUrls) : [];
+      }
+      return normalized.tcg === "yugioh" ? safeImageUrls(providerKey, normalized.imageUrls) : [];
     default:
       return [];
   }
