@@ -852,16 +852,17 @@ async fn render(
         (CompositeReview::default(), payout)
     } else {
         let review = match guest.as_deref().filter(|_| !list.items.is_empty()) {
-            Some(id) => caller
-                .guest_sell_list_review(id)
-                .await
-                .inspect_err(|e| {
-                    if waiting && e.catching_up() {
-                        outcomes.caught_up_with(e, handoff.freshness(), "guest-sell-list-offer-reviews");
+            Some(id) => match caller.guest_sell_list_review(id).await {
+                Ok(review) => review,
+                Err(error) => {
+                    if waiting && error.catching_up() {
+                        outcomes.caught_up_with(&error, handoff.freshness(), "guest-sell-list-offer-reviews");
+                        recovery = recovery.or(Some(Recovery::Pending));
                     }
-                    tracing::warn!("guest sell list review: {e}");
-                })
-                .unwrap_or_default(),
+                    tracing::warn!("guest sell list review: {error}");
+                    CompositeReview::default()
+                }
+            },
             None => CompositeReview::default(),
         };
         (review, None)
