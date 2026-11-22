@@ -142,23 +142,34 @@ export async function queryProductionCatalogCompletionFacts(
 
 type BatchUnitRow = Readonly<{ scope_record_id: string; plan: unknown; sync_run_id: string | null }>;
 
+export type CompletionUniverse = Pick<
+  ProductionCatalogCompletionManifest,
+  "frozenAt" | "launchCutoff" | "batch" | "providerUnits" | "scopes" | "expectedUnits" | "exclusions"
+>;
+
 type PlannedScope = Readonly<{
   scopeRecordId: string;
   profileVersions: readonly Readonly<{ providerKey: string; unitKey: string }>[];
   creditConsumingProviderKeys: readonly string[];
 }>;
 
-async function readProductionCatalogCompletionFacts(
+export async function readProductionCatalogCompletionFacts(
   tx: PgQueryable,
   input: Parameters<typeof queryProductionCatalogCompletionFacts>[1],
+  resolveUniverse?: (batch: {
+    batch: CompletionUniverse["batch"];
+    selection: unknown;
+    units: readonly BatchUnitRow[];
+  }) => Promise<CompletionUniverse>,
 ): Promise<ProductionCatalogDatabaseFacts> {
   const batchResult = await tx.query<{
     batch_id: string;
     plan_fingerprint: string;
     status: string;
     created_at: string | Date;
+    selection: unknown;
   }>(
-    `SELECT batch_id, plan_fingerprint, status, created_at
+    `SELECT batch_id, plan_fingerprint, status, created_at, selection
        FROM catalog_scope_sync_batches
       WHERE batch_id = $1`,
     [input.batchId],
@@ -208,12 +219,14 @@ async function readProductionCatalogCompletionFacts(
         expectedUnits: frozen.expectedUnits,
         exclusions: frozen.exclusions,
       }
-    : await derivePlannedUniverse(tx, {
-        plannedScopes,
-        frozenAt: input.observedAt,
-        launchCutoff: input.launchCutoff ?? batchStartedAt,
-        batch: liveBatch,
-      });
+    : resolveUniverse
+      ? await resolveUniverse({ batch: liveBatch, selection: batch.selection, units: unitResult.rows })
+      : await derivePlannedUniverse(tx, {
+          plannedScopes,
+          frozenAt: input.observedAt,
+          launchCutoff: input.launchCutoff ?? batchStartedAt,
+          batch: liveBatch,
+        });
 
   const scopeRecordIds = [
     ...new Set([
@@ -325,12 +338,7 @@ async function derivePlannedUniverse(
     launchCutoff: string;
     batch: ProductionCatalogCompletionManifest["batch"];
   }>,
-): Promise<
-  Pick<
-    ProductionCatalogCompletionManifest,
-    "frozenAt" | "launchCutoff" | "batch" | "providerUnits" | "scopes" | "expectedUnits" | "exclusions"
-  >
-> {
+): Promise<CompletionUniverse> {
   const expectedUnits: ManifestExpectedUnit[] = input.plannedScopes.flatMap((scope) =>
     scope.profileVersions.map((unit) => ({
       scopeRecordId: scope.scopeRecordId,

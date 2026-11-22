@@ -508,7 +508,7 @@
     {
       "portName": "searchTelemetry",
       "providedBy": "platform-api",
-      "purpose": "Records the redaction-safe lexical, rescue, or hybrid mode used by each Discovery Search Query."
+      "purpose": "Records the redaction-safe lexical, rescue, structured, or corrected mode used by each Discovery Search Query."
     },
     {
       "portName": "rateLimitPolicyResolver",

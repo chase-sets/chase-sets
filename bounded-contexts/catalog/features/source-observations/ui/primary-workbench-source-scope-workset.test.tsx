@@ -1,10 +1,16 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, render as renderUi, screen, within } from "@testing-library/react";
+import type { ReactElement } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildCatalogPrimaryWorkbenchReadModelForSurface } from "./primary-workbench-read-model";
 import { CatalogSourceScopeWorksetModule } from "./admin-control-plane/import-to-promotion/source-scope-workset-module";
 import type { CatalogProviderProfileVersionReview, SourceObservationIntegrationScope } from "./contracts";
-import { controlPlaneOverview, profileReview, sourceObservationScope } from "./primary-workbench-test-fixtures";
+import {
+  controlPlaneOverview,
+  DailyCommandOwner,
+  profileReview,
+  sourceObservationScope,
+} from "./primary-workbench-test-fixtures";
 import { parseCatalogPrimaryWorkbenchRouteContext } from "./primary-workbench-route-context";
 import {
   ygojsonYugiohSetReferenceProviderProfile,
@@ -17,6 +23,8 @@ import { scrydexOnePieceSealedProductSourceObservationMappingContract } from "..
 import type { CatalogProviderIntegrationProfile } from "../api/providers/profile-types";
 import type { CatalogProviderExecutableMappingContract } from "../api/providers/provider-integration-mapping-contract";
 import { scopeContextFromFormData, scopeContextToIntegrationJobScope } from "./primary-workbench-scope-context";
+
+const render = (ui: ReactElement) => renderUi(ui, { wrapper: DailyCommandOwner });
 
 function sealedProductProfile(): CatalogProviderProfileVersionReview {
   return activeProfileReview(

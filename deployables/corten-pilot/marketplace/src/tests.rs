@@ -942,6 +942,8 @@ fn checkout_session(id: &str) -> Value {
             session["fulfillment_preview_snapshot"] = Value::Null;
             session["order_acknowledged_material_changes"] = json!(true);
         }
+        // Orders wait for payment and Payments recorded one (`chk_ordered_paid`) or cannot tell.
+        "chk_ordered_paid" | "chk_ordered_unsure" => session["order_ids"] = json!(["ord_1"]),
         // The same, but the kept quote is of another revision: no quote, as the loader gives none.
         "chk_ordered_other" => {
             session["order_ids"] = json!(["ord_1"]);
@@ -978,6 +980,12 @@ const CHECKOUT_SESSIONS: &str = "/api/marketplace/account/checkout-sessions/";
 /// read fails (`chk_paydown` started it). `chk_lostpay`'s Pay now starts `pay_1` and its answer is
 /// lost, `chk_unsure`'s is lost and starts nothing, and `chk_moved`'s is refused as already
 /// started with other details.
+///
+/// Pay now with a card the page took (a `confirmationTokenId`): `chk_3ds`'s issuer asks for 3-D
+/// Secure, `chk_declined`'s card is declined, and `chk_startlost`'s Payments cannot tell whether
+/// it started (`payment_start_ambiguous`), though it recorded `pay_1`. Payments' record of a
+/// session's payment (`payment-start`) names `pay_1` for `chk_startlost`, `chk_lostpay` once its
+/// Pay now went and `chk_ordered_paid`; `chk_ordered_unsure` cannot tell; any other has none.
 fn checkout_sessions(stand: &Stand, method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
     let path = uri.path();
     if path == "/api/settlement/wallet" {
@@ -1007,6 +1015,18 @@ fn checkout_sessions(stand: &Stand, method: &Method, uri: &Uri, headers: &Header
     if path == "/api/marketplace/account/checkout-payment-affordances" {
         return Some(Json(json!({ "items": [] })).into_response());
     }
+    if let Some(id) = path.strip_prefix("/api/marketplace/account/checkout/payment-start/") {
+        let lost = stand.kept.lock().unwrap().contains_key(&format!("confirm:{id}"));
+        return Some(
+            match id {
+                "chk_startlost" | "chk_ordered_paid" => Json(json!({ "state": "recorded", "paymentId": "pay_1" })),
+                "chk_lostpay" if lost => Json(json!({ "state": "recorded", "paymentId": "pay_1" })),
+                "chk_ordered_unsure" => Json(json!({ "state": "ambiguous" })),
+                _ => Json(json!({ "state": "not-started" })),
+            }
+            .into_response(),
+        );
+    }
     if path == "/api/marketplace/account/checkout/preview-status" {
         let query: HashMap<String, String> = uri
             .query()
@@ -1018,7 +1038,7 @@ fn checkout_sessions(stand: &Stand, method: &Method, uri: &Uri, headers: &Header
         let quote = |category: &str, fee: &str, total: &str| {
             json!({
                 "payment_method_category": category, "marketplace_checkout_fee_amount": fee, "total_amount": total,
-                "quote_fingerprint": format!("fq_{category}"),
+                "processor_amount": total, "quote_fingerprint": format!("fq_{category}"),
             })
         };
         let quotes = [
@@ -1032,7 +1052,7 @@ fn checkout_sessions(stand: &Stand, method: &Method, uri: &Uri, headers: &Header
         let credit = query.get("requestedBalanceCreditAmount").cloned().unwrap_or_default();
         return Some(
             Json(json!({
-                "marketplace_checkout_fee": chosen, "payment_method_quotes": quotes,
+                "marketplace_checkout_fee": chosen, "payment_method_quotes": quotes, "currency_code": "usd",
                 "wallet_credit": { "requested_amount": credit, "applied_amount": "0.00" },
             }))
             .into_response(),
@@ -1093,6 +1113,14 @@ fn checkout_sessions(stand: &Stand, method: &Method, uri: &Uri, headers: &Header
             "checkout_confirmation_changed",
             "This checkout already started with different order or payment details.",
         ),
+        "confirm" if id == "chk_3ds" && body.contains("confirmationTokenId") => committed(
+            StatusCode::OK,
+            "checkout",
+            "15",
+            json!({ "payment_id": "pay_1", "payment_authentication_url": "https://hooks.stripe.com/3d_secure_2/authenticate/pay_1" }),
+        ),
+        "confirm" if id == "chk_declined" => refusal(StatusCode::BAD_REQUEST, "payment_declined", "Your card was declined."),
+        "confirm" if id == "chk_startlost" => refusal(StatusCode::CONFLICT, "payment_start_ambiguous", "Payment is in progress."),
         "confirm" if id == "chk_offer" => {
             committed(StatusCode::OK, "checkout", "16", json!({ "offer_id": "ofr_1", "status": "purchase-intent-submitted" }))
         }
@@ -1297,6 +1325,11 @@ fn account_payments(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str)
     match id {
         "pay_1" => {}
         "pay_cs" => payment["processor_client_secret"] = json!("cs_test_1_secret"),
+        // Confirmed with the card the buyer entered on the checkout page: no secret to draw fields with.
+        "pay_deferred" => {
+            payment["processor_payment_kind"] = json!("payment-intent");
+            payment["processor_client_secret"] = json!(null);
+        }
         "pay_noemail" => payment["order_ids"] = json!(["ord_noemail"]),
         "pay_paid" | "pay_unbound" | "pay_limited" => {
             payment["status"] = json!("captured");
@@ -9141,8 +9174,9 @@ const ACCOUNT_HOME: &str = "/account";
 /// The stand-in Identity account `acc_seller` and who is signed in to it. A read that waits for 45
 /// is still catching up. A profile update's attempt decides an answer as an address write's does
 /// (`NO_RECORD`, `APPLIED_BEFORE`, `CHECK_DOWN`); the name `Conflict Co` is a conflict, the
-/// marketplace name `Refused` is refused for its fields, and a blank name is refused as Identity
-/// refuses it, naming the field.
+/// marketplace name `Refused` is refused for its fields, a blank name is refused as Identity
+/// refuses it, naming the field, and a marketplace name with a link that is not `https` is
+/// refused with Identity's closed code (`text_unsafe_link`).
 fn identity_account(method: &Method, path: &str, headers: &HeaderMap, attempt: &str, body: &str) -> Option<Response> {
     if path == "/api/identity/current-actor-display" {
         return Some(
@@ -9187,6 +9221,9 @@ fn identity_account(method: &Method, path: &str, headers: &HeaderMap, attempt: &
             let details = json!([{ "field": field, "code": "required", "message": message }]);
             (StatusCode::BAD_REQUEST, Json(json!({ "error": { "code": "validation_failed", "message": message, "details": details } })))
                 .into_response()
+        }
+        "PUT" if sent["displayName"].as_str().is_some_and(|v| v.contains("http://")) => {
+            (StatusCode::BAD_REQUEST, Json(json!({ "error": { "code": "text_unsafe_link" } }))).into_response()
         }
         "PUT" if sent["displayName"] == "Refused" => {
             (StatusCode::BAD_REQUEST, Json(json!({ "outcome": "not-recorded", "code": "validation-failed" }))).into_response()
@@ -9310,6 +9347,35 @@ async fn a_blank_name_is_refused_on_its_own_field() {
         assert!(input.contains(r#"aria-invalid="true""#), "the refused field is marked: {input}");
     }
     assert_eq!(profile_writes(&pilot).len(), 2, "each blank name is sent for Identity to refuse");
+}
+
+#[tokio::test]
+async fn a_marketplace_name_identity_refuses_says_how_to_fix_it_and_keeps_the_draft() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(ACCOUNT_HOME, Some("addresser"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("Your Marketplace name is public. Follow the Community Guidelines."), "{shown}");
+    assert!(
+        html.contains(
+            r#"href="http://localhost:7753/help/buying/community-guidelines-and-enforcement">Community Guidelines</a>"#
+        ) && html.contains(r#"href="http://localhost:7753/contact">Contact support</a>"#),
+        "{html}"
+    );
+    assert!(!shown.contains("Your draft is still here"), "nothing was refused: {shown}");
+
+    let body = profile_body(ATTEMPT, "Synthetic Legal LLC", "Shop http://example.test");
+    let (status, _, html) = pilot.send(post(ACCOUNT_HOME, "addresser", &body, true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("Edit your Marketplace name"), "{shown}");
+    assert!(shown.contains("Your draft is still here. Edit it and try again."), "{shown}");
+    assert!(shown.contains("Remove unsafe links or use links that start with https://."), "{shown}");
+    assert!(html.contains(r#"value="Shop http://example.test""#), "the draft is kept: {html}");
+    let input = html.split(r#"name="display_name""#).nth(1).unwrap().split('>').next().unwrap();
+    assert!(input.contains(r#"aria-invalid="true""#), "the marketplace name is marked: {input}");
+    assert_ne!(drawn_attempt(&html), ATTEMPT, "drawn with a new attempt");
+    assert_eq!(profile_writes(&pilot).len(), 1, "Identity decides, once");
 }
 
 #[tokio::test]
@@ -12312,13 +12378,39 @@ fn offer_match(id: &str, status: &str, can_fulfill: bool) -> Value {
         "listing_stream_version": 7, "listing_quantity_cap": 2, "listing_visible_quantity": 2,
         "offer_price_gap_amount": "2.24", "offer_to_listing_price_bps": 8879, "seller_available_quantity": 2,
         "seller_listing_availability_status": "available", "can_fulfill": can_fulfill, "managed_status": null,
-        "updated_at": "2026-10-24T03:55:37.712Z",
+        "updated_at": "2026-10-24T03:55:37.712Z", "fill_source": "listing",
     })
 }
 
+/// An offer match from inventory as the API sends it: the same offer with none of the listing's
+/// keys, and `inv_pika` with `available` of it.
+fn inventory_match(id: &str, available: u64) -> Value {
+    let mut offer = offer_match(id, "submitted", false);
+    let row = offer.as_object_mut().unwrap();
+    for key in [
+        "listing_id",
+        "listing_price_amount",
+        "listing_price_currency_code",
+        "listing_stream_version",
+        "listing_quantity_cap",
+        "listing_visible_quantity",
+        "offer_price_gap_amount",
+        "offer_to_listing_price_bps",
+        "seller_available_quantity",
+        "seller_listing_availability_status",
+    ] {
+        row.remove(key);
+    }
+    row.insert("fill_source".into(), json!("inventory"));
+    row.insert("inventory_item_id".into(), json!("inv_pika"));
+    row.insert("inventory_available_quantity".into(), json!(available));
+    offer
+}
+
 /// The seller's offer matches, as the stand-in answers them: `off_ready` and `off_short` (no
-/// supply); `off_gone` is no longer submitted, `off_taken` declines with a refusal, and any other
-/// id is not the seller's.
+/// supply), then from inventory `off_stock` (enough of it) and `off_thin` (not enough);
+/// `off_gone` is no longer submitted, `off_taken` declines with a refusal, and any other id is not
+/// the seller's.
 fn offer_matches(method: &Method, path: &str) -> Option<Response> {
     const MATCHES: &str = "/api/marketplace/account/offers/matches";
     const SELL_LIST_OFFER: &str = "/api/marketplace/account/sell-list/offer-matches/";
@@ -12327,6 +12419,8 @@ fn offer_matches(method: &Method, path: &str) -> Option<Response> {
         "off_short" => Some(offer_match("off_short", "submitted", false)),
         "off_gone" => Some(offer_match("off_gone", "accepted", true)),
         "off_taken" => Some(offer_match("off_taken", "submitted", true)),
+        "off_stock" => Some(inventory_match("off_stock", 3)),
+        "off_thin" => Some(inventory_match("off_thin", 1)),
         _ => None,
     };
     if let Some(id) = path.strip_prefix(SELL_LIST_OFFER) {
@@ -12338,8 +12432,11 @@ fn offer_matches(method: &Method, path: &str) -> Option<Response> {
     let rest = path.strip_prefix(MATCHES)?;
     Some(match (method.as_str(), rest) {
         ("GET", "") => Json(json!({
-            "items": [offer_match("off_ready", "submitted", true), offer_match("off_short", "submitted", false)],
-            "total": 2, "count": 2,
+            "items": [
+                offer_match("off_ready", "submitted", true), offer_match("off_short", "submitted", false),
+                inventory_match("off_stock", 3), inventory_match("off_thin", 1),
+            ],
+            "total": 4, "count": 4,
         }))
         .into_response(),
         ("GET", rest) if rest.ends_with("/terms-preview") => Json(json!({
@@ -12347,6 +12444,9 @@ fn offer_matches(method: &Method, path: &str) -> Option<Response> {
             "shipping_allowance_percentage_bps": 500, "agreement_id": null, "resolved_at": "2026-10-27T11:19:31.847Z",
         }))
         .into_response(),
+        ("POST", "/off_stock/decline") => {
+            refusal(StatusCode::CONFLICT, "offer_match_requires_listing", "List this item before responding to the Offer.")
+        }
         ("POST", "/off_taken/decline") => {
             refusal(StatusCode::BAD_REQUEST, "offer_command_rejected", "Offer match has already been declined.")
         }
@@ -12380,9 +12480,9 @@ async fn the_offer_matches_show_the_snapshot_and_each_match_with_its_actions() {
     let page = text(&html);
     for words in [
         "Offer Matches Compare each best buyer offer",
-        "Active matches 2 Ready to accept 1 At or above ask 0 Best match 88.79%",
+        "Active matches 4 Ready to accept 1 At or above ask 0 Best match 88.79%",
         "Pikachu Jungle 60/64 Raw Excellent submitted Can fulfill",
-        "Your Listing or inventory $19.99 2 visible of 2 listed Best Offer $17.75 Collector Zero",
+        "Your Listing or inventory From Listing $19.99 2 visible of 2 listed Best Offer $17.75 Collector Zero",
         "Offer vs Ask 88.79% $2.24 below ask Quantity 2 requested 2 available",
         "Needs supply",
     ] {
@@ -12391,7 +12491,15 @@ async fn the_offer_matches_show_the_snapshot_and_each_match_with_its_actions() {
     // The title and Open (labelled with the buyer and the item) link each match.
     let mut links = hrefs(&html, "Pikachu");
     links.dedup();
-    assert_eq!(links, ["/account/offers/matches/off_ready", "/account/offers/matches/off_short"]);
+    assert_eq!(
+        links,
+        [
+            "/account/offers/matches/off_ready",
+            "/account/offers/matches/off_short",
+            "/account/offers/matches/off_stock",
+            "/account/offers/matches/off_thin"
+        ]
+    );
     assert!(html.contains(r#"<corten-live src="/account/offers/matches/live"></corten-live>"#), "{html}");
     // Each match posts to its own page; one with no supply cannot be added to the sell list.
     // Each add carries its own attempt key, so a resend is applied once.
@@ -12399,6 +12507,60 @@ async fn the_offer_matches_show_the_snapshot_and_each_match_with_its_actions() {
     let (inputs, _) = short.split_once("<button").unwrap();
     assert!(inputs.starts_with(r#"<input type="hidden" name="intent" value="add-selected-offer"><input type="hidden" name="attemptId" data-submit value=""#), "{short}");
     assert!(short.split("</form>").next().unwrap().contains("disabled"), "{short}");
+}
+
+#[tokio::test]
+async fn a_match_from_inventory_lists_the_item_at_the_offers_price_and_has_no_listing_actions() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(OFFER_MATCHES, Some("trader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    let (_, stock) =
+        page.split_once("Pikachu Jungle 60/64 Raw Excellent submitted Your Listing or inventory From inventory").unwrap();
+    for words in
+        ["3 in inventory Best Offer $17.75 Collector Zero", "Quantity 2 requested 3 available", "List to fill this Offer"]
+    {
+        assert!(stock.contains(words), "{words:?} in {stock}");
+    }
+    // No ask to compare with, and the short one says why it cannot be listed.
+    assert_eq!(page.matches("Offer vs Ask").count(), 2, "{page}");
+    assert!(page.contains("From inventory 1 in inventory") && page.contains("Not enough stock"), "{page}");
+    let list = hrefs(&html, "List to fill this Offer").iter().map(|h| h.replace("&amp;", "&")).collect::<Vec<_>>();
+    assert_eq!(list, ["/account/listings/new?inventoryItemId=inv_pika&recommendedPrice=17.75"]);
+    // Only the listings' matches post: no Add to Sell List or Decline from inventory.
+    for id in ["off_stock", "off_thin"] {
+        assert!(!html.contains(&format!(r#"<form method="post" action="/account/offers/matches/{id}">"#)), "{html}");
+    }
+    let mut open = hrefs(&html, "Open");
+    open.dedup();
+    assert!(open.contains(&"/account/offers/matches/off_stock"), "{open:?}");
+
+    // Its page has no terms preview and no Accept or Decline, only the link to list it.
+    let (status, _, html) = pilot.send(get("/account/offers/matches/off_stock", Some("trader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    for words in [
+        "Offer match Pikachu List this item to accept or decline the Offer.",
+        "submitted From inventory $17.75 Pikachu",
+        "Quantity requested 2 Active supply available 3 List to fill this Offer",
+    ] {
+        assert!(page.contains(words), "{words:?} in {page}");
+    }
+    assert!(!page.contains("Accept offer match") && !page.contains("Decline"), "{page}");
+    assert!(list_calls(&pilot, "/api/marketplace/account/offers/matches/off_stock/terms-preview").is_empty());
+    let (_, _, html) = pilot.send(get("/account/offers/matches/off_thin", Some("trader"))).await;
+    assert!(text(&html).contains("Active supply available 1 Not enough stock"), "{html}");
+    assert!(hrefs(&html, "List to fill this Offer").is_empty(), "{html}");
+
+    // An add from inventory is refused here and nothing is added; a decline is the API's to refuse.
+    let (status, _, html) =
+        pilot.send(post("/account/offers/matches/off_stock", "trader", "intent=add-selected-offer", false)).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert!(text(&html).contains("This offer is no longer open"), "{html}");
+    assert!(list_calls(&pilot, "/api/marketplace/account/sell-list").iter().all(|c| !c.starts_with("POST")));
+    let (status, _, html) = pilot.send(post("/account/offers/matches/off_stock", "trader", "intent=decline-offer", false)).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert!(text(&html).contains("List this item before responding to the Offer."), "{html}");
 }
 
 #[tokio::test]
@@ -12502,7 +12664,7 @@ async fn a_change_to_the_accounts_offers_draws_the_snapshot_and_rows_again() {
     assert!(data.contains("Best match snapshot") && data.contains("/account/offers/matches/off_ready"), "{data}");
     let calls = pilot.stand.calls.lock().unwrap().clone();
     let realtime = calls.iter().find(|c| c.path.starts_with("/api/realtime/account/events")).unwrap();
-    assert!(realtime.path.contains("topic=account%3Aacc_seller%3Aoffers"), "{}", realtime.path);
+    assert!(realtime.path.contains("topic=account%3Aacc_seller%3Aoffer-matches"), "{}", realtime.path);
 }
 
 /// An offer the buyer submitted, as the API sends it.
@@ -15262,6 +15424,9 @@ async fn a_running_dry_run_is_relayed_until_it_finishes() {
 
 const CHECKOUT_SCREEN: &str = "/checkout/buy/session/chk_1";
 
+/// The confirmation token the payment step's card entry sets once Stripe took the card.
+const CARD_TOKEN: &str = "confirmationTokenId=ctoken_stand1";
+
 /// The checkout form's fields as the page draws them for `chk_1` (the saved address, standard
 /// shipping, Payments' card quote and the wallet's balance), with `extra` after them; a later
 /// field of the same name wins.
@@ -15426,10 +15591,11 @@ async fn an_address_the_api_cannot_deliver_to_opens_delivery_again_with_its_word
 #[tokio::test]
 async fn pay_now_confirms_what_was_reviewed_and_the_page_shows_the_payment() {
     let pilot = Pilot::new().await;
-    let (status, headers, html) =
-        pilot.send(post(CHECKOUT_SCREEN, "payer", &checkout_body("intent=confirm-checkout"), false)).await;
+    let body = checkout_body(&format!("intent=confirm-checkout&{CARD_TOKEN}"));
+    let (status, headers, html) = pilot.send(post(CHECKOUT_SCREEN, "payer", &body, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
-    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/checkout/buy/session/chk_1?afterWrite="), "{headers:?}");
+    // The card the page took: the payment's page, read after the write.
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/payments/pay_1?afterWrite="), "{headers:?}");
     let writes = checkout_writes(&pilot);
     let paths: Vec<&str> = writes.iter().map(|(p, _)| p.as_str()).collect();
     assert_eq!(
@@ -15443,6 +15609,7 @@ async fn pay_now_confirms_what_was_reviewed_and_the_page_shows_the_payment() {
     assert_eq!(sent["requestedBalanceCreditAmount"], "25.00");
     assert_eq!(sent["fulfillmentPreviewRevision"], "lowest-total#lst_seed_lugia#620.00");
     assert_eq!(sent["savePaymentMethodForFuture"], false);
+    assert_eq!(sent["confirmationTokenId"], "ctoken_stand1");
     assert_eq!(sent["shippingAddress"]["postalCode"], "60201");
     // A session whose payment started: the confirmation, and no Pay now.
     let (status, _, html) = pilot.send(get("/checkout/buy/session/chk_paid", Some("payer"))).await;
@@ -15538,8 +15705,14 @@ async fn pay_now_reviews_again_when_the_review_changed_or_payments_quote_went_st
     assert!(text(&html).contains("Review updated"), "{html}");
 
     // Payments' quote is stale: the page again, asking for the new total.
-    let (status, headers, _) =
-        pilot.send(post("/checkout/buy/session/chk_stale", "payer", &checkout_body("intent=confirm-checkout"), false)).await;
+    let (status, headers, _) = pilot
+        .send(post(
+            "/checkout/buy/session/chk_stale",
+            "payer",
+            &checkout_body(&format!("intent=confirm-checkout&{CARD_TOKEN}")),
+            false,
+        ))
+        .await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers[header::LOCATION].to_str().unwrap();
     assert!(to.starts_with("/checkout/buy/session/chk_stale?") && to.contains("&review=updated&quote=required"), "{to}");
@@ -15549,7 +15722,10 @@ async fn pay_now_reviews_again_when_the_review_changed_or_payments_quote_went_st
 
 #[tokio::test]
 async fn pay_now_whose_answer_may_be_lost_is_read_once_and_never_sent_again() {
-    let pilot = Pilot::new().await;
+    // Without Stripe's key the page takes no card, so Pay now sends no token and the session's own
+    // read settles a lost answer (`settleConfirmAfterPossibleSendLoss`); with a card, see
+    // `pay_now_with_a_new_card_whose_answer_is_lost_asks_payments_whether_it_started`.
+    let pilot = Pilot::configured(|config| config.stripe_publishable_key = None).await;
     let confirms = |pilot: &Pilot| checkout_writes(pilot).iter().filter(|(p, _)| p == "confirm").count();
     // The read shows the payment it started: the page shows it.
     let (status, headers, html) =
@@ -15572,8 +15748,14 @@ async fn pay_now_whose_answer_may_be_lost_is_read_once_and_never_sent_again() {
 #[tokio::test]
 async fn pay_now_on_a_session_that_changed_or_was_cancelled_sends_nothing_new() {
     let pilot = Pilot::new().await;
-    let (status, _, html) =
-        pilot.send(post("/checkout/buy/session/chk_moved", "payer", &checkout_body("intent=confirm-checkout"), false)).await;
+    let (status, _, html) = pilot
+        .send(post(
+            "/checkout/buy/session/chk_moved",
+            "payer",
+            &checkout_body(&format!("intent=confirm-checkout&{CARD_TOKEN}")),
+            false,
+        ))
+        .await;
     assert_eq!(status, StatusCode::CONFLICT, "{html}");
     assert!(text(&html).contains("This checkout already started with different order or payment details"), "{html}");
 
@@ -15665,13 +15847,131 @@ async fn pay_now_with_a_saved_card_that_needs_no_secure_step_lands_on_checkout_r
     let pilot = Pilot::new().await;
     let (_, _, html) = pilot.send(get(CHECKOUT_SCREEN, Some("payer"))).await;
     assert!(html.contains(r#"name="acceleratedSavedPayment" value="""#), "no saved card here: {html}");
-    let body = checkout_body("intent=confirm-checkout&acceleratedSavedPayment=true");
+    let body = checkout_body("intent=confirm-checkout&acceleratedSavedPayment=true&savedCheckoutInstrumentId=ins_1");
     let (status, headers, html) = pilot.send(post(CHECKOUT_SCREEN, "payer", &body, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     let to = headers[header::LOCATION].to_str().unwrap();
     assert!(to.starts_with("/checkout/buy/session/chk_1/confirmation?afterWrite="), "{to}");
     assert!(to.contains("15"), "Pay now's receipt: {to}");
     assert_eq!(checkout_writes(&pilot).last().map(|(p, _)| p.as_str()), Some("confirm"));
+}
+
+#[tokio::test]
+async fn a_new_card_is_entered_in_the_payment_step_and_pay_now_waits_for_it() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(CHECKOUT_SCREEN, Some("payer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    // Stripe's fields for what the provider charges, in cents and its currency, for this quote.
+    assert!(html.contains("card-entry-part"), "{html}");
+    for mounted in ["pk_stand_in_pilot", "63883", "usd", "chk_1:fq_card", "collector@chasesets.test"] {
+        assert!(html.contains(mounted), "{mounted}: {html}");
+    }
+    assert!(html.contains(r#"name="confirmationTokenId" value="""#), "{html}");
+    // Pay now is off until the fields are ready, in the form and in the bar.
+    assert_eq!(html.matches(r#"data-commit="pay" disabled"#).count(), 2, "{html}");
+    assert!(text(&html).contains("Stripe can only load in the browser"), "the noscript note: {html}");
+
+    // Another method, or no Stripe key: no card entry, and Pay now is on.
+    let (_, _, html) = pilot.send(get(&format!("{CHECKOUT_SCREEN}?paymentMethodCategory=bank-account"), Some("payer"))).await;
+    assert!(!html.contains("card-entry-part") && !html.contains(r#"data-commit="pay" disabled"#), "{html}");
+    let keyless = Pilot::configured(|config| config.stripe_publishable_key = None).await;
+    let (_, _, html) = keyless.send(get(CHECKOUT_SCREEN, Some("payer"))).await;
+    assert!(!html.contains("card-entry-part") && !html.contains(r#"data-commit="pay" disabled"#), "{html}");
+}
+
+#[tokio::test]
+async fn pay_now_with_a_new_card_needs_the_token_stripe_made() {
+    let pilot = Pilot::new().await;
+    for extra in ["", "&confirmationTokenId=tok_1", "&confirmationTokenId=ctoken_bad-1"] {
+        let body = checkout_body(&format!("intent=confirm-checkout{extra}"));
+        let (status, _, html) = pilot.send(post(CHECKOUT_SCREEN, "payer", &body, false)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{extra}: {html}");
+        assert!(text(&html).contains("Enter your payment details before selecting Pay now."), "{extra}: {html}");
+    }
+    assert!(!checkout_writes(&pilot).iter().any(|(p, _)| p == "confirm"), "no confirm without a token");
+    // A saved card needs none, and sends none.
+    let body = checkout_body("intent=confirm-checkout&savedCheckoutInstrumentId=ins_1");
+    let (status, _, html) = pilot.send(post(CHECKOUT_SCREEN, "payer", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let writes = checkout_writes(&pilot);
+    let (_, sent) = writes.iter().rfind(|(p, _)| p == "confirm").unwrap();
+    assert_eq!(sent["savedCheckoutInstrumentId"], "ins_1");
+    assert!(sent.get("confirmationTokenId").is_none(), "{sent}");
+}
+
+#[tokio::test]
+async fn pay_now_with_a_new_card_goes_to_the_issuers_check_or_says_it_was_declined() {
+    let pilot = Pilot::new().await;
+    let body = checkout_body(&format!("intent=confirm-checkout&{CARD_TOKEN}"));
+    let (status, headers, html) = pilot.send(post("/checkout/buy/session/chk_3ds", "payer", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(headers[header::LOCATION], "https://hooks.stripe.com/3d_secure_2/authenticate/pay_1");
+
+    let (status, _, html) = pilot.send(post("/checkout/buy/session/chk_declined", "payer", &body, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Your card was declined."), "{html}");
+}
+
+#[tokio::test]
+async fn pay_now_with_a_new_card_whose_answer_is_lost_asks_payments_whether_it_started() {
+    let pilot = Pilot::new().await;
+    let body = checkout_body(&format!("intent=confirm-checkout&{CARD_TOKEN}"));
+    let starts = |pilot: &Pilot, id: &str| {
+        let path = format!("/api/marketplace/account/checkout/payment-start/{id}");
+        pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path == path).count()
+    };
+    // Payments could not tell, but recorded the payment: its page.
+    let (status, headers, html) = pilot.send(post("/checkout/buy/session/chk_startlost", "payer", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(headers[header::LOCATION], "/account/payments/pay_1");
+    assert_eq!(starts(&pilot, "chk_startlost"), 1);
+    // The answer was lost after Payments recorded it: its page, and Pay now went once.
+    let (status, headers, html) = pilot.send(post("/checkout/buy/session/chk_lostpay", "payer", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(headers[header::LOCATION], "/account/payments/pay_1");
+    // Nothing recorded: Pay now is held back until the buyer refreshes.
+    let (status, _, html) = pilot.send(post("/checkout/buy/session/chk_unsure", "payer", &body, false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("We could not confirm whether your order went through."), "{html}");
+    assert!(!html.contains("card-entry-part"), "no card entry while it is unsure: {html}");
+    assert_eq!(starts(&pilot, "chk_unsure"), 1);
+    let confirms = checkout_writes(&pilot).iter().filter(|(p, _)| p == "confirm").count();
+    assert_eq!(confirms, 3, "each Pay now was sent once");
+}
+
+#[tokio::test]
+async fn orders_waiting_for_payment_go_to_the_payment_payments_recorded_or_hold_pay_now_back() {
+    let pilot = Pilot::new().await;
+    let (status, headers, html) = pilot.send(get("/checkout/buy/session/chk_ordered_paid", Some("payer"))).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(headers[header::LOCATION], "/account/payments/pay_1");
+
+    let (status, _, html) = pilot.send(get("/checkout/buy/session/chk_ordered_unsure", Some("payer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("We could not confirm whether your order went through."), "{html}");
+    assert!(!html.contains("card-entry-part") && !html.contains(r#"data-commit="pay">"#), "{html}");
+
+    // No orders yet: Payments is not asked.
+    let (_, _, _) = pilot.send(get(CHECKOUT_SCREEN, Some("payer"))).await;
+    let asked = pilot.stand.calls.lock().unwrap().iter().any(|c| c.path.ends_with("/payment-start/chk_1"));
+    assert!(!asked, "chk_1 has no orders");
+}
+
+#[tokio::test]
+async fn a_payment_confirmed_with_the_checkouts_card_says_the_provider_is_updating_it() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/account/payments/pay_deferred", Some("payer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Payment in progress The payment is being updated by the secure processor."), "{html}");
+    // The page reads the payment after Payments asked the provider for its status.
+    let read = pilot
+        .stand
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|c| c.path == "/api/marketplace/account/payments/pay_deferred?readProcessorStatus=1");
+    assert!(read, "the page's read asks for the provider's status");
 }
 
 /// A GET of a payment's status part as the runtime sends it (`corten: action`), for `session`.
@@ -19938,7 +20238,8 @@ async fn add_answers_with_stripes_secure_step_and_the_answer_is_never_kept() {
     let pilot = Pilot::new().await;
     let (status, headers, html) = pilot.send(post(PAYMENT_METHODS, "payer", &method_form("add", "", PM_OK), false)).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    assert_eq!(headers[header::CACHE_CONTROL], "no-store", "the setup's secret is in the answer");
+    // `private` too, since the page draws a submit key and some CDNs keep a bare `no-store`.
+    assert_eq!(headers[header::CACHE_CONTROL], "private, no-store", "the setup's secret is in the answer");
     assert!(
         html.contains("payment_setup.mount(") && html.contains("seti_1_secret_x") && html.contains("pk_stand_in_1"),
         "{html}"
@@ -22955,10 +23256,13 @@ fn main_of(html: &str) -> &str {
 }
 
 /// The declarations the scripts take Rust values by (`types/app.d.ts`): the payment step's
-/// `Defaults`. Fails, rewriting the file, while it is stale.
+/// `Defaults` and the checkout's `DeferredCard`. Fails, rewriting the file, while it is stale.
 #[test]
 fn script_types_match_the_server() {
-    corten::types::Types::new().add::<crate::payment::Defaults>().sync(concat!(env!("CARGO_MANIFEST_DIR"), "/types/app.d.ts"));
+    corten::types::Types::new()
+        .add::<crate::payment::Defaults>()
+        .add::<crate::checkout::DeferredCard>()
+        .sync(concat!(env!("CARGO_MANIFEST_DIR"), "/types/app.d.ts"));
 }
 
 /// Fulfillment's seller shipping setup (`/api/marketplace/{account|guest}/seller-shipping-setup`).

@@ -9,6 +9,7 @@ use corten::{
     prelude::*,
 };
 
+use super::on_marketplace;
 use crate::{
     account_home::{AccountScreen, Draft, Place, ProfileInput},
     addresses::Said,
@@ -229,7 +230,8 @@ pub fn AccountHomePage<'a>(t: AccountHomeMsg, p: Pilot, screen: &'a AccountScree
     }
 }
 
-/// Update Profile: the legal and marketplace names, off while its last write is unconfirmed.
+/// Update Profile: the legal and marketplace names, off while its last write is unconfirmed, with
+/// the marketplace name's guidance and where to read the guidelines or ask for help.
 #[component(css = AccountHomePage)]
 fn ProfileForm<'a>(t: AccountHomeMsg, draft: &'a Draft, held: bool) -> impl Render {
     let f = ProfileInput::FIELDS;
@@ -238,6 +240,9 @@ fn ProfileForm<'a>(t: AccountHomeMsg, draft: &'a Draft, held: bool) -> impl Rend
         <form id={ProfileFormId} class={Form} method="post" action={url::AccountHome::default()}>
             {SubmitKey::field(f.attempt)}
             {draft.errors.form_message()}
+            if draft.name_refused {
+                <p class={Muted}>{t.page_draft_kept()}</p>
+            }
             <fieldset class={Row} disabled={held}>
                 <div class={Field}>
                     <label class={Field}>
@@ -255,6 +260,13 @@ fn ProfileForm<'a>(t: AccountHomeMsg, draft: &'a Draft, held: bool) -> impl Rend
                 </div>
                 <button type="submit" class={Secondary}>{t.page_update_profile()}</button>
             </fieldset>
+            <p class={Muted}>{t.page_public_name_guidance()}</p>
+            <p class={Help}>
+                <a href={&on_marketplace("/help/buying/community-guidelines-and-enforcement")}>
+                    {t.page_community_guidelines()}
+                </a>
+                <a href={&on_marketplace("/contact")}>{t.page_contact_support()}</a>
+            </p>
         </form>
     }
 }

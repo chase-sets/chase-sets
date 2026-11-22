@@ -196,7 +196,7 @@ pub const OFFLINE: &[Component] = &[OfflinePage];
 
 /// The buy checkout page (`/checkout/buy/session/{id}`) and the script that says a changed field
 /// needs its totals updated.
-pub const CHECKOUT: &[Component] = &[CheckoutPage, checkout_page::handlers::COMPONENT, platform::ui::steps::Steps];
+pub const CHECKOUT: &[Component] = &[CheckoutPage, payment_page::stripe::COMPONENT, platform::ui::steps::Steps];
 
 /// Checkout start's components (`/checkout/buy/readiness`).
 pub const CHECKOUT_START: &[Component] = &[CheckoutStartPage];

@@ -11,7 +11,7 @@ import {
   EMAIL_VERIFICATION_RESTRICTED_PERMISSIONS,
   isSocialLoginProviderKey,
   isSyntheticAuthSessionId,
-  ROLE_PERMISSIONS,
+  resolveRolePermissions,
   type OperatorAuthority,
   type ResolvedActor,
   type ResolvedActorWithheldPermission,
@@ -657,11 +657,6 @@ export async function revokeSession(
   };
 }
 
-function resolveRolePermissions(roleKey: string, storedPermissions: readonly string[]) {
-  const presetPermissions = ROLE_PERMISSIONS[roleKey as keyof typeof ROLE_PERMISSIONS] ?? [];
-  return Array.from(new Set([...storedPermissions, ...presetPermissions]));
-}
-
 export async function resolveActorFromSessionId(
   services: AuthServices,
   sessionId: string,
@@ -678,7 +673,7 @@ export async function resolveActorFromSessionId(
   }
   const user = await services.identity.getUser(session.user_id);
   const { permissions, withheld } = restrictPermissionsForUnverifiedEmail(
-    resolveRolePermissions(membership.role_key, membership.role_permissions),
+    resolveRolePermissions(membership.role_key),
     user,
     session.authentication_method,
   );

@@ -379,8 +379,8 @@ function createRequestOperatorAuthority(
   return () => (decision ??= evaluateOperatorAuthority(port, actor));
 }
 
-// An admitted operator capability runs with a per-call actor whose role and permissions come from the operator
-// authority (the agent grant is kept); it is never cached or returned. Other capabilities keep the request actor.
+// An admitted operator capability runs with a per-call actor whose role comes from the operator authority and
+// whose permissions come from the role table. Other capabilities keep the request actor.
 async function admitMcpCapability(
   capability: McpCapabilityBoundary,
   actor: ResolvedActor | null,
@@ -395,7 +395,7 @@ async function admitMcpCapability(
   }
   return {
     allowed: true,
-    actor: { ...actor, roleKey: admission.authority.roleKey, permissions: admission.authority.rolePermissions },
+    actor: { ...actor, roleKey: admission.roleKey, permissions: admission.permissions },
   };
 }
 

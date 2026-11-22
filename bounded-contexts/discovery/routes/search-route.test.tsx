@@ -830,8 +830,8 @@ describe("marketplace search route", () => {
       ] as const)(
         "a %s route shows %s without the unmarked pages it loaded",
         async (mode, _name, marker, rows, expected) => {
-          const requests = stubPages({ "hybrid-2": resultPage([semanticOnly], null) });
-          const view = show(policyData(null, [lexical], "hybrid-2"));
+          const requests = stubPages({ "unmarked-2": resultPage([semanticOnly], null) });
+          const view = show(policyData(null, [lexical], "unmarked-2"));
           await loadMore(["lexical-charizard", "semantic-only-charizard"]);
           expect(requests[0]?.searchParams.has("interpreted")).toBe(false);
 
@@ -864,7 +864,7 @@ describe("marketplace search route", () => {
             }),
         );
         vi.stubGlobal("fetch", fetchMock);
-        const view = show(policyData(null, [lexical], "hybrid-2"));
+        const view = show(policyData(null, [lexical], "unmarked-2"));
         fireEvent.click(screen.getByRole("button", { name: "Load more results" }));
         await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
 
@@ -1360,10 +1360,11 @@ describe("marketplace search back-navigation restoration", () => {
         },
       };
       cacheSearchLoaderData(window.sessionStorage, loaderCacheKey, oldLoaderData);
+      const formerHybridCursor = "eyJraW5kIjoiaHlicmlkIiwib2Zmc2V0IjoyNH0";
       persistSearchRestoration(
         window.sessionStorage,
         resultSetKey(oldLoaderData),
-        [resultPage([["cat_old", "old-lizardon", "Old Lizardon"]], "legacy-cursor-2")],
+        [resultPage([["cat_old", "old-lizardon", "Old Lizardon"]], formerHybridCursor)],
         0,
       );
       const restarted = {
@@ -1406,7 +1407,7 @@ describe("marketplace search back-navigation restoration", () => {
       fireEvent.click(screen.getByRole("button", { name: "Load more results" }));
 
       await waitFor(() => expect(renderedItemSlugs()).toEqual(["charizard-ex", "charizard-ex-box"]));
-      expect(String(fetchMock.mock.calls[0]?.[0])).toContain("cursor=legacy-cursor-2");
+      expect(String(fetchMock.mock.calls[0]?.[0])).toContain(`cursor=${formerHybridCursor}`);
       expect(screen.queryByText("Closest matches")).toBeNull();
       expect(screen.queryAllByText("Stale condition")).toHaveLength(0);
       expect(screen.getAllByText("Fresh condition").length).toBeGreaterThan(0);

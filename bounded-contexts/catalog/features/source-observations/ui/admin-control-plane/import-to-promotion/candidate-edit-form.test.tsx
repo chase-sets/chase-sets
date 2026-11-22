@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render as renderUi, screen } from "@testing-library/react";
+import type { ReactElement } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { CatalogMergeCandidateEditForm } from "./candidate-edit-form";
 import type {
@@ -7,6 +8,9 @@ import type {
   CatalogPrimaryWorkbenchReadModel,
 } from "../../../api/primary-workbench-admin-contracts";
 import { parseCatalogPrimaryWorkbenchRouteContext } from "../../primary-workbench-route-context";
+import { DailyCommandOwner } from "../../primary-workbench-test-fixtures";
+
+const render = (ui: ReactElement) => renderUi(ui, { wrapper: DailyCommandOwner });
 
 afterEach(cleanup);
 

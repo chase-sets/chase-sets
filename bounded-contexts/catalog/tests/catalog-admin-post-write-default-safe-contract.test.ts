@@ -136,11 +136,9 @@ describe("catalog admin post-write default-safe contract", () => {
 
   it("keeps operator-surface command redirects free of browser fresh-read handoff params", () => {
     // Profile lifecycle (clone/section-edit/activate/rollback/deprecate/retire)
-    // moved off this deprecated ?section= workspace router onto the v2 Provider
-    // detail page (#3832; see provider-detail-action.ts, which builds its own
-    // redirect and never calls commandRedirectHref). This still exercises the
-    // legacy commandRedirectHref helper for a surface it still owns: governance
-    // controls.
+    // lives on the v2 Provider detail page (#3832; see provider-detail-action.ts,
+    // which builds its own redirect). This exercises commandRedirectHref for an
+    // owner that names its own path: governance controls.
     const result: CatalogIntegrationsCommandResult = {
       feedback: {
         status: "success",
@@ -150,11 +148,10 @@ describe("catalog admin post-write default-safe contract", () => {
       context: parseCatalogPrimaryWorkbenchRouteContext(
         "https://admin.example/catalog/integrations/governance?providerKey=tcgdex&profileVersion=2026.06.04&selectedObservationIds=obs_001",
       ),
-      section: "controls",
       commandSection: "migration-evidence",
     };
 
-    const href = commandRedirectHref(result);
+    const href = commandRedirectHref("/catalog/integrations/governance?providerKey=tcgdex", result);
     const redirected = new URL(href, "https://admin.example");
 
     expect(redirected.pathname).toBe("/catalog/integrations/governance");

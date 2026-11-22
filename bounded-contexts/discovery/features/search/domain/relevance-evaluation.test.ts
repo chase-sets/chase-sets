@@ -2,32 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   assertRelevanceGate,
   buildRelevanceReport,
-  composeRelevanceCandidates,
   evaluateGoldenQuery,
   renderRelevanceMarkdown,
   summarizeRelevanceMode,
   type GoldenQueryResult,
-  type RelevanceCandidate,
   type RelevanceMode,
 } from "./relevance-evaluation";
 import * as relevance from "./relevance-evaluation";
-
-const lexicalExpected: RelevanceCandidate = {
-  catalogItemId: "expected",
-  title: "Expected",
-  exactTitleMatch: false,
-  lexicalRank: 1,
-  semanticRank: null,
-  semanticSimilarity: null,
-};
-const semanticDistractor: RelevanceCandidate = {
-  catalogItemId: "distractor",
-  title: "Distractor",
-  exactTitleMatch: false,
-  lexicalRank: null,
-  semanticRank: 1,
-  semanticSimilarity: 0.99,
-};
 
 describe("Discovery relevance evaluation", () => {
   it("per-mode acceptance matrix", () => {
@@ -48,11 +29,12 @@ describe("Discovery relevance evaluation", () => {
     const identifier = { ...exact, coverage: ["protected-identifier"] };
     expect(relevance.relevanceAcceptance("lexical-only", exact)).toBe("gate");
     expect(relevance.relevanceAcceptance("semantic-fallback", exact)).toBe("gate");
-    expect(relevance.relevanceAcceptance("hybrid", exact)).toBe("delta");
     expect(relevance.relevanceAcceptance("lexical-only", negative)).toBe("gate");
     expect(relevance.relevanceAcceptance("semantic-fallback", negative)).toBe("delta");
-    expect(relevance.relevanceAcceptance("hybrid", identifier)).toBe("gate");
-    expect(relevance.relevanceAcceptance("hybrid", { ...exact, request: { language: "en" } })).toBe("gate");
+    expect(relevance.relevanceAcceptance("semantic-fallback", identifier)).toBe("gate");
+    const filtered = { ...exact, coverage: ["explicit-filters", "variant-summary"] };
+    expect(relevance.relevanceAcceptance("lexical-only", filtered)).toBe("gate");
+    expect(relevance.relevanceAcceptance("semantic-fallback", filtered)).toBe("gate");
   });
 
   it("right IDs wrong summary fails", () => {
@@ -93,11 +75,6 @@ describe("Discovery relevance evaluation", () => {
       }),
     ).not.toThrow();
   });
-  it("keeps lexical candidates ahead of semantic-only candidates in hybrid mode", () => {
-    const result = composeRelevanceCandidates("hybrid", [lexicalExpected], [semanticDistractor]);
-    expect(result.map((item) => item.catalogItemId)).toEqual(["expected", "distractor"]);
-  });
-
   it("requires an exact golden query to return its expected item first", () => {
     const result = evaluateGoldenQuery(
       {
@@ -115,7 +92,6 @@ describe("Discovery relevance evaluation", () => {
   it("fails the comparison gate when a lexical baseline gate fails", () => {
     const lexical = mode("lexical-only", [queryResult({ exactTop1: false, passed: false })]);
     const fallback = mode("semantic-fallback", [queryResult({ exactTop1: true })]);
-    const hybrid = mode("hybrid", [queryResult({ exactTop1: false, passed: false })]);
     const report = buildRelevanceReport({
       generatedAt: "2026-07-10T00:00:00.000Z",
       sourceHash: "hash",
@@ -123,7 +99,7 @@ describe("Discovery relevance evaluation", () => {
       dimensions: 1_024,
       catalogItemCount: 1,
       goldenQueries: [],
-      modes: { "lexical-only": lexical, "semantic-fallback": fallback, hybrid },
+      modes: { "lexical-only": lexical, "semantic-fallback": fallback },
     });
     expect(() => assertRelevanceGate(report)).toThrow(/lexical-only\/exact/u);
   });
@@ -133,7 +109,7 @@ describe("Discovery relevance evaluation", () => {
       queryResult({ category: "exact", exactTop1: true }),
       queryResult({ id: "semantic", category: "semantic", passed: false, recallAt10: 0, reciprocalRank: 0 }),
     ]);
-    const hybrid = mode("hybrid", [
+    const fallback = mode("semantic-fallback", [
       queryResult({ category: "exact", exactTop1: true }),
       queryResult({ id: "semantic", category: "semantic" }),
     ]);
@@ -144,7 +120,7 @@ describe("Discovery relevance evaluation", () => {
       dimensions: 1_024,
       catalogItemCount: 1,
       goldenQueries: [],
-      modes: { "lexical-only": lexical, "semantic-fallback": lexical, hybrid },
+      modes: { "lexical-only": lexical, "semantic-fallback": fallback },
     });
     expect(renderRelevanceMarkdown(report)).toContain("| lexical-only |");
     expect(renderRelevanceMarkdown(report)).toContain("Semantic pass-rate gain: +100.0 pp");

@@ -86,9 +86,9 @@ Discovery consumes the published Catalog Product Contents fact (`catalog.product
 
 The Search Index owns a Discovery-local semantic embedding populated by an asynchronous platform-worker job. Projection handlers only build deterministic multilingual text hashes and mark changed rows dirty; external Voyage calls are prohibited from the serial projector. Provider choice, kill-switch behavior, backfill, capability checks, and rebuild preservation are documented in [Search Embedding Enrichment](./docs/search-embedding-enrichment.md).
 
-Semantic retrieval candidates are evaluated before rollout with the checked-in golden-query harness documented in the same note. The DB-lane command compares lexical-only, semantic-fallback, and hybrid modes without Voyage or staging access and hard-fails exact/lexical regressions.
+Live search relevance is checked with the checked-in golden-query harness documented in the same note. The DB-lane command compares lexical-only and semantic-fallback modes without Voyage or staging access and hard-fails exact/lexical regressions.
 
-Runtime semantic retrieval is filter-respecting and fail-open: rescue is independently kill-switchable and hybrid fusion is an explicit opt-in. Query embeddings use the Voyage `query` input type and a bounded process-local cache; provider or vector-index failures preserve the lexical Result Set.
+Runtime semantic retrieval is filter-respecting and fail-open: Rescue is independently kill-switchable. Query embeddings use the Voyage `query` input type and a bounded process-local cache; provider or vector-index failures preserve the lexical Result Set.
 
 Item detail also uses the stored Search Embedding for a bounded **Similar Items** Result Set. This item-to-item path never calls an embedding provider at request time and falls back to active same-category peers when semantic retrieval is disabled, unavailable, or fails.
 

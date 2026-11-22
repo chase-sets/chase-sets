@@ -287,7 +287,7 @@ describe("Discovery search observability", () => {
   it.each([
     { retrievalMode: "lexical", lexicalZero: true, interpretation: "not-applied" },
     { retrievalMode: "rescue", lexicalZero: false, interpretation: "not-applied" },
-    { retrievalMode: "hybrid", lexicalZero: true, interpretation: "not-applied" },
+    { retrievalMode: "structured", lexicalZero: true, interpretation: "not-applied" },
     { retrievalMode: "corrected", lexicalZero: true, interpretation: "not-applied" },
     { retrievalMode: "corrected", lexicalZero: true, interpretation: "applied" },
     { retrievalMode: "lexical", lexicalZero: true, interpretation: "applied" },

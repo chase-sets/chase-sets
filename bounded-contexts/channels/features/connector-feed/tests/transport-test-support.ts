@@ -13,7 +13,7 @@ import { toTransportEvent } from "@chase-sets/event-core/transport";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { module as authModule } from "@chase-sets/auth";
 import { createConnectorOAuthService } from "@chase-sets/auth/server";
-import { CHANNEL_CONNECTOR_SCOPE_FAMILY } from "@chase-sets/auth-context";
+import { CHANNEL_CONNECTOR_SCOPE_FAMILY, resolveRolePermissions } from "@chase-sets/auth-context";
 import { createPolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { module as channelsModule } from "../../../index";
 import { buildChannelConnectionProjectionHandlers } from "../../connections/read-model/projection";
@@ -217,10 +217,11 @@ export function transportDatabase(
       `INSERT INTO auth_identity_accounts (account_id,name,display_name,account_type,status,updated_at) VALUES ($1,'','Transport fixture','personal','active',now())`,
       [seller.accountId],
     );
+    const sellerRole = "owner";
     await pools.auth.query(
       `INSERT INTO auth_identity_user_memberships (membership_id,user_id,account_id,role_key,role_permissions,status)
-      VALUES ('membership_transport',$1,$2,'seller','["channels.manage","channels.view"]','active')`,
-      [seller.userId, seller.accountId],
+      VALUES ('membership_transport',$1,$2,$3,$4,'active')`,
+      [seller.userId, seller.accountId, sellerRole, JSON.stringify(resolveRolePermissions(sellerRole))],
     );
     await connection();
     await healthy();

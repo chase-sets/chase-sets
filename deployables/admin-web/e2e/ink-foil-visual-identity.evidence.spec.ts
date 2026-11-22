@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
 import { captureResponsiveEvidence } from "@chase-sets/playwright-evidence";
-import { authenticateAdmin, expectAdminPageReady, expectPageOk } from "./support/admin-e2e";
+import { authenticatePlatformAdmin, expectAdminPageReady, expectPageOk } from "./support/admin-e2e";
 
 const fixture = JSON.parse(
   readFileSync(
@@ -19,7 +19,7 @@ const rgb = (hex: string) =>
 async function assertAdminWorkbench(page: Page, mode: "light" | "dark") {
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.emulateMedia({ colorScheme: mode });
-  await authenticateAdmin(page, route, "/access/sign-in");
+  await authenticatePlatformAdmin(page, route, "/access/sign-in");
   await expectPageOk(page, route);
   await expectAdminPageReady(page, { heading: "Projection settings and reference" });
 

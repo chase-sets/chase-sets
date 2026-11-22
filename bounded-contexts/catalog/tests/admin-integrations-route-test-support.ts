@@ -1,6 +1,7 @@
 import { action } from "../routes/admin/integrations";
 import { action as providerDetailAction } from "../routes/admin/catalog-provider-detail";
 import { action as governanceAction } from "../routes/admin/integrations-governance";
+import { action as scopeDetailAction } from "../routes/admin/scope-detail";
 import type { CatalogIntegrationsCommandResult } from "../support/route-support/admin-integrations/integrations-command-result";
 import { profileReview } from "../features/source-observations/ui/primary-workbench-test-fixtures";
 import type {
@@ -431,20 +432,48 @@ export function redirectLocation(response: Response): URL {
 // The provider detail page (#3832, /catalog/providers/:providerKey) owns a
 // redirect after every profile command — clone, section edit, activate,
 // rollback, deprecate, retire — back to itself; these tests assert on that
-// redirect Response. providerKey is a path param on the real route, but
-// dispatchIntegrationsCommand reads providerKey from the form body first (see
-// provider-detail-loader.ts), so a fixed default URL is fine here: the
-// provider-scoped assertions all come from the submitted body.
+// redirect Response. providerKey is a path param on the real route and names the
+// redirect's page, so the runner passes it exactly as the router would.
 export async function runProviderDetailAction(
   body: Record<string, string>,
   url = "https://admin.example/catalog/providers/tcgdex",
 ): Promise<Response> {
-  return providerDetailAction(actionRequest(body, url) as Parameters<typeof providerDetailAction>[0]);
+  const providerKey = decodeURIComponent(new URL(url).pathname.split("/").at(-1) ?? "");
+  return providerDetailAction({
+    ...actionRequest(body, url),
+    params: { providerKey },
+  } as Parameters<typeof providerDetailAction>[0]);
+}
+
+// Scope Detail (/catalog/scopes/:id) keeps a held preview, a decision or a
+// failure as action data and redirects a queued job back to its own path. The
+// runners pass the Scope Record path param exactly as the router would.
+function scopeDetailActionArgs(body: Record<string, string>, url: string) {
+  const id = decodeURIComponent(new URL(url).pathname.split("/").at(-1) ?? "");
+  return { ...actionRequest(body, url), params: { id } } as Parameters<typeof scopeDetailAction>[0];
+}
+
+export async function runScopeDetailAction(
+  body: Record<string, string>,
+  url: string,
+): Promise<CatalogIntegrationsCommandResult> {
+  const result = await scopeDetailAction(scopeDetailActionArgs(body, url));
+  if (result instanceof Response) {
+    throw new Error(`Scope command unexpectedly redirected to ${result.headers.get("Location") ?? "(none)"}`);
+  }
+  return result;
+}
+
+export async function runScopeDetailActionRedirect(body: Record<string, string>, url: string): Promise<Response> {
+  const result = await scopeDetailAction(scopeDetailActionArgs(body, url));
+  if (!(result instanceof Response)) {
+    throw new Error(`Scope command unexpectedly stayed on-page with ${JSON.stringify(result.feedback)}`);
+  }
+  return result;
 }
 
 // The governance surface (conflict resolution, governance controls) owns a
-// redirect after its commands; those tests assert on the redirect Response the
-// surface decides from the result.
+// redirect after its commands back to its own fixed path.
 export async function runGovernanceAction(
   body: Record<string, string>,
   url = "https://admin.example/catalog/integrations/governance",
