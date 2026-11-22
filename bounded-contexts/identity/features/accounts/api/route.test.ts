@@ -6,6 +6,7 @@ import type { IdentityApiEnv } from "../../../api";
 import type { AccountServices } from "./runtime";
 import type { AccountManagementServices } from "../../account-management/api/runtime";
 import { AccountProfileFieldError } from "../domain/errors";
+import { decideAccount, evolveAccount, initialAccountState } from "../domain/domain";
 import { accountRoutes } from "./route";
 
 const actor: ResolvedActor = {
@@ -25,7 +26,11 @@ const platformAdminActor: ResolvedActor = {
   roleKey: "platform-admin",
 };
 
-function buildApp(services: AccountServices, resolvedActor: ResolvedActor = actor) {
+function buildApp(
+  services: AccountServices,
+  resolvedActor: ResolvedActor = actor,
+  management?: AccountManagementServices,
+) {
   const app = new Hono<IdentityApiEnv>();
   app.use("*", async (c, next) => {
     c.set("actor", resolvedActor);
@@ -39,7 +44,7 @@ function buildApp(services: AccountServices, resolvedActor: ResolvedActor = acto
     } as EventStoreContext);
     await next();
   });
-  app.route("/accounts", accountRoutes(services));
+  app.route("/accounts", accountRoutes(services, management));
   return app;
 }
 
@@ -118,6 +123,57 @@ describe.each([null, undefined])("account API without an actor (%s)", (missingAc
 });
 
 describe("account API route", () => {
+  it.each([
+    ["POST", "/accounts"],
+    ["PUT", "/accounts/acc_1"],
+  ])("account-profile-marker-scan: %s returns only the rejection code and writes no event", async (method, path) => {
+    const accountId = "acc_01ARYZ6S41TSV4RRFFQ69G5FAV";
+    const current = decideAccount(initialAccountState, {
+      type: "CreateAccount",
+      accountId,
+      accountType: "personal",
+      name: "Old",
+    }).reduce(evolveAccount, initialAccountState);
+    const append = vi.fn();
+    const commandHandler: AccountServices["commandHandler"] = async ({ command }) => {
+      append(decideAccount(method === "POST" ? initialAccountState : current, command));
+      throw new Error("Unexpected success");
+    };
+    const response = await buildApp(buildServices({ commandHandler })).request(path, {
+      method,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        accountId,
+        accountType: "personal",
+        name: "Legal",
+        displayName: "account-profile-marker-scan http://test.example",
+      }),
+    });
+    expect(response.status).toBe(400);
+    const body = await response.text();
+    expect(JSON.parse(body)).toEqual({ error: { code: "text_unsafe_link" } });
+    expect(body).not.toContain("account-profile-marker-scan");
+    expect(append).not.toHaveBeenCalled();
+  });
+
+  it("account-profile-marker-scan: preserves a keyed display-name rejection code", async () => {
+    const management: AccountManagementServices = {
+      submit: vi.fn<AccountManagementServices["submit"]>(async () => ({
+        outcome: "not-recorded",
+        code: "text_unsafe_link",
+      })),
+      lookup: vi.fn(),
+    };
+    const response = await buildApp(buildServices(), actor, management).request("/accounts/acc_1", {
+      method: "PUT",
+      headers: { "content-type": "application/json", "Idempotency-Key": "c626f8c0-f697-4e78-82cf-ef162634f998" },
+      body: JSON.stringify({ name: "Legal", displayName: "account-profile-marker-scan http://test.example" }),
+    });
+    expect(response.status).toBe(400);
+    const body = await response.text();
+    expect(JSON.parse(body)).toEqual({ error: { code: "text_unsafe_link" } });
+    expect(body).not.toContain("account-profile-marker-scan");
+  });
   it("refuses a direct profile update's blank name with the field that is blank", async () => {
     const services = buildServices({
       commandHandler: vi.fn(async () => {
