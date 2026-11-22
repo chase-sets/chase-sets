@@ -130,7 +130,6 @@ describe("Catalog integrations route", () => {
     mockUseActionData.mockReturnValue({
       feedback: { status: "success", intent: "observation.promote", result: "preview-ready" },
       context: { ...data.readModel.routeContext, selectedObservationIds: [], promotionPreviewId: receipt.previewId },
-      section: "import-to-promotion",
       promotionReceipt: receipt,
       promotionCommandPreview: data.readModel.actions.find((entry) => entry.key === "observation.promote")
         ?.commandPreview,
@@ -222,7 +221,6 @@ describe("Catalog integrations route", () => {
     mockUseActionData.mockReturnValue({
       feedback: { status: "success", intent: "scope.import", result: "job-queued" },
       context: { section: "import-to-promotion" },
-      section: "import-to-promotion",
     });
 
     render(<IntegrationsRoute />);
@@ -241,7 +239,6 @@ describe("Catalog integrations route", () => {
     mockUseActionData.mockReturnValue({
       feedback: { status: "error", intent: "scope.sync", result: "catalog-sync-blocked" },
       context: { section: "import-to-promotion" },
-      section: "import-to-promotion",
     });
 
     render(<IntegrationsRoute />);
@@ -333,7 +330,6 @@ describe("Catalog integrations route", () => {
       mockUseActionData.mockReturnValue({
         feedback: { status: "success", intent: "observation.promote", result: "preview-ready" },
         context: parseCatalogPrimaryWorkbenchRouteContext(requestUrl),
-        section: "import-to-promotion",
         promotionReceipt: syntheticPromotionReceipt(),
       });
       render(route === "daily" ? <IntegrationsRoute /> : <ScopeDetailRoute />);
@@ -369,7 +365,6 @@ describe("Catalog integrations route", () => {
       context: parseCatalogPrimaryWorkbenchRouteContext(
         `${requestUrl}&selectedObservationIds=obs_001&promotionPreviewId=preview_001`,
       ),
-      section: "import-to-promotion",
       promotionReceipt: receipt,
       promotionCommandPreview: data.readModel.actions.find((entry) => entry.key === "observation.promote")
         ?.commandPreview,

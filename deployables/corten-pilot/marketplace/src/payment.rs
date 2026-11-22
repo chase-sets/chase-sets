@@ -33,6 +33,12 @@
 //! address with its continuation (`?claimContinuation=`), which goes on to the claim with the same
 //! query.
 //!
+//! A payment Checkout confirmed with a card the buyer entered on the checkout page
+//! (`deferred_checkout`) has no fields to draw: while it waits, the step says the provider is
+//! updating it, and the watch reads it as for any other. The page reads the payment after Payments
+//! asked the provider for its status (`?readProcessorStatus=1`), as marketplace's loader does since
+//! chase-sets/chase-sets#11670; the watch's reads do not, as marketplace's poll does not.
+//!
 //! Starting a payment again (`/account/payments/new`, where Retry payment goes) is `payment_start`.
 //!
 //! Stripe's fields keep Stripe's own appearance, as marketplace's do since chase-sets/chase-sets#11187
@@ -232,6 +238,16 @@ fn defaults(payment: &AccountPayment, orders: &[PaymentOrder]) -> Option<Default
     })
 }
 
+/// A payment Checkout already confirmed with the card the buyer entered on the checkout page
+/// (`isDeferredCheckoutPayment`): a Payment Intent with no client secret and no saved method, so
+/// the page has no fields to draw and only says the provider is updating it.
+pub fn deferred_checkout(payment: &AccountPayment) -> bool {
+    payment.source_context.as_deref() == Some("checkout")
+        && payment.processor_payment_kind == "payment-intent"
+        && payment.processor_client_secret.is_none()
+        && payment.saved_checkout_instrument_id.is_none()
+}
+
 /// Staff who may see a payment's provider details (`isInternalPaymentSupportActor`).
 fn support_details(viewer: &Viewer) -> bool {
     viewer.actor.role_key == "platform-admin" && viewer.actor.can(crate::app::SUPPORT_MANAGE)
@@ -273,7 +289,7 @@ async fn read(
 ) -> Result<PaymentScreen, Box<HtmlResult>> {
     let guest = payer.guest();
     let caller = config.platform.caller(headers, config.proto, receipt);
-    let payment = match caller.account_payment(id).await {
+    let payment = match caller.account_payment_from_processor(id).await {
         Ok(Some(payment)) => payment,
         Ok(None) if receipt.is_some() => return Err(Box::new(preparing(req, viewer, payer))),
         Ok(None) => return Err(Box::new(not_found(req, viewer, payer))),

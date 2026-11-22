@@ -1,0 +1,103 @@
+name: Production Catalog Completion Manifest
+
+on:
+  workflow_dispatch:
+    inputs:
+      batch_id:
+        description: Existing production Scope Sync Batch id.
+        required: true
+        type: string
+      launch_cutoff:
+        description: First acceptable sync completion time (ISO 8601 UTC).
+        required: true
+        type: string
+      expires_at:
+        description: Freeze approval expiry (ISO 8601 UTC).
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: catalog-completion-manifest-production
+  cancel-in-progress: false
+
+jobs:
+  manifest:
+    name: Freeze Production Catalog Completion Manifest
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    permissions:
+      contents: read
+    env:
+      BATCH_ID: ${{ inputs.batch_id }}
+      LAUNCH_CUTOFF: ${{ inputs.launch_cutoff }}
+      EXPIRES_AT: ${{ inputs.expires_at }}
+      MANIFEST_DIR: artifacts/catalog-completion-manifest
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
+        env:
+          NODE_OPTIONS: --no-deprecation
+
+      - name: Export Catalog database URL and TLS trust
+        uses: ./.github/actions/export-managed-postgres-authority
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        with:
+          environment: production
+          contexts: catalog
+          connection-mode: direct
+
+      - name: Require catalog database authority
+        run: |
+          set -euo pipefail
+          if [ -z "${DATABASE_URL_CATALOG:-}" ]; then
+            echo "catalog-database-url-missing: the Catalog context URL was not exported." >&2
+            exit 1
+          fi
+          if [ -z "${PGSSLROOTCERT:-}" ] || [ ! -s "$PGSSLROOTCERT" ]; then
+            echo "managed-postgres-ca-missing: the managed Postgres CA was not exported." >&2
+            exit 1
+          fi
+
+      - name: Freeze manifest from Catalog snapshot
+        run: |
+          set -euo pipefail
+          node --import tsx scripts/catalog-production-completion-manifest.ts \
+            --batch-id "$BATCH_ID" --main-commit "$GITHUB_SHA" \
+            --launch-cutoff "$LAUNCH_CUTOFF" --expires-at "$EXPIRES_AT" --out-dir "$MANIFEST_DIR"
+          cat "$MANIFEST_DIR/catalog-completion-manifest.json.sha256" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove managed Postgres CA
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          if [ -n "${PGSSLROOTCERT:-}" ]; then
+            rm -f -- "$PGSSLROOTCERT"
+          fi
+
+      - name: Upload frozen manifest and SHA-256
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: catalog-completion-manifest-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/catalog-completion-manifest/catalog-completion-manifest.json
+            artifacts/catalog-completion-manifest/catalog-completion-manifest.json.sha256
+          if-no-files-found: error
+          retention-days: 90

@@ -162,7 +162,6 @@ function invalidIntentResult(
   return {
     feedback: { status: "error", intent, result: "invalid-intent" },
     context: { ...context, selectedObservationIds },
-    section: context.section,
   };
 }
 
@@ -215,7 +214,6 @@ async function runIntegrationsCommand(input: {
     return {
       feedback: { status: "error", intent, result: commandFailureResult(intent, error) },
       context: { ...context, selectedObservationIds },
-      section: context.section,
     };
   }
 }

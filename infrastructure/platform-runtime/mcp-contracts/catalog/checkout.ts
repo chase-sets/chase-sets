@@ -14,6 +14,10 @@ import {
   stringProperty,
   writeTool,
 } from "@chase-sets/platform-runtime/mcp-contracts/builders";
+import {
+  UCP_MCP_CART_REVIEW_RESOURCE_URI,
+  UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI,
+} from "@chase-sets/platform-runtime/ucp-contracts";
 
 const checkoutCartLineOutputProperty: McpJsonSchemaProperty = {
   type: "object",
@@ -344,7 +348,7 @@ export const checkoutService = {
     {
       ...resource(
         "checkout",
-        "ui://chase-sets/cart-review/v1.html",
+        UCP_MCP_CART_REVIEW_RESOURCE_URI,
         "Cart Review Widget",
         "MCP Apps HTML template for in-chat cart and checkout review.",
         "orders.view",
@@ -354,7 +358,7 @@ export const checkoutService = {
     {
       ...resource(
         "checkout",
-        "ui://chase-sets/checkout-handoff/v1.html",
+        UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI,
         "Checkout Handoff Widget",
         "MCP Apps HTML template for trusted checkout handoff actions.",
         "orders.view",

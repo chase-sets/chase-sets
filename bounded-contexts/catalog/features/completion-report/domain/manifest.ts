@@ -54,6 +54,7 @@ export const completionExclusionReasons = [
   "rollout-blocked",
   "provider-unavailable",
   "mapping-missing",
+  "browser-extension-only",
   "operator-deferred",
 ] as const;
 export type CompletionExclusionReason = (typeof completionExclusionReasons)[number];
@@ -168,6 +169,25 @@ const exclusionSchema = z.object({
 });
 export type ManifestExclusion = z.infer<typeof exclusionSchema>;
 
+const freezeEvidenceSchema = z.object({
+  mainCommit: z.string().regex(/^[a-f0-9]{40}$/),
+  expiresAt: z.iso.datetime(),
+  repreviewOn: z.array(z.string()).readonly(),
+  scopeVersions: z.array(z.object({ scopeRecordId: z.string(), version: z.string() })).readonly(),
+  mappingVersions: z.array(z.object({ mappingId: z.string(), version: z.string() })).readonly(),
+  profileVersions: z
+    .array(acceptedMappingSchema.extend({ profileKey: z.string(), profileVersion: z.string() }))
+    .readonly(),
+  counts: z.object({
+    scopesByDomain: z.record(z.string(), measuredCountSchema),
+    scopesByLanguage: z.record(z.string(), measuredCountSchema),
+    scopesByKind: z.record(z.string(), measuredCountSchema),
+    pairsByProvider: z.record(z.string(), measuredCountSchema),
+    pairsByUnit: z.record(z.string(), measuredCountSchema),
+  }),
+  snapshotUnknownFactCount: measuredCountSchema,
+});
+
 export const productionCatalogCompletionManifestSchema = z.object({
   manifestVersion: z.literal(productionCatalogCompletionManifestVersion),
   frozenAt: z.string().min(1),
@@ -188,6 +208,7 @@ export const productionCatalogCompletionManifestSchema = z.object({
   assetProcessing: assetProcessingSchema,
   providerUsage: z.array(providerUsageSchema).readonly(),
   exclusions: z.array(exclusionSchema).readonly(),
+  freezeEvidence: freezeEvidenceSchema.optional(),
 });
 
 export type ProductionCatalogCompletionManifest = z.infer<typeof productionCatalogCompletionManifestSchema>;

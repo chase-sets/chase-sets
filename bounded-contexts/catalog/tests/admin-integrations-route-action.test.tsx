@@ -10,11 +10,14 @@ import { loader as providersLoader, action as providerDetailAction } from "../ro
 import { action as governanceAction } from "../routes/admin/integrations-governance";
 import type { CatalogIntegrationsCommandResult } from "../support/route-support/admin-integrations/integrations-command-result";
 import { commandResultNeedsRoutableHandoff } from "../support/route-support/admin-integrations/integrations-command-result";
-import { action as scopeDetailAction } from "../support/route-support/admin-scope-detail/scope-detail-action";
 import { useOriginalPromotionReceipt } from "../features/source-observations/ui/integrations-surface-route-view";
 import { CatalogIntegrationCreateItemsStage } from "../features/source-observations/ui/admin-control-plane/import-to-promotion/create-items-stage";
 import { buildCatalogPrimaryWorkbenchReadModelForSurface } from "../features/source-observations/ui/primary-workbench-read-model";
-import { parseCatalogPrimaryWorkbenchRouteContext } from "../features/source-observations/ui/primary-workbench-route-context";
+import {
+  parseCatalogPrimaryWorkbenchRouteContext,
+  serializeCatalogPrimaryWorkbenchRouteContext,
+} from "../features/source-observations/ui/primary-workbench-route-context";
+import { catalogScopeDetailDailyLocation } from "../features/source-observations/api/admin/scope-detail-workbench-location";
 import { catalogPrimaryWorkbenchSourceOptionHref } from "../features/source-observations/ui/primary-workbench-source-option-refresh";
 import {
   observationSelectionScopeKey,
@@ -23,6 +26,7 @@ import {
 } from "../features/source-observations/ui/primary-workbench-selection-store";
 import {
   controlPlaneOverview,
+  DailyCommandOwner,
   loaderData,
   integrationJobSummary,
   profileAuthoringModel,
@@ -43,6 +47,8 @@ import {
   runDailyAction,
   runDailyActionRedirect,
   runProviderDetailAction,
+  runScopeDetailAction,
+  runScopeDetailActionRedirect,
   scrydexLorcanaImportPreview,
   scrydexLorcanaProfileReview,
   scrydexOnePieceImportPreview,
@@ -99,7 +105,22 @@ vi.mock("../support/request-support/api-client", async () => {
   >("../features/source-observations/tests/integrations-surface-read-test-client");
   return {
     createCatalogRequestApiClient: (request: Request) => {
-      const stub = mockCreateCatalogRequestApiClient(request);
+      // Scope commands bind to the Scope Record their path names. The synthetic
+      // record's hierarchy is this suite's provider coordinates (3 / base / base1),
+      // which the Scope forms rendered from those coordinates restate.
+      const mocked = mockCreateCatalogRequestApiClient(request);
+      const stub = mocked && {
+        getCatalogScopeRecord: async (scopeRecordId: string) => ({
+          scopeRecordId,
+          productDomain: "pokemon",
+          scopeKind: "expansion",
+          name: "Base Set",
+          productLineScopeRecordId: "3",
+          seriesScopeRecordId: "base",
+          languageEditions: ["en"],
+        }),
+        ...mocked,
+      };
       const api = withCatalogSurfaceReads(stub, request);
       if (!api || stub.getCatalogPrimaryWorkbenchSurface) return api;
       return {
@@ -293,7 +314,7 @@ function ReceiptActionRouteHarness({
         expect(fields.scopeRecordId).toBe(scopeRecordId ?? "");
         setTransition((previous) => ({ ...previous, pending: true }));
         const result = scopeRecordId
-          ? await scopeDetailAction(actionRequest(fields, requestUrl))
+          ? await runScopeDetailAction(fields, requestUrl)
           : await runDailyAction(fields, requestUrl);
         setTransition({ pending: false, result });
       }}
@@ -435,6 +456,7 @@ describe("Catalog integrations route", () => {
       expect(probe.result.current.promotionPreview.previewCommittable).toBe(false);
       render(
         <CatalogIntegrationCreateItemsStage readModel={probe.result.current} selectedObservationIds={["obs_001"]} />,
+        { wrapper: DailyCommandOwner },
       );
       expect(screen.getByLabelText(/I confirm this will promote/).hasAttribute("disabled")).toBe(true);
       expect(screen.getByRole("button", { name: "Create or update Catalog Items" }).hasAttribute("disabled")).toBe(
@@ -503,7 +525,9 @@ describe("Catalog integrations route", () => {
       useOriginalPromotionReceipt(loaderData({ requestUrl: receiptRequestUrl, readModel }), result, false),
     );
     expect(probe.result.current.promotionPreview.freshness).toBe("fresh");
-    render(<CatalogIntegrationCreateItemsStage readModel={probe.result.current} selectedObservationIds={ids} />);
+    render(<CatalogIntegrationCreateItemsStage readModel={probe.result.current} selectedObservationIds={ids} />, {
+      wrapper: DailyCommandOwner,
+    });
     const confirm = screen.getByLabelText(/I confirm this will promote/);
     expect(confirm.hasAttribute("disabled")).toBe(false);
     fireEvent.click(confirm);
@@ -702,7 +726,7 @@ describe("Catalog integrations route", () => {
     expect(previewBulkPromoteSourceObservations).not.toHaveBeenCalled();
   });
 
-  it.each([null, "synthetic-scope-record"])(
+  it.each([null, "base1"])(
     "preserves working selection B when deferred Preview A settles under scope %s",
     async (scopeRecordId) => {
       window.sessionStorage.clear();
@@ -788,7 +812,7 @@ describe("Catalog integrations route", () => {
   );
 
   it.each(
-    [null, "synthetic-scope-record"].flatMap((scopeRecordId) =>
+    [null, "base1"].flatMap((scopeRecordId) =>
       ["2026.06.04", "synthetic-active-B", null].map((activeProfileVersion) => ({
         scopeRecordId,
         activeProfileVersion,
@@ -870,7 +894,7 @@ describe("Catalog integrations route", () => {
   );
 
   it.each(
-    [null, "synthetic-scope-record"].flatMap((scopeRecordId) =>
+    [null, "base1"].flatMap((scopeRecordId) =>
       [false, true].map((restoreWhilePending) => ({ scopeRecordId, restoreWhilePending })),
     ),
   )(
@@ -1106,7 +1130,7 @@ describe("Catalog integrations route", () => {
     });
     // The run-sync path stays on the daily surface (no redirect) and returns its
     // result as data so the daily route renders the command-feedback banner.
-    expect(result.section).toBe("import-to-promotion");
+    expect(result).not.toHaveProperty("section");
     expect(result.context.jobId).toBe("job_import_123");
     expect(result.feedback.status).toBe("success");
     expect(result.feedback.result).toBe("job-queued");
@@ -1643,7 +1667,7 @@ describe("Catalog integrations route", () => {
     });
 
     expect(enqueueSourceObservationIntegrationJob).not.toHaveBeenCalled();
-    expect(result.section).toBe("import-to-promotion");
+    expect(result).not.toHaveProperty("section");
     expect(result.context.jobId).toBeNull();
     expect(result.feedback).toMatchObject({
       status: "error",
@@ -1851,6 +1875,7 @@ describe("Catalog integrations route", () => {
           readModel={readModel}
           selectedObservationIds={receipt.selection.observationIds}
         />,
+        { wrapper: DailyCommandOwner },
       );
       const disclosure = screen
         .getAllByRole("button", { name: /Preview promotion/ })
@@ -1889,6 +1914,7 @@ describe("Catalog integrations route", () => {
         readModel={{ ...model, promotionPreview: { ...model.promotionPreview, previewId: receipt.previewId, receipt } }}
         selectedObservationIds={receipt.selection.observationIds}
       />,
+      { wrapper: DailyCommandOwner },
     );
     const disclosure = screen
       .getAllByRole("button", { name: /Preview promotion/ })
@@ -2015,21 +2041,101 @@ describe("Catalog integrations route", () => {
       profileVersion: "2026.06.04",
       selectedObservationIds: "obs_001",
     };
-    const result = await scopeDetailAction(
-      actionRequest(fields, "https://admin.example/catalog/scopes/synthetic-scope-record"),
-    );
+    const scopeUrl = "https://admin.example/catalog/scopes/synthetic-scope-record";
+    const result = await runScopeDetailAction(fields, scopeUrl);
+    expect(result).not.toHaveProperty("section");
     expect(result.promotionReceipt?.selection.scopeRecordId).toBe("synthetic-scope-record");
     expect(commandResultNeedsRoutableHandoff(result)).toBe(false);
-    const queued = await scopeDetailAction(
-      actionRequest(
+    const queued = redirectLocation(
+      await runScopeDetailActionRedirect(
         { ...fields, promotionPhase: "execute", promotionPreviewId: result.promotionReceipt!.previewId },
-        "https://admin.example/catalog/scopes/synthetic-scope-record",
+        scopeUrl,
       ),
     );
-    expect(queued.feedback.result).toBe("job-queued");
-    expect(commandResultNeedsRoutableHandoff(queued)).toBe(true);
-    expect(queued.context.jobId).toBe("synthetic-scope-receipt-job");
-    expect(queued.promotionReceipt).toBeUndefined();
+    expect(queued.pathname).toBe("/catalog/scopes/synthetic-scope-record");
+    expect(queued.searchParams.get("commandIntent")).toBe("observation.promote");
+    expect(queued.searchParams.get("commandResult")).toBe("job-queued");
+    expect(queued.searchParams.get("jobId")).toBe("synthetic-scope-receipt-job");
+    expect(queued.searchParams.get("providerKey")).toBe("tcgdex");
+    expect(queued.searchParams.has("promotionPreviewId")).toBe(false);
+  });
+
+  // An import scope naming the Scope's own expansion is a selection inside it:
+  // the Scope read keeps it as written and so does the command, so the receipt
+  // is confirmable against the next load. One naming another expansion takes no
+  // effect on either side; both use the record's own.
+  it.each([
+    ["compact in-Scope", "en:base1", "en:base1"],
+    ["unrelated", "en:base2", "en:3:base:base1"],
+  ])("binds a %s import scope the same way on the Scope read and its command", async (_case, submitted, bound) => {
+    const record = {
+      scopeRecordId: "base1",
+      productDomain: "pokemon",
+      scopeKind: "expansion",
+      name: "Base Set",
+      productLineScopeRecordId: "3",
+      seriesScopeRecordId: "base",
+      languageEditions: ["en"],
+    };
+    const providerScopes = [
+      sourceObservationScope(),
+      sourceObservationScope({ expansion_id: "base2", expansion_name: "Base Set 2" }),
+    ];
+    const profile = profileReview({ active: true, lifecycle: "active", profileVersion: "2026.06.04" });
+    const address = new URL(
+      `https://admin.example/catalog/scopes/base1?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=${submitted}&profileVersion=2026.06.04`,
+    );
+    // The Catalog API composes the Scope read from the record its path names.
+    const requestUrl = catalogScopeDetailDailyLocation(address, record);
+    requestUrl.pathname = address.pathname;
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("daily", {
+      requestUrl: requestUrl.href,
+      scopes: { items: providerScopes, total: 2, count: 2 },
+      profileReviews: { items: [profile], total: 1, count: 1 },
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+      reviewObservations: { items: [sourceObservationListItem()], total: 1, count: 1 },
+    });
+    expect(readModel.routeContext.importScope).toBe(bound);
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      getCatalogScopeRecord: vi.fn().mockResolvedValue(record),
+      listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue({ items: providerScopes, total: 2, count: 2 }),
+      listSourceObservationProviderProfiles: vi.fn().mockResolvedValue({ items: [profile], total: 1, count: 1 }),
+      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
+      listSourceObservations: vi.fn().mockResolvedValue({ items: [sourceObservationListItem()], total: 1, count: 1 }),
+      previewBulkPromoteSourceObservationIds: vi.fn().mockResolvedValue(syntheticPromotionPreviewResponse()),
+    });
+    const scope = readModel.routeContext.scope!;
+
+    // The Scope's command form, restating the read's hierarchy, with the submitted import scope.
+    const result = await runScopeDetailAction(
+      {
+        _intent: "observation.promote",
+        promotionPhase: "preview",
+        providerKey: "tcgdex",
+        unitKey: "tcgdex:pokemon:card:import",
+        importScope: submitted,
+        profileVersion: "2026.06.04",
+        languageCode: scope.languageCode ?? "",
+        productLineId: scope.productLineId ?? "",
+        productLineName: scope.productLineName ?? "",
+        seriesId: scope.seriesId ?? "",
+        expansionId: scope.expansionId ?? "",
+        expansionName: scope.expansionName ?? "",
+        scopeRecordId: "base1",
+        selectedObservationIds: "obs_001",
+      },
+      `https://admin.example/catalog/scopes/base1?${serializeCatalogPrimaryWorkbenchRouteContext(readModel.routeContext)}`,
+    );
+
+    expect(result.feedback.result).toBe("preview-ready");
+    expect(result.promotionReceipt?.selection.importScope).toBe(bound);
+    expect(result.promotionCommandPreview?.scope).toMatchObject({ seriesId: "base", setId: "base1" });
+    const probe = renderHook(() =>
+      useOriginalPromotionReceipt(loaderData({ requestUrl: requestUrl.href, readModel }), result, false),
+    );
+    expect(probe.result.current.promotionPreview.executionSafeguards.previewFresh).toBe(true);
+    probe.unmount();
   });
 
   it("independently refuses mismatched action and loader bindings without substituting original evidence", async () => {
@@ -2806,7 +2912,7 @@ describe("Catalog integrations route", () => {
     });
 
     expect(bulkPromoteSourceObservations).not.toHaveBeenCalled();
-    expect(result.section).toBe("import-to-promotion");
+    expect(result).not.toHaveProperty("section");
     expect(result.feedback.status).toBe("error");
     expect(result.feedback.result).toBe("preview-required");
   });

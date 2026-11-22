@@ -1,5 +1,9 @@
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import {
+  sourceObservationImportFailureDiagnostic,
+  type SourceObservationImportFailureDiagnostic,
+} from "../../source-observations/api/source-observation-import-failure-diagnostic";
+import {
   candidateJobRowToCatalogMergeCandidateBulkJob,
   catalogMergeCandidatePromotionApplicationJobKind,
   reconcileCatalogMergeCandidateApplications,
@@ -52,6 +56,18 @@ export type ProductionCatalogReportedFacts = Readonly<{
   nonTerminalIntegrationJobCount: number;
   publicationCountsByStatus: Readonly<Record<string, number>>;
   providerAgreement: ProviderAgreement;
+  failedImportUnits?: readonly FailedImportUnit[];
+}>;
+
+type FailedImportUnit = Readonly<{
+  scopeRecordId: string;
+  syncRunId: string;
+  providerKey: string;
+  unitKey: string;
+  integrationJobId: string;
+  // A terminal job failure may never have recorded an outcome.
+  outcomeStatus: "failed" | null;
+  reason: SourceObservationImportFailureDiagnostic;
 }>;
 
 export type ProductionCatalogDatabaseFacts = Readonly<{
@@ -126,23 +142,34 @@ export async function queryProductionCatalogCompletionFacts(
 
 type BatchUnitRow = Readonly<{ scope_record_id: string; plan: unknown; sync_run_id: string | null }>;
 
+export type CompletionUniverse = Pick<
+  ProductionCatalogCompletionManifest,
+  "frozenAt" | "launchCutoff" | "batch" | "providerUnits" | "scopes" | "expectedUnits" | "exclusions"
+>;
+
 type PlannedScope = Readonly<{
   scopeRecordId: string;
   profileVersions: readonly Readonly<{ providerKey: string; unitKey: string }>[];
   creditConsumingProviderKeys: readonly string[];
 }>;
 
-async function readProductionCatalogCompletionFacts(
+export async function readProductionCatalogCompletionFacts(
   tx: PgQueryable,
   input: Parameters<typeof queryProductionCatalogCompletionFacts>[1],
+  resolveUniverse?: (batch: {
+    batch: CompletionUniverse["batch"];
+    selection: unknown;
+    units: readonly BatchUnitRow[];
+  }) => Promise<CompletionUniverse>,
 ): Promise<ProductionCatalogDatabaseFacts> {
   const batchResult = await tx.query<{
     batch_id: string;
     plan_fingerprint: string;
     status: string;
     created_at: string | Date;
+    selection: unknown;
   }>(
-    `SELECT batch_id, plan_fingerprint, status, created_at
+    `SELECT batch_id, plan_fingerprint, status, created_at, selection
        FROM catalog_scope_sync_batches
       WHERE batch_id = $1`,
     [input.batchId],
@@ -192,12 +219,14 @@ async function readProductionCatalogCompletionFacts(
         expectedUnits: frozen.expectedUnits,
         exclusions: frozen.exclusions,
       }
-    : await derivePlannedUniverse(tx, {
-        plannedScopes,
-        frozenAt: input.observedAt,
-        launchCutoff: input.launchCutoff ?? batchStartedAt,
-        batch: liveBatch,
-      });
+    : resolveUniverse
+      ? await resolveUniverse({ batch: liveBatch, selection: batch.selection, units: unitResult.rows })
+      : await derivePlannedUniverse(tx, {
+          plannedScopes,
+          frozenAt: input.observedAt,
+          launchCutoff: input.launchCutoff ?? batchStartedAt,
+          batch: liveBatch,
+        });
 
   const scopeRecordIds = [
     ...new Set([
@@ -221,12 +250,14 @@ async function readProductionCatalogCompletionFacts(
     unknownFacts,
   });
   const providerUsage = await queryProviderUsage(tx, { syncRunIds, creditedProviderKeys, unknownFacts });
+  const failedImportUnits = await queryFailedImportUnits(tx, input.batchId);
   const reportedFacts: ProductionCatalogReportedFacts = {
     externalReferenceDuplicates: await queryExternalReferenceDuplicates(tx),
     legacyProfileMarkerCount: await queryLegacyProfileMarkerCount(tx),
     nonTerminalIntegrationJobCount: await queryNonTerminalIntegrationJobCount(tx),
     publicationCountsByStatus: catalogItemsByStatus,
     providerAgreement: await queryProviderAgreement(tx, scopeRecordIds),
+    ...(failedImportUnits.length > 0 ? { failedImportUnits } : {}),
   };
 
   const catalogItems: ManifestCatalogItemCounts = {
@@ -253,6 +284,52 @@ async function readProductionCatalogCompletionFacts(
   };
 }
 
+// The run's fanout links are authoritative even when an import child was
+// reused from another run. Do not attribute jobs by the latest scope state.
+async function queryFailedImportUnits(tx: PgQueryable, batchId: string): Promise<readonly FailedImportUnit[]> {
+  const result = await tx.query<{
+    scope_record_id: string;
+    sync_run_id: string;
+    provider_key: string;
+    unit_key: string;
+    integration_job_id: string;
+    outcome_status: FailedImportUnit["outcomeStatus"];
+    reason: string | null;
+  }>(
+    `SELECT unit.scope_record_id, unit.sync_run_id,
+            link->>'providerKey' AS provider_key, link->>'unitKey' AS unit_key,
+            job.job_id AS integration_job_id, failure.outcome->>'status' AS outcome_status,
+            CASE WHEN failure.outcome IS NULL THEN job.error_message ELSE failure.outcome->>'reason' END AS reason
+       FROM catalog_scope_sync_batch_units unit
+       JOIN catalog_source_observation_integration_durable_jobs run
+         ON run.job_id = unit.sync_run_id AND run.job_kind = 'catalog-sync-scope'
+       CROSS JOIN LATERAL jsonb_array_elements(
+         CASE WHEN jsonb_typeof(run.result->'childJobs') = 'array' THEN run.result->'childJobs' ELSE '[]'::jsonb END
+       ) AS link
+       JOIN catalog_source_observation_integration_durable_jobs job
+         ON job.job_id = link->>'childJobId' AND job.job_kind = 'import'
+       LEFT JOIN LATERAL (
+         SELECT outcome, ordinal
+           FROM jsonb_array_elements(
+             CASE WHEN jsonb_typeof(job.result->'outcomes') = 'array' THEN job.result->'outcomes' ELSE '[]'::jsonb END
+           ) WITH ORDINALITY AS outcomes(outcome, ordinal)
+          WHERE outcome->>'status' = 'failed'
+       ) AS failure ON true
+      WHERE unit.batch_id = $1 AND (failure.outcome IS NOT NULL OR job.status = 'failed')
+      ORDER BY unit.ordinal, unit.scope_record_id, job.job_id, failure.ordinal`,
+    [batchId],
+  );
+  return result.rows.map((row) => ({
+    scopeRecordId: row.scope_record_id,
+    syncRunId: row.sync_run_id,
+    providerKey: row.provider_key,
+    unitKey: row.unit_key,
+    integrationJobId: row.integration_job_id,
+    outcomeStatus: row.outcome_status,
+    reason: sourceObservationImportFailureDiagnostic(row.provider_key, row.reason),
+  }));
+}
+
 async function derivePlannedUniverse(
   tx: PgQueryable,
   input: Readonly<{
@@ -261,12 +338,7 @@ async function derivePlannedUniverse(
     launchCutoff: string;
     batch: ProductionCatalogCompletionManifest["batch"];
   }>,
-): Promise<
-  Pick<
-    ProductionCatalogCompletionManifest,
-    "frozenAt" | "launchCutoff" | "batch" | "providerUnits" | "scopes" | "expectedUnits" | "exclusions"
-  >
-> {
+): Promise<CompletionUniverse> {
   const expectedUnits: ManifestExpectedUnit[] = input.plannedScopes.flatMap((scope) =>
     scope.profileVersions.map((unit) => ({
       scopeRecordId: scope.scopeRecordId,
