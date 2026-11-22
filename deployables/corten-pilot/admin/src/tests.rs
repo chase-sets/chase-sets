@@ -9439,13 +9439,6 @@ fn provider_api(method: &Method, path: &str, headers: &HeaderMap, body: &str) ->
         });
     }
     let rest = path.strip_prefix("/api/catalog/source-observations/provider-profiles/")?;
-    if *method == Method::GET && rest == "tcgplayer/2026.07.13/authoring" {
-        return Some(
-            Json(json!({ "review": { "providerKey": "tcgplayer", "profileVersion": "2026.07.13", "displayName": "TCGplayer Pokemon Cards",
-                "status": "active", "capabilities": ["source-observation-import"], "supportedScopes": ["set-name"], "languageOptions": ["en"] } }))
-            .into_response(),
-        );
-    }
     // The API checks a section save against the revision its form was drawn from.
     let revision = headers.get(header::IF_MATCH).and_then(|v| v.to_str().ok()).unwrap_or_default();
     if *method == Method::PATCH && rest == "tcgplayer/2026.07.13/sections/basics" {
@@ -9465,7 +9458,7 @@ fn provider_api(method: &Method, path: &str, headers: &HeaderMap, body: &str) ->
     }
     if *method == Method::PATCH && rest.ends_with("/sections/migration-evidence") {
         let sent: Value = serde_json::from_str(body).unwrap_or(Value::Null);
-        let text = sent["command"]["migrationEvidence"]["evidenceText"].as_str().unwrap_or_default();
+        let text = sent["fields"]["migrationEvidenceText"].as_str().unwrap_or_default();
         return Some(if text.trim().is_empty() {
             refusal(
                 StatusCode::BAD_REQUEST,
@@ -9867,8 +9860,7 @@ async fn the_activation_decision_saves_evidence_and_activates_and_draws_the_apis
     assert_eq!(sent.headers[header::IF_MATCH], r#""sha256:migration-evidence-read""#);
     assert_eq!(
         serde_json::from_str::<Value>(&sent.body).unwrap(),
-        json!({ "command": { "section": "migration-evidence", "migrationEvidence": {
-            "evidenceText": "Replayed the changed fixtures.", "fixtureRunId": null } } })
+        json!({ "fields": { "migrationEvidenceText": "Replayed the changed fixtures.", "migrationFixtureRunId": "" } })
     );
     let (status, headers, _) =
         pilot.send(post(&format!("/catalog/providers/tcgplayer/activate?{at}"), "profileVersion=2026.07.13", false)).await;
@@ -12091,8 +12083,8 @@ async fn a_profile_section_is_drawn_from_its_workspace_and_saved_over_the_stored
     let save = &fixtures[fixtures.find(r#"type="submit""#).unwrap()..];
     assert!(save[..save.find('>').unwrap()].contains("disabled"), "{fixtures}");
 
-    // A save reads the version's authoring model and sends the posted fields over the stored ones,
-    // checked against the revision the form was drawn from.
+    // A save sends only the fields the form posted, as typed, checked against the revision the form
+    // was drawn from; Catalog composes them over the stored section (chase-sets/chase-sets#11074).
     let at = "profileVersion=2026.07.13";
     let (status, headers, _) = pilot
         .send(post(
@@ -12109,9 +12101,9 @@ async fn a_profile_section_is_drawn_from_its_workspace_and_saved_over_the_stored
     assert_eq!(sent.headers[header::IF_MATCH], r#""sha256:basics-read""#);
     assert_eq!(
         serde_json::from_str::<Value>(&sent.body).unwrap(),
-        json!({ "command": { "section": "basics", "displayName": "Pokemon Singles", "status": "planned",
-            "capabilities": ["source-observation-import"], "supportedScopes": ["set-name"], "languageOptions": ["en"] } })
+        json!({ "fields": { "displayName": " Pokemon Singles ", "status": "planned" } })
     );
+    assert!(!pilot.calls.lock().unwrap().iter().any(|c| c.path.ends_with("/authoring")), "the save reads nothing first");
     let (status, _, html) =
         pilot.send(get(&format!("/catalog/providers/tcgplayer?{at}&done=section-saved"), Some("staff"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");

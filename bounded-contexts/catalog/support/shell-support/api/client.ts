@@ -1423,7 +1423,7 @@ export function createCatalogApiClient({
       providerKey: string,
       profileVersion: string,
       section: string,
-      command: unknown,
+      fields: Readonly<Record<string, string>>,
       sectionFingerprint: string,
     ): Promise<T> {
       const response = await configuredFetch(
@@ -1435,7 +1435,7 @@ export function createCatalogApiClient({
             ...headersToRecord(headers),
             "if-match": `"${sectionFingerprint}"`,
           },
-          body: JSON.stringify({ command }),
+          body: JSON.stringify({ fields }),
         },
       );
       return parseJsonResponse<T>(response);

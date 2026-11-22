@@ -9,6 +9,12 @@ export {
   toCatalogProviderProfileSectionPatch,
 } from "../providers/provider-profile-section-registry";
 
+export {
+  catalogProviderProfileSectionFieldKeys,
+  parseCatalogProviderProfileSectionEdit,
+} from "../providers/provider-profile-section-edit";
+export type { CatalogProviderProfileSectionEdit } from "../providers/provider-profile-section-edit";
+
 export type {
   CatalogProviderProfileBasicsUpdateCommand,
   CatalogProviderProfileCatalogFieldMappingUpdateCommand,
