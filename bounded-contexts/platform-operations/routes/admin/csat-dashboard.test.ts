@@ -1,4 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
+import { ExperienceApiError } from "../../support/request-support/platform-feedback-client";
 import { loader } from "./csat-dashboard";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -35,7 +36,9 @@ it("still throws a read failure that is not a refused filter", async () => {
   const fetcher = vi.fn<typeof fetch>();
   vi.stubGlobal("fetch", fetcher);
   fetcher.mockResolvedValueOnce(Response.json({ error: { code: "internal_error" } }, { status: 500 }));
-  await expect(load("from=2026-10-20")).rejects.toMatchObject({ status: 500 });
+  const failure = load("from=2026-10-20");
+  await expect(failure).rejects.toBeInstanceOf(ExperienceApiError);
+  await expect(failure).rejects.toMatchObject({ status: 500, body: { error: { code: "internal_error" } } });
   fetcher.mockResolvedValueOnce(
     Response.json({ error: { code: "validation_failed", reason: "unknown-reason" } }, { status: 400 }),
   );
@@ -56,5 +59,7 @@ it("forwards the CSAT route filters and session to the correct context API", asy
   });
   const [url, options] = fetcher.mock.calls[0]!;
   expect(String(url)).toContain("/api/customer-feedback?states=submitted&ratings=5");
+  expect(options).toMatchObject({ method: "GET", credentials: "include" });
   expect(new Headers(options?.headers).get("cookie")).toBe("chase_sets_session=synthetic");
+  expect(new Headers(options?.headers).get("content-type")).toBe("application/json");
 });

@@ -1,4 +1,6 @@
-import { attachResponseMetadata, type ListResponse } from "@chase-sets/http/responses";
+import { createCsatAdminClient } from "@chase-sets/customer-feedback/server";
+import { parseExperienceApiResponse as parseJsonResponse } from "@chase-sets/http/experience-api-response";
+import type { ListResponse } from "@chase-sets/http/responses";
 import type {
   DismissPlatformFeedbackPromptRequest,
   PlatformFeedbackDetail,
@@ -14,11 +16,6 @@ import type {
   RecordPlatformFeedbackOperatorNoteRequest,
   SubmitPlatformFeedbackRequest,
 } from "../../features/platform-feedback/api/contracts";
-import type {
-  CsatAdminQueueFilters,
-  CsatAdminQueuePage,
-  CsatAnalyticsSnapshot,
-} from "@chase-sets/customer-feedback/server";
 
 const DEFAULT_BASE_URL = "/api/experience";
 
@@ -43,18 +40,7 @@ export type {
   CsatAnalyticsSnapshot,
 } from "@chase-sets/customer-feedback/server";
 
-export class ExperienceApiError extends Error {
-  public constructor(
-    public readonly status: number,
-    public readonly body: unknown,
-  ) {
-    super(
-      typeof body === "object" && body !== null && "error" in body
-        ? String((body as Record<string, unknown>).error)
-        : `API error ${status}`,
-    );
-  }
-}
+export { ExperienceApiError } from "@chase-sets/http/experience-api-response";
 
 export interface ExperienceApiClientOptions {
   baseUrl?: string;
@@ -66,15 +52,6 @@ export interface ExperienceApiClientOptions {
 
 function resolveHeaders(headers?: HeadersInit | (() => HeadersInit)) {
   return typeof headers === "function" ? headers() : headers;
-}
-
-async function parseJsonResponse<T>(response: Response): Promise<T> {
-  if (!response.ok) {
-    const errorBody = await response.json().catch(() => null);
-    throw new ExperienceApiError(response.status, errorBody);
-  }
-
-  return attachResponseMetadata(await response.json(), response) as T;
 }
 
 function toQuery(params: Record<string, string | number | boolean | null | undefined>) {
@@ -107,49 +84,7 @@ export function createExperienceApiClient({
     });
 
   return {
-    async getCsatDashboard(query = ""): Promise<{
-      analytics: CsatAnalyticsSnapshot;
-      queue: CsatAdminQueuePage;
-      filters: CsatAdminQueueFilters;
-    }> {
-      return parseJsonResponse(
-        await configuredFetch(`${customerFeedbackBaseUrl}${query ? `?${query}` : ""}`, { method: "GET" }),
-      );
-    },
-    async createCsatExport(query: string): Promise<{ exportId: string; rowCount: number }> {
-      const response = await configuredFetch(`${customerFeedbackBaseUrl}/export?${query}`, {
-        method: "GET",
-        cache: "no-store",
-      });
-      const metadata = await parseJsonResponse<{
-        exportId: string;
-        rowCount: number;
-        status: string;
-        artifactExpiresAt: string;
-      }>(response);
-      if (
-        response.status !== 201 ||
-        metadata.status !== "completed" ||
-        typeof metadata.exportId !== "string" ||
-        !metadata.exportId ||
-        !Number.isInteger(metadata.rowCount) ||
-        metadata.rowCount < 0 ||
-        !(Date.parse(metadata.artifactExpiresAt) > Date.now())
-      ) {
-        throw new ExperienceApiError(response.status, "invalid_export_metadata");
-      }
-      return metadata;
-    },
-    async downloadCsatExport(exportId: string): Promise<Blob> {
-      const response = await configuredFetch(`${customerFeedbackBaseUrl}/export/${encodeURIComponent(exportId)}`, {
-        method: "GET",
-        cache: "no-store",
-      });
-      if (response.status !== 200 || response.headers.get("Content-Type")?.split(";")[0]?.trim() !== "text/csv") {
-        throw new ExperienceApiError(response.status, "export_download_failed");
-      }
-      return response.blob();
-    },
+    ...createCsatAdminClient(customerFeedbackBaseUrl, configuredFetch),
     async getPromptEligibility(
       params: Readonly<{
         workflow: string;

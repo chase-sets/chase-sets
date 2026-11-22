@@ -999,7 +999,7 @@ describe("shared E2E setup selection", () => {
       changedFiles.includes("deployables/marketplace/e2e/unmapped.spec.ts"),
     );
     expect(captured.cases).toHaveLength(150);
-    expect(candidate.cases).toHaveLength(157);
+    expect(candidate.cases).toHaveLength(161);
     expect(candidate.families).toEqual([
       ...captured.families
         .filter((family) => family.path !== retired)
@@ -1112,6 +1112,24 @@ describe("shared E2E setup selection", () => {
         );
     }
   });
+});
+
+it("keeps admin support selected for both Attention route paths and its migrated copy", () => {
+  const paths = [
+    "bounded-contexts/customer-feedback/routes/admin/attention.tsx",
+    "bounded-contexts/customer-feedback/features/attention/ui/routes/attention.tsx",
+    "bounded-contexts/customer-feedback/features/attention/ui/localization/locales/en.ts",
+    "contracts/localization/locales/en/customer-feedback.ts",
+  ];
+  const fixture = JSON.parse(readFileSync("scripts/fixtures/ci-e2e-selection.json", "utf8"));
+  for (const file of paths) {
+    expect(e2eSuiteIdsForChangedFile(file)).toEqual(["admin_support"]);
+    expect(fixture.cases.find(({ changedFiles }) => changedFiles.length === 1 && changedFiles[0] === file)).toEqual({
+      changedFiles: [file],
+      suiteIds: ["admin_support"],
+      batches: ["admin_support"],
+    });
+  }
 });
 
 describe("rendered-copy real-provider selection corpus", () => {
