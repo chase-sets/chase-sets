@@ -4,7 +4,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { buildAuthenticityApi, type AuthenticityApiEnv } from "../../../api";
 import { module } from "../../../index";
-import { AuthenticityDomainError } from "../../../support/runtime-support/common";
+import { AuthenticityDomainError } from "../domain/case-primitives";
 import { authenticityCaseRoutes } from "./route";
 import type { AuthenticityCaseServices } from "./runtime";
 

@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { AuthenticityApiEnv } from "../../../api";
-import { AuthenticityDomainError } from "../../../support/runtime-support/common";
+import { AuthenticityDomainError } from "../domain/case-primitives";
 import { t } from "./localization/translator";
 import type { AuthenticityCaseServices } from "./runtime";
 

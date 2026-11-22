@@ -5,7 +5,7 @@ import type { AppendToStreamInput, ReadAllInput, ReadStreamInput, StoredEvent } 
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import type { AccountId, EventId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 import { createAuthenticityCaseRuntime } from "./runtime";
-import { AuthenticityDomainError } from "../../../support/runtime-support/common";
+import { AuthenticityDomainError } from "../domain/case-primitives";
 
 const context = {
   tenantId: "tnt_test" as TenantId,

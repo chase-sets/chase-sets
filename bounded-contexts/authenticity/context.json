@@ -112,9 +112,9 @@
     },
     "runtime-support": {
       "classification": "support",
-      "purpose": "Provide authenticity event-store composition, the platform-operated facility directory port, and shared domain primitives.",
+      "purpose": "Compose the Authenticity runtime, including the platform-operated facility directory port, schema, and retention declarations.",
       "expectedConsumers": [
-        "cases"
+        "Internal authenticity module composition"
       ]
     },
     "routes": {

@@ -46,8 +46,8 @@ export const contextManifest = {
     "runtime-support": {
       classification: "support",
       purpose:
-        "Provide authenticity event-store composition, the platform-operated facility directory port, and shared domain primitives.",
-      expectedConsumers: ["cases"],
+        "Compose the Authenticity runtime, including the platform-operated facility directory port, schema, and retention declarations.",
+      expectedConsumers: ["Internal authenticity module composition"],
     },
     routes: {
       classification: "routes",

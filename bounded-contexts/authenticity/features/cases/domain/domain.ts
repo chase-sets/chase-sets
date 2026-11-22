@@ -15,7 +15,7 @@ import {
   type AuthenticityPlanRef,
   type AuthenticityVerdict,
   type AuthenticityVerdictReasonCode,
-} from "../../../support/runtime-support/common";
+} from "./case-primitives";
 
 export type AuthenticityCaseState = Readonly<{
   id: AuthenticityCaseId | null;
