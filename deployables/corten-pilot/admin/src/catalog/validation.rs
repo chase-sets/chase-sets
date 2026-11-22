@@ -14,9 +14,9 @@
 //! what it will not take, and the page draws the refusal. admin-web posts both to its route action
 //! with an `_intent`; the pilot gives each its own route.
 //!
-//! The evidence command sends only what the operator wrote, the text and the fixture run; Catalog
-//! refuses a blank text and stamps the time, the author and the fingerprints itself
-//! (chase-sets/chase-sets#11068).
+//! The evidence command sends the evidence section's fields as the operator wrote them, the text and
+//! the fixture run; Catalog trims them, refuses a blank text and stamps the time, the author and the
+//! fingerprints itself (chase-sets/chase-sets#11068).
 use corten::{
     http::{HeaderMap, Uri},
     prelude::*,
@@ -316,17 +316,13 @@ pub struct EvidenceInput {
 }
 
 impl EvidenceInput {
-    /// The API's section command. The text goes as typed (trimmed), so a blank one is the API's to
-    /// refuse; an empty fixture run is none.
+    /// The API's section edit: the evidence section's fields as typed. A blank text is the API's to
+    /// refuse, and a blank fixture run is none.
     pub fn command(&self) -> Value {
-        let run = self.migration_fixture_run_id.trim();
         json!({
-            "command": {
-                "section": "migration-evidence",
-                "migrationEvidence": {
-                    "evidenceText": self.migration_evidence_text.trim(),
-                    "fixtureRunId": if run.is_empty() { Value::Null } else { Value::String(run.to_owned()) },
-                }
+            "fields": {
+                "migrationEvidenceText": self.migration_evidence_text,
+                "migrationFixtureRunId": self.migration_fixture_run_id,
             }
         })
     }
@@ -387,7 +383,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_evidence_command_sends_the_text_as_typed_and_empty_values_as_none() {
+    fn the_evidence_command_sends_the_fields_as_typed() {
         let input = EvidenceInput {
             profile_version: "2026.07.13".into(),
             section_fingerprint: "sha256:migration-evidence-read".into(),
@@ -396,11 +392,11 @@ mod tests {
         };
         assert_eq!(
             input.command(),
-            json!({ "command": { "section": "migration-evidence", "migrationEvidence": {
-                "evidenceText": "Replayed the changed fixtures.", "fixtureRunId": null } } })
+            json!({ "fields": {
+                "migrationEvidenceText": "  Replayed the changed fixtures.  ", "migrationFixtureRunId": " " } })
         );
         let blank = EvidenceInput { migration_evidence_text: "   ".into(), ..input };
-        assert_eq!(blank.command()["command"]["migrationEvidence"]["evidenceText"], "", "the API's to refuse, not replaced");
+        assert_eq!(blank.command()["fields"]["migrationEvidenceText"], "   ", "the API's to refuse, not replaced");
     }
 
     #[test]
