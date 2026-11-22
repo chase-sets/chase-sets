@@ -1329,6 +1329,11 @@
       "batches": ["agent_apps"]
     },
     {
+      "changedFiles": ["contracts/localization/locales/en/checkout.ts"],
+      "suiteIds": ["agent_apps"],
+      "batches": ["agent_apps"]
+    },
+    {
       "changedFiles": ["deployables/platform-api/__tests__/mcp-sdk-agent-journey.e2e.test.ts"],
       "suiteIds": ["platform_mcp_sdk"],
       "batches": ["platform_mcp_sdk"]

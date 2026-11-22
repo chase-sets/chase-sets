@@ -1,6 +1,10 @@
 import "./observability-prelude";
 import { readFile } from "node:fs/promises";
-import { UCP_MCP_PRODUCT_CARDS_RESOURCE_URI } from "@chase-sets/platform-runtime/ucp";
+import {
+  UCP_MCP_CART_REVIEW_RESOURCE_URI,
+  UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI,
+  UCP_MCP_PRODUCT_CARDS_RESOURCE_URI,
+} from "@chase-sets/platform-runtime/ucp";
 import type { ProviderWebhookTelemetryEvent } from "@chase-sets/http/provider-errors";
 import { serve } from "@hono/node-server";
 import { createClient } from "redis";
@@ -642,19 +646,29 @@ const ucpProfileResolver = createUcpProfileResolver({
   db: pools.control,
   onFailure: ({ kind, host }) => logger.warn("UCP platform profile resolution failed.", { kind, host }),
 });
-const productCardsHtml = await readFile(new URL("../../agent-apps/build/product-cards.html", import.meta.url), "utf8")
-  .then((html) => {
-    if (html.trim()) return html;
-    logger.warn("MCP product cards widget unavailable.", { code: "empty_file" });
-    return undefined;
-  })
-  .catch((error: unknown) => {
-    const missing = error instanceof Error && "code" in error && error.code === "ENOENT";
-    logger.warn("MCP product cards widget unavailable.", { code: missing ? "missing_file" : "read_failed" });
-    return undefined;
-  });
+// A missing or empty widget build leaves that widget unlinked; the tools it renders keep working.
+const readWidgetHtml = (uri: string, file: URL) =>
+  readFile(file, "utf8")
+    .then((html) => {
+      if (html.trim()) return html;
+      logger.warn("MCP widget unavailable.", { uri, code: "empty_file" });
+      return undefined;
+    })
+    .catch((error: unknown) => {
+      const missing = error instanceof Error && "code" in error && error.code === "ENOENT";
+      logger.warn("MCP widget unavailable.", { uri, code: missing ? "missing_file" : "read_failed" });
+      return undefined;
+    });
+const widgetFiles: readonly (readonly [uri: string, file: URL])[] = [
+  [UCP_MCP_PRODUCT_CARDS_RESOURCE_URI, new URL("../../agent-apps/build/product-cards.html", import.meta.url)],
+  [UCP_MCP_CART_REVIEW_RESOURCE_URI, new URL("../../agent-apps/build/cart-review.html", import.meta.url)],
+  [UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI, new URL("../../agent-apps/build/checkout-handoff.html", import.meta.url)],
+];
+const widgetHtml = new Map(
+  await Promise.all(widgetFiles.map(async ([uri, file]) => [uri, await readWidgetHtml(uri, file)] as const)),
+);
 const app = buildPlatformApiApp(runtime, {
-  widgetResources: (uri) => (uri === UCP_MCP_PRODUCT_CARDS_RESOURCE_URI ? productCardsHtml : undefined),
+  widgetResources: (uri) => widgetHtml.get(uri),
   runtimeProfile: config.runtimeProfile,
   receiptLookupActor: config.receiptLookupActor,
   internalAuthSecret: config.internalAuthSecret,
