@@ -24,7 +24,7 @@ use crate::{
     catalog::{
         daily::at,
         provider,
-        sections::{Field, Group, PROFILE_VERSION, Workspace},
+        sections::{Field, Group, PROFILE_VERSION, SECTION_FINGERPRINT, Workspace},
     },
     text::{Cat, Pilot},
 };
@@ -167,6 +167,7 @@ fn Section<'a>(
                     data-catalog-primary-workbench-command="provider-profile.edit-section"
                 >
                     <input type="hidden" name={PROFILE_VERSION} value={version}>
+                    <input type="hidden" name={SECTION_FINGERPRINT} value={&w.section_fingerprint}>
                     <div class={Fields}>
                         for field in &w.fields {
                             <Control p={p} field={field} locked={!can_save} />

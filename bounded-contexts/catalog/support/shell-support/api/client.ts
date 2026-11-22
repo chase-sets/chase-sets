@@ -1424,6 +1424,7 @@ export function createCatalogApiClient({
       profileVersion: string,
       section: string,
       command: unknown,
+      sectionFingerprint: string,
     ): Promise<T> {
       const response = await configuredFetch(
         `${baseUrl.replace(/\/$/, "")}/source-observations/provider-profiles/${encodeURIComponent(providerKey)}/${encodeURIComponent(profileVersion)}/sections/${encodeURIComponent(section)}`,
@@ -1432,6 +1433,7 @@ export function createCatalogApiClient({
           headers: {
             "content-type": "application/json",
             ...headersToRecord(headers),
+            "if-match": `"${sectionFingerprint}"`,
           },
           body: JSON.stringify({ command }),
         },
@@ -2200,6 +2202,13 @@ export function createCatalogApiClient({
     },
     async getCatalogScopeRecord<T>(id: string): Promise<T> {
       const response = await client["scope-records"][":id"].$get({
+        param: { id },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async getCatalogScopeJourney<T>(id: string): Promise<T> {
+      const response = await client["scope-records"][":id"].journey.$get({
         param: { id },
         header: headers,
       });

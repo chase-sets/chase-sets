@@ -1583,7 +1583,8 @@ describe("payments provider mode observation route", () => {
       .routes.filter((route) => route.method !== "ALL")
       .map((route) => route.path);
     expect(accountPaths).not.toContain("/payment-provider-mode");
-    expect(new Set(accountPaths).size).toBe(16);
+    expect(accountPaths).toContain("/checkout/payment-start/:sessionId");
+    expect(new Set(accountPaths).size).toBe(17);
   });
 
   it("reports the merged 6829 provider test-mode observation without contacting Stripe", async () => {

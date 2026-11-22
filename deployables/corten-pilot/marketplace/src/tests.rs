@@ -12373,7 +12373,7 @@ async fn the_offer_matches_show_the_snapshot_and_each_match_with_its_actions() {
         "Offer Matches Compare each best buyer offer",
         "Active matches 2 Ready to accept 1 At or above ask 0 Best match 88.79%",
         "Pikachu Jungle 60/64 Raw Excellent submitted Can fulfill",
-        "Your Listing $19.99 2 visible of 2 listed Best Offer $17.75 Collector Zero",
+        "Your Listing or inventory $19.99 2 visible of 2 listed Best Offer $17.75 Collector Zero",
         "Offer vs Ask 88.79% $2.24 below ask Quantity 2 requested 2 available",
         "Needs supply",
     ] {
@@ -13867,7 +13867,19 @@ fn repricing(stand: &Stand, session: &str, method: &Method, uri: &Uri, headers: 
         ("GET", "/configuration-requests") => Json(json!([])).into_response(),
         ("POST", "/halt") => configured(headers, StatusCode::OK, "46", serde_json::from_str::<Value>(body).unwrap()),
         ("GET", "/dry-runs") => Json(json!([run("repricing-dry-run:old", json!({}), "completed")])).into_response(),
-        ("GET", "/authoring-prerequisites") => Json(json!({ "listingCurrencyCodes": ["USD"], "hasCostBasis": true })).into_response(),
+        ("GET", "/authoring-prerequisites") => Json(json!({
+            "listingCurrencyCodes": ["USD"], "hasCostBasis": true, "goalAdoption": [],
+            "presets": [
+                { "preset": "track-market", "knob": { "min": -25, "max": 25, "defaultValue": 0 }, "ageDays": null },
+                { "preset": "beat-lowest", "knob": { "min": 0, "max": 15, "defaultValue": 2 }, "ageDays": null },
+                { "preset": "premium", "knob": { "min": 0, "max": 30, "defaultValue": 5 }, "ageDays": null },
+                { "preset": "slow-stock", "knob": { "min": 0, "max": 30, "defaultValue": 10 },
+                  "ageDays": { "min": 14, "max": 180, "defaultValue": 45 } },
+            ],
+            "editorDefaults": { "currencyCode": "USD", "floor": { "mode": "cost-basis-plus-margin", "marginPercent": 10 } },
+        }))
+        .into_response(),
+        ("POST", "/presets/compile") => Json(compiled_stand(&serde_json::from_str(body).unwrap())).into_response(),
         ("GET", "/categories") => Json(json!([{ "id": "cat-1", "name": "Pokemon" }, { "id": "cat-2", "name": "Magic" }])).into_response(),
         ("POST", "/scope-preview") => {
             Json(json!({ "matching": 12, "governed": 12, "shadowedBy": [{ "name": "Track", "count": 3 }], "takenFrom": [] })).into_response()
@@ -14003,17 +14015,35 @@ fn repricing_policy_stand() -> Value {
 
 /// `pol_4` as marketplace's editor writes Beat the lowest listing (knob 2, USD, a cost basis and
 /// fallback 4.00), its authoring intent bound.
+/// The body Pricing's `presets/compile` answers for `controls`, as far as the pages read it: the
+/// controls' currency, floor and scope in a complete rule, a second aged rule for slow stock, and
+/// the preset's intent bound.
+fn compiled_stand(controls: &Value) -> Value {
+    let knob = controls["knob"].as_f64().unwrap();
+    let directive = json!({
+        "currencyCode": controls["currencyCode"],
+        "anchorChain": [{ "source": "lowest-competing-ask" }, { "source": "market-estimate" }],
+        "offset": { "mode": "percent", "percent": crate::repricing_body::number(-knob) },
+        "floor": controls["floor"], "ceiling": null, "tolerance": { "mode": "percent", "percent": 1 },
+        "rounding": { "mode": "none" }, "maxMovePercent": 20, "terminal": { "kind": "hold" },
+    });
+    let age = controls.get("ageDays").and_then(Value::as_i64);
+    let mut rules = vec![json!({ "conditions": [], "directive": directive })];
+    if let Some(days) = age {
+        rules.insert(0, json!({ "conditions": [{ "type": "listing-age-at-least", "days": days }], "directive": directive }));
+    }
+    let mut body = json!({ "name": controls["name"], "scope": controls["scope"], "excludedListingIds": [],
+      "maxChangesPerDay": 250, "rules": rules });
+    let source =
+        json!({ "kind": "preset", "preset": controls["preset"], "knob": controls["knob"], "ageDays": age.unwrap_or(45) });
+    crate::repricing_body::bind(&mut body, source);
+    body
+}
+
 fn repricing_preset_stand() -> Value {
     let floor = json!({ "mode": "cost-basis-plus-margin", "marginPercent": 10, "absoluteFallbackAmount": "4.00" });
-    let body = crate::repricing_body::compile_preset(
-        crate::repricing::Preset::Beat,
-        "Beat",
-        "USD",
-        floor,
-        2.0,
-        45,
-        json!({ "kind": "all-listings" }),
-    );
+    let body = compiled_stand(&json!({ "preset": "beat-lowest", "knob": 2, "name": "Beat", "currencyCode": "USD",
+      "floor": floor, "scope": { "kind": "all-listings" } }));
     let mut policy = repricing_policy_stand();
     for (key, value) in body.as_object().unwrap() {
         policy[key] = value.clone();
@@ -15018,23 +15048,18 @@ async fn the_editor_previews_the_compiled_preset_and_activates_only_its_own_prev
         ("1", "repricing-dry-run:new", "beat-lowest")
     );
     let calls = pricing_calls(&pilot);
-    let (_, _, sent) = calls.iter().find(|(m, p, _)| *m == Method::POST && p.ends_with("/dry-runs")).expect("the dry run");
-    let mut sent = serde_json::from_str::<Value>(sent).unwrap();
-    // The preset's authoring intent, which opens the policy in these controls again.
-    let intent = sent.as_object_mut().unwrap().remove("authoringIntent").unwrap_or_default();
-    assert_eq!(intent["source"], json!({ "kind": "preset", "preset": "beat-lowest", "knob": 2, "ageDays": 45 }));
+    // Pricing compiles the preset's controls, and the dry run is of the body it answered.
+    let (_, _, asked) =
+        calls.iter().find(|(m, p, _)| *m == Method::POST && p.ends_with("/presets/compile")).expect("the compile");
+    let asked = serde_json::from_str::<Value>(asked).unwrap();
     assert_eq!(
-        sent,
-        json!({ "name": "Beat", "scope": { "kind": "all-listings" }, "excludedListingIds": [], "maxChangesPerDay": 250,
-          "rules": [ { "conditions": [], "directive": {
-            "currencyCode": "USD",
-            "anchorChain": [ { "source": "lowest-competing-ask" }, { "source": "market-estimate" } ],
-            "offset": { "mode": "percent", "percent": -2 },
-            "floor": { "mode": "cost-basis-plus-margin", "marginPercent": 10, "absoluteFallbackAmount": "4.00" },
-            "ceiling": null, "tolerance": { "mode": "percent", "percent": 1 }, "rounding": { "mode": "none" },
-            "maxMovePercent": 20, "terminal": { "kind": "hold" } } } ] }),
-        "chase-sets/chase-sets#7905's compiled example"
+        asked,
+        json!({ "preset": "beat-lowest", "knob": 2, "name": "Beat", "currencyCode": "USD",
+          "floor": { "mode": "cost-basis-plus-margin", "marginPercent": 10, "absoluteFallbackAmount": "4.00" },
+          "scope": { "kind": "all-listings" } })
     );
+    let (_, _, sent) = calls.iter().find(|(m, p, _)| *m == Method::POST && p.ends_with("/dry-runs")).expect("the dry run");
+    assert_eq!(serde_json::from_str::<Value>(sent).unwrap(), compiled_stand(&asked));
 
     // The editor with its finished run: the counts, the samples in words, and Activate on.
     let (status, _, html) = pilot.send(get(&to, Some("pricer"))).await;

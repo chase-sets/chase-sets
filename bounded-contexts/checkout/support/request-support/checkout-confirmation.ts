@@ -15,7 +15,17 @@ import {
   toOrderingSourceForCheckoutOrderCreation,
 } from "@chase-sets/checkout-order-source";
 import type { CheckoutSessionRow } from "../../features/sessions/read-model/queries";
+import { CheckoutDomainError } from "../runtime-support/common";
 export { normalizeRequestedBalanceCreditAmount } from "./balance-credit";
+export { isPaymentConfirmationTokenId } from "@chase-sets/payments/server";
+
+export async function readCheckoutPaymentStartThroughPayments(request: Request, sessionId: string) {
+  try {
+    return await createPaymentsRequestApiClient(request).getCheckoutPaymentStart(sessionId);
+  } catch {
+    return { state: "ambiguous" as const };
+  }
+}
 
 export type CheckoutInventoryReservation = Readonly<{
   holdId: string;
@@ -363,9 +373,10 @@ export async function createCheckoutPaymentThroughPayments(
   returnUrlPath?: string | null,
   agenticPayment?: AgenticProcessorPaymentInput["agenticPayment"] | null,
   orderCreationWriteResult?: unknown,
-  readinessRetry?: PaymentStartReadinessRetryOptions,
+  options?: PaymentStartReadinessRetryOptions & Readonly<{ confirmationTokenId?: string }>,
   preReadCheckoutStatus?: unknown,
 ) {
+  const confirmationTokenId = options?.confirmationTokenId;
   const confirmedFingerprint = marketplaceCheckoutFeeQuoteFingerprint?.trim();
   if (!confirmedFingerprint) {
     throw new Error("Review the payment quote before creating checkout payment.");
@@ -382,9 +393,10 @@ export async function createCheckoutPaymentThroughPayments(
   });
   const shouldRetryPendingOrderReadiness = orderIds.length > 0;
 
-  const maxAttempts = shouldRetryPendingOrderReadiness ? normalizeRetryAttemptCount(readinessRetry?.maxAttempts) : 1;
-  const delayMs = normalizeRetryDelayMs(readinessRetry?.delayMs);
+  const maxAttempts = shouldRetryPendingOrderReadiness ? normalizeRetryAttemptCount(options?.maxAttempts) : 1;
+  const delayMs = normalizeRetryDelayMs(options?.delayMs);
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    let sentCreate = false;
     try {
       if (needsOrderInputFreshRead && (attempt > 1 || preReadCheckoutStatus === undefined)) {
         await paymentsApi.getCheckoutStatus({
@@ -394,6 +406,7 @@ export async function createCheckoutPaymentThroughPayments(
         });
       }
 
+      sentCreate = true;
       return await paymentsApi.createAccountPayment({
         orderIds,
         sourceContext: "checkout",
@@ -405,8 +418,15 @@ export async function createCheckoutPaymentThroughPayments(
         savePaymentMethodForFuture,
         returnUrlPath,
         agenticPayment,
+        ...(confirmationTokenId ? { confirmationTokenId } : {}),
       });
     } catch (error) {
+      if (confirmationTokenId && sentCreate) {
+        const status = typeof error === "object" && error !== null && "status" in error ? error.status : null;
+        if (typeof status !== "number" || status === 408 || status >= 500) {
+          throw new CheckoutDomainError("Payment status is not yet known.", "payment_start_ambiguous");
+        }
+      }
       if (attempt >= maxAttempts || !paymentOrderReadinessIsPending(error)) {
         throw error;
       }

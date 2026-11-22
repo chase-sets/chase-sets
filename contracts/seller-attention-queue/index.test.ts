@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { sellerAttentionQueueEnglishTranslations } from "@chase-sets/seller-attention-queue/localization";
 import {
   aggregateSellerAttentionQueue,
   buildSellerAttentionItem,
@@ -12,6 +13,19 @@ import {
 } from "./index";
 
 const CONTEXT: SellerAttentionContext = { accountId: "acct-1", now: "2026-07-14T00:00:00.000Z" };
+
+it("exports the eight shared Channel attention reasons", () => {
+  expect(sellerAttentionQueueEnglishTranslations).toEqual({
+    "channels.attention.reason.credential": "Credentials",
+    "channels.attention.reason.seller-setup": "Connection setup",
+    "channels.attention.reason.subscription": "Subscription",
+    "channels.attention.reason.polling": "Channel polling",
+    "channels.attention.reason.drift": "Inventory differences",
+    "channels.attention.reason.provider-rate": "Channel rate limit",
+    "channels.attention.reason.provider-availability": "Channel availability",
+    "channels.attention.reason.sale-follow-up": "Sale follow-up",
+  });
+});
 
 function shipByItem(overrides: Partial<SellerAttentionItem> = {}): SellerAttentionItem {
   return {

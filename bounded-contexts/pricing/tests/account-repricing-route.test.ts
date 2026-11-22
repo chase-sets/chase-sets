@@ -1,4 +1,5 @@
 import { resolveActorFromSessionId } from "@chase-sets/auth/server";
+import { t } from "@chase-sets/localization";
 import { resolveWebHostNavItems } from "@chase-sets/platform-runtime/web";
 import pricingManifest from "../context.json";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -43,6 +44,7 @@ describe("marketplace repricing route", () => {
           ],
           "marketplace-web",
           slot,
+          t,
         ),
       ).toEqual([]);
     }
@@ -78,6 +80,7 @@ describe("marketplace repricing route", () => {
             ],
             "marketplace-web",
             slot,
+            t,
             actor,
           );
           // Marketplace never rendered Pricing in its bottom bar, so #9551 removed that dead declaration.

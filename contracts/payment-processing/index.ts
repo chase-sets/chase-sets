@@ -37,6 +37,7 @@ export type PaymentProcessorPublicConfig = Readonly<{
 
 export type CreateProcessorPaymentInput = Readonly<{
   paymentId: ProcessorPaymentId;
+  confirmationTokenId?: string | null;
   purpose?: "wallet-funding";
   evidenceWindow?: ProviderWriteWindow | null;
   buyerAccountId: AccountId;
@@ -70,6 +71,13 @@ export type CreateProcessorPaymentInput = Readonly<{
     consentText: string;
   }> | null;
 }>;
+
+/** Stripe Tokens are opaque, single-use inputs, not checkout or payment identities. */
+export function isPaymentConfirmationTokenId(value: unknown): value is string {
+  return typeof value === "string" && /^ctoken_[A-Za-z0-9_]{1,200}$/.test(value);
+}
+
+export class DeferredPaymentNotSent extends Error {}
 
 export type CreatedProcessorCustomer = Readonly<{
   processorName: PaymentProcessorName;
@@ -230,6 +238,7 @@ export type ProcessorPaymentReconciliationResult = Readonly<{
   processorPaymentReference: string;
   processorStatus: string;
   outcome: ProcessorPaymentReconciliationOutcome;
+  processorRedirectUrl?: string | null;
   occurredAt: string;
   internalPaymentId?: ProcessorPaymentId | null | undefined;
   failureCode?: string | null;

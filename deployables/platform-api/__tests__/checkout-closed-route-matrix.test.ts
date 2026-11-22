@@ -729,7 +729,9 @@ describe("checkout-closed-session-lifecycle", () => {
     let cartLineId: string | undefined;
     const checkoutQuery = vi.fn<PgQueryable["query"]>().mockImplementation(async (sql, values = []) => {
       if (sql.includes("FROM checkout_catalog_items"))
-        return { rows: [{ catalog_item_id: "cat_synthetic", status: "active", product_schema: null }] };
+        return {
+          rows: [{ catalog_item_id: "cat_synthetic", title: "Synthetic item", status: "active", product_schema: null }],
+        };
       if (sql.includes("checkout_cart_line_pages"))
         return {
           rows:
@@ -1079,7 +1081,7 @@ describe("checkout-closed-session-lifecycle", () => {
     let retainedLineId: string | undefined;
     const query = vi.fn<PgQueryable["query"]>().mockImplementation(async (sql) => ({
       rows: sql.includes("FROM checkout_catalog_items")
-        ? [{ catalog_item_id: "cat_synthetic", status: "active", product_schema: null }]
+        ? [{ catalog_item_id: "cat_synthetic", title: "Synthetic item", status: "active", product_schema: null }]
         : sql.includes("checkout_cart_line_pages") && retainedLineId
           ? [retainedCartLine(retainedLineId)]
           : [],

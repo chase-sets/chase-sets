@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import { parseIsoUtcTimestamp } from "@chase-sets/primitives/iso-utc-timestamp";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useActionData, useLoaderData } from "react-router";
 import { defineFormAction } from "@chase-sets/platform-runtime/http";
@@ -11,6 +12,25 @@ function optional(formData: FormData, key: string) {
   return value || null;
 }
 
+// The form sends each time as the instant the browser read in the operator's
+// zone (`LocalDateTimeInput`), with the typed text in `<name>Local`. A blank
+// field is `null`; a time that is not an instant is refused rather than sent
+// for the API to read in its zone.
+function scheduledTime(formData: FormData, name: string): string | null {
+  const instant = String(formData.get(name) ?? "").trim();
+  const typed = String(formData.get(`${name}Local`) ?? "").trim();
+  if (!instant && !typed) {
+    return null;
+  }
+  try {
+    return parseIsoUtcTimestamp(instant);
+  } catch {
+    throw new PromoBarScheduleError(t("publicPresence.promoBar.action.invalidTime"));
+  }
+}
+
+class PromoBarScheduleError extends Error {}
+
 function messageBody(formData: FormData) {
   return {
     title: String(formData.get("title") ?? ""),
@@ -20,8 +40,8 @@ function messageBody(formData: FormData) {
     tone: String(formData.get("tone") ?? "info") as PromoBarMessageTone,
     isActive: formData.get("isActive") === "true",
     displayOrder: Number(formData.get("displayOrder") ?? 100),
-    startsAt: optional(formData, "startsAt"),
-    endsAt: optional(formData, "endsAt"),
+    startsAt: scheduledTime(formData, "startsAt"),
+    endsAt: scheduledTime(formData, "endsAt"),
   };
 }
 
