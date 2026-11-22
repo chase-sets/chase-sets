@@ -143,6 +143,7 @@
   "slices": [
     "mutation-recovery",
     "offer-policy",
+    "offer-payment-consent",
     "channel-inbound-clamp",
     "listing-evidence-policy",
     "listings",
@@ -2563,6 +2564,11 @@
       "classification": "slice",
       "purpose": "Own private Buyer Offer Policy previews, buyer consent, lifecycle and permanent Offer membership authority.",
       "expectedConsumers": ["Marketplace account API", "Marketplace managed Offer enforcement"]
+    },
+    "offer-payment-consent": {
+      "classification": "slice",
+      "purpose": "Own Offer Payment Consent publications, activation, and automatic charging enforcement resolution.",
+      "expectedConsumers": ["Marketplace API", "Platform API policy runtime composition"]
     },
     "channel-inbound-clamp": {
       "classification": "slice",
