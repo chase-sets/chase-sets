@@ -68,6 +68,8 @@ CREATE TABLE IF NOT EXISTS evidence_window_provider_write (
   CHECK (replay_deadline >= created_at AND replay_deadline <= created_at + interval '82800 seconds'),
   CHECK (updated_at >= created_at)
 );
+ALTER TABLE evidence_window_provider_write
+  ADD COLUMN IF NOT EXISTS rejection jsonb CHECK (rejection IS NULL OR state = 'failed');
 CREATE UNIQUE INDEX IF NOT EXISTS evidence_window_provider_write_slot_idx
   ON evidence_window_provider_write(window_id, logical_slot) WHERE logical_slot IS NOT NULL;
 `;
@@ -96,6 +98,7 @@ type StoredRow = {
   api_version: string | null;
   digest: string | null;
   provider_reference: string | null;
+  rejection: ProviderWriteRow["rejection"] | null;
   response_expires_at: Date | string | null;
   created_at: Date | string;
   updated_at: Date | string;
@@ -138,6 +141,7 @@ function mapRow(row: StoredRow): ProviderWriteRow {
           },
     digest: row.digest,
     state: row.state,
+    ...(row.rejection == null ? {} : { rejection: row.rejection }),
     version: row.version,
     observedClass: row.observed_class,
     reusedExisting: row.reused_existing,
@@ -365,12 +369,13 @@ export function createPostgresEvidenceWindowProviderWrite(db: PgTransactionalPoo
         return update(
           key,
           version,
-          "state = $6, provider_reference = $7, response_expires_at = $8",
+          "state = $6, provider_reference = $7, response_expires_at = $8, rejection = $9",
           "state = 'pending'",
           [
             result.state,
             result.state === "succeeded" ? result.providerReference : null,
             result.state === "succeeded" ? (result.responseExpiresAt ?? null) : null,
+            result.state === "failed" ? (result.rejection ?? null) : null,
           ],
         );
       }),
