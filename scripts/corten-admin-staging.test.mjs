@@ -1,6 +1,8 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { delimiter, dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import {
@@ -361,6 +363,119 @@ describe("Corten admin staging deployment", () => {
       .filter(([, job]) => [job.needs ?? []].flat().includes("build-corten-pilot-images"))
       .map(([name]) => name);
     expect(dependants).toEqual(["deploy-staging"]);
+  });
+
+  describe("pilot image steps, run in order with stubbed registry tools", () => {
+    const steps = workflow.jobs["build-corten-pilot-images"].steps;
+    const step = (id) => steps.find((candidate) => candidate.id === id);
+    const bash = process.platform === "win32" ? "C:\\Program Files\\Git\\usr\\bin\\bash.exe" : "bash";
+    const digestValue = "sha256:" + "c".repeat(64);
+    // The stubs record each call. The registry has the image when $REGISTRY_HAS_IMAGE says so, or once a push ran.
+    const stubs = [
+      'doctl() { echo "doctl $*" >> "$CALLS"; if [ "$1 $2" = "registry get" ]; then echo chase-sets; fi; }',
+      "docker() {",
+      '  echo "docker $*" >> "$CALLS"',
+      '  if [ "$2" = "build" ]; then touch "$PUSHED"; return 0; fi',
+      '  if [ "$REGISTRY_HAS_IMAGE" != true ] && [ ! -e "$PUSHED" ]; then return 1; fi',
+      '  case "$*" in *--format*) echo "$DIGEST_VALUE" ;; esac',
+      "}",
+      'node() { echo "node $*" >> "$CALLS"; return "$GATE_EXIT"; }',
+    ].join("\n");
+    // Bash's own tools first on PATH, and no ambient credential reaches the stubbed steps.
+    const ambientPath = process.env.PATH ?? process.env.Path ?? "";
+    const shellEnv = (extra) => {
+      const environment = Object.fromEntries(
+        Object.entries(process.env).filter(
+          ([name]) => name.toLowerCase() !== "path" && !/(?:DIGITALOCEAN|GITHUB|TOKEN|SECRET|PASSWORD)/i.test(name),
+        ),
+      );
+      const shellDirectory = process.platform === "win32" ? dirname(bash) : null;
+      return {
+        ...environment,
+        ...extra,
+        PATH: shellDirectory ? `${shellDirectory}${delimiter}${ambientPath}` : ambientPath,
+      };
+    };
+    const readFile = (path) =>
+      spawnSync(bash, ["-c", 'cat "$1" 2>/dev/null || true', "read", path], { encoding: "utf8", env: shellEnv({}) })
+        .stdout;
+    // Runs one step's script; returns its exit code and the outputs it wrote.
+    const runStep = (id, env, scratch) => {
+      const output = `${scratch}/output-${id}`;
+      const result = spawnSync(bash, ["-c", `${stubs}\n${step(id).run}`], {
+        encoding: "utf8",
+        cwd: scratch,
+        env: shellEnv({ ...env, GITHUB_OUTPUT: output }),
+      });
+      const outputs = Object.fromEntries(
+        readFile(output)
+          .split("\n")
+          .filter(Boolean)
+          .map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)]),
+      );
+      return { status: result.status, outputs };
+    };
+    // The workflow's step conditions, read from the steps themselves rather than restated.
+    const runsAfter = (id, outcomes) => {
+      const condition = /^steps\.([a-z_]+)\.outcome == 'success'$/.exec(step(id).if);
+      return outcomes[condition[1]] === "success";
+    };
+    const runLeg = ({ registryHasImage, gateExit }) => {
+      const scratch = mkdtempSync(join(tmpdir(), "corten-pilot-image-"));
+      try {
+        const base = {
+          CALLS: `${scratch}/calls`,
+          PUSHED: `${scratch}/pushed`,
+          REGISTRY_HAS_IMAGE: String(registryHasImage),
+          GATE_EXIT: String(gateExit),
+          DIGEST_VALUE: digestValue,
+          PILOT: "admin",
+          RELEASE_COMMIT: "r".repeat(40),
+        };
+        const outcomes = {};
+        const gate = runStep("corten_pilot_gate", base, scratch);
+        outcomes.corten_pilot_gate = gate.status === 0 ? "success" : "failure";
+        let published = {};
+        if (runsAfter("corten_pilot_push", outcomes)) {
+          const push = runStep(
+            "corten_pilot_push",
+            { ...base, IMAGE: gate.outputs.image, IMAGE_EXISTS: gate.outputs.exists ?? "" },
+            scratch,
+          );
+          outcomes.corten_pilot_push = push.status === 0 ? "success" : "failure";
+          if (runsAfter("corten_pilot_image", outcomes)) {
+            published = runStep("corten_pilot_image", { ...base, IMAGE_REF: push.outputs.image }, scratch).outputs;
+          }
+        }
+        return { outcomes, published, calls: readFile(base.CALLS) };
+      } finally {
+        rmSync(scratch, { recursive: true, force: true });
+      }
+    };
+    const image = "registry.digitalocean.com/chase-sets/chase-sets-corten-admin:" + "r".repeat(40);
+
+    it("publishes an image a rerun finds already pushed, without a gate or a write", () => {
+      const { outcomes, published, calls } = runLeg({ registryHasImage: true, gateExit: 0 });
+      expect(outcomes).toEqual({ corten_pilot_gate: "success", corten_pilot_push: "success" });
+      expect(published).toEqual({ corten_admin_image: image + "@" + digestValue });
+      expect(calls).not.toContain("assert-writable");
+      expect(calls).not.toContain("buildx build");
+    });
+
+    it("admits, builds and publishes a new image", () => {
+      const { published, calls } = runLeg({ registryHasImage: false, gateExit: 0 });
+      expect(published).toEqual({ corten_admin_image: image + "@" + digestValue });
+      expect(calls.indexOf("assert-writable")).toBeGreaterThan(-1);
+      expect(calls.indexOf("assert-writable")).toBeLessThan(calls.indexOf("buildx build"));
+    });
+
+    it("never writes or publishes after the gate refuses", () => {
+      const { outcomes, published, calls } = runLeg({ registryHasImage: false, gateExit: 1 });
+      expect(outcomes).toEqual({ corten_pilot_gate: "failure" });
+      expect(published).toEqual({});
+      expect(calls).toContain("assert-writable");
+      expect(calls).not.toContain("buildx build");
+    });
   });
 
   describe("ingress pod CIDR discovery", () => {

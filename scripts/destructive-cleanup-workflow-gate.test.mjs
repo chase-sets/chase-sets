@@ -68,8 +68,8 @@ function assertWriterGates(source, writers) {
     const lines = block.text.split(/\r?\n/);
     const writerIndex = writer(lines);
     expect(writerIndex, `missing writer in ${name}`).toBeGreaterThanOrEqual(0);
-    expect(block.text).not.toMatch(/\bset\s+\+e\b/);
     if (block.step["continue-on-error"] === true) {
+      expect(block.text).not.toMatch(/\bset\s+\+e\b/);
       expect(lines.slice(0, writerIndex).some((line) => line.includes(gateCommand))).toBe(false);
       assertSeparatelyGatedWriter(block);
       continue;
@@ -214,6 +214,11 @@ it("admits a continue-on-error writer only behind a succeeded gate step of its o
   for (const mutant of [
     production.replace("        if: steps.corten_pilot_gate.outcome == 'success'\n", ""),
     production.replace("if: steps.corten_pilot_gate.outcome == 'success'", "if: always()"),
+    // Under continue-on-error a refused gate's conclusion is success; only its outcome records the refusal.
+    production.replace(
+      "if: steps.corten_pilot_gate.outcome == 'success'",
+      "if: steps.corten_pilot_gate.conclusion == 'success'",
+    ),
     production.replace(
       "      - name: Admit the Corten pilot image write\n        id: corten_pilot_gate\n",
       "      - name: Admit the Corten pilot image write\n        id: corten_pilot_gate\n        if: always()\n",

@@ -953,11 +953,13 @@ jobs:
           echo "image=${image}" >> "$GITHUB_OUTPUT"
           if docker buildx imagetools inspect "$image" >/dev/null 2>&1; then
             echo "Corten ${PILOT} image ${image} already exists, so no registry write is needed."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           node ./scripts/digitalocean-registry-gc-gate.mjs assert-writable \
             --registry="$registry_name" \
             --out="artifacts/release-health/registry-gc-corten-${PILOT}.json"
+          echo "exists=false" >> "$GITHUB_OUTPUT"
 
       - name: Build and push Corten pilot image
         id: corten_pilot_push
@@ -967,10 +969,12 @@ jobs:
         timeout-minutes: 15
         env:
           IMAGE: ${{ steps.corten_pilot_gate.outputs.image }}
+          IMAGE_EXISTS: ${{ steps.corten_pilot_gate.outputs.exists }}
           PILOT: ${{ matrix.pilot }}
         run: |
           set -euo pipefail
-          if ! docker buildx imagetools inspect "$IMAGE" >/dev/null 2>&1; then
+          # Write only what the gate admitted. An existing image is resolved to its digest and published unchanged.
+          if [ "$IMAGE_EXISTS" = "false" ]; then
             docker buildx build \
               --pull \
               --file "Dockerfile.corten-${PILOT}" \
