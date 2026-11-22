@@ -96,7 +96,8 @@
 //   the account badges' words, and Reputation's review report and scoring context,
 //   reputation.features.reviews.ui.reviewReportAction.* and .reviewScoringContext.*).
 // - marketplace/locales/notifications.en.json: the notification center's English catalog
-//   (notifications.features.notificationCenter.ui.page.* and .shell.*, and notifications.routes.accountNotifications.*).
+//   (notifications.features.notificationCenter.ui.page.* and .shell.*, and notifications.routes.accountNotifications.*,
+//   which the notification center's own catalog holds).
 // - marketplace/locales/orders.en.json: the account's order pages' English catalog
 //   (ordering.features.orders.ui.orderListPage.*, .orderDetailPage.*, .moneyTimeline.*, .orderOutcome.* and
 //   .orderReviewOpportunityCallout.*, and ordering.routes.accountPurchases.*, .accountPurchase.*, .accountSales.* and .accountSale.*).
@@ -1402,13 +1403,17 @@ const outputs = [
   ],
   [
     "marketplace/locales/notifications.en.json",
-    json(
-      await catalog("notifications.ts", "notificationsEnglishTranslations", [
+    json({
+      ...(await catalog("notifications.ts", "notificationsEnglishTranslations", [
         ["notifications.features.notificationCenter.ui.page.", "page"],
         ["notifications.features.notificationCenter.ui.shell.", "shell"],
-        ["notifications.routes.accountNotifications.", "route"],
-      ]),
-    ),
+      ])),
+      ...(await catalogFrom(
+        "bounded-contexts/notifications/features/notification-center/ui/localization/locales/en.ts",
+        "notificationCenterEnglishTranslations",
+        [["notifications.routes.accountNotifications.", "route"]],
+      )),
+    }),
   ],
   [
     "marketplace/locales/orders.en.json",
