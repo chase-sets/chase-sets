@@ -7,7 +7,6 @@ import type { ProjectionRunContext } from "@chase-sets/event-core/projector";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { withProjectionTransaction } from "./projection-transactions";
 import { PROJECTION_GROUP_GENERATIONS_TABLE, PROJECTION_GROUP_REVISIONS_TABLE, SQL_IDENTIFIER_RE } from "./schema";
-import { subscriptionCheckpointsRequireRecovery } from "./subscription-store";
 import type {
   ContextSubscriptionRunner,
   ContextSubscriptionStatus,
@@ -19,6 +18,7 @@ import {
   resolveDeferredProjectionNames,
   resolveModuleSubscriptions,
   sortSubscriptionRunners,
+  subscriptionCheckpointsRequireRecovery,
 } from "./subscriptions";
 
 // Status-refresh fan-out is nested (groups x each group's subscription runners),
