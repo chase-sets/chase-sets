@@ -333,7 +333,11 @@ function shippedShapedFiles(includeReserveUnit = false): FixtureFile[] {
   const fixedCost = retainedTimingInputs().testFileFixedCostMs;
   return entries.map(([fileName, partition], fileIndex) => {
     const caseTotal = durations[fileIndex]! - fixedCost;
-    const count = partition.cases.length;
+    const cases =
+      fileName === postCaptureOfferConsent.fileName
+        ? partition.cases.filter(({ name }) => name !== postCaptureOfferConsent.testCase.name)
+        : partition.cases;
+    const count = cases.length;
     const perCase = Math.floor(caseTotal / count);
     return {
       fileName,
@@ -343,7 +347,7 @@ function shippedShapedFiles(includeReserveUnit = false): FixtureFile[] {
           ? "test:db:2"
           : partition.executionUnit,
       bootBearingCases: partition.bootBearingCases,
-      cases: partition.cases.map((testCase, index) => ({
+      cases: cases.map((testCase, index) => ({
         name: testCase.name,
         referenceDurationMs: perCase + (index < caseTotal % count ? 1 : 0),
         body: `  expect(${index}).toBe(${index});`,
@@ -656,6 +660,14 @@ function withUnappliedMeasuredFloor<T extends { schedule: { minimumUnitCount: nu
 const currentMinimumUnitCount = 3;
 const retainedMinimumUnitCount = 2;
 const currentProjectedMakespans = [483171, 327054, 340439, 276520];
+const postCaptureOfferConsent = {
+  fileName: "bootstrap-scenario.db.test.ts",
+  testCase: {
+    name: "exposes the Offer payment consent policy in the console without enabling enforcement on revision",
+    referenceDurationMs: 12_000,
+    identity: "d02abcddabdae4d0",
+  },
+};
 const derivedShippedAssignment: Readonly<Record<string, BootstrapDbEnrollmentPartition["executionUnit"]>> =
   Object.freeze({
     "bootstrap-production-reconciliation.db.test.ts": "test:db:1",
@@ -3001,13 +3013,14 @@ describe("Platform API bootstrap DB enrollment", () => {
       if (current) {
         const partition = bootstrapDbEnrollmentManifest[file.fileName]!;
         expect(partition.executionUnit).toBe(derivedShippedAssignment[file.fileName]);
-        expect(partition.cases).toEqual(
-          file.cases.map(({ name, identity, referenceDurationMs }) => ({
+        expect(partition.cases).toEqual([
+          ...(file.fileName === postCaptureOfferConsent.fileName ? [postCaptureOfferConsent.testCase] : []),
+          ...file.cases.map(({ name, identity, referenceDurationMs }) => ({
             name,
             identity,
             referenceDurationMs,
           })),
-        );
+        ]);
       }
       for (const testCase of file.cases) {
         expect(Number.isFinite(testCase.durationMs)).toBe(true);
@@ -3147,7 +3160,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(bootstrapDbScheduleModel.maximumEnumeratedUnitCount).toBe(4);
     expect(bootstrapDbScheduleModel.maximumCaseReferenceDurationMs).toBe(600_000);
     expect(checkBootstrapDbEnrollment().schedule.files.reduce((total, file) => total + file.caseDurationMs, 0)).toBe(
-      1919337,
+      1_919_337 + postCaptureOfferConsent.testCase.referenceDurationMs,
     );
   });
 
@@ -3160,7 +3173,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     );
     expect(schedule.units.map((unit) => [unit.bootBearingCaseCount, unit.bootBearingCeiling])).toEqual([
       [26, 26],
-      [31, 32],
+      [32, 32],
       [19, 19],
       [2, 2],
     ]);
