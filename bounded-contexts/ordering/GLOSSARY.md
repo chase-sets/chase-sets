@@ -66,6 +66,7 @@ Notes:
 - Listing purchases consume the locked Marketplace sales fee snapshot already carried by listing supply.
 - Accepted offers consume the seller-confirmed fee snapshot emitted by Marketplace at offer acceptance time.
 - Ordering does not resolve Commercial Terms for normal listing purchases.
+- It records the Shipping Rates the order's shipping quote applied.
 
 ## Order Protection
 
@@ -130,13 +131,22 @@ Notes:
 
 ## Shipping Quote Policy
 
-A **Shipping Quote Policy** is the Ordering-owned rule that estimates provisional shipping charges and discounts while checkout compares seller split plans.
+A **Shipping Quote Policy** is the Ordering-owned rule that applies the Shipping Rates to a package plan to estimate provisional shipping charges and discounts while checkout compares seller split plans.
 
 Notes:
 
 - Shipping quotes use Catalog-provided product measure snapshots, seller origin, destination address, item value, requested shipping option, and package-planning policy.
 - Letter eligibility is part of Shipping Quote Policy, not Catalog product truth.
 - Orders store an immutable shipping plan snapshot so later profile or carrier-policy changes do not rewrite committed order economics.
+
+## Shipping Rates
+
+**Shipping Rates** are the values the Shipping Quote Policy applies: the amount for a letter, the amount for a parcel under each shipping option, the ounces a parcel amount includes, and the amount for each additional billable ounce.
+
+Notes:
+
+- Each order records the Shipping Rates its shipping quote applied on its Order Economics Snapshot, and recorded rates never change.
+- An order with no Shipping Rates recorded was priced by the compiled rates of the build that created it: the six values from 2026-05-21, the per-order table before.
 
 ## Postage Policy
 
