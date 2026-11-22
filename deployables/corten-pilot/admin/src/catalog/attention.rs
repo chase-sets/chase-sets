@@ -28,7 +28,7 @@ use serde_json::{Map, Value, json};
 
 use super::{
     Sent,
-    api::{AttentionItem, AttentionKind, Catalog, Kind},
+    api::{AttentionItem, AttentionKind, Kind},
     command, receipt,
     scopes::{self, ScopeBack, url::ScopeQuery},
     views::{self, Draft},
