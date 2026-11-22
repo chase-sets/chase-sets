@@ -804,6 +804,21 @@ describe("Catalog Item authority from each member's own reviewed provider unit (
   });
 });
 
+async function stubCatalogPictureIO() {
+  const putObject = vi.fn<CatalogAssetStorage["putObject"]>(async ({ key }) => ({
+    key,
+    publicUrl: `https://assets.example/${key}`,
+  }));
+  const bytes = await sharp({
+    create: { width: 12, height: 16, channels: 3, background: "#633399" },
+  })
+    .png()
+    .toBuffer();
+  const fetcher = vi.fn(async () => new Response(new Uint8Array(bytes), { headers: { "content-type": "image/png" } }));
+  vi.stubGlobal("fetch", fetcher);
+  return { fetcher, putObject };
+}
+
 describe("Catalog Merge Candidate Catalog-owned pictures", () => {
   const scryfall = magicObservation("scryfall-card-print");
   const at = scryfall.observedAt;
@@ -1025,19 +1040,7 @@ describe("Catalog Merge Candidate Catalog-owned pictures", () => {
         },
       },
     });
-    const putObject = vi.fn<CatalogAssetStorage["putObject"]>(async ({ key }) => ({
-      key,
-      publicUrl: `https://assets.example/${key}`,
-    }));
-    const bytes = await sharp({
-      create: { width: 12, height: 16, channels: 3, background: "#633399" },
-    })
-      .png()
-      .toBuffer();
-    const fetcher = vi.fn(
-      async () => new Response(new Uint8Array(bytes), { headers: { "content-type": "image/png" } }),
-    );
-    vi.stubGlobal("fetch", fetcher);
+    const { fetcher, putObject } = await stubCatalogPictureIO();
     const listProfileVersions = vi.fn(async (providerKey: string) =>
       [...new Set(members.map(({ version }) => version))].filter((entry) => entry.providerKey === providerKey),
     );
@@ -1342,6 +1345,7 @@ describeDb("Catalog Merge Candidate application with registered Magic profiles (
     store = createPostgresEventStore({ pool });
   });
   afterAll(async () => closeMultiContextTestPools({ catalog: pool }));
+  afterEach(() => vi.unstubAllGlobals());
 
   function candidateCommands() {
     return createAggregateCommandHandler({
@@ -1375,8 +1379,7 @@ describeDb("Catalog Merge Candidate application with registered Magic profiles (
     return { candidateId, snapshot };
   }
 
-  // The production composition of the bulk runtime's application ports.
-  function ports(): CatalogMergeCandidateApplicationPorts {
+  function ports(assetStorage?: CatalogAssetStorage): CatalogMergeCandidateApplicationPorts {
     const commandHandler = candidateCommands();
     return {
       deps: {
@@ -1384,6 +1387,7 @@ describeDb("Catalog Merge Candidate application with registered Magic profiles (
         eventStore: store,
         checkpointStore: createPostgresProjectionStore({ db: pool }),
         promotionTargetExclusion: createPostgresPromotionTargetExclusion({ pool, eventStore: store }),
+        assetStorage,
       } as CatalogRuntimeDeps,
       referenceData: services.referenceData,
       profileVersions: services.providerIntegrationProfiles,
@@ -1400,8 +1404,8 @@ describeDb("Catalog Merge Candidate application with registered Magic profiles (
     };
   }
 
-  const apply = (candidateId: string, jobId = "job_time_spiral") =>
-    applyCatalogMergeCandidatePromotion(ports(), {
+  const apply = (candidateId: string, jobId = "job_time_spiral", assetStorage?: CatalogAssetStorage) =>
+    applyCatalogMergeCandidatePromotion(ports(assetStorage), {
       candidateId,
       jobId,
       unitId: candidateId,
@@ -1428,8 +1432,10 @@ describeDb("Catalog Merge Candidate application with registered Magic profiles (
     ]);
     expect(snapshot.membership.map((member) => member.providerKey)).toEqual(["mtgjson", "scryfall"]);
     const target = catalogMergeCandidateTargetId(candidateId);
+    const { fetcher, putObject } = await stubCatalogPictureIO();
+    const applyWithPicture = (jobId?: string) => apply(candidateId, jobId, { putObject });
 
-    const result = await apply(candidateId);
+    const result = await applyWithPicture();
 
     expect(result).toStrictEqual({
       candidateId,
@@ -1483,16 +1489,31 @@ describeDb("Catalog Merge Candidate application with registered Magic profiles (
         snapshot.proposedExternalCatalogItemReferences.map((reference) => expect.objectContaining(reference)),
       ),
     );
+    expect(item.productAssetSets).toMatchObject([
+      { sourcePolicy: { sourceProviderKey: "scryfall", approval: "catalog-owned-rehost-approved" } },
+    ]);
+    const detail = item.productAssetSets[0]!.variants.find(
+      (variant) => variant.role === "catalog-detail" && variant.density === 1,
+    );
+    expect(detail?.publicUrl).toMatch(/^https:\/\/assets\.example\//);
+    expect(item.imageUrls).toEqual([detail?.publicUrl]);
+    const writes = putObject.mock.calls.length;
+    expect(writes).toBeGreaterThan(0);
 
     // Recovering the applied candidate writes nothing; another unit skips it.
     const events = await eventCount();
-    await expect(apply(candidateId)).resolves.toStrictEqual(result);
-    await expect(apply(candidateId, "job_time_spiral_later")).resolves.toMatchObject({
+    await expect(applyWithPicture()).resolves.toStrictEqual(result);
+    await expect(applyWithPicture("job_time_spiral_later")).resolves.toMatchObject({
       status: "skipped-not-eligible",
       reason: "Catalog Merge Candidate application is already complete.",
     });
     expect(await eventCount()).toBe(events);
     expect(await itemCreations()).toBe(1);
+    expect(fetcher).toHaveBeenCalledExactlyOnceWith(
+      expect.stringMatching(/^https:\/\/cards\.scryfall\.io\//),
+      expect.anything(),
+    );
+    expect(putObject).toHaveBeenCalledTimes(writes);
   });
 
   it("AC3: an optional rarity carried only by MTGJSON is omitted before the display-identity gate", async () => {
