@@ -24,7 +24,7 @@ import type {
   CatalogScopeLanguageEditionLinkState,
   CatalogScopeLanguageEditionReviewReadModel,
   CatalogScopeLanguageEditionSummary,
-} from "./language-edition-review";
+} from "../../../../../scope-registry/ui/contracts";
 import type { CatalogPrimaryWorkbenchRouteContext } from "../../../../api/primary-workbench-admin-contracts";
 import { useCatalogIntegrationCommandHref } from "../../import-to-promotion/command-action-context";
 

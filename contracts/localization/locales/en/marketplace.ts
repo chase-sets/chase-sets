@@ -804,7 +804,7 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.offers.ui.offerMatchListPage.can.fulfill": "Can fulfill",
   "marketplace.features.offers.ui.offerMatchListPage.checkout.sell.list": "Checkout Sell List",
   "marketplace.features.offers.ui.offerMatchListPage.compare.best.offers.to.your.listing":
-    "Compare each best buyer offer against your active listing price and decide whether the gap is worth accepting.",
+    "Compare each best buyer offer against your active listing price, or the inventory you could list, and decide whether it is worth accepting.",
   "marketplace.features.offers.ui.offerMatchListPage.decline": "Decline",
   "marketplace.features.offers.ui.offerMatchListPage.inventory": "Inventory",
   "marketplace.features.offers.ui.offerMatchListPage.item": "Item",
@@ -818,7 +818,7 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.offers.ui.offerMatchListPage.offer.matches": "Offer Matches",
   "marketplace.features.offers.ui.offerMatchListPage.offer.matches.2": "Offer Matches",
   "marketplace.features.offers.ui.offerMatchListPage.offer.matches.appear.here.when.submitted":
-    "Offer matches appear here when submitted offers match products you actively list.",
+    "Offer matches appear here when submitted offers match products you actively list or hold in inventory.",
   "marketplace.features.offers.ui.offerMatchListPage.offer.match.health": "Offer match health",
   "marketplace.features.offers.ui.offerMatchListPage.offer.match.health.description":
     "Scan available demand, fulfillment readiness, and queued seller decisions before accepting offers.",
@@ -859,12 +859,18 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.offers.ui.offerMatchListPage.status": "Status",
   "marketplace.features.offers.ui.offerMatchListPage.updated": "Updated",
   "marketplace.features.offers.ui.offerMatchListPage.view.listings": "View listings",
-  "marketplace.features.offers.ui.offerMatchListPage.your.listing": "Your Listing",
+  "marketplace.features.offers.ui.offerMatchListPage.your.listing": "Your Listing or inventory",
   "marketplace.features.offers.ui.price.incomplete": "Price incomplete",
   "marketplace.features.offers.ui.priceGap.below.ask": "{amount} below ask",
   "marketplace.features.offers.ui.priceGap.meets.ask": "Meets ask",
   "marketplace.features.offers.ui.priceGap.over.ask": "{amount} over ask",
   "marketplace.features.offers.ui.priceGap.unknown": "Ask gap unavailable",
+  "marketplace.features.offers.ui.matchSource.from.listing": "From Listing",
+  "marketplace.features.offers.ui.matchSource.from.inventory": "From inventory",
+  "marketplace.features.offers.ui.matchSource.inventory.quantity": "{quantity} in inventory",
+  "marketplace.features.offers.ui.matchSource.list.to.fill.offer": "List to fill this Offer",
+  "marketplace.features.offers.ui.matchSource.not.enough.stock": "Not enough stock",
+  "marketplace.features.offers.ui.matchSource.list.before.responding": "List this item to accept or decline the Offer.",
   "marketplace.features.offers.ui.offerDetailRecoveryPage.no.payment.or.sale.changed":
     "No payment or sale changed while these offer details finish updating.",
   "marketplace.features.offers.ui.offerDetailRecoveryPage.recover.offer": "Recover offer details",
@@ -1007,7 +1013,7 @@ export const marketplaceEnglishTranslations = {
   "marketplace.routes.accountOfferMatches.offer.matches.marketplace": "Offer Matches | Marketplace",
   "marketplace.routes.accountOfferMatches.request.failed": "Request failed.",
   "marketplace.routes.accountOfferMatches.review.offer.matches.against.your.active":
-    "Review offer matches against your active listings.",
+    "Review offer matches against your active listings and inventory.",
   "marketplace.routes.accountOffersSubmitted.submitted.offers.marketplace": "Submitted Offers | Marketplace",
   "marketplace.routes.accountOffersSubmitted.track.offers.you.have.submitted.against":
     "Track offers you have submitted against marketplace inventory.",
@@ -1071,6 +1077,8 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listingEvidencePolicy.ui.hash": "Policy hash",
   "marketplace.features.listingEvidencePolicy.ui.effective.from": "Effective from",
   "marketplace.features.listingEvidencePolicy.ui.effective.until": "Effective until",
+  "marketplace.features.listingEvidencePolicy.ui.effective.invalid":
+    "Enter each effective time as a date and time. The policy was not activated.",
   "marketplace.features.listingEvidencePolicy.ui.effective.required":
     "Choose a valid effective time before activation.",
   "marketplace.features.listingEvidencePolicy.ui.open.ended": "Open ended",

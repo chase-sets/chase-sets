@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { ApiError as CatalogApiError } from "../../shell-support/api/client";
+import type { CatalogScopeJourneyResponse } from "../../../features/scope-registry/ui/contracts";
 import { buildCatalogPrimaryWorkbenchReadModelForSurface } from "../../../features/source-observations/ui/primary-workbench-read-model";
 import {
   controlPlaneOverview,
@@ -57,6 +58,31 @@ function paldeanFatesScope() {
   };
 }
 
+// The scope as `GET /scope-records/:id/journey` returns it: a single-edition journey unless overridden.
+function journeyOf(
+  scope: ReturnType<typeof paldeanFatesScope>,
+  overrides: Partial<CatalogScopeJourneyResponse> = {},
+): CatalogScopeJourneyResponse {
+  const detail = { ...scope, promotionReadiness: "live", syncFreshness: "fresh" } as const;
+  return {
+    generatedAt: "2026-07-14T12:00:00.000Z",
+    scope: detail,
+    languageEditions: null,
+    languageEditionReviewFailed: false,
+    overview: {
+      scopeRecordId: scope.scopeRecordId,
+      condition: "ready",
+      stages: [],
+      editionCount: scope.languageEditions.length,
+      linkedEditionCount: scope.languageEditions.length,
+      pendingCandidateCount: 0,
+      promotionReadiness: "live",
+      syncFreshness: "fresh",
+    },
+    ...overrides,
+  };
+}
+
 function runLoader(request: Request, id = "scope_expansion_paldean_fates") {
   return loader({ request, params: { id }, context: {} } as unknown as LoaderFunctionArgs);
 }
@@ -66,7 +92,9 @@ describe("Catalog scope-detail route loader", () => {
     "preserves %s journey health provenance without another read",
     async (state) => {
       mockCreateCatalogRequestApiClient.mockReturnValue({
-        getCatalogScopeRecord: vi.fn().mockResolvedValue({ ...paldeanFatesScope(), languageEditions: ["en"] }),
+        getCatalogScopeJourney: vi
+          .fn()
+          .mockResolvedValue(journeyOf({ ...paldeanFatesScope(), languageEditions: ["en"] })),
         getScopeCoverageMatrix: vi.fn().mockResolvedValue(null),
       });
       const request = new Request(
@@ -109,8 +137,7 @@ describe("Catalog scope-detail route loader", () => {
   );
   it("preserves typed evidence demand and the review window in the one journey request", async () => {
     mockCreateCatalogRequestApiClient.mockReturnValue({
-      getCatalogScopeRecord: vi.fn().mockResolvedValue(paldeanFatesScope()),
-      getCatalogAliasReviewReadModel: vi.fn().mockResolvedValue({ candidates: [] }),
+      getCatalogScopeJourney: vi.fn().mockResolvedValue(journeyOf(paldeanFatesScope())),
     });
     const request = new Request(
       "https://admin.example/catalog/scopes/scope_expansion_paldean_fates?evidenceRef=candidate/cand-1&reviewOffset=25",
@@ -124,50 +151,50 @@ describe("Catalog scope-detail route loader", () => {
     mockLoadDailySurfaceForRequest.mockResolvedValue({ readModel: { routeContext: {} }, requestUrl: "scope" });
   });
 
-  it("loads the scope record and the alias review scoped to its reference record for a multi-edition scope", async () => {
-    const getCatalogAliasReviewReadModel = vi.fn().mockResolvedValue({
-      schemaVersion: "catalog-alias-review-v1",
-      generatedAt: "2026-06-16T00:00:00.000Z",
-      filter: {
-        providerKey: null,
-        sourceProfileVersion: null,
-        aliasType: null,
-        reviewStatuses: [],
-        observationId: null,
-        targetKind: "reference-record",
-        targetId: "ref_expansion_paldean_fates",
-      },
-      counts: {
-        total: 0,
-        pending: 0,
-        accepted: 0,
-        autoAccepted: 0,
-        rejected: 0,
-        revoked: 0,
-        needsReview: 0,
-        autoAcceptEligible: 0,
-        warned: 0,
-      },
-      candidates: [],
-      groups: [],
-      coverage: {
-        cardsWithAcceptedEnglishAlias: 0,
-        cardsWithOnlySpeciesAliases: 0,
-        cardsNeedingReview: 0,
-        expansionsAndSeriesNeedingReview: 0,
-        cards: [],
-        referenceScopes: [],
+  it("reads the scope with its language editions and journey from the Catalog API in one read", async () => {
+    const scopeJourney = journeyOf(paldeanFatesScope(), {
+      languageEditions: {
+        scopeRecordId: "scope_expansion_paldean_fates",
+        referenceRecordId: "ref_expansion_paldean_fates",
+        editions: [
+          {
+            languageCode: "en",
+            isCanonical: true,
+            linkState: "linked",
+            acceptedAliasCount: 0,
+            pendingCandidates: [],
+            acceptedCandidates: [],
+          },
+        ],
       },
     });
+    const getCatalogScopeJourney = vi.fn().mockResolvedValue(scopeJourney);
     const getScopeCoverageMatrix = vi.fn().mockResolvedValue({
       scopeRecordId: "scope_expansion_paldean_fates",
       scopeName: "Paldean Fates",
       providers: [],
     });
+    mockCreateCatalogRequestApiClient.mockReturnValue({ getCatalogScopeJourney, getScopeCoverageMatrix });
+
+    const routeData = await runLoader(
+      new Request("https://admin.example/catalog/scopes/scope_expansion_paldean_fates"),
+    );
+
+    expect(getCatalogScopeJourney).toHaveBeenCalledExactlyOnceWith("scope_expansion_paldean_fates");
+    expect(routeData.scope.name).toBe("Paldean Fates");
+    expect(routeData.canManageAliases).toBe(true);
+    expect(routeData.languageEditions).toBe(scopeJourney.languageEditions);
+    expect(routeData.journeyOverview).toBe(scopeJourney.overview);
+    expect(getScopeCoverageMatrix).toHaveBeenCalledWith("scope_expansion_paldean_fates");
+    expect(routeData.coverageMatrix?.scopeName).toBe("Paldean Fates");
+  });
+
+  it("shows a failed alias review as the journey the Catalog API reported", async () => {
+    const overview = { ...journeyOf(paldeanFatesScope()).overview, condition: "partial-failure" as const };
     mockCreateCatalogRequestApiClient.mockReturnValue({
-      getCatalogScopeRecord: vi.fn().mockResolvedValue(paldeanFatesScope()),
-      getCatalogAliasReviewReadModel,
-      getScopeCoverageMatrix,
+      getCatalogScopeJourney: vi
+        .fn()
+        .mockResolvedValue(journeyOf(paldeanFatesScope(), { languageEditionReviewFailed: true, overview })),
     });
 
     const routeData = await runLoader(
@@ -175,21 +202,16 @@ describe("Catalog scope-detail route loader", () => {
     );
 
     expect(routeData.scope.name).toBe("Paldean Fates");
-    expect(routeData.canManageAliases).toBe(true);
-    expect(routeData.languageEditionAliasReviewFailed).toBe(false);
-    expect(getCatalogAliasReviewReadModel).toHaveBeenCalledTimes(1);
-    const query = new URLSearchParams(getCatalogAliasReviewReadModel.mock.calls[0]?.[0] ?? "");
-    expect(query.get("targetKind")).toBe("reference-record");
-    expect(query.get("targetId")).toBe("ref_expansion_paldean_fates");
-    expect(getScopeCoverageMatrix).toHaveBeenCalledWith("scope_expansion_paldean_fates");
-    expect(routeData.coverageMatrix?.scopeName).toBe("Paldean Fates");
+    expect(routeData.journeyOverview.condition).toBe("partial-failure");
   });
 
   // https://github.com/chase-sets/chase-sets/issues/11131: the Catalog API derives the working set from the
   // Scope Record, so the journey is read for this page's own address, not a rewritten daily workbench one.
   it("reads the journey for the page's own address", async () => {
     mockCreateCatalogRequestApiClient.mockReturnValue({
-      getCatalogScopeRecord: vi.fn().mockResolvedValue({ ...paldeanFatesScope(), languageEditions: ["en"] }),
+      getCatalogScopeJourney: vi
+        .fn()
+        .mockResolvedValue(journeyOf({ ...paldeanFatesScope(), languageEditions: ["en"] })),
       getScopeCoverageMatrix: vi.fn().mockResolvedValue(null),
     });
     const request = new Request(
@@ -201,36 +223,6 @@ describe("Catalog scope-detail route loader", () => {
 
     expect(mockLoadDailySurfaceForRequest).toHaveBeenCalledTimes(1);
     expect(mockLoadDailySurfaceForRequest.mock.calls[0]?.[0]).toBe(request);
-  });
-
-  it("skips the alias-review fetch for a single-edition scope", async () => {
-    const getCatalogAliasReviewReadModel = vi.fn();
-    mockCreateCatalogRequestApiClient.mockReturnValue({
-      getCatalogScopeRecord: vi.fn().mockResolvedValue({ ...paldeanFatesScope(), languageEditions: ["en"] }),
-      getCatalogAliasReviewReadModel,
-    });
-
-    const routeData = await runLoader(
-      new Request("https://admin.example/catalog/scopes/scope_expansion_paldean_fates"),
-    );
-
-    expect(getCatalogAliasReviewReadModel).not.toHaveBeenCalled();
-    expect(routeData.languageEditionAliasReview.candidates).toEqual([]);
-  });
-
-  it("degrades to an empty alias review read model when the supplementary fetch fails transiently", async () => {
-    mockCreateCatalogRequestApiClient.mockReturnValue({
-      getCatalogScopeRecord: vi.fn().mockResolvedValue(paldeanFatesScope()),
-      getCatalogAliasReviewReadModel: vi.fn().mockRejectedValue(new CatalogApiError(503, { error: { code: "boom" } })),
-    });
-
-    const routeData = await runLoader(
-      new Request("https://admin.example/catalog/scopes/scope_expansion_paldean_fates"),
-    );
-
-    expect(routeData.scope.name).toBe("Paldean Fates");
-    expect(routeData.languageEditionAliasReview.candidates).toEqual([]);
-    expect(routeData.languageEditionAliasReviewFailed).toBe(true);
   });
 
   it("reloads failed scope jobs separately while following only the completed-jobs cursor", async () => {
@@ -247,7 +239,9 @@ describe("Catalog scope-detail route loader", () => {
         : { items: [{ jobId: "job_running" }] },
     );
     mockCreateCatalogRequestApiClient.mockReturnValue({
-      getCatalogScopeRecord: vi.fn().mockResolvedValue({ ...paldeanFatesScope(), languageEditions: ["en"] }),
+      getCatalogScopeJourney: vi
+        .fn()
+        .mockResolvedValue(journeyOf({ ...paldeanFatesScope(), languageEditions: ["en"] })),
       listCatalogMergeCandidateBulkJobs,
       listFailedCatalogMergeCandidateBulkJobs,
     });
@@ -279,7 +273,9 @@ describe("Catalog scope-detail route loader", () => {
 
   it("degrades the candidate review jobs panel instead of failing the scope page", async () => {
     mockCreateCatalogRequestApiClient.mockReturnValue({
-      getCatalogScopeRecord: vi.fn().mockResolvedValue({ ...paldeanFatesScope(), languageEditions: ["en"] }),
+      getCatalogScopeJourney: vi
+        .fn()
+        .mockResolvedValue(journeyOf({ ...paldeanFatesScope(), languageEditions: ["en"] })),
       listCatalogMergeCandidateBulkJobs: vi.fn().mockRejectedValue(new CatalogApiError(400, { error: "bad cursor" })),
     });
 
@@ -299,8 +295,9 @@ describe("Catalog scope-detail route loader", () => {
   it("resolves canManageAliases to false when the actor lacks catalog.manage", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ permissions: ["catalog.view"] });
     mockCreateCatalogRequestApiClient.mockReturnValue({
-      getCatalogScopeRecord: vi.fn().mockResolvedValue({ ...paldeanFatesScope(), languageEditions: ["en"] }),
-      getCatalogAliasReviewReadModel: vi.fn(),
+      getCatalogScopeJourney: vi
+        .fn()
+        .mockResolvedValue(journeyOf({ ...paldeanFatesScope(), languageEditions: ["en"] })),
     });
 
     const routeData = await runLoader(

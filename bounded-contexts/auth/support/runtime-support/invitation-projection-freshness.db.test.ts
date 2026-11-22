@@ -87,7 +87,8 @@ describeDb("invitation projection freshness (database)", () => {
       nowMs: () => 0,
     });
 
-    const settlement = wait(invitationReceipt("5")).then(() => ({
+    const settlement = wait(invitationReceipt("5")).then((freshness) => ({
+      freshness,
       freshReadBeforeSettlement: reader.positions().includes("5"),
     }));
 
@@ -96,12 +97,12 @@ describeDb("invitation projection freshness (database)", () => {
     const readsBeforeWrite = reader.positions();
     await upsertCheckpointPosition(db, "5");
 
-    await expect(settlement).resolves.toEqual({ freshReadBeforeSettlement: true });
+    await expect(settlement).resolves.toEqual({ freshness: "fresh", freshReadBeforeSettlement: true });
     expect(readsBeforeWrite[0]).toBe("3");
     expect(readsBeforeWrite).not.toContain("5");
   });
 
-  it("falls back gracefully and bounded when the checkpoint never reaches the version", async () => {
+  it("answers behind, bounded, when the checkpoint never reaches the version", async () => {
     const timeoutMs = 60;
     const clock = createSteppedClock(10);
     await upsertCheckpointPosition(db, "1");
@@ -112,7 +113,7 @@ describeDb("invitation projection freshness (database)", () => {
       nowMs: clock.nowMs,
     });
 
-    await expect(wait(invitationReceipt("5"))).resolves.toBeUndefined();
+    await expect(wait(invitationReceipt("5"))).resolves.toBe("behind");
 
     // The stepped clock starts at 0, so each reading is the elapsed time the
     // waiter saw: it gave up exactly when that first reached timeoutMs.

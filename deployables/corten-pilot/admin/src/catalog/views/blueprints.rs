@@ -4,8 +4,8 @@
 //! and product resolution rules, each folded with a Set dialog.
 //!
 //! A Set dialog replaces all of its rules with the rows it sends, so the server draws it when it
-//! is opened, from the rules the list has (the blueprint's own table): the page's read can miss a
-//! change (chase-sets/chase-sets#10823), and a rule the dialog did not show would be deleted.
+//! is opened, from the blueprint's detail read then, which has every rule the blueprint's own
+//! table has (chase-sets/chase-sets#10823).
 use corten::prelude::*;
 use platform::ui::table::TableLayout;
 
@@ -44,12 +44,11 @@ pub fn blueprint_transitions(t: Cat, status: &str) -> Vec<Transition> {
     }
 }
 
-/// A Set dialog the page shows open: its form, or that the rules it starts from were not read.
+/// A Set dialog the page shows open, with its form.
 pub enum SetRules {
     Fields(Draft<FieldRulesInput>),
     Dimensions(Draft<DimensionRulesInput>),
     Order(Draft<OrderInput>),
-    Unread(Set),
 }
 
 /// Which Set dialog.
@@ -318,44 +317,34 @@ pub fn blueprint_page<'a>(
 /// The three Set dialogs: the one opened, drawn open, and an empty one for each of the others
 /// for the server's dialog to replace.
 fn set_dialogs<'a>(t: Cat, p: Pilot, id: &'a str, set: Option<SetRules>) -> impl Render + 'a {
-    let unread = |which: Set| matches!(&set, Some(SetRules::Unread(of)) if *of == which);
-    let (fields_unread, dimensions_unread, order_unread) = (unread(Set::Fields), unread(Set::Dimensions), unread(Set::Order));
     let (fields, dimensions, order) = match set {
         Some(SetRules::Fields(draft)) => (Some(draft), None, None),
         Some(SetRules::Dimensions(draft)) => (None, Some(draft), None),
         Some(SetRules::Order(draft)) => (None, None, Some(draft)),
-        _ => (None, None, None),
+        None => (None, None, None),
     };
     html! {
-        if fields.is_some() || fields_unread {
-            <FieldRulesDialog t={t} p={p} id={id} form={fields.as_ref()} />
+        if let Some(form) = fields.as_ref() {
+            <FieldRulesDialog t={t} p={p} id={id} form={form} />
         } else {
             <dialog id={ids::SET_FIELDS_DIALOG}></dialog>
         }
-        if dimensions.is_some() || dimensions_unread {
-            <DimensionRulesDialog t={t} p={p} id={id} form={dimensions.as_ref()} />
+        if let Some(form) = dimensions.as_ref() {
+            <DimensionRulesDialog t={t} p={p} id={id} form={form} />
         } else {
             <dialog id={ids::SET_DIMENSIONS_DIALOG}></dialog>
         }
-        if order.is_some() || order_unread {
-            <OrderDialog t={t} p={p} id={id} form={order.as_ref()} />
+        if let Some(form) = order.as_ref() {
+            <OrderDialog t={t} p={p} id={id} form={form} />
         } else {
             <dialog id={ids::SET_ORDER_DIALOG}></dialog>
         }
     }
 }
 
-/// Why a Set dialog has no form: the list did not have the blueprint, so its rules are not known,
-/// and a save would replace them with what the dialog did not show.
-fn unread_message(p: Pilot) -> Errors {
-    let mut errors = Errors::new();
-    errors.add_form(p.catalog_blueprint_rules_unread());
-    errors
-}
-
-/// Set Field Rules, drawn open: its form, or why there is none.
+/// Set Field Rules, drawn open with its form.
 #[component]
-pub fn FieldRulesDialog<'a>(t: Cat, p: Pilot, id: &'a str, form: Option<&'a Draft<FieldRulesInput>>) -> impl Patch {
+pub fn FieldRulesDialog<'a>(t: Cat, p: Pilot, id: &'a str, form: &'a Draft<FieldRulesInput>) -> impl Patch {
     let action = url::FieldRules::of(id).href();
     html! {
         <CatalogDialog
@@ -366,18 +355,14 @@ pub fn FieldRulesDialog<'a>(t: Cat, p: Pilot, id: &'a str, form: Option<&'a Draf
             open
             close={p.catalog_close()}
         >
-            if let Some(form) = form {
-                <FieldRulesForm t={t} id={ids::SET_FIELDS} action={&action} form={form} />
-            } else {
-                {unread_message(p).form_message()}
-            }
+            <FieldRulesForm t={t} id={ids::SET_FIELDS} action={&action} form={form} />
         </CatalogDialog>
     }
 }
 
-/// Set Dimension Rules, drawn open: its form, or why there is none.
+/// Set Dimension Rules, drawn open with its form.
 #[component]
-pub fn DimensionRulesDialog<'a>(t: Cat, p: Pilot, id: &'a str, form: Option<&'a Draft<DimensionRulesInput>>) -> impl Patch {
+pub fn DimensionRulesDialog<'a>(t: Cat, p: Pilot, id: &'a str, form: &'a Draft<DimensionRulesInput>) -> impl Patch {
     let action = url::DimensionRules::of(id).href();
     html! {
         <CatalogDialog
@@ -388,18 +373,14 @@ pub fn DimensionRulesDialog<'a>(t: Cat, p: Pilot, id: &'a str, form: Option<&'a 
             open
             close={p.catalog_close()}
         >
-            if let Some(form) = form {
-                <DimensionRulesForm t={t} id={ids::SET_DIMENSIONS} action={&action} form={form} />
-            } else {
-                {unread_message(p).form_message()}
-            }
+            <DimensionRulesForm t={t} id={ids::SET_DIMENSIONS} action={&action} form={form} />
         </CatalogDialog>
     }
 }
 
-/// Set Product Resolution Rules, drawn open: its form, or why there is none.
+/// Set Product Resolution Rules, drawn open with its form.
 #[component]
-pub fn OrderDialog<'a>(t: Cat, p: Pilot, id: &'a str, form: Option<&'a Draft<OrderInput>>) -> impl Patch {
+pub fn OrderDialog<'a>(t: Cat, p: Pilot, id: &'a str, form: &'a Draft<OrderInput>) -> impl Patch {
     let action = url::ProductResolutionRules::of(id).href();
     html! {
         <CatalogDialog
@@ -410,11 +391,7 @@ pub fn OrderDialog<'a>(t: Cat, p: Pilot, id: &'a str, form: Option<&'a Draft<Ord
             open
             close={p.catalog_close()}
         >
-            if let Some(form) = form {
-                <OrderForm t={t} id={ids::SET_ORDER} action={&action} form={form} />
-            } else {
-                {unread_message(p).form_message()}
-            }
+            <OrderForm t={t} id={ids::SET_ORDER} action={&action} form={form} />
         </CatalogDialog>
     }
 }

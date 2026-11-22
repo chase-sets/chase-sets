@@ -26,6 +26,7 @@ import {
   mockSelectAuthenticityCheckOptIn,
   mockSelectShippingAddress,
   mockSelectShippingOption,
+  paymentsCheckoutPreviewStatus,
 } from "../tests/support/checkout-route-test-harness";
 
 vi.mock("@chase-sets/platform-runtime/auth", async () => {
@@ -774,8 +775,12 @@ describe("checkout web routes: checkout session loader", () => {
       context: undefined,
     } as never);
 
-    expect(mockPreviewCheckoutStatus).not.toHaveBeenCalled();
-    expect(mockCreatePaymentsRequestApiClient).not.toHaveBeenCalled();
+    expect(mockPreviewCheckoutStatus).toHaveBeenCalledExactlyOnceWith({
+      amount: "26.00",
+      currencyCode: "usd",
+      requestedBalanceCreditAmount: "0.00",
+      paymentMethodCategory: "card",
+    });
     expect(fetch.mock.calls.every(([url]) => !String(url).endsWith("/api/settlement/wallet"))).toBe(true);
     expect(result.paymentPreview).toEqual(
       expect.objectContaining({
@@ -973,7 +978,7 @@ describe("checkout web routes: checkout session loader", () => {
     } as never);
 
     expect(mockGetCheckoutStatus).not.toHaveBeenCalled();
-    expect(mockPreviewCheckoutStatus).not.toHaveBeenCalled();
+    expect(mockPreviewCheckoutStatus).toHaveBeenCalledTimes(1);
     expect(result.paymentPreview?.marketplace_checkout_fee.quote_fingerprint).toBe(
       "marketplace-checkout-fee-v1|card|37.99|0.00|37.99|1.45|39.44|39.44",
     );
@@ -1043,18 +1048,65 @@ describe("checkout web routes: checkout session loader", () => {
     });
   });
 
-  it("reads no other context to quote the orders confirm created", async () => {
+  it("quotes the orders confirm created through Payments' preview, not their order-bound status", async () => {
     signInBuyerWithWallet();
     mockGetCheckoutSession.mockResolvedValue(committedOrdersWithoutPaymentSession());
 
     await loadCommittedOrderCheckout();
 
-    expect(mockCreatePaymentsRequestApiClient).not.toHaveBeenCalled();
     expect(mockGetCheckoutStatus).not.toHaveBeenCalled();
-    expect(mockPreviewCheckoutStatus).not.toHaveBeenCalled();
+    expect(mockPreviewCheckoutStatus).toHaveBeenCalledTimes(1);
     expect(readFileSync(new URL("./checkout-session.tsx", import.meta.url), "utf8")).not.toMatch(
-      /createPaymentsRequestApiClient|getCheckoutStatus/,
+      /getCheckoutStatus|quoteMarketplaceCheckoutFee/,
     );
+  });
+
+  it("shows the fee Payments quotes under a revised checkout processing fee policy", async () => {
+    signInBuyerWithWallet();
+    mockGetCheckoutSession.mockResolvedValue(committedOrdersWithoutPaymentSession());
+    const revised = {
+      payment_method_category: "card" as const,
+      external_basis_amount: "26.00",
+      marketplace_checkout_fee_amount: "2.50",
+      marketplace_checkout_fee_reduction_amount: "0.00",
+      total_amount: "28.50",
+      processor_amount: "28.50",
+      policy_version: "checkout-processing-fee@2",
+      quote_fingerprint: "marketplace-checkout-fee-v1|card|26.00|0.00|26.00|2.50|28.50|28.50",
+      quoted_at: "2026-11-21T00:00:00.000Z",
+    };
+    mockPreviewCheckoutStatus.mockImplementation(async (params) => ({
+      ...(await paymentsCheckoutPreviewStatus(params)),
+      marketplace_checkout_fee: revised,
+      payment_method_quotes: [revised],
+    }));
+
+    const result = await loadCommittedOrderCheckout();
+
+    expect(result.paymentPreview?.marketplace_checkout_fee).toEqual(revised);
+    expect(result.paymentPreview?.order_ids).toEqual(committedOrdersWithoutPaymentSession().order_ids);
+  });
+
+  it("reads the preview as the buyer and gives no Pay now quote when Payments refuses it", async () => {
+    signInBuyerWithWallet();
+    mockGetCheckoutSession.mockResolvedValue(committedOrdersWithoutPaymentSession());
+    mockPreviewCheckoutStatus.mockRejectedValueOnce(new MockPaymentsApiError(503, { error: { code: "unavailable" } }));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const request = new Request("http://localhost/checkout/buy/session/chk_wallet?paymentMethodCategory=card", {
+      headers: { cookie: "chase_sets_session=buyer" },
+    });
+
+    const result = await checkoutSessionLoader({
+      request,
+      params: { sessionId: "chk_wallet" },
+      context: undefined,
+    } as never);
+
+    expect(mockCreatePaymentsRequestApiClient).toHaveBeenCalledWith(request);
+    expect(mockPreviewCheckoutStatus).toHaveBeenCalledTimes(1);
+    expect(result.paymentPreview).toBeNull();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("status 503 code unavailable"));
+    warn.mockRestore();
   });
 
   it.each([
@@ -1180,7 +1232,7 @@ describe("checkout web routes: checkout session loader", () => {
     } as never);
 
     expect(mockGetCheckoutStatus).not.toHaveBeenCalled();
-    expect(mockPreviewCheckoutStatus).not.toHaveBeenCalled();
+    expect(mockPreviewCheckoutStatus).toHaveBeenCalledTimes(1);
     expect(result.paymentPreview?.marketplace_checkout_fee.quote_fingerprint).toBe(
       "marketplace-checkout-fee-v1|card|37.99|0.00|37.99|1.45|39.44|39.44",
     );
@@ -1276,7 +1328,7 @@ describe("checkout web routes: checkout session loader", () => {
     } as never);
 
     expect(mockGetCheckoutStatus).not.toHaveBeenCalled();
-    expect(mockPreviewCheckoutStatus).not.toHaveBeenCalled();
+    expect(mockPreviewCheckoutStatus).toHaveBeenCalledTimes(1);
     expect(result.paymentPreview?.marketplace_checkout_fee.quote_fingerprint).toBe(
       "marketplace-checkout-fee-v1|card|37.99|0.00|37.99|1.45|39.44|39.44",
     );
@@ -1369,7 +1421,7 @@ describe("checkout web routes: checkout session loader", () => {
     } as never);
 
     expect(mockGetCheckoutStatus).not.toHaveBeenCalled();
-    expect(mockPreviewCheckoutStatus).not.toHaveBeenCalled();
+    expect(mockPreviewCheckoutStatus).toHaveBeenCalledTimes(1);
     expect(result.paymentPreview?.marketplace_checkout_fee.quote_fingerprint).toBe(
       "marketplace-checkout-fee-v1|card|37.99|0.00|37.99|1.45|39.44|39.44",
     );
@@ -1465,7 +1517,7 @@ describe("checkout web routes: checkout session loader", () => {
 
     expect(mockGetCheckoutSession).toHaveBeenCalled();
     expect(mockGetCheckoutStatus).not.toHaveBeenCalled();
-    expect(mockPreviewCheckoutStatus).not.toHaveBeenCalled();
+    expect(mockPreviewCheckoutStatus).toHaveBeenCalledTimes(1);
     expect(result.paymentPreview?.marketplace_checkout_fee.quote_fingerprint).toBe(
       "marketplace-checkout-fee-v1|card|37.99|0.00|37.99|1.45|39.44|39.44",
     );

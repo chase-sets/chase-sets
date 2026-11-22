@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider, type RouterNavigateOptions, type RouterState } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { t } from "@chase-sets/localization";
 import type { CheckoutFulfillmentPreview, CheckoutSessionRow } from "../support/request-support/api-client";
 import * as checkoutRouteHarness from "../tests/support/checkout-route-test-harness";
 import {
+  paymentsCheckoutPreviewStatusResponse,
   applyCheckoutRouteMockDefaults,
   checkoutCommit,
   MockCheckoutApiError,
@@ -56,7 +57,22 @@ vi.mock("@chase-sets/ordering/server", () => ({ createOrderingRequestApiClient: 
 vi.mock("@chase-sets/marketplace/server", () => ({
   createMarketplaceRequestApiClient: mockCreateMarketplaceRequestApiClient,
 }));
-vi.mock("@chase-sets/payments/web", () => ({ StripeConfirmationCard: () => null }));
+const { newCardToken, renderDeferredPayment } = vi.hoisted(() => ({
+  newCardToken: vi.fn(),
+  renderDeferredPayment: vi.fn(),
+}));
+vi.mock("@chase-sets/payments/web", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@chase-sets/payments/web")>()),
+  StripeConfirmationCard: () => null,
+  DeferredStripePayment: (({ config, children }) => {
+    renderDeferredPayment(config);
+    return children({
+      entry: config ? <p>Deferred card entry</p> : null,
+      ready: Boolean(config),
+      createConfirmationToken: newCardToken,
+    });
+  }) satisfies typeof import("@chase-sets/payments/web").DeferredStripePayment,
+}));
 vi.mock("@chase-sets/platform-runtime/realtime-web", () => ({
   subscribeRealtimePatches: vi.fn(() => ({ close: vi.fn() })),
 }));
@@ -352,6 +368,7 @@ async function mount(initialEntry: string) {
         Component: CheckoutSessionRoute,
         errorElement: <p>Route failed</p>,
       },
+      { path: "/account/payments/:paymentId", element: <p>Recorded payment status</p> },
     ],
     { initialEntries: [initialEntry] },
   );
@@ -394,7 +411,11 @@ beforeEach(() => {
   applyCheckoutRouteMockDefaults();
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () => Response.json({ available_balance_amount: "0.00", currency_code: "usd" })),
+    vi.fn(
+      async (input: RequestInfo | URL) =>
+        (await paymentsCheckoutPreviewStatusResponse(input)) ??
+        Response.json({ available_balance_amount: "0.00", currency_code: "usd" }),
+    ),
   );
   mockResolveActorFromAuthApi.mockResolvedValue(signedInActor);
   mockListSellListShipFromAddresses.mockResolvedValue({ items: [] });
@@ -421,6 +442,7 @@ afterEach(() => {
   cleanup();
   vi.resetAllMocks();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 
   expect(finalState ? routerWork(finalState) : []).toEqual([]);
   expect(unawaitedNavigations).toEqual([]);
@@ -555,6 +577,35 @@ describe("checkout start entry recovery through the data router", () => {
 });
 
 describe("checkout session confirm recovery through the data router", () => {
+  it("mounts and remounts without a POST, then one Pay tokenizes and opens the recorded status", async () => {
+    vi.stubEnv("STRIPE_PUBLISHABLE_KEY", "pk_test_checkout_fixture");
+    newCardToken.mockResolvedValue("ctoken_fixture");
+    mockConfirmCheckoutSession.mockResolvedValue({ payment_id: "pay_one", status: "confirmed" });
+    await mount(sessionPath);
+    expect(screen.getByText("Deferred card entry")).toBeTruthy();
+    expect(renderDeferredPayment).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        publishableKey: "pk_test_checkout_fixture",
+        currency: "usd",
+        quote: expect.stringMatching(/^chk_recovery:.+/),
+      }),
+    );
+    await navigateAndCommit(`${sessionPath}?resumePaymentStart=1`);
+    expect(screen.getByText("Deferred card entry")).toBeTruthy();
+    expect(newCardToken).not.toHaveBeenCalled();
+    expect(apiLog.filter((entry) => entry.startsWith("POST "))).toEqual([]);
+
+    await clickAndSettle(payButtons()[0]!);
+    await waitFor(() => expect(screen.getByText("Recorded payment status")).toBeTruthy());
+    expect(newCardToken).toHaveBeenCalledExactlyOnceWith(false);
+    expect(mockConfirmCheckoutSession).toHaveBeenCalledExactlyOnceWith(
+      "chk_recovery",
+      expect.objectContaining({ confirmationTokenId: "ctoken_fixture" }),
+    );
+    expect(router!.state.location.pathname).toBe("/account/payments/pay_one");
+    expect(payButtons()).toEqual([]);
+  });
+
   it("holds a lost confirm as ambiguous after one Session read, never resends it, and keeps Pay now off", async () => {
     mockConfirmCheckoutSession.mockRejectedValue(new TypeError("fetch failed"));
     await mount(sessionPath);

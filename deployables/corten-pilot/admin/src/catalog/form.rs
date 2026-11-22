@@ -7,8 +7,8 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use super::api::{
-    BlueprintDetail, Category, ComponentDetail, ComponentRules, ContentLine, Dimension, DimensionOption, DimensionRuleIds,
-    DisplayTemplate, Field, FieldRuleIds, ItemDetail, ReferenceRecord, ReferenceType, SelectedOption,
+    BlueprintDetail, Category, ComponentDetail, ContentLine, Dimension, DimensionOption, DimensionRuleIds, DisplayTemplate,
+    Field, FieldRuleIds, ItemDetail, ReferenceRecord, ReferenceType, SelectedOption,
 };
 use crate::text::Pilot;
 
@@ -225,15 +225,13 @@ impl ComponentInput {
         })
     }
 
-    /// `configureComponent`'s body: the API replaces the rules, so the edit restates `current`'s,
-    /// as the component's own table has them (chase-sets/chase-sets#10824).
-    pub fn revise_body(&self, current: &ComponentRules) -> Value {
+    /// `configureComponent`'s body: the key, name and description, which the API changes without
+    /// touching the rules (chase-sets/chase-sets#10824).
+    pub fn revise_body(&self) -> Value {
         json!({
             "key": self.key,
             "name": english(&self.name),
             "description": english(&self.description),
-            "fieldRules": current.field_rules,
-            "dimensionRules": current.dimension_rules,
         })
     }
 }

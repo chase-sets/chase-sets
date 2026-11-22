@@ -1,119 +1,54 @@
-import {
-  marketplaceCheckoutFeePaymentMethodCategories,
-  normalizeMarketplaceCheckoutFeePaymentMethodCategory,
-  quoteMarketplaceCheckoutFee,
-  type MarketplaceCheckoutFeeQuote,
-} from "@chase-sets/payments/server";
-import {
-  addSignedMoneyAmounts,
-  centsToSignedMoneyAmount,
-  compareMoneyAmounts,
-  signedMoneyToCents,
-  subtractMoneyAmounts,
-  trySignedMoneyToCents,
-} from "@chase-sets/primitives/money";
+import type { createPaymentsRequestApiClient, PaymentsCheckoutStatus } from "@chase-sets/payments/server";
 
-export type CheckoutPaymentPreviewStatus = Readonly<{
-  order_ids: readonly string[];
-  currency_code: string;
-  amount: string;
-  marketplace_checkout_fee: MarketplaceCheckoutFeeQuote;
-  payment_method_quotes: readonly MarketplaceCheckoutFeeQuote[];
-  wallet_credit: Readonly<{
-    requested_amount: string;
-    applied_amount: string;
-    external_amount: string;
-  }>;
-  can_start_payment: boolean;
-  unavailable_reasons: readonly string[];
-  unavailable_reason_details: readonly Readonly<{
-    code: string;
-    message: string;
-  }>[];
-}>;
+/** The checkout's payment preview: the fee quote per payment method and the wallet credit applied. */
+export type CheckoutPaymentPreviewStatus = PaymentsCheckoutStatus;
 
-function moneyCents(value: string | null | undefined) {
-  const cents = trySignedMoneyToCents(String(value ?? "0.00").trim());
-  if (cents === null) {
-    throw new Error("Checkout money amount must be a valid decimal.");
-  }
+type CheckoutPaymentPreviewReader = Pick<ReturnType<typeof createPaymentsRequestApiClient>, "previewCheckoutStatus">;
 
-  return cents;
-}
-
-function normalizeMoney(value: string | null | undefined) {
-  return centsToSignedMoneyAmount(moneyCents(value));
-}
-
-function addMoney(left: string, right: string) {
-  return addSignedMoneyAmounts(left, right);
-}
-
-function subtractMoney(left: string, right: string) {
-  return subtractMoneyAmounts(left, right);
-}
-
-function minMoney(left: string, right: string) {
-  return signedMoneyToCents(left) <= signedMoneyToCents(right) ? left : right;
-}
-
-function compareMoney(left: string, right: string) {
-  return compareMoneyAmounts(left, right);
-}
-
-export function buildCheckoutPaymentPreviewStatus(
+/**
+ * Reads the preview from Payments, which quotes it from the fee policy Commercial Terms resolves and
+ * checks Pay now's quote fingerprint against the same policy. A read that fails gives no preview,
+ * which keeps the page's totals notice instead of offering a quote Payments may refuse, and is
+ * logged with Payments' status and error code so an outage is not silent.
+ */
+export async function readCheckoutPaymentPreviewStatus(
+  payments: CheckoutPaymentPreviewReader,
   params: Readonly<{
-    orderIds?: readonly string[];
+    orderIds: readonly string[];
     amount: string;
-    currencyCode?: string | null;
-    requestedBalanceCreditAmount?: string | null;
-    paymentMethodCategory?: string | null;
-    quotedAt?: string;
+    currencyCode: string;
+    requestedBalanceCreditAmount: string;
+    paymentMethodCategory: string;
   }>,
-): CheckoutPaymentPreviewStatus {
-  const amount = normalizeMoney(params.amount);
-  const requestedBalanceCreditAmount = normalizeMoney(params.requestedBalanceCreditAmount);
-  const appliedAmount =
-    compareMoney(requestedBalanceCreditAmount, "0.00") > 0 ? minMoney(requestedBalanceCreditAmount, amount) : "0.00";
-  const externalAmount = subtractMoney(amount, appliedAmount);
-  const paymentMethodCategory = normalizeMarketplaceCheckoutFeePaymentMethodCategory(params.paymentMethodCategory);
-  const paymentMethodQuotes = marketplaceCheckoutFeePaymentMethodCategories.map((method) =>
-    quoteMarketplaceCheckoutFee({
-      orderAmount: amount,
-      externalBasisAmount: externalAmount,
-      balanceCreditAmount: appliedAmount,
-      paymentMethodCategory: method,
-      quotedAt: params.quotedAt,
-    }),
-  );
-  const marketplaceCheckoutFee =
-    paymentMethodQuotes.find((quote) => quote.payment_method_category === paymentMethodCategory) ??
-    paymentMethodQuotes[0]!;
-  const canStartPayment = compareMoney(amount, "0.00") > 0;
+): Promise<CheckoutPaymentPreviewStatus | null> {
+  try {
+    const status = await payments.previewCheckoutStatus({
+      amount: params.amount,
+      currencyCode: params.currencyCode,
+      requestedBalanceCreditAmount: params.requestedBalanceCreditAmount,
+      paymentMethodCategory: params.paymentMethodCategory,
+    });
+    return { ...status, order_ids: params.orderIds };
+  } catch (error) {
+    console.warn(
+      `[checkout] Payments could not preview the checkout payment; Pay now has no quote. ${describeFailure(error)}`,
+    );
+    return null;
+  }
+}
 
-  return {
-    order_ids: params.orderIds ?? [],
-    currency_code:
-      String(params.currencyCode ?? "usd")
-        .trim()
-        .toLowerCase() || "usd",
-    amount,
-    marketplace_checkout_fee: marketplaceCheckoutFee,
-    payment_method_quotes: paymentMethodQuotes,
-    wallet_credit: {
-      requested_amount: requestedBalanceCreditAmount,
-      applied_amount: appliedAmount,
-      external_amount: externalAmount,
-    },
-    can_start_payment: canStartPayment,
-    unavailable_reasons: canStartPayment ? [] : ["no-payable-order-balance"],
-    unavailable_reason_details: canStartPayment
-      ? []
-      : [
-          {
-            code: "no-payable-order-balance",
-            message: "No payable order balance is available.",
-          },
-        ],
-  };
+/** Payments' status and error code when it answered, otherwise the error's message. */
+function describeFailure(error: unknown) {
+  const status = readField(error, "status");
+  if (typeof status === "number") {
+    const code = readField(readField(readField(error, "body"), "error"), "code");
+    return `status ${status}${typeof code === "string" ? ` code ${code}` : ""}`;
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
+function readField(value: unknown, key: string): unknown {
+  return typeof value === "object" && value !== null && key in value
+    ? (value as Record<string, unknown>)[key]
+    : undefined;
 }

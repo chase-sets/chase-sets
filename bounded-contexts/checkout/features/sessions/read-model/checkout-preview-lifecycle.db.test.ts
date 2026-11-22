@@ -38,6 +38,7 @@ import { evolveCheckoutSession, initialCheckoutSessionState, type CheckoutSessio
 import { getCheckoutSession } from "./queries";
 import { checkoutSessionRetainedSchemaSql } from "./schema";
 import { cartAttemptDriver } from "../../../tests/cart-attempt-driver";
+import { paymentsCheckoutPreviewStatusResponse } from "../../../tests/support/checkout-route-test-harness";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 const describeDb = databaseBaseUrl ? describe : describe.skip;
@@ -529,6 +530,17 @@ describeDb("checkout preview lifecycle", () => {
       const forwarded = new Request(input, init);
       const url = new URL(forwarded.url);
       if (url.origin !== origin) throw new Error("Probe cannot call an external surface.");
+      // Payments is not mounted here; it answers the page's fee quote with its own quoting policy,
+      // and the call is recorded with the others.
+      const paymentsPreview = await paymentsCheckoutPreviewStatusResponse(forwarded);
+      if (paymentsPreview) {
+        const answer = await paymentsPreview
+          .clone()
+          .json()
+          .catch(() => null);
+        requests.push({ path: url.pathname, status: paymentsPreview.status, code: readApiErrorCode(answer) });
+        return paymentsPreview;
+      }
       const body =
         forwarded.method === "POST"
           ? await forwarded

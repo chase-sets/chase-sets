@@ -21,8 +21,8 @@ export const meta: MetaFunction<typeof loader> = ({ data }) => [
 export default function ScopeDetailRoute() {
   const {
     scope,
-    languageEditionAliasReview,
-    languageEditionAliasReviewFailed,
+    languageEditions,
+    journeyOverview,
     canManageAliases,
     coverageMatrix,
     coverageMatrixFailed,
@@ -38,8 +38,8 @@ export default function ScopeDetailRoute() {
   return (
     <CatalogScopeDetailPage
       scope={scope}
-      languageEditionAliasReview={languageEditionAliasReview}
-      languageEditionAliasReviewFailed={languageEditionAliasReviewFailed}
+      languageEditions={languageEditions}
+      journeyOverview={journeyOverview}
       actionHref={`/catalog/scopes/${scope.scopeRecordId}`}
       canManageAliases={canManageAliases}
       loading={navigation.state !== "idle"}

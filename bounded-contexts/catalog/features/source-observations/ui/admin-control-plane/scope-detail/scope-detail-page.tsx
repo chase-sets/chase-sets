@@ -2,16 +2,14 @@ import { Badge, Page, PageHeader, PageSection, WorkbenchLinkList } from "@chase-
 import { CatalogControlPlaneEvidenceDrawer } from "../evidence/catalog-control-plane-evidence-drawer";
 import { CatalogEntityEvidenceLink } from "../evidence/catalog-entity-evidence-link";
 import { t } from "@chase-sets/localization";
-import type { CatalogScopeRecordDetail } from "../../../../scope-registry/ui/contracts";
+import type {
+  CatalogScopeJourneyOverviewReadModel,
+  CatalogScopeLanguageEditionReviewReadModel,
+  CatalogScopeRecordDetail,
+} from "../../../../scope-registry/ui/contracts";
 import { CatalogIntegrationLanguageEditionsPanel } from "./language-editions/language-editions-panel";
-import {
-  buildCatalogScopeLanguageEditionReviewReadModel,
-  catalogScopeHasLanguageEditionsToReview,
-} from "./language-editions/language-edition-review";
 import { CatalogScopeJourneyOverviewPanel } from "./scope-journey-overview-panel";
 import { ScopeHealth } from "./scope-health";
-import { buildCatalogScopeJourneyOverviewReadModel } from "./scope-journey-overview";
-import type { CatalogAliasReviewReadModel } from "../../../../alias-equivalence/api/alias-review-admin-contracts";
 import type { ScopeCoverageMatrix } from "../../../../provider-scope-mapping/ui/contracts";
 import { CatalogScopeCoverageMatrixPanel } from "../../../../provider-scope-mapping/ui/scope-coverage-matrix-panel";
 import type { CatalogIntegrationsRouteData } from "../../integrations-surface-route-view";
@@ -31,17 +29,17 @@ import {
 // journey for one scope in place. The journey overview maps the scope's path
 // from registry to promoted Catalog Items (coverage → sync → live jobs →
 // candidate review → promotion) and its current condition; the language-editions
-// section runs the alias-equivalence review in place. This page is the real home
+// section runs the alias-equivalence review in place. The Catalog API composes
+// both; this page renders them as given. This page is the real home
 // the remaining interactive per-stage command surfaces extend, not a placeholder
 // that gets replaced.
 export type CatalogScopeDetailPageProps = Readonly<{
   scope: CatalogScopeRecordDetail;
-  /** Alias review read model, already scoped to this scope's reference record. */
-  languageEditionAliasReview: CatalogAliasReviewReadModel;
+  /** The editions to review; null when the scope has one edition or none. */
+  languageEditions: CatalogScopeLanguageEditionReviewReadModel | null;
+  journeyOverview: CatalogScopeJourneyOverviewReadModel;
   actionHref: string;
   canManageAliases?: boolean;
-  /** True when the supplementary alias-review load degraded to an empty model. */
-  languageEditionAliasReviewFailed?: boolean;
   /** True while the route is revalidating, so the overview shows its loading state. */
   loading?: boolean;
   coverageMatrix?: ScopeCoverageMatrix | null;
@@ -55,10 +53,10 @@ export type CatalogScopeDetailPageProps = Readonly<{
 
 export function CatalogScopeDetailPage({
   scope,
-  languageEditionAliasReview,
+  languageEditions,
+  journeyOverview,
   actionHref,
   canManageAliases = true,
-  languageEditionAliasReviewFailed = false,
   loading = false,
   coverageMatrix = null,
   coverageMatrixFailed = false,
@@ -67,16 +65,6 @@ export function CatalogScopeDetailPage({
   candidateReviewJobs = null,
   candidateReviewJobsCursor = null,
 }: CatalogScopeDetailPageProps) {
-  const hasLanguageEditions = catalogScopeHasLanguageEditionsToReview(scope);
-  const languageEditionsReadModel = hasLanguageEditions
-    ? buildCatalogScopeLanguageEditionReviewReadModel({ scope, aliasReview: languageEditionAliasReview })
-    : null;
-
-  const journeyOverview = buildCatalogScopeJourneyOverviewReadModel({
-    scope,
-    languageEditionReview: languageEditionsReadModel,
-    languageEditionReviewFailed: languageEditionAliasReviewFailed,
-  });
   // A result kept as action data, else the feedback a queued-job redirect carried.
   const journeyFeedback = commandFeedback ?? journey?.commandFeedback ?? null;
 
@@ -198,10 +186,10 @@ export function CatalogScopeDetailPage({
           </PageSection>
         ) : null}
 
-        {hasLanguageEditions && languageEditionsReadModel ? (
+        {languageEditions ? (
           <PageSection>
             <CatalogIntegrationLanguageEditionsPanel
-              readModel={languageEditionsReadModel}
+              readModel={languageEditions}
               routeContext={journey?.readModel.routeContext ?? null}
               canManageAliases={canManageAliases}
             />

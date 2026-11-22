@@ -1,5 +1,4 @@
-import { Pool } from "pg";
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { createPgPool, type PgQueryable } from "@chase-sets/event-core-postgres";
 import type { PlatformApiBootstrapConfig } from "./config";
 
 const PREVIEW_POSTGRES_READY_TIMEOUT_MS = 120_000;
@@ -55,7 +54,7 @@ export async function ensurePreviewPostgresDatabases(
 }
 
 function createDefaultPool(connectionString: string): PreviewPostgresPool {
-  return new Pool({ connectionString, max: 1 }) as unknown as PreviewPostgresPool;
+  return createPgPool(connectionString, { max: 1 }) as unknown as PreviewPostgresPool;
 }
 
 async function waitForPreviewPostgres(

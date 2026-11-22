@@ -347,7 +347,7 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
         productTruthRefs: [
           "infrastructure/stripe-payments/index.ts:1669-1693",
           "infrastructure/stripe-connect/index.ts:1100-1160",
-          "bounded-contexts/payments/GLOSSARY.md:105-107",
+          "bounded-contexts/payments/GLOSSARY.md:109-111",
           "bounded-contexts/public-presence/features/policies/domain/seller-agreement.ts:154",
         ],
         openQuestions: [
@@ -375,7 +375,7 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
           "State the minimum-age and contracting-capacity requirement, and the account holder's registration-accuracy, contact-currency, and credential-security duties.",
         decisionRefs: [],
         productTruthRefs: [
-          "bounded-contexts/auth/features/registration/ui/register-page.tsx:60-66,158-176",
+          "bounded-contexts/auth/features/registration/ui/register-page.tsx:67-73,137-195,417-582",
           "bounded-contexts/auth/support/api-support/registration-gates.ts:21-25,58-84",
           "bounded-contexts/identity/features/api-keys/domain/domain.ts",
         ],
@@ -387,7 +387,7 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
           {
             assertion: "No age or date-of-birth field exists in the registration form or API today.",
             evidenceRef:
-              "bounded-contexts/auth/features/registration/ui/register-page.tsx:60-66; bounded-contexts/auth/support/api-support/register-routes.ts:36-58",
+              "bounded-contexts/auth/features/registration/ui/register-page.tsx:67-73,137-195,417-582; bounded-contexts/auth/support/api-support/register-routes.ts:36-58",
           },
           {
             assertion: "Registration may be gated by invitation, waitlist, or disposable-email screening.",
@@ -531,7 +531,7 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
         productTruthRefs: [
           "bounded-contexts/identity/features/consents/domain/domain.ts:29-73",
           "bounded-contexts/identity/features/consents/api/route.ts:49-101",
-          "bounded-contexts/auth/features/registration/ui/register-page.tsx:130-175,281-330",
+          "bounded-contexts/auth/features/registration/ui/register-page.tsx:137-195,283-324,417-582",
         ],
         openQuestions: [
           "Gap confirmed by #5685: registration today captures identity/authentication consent but not the affirmative electronic-delivery disclosure set (paper-copy right, withdrawal, scope, hardware/software requirements, access confirmation) described in this subject. Per #5686's instruction, this subject drafts the target flow rather than only the shipped state; the implementation gap is tracked at #5900 and must land, with the disclosure copy and delivery point reviewed by counsel, before this subject can be marked counsel-approved and published.",

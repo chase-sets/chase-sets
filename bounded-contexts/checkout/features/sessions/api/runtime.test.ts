@@ -2598,7 +2598,15 @@ async function unionCleanupHarness(
   const db = {
     query: vi.fn(async (sql: string, values: readonly unknown[] = []) => ({
       rows: sql.includes("checkout_catalog_items")
-        ? [{ catalog_item_id: "cat_1", status: "active", product_schema: null, language_code: "en" }]
+        ? [
+            {
+              catalog_item_id: "cat_1",
+              title: "Charizard",
+              status: "active",
+              product_schema: null,
+              language_code: "en",
+            },
+          ]
         : // The claims alias is routing breadth for the sweep; the aggregates
           // below remain the authorization oracle.
           sql.includes("WHERE claim.account_id = $1")
@@ -3868,7 +3876,7 @@ describe("checkout session last recorded quote", () => {
       db: {
         query: vi.fn(async (sql: string) => ({
           rows: sql.includes("checkout_catalog_items")
-            ? [{ catalog_item_id: "cat_1", status: "active", product_schema: null }]
+            ? [{ catalog_item_id: "cat_1", title: "Charizard", status: "active", product_schema: null }]
             : [],
         })),
       },

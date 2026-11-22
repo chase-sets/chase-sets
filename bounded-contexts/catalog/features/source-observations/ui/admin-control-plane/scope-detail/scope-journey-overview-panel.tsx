@@ -15,9 +15,9 @@ import { t } from "@chase-sets/localization";
 import type {
   CatalogScopeJourneyCondition,
   CatalogScopeJourneyOverviewReadModel,
-  CatalogScopeJourneyPromotionReadiness,
   CatalogScopeJourneyStage,
-} from "./scope-journey-overview";
+  CatalogScopePromotionReadiness,
+} from "../../../../scope-registry/ui/contracts";
 
 // The scope-detail journey overview section. It replaces the per-provider-unit
 // framing with a single scope-first pipeline — coverage → sync → live jobs →
@@ -146,7 +146,7 @@ function stageDescription(stage: CatalogScopeJourneyStage, readModel: CatalogSco
   }
 }
 
-function promotionStageDescription(readiness: CatalogScopeJourneyPromotionReadiness): string {
+function promotionStageDescription(readiness: CatalogScopePromotionReadiness): string {
   switch (readiness) {
     case "live":
       return t("catalog.features.sourceObservations.ui.scopeDetail.journey.stage.promotion.description.live");

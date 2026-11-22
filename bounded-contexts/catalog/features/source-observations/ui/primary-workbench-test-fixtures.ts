@@ -14,6 +14,7 @@ import type {
 } from "./contracts";
 import { buildCatalogPrimaryWorkbenchReadModelForSurface } from "./primary-workbench-read-model";
 import { tcgdexPokemonCardSourceObservationMappingContract } from "../api/tcgdex-executable-mapping-contract";
+import { catalogProviderProfileEditableSectionKeys } from "../api/provider-profile-section-registry";
 import {
   scrydexOnePieceCardPrintProviderProfile,
   tcgdexPokemonTcgProviderProfile,
@@ -220,6 +221,9 @@ export function profileReview(
     hasExecutableMappingContract: true,
     migrationEvidence: null,
     authoringAudit: null,
+    sectionFingerprints: Object.fromEntries(
+      catalogProviderProfileEditableSectionKeys.map((section) => [section, `sha256:${section}-read`]),
+    ) as CatalogProviderProfileVersionReview["sectionFingerprints"],
     validation: {
       status: "valid",
       diagnostics: [],

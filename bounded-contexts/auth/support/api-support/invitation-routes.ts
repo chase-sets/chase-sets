@@ -48,6 +48,16 @@ function invitationUnavailable() {
   return { error: t("auth.support.apiSupport.invitationRoutes.invitation.is.unavailable") };
 }
 
+/** The invitation the forwarded write created is not readable here yet: the caller may ask again. */
+function invitationNotReady() {
+  return {
+    error: {
+      code: "projection_freshness_timeout",
+      message: t("auth.support.apiSupport.invitationRoutes.invitation.not.ready"),
+    },
+  };
+}
+
 function invalidInvitationToken() {
   return { error: t("auth.support.apiSupport.invitationRoutes.invitation.acceptance.token.invalid.or.expired") };
 }
@@ -171,16 +181,19 @@ export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices
     }
 
     // The caller (Identity's invitation command) forwards a fresh-write receipt
-    // so Auth's invitation projection can catch up before this read. Consume it
-    // with a bounded, best-effort wait; on timeout it falls back to reading the
-    // projection as-is, so a slow projection never blocks or breaks the email.
+    // so Auth's invitation projection can catch up before this read. The wait is
+    // bounded; a pending invitation the projection already shows is emailed even
+    // if the wait ran out, but a missing one is only unavailable once the
+    // projection has reached the write. Until then the caller is told to ask again.
     const freshWriteReceipt = decodeFreshWriteReceipt(c.req.header(CHASE_SETS_READ_AFTER_WRITE_HEADER));
-    if (freshWriteReceipt && freshWriteReceipt.sources.length > 0) {
-      await services.awaitInvitationProjectionFreshness?.(freshWriteReceipt);
-    }
+    const freshness =
+      freshWriteReceipt && freshWriteReceipt.sources.length > 0
+        ? await services.awaitInvitationProjectionFreshness?.(freshWriteReceipt)
+        : undefined;
 
     const invitation = await services.identity.getInvitation(invitationId);
     if (!isPendingInvitationAvailable(invitation)) {
+      if (freshness === "behind") return c.json(invitationNotReady(), 503);
       return c.json(invitationUnavailable(), 404);
     }
     const emailScreen = await screenRegistrationEmailDomain(services, invitation.email);

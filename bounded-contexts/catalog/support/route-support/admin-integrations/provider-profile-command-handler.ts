@@ -167,6 +167,7 @@ async function updateProviderProfileSection(
       profileVersion,
       sectionKey,
       command,
+      stringValue(formData.get("sectionFingerprint")) ?? "",
     );
 
     return profileResult(

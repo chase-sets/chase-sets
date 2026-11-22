@@ -19,6 +19,7 @@ import {
   listOfferMatchesForSellers,
   listSubmittedOffers,
 } from "../read-model/queries";
+import { buildMarketplaceOfferProjectionHandlers } from "../read-model/projection";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for Offer account DB tests in CI.");
@@ -91,11 +92,15 @@ describeDb("Offer account visibility on Postgres", () => {
        WHERE projection_name = 'marketplace-offer-projection'
        ORDER BY outbox_id ASC`,
     );
-    return result.rows.map((row) => ({
-      sourceGlobalPosition: row.source_global_position,
-      patchKey: row.patch_key,
-      changes: (JSON.parse(row.payload_json) as { changes: unknown[] }).changes,
-    }));
+    return result.rows.map((row) => {
+      const payload = JSON.parse(row.payload_json) as { topics: string[]; changes: unknown[] };
+      return {
+        sourceGlobalPosition: row.source_global_position,
+        patchKey: row.patch_key,
+        topics: payload.topics,
+        changes: payload.changes,
+      };
+    });
   }
 
   it("fences stale and duplicate Offers standing on public reads, seller Match patches and the buyer badge", async () => {
@@ -230,5 +235,108 @@ describeDb("Offer account visibility on Postgres", () => {
     ).toEqual({ status: "closed", status_stream_version: 4 });
     expect((await patchRows()).some((row) => row.sourceGlobalPosition === "11")).toBe(false);
     expect((await patchRows()).some((row) => row.sourceGlobalPosition === "30")).toBe(false);
+  });
+
+  async function seedInventoryOnlySeller() {
+    await pool.query(`
+      INSERT INTO marketplace_account_pages (account_id, display_name, status) VALUES ('acc_stock', 'Stock', 'active');
+      INSERT INTO marketplace_supply_items
+        (item_id, account_id, catalog_catalog_item_id, product_id, storage_location_id, total_quantity)
+      VALUES ('inv_stock', 'acc_stock', 'cat_one', 'cat_one::', 'loc_stock', 2);
+    `);
+  }
+
+  it("sends an inventory-only seller an upsert for a new Offer and a removal when the buyer goes Away for Offers", async () => {
+    await seedInventoryOnlySeller();
+    await buildMarketplaceOfferProjectionHandlers(pool)["marketplace.offer.submitted"]!(
+      buildTransportEvent(
+        "marketplace.offer.submitted",
+        {
+          offerId: "off_two",
+          buyerAccountId: "acc_buyer",
+          catalogItemId: "cat_one",
+          productId: "cat_one::",
+          itemTitle: "Item",
+          itemSubtitle: null,
+          selectedOptions: [],
+          productSummary: null,
+          shippingDestinationSnapshot: {},
+          priceAmount: "12.00",
+          priceCurrencyCode: "USD",
+          quantityRequested: 1,
+        },
+        { id: "evt_off_two", streamId: "marketplace.offer-off_two", streamVersion: 1, globalPosition: "5" },
+      ),
+    );
+    expect(await patchRows()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          patchKey: "offer-match:off_two:acc_stock",
+          topics: ["account:acc_stock:offer-matches"],
+          changes: [
+            expect.objectContaining({
+              op: "upsert",
+              entity: "marketplace.offerMatch",
+              id: "off_two",
+              value: expect.objectContaining({ fill_source: "inventory", inventory_item_id: "inv_stock" }),
+            }),
+          ],
+        }),
+        expect.objectContaining({ patchKey: "offer:off_two", topics: ["account:acc_buyer:offers"] }),
+      ]),
+    );
+    const offersTopicEntities = (await patchRows())
+      .filter((row) => row.topics.some((topic) => topic.endsWith(":offers")))
+      .flatMap((row) => row.changes.map((change) => (change as { entity: string }).entity));
+    expect(offersTopicEntities).not.toContain("marketplace.offerMatch");
+
+    const subscription = marketplaceModule.buildSubscriptions!(createMarketplaceServices(pool)).find(
+      (candidate) => candidate.subscriptionName === "marketplace.self-listing-projection",
+    )!;
+    const before = (await patchRows()).length;
+    await subscription.handlers["marketplace.seller-listing-availability.offers-disabled"]!(
+      buildTransportEvent(
+        "marketplace.seller-listing-availability.offers-disabled",
+        {
+          accountId: "acc_buyer",
+          reasonCategory: "travel",
+          availableAgainOn: null,
+          availableAgainAt: null,
+          disabledAt: "2030-01-01T00:00:00.000Z",
+        },
+        { streamId: "marketplace.seller-listing-availability-acc_buyer", streamVersion: 1, globalPosition: "6" },
+      ),
+    );
+    expect((await patchRows()).slice(before)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          patchKey: "offer-match-away:off_two:acc_stock",
+          changes: [expect.objectContaining({ op: "remove", entity: "marketplace.offerMatch", id: "off_two" })],
+        }),
+      ]),
+    );
+    expect(await getOfferMatch(pool, "off_two", "acc_stock")).toBeNull();
+    expect((await listOfferMatches(pool, { sellerAccountId: "acc_stock" })).items).toEqual([]);
+    expect((await listOfferMatchesForSellers(pool, "off_two", ["acc_stock"])).size).toBe(0);
+  });
+
+  it("hides inventory Matches while the buyer is suspended", async () => {
+    await seedInventoryOnlySeller();
+    expect(await getOfferMatch(pool, "off_one", "acc_stock")).toMatchObject({
+      fill_source: "inventory",
+      inventory_item_id: "inv_stock",
+    });
+    await status("identity.account.suspended", 2);
+    expect(await getOfferMatch(pool, "off_one", "acc_stock")).toBeNull();
+    expect((await listOfferMatches(pool, { sellerAccountId: "acc_stock" })).items).toEqual([]);
+    expect((await listOfferMatchesForSellers(pool, "off_one", ["acc_stock"])).size).toBe(0);
+    expect(await patchRows()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          patchKey: "offer-match:off_one:acc_stock",
+          changes: [expect.objectContaining({ op: "remove", entity: "marketplace.offerMatch", id: "off_one" })],
+        }),
+      ]),
+    );
   });
 });

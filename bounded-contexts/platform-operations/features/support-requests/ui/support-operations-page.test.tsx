@@ -12,6 +12,8 @@ import type {
 import { getSupportFlowDefinition } from "../domain/flow-catalog";
 import { normalizeFlowType } from "../domain/common";
 import { projectSupportOperatorPolicy, type SupportOperatorPolicy } from "../read-model/queries";
+import { PLATFORM_REMEDY_LAUNCH_POLICY_VALUE, type PlatformRemedyPolicyValue } from "../domain/platform-remedy-policy";
+import { describeSupportRemedyOffer } from "../domain/remedy-offer";
 
 function buildQueueItem(overrides: Partial<SupportOperationsRequestListItem> = {}): SupportOperationsRequestListItem {
   return {
@@ -60,9 +62,18 @@ function buildQueueItem(overrides: Partial<SupportOperationsRequestListItem> = {
   };
 }
 
-type DetailFixtureOverrides = Partial<SupportRequestDetail> & Readonly<{ operatorPolicy?: SupportOperatorPolicy }>;
+type DetailFixtureOverrides = Partial<SupportRequestDetail> &
+  Readonly<{
+    operatorPolicy?: SupportOperatorPolicy;
+    actorPermissions?: readonly string[];
+    remedyPolicy?: PlatformRemedyPolicyValue;
+  }>;
 
-function buildDetailItem(overrides: DetailFixtureOverrides = {}): SupportOperationsRequestDetailResponse {
+function buildDetailItem({
+  actorPermissions = [],
+  remedyPolicy = PLATFORM_REMEDY_LAUNCH_POLICY_VALUE,
+  ...overrides
+}: DetailFixtureOverrides = {}): SupportOperationsRequestDetailResponse {
   const request: SupportOperationsRequestDetail = {
     ...buildQueueItem(),
     operatorPolicy: {
@@ -82,6 +93,13 @@ function buildDetailItem(overrides: DetailFixtureOverrides = {}): SupportOperati
     operatorPolicy:
       overrides.operatorPolicy ?? projectSupportOperatorPolicy(request as never, "2026-10-31T12:00:00.000Z"),
     flow: getSupportFlowDefinition(normalizeFlowType(request.flow_type)),
+    remedy_offer: describeSupportRemedyOffer({
+      request,
+      policy: remedyPolicy,
+      policyVersion: "platform-operations.platform-remedies:compiled-v1",
+      actor: { accountId: "acc_operator", permissions: actorPermissions },
+      now: "2026-07-14T12:00:00.000Z",
+    }),
   };
 }
 
@@ -498,10 +516,10 @@ describe("SupportOperationsPage", () => {
         evidenceBasis: { type: "insufficient-evidence", reference: "evidence-1" },
         responsibilityReasonCode: "product-not-received.insufficient-evidence",
       },
+      actorPermissions: ["support.remedies.propose"],
     });
     renderPage({
       selectedRequest: request,
-      actorPermissions: ["support.remedies.propose"],
       remedyPreview: {
         customerOutcome: "100.00 usd full-refund",
         sellerImpact: "0.00 usd",
@@ -524,6 +542,64 @@ describe("SupportOperationsPage", () => {
     expect(screen.getByText("100.00 usd")).toBeTruthy();
     expect(screen.getByText("Elevated approval is required.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Request reservation" })).not.toHaveProperty("disabled", true);
+  });
+
+  it("offers the remedy choices of the active policy the read returns, not the compiled defaults", () => {
+    renderPage({
+      selectedRequest: buildDetailItem({
+        status: "resolved",
+        resolution: {
+          resolutionType: "full-refund",
+          summary: "Buyer is made whole.",
+          refundAmount: "100.00",
+          resolvedByAccountId: "acc_operator" as never,
+          resolvedByRole: "support",
+          resolvedAt: "2026-07-14T00:00:00.000Z",
+          responsibility: "undetermined",
+          evidenceBasis: { type: "insufficient-evidence", reference: "evidence-1" },
+          responsibilityReasonCode: "product-not-received.insufficient-evidence",
+        },
+        actorPermissions: ["support.remedies.propose"],
+        remedyPolicy: {
+          ...PLATFORM_REMEDY_LAUNCH_POLICY_VALUE,
+          eligibleReasonCodes: ["published-goodwill"],
+          allowableRefundTriggers: ["delivered", "operator-release"],
+          splitFundingAllowed: false,
+        },
+      }),
+    });
+
+    const optionValues = (label: string) =>
+      [...(screen.getByLabelText(label) as HTMLSelectElement).options].map((option) => option.value);
+    expect(optionValues("Refund trigger")).toEqual(["delivered", "operator-release"]);
+    expect(optionValues("Funding allocation")).not.toContain("split");
+    expect(document.querySelector<HTMLSelectElement>('select[name="reasonCode"]')?.value).toBe("published-goodwill");
+    expect(document.querySelector<HTMLInputElement>('input[name="idempotencyKey"]')?.value).toBe(
+      "sup_1:platform-remedy-proposal",
+    );
+  });
+
+  it("keeps the remedy proposal closed to an operator the read does not allow to propose", () => {
+    renderPage({
+      selectedRequest: buildDetailItem({
+        status: "resolved",
+        resolution: {
+          resolutionType: "full-refund",
+          summary: "Buyer is made whole.",
+          refundAmount: "2000.00",
+          resolvedByAccountId: "acc_operator" as never,
+          resolvedByRole: "support",
+          resolvedAt: "2026-07-14T00:00:00.000Z",
+          responsibility: "undetermined",
+          evidenceBasis: { type: "insufficient-evidence", reference: "evidence-1" },
+          responsibilityReasonCode: "product-not-received.insufficient-evidence",
+        },
+        actorPermissions: ["support.remedies.propose"],
+      }),
+    });
+
+    // The proposal sits in a collapsed disclosure until a preview exists, so role queries skip it.
+    expect(document.querySelector<HTMLButtonElement>('button[value="preview-remedy"]')?.disabled).toBe(true);
   });
 
   it("badges contested cases in the queue and renders issue-type and contested filter chips", () => {

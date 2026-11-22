@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useState } from "react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { MarketplaceOfferMatchListPage as OfferMatchListPage } from "./offer-match-list-page";
-import type { OfferMatchListItem } from "./contracts";
+import type { InventoryOfferMatchListItem, OfferMatchListItem } from "./contracts";
 
 function MarketplaceOfferMatchListPage(props: Parameters<typeof OfferMatchListPage>[0]) {
   const router = createMemoryRouter([{ path: "*", element: <OfferMatchListPage {...props} /> }]);
@@ -33,6 +33,7 @@ const offer: OfferMatchListItem = {
   accepted_at: null,
   created_at: "2026-04-28T00:00:00.000Z",
   updated_at: "2026-04-28T00:00:00.000Z",
+  fill_source: "listing",
   listing_id: "lst_1",
   listing_price_amount: "22.00",
   listing_price_currency_code: "USD",
@@ -153,12 +154,11 @@ async function awaitDeclineSettle(
       }
     });
   });
-  await act(async () => {
-    await Promise.resolve();
+  await waitFor(() => {
+    expect(router.state.navigation.state).toBe("idle");
+    expect(form.dataset.formStatus).not.toBe("submitting");
+    expect(form.hasAttribute("aria-busy")).toBe(false);
   });
-  expect(router.state.navigation.state).toBe("idle");
-  expect(form.dataset.formStatus).not.toBe("submitting");
-  expect(form.hasAttribute("aria-busy")).toBe(false);
   expect(sent).toEqual(expectedSent);
 }
 
@@ -357,5 +357,92 @@ describe("MarketplaceOfferMatchListPage", () => {
     expect(markup).toContain("Buyer reputation");
     expect(markup).toContain("4.6");
     expect(markup).toContain("(<!-- -->7<!-- -->)");
+  });
+});
+
+describe("inventory Offer Matches on the list", () => {
+  function inventoryOffer(
+    overrides: Pick<InventoryOfferMatchListItem, "offer_id" | "inventory_item_id"> &
+      Partial<InventoryOfferMatchListItem>,
+  ): InventoryOfferMatchListItem {
+    return {
+      buyer_account_id: "acc_buyer",
+      buyer_display_name: "Ash Ketchum",
+      catalog_catalog_item_id: "cat_charizard",
+      product_id: "cat_charizard::condition:raw",
+      item_title: "Charizard",
+      item_subtitle: null,
+      selected_options: [],
+      product_summary: null,
+      price_amount: "20.00",
+      price_currency_code: "USD",
+      last_stream_version: 2,
+      quantity_requested: 1,
+      status: "submitted",
+      accepted_seller_account_id: null,
+      accepted_at: null,
+      created_at: "2026-04-28T00:00:00.000Z",
+      updated_at: "2026-04-28T00:00:00.000Z",
+      fill_source: "inventory",
+      can_fulfill: false,
+      inventory_available_quantity: 3,
+      ...overrides,
+    };
+  }
+
+  it("links a covering row to the new-Listing form and shows Not enough stock on a short row, with no Decline or Sell List", () => {
+    const markup = renderToString(
+      <MarketplaceOfferMatchListPage
+        data={{
+          items: [
+            inventoryOffer({ offer_id: "off_cover", inventory_item_id: "inv_cover", price_amount: "18.50" }),
+            inventoryOffer({
+              offer_id: "off_short",
+              inventory_item_id: "inv_short",
+              quantity_requested: 4,
+              inventory_available_quantity: 2,
+            }),
+          ],
+        }}
+      />,
+    );
+
+    expect(markup).toContain("From inventory");
+    expect(markup).toContain('href="/account/listings/new?inventoryItemId=inv_cover&amp;recommendedPrice=18.50"');
+    expect(markup).toContain("List to fill this Offer");
+    expect(markup).toContain("Not enough stock");
+    expect(markup).not.toContain("inventoryItemId=inv_short");
+    expect(markup).not.toContain("decline-offer");
+    expect(markup).not.toContain("add-selected-offer");
+    expect(markup).toContain('href="/account/offers/matches/off_short"');
+  });
+
+  it("labels Listing rows From Listing beside inventory rows", () => {
+    const markup = renderToString(
+      <MarketplaceOfferMatchListPage
+        data={{ items: [offer, inventoryOffer({ offer_id: "off_inventory", inventory_item_id: "inv_1" })] }}
+      />,
+    );
+
+    expect(markup).toContain("From Listing");
+    expect(markup).toContain("From inventory");
+    expect(markup).toContain('name="offerId" value="off_1"');
+    expect(markup).not.toContain('name="offerId" value="off_inventory"');
+  });
+
+  it("counts rows from an API without fill_source in the Listing metrics", () => {
+    const { fill_source: _fillSource, ...legacyRow } = { ...offer, offer_to_listing_price_bps: 12000 };
+    render(
+      <MarketplaceOfferMatchListPage
+        data={{
+          items: [
+            legacyRow as OfferMatchListItem,
+            inventoryOffer({ offer_id: "off_inventory", inventory_item_id: "inv_1" }),
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByText("At or above ask").previousElementSibling?.textContent).toBe("1");
   });
 });

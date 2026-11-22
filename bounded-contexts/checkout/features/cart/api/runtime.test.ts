@@ -184,6 +184,8 @@ class CartRuntimeDb implements PgQueryable {
           {
             catalog_item_id: String(values[0]),
             language_code: "en",
+            title: "Charizard",
+            subtitle: null,
             status: "active",
             product_schema: null,
           },
@@ -476,6 +478,25 @@ describe("checkout cart addLine own-key probe", () => {
     expect(eventsOn(`checkout.cart-${account}`)).toEqual(["checkout.cart.line-added"]);
     expect(eventsOn(`checkout.cart-${claimedSource}`)).toEqual(claimedEventsBefore);
     expect(store.readAllEvents().filter((event) => event.eventType === "checkout.cart.line-quantity-set")).toEqual([]);
+  });
+
+  it("takes a line's title, subtitle and product summary from the catalog, not the request", async () => {
+    const { runtime, store } = createClaimRuntime(new CartRuntimeDb());
+
+    await cartAttemptDriver(runtime).addLine(
+      {
+        ...addLineParams(),
+        itemTitle: "PROBE spoofed title",
+        itemSubtitle: "PROBE spoofed subtitle",
+        productSummary: "PROBE spoofed summary",
+      },
+      context,
+    );
+
+    const added = (store.streams.get(`checkout.cart-${account}`) ?? []).find(
+      (event) => event.eventType === "checkout.cart.line-added",
+    );
+    expect(added?.payload).toMatchObject({ itemTitle: "Charizard", itemSubtitle: null, productSummary: null });
   });
 
   it("still merges quantity into a matching line the Account holds itself", async () => {

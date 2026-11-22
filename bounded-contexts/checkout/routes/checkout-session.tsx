@@ -6,12 +6,14 @@ import { useEffect } from "react";
 import {
   isRouteErrorResponse,
   redirect,
+  redirectDocument,
   useActionData,
   useLoaderData,
   useLocation,
   useNavigation,
   useRevalidator,
   useRouteError,
+  useSubmit,
 } from "react-router";
 import {
   CHASE_SETS_READ_AFTER_WRITE_HEADER,
@@ -52,10 +54,16 @@ import {
   isCheckoutRecovery,
 } from "../features/sessions/api/checkout-recovery";
 import { createIdentityRequestApiClient } from "@chase-sets/identity/server";
-import { type PaymentElementDefaultValues, type PaymentsSavedCheckoutInstrument } from "@chase-sets/payments/server";
-import { StripeConfirmationCard } from "@chase-sets/payments/web";
+import {
+  createPaymentsRequestApiClient,
+  isPaymentConfirmationTokenId,
+  type PaymentElementDefaultValues,
+  type PaymentsSavedCheckoutInstrument,
+} from "@chase-sets/payments/server";
+import { DeferredStripePayment, StripeConfirmationCard } from "@chase-sets/payments/web";
 import { checkoutSessionSourceCreatesOrders } from "@chase-sets/checkout-order-source";
 import { normalizeRequestedBalanceCreditAmount } from "../support/request-support/balance-credit";
+import { readCheckoutPaymentStartThroughPayments } from "../support/request-support/checkout-confirmation";
 import {
   checkoutConfirmationNeedsPaymentStart,
   checkoutPaymentStartRefusalCode,
@@ -63,7 +71,7 @@ import {
 import { CheckoutSessionPage, type CheckoutEditSection } from "../features/sessions/ui/checkout-page";
 import { CheckoutSessionRecoveryPage } from "../features/sessions/ui/checkout-recovery-page";
 import {
-  buildCheckoutPaymentPreviewStatus,
+  readCheckoutPaymentPreviewStatus,
   type CheckoutPaymentPreviewStatus,
 } from "../support/route-support/checkout-session/payment-preview";
 import { deliveryCorrectionActionData } from "../support/route-support/checkout-session/delivery-correction";
@@ -327,6 +335,15 @@ async function resolveCheckoutShippingAddress(
 
 function confirmationPathForSession(sessionId: string) {
   return `/checkout/buy/session/${sessionId}/confirmation`;
+}
+
+function deferredCardPublishableKey() {
+  const key = process.env.STRIPE_PUBLISHABLE_KEY?.trim();
+  return key?.startsWith("pk_") ? key : null;
+}
+
+function checkoutPaymentStatusPath(paymentId: string, guest: boolean) {
+  return `${guest ? "/checkout" : "/account"}/payments/${encodeURIComponent(paymentId)}`;
 }
 
 type VisibleFreshWriteSource = Readonly<{
@@ -721,13 +738,14 @@ async function loadSavedCheckoutInstruments(
   }
 }
 
-function loadPaymentPreview(
+async function loadPaymentPreview(
+  request: Request,
   actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>,
   fulfillmentPreview: Awaited<ReturnType<typeof loadFulfillmentPreview>>["fulfillmentPreview"],
   wallet: WalletRead | null,
   paymentMethodCategory: string,
   committedOrderIds: readonly string[],
-): CheckoutPaymentPreviewStatus | null {
+): Promise<CheckoutPaymentPreviewStatus | null> {
   if (!actor) {
     return null;
   }
@@ -736,7 +754,7 @@ function loadPaymentPreview(
     return null;
   }
 
-  return buildCheckoutPaymentPreviewStatus({
+  return readCheckoutPaymentPreviewStatus(createPaymentsRequestApiClient(request), {
     orderIds: committedOrderIds,
     amount: fulfillmentPreview.totals.totalAmount,
     currencyCode: wallet?.status === "available" ? wallet.balance.currency_code : "usd",
@@ -754,7 +772,8 @@ function loadPaymentPreview(
  * fingerprint. A missing quote or another revision gives no quote, which keeps the
  * totals notice. Checkout reads no other context here.
  */
-function loadCommittedOrderPaymentPreview(
+async function loadCommittedOrderPaymentPreview(
+  request: Request,
   actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>,
   session: Readonly<{
     payment_id: string | null;
@@ -764,7 +783,7 @@ function loadCommittedOrderPaymentPreview(
   }>,
   wallet: WalletRead | null,
   paymentMethodCategory: string,
-): CheckoutPaymentPreviewStatus | null {
+): Promise<CheckoutPaymentPreviewStatus | null> {
   if (!actor || session.payment_id || session.order_ids.length === 0 || wallet?.status === "unavailable") {
     return null;
   }
@@ -774,7 +793,7 @@ function loadCommittedOrderPaymentPreview(
     return null;
   }
 
-  return buildCheckoutPaymentPreviewStatus({
+  return readCheckoutPaymentPreviewStatus(createPaymentsRequestApiClient(request), {
     orderIds: session.order_ids,
     amount: quote.totals.totalAmount,
     currencyCode: wallet?.status === "available" ? wallet.balance.currency_code : "usd",
@@ -820,6 +839,14 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     throw redirect(`/account/offers/submitted/${session.submitted_offer_id}`);
   }
   const expiredCheckout = isExpiredCheckoutHandoff(session, Date.now());
+  const deferredCardKey = deferredCardPublishableKey();
+  const paymentStart =
+    !expiredCheckout && deferredCardKey && !session.payment_id && !session.cancelled_at && session.order_ids.length > 0
+      ? await readCheckoutPaymentStartThroughPayments(requestWithoutReadAfterWrite(resolvedRequest), session.session_id)
+      : null;
+  if (paymentStart?.state === "recorded") {
+    throw redirect(checkoutPaymentStatusPath(paymentStart.paymentId, actor?.roleKey === "guest-buyer"));
+  }
 
   const ancillaryRequest = requestWithoutReadAfterWrite(resolvedRequest);
   const wallet =
@@ -866,12 +893,19 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const committedOrderPaymentPreview =
     expiredCheckout || fulfillmentPreview
       ? null
-      : loadCommittedOrderPaymentPreview(actor, session, wallet, selectedPaymentMethodCategory);
+      : await loadCommittedOrderPaymentPreview(ancillaryRequest, actor, session, wallet, selectedPaymentMethodCategory);
   const previewError = committedOrderPaymentPreview ? null : loadedFulfillmentPreview.previewError;
   const paymentPreview = expiredCheckout
     ? null
     : (committedOrderPaymentPreview ??
-      loadPaymentPreview(actor, fulfillmentPreview, wallet, selectedPaymentMethodCategory, session.order_ids));
+      (await loadPaymentPreview(
+        ancillaryRequest,
+        actor,
+        fulfillmentPreview,
+        wallet,
+        selectedPaymentMethodCategory,
+        session.order_ids,
+      )));
   const reservationUnavailableLines = loadReservationUnavailableLines(searchParams, session, fulfillmentPreview);
 
   return {
@@ -904,6 +938,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     initialEditSection: parseCheckoutEditSection(searchParams.get("edit")),
     preparedPayment,
     paymentElementDefaultValues,
+    deferredCardKey,
+    paymentStartAmbiguous: paymentStart?.state === "ambiguous",
     expiredCheckout,
     // Auth withholds payment until the buyer verifies their email; confirm would refuse.
     paymentVerifyEmailHref:
@@ -984,6 +1020,7 @@ async function handleAction(intent: string, { request, params, formData }: FormA
 
     if (intent === "confirm-checkout") {
       const selectedSavedPaymentInstrumentId = normalizeText(formData.get("savedCheckoutInstrumentId"));
+      const confirmationTokenId = formData.get("confirmationTokenId");
       const requestedSavePaymentMethodForFuture = String(formData.get("savePaymentMethodForFuture") ?? "") === "true";
       if (
         actor?.roleKey === "guest-buyer" &&
@@ -1122,6 +1159,18 @@ async function handleAction(intent: string, { request, params, formData }: FormA
         );
       }
       const confirmApi = createCheckoutRequestApiClient(requestWithPaymentStartFreshness(resolvedRequest));
+      const usesDeferredCard = Boolean(
+        deferredCardPublishableKey() &&
+        sourceType &&
+        sourceType !== "offer-intent" &&
+        quotedPaymentMethodCategory === "card" &&
+        !selectedSavedPaymentInstrumentId &&
+        !session?.payment_id &&
+        !marketplaceCheckoutFeeQuoteFingerprint?.endsWith("|0.00"),
+      );
+      if ((usesDeferredCard || confirmationTokenId !== null) && !isPaymentConfirmationTokenId(confirmationTokenId)) {
+        return { error: t("checkout.routes.checkoutSession.payment.details.required") };
+      }
       let result: Awaited<ReturnType<typeof confirmApi.confirmCheckoutSession>>;
       try {
         result = await confirmApi.confirmCheckoutSession(params.sessionId, {
@@ -1130,6 +1179,7 @@ async function handleAction(intent: string, { request, params, formData }: FormA
           ),
           paymentMethodCategory: quotedPaymentMethodCategory,
           marketplaceCheckoutFeeQuoteFingerprint,
+          ...(isPaymentConfirmationTokenId(confirmationTokenId) ? { confirmationTokenId } : {}),
           savedCheckoutInstrumentId: selectedSavedPaymentInstrumentId,
           savePaymentMethodForFuture,
           fulfillmentPreviewRevision: String(formData.get("fulfillmentPreviewRevision") ?? "") || null,
@@ -1178,6 +1228,27 @@ async function handleAction(intent: string, { request, params, formData }: FormA
           };
         }
 
+        if (
+          error instanceof CheckoutApiError &&
+          error.status === 400 &&
+          readApiErrorCode(error.body) === "payment_declined"
+        ) {
+          return { error: readApiErrorMessage(error.body, error.message) };
+        }
+
+        if (
+          isPaymentConfirmationTokenId(confirmationTokenId) &&
+          (isConfirmPossibleSendLoss(error) ||
+            (error instanceof CheckoutApiError && readApiErrorCode(error.body) === "payment_start_ambiguous"))
+        ) {
+          const paymentStart = await readCheckoutPaymentStartThroughPayments(
+            requestWithoutReadAfterWrite(resolvedRequest),
+            params.sessionId,
+          );
+          return paymentStart.state === "recorded"
+            ? redirect(checkoutPaymentStatusPath(paymentStart.paymentId, actor?.roleKey === "guest-buyer"))
+            : { confirmationState: "ambiguous" as const };
+        }
         if (isConfirmPossibleSendLoss(error)) {
           return settleConfirmAfterPossibleSendLoss(readApi, params.sessionId);
         }
@@ -1194,6 +1265,15 @@ async function handleAction(intent: string, { request, params, formData }: FormA
       }
       if (!result.payment_id) {
         throw new Error("Checkout confirmation did not return payment or purchases.");
+      }
+      if (isPaymentConfirmationTokenId(confirmationTokenId)) {
+        if (result.payment_authentication_url) return redirectDocument(result.payment_authentication_url);
+        return redirect(
+          await navigateAfterWriteWithPlatformPostWriteToken(
+            result,
+            checkoutPaymentStatusPath(result.payment_id, actor?.roleKey === "guest-buyer"),
+          ),
+        );
       }
       const acceleratedSavedPayment = String(formData.get("acceleratedSavedPayment") ?? "") === "true";
       const destination = acceleratedSavedPayment
@@ -1243,6 +1323,7 @@ export default function CheckoutSessionRoute() {
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
   const revalidator = useRevalidator();
+  const submit = useSubmit();
   const realtimeTopics = checkoutPreviewRealtimeTopics(data.session.lines);
   const realtimeSubscriptionKey = realtimeTopics.join("\n");
   const actionEditSection = actionData && "editSection" in actionData ? actionData.editSection : null;
@@ -1275,23 +1356,41 @@ export default function CheckoutSessionRoute() {
       canSavePaymentMethods={data.canSavePaymentMethods}
       isSignedInBuyer={data.isSignedInBuyer}
       paymentVerifyEmailHref={data.paymentVerifyEmailHref}
+      deferredCard={{
+        enabled: Boolean(data.deferredCardKey),
+        render: (quote, renderPage) => (
+          <DeferredStripePayment
+            config={
+              quote && data.deferredCardKey
+                ? { ...quote, publishableKey: data.deferredCardKey, defaultValues: data.paymentElementDefaultValues }
+                : null
+            }
+          >
+            {renderPage}
+          </DeferredStripePayment>
+        ),
+        submit: async (formData) => {
+          await submit(formData, { method: "post" });
+        },
+      }}
       errorMessage={
         (actionData && "error" in actionData ? actionData.error : null) ??
         (data.expiredCheckout ? CHECKOUT_HANDOFF_EXPIRED_MESSAGE : data.previewError) ??
         null
       }
       confirmationAmbiguous={Boolean(
-        actionData && "confirmationState" in actionData && actionData.confirmationState === "ambiguous",
+        data.paymentStartAmbiguous ||
+        (actionData && "confirmationState" in actionData && actionData.confirmationState === "ambiguous"),
       )}
       reviewRefreshed={data.reviewRefreshed}
       paymentQuoteRequired={data.paymentQuoteRequired}
       preparedPaymentEntry={
-        data.preparedPayment?.status === "pending-confirmation" ? (
+        data.preparedPayment?.status === "pending-confirmation" && data.preparedPayment.processor_client_secret ? (
           <StripeConfirmationCard payment={data.preparedPayment} defaultValues={data.paymentElementDefaultValues} />
         ) : null
       }
       initialEditSection={actionEditSection ?? data.initialEditSection}
-      isSubmitting={navigation.state === "submitting"}
+      isSubmitting={navigation.state !== "idle"}
     />
   );
 }

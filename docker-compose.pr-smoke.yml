@@ -27,6 +27,13 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: chase_sets
+    # Components reach Postgres by the canonical preview service host that
+    # scripts/platform-compose-smoke.mjs renders (composeSmokePostgresHost);
+    # the runtime pool admits plaintext only for that host under preview.
+    networks:
+      default:
+        aliases:
+          - chase-sets-platform-chase-sets-platform-preview-postgres
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d chase_sets"]
       interval: 5s
