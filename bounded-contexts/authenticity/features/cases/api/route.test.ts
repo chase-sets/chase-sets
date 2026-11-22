@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { buildAuthenticityApi, type AuthenticityApiEnv } from "../../../api";
 import { AuthenticityDomainError } from "../../../support/runtime-support/common";
 import { createAuthenticityServices } from "../../../support/runtime-support/services";
@@ -40,19 +41,16 @@ describe("authenticity case routes", () => {
     ],
     ["POST", "/cases", ["authenticity.manage"], 400, "validation_failed", "Authenticity request failed."],
   ])("keeps the mounted API error for %s %s (%j)", async (method, path, permissions, status, code, message) => {
-    const services = createAuthenticityServices({ query: vi.fn(), connect: vi.fn() });
+    const query = vi.fn<PgQueryable["query"]>().mockResolvedValue({ rows: [] });
+    const services = createAuthenticityServices({ query, connect: vi.fn() });
     const openCase = vi.fn<AuthenticityCaseServices["openCase"]>().mockRejectedValue("non-Error rejection");
-    const getCase = vi.fn<AuthenticityCaseServices["getCase"]>().mockResolvedValue(null);
     const app = new Hono<AuthenticityApiEnv>();
     app.use("*", async (c, next) => {
       if (permissions) c.set("actor", { accountId: "acc_inspector", permissions });
       c.set("context", context);
       await next();
     });
-    app.route(
-      "/api/authenticity",
-      buildAuthenticityApi({ ...services, cases: { ...services.cases, openCase, getCase } }),
-    );
+    app.route("/api/authenticity", buildAuthenticityApi({ ...services, cases: { ...services.cases, openCase } }));
 
     const response = await app.request(`/api/authenticity${path}`, { method });
 
