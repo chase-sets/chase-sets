@@ -686,7 +686,7 @@ function PublicAccountRealtimeView({
                   imageAlt={formatProductImageAltText({
                     title: listing.item_title,
                     options: productOptionsFromSummary(listing.product_summary),
-                    fallback: t("discovery.routes.publicAccount.pokemon.card.back"),
+                    fallback: t("discovery.routes.publicAccount.marketplace.listing"),
                   })}
                   detailLinkLabel={t("localization.listingCard.view.details.for", { identity: displayIdentity })}
                   saveLabel={t("localization.listingCard.save", { identity: displayIdentity })}

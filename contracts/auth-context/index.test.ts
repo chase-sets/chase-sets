@@ -15,27 +15,33 @@ import {
   resolveAgentOAuthScopedPermissions,
   emailVerificationSignInHref,
   permissionAwaitsEmailVerification,
+  type ResolvedActor,
 } from "./index";
 
 describe("email verification of withheld permissions", () => {
-  const member = { roleKey: "owner", permissions: ["orders.view"] } as const;
+  const member = {
+    roleKey: "owner",
+    permissions: ["orders.view"],
+    withheldPermissions: [{ permission: "orders.manage", reason: "email_verification_required" }],
+  } as const;
 
-  it("names orders.manage as awaiting verification only when the role grants it and Auth withheld it", () => {
+  it("names a permission as awaiting verification only when Auth said it withheld it for that", () => {
     expect(permissionAwaitsEmailVerification(member, "orders.manage")).toBe(true);
-    expect(
-      permissionAwaitsEmailVerification({ ...member, permissions: ["orders.view", "orders.manage"] }, "orders.manage"),
-    ).toBe(false);
-    expect(permissionAwaitsEmailVerification({ ...member, roleKey: "viewer" }, "orders.manage")).toBe(false);
-    expect(permissionAwaitsEmailVerification({ ...member, roleKey: "guest-buyer" }, "orders.manage")).toBe(false);
+    // The role table is no longer read: an owner Auth withheld nothing from is not asked to verify.
+    const owner: Pick<ResolvedActor, "roleKey" | "permissions" | "withheldPermissions"> = {
+      roleKey: "owner",
+      permissions: ["orders.view"],
+    };
+    expect(permissionAwaitsEmailVerification(owner, "orders.manage")).toBe(false);
+    expect(permissionAwaitsEmailVerification({ ...member, withheldPermissions: [] }, "orders.manage")).toBe(false);
     expect(permissionAwaitsEmailVerification(null, "orders.manage")).toBe(false);
+    expect(permissionAwaitsEmailVerification(member, "listings.manage")).toBe(false);
     expect(
       permissionAwaitsEmailVerification(
-        { ...member, agentGrant: { grantId: "agr_1", scopes: [] } as never },
+        { withheldPermissions: [{ permission: "orders.manage", reason: "other" as never }] },
         "orders.manage",
       ),
     ).toBe(false);
-    // A permission Auth never withholds for verification is never blamed on it.
-    expect(permissionAwaitsEmailVerification({ ...member, permissions: [] }, "orders.view")).toBe(false);
   });
 
   it("builds a magic-link sign-in that returns to the marked same-site path", () => {

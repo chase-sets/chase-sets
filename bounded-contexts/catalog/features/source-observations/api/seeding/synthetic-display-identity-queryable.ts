@@ -142,6 +142,7 @@ export function syntheticCurrentCatalogItem(
     blueprint_id: null,
     field_values: [],
     category_ids: [],
+    image_fallback: null,
     ...overrides,
   };
 }

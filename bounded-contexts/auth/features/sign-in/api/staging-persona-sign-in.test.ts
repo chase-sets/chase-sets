@@ -217,6 +217,7 @@ describe("staging persona sign-in", () => {
       "hash:magic-link-token",
       null,
       body.expiresAt,
+      null,
     ]);
   });
 

@@ -142,6 +142,30 @@ describe("checkout cart page", () => {
     }));
   });
 
+  it("renders the game-neutral image for a Magic item without a picture or fallback", () => {
+    render(
+      <TestCheckoutCartPage
+        cartLines={[
+          {
+            ...cartLine,
+            catalog_catalog_item_id: "cat_black_lotus",
+            item_title: "Black Lotus",
+            item_subtitle: null,
+            item_image_url: null,
+            item_image_srcset: null,
+            item_image_loading_url: null,
+            item_image_loading_alt: null,
+            item_image_loading_srcset: null,
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByRole("img", { name: /Black Lotus/ }).getAttribute("src")).toBe(
+      "/fake-cdn/assets/product-image-placeholder.svg",
+    );
+  });
+
   it("renders the cart read readiness fields instead of recomputing them", () => {
     const apiRead = createCartReadinessRead([cartLine]);
     const readiness = {

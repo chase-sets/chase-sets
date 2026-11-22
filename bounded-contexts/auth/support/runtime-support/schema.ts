@@ -93,11 +93,19 @@ CREATE TABLE IF NOT EXISTS identity_magic_link_tokens (
   delivery_token text NULL,
   expires_at timestamptz NOT NULL,
   consumed_at timestamptz NULL,
+  pending_registration jsonb NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
 ALTER TABLE identity_magic_link_tokens
   ADD COLUMN IF NOT EXISTS delivery_token text NULL;
+
+-- A Pending Registration staged until its link is consumed: names, the signed
+-- consent submission, an optional password hash and verified passkey
+-- material, and reserved User, credential and Session ids. Never plaintext.
+-- Finalization clears it and expiry retention deletes it with the row.
+ALTER TABLE identity_magic_link_tokens
+  ADD COLUMN IF NOT EXISTS pending_registration jsonb NULL;
 
 CREATE TABLE IF NOT EXISTS identity_phone_code_tokens (
   token_id text PRIMARY KEY,

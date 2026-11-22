@@ -302,6 +302,11 @@ export const decideUser: AggregateDecider<UserState, UserCommand, UserEvent> = (
       ];
     case "AttachPasswordCredential":
       requireCreatedUser(state);
+      // A retried registration re-sends its reserved credential id; the
+      // aggregate already carries it, so the retry records nothing new.
+      if (state.passwordCredentialId === command.credentialId) {
+        return [];
+      }
       return [
         {
           type: "identity.user.password-credential-attached",
@@ -310,7 +315,9 @@ export const decideUser: AggregateDecider<UserState, UserCommand, UserEvent> = (
       ];
     case "RegisterPasskeyCredential":
       requireCreatedUser(state);
-      assert(!state.passkeyCredentialIds.includes(command.credentialId), "Passkey has already been registered.");
+      if (state.passkeyCredentialIds.includes(command.credentialId)) {
+        return [];
+      }
       return [
         {
           type: "identity.user.passkey-registered",

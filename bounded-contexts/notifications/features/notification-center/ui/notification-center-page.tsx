@@ -25,10 +25,7 @@ import {
   type NotificationCenterReadMutationResponse,
   type NotificationPreference,
 } from "../../../client";
-import type {
-  NotificationCenterProductAlert,
-  NotificationCenterProductAlertList,
-} from "../../../support/request-support/api-client";
+import type { NotificationCenterProductAlert, NotificationCenterProductAlertList } from "../api/request-client";
 import {
   notificationCenterPath,
   notificationCenterSettingsHref,

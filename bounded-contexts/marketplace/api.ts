@@ -15,6 +15,10 @@ import { createListingEvidencePolicyRoutes } from "./features/listing-evidence-p
 import { createSellerAttentionQueueRoutes } from "./features/seller-desk/api/route";
 import { createBuyerOfferPolicyRoutes } from "./features/offer-policy/api/route";
 import { createMarketplaceMutationRecoveryRoutes } from "./features/mutation-recovery/api/route";
+import {
+  createOfferPaymentConsentActivationRoutes,
+  type OfferPaymentConsentActivationRouteOptions,
+} from "./features/offer-payment-consent/api/activation-route";
 
 export type MarketplaceApiEnv = AuthenticatedApiEnv;
 
@@ -25,7 +29,10 @@ export function createMarketplaceCommercialTermsResolver(db: PgQueryable): Comme
   return createCommercialTermsResolver({ db });
 }
 
-export function buildMarketplaceApi(services: MarketplaceServices) {
+export function buildMarketplaceApi(
+  services: MarketplaceServices,
+  activationOptions: Omit<OfferPaymentConsentActivationRouteOptions, "deploymentEnvironment"> = {},
+) {
   const app = new Hono<MarketplaceApiEnv>();
   app.route("/", createMarketplaceMutationRecoveryRoutes(services.mutationRecovery));
   app.route("/account/offer-policies", createBuyerOfferPolicyRoutes(services.buyerOfferPolicies));
@@ -38,6 +45,13 @@ export function buildMarketplaceApi(services: MarketplaceServices) {
   app.route("/", createMarketplaceReportRoutes(services.reports));
   app.route("/listing-gate-policy", createListingGatePolicyRoutes(services.policies));
   app.route("/listing-evidence-policy", createListingEvidencePolicyRoutes(services.listingEvidencePolicies));
+  app.route(
+    "/",
+    createOfferPaymentConsentActivationRoutes(services.policies, {
+      ...activationOptions,
+      deploymentEnvironment: services.deploymentEnvironment,
+    }),
+  );
 
   return app;
 }

@@ -578,7 +578,8 @@ const boundedContextRouteSuiteOwnership = [
     suites: ["marketplace_browse"],
   },
   {
-    pattern: /^bounded-contexts\/notifications\/routes\/account-notifications\./,
+    pattern:
+      /^bounded-contexts\/notifications\/(?:routes|features\/notification-center\/ui\/routes)\/account-notifications\./,
     suites: ["marketplace_account"],
   },
   {

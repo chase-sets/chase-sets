@@ -1,0 +1,624 @@
+import developerPortal from "./features/developer-portal/metadata.json" with { type: "json" };
+
+export const contextManifest = {
+  contextName: "public-presence",
+  packageName: "@chase-sets/public-presence",
+  localeCatalogs: ["contracts/localization/locales/en/public-presence.ts"],
+  ownedNouns: [
+    "public-presence",
+    "waitlist-signup",
+    "waitlist-referral-code",
+    "waitlist-referral-link",
+    "promo-bar-message",
+    "help-article",
+    "help-category",
+    "developer-article",
+    "public-policy-artifact",
+  ],
+  streamPrefix: "public-presence.",
+  apiBasePath: "/api/public-presence",
+  slices: ["waitlist", "promo-bar", "help", "developer-portal", "policies"],
+  allowedSupportDirectories: ["request-support", "runtime-support", "shell-support", "ui-support"],
+  publicExports: [".", "./context", "./routes/*", "./server", "./web"],
+  allowedContextDependencies: [],
+  seedRequirements: ["identity"],
+  eventSubscriptions: [
+    {
+      sourceContextName: "public-presence",
+      projectionName: "public-presence-waitlist-projection",
+      subscriptionVersion: 1,
+      eventTypes: [
+        "public-presence.waitlist-signup.recorded",
+        "public-presence.waitlist-signup.updated",
+        "public-presence.waitlist-signup.cohort-quality-provided",
+        "public-presence.waitlist-signup.admitted",
+        "public-presence.waitlist-referral-code.issued",
+      ],
+      streamPrefixes: ["public-presence.waitlist-signup-"],
+      order: 10,
+      projectionHandlerSetNames: ["public-presence-waitlist-projection"],
+    },
+    {
+      sourceContextName: "public-presence",
+      projectionName: "public-presence-waitlist-transactional-email-projection",
+      subscriptionVersion: 1,
+      subscriptionName: "public-presence.waitlist-transactional-email",
+      filterToEventTypes: true,
+      eventTypes: ["public-presence.waitlist-signup.recorded", "public-presence.waitlist-signup.admitted"],
+      streamPrefixes: ["public-presence.waitlist-signup-"],
+      order: 20,
+      projectionHandlerSetNames: ["public-presence-waitlist-transactional-email-projection"],
+    },
+    {
+      sourceContextName: "identity",
+      projectionName: "public-presence-waitlist-transactional-email-projection",
+      subscriptionVersion: 1,
+      subscriptionName: "public-presence.waitlist-transactional-email",
+      filterToEventTypes: true,
+      eventTypes: ["identity.account.founders-window-opened"],
+      streamPrefixes: ["identity.account-"],
+      order: 21,
+      projectionHandlerSetNames: ["public-presence-waitlist-transactional-email-projection"],
+    },
+  ],
+  projectionGroups: [
+    {
+      projectionName: "public-presence-waitlist-projection",
+      sourceContextNames: ["public-presence"],
+      ownedTables: ["public_presence_waitlist_signups"],
+      requiredDuringBootstrap: true,
+      resetStrategy: "replay-only",
+    },
+    {
+      projectionName: "public-presence-waitlist-transactional-email-projection",
+      sourceContextNames: ["public-presence", "identity"],
+      ownedTables: ["notification_outbox"],
+      requiredDuringBootstrap: true,
+      resetStrategy: "append-only-no-reset",
+    },
+    {
+      projectionName: "platform-policy-document-projection",
+      sourceContextNames: ["public-presence"],
+      ownedTables: ["platform_policy_documents", "platform_policy_document_history"],
+      requiredDuringBootstrap: false,
+      resetStrategy: "truncate-owned-tables",
+    },
+  ],
+  hostPorts: [
+    {
+      portName: "notificationOutbox",
+      providedBy: "platform-worker",
+      purpose: "Durable outbound notification outbox consumed only by event projectors.",
+    },
+    {
+      portName: "waitlistAnalyticsRecorder",
+      providedBy: "platform-api",
+      purpose: "Operational landing-page analytics recorder for bounded waitlist event labels.",
+    },
+    {
+      portName: "rateLimitPolicyResolver",
+      providedBy: "platform-operations",
+      purpose:
+        "Resolve the runtime-configurable rate-limit policy for waitlist signup submission without Public Presence querying Platform Operations storage.",
+    },
+    {
+      portName: "publicPolicySources",
+      providedBy: "platform-api",
+      purpose:
+        "Resolve only explicitly whitelisted policy values used by public articles from each owning bounded context.",
+    },
+  ],
+  apiDeployables: ["platform-api"],
+  apiMounts: [
+    {
+      mountPath: "/api/public-presence",
+      kind: "primary",
+      requiresAuth: false,
+    },
+    {
+      mountPath: "/api/public-presence/admin",
+      kind: "additional",
+      requiresAuth: true,
+      readFreshnessRoutes: [
+        {
+          routePath: "/waitlist",
+          methods: ["GET", "HEAD"],
+          dependencies: [
+            {
+              readModelTable: "public_presence_waitlist_signups",
+            },
+          ],
+        },
+      ],
+    },
+  ],
+  readAfterWriteRouteInventory: [
+    {
+      id: "public-presence.waitlist-signup-to-admin-review",
+      owner: "public-presence",
+      risk: "critical",
+      freshnessSlo: {
+        flowClass: "critical-customer-handoff",
+        p95Ms: 1000,
+        p99Ms: 2250,
+      },
+      source: {
+        routeId: "home",
+        actions: ["Join the waitlist", "Platform production smoke waitlist probe"],
+        command: "RecordWaitlistSignup",
+        files: ["scripts/platform-smoke.mjs"],
+      },
+      destination: {
+        routeId: "waitlist",
+        apiContextName: "public-presence",
+        apiRoutePath: "/waitlist",
+        readModelTables: ["public_presence_waitlist_signups"],
+        transientRecovery: {
+          kinds: "pending-projection",
+          behavior:
+            "Admin waitlist reads that carry a Public Presence waitlist signup receipt wait on the waitlist projection before returning the operator review list; callers retry on bounded projection catch-up.",
+        },
+      },
+    },
+  ],
+  mutationConsistencyInventory: [
+    {
+      id: "public-presence.waitlist-analytics-capture",
+      owner: "public-presence",
+      risk: "informational",
+      strategy: "non-user-visible",
+      surfaces: [
+        "api-route:bounded-contexts/public-presence/features/waitlist/api/analytics.ts:POST /analytics/waitlist",
+      ],
+      exception: {
+        owner: "public-presence",
+        reviewBy: "2026-09-30",
+        issue: "#3215",
+        reason:
+          "Waitlist analytics capture records bounded operational landing-page labels through a platform-api host port and returns only a 204 acknowledgement; no user-visible Public Presence read depends on this POST result. bounded-contexts/public-presence/tests/api.test.ts proves supported analytics are recorded and unsupported/private labels are rejected before recording.",
+      },
+      proof: {
+        authoritativeResponse:
+          "The Public Presence API accepts only bounded allowlisted waitlist analytics labels and records them through a platform-api host port with a 204 non-user-visible response.",
+        tests: [
+          "bounded-contexts/public-presence/tests/api.test.ts proves POST /analytics/waitlist accepts bounded labels, rejects unsupported/private labels, and returns 204.",
+        ],
+      },
+    },
+    {
+      id: "public-presence.waitlist-signup-command-receipt",
+      owner: "public-presence",
+      risk: "important",
+      strategy: "snapshot-return",
+      surfaces: [
+        "api-client:bounded-contexts/public-presence/client.ts:POST H405b3cbdf275#1",
+        "api-route:bounded-contexts/public-presence/api.ts:POST /waitlist",
+        "post-form:bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx:H2df726441e2a#1",
+        "route-action:bounded-contexts/public-presence/routes/marketplace/home.tsx",
+      ],
+      visibleDestination: {
+        routeId: "welcome",
+        description:
+          "The waitlist form redirects from the landing page to the dedicated /welcome success page (#3956). The committed waitlist signup id travels in the redirect's own query string, so the destination route's primary confirmation, referral link, and share affordances render without reading the admin waitlist projection. Only the supplementary referral progress and queue standing (referral count plus the #4070 beta-invite-line position, shown as pending until the projection catches up) is a separate, eventually-consistent client fetch (see the waitlist-referral-summary-read entry).",
+      },
+      proof: {
+        authoritativeResponse:
+          "submitWaitlistSignup returns the committed signup id/version, the public API returns that receipt with status=joined, and the home route action redirects to /welcome?signup=<id> carrying that receipt in the URL instead of same-page actionData.",
+        tests: [
+          "bounded-contexts/public-presence/tests/api.test.ts proves POST /waitlist returns the committed id/version receipt.",
+          "bounded-contexts/public-presence/tests/home-route.test.ts proves the home action redirects to /welcome with the committed signup id on success and still returns the same-page error snapshot on failure.",
+          "bounded-contexts/public-presence/features/waitlist/ui/public-pages.test.tsx proves the waitlist form posts through the Public Presence route action.",
+          "bounded-contexts/public-presence/tests/welcome-route.test.ts proves the welcome route renders the referral link and progress mechanic from the redirect-carried signup id.",
+        ],
+      },
+    },
+    {
+      id: "public-presence.referral-link-provisioning-receipt",
+      owner: "public-presence",
+      risk: "important",
+      strategy: "snapshot-return",
+      surfaces: [
+        "api-client:bounded-contexts/public-presence/client.ts:POST H8fe80f9be127#1",
+        "api-route:bounded-contexts/public-presence/api.ts:POST /waitlist/referral-link/provision",
+      ],
+      visibleDestination: {
+        description:
+          "The authenticated operator receives the frozen code-and-creator-tuple URL receipt directly from the authoritative Waitlist Signup stream; no projection read is needed to confirm the write.",
+      },
+      proof: {
+        authoritativeResponse:
+          "The response is a recursively closed referral-link-provisioning/v1 receipt with an RFC 8785 payload digest and no private signup identity.",
+        tests: [
+          "bounded-contexts/public-presence/tests/api.test.ts proves session, permission, CSRF, no-store, closed request parsing, and a private-identity-free response.",
+          "bounded-contexts/public-presence/features/waitlist/api/referral-code-runtime.test.ts proves authoritative-stream idempotency, substitution, and code-free audit history.",
+        ],
+      },
+    },
+    {
+      id: "public-presence.waitlist-cohort-quality-save-receipt",
+      owner: "public-presence",
+      risk: "informational",
+      strategy: "snapshot-return",
+      surfaces: ["api-route:bounded-contexts/public-presence/api.ts:POST /waitlist/:signupId/cohort-quality"],
+      visibleDestination: {
+        routeId: "welcome",
+        description:
+          "The welcome page's progressive wave-placement step (issue #4082) saves each cohort-quality field individually and renders its own saved/failed indicator from the command receipt; no Public Presence read model is consulted for the confirmation, and the only downstream reader is the eventually-consistent admin campaign-analytics surface.",
+      },
+      proof: {
+        authoritativeResponse:
+          "provideWaitlistCohortQuality returns the committed signup id/version and the public API returns that receipt with status=saved; the welcome-page UI flips its saved indicator from the response alone.",
+        tests: [
+          "bounded-contexts/public-presence/tests/api.test.ts proves POST /waitlist/:signupId/cohort-quality forwards only the fields present on the request and returns the saved receipt, and rejects malformed signup ids.",
+          "bounded-contexts/public-presence/features/waitlist/ui/success-page.test.tsx proves each wave-placement field saves individually and surfaces the saved indicator from the response.",
+        ],
+      },
+    },
+    {
+      id: "public-presence.beta-wave-admission-snapshot",
+      owner: "public-presence",
+      risk: "important",
+      strategy: "snapshot-return",
+      surfaces: ["api-route:bounded-contexts/public-presence/api.ts:POST /waitlist/waves/:waveNumber/admit"],
+      visibleDestination: {
+        description:
+          "The operator receives the resolved policy document, configured invite count, admitted count, and proportional rollout exposure directly from the completed admission command.",
+      },
+      proof: {
+        authoritativeResponse:
+          "admitWave records each selected signup's admission aggregate event and returns the command-local wave summary without reading the eventually consistent admission projection.",
+        tests: [
+          "bounded-contexts/public-presence/tests/api.test.ts proves the wave admission route returns the command snapshot.",
+          "bounded-contexts/public-presence/features/waitlist/domain/domain.test.ts proves identical invite retries are no-ops and cross-wave retries fail.",
+        ],
+      },
+    },
+    {
+      id: "public-presence.promo-bar-command-snapshots",
+      owner: "public-presence",
+      risk: "important",
+      strategy: "snapshot-return",
+      surfaces: [
+        "api-client:bounded-contexts/public-presence/client.ts:DELETE Hd6ce7ff1e4d3#1",
+        "api-client:bounded-contexts/public-presence/client.ts:POST H43e144f953d8#1",
+        "api-client:bounded-contexts/public-presence/client.ts:POST H4e43f80f9d5e#1",
+        "api-client:bounded-contexts/public-presence/client.ts:POST Ha3e298fafcdf#1",
+        "api-client:bounded-contexts/public-presence/client.ts:PUT H72e5a17da97f#1",
+        "api-route:bounded-contexts/public-presence/api.ts:DELETE /promo-bar-messages/:messageId",
+        "api-route:bounded-contexts/public-presence/api.ts:POST /promo-bar-messages",
+        "api-route:bounded-contexts/public-presence/api.ts:POST /promo-bar-messages/:messageId/activate",
+        "api-route:bounded-contexts/public-presence/api.ts:POST /promo-bar-messages/:messageId/deactivate",
+        "api-route:bounded-contexts/public-presence/api.ts:PUT /promo-bar-messages/:messageId",
+      ],
+      visibleDestination: {
+        description:
+          "Promo Bar Message create, update, activate, deactivate, and delete API responses return the command-owned message snapshot or scoped deletion receipt so API callers do not need to trust a lagging list read for the completed write.",
+      },
+      proof: {
+        authoritativeResponse:
+          "The promo-bar read-model command functions mutate the Public Presence table and return the saved message row with updated_at; delete returns the deleted message id/status receipt.",
+        tests: [
+          "bounded-contexts/public-presence/tests/api.test.ts proves promo-bar management writes return scoped command snapshots or deletion receipts.",
+        ],
+      },
+    },
+    {
+      id: "public-presence.promo-bar-admin-route-snapshot",
+      owner: "public-presence",
+      risk: "important",
+      strategy: "snapshot-return",
+      surfaces: [
+        "post-form:bounded-contexts/public-presence/features/promo-bar/ui/admin-pages.tsx:H1dea678e1f7f#1",
+        "post-form:bounded-contexts/public-presence/features/promo-bar/ui/admin-pages.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/public-presence/features/promo-bar/ui/admin-pages.tsx:H2df726441e2a#2",
+        "post-form:bounded-contexts/public-presence/features/promo-bar/ui/admin-pages.tsx:H2df726441e2a#3",
+        "route-action:bounded-contexts/public-presence/routes/admin/promo-bar.tsx",
+      ],
+      visibleDestination: {
+        routeId: "promo-bar",
+        description:
+          "The admin Promo Bar route returns a Public Presence admin promo-bar list snapshot after every write and renders that action-owned list snapshot ahead of any stale loader result. Row edits open in a SideSheet and row deletes require AlertDialog confirmation before the hidden delete form submits, but every intent (create/update/activate/deactivate/delete) still posts to the same route action.",
+      },
+      proof: {
+        authoritativeResponse:
+          "The route action performs create/update/activate/deactivate/delete, then calls listPromoBarMessages and returns items; PromoBarAdminRoute renders actionData.items before loader data for the just-completed write. On failure the action returns the error message instead of items, and the page renders it in a danger banner.",
+        tests: [
+          "bounded-contexts/public-presence/tests/promo-bar-route.test.ts proves the route action returns the refreshed admin list snapshot after create.",
+          "bounded-contexts/public-presence/features/promo-bar/ui/admin-pages.test.tsx proves the admin page renders a read-only row summary, gates delete behind an AlertDialog confirmation, opens edit in a dedicated SideSheet, and surfaces success/failure through a banner.",
+        ],
+      },
+    },
+  ],
+  agentCoverage: {
+    waitlist: { pending: "#9238" },
+    "promo-bar": { pending: "#9238" },
+    "campaign-analytics": { pending: "#9238" },
+  },
+  deployableContributions: [
+    {
+      deployable: "public-web",
+      routes: [
+        {
+          routeId: "home",
+          routePath: "",
+          fileExport: "./routes/marketplace/home",
+          routeType: "index",
+          sourceContext: "public-presence",
+          placement: "root",
+        },
+        {
+          routeId: "welcome",
+          routePath: "welcome",
+          fileExport: "./routes/marketplace/welcome",
+          routeType: "route",
+          sourceContext: "public-presence",
+          placement: "root",
+        },
+        {
+          routeId: "help",
+          routePath: "help",
+          fileExport: "./routes/marketplace/help",
+          routeType: "route",
+          sourceContext: "public-presence",
+          placement: "root",
+        },
+        {
+          routeId: "help-category",
+          routePath: "help/:category",
+          fileExport: "./routes/marketplace/help-category",
+          routeType: "route",
+          sourceContext: "public-presence",
+          placement: "root",
+        },
+        {
+          routeId: "help-article",
+          routePath: "help/:category/:slug",
+          fileExport: "./routes/marketplace/help-article",
+          routeType: "route",
+          sourceContext: "public-presence",
+          placement: "root",
+        },
+        ...developerPortal.publicWebRoutes,
+        {
+          routeId: "faq",
+          routePath: "faq",
+          fileExport: "./routes/marketplace/faq",
+          routeType: "route",
+          sourceContext: "public-presence",
+          placement: "root",
+        },
+        {
+          routeId: "contact",
+          routePath: "contact",
+          fileExport: "./routes/marketplace/contact",
+          routeType: "route",
+          sourceContext: "public-presence",
+          placement: "root",
+        },
+        {
+          routeId: "terms",
+          routePath: "terms",
+          fileExport: "./routes/marketplace/terms",
+          routeType: "route",
+          sourceContext: "public-presence",
+          placement: "root",
+        },
+        {
+          routeId: "privacy",
+          routePath: "privacy",
+          fileExport: "./routes/marketplace/privacy",
+          routeType: "route",
+          sourceContext: "public-presence",
+          placement: "root",
+        },
+        {
+          routeId: "refunds-and-returns",
+          routePath: "refunds-and-returns",
+          fileExport: "./routes/marketplace/refunds-and-returns",
+          routeType: "route",
+          sourceContext: "public-presence",
+          placement: "root",
+        },
+        {
+          routeId: "order-protection",
+          routePath: "order-protection",
+          fileExport: "./routes/marketplace/order-protection",
+          routeType: "route",
+          sourceContext: "public-presence",
+          placement: "root",
+        },
+        {
+          routeId: "founders",
+          routePath: "founders",
+          fileExport: "./routes/marketplace/founders",
+          routeType: "route",
+          sourceContext: "public-presence",
+          placement: "root",
+        },
+        {
+          routeId: "seller-agreement",
+          routePath: "seller-agreement",
+          fileExport: "./routes/marketplace/seller-agreement",
+          routeType: "route",
+          sourceContext: "public-presence",
+          placement: "root",
+        },
+        {
+          routeId: "payments-terms",
+          routePath: "payments-terms",
+          fileExport: "./routes/marketplace/payments-terms",
+          routeType: "route",
+          sourceContext: "public-presence",
+          placement: "root",
+        },
+        {
+          routeId: "agent-terms",
+          routePath: "agent-terms",
+          fileExport: "./routes/marketplace/agent-terms",
+          routeType: "route",
+          sourceContext: "public-presence",
+          placement: "root",
+        },
+        {
+          routeId: "authenticity-terms",
+          routePath: "authenticity-terms",
+          fileExport: "./routes/marketplace/authenticity-terms",
+          routeType: "route",
+          sourceContext: "public-presence",
+          placement: "root",
+        },
+        {
+          routeId: "compare-tcgplayer",
+          routePath: "compare/tcgplayer",
+          fileExport: "./routes/marketplace/compare-tcgplayer",
+          routeType: "route",
+          sourceContext: "public-presence",
+          placement: "root",
+        },
+        {
+          routeId: "compare-ebay",
+          routePath: "compare/ebay",
+          fileExport: "./routes/marketplace/compare-ebay",
+          routeType: "route",
+          sourceContext: "public-presence",
+          placement: "root",
+        },
+        {
+          routeId: "press",
+          routePath: "press",
+          fileExport: "./routes/marketplace/press",
+          routeType: "route",
+          sourceContext: "public-presence",
+          placement: "root",
+        },
+      ],
+    },
+    {
+      deployable: "admin-web",
+      routes: [
+        {
+          routeId: "waitlist",
+          routePath: "waitlist",
+          fileExport: "./routes/admin/waitlist",
+          routeType: "route",
+          sourceContext: "public-presence",
+          section: "growth",
+        },
+        {
+          routeId: "promo-bar",
+          routePath: "promo-bar",
+          fileExport: "./routes/admin/promo-bar",
+          routeType: "route",
+          sourceContext: "public-presence",
+          section: "growth",
+        },
+        {
+          routeId: "campaign-analytics",
+          routePath: "campaign-analytics",
+          fileExport: "./routes/admin/campaign-analytics",
+          routeType: "route",
+          sourceContext: "public-presence",
+          section: "growth",
+        },
+      ],
+    },
+  ],
+  shellContributions: [
+    {
+      deployable: "admin-web",
+      slot: "primary-nav",
+      key: "waitlist",
+      label: "Waitlist",
+      icon: "message",
+      href: "/waitlist",
+      section: "growth",
+      order: 20,
+      visibility: "signed-in",
+      requiredPermissions: ["public-presence.view"],
+    },
+    {
+      deployable: "admin-web",
+      slot: "primary-nav",
+      key: "campaign-analytics",
+      label: "Campaign Analytics",
+      icon: "chart",
+      href: "/campaign-analytics",
+      section: "growth",
+      order: 22,
+      visibility: "signed-in",
+      requiredPermissions: ["public-presence.view"],
+    },
+    {
+      deployable: "admin-web",
+      slot: "primary-nav",
+      key: "promo-bar",
+      label: "Promo Bar",
+      icon: "spark",
+      href: "/promo-bar",
+      section: "growth",
+      order: 21,
+      visibility: "signed-in",
+      requiredPermissions: ["public-presence.view"],
+    },
+  ],
+  directoryIntent: {
+    "developer-portal": {
+      classification: "slice",
+      purpose:
+        "Own the developer-portal slice: gated Developer Articles, generated MCP documentation, and agent-readable manifests.",
+      expectedConsumers: ["Public web developer routes"],
+    },
+    help: {
+      classification: "slice",
+      purpose: "Own the compiled public Help Article corpus, Help Category taxonomy, and public help routes.",
+      expectedConsumers: ["Public web routes", "Public web sitemap"],
+    },
+    policies: {
+      classification: "slice",
+      purpose:
+        "Own the policies slice: versioned Public Policy Artifacts, publication readiness, and public policy routes.",
+      expectedConsumers: ["Public web policy routes", "Identity consent-version contract"],
+    },
+    waitlist: {
+      classification: "slice",
+      purpose: "Own prelaunch waitlist behavior, read models, and admin review surfaces.",
+      expectedConsumers: ["Internal public-presence module composition", "Public web routes", "Admin review routes"],
+    },
+    "request-support": {
+      classification: "support",
+      purpose: "Provide Public Presence API clients shared by waitlist submission and review route modules.",
+      expectedConsumers: ["Public web routes", "Admin waitlist route"],
+      crossCuttingRuntimeComposition: true,
+    },
+    "runtime-support": {
+      classification: "support",
+      purpose: "Provide public-presence event-store, schema, and projector composition for API and worker runtime.",
+      expectedConsumers: ["waitlist"],
+    },
+    "shell-support": {
+      classification: "support",
+      purpose:
+        "Provide deployable-facing Public Presence page shell exports for waitlist routes outside feature internals.",
+      expectedConsumers: ["waitlist"],
+    },
+    "ui-support": {
+      classification: "support",
+      purpose:
+        "Expose browser-safe Public Presence analytics allowlists and scoped translation helpers without moving waitlist behavior out of the slice.",
+      expectedConsumers: ["waitlist"],
+    },
+    "promo-bar": {
+      classification: "slice",
+      purpose: "Own public marketplace promo-bar-message management, read models, and public rendering contracts.",
+      expectedConsumers: ["Public marketplace page shell", "Admin promo bar route"],
+    },
+    routes: {
+      classification: "routes",
+      purpose: "Expose public-presence-owned route modules consumed by generated deployable adapters.",
+      expectedConsumers: ["Generated deployable route adapters"],
+    },
+  },
+  runtimeDeployables: ["platform-worker"],
+  apiRuntimeProfiles: ["landing", "proof", "public"],
+  workerRuntimeProfiles: ["landing", "proof", "public"],
+};

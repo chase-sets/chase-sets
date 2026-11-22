@@ -10,6 +10,8 @@ export function createAuthSessionEpochsFake(db: AuthServices["db"]): AuthSession
     source: async () => {
       throw new Error("Canonical epoch capture requires the DB fixture");
     },
+    enrollOnClient: async () => undefined,
+    settleClosure: async () => undefined,
   };
 }
 

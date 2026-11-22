@@ -903,7 +903,11 @@ describe("buyer Offer lifecycle routes", () => {
 
   it("lets an owner whose offers.manage awaits email verification pause, resume and withdraw their own Offers", async () => {
     const { buyerAs } = await lifecycleApps({ off_1: "acc_buyer", off_2: "acc_buyer", off_other: "acc_other" });
-    const unverified = buyerAs({ roleKey: "owner", permissions: ["offers.view"] });
+    const unverified = buyerAs({
+      roleKey: "owner",
+      permissions: ["offers.view"],
+      withheldPermissions: [{ permission: "offers.manage", reason: "email_verification_required" }],
+    });
     await expect((await post(unverified, "/offers/submitted/off_1/pause")).json()).resolves.toMatchObject({
       status: "paused",
       outcome: "changed",

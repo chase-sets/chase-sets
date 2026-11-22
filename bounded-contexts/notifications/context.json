@@ -17,7 +17,10 @@
   ],
   "contextName": "notifications",
   "packageName": "@chase-sets/notifications",
-  "localeCatalogs": ["contracts/localization/locales/en/notifications.ts"],
+  "localeCatalogs": [
+    "contracts/localization/locales/en/notifications.ts",
+    "bounded-contexts/notifications/features/notification-center/ui/localization/locales/en.ts"
+  ],
   "ownedNouns": [
     "notification-center",
     "notification-feed-item",
@@ -26,9 +29,22 @@
   ],
   "streamPrefix": "notifications.",
   "apiBasePath": "/api/notifications",
-  "slices": ["notification-center", "preferences"],
-  "allowedSupportDirectories": ["request-support", "runtime-support", "shell-support"],
-  "publicExports": [".", "./context", "./routes/*", "./server", "./web"],
+  "slices": [
+    "notification-center",
+    "preferences"
+  ],
+  "allowedSupportDirectories": [
+    "request-support",
+    "runtime-support",
+    "shell-support"
+  ],
+  "publicExports": [
+    ".",
+    "./context",
+    "./routes/*",
+    "./server",
+    "./web"
+  ],
   "allowedContextDependencies": [
     "@chase-sets/customer-feedback",
     "@chase-sets/fulfillment",
@@ -46,36 +62,55 @@
       "projectionName": "notifications-source-facts-outbox-projection",
       "subscriptionVersion": 1,
       "subscriptionName": "notifications.pricing-repricing-facts-projection",
-      "eventTypes": ["pricing.repricing-activity.digest-requested"],
+      "eventTypes": [
+        "pricing.repricing-activity.digest-requested"
+      ],
       "order": 90,
-      "projectionHandlerSetNames": ["notifications-pricing-repricing-facts-projection"]
+      "projectionHandlerSetNames": [
+        "notifications-pricing-repricing-facts-projection"
+      ]
     },
     {
       "sourceContextName": "ordering",
       "projectionName": "notifications-source-facts-outbox-projection",
       "subscriptionVersion": 1,
       "subscriptionName": "notifications.ordering-facts-projection",
-      "eventTypes": ["ordering.order.created", "ordering.order.cancelled"],
+      "eventTypes": [
+        "ordering.order.created",
+        "ordering.order.cancelled"
+      ],
       "order": 20,
-      "projectionHandlerSetNames": ["notifications-ordering-facts-projection"]
+      "projectionHandlerSetNames": [
+        "notifications-ordering-facts-projection"
+      ]
     },
     {
       "sourceContextName": "fulfillment",
       "projectionName": "notifications-source-facts-outbox-projection",
       "subscriptionVersion": 2,
       "subscriptionName": "notifications.fulfillment-facts-projection",
-      "eventTypes": ["fulfillment.shipment.dispatched", "fulfillment.shipment.delivered"],
+      "eventTypes": [
+        "fulfillment.shipment.dispatched",
+        "fulfillment.shipment.delivered"
+      ],
       "order": 30,
-      "projectionHandlerSetNames": ["notifications-fulfillment-facts-projection"]
+      "projectionHandlerSetNames": [
+        "notifications-fulfillment-facts-projection"
+      ]
     },
     {
       "sourceContextName": "inventory",
       "projectionName": "notifications-source-facts-outbox-projection",
       "subscriptionVersion": 1,
       "subscriptionName": "notifications.inventory-facts-projection",
-      "eventTypes": ["inventory.hold.consumed", "inventory.restock-decision.pending"],
+      "eventTypes": [
+        "inventory.hold.consumed",
+        "inventory.restock-decision.pending"
+      ],
       "order": 40,
-      "projectionHandlerSetNames": ["notifications-inventory-facts-projection"]
+      "projectionHandlerSetNames": [
+        "notifications-inventory-facts-projection"
+      ]
     },
     {
       "sourceContextName": "settlement",
@@ -83,18 +118,26 @@
       "projectionName": "notifications-source-facts-outbox-projection",
       "subscriptionVersion": 1,
       "subscriptionName": "notifications.settlement-facts-projection",
-      "eventTypes": ["settlement.payout-readiness.recorded"],
+      "eventTypes": [
+        "settlement.payout-readiness.recorded"
+      ],
       "order": 50,
-      "projectionHandlerSetNames": ["notifications-settlement-facts-projection"]
+      "projectionHandlerSetNames": [
+        "notifications-settlement-facts-projection"
+      ]
     },
     {
       "sourceContextName": "marketplace",
       "projectionName": "notifications-source-facts-outbox-projection",
       "subscriptionVersion": 1,
       "subscriptionName": "notifications.marketplace-facts-projection",
-      "eventTypes": ["marketplace.seller-listing-availability.enabled"],
+      "eventTypes": [
+        "marketplace.seller-listing-availability.enabled"
+      ],
       "order": 60,
-      "projectionHandlerSetNames": ["notifications-marketplace-facts-projection"]
+      "projectionHandlerSetNames": [
+        "notifications-marketplace-facts-projection"
+      ]
     },
     {
       "sourceContextName": "customer-feedback",
@@ -107,7 +150,9 @@
         "customer-feedback.attention.digest-requested"
       ],
       "order": 70,
-      "projectionHandlerSetNames": ["notifications-customer-feedback-facts-projection"]
+      "projectionHandlerSetNames": [
+        "notifications-customer-feedback-facts-projection"
+      ]
     },
     {
       "sourceContextName": "platform-operations",
@@ -127,7 +172,9 @@
         "support.support-request.return-refund-released"
       ],
       "order": 80,
-      "projectionHandlerSetNames": ["notifications-support-dispute-facts-projection"]
+      "projectionHandlerSetNames": [
+        "notifications-support-dispute-facts-projection"
+      ]
     }
   ],
   "projectionGroups": [
@@ -143,7 +190,10 @@
         "customer-feedback",
         "platform-operations"
       ],
-      "ownedTables": ["notification_outbox", "notification_support_cases"],
+      "ownedTables": [
+        "notification_outbox",
+        "notification_support_cases"
+      ],
       "requiredDuringBootstrap": true,
       "resetStrategy": "append-only-no-reset"
     }
@@ -165,7 +215,9 @@
       "purpose": "Provider-specific email delivery webhook normalizer for bounce, complaint, and delivery events."
     }
   ],
-  "apiDeployables": ["platform-api"],
+  "apiDeployables": [
+    "platform-api"
+  ],
   "apiMounts": [
     {
       "mountPath": "/api/notifications",
@@ -285,8 +337,12 @@
       "activation": "route",
       "order": 90,
       "visibility": "signed-in",
-      "requiredPermissions": ["accounts.view"],
-      "excludedRoleKeys": ["guest-buyer"],
+      "requiredPermissions": [
+        "accounts.view"
+      ],
+      "excludedRoleKeys": [
+        "guest-buyer"
+      ],
       "placement": "utility"
     },
     {
@@ -299,8 +355,12 @@
       "activation": "route",
       "order": 90,
       "visibility": "signed-in",
-      "requiredPermissions": ["accounts.view"],
-      "excludedRoleKeys": ["guest-buyer"],
+      "requiredPermissions": [
+        "accounts.view"
+      ],
+      "excludedRoleKeys": [
+        "guest-buyer"
+      ],
       "placement": "utility",
       "packingPriority": 600
     }
@@ -309,35 +369,56 @@
     "notification-center": {
       "classification": "slice",
       "purpose": "Own notification-center feed behavior, read state, APIs, and the account notification-center page UI.",
-      "expectedConsumers": ["Internal notifications module composition", "Account notification-center route"]
+      "expectedConsumers": [
+        "Internal notifications module composition",
+        "Account notification-center route"
+      ]
     },
     "preferences": {
       "classification": "slice",
       "purpose": "Own account notification preferences and settings behavior.",
-      "expectedConsumers": ["notification-center"]
+      "expectedConsumers": [
+        "notification-center"
+      ]
     },
     "request-support": {
       "classification": "support",
       "purpose": "Provide request-scoped HTTP adapters that forward the signed-in request to the Notifications API and to Discovery's Marketplace-mounted Product Alert summary for the notification-center route loader.",
-      "expectedConsumers": ["notification-center"]
+      "expectedConsumers": [
+        "notification-center"
+      ]
     },
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide Notifications schema, database adapter, and service composition for API and worker runtime.",
-      "expectedConsumers": ["notification-center"]
+      "expectedConsumers": [
+        "notification-center"
+      ]
     },
     "shell-support": {
       "classification": "support",
       "purpose": "Provide marketplace-web the mapping from retired notification-sheet links to the account notification-center route.",
-      "expectedConsumers": ["marketplace-web"]
+      "expectedConsumers": [
+        "marketplace-web"
+      ]
     },
     "routes": {
       "classification": "routes",
       "purpose": "Provide the account notification-center page route contributed to marketplace-web.",
-      "expectedConsumers": ["marketplace-web"]
+      "expectedConsumers": [
+        "marketplace-web"
+      ]
     }
   },
-  "runtimeDeployables": ["platform-worker"],
-  "apiRuntimeProfiles": ["proof", "public"],
-  "workerRuntimeProfiles": ["proof", "public"]
+  "runtimeDeployables": [
+    "platform-worker"
+  ],
+  "apiRuntimeProfiles": [
+    "proof",
+    "public"
+  ],
+  "workerRuntimeProfiles": [
+    "proof",
+    "public"
+  ]
 }

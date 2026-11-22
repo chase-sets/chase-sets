@@ -961,7 +961,12 @@ function candidateCatalogMapping(
       required: true,
     });
   }
-  return { blueprintId: primary.mapping.blueprintId, categoryId: primary.mapping.categoryId, fields };
+  return {
+    blueprintId: primary.mapping.blueprintId,
+    blueprintKey: primary.version.profile.catalogFieldMapping.blueprintKey,
+    categoryId: primary.mapping.categoryId,
+    fields,
+  };
 }
 
 /**

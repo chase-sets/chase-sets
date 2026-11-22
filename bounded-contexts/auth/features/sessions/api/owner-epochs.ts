@@ -30,7 +30,7 @@ export function sessionOwnerKey(streamId: string): string | undefined {
     : undefined;
 }
 
-class SessionClosureRequired extends Error {
+export class SessionClosureRequired extends Error {
   constructor(readonly keys: readonly string[]) {
     super("Auth Session closure required");
   }
@@ -107,17 +107,40 @@ export function createAuthSessionEpochs(pool: PgTransactionalPool, consumers: Au
     }
     const first = await attempt();
     if (first.kind === "applied") return first.value;
-    const epochs = await source();
-    for (const key of first.keys) {
-      const status = await epochs.driveClosure(key);
-      if (status.pendingConsumers.length)
-        throw new ConfigurationEpochError(`Auth Session writer ${status.status}: ${key}; retry after closure`);
-    }
+    await driveClosures(first.keys);
     const retry = await attempt();
     if (retry.kind !== "applied") throw new ConfigurationEpochError("Auth Session writer PENDING during retry");
     return retry.value;
   }
-  return { source, transaction };
+
+  async function driveClosures(keys: readonly string[]) {
+    const epochs = await source();
+    for (const key of keys) {
+      const status = await epochs.driveClosure(key);
+      if (status.pendingConsumers.length)
+        throw new ConfigurationEpochError(`Auth Session writer ${status.status}: ${key}; retry after closure`);
+    }
+  }
+
+  /**
+   * Enrollment for a writer that already holds its own transaction on another
+   * connection, so no second checkout is nested inside it. A pending closure
+   * throws `SessionClosureRequired` before the caller writes; the caller rolls
+   * back, releases that connection, and calls `settleClosure` before retrying.
+   */
+  async function enrollOnClient(db: PgQueryable, keys: readonly string[]) {
+    await enroll(db, keys);
+  }
+
+  /** Begins, then drives, the closures a client-bound enrollment found pending, on this owner's own pool. */
+  async function settleClosure(keys: readonly string[]) {
+    await withConfigurationEpochTransaction(pool, async (db) => {
+      const epochs = await source(db);
+      for (const key of [...new Set(keys)].sort()) await epochs.beginClosureInTransaction(db, key);
+    });
+    await driveClosures(keys);
+  }
+  return { source, transaction, enrollOnClient, settleClosure };
 }
 
 export type AuthSessionEpochs = ReturnType<typeof createAuthSessionEpochs>;

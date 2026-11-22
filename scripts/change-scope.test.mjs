@@ -1030,10 +1030,19 @@ describe("shared E2E setup selection", () => {
           trackedCandidates: 4,
         },
       ],
+      [
+        "boundedContextRouteSuiteOwnership:51",
+        {
+          pattern:
+            "/^bounded-contexts\\/notifications\\/(?:routes|features\\/notification-center\\/ui\\/routes)\\/account-notifications\\./",
+          path: "bounded-contexts/notifications/features/notification-center/ui/routes/account-notifications.tsx",
+          trackedCandidates: 2,
+        },
+      ],
       ["e2eNoSuiteExclusions:4", { family: "e2eNoSuiteExclusions:3" }],
     ]);
     expect(captured.cases).toHaveLength(150);
-    expect(candidate.cases).toHaveLength(157 + movedPaymentRoutes.length);
+    expect(candidate.cases).toHaveLength(158 + movedPaymentRoutes.length);
     expect(candidate.families).toEqual([
       ...captured.families
         .filter((family) => family.path !== retired)
@@ -4092,6 +4101,17 @@ describe("change-scope", () => {
       suites: [],
     },
   ])("selects the owning E2E suites for feature-local route files: $file", ({ file, suites }) => {
+    expect(e2eSuiteIdsForChangedFile(file)).toEqual(suites);
+  });
+
+  it.each([
+    ["bounded-contexts/notifications/routes/account-notifications.tsx", ["marketplace_account"]],
+    [
+      "bounded-contexts/notifications/features/notification-center/ui/routes/account-notifications.tsx",
+      ["marketplace_account"],
+    ],
+    ["bounded-contexts/notifications/routes/account-notifications.test.tsx", []],
+  ])("selects the owning E2E suite for account notification files: %s", (file, suites) => {
     expect(e2eSuiteIdsForChangedFile(file)).toEqual(suites);
   });
 

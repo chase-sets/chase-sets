@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { inflateSync } from "node:zlib";
-import { scenarioSeedFallbackAssetPaths } from "@chase-sets/catalog-seed";
+import { defaultProductImageUrl, scenarioSeedFallbackAssetPaths } from "@chase-sets/catalog-seed";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@react-router/dev/vite", () => ({ reactRouter: () => [] }));
@@ -10,9 +10,9 @@ vi.mock("@tailwindcss/vite", () => ({ default: () => [] }));
 /**
  * Static correspondence coverage for the cart and Discovery fallback assets.
  * `contracts/catalog-seed` exports
- * the full `/fake-cdn/assets/` fallback-path list the scenario seed
- * references; this deployable owns `public/` and is the only place that can
- * verify each path actually resolves to a file, without the seed context
+ * the `/fake-cdn/assets/` paths used by Catalog and the shopper placeholder.
+ * This deployable owns `public/` and is the only place that can
+ * verify each path actually resolves to a file, without the contract
  * reaching across the boundary into deployable structure.
  *
  * The resolution rule below is the same one Vite applies at runtime: static
@@ -86,12 +86,18 @@ describe("marketplace fake-cdn fallback asset correspondence", () => {
   }
 
   it("resolves every scenario-seed fallback path to a file under public/", async () => {
-    expect(scenarioSeedFallbackAssetPaths.length).toBeGreaterThan(0);
+    expect(scenarioSeedFallbackAssetPaths).toEqual(
+      expect.arrayContaining(["/fake-cdn/assets/magic-card-back.svg", "/fake-cdn/assets/yugioh-card-back.svg"]),
+    );
 
     for (const fallbackPath of scenarioSeedFallbackAssetPaths) {
       const resolved = await resolvePublicAssetPath(fallbackPath);
       expect(existsSync(resolved), `${fallbackPath} -> ${resolved}`).toBe(true);
     }
+  });
+
+  it("serves the game-neutral placeholder under public/", async () => {
+    expect(existsSync(await resolvePublicAssetPath(defaultProductImageUrl))).toBe(true);
   });
 
   it("rejects a synthetic missing fallback while the real assets still resolve (negative control)", async () => {
