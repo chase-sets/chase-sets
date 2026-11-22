@@ -9315,8 +9315,9 @@ async fn a_marketplace_name_identity_refuses_says_how_to_fix_it_and_keeps_the_dr
     let shown = text(&html);
     assert!(shown.contains("Your Marketplace name is public. Follow the Community Guidelines."), "{shown}");
     assert!(
-        html.contains(r#"href="http://localhost:7753/help/buying/community-guidelines-and-enforcement">Community Guidelines</a>"#)
-            && html.contains(r#"href="http://localhost:7753/contact">Contact support</a>"#),
+        html.contains(
+            r#"href="http://localhost:7753/help/buying/community-guidelines-and-enforcement">Community Guidelines</a>"#
+        ) && html.contains(r#"href="http://localhost:7753/contact">Contact support</a>"#),
         "{html}"
     );
     assert!(!shown.contains("Your draft is still here"), "nothing was refused: {shown}");
