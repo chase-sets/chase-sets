@@ -6723,7 +6723,7 @@ pub struct OfferMatch {
 
 impl OfferMatch {
     /// Whether it is a match from inventory, with no listing to accept it against.
-    pub fn from_inventory(&self) -> bool {
+    pub fn is_from_inventory(&self) -> bool {
         self.fill_source.as_deref() == Some("inventory")
     }
 }

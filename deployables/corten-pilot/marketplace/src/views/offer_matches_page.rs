@@ -162,7 +162,7 @@ pub fn offer_matches_live_parts<'a>(t: OfferMatchesMsg, p: Pilot, matches: &'a O
 #[component(css = OfferMatchesPage)]
 fn Snapshot<'a>(t: OfferMatchesMsg, matches: &'a OfferMatches) -> impl Patch {
     let items = &matches.items;
-    let listed = || items.iter().filter(|o| !o.from_inventory());
+    let listed = || items.iter().filter(|o| !o.is_from_inventory());
     let ready = items.iter().filter(|o| o.can_fulfill).count();
     let at_ask = listed().filter(|o| o.offer_to_listing_price_bps >= 10_000).count();
     let best = bps(t, listed().map(|o| o.offer_to_listing_price_bps).max().unwrap_or(0));
@@ -235,7 +235,7 @@ fn Rows<'a>(t: OfferMatchesMsg, p: Pilot, matches: &'a OfferMatches) -> impl Pat
 fn MatchRow<'a>(t: OfferMatchesMsg, p: Pilot, offer: &'a OfferMatch) -> impl Render {
     let open = url::OfferMatch { id: &offer.offer_id };
     let submitted = offer.status == "submitted";
-    let inventory = offer.from_inventory();
+    let inventory = offer.is_from_inventory();
     let (ready, tone) = readiness(t, offer);
     let available = if inventory { offer.inventory_available_quantity } else { offer.seller_available_quantity };
     let f = OfferForm::FIELDS;
@@ -393,7 +393,7 @@ fn Buyer<'a>(t: OfferMatchesMsg, p: Pilot, offer: &'a OfferMatch) -> impl Render
 #[component(css = OfferMatchesPage)]
 pub fn OfferMatchPage<'a>(t: OfferMatchesMsg, p: Pilot, screen: &'a OfferScreen) -> impl Render {
     html! {
-        if screen.offer.from_inventory() {
+        if screen.offer.is_from_inventory() {
             <InventoryMatchPage t={t} p={p} screen={screen} />
         } else {
             <ListingMatchPage t={t} p={p} screen={screen} />

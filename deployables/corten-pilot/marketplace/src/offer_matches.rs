@@ -157,7 +157,7 @@ async fn render(
     // Marketplace's page fails when the preview does; the offer is still worth showing. A match
     // from inventory has no listing to price it against.
     let terms = match offer.status.as_str() {
-        "submitted" if !offer.from_inventory() => caller
+        "submitted" if !offer.is_from_inventory() => caller
             .acceptance_terms(id, &offer.listing_id)
             .await
             .inspect_err(|error| tracing::warn!("the acceptance terms' read failed: {error}"))
@@ -201,7 +201,7 @@ pub(crate) async fn write(
     let error = match form.intent.as_str() {
         "add-selected-offer" => {
             let offer = match caller.sell_list_offer(&id).await {
-                Ok(Some(offer)) if offer.status == "submitted" && !offer.from_inventory() => offer,
+                Ok(Some(offer)) if offer.status == "submitted" && !offer.is_from_inventory() => offer,
                 Ok(_) => {
                     let refusal = Some(p.offer_matches_unavailable().to_owned());
                     return render(&req, &viewer, &config, &headers, &id, refusal, StatusCode::CONFLICT).await;
