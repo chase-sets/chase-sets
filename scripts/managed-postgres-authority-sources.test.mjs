@@ -44,11 +44,11 @@ const cortenMarketplaceImageDelta = [
     purpose: "terraform-infra",
   },
 ];
-// The pilot images moved out of Build Release Image into their own matrix job: one step builds either pilot,
-// and that job authenticates doctl itself. Reviewed removals of the two build-image grants above, then the additions.
+// The pilot images moved out of Build Release Image into their own matrix job: its admission step logs in to the
+// registry for either pilot, the push step after it reads no secret, and that job authenticates doctl itself. Reviewed removals of the two build-image grants above, then the additions.
 const cortenPilotImagesJobRemovals = [...cortenAdminImageDelta, ...cortenMarketplaceImageDelta];
 const cortenPilotImagesJobDelta = [
-  "name:Build and push Corten pilot image#5",
+  "name:Admit the Corten pilot image write#5",
   "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
 ].map((stepAnchor) => ({
   file: workflowPath,

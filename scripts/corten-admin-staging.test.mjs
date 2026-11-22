@@ -245,6 +245,13 @@ describe("Corten admin staging deployment", () => {
       `if [ -n "$CORTEN_ADMIN_IMAGE" ]; then\n  node ./scripts/platform-ingress-wait.mjs \\\n    --attempts 1 \\\n    --expect-status 200 \\\n    --url "${url}"\nfi`,
     );
     expect(smoke.run.split(url)).toHaveLength(2);
+    // Each advisory gate names the one list whose change makes it unconditional.
+    const pointer = "# Advisory while admin-corten is in ADVISORY_CORTEN_PILOT_COMPONENTS";
+    const deploy = steps.find(({ id }) => id === "staging_kubernetes_deploy");
+    const advisory = steps.find(({ name }) => name === "Advisory Corten admin smoke");
+    for (const run of [wait.run, smoke.run, advisory.run, deploy.run]) {
+      expect(run.split(pointer)).toHaveLength(2);
+    }
     expect(smoke.run).toContain('"https://${admin_domain}"');
   });
 
@@ -282,17 +289,32 @@ describe("Corten admin staging deployment", () => {
   });
   it("uses the existing release writer admission and passes its immutable output only to staging", () => {
     const build = workflow.jobs["build-corten-pilot-images"];
-    const step = build.steps.find(({ id }) => id === "corten_pilot_image");
+    const gate = build.steps.find(({ id }) => id === "corten_pilot_gate");
+    const push = build.steps.find(({ id }) => id === "corten_pilot_push");
+    const publish = build.steps.find(({ id }) => id === "corten_pilot_image");
     expect(build.environment).toBe("staging");
     expect(build.strategy).toEqual({ "fail-fast": false, matrix: { pilot: ["admin", "marketplace"] } });
     expect(build.outputs.corten_admin_image).toBe("${{ steps.corten_pilot_image.outputs.corten_admin_image }}");
-    expect(step.env.PILOT).toBe("${{ matrix.pilot }}");
-    expect(step.run).toContain("digitalocean-registry-gc-gate.mjs assert-writable");
-    expect(step.run.indexOf("assert-writable")).toBeLessThan(step.run.indexOf("--push --tag"));
-    expect(step.run).toContain('--file "Dockerfile.corten-${PILOT}"');
-    expect(step.run).toContain('--cache-from "type=gha,scope=corten-${PILOT}-image"');
-    expect(step.run).toContain('echo "corten_${PILOT}_image=${image}@${digest}"');
-    expect(step.run).not.toContain("doctl registry create");
+    // The registry admission runs before, and in a different step from, the write; a refusal skips the push.
+    expect(gate.run).toContain("digitalocean-registry-gc-gate.mjs assert-writable");
+    expect(gate.run).not.toContain("--push");
+    expect(gate.run).not.toContain("doctl registry create");
+    expect(build.steps.indexOf(gate)).toBeLessThan(build.steps.indexOf(push));
+    expect(push.if).toBe("steps.corten_pilot_gate.outcome == 'success'");
+    expect(push.env.IMAGE).toBe("${{ steps.corten_pilot_gate.outputs.image }}");
+    expect(push.run).toContain('--file "Dockerfile.corten-${PILOT}"');
+    expect(push.run).toContain('--cache-from "type=gha,scope=corten-${PILOT}-image"');
+    expect(push.run).toContain('echo "image=${IMAGE}@${digest}"');
+    // The reference reaches the job output only after a successful push.
+    expect(publish.if).toBe("steps.corten_pilot_push.outcome == 'success'");
+    expect(publish.env).toMatchObject({
+      IMAGE_REF: "${{ steps.corten_pilot_push.outputs.image }}",
+      PILOT: "${{ matrix.pilot }}",
+    });
+    expect(publish.run).toContain('echo "corten_${PILOT}_image=${IMAGE_REF}"');
+    expect(
+      build.steps.filter(({ run }) => String(run ?? "").includes("GITHUB_OUTPUT") && String(run).includes("corten_")),
+    ).toEqual([publish]);
     const deploy = workflow.jobs["deploy-staging"].steps.find(({ id }) => id === "staging_kubernetes_deploy");
     expect(deploy.env.CORTEN_ADMIN_IMAGE).toBe("${{ needs.build-corten-pilot-images.outputs.corten_admin_image }}");
     expect(deploy.run).toContain(
@@ -309,12 +331,16 @@ describe("Corten admin staging deployment", () => {
     const pilot = jobs["build-corten-pilot-images"];
     expect(pilot.needs).toEqual(jobs["build-image"].needs);
     expect(pilot.if).toBe(jobs["build-image"].if);
-    // A failed leg reports success to Deploy Staging, so no descendant sees a failed ancestor.
-    expect(pilot["continue-on-error"]).toBe(true);
-    expect(pilot["timeout-minutes"]).toBe(20);
-    const build = pilot.steps.find(({ id }) => id === "corten_pilot_image");
-    expect(build["timeout-minutes"]).toBeLessThan(pilot["timeout-minutes"]);
-    expect(build["continue-on-error"]).toBeUndefined();
+    // The job itself never fails: every step continues on error under its own limit, and the job's limit is
+    // above their sum, so only a runner-level failure can fail it. No job-level continue-on-error is relied on.
+    expect(pilot).not.toHaveProperty("continue-on-error");
+    for (const step of pilot.steps) {
+      expect(step["continue-on-error"], step.name ?? step.uses).toBe(true);
+      expect(step["timeout-minutes"], step.name ?? step.uses).toBeGreaterThan(0);
+    }
+    const stepMinutes = pilot.steps.reduce((total, step) => total + step["timeout-minutes"], 0);
+    expect(pilot["timeout-minutes"]).toBeGreaterThan(stepMinutes);
+    expect(pilot.steps.find(({ id }) => id === "corten_pilot_push")["timeout-minutes"]).toBe(15);
 
     expect(jobs["deploy-staging"].needs).toEqual(["resolve-release", "build-image", "build-corten-pilot-images"]);
     expect(jobs["deploy-staging"].if).toBe(

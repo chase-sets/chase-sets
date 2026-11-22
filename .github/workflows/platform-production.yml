@@ -887,17 +887,17 @@ jobs:
   build-corten-pilot-images:
     name: Build Corten pilot image (${{ matrix.pilot }})
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Above the sum of the step limits, so only a runner-level failure can fail the job.
+    timeout-minutes: 35
     needs:
       - resolve-release
       - deployment-contract-preflight
     if: needs.resolve-release.outputs.deployment_required == 'true'
     # The staging-only Corten pilots build beside Build Release Image, so their
     # build time stays off the production path. Only Deploy Staging needs this
-    # job. A failed leg reports success to its dependants and leaves its output
-    # empty; the deploy then drops that advisory pilot, so a pilot image can
-    # neither fail nor skip a production release.
-    continue-on-error: true
+    # job. Every step continues on error, so the job itself succeeds and a
+    # failed leg only leaves its output empty; the deploy then drops that
+    # advisory pilot, and no descendant ever sees a failed ancestor.
     environment: staging
     strategy:
       fail-fast: false
@@ -911,26 +911,33 @@ jobs:
       corten_marketplace_image: ${{ steps.corten_pilot_image.outputs.corten_marketplace_image }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        continue-on-error: true
+        timeout-minutes: 3
         with:
           ref: ${{ needs.resolve-release.outputs.release_commit }}
 
       - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
         id: buildx
         continue-on-error: true
+        timeout-minutes: 3
 
       - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
         if: steps.buildx.outcome == 'failure'
+        continue-on-error: true
+        timeout-minutes: 3
 
       - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
+        continue-on-error: true
+        timeout-minutes: 3
         env:
           NODE_OPTIONS: --no-deprecation
         with:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
 
-      - name: Build and push Corten pilot image
-        id: corten_pilot_image
-        # Below the job's limit, so a slow build fails this leg rather than cancelling the job.
-        timeout-minutes: 15
+      - name: Admit the Corten pilot image write
+        id: corten_pilot_gate
+        continue-on-error: true
+        timeout-minutes: 5
         env:
           DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           PILOT: ${{ matrix.pilot }}
@@ -943,23 +950,52 @@ jobs:
           test -n "$registry_name"
           doctl registry login --expiry-seconds 3600
           image="registry.digitalocean.com/${registry_name}/chase-sets-corten-${PILOT}:${RELEASE_COMMIT}"
-          if ! docker buildx imagetools inspect "$image" >/dev/null 2>&1; then
-            node ./scripts/digitalocean-registry-gc-gate.mjs assert-writable \
-              --registry="$registry_name" \
-              --out="artifacts/release-health/registry-gc-corten-${PILOT}.json"
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
+          if docker buildx imagetools inspect "$image" >/dev/null 2>&1; then
+            echo "Corten ${PILOT} image ${image} already exists, so no registry write is needed."
+            exit 0
+          fi
+          node ./scripts/digitalocean-registry-gc-gate.mjs assert-writable \
+            --registry="$registry_name" \
+            --out="artifacts/release-health/registry-gc-corten-${PILOT}.json"
+
+      - name: Build and push Corten pilot image
+        id: corten_pilot_push
+        # A refused or failed gate skips the push.
+        if: steps.corten_pilot_gate.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 15
+        env:
+          IMAGE: ${{ steps.corten_pilot_gate.outputs.image }}
+          PILOT: ${{ matrix.pilot }}
+        run: |
+          set -euo pipefail
+          if ! docker buildx imagetools inspect "$IMAGE" >/dev/null 2>&1; then
             docker buildx build \
               --pull \
               --file "Dockerfile.corten-${PILOT}" \
               --cache-from "type=gha,scope=corten-${PILOT}-image" \
               --cache-to "type=gha,scope=corten-${PILOT}-image,mode=max" \
-              --push --tag "$image" .
+              --push --tag "$IMAGE" .
           fi
-          digest="$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')"
+          digest="$(docker buildx imagetools inspect "$IMAGE" --format '{{.Manifest.Digest}}')"
           if ! [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
             echo "Corten ${PILOT} image did not resolve to an immutable sha256 digest." >&2
             exit 1
           fi
-          echo "corten_${PILOT}_image=${image}@${digest}" >> "$GITHUB_OUTPUT"
+          echo "image=${IMAGE}@${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish the Corten pilot image reference
+        id: corten_pilot_image
+        if: steps.corten_pilot_push.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          IMAGE_REF: ${{ steps.corten_pilot_push.outputs.image }}
+          PILOT: ${{ matrix.pilot }}
+        run: |
+          set -euo pipefail
+          echo "corten_${PILOT}_image=${IMAGE_REF}" >> "$GITHUB_OUTPUT"
 
   reconcile-managed-postgres-ca-staging:
     name: Reconcile Managed Postgres CA (staging)
@@ -2141,6 +2177,7 @@ jobs:
             ] | unique | select(length > 0) | join(",")')"
 
           # The deploy script drops an advisory pilot that has no image; say so here too.
+          # Advisory while admin-corten is in ADVISORY_CORTEN_PILOT_COMPONENTS (scripts/platform-kubernetes-deployment.mjs); unconditional once it leaves.
           corten_image_args=()
           if [ -n "$CORTEN_ADMIN_IMAGE" ]; then
             corten_image_args+=(--corten-admin-image "$CORTEN_ADMIN_IMAGE")
@@ -2237,7 +2274,7 @@ jobs:
             "https://${landing_domain}/health/ready"
             "https://${admin_domain}/health/ready"
           )
-          # The advisory admin pilot is served only when its image was built.
+          # Advisory while admin-corten is in ADVISORY_CORTEN_PILOT_COMPONENTS (scripts/platform-kubernetes-deployment.mjs); unconditional once it leaves.
           if [ -n "$CORTEN_ADMIN_IMAGE" ]; then
             ingress_urls+=("https://admin-corten.staging.chasesets.com/health/ready")
           fi
@@ -2337,6 +2374,7 @@ jobs:
 
           cd ../../..
           export MARKETPLACE_ROOT_WEB_URL="https://${staging_root_marketplace_domain}"
+          # Advisory while admin-corten is in ADVISORY_CORTEN_PILOT_COMPONENTS (scripts/platform-kubernetes-deployment.mjs); unconditional once it leaves.
           if [ -n "$CORTEN_ADMIN_IMAGE" ]; then
             node ./scripts/platform-ingress-wait.mjs \
               --attempts 1 \
@@ -2388,6 +2426,7 @@ jobs:
           SMOKE_FETCH_TIMEOUT_MS: "15000"
         run: |
           set -euo pipefail
+          # Advisory while admin-corten is in ADVISORY_CORTEN_PILOT_COMPONENTS (scripts/platform-kubernetes-deployment.mjs); unconditional once it leaves.
           if [ -z "$CORTEN_ADMIN_IMAGE" ]; then
             echo "No Corten admin image was built for this release, so the pilot was not deployed and is not smoked."
             exit 0

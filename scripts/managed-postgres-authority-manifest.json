@@ -5352,7 +5352,7 @@
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "build-corten-pilot-images",
-      "stepAnchor": "name:Build and push Corten pilot image#5",
+      "stepAnchor": "name:Admit the Corten pilot image write#5",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
