@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "test": "vitest run --config ./vitest.config.ts",
-    "test:watch": "vitest --config ./vitest.config.ts"
+    "test:watch": "vitest --config ./vitest.config.ts",
+    "typecheck": "node ../../scripts/verify-typecheck.mjs --workspace=@chase-sets/event-core"
   },
   "exports": {
     ".": "./index.ts",

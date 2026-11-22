@@ -4,7 +4,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import ts from "@chase-sets/typescript-compiler-api";
 import { collectFiles } from "./lib/files.mjs";
-import { normalizeRelative, repoRoot, workspaceRoots } from "./lib/repo.mjs";
+import { normalizePath, normalizeRelative, repoRoot, workspaceRoots } from "./lib/repo.mjs";
 
 const canonicalTsconfigNames = new Set(["tsconfig.base.json", "tsconfig.vitest.json"]);
 
@@ -34,17 +34,38 @@ function readJsoncConfig(filePath, content) {
 
 async function listWorkspaceTsconfigFiles(rootDir, roots) {
   const files = await Promise.all(
-    roots.map((workspaceRoot) => collectFiles(path.join(rootDir, workspaceRoot), { extensions: new Set([".json"]) })),
+    roots.map(async (workspaceRoot) => {
+      const groupDir = path.join(rootDir, workspaceRoot);
+      const files = await collectFiles(groupDir, { extensions: new Set([".json"]) });
+      return files
+        .filter((filePath) => path.basename(filePath) === "tsconfig.json")
+        .map((filePath) => {
+          const firstSegment = path.relative(groupDir, filePath).split(path.sep)[0];
+          const workspaceDir = firstSegment === "tsconfig.json" ? groupDir : path.join(groupDir, firstSegment);
+          return { filePath, workspaceDir };
+        });
+    }),
   );
 
   return files
     .flat()
-    .filter((filePath) => path.basename(filePath) === "tsconfig.json")
-    .sort((left, right) => normalizeRelative(left, rootDir).localeCompare(normalizeRelative(right, rootDir), "en"));
+    .sort((left, right) =>
+      normalizeRelative(left.filePath, rootDir).localeCompare(normalizeRelative(right.filePath, rootDir), "en"),
+    );
+}
+
+function includeEscapesWorkspace(include, configDir, workspaceDir) {
+  const pattern = normalizePath(include);
+  if (path.win32.isAbsolute(pattern) && !path.isAbsolute(pattern)) {
+    return true;
+  }
+
+  const relative = path.relative(workspaceDir, path.resolve(configDir, pattern));
+  return relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative);
 }
 
 function validateConfig(options) {
-  const { config, filePath, rootDir } = options;
+  const { config, filePath, rootDir, workspaceDir } = options;
   const relativeFile = normalizeRelative(filePath, rootDir);
   const violations = [];
 
@@ -77,6 +98,15 @@ function validateConfig(options) {
     }
   }
 
+  if (Array.isArray(config.include)) {
+    const configDir = path.dirname(filePath);
+    for (const include of config.include) {
+      if (typeof include === "string" && includeEscapesWorkspace(include, configDir, workspaceDir)) {
+        violations.push(`${relativeFile}: include ${JSON.stringify(include)} resolves outside its workspace.`);
+      }
+    }
+  }
+
   return violations;
 }
 
@@ -94,7 +124,7 @@ export async function checkWorkspaceTsconfigExtends(options = {}) {
 
   const files = await listWorkspaceTsconfigFiles(rootDir, roots);
 
-  for (const filePath of files) {
+  for (const { filePath, workspaceDir } of files) {
     const content = await ts.sys.readFile(filePath);
     if (typeof content !== "string") {
       violations.push(`${normalizeRelative(filePath, rootDir)}: unable to read tsconfig.`);
@@ -107,12 +137,12 @@ export async function checkWorkspaceTsconfigExtends(options = {}) {
       continue;
     }
 
-    violations.push(...validateConfig({ config, filePath, rootDir }));
+    violations.push(...validateConfig({ config, filePath, rootDir, workspaceDir }));
   }
 
   return {
     passed: violations.length === 0,
-    files: files.map((filePath) => normalizeRelative(filePath, rootDir)),
+    files: files.map(({ filePath }) => normalizeRelative(filePath, rootDir)),
     violations,
   };
 }
@@ -121,12 +151,12 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const result = await checkWorkspaceTsconfigExtends();
 
   if (!result.passed) {
-    console.error("Workspace tsconfig extends check failed:");
+    console.error("Workspace tsconfig check failed:");
     for (const violation of result.violations) {
       console.error(`- ${violation}`);
     }
     process.exit(1);
   }
 
-  console.log(`Workspace tsconfig extends check passed for ${result.files.length} files.`);
+  console.log(`Workspace tsconfig check passed for ${result.files.length} files.`);
 }

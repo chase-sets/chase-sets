@@ -7,7 +7,7 @@
     "dev": "react-router dev",
     "build": "node ../../scripts/react-router-build.mjs",
     "start": "tsx server.ts",
-    "typecheck": "tsc -p ./tsconfig.json --noEmit",
+    "typecheck": "node ../../scripts/verify-typecheck.mjs --workspace=@chase-sets/app-marketplace-web",
     "test": "vitest run --config ./vitest.config.ts"
   },
   "dependencies": {
