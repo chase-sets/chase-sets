@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render as renderUi, screen } from "@testing-library/react";
+import type { ReactElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CatalogImportContextBar } from "./admin-control-plane/import-to-promotion/import-context-bar";
 import type {
@@ -11,14 +12,29 @@ import {
   buildCatalogPrimaryWorkbenchReadModelForSurface,
   buildCatalogPrimaryWorkbenchSourceOptionRequests,
 } from "./primary-workbench-read-model";
-import { controlPlaneOverview, profileReview } from "./primary-workbench-test-fixtures";
+import { controlPlaneOverview, DailyCommandOwner, profileReview } from "./primary-workbench-test-fixtures";
+import { CatalogIntegrationCommandActionProvider } from "./admin-control-plane/import-to-promotion/command-action-context";
+import { CATALOG_SCOPE_RECORD_QUERY_KEYS } from "../api/admin/scope-detail-workbench-location";
+import { CATALOG_SOURCE_OPTION_ACTION_PARAM } from "./primary-workbench-source-option-refresh";
 
+const render = (ui: ReactElement) => renderUi(ui, { wrapper: DailyCommandOwner });
+
+// Each submit records its data and the path it targets, resolved the way
+// react-router does: an explicit `action` option, else the form's own action.
 const submissions: FormData[] = [];
+const submitPaths: Array<string | null> = [];
 vi.mock("react-router", async () => {
   const actual = await vi.importActual<typeof import("react-router")>("react-router");
   return {
     ...actual,
-    useSubmit: () => (form: HTMLFormElement) => submissions.push(new FormData(form)),
+    useSubmit:
+      () =>
+      (target: HTMLFormElement | URLSearchParams, options: { action?: string } = {}) => {
+        const data = target instanceof URLSearchParams ? new FormData() : new FormData(target);
+        if (target instanceof URLSearchParams) target.forEach((value, key) => data.append(key, value));
+        submissions.push(data);
+        submitPaths.push(options.action ?? (target instanceof URLSearchParams ? null : target.getAttribute("action")));
+      },
   };
 });
 
@@ -118,6 +134,94 @@ function scopeForm() {
 afterEach(() => {
   cleanup();
   submissions.length = 0;
+  submitPaths.length = 0;
+});
+
+// On Scope Detail the Scope Record owns product line, series and expansion; the
+// provider, unit, profile and remaining coordinates are selections its address carries.
+describe("Import context and workset on a selected Scope", () => {
+  const scopePath = "/catalog/scopes/scope_lorcana_first_chapter";
+
+  function renderOnScope(model: CatalogPrimaryWorkbenchReadModel) {
+    return renderUi(
+      <CatalogIntegrationCommandActionProvider actionPath={scopePath}>
+        <CatalogImportContextBar readModel={model} recordOwnedFieldNames={CATALOG_SCOPE_RECORD_QUERY_KEYS} />
+        <CatalogSourceScopeWorksetModule readModel={model} />
+      </CatalogIntegrationCommandActionProvider>,
+    );
+  }
+
+  function openImportContext() {
+    fireEvent.click(screen.getByRole("button", { name: /Step 0 · Choose import scope/ }));
+  }
+
+  it("renders the Scope Record's expansion fixed and applies the selection on the Scope path", () => {
+    const model = readModel(route("1"));
+    renderOnScope(model);
+    openImportContext();
+    const expansion = model.sourceOptions.guidedFields?.find((field) => field.fieldName === "expansionId");
+    const fixed = document.querySelector('[data-catalog-record-owned-scope-field="expansionId"]');
+    expect(fixed?.textContent).toContain(expansion?.selectedLabel || expansion?.selectedValue);
+    expect(screen.queryByRole("combobox", { name: "Set" })).toBeNull();
+    const form = screen.getByRole<HTMLSelectElement>("combobox", { name: "Provider" }).form!;
+    expect(form.getAttribute("action")).toBe(scopePath);
+    for (const key of CATALOG_SCOPE_RECORD_QUERY_KEYS) expect(form.elements.namedItem(key)).toBeNull();
+
+    fireEvent.submit(form);
+
+    expect(submitPaths.at(-1)).toBe(scopePath);
+    expect(submissions.at(-1)?.get("providerKey")).toBe("lorcanajson");
+    expect(submissions.at(-1)?.get("unitKey")).toBe(unitKey);
+    for (const key of CATALOG_SCOPE_RECORD_QUERY_KEYS) expect(submissions.at(-1)?.has(key)).toBe(false);
+  });
+
+  it.each([
+    ["Provider", "providerKey", "synthetic-second-provider", ["unitKey", "profileVersion", "importScope"]],
+    ["Unit", "unitKey", `${unitKey}:second`, ["profileVersion", "importScope"]],
+  ] as const)("clears what a %s change makes stale and stays on the Scope path", (label, key, value, cleared) => {
+    const base = readModel(route("1"));
+    const provider = base.providerScope.providers[0]!;
+    renderOnScope({
+      ...base,
+      providerScope: {
+        ...base.providerScope,
+        providers: [
+          { ...provider, units: [...provider.units, { ...provider.units[0]!, unitKey: `${unitKey}:second` }] },
+          { ...provider, providerKey: "synthetic-second-provider", displayName: "Synthetic second provider" },
+        ],
+      },
+    });
+    openImportContext();
+
+    fireEvent.change(screen.getByRole("combobox", { name: label }), { target: { value } });
+
+    expect(submitPaths.at(-1)).toBe(scopePath);
+    expect(submissions.at(-1)?.get(key)).toBe(value);
+    for (const stale of [...cleared, "languageCode", ...CATALOG_SCOPE_RECORD_QUERY_KEYS]) {
+      expect(submissions.at(-1)?.has(stale)).toBe(false);
+    }
+  });
+
+  it("refreshes source options on the Scope path", () => {
+    renderOnScope(readModel(route("1")));
+    openImportContext();
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh all" }));
+
+    expect(submitPaths.at(-1)).toBe(scopePath);
+    expect(submissions.at(-1)?.get(CATALOG_SOURCE_OPTION_ACTION_PARAM)).toBeTruthy();
+  });
+
+  it("keeps workset commands and links on the Scope path with their unit context", () => {
+    renderOnScope(readModel(route("1")));
+
+    const command = new URL(scopeForm().action);
+    expect(command.pathname).toBe(scopePath);
+    expect(command.searchParams.get("unitKey")).toBe(unitKey);
+    for (const link of screen.getAllByRole<HTMLAnchorElement>("link", { name: "Open source scope" })) {
+      expect(new URL(link.href).pathname).toBe(scopePath);
+    }
+  });
 });
 
 describe("LorcanaJSON atomic expansion route/form", () => {

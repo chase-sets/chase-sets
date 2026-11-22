@@ -106,7 +106,7 @@ const chargeSourceRoles = [
   },
   {
     role: "saved request",
-    ref: "infrastructure/stripe-payments/index.ts:1685-1739",
+    ref: "infrastructure/stripe-payments/index.ts:1723-1777",
     markers: [
       'confirm: "true"',
       "paymentIntentAuthenticationUrl(body)",
@@ -116,7 +116,7 @@ const chargeSourceRoles = [
   },
   {
     role: "new session request",
-    ref: "infrastructure/stripe-payments/index.ts:1801-1889",
+    ref: "infrastructure/stripe-payments/index.ts:1839-1927",
     markers: [
       'mode: "payment"',
       '"/v1/checkout/sessions"',
@@ -126,7 +126,7 @@ const chargeSourceRoles = [
   },
   {
     role: "new card confirmation request",
-    ref: "infrastructure/stripe-payments/index.ts:1758-1799",
+    ref: "infrastructure/stripe-payments/index.ts:1796-1837",
     markers: [
       '"/v1/payment_intents"',
       'confirm: "true"',
@@ -137,12 +137,12 @@ const chargeSourceRoles = [
   },
   {
     role: "nonzero pending",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2626-2631",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2627-2632",
     markers: ['compareMoney(processorAmount, "0.00")', '"pending-confirmation"', "captured_at:"],
   },
   {
     role: "session outcomes",
-    ref: "infrastructure/stripe-payments/index.ts:943-1024",
+    ref: "infrastructure/stripe-payments/index.ts:979-1060",
     markers: [
       'case "checkout.session.completed"',
       'paymentObject.mode === "setup"',
@@ -154,7 +154,7 @@ const chargeSourceRoles = [
   },
   {
     role: "intent outcomes",
-    ref: "infrastructure/stripe-payments/index.ts:1070-1097",
+    ref: "infrastructure/stripe-payments/index.ts:1106-1133",
     markers: [
       'case "payment_intent.processing"',
       'case "payment_intent.amount_capturable_updated"',
@@ -176,7 +176,7 @@ const chargeSourceRoles = [
   },
   {
     role: "reconciliation outcomes",
-    ref: "infrastructure/stripe-payments/index.ts:415-491",
+    ref: "infrastructure/stripe-payments/index.ts:418-494",
     markers: [
       'processorStatus === "succeeded"',
       'processorStatus === "requires_capture"',
@@ -1502,7 +1502,7 @@ describe("canonical claim consistency guard", () => {
     // Privacy keeps the same settled claim but swaps one canonical citation for
     // an adjacent range that still resolves and still contains a required
     // keyword, so only the provenance-identity rule can catch it.
-    const adjacentRef = "infrastructure/stripe-payments/index.ts:1610-1667";
+    const adjacentRef = "infrastructure/stripe-payments/index.ts:1648-1705";
     expect(canonicalRefs).not.toContain(adjacentRef);
     const drifted = publicPolicyRegistry.map((entry) =>
       entry.artifact.metadata.policyKey === "privacy-policy"

@@ -23,6 +23,7 @@ export async function readBoundedHttpObject(input: {
   maxBytes: number;
   deadlineMs: number;
   accept: string;
+  category?: "mirror" | "asset";
 }): Promise<Readonly<{ body: Uint8Array; contentType: string }>> {
   const controller = new AbortController();
   const deadline = setTimeout(() => controller.abort(), input.deadlineMs);
@@ -39,7 +40,7 @@ export async function readBoundedHttpObject(input: {
           signal: controller.signal,
           headers: { Accept: input.accept },
         },
-        "mirror",
+        input.category ?? "mirror",
       ),
       controller.signal,
     );

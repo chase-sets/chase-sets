@@ -11,13 +11,7 @@ describe("Discovery search runtime telemetry", () => {
     vi.unstubAllGlobals();
   });
 
-  it.each([
-    { count: 0, hybrid: false },
-    { count: 1, hybrid: false },
-    { count: 2, hybrid: false },
-    { count: 0, hybrid: true },
-    { count: 1, hybrid: true },
-  ])("lexical and final zero states: initial count $count, hybrid=$hybrid", async ({ count, hybrid }) => {
+  it.each([0, 1, 2])("hybrid removed surviving modes unchanged: Rescue after %s lexical matches", async (count) => {
     const recordSearchQuery = vi.fn();
     let lexicalReads = 0;
     const db = interpretationDb((sql) => {
@@ -46,15 +40,14 @@ describe("Discovery search runtime telemetry", () => {
         },
         cache: createQueryEmbeddingCache(),
         rescueEnabled: true,
-        hybridEnabled: hybrid,
         recordSearchQuery,
       },
     );
     const result = await runtime.searchItems({ search: "chraizard", includeTotal: false });
     expect(result).toMatchObject({
-      retrievalMode: hybrid ? "hybrid" : "rescue",
-      lexicalCount: hybrid ? count : null,
-      total: hybrid ? count : null,
+      retrievalMode: "rescue",
+      lexicalCount: null,
+      total: null,
     });
     expect(result.items).toHaveLength(count + 1);
     expect(lexicalReads).toBe(1);
@@ -124,44 +117,6 @@ describe("Discovery search runtime telemetry", () => {
     expect(listReads[0]).not.toContain("OFFSET $");
   });
 
-  it("lexical and final zero states: nonempty hybrid candidates survive later retrieval failure", async () => {
-    const recordSearchQuery = vi.fn();
-    const recordSearchRetrievalFailure = vi.fn();
-    const failure = new Error("synthetic hydration failure");
-    const db = interpretationDb((sql, values) => {
-      if (sql.startsWith("SELECT * FROM (")) return [{ catalog_item_id: "synthetic-candidate", title: "Candidate" }];
-      if (Array.isArray(values[0]) && values[0].includes("synthetic-candidate")) throw failure;
-      return [];
-    });
-    const runtime = createDiscoveryItemSearchRuntime(
-      { ...deps(), db },
-      {
-        provider: {
-          model: "synthetic-hydration-fault",
-          dimensions: 1_024,
-          embed: async () => ({
-            vectors: [Array.from({ length: 1_024 }, (_, i) => (i === 0 ? 1 : 0))],
-            totalTokens: 1,
-          }),
-        },
-        cache: createQueryEmbeddingCache(),
-        hybridEnabled: true,
-        recordSearchQuery,
-        recordSearchRetrievalFailure,
-      },
-    );
-    await expect(
-      runtime.searchItems({ search: "dragon" }, { correlationId: "0123456789abcdef0123456789abcdef" }),
-    ).rejects.toBe(failure);
-    expect(recordSearchRetrievalFailure).toHaveBeenCalledExactlyOnceWith({
-      correlationId: "0123456789abcdef0123456789abcdef",
-      error: failure,
-    });
-    expect(recordSearchQuery).toHaveBeenCalledExactlyOnceWith(
-      expect.objectContaining({ lexicalZero: false, zeroResults: null, interpretation: "unknown", outcome: "failure" }),
-    );
-  });
-
   it("rethrows the original retrieval error when the failure observer throws", async () => {
     const failure = new Error("synthetic retrieval failure");
     const observer = vi.fn(() => {
@@ -214,75 +169,70 @@ describe("Discovery search runtime telemetry", () => {
     }
   });
 
-  it.each([
-    [false, "candidate-lookup"],
-    [true, "candidate-lookup"],
-    [false, "corrected-row-query"],
-    [true, "corrected-row-query"],
-    [false, "hydration"],
-    [true, "hydration"],
-  ] as const)("reports correction failure before embedding (hybrid=%s, fault=%s)", async (hybridEnabled, fault) => {
-    const failure = new Error(`SYNTHETIC_CORRECTION_${fault}_FAILURE`);
-    const recordSearchQuery = vi.fn();
-    const recordQueryEmbeddingLoad = vi.fn();
-    const embed = vi.fn(async () => ({ vectors: [[1]], totalTokens: 1 }));
-    let faultCalls = 0;
-    const db: PgQueryable = {
-      query: async <Row>(sql: string, values: readonly unknown[] = []) => {
-        if (sql.startsWith("SELECT EXISTS")) {
-          if (fault === "candidate-lookup") {
+  it.each(["candidate-lookup", "corrected-row-query", "hydration"] as const)(
+    "reports correction failure before embedding (%s)",
+    async (fault) => {
+      const failure = new Error(`SYNTHETIC_CORRECTION_${fault}_FAILURE`);
+      const recordSearchQuery = vi.fn();
+      const recordQueryEmbeddingLoad = vi.fn();
+      const embed = vi.fn(async () => ({ vectors: [[1]], totalTokens: 1 }));
+      let faultCalls = 0;
+      const db: PgQueryable = {
+        query: async <Row>(sql: string, values: readonly unknown[] = []) => {
+          if (sql.startsWith("SELECT EXISTS")) {
+            if (fault === "candidate-lookup") {
+              faultCalls++;
+              throw failure;
+            }
+            return { rows: [{ literal: false, prefix: false, candidates: ["charizard"] }] as Row[], rowCount: 1 };
+          }
+          if (sql.startsWith("SELECT * FROM") && values.includes("(chraizard | charizard)")) {
+            if (fault === "corrected-row-query") {
+              faultCalls++;
+              throw failure;
+            }
+            return { rows: [{ catalog_item_id: "synthetic-corrected-item" }] as Row[], rowCount: 1 };
+          }
+          if (Array.isArray(values[0]) && values[0].includes("synthetic-corrected-item")) {
             faultCalls++;
             throw failure;
           }
-          return { rows: [{ literal: false, prefix: false, candidates: ["charizard"] }] as Row[], rowCount: 1 };
-        }
-        if (sql.startsWith("SELECT * FROM") && values.includes("(chraizard | charizard)")) {
-          if (fault === "corrected-row-query") {
-            faultCalls++;
-            throw failure;
-          }
-          return { rows: [{ catalog_item_id: "synthetic-corrected-item" }] as Row[], rowCount: 1 };
-        }
-        if (Array.isArray(values[0]) && values[0].includes("synthetic-corrected-item")) {
-          faultCalls++;
-          throw failure;
-        }
-        return { rows: [] as Row[], rowCount: 0 };
-      },
-    };
-    const runtime = createDiscoveryItemSearchRuntime(
-      { ...deps(), db },
-      {
-        provider: { model: "synthetic-correction-fault", dimensions: 1, embed },
-        cache: createQueryEmbeddingCache(),
-        rescueEnabled: true,
-        hybridEnabled,
-        recordSearchQuery,
-        recordQueryEmbeddingLoad,
-      },
-    );
+          return { rows: [] as Row[], rowCount: 0 };
+        },
+      };
+      const runtime = createDiscoveryItemSearchRuntime(
+        { ...deps(), db },
+        {
+          provider: { model: "synthetic-correction-fault", dimensions: 1, embed },
+          cache: createQueryEmbeddingCache(),
+          rescueEnabled: true,
+          recordSearchQuery,
+          recordQueryEmbeddingLoad,
+        },
+      );
 
-    await expect(runtime.searchItems({ search: "chraizard" })).rejects.toBe(failure);
-    expect(faultCalls).toBe(1);
-    expect(embed).not.toHaveBeenCalled();
-    expect(recordQueryEmbeddingLoad).not.toHaveBeenCalled();
-    expect(recordSearchQuery).toHaveBeenCalledExactlyOnceWith(
-      expect.objectContaining({
-        outcome: "failure",
-        retrievalMode: null,
-        resultCount: null,
-        total: null,
-        zeroResults: null,
-        lexicalZero: true,
-        interpretation: "unknown",
-        queryEmbeddingOutcome: "not-attempted",
-        queryEmbeddingWaiterDurationMs: 0,
-      }),
-    );
-    expect(JSON.stringify(recordSearchQuery.mock.calls)).not.toContain("chraizard");
-  });
+      await expect(runtime.searchItems({ search: "chraizard" })).rejects.toBe(failure);
+      expect(faultCalls).toBe(1);
+      expect(embed).not.toHaveBeenCalled();
+      expect(recordQueryEmbeddingLoad).not.toHaveBeenCalled();
+      expect(recordSearchQuery).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({
+          outcome: "failure",
+          retrievalMode: null,
+          resultCount: null,
+          total: null,
+          zeroResults: null,
+          lexicalZero: true,
+          interpretation: "unknown",
+          queryEmbeddingOutcome: "not-attempted",
+          queryEmbeddingWaiterDurationMs: 0,
+        }),
+      );
+      expect(JSON.stringify(recordSearchQuery.mock.calls)).not.toContain("chraizard");
+    },
+  );
 
-  it.each([false, true])("retains lexical fail-open for provider failure (hybrid=%s)", async (hybridEnabled) => {
+  it("retains lexical fail-open for provider failure", async () => {
     const recordSearchQuery = vi.fn();
     const embed = vi.fn(async () => {
       throw new Error("SYNTHETIC_PROVIDER_FAILURE");
@@ -291,7 +241,6 @@ describe("Discovery search runtime telemetry", () => {
       provider: { model: "synthetic-provider-fault", dimensions: 1, embed },
       cache: createQueryEmbeddingCache(),
       rescueEnabled: true,
-      hybridEnabled,
       recordSearchQuery,
     });
 
@@ -324,7 +273,6 @@ describe("Discovery search runtime telemetry", () => {
         provider: { model: "synthetic-interpretation", dimensions: 1, embed },
         cache: createQueryEmbeddingCache(),
         rescueEnabled: true,
-        hybridEnabled: false,
         recordSearchQuery,
       },
     );
@@ -366,7 +314,6 @@ describe("Discovery search runtime telemetry", () => {
         provider: { model: "synthetic-interpretation-miss", dimensions: 1, embed },
         cache: createQueryEmbeddingCache(),
         rescueEnabled: true,
-        hybridEnabled: false,
         recordSearchQuery,
       },
     );

@@ -934,9 +934,9 @@ describe("social login routes", () => {
         {
           membershipId: "mbr_support_feedback",
           accountId: "acc_support_feedback",
-          roleKey: "support-feedback",
+          roleKey: "platform-admin",
           status: "active",
-          rolePermissions: ["platform-feedback.view"],
+          rolePermissions: [],
         },
       ],
     });
@@ -971,9 +971,9 @@ describe("social login routes", () => {
         {
           membershipId: "mbr_public_presence",
           accountId: "acc_public_presence",
-          roleKey: "growth-public-presence",
+          roleKey: "platform-admin",
           status: "active",
-          rolePermissions: ["public-presence.view"],
+          rolePermissions: [],
         },
       ],
     });
@@ -1001,9 +1001,9 @@ describe("social login routes", () => {
         {
           membershipId: "mbr_commercial_terms",
           accountId: "acc_commercial_terms",
-          roleKey: "commercial-terms-admin",
+          roleKey: "platform-admin",
           status: "active",
-          rolePermissions: ["commercial-terms.view"],
+          rolePermissions: [],
         },
       ],
     });
@@ -1030,9 +1030,9 @@ describe("social login routes", () => {
         {
           membershipId: "mbr_postage",
           accountId: "acc_postage",
-          roleKey: "postage-policy-admin",
+          roleKey: "platform-admin",
           status: "active",
-          rolePermissions: ["postage-policies.view"],
+          rolePermissions: [],
         },
       ],
     });
@@ -1059,9 +1059,9 @@ describe("social login routes", () => {
         {
           membershipId: "mbr_projection_ops",
           accountId: "acc_projection_ops",
-          roleKey: "projection-operations-admin",
+          roleKey: "platform-admin",
           status: "active",
-          rolePermissions: ["projection-operations.view"],
+          rolePermissions: [],
         },
       ],
     });
@@ -1084,7 +1084,7 @@ describe("social login routes", () => {
     );
   });
 
-  it("rejects admin SSO Platform entry for security-only Access actors", async () => {
+  it("rejects admin SSO Platform entry for owners whose snapshot still grants projection operations", async () => {
     const services = createServices({
       existingUser: { user_id: "usr_existing", status: "active" },
       profile: {
@@ -1096,9 +1096,9 @@ describe("social login routes", () => {
         {
           membershipId: "mbr_security",
           accountId: "acc_security",
-          roleKey: "access-security-admin",
+          roleKey: "owner",
           status: "active",
-          rolePermissions: ["security.manage"],
+          rolePermissions: ["security.manage", "projection-operations.view"],
         },
       ],
     });
@@ -1113,34 +1113,38 @@ describe("social login routes", () => {
     expect(services.sessions.commandHandler).not.toHaveBeenCalled();
   });
 
-  it("allows admin SSO root entry for catalog-only actors", async () => {
-    const services = createServices({
-      existingUser: { user_id: "usr_existing", status: "active" },
-      profile: {
-        email: "operator@chasesets.com",
-        emailVerified: true,
-        hostedDomain: "chasesets.com",
-      },
-      memberships: [
-        {
-          membershipId: "mbr_catalog",
-          accountId: "acc_catalog",
-          roleKey: "catalog-admin",
-          status: "active",
-          rolePermissions: ["catalog.view"],
+  it.each(["/catalog", "/catalog/items"])(
+    "rejects admin SSO to %s for an owner with stale catalog grants",
+    async (path) => {
+      const services = createServices({
+        existingUser: { user_id: "usr_existing", status: "active" },
+        profile: {
+          email: "operator@chasesets.com",
+          emailVerified: true,
+          hostedDomain: "chasesets.com",
         },
-      ],
-    });
-    mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
-    const app = buildApp(services);
+        memberships: [
+          {
+            membershipId: "mbr_catalog",
+            accountId: "acc_catalog",
+            roleKey: "owner",
+            status: "active",
+            rolePermissions: ["accounts.view", "catalog.manage", "catalog.view"],
+          },
+        ],
+      });
+      mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
+      const app = buildApp(services);
 
-    await app.request("/social/google/start?journey=admin&returnTo=/");
-    const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
+      await app.request(`/social/google/start?journey=admin&returnTo=${path}`);
+      const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
 
-    expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/");
-    expect(response.headers.getSetCookie().join(";")).toContain("chase_sets_session=session_token");
-  });
+      expect(response.status).toBe(302);
+      expect(response.headers.get("Location")).toContain("/access/sign-in?socialLoginError=");
+      expect(response.headers.getSetCookie().join(";")).not.toContain("chase_sets_session=");
+      expect(services.sessions.commandHandler).not.toHaveBeenCalled();
+    },
+  );
 
   it("rejects admin SSO when memberships do not match the requested route permission", async () => {
     const services = createServices({
@@ -1154,7 +1158,7 @@ describe("social login routes", () => {
         {
           membershipId: "mbr_accounts",
           accountId: "acc_accounts",
-          roleKey: "access-viewer",
+          roleKey: "viewer",
           status: "active",
           rolePermissions: ["accounts.view"],
         },

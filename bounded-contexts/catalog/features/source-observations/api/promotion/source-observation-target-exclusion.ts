@@ -40,6 +40,11 @@ import type {
 import type { CatalogPromotionCurrentItem } from "./promotion-display-identity";
 import { guardPromotionMaterial } from "./promotion-material-guards";
 import { canonicalPromotionReferenceText } from "./promotion-reference-canonicalization";
+import {
+  catalogProviderPromotionPlanFingerprint,
+  type CatalogProviderPromotionCommandPlan,
+} from "./provider-promotion-command-planner";
+import { promotionImageFallbackCommand } from "./promotion-image-fallback";
 
 export function promotionCurrentItem(state: CatalogItemState): CatalogPromotionCurrentItem | null {
   if (!state.id) return null;
@@ -52,6 +57,7 @@ export function promotionCurrentItem(state: CatalogItemState): CatalogPromotionC
     blueprint_id: state.blueprintId,
     field_values: state.fieldValues,
     category_ids: state.categoryIds,
+    image_fallback: state.imageFallback,
   };
 }
 
@@ -187,6 +193,9 @@ async function proveRetainedCreate(
   const item = evidence.items.get(targetId)!;
   const codec = createPassthroughDomainEventCodec<CatalogItemEvent>();
   const actual = history.map(codec.decode);
+  const recordedFallbacks = actual.flatMap((event) =>
+    event.type === "catalog.catalog-item.image-fallback-set" ? [event.data.imageFallback] : [],
+  );
   const assetSets = new Map<string, CatalogItemState["productAssetSets"][number] | null>([["null", null]]);
   for (const event of actual) {
     if (event.type === "catalog.catalog-item.product-asset-sets-set") {
@@ -253,7 +262,16 @@ async function proveRetainedCreate(
             currentItem: mode === "refresh" ? promotionCurrentItem(item) : null,
             promoteAsDraft,
           });
-          if (plan.status === "planned" && plan.plan.planFingerprint === source.promotionPlanFingerprint)
+          if (
+            plan.status === "planned" &&
+            matchesRetainedPromotionFingerprint(
+              plan.plan,
+              source.promotionPlanFingerprint,
+              version.profile.catalogFieldMapping.blueprintKey,
+              source.languageCode,
+              recordedFallbacks,
+            )
+          )
             matched = true;
         }
       }
@@ -278,14 +296,26 @@ async function proveRetainedCreate(
           promoteAsDraft,
         });
         if (plan.status !== "planned") continue;
+        const previousCommands = withoutImageFallback(plan.plan);
+        const previousFingerprint =
+          previousCommands.length === plan.plan.commands.length
+            ? null
+            : catalogProviderPromotionPlanFingerprint({ ...plan.plan, commands: previousCommands });
+        const retainedLegacyCreate =
+          previousFingerprint !== null &&
+          (source.promotionPlanFingerprint === previousFingerprint ||
+            [...evidence.bindings.values()].some(
+              (binding) => binding?.execution?.planFingerprint === previousFingerprint,
+            ));
+        const commands = retainedLegacyCreate ? previousCommands : plan.plan.commands;
         let state = initialCatalogItemState;
         const expected: CatalogItemEvent[] = [];
-        for (const [index, command] of plan.plan.commands.entries()) {
+        for (const [index, command] of commands.entries()) {
           const events = decideCatalogItem(state, command);
           state = events.reduce(evolveCatalogItem, state);
           expected.push(...events);
           if (actual.length === expected.length && isDeepStrictEqual(actual, expected))
-            return index === plan.plan.commands.length - 1 ? "complete" : "prefix";
+            return index === commands.length - 1 ? "complete" : "prefix";
         }
         if (actual.length >= expected.length && isDeepStrictEqual(actual.slice(0, expected.length), expected))
           return "complete";
@@ -305,13 +335,20 @@ async function proveRetainedCreate(
             promoteAsDraft,
           });
           if (refresh.status === "planned") {
-            const after = refresh.plan.commands.reduce(
+            const after = withoutImageFallback(refresh.plan).reduce(
               (state, command) => decideCatalogItem(state, command).reduce(evolveCatalogItem, state),
               item,
             );
             if (
               isDeepStrictEqual(after, item) &&
-              (!source.promotionPlanFingerprint || source.promotionPlanFingerprint === refresh.plan.planFingerprint)
+              (!source.promotionPlanFingerprint ||
+                matchesRetainedPromotionFingerprint(
+                  refresh.plan,
+                  source.promotionPlanFingerprint,
+                  version.profile.catalogFieldMapping.blueprintKey,
+                  source.languageCode,
+                  recordedFallbacks,
+                ))
             )
               return "complete";
           }
@@ -320,4 +357,33 @@ async function proveRetainedCreate(
     }
   }
   throw new Error("promotion-target-retained-history-conflict");
+}
+
+function withoutImageFallback(plan: CatalogProviderPromotionCommandPlan) {
+  return plan.commands.filter((command) => command.type !== "SetCatalogItemImageFallback");
+}
+
+// A legacy plan did not write a fallback. A refresh that did may now omit it
+// because that write is already in the stream (even if the operator later changed it).
+function matchesRetainedPromotionFingerprint(
+  plan: CatalogProviderPromotionCommandPlan,
+  fingerprint: string,
+  blueprintKey: string,
+  languageCode: string,
+  recordedFallbacks: readonly NonNullable<CatalogItemState["imageFallback"]>[],
+): boolean {
+  const commands = withoutImageFallback(plan);
+  const includesFallback = commands.length !== plan.commands.length;
+  if (!includesFallback && fingerprint === plan.planFingerprint) return true;
+  if (includesFallback && fingerprint === catalogProviderPromotionPlanFingerprint({ ...plan, commands })) return true;
+
+  const fallback = promotionImageFallbackCommand(blueprintKey, languageCode);
+  return (
+    fallback !== null &&
+    (plan.mode === "create" || recordedFallbacks.some((value) => isDeepStrictEqual(value, fallback.imageFallback))) &&
+    fingerprint ===
+      (includesFallback
+        ? plan.planFingerprint
+        : catalogProviderPromotionPlanFingerprint({ ...plan, commands: [...commands, fallback] }))
+  );
 }

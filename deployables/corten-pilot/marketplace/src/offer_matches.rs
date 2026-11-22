@@ -1,11 +1,14 @@
 //! The seller's offer matches (marketplace's `account-offer-matches` and `account-offer-match`
 //! routes, `/account/offers/matches` and `/account/offers/matches/{id}`): the submitted offers
-//! that match a listing of the seller's, with how each compares to the listing's price, and an
-//! offer match's page with the fee terms accepting it would be priced with.
+//! that match a listing of the seller's, with how each compares to the listing's price, or an
+//! inventory item the seller could list to fill them, and an offer match's page with the fee terms
+//! accepting it would be priced with.
 //!
 //! Reads: the first 100 offer matches, after the write whose receipt the address carries (a read
 //! still catching up is read again without it); an offer match and, while it is submitted, its
-//! acceptance terms (best-effort: a failed preview shows the page without them).
+//! acceptance terms (best-effort: a failed preview shows the page without them). A match from
+//! inventory has no listing, so no terms: its page links to Create listing for the item at the
+//! offer's price, as marketplace's does.
 //!
 //! Writes, each a form posting an `intent` to the offer match's page, as marketplace's do:
 //! `add-selected-offer` (Accept offer match and Add selected offer to Sell List) reads the offer
@@ -14,11 +17,13 @@
 //! `decline-offer` declines it as the form's attempt (`attemptId`, a `SubmitKey`; a post without
 //! one is still one attempt) and goes back to the list with its receipt. A refusal draws the
 //! offer match's page with the API's words; an add not known to have applied draws it saying so
-//! (409). Adding the same offer again keeps one line for it, so sending again is safe.
+//! (409). Adding the same offer again keeps one line for it, so sending again is safe. Neither is
+//! drawn for a match from inventory; an add for one is refused here, and a decline by the API.
 //!
-//! The list is drawn again on each change to the account's offers (`<corten-live>` on
-//! `account:{id}:offers`), which the offers projection writes to every seller with an active
-//! listing of the offer's product.
+//! The list is drawn again on each change to the account's offer matches (`<corten-live>` on
+//! `account:{id}:offer-matches`, which needs `offers.view` and `listings.view`, as the list does),
+//! which the offers projection writes to every seller with an active listing of the offer's product
+//! or available inventory of it.
 use crate::recovery::attempt_text;
 use corten::{
     LiveResponse,
@@ -27,7 +32,7 @@ use corten::{
     prelude::*,
 };
 use futures_util::StreamExt;
-use platform::{realtime::Tick, receipt::Receipt};
+use platform::{post_write::Surface, realtime::Tick, receipt::Receipt};
 
 use crate::{
     api::{AcceptanceTerms, ApiError, CartWrite, CommandError, OfferMatch, OfferMatchCalls as _},
@@ -63,6 +68,22 @@ pub struct OfferScreen {
     pub refusal: Option<String>,
 }
 
+/// The list's post-write reports (marketplace's `OFFER_MATCH_LIST_POST_WRITE_TELEMETRY`).
+const MATCHES: Surface = Surface {
+    context: "marketplace",
+    surface: "account-offer-matches",
+    route_id: "account-offer-matches",
+    route_template: "/account/offers/matches",
+};
+
+/// An offer match's (`OFFER_MATCH_POST_WRITE_TELEMETRY`), which Decline reports too.
+const MATCH: Surface = Surface {
+    context: "marketplace",
+    surface: "account-offer-match",
+    route_id: "account-offer-match",
+    route_template: "/account/offers/matches/:offerId",
+};
+
 pub(crate) async fn list(
     req: Req,
     Caller(OfferReviewer(viewer)): Caller<OfferReviewer>,
@@ -73,7 +94,9 @@ pub(crate) async fn list(
     let place = route.place;
     let receipt = Receipt::from_param(place.after_write.as_deref());
     let caller = config.platform.caller(&headers, config.proto, receipt.as_ref());
-    let matches = match caller.offer_matches().await {
+    let read = caller.offer_matches().await;
+    MATCHES.read(&read, receipt.is_some());
+    let matches = match read {
         Ok(matches) => matches,
         Err(error) if receipt.is_some() && error.catching_up() => {
             match config.platform.caller(&headers, config.proto, None).offer_matches().await {
@@ -92,7 +115,7 @@ pub(crate) async fn list(
     })
 }
 
-/// The list's parts again on each change to the account's offers.
+/// The list's parts again on each change to the account's offer matches.
 pub(crate) async fn live(
     req: Req,
     Caller(OfferReviewer(viewer)): Caller<OfferReviewer>,
@@ -101,7 +124,7 @@ pub(crate) async fn live(
     since: corten::LiveSince,
 ) -> LiveResponse {
     let (t, p): (OfferMatchesMsg, Pilot) = (req.t(), req.t());
-    let topic = format!("account:{}:offers", viewer.actor.account_id);
+    let topic = format!("account:{}:offer-matches", viewer.actor.account_id);
     let changes = config.platform.caller(&headers, config.proto, None).changes(&[&topic], since.0);
     let fragments = changes
         .take_while(|tick| std::future::ready(!matches!(tick, Tick::Refused(_))))
@@ -144,14 +167,18 @@ async fn render(
     status: StatusCode,
 ) -> HtmlResult {
     let caller = config.platform.caller(headers, config.proto, None);
-    let offer = match caller.offer_match(id).await {
+    let read = caller.offer_match(id).await;
+    // The page reads after no write of its own: Decline goes to the list.
+    MATCH.read_found(&read, false);
+    let offer = match read {
         Ok(Some(offer)) => offer,
         Ok(None) => return Err(corten::Error::status(StatusCode::NOT_FOUND)),
         Err(error) => return read_failed(req, Some(viewer), error, None),
     };
-    // Marketplace's page fails when the preview does; the offer is still worth showing.
+    // Marketplace's page fails when the preview does; the offer is still worth showing. A match
+    // from inventory has no listing to price it against.
     let terms = match offer.status.as_str() {
-        "submitted" => caller
+        "submitted" if !offer.is_from_inventory() => caller
             .acceptance_terms(id, &offer.listing_id)
             .await
             .inspect_err(|error| tracing::warn!("the acceptance terms' read failed: {error}"))
@@ -195,7 +222,7 @@ pub(crate) async fn write(
     let error = match form.intent.as_str() {
         "add-selected-offer" => {
             let offer = match caller.sell_list_offer(&id).await {
-                Ok(Some(offer)) if offer.status == "submitted" => offer,
+                Ok(Some(offer)) if offer.status == "submitted" && !offer.is_from_inventory() => offer,
                 Ok(_) => {
                     let refusal = Some(p.offer_matches_unavailable().to_owned());
                     return render(&req, &viewer, &config, &headers, &id, refusal, StatusCode::CONFLICT).await;
@@ -227,6 +254,7 @@ pub(crate) async fn write(
         "decline-offer" => {
             match caller.decline_offer_match(&id, &crate::cart_attempt::attempt_id(attempt_text(&form.attempt_id))).await {
                 Ok(receipt) => {
+                    MATCH.navigated(receipt.as_ref(), None);
                     return req
                         .redirect(&url::OfferMatches { place: Place { after_write: receipt.as_ref().map(Receipt::param) } });
                 }

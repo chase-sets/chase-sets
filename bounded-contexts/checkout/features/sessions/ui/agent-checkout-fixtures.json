@@ -1,0 +1,653 @@
+{
+  "unpaid": {
+    "ucp": {
+      "version": "2026-08-25",
+      "status": "success",
+      "payment_handlers": {}
+    },
+    "id": "chk_0123456789abcdefghijklmnop",
+    "status": "requires_escalation",
+    "currency": "USD",
+    "line_items": [
+      {
+        "id": "lst_1",
+        "item": {
+          "id": "lst_1",
+          "title": "Charizard",
+          "price": 2000
+        },
+        "quantity": 1,
+        "totals": [
+          {
+            "type": "subtotal",
+            "amount": 2000
+          },
+          {
+            "type": "total",
+            "amount": 2000
+          }
+        ]
+      }
+    ],
+    "totals": [
+      {
+        "type": "subtotal",
+        "amount": 2000
+      },
+      {
+        "type": "fulfillment",
+        "amount": 499
+      },
+      {
+        "type": "tax",
+        "amount": 150
+      },
+      {
+        "type": "total",
+        "amount": 2649
+      }
+    ],
+    "links": [
+      {
+        "type": "terms_of_service",
+        "url": "https://marketplace.example/terms"
+      },
+      {
+        "type": "privacy_policy",
+        "url": "https://marketplace.example/privacy"
+      }
+    ],
+    "messages": [
+      {
+        "type": "warning",
+        "code": "payment_required",
+        "content": "Payment is required to continue checkout."
+      }
+    ],
+    "continue_url": "https://marketplace.example/checkout/buy/session/chk_0123456789abcdefghijklmnop",
+    "expires_at": "2026-10-16T06:00:00.000Z"
+  },
+  "pendingConfirmation": {
+    "ucp": {
+      "version": "2026-08-25",
+      "status": "success",
+      "payment_handlers": {}
+    },
+    "id": "chk_0123456789abcdefghijklmnop",
+    "status": "requires_escalation",
+    "currency": "USD",
+    "line_items": [
+      {
+        "id": "lst_1",
+        "item": {
+          "id": "lst_1",
+          "title": "Charizard",
+          "price": 2000
+        },
+        "quantity": 1,
+        "totals": [
+          {
+            "type": "subtotal",
+            "amount": 2000
+          },
+          {
+            "type": "total",
+            "amount": 2000
+          }
+        ]
+      }
+    ],
+    "totals": [
+      {
+        "type": "subtotal",
+        "amount": 2000
+      },
+      {
+        "type": "fulfillment",
+        "amount": 499
+      },
+      {
+        "type": "tax",
+        "amount": 150
+      },
+      {
+        "type": "total",
+        "amount": 2649
+      }
+    ],
+    "links": [
+      {
+        "type": "terms_of_service",
+        "url": "https://marketplace.example/terms"
+      },
+      {
+        "type": "privacy_policy",
+        "url": "https://marketplace.example/privacy"
+      }
+    ],
+    "messages": [
+      {
+        "type": "warning",
+        "code": "payment_confirmation_required",
+        "content": "Buyer confirmation is required to continue payment."
+      }
+    ],
+    "continue_url": "https://marketplace.example/checkout/buy/session/chk_0123456789abcdefghijklmnop",
+    "expires_at": "2026-10-16T06:00:00.000Z"
+  },
+  "failedPayment": {
+    "ucp": {
+      "version": "2026-08-25",
+      "status": "success",
+      "payment_handlers": {}
+    },
+    "id": "chk_0123456789abcdefghijklmnop",
+    "status": "requires_escalation",
+    "currency": "USD",
+    "line_items": [
+      {
+        "id": "lst_1",
+        "item": {
+          "id": "lst_1",
+          "title": "Charizard",
+          "price": 2000
+        },
+        "quantity": 1,
+        "totals": [
+          {
+            "type": "subtotal",
+            "amount": 2000
+          },
+          {
+            "type": "total",
+            "amount": 2000
+          }
+        ]
+      }
+    ],
+    "totals": [
+      {
+        "type": "subtotal",
+        "amount": 2000
+      },
+      {
+        "type": "fulfillment",
+        "amount": 499
+      },
+      {
+        "type": "tax",
+        "amount": 150
+      },
+      {
+        "type": "total",
+        "amount": 2649
+      }
+    ],
+    "links": [
+      {
+        "type": "terms_of_service",
+        "url": "https://marketplace.example/terms"
+      },
+      {
+        "type": "privacy_policy",
+        "url": "https://marketplace.example/privacy"
+      }
+    ],
+    "messages": [
+      {
+        "type": "warning",
+        "code": "payment_required",
+        "content": "Payment is required to continue checkout."
+      }
+    ],
+    "continue_url": "https://marketplace.example/checkout/buy/session/chk_0123456789abcdefghijklmnop",
+    "expires_at": "2026-10-16T06:00:00.000Z"
+  },
+  "cancelledPayment": {
+    "ucp": {
+      "version": "2026-08-25",
+      "status": "success",
+      "payment_handlers": {}
+    },
+    "id": "chk_0123456789abcdefghijklmnop",
+    "status": "requires_escalation",
+    "currency": "USD",
+    "line_items": [
+      {
+        "id": "lst_1",
+        "item": {
+          "id": "lst_1",
+          "title": "Charizard",
+          "price": 2000
+        },
+        "quantity": 1,
+        "totals": [
+          {
+            "type": "subtotal",
+            "amount": 2000
+          },
+          {
+            "type": "total",
+            "amount": 2000
+          }
+        ]
+      }
+    ],
+    "totals": [
+      {
+        "type": "subtotal",
+        "amount": 2000
+      },
+      {
+        "type": "fulfillment",
+        "amount": 499
+      },
+      {
+        "type": "tax",
+        "amount": 150
+      },
+      {
+        "type": "total",
+        "amount": 2649
+      }
+    ],
+    "links": [
+      {
+        "type": "terms_of_service",
+        "url": "https://marketplace.example/terms"
+      },
+      {
+        "type": "privacy_policy",
+        "url": "https://marketplace.example/privacy"
+      }
+    ],
+    "messages": [
+      {
+        "type": "warning",
+        "code": "payment_required",
+        "content": "Payment is required to continue checkout."
+      }
+    ],
+    "continue_url": "https://marketplace.example/checkout/buy/session/chk_0123456789abcdefghijklmnop",
+    "expires_at": "2026-10-16T06:00:00.000Z"
+  },
+  "captured": {
+    "ucp": {
+      "version": "2026-08-25",
+      "status": "success",
+      "payment_handlers": {}
+    },
+    "id": "chk_0123456789abcdefghijklmnop",
+    "status": "complete_in_progress",
+    "currency": "USD",
+    "line_items": [
+      {
+        "id": "lst_1",
+        "item": {
+          "id": "lst_1",
+          "title": "Charizard",
+          "price": 2000
+        },
+        "quantity": 1,
+        "totals": [
+          {
+            "type": "subtotal",
+            "amount": 2000
+          },
+          {
+            "type": "total",
+            "amount": 2000
+          }
+        ]
+      }
+    ],
+    "totals": [
+      {
+        "type": "subtotal",
+        "amount": 2000
+      },
+      {
+        "type": "fulfillment",
+        "amount": 499
+      },
+      {
+        "type": "tax",
+        "amount": 150
+      },
+      {
+        "type": "total",
+        "amount": 2649
+      }
+    ],
+    "links": [
+      {
+        "type": "terms_of_service",
+        "url": "https://marketplace.example/terms"
+      },
+      {
+        "type": "privacy_policy",
+        "url": "https://marketplace.example/privacy"
+      }
+    ],
+    "expires_at": "2026-10-16T06:00:00.000Z"
+  },
+  "unavailable": {
+    "ucp": {
+      "version": "2026-08-25",
+      "status": "success",
+      "payment_handlers": {}
+    },
+    "id": "chk_0123456789abcdefghijklmnop",
+    "status": "incomplete",
+    "currency": "USD",
+    "line_items": [
+      {
+        "id": "lst_1",
+        "item": {
+          "id": "lst_1",
+          "title": "Charizard",
+          "price": 2000
+        },
+        "quantity": 1,
+        "totals": [
+          {
+            "type": "subtotal",
+            "amount": 2000
+          },
+          {
+            "type": "total",
+            "amount": 2000
+          }
+        ]
+      }
+    ],
+    "totals": [
+      {
+        "type": "subtotal",
+        "amount": 2000
+      },
+      {
+        "type": "fulfillment",
+        "amount": 499
+      },
+      {
+        "type": "tax",
+        "amount": 150
+      },
+      {
+        "type": "total",
+        "amount": 2649
+      }
+    ],
+    "links": [
+      {
+        "type": "terms_of_service",
+        "url": "https://marketplace.example/terms"
+      },
+      {
+        "type": "privacy_policy",
+        "url": "https://marketplace.example/privacy"
+      }
+    ],
+    "messages": [
+      {
+        "type": "warning",
+        "code": "item_unavailable",
+        "content": "This item is no longer available.",
+        "path": "$.line_items[0]"
+      }
+    ],
+    "expires_at": "2026-10-16T06:00:00.000Z"
+  },
+  "completed": {
+    "ucp": {
+      "version": "2026-08-25",
+      "status": "success",
+      "payment_handlers": {}
+    },
+    "id": "chk_0123456789abcdefghijklmnop",
+    "status": "completed",
+    "currency": "USD",
+    "line_items": [
+      {
+        "id": "lst_1",
+        "item": {
+          "id": "lst_1",
+          "title": "Charizard",
+          "price": 2000
+        },
+        "quantity": 1,
+        "totals": [
+          {
+            "type": "subtotal",
+            "amount": 2000
+          },
+          {
+            "type": "total",
+            "amount": 2000
+          }
+        ]
+      }
+    ],
+    "totals": [
+      {
+        "type": "subtotal",
+        "amount": 2000
+      },
+      {
+        "type": "fulfillment",
+        "amount": 499
+      },
+      {
+        "type": "tax",
+        "amount": 150
+      },
+      {
+        "type": "total",
+        "amount": 2649
+      }
+    ],
+    "links": [
+      {
+        "type": "terms_of_service",
+        "url": "https://marketplace.example/terms"
+      },
+      {
+        "type": "privacy_policy",
+        "url": "https://marketplace.example/privacy"
+      }
+    ],
+    "order": {
+      "id": "ord_1",
+      "label": "Purchase CS-0001",
+      "permalink_url": "https://marketplace.example/account/purchases/ord_1"
+    }
+  },
+  "canceled": {
+    "ucp": {
+      "version": "2026-08-25",
+      "status": "success",
+      "payment_handlers": {}
+    },
+    "id": "chk_0123456789abcdefghijklmnop",
+    "status": "canceled",
+    "currency": "USD",
+    "line_items": [
+      {
+        "id": "lst_1",
+        "item": {
+          "id": "lst_1",
+          "title": "Charizard",
+          "price": 2000
+        },
+        "quantity": 1,
+        "totals": [
+          {
+            "type": "subtotal",
+            "amount": 2000
+          },
+          {
+            "type": "total",
+            "amount": 2000
+          }
+        ]
+      }
+    ],
+    "totals": [
+      {
+        "type": "subtotal",
+        "amount": 2000
+      },
+      {
+        "type": "fulfillment",
+        "amount": 499
+      },
+      {
+        "type": "tax",
+        "amount": 150
+      },
+      {
+        "type": "total",
+        "amount": 2649
+      }
+    ],
+    "links": [
+      {
+        "type": "terms_of_service",
+        "url": "https://marketplace.example/terms"
+      },
+      {
+        "type": "privacy_policy",
+        "url": "https://marketplace.example/privacy"
+      }
+    ]
+  },
+  "expired": {
+    "ucp": {
+      "version": "2026-08-25",
+      "status": "success",
+      "payment_handlers": {}
+    },
+    "id": "chk_0123456789abcdefghijklmnop",
+    "status": "canceled",
+    "currency": "USD",
+    "line_items": [
+      {
+        "id": "lst_1",
+        "item": {
+          "id": "lst_1",
+          "title": "Charizard",
+          "price": 2000
+        },
+        "quantity": 1,
+        "totals": [
+          {
+            "type": "subtotal",
+            "amount": 2000
+          },
+          {
+            "type": "total",
+            "amount": 2000
+          }
+        ]
+      }
+    ],
+    "totals": [
+      {
+        "type": "subtotal",
+        "amount": 2000
+      },
+      {
+        "type": "fulfillment",
+        "amount": 499
+      },
+      {
+        "type": "tax",
+        "amount": 150
+      },
+      {
+        "type": "total",
+        "amount": 2649
+      }
+    ],
+    "links": [
+      {
+        "type": "terms_of_service",
+        "url": "https://marketplace.example/terms"
+      },
+      {
+        "type": "privacy_policy",
+        "url": "https://marketplace.example/privacy"
+      }
+    ],
+    "messages": [
+      {
+        "type": "warning",
+        "code": "checkout_expired",
+        "content": "This checkout has expired. Start a new checkout."
+      }
+    ]
+  },
+  "empty": {
+    "ucp": {
+      "version": "2026-08-25",
+      "status": "success",
+      "payment_handlers": {}
+    },
+    "id": "chk_0123456789abcdefghijklmnop",
+    "status": "requires_escalation",
+    "currency": "USD",
+    "line_items": [],
+    "totals": [
+      {
+        "type": "subtotal",
+        "amount": 2000
+      },
+      {
+        "type": "fulfillment",
+        "amount": 499
+      },
+      {
+        "type": "tax",
+        "amount": 150
+      },
+      {
+        "type": "total",
+        "amount": 2649
+      }
+    ],
+    "links": [
+      {
+        "type": "terms_of_service",
+        "url": "https://marketplace.example/terms"
+      },
+      {
+        "type": "privacy_policy",
+        "url": "https://marketplace.example/privacy"
+      }
+    ],
+    "messages": [
+      {
+        "type": "warning",
+        "code": "payment_required",
+        "content": "Payment is required to continue checkout."
+      }
+    ],
+    "continue_url": "https://marketplace.example/checkout/buy/session/chk_0123456789abcdefghijklmnop",
+    "expires_at": "2026-10-16T06:00:00.000Z"
+  },
+  "notFound": {
+    "ucp": {
+      "version": "2026-08-25",
+      "status": "error"
+    },
+    "messages": [
+      {
+        "type": "error",
+        "code": "not_found",
+        "content": "The checkout request could not be completed.",
+        "severity": "unrecoverable"
+      }
+    ]
+  }
+}

@@ -311,22 +311,14 @@ pub fn inject() -> Vec<(&'static str, String)> {
     headers.0
 }
 
-/// A metric label as marketplace-web bounds one (`boundedMetricLabel`): `none` for nothing, else
-/// each run of characters other than ASCII letters, digits, `_`, `.` and `-` as one `_`, 80 at most.
-pub fn label(value: Option<&str>) -> String {
-    let Some(text) = value.map(str::trim).filter(|t| !t.is_empty()) else { return "none".to_owned() };
-    let mut out = String::new();
-    let mut run = false;
-    for c in text.chars() {
-        if c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-') {
-            out.push(c);
-            run = false;
-        } else if !run {
-            out.push('_');
-            run = true;
-        }
-    }
-    out.chars().take(80).collect()
+pub use crate::post_write::label;
+
+/// Counts a post-write outcome as `chase_sets_post_write_consistency_events_total`
+/// (`recordPostWriteConsistencyEvent`).
+pub(crate) fn post_write(event: &crate::post_write::Event) {
+    static EVENTS: OnceLock<Counter<u64>> = OnceLock::new();
+    let labels: Vec<KeyValue> = event.labels().into_iter().map(|(key, value)| KeyValue::new(key, value)).collect();
+    counter(&EVENTS, "chase_sets_post_write_consistency_events_total").add(1, &labels);
 }
 
 /// A counter in marketplace-web's scope, made once; it counts nothing until [`init`] sets the

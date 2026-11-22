@@ -16,9 +16,10 @@ export async function providerDetailAction(args: ActionFunctionArgs): Promise<Re
   }
 
   const result = await dispatchIntegrationsCommand(args);
-  const providerKey = result.context.providerKey ?? routeParamProviderKey(args);
 
-  const href = catalogProviderDetailHref(providerKey, {
+  // Provider detail owns every command its forms post: the redirect returns to
+  // the provider its path names, never to a provider the result or form names.
+  const href = catalogProviderDetailHref(routeParamProviderKey(args), {
     profileVersion: result.context.profileVersion,
     unitKey: result.context.unitKey,
     jobId: result.context.jobId,

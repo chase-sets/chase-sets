@@ -143,6 +143,7 @@
   "slices": [
     "mutation-recovery",
     "offer-policy",
+    "offer-payment-consent",
     "channel-inbound-clamp",
     "listing-evidence-policy",
     "listings",
@@ -684,6 +685,11 @@
     }
   ],
   "hostPorts": [
+    {
+      "portName": "deploymentEnvironment",
+      "providedBy": "platform-api",
+      "purpose": "Trusted deployment environment; only test and staging may activate pending Offer payment consent."
+    },
     {
       "portName": "listingTargetAuthority",
       "providedBy": "platform-api",
@@ -1419,6 +1425,22 @@
     }
   ],
   "mutationConsistencyInventory": [
+    {
+      "id": "marketplace.offer-payment-consent-activation",
+      "owner": "marketplace",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/marketplace/features/offer-payment-consent/api/activation-route.ts:POST /policies/offer-payment-consent/activate"
+      ],
+      "visibleDestination": {
+        "description": "The authenticated operator receives the authoritative Offer payment consent activation snapshot without waiting for a policy document projection."
+      },
+      "proof": {
+        "authoritativeResponse": "The activate route returns the validated Consent Activation Authority snapshot after the document and authority revisions are guarded in the atomic append.",
+        "tests": ["bounded-contexts/marketplace/features/offer-payment-consent/api/activation-route.db.test.ts"]
+      }
+    },
     {
       "id": "marketplace.listing-recovery-preparation",
       "owner": "marketplace",
@@ -2543,6 +2565,11 @@
       "purpose": "Own private Buyer Offer Policy previews, buyer consent, lifecycle and permanent Offer membership authority.",
       "expectedConsumers": ["Marketplace account API", "Marketplace managed Offer enforcement"]
     },
+    "offer-payment-consent": {
+      "classification": "slice",
+      "purpose": "Own Offer Payment Consent publications, activation, and automatic charging enforcement resolution.",
+      "expectedConsumers": ["Marketplace API", "Platform API policy runtime composition"]
+    },
     "channel-inbound-clamp": {
       "classification": "slice",
       "purpose": "Own the account-wide, revision-fenced Listing clamp and conservative recovery used while Channel inbound coverage is dark.",
@@ -2610,7 +2637,7 @@
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by marketplace-owned features and composition seams.",
-      "expectedConsumers": ["channel-inbound-clamp", "listings", "offers", "reviews"]
+      "expectedConsumers": ["channel-inbound-clamp", "listings", "offer-payment-consent", "offers", "reviews"]
     },
     "seed-support": {
       "classification": "support",

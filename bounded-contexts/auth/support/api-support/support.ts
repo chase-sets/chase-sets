@@ -16,7 +16,7 @@ import {
 } from "@chase-sets/identity/server";
 import type { Context, Hono, MiddlewareHandler } from "hono";
 
-export type { IdentityAuthMutationClient };
+export type { IdentityAuthMutationClient, RegistrationConsentSubmission };
 
 export function readIdentityDisplayNameRejection(error: unknown) {
   if (!error || typeof error !== "object" || !("status" in error) || error.status !== 400 || !("body" in error))

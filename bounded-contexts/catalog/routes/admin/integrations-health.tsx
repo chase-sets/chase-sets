@@ -4,7 +4,7 @@ import { useLoaderData } from "react-router";
 import { CatalogIntegrationsSurfaceRouteView } from "../../features/source-observations/ui/integrations-surface-route-view";
 import { loader } from "../../support/route-support/admin-integrations/health-loader";
 
-export { surfaceCommandAction as action } from "../../support/route-support/admin-integrations/surface-command-action";
+export { healthCommandAction as action } from "../../support/route-support/admin-integrations/surface-command-action";
 export { loader } from "../../support/route-support/admin-integrations/health-loader";
 
 export const meta: MetaFunction = () => [{ title: t("catalog.routes.admin.integrationsHealth.health.catalog.admin") }];

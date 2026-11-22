@@ -31,7 +31,12 @@ use corten::{
     prelude::*,
     security::cookie,
 };
-use platform::{api::segment, money, receipt::Receipt};
+use platform::{
+    api::segment,
+    money,
+    post_write::{self, Handoff, HandoffState},
+    receipt::{Freshness, Receipt},
+};
 
 use crate::{
     api::{
@@ -55,6 +60,11 @@ use crate::{
 pub const ADD_LINE_HANDOFF: &str =
     r#"{"kind":"checkout.sell-list.add-line","expectation":"collection-non-empty","surface":"account-sell-list"}"#;
 const ADD_LINE_KIND: &str = "checkout.sell-list.add-line";
+
+/// Whether a handoff is the add's (`isAccountSellListAddLineHandoff`).
+fn adds_a_line(handoff: &Handoff) -> bool {
+    handoff.kind == ADD_LINE_KIND && handoff.expectation == "collection-non-empty"
+}
 
 /// A line write's attempt (a `SubmitKey`), as marketplace's Sell List forms name it.
 pub const ATTEMPT: &str = "attemptId";
@@ -166,10 +176,6 @@ impl Place {
         self.registration_return.as_deref() == Some("seller-checkout")
     }
 
-    fn waits_for_a_line(&self) -> bool {
-        self.post_write_handoff.as_deref().is_some_and(|h| h.contains(ADD_LINE_KIND) && h.contains("collection-non-empty"))
-    }
-
     /// The seller confirmation the address waits for: none, any, or one.
     fn pending_confirmation(&self) -> Option<Option<String>> {
         (self.confirmation.as_deref() == Some("preparing")).then(|| {
@@ -179,6 +185,94 @@ impl Place {
                 .filter(|id| !id.is_empty())
                 .map(|id| id.chars().take(200).collect())
         })
+    }
+}
+
+/// The sell list's post-write outcomes, as marketplace records them
+/// (`recordAccountSellListPostWriteConsistencyOutcome`), for a guest's list or an account's.
+struct Outcomes {
+    actor: &'static str,
+}
+
+impl Outcomes {
+    fn record(&self, outcome: &'static str, freshness: &'static str, recovery: &'static str, source: &str) {
+        post_write::record(post_write::Event {
+            context: "checkout",
+            surface: "account-sell-list",
+            strategy: "fresh-read",
+            outcome,
+            route_id: "account-sell-list",
+            route_template: "/account/sell-list",
+            correction_source: Some(source.to_owned()),
+            actor_mode: Some(self.actor),
+            recovery_action: Some(recovery),
+            freshness_outcome: Some(freshness),
+            ..Default::default()
+        });
+    }
+
+    /// An outcome of the add's handoff, in the sell list's words for its state
+    /// (`freshnessOutcomeForHandoffState`).
+    fn handoff(&self, outcome: &'static str, state: &HandoffState, recovery: &'static str) {
+        let freshness = match state {
+            HandoffState::Missing(_) => "missing-after-write",
+            HandoffState::Malformed(_) => "malformed-handoff",
+            HandoffState::NotFreshWrite(_, Freshness::Expired) => "expired-after-write",
+            HandoffState::NotFreshWrite(_, Freshness::Future) => "future-after-write",
+            HandoffState::NotFreshWrite(..) => "missing-after-write",
+            HandoffState::Valid(_) => "valid-after-write",
+        };
+        self.record(outcome, freshness, recovery, &format!("semantic-handoff:{ADD_LINE_KIND}"));
+    }
+
+    /// What a read found against the address's handoff (`evaluatePostWriteHandoff`), and the
+    /// recovery it draws: an add's list still empty while its receipt is fresh is still being
+    /// saved, and once the receipt has expired it is missing.
+    fn read(&self, state: &HandoffState, empty: bool) -> Option<Recovery> {
+        match state {
+            HandoffState::Valid(h) if adds_a_line(h) && empty => {
+                self.handoff("handoff_pending", state, "pending_empty_state");
+                return Some(Recovery::Pending);
+            }
+            HandoffState::NotFreshWrite(h, Freshness::Expired) if adds_a_line(h) && empty => {
+                self.handoff("handoff_expired", state, "action_required");
+                return Some(Recovery::Missing);
+            }
+            HandoffState::Missing(_) => {}
+            HandoffState::Malformed(_) => self.handoff("handoff_malformed", state, "none"),
+            HandoffState::NotFreshWrite(_, Freshness::Expired) => self.handoff("handoff_expired", state, "none"),
+            HandoffState::NotFreshWrite(..) => self.handoff("handoff_invalid", state, "none"),
+            HandoffState::Valid(h) if !adds_a_line(h) => self.handoff("handoff_invalid", state, "none"),
+            HandoffState::Valid(_) => self.handoff("handoff_satisfied", state, "none"),
+        }
+        None
+    }
+
+    /// A read after a fresh write that failed only because the write is not readable yet
+    /// (`recoverSellListFreshWriteReadError`): the projection's own timeout, or another.
+    fn caught_up_with(&self, error: &ApiError, freshness: Freshness, source: &str) {
+        let timeout = error.code() == Some("projection_freshness_timeout");
+        self.record(if timeout { "freshness_timeout" } else { "fallback_used" }, freshness.outcome(), "reload_prompt", source);
+    }
+
+    /// Whether Settlement's payout readiness reached a page read after a write it took part in
+    /// (`recordPayoutReadinessPostWriteConsistencyOutcome`).
+    fn payout_readiness(&self, available: bool, freshness: Freshness) {
+        post_write::record(post_write::Event {
+            context: "settlement",
+            surface: "payout-readiness",
+            strategy: "fresh-read",
+            outcome: if available { "projection_hit" } else { "freshness_timeout" },
+            route_id: "account-sell-list",
+            route_template: "/account/sell-list",
+            correction_source: Some("settlement-payout-readiness".to_owned()),
+            actor_mode: Some("account"),
+            recovery_action: Some(if available { "none" } else { "reload_prompt" }),
+            freshness_outcome: Some(freshness.outcome()),
+            source_context: Some("settlement"),
+            projection: Some("settlement-payout-readiness-projection"),
+            read_model_table: Some("settlement_payout_readiness_pages"),
+        });
     }
 }
 
@@ -664,8 +758,10 @@ async fn render(
     let viewer = session.and_then(Session::viewer);
     let account = account_sell_list(session);
     let receipt = Receipt::from_param(place.after_write.as_deref());
-    // An add whose receipt has expired, and whose line is still not there, is "missing".
-    let expired = place.after_write.is_some() && receipt.is_none();
+    // A write Settlement took part in, whose payout readiness the page should then show.
+    let settled = receipt.as_ref().is_some_and(|r| r.has_source("settlement"));
+    let mut handoff = HandoffState::of(place.post_write_handoff.as_deref(), place.after_write.as_deref());
+    let outcomes = Outcomes { actor: if account { "account" } else { "guest" } };
     let guest = guest_id(headers);
     let mut merged = None;
     let mut forget = false;
@@ -678,6 +774,13 @@ async fn render(
                 forget = true;
                 if count > 0 && merge_receipt.is_some() {
                     read_receipt = merge_receipt;
+                    // As marketplace's `requestWithMergeFreshness`: the merged lines are an add.
+                    let add = Handoff {
+                        kind: ADD_LINE_KIND.to_owned(),
+                        expectation: "collection-non-empty".to_owned(),
+                        surface: Some("account-sell-list".to_owned()),
+                    };
+                    handoff = HandoffState::Valid(add);
                 }
             }
             Err(error) => {
@@ -693,14 +796,18 @@ async fn render(
         (false, Some(id)) => caller.sell_list(Some(id)).await,
         (false, None) => Ok(Default::default()),
     };
+    // An add whose receipt has expired, and whose line is still not there, is "missing".
+    let lapsed = matches!(&handoff, HandoffState::NotFreshWrite(h, Freshness::Expired) if adds_a_line(h));
     let mut recovery = None;
     let list = match read {
         Ok(list) => list,
         Err(error) if waiting && error.catching_up() => {
+            outcomes.caught_up_with(&error, handoff.freshness(), "fresh-read");
             recovery = Some(Recovery::Pending);
             Default::default()
         }
-        Err(error) if expired && place.waits_for_a_line() && error.catching_up() => {
+        Err(error) if lapsed && error.catching_up() => {
+            outcomes.handoff("handoff_expired", &handoff, "action_required");
             recovery = Some(Recovery::Missing);
             Default::default()
         }
@@ -708,14 +815,22 @@ async fn render(
             return read_failed(req, viewer, error, waiting.then(|| t.route_sell_list_request_failed()));
         }
     };
-    if recovery.is_none() && list.items.is_empty() && list.count == 0 && place.waits_for_a_line() {
-        recovery = (waiting || expired).then_some(if waiting { Recovery::Pending } else { Recovery::Missing });
+    if recovery.is_none() {
+        recovery = outcomes.read(&handoff, list.items.is_empty() && list.count == 0);
     }
     let mut confirmation = list.latest_confirmation;
     if let Some(pending) = place.pending_confirmation().filter(|_| account) {
         let arrived = matches!((&pending, &confirmation), (Some(id), Some(c)) if c.confirmation_id == *id);
         if !arrived {
             confirmation = None;
+            if recovery.is_none() {
+                outcomes.record(
+                    "handoff_pending",
+                    handoff.freshness().outcome(),
+                    "pending_empty_state",
+                    "sell-checkout-confirmation",
+                );
+            }
             recovery = recovery.or(Some(Recovery::ConfirmationPending));
         }
     }
@@ -725,6 +840,7 @@ async fn render(
         let review = match caller.sell_list_review(place.registration(), surface.path()).await {
             Ok(review) => review,
             Err(error) if waiting && error.catching_up() => {
+                outcomes.caught_up_with(&error, handoff.freshness(), "sell-list-composite-review");
                 recovery = recovery.or(Some(Recovery::Pending));
                 CompositeReview::default()
             }
@@ -736,15 +852,25 @@ async fn render(
         (CompositeReview::default(), payout)
     } else {
         let review = match guest.as_deref().filter(|_| !list.items.is_empty()) {
-            Some(id) => caller
-                .guest_sell_list_review(id)
-                .await
-                .inspect_err(|e| tracing::warn!("guest sell list review: {e}"))
-                .unwrap_or_default(),
+            Some(id) => match caller.guest_sell_list_review(id).await {
+                Ok(review) => review,
+                Err(error) => {
+                    if waiting && error.catching_up() {
+                        outcomes.caught_up_with(&error, handoff.freshness(), "guest-sell-list-offer-reviews");
+                        recovery = recovery.or(Some(Recovery::Pending));
+                    }
+                    tracing::warn!("guest sell list review: {error}");
+                    CompositeReview::default()
+                }
+            },
             None => CompositeReview::default(),
         };
         (review, None)
     };
+    if account && settled {
+        let available = payout.is_some() || review.screen.as_ref().is_some_and(|s| s.payout_readiness.is_some());
+        outcomes.payout_readiness(available, Freshness::Valid);
+    }
     let mut screen = SellListScreen::of(surface, account, list.items, review, payout);
     screen.registration = account && place.registration();
     screen.merged = merged.filter(|_| screen.registration);

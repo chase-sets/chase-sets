@@ -14,13 +14,13 @@ const assetCopies = [
     reference: "./__fixtures__/evidence/",
     destination: "__fixtures__/evidence",
   },
-  {
+  // Standalone API builds can run without the widgets. Docker builds Agent Apps first.
+  ...["product-cards", "cart-review", "checkout-handoff"].map((widget) => ({
     source: "deployables/platform-api/src/main.ts",
-    reference: "../../agent-apps/build/product-cards.html",
-    destination: "product-cards.html",
-    // Standalone API builds can run without the widget. Docker builds Agent Apps first.
+    reference: `../../agent-apps/build/${widget}.html`,
+    destination: `${widget}.html`,
     optional: true,
-  },
+  })),
 ];
 const portable = (value) => value.replaceAll("\\", "/");
 

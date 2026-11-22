@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { ResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { describe, expect, it, vi } from "vitest";
 import { module as checkoutModule } from "@chase-sets/checkout";
 import { module as fulfillmentModule } from "@chase-sets/fulfillment";
@@ -9,7 +10,13 @@ import { hashMarketplaceRequest, marketplaceOfferCanonicalRequest } from "@chase
 import { module as paymentsModule } from "@chase-sets/payments";
 import { module as settlementModule } from "@chase-sets/settlement";
 import type { createCheckoutUcpHandlers } from "@chase-sets/checkout/server";
-import { createUcpEnvelope, UCP_MCP_PRODUCT_CARDS_RESOURCE_URI, UCP_VERSION } from "@chase-sets/platform-runtime/ucp";
+import {
+  createUcpEnvelope,
+  UCP_MCP_CART_REVIEW_RESOURCE_URI,
+  UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI,
+  UCP_MCP_PRODUCT_CARDS_RESOURCE_URI,
+  UCP_VERSION,
+} from "@chase-sets/platform-runtime/ucp";
 import type { AgentGrantRateLimiter } from "@chase-sets/platform-runtime/agent-guardrails";
 import type { AgentGrantRevocations } from "@chase-sets/identity/server";
 import { buildPlatformApiApp } from "../src/app";
@@ -166,6 +173,90 @@ describe("mcp app widget resources @mcp-sdk-journey", () => {
         }
       } finally {
         vi.unstubAllEnvs();
+      }
+    },
+  );
+
+  it.each(["/ucp/mcp", "/mcp"] as const)(
+    "returns the v2 checkout widgets to an orders.view actor through the SDK on %s",
+    async (endpoint) => {
+      const built = new Map([
+        [UCP_MCP_CART_REVIEW_RESOURCE_URI, "<!doctype html><title>Cart review</title>"],
+        [UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI, "<!doctype html><title>Checkout handoff</title>"],
+      ]);
+      const options = {
+        resolveActor: vi.fn(async () => agentActor(["orders.view"])),
+        mcp: { allowInMemoryIdempotencyStoreForTests: true },
+        ucp: { allowInMemoryIdempotencyStoreForTests: true },
+      };
+      const app = buildPlatformApiApp(createRuntime({}, []), {
+        ...options,
+        widgetResources: (uri) => built.get(uri),
+      });
+      await withMcpClient(
+        app,
+        async (client) => {
+          for (const [uri, html] of built) {
+            const { contents } = await client.readResource({ uri });
+            expect(contents).toEqual([
+              {
+                uri,
+                mimeType: "text/html;profile=mcp-app",
+                text: html,
+                _meta: {
+                  ui: { csp: { connectDomains: [], resourceDomains: [] }, prefersBorder: true },
+                  "openai/widgetDescription": expect.any(String),
+                },
+              },
+            ]);
+          }
+          if (endpoint === "/ucp/mcp") {
+            // A raw request reads only the linkage; listTools() also validates UCP's anyOf output schemas.
+            const { tools } = (await client.request({ method: "tools/list", params: {} }, ResultSchema)) as {
+              tools: { name: string; _meta?: Record<string, unknown> }[];
+            };
+            const templates = Object.fromEntries(
+              tools
+                .filter((tool) => tool.name.endsWith("_checkout"))
+                .map((tool) => [tool.name, [tool._meta?.ui, tool._meta?.["openai/outputTemplate"]]]),
+            );
+            const review = [{ resourceUri: UCP_MCP_CART_REVIEW_RESOURCE_URI }, UCP_MCP_CART_REVIEW_RESOURCE_URI];
+            expect(templates).toEqual({
+              create_checkout: review,
+              get_checkout: review,
+              update_checkout: review,
+              cancel_checkout: review,
+              complete_checkout: [
+                { resourceUri: UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI },
+                UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI,
+              ],
+            });
+          }
+        },
+        endpoint,
+      );
+      const missing = buildPlatformApiApp(createRuntime({}, []), options);
+      await withMcpClient(
+        missing,
+        async (client) => {
+          for (const uri of built.keys()) {
+            await expect(client.readResource({ uri })).rejects.toMatchObject({ code: -32002 });
+          }
+        },
+        endpoint,
+      );
+      if (endpoint === "/mcp") {
+        const response = await app.request("https://platform-api.test/mcp/resources");
+        const { resources } = await response.json();
+        for (const uri of built.keys()) {
+          expect(resources).toContainEqual(
+            expect.objectContaining({
+              uri,
+              mimeType: "text/html;profile=mcp-app",
+              annotations: expect.objectContaining({ availability: "available" }),
+            }),
+          );
+        }
       }
     },
   );

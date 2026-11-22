@@ -68,6 +68,10 @@ describe("worktree sandbox", () => {
     expect(configured.max_connections).toBe(50 * Math.ceil((demand + reservations + 8) / 50));
     expect(fits(100)).toBe(false);
     expect(fits(demand + reservations - 1)).toBe(false);
+    // The serving API factory's separate Pending Registration lock pool is counted at its cap.
+    expect(inventory.filter((row) => row.pool.endsWith(" (Pending Registration locks)"))).toEqual([
+      expect.objectContaining({ process: "platform-api", phase: "runtime/test/teardown", max: 2 }),
+    ]);
     expect(apiRegistry.control).not.toBe(workerRegistry.control);
     for (const registry of [apiRegistry, workerRegistry]) {
       expect(registry.control).toBe(registry.workSignal);

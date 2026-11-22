@@ -256,7 +256,7 @@ registered files.
 
 ## Corten pin
 
-`Cargo.toml` pins Corten to `24e61b4b` (Corten `main` on 2026-11-21), whose framework package is
+`Cargo.toml` pins Corten to `06d7a766` (Corten `main` on 2026-11-22), whose framework package is
 `corten-run` (the library is still `corten`). Corten 0.2.0 is released (tag `v0.2.0`, `a833b4e3`), and the pin is a git revision past it. The
 pin follows Corten's latest `main` (Todd, 2026-11-02), and each move is its own commit that says
 what changed; the workarounds a move lets go follow it in commits of their own. The history of every move is in the
@@ -331,19 +331,17 @@ instead. Remove the workaround when the issue closes.
 | [chase-sets/chase-sets#11074 [catalog] Provider profile section edits are merged and defaulted in admin-web, with no concurrency check: the API should own the section command's defaults and require the section's fingerprint](https://github.com/chase-sets/chase-sets/issues/11074) | [admin/src/catalog/sections.rs](admin/src/catalog/sections.rs) |
 | [chase-sets/chase-sets#10572 Let the seed seller record the seeded restock decision instead of Restock decision not found](https://github.com/chase-sets/chase-sets/issues/10572) | [scripts/smoke-restock.mjs](scripts/smoke-restock.mjs) |
 | [chase-sets/chase-sets#10581 Start a cart's payment when the buyer presses Pay, not when the checkout page loads](https://github.com/chase-sets/chase-sets/issues/10581) | [marketplace/src/checkout.rs](marketplace/src/checkout.rs) |
-| [chase-sets/chase-sets#10592 [checkout] Take a sell-list line's title and product summary from the catalog, not the request](https://github.com/chase-sets/chase-sets/issues/10592) | [marketplace/src/selling.rs](marketplace/src/selling.rs) |
 | [chase-sets/chase-sets#10595 [discovery] Check a Product Alert's item and product against the catalog, and take its summary from it](https://github.com/chase-sets/chase-sets/issues/10595) | [marketplace/src/api.rs](marketplace/src/api.rs), [marketplace/src/watching.rs](marketplace/src/watching.rs) |
-| [chase-sets/chase-sets#10987 [auth] Say which permissions Auth withheld and why, so surfaces stop rebuilding the email-verification rule](https://github.com/chase-sets/chase-sets/issues/10987) (the export writes Auth's role table to `marketplace/email-verification.json`, which a purchase's page reads to offer Verify your email in place of Cancel, and the checkout page in place of Pay now) | [marketplace/src/email_verification.rs](marketplace/src/email_verification.rs) |
 | [chase-sets/chase-sets#10697 [auth] A user's session list shows other users' sessions whose name, email or account mentions the user's id](https://github.com/chase-sets/chase-sets/issues/10697) | [marketplace/src/api.rs](marketplace/src/api.rs) |
-| [chase-sets/chase-sets#11024 [catalog] The alias review's Auto-accept eligible (N) accepts every selected candidate, not only the N eligible](https://github.com/chase-sets/chase-sets/issues/11024) | [admin/src/catalog/attention.rs](admin/src/catalog/attention.rs) (the scopes list's and the daily workbench's alias review) |
 | [chase-sets/chase-sets#10245 [auth] Make registration non-committal: create accounts on a verified email link](https://github.com/chase-sets/chase-sets/issues/10245) | [marketplace/src/register.rs](marketplace/src/register.rs) |
 | [chase-sets/chase-sets#5736 [checkout] P1: Capture and bind guest contact in the session contact section with sign-in collision handling](https://github.com/chase-sets/chase-sets/issues/5736) | [marketplace/src/checkout.rs](marketplace/src/checkout.rs), [marketplace/src/guest_claim.rs](marketplace/src/guest_claim.rs) |
 | [chase-sets/chase-sets#10820 [payments] Start payment offers wallet balance that Payments withholds, and never says why](https://github.com/chase-sets/chase-sets/issues/10820) | [marketplace/src/views/payment_start_page.rs](marketplace/src/views/payment_start_page.rs) |
-| [chase-sets/chase-sets#10871 [public-presence] Promo Bar's start and end times are read in the API server's time zone and shown in UTC, not the operator's](https://github.com/chase-sets/chase-sets/issues/10871) (the pilot reads and fills them in the operator's zone and sends the instant) | [admin/src/growth/promo.rs](admin/src/growth/promo.rs) |
-| [chase-sets/chase-sets#10880 [marketplace] Listing Evidence Policy activation takes its effective times in the admin-web server's time zone, not the operator's](https://github.com/chase-sets/chase-sets/issues/10880) (the pilot reads them in the operator's zone and sends the instant; nothing to remove) | [admin/src/evidence/mod.rs](admin/src/evidence/mod.rs) |
 
 These are closed and still cited in the pilot's code as the decision or fix the code relies on.
 None of them leaves a workaround behind:
 
 | Issue | Cited in |
 |---|---|
+| [chase-sets/chase-sets#10592 [checkout] Take a sell-list line's title and product summary from the catalog, not the request](https://github.com/chase-sets/chase-sets/issues/10592) (the pilot still builds a sell line from its own read of the item; the API now takes the words and an Offer's terms from its reads too) | [marketplace/src/selling.rs](marketplace/src/selling.rs) |
+| [chase-sets/chase-sets#10871 [public-presence] Promo Bar's start and end times are read in the API server's time zone and shown in UTC, not the operator's](https://github.com/chase-sets/chase-sets/issues/10871) (the pilot reads and fills them in the operator's zone and sends the instant) | [admin/src/growth/promo.rs](admin/src/growth/promo.rs) |
+| [chase-sets/chase-sets#10880 [marketplace] Listing Evidence Policy activation takes its effective times in the admin-web server's time zone, not the operator's](https://github.com/chase-sets/chase-sets/issues/10880) (the pilot reads them in the operator's zone and sends the instant; nothing to remove) | [admin/src/evidence/mod.rs](admin/src/evidence/mod.rs) |

@@ -1,9 +1,6 @@
 import type { ActionFunctionArgs } from "react-router";
 import { redirect } from "react-router";
-import {
-  catalogPrimaryWorkbenchSurfacePathForSection,
-  type parseCatalogPrimaryWorkbenchRouteContext,
-} from "../../../features/source-observations/ui/primary-workbench-route-context";
+import { catalogPrimaryWorkbenchHref } from "../../../features/source-observations/ui/primary-workbench-route-context";
 import { dispatchIntegrationsCommand } from "./integrations-command-dispatch";
 import {
   commandRedirectHref,
@@ -11,32 +8,18 @@ import {
   type CatalogIntegrationsCommandResult,
 } from "./integrations-command-result";
 
-const DAILY_SURFACE_PATH = catalogPrimaryWorkbenchSurfacePathForSection("import-to-promotion");
-
-// Daily import-to-promotion surface action. Most run-sync / create-update
-// (promote) and observation-review commands stay on this surface as action data,
-// so the daily route retains the original Preview and feedback in place.
-// Queued Promote and Catalog sync jobs use durable routable checkpoints; provider
-// imports retain their original enqueue receipt in action data. A result that belongs
-// to another surface (an operator triggered a profile or lifecycle command from a
-// daily-page control) navigates there through the same redirect helper.
+// Daily import-to-promotion surface action, on its fixed path for as long as the
+// surface remains. Every command it receives stays on this surface: most return
+// their result as action data, so the daily route retains the original Preview
+// and feedback in place. Queued Promote and Catalog sync jobs land on durable
+// routable checkpoints; provider imports retain their original enqueue receipt in
+// action data.
 export async function action(args: ActionFunctionArgs): Promise<Response | CatalogIntegrationsCommandResult> {
   const result = await dispatchIntegrationsCommand(args);
 
-  if (dailyResultNeedsRoutableHandoff(result)) {
-    return redirect(commandRedirectHref(result));
-  }
-
-  return resultStaysOnDailySurface(result.context, result.section) ? result : redirect(commandRedirectHref(result));
+  return commandResultNeedsRoutableHandoff(result) ? redirect(dailyCommandRedirectHref(result)) : result;
 }
 
-function resultStaysOnDailySurface(
-  context: ReturnType<typeof parseCatalogPrimaryWorkbenchRouteContext>,
-  section: string,
-): boolean {
-  return catalogPrimaryWorkbenchSurfacePathForSection(section || context.section) === DAILY_SURFACE_PATH;
-}
-
-function dailyResultNeedsRoutableHandoff(result: CatalogIntegrationsCommandResult): boolean {
-  return resultStaysOnDailySurface(result.context, result.section) && commandResultNeedsRoutableHandoff(result);
+function dailyCommandRedirectHref(result: CatalogIntegrationsCommandResult): string {
+  return commandRedirectHref(catalogPrimaryWorkbenchHref(result.context, "import-to-promotion"), result);
 }

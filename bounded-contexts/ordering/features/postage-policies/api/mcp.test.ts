@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import { readFileSync } from "node:fs";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type { OperatorAuthorityDecision } from "@chase-sets/auth-context";
+import { resolveRolePermissions, type OperatorAuthorityDecision } from "@chase-sets/auth-context";
 import { createActorEventStoreContext, type ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { createMcpRoutes, type McpAuditRecord, type McpRequestProtocolContext } from "@chase-sets/platform-runtime/mcp";
 import { orderingService } from "@chase-sets/platform-runtime/mcp-contracts/catalog/ordering";
@@ -85,7 +85,7 @@ function native(fakeServices: PostagePolicyServices) {
       kind: "granted",
       membershipId: actor.membershipId,
       roleKey: "platform-admin",
-      rolePermissions: actor.permissions,
+      rolePermissions: resolveRolePermissions("platform-admin"),
     },
   };
   const audits: McpAuditRecord[] = [];
@@ -435,13 +435,17 @@ describe("ordering postage policy MCP handlers", () => {
     boundary.state.actor = { ...actor, roleKey: "owner" };
     boundary.state.authority = { kind: "denied", reason: "not-platform-admin" };
     expect((await boundary.call("ordering.create-postage-policy", createArguments)).result.isError).toBe(true);
+    await expect(
+      createOrderingPostagePolicyMcpHandlers(fake).toolHandlers["ordering.create-postage-policy"]!(
+        request(createArguments, { ...actor, permissions: ["postage-policies.view"] }),
+      ),
+    ).rejects.toThrow("Missing required permission: postage-policies.manage.");
     boundary.state.authority = {
       kind: "granted",
       membershipId: actor.membershipId,
       roleKey: "platform-admin",
-      rolePermissions: ["postage-policies.view"],
+      rolePermissions: resolveRolePermissions("platform-admin"),
     };
-    expect((await boundary.call("ordering.create-postage-policy", createArguments)).result.isError).toBe(true);
     boundary.state.actor = {
       ...actor,
       agentGrant: {

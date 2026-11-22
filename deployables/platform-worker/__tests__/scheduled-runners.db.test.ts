@@ -115,7 +115,6 @@ const scheduledRunnerConfig: RegisteredScheduledRunnerConfig = {
     intervalMs: 1,
     rolloutValue: "true",
     rescueValue: "false",
-    hybridValue: "false",
     queryCacheMaxEntries: 1,
     queryCacheTtlMs: 1_000,
     queryTimeoutMs: 800,

@@ -29,11 +29,11 @@ describeDb("promotion target exclusion through real Catalog services", () => {
     },
   );
 
-  it.each(Array.from({ length: 14 }, (_, index) => index + 1))(
+  it.each(Array.from({ length: 15 }, (_, index) => index + 1))(
     "resumes a real guarded promotion after command commit %s, including effects before marker",
     async (commandNumber) => {
       const retained = await retainedPlan("crash-A");
-      expect(retained.plan.commands).toHaveLength(14);
+      expect(retained.plan.commands).toHaveLength(15);
       const connect = pool.connect.bind(pool);
       let commits = 0;
       let interrupted = false;

@@ -43,6 +43,7 @@ import type {
   ProcessorPaymentReconciliationResult,
 } from "@chase-sets/payment-processing";
 import type { BalanceCreditResolver } from "./balance-credit-resolver";
+import { sweepPaymentCreationReservations } from "./reservation-sweep";
 import type { WalletFundingServices } from "../../wallet-funding/api/runtime";
 import { listPaymentOrderInputs, type PaymentOrderInputRow } from "../integrations/order-input/order-input-queries";
 import {
@@ -229,7 +230,7 @@ type SavedCheckoutInstrumentReadiness = "ready" | "setup-required" | "removed";
 type SavedCheckoutConfirmationExperience = "trusted-payment-step" | "off-session-token";
 
 type PaymentReconciliationAttentionItem = Readonly<{
-  kind: "payment" | "provider-operation";
+  kind: "payment" | "provider-operation" | "creation-reservation";
   payment_id?: string | null;
   operation_key?: string | null;
   processor_payment_reference?: string | null;
@@ -2859,9 +2860,11 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
             forAccountId: "acc_identity_system" as never,
           },
         } satisfies EventStoreContext);
+      const attentionItems: PaymentReconciliationAttentionItem[] = [
+        ...(await sweepPaymentCreationReservations(deps, { startedAt, limit: params?.limit }, reconciliationContext)),
+      ];
       const payments = await listPaymentsNeedingReconciliation(deps.db, params);
       const providerOperations = await listPaymentProviderOperationsNeedingReconciliation(deps.db, params);
-      const attentionItems: PaymentReconciliationAttentionItem[] = [];
       let repaired = 0;
       let providerOperationsResolved = 0;
 

@@ -41,8 +41,8 @@ use serde::Serialize;
 
 use crate::{
     api::{
-        ApiError, CheckoutSession, CheckoutSessions as _, ConfirmBody, FulfillmentPreview, PaymentPreview, PaymentSummary,
-        SavedAddress, SavedInstrument, SellerGroup, SessionAddress, Wallet,
+        ApiError, CheckoutSession, CheckoutSessions as _, ConfirmBody, FulfillmentPreview, PaymentPreview, PaymentStart,
+        PaymentSummary, SavedAddress, SavedInstrument, SellerGroup, SessionAddress, Wallet,
     },
     app::{ACCOUNTS_VIEW, GUEST_CHECKOUT, ORDERS_MANAGE, PAYOUTS_VIEW, Shared, sign_in, url},
     auth::{CheckoutBuyer, Viewer},
@@ -153,6 +153,9 @@ pub struct CheckoutForm {
     pub payment_method_category: String,
     pub saved_checkout_instrument_id: String,
     pub save_payment_method_for_future: String,
+    /// The card the page's card entry turned into Stripe's confirmation token as Pay now was
+    /// pressed (`ctoken_..`); empty without one.
+    pub confirmation_token_id: String,
     pub requested_balance_credit_amount: String,
     pub marketplace_checkout_fee_quote_fingerprint: String,
     pub fulfillment_preview_revision: String,
@@ -347,7 +350,82 @@ pub struct Screen {
     /// Where the buyer verifies their email while Auth withholds `orders.manage` pending it:
     /// Pay now becomes this link, as Checkout would refuse the payment (`paymentVerifyEmailHref`).
     pub verify_email: Option<String>,
+    /// The card entry the payment step draws, while Pay now would pay a new card.
+    pub card: Option<DeferredCard>,
     pub place: Place,
+}
+
+/// What the payment step's card entry mounts with (marketplace's `DeferredStripePayment`):
+/// Stripe's publishable key, what the provider charges in cents and its currency, the quote it is
+/// for (another quote mounts new fields), and the buyer's details Stripe's fields start with.
+#[derive(Clone, Debug, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct DeferredCard {
+    pub publishable_key: String,
+    pub amount: i64,
+    pub currency: String,
+    pub quote: String,
+    pub defaults: Option<crate::payment::Defaults>,
+}
+
+/// Stripe's publishable key, when one is set: Pay now with a new card then confirms the card the
+/// page took (`deferredCardPublishableKey`).
+fn card_key(config: &Shared) -> Option<&str> {
+    config.stripe_publishable_key.as_deref().filter(|key| key.starts_with("pk_"))
+}
+
+/// A confirmation token Stripe made from a card entered on the page
+/// (`isPaymentConfirmationTokenId`): `ctoken_` and up to 200 letters, digits or underscores.
+pub(crate) fn confirmation_token(value: &str) -> Option<&str> {
+    let rest = value.strip_prefix("ctoken_")?;
+    let valid = !rest.is_empty() && rest.len() <= 200 && rest.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_');
+    valid.then_some(value)
+}
+
+/// The card entry the page draws (marketplace's `cardQuote`): a quote with something to charge,
+/// a card with no saved method chosen, nothing started, and Pay now not held back.
+fn deferred_card(screen: &Screen, key: &str) -> Option<DeferredCard> {
+    let payment = screen.payment.as_ref()?;
+    let quote = &payment.marketplace_checkout_fee;
+    let amount = platform::money::cents(&quote.processor_amount).filter(|cents| *cents > 0)?;
+    let currency = payment.currency_code.trim().to_lowercase();
+    let open = screen.method == "card"
+        && screen.instrument.is_none()
+        && !screen.offer
+        && screen.session.payment_id.is_none()
+        && !screen.expired
+        && !screen.ambiguous
+        && screen.verify_email.is_none()
+        && !currency.is_empty();
+    open.then(|| DeferredCard {
+        publishable_key: key.to_owned(),
+        amount,
+        currency,
+        quote: format!("{}:{}", screen.session.session_id, quote.quote_fingerprint),
+        defaults: card_defaults(&screen.session),
+    })
+}
+
+/// What Stripe's fields start with: the session's contact and delivery address
+/// (`paymentElementDefaultValues`); none without an email.
+fn card_defaults(session: &CheckoutSession) -> Option<crate::payment::Defaults> {
+    use crate::payment::{BillingAddress, BillingDetails, Defaults};
+    let address = session.shipping_address.as_ref()?;
+    let email = address.email.as_deref().map(str::trim).filter(|e| !e.is_empty())?;
+    Some(Defaults {
+        billing_details: BillingDetails {
+            email: email.to_owned(),
+            name: Some(address.name.clone()),
+            address: Some(BillingAddress {
+                line1: address.line1.clone(),
+                line2: address.line2.clone().filter(|l| !l.is_empty()),
+                city: address.city.clone(),
+                state: address.state.clone(),
+                postal_code: address.postal_code.clone(),
+                country: address.country.clone(),
+            }),
+        },
+    })
 }
 
 /// What the reads found, before the page is worked out.
@@ -578,6 +656,7 @@ impl Screen {
             error,
             ambiguous: false,
             verify_email: None,
+            card: None,
             place,
         }
     }
@@ -703,6 +782,26 @@ async fn render(
     let expired = expired(&session, SystemTime::now());
     let actor = &viewer.actor;
     let guest = viewer.guest();
+    // Pay now with a card the page took records the payment before the session names it: once
+    // orders wait for payment, Payments says whether one started. Its page when it did; Pay now
+    // held back while Payments cannot tell (marketplace's loader, `paymentStartAmbiguous`).
+    let mut start_ambiguous = false;
+    if card_key(config).is_some()
+        && !expired
+        && session.payment_id.is_none()
+        && session.cancelled_at.is_none()
+        && !session.order_ids.is_empty()
+    {
+        match caller.checkout_payment_start(id).await {
+            Ok(PaymentStart::Recorded { payment_id }) => return to_payment(req, guest, &payment_id, None),
+            Ok(PaymentStart::NotStarted) => {}
+            Ok(PaymentStart::Ambiguous) => start_ambiguous = true,
+            Err(error) => {
+                tracing::warn!("Payments could not say whether the session's payment started: {error}");
+                start_ambiguous = true;
+            }
+        }
+    }
     let wallet = async {
         if offer || guest || !actor.can(PAYOUTS_VIEW) {
             return WalletRead::NotAsked;
@@ -766,11 +865,12 @@ async fn render(
         Answer::Nothing | Answer::Ambiguous => (StatusCode::OK, None),
     };
     let mut screen = Screen::new(reads, place, error);
-    screen.ambiguous = matches!(answer, Answer::Ambiguous);
+    screen.ambiguous = matches!(answer, Answer::Ambiguous) || start_ambiguous;
     // Auth withholds payment until the buyer verifies their email; Pay now would be refused.
     screen.verify_email = (!screen.offer && email_verification::awaits(actor, ORDERS_MANAGE)).then(|| {
         email_verification::sign_in_href(&url::BuyCheckout { id, place: Place::default() }.href(), Purpose::PayCheckout)
     });
+    screen.card = card_key(config).and_then(|key| deferred_card(&screen, key));
     let t: CheckoutMsg = req.t();
     let description = if screen.offer {
         t.page_confirm_shipping_place_purchase_intent()
@@ -783,7 +883,7 @@ async fn render(
     };
     let page = html! {
         <Layout req={req} viewer={Some(viewer)} title={t.route_checkout_marketplace()} head={head}>
-            <views::CheckoutPage t={t} p={req.t()} screen={&screen} />
+            <views::CheckoutPage t={t} p={req.t()} pm={req.t()} screen={&screen} />
         </Layout>
     };
     if status == StatusCode::OK { req.page(page) } else { req.page_with_status(status, page) }
@@ -922,6 +1022,20 @@ fn latest(receipts: impl IntoIterator<Item = Option<Receipt>>) -> Option<Receipt
     receipts.into_iter().flatten().reduce(Receipt::later)
 }
 
+/// The issuer's authentication page Payments handed back, when it is an `https` address.
+fn authentication(url: &str) -> Option<corten::http::Uri> {
+    url.parse::<corten::http::Uri>().ok().filter(|uri| uri.scheme_str() == Some("https") && uri.host().is_some())
+}
+
+/// The payment's page, an account's or a guest checkout's, read after `after_write`.
+fn to_payment(req: &Req, guest: bool, id: &str, after_write: Option<String>) -> HtmlResult {
+    if guest {
+        req.redirect(&url::GuestPayment { id, place: crate::payment::GuestPlace { after_write, ..Default::default() } })
+    } else {
+        req.redirect(&url::BuyerPayment { id, place: crate::payment::Place { after_write } })
+    }
+}
+
 /// Update totals and Pay now (marketplace's action's `refresh-checkout-preview` and
 /// `confirm-checkout`), and Retry wallet balance, which reads the page again.
 pub(crate) async fn write(
@@ -1051,10 +1165,25 @@ pub(crate) async fn write(
                 return back(Place::reviewed(latest(receipts).as_ref(), &visible, needs_quote));
             }
             let instrument = reviewed(&form.saved_checkout_instrument_id).map(str::to_owned);
+            // With Stripe's key set, a new card is the one the page took: Pay now without its token
+            // is refused before anything is sent, as is a token that is not one.
+            let token = confirmation_token(form.confirmation_token_id.trim()).map(str::to_owned);
+            let new_card = card_key(&config).is_some()
+                && !session.source_type.is_empty()
+                && !offer
+                && quoted == "card"
+                && instrument.is_none()
+                && session.payment_id.is_none()
+                && !fingerprint.as_deref().is_some_and(|f| f.ends_with("|0.00"));
+            if (new_card || reviewed(&form.confirmation_token_id).is_some()) && token.is_none() {
+                let refused = Answer::Refused(StatusCode::UNPROCESSABLE_ENTITY, t.route_payment_details_required().to_owned());
+                return render(&req, &viewer, &config, &headers, &id, here, refused).await;
+            }
             let body = ConfirmBody {
                 requested_balance_credit_amount: reviewed(&form.requested_balance_credit_amount).map(str::to_owned),
                 payment_method_category: quoted.clone(),
                 marketplace_checkout_fee_quote_fingerprint: fingerprint,
+                confirmation_token_id: token.clone(),
                 save_payment_method_for_future: form.save_payment_method_for_future == "true" && instrument.is_none(),
                 saved_checkout_instrument_id: instrument,
                 fulfillment_preview_revision: reviewed(&form.fulfillment_preview_revision).map(str::to_owned),
@@ -1066,6 +1195,21 @@ pub(crate) async fn write(
                     receipts.push(receipt);
                     match (confirmed.offer_id, confirmed.payment_id) {
                         (Some(offer), _) => req.redirect(&submitted_offer(&offer, latest(receipts).as_ref())),
+                        // A card the page took: the issuer's authentication when it asks for one,
+                        // else the payment's page, read after the write.
+                        (None, Some(payment)) if token.is_some() => {
+                            let asked = confirmed.payment_authentication_url.as_deref();
+                            let followed = asked.and_then(authentication);
+                            if asked.is_some() && followed.is_none() {
+                                tracing::warn!(
+                                    "Pay now's payment asked for authentication at an address that is not an https URL with a host; showing the payment's page instead"
+                                );
+                            }
+                            match followed {
+                                Some(to) => req.redirect(&to),
+                                None => to_payment(&req, viewer.guest(), &payment, latest(receipts).as_ref().map(Receipt::param)),
+                            }
+                        }
                         (None, Some(_)) if form.accelerated_saved_payment == "true" => {
                             let place = ConfirmationPlace { after_write: latest(receipts).as_ref().map(Receipt::param) };
                             req.redirect(&url::BuyConfirmation { id: &id, place })
@@ -1117,6 +1261,20 @@ pub(crate) async fn write(
                 {
                     let changed = Answer::Refused(StatusCode::CONFLICT, t.route_confirmation_changed().to_owned());
                     render(&req, &viewer, &config, &headers, &id, here, changed).await
+                }
+                // A card the page took may have been charged though the answer was lost or Payments
+                // could not tell: Payments' record of the session's payment decides, and anything
+                // but a recorded payment holds Pay now back (the action's `payment_start_ambiguous`).
+                Err(error)
+                    if token.is_some()
+                        && (crate::checkout_entry::possible_send_loss(&error)
+                            || error.code() == Some("payment_start_ambiguous")) =>
+                {
+                    tracing::warn!("Pay now with a new card may have started a payment, so Payments is asked: {error}");
+                    match caller.checkout_payment_start(&id).await {
+                        Ok(PaymentStart::Recorded { payment_id }) => to_payment(&req, viewer.guest(), &payment_id, None),
+                        _ => render(&req, &viewer, &config, &headers, &id, here, Answer::Ambiguous).await,
+                    }
                 }
                 // Pay now may have reached Checkout: it is never sent again. One read decides; a
                 // started payment or a submitted offer is its first result, anything else stays

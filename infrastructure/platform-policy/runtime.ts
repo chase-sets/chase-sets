@@ -112,7 +112,7 @@ export type ConsentActivationAuthorityRuntime = Readonly<{
 export type PolicyRuntime = Readonly<{
   activateConsentPolicyVersion: (
     definition: PolicyDefinition<Readonly<{ version: string }>>,
-    params: Readonly<{ version: string; documentId: string; actorUserId: string }>,
+    params: Readonly<{ version: string; documentId: string; actorUserId: string; advanceOnly?: boolean }>,
     context: EventStoreContext,
   ) => Promise<ValidatedConsentActivationAuthoritySnapshot>;
   commandHandler: CommandHandler<PolicyDocumentCommand, PolicyDocumentState, PolicyDocumentEvent>;

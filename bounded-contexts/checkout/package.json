@@ -10,14 +10,16 @@
     "test": "vitest run --config ./tests/vitest.config.mjs",
     "test:unit": "vitest run --config ./tests/vitest.config.mjs --exclude features/cart/read-model/seller-options-readiness.db.test.ts --exclude features/sessions/read-model/checkout-preview-lifecycle.db.test.ts --exclude tests/account-status.db.test.ts --exclude features/command-attempts/api/cart-attempt.db.test.ts --exclude features/command-attempts/api/sell-list-attempt.db.test.ts --exclude features/sessions/api/entry-attempt.db.test.ts --exclude features/sell-list/api/owner-read-lifecycle.db.test.ts",
     "test:db": "vitest run --config ./tests/vitest.config.mjs features/cart/read-model/seller-options-readiness.db.test.ts features/sessions/read-model/checkout-preview-lifecycle.db.test.ts tests/account-status.db.test.ts features/command-attempts/api/cart-attempt.db.test.ts features/command-attempts/api/sell-list-attempt.db.test.ts features/sessions/api/entry-attempt.db.test.ts features/sell-list/api/owner-read-lifecycle.db.test.ts",
-    "test:watch": "vitest --config ./tests/vitest.config.mjs"
+    "test:watch": "vitest --config ./tests/vitest.config.mjs",
+    "typecheck": "node ../../scripts/verify-typecheck.mjs --workspace=@chase-sets/checkout"
   },
   "exports": {
     ".": "./index.ts",
     "./context": "./context.json",
     "./routes/*": "./routes/*.tsx",
     "./seed-support/*": "./support/seed-support/*.ts",
-    "./server": "./server.ts"
+    "./server": "./server.ts",
+    "./web": "./web.ts"
   },
   "types": "./index.ts",
   "dependencies": {

@@ -68,14 +68,14 @@ export const canonicalClaimRegistry: Readonly<Record<CanonicalClaimId, Canonical
       "and Payments records capture from mapped webhook or reconciliation results.",
     productTruthRefs: [
       "bounded-contexts/payments/features/payments/api/runtime.ts:2462-2483",
-      "infrastructure/stripe-payments/index.ts:1685-1739",
-      "infrastructure/stripe-payments/index.ts:1801-1889",
-      "infrastructure/stripe-payments/index.ts:1758-1799",
-      "bounded-contexts/payments/features/payments/api/runtime.ts:2626-2631",
-      "infrastructure/stripe-payments/index.ts:943-1024",
-      "infrastructure/stripe-payments/index.ts:1070-1097",
+      "infrastructure/stripe-payments/index.ts:1723-1777",
+      "infrastructure/stripe-payments/index.ts:1839-1927",
+      "infrastructure/stripe-payments/index.ts:1796-1837",
+      "bounded-contexts/payments/features/payments/api/runtime.ts:2627-2632",
+      "infrastructure/stripe-payments/index.ts:979-1060",
+      "infrastructure/stripe-payments/index.ts:1106-1133",
       "bounded-contexts/payments/features/payments/api/runtime.ts:3105-3147",
-      "infrastructure/stripe-payments/index.ts:415-491",
+      "infrastructure/stripe-payments/index.ts:418-494",
       "bounded-contexts/payments/features/payments/api/runtime.ts:278-304",
       "bounded-contexts/payments/features/payments/api/runtime.ts:1573-1615",
       "bounded-contexts/payments/features/payments/domain/domain.ts:954-993",
@@ -95,14 +95,14 @@ export const canonicalClaimRegistry: Readonly<Record<CanonicalClaimId, Canonical
     description:
       "Chargeback/dispute recovery runs through Settlement's automated Chargeback Clawback hold/recovery/" +
       "release mechanism, distinct from the operator-directed Wallet Adjustment path.",
-    productTruthRefs: ["bounded-contexts/settlement/GLOSSARY.md:131-139"],
+    productTruthRefs: ["bounded-contexts/settlement/GLOSSARY.md:135-143"],
     requiredEvidenceKeywords: ["Chargeback Clawback"],
   },
   "payout-release-hold-mechanism": {
     status: "settled",
     description:
       "Chase Sets models a Settlement-owned Payout Release Hold distinct from Stripe's own processor-level " + "holds.",
-    productTruthRefs: ["bounded-contexts/settlement/GLOSSARY.md:121-129"],
+    productTruthRefs: ["bounded-contexts/settlement/GLOSSARY.md:125-133"],
     requiredEvidenceKeywords: ["Payout Release Hold"],
   },
   "wallet-no-interest": {

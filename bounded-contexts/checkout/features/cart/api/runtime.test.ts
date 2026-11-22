@@ -150,6 +150,7 @@ class CartRuntimeDb implements PgQueryable {
   public readonly calls: Array<{ sql: string; values: readonly unknown[] }> = [];
   public readonly claims = new Map<string, ClaimRow>();
   public failAliasInsert = false;
+  public productSchema: unknown = null;
 
   constructor(
     private readonly lines: readonly Partial<CheckoutCartLineRow>[] = [],
@@ -187,7 +188,7 @@ class CartRuntimeDb implements PgQueryable {
             title: "Charizard",
             subtitle: null,
             status: "active",
-            product_schema: null,
+            product_schema: this.productSchema,
           },
         ] as Row[],
         rowCount: 1,
@@ -497,6 +498,54 @@ describe("checkout cart addLine own-key probe", () => {
       (event) => event.eventType === "checkout.cart.line-added",
     );
     expect(added?.payload).toMatchObject({ itemTitle: "Charizard", itemSubtitle: null, productSummary: null });
+  });
+
+  it("builds a line's product summary from the catalog's option labels in canonical order", async () => {
+    const db = new CartRuntimeDb();
+    db.productSchema = {
+      canonicalDimensionOrder: [
+        { dimensionId: "form", dimensionName: "Form" },
+        { dimensionId: "condition", dimensionName: "Condition" },
+      ],
+      dimensions: [
+        {
+          dimensionId: "form",
+          dimensionName: "Form",
+          required: true,
+          appliesWhen: [],
+          allowedOptions: [{ optionId: "raw", code: "raw", label: "Raw" }],
+        },
+        {
+          dimensionId: "condition",
+          dimensionName: "Condition",
+          required: true,
+          appliesWhen: [],
+          allowedOptions: [
+            { optionId: "nm", code: "nm", label: "Near Mint" },
+            { optionId: "lp", code: "lp", label: "Lightly Played" },
+          ],
+        },
+      ],
+    };
+    const { runtime, store } = createClaimRuntime(db);
+
+    await cartAttemptDriver(runtime).addLine(
+      {
+        ...addLineParams(),
+        productId: "cat_1::form:raw|condition:nm",
+        selectedOptions: [
+          { dimensionId: "condition", optionId: "nm" },
+          { dimensionId: "form", optionId: "raw" },
+        ],
+        productSummary: "PROBE spoofed summary",
+      },
+      context,
+    );
+
+    const added = (store.streams.get(`checkout.cart-${account}`) ?? []).find(
+      (event) => event.eventType === "checkout.cart.line-added",
+    );
+    expect(added?.payload).toMatchObject({ itemTitle: "Charizard", productSummary: "Raw / Near Mint" });
   });
 
   it("still merges quantity into a matching line the Account holds itself", async () => {

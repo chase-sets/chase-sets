@@ -20,7 +20,7 @@ const scopePlannerPath =
   "bounded-contexts/catalog/features/source-observations/api/providers/catalog-sync-scope-planner.ts";
 const scopePlannerDefaultParticipationFunctionNames = [
   "unitMatchesCatalogSyncScope",
-  "eligibilityBlockers",
+  "catalogSyncProfileEligibilityBlockers",
   "unitSupportsReferenceScope",
   "childScopeForProviderUnit",
 ];
@@ -164,7 +164,7 @@ describe("Catalog scope-first sync-planning boundaries", () => {
 
   it("[fixture] flags a raw set-name/product-line-name equality branch reintroduced into scope-eligibility resolution", () => {
     const violatingFixture = `
-      function eligibilityBlockers(version, unitKey, scope) {
+      function catalogSyncProfileEligibilityBlockers(version, unitKey, scope) {
         if (version.profile.setName === "Base Set") {
           return [];
         }

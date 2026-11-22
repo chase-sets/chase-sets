@@ -15,6 +15,7 @@ export {
 export { catalogScenarioItems, representativeProductContentsScenario, type CatalogScenarioItemAlias } from "./scenario";
 export * from "./representative-commerce-state";
 export {
+  defaultProductImageUrl,
   scenarioSeedFallbackAssets,
   scenarioSeedFallbackAssetPaths,
   type ScenarioSeedFallbackAssetKey,

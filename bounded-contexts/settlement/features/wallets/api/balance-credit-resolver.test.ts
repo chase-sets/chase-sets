@@ -136,12 +136,14 @@ describe("createSettlementBalanceCreditResolver", () => {
       currencyCode: "usd",
       requestedAmount: "20.00",
     };
+    const retireSpendHold = vi.fn(async () => "retired" as const);
+    const setSpendHoldExpiry = vi.fn(async () => {});
 
     it("delegates to the wallet port with the payment-derived hold id and returns the held amount", async () => {
       const placeSpendHold = vi.fn(async () => ({ accountId: "acc_1" as AccountId, holdId: "x", heldAmount: "20.00" }));
       const releaseSpendHold = vi.fn(async () => ({ accountId: "acc_1" as AccountId, holdId: "x", released: true }));
       const resolver = createSettlementBalanceCreditResolver(fakeDb("30.00"), {
-        walletSpendHolds: { placeSpendHold, releaseSpendHold },
+        walletSpendHolds: { placeSpendHold, releaseSpendHold, retireSpendHold, setSpendHoldExpiry },
       });
 
       const result = await resolver.placeSpendHold(holdInput, context);
@@ -164,7 +166,7 @@ describe("createSettlementBalanceCreditResolver", () => {
       const placeSpendHold = vi.fn(async () => ({ accountId: "acc_1" as AccountId, holdId: "x", heldAmount: "5.00" }));
       const releaseSpendHold = vi.fn(async () => ({ accountId: "acc_1" as AccountId, holdId: "x", released: true }));
       const resolver = createSettlementBalanceCreditResolver(fakeDb("30.00"), {
-        walletSpendHolds: { placeSpendHold, releaseSpendHold },
+        walletSpendHolds: { placeSpendHold, releaseSpendHold, retireSpendHold, setSpendHoldExpiry },
       });
 
       const result = await resolver.placeSpendHold(holdInput, context);

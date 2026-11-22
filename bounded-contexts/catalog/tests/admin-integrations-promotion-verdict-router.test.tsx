@@ -109,6 +109,16 @@ describe("held promotion verdict router transitions", () => {
       });
       const preview = vi.fn(async () => pending ?? syntheticPromotionPreviewResponse());
       client.mockReturnValue({
+        // The Scope Record a Scope command binds to; its hierarchy is the import scope's.
+        getCatalogScopeRecord: async () => ({
+          scopeRecordId: "base1",
+          productDomain: "pokemon",
+          scopeKind: "set",
+          name: "Base Set",
+          productLineScopeRecordId: "3",
+          seriesScopeRecordId: "base",
+          languageEditions: [],
+        }),
         getCatalogPrimaryWorkbenchSurface: read,
         getCatalogPrimaryWorkbenchDeferredSourceOptions: async () => model(base, []).sourceOptions,
         getCatalogPrimaryWorkbenchDeferredImportPreview: async () => null,
@@ -118,15 +128,15 @@ describe("held promotion verdict router transitions", () => {
       const location =
         surface === "daily"
           ? base
-          : base.replace("/catalog/integrations", "/catalog/scopes/synthetic-scope") + "&scopeRecordId=synthetic-scope";
+          : base.replace("/catalog/integrations", "/catalog/scopes/base1") + "&scopeRecordId=base1";
       const routeLoader = async (args: Parameters<typeof loader>[0]) => {
         const journey = await loader(args);
         if (surface === "daily") return journey;
         return {
           journey,
           scope: {
-            scopeRecordId: "synthetic-scope",
-            name: "Synthetic scope",
+            scopeRecordId: "base1",
+            name: "Base Set",
             productDomain: "pokemon",
             scopeKind: "set",
             lifecycleStatus: "active",
@@ -155,7 +165,7 @@ describe("held promotion verdict router transitions", () => {
             children: [
               {
                 id: "workbench",
-                path: surface === "daily" ? "/catalog/integrations" : "/catalog/scopes/:scopeRecordId",
+                path: surface === "daily" ? "/catalog/integrations" : "/catalog/scopes/:id",
                 loader: routeLoader,
                 action: surface === "daily" ? action : scopeAction,
                 Component: surface === "daily" ? IntegrationsRoute : ScopeDetailRoute,
@@ -178,7 +188,7 @@ describe("held promotion verdict router transitions", () => {
           importScope: "en:3:base:base1",
           profileVersion: "2026.06.04",
           selectedObservationIds: ids.join(","),
-          ...(surface === "scope" ? { scopeRecordId: "synthetic-scope" } : {}),
+          ...(surface === "scope" ? { scopeRecordId: "base1" } : {}),
         })) {
           formData.set(key, value);
         }

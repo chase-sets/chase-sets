@@ -1,6 +1,6 @@
 import { expect, test, type APIResponse, type Page, type Response as PlaywrightResponse } from "@playwright/test";
 import {
-  authenticateAdmin,
+  authenticatePlatformAdmin,
   expectAdminPageReady,
   expectAdminWebHydrated,
   expectPageOk,
@@ -138,7 +138,7 @@ test.describe.serial("catalog admin modeling", () => {
       "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
     );
 
-    await authenticateAdmin(page, "/catalog/dimensions", "/access/sign-in");
+    await authenticatePlatformAdmin(page, "/catalog/dimensions", "/access/sign-in");
     await expectPageOk(page, "/catalog/dimensions");
 
     for (const path of [
@@ -168,7 +168,7 @@ test.describe.serial("catalog admin modeling", () => {
       "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
     );
 
-    await authenticateAdmin(page, "/catalog/dimensions", "/access/sign-in");
+    await authenticatePlatformAdmin(page, "/catalog/dimensions", "/access/sign-in");
     await expectPageOk(page, "/catalog/dimensions");
     await expect(page).toHaveURL(/\/catalog\/dimensions(?:\?|$)/);
     await expectAdminPageReady(page, { heading: "Dimensions" });
@@ -209,7 +209,7 @@ test.describe.serial("catalog admin modeling", () => {
       "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
     );
 
-    await authenticateAdmin(page, "/catalog/fields", "/access/sign-in");
+    await authenticatePlatformAdmin(page, "/catalog/fields", "/access/sign-in");
 
     for (const surface of catalogModelingSurfaces) {
       await expectPageOk(page, surface.path);
@@ -235,7 +235,7 @@ test.describe.serial("catalog admin modeling", () => {
       "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
     );
 
-    await authenticateAdmin(page, "/catalog/fields", "/access/sign-in");
+    await authenticatePlatformAdmin(page, "/catalog/fields", "/access/sign-in");
 
     await expectFieldDetail(page);
     await expectComponentDetail(page);
@@ -256,7 +256,7 @@ test.describe.serial("catalog admin modeling", () => {
     const description = `Created by admin catalog item E2E ${uniqueSuffix}`;
     let catalogItemId: string | null = null;
 
-    await authenticateAdmin(page, "/catalog/catalog-items", "/access/sign-in");
+    await authenticatePlatformAdmin(page, "/catalog/catalog-items", "/access/sign-in");
 
     try {
       await expectCatalogItemListControls(page);
@@ -351,7 +351,7 @@ test.describe.serial("catalog admin modeling", () => {
     let dimensionId: string | null = null;
     let dimensionActivated = false;
 
-    await authenticateAdmin(page, "/catalog/dimensions", "/access/sign-in");
+    await authenticatePlatformAdmin(page, "/catalog/dimensions", "/access/sign-in");
     await expectPageOk(page, "/catalog/dimensions");
     await expectAdminPageReady(page, { heading: "Dimensions" });
 
@@ -425,7 +425,7 @@ test.describe.serial("catalog admin modeling", () => {
       "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
     );
 
-    await authenticateAdmin(page, "/catalog/reference-records", "/access/sign-in");
+    await authenticatePlatformAdmin(page, "/catalog/reference-records", "/access/sign-in");
     await expectReferenceRecordListAndDetail(page);
     await expectReferenceTypeListAndDetail(page);
   });

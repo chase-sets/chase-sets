@@ -1,8 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
-import { expectAdminWebHydrated, skipDeployedAdminE2e } from "./support/admin-e2e";
+import { expectAdminWebHydrated, platformAdminAccount, skipDeployedAdminE2e } from "./support/admin-e2e";
 
-const configuredAdminEmail = process.env.CATALOG_ADMIN_E2E_EMAIL?.trim() || "demo@chasesets.test";
-const configuredAdminPassword = process.env.CATALOG_ADMIN_E2E_PASSWORD?.trim() || "demo1234";
 const pageReadyTimeoutMs = 90_000;
 const adminSectionNames = ["Access", "Catalog", "Commerce", "Growth", "Support", "Platform"] as const;
 const authenticatedReturnTo = "/access/accounts";
@@ -56,7 +54,7 @@ async function signInThroughVisiblePasswordForm(page: Page, signInPath: string, 
 
         const passwordInput = page.locator('input[name="password"], input[type="password"]').first();
         if (await passwordInput.isVisible({ timeout: 1_000 }).catch(() => false)) {
-          await passwordInput.fill(configuredAdminPassword);
+          await passwordInput.fill(platformAdminAccount.password);
           await page.getByRole("button", { name: /^sign in$/i }).click();
           await page.waitForLoadState("domcontentloaded", { timeout: 15_000 }).catch(() => undefined);
           return false;
@@ -73,7 +71,7 @@ async function signInThroughVisiblePasswordForm(page: Page, signInPath: string, 
 
         const emailInput = page.getByRole("textbox", { name: /email|phone/i });
         if (await emailInput.isVisible({ timeout: 1_000 }).catch(() => false)) {
-          await emailInput.fill(configuredAdminEmail);
+          await emailInput.fill(platformAdminAccount.email);
           await page.getByRole("button", { name: /^continue$/i }).click();
         }
 

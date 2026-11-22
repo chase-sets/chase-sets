@@ -11,7 +11,7 @@ import {
   buildCatalogPrimaryWorkbenchReadModelForSurface,
   buildCatalogPrimaryWorkbenchSourceOptionRequests,
 } from "./primary-workbench-read-model";
-import { controlPlaneOverview, profileReview } from "./primary-workbench-test-fixtures";
+import { controlPlaneOverview, DailyCommandOwner, profileReview } from "./primary-workbench-test-fixtures";
 
 const unitKey = "scrydex:lorcana:single-card:source-observation-import";
 const walkPath = `/catalog/integrations?providerKey=scrydex&unitKey=${encodeURIComponent(
@@ -107,7 +107,11 @@ async function scenario(input: { activeJobCount: number; pollMs: number; forcedM
           : Promise.resolve(model.sourceOptions);
         return { model, deferredSourceOptions };
       },
-      element: <Page pollMs={input.pollMs} />,
+      element: (
+        <DailyCommandOwner>
+          <Page pollMs={input.pollMs} />
+        </DailyCommandOwner>
+      ),
       shouldRevalidate,
     },
   ]);

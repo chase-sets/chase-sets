@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "vite build --configLoader runner",
-    "typecheck": "tsc -p ./tsconfig.json --noEmit",
+    "typecheck": "node ../../scripts/verify-typecheck.mjs --workspace=@chase-sets/app-tcgplayer-operator-extension",
     "test": "vitest run --config ./vitest.config.ts",
     "test:watch": "vitest --config ./vitest.config.ts",
     "test:chromium": "vite build --configLoader runner && playwright test --config ./playwright.config.ts"

@@ -5,12 +5,13 @@
   "type": "module",
   "exports": {
     ".": "./index.ts",
+    "./fallback-assets": "./fallback-assets.ts",
     "./ids": "./ids.ts"
   },
   "scripts": {
     "test": "vitest run --config ./vitest.config.ts",
     "test:watch": "vitest --config ./vitest.config.ts",
-    "typecheck": "tsc -p ./tsconfig.json --noEmit"
+    "typecheck": "node ../../scripts/verify-typecheck.mjs --workspace=@chase-sets/catalog-seed"
   },
   "dependencies": {
     "@chase-sets/event-core": "workspace:*",

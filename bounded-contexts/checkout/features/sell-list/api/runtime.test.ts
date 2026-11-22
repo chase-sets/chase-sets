@@ -91,6 +91,47 @@ const selectedOfferLine: CheckoutSellListLineRow = {
   updated_at: "2026-06-09T00:00:00.000Z",
 };
 
+/**
+ * The Offer match row Checkout reads for `off_ready` against `acc_seller`'s
+ * Listing `lst_ready`, shaped as `getCheckoutSellOfferMatch` selects it.
+ */
+function offerMatchRow(overrides: Record<string, unknown> = {}) {
+  return {
+    seller_account_id: "acc_seller",
+    offer_id: "off_ready",
+    buyer_account_id: "acc_buyer",
+    catalog_catalog_item_id: "cat_air_balloon",
+    product_id: airBalloonProductId,
+    item_title: "Air Balloon",
+    item_subtitle: null,
+    selected_options: [],
+    product_summary: null,
+    price_amount: "120.00",
+    price_currency_code: "USD",
+    last_stream_version: 3,
+    quantity_requested: 1,
+    status: "submitted",
+    accepted_seller_account_id: null,
+    accepted_at: null,
+    created_at: "2026-06-09T00:00:00.000Z",
+    updated_at: "2026-06-09T00:00:00.000Z",
+    listing_id: "lst_ready",
+    listing_price_amount: "125.00",
+    listing_price_currency_code: "USD",
+    listing_stream_version: 7,
+    listing_quantity_cap: 1,
+    listing_visible_quantity: 1,
+    offer_price_gap_amount: "5.00",
+    offer_to_listing_price_bps: 9600,
+    buyer_display_name: "Jane Buyer",
+    buyer_average_rating: null,
+    buyer_review_count: 0,
+    seller_available_quantity: 1,
+    seller_listing_availability_status: "available",
+    ...overrides,
+  };
+}
+
 const productLine: CheckoutSellListLineRow = {
   seller_account_id: "acc_seller",
   line_id: "sll_product",
@@ -168,6 +209,43 @@ const airBalloonProductSchema = {
   ],
 };
 
+const airBalloonCatalogItem = {
+  catalog_item_id: "cat_air_balloon",
+  title: "Air Balloon",
+  subtitle: "Scarlet & Violet 167/198",
+  status: "active",
+  product_schema: airBalloonProductSchema,
+};
+
+const selectedOfferRequest = {
+  attemptId: "sell-list-runtime-add-offer",
+  requestHash: "d".repeat(64),
+  sellerAccountId: "acc_seller" as never,
+  lineType: "selected-offer" as const,
+  offerId: "off_ready",
+  listingId: "lst_ready",
+  buyerAccountId: null,
+  buyerDisplayName: null,
+  offerPriceAmount: "120.00",
+  offerPriceCurrencyCode: "USD",
+  offerStreamVersion: 3,
+  listingPriceAmount: "125.00",
+  listingPriceCurrencyCode: "USD",
+  listingStreamVersion: 7,
+  catalogItemId: "cat_air_balloon",
+  productId: airBalloonProductId,
+  itemTitle: "Air Balloon",
+  itemSubtitle: null,
+  selectedOptions: [
+    { dimensionId: "dim_seed_form", optionId: "chc_seed_form_raw" },
+    { dimensionId: "dim_seed_condition", optionId: "chc_seed_condition_damaged" },
+  ],
+  productSummary: null,
+  quantity: 1,
+  fallbackMode: "none" as const,
+  minimumListingPriceAmount: null,
+};
+
 function createCheckpointStore(): ProjectionCheckpointStore {
   const checkpoints = new Map<string, GlobalPosition>();
 
@@ -195,7 +273,11 @@ function projectedSelectedOptions(value: unknown): CheckoutSellListLineRow["sele
   }
 }
 
-function createDb(lines: readonly CheckoutSellListLineRow[], catalogItems: readonly CatalogItemRow[] = []) {
+function createDb(
+  lines: readonly CheckoutSellListLineRow[],
+  catalogItems: readonly CatalogItemRow[] = [],
+  offerMatches: readonly Record<string, unknown>[] = [],
+) {
   let sellListLines = [...lines];
   const catalogItemsById = new Map(catalogItems.map((item) => [item.catalog_item_id, item]));
   const db = {
@@ -208,6 +290,13 @@ function createDb(lines: readonly CheckoutSellListLineRow[], catalogItems: reado
       }
       if (sql.includes("checkout_sell_list_confirmation_pages")) {
         return { rows: [] };
+      }
+      if (sql.includes("FROM checkout_sell_offer_pages AS offer")) {
+        const sellerAccountId = String(params?.[0] ?? "");
+        const offerId = String(params?.[1] ?? "");
+        return {
+          rows: offerMatches.filter((row) => row.offer_id === offerId && row.seller_account_id === sellerAccountId),
+        };
       }
       if (sql.includes("checkout_marketplace_seller_options")) {
         const listingId = String(params?.[0] ?? "");
@@ -652,6 +741,128 @@ describe("sell list checkout runtime readiness boundary", () => {
     ]);
   });
 
+  it("takes a selected-offer line's buyer, prices and versions from the Offer match, not the request", async () => {
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const services = createCheckoutSellListRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: createDb([], [airBalloonCatalogItem], [offerMatchRow()]) as never,
+    });
+
+    await services.addLine(
+      {
+        ...selectedOfferRequest,
+        attemptId: "sell-list-runtime-add-offer-spoofed-buyer",
+        buyerAccountId: "acc_someone_else",
+        buyerDisplayName: "PROBE spoofed buyer",
+        offerPriceAmount: null,
+        offerPriceCurrencyCode: null,
+        offerStreamVersion: null,
+        listingPriceAmount: null,
+        listingPriceCurrencyCode: null,
+        listingStreamVersion: null,
+      },
+      context,
+    );
+
+    const lineAddedEvent = allEvents.find((event) => event.eventType === "checkout.sell-list.line-added");
+    expect(lineAddedEvent?.payload).toMatchObject({
+      lineType: "selected-offer",
+      offerId: "off_ready",
+      listingId: "lst_ready",
+      buyerAccountId: "acc_buyer",
+      buyerDisplayName: "Jane Buyer",
+      offerPriceAmount: "120.00",
+      offerPriceCurrencyCode: "USD",
+      offerStreamVersion: 3,
+      listingPriceAmount: "125.00",
+      listingPriceCurrencyCode: "USD",
+      listingStreamVersion: 7,
+      itemTitle: "Air Balloon",
+    });
+  });
+
+  it.each([
+    ["an Offer price", { offerPriceAmount: "1.00" }, "has changed"],
+    ["an Offer currency", { offerPriceCurrencyCode: "CAD", listingPriceCurrencyCode: "CAD" }, "has changed"],
+    ["an older Offer version", { offerStreamVersion: 2 }, "has changed"],
+    ["a Listing price", { listingPriceAmount: "999.00" }, "has changed"],
+    ["an older Listing version", { listingStreamVersion: 6 }, "has changed"],
+    ["another Listing", { listingId: "lst_other" }, "has changed"],
+    ["an Offer with no match", { offerId: "off_unmatched" }, "cannot be added"],
+  ])("refuses a selected-offer line whose request names %s", async (_label, change, message) => {
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const services = createCheckoutSellListRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: createDb([], [airBalloonCatalogItem], [offerMatchRow()]) as never,
+    });
+
+    await expect(
+      services.addLine({ ...selectedOfferRequest, attemptId: "sell-list-runtime-refuse-offer", ...change }, context),
+    ).rejects.toThrow(message);
+    expect(allEvents.some((event) => event.eventType === "checkout.sell-list.line-added")).toBe(false);
+  });
+
+  it("refuses a selected-offer line for an Offer matched to another seller or a guest owner", async () => {
+    for (const owner of ["acc_other", "anon_cmd_guest0000000000000000"]) {
+      const { allEvents, eventStore } = createInMemoryEventStore();
+      const services = createCheckoutSellListRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: createDb([], [airBalloonCatalogItem], [offerMatchRow()]) as never,
+      });
+
+      await expect(
+        services.addLine(
+          { ...selectedOfferRequest, attemptId: "sell-list-runtime-owner-" + owner, sellerAccountId: owner as never },
+          context,
+        ),
+      ).rejects.toThrow("cannot be added");
+      expect(allEvents.some((event) => event.eventType === "checkout.sell-list.line-added")).toBe(false);
+    }
+  });
+
+  it("replays an added selected-offer line after its Offer stops matching, and refuses a new add of it", async () => {
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const matches = [offerMatchRow()];
+    const services = createCheckoutSellListRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: createDb([], [airBalloonCatalogItem], matches) as never,
+    });
+    const request = { ...selectedOfferRequest, attemptId: "sell-list-runtime-replay-offer" };
+
+    const first = await services.addLine(request, context);
+    expect(first.status).toBe("added");
+    matches.length = 0;
+
+    await expect(services.addLine(request, context)).resolves.toMatchObject({ lineId: first.lineId, status: "added" });
+    await expect(
+      services.addLine({ ...request, attemptId: "sell-list-runtime-replay-offer-again" }, context),
+    ).rejects.toThrow("cannot be added");
+    expect(allEvents.filter((event) => event.eventType === "checkout.sell-list.line-added")).toHaveLength(1);
+  });
+
+  it("refuses a selected-offer line whose Offer is for another product or catalog item", async () => {
+    for (const [index, other] of [
+      { product_id: "cat_air_balloon::form:graded" },
+      { catalog_catalog_item_id: "cat_other" },
+    ].entries()) {
+      const { allEvents, eventStore } = createInMemoryEventStore();
+      const services = createCheckoutSellListRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: createDb([], [airBalloonCatalogItem], [offerMatchRow(other)]) as never,
+      });
+
+      await expect(
+        services.addLine({ ...selectedOfferRequest, attemptId: "sell-list-runtime-other-offer-" + index }, context),
+      ).rejects.toThrow("cannot be added");
+      expect(allEvents.some((event) => event.eventType === "checkout.sell-list.line-added")).toBe(false);
+    }
+  });
+
   it("treats duplicate selected-offer adds as already merged from the aggregate when projection is stale", async () => {
     const selectedOptions = [
       { dimensionId: "dim_seed_form", optionId: "chc_seed_form_raw" },
@@ -679,6 +890,7 @@ describe("sell list checkout runtime readiness boundary", () => {
             product_schema: airBalloonProductSchema,
           },
         ],
+        [offerMatchRow()],
       ) as never,
     });
     await seedSellListAggregate(services, [existingSelectedOfferLine], allEvents);

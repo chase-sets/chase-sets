@@ -436,6 +436,7 @@ describe("source observation runtime: promotion and reapply", () => {
       "SetCatalogItemImageUrls",
       "SetCatalogItemProductAssetSets",
       "LinkExternalProductReference",
+      "SetCatalogItemImageFallback",
     ]);
     expect(harness.itemCommands).not.toContainEqual(
       expect.objectContaining({
@@ -505,6 +506,7 @@ describe("source observation runtime: promotion and reapply", () => {
       "SetCatalogItemImageUrls",
       "SetCatalogItemProductAssetSets",
       "LinkExternalProductReference",
+      "SetCatalogItemImageFallback",
     ]);
     expect(harness.itemCommands).not.toContainEqual(
       expect.objectContaining({
@@ -559,6 +561,7 @@ describe("source observation runtime: promotion and reapply", () => {
       "SetCatalogItemProductAssetSets",
       "LinkExternalProductReference",
       "LinkExternalCatalogItemReference",
+      "SetCatalogItemImageFallback",
     ]);
     expect(harness.itemCommands).not.toContainEqual(
       expect.objectContaining({
@@ -668,6 +671,7 @@ describe("source observation runtime: promotion and reapply", () => {
       "SetCatalogItemImageUrls",
       "SetCatalogItemProductAssetSets",
       "LinkExternalProductReference",
+      "SetCatalogItemImageFallback",
     ]);
     expect(harness.itemCommands).not.toContainEqual(
       expect.objectContaining({
@@ -739,6 +743,7 @@ describe("source observation runtime: promotion and reapply", () => {
       "SetCatalogItemImageUrls",
       "SetCatalogItemProductAssetSets",
       "LinkExternalProductReference",
+      "SetCatalogItemImageFallback",
     ]);
     expect(harness.itemCommands).toContainEqual(
       expect.objectContaining({
@@ -1227,6 +1232,7 @@ describe("source observation runtime: promotion and reapply", () => {
       "SetCatalogItemImageUrls",
       "SetCatalogItemProductAssetSets",
       "LinkExternalProductReference",
+      "SetCatalogItemImageFallback",
     ]);
     expect(harness.itemCommands).not.toContainEqual(
       expect.objectContaining({
@@ -1269,6 +1275,7 @@ describe("source observation runtime: promotion and reapply", () => {
       "SetCatalogItemImageUrls",
       "SetCatalogItemProductAssetSets",
       "LinkExternalProductReference",
+      "SetCatalogItemImageFallback",
     ]);
     expect(harness.appendedSourceEvents).toEqual([]);
   });
@@ -1402,6 +1409,7 @@ describe("source observation runtime: promotion and reapply", () => {
       "SetCatalogItemImageUrls",
       "SetCatalogItemProductAssetSets",
       "LinkExternalProductReference",
+      "SetCatalogItemImageFallback",
     ]);
     expect(harness.itemCommands).not.toContainEqual(
       expect.objectContaining({
@@ -1460,6 +1468,7 @@ describe("source observation runtime: promotion and reapply", () => {
       "SetCatalogItemImageUrls",
       "SetCatalogItemProductAssetSets",
       "LinkExternalProductReference",
+      "SetCatalogItemImageFallback",
     ]);
     expect(harness.appendedSourceEvents).toEqual([
       expect.objectContaining({
@@ -1604,6 +1613,7 @@ describe("source observation runtime: promotion and reapply", () => {
       "LinkExternalProductReference",
       "LinkExternalCatalogItemReference",
       "LinkExternalProductReference",
+      "SetCatalogItemImageFallback",
     ]);
     expect(harness.itemCommands).toContainEqual(
       expect.objectContaining({
