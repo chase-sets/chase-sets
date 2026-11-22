@@ -96,6 +96,7 @@ import { createPaymentsUcpHandoff, type PaymentsServices } from "@chase-sets/pay
 import {
   getLockedFeeListingCohortSummary,
   marketplaceListingGatePolicy,
+  marketplaceOfferPaymentConsentPolicy,
   marketplaceRealtimeManifest,
   marketplaceRealtimeTopicPolicyManifest,
   marketplaceSellerBehavioralMetricsPolicy,
@@ -575,6 +576,7 @@ export function createPlatformApiHost(
       db: marketplacePool,
       definitions: [
         marketplaceListingGatePolicy,
+        marketplaceOfferPaymentConsentPolicy,
         marketplaceSellerBehavioralMetricsPolicy,
       ] as unknown as readonly PolicyDefinition<JsonValue>[],
       write: lazyPolicyConsoleWritePort(
