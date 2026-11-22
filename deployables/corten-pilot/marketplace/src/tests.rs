@@ -560,6 +560,7 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             // An owner whose offers.manage Auth withholds until its email is verified.
             "offers_unverified" => Json(json!({ "actor": {
                 "userId": "usr_seller", "accountId": "acc_seller", "roleKey": "owner", "permissions": ["offers.view", "listings.view"],
+                "withheldPermissions": [{ "permission": "offers.manage", "reason": "email_verification_required" }],
             } }))
             .into_response(),
             // An owner whose orders.manage Auth withholds until its email is verified, and an agent
