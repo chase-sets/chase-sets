@@ -1,4 +1,6 @@
 export const marketplaceEnglishTranslations = {
+  "marketplace.offerPaymentConsent.automaticChargeV1":
+    "I authorize Chase Sets to charge my Wallet balance, card, or bank account for my Offers when they are accepted. Market-following Offer policies no longer have a separate lifetime spending cap.",
   "marketplace.reviewRecovery.submitting": "Submitting",
   "marketplace.reviewRecovery.confirming": "Confirming the first result",
   "marketplace.reviewRecovery.succeeded": "Submitted",

@@ -685,6 +685,11 @@
   ],
   "hostPorts": [
     {
+      "portName": "deploymentEnvironment",
+      "providedBy": "platform-api",
+      "purpose": "Trusted deployment environment; only test and staging may activate pending Offer payment consent."
+    },
+    {
       "portName": "listingTargetAuthority",
       "providedBy": "platform-api",
       "purpose": "Compose Auth Session, Identity Membership, Channels configuration grants and Inventory reservations for channel-only Listing target commands."
@@ -1419,6 +1424,22 @@
     }
   ],
   "mutationConsistencyInventory": [
+    {
+      "id": "marketplace.offer-payment-consent-activation",
+      "owner": "marketplace",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/marketplace/features/offer-payment-consent/api/activation-route.ts:POST /policies/offer-payment-consent/activate"
+      ],
+      "visibleDestination": {
+        "description": "The authenticated operator receives the authoritative Offer payment consent activation snapshot without waiting for a policy document projection."
+      },
+      "proof": {
+        "authoritativeResponse": "The activate route returns the validated Consent Activation Authority snapshot after the document and authority revisions are guarded in the atomic append.",
+        "tests": ["bounded-contexts/marketplace/features/offer-payment-consent/api/activation-route.db.test.ts"]
+      }
+    },
     {
       "id": "marketplace.listing-recovery-preparation",
       "owner": "marketplace",
