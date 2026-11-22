@@ -1,11 +1,14 @@
 //! The seller's offer matches (marketplace's `account-offer-matches` and `account-offer-match`
 //! routes, `/account/offers/matches` and `/account/offers/matches/{id}`): the submitted offers
-//! that match a listing of the seller's, with how each compares to the listing's price, and an
-//! offer match's page with the fee terms accepting it would be priced with.
+//! that match a listing of the seller's, with how each compares to the listing's price, or an
+//! inventory item the seller could list to fill them, and an offer match's page with the fee terms
+//! accepting it would be priced with.
 //!
 //! Reads: the first 100 offer matches, after the write whose receipt the address carries (a read
 //! still catching up is read again without it); an offer match and, while it is submitted, its
-//! acceptance terms (best-effort: a failed preview shows the page without them).
+//! acceptance terms (best-effort: a failed preview shows the page without them). A match from
+//! inventory has no listing, so no terms: its page links to Create listing for the item at the
+//! offer's price, as marketplace's does.
 //!
 //! Writes, each a form posting an `intent` to the offer match's page, as marketplace's do:
 //! `add-selected-offer` (Accept offer match and Add selected offer to Sell List) reads the offer
@@ -14,11 +17,13 @@
 //! `decline-offer` declines it as the form's attempt (`attemptId`, a `SubmitKey`; a post without
 //! one is still one attempt) and goes back to the list with its receipt. A refusal draws the
 //! offer match's page with the API's words; an add not known to have applied draws it saying so
-//! (409). Adding the same offer again keeps one line for it, so sending again is safe.
+//! (409). Adding the same offer again keeps one line for it, so sending again is safe. Neither is
+//! drawn for a match from inventory; an add for one is refused here, and a decline by the API.
 //!
-//! The list is drawn again on each change to the account's offers (`<corten-live>` on
-//! `account:{id}:offers`), which the offers projection writes to every seller with an active
-//! listing of the offer's product.
+//! The list is drawn again on each change to the account's offer matches (`<corten-live>` on
+//! `account:{id}:offer-matches`, which needs `offers.view` and `listings.view`, as the list does),
+//! which the offers projection writes to every seller with an active listing of the offer's product
+//! or available inventory of it.
 use crate::recovery::attempt_text;
 use corten::{
     LiveResponse,
@@ -92,7 +97,7 @@ pub(crate) async fn list(
     })
 }
 
-/// The list's parts again on each change to the account's offers.
+/// The list's parts again on each change to the account's offer matches.
 pub(crate) async fn live(
     req: Req,
     Caller(OfferReviewer(viewer)): Caller<OfferReviewer>,
@@ -101,7 +106,7 @@ pub(crate) async fn live(
     since: corten::LiveSince,
 ) -> LiveResponse {
     let (t, p): (OfferMatchesMsg, Pilot) = (req.t(), req.t());
-    let topic = format!("account:{}:offers", viewer.actor.account_id);
+    let topic = format!("account:{}:offer-matches", viewer.actor.account_id);
     let changes = config.platform.caller(&headers, config.proto, None).changes(&[&topic], since.0);
     let fragments = changes
         .take_while(|tick| std::future::ready(!matches!(tick, Tick::Refused(_))))
@@ -149,9 +154,10 @@ async fn render(
         Ok(None) => return Err(corten::Error::status(StatusCode::NOT_FOUND)),
         Err(error) => return read_failed(req, Some(viewer), error, None),
     };
-    // Marketplace's page fails when the preview does; the offer is still worth showing.
+    // Marketplace's page fails when the preview does; the offer is still worth showing. A match
+    // from inventory has no listing to price it against.
     let terms = match offer.status.as_str() {
-        "submitted" => caller
+        "submitted" if !offer.is_from_inventory() => caller
             .acceptance_terms(id, &offer.listing_id)
             .await
             .inspect_err(|error| tracing::warn!("the acceptance terms' read failed: {error}"))
@@ -195,7 +201,7 @@ pub(crate) async fn write(
     let error = match form.intent.as_str() {
         "add-selected-offer" => {
             let offer = match caller.sell_list_offer(&id).await {
-                Ok(Some(offer)) if offer.status == "submitted" => offer,
+                Ok(Some(offer)) if offer.status == "submitted" && !offer.is_from_inventory() => offer,
                 Ok(_) => {
                     let refusal = Some(p.offer_matches_unavailable().to_owned());
                     return render(&req, &viewer, &config, &headers, &id, refusal, StatusCode::CONFLICT).await;

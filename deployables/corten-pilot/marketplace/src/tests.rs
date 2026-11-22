@@ -12341,13 +12341,39 @@ fn offer_match(id: &str, status: &str, can_fulfill: bool) -> Value {
         "listing_stream_version": 7, "listing_quantity_cap": 2, "listing_visible_quantity": 2,
         "offer_price_gap_amount": "2.24", "offer_to_listing_price_bps": 8879, "seller_available_quantity": 2,
         "seller_listing_availability_status": "available", "can_fulfill": can_fulfill, "managed_status": null,
-        "updated_at": "2026-10-24T03:55:37.712Z",
+        "updated_at": "2026-10-24T03:55:37.712Z", "fill_source": "listing",
     })
 }
 
+/// An offer match from inventory as the API sends it: the same offer with none of the listing's
+/// keys, and `inv_pika` with `available` of it.
+fn inventory_match(id: &str, available: u64) -> Value {
+    let mut offer = offer_match(id, "submitted", false);
+    let row = offer.as_object_mut().unwrap();
+    for key in [
+        "listing_id",
+        "listing_price_amount",
+        "listing_price_currency_code",
+        "listing_stream_version",
+        "listing_quantity_cap",
+        "listing_visible_quantity",
+        "offer_price_gap_amount",
+        "offer_to_listing_price_bps",
+        "seller_available_quantity",
+        "seller_listing_availability_status",
+    ] {
+        row.remove(key);
+    }
+    row.insert("fill_source".into(), json!("inventory"));
+    row.insert("inventory_item_id".into(), json!("inv_pika"));
+    row.insert("inventory_available_quantity".into(), json!(available));
+    offer
+}
+
 /// The seller's offer matches, as the stand-in answers them: `off_ready` and `off_short` (no
-/// supply); `off_gone` is no longer submitted, `off_taken` declines with a refusal, and any other
-/// id is not the seller's.
+/// supply), then from inventory `off_stock` (enough of it) and `off_thin` (not enough);
+/// `off_gone` is no longer submitted, `off_taken` declines with a refusal, and any other id is not
+/// the seller's.
 fn offer_matches(method: &Method, path: &str) -> Option<Response> {
     const MATCHES: &str = "/api/marketplace/account/offers/matches";
     const SELL_LIST_OFFER: &str = "/api/marketplace/account/sell-list/offer-matches/";
@@ -12356,6 +12382,8 @@ fn offer_matches(method: &Method, path: &str) -> Option<Response> {
         "off_short" => Some(offer_match("off_short", "submitted", false)),
         "off_gone" => Some(offer_match("off_gone", "accepted", true)),
         "off_taken" => Some(offer_match("off_taken", "submitted", true)),
+        "off_stock" => Some(inventory_match("off_stock", 3)),
+        "off_thin" => Some(inventory_match("off_thin", 1)),
         _ => None,
     };
     if let Some(id) = path.strip_prefix(SELL_LIST_OFFER) {
@@ -12367,8 +12395,11 @@ fn offer_matches(method: &Method, path: &str) -> Option<Response> {
     let rest = path.strip_prefix(MATCHES)?;
     Some(match (method.as_str(), rest) {
         ("GET", "") => Json(json!({
-            "items": [offer_match("off_ready", "submitted", true), offer_match("off_short", "submitted", false)],
-            "total": 2, "count": 2,
+            "items": [
+                offer_match("off_ready", "submitted", true), offer_match("off_short", "submitted", false),
+                inventory_match("off_stock", 3), inventory_match("off_thin", 1),
+            ],
+            "total": 4, "count": 4,
         }))
         .into_response(),
         ("GET", rest) if rest.ends_with("/terms-preview") => Json(json!({
@@ -12376,6 +12407,9 @@ fn offer_matches(method: &Method, path: &str) -> Option<Response> {
             "shipping_allowance_percentage_bps": 500, "agreement_id": null, "resolved_at": "2026-10-27T11:19:31.847Z",
         }))
         .into_response(),
+        ("POST", "/off_stock/decline") => {
+            refusal(StatusCode::CONFLICT, "offer_match_requires_listing", "List this item before responding to the Offer.")
+        }
         ("POST", "/off_taken/decline") => {
             refusal(StatusCode::BAD_REQUEST, "offer_command_rejected", "Offer match has already been declined.")
         }
@@ -12409,9 +12443,9 @@ async fn the_offer_matches_show_the_snapshot_and_each_match_with_its_actions() {
     let page = text(&html);
     for words in [
         "Offer Matches Compare each best buyer offer",
-        "Active matches 2 Ready to accept 1 At or above ask 0 Best match 88.79%",
+        "Active matches 4 Ready to accept 1 At or above ask 0 Best match 88.79%",
         "Pikachu Jungle 60/64 Raw Excellent submitted Can fulfill",
-        "Your Listing or inventory $19.99 2 visible of 2 listed Best Offer $17.75 Collector Zero",
+        "Your Listing or inventory From Listing $19.99 2 visible of 2 listed Best Offer $17.75 Collector Zero",
         "Offer vs Ask 88.79% $2.24 below ask Quantity 2 requested 2 available",
         "Needs supply",
     ] {
@@ -12420,7 +12454,15 @@ async fn the_offer_matches_show_the_snapshot_and_each_match_with_its_actions() {
     // The title and Open (labelled with the buyer and the item) link each match.
     let mut links = hrefs(&html, "Pikachu");
     links.dedup();
-    assert_eq!(links, ["/account/offers/matches/off_ready", "/account/offers/matches/off_short"]);
+    assert_eq!(
+        links,
+        [
+            "/account/offers/matches/off_ready",
+            "/account/offers/matches/off_short",
+            "/account/offers/matches/off_stock",
+            "/account/offers/matches/off_thin"
+        ]
+    );
     assert!(html.contains(r#"<corten-live src="/account/offers/matches/live"></corten-live>"#), "{html}");
     // Each match posts to its own page; one with no supply cannot be added to the sell list.
     // Each add carries its own attempt key, so a resend is applied once.
@@ -12428,6 +12470,60 @@ async fn the_offer_matches_show_the_snapshot_and_each_match_with_its_actions() {
     let (inputs, _) = short.split_once("<button").unwrap();
     assert!(inputs.starts_with(r#"<input type="hidden" name="intent" value="add-selected-offer"><input type="hidden" name="attemptId" data-submit value=""#), "{short}");
     assert!(short.split("</form>").next().unwrap().contains("disabled"), "{short}");
+}
+
+#[tokio::test]
+async fn a_match_from_inventory_lists_the_item_at_the_offers_price_and_has_no_listing_actions() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(OFFER_MATCHES, Some("trader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    let (_, stock) =
+        page.split_once("Pikachu Jungle 60/64 Raw Excellent submitted Your Listing or inventory From inventory").unwrap();
+    for words in
+        ["3 in inventory Best Offer $17.75 Collector Zero", "Quantity 2 requested 3 available", "List to fill this Offer"]
+    {
+        assert!(stock.contains(words), "{words:?} in {stock}");
+    }
+    // No ask to compare with, and the short one says why it cannot be listed.
+    assert_eq!(page.matches("Offer vs Ask").count(), 2, "{page}");
+    assert!(page.contains("From inventory 1 in inventory") && page.contains("Not enough stock"), "{page}");
+    let list = hrefs(&html, "List to fill this Offer").iter().map(|h| h.replace("&amp;", "&")).collect::<Vec<_>>();
+    assert_eq!(list, ["/account/listings/new?inventoryItemId=inv_pika&recommendedPrice=17.75"]);
+    // Only the listings' matches post: no Add to Sell List or Decline from inventory.
+    for id in ["off_stock", "off_thin"] {
+        assert!(!html.contains(&format!(r#"<form method="post" action="/account/offers/matches/{id}">"#)), "{html}");
+    }
+    let mut open = hrefs(&html, "Open");
+    open.dedup();
+    assert!(open.contains(&"/account/offers/matches/off_stock"), "{open:?}");
+
+    // Its page has no terms preview and no Accept or Decline, only the link to list it.
+    let (status, _, html) = pilot.send(get("/account/offers/matches/off_stock", Some("trader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    for words in [
+        "Offer match Pikachu List this item to accept or decline the Offer.",
+        "submitted From inventory $17.75 Pikachu",
+        "Quantity requested 2 Active supply available 3 List to fill this Offer",
+    ] {
+        assert!(page.contains(words), "{words:?} in {page}");
+    }
+    assert!(!page.contains("Accept offer match") && !page.contains("Decline"), "{page}");
+    assert!(list_calls(&pilot, "/api/marketplace/account/offers/matches/off_stock/terms-preview").is_empty());
+    let (_, _, html) = pilot.send(get("/account/offers/matches/off_thin", Some("trader"))).await;
+    assert!(text(&html).contains("Active supply available 1 Not enough stock"), "{html}");
+    assert!(hrefs(&html, "List to fill this Offer").is_empty(), "{html}");
+
+    // An add from inventory is refused here and nothing is added; a decline is the API's to refuse.
+    let (status, _, html) =
+        pilot.send(post("/account/offers/matches/off_stock", "trader", "intent=add-selected-offer", false)).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert!(text(&html).contains("This offer is no longer open"), "{html}");
+    assert!(list_calls(&pilot, "/api/marketplace/account/sell-list").iter().all(|c| !c.starts_with("POST")));
+    let (status, _, html) = pilot.send(post("/account/offers/matches/off_stock", "trader", "intent=decline-offer", false)).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert!(text(&html).contains("List this item before responding to the Offer."), "{html}");
 }
 
 #[tokio::test]
@@ -12531,7 +12627,7 @@ async fn a_change_to_the_accounts_offers_draws_the_snapshot_and_rows_again() {
     assert!(data.contains("Best match snapshot") && data.contains("/account/offers/matches/off_ready"), "{data}");
     let calls = pilot.stand.calls.lock().unwrap().clone();
     let realtime = calls.iter().find(|c| c.path.starts_with("/api/realtime/account/events")).unwrap();
-    assert!(realtime.path.contains("topic=account%3Aacc_seller%3Aoffers"), "{}", realtime.path);
+    assert!(realtime.path.contains("topic=account%3Aacc_seller%3Aoffer-matches"), "{}", realtime.path);
 }
 
 /// An offer the buyer submitted, as the API sends it.
