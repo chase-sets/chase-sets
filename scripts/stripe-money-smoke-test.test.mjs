@@ -75,10 +75,40 @@ function jsonResponse(body, status = 200, headers = {}) {
   });
 }
 
-function createSmokeFetch(calls) {
+const platformAdminEnv = {
+  PLATFORM_ADMIN_EMAIL: "admin@example.test",
+  PLATFORM_ADMIN_PASSWORD: "correct horse battery staple",
+};
+
+function createSmokeFetch(calls, { sellerBearer } = {}) {
+  const platformReads = new Set([
+    "/api/settlement/provider-health",
+    "/api/settlement/payouts/provider-idempotency",
+    "/api/settlement/payouts/platform-balance-forecast",
+  ]);
+  const sellerRoutes = new Set([
+    "/api/settlement/account-status",
+    "/api/settlement/payout-readiness",
+    "/api/marketplace/account/marketplace-checkout-fee-policy",
+    "/account/payouts/setup",
+    "/api/marketplace/account/checkout/status",
+    "/api/marketplace/account/payments",
+    "/api/settlement/payout-setup/embedded-session",
+    "/api/settlement/payout-setup/refresh",
+    "/api/settlement/payouts/preview",
+    "/api/settlement/payouts",
+  ]);
   return async (url, init = {}) => {
     calls.push({ url: String(url), init });
     const path = new URL(String(url)).pathname;
+    const expectedBearer = platformReads.has(path)
+      ? "Bearer session_admin"
+      : sellerRoutes.has(path)
+        ? sellerBearer
+        : null;
+    if (sellerBearer && expectedBearer && new Headers(init.headers).get("Authorization") !== expectedBearer) {
+      return jsonResponse({ error: { code: "authorization_forbidden", message: "Forbidden." } }, 403);
+    }
 
     if (path === "/health") {
       return jsonResponse({ ok: true });
@@ -88,7 +118,13 @@ function createSmokeFetch(calls) {
       if (body.email === "stripe-smoke@example.test") {
         return jsonResponse({ type: "session-started", sessionToken: "session_seller_login" });
       }
-      return jsonResponse({ type: "session-started", sessionToken: "session_admin" });
+      if (
+        body.email === platformAdminEnv.PLATFORM_ADMIN_EMAIL &&
+        body.password === platformAdminEnv.PLATFORM_ADMIN_PASSWORD
+      ) {
+        return jsonResponse({ type: "session-started", sessionToken: "session_admin" });
+      }
+      return jsonResponse({ error: { code: "authentication_failed" } }, 401);
     }
     if (path === "/api/identity/current-actor-display") {
       return jsonResponse({ account: { account_id: "acc_platform_admin" } });
@@ -470,6 +506,7 @@ describe("stripe money smoke test", () => {
     const result = await runSellerFlow("https://api.preview.test", {
       fetchImpl: createSmokeFetch(calls),
       env: {
+        ...platformAdminEnv,
         PLATFORM_API_AUTHORIZATION: "Bearer preview",
         SMOKE_ORDER_IDS: "ord_1,ord_2",
         SMOKE_BALANCE_CREDIT_AMOUNT: "10.00",
@@ -564,6 +601,7 @@ describe("stripe money smoke test", () => {
           return createSmokeFetch(calls)(url, init);
         },
         env: {
+          ...platformAdminEnv,
           PLATFORM_API_AUTHORIZATION: "Bearer preview",
           SMOKE_PAYOUT_READINESS_ATTEMPTS: "1",
         },
@@ -592,6 +630,7 @@ describe("stripe money smoke test", () => {
           return createSmokeFetch(calls)(url, init);
         },
         env: {
+          ...platformAdminEnv,
           PLATFORM_API_AUTHORIZATION: "Bearer preview",
           SMOKE_PAYOUT_READINESS_ATTEMPTS: "1",
         },
@@ -620,6 +659,7 @@ describe("stripe money smoke test", () => {
           return createSmokeFetch(calls)(url, init);
         },
         env: {
+          ...platformAdminEnv,
           PLATFORM_API_AUTHORIZATION: "Bearer preview",
           SMOKE_PAYOUT_READINESS_ATTEMPTS: "1",
         },
@@ -651,6 +691,7 @@ describe("stripe money smoke test", () => {
         return createSmokeFetch(calls)(url, init);
       },
       env: {
+        ...platformAdminEnv,
         PLATFORM_API_AUTHORIZATION: "Bearer preview",
         SMOKE_PAYOUT_READINESS_ATTEMPTS: "2",
         SMOKE_PAYOUT_READINESS_RETRY_DELAY_MS: "1",
@@ -683,6 +724,7 @@ describe("stripe money smoke test", () => {
           return createSmokeFetch(calls)(url, init);
         },
         env: {
+          ...platformAdminEnv,
           PLATFORM_API_AUTHORIZATION: "Bearer preview",
         },
       }),
@@ -709,6 +751,7 @@ describe("stripe money smoke test", () => {
         return createSmokeFetch(calls)(url, init);
       },
       env: {
+        ...platformAdminEnv,
         PLATFORM_API_AUTHORIZATION: "Bearer preview",
         SMOKE_REQUEST_PAYOUT: "false",
       },
@@ -747,6 +790,51 @@ describe("stripe money smoke test", () => {
       (call) => call.url === "https://marketplace.preview.test/api/settlement/account-status",
     );
     expect(accountStatusCall.init.headers.get("Authorization")).toBe("Bearer session_admin");
+  });
+
+  it("uses platform admin bearer only for reconcile reads and the registered seller bearer for seller operations", async () => {
+    const calls = [];
+    const result = await runSellerFlow("https://marketplace.preview.test", {
+      fetchImpl: createSmokeFetch(calls, { sellerBearer: "Bearer session_seller" }),
+      env: {
+        PLATFORM_AUTH_BASE_URL: "https://marketplace.preview.test",
+        PLATFORM_ADMIN_EMAIL: "admin@example.test",
+        PLATFORM_ADMIN_PASSWORD: "correct horse battery staple",
+        SMOKE_REGISTER_SELLER: "true",
+        SMOKE_SELLER_EMAIL: "stripe-smoke@example.test",
+        SMOKE_SELLER_PASSWORD: "preview smoke password",
+        SMOKE_ORDER_IDS: "ord_1",
+        SMOKE_CREATE_PAYMENT: "true",
+        SMOKE_REQUEST_PAYOUT: "true",
+      },
+    });
+
+    expect(result).toMatchObject({
+      accountStatus: "ok",
+      readiness: "ok",
+      settlementProviderHealth: "ok",
+      providerIdempotencySurfaces: "ok",
+      platformBalanceForecast: "ok",
+      checkout: { createPayment: "ok" },
+      setupPage: { status: "ok" },
+      embeddedDashboardNone: { status: "verified" },
+      payoutPreview: { status: "available" },
+      payoutRequest: { status: "ok" },
+    });
+    expect(
+      calls
+        .filter(
+          ({ url, init }) =>
+            !new URL(url).pathname.startsWith("/api/identity/") &&
+            !new URL(url).pathname.startsWith("/api/platform/") &&
+            new Headers(init.headers).get("Authorization") === "Bearer session_admin",
+        )
+        .map(({ url }) => new URL(url).pathname),
+    ).toEqual([
+      "/api/settlement/provider-health",
+      "/api/settlement/payouts/provider-idempotency",
+      "/api/settlement/payouts/platform-balance-forecast",
+    ]);
   });
 
   it("can register a throwaway preview seller before running the seller flow", async () => {
@@ -858,7 +946,7 @@ describe("stripe money smoke test", () => {
   it("uses Terraform admin credential fallbacks when registering a throwaway seller", async () => {
     const calls = [];
     const result = await runSellerFlow("https://marketplace.preview.test", {
-      fetchImpl: createSmokeFetch(calls),
+      fetchImpl: createSmokeFetch(calls, { sellerBearer: "Bearer session_seller" }),
       env: {
         PLATFORM_AUTH_BASE_URL: "https://marketplace.preview.test",
         TF_VAR_platform_admin_email: "admin@example.test",
@@ -878,6 +966,19 @@ describe("stripe money smoke test", () => {
       "/api/auth/registration-consent",
       "/api/auth/register",
     ]);
+  });
+
+  it("requires platform admin credentials even when a seller bearer is already supplied", async () => {
+    const calls = [];
+    await expect(
+      runSellerFlow("https://marketplace.preview.test", {
+        fetchImpl: createSmokeFetch(calls),
+        env: { PLATFORM_API_AUTHORIZATION: "Bearer session_seller" },
+      }),
+    ).rejects.toThrow(
+      "Missing PLATFORM_ADMIN_EMAIL or TF_VAR_platform_admin_email, PLATFORM_ADMIN_PASSWORD or TF_VAR_platform_admin_password.",
+    );
+    expect(calls).toEqual([]);
   });
 
   it("fails before seller registration when invitation admin credentials are missing", async () => {
