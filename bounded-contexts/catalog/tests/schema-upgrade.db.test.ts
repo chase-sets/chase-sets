@@ -40,6 +40,10 @@ import {
   createPgCatalogProviderOptionQueryCacheStore,
   queryCatalogProviderIntegrationOptionsWithCache,
 } from "../features/source-observations/api/providers/provider-option-query-cache";
+import { createProductMeasureRuntime } from "../features/product-measures/api/runtime";
+import { seedProductMeasures } from "../features/product-measures/api/seed";
+import type { CatalogRuntimeDeps } from "../support/authoring-support/runtime-support";
+import type { CatalogServices } from "../support/authoring-support/services";
 import { seedContext } from "../support/seed-support/context";
 import { normalizedObservation } from "../support/test-support/source-observation-fixtures";
 
@@ -743,5 +747,49 @@ describeDb("catalog schema upgrades", () => {
       "SELECT migration_id FROM bounded_context_schema_migrations WHERE migration_id = '20260718_catalog_scope_sync_state_scope_record_id'",
     );
     expect(migration.rows).toEqual([{ migration_id: "20260718_catalog_scope_sync_state_scope_record_id" }]);
+  });
+
+  it("keeps Product Measure Profiles in a logged table on a fresh database and returns a retained one to it", async () => {
+    const pool = pools.catalog;
+    const loggedMigrationId = "20261122_catalog_product_measure_profiles_logged";
+    const persistence = async (tableName: string) =>
+      (
+        await pool.query<{ relpersistence: string }>(
+          "SELECT relpersistence FROM pg_class WHERE oid = to_regclass($1)",
+          [tableName],
+        )
+      ).rows.map((row) => row.relpersistence);
+    const ledgerRows = async () =>
+      (
+        await pool.query<{ migration_id: string }>(
+          "SELECT migration_id FROM bounded_context_schema_migrations WHERE migration_id = $1",
+          [loggedMigrationId],
+        )
+      ).rows;
+    const productMeasures = createProductMeasureRuntime({ db: pool } as unknown as CatalogRuntimeDeps);
+
+    await bootstrapContextDatabase(catalogModule, pool);
+    expect(await persistence("catalog_product_measure_profiles")).toEqual(["p"]);
+    expect(await persistence("catalog_blueprints")).toEqual(["u"]);
+
+    // A database first bootstrapped by a build that still set the table UNLOGGED, already seeded.
+    await seedProductMeasures({ productMeasures } as unknown as CatalogServices, {
+      resolveExistingCatalogItems: false,
+    });
+    await pool.query("ALTER TABLE catalog_product_measure_profiles SET UNLOGGED");
+    await pool.query("DELETE FROM bounded_context_schema_migrations WHERE migration_id = $1", [loggedMigrationId]);
+    const retainedProfiles = await productMeasures.listProductMeasureProfiles();
+    expect(retainedProfiles).toHaveLength(13);
+    expect(await persistence("catalog_product_measure_profiles")).toEqual(["u"]);
+
+    await bootstrapContextDatabase(catalogModule, pool);
+    expect(await persistence("catalog_product_measure_profiles")).toEqual(["p"]);
+    expect(await ledgerRows()).toEqual([{ migration_id: loggedMigrationId }]);
+    expect(await productMeasures.listProductMeasureProfiles()).toEqual(retainedProfiles);
+
+    await bootstrapContextDatabase(catalogModule, pool);
+    expect(await persistence("catalog_product_measure_profiles")).toEqual(["p"]);
+    expect(await ledgerRows()).toEqual([{ migration_id: loggedMigrationId }]);
+    expect(await productMeasures.listProductMeasureProfiles()).toEqual(retainedProfiles);
   });
 });

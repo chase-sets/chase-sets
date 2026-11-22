@@ -20,7 +20,10 @@ import {
   catalogOperatorSessionGrantSchemaMigrations,
 } from "../../features/operator-session/read-model/grant-schema";
 import { catalogProductContentsSchemaSql } from "../../features/product-contents/read-model/schema";
-import { catalogProductMeasureSchemaSql } from "../../features/product-measures/read-model/schema";
+import {
+  catalogProductMeasureSchemaMigrations,
+  catalogProductMeasureSchemaSql,
+} from "../../features/product-measures/read-model/schema";
 import {
   catalogProviderScopeDiscoverySchemaMigrations,
   catalogProviderScopeDiscoverySchemaSql,
@@ -103,6 +106,7 @@ export const catalogAuthoringSchemaMigrations = [
     ],
   },
   ...catalogCatalogItemSchemaMigrations,
+  ...catalogProductMeasureSchemaMigrations,
   ...catalogProviderScopeDiscoverySchemaMigrations,
   ...catalogScopeSyncStateSchemaMigrations,
   ...catalogPromotionReferenceAccessPathMigrations,
