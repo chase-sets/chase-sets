@@ -44,6 +44,32 @@ const syntheticConsentPolicy = definePolicy({
 });
 
 describe("guarded consent document activation", () => {
+  it("refuses an advance-only repeat without moving the authority", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const { db } = createFakePolicyDb();
+    const runtime = createPolicyRuntime({ eventStore, db });
+    const version = "offer-automatic-charge-v1";
+    const actorUserId = "synthetic-operator";
+    const { documentId } = await runtime.createPolicyDocument(
+      syntheticConsentPolicy,
+      {
+        value: { version },
+        status: "active",
+        effectiveFrom: "2026-09-01T00:00:00.000Z",
+        effectiveUntil: null,
+        actorUserId,
+      },
+      context,
+    );
+    const params = { version, documentId, actorUserId, advanceOnly: true };
+    const first = await runtime.activateConsentPolicyVersion(syntheticConsentPolicy, params, context);
+    expect(first).toMatchObject({ activeVersion: version, authorityVersion: 2 });
+    await expect(runtime.activateConsentPolicyVersion(syntheticConsentPolicy, params, context)).rejects.toMatchObject({
+      code: "version_not_newer",
+    });
+    expect(await runtime.consentActivation.read(syntheticConsentPolicy.policyKey)).toEqual(first);
+  });
+
   it("folds beyond one page without projection authority and guards an exact-repeat no-op", async () => {
     const { eventStore } = createInMemoryEventStore();
     const { db, queryLog } = createFakePolicyDb();

@@ -31,6 +31,7 @@ import { createCatalogProviderIntegrationProfileVersionStore } from "../api/prov
 import { resetCatalogIntegrationPreLaunchData } from "../api/governance/catalog-integration-data-migration-reset";
 import { promotionCurrentItem } from "../api/promotion/source-observation-target-exclusion";
 import { guardPromotionMaterial } from "../api/promotion/promotion-material-guards";
+import { catalogProviderPromotionPlanFingerprint } from "../api/promotion/provider-promotion-command-planner";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { usePromotionTargetExclusionFixture } from "./promotion-target-exclusion-fixture";
 
@@ -443,7 +444,14 @@ describeDb("promotion target exclusion through real Catalog services", () => {
     },
   );
 
-  it.each(["asset", "multiple-profiles", "explicit-draft"] as const)(
+  const retainedPromotionPlanReconstructionScenarios = [
+    "asset",
+    "multiple-profiles",
+    "explicit-draft",
+    "legacy-missing-fallback",
+    "legacy-operator-fallback",
+  ] as const;
+  it.each(retainedPromotionPlanReconstructionScenarios)(
     "reconstructs retained %s plans before reusing their target",
     async (scenario) => {
       const retained = await retainedPlan("reconstruction-A");
@@ -478,8 +486,22 @@ describeDb("promotion target exclusion through real Catalog services", () => {
         promoteAsDraft: scenario === "explicit-draft",
       });
       if (result.status !== "planned") throw new Error(JSON.stringify(result.diagnostics));
-      for (const command of result.plan.commands)
+      const legacy = scenario === "legacy-missing-fallback" || scenario === "legacy-operator-fallback";
+      const commands = legacy
+        ? result.plan.commands.filter((command) => command.type !== "SetCatalogItemImageFallback")
+        : result.plan.commands;
+      for (const command of commands)
         await services.items.commandHandler({ streamId: `catalog.item-${retained.targetId}`, command, context });
+      if (scenario === "legacy-operator-fallback") {
+        await services.items.commandHandler({
+          streamId: `catalog.item-${retained.targetId}`,
+          command: {
+            type: "SetCatalogItemImageFallback",
+            imageFallback: { url: "/operator.png", alt: "Operator image", usage: "permanent", variants: {} },
+          },
+          context,
+        });
+      }
       await services.sourceObservations.commandHandler({
         streamId: "catalog.source-observation-reconstruction-A",
         context,
@@ -489,7 +511,7 @@ describeDb("promotion target exclusion through real Catalog services", () => {
           promotedAt: "2026-10-11T00:00:00.000Z",
           promotionProfileKey: retained.profile.profileKey,
           promotionProfileVersion: retained.profile.profileVersion,
-          promotionPlanFingerprint: result.plan.planFingerprint,
+          promotionPlanFingerprint: catalogProviderPromotionPlanFingerprint({ ...result.plan, commands }),
         },
       });
       if (scenario === "multiple-profiles") {
@@ -519,9 +541,27 @@ describeDb("promotion target exclusion through real Catalog services", () => {
           context,
         }),
       ).resolves.toMatchObject({ catalogItemId: retained.targetId });
-      expect(
-        (await readCompleteStream(store, { streamId: `catalog.item-${retained.targetId}` })).slice(0, prefix.length),
-      ).toEqual(prefix);
+      const after = await readCompleteStream(store, { streamId: `catalog.item-${retained.targetId}` });
+      expect(after.slice(0, prefix.length)).toEqual(prefix);
+      const fallbackWrites = after
+        .slice(prefix.length)
+        .filter((event) => event.eventType === "catalog.catalog-item.image-fallback-set");
+      if (scenario === "legacy-missing-fallback") {
+        expect(fallbackWrites).toEqual([
+          expect.objectContaining({
+            payload: {
+              imageFallback: {
+                url: "/fake-cdn/assets/pokemon_tcg_back.png",
+                alt: "Pokemon TCG card back",
+                usage: "permanent",
+                variants: {},
+              },
+            },
+          }),
+        ]);
+      } else {
+        expect(fallbackWrites).toEqual([]);
+      }
       expect(await itemCreations()).toHaveLength(1);
     },
   );

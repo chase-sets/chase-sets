@@ -477,18 +477,26 @@ describe("checkout web routes: checkout session action", () => {
     [
       "an owner whose email is unverified",
       "owner",
+      [{ permission: "orders.manage", reason: "email_verification_required" }],
       "checkout.features.sessions.api.route.payment.email.verification.required",
     ],
-    ["a role that never pays", "viewer", "checkout.features.sessions.api.route.payment.authority.required"],
+    ["a role that never pays", "viewer", [], "checkout.features.sessions.api.route.payment.authority.required"],
+    [
+      "an owner without orders.manage whose withheld permissions Auth did not report",
+      "owner",
+      undefined,
+      "checkout.features.sessions.api.route.payment.authority.required",
+    ],
   ] as const)(
     "refuses Pay now for %s before the address book, the Session or confirm is written",
-    async (_label, roleKey, messageKey) => {
+    async (_label, roleKey, withheldPermissions, messageKey) => {
       const createShippingAddress = vi.fn(async () => ({ id: "adr_new_checkout" }));
       const updateShippingAddress = vi.fn(async () => ({ id: "adr_saved" }));
       mockResolveActorFromAuthApi.mockResolvedValue({
         accountId: "acc_buyer",
         roleKey,
         permissions: ["accounts.view", "accounts.manage", "orders.view"],
+        withheldPermissions,
       });
       mockCreateIdentityRequestApiClient.mockReturnValue({ createShippingAddress, updateShippingAddress });
       mockGetCheckoutSession.mockResolvedValue(checkoutSessionForReviewedPreview());

@@ -185,6 +185,10 @@ describe("session auth routes", () => {
     const body = (await response.json()) as { actor: ResolvedActor };
     expect(body.actor.permissions).toContain("accounts.view");
     expect(body.actor.permissions).not.toContain("offers.manage");
+    // The public session says what Auth withheld and why, so web hosts need not rebuild the rule.
+    expect(body.actor.withheldPermissions).toEqual(
+      expect.arrayContaining([{ permission: "offers.manage", reason: "email_verification_required" }]),
+    );
   });
 
   it("fails closed when the pre-wait actor exists but the request carries no session credential", async () => {

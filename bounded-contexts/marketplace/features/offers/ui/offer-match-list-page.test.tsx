@@ -136,6 +136,13 @@ function deferred() {
   return { promise, resolve };
 }
 
+function awaitDeclineSubmitting(form: HTMLFormElement) {
+  return waitFor(() => {
+    expect(form.getAttribute("aria-busy")).toBe("true");
+    expect(form.dataset.formStatus).toBe("submitting");
+  });
+}
+
 async function awaitDeclineSettle(
   router: ReturnType<typeof createMemoryRouter>,
   form: HTMLFormElement,
@@ -183,12 +190,15 @@ describe("MarketplaceOfferMatchListPage", () => {
       );
     }
     const sent: string[] = [];
+    let releaseDecline = deferred();
     const router = createMemoryRouter([
       {
         path: "*",
         element: <RefreshablePage />,
         action: async ({ request }) => {
+          const release = releaseDecline.promise;
           sent.push(String((await request.formData()).get("attemptId")));
+          await release;
           return null;
         },
       },
@@ -224,15 +234,14 @@ describe("MarketplaceOfferMatchListPage", () => {
     if (!declineForm) throw new Error("Decline control must be inside a form");
     const firstAttempt = String(first[0]!.attemptId);
     fireEvent.click(decline);
-    expect(declineForm.getAttribute("aria-busy")).toBe("true");
-    expect(declineForm.dataset.formStatus).toBe("submitting");
+    await awaitDeclineSubmitting(declineForm).finally(releaseDecline.resolve);
     await awaitDeclineSettle(router, declineForm, sent, [firstAttempt]);
     expect(sent).toEqual([firstAttempt]);
     expect(declineForm.getAttribute("aria-busy")).toBeNull();
     expect(declineForm.dataset.formStatus).not.toBe("submitting");
+    releaseDecline = deferred();
     fireEvent.click(decline);
-    expect(declineForm.getAttribute("aria-busy")).toBe("true");
-    expect(declineForm.dataset.formStatus).toBe("submitting");
+    await awaitDeclineSubmitting(declineForm).finally(releaseDecline.resolve);
     await awaitDeclineSettle(router, declineForm, sent, [firstAttempt, firstAttempt]);
     expect(sent).toEqual([firstAttempt, firstAttempt]);
     expect(declineForm.getAttribute("aria-busy")).toBeNull();
