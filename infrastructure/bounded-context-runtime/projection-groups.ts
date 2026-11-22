@@ -18,7 +18,7 @@ import {
   resolveDeferredProjectionNames,
   resolveModuleSubscriptions,
   sortSubscriptionRunners,
-  subscriptionCheckpointsRequireRecovery,
+  subscriptionCheckpointsRequireRecoverySql,
 } from "./subscriptions";
 
 // Status-refresh fan-out is nested (groups x each group's subscription runners),
@@ -43,6 +43,7 @@ type ProjectionGroupRevisionAndGenerationRow = ProjectionGroupRevisionRow &
     generation_state: unknown;
     generation_started_at: unknown;
     generation_target_projection_revision: unknown;
+    subscription_recovery_required: boolean;
   }>;
 
 type ProjectionGroupGenerationRow = Readonly<{
@@ -204,6 +205,7 @@ async function loadProjectionGroupRevision(
   targetContextName: string,
   projectionName: string,
   captureRevisionSyncToken: boolean,
+  checkpointKeys: readonly string[],
 ): Promise<
   Readonly<{
     revision: number | null;
@@ -212,6 +214,8 @@ async function loadProjectionGroupRevision(
     rebuildingProjectionRevision: number | null | undefined;
   }>
 > {
+  // Capture recovery evidence and the generation token in the same statement snapshot.
+  const checkRecovery = checkpointKeys.length > 0;
   const result = captureRevisionSyncToken
     ? await db.query<ProjectionGroupRevisionAndGenerationRow>(
         `SELECT revision.projection_revision,
@@ -219,7 +223,8 @@ async function loadProjectionGroupRevision(
                 generation.rebuilding_generation AS generation_rebuilding_generation,
                 generation.state AS generation_state,
                 generation.target_projection_revision AS generation_target_projection_revision,
-                generation.started_at::text AS generation_started_at
+                generation.started_at::text AS generation_started_at,
+                ${checkRecovery ? subscriptionCheckpointsRequireRecoverySql(3) : "FALSE"} AS subscription_recovery_required
          FROM (VALUES ($1::text, $2::text)) AS requested(target_context_name, projection_name)
          LEFT JOIN ${PROJECTION_GROUP_REVISIONS_TABLE} AS revision
            ON revision.target_context_name = requested.target_context_name
@@ -227,7 +232,7 @@ async function loadProjectionGroupRevision(
          LEFT JOIN ${PROJECTION_GROUP_GENERATIONS_TABLE} AS generation
            ON generation.target_context_name = requested.target_context_name
           AND generation.projection_name = requested.projection_name`,
-        [targetContextName, projectionName],
+        checkRecovery ? [targetContextName, projectionName, checkpointKeys] : [targetContextName, projectionName],
       )
     : await db.query<ProjectionGroupRevisionRow>(
         `SELECT revision.projection_revision
@@ -252,7 +257,7 @@ async function loadProjectionGroupRevision(
 
   return {
     revision,
-    resetRequired: generation?.state === "failed",
+    resetRequired: generation?.state === "failed" || generationRow.subscription_recovery_required === true,
     rebuildingProjectionRevision:
       generation?.state === "rebuilding"
         ? generationRow.generation_target_projection_revision == null
@@ -825,16 +830,10 @@ function resolveContextProjectionGroups(
           entry.contextName,
           group.projectionName,
           capturesToken || usesTruncateReset,
+          capturesToken && usesTruncateReset ? checkpointKeys : [],
         );
-        // A fresh worker cannot infer marker loss from a cached subscription status or from a revision mismatch.
-        const recoveryRequired =
-          usesTruncateReset &&
-          (revision.resetRequired ||
-            (capturesToken &&
-              checkpointKeys.length > 0 &&
-              (await subscriptionCheckpointsRequireRecovery(entry.pool, checkpointKeys))));
         revisionState.storedProjectionRevision = revision.revision;
-        revisionState.recoveryRequired = recoveryRequired;
+        revisionState.recoveryRequired = usesTruncateReset && revision.resetRequired;
         revisionState.updatedAt = new Date().toISOString();
         const status: RefreshedContextProjectionGroupStatus = {
           projectionName: group.projectionName,

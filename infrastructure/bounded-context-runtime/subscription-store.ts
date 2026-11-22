@@ -107,12 +107,20 @@ type SubscriptionCheckpointRow = Readonly<{
 type SubscriptionCheckpointRecoveryRow = SubscriptionCheckpointRow &
   Readonly<{ recovery_global_position: string | number | bigint | null }>;
 
-const subscriptionCheckpointRecoverySql = `SELECT checkpoint.last_global_position,
-            recovery.last_global_position AS recovery_global_position
-     FROM ${SUBSCRIPTION_CHECKPOINTS_TABLE} AS checkpoint
+const subscriptionCheckpointRecoveryJoinSql = `FROM ${SUBSCRIPTION_CHECKPOINTS_TABLE} AS checkpoint
      LEFT JOIN ${PROJECTION_RECOVERY_MARKERS_TABLE} AS recovery
        ON recovery.projection_kind = 'subscription'
       AND recovery.projection_key = checkpoint.checkpoint_key`;
+
+export function subscriptionCheckpointsRequireRecoverySql(parameterIndex: number): string {
+  return `EXISTS (
+    SELECT 1
+    ${subscriptionCheckpointRecoveryJoinSql}
+    WHERE checkpoint.checkpoint_key = ANY($${parameterIndex}::text[])
+      AND checkpoint.last_global_position > 0
+      AND (recovery.last_global_position IS NULL OR recovery.last_global_position < checkpoint.last_global_position)
+  )`;
+}
 
 export type SubscriptionCheckpointRecoveryState = Readonly<{
   checkpoint: GlobalPosition | null;
@@ -170,22 +178,14 @@ export async function loadSubscriptionCheckpointRecoveryState(
   checkpointKey: string,
 ): Promise<SubscriptionCheckpointRecoveryState> {
   const result = await db.query<SubscriptionCheckpointRecoveryRow>(
-    `${subscriptionCheckpointRecoverySql} WHERE checkpoint.checkpoint_key = $1`,
+    `SELECT checkpoint.last_global_position,
+            recovery.last_global_position AS recovery_global_position
+     ${subscriptionCheckpointRecoveryJoinSql}
+     WHERE checkpoint.checkpoint_key = $1`,
     [checkpointKey],
   );
   const row = result.rows[0];
   return row ? parseSubscriptionCheckpointRecoveryState(row) : { checkpoint: null, recoveryRequired: false };
-}
-
-export async function subscriptionCheckpointsRequireRecovery(
-  db: PgQueryable,
-  checkpointKeys: readonly string[],
-): Promise<boolean> {
-  const result = await db.query<SubscriptionCheckpointRecoveryRow>(
-    `${subscriptionCheckpointRecoverySql} WHERE checkpoint.checkpoint_key = ANY($1::text[])`,
-    [checkpointKeys],
-  );
-  return result.rows.some((row) => parseSubscriptionCheckpointRecoveryState(row).recoveryRequired);
 }
 
 function parseSubscriptionCheckpointRecoveryState(
