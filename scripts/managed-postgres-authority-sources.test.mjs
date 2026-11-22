@@ -34,6 +34,16 @@ const cortenAdminImageDelta = [
     purpose: "terraform-infra",
   },
 ];
+// The staging-only Corten marketplace image is built right after the admin pilot's, with the same registry token.
+const cortenMarketplaceImageDelta = [
+  {
+    file: workflowPath,
+    jobId: "build-image",
+    stepAnchor: "name:Build and push Corten marketplace image#10",
+    secretName: "DIGITALOCEAN_ACCESS_TOKEN",
+    purpose: "terraform-infra",
+  },
+];
 const stripeEndpointRotationDelta = [
   {
     file: ".github/workflows/platform-production-stripe-webhook-endpoint-create.yml",
@@ -1147,7 +1157,8 @@ describe("managed Postgres authority source generator", () => {
         .concat(stripeEndpointRotationDelta)
         .concat(catalogCompletionManifestDelta)
         .map((record) => applyStepInsertions(record, cortenAdminSmokeStepInsertion))
-        .concat(cortenAdminSmokeDelta),
+        .concat(cortenAdminSmokeDelta)
+        .concat(cortenMarketplaceImageDelta),
     };
     // Exact stable-record multiset parity below is the authority; a whole-corpus total would only re-conflict.
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";

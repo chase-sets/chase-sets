@@ -96,12 +96,31 @@ function isDisposableNamespace(namespace) {
   );
 }
 
+// The staging-only Corten pilot apps: each is built as its own image and pinned by digest on staging.
+const cortenPilotImages = [
+  {
+    option: "cortenAdminImage",
+    flag: "corten-admin-image",
+    component: "admin-corten",
+    repository: "chase-sets-corten-admin",
+  },
+  {
+    option: "cortenMarketplaceImage",
+    flag: "corten-marketplace-image",
+    component: "marketplace-corten",
+    repository: "chase-sets-corten-marketplace",
+  },
+];
+
 export function platformKubernetesWorkloads(options = {}) {
   const values = options.values ?? buildPlatformHelmValues({ repoRoot: options.repoRoot });
-  const stagingComponents =
+  const staging =
     !options.values && options.envOverrides?.DEPLOYMENT_ENVIRONMENT === "staging"
-      ? { "admin-corten": buildPlatformHelmStagingValues({ repoRoot: options.repoRoot }).components["admin-corten"] }
-      : {};
+      ? buildPlatformHelmStagingValues({ repoRoot: options.repoRoot }).components
+      : undefined;
+  const stagingComponents = staging
+    ? Object.fromEntries(cortenPilotImages.map(({ component }) => [component, staging[component]]))
+    : {};
   const release = options.release ?? defaultRelease;
   const deployments = [];
   const rollouts = [];
@@ -140,17 +159,19 @@ export function buildHelmUpgradeArgs(options = {}) {
   const imagePullSecret = managedRegistryPullSecret(options.imagePullSecret);
   const requestedEnvOverrides = normalizeEnvOverrides(options.envOverrides ?? {});
   const deploymentEnvironment = requestedEnvOverrides.DEPLOYMENT_ENVIRONMENT;
-  const cortenAdminSetArgs = [];
-  if (options.cortenAdminImage) {
+  const cortenPilotSetArgs = [];
+  for (const { option, flag, component, repository } of cortenPilotImages) {
+    const reference = options[option];
+    if (!reference) continue;
     if (deploymentEnvironment !== "staging") {
-      throw new Error("corten-admin-image is staging-only.");
+      throw new Error(`${flag} is staging-only.`);
     }
-    const cortenImage = parsePlatformImageRef(options.cortenAdminImage);
-    requiredSha256Digest(cortenImage.digest, "corten-admin-image digest");
-    if (cortenImage.registryName !== image.registryName || cortenImage.repository !== "chase-sets-corten-admin") {
-      throw new Error("corten-admin-image must use the platform registry and chase-sets-corten-admin repository.");
+    const cortenImage = parsePlatformImageRef(reference);
+    requiredSha256Digest(cortenImage.digest, `${flag} digest`);
+    if (cortenImage.registryName !== image.registryName || cortenImage.repository !== repository) {
+      throw new Error(`${flag} must use the platform registry and ${repository} repository.`);
     }
-    cortenAdminSetArgs.push("--set-string", `components.admin-corten.image=${options.cortenAdminImage}`);
+    cortenPilotSetArgs.push("--set-string", `components.${component}.image=${reference}`);
   }
   const stagingRuntimeRevisionArgs =
     deploymentEnvironment === "staging"
@@ -283,7 +304,7 @@ export function buildHelmUpgradeArgs(options = {}) {
     ...previewSchedulingSetArgs,
     ...stagingRuntimeRevisionArgs,
     ...productionRuntimeRevisionArgs,
-    ...cortenAdminSetArgs,
+    ...cortenPilotSetArgs,
     ...(managedPostgresCaSha256 ? ["--set-string", `global.managedPostgresCaSha256=${managedPostgresCaSha256}`] : []),
     "--set-string",
     `global.image.registry=${image.registry}`,
@@ -4209,6 +4230,7 @@ export function parseArgs(argv, env = process.env) {
     command,
     image: readOption(rest, "--image", env.PLATFORM_IMAGE_REF),
     cortenAdminImage: readOption(rest, "--corten-admin-image"),
+    cortenMarketplaceImage: readOption(rest, "--corten-marketplace-image"),
     imagePullSecret: readOption(rest, "--image-pull-secret", managedRegistryPullSecretName),
     observabilityExporterEndpoint: readOption(
       rest,

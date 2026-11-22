@@ -122,7 +122,12 @@ it("census enumerates every DOCR writer and kills the m4 sibling-writer mutant",
   const pullRequest = readFileSync(resolve(".github/workflows/platform-pr.yml"), "utf8");
   const marker = readFileSync(resolve("scripts/production-release-marker.mjs"), "utf8");
   expect(registrySource).toContain("timeout-minutes: 135");
-  assertWriterSet(production, ["Build release image", "Push release image", "Build and push Corten admin image"]);
+  assertWriterSet(production, [
+    "Build release image",
+    "Push release image",
+    "Build and push Corten admin image",
+    "Build and push Corten marketplace image",
+  ]);
   assertWriterSet(pullRequest, ["Push boot-smoked merge-group image", "Build and push platform image"]);
   for (const source of [production, pullRequest]) {
     const blocks = workflowRunBlocks(source);
@@ -143,6 +148,7 @@ it("census enumerates every DOCR writer and kills the m4 sibling-writer mutant",
     { name: "Build release image", writer: lineContaining(/docker buildx imagetools create/) },
     { name: "Push release image", writer: lineContaining(/docker push "\$RELEASE_IMAGE"/) },
     { name: "Build and push Corten admin image", writer: buildPushWriter },
+    { name: "Build and push Corten marketplace image", writer: buildPushWriter },
   ];
   const pullRequestWriters = [
     { name: "Push boot-smoked merge-group image", writer: lineContaining(/docker push "\$image"/) },

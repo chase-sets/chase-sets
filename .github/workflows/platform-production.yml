@@ -690,6 +690,7 @@ jobs:
       platform_image: ${{ steps.release_image_identity.outputs.image }}
       platform_image_digest: ${{ steps.release_image_identity.outputs.digest }}
       corten_admin_image: ${{ steps.corten_admin_image.outputs.image }}
+      corten_marketplace_image: ${{ steps.corten_marketplace_image.outputs.image }}
       root_cause_code: ${{ steps.build_image_failure_classification.outputs.root_cause_code || 'unknown' }}
       root_cause_summary: ${{ steps.build_image_failure_classification.outputs.root_cause_summary || 'The image build failed without a known safe classification.' }}
       affected_component: ${{ steps.build_image_failure_classification.outputs.affected_component || 'unknown' }}
@@ -867,6 +868,34 @@ jobs:
           digest="$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')"
           if ! [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
             echo "Corten admin image did not resolve to an immutable sha256 digest." >&2
+            exit 1
+          fi
+          echo "image=${image}@${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push Corten marketplace image
+        id: corten_marketplace_image
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          RELEASE_IMAGE: ${{ steps.release_image.outputs.image }}
+        run: |
+          set -euo pipefail
+          registry_name="${RELEASE_IMAGE#registry.digitalocean.com/}"
+          registry_name="${registry_name%%/*}"
+          image="registry.digitalocean.com/${registry_name}/chase-sets-corten-marketplace:${{ needs.resolve-release.outputs.release_commit }}"
+          if ! docker buildx imagetools inspect "$image" >/dev/null 2>&1; then
+            node ./scripts/digitalocean-registry-gc-gate.mjs assert-writable \
+              --registry="$registry_name" \
+              --out=artifacts/release-health/registry-gc-corten-marketplace.json
+            docker buildx build \
+              --pull \
+              --file Dockerfile.corten-marketplace \
+              --cache-from type=gha,scope=corten-marketplace-image \
+              --cache-to type=gha,scope=corten-marketplace-image,mode=max \
+              --push --tag "$image" .
+          fi
+          digest="$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')"
+          if ! [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Corten marketplace image did not resolve to an immutable sha256 digest." >&2
             exit 1
           fi
           echo "image=${image}@${digest}" >> "$GITHUB_OUTPUT"
