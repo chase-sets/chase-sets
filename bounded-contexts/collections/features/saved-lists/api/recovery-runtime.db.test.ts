@@ -21,7 +21,7 @@ import { createSavedListRuntime } from "./runtime";
 import type { SavedListDestination } from "./discovery-contracts";
 import type { SavedListProductSelection } from "../domain/contracts";
 import { savedListCanonicalProduct, savedListFingerprint } from "./anonymous-owner";
-import { activateAnonymousOwnerCutover } from "../../../support/runtime-support/anonymous-owner-activation";
+import { activateAnonymousOwnerCutover } from "./anonymous-owner-activation";
 
 const baseUrl = process.env.TEST_DATABASE_URL;
 if (!baseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for recovery DB proof.");
