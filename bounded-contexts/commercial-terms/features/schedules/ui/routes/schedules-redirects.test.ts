@@ -4,18 +4,22 @@ import { loader as schedulesRedirectLoader } from "../../../../routes/admin/sche
 import { loader as scheduleRedirectLoader } from "../../../../routes/admin/schedules-detail";
 
 it.each([
-  ["/commerce/terms/schedules", schedulesRedirectLoader, {}, "/commerce/terms"],
+  ["/commerce/terms/schedules", "/commerce/terms/schedules", schedulesRedirectLoader, {}, "/commerce/terms"],
   [
     "/commerce/terms/schedules/cts_active",
+    "/commerce/terms/schedules/:id",
     scheduleRedirectLoader,
     { id: "cts_active" },
     "/commerce/terms?schedule=cts_active",
   ],
-] satisfies [string, typeof schedulesRedirectLoader, LoaderFunctionArgs["params"], string][])(
+] satisfies [string, string, typeof schedulesRedirectLoader, LoaderFunctionArgs["params"], string][])(
   "redirects the retired schedule route %s to the home query-state contract",
-  async (path, loader, params, location) => {
+  async (path, pattern, loader, params, location) => {
+    const url = new URL(path, "https://admin.chasesets.com");
     const response = await loader({
-      request: new Request(`https://admin.chasesets.com${path}`),
+      request: new Request(url),
+      url,
+      pattern,
       params,
       context: undefined,
     });
