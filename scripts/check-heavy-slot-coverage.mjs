@@ -34,6 +34,7 @@ const reviewedCheapNodeEntrypoints = new Set([
   "scripts/check-structure/kb-reference-ratchet.mjs",
   "scripts/clean-coverage.mjs",
   "scripts/clean-logs.mjs",
+  "scripts/corten-admin-smoke.mjs",
   "scripts/coverage-summary.mjs",
   "scripts/db-test-preflight.mjs",
   "scripts/design-system-hoc-budget.mjs",
