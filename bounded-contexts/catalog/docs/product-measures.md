@@ -56,4 +56,4 @@ The seeded profiles cover common Pokemon products:
 
 Irregular products such as metal cards, jumbo cards, and collection boxes should receive a more specific profile or override before checkout is allowed.
 
-Bootstrap seeds the reusable profiles. Under the production data profiles it publishes no measures and does not run the reaction; the worker's reaction publishes them after deployment, existing Catalog Items included. A `scenario-seed` bootstrap also resolves every existing scenario Catalog Item, and the reaction's catch-up in that bootstrap publishes nothing further for them.
+Bootstrap seeds the reusable profiles before the seed publishes any Catalog Item, so a rerun after an interrupted seed never finds published items without a profile. Under the production data profiles it publishes no measures and does not run the reaction; the worker's reaction publishes them after deployment, existing Catalog Items included. A `scenario-seed` bootstrap also resolves every existing scenario Catalog Item, and the reaction's catch-up in that bootstrap publishes nothing further for them.
