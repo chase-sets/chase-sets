@@ -12,6 +12,10 @@ export type CreateProductAlertRequest = Readonly<{
   catalogItemId: string;
   productId: string;
   selectedOptions?: readonly { dimensionId: string; optionId: string }[];
+  /**
+   * Ignored. The alert's summary is the catalog's option labels for its product; the field is
+   * still accepted so an older client's request is not refused for sending it.
+   */
   productSummary?: string | null;
   thresholdAmount?: string | null;
   thresholdCurrencyCode?: string | null;
