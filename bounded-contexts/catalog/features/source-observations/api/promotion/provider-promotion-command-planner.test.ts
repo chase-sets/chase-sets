@@ -571,7 +571,7 @@ describe("planCatalogProviderPromotionCommands", () => {
         },
         {
           type: "SetCatalogItemImageUrls",
-          imageUrls: ["https://images.example/yugioh/lob-booster-box.png"],
+          imageUrls: [],
         },
         { type: "SetCatalogItemProductAssetSets", productAssetSets: [] },
         {
