@@ -165,6 +165,87 @@ function confirmCheckoutForm(overrides: Record<string, string> = {}) {
 }
 
 describe("checkout web routes: checkout session action", () => {
+  describe("deferred new card Pay", () => {
+    const post = (overrides: Record<string, string> = {}) =>
+      checkoutSessionAction({
+        request: new Request("http://localhost/checkout/buy/session/chk_1?resumePaymentStart=1", {
+          method: "POST",
+          body: confirmCheckoutForm({ sourceType: "cart", ...overrides }),
+        }),
+        params: { sessionId: "chk_1" },
+        context: undefined,
+      } as never);
+
+    beforeEach(() => {
+      vi.stubEnv("STRIPE_PUBLISHABLE_KEY", "pk_test_checkout_fixture");
+      mockResolveActorFromAuthApi.mockResolvedValue({
+        accountId: "acc_buyer",
+        roleKey: "owner",
+        permissions: ["orders.manage"],
+      });
+      mockGetCheckoutSession.mockResolvedValue(checkoutSessionForReviewedPreview({ order_ids: [] }));
+      mockCreateCheckoutRequestApiClient.mockReturnValue({
+        getCheckoutSession: mockGetCheckoutSession,
+        selectShippingOption: mockSelectShippingOption,
+        selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
+        confirmCheckoutSession: mockConfirmCheckoutSession,
+      });
+    });
+    afterEach(() => vi.unstubAllEnvs());
+
+    it("known readiness does not send on a replayed resume flag with a lost token", async () => {
+      mockGetCheckoutSession.mockResolvedValue(checkoutSessionForReviewedPreview({ order_ids: ["ord_1"] }));
+      expect(await post()).toEqual({ error: t("checkout.routes.checkoutSession.payment.details.required") });
+      expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
+    });
+
+    it("sends the token once and follows authentication instead of showing a second Pay", async () => {
+      mockConfirmCheckoutSession.mockResolvedValue({
+        payment_id: "pay_1",
+        status: "confirmed",
+        payment_authentication_url: "https://hooks.stripe.test/auth",
+      });
+      const result = await post({ confirmationTokenId: "ctoken_fixture" });
+      expect(mockConfirmCheckoutSession).toHaveBeenCalledExactlyOnceWith(
+        "chk_1",
+        expect.objectContaining({ confirmationTokenId: "ctoken_fixture" }),
+      );
+      expect(result).toBeInstanceOf(Response);
+      expect((result as Response).headers.get("Location")).toBe("https://hooks.stripe.test/auth");
+      expect((result as Response).headers.has("X-Remix-Reload-Document")).toBe(true);
+    });
+
+    it("shows a declined new card as a retryable error without looking up payment start", async () => {
+      const message = "Your card was declined.";
+      const read = vi.fn(async () => ({ state: "ambiguous" }));
+      mockCreatePaymentsRequestApiClient.mockReturnValue({ getCheckoutPaymentStart: read });
+      mockConfirmCheckoutSession.mockRejectedValue(
+        new MockCheckoutApiError(400, { error: { code: "payment_declined", message } }),
+      );
+
+      expect(await post({ confirmationTokenId: "ctoken_fixture" })).toEqual({ error: message });
+      expect(read).not.toHaveBeenCalled();
+      expect(mockConfirmCheckoutSession).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      ["possible send does not resend", { state: "ambiguous" }],
+      ["recorded payment reuses identity", { state: "recorded", paymentId: "pay_first" }],
+    ])("%s after a lost response", async (_name, status) => {
+      const read = vi.fn(async () => status);
+      mockCreatePaymentsRequestApiClient.mockReturnValue({ getCheckoutPaymentStart: read });
+      mockConfirmCheckoutSession.mockRejectedValue(new Error("response lost"));
+      const result = await post({ confirmationTokenId: "ctoken_fixture" });
+      expect(read).toHaveBeenCalledExactlyOnceWith("chk_1");
+      expect(mockConfirmCheckoutSession).toHaveBeenCalledTimes(1);
+      if (status.state === "recorded") {
+        expect((result as Response).headers.get("Location")).toBe("/account/payments/pay_first");
+      } else {
+        expect(result).toEqual({ confirmationState: "ambiguous" });
+      }
+    });
+  });
+
   it("AC6 refuses an expired covered handoff before confirm or checkout mutations", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_buyer",

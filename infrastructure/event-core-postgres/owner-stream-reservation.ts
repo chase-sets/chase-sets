@@ -117,7 +117,7 @@ export function createPostgresOwnerStreamReservationStore(
     },
     abortRequestTerminal: (binding) =>
       withPgTransaction(consumerPool, async (client) => {
-        await openRequestTerminalInTransaction(client, binding);
+        await openRequestTerminalInTransaction(client, binding, "ABORTED");
         return transitionTerminal(client, binding, "ABORTED");
       }),
     abortPreparationDeadline: (binding) =>
@@ -127,7 +127,7 @@ export function createPostgresOwnerStreamReservationStore(
           [binding.preparationDeadline],
         );
         if (clock.rows[0]?.expired) {
-          await openRequestTerminalInTransaction(client, binding);
+          await openRequestTerminalInTransaction(client, binding, "ABORTED");
           return transitionTerminal(client, binding, "ABORTED");
         }
         return readLockedTerminal(client, binding);
@@ -377,12 +377,24 @@ async function assertConsumerIdentity(client: PgQueryable, binding: RequestTermi
 export async function openRequestTerminalInTransaction(
   client: PgQueryable,
   binding: RequestTerminalBinding,
+  initialStatus: "OPEN" | "ABORTED" = "OPEN",
 ): Promise<RequestTerminal> {
   await assertConsumerIdentity(client, binding);
   await client.query(TERMINAL_LOCK_SQL, [binding.consumerStoreId, binding.requestId]);
+  const prior = await client.query<DbTerminal>(
+    "SELECT binding, status FROM event_request_terminals WHERE consumer_store_id = $1 AND request_id = $2 FOR UPDATE",
+    [binding.consumerStoreId, binding.requestId],
+  );
+  if (prior.rows[0]) {
+    const terminal = mapTerminal(prior.rows[0]);
+    if (!sameRequestTerminalBinding(terminal, binding)) conflict("Request terminal identity was reused.");
+    if (initialStatus === "OPEN" && terminal.status === "OPEN") await assertExactPreparationTime(client, binding);
+    return terminal;
+  }
+  if (initialStatus === "OPEN") await assertExactPreparationTime(client, binding);
   const result = await client.query<DbTerminal>(
-    "INSERT INTO event_request_terminals (consumer_store_id, request_id, status, binding, created_at, updated_at) VALUES ($1,$2,'OPEN',$3,now(),now()) ON CONFLICT (consumer_store_id, request_id) DO UPDATE SET request_id = EXCLUDED.request_id RETURNING binding, status",
-    [binding.consumerStoreId, binding.requestId, binding],
+    "INSERT INTO event_request_terminals (consumer_store_id, request_id, status, binding, created_at, updated_at) VALUES ($1,$2,$4,$3,now(),now()) ON CONFLICT (consumer_store_id, request_id) DO UPDATE SET request_id = EXCLUDED.request_id RETURNING binding, status",
+    [binding.consumerStoreId, binding.requestId, binding, initialStatus],
   );
   const terminal = mapTerminal(result.rows[0]!);
   if (!sameRequestTerminalBinding(terminal, binding)) conflict("Request terminal identity was reused.");
@@ -411,12 +423,29 @@ async function transitionTerminal(
     if (status === "ABORTED") return prior;
     return conflict("Request terminal is already final.");
   }
+  if (status === "COMMITTED") await assertExactPreparationTime(client, binding);
   const updated = await client.query(
     "UPDATE event_request_terminals SET status = $3, updated_at = now() WHERE consumer_store_id = $1 AND request_id = $2 AND status = 'OPEN'",
     [binding.consumerStoreId, binding.requestId, status],
   );
   if (updated.rowCount !== 1) conflict("Request terminal transition is uncertain.");
   return { ...prior, status };
+}
+
+export async function assertExactPreparationTime(client: PgQueryable, binding: RequestTerminalBinding) {
+  if (binding.preparationNotBefore === undefined) return;
+  const result = await client.query<{ permitted: boolean }>(
+    `SELECT checked.at >= $1::timestamptz AND checked.at < $2::timestamptz AS permitted
+     FROM (SELECT clock_timestamp() AS at) checked
+     WHERE EXISTS (SELECT 1 FROM event_configuration_store_identity
+       WHERE singleton = true AND store_id = $3 AND incarnation = $4)`,
+    [binding.preparationNotBefore, binding.preparationDeadline, binding.consumerStoreId, binding.consumerIncarnation],
+  );
+  if (result.rows[0]?.permitted !== true) conflict("Exact preparation is outside its DB-time window.");
+}
+
+export async function lockOpenRequestTerminalInTransaction(client: PgQueryable, binding: RequestTerminalBinding) {
+  if ((await readLockedTerminal(client, binding)).status !== "OPEN") conflict("Request terminal is already final.");
 }
 /** EventStore adapter internal: COMMITTED is never a standalone store operation. */
 export function lockAndCommitRequestTerminalInTransaction(

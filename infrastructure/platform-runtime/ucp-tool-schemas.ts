@@ -3,15 +3,9 @@ import { UCP_MCP_TOOLS } from "./ucp-contracts";
 type JsonSchema = Record<string, unknown>;
 
 const BASE = "https://ucp.dev/2026-08-25/schemas/";
-const checkout = `${BASE}shopping/checkout.json`;
-const order = `${BASE}shopping/order.json`;
 const searchRequest = `${BASE}shopping/catalog_search.json#/$defs/search_request`;
-const searchResponse = `${BASE}shopping/catalog_search.json#/$defs/search_response`;
 const lookupRequest = `${BASE}shopping/catalog_lookup.json#/$defs/lookup_request`;
-const lookupResponse = `${BASE}shopping/catalog_lookup.json#/$defs/lookup_response`;
 const productRequest = `${BASE}shopping/catalog_lookup.json#/$defs/get_product_request`;
-const productResponse = `${BASE}shopping/catalog_lookup.json#/$defs/get_product_response`;
-const errorResponse = `${BASE}common/types/error_response.json`;
 
 const meta = {
   type: "object",
@@ -19,7 +13,6 @@ const meta = {
   properties: { "ucp-agent": { type: "object" }, "idempotency-key": { type: "string" } },
 } as const;
 const ref = (value: string): JsonSchema => ({ $ref: value });
-const union = (...refs: string[]): JsonSchema => ({ anyOf: refs.map((value) => ref(value)) });
 const object = (properties: Record<string, JsonSchema>, required: string[] = []): JsonSchema => ({
   type: "object",
   additionalProperties: false,
@@ -64,16 +57,73 @@ const inputSchemas: Record<string, JsonSchema> = {
   get_order: object({ id: { type: "string" } }, ["id"]),
 };
 
+// Output schemas stay self-contained and shallow: default MCP SDK clients compile them on tools/list and
+// cannot resolve remote UCP refs. Full UCP 2026-08-25 conformance is proven by the pinned capture tests.
+const stringField = { type: "string" } as const;
+const arrayField = { type: "array" } as const;
+const objectField = { type: "object" } as const;
+
+const errorBranch: JsonSchema = {
+  type: "object",
+  required: ["ucp", "messages"],
+  properties: {
+    ucp: {
+      type: "object",
+      required: ["version", "status"],
+      properties: { version: stringField, status: { const: "error" } },
+    },
+    messages: { type: "array", minItems: 1, items: objectField },
+    continue_url: stringField,
+  },
+};
+
+const resourceOrError = (fields: Record<string, JsonSchema>): JsonSchema => ({
+  type: "object",
+  anyOf: [
+    {
+      type: "object",
+      required: ["ucp", ...Object.keys(fields)],
+      properties: {
+        ucp: {
+          type: "object",
+          required: ["version"],
+          properties: { version: stringField, status: { const: "success" } },
+        },
+        ...fields,
+      },
+    },
+    errorBranch,
+  ],
+});
+
+const catalogResults = resourceOrError({ products: arrayField });
+const checkoutResult = resourceOrError({
+  id: stringField,
+  status: stringField,
+  currency: stringField,
+  line_items: arrayField,
+  totals: arrayField,
+  links: arrayField,
+});
+
 const outputSchemas: Record<string, JsonSchema> = {
-  search_catalog: union(searchResponse, errorResponse),
-  lookup_catalog: union(lookupResponse, errorResponse),
-  get_product: union(productResponse, errorResponse),
-  create_checkout: union(checkout, errorResponse),
-  get_checkout: union(checkout, errorResponse),
-  update_checkout: union(checkout, errorResponse),
-  complete_checkout: union(checkout, errorResponse),
-  cancel_checkout: union(checkout, errorResponse),
-  get_order: union(order, errorResponse),
+  search_catalog: catalogResults,
+  lookup_catalog: catalogResults,
+  get_product: resourceOrError({ product: objectField }),
+  create_checkout: checkoutResult,
+  get_checkout: checkoutResult,
+  update_checkout: checkoutResult,
+  complete_checkout: checkoutResult,
+  cancel_checkout: checkoutResult,
+  get_order: resourceOrError({
+    id: stringField,
+    checkout_id: stringField,
+    permalink_url: stringField,
+    currency: stringField,
+    line_items: arrayField,
+    totals: arrayField,
+    fulfillment: objectField,
+  }),
 };
 
 export function ucpToolInputSchema(tool: (typeof UCP_MCP_TOOLS)[number]["name"]): JsonSchema {

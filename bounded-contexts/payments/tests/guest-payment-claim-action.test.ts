@@ -149,7 +149,7 @@ describe("guest payment claim action", () => {
     } as never);
 
     expect(mockResolveActorFromAuthApi).toHaveBeenCalled();
-    expect(mockGetAccountPayment).toHaveBeenCalledWith("pay_guest_1");
+    expect(mockGetAccountPayment).toHaveBeenCalledWith("pay_guest_1", { readProcessorStatus: true });
     expect(mockListAccountOrderInputs).toHaveBeenCalledWith({ orderIds: ["ord_guest_1"] });
     expect(result).toEqual(
       expect.objectContaining({
@@ -224,7 +224,7 @@ describe("guest payment claim action", () => {
       permission: "orders.view",
     });
     expect(mockResolveActorFromAuthApi).not.toHaveBeenCalled();
-    expect(mockGetAccountPayment).toHaveBeenCalledWith("pay_signed_in_1");
+    expect(mockGetAccountPayment).toHaveBeenCalledWith("pay_signed_in_1", { readProcessorStatus: true });
     expect(mockListAccountOrderInputs).toHaveBeenCalledWith({ orderIds: ["ord_signed_in_1"] });
     expect(result).toEqual(
       expect.objectContaining({

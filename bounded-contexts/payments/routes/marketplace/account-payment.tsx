@@ -128,7 +128,8 @@ export const loader = defineResourceRoute({
     return actor;
   },
   errorAdapter: paymentsApiErrorAdapter,
-  load: ({ request, params }) => createPaymentsRequestApiClient(request).getAccountPayment(params.paymentId!),
+  load: ({ request, params }) =>
+    createPaymentsRequestApiClient(request).getAccountPayment(params.paymentId!, { readProcessorStatus: true }),
   map: async (payment, { request, params, actor }) => {
     const isGuestCheckoutPayment = new URL(request.url).pathname.startsWith("/checkout/payments/");
     try {

@@ -30,6 +30,8 @@ export type RequestTerminalBinding = Readonly<{
   target: Readonly<Record<string, unknown>>;
   reservations: readonly ReserveOwnerStreamInput[];
   preparationDeadline: string;
+  /** DB-time challenge for an exact preparation. Legacy terminals have no lower bound. */
+  preparationNotBefore?: string;
 }>;
 export type RequestTerminal = RequestTerminalBinding & Readonly<{ status: "OPEN" | "COMMITTED" | "ABORTED" }>;
 export type InvalidationIntent = Readonly<{
@@ -111,6 +113,18 @@ export function assertRequestTerminalBinding(b: RequestTerminalBinding): void {
   assertText(b.requestId, "requestId");
   assertText(b.commandFingerprint, "commandFingerprint");
   if (!Number.isFinite(Date.parse(b.preparationDeadline))) conflict("Preparation deadline is invalid.");
+  if (b.preparationNotBefore !== undefined) {
+    const start = Date.parse(b.preparationNotBefore);
+    const end = Date.parse(b.preparationDeadline);
+    if (
+      !Number.isFinite(start) ||
+      new Date(start).toISOString() !== b.preparationNotBefore ||
+      new Date(end).toISOString() !== b.preparationDeadline ||
+      end <= start ||
+      end - start > 60_000
+    )
+      conflict("Exact preparation time window is invalid.");
+  }
   if (!b.reservations.length || new Set(b.reservations.map((r) => r.reservationId)).size !== b.reservations.length)
     conflict("Request terminal reservation manifest is incomplete or duplicated.");
   for (const r of b.reservations) {
@@ -133,6 +147,7 @@ export function sameRequestTerminalBinding(a: RequestTerminalBinding, b: Request
     commandFingerprint: v.commandFingerprint,
     target: v.target,
     preparationDeadline: v.preparationDeadline,
+    ...(v.preparationNotBefore === undefined ? {} : { preparationNotBefore: v.preparationNotBefore }),
     reservations: v.reservations,
   });
   return reservationIdentity(identity(a)) === reservationIdentity(identity(b));
@@ -176,6 +191,12 @@ export function createInMemoryOwnerStreamReservationStore(
     if (b.consumerStoreId !== config.consumer.storeId || b.consumerIncarnation !== config.consumer.incarnation)
       conflict("Request terminal consumer incarnation does not match.");
   };
+  const checkTime = (b: RequestTerminalBinding) => {
+    if (b.preparationNotBefore === undefined) return;
+    const time = now();
+    if (time < Date.parse(b.preparationNotBefore) || time >= Date.parse(b.preparationDeadline))
+      conflict("Exact preparation is outside its time window.");
+  };
   const transition = (b: RequestTerminalBinding, status: "COMMITTED" | "ABORTED"): RequestTerminal => {
     validate(b);
     let prior = terminals.get(key(b));
@@ -188,6 +209,7 @@ export function createInMemoryOwnerStreamReservationStore(
       if (status === "ABORTED") return structuredClone(prior);
       conflict("Request terminal is already final.");
     }
+    if (status === "COMMITTED") checkTime(b);
     const next: RequestTerminal = { ...prior, status };
     terminals.set(key(b), next);
     return structuredClone(next);
@@ -271,8 +293,10 @@ export function createInMemoryOwnerStreamReservationStore(
       const prior = terminals.get(key(b));
       if (prior) {
         if (!sameRequestTerminalBinding(prior, b)) conflict("Request terminal identity was reused.");
+        if (prior.status === "OPEN") checkTime(b);
         return structuredClone(prior);
       }
+      checkTime(b);
       for (const r of b.reservations) {
         const grant = reservations.get(r.reservationId);
         if (

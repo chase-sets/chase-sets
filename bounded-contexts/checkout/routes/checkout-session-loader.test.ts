@@ -1097,6 +1097,28 @@ describe("checkout web routes: checkout session loader", () => {
     expect(result.paymentPreview?.order_ids).toEqual(committedOrdersWithoutPaymentSession().order_ids);
   });
 
+  it("reads the preview as the buyer and gives no Pay now quote when Payments refuses it", async () => {
+    signInBuyerWithWallet();
+    mockGetCheckoutSession.mockResolvedValue(committedOrdersWithoutPaymentSession());
+    mockPreviewCheckoutStatus.mockRejectedValueOnce(new MockPaymentsApiError(503, { error: { code: "unavailable" } }));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const request = new Request("http://localhost/checkout/buy/session/chk_wallet?paymentMethodCategory=card", {
+      headers: { cookie: "chase_sets_session=buyer" },
+    });
+
+    const result = await checkoutSessionLoader({
+      request,
+      params: { sessionId: "chk_wallet" },
+      context: undefined,
+    } as never);
+
+    expect(mockCreatePaymentsRequestApiClient).toHaveBeenCalledWith(request);
+    expect(mockPreviewCheckoutStatus).toHaveBeenCalledTimes(1);
+    expect(result.paymentPreview).toBeNull();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("status 503 code unavailable"));
+    warn.mockRestore();
+  });
+
   it.each([
     ["was recorded for another revision", { fulfillment_preview_revision: "rev_other" }],
     ["is missing", { last_recorded_quote: null }],
