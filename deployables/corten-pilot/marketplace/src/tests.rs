@@ -20105,7 +20105,8 @@ async fn add_answers_with_stripes_secure_step_and_the_answer_is_never_kept() {
     let pilot = Pilot::new().await;
     let (status, headers, html) = pilot.send(post(PAYMENT_METHODS, "payer", &method_form("add", "", PM_OK), false)).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    assert_eq!(headers[header::CACHE_CONTROL], "no-store", "the setup's secret is in the answer");
+    // `private` too, since the page draws a submit key and some CDNs keep a bare `no-store`.
+    assert_eq!(headers[header::CACHE_CONTROL], "private, no-store", "the setup's secret is in the answer");
     assert!(
         html.contains("payment_setup.mount(") && html.contains("seti_1_secret_x") && html.contains("pk_stand_in_1"),
         "{html}"
