@@ -2637,7 +2637,7 @@
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by marketplace-owned features and composition seams.",
-      "expectedConsumers": ["channel-inbound-clamp", "listings", "offers", "reviews"]
+      "expectedConsumers": ["channel-inbound-clamp", "listings", "offer-payment-consent", "offers", "reviews"]
     },
     "seed-support": {
       "classification": "support",
