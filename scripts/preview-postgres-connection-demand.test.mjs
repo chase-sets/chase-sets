@@ -59,6 +59,11 @@ describe("preview Postgres connection demand (#10022)", () => {
     const apiPools = new Set(rows("platform-api", "context + control pools").map((row) => row.pool));
     const workerPools = rows("platform-worker", "context + control pools").map((row) => row.pool);
     expect(workerPools.filter((pool) => apiPools.has(pool)).length).toBeGreaterThan(0);
+    // The serving API factory's separate Pending Registration lock pool: its cap, on the Auth database and identity.
+    const lockPools = rows("platform-api", "Pending Registration lock pool");
+    expect(lockPools).toEqual([expect.objectContaining({ phase: "runtime", max: 2 })]);
+    expect(apiPools.has(lockPools[0].pool)).toBe(true);
+    expect(lockPools[0].pool).toMatch(/_auth$/);
     expect(rows("platform-worker", "settlement schema bootstrap beside the worker pools")).toHaveLength(1);
     expect(rows("platform-api", "default post-write token store")).toEqual([
       expect.objectContaining({ max: renderedMaximum("platform-api"), phase: "runtime" }),

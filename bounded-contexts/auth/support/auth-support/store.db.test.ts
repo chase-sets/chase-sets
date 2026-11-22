@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { withPgTransaction, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { executeRetentionSweepBatch } from "@chase-sets/platform-runtime/retention-sweep";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -8,6 +9,7 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { authSchemaSql } from "../runtime-support/schema";
+import { authRetentionSweeps } from "../runtime-support/retention-policy";
 import { createPostgresAgentWebhookOutbox } from "../ucp-support/agent-webhooks/agent-webhook-outbox";
 import {
   bindGuestCheckoutContact,
@@ -16,8 +18,13 @@ import {
   consumeGuestCheckoutClaimToken,
   consumeMagicLinkToken,
   consumeSocialLoginState,
+  finishPendingMagicLinkRegistration,
   getGuestCheckoutTokenByHash,
+  hasPendingMagicLinkRegistration,
   insertAccountSelectionToken,
+  lockPendingMagicLinkRegistration,
+  recordPendingRegistrationAdmission,
+  type PendingRegistration,
   insertChallenge,
   insertGuestCheckoutClaimToken,
   insertMagicLinkToken,
@@ -150,6 +157,192 @@ describeDb("auth token store persistence boundary", () => {
       ]);
 
       expectExactlyOneWinner(results);
+    });
+  });
+
+  describe("Pending Registration magic links", () => {
+    const pending: PendingRegistration = {
+      displayName: "Synthetic Seller",
+      givenName: "Synthetic",
+      familyName: "Seller",
+      registrationConsent: { resolution: { requirements: [] }, affirmed: true } as never,
+      reservedUserId: "usr_reserved_store",
+      reservedSessionId: "ses_reserved_store",
+      password: { credentialId: "pwd_reserved_store", secretHash: "scrypt$synthetic-staged-hash" },
+      passkey: null,
+    };
+
+    async function stagePending(tokenHash: string, expiresAt = futureIso()) {
+      await insertMagicLinkToken(pool, {
+        tokenId: `cmd_${tokenHash}`,
+        userId: null,
+        email: "staged@example.com",
+        tokenHash,
+        deliveryToken: null,
+        expiresAt,
+        pendingRegistration: pending,
+      });
+    }
+
+    async function readRow(tokenHash: string) {
+      const result = await pool.query<{ pending_registration: unknown; consumed_at: string | null }>(
+        "SELECT pending_registration, consumed_at FROM identity_magic_link_tokens WHERE token_hash = $1",
+        [tokenHash],
+      );
+      return result.rows[0] ?? null;
+    }
+
+    it("adds the nullable column to a fresh schema and to a populated table created before it", async () => {
+      const column = () =>
+        pool.query<{ data_type: string; is_nullable: string }>(
+          `SELECT data_type, is_nullable FROM information_schema.columns
+           WHERE table_schema = current_schema()
+             AND table_name = 'identity_magic_link_tokens'
+             AND column_name = 'pending_registration'`,
+        );
+      expect((await column()).rows).toEqual([{ data_type: "jsonb", is_nullable: "YES" }]);
+      await pool.query(authSchemaSql);
+      expect((await column()).rows).toEqual([{ data_type: "jsonb", is_nullable: "YES" }]);
+
+      await resetMultiContextTestSchemas({ auth: pool });
+      await pool.query(`CREATE TABLE identity_magic_link_tokens (
+        token_id text PRIMARY KEY,
+        user_id text NULL,
+        email text NOT NULL,
+        token_hash text NOT NULL UNIQUE,
+        delivery_token text NULL,
+        expires_at timestamptz NOT NULL,
+        consumed_at timestamptz NULL,
+        created_at timestamptz NOT NULL DEFAULT now()
+      )`);
+      await pool.query(
+        `INSERT INTO identity_magic_link_tokens (token_id, user_id, email, token_hash, expires_at)
+         VALUES ('cmd_magic_legacy', 'usr_existing', 'buyer@example.com', 'hash_magic_legacy', $1)`,
+        [futureIso()],
+      );
+
+      // authSchemaSql is an exported array join, so this populated case is the convergence proof.
+      await pool.query(authSchemaSql);
+
+      expect((await column()).rows).toEqual([{ data_type: "jsonb", is_nullable: "YES" }]);
+      await expect(readRow("hash_magic_legacy")).resolves.toEqual({ pending_registration: null, consumed_at: null });
+      await expect(consumeMagicLinkToken(pool, "hash_magic_legacy")).resolves.toMatchObject({
+        token_id: "cmd_magic_legacy",
+      });
+    });
+
+    it("keeps a staged link out of the ordinary consume and stores no plaintext", async () => {
+      await stagePending("hash_pending_ordinary");
+
+      await expect(consumeMagicLinkToken(pool, "hash_pending_ordinary")).resolves.toBeNull();
+      await expect(hasPendingMagicLinkRegistration(pool, "hash_pending_ordinary")).resolves.toBe(true);
+      const row = await readRow("hash_pending_ordinary");
+      expect(row?.consumed_at).toBeNull();
+      expect(row?.pending_registration).toEqual(pending);
+      expect(JSON.stringify(row?.pending_registration)).not.toMatch(/"(password|plaintext|secret)":\s*"/);
+    });
+
+    it("claims a live staged link only inside a transaction and finishes it by consuming and clearing it", async () => {
+      await stagePending("hash_pending_finish");
+
+      await withPgTransaction(pool, async (client) => {
+        const claimed = await lockPendingMagicLinkRegistration(client, "hash_pending_finish");
+        expect(claimed).toEqual({
+          tokenId: "cmd_hash_pending_finish",
+          userId: null,
+          email: "staged@example.com",
+          pendingRegistration: pending,
+          admission: null,
+        });
+        await finishPendingMagicLinkRegistration(client, claimed!.tokenId);
+      });
+
+      const row = await readRow("hash_pending_finish");
+      expect(row?.pending_registration).toBeNull();
+      expect(row?.consumed_at).not.toBeNull();
+      await expect(hasPendingMagicLinkRegistration(pool, "hash_pending_finish")).resolves.toBe(false);
+      await expect(lockPendingMagicLinkRegistration(pool, "hash_pending_finish")).resolves.toBeNull();
+      await expect(finishPendingMagicLinkRegistration(pool, "cmd_hash_pending_finish")).rejects.toThrow(
+        "Pending Registration link was not claimed by this transaction.",
+      );
+    });
+
+    it("keeps the first recorded admission across claims until finishing clears it with the payload", async () => {
+      await stagePending("hash_pending_admission");
+      const first = { foundersBetaAccessStartedAt: "2026-11-20T10:00:00.000Z" };
+
+      await withPgTransaction(pool, async (client) => {
+        const claimed = await lockPendingMagicLinkRegistration(client, "hash_pending_admission");
+        await recordPendingRegistrationAdmission(client, claimed!.tokenId, first);
+      });
+
+      await withPgTransaction(pool, async (client) => {
+        const claimed = await lockPendingMagicLinkRegistration(client, "hash_pending_admission");
+        expect(claimed).toMatchObject({ pendingRegistration: pending, admission: first });
+        await expect(
+          recordPendingRegistrationAdmission(client, claimed!.tokenId, { foundersBetaAccessStartedAt: null }),
+        ).rejects.toThrow("Pending Registration link was not claimed for admission by this transaction.");
+      });
+      await withPgTransaction(pool, async (client) => {
+        const claimed = await lockPendingMagicLinkRegistration(client, "hash_pending_admission");
+        expect(claimed?.admission).toEqual(first);
+        await finishPendingMagicLinkRegistration(client, claimed!.tokenId);
+      });
+
+      await expect(readRow("hash_pending_admission")).resolves.toMatchObject({ pending_registration: null });
+    });
+
+    it("claims a staged link without a consent submission, leaving its verdict to Identity", async () => {
+      const { registrationConsent: _absent, ...withoutConsent } = pending;
+      await insertMagicLinkToken(pool, {
+        tokenId: "cmd_hash_pending_no_consent",
+        userId: null,
+        email: "staged@example.com",
+        tokenHash: "hash_pending_no_consent",
+        deliveryToken: null,
+        expiresAt: futureIso(),
+        pendingRegistration: withoutConsent as PendingRegistration,
+      });
+
+      const claimed = await withPgTransaction(pool, (client) =>
+        lockPendingMagicLinkRegistration(client, "hash_pending_no_consent"),
+      );
+
+      expect(claimed?.pendingRegistration.registrationConsent).toBeUndefined();
+      expect(claimed?.pendingRegistration.reservedUserId).toBe(pending.reservedUserId);
+    });
+
+    it("rolls a failed finalization back to a still-pending link", async () => {
+      await stagePending("hash_pending_rollback");
+
+      await expect(
+        withPgTransaction(pool, async (client) => {
+          const claimed = await lockPendingMagicLinkRegistration(client, "hash_pending_rollback");
+          await finishPendingMagicLinkRegistration(client, claimed!.tokenId);
+          throw new Error("synthetic finalization failure");
+        }),
+      ).rejects.toThrow("synthetic finalization failure");
+
+      await expect(readRow("hash_pending_rollback")).resolves.toEqual({
+        pending_registration: pending,
+        consumed_at: null,
+      });
+    });
+
+    it("never claims an expired staged link, and retention deletes it with its payload", async () => {
+      await stagePending("hash_pending_just_expired", pastIso());
+      await stagePending("hash_pending_retired", new Date(Date.now() - 8 * 24 * 60 * 60_000).toISOString());
+      await stagePending("hash_pending_live");
+
+      await expect(hasPendingMagicLinkRegistration(pool, "hash_pending_just_expired")).resolves.toBe(false);
+      await expect(lockPendingMagicLinkRegistration(pool, "hash_pending_just_expired")).resolves.toBeNull();
+
+      const sweep = authRetentionSweeps.find((candidate) => candidate.name === "expired-magic-link-tokens")!;
+      await expect(executeRetentionSweepBatch(pool, sweep)).resolves.toBe(1);
+
+      await expect(readRow("hash_pending_retired")).resolves.toBeNull();
+      await expect(readRow("hash_pending_just_expired")).resolves.toMatchObject({ pending_registration: pending });
+      await expect(readRow("hash_pending_live")).resolves.toMatchObject({ pending_registration: pending });
     });
   });
 

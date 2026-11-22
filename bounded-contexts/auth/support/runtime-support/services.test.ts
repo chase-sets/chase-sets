@@ -3,8 +3,8 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolveRecentAuthenticationStatus, ROLE_PERMISSIONS } from "@chase-sets/auth-context";
 import type { AuthenticatedSessionRead } from "../../features/sessions/api/runtime";
 import { AUTH_BOOTSTRAP_TENANT_ID } from "../auth-support/constants";
-import type { AuthServices } from "./services";
-import { resolveActorFromSessionId } from "./services";
+import type { AuthServices, ReservedAuthTokenTransaction } from "./services";
+import { resolveActorFromSessionId, startOrResumeReservedAuth } from "./services";
 
 describe("Account lifecycle proof enrollment", () => {
   it("enrolls the real DB proof, excludes it from unit CI, and rejects a deleted proof file", () => {
@@ -41,6 +41,208 @@ describe("Account lifecycle proof enrollment", () => {
       "register-routes.ts",
       "social-login-routes.ts",
     ]);
+    // Only Pending Registration consume starts or resumes a reserved Session id.
+    expect(matching(/startOrResumeReservedAuth\(/)).toEqual(["magic-link-routes.ts"]);
+  });
+});
+
+describe("Pending Registration proof enrollment", () => {
+  it("runs the real-route DB proof only in the DB profile", () => {
+    const proof = "support/api-support/pending-registration.db.test.ts";
+    const manifest = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
+    expect(manifest.scripts["test:db"].split(/\s+/)).toContain(proof);
+    expect(manifest.scripts["test:unit"]).toContain(`--exclude ${proof}`);
+    expect(existsSync(new URL("../api-support/pending-registration.db.test.ts", import.meta.url))).toBe(true);
+  });
+});
+
+describe("startOrResumeReservedAuth", () => {
+  const RESERVED_SESSION = "ses_synthetic_reserved";
+  const RESERVED_USER = "usr_synthetic_reserved";
+  const RESERVED_ACCOUNT = "acc_synthetic_reserved";
+  const STARTED_AT = "2026-11-21T08:00:00.000Z";
+  const EXPIRES_AT = "2099-01-01T00:00:00.000Z";
+  const owner = {
+    membershipId: "mbr_synthetic_reserved",
+    accountId: RESERVED_ACCOUNT,
+    roleKey: "owner",
+    status: "active",
+    rolePermissions: ROLE_PERMISSIONS.owner,
+  } as const;
+
+  function reservedState(overrides: Partial<AuthenticatedSessionRead["state"]> = {}) {
+    return {
+      id: RESERVED_SESSION,
+      userId: RESERVED_USER,
+      accountId: RESERVED_ACCOUNT,
+      availableAccountIds: [RESERVED_ACCOUNT],
+      authenticationMethod: "magic-link",
+      status: "active",
+      expiresAt: EXPIRES_AT,
+      sessionGeneration: 0,
+      ...overrides,
+    } as AuthenticatedSessionRead["state"];
+  }
+
+  function createReservedServices(
+    started: Readonly<{
+      state: AuthenticatedSessionRead["state"];
+      authenticated: AuthenticatedSessionRead | null;
+    }> | null,
+  ) {
+    const commandHandler = vi.fn(async (input: { command: Record<string, unknown> }) => ({
+      state: {
+        id: input.command.sessionId,
+        userId: input.command.userId,
+        accountId: input.command.accountId,
+        availableAccountIds: input.command.availableAccountIds,
+        authenticationMethod: input.command.authenticationMethod,
+        status: "active",
+        expiresAt: input.command.expiresAt,
+        sessionGeneration: 0,
+      },
+      storedEvents: [{ recordedAt: STARTED_AT }],
+    }));
+    const services = {
+      db: {
+        query: vi.fn(async (sql: string, params?: readonly unknown[]) =>
+          sql.includes("FROM auth_identity_accounts")
+            ? { rows: (params![0] as string[]).map((account_id) => ({ account_id })) }
+            : { rows: [] },
+        ),
+      },
+      auth: {
+        issueOpaqueToken: vi.fn(() => "session_token"),
+        hashSecret: vi.fn((value: string) => `hashed:${value}`),
+      },
+      identity: { listActiveMembershipsForUser: vi.fn(async () => []) },
+      sessions: {
+        getSessionState: vi.fn(async () => started?.state ?? null),
+        readAuthenticatedSession: vi.fn(async () => started?.authenticated ?? null),
+        getSession: vi.fn(async () => null),
+        commandHandler,
+      },
+    } as unknown as AuthServices;
+    return { services, commandHandler };
+  }
+
+  const params = {
+    userId: RESERVED_USER,
+    sessionId: RESERVED_SESSION,
+    accountId: RESERVED_ACCOUNT,
+    authenticationMethod: "magic-link",
+    context: {} as never,
+    membershipsOverride: [owner],
+  } as const;
+
+  /** The caller's open transaction: every statement it runs, and the epochs fencing its Session Token write. */
+  function callerTransaction() {
+    const client = { query: vi.fn(async (_sql: string, _values?: readonly unknown[]) => ({ rows: [] })) };
+    const epochs = { enrollOnClient: vi.fn(async (_client: unknown, _keys: readonly string[]) => undefined) };
+    const writes = (table: string) =>
+      client.query.mock.calls.filter(([sql]) => sql.includes(`INSERT INTO ${table}`)).map(([, values]) => values);
+    return { client, epochs, tokens: { client, epochs } as unknown as ReservedAuthTokenTransaction, writes };
+  }
+
+  it("starts the reserved id once through the generation-guarded start and writes the token on the caller's transaction", async () => {
+    const { services, commandHandler } = createReservedServices(null);
+    const { client, epochs, tokens, writes } = callerTransaction();
+
+    const result = await startOrResumeReservedAuth(services, params, tokens);
+
+    expect(commandHandler).toHaveBeenCalledTimes(1);
+    expect(commandHandler.mock.calls[0]![0].command).toMatchObject({
+      type: "StartSession",
+      sessionId: RESERVED_SESSION,
+      userId: RESERVED_USER,
+      accountId: RESERVED_ACCOUNT,
+    });
+    expect(epochs.enrollOnClient).toHaveBeenCalledWith(client, [`session/${RESERVED_SESSION}`]);
+    expect(writes("identity_session_tokens")).toEqual([
+      [
+        RESERVED_SESSION,
+        "hashed:session_token",
+        (commandHandler.mock.calls[0]![0].command as { expiresAt: string }).expiresAt,
+      ],
+    ]);
+    expect(services.db.query).not.toHaveBeenCalledWith(expect.stringContaining("INSERT INTO"), expect.anything());
+    expect(result).toMatchObject({
+      type: "session-started",
+      sessionId: RESERVED_SESSION,
+      sessionToken: "session_token",
+      session: { started_at: STARTED_AT },
+    });
+  });
+
+  it("resumes this User's active, unexpired, current-generation Session with its account, method, expiry and authentication time", async () => {
+    const state = reservedState({ authenticationMethod: "password" });
+    const { services, commandHandler } = createReservedServices({
+      state,
+      // A projection miss (getSession -> null) still resumes from the aggregate.
+      authenticated: { state, authenticatedAt: STARTED_AT },
+    });
+    const { tokens, writes } = callerTransaction();
+
+    const result = await startOrResumeReservedAuth(services, { ...params, accountId: "acc_synthetic_other" }, tokens);
+
+    expect(commandHandler).not.toHaveBeenCalled();
+    expect(writes("identity_session_tokens")).toEqual([[RESERVED_SESSION, "hashed:session_token", EXPIRES_AT]]);
+    expect(result).toMatchObject({
+      type: "session-started",
+      session: {
+        session_id: RESERVED_SESSION,
+        account_id: RESERVED_ACCOUNT,
+        authentication_method: "password",
+        expires_at: EXPIRES_AT,
+        started_at: STARTED_AT,
+      },
+    });
+  });
+
+  it.each([
+    ["another User's Session", reservedState({ userId: "usr_synthetic_other" }), STARTED_AT, "same"],
+    ["a revoked Session", reservedState({ status: "revoked" }), STARTED_AT, "same"],
+    ["an expired Session", reservedState({ expiresAt: "2020-01-01T00:00:00.000Z" }), STARTED_AT, "same"],
+    ["a superseded Session Generation", reservedState(), STARTED_AT, "superseded"],
+    ["a Session with no authentication moment", reservedState(), null, "same"],
+  ] as const)("refuses to resume %s and writes no token", async (_label, state, authenticatedAt, generation) => {
+    const { services, commandHandler } = createReservedServices({
+      state,
+      authenticated: generation === "superseded" ? null : { state, authenticatedAt },
+    });
+    const { client, tokens } = callerTransaction();
+
+    await expect(startOrResumeReservedAuth(services, params, tokens)).resolves.toBeNull();
+    expect(commandHandler).not.toHaveBeenCalled();
+    expect(client.query).not.toHaveBeenCalled();
+  });
+
+  it("writes an existing User's Account Selection token on the caller's transaction, never on the ordinary pool", async () => {
+    const { services, commandHandler } = createReservedServices(null);
+    vi.mocked(services.identity.listActiveMembershipsForUser).mockResolvedValue([
+      { ...owner, accountId: "acc_synthetic_a" },
+      { ...owner, accountId: "acc_synthetic_b" },
+    ] as never);
+    const { epochs, tokens, writes } = callerTransaction();
+
+    const result = await startOrResumeReservedAuth(
+      services,
+      { userId: RESERVED_USER, sessionId: RESERVED_SESSION, authenticationMethod: "magic-link", context: {} as never },
+      tokens,
+    );
+
+    expect(result).toMatchObject({
+      type: "account-selection-required",
+      userId: RESERVED_USER,
+      selectionToken: "session_token",
+    });
+    expect(commandHandler).not.toHaveBeenCalled();
+    expect(writes("identity_account_selection_tokens")).toEqual([
+      [expect.stringMatching(/^cmd_/), RESERVED_USER, "magic-link", "hashed:session_token", expect.any(String)],
+    ]);
+    expect(writes("identity_session_tokens")).toEqual([]);
+    expect(epochs.enrollOnClient).not.toHaveBeenCalled();
+    expect(services.db.query).not.toHaveBeenCalledWith(expect.stringContaining("INSERT INTO"), expect.anything());
   });
 });
 
