@@ -231,15 +231,21 @@ describe("Corten admin staging deployment", () => {
     expect(read("Dockerfile.corten-admin.dockerignore")).not.toContain("\ndeployables/corten-pilot\n");
   });
 
-  it("requires pilot readiness in both staging ingress wait and admin smoke", () => {
+  it("requires pilot readiness in both staging ingress wait and admin smoke whenever its image was built", () => {
     const steps = workflow.jobs["deploy-staging"].steps;
     const url = "https://admin-corten.staging.chasesets.com/health/ready";
-    expect(steps.find(({ name }) => name === "Wait for staging ingress URLs").run).toContain(url);
-    const smoke = steps.find(({ name }) => name === "Smoke check").run;
-    expect(smoke).toContain(`--url "${url}"`);
-    expect(smoke).toContain("node ./scripts/platform-ingress-wait.mjs");
-    expect(smoke).toContain("--expect-status 200");
-    expect(smoke).toContain('"https://${admin_domain}"');
+    const output = "${{ needs.build-corten-pilot-images.outputs.corten_admin_image }}";
+    const wait = steps.find(({ name }) => name === "Wait for staging ingress URLs");
+    expect(wait.env.CORTEN_ADMIN_IMAGE).toBe(output);
+    expect(wait.run).toContain(`if [ -n "$CORTEN_ADMIN_IMAGE" ]; then\n  ingress_urls+=("${url}")\nfi`);
+    expect(wait.run.split(url)).toHaveLength(2);
+    const smoke = steps.find(({ name }) => name === "Smoke check");
+    expect(smoke.env.CORTEN_ADMIN_IMAGE).toBe(output);
+    expect(smoke.run).toContain(
+      `if [ -n "$CORTEN_ADMIN_IMAGE" ]; then\n  node ./scripts/platform-ingress-wait.mjs \\\n    --attempts 1 \\\n    --expect-status 200 \\\n    --url "${url}"\nfi`,
+    );
+    expect(smoke.run.split(url)).toHaveLength(2);
+    expect(smoke.run).toContain('"https://${admin_domain}"');
   });
 
   it("runs the authenticated admin smoke against the pilot after admin-web's, without gating the deploy", () => {
@@ -269,21 +275,66 @@ describe("Corten admin staging deployment", () => {
     expect(advisory.run).toContain('"https://admin-corten.staging.chasesets.com"');
     expect(advisory.run).not.toMatch(/PLATFORM_ADMIN_(EMAIL|PASSWORD)/);
     expect(advisory.run).not.toContain("set -x");
+    expect(advisory.env.CORTEN_ADMIN_IMAGE).toBe("${{ needs.build-corten-pilot-images.outputs.corten_admin_image }}");
+    expect(advisory.run.indexOf('if [ -z "$CORTEN_ADMIN_IMAGE" ]; then')).toBeLessThan(
+      advisory.run.indexOf("pnpm run smoke:corten-admin"),
+    );
   });
   it("uses the existing release writer admission and passes its immutable output only to staging", () => {
-    const build = workflow.jobs["build-image"];
-    const step = build.steps.find(({ id }) => id === "corten_admin_image");
+    const build = workflow.jobs["build-corten-pilot-images"];
+    const step = build.steps.find(({ id }) => id === "corten_pilot_image");
     expect(build.environment).toBe("staging");
+    expect(build.strategy).toEqual({ "fail-fast": false, matrix: { pilot: ["admin", "marketplace"] } });
+    expect(build.outputs.corten_admin_image).toBe("${{ steps.corten_pilot_image.outputs.corten_admin_image }}");
+    expect(step.env.PILOT).toBe("${{ matrix.pilot }}");
     expect(step.run).toContain("digitalocean-registry-gc-gate.mjs assert-writable");
     expect(step.run.indexOf("assert-writable")).toBeLessThan(step.run.indexOf("--push --tag"));
-    expect(step.run).toContain("--file Dockerfile.corten-admin");
-    expect(step.run).toContain("image=${image}@${digest}");
+    expect(step.run).toContain('--file "Dockerfile.corten-${PILOT}"');
+    expect(step.run).toContain('--cache-from "type=gha,scope=corten-${PILOT}-image"');
+    expect(step.run).toContain('echo "corten_${PILOT}_image=${image}@${digest}"');
+    expect(step.run).not.toContain("doctl registry create");
     const deploy = workflow.jobs["deploy-staging"].steps.find(({ id }) => id === "staging_kubernetes_deploy");
-    expect(deploy.env.CORTEN_ADMIN_IMAGE).toBe("${{ needs.build-image.outputs.corten_admin_image }}");
-    expect(deploy.run).toContain('--corten-admin-image "$CORTEN_ADMIN_IMAGE"');
+    expect(deploy.env.CORTEN_ADMIN_IMAGE).toBe("${{ needs.build-corten-pilot-images.outputs.corten_admin_image }}");
+    expect(deploy.run).toContain(
+      'if [ -n "$CORTEN_ADMIN_IMAGE" ]; then\n  corten_image_args+=(--corten-admin-image "$CORTEN_ADMIN_IMAGE")',
+    );
+    expect(deploy.run).toContain('"${corten_image_args[@]}" \\\n');
     expect(deploy.run).toContain("PROXIES=${ingress_pod_cidrs}");
     expect(deploy.run).toContain('metadata.annotations["network.cilium.io/ipv4-pod-cidr"]');
     expect(deploy.run).toContain("ADMIN_WEB_ORIGIN=https://${admin_domain}");
+  });
+
+  it("builds the pilot images beside the release image, where neither their failure nor their delay reaches production", () => {
+    const jobs = workflow.jobs;
+    const pilot = jobs["build-corten-pilot-images"];
+    expect(pilot.needs).toEqual(jobs["build-image"].needs);
+    expect(pilot.if).toBe(jobs["build-image"].if);
+    // A failed leg reports success to Deploy Staging, so no descendant sees a failed ancestor.
+    expect(pilot["continue-on-error"]).toBe(true);
+    expect(pilot["timeout-minutes"]).toBe(20);
+    const build = pilot.steps.find(({ id }) => id === "corten_pilot_image");
+    expect(build["timeout-minutes"]).toBeLessThan(pilot["timeout-minutes"]);
+    expect(build["continue-on-error"]).toBeUndefined();
+
+    expect(jobs["deploy-staging"].needs).toEqual(["resolve-release", "build-image", "build-corten-pilot-images"]);
+    expect(jobs["deploy-staging"].if).toBe(
+      "!cancelled() && " +
+        "needs.resolve-release.result == 'success' && " +
+        "needs.build-image.result == 'success' && " +
+        "needs.resolve-release.outputs.deployment_required == 'true'",
+    );
+    expect(jobs["deploy-staging"].if).not.toContain("always()");
+    expect(JSON.stringify(jobs["deploy-staging"].if)).not.toContain("build-corten-pilot-images");
+
+    // Deploy Production's gate is byte-for-byte unchanged, and only Deploy Staging names the pilot job.
+    const heading = workflowText.indexOf("\n  deploy-production:\n");
+    expect(workflowText.slice(heading, workflowText.indexOf("    environment:", heading))).toContain(
+      "    needs:\n      - resolve-release\n      - deploy-staging\n    if: needs.deploy-staging.outputs.deployed == 'true'\n",
+    );
+    const dependants = Object.entries(jobs)
+      .filter(([, job]) => [job.needs ?? []].flat().includes("build-corten-pilot-images"))
+      .map(([name]) => name);
+    expect(dependants).toEqual(["deploy-staging"]);
   });
 
   describe("ingress pod CIDR discovery", () => {

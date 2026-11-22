@@ -44,6 +44,19 @@ const cortenMarketplaceImageDelta = [
     purpose: "terraform-infra",
   },
 ];
+// The pilot images moved out of Build Release Image into their own matrix job: one step builds either pilot,
+// and that job authenticates doctl itself. Reviewed removals of the two build-image grants above, then the additions.
+const cortenPilotImagesJobRemovals = [...cortenAdminImageDelta, ...cortenMarketplaceImageDelta];
+const cortenPilotImagesJobDelta = [
+  "name:Build and push Corten pilot image#5",
+  "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+].map((stepAnchor) => ({
+  file: workflowPath,
+  jobId: "build-corten-pilot-images",
+  stepAnchor,
+  secretName: "DIGITALOCEAN_ACCESS_TOKEN",
+  purpose: "terraform-infra",
+}));
 const stripeEndpointRotationDelta = [
   {
     file: ".github/workflows/platform-production-stripe-webhook-endpoint-create.yml",
@@ -1158,7 +1171,12 @@ describe("managed Postgres authority source generator", () => {
         .concat(catalogCompletionManifestDelta)
         .map((record) => applyStepInsertions(record, cortenAdminSmokeStepInsertion))
         .concat(cortenAdminSmokeDelta)
-        .concat(cortenMarketplaceImageDelta),
+        .concat(cortenMarketplaceImageDelta)
+        .filter(
+          (record) =>
+            !cortenPilotImagesJobRemovals.some((removal) => JSON.stringify(removal) === JSON.stringify(record)),
+        )
+        .concat(cortenPilotImagesJobDelta),
     };
     // Exact stable-record multiset parity below is the authority; a whole-corpus total would only re-conflict.
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";

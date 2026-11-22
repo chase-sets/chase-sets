@@ -222,20 +222,20 @@ describe("Corten marketplace staging, first slice", () => {
     expect(read("Dockerfile.corten-marketplace.dockerignore")).not.toContain("\ndeployables/corten-pilot\n");
   });
 
-  it("builds the image after the admin pilot's with the same writer admission, and no deploy reads it yet", () => {
-    const build = workflow.jobs["build-image"];
-    const names = build.steps.map(({ name }) => name);
-    const step = build.steps.find(({ id }) => id === "corten_marketplace_image");
-    expect(names.indexOf("Build and push Corten marketplace image")).toBe(
-      names.indexOf("Build and push Corten admin image") + 1,
-    );
-    expect(Object.keys(step.env).sort()).toEqual(["DIGITALOCEAN_ACCESS_TOKEN", "RELEASE_IMAGE"]);
+  it("builds the image in the pilot images job with the same writer admission, and no deploy reads it yet", () => {
+    const build = workflow.jobs["build-corten-pilot-images"];
+    const step = build.steps.find(({ id }) => id === "corten_pilot_image");
+    expect(build.strategy.matrix.pilot).toContain("marketplace");
     expect(step.run).toContain("digitalocean-registry-gc-gate.mjs assert-writable");
     expect(step.run.indexOf("assert-writable")).toBeLessThan(step.run.indexOf("--push --tag"));
-    expect(step.run).toContain("--file Dockerfile.corten-marketplace");
-    expect(step.run).toContain("/chase-sets-corten-marketplace:");
-    expect(step.run).toContain("image=${image}@${digest}");
-    expect(build.outputs.corten_marketplace_image).toBe("${{ steps.corten_marketplace_image.outputs.image }}");
+    expect(step.run).toContain('--file "Dockerfile.corten-${PILOT}"');
+    expect(step.run).toContain("/chase-sets-corten-${PILOT}:");
+    expect(step.run).toContain('--cache-to "type=gha,scope=corten-${PILOT}-image,mode=max"');
+    expect(step.run).toContain('echo "corten_${PILOT}_image=${image}@${digest}"');
+    expect(build.outputs.corten_marketplace_image).toBe(
+      "${{ steps.corten_pilot_image.outputs.corten_marketplace_image }}",
+    );
+    expect(JSON.stringify(workflow.jobs["build-image"])).not.toContain("corten");
     expect(JSON.stringify(workflow.jobs["deploy-staging"])).not.toContain("corten_marketplace_image");
     expect(JSON.stringify(workflow.jobs["deploy-staging"])).not.toContain("corten-marketplace");
   });
