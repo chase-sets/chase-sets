@@ -43,7 +43,7 @@ const migrationIds = [
 // Fixed Settlement lifecycle evidence at abb4857e, plus the Settlement hold projection wiring in index.ts.
 // Full source pins include imports, exports, every executable member and opaque expressions.
 const composedSources = {
-  "bounded-contexts/settlement/index.ts": "c65b1d5b3ff870736c88133db665f0379d89246adc6202684443ad2f021b8577",
+  "bounded-contexts/settlement/index.ts": "0e81eec72120e81759b90d7671e3daec1173d42605097ff664e954d01fc2bbf4",
   "bounded-contexts/settlement/support/runtime-support/schema.ts":
     "2274e4327827a68c647aa383821fe93b6157dadfceba961918ebbe3fe88ca7be",
   "bounded-contexts/settlement/support/runtime-support/unlogged-projection-migrations.ts":
