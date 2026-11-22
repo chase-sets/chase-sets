@@ -187,11 +187,12 @@ export function createCatalogItemMcpHandlers(
         itemWrite.extend({
           imageFallback: z.strictObject({
             url: z.string(),
-            alt: z.string().optional(),
-            usage: z.enum(["permanent", "loading-only"]).optional(),
-            variants: z
-              .record(z.string(), z.strictObject({ oneX: z.string().optional(), twoX: z.string().optional() }))
-              .optional(),
+            alt: z.string(),
+            usage: z.enum(["permanent", "loading-only"]),
+            variants: z.record(
+              z.string(),
+              z.strictObject({ oneX: z.string().optional(), twoX: z.string().optional() }),
+            ),
           }),
         }),
         (input) => ({
@@ -212,13 +213,13 @@ export function createCatalogItemMcpHandlers(
       })),
       "catalog.link-external-product-reference": command(
         externalReference.extend({
-          selectedOptions: z.array(z.strictObject({ dimensionId: z.string(), optionId: z.string() })).optional(),
+          selectedOptions: z.array(z.strictObject({ dimensionId: z.string(), optionId: z.string() })),
         }),
         ({ providerKey, externalKey, selectedOptions }) => ({
           type: "LinkExternalProductReference",
           providerKey,
           externalKey,
-          selectedOptions: selectedOptions ?? [],
+          selectedOptions,
         }),
       ),
       "catalog.unlink-external-product-reference": command(externalReference, ({ providerKey, externalKey }) => ({

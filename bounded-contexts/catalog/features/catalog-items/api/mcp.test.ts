@@ -130,6 +130,8 @@ const writes = [
     {
       imageFallback: {
         url: "https://example.test/front.png",
+        alt: "",
+        usage: "permanent",
         variants: { small: { twoX: "https://example.test/2x.png" } },
       },
     },
@@ -477,6 +479,24 @@ describe("Catalog Item MCP", () => {
     expect((await h.call("set-field-value", { catalogItemId, fieldId, ...controls("Set Field Value") })).isError).toBe(
       true,
     );
+    expect(
+      (
+        await h.call("set-image-fallback", {
+          catalogItemId,
+          imageFallback: { url: "https://example.test/front.png", alt: "", usage: "permanent" },
+          ...controls("Set Image Fallback"),
+        })
+      ).isError,
+    ).toBe(true);
+    expect(
+      (
+        await h.call("link-external-product-reference", {
+          catalogItemId,
+          ...ref,
+          ...controls("Link External Product Reference"),
+        })
+      ).isError,
+    ).toBe(true);
     expect(h.items.commandHandler).not.toHaveBeenCalled();
     expect(h.enqueue).not.toHaveBeenCalled();
   });

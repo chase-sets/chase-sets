@@ -248,18 +248,18 @@ const itemTools: readonly McpToolDescriptor[] = [
         ...objectSchema(
           {
             url: stringProperty("Fallback image URL."),
-            alt: stringProperty("Alt text."),
-            usage: stringProperty("Fallback usage; defaults to permanent.", ["loading-only", "permanent"]),
+            alt: stringProperty("Alt text; use an empty string for none."),
+            usage: stringProperty("Fallback usage.", ["loading-only", "permanent"]),
             variants: {
               type: "object",
-              description: "Image densities by size.",
+              description: "Complete replacement image densities by size; use {} for none.",
               additionalProperties: {
                 ...objectSchema({ oneX: stringProperty("1x image URL."), twoX: stringProperty("2x image URL.") }),
                 description: "Image URLs for this size.",
               },
             },
           },
-          ["url"],
+          ["url", "alt", "usage", "variants"],
         ),
         description: "Replacement fallback image.",
       },
@@ -281,8 +281,14 @@ const itemTools: readonly McpToolDescriptor[] = [
   itemCommand(
     "link-external-product-reference",
     "Link External Product Reference",
-    { ...itemReference, selectedOptions },
-    ["providerKey", "externalKey"],
+    {
+      ...itemReference,
+      selectedOptions: {
+        ...selectedOptions,
+        description: "Complete replacement selections; use [] for an unconfigured Product.",
+      },
+    },
+    ["providerKey", "externalKey", "selectedOptions"],
   ),
   itemCommand(
     "unlink-external-product-reference",
