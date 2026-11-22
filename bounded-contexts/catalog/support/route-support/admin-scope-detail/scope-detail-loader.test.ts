@@ -341,6 +341,9 @@ describe("Scope Detail action to next loader", () => {
       withCatalogSurfaceReads(
         {
           getCatalogScopeRecord: vi.fn().mockResolvedValue({ ...paldeanFatesScope(), languageEditions: ["en"] }),
+          getCatalogScopeJourney: vi
+            .fn()
+            .mockResolvedValue(journeyOf({ ...paldeanFatesScope(), languageEditions: ["en"] })),
           ...commands,
         },
         request,
