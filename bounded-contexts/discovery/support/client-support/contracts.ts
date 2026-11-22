@@ -83,7 +83,7 @@ export interface DiscoverySearchResponse {
   total: number | null;
   count: number;
   nextCursor: string | null;
-  retrievalMode: "lexical" | "rescue" | "hybrid" | "structured" | "corrected";
+  retrievalMode: "lexical" | "rescue" | "structured" | "corrected";
   lexicalCount: number | null;
   queryHash: string;
   resultSetKey: string;

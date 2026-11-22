@@ -20,8 +20,9 @@ type SearchResponse = Readonly<{
   total: number | null;
   count: number;
   nextCursor: string | null;
-  retrievalMode: "lexical" | "rescue" | "hybrid" | "structured" | "corrected";
+  retrievalMode: "lexical" | "rescue" | "structured" | "corrected";
   lexicalCount: number | null;
+  cursorRestarted?: true;
 }>;
 
 test.describe("marketplace search scroll restoration", () => {
@@ -94,6 +95,48 @@ test.describe("marketplace search scroll restoration", () => {
     await expect(page).toHaveURL(/dimension\.dim_seed_grade=chc_seed_grade_gem_mint_10/);
     await expect(notice).toBeVisible();
     expect(redirects).toHaveLength(1);
+  });
+
+  test("replaces restored pages when a former hybrid cursor restarts @marketplace-browse", async ({ page }) => {
+    const firstPageUrl = `/api/marketplace/items?search=${encodeURIComponent(searchQuery)}&sort=relevance&limit=24`;
+    const firstResponse = await page.request.get(firstPageUrl);
+    expect(firstResponse.ok()).toBe(true);
+    const firstPage = (await firstResponse.json()) as SearchResponse;
+    const template = firstPage.items[0];
+    expect(template, "the marketplace seed must include the configured search item").toBeDefined();
+    const formerHybridCursor = "eyJraW5kIjoiaHlicmlkIiwib2Zmc2V0IjoyNH0";
+    const resultSetKey = JSON.stringify([searchQuery, "", "", "", "", "", "", false, "relevance", []]);
+    const storedSnapshot = JSON.stringify({
+      version: 2,
+      resultSetKey,
+      pages: [pageFrom(template!, "former-hybrid", formerHybridCursor)],
+      scrollY: 0,
+    });
+    await page.addInitScript(({ key, value }) => window.sessionStorage.setItem(key, value), {
+      key: searchRestorationStorageKey,
+      value: storedSnapshot,
+    });
+
+    const restartResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return url.pathname === "/api/marketplace/items" && url.searchParams.get("cursor") === formerHybridCursor;
+    });
+    await page.goto(`/search?q=${encodeURIComponent(searchQuery)}`, { waitUntil: "domcontentloaded" });
+    await page.getByText(/former-hybrid item 24$/).scrollIntoViewIfNeeded();
+
+    const response = await restartResponse;
+    expect(response.ok()).toBe(true);
+    const restarted = (await response.json()) as SearchResponse;
+    expect(restarted).toMatchObject({
+      cursorRestarted: true,
+      total: firstPage.total,
+      facets: firstPage.facets,
+      category_counts: firstPage.category_counts,
+    });
+    expect(restarted.items.map((item) => item.catalog_item_id)).toEqual(
+      firstPage.items.map((item) => item.catalog_item_id),
+    );
+    await expect(page.getByText(/former-hybrid item \d+$/)).toHaveCount(0);
   });
 
   test("restores loaded Result Set context after an item-detail roundtrip @marketplace-browse", async ({ page }) => {

@@ -3,9 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createQueryEmbeddingCache } from "../domain/query-embedding-cache";
 import type { DiscoveryEmbeddingProvider } from "../integrations/voyage-embedding-provider";
 import {
-  classifyDiscoverySearchCursor,
   retrieveDiscoveryItems,
-  type DiscoveryHybridRetrievalDependencies,
+  type DiscoveryRetrievalDependencies,
   type DiscoverySearchResult,
 } from "./hybrid-retrieval";
 import {
@@ -39,19 +38,20 @@ const inferred = [
   { dimensionId: "dim_grade", optionId: "gem-mint-10" },
 ];
 
-describe("Discovery hybrid retrieval", () => {
-  describe("initial lexical observation survives recovery", () => {
+// Captured pre-deletion cursor for {"kind":"hybrid","offset":24}.
+const formerHybridCursor = "eyJraW5kIjoiaHlicmlkIiwib2Zmc2V0IjoyNH0";
+
+describe("Discovery retrieval", () => {
+  describe("hybrid removed surviving modes unchanged: initial lexical observation survives recovery", () => {
     it.each([
-      { name: "rescue zero without totals", count: 0, hybrid: false, mode: "rescue" },
-      { name: "rescue one", count: 1, hybrid: false, mode: "rescue" },
-      { name: "rescue two", count: 2, hybrid: false, mode: "rescue" },
-      { name: "hybrid zero", count: 0, hybrid: true, mode: "hybrid" },
-      { name: "hybrid nonzero", count: 1, hybrid: true, mode: "hybrid" },
-      { name: "corrected", count: 0, hybrid: false, mode: "corrected" },
-      { name: "interpreted", count: 0, hybrid: false, mode: "lexical" },
-    ])("$name", async ({ count, hybrid, mode, name }) => {
+      { name: "rescue zero without totals", count: 0, mode: "rescue" },
+      { name: "rescue one", count: 1, mode: "rescue" },
+      { name: "rescue two", count: 2, mode: "rescue" },
+      { name: "corrected", count: 0, mode: "corrected" },
+      { name: "interpreted", count: 0, mode: "lexical" },
+    ])("$name", async ({ count, mode, name }) => {
       const observed = vi.fn();
-      const searchLexical = vi.fn<NonNullable<DiscoveryHybridRetrievalDependencies["searchLexical"]>>(
+      const searchLexical = vi.fn<NonNullable<DiscoveryRetrievalDependencies["searchLexical"]>>(
         async (_db, params = {}) => ({
           ...result(
             name === "interpreted" && params.search === "charizard"
@@ -67,12 +67,10 @@ describe("Discovery hybrid retrieval", () => {
           provider: fakeProvider(),
           cache: createQueryEmbeddingCache(),
           rescueEnabled: true,
-          hybridEnabled: hybrid,
           searchLexical,
           searchCorrected: async () => (mode === "corrected" ? result([row("corrected")]) : null),
           loadInterpretationVocabulary: async () => vocabulary,
           searchSemantic: async () => [{ item: row("semantic"), similarity: 0.99 }],
-          hydrateItems: async (_db, items) => [...items],
           onLexicalObservation: observed,
         },
         { search: name === "interpreted" ? "charizard psa 10" : "chraizard", includeTotal: false },
@@ -81,7 +79,7 @@ describe("Discovery hybrid retrieval", () => {
       expect(page.items.length).toBeGreaterThan(0);
       expect(page.retrievalMode).toBe(mode);
       expect(page.lexicalCount).toBe(mode === "corrected" ? 0 : null);
-      expect(searchLexical.mock.calls[0]?.[1]?.includeTotal).toBe(hybrid);
+      expect(searchLexical.mock.calls[0]?.[1]?.includeTotal).toBe(false);
     });
 
     it.each(["empty", "cursor", "structured", "provider-failure", "before-read", "after-read"] as const)(
@@ -97,7 +95,6 @@ describe("Discovery hybrid retrieval", () => {
             provider,
             cache: createQueryEmbeddingCache(),
             rescueEnabled: scenario === "provider-failure",
-            hybridEnabled: false,
             searchLexical: async () => {
               if (scenario === "before-read") throw failure;
               return { ...result([]), total: null };
@@ -124,59 +121,6 @@ describe("Discovery hybrid retrieval", () => {
         else expect(observed).toHaveBeenCalledExactlyOnceWith(true);
       },
     );
-
-    it.each(["semantic", "hydration"] as const)(
-      "hybrid cursor candidate observation survives %s failure and nonempty fallback",
-      async (fault) => {
-        const observed = vi.fn();
-        const page = await retrieveDiscoveryItems(
-          {
-            db: emptyDb(),
-            provider: fakeProvider(),
-            cache: createQueryEmbeddingCache(),
-            rescueEnabled: true,
-            hybridEnabled: true,
-            searchLexical: async (_db, _params, options) =>
-              result(options?.loadMarketSummaries === false ? [] : [row("fallback")]),
-            searchSemantic: async () => {
-              if (fault === "semantic") throw new Error("synthetic semantic failure");
-              return [{ item: row("semantic"), similarity: 0.99 }];
-            },
-            hydrateItems: async () => {
-              throw new Error("synthetic hydration failure");
-            },
-            onLexicalObservation: observed,
-          },
-          { search: "dragon", cursor: hybridCursor(1), includeTotal: false },
-        );
-        expect(page).toMatchObject({ retrievalMode: "lexical", cursorState: "cursor" });
-        expect(page.items).toHaveLength(1);
-        expect(observed).toHaveBeenCalledExactlyOnceWith(true);
-      },
-    );
-
-    it("does not replace a failed initial read with a successful hybrid fallback observation", async () => {
-      const observed = vi.fn();
-      const searchLexical: NonNullable<DiscoveryHybridRetrievalDependencies["searchLexical"]> = vi
-        .fn()
-        .mockRejectedValueOnce(new Error("synthetic candidate failure"))
-        .mockResolvedValueOnce(result([row("fallback")]));
-      const page = await retrieveDiscoveryItems(
-        {
-          db: emptyDb(),
-          provider: fakeProvider(),
-          cache: createQueryEmbeddingCache(),
-          rescueEnabled: true,
-          hybridEnabled: true,
-          searchLexical,
-          searchSemantic: async () => [],
-          onLexicalObservation: observed,
-        },
-        { search: "dragon", cursor: hybridCursor(1) },
-      );
-      expect(page.items).toHaveLength(1);
-      expect(observed).not.toHaveBeenCalled();
-    });
   });
 
   it.each([false, true])(
@@ -192,7 +136,6 @@ describe("Discovery hybrid retrieval", () => {
             provider: enabled ? provider : undefined,
             cache: createQueryEmbeddingCache(),
             rescueEnabled: true,
-            hybridEnabled: true,
             searchNaturalKey: async () => result([]),
             searchLexical: async () => result([]),
             searchSemantic,
@@ -207,36 +150,32 @@ describe("Discovery hybrid retrieval", () => {
     },
   );
 
-  it.each([false, true])(
-    "a fresh zero correction hit prevents embedding and has a bounded single page (hybrid=%s)",
-    async (hybridEnabled) => {
-      const provider = fakeProvider();
-      const searchCorrected = vi.fn(async () => result([row("correct-printing")]));
-      const actual = await retrieveDiscoveryItems(
-        {
-          db: { query: async () => ({ rows: [], rowCount: 0 }) },
-          provider,
-          cache: createQueryEmbeddingCache(),
-          rescueEnabled: true,
-          hybridEnabled,
-          searchLexical: async () => result([]),
-          searchCorrected,
-          searchSemantic: async () => [{ item: row("wrong-printing"), similarity: 0.99 }],
-        },
-        { search: "chraizard" },
-      );
-      expect(actual).toMatchObject({
-        retrievalMode: "corrected",
-        lexicalCount: 0,
-        total: 1,
-        nextCursor: null,
-        facets: [],
-        category_counts: [],
-      });
-      expect(actual.items.map((item) => item.catalog_item_id)).toEqual(["correct-printing"]);
-      expect(provider.embed).not.toHaveBeenCalled();
-    },
-  );
+  it("a fresh zero correction hit prevents embedding and has a bounded single page", async () => {
+    const provider = fakeProvider();
+    const searchCorrected = vi.fn(async () => result([row("correct-printing")]));
+    const actual = await retrieveDiscoveryItems(
+      {
+        db: { query: async () => ({ rows: [], rowCount: 0 }) },
+        provider,
+        cache: createQueryEmbeddingCache(),
+        rescueEnabled: true,
+        searchLexical: async () => result([]),
+        searchCorrected,
+        searchSemantic: async () => [{ item: row("wrong-printing"), similarity: 0.99 }],
+      },
+      { search: "chraizard" },
+    );
+    expect(actual).toMatchObject({
+      retrievalMode: "corrected",
+      lexicalCount: 0,
+      total: 1,
+      nextCursor: null,
+      facets: [],
+      category_counts: [],
+    });
+    expect(actual.items.map((item) => item.catalog_item_id)).toEqual(["correct-printing"]);
+    expect(provider.embed).not.toHaveBeenCalled();
+  });
 
   it.each(["blastois agumon", "chraizard digimon"])(
     "an unprotected correction miss remains rescue-eligible: %s",
@@ -248,7 +187,6 @@ describe("Discovery hybrid retrieval", () => {
           provider,
           cache: createQueryEmbeddingCache(),
           rescueEnabled: true,
-          hybridEnabled: false,
           searchLexical: async () => result([]),
           searchCorrected: async () => null,
           searchSemantic: async () => [{ item: row("wrong-printing"), similarity: 0.99 }],
@@ -272,7 +210,6 @@ describe("Discovery hybrid retrieval", () => {
       {
         db: {} as never,
         rescueEnabled: false,
-        hybridEnabled: false,
         searchLexical: async () => result([]),
         searchCorrected,
       },
@@ -290,7 +227,6 @@ describe("Discovery hybrid retrieval", () => {
         provider,
         cache: createQueryEmbeddingCache(),
         rescueEnabled: true,
-        hybridEnabled: false,
         searchCorrected,
         searchLexical: async () => result(Array.from({ length: count }, (_, i) => row(`lexical-${i}`))),
         searchSemantic: async () => [{ item: row("semantic"), similarity: 0.99 }],
@@ -301,44 +237,32 @@ describe("Discovery hybrid retrieval", () => {
     expect(page.retrievalMode).toBe(count < 3 ? "rescue" : "lexical");
   });
 
-  it("forwards selected dimensions through both hybrid candidates and batched hydration", async () => {
+  it("forwards selected dimensions through lexical and Rescue results", async () => {
     const dimensionFilters = [{ dimensionId: "finish", optionId: "foil" }];
     const searchLexical = vi.fn(async () => result([row("lexical")]));
     const searchSemantic = vi.fn(async () => [{ item: row("semantic"), similarity: 0.9 }]);
-    const hydrateItems = vi.fn(async (_db, items) => [...items]);
     await retrieveDiscoveryItems(
       {
         db: {} as never,
         provider: fakeProvider(),
         cache: createQueryEmbeddingCache(),
         rescueEnabled: true,
-        hybridEnabled: true,
         searchLexical,
         searchSemantic,
-        hydrateItems,
       },
       { search: "dragon", dimensionFilters },
     );
-    expect(searchLexical).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ dimensionFilters }),
-      expect.anything(),
-    );
+    expect(searchLexical).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ dimensionFilters }));
     expect(searchSemantic).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ dimensionFilters }),
       vector,
       expect.anything(),
     );
-    expect(hydrateItems).toHaveBeenCalledExactlyOnceWith(
-      expect.anything(),
-      expect.any(Array),
-      expect.objectContaining({ dimensionFilters }),
-    );
   });
   afterEach(() => vi.useRealTimers());
 
-  it.each([false, true])("online timeout returns lexical metadata (hybrid=%s)", async (hybridEnabled) => {
+  it("online timeout returns lexical metadata", async () => {
     vi.useFakeTimers();
     const provider = fakeProvider();
     vi.mocked(provider.embed).mockImplementation(() => new Promise(() => {}));
@@ -364,7 +288,6 @@ describe("Discovery hybrid retrieval", () => {
         provider,
         cache: createQueryEmbeddingCache(),
         rescueEnabled: true,
-        hybridEnabled,
         searchLexical: async () => lexical,
         searchSemantic,
         onEmbeddingWait,
@@ -405,7 +328,6 @@ describe("Discovery hybrid retrieval", () => {
           provider,
           cache,
           rescueEnabled: true,
-          hybridEnabled: false,
           searchLexical: async () => lexical,
           onEmbeddingWait,
         },
@@ -431,7 +353,6 @@ describe("Discovery hybrid retrieval", () => {
         provider,
         cache: createQueryEmbeddingCache(),
         rescueEnabled: true,
-        hybridEnabled: false,
         searchLexical,
         searchSemantic,
       },
@@ -463,7 +384,6 @@ describe("Discovery hybrid retrieval", () => {
       provider,
       cache: createQueryEmbeddingCache(),
       rescueEnabled: true,
-      hybridEnabled: false,
       searchLexical,
       searchSemantic: vi.fn(),
     };
@@ -484,7 +404,6 @@ describe("Discovery hybrid retrieval", () => {
         provider,
         cache: createQueryEmbeddingCache(),
         rescueEnabled: true,
-        hybridEnabled: false,
         searchLexical: vi.fn(async () => lexical),
         searchCorrected: async () => null,
         loadInterpretationVocabulary: async () => vocabulary,
@@ -504,7 +423,6 @@ describe("Discovery hybrid retrieval", () => {
         provider: fakeProvider(),
         cache: createQueryEmbeddingCache(),
         rescueEnabled: true,
-        hybridEnabled: true,
         searchLexical: vi.fn(async () => lexical),
         searchSemantic: vi.fn(async () => Promise.reject(new Error("vector index unavailable"))),
       },
@@ -527,7 +445,6 @@ describe("Discovery hybrid retrieval", () => {
         provider,
         cache: createQueryEmbeddingCache(),
         rescueEnabled: true,
-        hybridEnabled: true,
         onEmbeddingWait,
         searchNaturalKey,
         searchLexical,
@@ -558,7 +475,6 @@ describe("Discovery hybrid retrieval", () => {
       {
         db: {} as never,
         rescueEnabled: false,
-        hybridEnabled: false,
         searchNaturalKey,
         searchLexical,
         searchSemantic: vi.fn(),
@@ -579,7 +495,6 @@ describe("Discovery hybrid retrieval", () => {
       {
         db: {} as never,
         rescueEnabled: false,
-        hybridEnabled: false,
         searchNaturalKey,
         searchLexical,
         searchSemantic: vi.fn(),
@@ -602,7 +517,6 @@ describe("Discovery hybrid retrieval", () => {
         provider,
         cache: createQueryEmbeddingCache(),
         rescueEnabled: true,
-        hybridEnabled: false,
         searchNaturalKey,
         searchLexical,
         searchSemantic: vi.fn(),
@@ -628,7 +542,6 @@ describe("Discovery hybrid retrieval", () => {
       {
         db: {} as never,
         rescueEnabled: false,
-        hybridEnabled: false,
         searchNaturalKey,
         searchLexical,
         searchSemantic: vi.fn(),
@@ -660,7 +573,6 @@ describe("Discovery hybrid retrieval", () => {
         provider,
         cache: createQueryEmbeddingCache(),
         rescueEnabled: true,
-        hybridEnabled: false,
         searchLexical,
         searchSemantic,
       },
@@ -680,65 +592,10 @@ describe("Discovery hybrid retrieval", () => {
     });
   });
 
-  it("classifies a hybrid cursor first and restarts it when hybrid retrieval is disabled", async () => {
-    const searchLexical = vi.fn(async (_db, params) => ({
-      ...result([row("first", "Pikachu")]),
-      total: params.includeTotal ? 1 : null,
-    }));
-
-    const actual = await retrieveDiscoveryItems(
-      {
-        db: {} as never,
-        provider: fakeProvider(),
-        cache: createQueryEmbeddingCache(),
-        rescueEnabled: false,
-        hybridEnabled: false,
-        searchLexical,
-        searchSemantic: vi.fn(),
-      },
-      { search: "Pikachu", cursor: hybridCursor(24) },
-    );
-
-    expect(searchLexical).toHaveBeenCalledExactlyOnceWith(
-      expect.anything(),
-      expect.objectContaining({ cursor: undefined, includeTotal: true }),
-    );
-    expect(actual).toMatchObject({ items: [expect.objectContaining({ catalog_item_id: "first" })], total: 1 });
-    expect(actual.cursorState).toBe("restarted");
-  });
-
-  it("restarts a rejected cursor as a fresh hybrid first page when hybrid retrieval is enabled", async () => {
-    const searchLexical = vi.fn(async (_db, params) => ({
-      ...result([row("exact", "Pikachu")]),
-      total: params.includeTotal ? 1 : null,
-    }));
-
-    const actual = await retrieveDiscoveryItems(
-      {
-        db: {} as never,
-        provider: fakeProvider(),
-        cache: createQueryEmbeddingCache(),
-        rescueEnabled: true,
-        hybridEnabled: true,
-        searchLexical,
-        searchSemantic: vi.fn(async () => [{ item: row("semantic", "Electric mascot"), similarity: 0.99 }]),
-        hydrateItems: vi.fn(async (_db, items) => [...items]),
-      },
-      { search: "Pikachu", cursor: legacyCursor(), limit: 1 },
-    );
-
-    expect(searchLexical).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ cursor: undefined, includeTotal: true }),
-      expect.anything(),
-    );
-    expect(actual).toMatchObject({ retrievalMode: "hybrid", total: 1, cursorState: "restarted" });
-    expect(actual.items.map((item) => item.catalog_item_id)).toEqual(["exact"]);
-  });
-
   it.each([
     ["an unversioned legacy cursor", legacyCursor()],
     ["a malformed cursor", "not-a-cursor"],
+    ["former hybrid cursor restarts result set", formerHybridCursor],
     [
       "a wrong cursor version",
       encodeCursorJson({ v: 3, id: "cat_1", title: "Pikachu", rank: 0.5, baseMatch: true, tier: 1 }),
@@ -748,7 +605,7 @@ describe("Discovery hybrid retrieval", () => {
     const searchLexical = vi.fn(searchDiscoveryItems);
 
     const actual = await retrieveDiscoveryItems(
-      { db, rescueEnabled: false, hybridEnabled: false, searchLexical, searchSemantic: vi.fn() },
+      { db, rescueEnabled: false, searchLexical, searchSemantic: vi.fn() },
       { search: "Pikachu", cursor, offset: 1, limit: 1 },
     );
 
@@ -762,111 +619,17 @@ describe("Discovery hybrid retrieval", () => {
     expect(decodeCursorJson(actual.nextCursor)).toMatchObject({ v: 2, id: "exact", tier: 1 });
   });
 
-  it("restarts a rejected cursor with an offset at the first page when hybrid retrieval fails open", async () => {
-    const { db, listValues } = scriptedRelevanceDb();
-    const provider = fakeProvider();
-    vi.mocked(provider.embed).mockRejectedValue(new Error("provider unavailable"));
-
-    const actual = await retrieveDiscoveryItems(
-      {
-        db,
-        provider,
-        cache: createQueryEmbeddingCache(),
-        rescueEnabled: true,
-        hybridEnabled: true,
-        searchSemantic: vi.fn(),
-      },
-      { search: "Pikachu", cursor: legacyCursor(), offset: 1, limit: 1 },
-    );
-
-    expect(listValues).toEqual([["active", "Pikachu", "Pikachu", "Pikachu", 2]]);
-    expect(actual.items.map((item) => item.catalog_item_id)).toEqual(["exact"]);
-    expect(actual).toMatchObject({ retrievalMode: "lexical", total: 2, cursorState: "restarted" });
-    expect(decodeCursorJson(actual.nextCursor)).toMatchObject({ v: 2, id: "exact", tier: 1 });
-  });
-
   it("keeps explicit-sort keyset cursors as continuations", async () => {
     const cursor = legacyCursor();
     const searchLexical = vi.fn(async () => result([row("page-2")]));
 
     const actual = await retrieveDiscoveryItems(
-      { db: {} as never, rescueEnabled: false, hybridEnabled: false, searchLexical, searchSemantic: vi.fn() },
+      { db: {} as never, rescueEnabled: false, searchLexical, searchSemantic: vi.fn() },
       { search: "pikachu", sort: "newest", cursor },
     );
 
     expect(searchLexical).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ cursor }));
     expect(actual.cursorState).toBe("cursor");
-  });
-
-  it("classifies the effective cursor state without retrieving", () => {
-    const hybrid = { provider: fakeProvider(), cache: createQueryEmbeddingCache(), hybridEnabled: true };
-    const lexicalOnly = { ...hybrid, hybridEnabled: false };
-
-    expect(classifyDiscoverySearchCursor(hybrid, { search: "pikachu" })).toBe("fresh");
-    expect(classifyDiscoverySearchCursor(hybrid, { search: "pikachu", cursor: hybridCursor(24) })).toBe("cursor");
-    expect(classifyDiscoverySearchCursor(lexicalOnly, { search: "pikachu", cursor: hybridCursor(24) })).toBe(
-      "restarted",
-    );
-    expect(classifyDiscoverySearchCursor(hybrid, { search: "pikachu", sort: "newest", cursor: hybridCursor(24) })).toBe(
-      "restarted",
-    );
-    expect(classifyDiscoverySearchCursor(lexicalOnly, { search: "pikachu", cursor: relevanceCursor() })).toBe("cursor");
-    expect(classifyDiscoverySearchCursor(lexicalOnly, { search: "pikachu", cursor: legacyCursor() })).toBe("restarted");
-  });
-
-  it("keeps lexical matches ahead of semantic-only candidates in hybrid mode", async () => {
-    const actual = await retrieveDiscoveryItems(
-      {
-        db: {} as never,
-        provider: fakeProvider(),
-        cache: createQueryEmbeddingCache(),
-        rescueEnabled: true,
-        hybridEnabled: true,
-        searchLexical: vi.fn(async () => result([row("exact", "Pikachu")])),
-        searchSemantic: vi.fn(async () => [{ item: row("semantic", "Electric mascot"), similarity: 0.99 }]),
-        hydrateItems: vi.fn(async (_db, items) => [...items]),
-      },
-      { search: "Pikachu", limit: 1 },
-    );
-
-    expect(actual.retrievalMode).toBe("hybrid");
-    expect(actual.items.map((item) => item.catalog_item_id)).toEqual(["exact"]);
-    expect(actual.total).toBe(1);
-    expect(actual.lexicalCount).toBe(1);
-    expect(actual.nextCursor).not.toBeNull();
-  });
-
-  it("skips the total on hybrid cursor pages", async () => {
-    const searchLexical = vi.fn(async (_db, params) => ({
-      ...result([row("exact", "Pikachu")]),
-      total: params.includeTotal ? 1 : null,
-    }));
-    const dependencies = {
-      db: {} as never,
-      provider: fakeProvider(),
-      cache: createQueryEmbeddingCache(),
-      rescueEnabled: true,
-      hybridEnabled: true,
-      searchLexical,
-      searchSemantic: vi.fn(async () => [{ item: row("semantic", "Electric mascot"), similarity: 0.99 }]),
-      hydrateItems: vi.fn(async (_db, items) => [...items]),
-    };
-
-    const firstPage = await retrieveDiscoveryItems(dependencies, { search: "Pikachu", limit: 1 });
-    const cursorPage = await retrieveDiscoveryItems(dependencies, {
-      search: "Pikachu",
-      cursor: firstPage.nextCursor ?? undefined,
-      limit: 1,
-    });
-
-    expect(searchLexical).toHaveBeenLastCalledWith(
-      expect.anything(),
-      expect.objectContaining({ includeTotal: false }),
-      expect.anything(),
-    );
-    expect(cursorPage.total).toBeNull();
-    expect(firstPage.cursorState).toBe("fresh");
-    expect(cursorPage.cursorState).toBe("cursor");
   });
 });
 
@@ -884,47 +647,43 @@ describe("Discovery search interpretation retrieval", () => {
         : result([]),
     );
 
-  it.each([false, true])(
-    "an interpreted lexical hit returns final non-paging rows without any embedding (hybrid=%s)",
-    async (hybridEnabled) => {
-      const provider = fakeProvider();
-      const searchLexical = interpretedLexical("zard");
-      const searchCorrected = vi.fn();
-      const actual = await retrieveDiscoveryItems(
-        {
-          db: emptyDb(),
-          provider,
-          cache: createQueryEmbeddingCache(),
-          rescueEnabled: true,
-          hybridEnabled,
-          searchLexical,
-          searchCorrected,
-          loadInterpretationVocabulary: async () => vocabulary,
-          searchSemantic: vi.fn(),
-        },
-        { search: "zard psa 10", dimensionFilters: [explicitFinish], limit: 24, includeTotal: true },
-      );
-      expect(actual).toMatchObject({
-        retrievalMode: "lexical",
-        nextCursor: null,
-        interpretation: {
-          remainingQuery: "zard",
-          applied: [
-            { param: "dimension.dim_company", optionId: "psa", label: "PSA" },
-            { param: "dimension.dim_grade", optionId: "gem-mint-10", label: "Gem Mint 10" },
-          ],
-        },
-      });
-      expect(actual.items.map((item) => item.catalog_item_id)).toEqual(["charizard-psa-10"]);
-      expect(searchLexical.mock.calls.at(-1)?.[1]).toMatchObject({
-        search: "zard",
-        limit: 24,
-        dimensionFilters: [explicitFinish, ...inferred],
-      });
-      expect(searchCorrected).not.toHaveBeenCalled();
-      expect(provider.embed).not.toHaveBeenCalled();
-    },
-  );
+  it("an interpreted lexical hit returns final non-paging rows without any embedding", async () => {
+    const provider = fakeProvider();
+    const searchLexical = interpretedLexical("zard");
+    const searchCorrected = vi.fn();
+    const actual = await retrieveDiscoveryItems(
+      {
+        db: emptyDb(),
+        provider,
+        cache: createQueryEmbeddingCache(),
+        rescueEnabled: true,
+        searchLexical,
+        searchCorrected,
+        loadInterpretationVocabulary: async () => vocabulary,
+        searchSemantic: vi.fn(),
+      },
+      { search: "zard psa 10", dimensionFilters: [explicitFinish], limit: 24, includeTotal: true },
+    );
+    expect(actual).toMatchObject({
+      retrievalMode: "lexical",
+      nextCursor: null,
+      interpretation: {
+        remainingQuery: "zard",
+        applied: [
+          { param: "dimension.dim_company", optionId: "psa", label: "PSA" },
+          { param: "dimension.dim_grade", optionId: "gem-mint-10", label: "Gem Mint 10" },
+        ],
+      },
+    });
+    expect(actual.items.map((item) => item.catalog_item_id)).toEqual(["charizard-psa-10"]);
+    expect(searchLexical.mock.calls.at(-1)?.[1]).toMatchObject({
+      search: "zard",
+      limit: 24,
+      dimensionFilters: [explicitFinish, ...inferred],
+    });
+    expect(searchCorrected).not.toHaveBeenCalled();
+    expect(provider.embed).not.toHaveBeenCalled();
+  });
 
   it("an interpreted correction hit corrects only the remainder under inferred filters", async () => {
     const searchCorrected = vi.fn(
@@ -938,7 +697,6 @@ describe("Discovery search interpretation retrieval", () => {
         provider,
         cache: createQueryEmbeddingCache(),
         rescueEnabled: true,
-        hybridEnabled: false,
         searchLexical: async () => result([]),
         searchCorrected,
         loadInterpretationVocabulary: async () => vocabulary,
@@ -960,7 +718,6 @@ describe("Discovery search interpretation retrieval", () => {
       {
         db: emptyDb(),
         rescueEnabled: false,
-        hybridEnabled: false,
         searchLexical: async () => result([]),
         searchCorrected,
         loadInterpretationVocabulary: async () => vocabulary,
@@ -989,7 +746,6 @@ describe("Discovery search interpretation retrieval", () => {
       {
         db: emptyDb(),
         rescueEnabled: false,
-        hybridEnabled: false,
         searchLexical: async () => result([]),
         searchCorrected,
         loadInterpretationVocabulary: async () => vocabulary,
@@ -1015,7 +771,6 @@ describe("Discovery search interpretation retrieval", () => {
           provider,
           cache: createQueryEmbeddingCache(),
           rescueEnabled: true,
-          hybridEnabled: false,
           searchLexical: async () => result([]),
           searchCorrected: async () => null,
           loadInterpretationVocabulary: async () => vocabulary,
@@ -1045,7 +800,6 @@ describe("Discovery search interpretation retrieval", () => {
         provider,
         cache: createQueryEmbeddingCache({ timeoutMs: 800 }),
         rescueEnabled: true,
-        hybridEnabled: true,
         searchLexical: async () => result([]),
         searchCorrected: async () => null,
         loadInterpretationVocabulary: async () => vocabulary,
@@ -1069,7 +823,6 @@ describe("Discovery search interpretation retrieval", () => {
         provider,
         cache: createQueryEmbeddingCache(),
         rescueEnabled: true,
-        hybridEnabled: true,
         searchLexical: async () => result([]),
         searchCorrected: async () => null,
         loadInterpretationVocabulary: async () => vocabulary,
@@ -1092,7 +845,6 @@ describe("Discovery search interpretation retrieval", () => {
       {
         db: emptyDb(),
         rescueEnabled: false,
-        hybridEnabled: false,
         searchLexical: async () => result([...rows]),
         searchCorrected: async () => null,
         loadInterpretationVocabulary,
@@ -1108,7 +860,6 @@ describe("Discovery search interpretation retrieval", () => {
       {
         db: emptyDb(),
         rescueEnabled: false,
-        hybridEnabled: false,
         searchLexical,
         searchCorrected: async () => null,
         loadInterpretationVocabulary: async () => vocabulary,
@@ -1119,10 +870,9 @@ describe("Discovery search interpretation retrieval", () => {
     expect(actual).not.toHaveProperty("interpretation");
   });
 
-  // A deterministic provider with a distinct semantic-only row, so any rescue or hybrid work
+  // A deterministic provider with a distinct semantic-only row, so any Rescue
   // on the marked canonical request would change its rows.
   const semanticDependencies = (
-    hybridEnabled: boolean,
     searchLexical: (db: PgQueryable, params?: DiscoverySearchParams) => Promise<ListResult<DiscoverySearchItemRow>>,
     searchCorrected: (
       db: PgQueryable,
@@ -1133,12 +883,10 @@ describe("Discovery search interpretation retrieval", () => {
     provider: fakeProvider(),
     cache: createQueryEmbeddingCache(),
     rescueEnabled: true,
-    hybridEnabled,
     searchLexical: vi.fn(searchLexical),
     searchCorrected: vi.fn(searchCorrected),
     loadInterpretationVocabulary: async () => vocabulary,
     searchSemantic: vi.fn(async () => [{ item: row("semantic-only"), similarity: 0.99 }]),
-    hydrateItems: async (_db: PgQueryable, items: readonly DiscoverySearchItemRow[]) => [...items],
   });
   const marked = (remainingQuery: string) => ({
     search: remainingQuery,
@@ -1154,83 +902,62 @@ describe("Discovery search interpretation retrieval", () => {
     retrievalMode: page.retrievalMode,
   });
 
-  it.each([false, true])(
-    "a marked canonical request returns the interpreted rows without semantic work (hybrid=%s)",
-    async (hybridEnabled) => {
-      const lexicalHit = semanticDependencies(
-        hybridEnabled,
-        async (_db, params) => result(params?.search === "zard" && gemMint10Only(params) ? [row("lexical")] : []),
-        async () => null,
-      );
-      const correctionHit = semanticDependencies(
-        hybridEnabled,
-        async () => result([]),
-        async (_db, params) =>
-          params.search === "charzard" && gemMint10Only(params) ? result([row("corrected")]) : null,
-      );
-      for (const [dependencies, search] of [
-        [lexicalHit, "zard psa 10"],
-        [correctionHit, "charzard psa 10"],
-      ] as const) {
-        const direct = await retrieveDiscoveryItems(dependencies, { search });
-        expect(direct.interpretation?.applied.map((value) => value.param)).toEqual([
-          "dimension.dim_company",
-          "dimension.dim_grade",
-        ]);
-        const canonical = await retrieveDiscoveryItems(
-          dependencies,
-          marked(direct.interpretation?.remainingQuery ?? ""),
-        );
-        expect(summarize(canonical)).toEqual(summarize(direct));
-        expect(canonical).not.toHaveProperty("interpretation");
-        expect(dependencies.provider.embed).not.toHaveBeenCalled();
-        expect(dependencies.searchSemantic).not.toHaveBeenCalled();
-      }
-    },
-  );
-
-  it.each([false, true])(
-    "a marked canonical request that later finds nothing stays empty (hybrid=%s)",
-    async (hybridEnabled) => {
-      const dependencies = semanticDependencies(
-        hybridEnabled,
-        async () => result([]),
-        async () => null,
-      );
-      const actual = await retrieveDiscoveryItems(dependencies, marked("zard"));
-      expect(actual).toMatchObject({ retrievalMode: "lexical", items: [], nextCursor: null });
-      expect(dependencies.searchCorrected).toHaveBeenCalledOnce();
+  it("a marked canonical request returns the interpreted rows without semantic work", async () => {
+    const lexicalHit = semanticDependencies(
+      async (_db, params) => result(params?.search === "zard" && gemMint10Only(params) ? [row("lexical")] : []),
+      async () => null,
+    );
+    const correctionHit = semanticDependencies(
+      async () => result([]),
+      async (_db, params) =>
+        params.search === "charzard" && gemMint10Only(params) ? result([row("corrected")]) : null,
+    );
+    for (const [dependencies, search] of [
+      [lexicalHit, "zard psa 10"],
+      [correctionHit, "charzard psa 10"],
+    ] as const) {
+      const direct = await retrieveDiscoveryItems(dependencies, { search });
+      expect(direct.interpretation?.applied.map((value) => value.param)).toEqual([
+        "dimension.dim_company",
+        "dimension.dim_grade",
+      ]);
+      const canonical = await retrieveDiscoveryItems(dependencies, marked(direct.interpretation?.remainingQuery ?? ""));
+      expect(summarize(canonical)).toEqual(summarize(direct));
+      expect(canonical).not.toHaveProperty("interpretation");
       expect(dependencies.provider.embed).not.toHaveBeenCalled();
       expect(dependencies.searchSemantic).not.toHaveBeenCalled();
-    },
-  );
+    }
+  });
 
-  it.each([
-    [false, "rescue"],
-    [true, "hybrid"],
-  ] as const)("the same unmarked request keeps semantic retrieval (hybrid=%s)", async (hybridEnabled, mode) => {
+  it("a marked canonical request that later finds nothing stays empty", async () => {
     const dependencies = semanticDependencies(
-      hybridEnabled,
+      async () => result([]),
+      async () => null,
+    );
+    const actual = await retrieveDiscoveryItems(dependencies, marked("zard"));
+    expect(actual).toMatchObject({ retrievalMode: "lexical", items: [], nextCursor: null });
+    expect(dependencies.searchCorrected).toHaveBeenCalledOnce();
+    expect(dependencies.provider.embed).not.toHaveBeenCalled();
+    expect(dependencies.searchSemantic).not.toHaveBeenCalled();
+  });
+
+  it("the same unmarked request keeps semantic Rescue", async () => {
+    const dependencies = semanticDependencies(
       async (_db, params) => result(params?.search === "zard" ? [row("lexical")] : []),
       async () => null,
     );
     const actual = await retrieveDiscoveryItems(dependencies, { search: "zard", dimensionFilters: inferred });
-    expect(actual.retrievalMode).toBe(mode);
+    expect(actual.retrievalMode).toBe("rescue");
     expect(actual.items.map((item) => item.catalog_item_id)).toEqual(["lexical", "semantic-only"]);
     expect(dependencies.provider.embed).toHaveBeenCalledOnce();
   });
 
   it("a marked request restarts a hybrid cursor and continues a lexical cursor lexically", async () => {
-    const hybrid = { provider: fakeProvider(), cache: createQueryEmbeddingCache(), hybridEnabled: true };
-    expect(classifyDiscoverySearchCursor(hybrid, { ...marked("zard"), cursor: hybridCursor(24) })).toBe("restarted");
-    expect(classifyDiscoverySearchCursor(hybrid, { ...marked("zard"), cursor: relevanceCursor() })).toBe("cursor");
-
     const dependencies = semanticDependencies(
-      true,
       async (_db, params) => result(params?.search === "zard" ? [row("lexical")] : []),
       async () => null,
     );
-    const restarted = await retrieveDiscoveryItems(dependencies, { ...marked("zard"), cursor: hybridCursor(24) });
+    const restarted = await retrieveDiscoveryItems(dependencies, { ...marked("zard"), cursor: formerHybridCursor });
     expect(restarted).toMatchObject({ cursorState: "restarted", retrievalMode: "lexical" });
     expect(restarted.items.map((item) => item.catalog_item_id)).toEqual(["lexical"]);
     expect(dependencies.searchLexical.mock.calls.at(-1)?.[1]).toMatchObject({ cursor: undefined, includeTotal: true });
@@ -1265,10 +992,6 @@ function relevanceCursor(): string {
     tier: 1,
     lowestPriceAmount: null,
   });
-}
-
-function hybridCursor(offset: number): string {
-  return encodeCursorJson({ kind: "hybrid", offset });
 }
 
 function encodeCursorJson(value: unknown): string {

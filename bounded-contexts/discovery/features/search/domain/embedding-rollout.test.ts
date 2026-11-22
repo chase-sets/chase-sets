@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
+import * as rollout from "./embedding-rollout";
 import {
   DISCOVERY_SEARCH_EMBEDDINGS_ENV_VAR,
-  DISCOVERY_SEARCH_HYBRID_ENV_VAR,
   DISCOVERY_SEARCH_RESCUE_ENV_VAR,
   discoverySearchEmbeddingEnrichmentEnabled,
-  discoverySearchHybridEnabled,
   discoverySearchRescueEnabled,
 } from "./embedding-rollout";
 
@@ -22,9 +21,7 @@ describe("Discovery search embedding kill-switch", () => {
     expect(discoverySearchRescueEnabled({ [DISCOVERY_SEARCH_RESCUE_ENV_VAR]: "kill" })).toBe(false);
   });
 
-  it("keeps hybrid closed until explicitly enabled", () => {
-    expect(discoverySearchHybridEnabled({})).toBe(false);
-    expect(discoverySearchHybridEnabled({ [DISCOVERY_SEARCH_HYBRID_ENV_VAR]: "enabled" })).toBe(true);
-    expect(discoverySearchHybridEnabled({ [DISCOVERY_SEARCH_HYBRID_ENV_VAR]: "off" })).toBe(false);
+  it("hybrid config removed", () => {
+    expect(Object.keys(rollout)).toEqual(expect.not.arrayContaining([expect.stringMatching(/hybrid/i)]));
   });
 });

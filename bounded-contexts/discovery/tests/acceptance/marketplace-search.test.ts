@@ -421,7 +421,7 @@ describe("marketplace search", () => {
     expect(await count({ dimensionFilters, marketActivity: "any", inStock: true })).toBe(2);
   });
 
-  it("selected variant retrieval summaries agree across lexical structured semantic rescue and hybrid", async () => {
+  it("selected variant retrieval summaries agree across lexical structured and semantic rescue", async () => {
     await variantItem();
     await variantListing("nonfoil", "2", [{ dimensionId: "finish", optionId: "nonfoil" }]);
     await variantListing("foil", "20");
@@ -455,27 +455,24 @@ describe("marketplace search", () => {
       semantic.find(({ item }) => item.catalog_item_id === "semantic-variant")?.item.market_summary
         ?.lowest_price_amount,
     ).toBe("30");
-    for (const hybridEnabled of [false, true]) {
-      const actual = await retrieveDiscoveryItems(
-        {
-          db: pools.discovery,
-          rescueEnabled: true,
-          hybridEnabled,
-          provider: {
-            model: "synthetic",
-            dimensions: 1024,
-            embed: async () => ({ vectors: [vector], totalTokens: 0 }),
-          },
-          cache: createQueryEmbeddingCache(),
+    const actual = await retrieveDiscoveryItems(
+      {
+        db: pools.discovery,
+        rescueEnabled: true,
+        provider: {
+          model: "synthetic",
+          dimensions: 1024,
+          embed: async () => ({ vectors: [vector], totalTokens: 0 }),
         },
-        params,
-      );
-      expect(actual.items[0]?.market_summary).toEqual(lexical.items[0]?.market_summary);
-      expect(actual.retrievalMode).toBe(hybridEnabled ? "hybrid" : "rescue");
-      expect(
-        actual.items.find((item) => item.catalog_item_id === "semantic-variant")?.market_summary?.lowest_price_amount,
-      ).toBe("30");
-    }
+        cache: createQueryEmbeddingCache(),
+      },
+      params,
+    );
+    expect(actual.items[0]?.market_summary).toEqual(lexical.items[0]?.market_summary);
+    expect(actual.retrievalMode).toBe("rescue");
+    expect(
+      actual.items.find((item) => item.catalog_item_id === "semantic-variant")?.market_summary?.lowest_price_amount,
+    ).toBe("30");
     await pools.discovery.query(`DELETE FROM discovery_market_listings WHERE listing_id = 'foil'`);
     await variantOffer("demand");
     for (const marketActivity of ["offers", "any"] as const) {
@@ -2364,7 +2361,6 @@ describe("marketplace search", () => {
       const dependencies = {
         db: pools.discovery,
         rescueEnabled: true,
-        hybridEnabled: true,
         provider: enabled ? { model: "synthetic-wrong-printing", dimensions: 1024, embed } : undefined,
         cache: createQueryEmbeddingCache(),
         searchSemantic,
@@ -2389,14 +2385,11 @@ describe("marketplace search", () => {
       expect(searchSemantic).not.toHaveBeenCalled();
     }
     for (const search of ["blastois agumon", "chraizard digimon", "charzard unrelatedword"]) {
-      const page = await retrieveDiscoveryItems(
-        { db: pools.discovery, rescueEnabled: false, hybridEnabled: false },
-        { search },
-      );
+      const page = await retrieveDiscoveryItems({ db: pools.discovery, rescueEnabled: false }, { search });
       expect(page.items, search).toEqual([]);
       expect(page.retrievalMode).toBe("lexical");
     }
-    const lexicalOnly = { db: pools.discovery, rescueEnabled: false, hybridEnabled: false };
+    const lexicalOnly = { db: pools.discovery, rescueEnabled: false };
     const synonymTypo = await retrieveDiscoveryItems(lexicalOnly, { search: "pkmn boostre box" });
     expect(synonymTypo.items.map((item) => item.catalog_item_id)).toEqual(["corr_box"]);
     expect(synonymTypo.retrievalMode).toBe("corrected");
@@ -2413,25 +2406,15 @@ describe("marketplace search", () => {
       expect((await retrieveDiscoveryItems(lexicalOnly, { search })).retrievalMode).toBe("lexical");
     }
     expect(
-      (
-        await retrieveDiscoveryItems(
-          { db: pools.discovery, rescueEnabled: false, hybridEnabled: false },
-          { search: "char" },
-        )
-      ).items.length,
+      (await retrieveDiscoveryItems({ db: pools.discovery, rescueEnabled: false }, { search: "char" })).items.length,
     ).toBeGreaterThan(0);
     expect(
-      (
-        await retrieveDiscoveryItems(
-          { db: pools.discovery, rescueEnabled: false, hybridEnabled: false },
-          { search: "chra 4/102" },
-        )
-      ).items,
+      (await retrieveDiscoveryItems({ db: pools.discovery, rescueEnabled: false }, { search: "chra 4/102" })).items,
     ).toEqual([]);
     await variantListing("corr_listing", "10.00", [], "USD", "corr_char_a");
     await refreshAllSearchIndexMarketSignals(pools.discovery);
     const filtered = await retrieveDiscoveryItems(
-      { db: pools.discovery, rescueEnabled: false, hybridEnabled: false },
+      { db: pools.discovery, rescueEnabled: false },
       {
         search: "charzard 4/102",
         priceMin: "5",

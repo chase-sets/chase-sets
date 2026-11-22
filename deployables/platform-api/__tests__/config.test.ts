@@ -148,7 +148,6 @@ function resetConfigEnv() {
   delete process.env.EASYPOST_MODE;
   delete process.env.DISCOVERY_SEARCH_EMBEDDINGS;
   delete process.env.DISCOVERY_SEARCH_RESCUE;
-  delete process.env.DISCOVERY_SEARCH_HYBRID;
   delete process.env.DISCOVERY_QUERY_EMBEDDING_CACHE_MAX_ENTRIES;
   delete process.env.DISCOVERY_QUERY_EMBEDDING_CACHE_TTL_MS;
   delete process.env.VOYAGE_API_KEY;
@@ -286,6 +285,10 @@ describe("release-scoped Capability Administration Authority configuration", () 
 });
 
 describe("platform api config", () => {
+  it("hybrid config removed", () => {
+    expect(loadConfig().discoverySearchEmbeddings).not.toHaveProperty("hybridValue");
+  });
+
   it("keeps the online query embedding deadline separate from batch policy", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     process.env.VOYAGE_EMBEDDING_TIMEOUT_MS = "60000";
