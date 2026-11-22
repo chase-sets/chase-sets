@@ -388,6 +388,51 @@ describe("canonical proof sets:", () => {
     for (const result of ["failure", "cancelled", ""]) expect(() => requireCanonicalProofResult([], result)).toThrow();
   });
 
+  it("requires the Corten pilot export check for catalog and locale changes on PRs and merge groups", () => {
+    const workflow = parseYaml(readFileSync(path.join(repoRoot, ".github/workflows/platform-pr.yml"), "utf8"));
+    expect(workflow.on).toHaveProperty("pull_request");
+    expect(workflow.on.merge_group.types).toContain("checks_requested");
+
+    for (const mode of ["pull-request", "merge-group"]) {
+      for (const file of [
+        "bounded-contexts/collections/features/saved-lists/ui/localization/locales/en.ts",
+        "deployables/corten-pilot/marketplace/locales/item.en.json",
+      ]) {
+        const scope = classifyChanges({ changedFiles: [file] });
+        const plan = createCiGatePlan({ mode, labels: [], provenance: "same-repository", scope });
+        expect(ciGatePlanOutputMap(plan).static_required).toBe("true");
+      }
+    }
+
+    const source = workflow.jobs["static-source"];
+    expect(source.needs).toBe("change-scope");
+    expect(source.if).toBe("needs['change-scope'].outputs.static_required == 'true'");
+    const installIndex = source.steps.findIndex(
+      (step) => step.uses === "./.github/actions/setup-pnpm-workspace" && step.with?.install === true,
+    );
+    expect(installIndex).toBeGreaterThanOrEqual(0);
+    expect(source.steps[installIndex + 1]).toEqual({
+      name: "Check Corten pilot export",
+      run: "node --import tsx deployables/corten-pilot/scripts/export.mjs --check",
+    });
+
+    const aggregate = workflow.jobs.static;
+    expect(aggregate.needs).toContain("static-source");
+    expect(aggregate.if).toContain("always()");
+    expect(aggregate.steps).toContainEqual({
+      name: "Require full source checks",
+      if: "always()",
+      env: { SOURCE_RESULT: "${{ needs.static-source.result }}" },
+      run: 'test "$SOURCE_RESULT" = success',
+    });
+    const required = workflow.jobs["pr-required"];
+    expect(required.needs).toContain("static");
+    expect(required.if).toBe("always()");
+    expect(required.steps.find((step) => step.name === "Verify required jobs")?.run).toContain(
+      'require_job "Static Checks" "${{ needs.static.result }}" "${{ needs[\'change-scope\'].outputs.static_required }}"',
+    );
+  });
+
   it("canonical proof sets: pins exact-head invocation and fail-closed workflow aggregation", () => {
     const workflow = parseYaml(readFileSync(path.join(repoRoot, ".github/workflows/platform-pr.yml"), "utf8"));
     const job = workflow.jobs["canonical-proof-sets"];
