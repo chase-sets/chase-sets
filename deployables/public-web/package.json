@@ -8,7 +8,7 @@
     "prebuild": "pnpm --filter @chase-sets/public-presence run compile:public-policies && pnpm --filter @chase-sets/public-presence run compile:help-articles && pnpm --filter @chase-sets/public-presence run compile:developer-articles",
     "build": "node ../../scripts/react-router-build.mjs",
     "start": "tsx server.ts",
-    "typecheck": "tsc -p ./tsconfig.json --noEmit",
+    "typecheck": "node ../../scripts/verify-typecheck.mjs --workspace=@chase-sets/app-public-web",
     "test": "vitest run --config ./vitest.config.ts"
   },
   "dependencies": {

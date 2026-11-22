@@ -69,6 +69,21 @@ describe("checkWorkspaceTsconfigExtends", () => {
     ]);
   });
 
+  it.each([
+    ["infrastructure/email/tsconfig.json", "../../tsconfig.base.json", "../../bounded-contexts/**"],
+    ["infrastructure/email/tests/tsconfig.json", "../../../tsconfig.base.json", "..\\..\\email-worker\\**"],
+  ])("rejects an include outside the owning workspace in %s", async (filePath, extendsPath, include) => {
+    const rootDir = createTempRepo();
+    writeJson(rootDir, filePath, { extends: extendsPath, include: [include] });
+
+    const result = await checkWorkspaceTsconfigExtends({ repoRoot: rootDir });
+
+    expect(result.passed).toBe(false);
+    expect(result.violations).toEqual([
+      `${filePath}: include ${JSON.stringify(include)} resolves outside its workspace.`,
+    ]);
+  });
+
   it("rejects exact local vitest globals types instead of the shared vitest config", async () => {
     const rootDir = createTempRepo();
     writeJson(rootDir, "contracts/money-movement/tsconfig.json", {
