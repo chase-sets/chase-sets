@@ -804,6 +804,46 @@ describe("sell list checkout runtime readiness boundary", () => {
     expect(allEvents.some((event) => event.eventType === "checkout.sell-list.line-added")).toBe(false);
   });
 
+  it("refuses a selected-offer line for an Offer matched to another seller or a guest owner", async () => {
+    for (const owner of ["acc_other", "anon_cmd_guest0000000000000000"]) {
+      const { allEvents, eventStore } = createInMemoryEventStore();
+      const services = createCheckoutSellListRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: createDb([], [airBalloonCatalogItem], [offerMatchRow()]) as never,
+      });
+
+      await expect(
+        services.addLine(
+          { ...selectedOfferRequest, attemptId: "sell-list-runtime-owner-" + owner, sellerAccountId: owner as never },
+          context,
+        ),
+      ).rejects.toThrow("cannot be added");
+      expect(allEvents.some((event) => event.eventType === "checkout.sell-list.line-added")).toBe(false);
+    }
+  });
+
+  it("replays an added selected-offer line after its Offer stops matching, and refuses a new add of it", async () => {
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const matches = [offerMatchRow()];
+    const services = createCheckoutSellListRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: createDb([], [airBalloonCatalogItem], matches) as never,
+    });
+    const request = { ...selectedOfferRequest, attemptId: "sell-list-runtime-replay-offer" };
+
+    const first = await services.addLine(request, context);
+    expect(first.status).toBe("added");
+    matches.length = 0;
+
+    await expect(services.addLine(request, context)).resolves.toMatchObject({ lineId: first.lineId, status: "added" });
+    await expect(
+      services.addLine({ ...request, attemptId: "sell-list-runtime-replay-offer-again" }, context),
+    ).rejects.toThrow("cannot be added");
+    expect(allEvents.filter((event) => event.eventType === "checkout.sell-list.line-added")).toHaveLength(1);
+  });
+
   it("refuses a selected-offer line whose Offer is for another product or catalog item", async () => {
     for (const [index, other] of [
       { product_id: "cat_air_balloon::form:graded" },
