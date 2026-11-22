@@ -143,7 +143,7 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
             assertion:
               "Checkout creates and records Orders before requesting Payment; neither Order creation nor Payment creation proves nonzero capture.",
             evidenceRef:
-              "bounded-contexts/checkout/features/sessions/api/route.ts:1431-1476; bounded-contexts/payments/features/payments/api/runtime.ts:2626-2631",
+              "bounded-contexts/checkout/features/sessions/api/route.ts:1431-1476; bounded-contexts/payments/features/payments/api/runtime.ts:2627-2632",
           },
         ],
         canonicalClaims: [
