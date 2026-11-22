@@ -1547,7 +1547,10 @@ export function createProjectionGroupWorkerRunner(
           revisionSyncToken = refreshedStatus.revisionSyncToken;
           hasRevisionSyncToken = true;
         }
-        const status = { ...refreshedStatus, recoveryRequired: group.getStatus().recoveryRequired };
+        const status = {
+          ...refreshedStatus,
+          recoveryRequired: refreshedStatus.recoveryRequired || group.getStatus().recoveryRequired,
+        };
         if (status.revisionStale && revisionStaleBehavior === "reject") {
           throw new ProjectionGroupRevisionStaleError(group);
         }

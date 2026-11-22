@@ -337,6 +337,15 @@ fn cart(session: &str) -> Value {
                 },
             })
         }
+        // The buyer's cart after adding its Pikachu locked to a listing Checkout's supply has not
+        // caught up with: selected and available, but not yet among the line's seller options.
+        "supply_waiting" => {
+            let mut buyer = cart("buyer");
+            let line = &mut buyer["items"][0];
+            line["locked_listing_id"] = json!("lst_new_pikachu");
+            line["selected_listing_id"] = json!("lst_new_pikachu");
+            buyer
+        }
         // The buyer's cart, the API presenting only its Pikachu line.
         "unpresented" => {
             let mut buyer = cart("buyer");
@@ -495,7 +504,7 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             "reader" => actor(&["inventory.view"]),
             // A buyer: any account has a cart, and none of these may see inventory.
             // `stale`'s session ends before its cart write is sent.
-            "other" | "buyer" | "blocked" | "empty" | "stale" | "unpresented" => actor(&[]),
+            "other" | "buyer" | "blocked" | "empty" | "stale" | "unpresented" | "supply_waiting" => actor(&[]),
             "guest" => actor(&["guest-checkout.manage"]),
             // An account that sees items as a seller and may take offers.
             "trader" => actor(&["offers.view", "listings.view", "offers.manage"]),
@@ -560,14 +569,18 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             // An owner whose offers.manage Auth withholds until its email is verified.
             "offers_unverified" => Json(json!({ "actor": {
                 "userId": "usr_seller", "accountId": "acc_seller", "roleKey": "owner", "permissions": ["offers.view", "listings.view"],
+                "withheldPermissions": [{ "permission": "offers.manage", "reason": "email_verification_required" }],
             } }))
             .into_response(),
             // An owner whose orders.manage Auth withholds until its email is verified, and an agent
-            // acting for an owner with the same permissions (never asked to verify).
+            // acting for an owner with the same permissions (Auth withholds nothing from an agent).
             "unverified" | "unverified_agent" => {
                 let mut actor = json!({ "userId": "usr_buyer", "accountId": "acc_buyer", "roleKey": "owner", "permissions": ["orders.view"] });
                 if session == "unverified_agent" {
                     actor["agentGrant"] = json!({ "grantId": "agr_1" });
+                } else {
+                    actor["withheldPermissions"] =
+                        json!([{ "permission": "orders.manage", "reason": "email_verification_required" }]);
                 }
                 Json(json!({ "actor": actor })).into_response()
             }
@@ -1715,6 +1728,11 @@ fn sell_list_page(stand: &Stand, session: &str, method: &Method, uri: &Uri, head
             }));
             Json(json!({ "items": items, "count": items.len(), "latestConfirmation": latest })).into_response()
         }
+        ("GET", "/composite-review") if guest_path && waits_for(headers).as_deref() == Some("45") => refusal(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "projection_freshness_timeout",
+            "Projection read model did not catch up to the requested write receipt before the freshness timeout.",
+        ),
         ("GET", "/composite-review") if guest_path => {
             let mut terms = sell_terms("fq_standard");
             terms["source_kind"] = json!("public-standard-seller-terms");
@@ -4114,6 +4132,18 @@ async fn after_an_add_the_cart_waits_for_its_line_and_says_when_it_is_missing() 
     // A cart read as it is records nothing.
     pilot.send(get(CART_SCREEN, Some("buyer"))).await;
     assert_eq!(post_write_outcomes(), []);
+}
+
+#[tokio::test]
+async fn a_cart_catching_up_with_an_added_lines_supply_keeps_its_count_in_the_nav() {
+    let pilot = Pilot::new().await;
+    let handoff = crate::api::segment(crate::cart::ADD_LINE_HANDOFF);
+    let adding = format!("{CART_SCREEN}?after_write={}&post_write_handoff={handoff}", receipt_at("42"));
+    let (status, _, html) = pilot.send(get(&adding, Some("supply_waiting"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Your item was added. The Buy Cart is catching up"), "{html}");
+    assert!(html.contains("data-corten-read-again"), "{html}");
+    assert!(cart_badges(&html).iter().all(|(count, hidden)| count == "2" && !hidden), "{:?}", cart_badges(&html));
 }
 
 /// A Discovery item: a card that is raw (in one of three conditions) or graded (one of seven
@@ -19603,6 +19633,19 @@ async fn a_guest_sees_their_sell_list_with_the_standard_terms_and_continues_to_r
     let add = post_signed_out(SELL_LIST_PAGE, "intent=add-selected-offer&offerId=off_ready");
     let (status, _, _) = pilot.send(with_guest(add, None, "anon_one")).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
+async fn a_guests_sell_list_whose_offer_reviews_are_catching_up_reads_itself_again() {
+    let pilot = Pilot::new().await;
+    post_write_outcomes();
+    let pending = format!("{SELL_LIST_PAGE}?afterWrite={}", receipt_at("45"));
+    let (status, _, html) = pilot.send(with_guest(get(&pending, None), None, "anon_one")).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Your Sell List is catching up"), "{html}");
+    assert!(html.contains(r#"data-corten-read-again="2""#), "{html}");
+    let review = "guest-sell-list-offer-reviews".to_owned();
+    assert_eq!(post_write_outcomes(), [("freshness_timeout", "reload_prompt", "valid-after-write", review)]);
 }
 
 #[tokio::test]

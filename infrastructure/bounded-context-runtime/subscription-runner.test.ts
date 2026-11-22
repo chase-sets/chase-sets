@@ -2663,7 +2663,7 @@ describe("bounded context subscription runner", () => {
     expect(getCheckpointStore(targetPool).get(runner.checkpointKey)).toBe("0");
   });
 
-  it("revokes initialized status when a persisted zero loses its recovery marker without repairing it", async () => {
+  it("keeps a markerless zero checkpoint initialized without rewriting it while idle", async () => {
     const sourcePool = createMockPool();
     const targetPool = createMockPool();
     const runner = createSubscriptionRunner("target", targetPool as never, sourcePool as never, {
@@ -2683,8 +2683,12 @@ describe("bounded context subscription runner", () => {
       }
       return query(sql, params);
     });
-    await expect(runner.runOnce()).rejects.toThrow("committed projection group reset");
-    expect(runner.getStatus()).toMatchObject({ initialized: false, recoveryRequired: true });
+    await expect(runner.runOnce()).resolves.toMatchObject({
+      processed: 0,
+      lastGlobalPosition: "0",
+      state: "caught-up",
+    });
+    expect(runner.getStatus()).toMatchObject({ initialized: true, recoveryRequired: false });
     expect(getCheckpointWriteCountStore(targetPool).get(runner.checkpointKey)).toBe(1);
   });
 
