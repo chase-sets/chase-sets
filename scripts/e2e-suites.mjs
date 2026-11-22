@@ -526,7 +526,8 @@ const boundedContextRouteSuiteOwnership = [
     suites: ["marketplace_account"],
   },
   {
-    pattern: /^bounded-contexts\/payments\/routes\/marketplace\/account-payment(?:-methods|-new)/,
+    pattern:
+      /^bounded-contexts\/payments\/(?:routes\/marketplace|features\/payments\/ui\/routes)\/account-payment(?:-methods|-new)/,
     suites: ["marketplace_account"],
   },
   {
@@ -560,7 +561,8 @@ const boundedContextRouteSuiteOwnership = [
     // Milestone-25 decomposed routes: the signed-in payment confirmation surface
     // and the guest checkout-payment claim entry point are owned by the
     // marketplace_checkout account-payment spec.
-    pattern: /^bounded-contexts\/payments\/routes\/marketplace\/(?:account-payment|checkout-payment)\./,
+    pattern:
+      /^bounded-contexts\/payments\/(?:routes\/marketplace|features\/payments\/ui\/routes)\/(?:account-payment|checkout-payment)\./,
     suites: ["marketplace_checkout"],
   },
   {
@@ -744,6 +746,9 @@ function boundedContextSuiteIdsForChangedFile(filePath, contextName) {
     }
     if (/^bounded-contexts\/[^/]+\/routes\/(?:admin|access-admin|catalog-admin)\//.test(filePath)) {
       return adminContextRouteSuiteOwnership.get(contextName) ?? [];
+    }
+    if (/^bounded-contexts\/[^/]+\/features\/[^/]+\/ui\/routes\//.test(filePath)) {
+      return contextSuiteOwnership.get(contextName) ?? [];
     }
 
     return [];
