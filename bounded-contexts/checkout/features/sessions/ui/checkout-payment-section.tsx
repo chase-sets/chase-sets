@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import type { ReactNode } from "react";
 import {
   Button,
   Checkbox,
@@ -33,6 +34,7 @@ export type CheckoutPaymentSectionProps = Readonly<{
   wallet: { available_balance_amount: string; currency_code: string } | null | undefined;
   walletUnavailable: boolean;
   onFieldChange: () => void;
+  paymentEntry?: ReactNode;
 }>;
 
 /** The Payment step: payment-method selection, saved-instrument picker, and
@@ -53,6 +55,7 @@ export function CheckoutPaymentSection({
   wallet,
   walletUnavailable,
   onFieldChange,
+  paymentEntry,
 }: CheckoutPaymentSectionProps) {
   if (isOfferIntent) {
     return null;
@@ -129,6 +132,7 @@ export function CheckoutPaymentSection({
             }))}
           />
         ) : null}
+        {paymentEntry}
         {canSavePaymentMethods &&
         !selectedSavedPaymentInstrument &&
         effectivePaymentMethodCategory !== "platform-credit" ? (

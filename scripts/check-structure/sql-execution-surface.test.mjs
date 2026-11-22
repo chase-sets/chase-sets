@@ -332,7 +332,7 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
       ["bounded-contexts/ordering/features/orders/read-model/support-lookup.ts", 37, "db"],
       ["infrastructure/event-core-postgres/catalog-mirror.ts", 236, "db"],
       ["infrastructure/event-core-postgres/types.ts", 49, "client"],
-      ["scripts/catalog-integration-reset.ts", 216, "db"],
+      ["scripts/catalog-integration-reset.ts", 212, "db"],
       ["infrastructure/event-core-postgres/projection-store.ts", 358, "config.db"],
       ["bounded-contexts/catalog/features/product-measures/api/runtime.ts", 157, "deps.db"],
       ["bounded-contexts/auth/support/ucp-support/oauth.ts", 354, "options.auth.db"],
@@ -370,7 +370,7 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
     for (const file of files.slice(0, -1)) {
       expect(result.modules.find((module) => module.file === file)?.outcome, file).toBe("sql-executing");
     }
-    expect(callAt(result, "infrastructure/event-core-postgres/pool.ts", 130)).toMatchObject({
+    expect(callAt(result, "infrastructure/event-core-postgres/pool.ts", 331)).toMatchObject({
       receiver: "client",
       outcome: "not-sql",
     });
@@ -445,7 +445,7 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
       [fixtureFile, 85, "unprovable-form"],
       [fixtureFile, 90, "not-sql"],
       [fixtureFile, 94, "not-sql"],
-      ["infrastructure/event-core-postgres/pool.ts", 130, "not-sql"],
+      ["infrastructure/event-core-postgres/pool.ts", 331, "not-sql"],
     ];
     for (const [file, line, outcome] of expectations) {
       expect(callAt(result, file, line)?.outcome, `${file}:${line}`).toBe(outcome);

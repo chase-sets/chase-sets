@@ -2,8 +2,19 @@
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import { appendFileSync, readFileSync } from "node:fs";
+import { posix } from "node:path";
 import process from "node:process";
-import { buildPlatformHelmValues, platformHelmPreviewPostgresName } from "./render-platform-helm-values.mjs";
+import {
+  buildPlatformHelmValues,
+  managedPostgresCaItemPath,
+  managedPostgresCaMountPath,
+  platformHelmPreviewPostgresName,
+} from "./render-platform-helm-values.mjs";
+import { managedPostgresConnectionUrl } from "./terraform-state-database-urls.mjs";
+
+// Pods read the cluster CA from the managed Postgres CA Secret volume; every staging and
+// production runtime URL names exactly this file as its verify-full sslrootcert.
+export const managedPostgresPodCaPath = posix.join(managedPostgresCaMountPath, managedPostgresCaItemPath);
 
 const defaultGeneratedBy = "node ./scripts/platform-kubernetes-secret.mjs";
 const previewPostgresAdminUrlKey = "PLATFORM_PREVIEW_POSTGRES_ADMIN_URL";
@@ -100,7 +111,7 @@ export function buildManagedPostgresDatabaseEnv(options) {
     if (!database?.name || !user?.name || !user?.password) {
       throw new Error(`${capitalize(environment)} Terraform state is missing database/user data for '${contextName}'.`);
     }
-    return postgresManagedUrl({
+    return managedPostgresPodUrl({
       username: user.name,
       password: user.password,
       host: clusterAttrs.host,
@@ -123,7 +134,7 @@ export function buildManagedPostgresDatabaseEnv(options) {
     ) {
       throw new Error(`${capitalize(environment)} Terraform state is missing a transaction pool for '${contextName}'.`);
     }
-    return postgresManagedUrl({
+    return managedPostgresPodUrl({
       username,
       password,
       host: pool.host,
@@ -541,16 +552,18 @@ function previewDatabaseUser(contextName) {
 }
 
 function postgresUrl({ username, password, host, port, database }) {
-  // The disposable in-cluster preview Postgres does not serve SSL, and the
-  // shared pool factory force-upgrades URLs without an explicit sslmode to
-  // verified SSL for non-local hosts. Preview URLs must therefore state
-  // sslmode=disable; staging/production URLs are never synthesized here and
-  // keep their managed-cluster sslmode=require shape.
+  // The disposable in-cluster preview Postgres does not serve SSL. The runtime
+  // pool admits sslmode=disable only for this release's preview Service, which
+  // the chart also renders into each pod, under DEPLOYMENT_ENVIRONMENT=preview,
+  // and refuses a missing mode for non-loopback hosts.
   return `postgresql://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${host}:${port}/${encodeURIComponent(database)}?sslmode=disable`;
 }
 
-function postgresManagedUrl({ username, password, host, port, database }) {
-  return `postgresql://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${host}:${port}/${encodeURIComponent(database)}?sslmode=require`;
+function managedPostgresPodUrl({ username, password, host, port, database }) {
+  return managedPostgresConnectionUrl(
+    `postgresql://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${host}:${port}/${encodeURIComponent(database)}`,
+    managedPostgresPodCaPath,
+  );
 }
 
 function capitalize(value) {

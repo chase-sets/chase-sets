@@ -8,11 +8,17 @@ import {
   composeSmokeComponentNames,
   composeSmokeInternalAuthSecret,
   composeSmokePlatformApiOrigin,
+  composeSmokePostgresHost,
   composeSmokePostgresUrl,
   renderComposeSmokeEnvFile,
 } from "./platform-compose-smoke.mjs";
 import { listContextManifests } from "./lib/repo.mjs";
-import { buildPlatformHelmValues } from "./render-platform-helm-values.mjs";
+import { buildPlatformHelmValues, platformHelmPreviewPostgresName } from "./render-platform-helm-values.mjs";
+import {
+  admitPostgresClientConnection,
+  composePreviewPostgresHost,
+  previewPostgresHostEnvName,
+} from "../infrastructure/event-core-postgres/pool.ts";
 
 function envValue(component, name) {
   return component.env.find((entry) => entry.name === name)?.value;
@@ -43,6 +49,41 @@ describe("platform-compose-smoke", () => {
         }
       }
     }
+  });
+
+  it("renders a host the compose postgres service owns as a network alias", () => {
+    const compose = parseYaml(readFileSync("docker-compose.pr-smoke.yml", "utf8"));
+    expect(new URL(composeSmokePostgresUrl).hostname).toBe(composeSmokePostgresHost);
+    expect(composeSmokePostgresHost).toBe(platformHelmPreviewPostgresName());
+    // The runtime pool's fixed Compose alias is this host; no Compose component names a release host.
+    expect(composeSmokePostgresHost).toBe(composePreviewPostgresHost);
+    for (const component of Object.values(buildComposeSmokeValues().components)) {
+      expect(envValue(component, previewPostgresHostEnvName)).toBeUndefined();
+    }
+    expect(compose.services.postgres.networks.default.aliases).toContain(composeSmokePostgresHost);
+    for (const [name, service] of Object.entries(compose.services)) {
+      if (name === "postgres") continue;
+      expect(service.networks, name).toBeUndefined();
+    }
+    for (const dependent of ["platform-bootstrap", "platform-api", "platform-worker"]) {
+      expect(compose.services[dependent].depends_on.postgres, dependent).toEqual({ condition: "service_healthy" });
+    }
+  });
+
+  it("renders database URLs the runtime pool admits under the rendered preview environment only", () => {
+    const values = buildComposeSmokeValues();
+    for (const componentName of ["platform-bootstrap", "platform-api", "platform-worker"]) {
+      const component = values.components[componentName];
+      const deploymentEnvironment = envValue(component, "DEPLOYMENT_ENVIRONMENT");
+      expect(deploymentEnvironment, componentName).toBe("preview");
+      expect(
+        admitPostgresClientConnection(composeSmokePostgresUrl, { DEPLOYMENT_ENVIRONMENT: deploymentEnvironment })
+          .transport,
+      ).toBe("plaintext-preview");
+    }
+    expect(() => admitPostgresClientConnection(composeSmokePostgresUrl, { DEPLOYMENT_ENVIRONMENT: "staging" })).toThrow(
+      "remote-postgres-sslmode-downgraded",
+    );
   });
 
   it("provides a database URL for every context hosted by the public platform worker", () => {

@@ -1,4 +1,5 @@
 import type { SupportFlowDefinition } from "../domain/flow-catalog";
+import type { SupportRemedyOffer } from "../domain/remedy-offer";
 import type {
   CustomerSupportRequestListRow,
   SupportOperationsRequestDetailRow,
@@ -36,7 +37,7 @@ export type SupportRequestDetail = SupportRequestDetailRow;
 export type SupportOperationsRequestDetail = SupportOperationsRequestDetailRow;
 export type SupportRequestDetailResponse = SupportRequestDetailRow & Readonly<{ flow: SupportFlowDetail }>;
 export type SupportOperationsRequestDetailResponse = SupportOperationsRequestDetailRow &
-  Readonly<{ flow: SupportFlowDetail }>;
+  Readonly<{ flow: SupportFlowDetail; remedy_offer: SupportRemedyOffer }>;
 export type SupportRequestParticipantDetailResponse = SupportRequestDetailResponse &
   Readonly<{ participantPolicy: SupportParticipantPolicy }>;
 

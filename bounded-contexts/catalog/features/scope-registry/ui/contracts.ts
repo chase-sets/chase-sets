@@ -1,3 +1,4 @@
+import type { CatalogAliasReviewCandidateSummary } from "../../alias-equivalence/api/alias-review-admin-contracts";
 import type { CatalogScopePromotionReadiness, CatalogScopeSyncFreshness } from "../domain/scope-row-status";
 
 export type { CatalogScopePromotionReadiness, CatalogScopeSyncFreshness };
@@ -38,3 +39,67 @@ export interface CatalogScopeRecordListResponse {
     languageEditions: readonly string[];
   }>;
 }
+
+// A scope's language editions and journey, as `GET /scope-records/:id/journey`
+// returns them. The Catalog API owns both rules (which edition is canonical,
+// how an edition links, and the journey's condition precedence); clients render
+// them as given.
+
+export type CatalogScopeLanguageEditionLinkState = "linked" | "pending-review" | "not-yet-observed";
+
+export type CatalogScopeLanguageEditionSummary = Readonly<{
+  languageCode: string;
+  isCanonical: boolean;
+  linkState: CatalogScopeLanguageEditionLinkState;
+  acceptedAliasCount: number;
+  /** Pending set-equivalent/series-equivalent candidates for this edition, this scope only. */
+  pendingCandidates: readonly CatalogAliasReviewCandidateSummary[];
+  /** Accepted/auto-accepted candidates for this edition, so a linked edition can still be revoked inline. */
+  acceptedCandidates: readonly CatalogAliasReviewCandidateSummary[];
+}>;
+
+export type CatalogScopeLanguageEditionReviewReadModel = Readonly<{
+  scopeRecordId: string;
+  referenceRecordId: string;
+  editions: readonly CatalogScopeLanguageEditionSummary[];
+}>;
+
+export type CatalogScopeJourneyStageKey = "coverage" | "sync" | "jobs" | "candidates" | "promotion";
+
+export type CatalogScopeJourneyStageStatus = "complete" | "current" | "upcoming" | "blocked";
+
+// The single condition the whole journey is in, most pressing first. `loading`
+// is a page-owned transient, so it is not part of this union.
+export type CatalogScopeJourneyCondition =
+  | "empty"
+  | "partial-failure"
+  | "blocked"
+  | "conflict"
+  | "projection-lag"
+  | "ready";
+
+export type CatalogScopeJourneyStage = Readonly<{
+  key: CatalogScopeJourneyStageKey;
+  status: CatalogScopeJourneyStageStatus;
+}>;
+
+export type CatalogScopeJourneyOverviewReadModel = Readonly<{
+  scopeRecordId: string;
+  condition: CatalogScopeJourneyCondition;
+  stages: readonly CatalogScopeJourneyStage[];
+  editionCount: number;
+  linkedEditionCount: number;
+  pendingCandidateCount: number;
+  promotionReadiness: CatalogScopePromotionReadiness;
+  syncFreshness: CatalogScopeSyncFreshness;
+}>;
+
+export type CatalogScopeJourneyResponse = Readonly<{
+  generatedAt: string;
+  scope: CatalogScopeRecordDetail;
+  /** The editions to review; null when the scope has one edition or none. */
+  languageEditions: CatalogScopeLanguageEditionReviewReadModel | null;
+  /** True when the alias review could not be read, so the editions show no candidates. */
+  languageEditionReviewFailed: boolean;
+  overview: CatalogScopeJourneyOverviewReadModel;
+}>;

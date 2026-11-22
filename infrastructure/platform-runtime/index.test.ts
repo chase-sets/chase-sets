@@ -16,6 +16,7 @@ import type {
   BcShellContributionSlot,
   EnvironmentDataProfile,
 } from "@chase-sets/bounded-context-module";
+import { createTranslator, type Translate } from "@chase-sets/localization/core";
 import { createWorkerHost, createWorkerRunnerLoop, type WorkerContextRegistry, type WorkerRunner } from "./worker";
 import {
   getWebHostSections,
@@ -27,6 +28,10 @@ import {
   type WebHostNavOptions,
 } from "./web";
 import { resolveWebHostRouteConfigRecords, toRouteConfigEntry } from "./web-route-config";
+
+const unexpectedLabelKey: Translate = (key) => {
+  throw new Error(`Unexpected navigation label key: ${key}`);
+};
 
 const testProjectionGroupLeasePort = {
   runWithLease: async <T>(
@@ -421,18 +426,26 @@ describe("shell legacy compatibility", () => {
       [{ key: "inventory", label: "Inventory", icon: "package", href: "/account/inventory" }],
     ],
   ] as const)("preserves Marketplace baseline for actor %j", (actor, expected) => {
-    expect(resolveWebHostNavItems(webRegistry, "marketplace-web", "top-nav", actor)).toEqual(expected);
-    expect(resolveWebHostNavItems(webRegistry, "public-web", "top-nav", actor)).toEqual([]);
+    expect(resolveWebHostNavItems(webRegistry, "marketplace-web", "top-nav", unexpectedLabelKey, actor)).toEqual(
+      expected,
+    );
+    expect(resolveWebHostNavItems(webRegistry, "public-web", "top-nav", unexpectedLabelKey, actor)).toEqual([]);
   });
 
   it("preserves Admin prefixes and section filtering", () => {
     expect(
-      resolveWebHostNavItems(webRegistry, "admin-web", "primary-nav", { permissions: ["commercial-terms.view"] }),
+      resolveWebHostNavItems(webRegistry, "admin-web", "primary-nav", unexpectedLabelKey, {
+        permissions: ["commercial-terms.view"],
+      }),
     ).toEqual([
       { key: "dimensions", label: "Dimensions", icon: "box", href: "/catalog/dimensions" },
       { key: "commercial-terms", label: "Commercial Terms", icon: "settings", href: "/commerce/terms/schedules" },
     ]);
-    expect(resolveWebHostNavItems(webRegistry, "admin-web", "primary-nav", null, { section: "commerce" })).toEqual([]);
+    expect(
+      resolveWebHostNavItems(webRegistry, "admin-web", "primary-nav", unexpectedLabelKey, null, {
+        section: "commerce",
+      }),
+    ).toEqual([]);
   });
 
   it("preserves legacy empty children on an href leaf", () => {
@@ -459,7 +472,7 @@ describe("shell legacy compatibility", () => {
         },
       },
     ] as const satisfies WebContextRegistry;
-    expect(resolveWebHostNavItems(registry, "marketplace-web", "top-nav", null)).toEqual([
+    expect(resolveWebHostNavItems(registry, "marketplace-web", "top-nav", unexpectedLabelKey, null)).toEqual([
       { key: "empty", label: "Empty", icon: "box", href: "/empty" },
     ]);
   });
@@ -506,8 +519,13 @@ describe("shell legacy compatibility", () => {
       { key: "a", label: "Zulu", icon: "box", href: "/z" },
     ];
     for (const slot of ["top-nav", "bottom-nav"] as const) {
-      expect(resolveWebHostNavItems(registry, "marketplace-web", slot, { permissions: ["read"] })).toEqual(expected);
-      expect(resolveWebHostNavItems(registry, "marketplace-web", slot, null)).toEqual([expected[0], expected[2]]);
+      expect(
+        resolveWebHostNavItems(registry, "marketplace-web", slot, unexpectedLabelKey, { permissions: ["read"] }),
+      ).toEqual(expected);
+      expect(resolveWebHostNavItems(registry, "marketplace-web", slot, unexpectedLabelKey, null)).toEqual([
+        expected[0],
+        expected[2],
+      ]);
     }
   });
 });
@@ -537,6 +555,32 @@ function shellRegistry(...items: BcShellContribution[]): WebContextRegistry {
 }
 
 describe("shell resolution matrix", () => {
+  it("uses only the supplied translator for group and nested label keys", () => {
+    const searchKey = "discovery.shell.search.label";
+    const missingKey = "missing.shell.label";
+    const { t } = createTranslator({ catalogs: { en: { [searchKey]: "Browse in this host" } } });
+    const registry = shellRegistry(
+      shellLeaf("group", {
+        href: undefined,
+        labelKey: searchKey,
+        children: [
+          shellLeaf("search", { labelKey: searchKey, order: 1 }),
+          shellLeaf("missing", { labelKey: missingKey, order: 2 }),
+        ],
+      }),
+    );
+
+    expect(resolveWebHostNavItems(registry, "marketplace-web", "bottom-nav", t)).toEqual([
+      expect.objectContaining({
+        label: "Browse in this host",
+        children: [
+          expect.objectContaining({ key: "search", label: "Browse in this host" }),
+          expect.objectContaining({ key: "missing", label: "[missing:en:missing.shell.label]" }),
+        ],
+      }),
+    ]);
+  });
+
   it("attaches cross-context groups after slot expansion without mutating inputs", () => {
     const registry = shellRegistry(
       shellLeaf("group", { href: undefined, children: [], placements: ["bottom-nav", "account-menu"] }),
@@ -545,7 +589,7 @@ describe("shell resolution matrix", () => {
     );
     const original = structuredClone(registry);
     for (const slot of ["bottom-nav", "account-menu"] as const) {
-      expect(resolveWebHostNavItems(registry, "marketplace-web", slot)).toEqual([
+      expect(resolveWebHostNavItems(registry, "marketplace-web", slot, unexpectedLabelKey)).toEqual([
         {
           key: "group",
           label: "group",
@@ -565,10 +609,11 @@ describe("shell resolution matrix", () => {
         shellLeaf("signed-in", { visibility: "signed-in" }),
         shellLeaf("signed-out", { visibility: "signed-out" }),
       );
-      expect(resolveWebHostNavItems(registry, "marketplace-web", "bottom-nav", actor).map((item) => item.key)).toEqual([
-        ...(actor?.roleKey === "blocked" ? [] : ["roles"]),
-        actor ? "signed-in" : "signed-out",
-      ]);
+      expect(
+        resolveWebHostNavItems(registry, "marketplace-web", "bottom-nav", unexpectedLabelKey, actor).map(
+          (item) => item.key,
+        ),
+      ).toEqual([...(actor?.roleKey === "blocked" ? [] : ["roles"]), actor ? "signed-in" : "signed-out"]);
     },
   );
 
@@ -577,14 +622,19 @@ describe("shell resolution matrix", () => {
       shellLeaf("action", { activation: "action", href: undefined, placement: "utility" }),
       shellLeaf("group", { href: undefined, children: [shellLeaf("hidden", { visibility: "signed-in" })] }),
     );
-    expect(resolveWebHostNavItems(registry, "marketplace-web", "bottom-nav", null)).toEqual([
+    expect(resolveWebHostNavItems(registry, "marketplace-web", "bottom-nav", unexpectedLabelKey, null)).toEqual([
       { key: "action", label: "action", icon: "box", placement: "utility" },
     ]);
   });
 
   it("preserves a legacy href with an empty inline array", () => {
     expect(
-      resolveWebHostNavItems(shellRegistry(shellLeaf("empty-leaf", { children: [] })), "marketplace-web", "bottom-nav"),
+      resolveWebHostNavItems(
+        shellRegistry(shellLeaf("empty-leaf", { children: [] })),
+        "marketplace-web",
+        "bottom-nav",
+        unexpectedLabelKey,
+      ),
     ).toEqual([{ key: "empty-leaf", label: "empty-leaf", icon: "box", href: "/empty-leaf" }]);
   });
 
@@ -600,9 +650,18 @@ describe("shell resolution matrix", () => {
       const positive = count !== undefined && Number.isFinite(count) && count > 0;
       const expectedBadge = positive ? (count > 99 ? "99+" : String(count)) : undefined;
       expect(
-        resolveWebHostNavItems(registry, "marketplace-web", "bottom-nav", null, options).map((item) => item.key),
+        resolveWebHostNavItems(registry, "marketplace-web", "bottom-nav", unexpectedLabelKey, null, options).map(
+          (item) => item.key,
+        ),
       ).toEqual(positive ? ["cart", "visible"] : ["visible"]);
-      const cart = resolveWebHostNavItems(registry, "marketplace-web", "bottom-nav", {}, options)[0];
+      const cart = resolveWebHostNavItems(
+        registry,
+        "marketplace-web",
+        "bottom-nav",
+        unexpectedLabelKey,
+        {},
+        options,
+      )[0];
       expect(cart.badge).toBe(expectedBadge);
       if (!positive) expect(cart).not.toHaveProperty("badge");
     },
@@ -621,15 +680,26 @@ describe("shell resolution matrix", () => {
       }),
     ];
     for (const permutation of [items, [...items].reverse(), [...items.slice(2), ...items.slice(0, 2)]]) {
-      const result = resolveWebHostNavItems(shellRegistry(...permutation), "marketplace-web", "bottom-nav", null, {
-        limit: 3,
-      });
+      const result = resolveWebHostNavItems(
+        shellRegistry(...permutation),
+        "marketplace-web",
+        "bottom-nav",
+        unexpectedLabelKey,
+        null,
+        {
+          limit: 3,
+        },
+      );
       expect(result.map((item) => item.key)).toEqual(["a", "z", "group"]);
       expect(result[2].children?.map((item) => item.key)).toEqual(["b", "y"]);
     }
-    expect(resolveWebHostNavItems(shellRegistry(...items), "marketplace-web", "bottom-nav")).toHaveLength(4);
     expect(
-      resolveWebHostNavItems(shellRegistry(...items), "marketplace-web", "bottom-nav", null, { limit: 0 }),
+      resolveWebHostNavItems(shellRegistry(...items), "marketplace-web", "bottom-nav", unexpectedLabelKey),
+    ).toHaveLength(4);
+    expect(
+      resolveWebHostNavItems(shellRegistry(...items), "marketplace-web", "bottom-nav", unexpectedLabelKey, null, {
+        limit: 0,
+      }),
     ).toEqual([]);
   });
 
@@ -643,16 +713,16 @@ describe("shell resolution matrix", () => {
           children: [shellLeaf("child", { packingPriority })],
         }),
       );
-      expect(() => resolveWebHostNavItems(registry, "marketplace-web", "bottom-nav", null, { limit: 1 })).toThrow(
-        "SHELL_PRIORITY_INVALID",
-      );
+      expect(() =>
+        resolveWebHostNavItems(registry, "marketplace-web", "bottom-nav", unexpectedLabelKey, null, { limit: 1 }),
+      ).toThrow("SHELL_PRIORITY_INVALID");
     },
   );
 
   it.each([NaN, Infinity, -Infinity, -1, 0.5])("rejects invalid limit %s", (limit) => {
-    expect(() => resolveWebHostNavItems([], "marketplace-web", "bottom-nav", null, { limit })).toThrow(
-      "SHELL_LIMIT_INVALID",
-    );
+    expect(() =>
+      resolveWebHostNavItems([], "marketplace-web", "bottom-nav", unexpectedLabelKey, null, { limit }),
+    ).toThrow("SHELL_LIMIT_INVALID");
   });
 
   it.each([
@@ -671,6 +741,7 @@ describe("shell resolution matrix", () => {
         shellRegistry(shellLeaf("bad", overrides as Partial<BcShellContribution>)),
         "marketplace-web",
         "bottom-nav",
+        unexpectedLabelKey,
       ),
     ).toThrow(code);
   });
@@ -700,7 +771,9 @@ describe("shell resolution matrix", () => {
         }),
       );
       const resolve = () =>
-        resolveWebHostNavItems(registry, "marketplace-web", "bottom-nav", { permissions: ["a", "b", "c"] });
+        resolveWebHostNavItems(registry, "marketplace-web", "bottom-nav", unexpectedLabelKey, {
+          permissions: ["a", "b", "c"],
+        });
       if (widens) expect(resolve).toThrow("SHELL_PARENT_WIDENING");
       else expect(resolve()[0].children?.[0].key).toBe("child");
     },
@@ -732,7 +805,7 @@ describe("shell resolution matrix", () => {
       "SHELL_PARENT_WIDENING",
     ],
   ] as const)("rejects invalid parent graph %j", (registry, code) => {
-    expect(() => resolveWebHostNavItems(registry, "marketplace-web", "bottom-nav")).toThrow(code);
+    expect(() => resolveWebHostNavItems(registry, "marketplace-web", "bottom-nav", unexpectedLabelKey)).toThrow(code);
   });
 
   it("rejects Admin cross-section parent attachment", () => {
@@ -746,7 +819,9 @@ describe("shell resolution matrix", () => {
       }),
       shellLeaf("child", { deployable: "admin-web", slot: "primary-nav", section: "catalog", parentKey: "group" }),
     );
-    expect(() => resolveWebHostNavItems(registry, "admin-web", "primary-nav")).toThrow("SHELL_PARENT_SECTION");
+    expect(() => resolveWebHostNavItems(registry, "admin-web", "primary-nav", unexpectedLabelKey)).toThrow(
+      "SHELL_PARENT_SECTION",
+    );
   });
 });
 
@@ -1833,7 +1908,9 @@ describe("platform host worker registry", () => {
 describe("platform host web registry", () => {
   it("prefixes admin routes and nav items by section", () => {
     const routes = resolveWebHostRouteRecords(webRegistry, "admin-web");
-    const navItems = resolveWebHostNavItems(webRegistry, "admin-web", "primary-nav", null, { section: "catalog" });
+    const navItems = resolveWebHostNavItems(webRegistry, "admin-web", "primary-nav", unexpectedLabelKey, null, {
+      section: "catalog",
+    });
 
     expect(routes).toContainEqual(
       expect.objectContaining({
@@ -1891,6 +1968,7 @@ describe("platform host web registry", () => {
           registry,
           "admin-web",
           "primary-nav",
+          unexpectedLabelKey,
           { permissions },
           { section: "commerce" },
         );
@@ -1899,7 +1977,9 @@ describe("platform host web registry", () => {
         const parent = items.find((item) => item.key === "parent");
         expect(parent?.children?.length ?? 0).toBe(visible ? 1 : 0);
       }
-      expect(resolveWebHostNavItems(registry, "admin-web", "primary-nav", null, { section: "commerce" })).toEqual([]);
+      expect(
+        resolveWebHostNavItems(registry, "admin-web", "primary-nav", unexpectedLabelKey, null, { section: "commerce" }),
+      ).toEqual([]);
     },
   );
 
@@ -1952,6 +2032,7 @@ describe("platform host web registry", () => {
         registry,
         "admin-web",
         "primary-nav",
+        unexpectedLabelKey,
         { permissions: ["catalog.integrations.manage"] },
         { section: "catalog" },
       ),
@@ -2008,7 +2089,14 @@ describe("platform host web registry", () => {
     ] as const satisfies WebContextRegistry;
 
     expect(
-      resolveWebHostNavItems(registry, "admin-web", "primary-nav", { permissions: [] }, { section: "catalog" }),
+      resolveWebHostNavItems(
+        registry,
+        "admin-web",
+        "primary-nav",
+        unexpectedLabelKey,
+        { permissions: [] },
+        { section: "catalog" },
+      ),
     ).toEqual([]);
   });
 
@@ -2018,6 +2106,7 @@ describe("platform host web registry", () => {
       webRegistry,
       "admin-web",
       "primary-nav",
+      unexpectedLabelKey,
       { permissions: ["public-presence.view"] },
       { section: "growth" },
     );
@@ -2043,6 +2132,7 @@ describe("platform host web registry", () => {
       webRegistry,
       "admin-web",
       "primary-nav",
+      unexpectedLabelKey,
       { permissions: ["support.manage"] },
       { section: "support" },
     );
@@ -2068,6 +2158,7 @@ describe("platform host web registry", () => {
       webRegistry,
       "admin-web",
       "primary-nav",
+      unexpectedLabelKey,
       { permissions: ["commercial-terms.view"] },
       { section: "commerce" },
     );
@@ -2151,14 +2242,14 @@ describe("platform host web registry", () => {
   });
 
   it("filters marketplace nav items by actor visibility and permissions", () => {
-    expect(resolveWebHostNavItems(webRegistry, "marketplace-web", "top-nav", null)).toEqual([
+    expect(resolveWebHostNavItems(webRegistry, "marketplace-web", "top-nav", unexpectedLabelKey, null)).toEqual([
       expect.objectContaining({
         href: "/sign-in",
         label: "Sign in",
       }),
     ]);
     expect(
-      resolveWebHostNavItems(webRegistry, "marketplace-web", "top-nav", {
+      resolveWebHostNavItems(webRegistry, "marketplace-web", "top-nav", unexpectedLabelKey, {
         permissions: ["inventory.view"],
       }),
     ).toEqual([
@@ -2168,7 +2259,7 @@ describe("platform host web registry", () => {
       }),
     ]);
     expect(
-      resolveWebHostNavItems(webRegistry, "marketplace-web", "top-nav", {
+      resolveWebHostNavItems(webRegistry, "marketplace-web", "top-nav", unexpectedLabelKey, {
         permissions: [],
       }),
     ).toEqual([]);

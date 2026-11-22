@@ -166,12 +166,25 @@ export function createPaymentsApiClient({
         paymentsPaymentDetailSchema,
       );
     },
-    async getAccountPayment(paymentId: string): Promise<PaymentsPaymentDetail> {
+    async getAccountPayment(
+      paymentId: string,
+      options?: Readonly<{ readProcessorStatus: boolean }>,
+    ): Promise<PaymentsPaymentDetail> {
       return decodeJsonResponse(
         await client.account.payments[":id"].$get({
           param: { id: paymentId },
+          ...(options?.readProcessorStatus ? { query: { readProcessorStatus: "1" } } : {}),
         }),
         paymentsPaymentDetailSchema,
+      );
+    },
+    async getCheckoutPaymentStart(
+      sessionId: string,
+    ): Promise<{ state: "not-started" | "ambiguous" } | { state: "recorded"; paymentId: string }> {
+      return parseJsonResponse(
+        await client.account.checkout["payment-start"][":sessionId"].$get({
+          param: { sessionId },
+        }),
       );
     },
     async listAccountOrderInputs(params: Readonly<{ orderIds: readonly string[] }>): Promise<{

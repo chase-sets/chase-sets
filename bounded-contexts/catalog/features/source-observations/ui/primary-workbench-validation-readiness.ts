@@ -694,6 +694,7 @@ function validationActivationDecisionFor(input: {
     saveEvidenceBlockers: saveEvidenceBlockerList,
     activationCommandKey: "provider-profile.activate",
     evidenceCommandKey: "provider-profile.edit-section",
+    evidenceSectionFingerprint: profile?.sectionFingerprints["migration-evidence"] ?? null,
     workspaceHref: catalogProviderDetailHref(profile?.providerKey ?? input.routeContext.providerKey ?? null, {
       profileVersion: profile?.profileVersion ?? input.routeContext.profileVersion,
     }),

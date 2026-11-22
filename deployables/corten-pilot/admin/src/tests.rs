@@ -407,7 +407,7 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
     if let Some(answer) = daily_command(&method, uri.path(), &body) {
         return answer;
     }
-    if let Some(answer) = provider_api(&method, uri.path(), &body) {
+    if let Some(answer) = provider_api(&method, uri.path(), &headers, &body) {
         return answer;
     }
     if let Some(answer) = operator_session_api(&method, uri.path(), &headers) {
@@ -452,7 +452,7 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
                 "Projection read model did not catch up to the requested write receipt before the freshness timeout.",
             );
         }
-        return support_requests(&method, rest, &body);
+        return support_requests(&method, rest, &body, cookie.contains("support-remedies"));
     }
     if let Some(rest) = uri.path().strip_prefix("/api/experience/risk-alerts") {
         return risk_alerts(&method, rest);
@@ -827,7 +827,24 @@ const SUPPORT_REQUESTS: &str = "/api/marketplace/support-requests";
 /// an unwaivable and a releasable effect; a remedy preview (refused without a rationale) and the
 /// remedy writes; the flows' titles; Escalate overdue's counts; a resolve without its summary
 /// refused; and `req_1`'s one photo.
-fn support_requests(method: &Method, rest: &str, body: &str) -> Response {
+fn support_requests(method: &Method, rest: &str, body: &str, remedies: bool) -> Response {
+    // The ops read's remedy offer: the policy's choices, and each action with whether the reader
+    // (with every remedy capability, or none) may take it.
+    let offered = |key: &str| json!({ "idempotencyKey": key, "allowed": remedies });
+    let remedy_offer = |propose: Value, approve: Value, correct: Value, effects: Value| {
+        json!({
+            "policyVersion": "platform-operations.platform-remedies:pol_published:2026-05-01T00:00:00.000Z",
+            "choices": {
+                "refundTriggers": ["immediate", "delivered"],
+                "eligibleReasonCodes": ["customer-protection", "published-goodwill"],
+                "returnExceptionReasonCodes": ["documented-exception"],
+                "escalationReasonCodes": ["refund-failure", "published-escalation"],
+                "splitFundingAllowed": false,
+            },
+            "currencyCode": "usd",
+            "propose": propose, "approve": approve, "correct": correct, "effects": effects,
+        })
+    };
     let row = |id: &str, reference: &str, status: &str, priority: &str, due: Option<&str>| {
         json!({
             "support_request_id": id, "display_reference": reference, "order_id": "ord_1", "flow_type": "product-damaged",
@@ -892,6 +909,8 @@ fn support_requests(method: &Method, rest: &str, body: &str) -> Response {
                 "flow": { "allowedResolutions": ["full-refund"] },
             });
             detail.as_object_mut().unwrap().extend(more.as_object().unwrap().clone());
+            detail["remedy_offer"] =
+                remedy_offer(offered("req_done:platform-remedy-proposal"), Value::Null, Value::Null, json!([]));
             Json(detail).into_response()
         }
         (Method::GET, "/ops/req_remedy") => {
@@ -934,6 +953,15 @@ fn support_requests(method: &Method, rest: &str, body: &str) -> Response {
                 effect("operator-release", "pending", None),
             ];
             detail["remedy"] = json!({ "remedyId": "rmd_1", "status": "action-required", "effects": effects });
+            let none = |effect: &str| json!({ "effect": effect, "retry": null, "waive": null, "release": null });
+            let effect_offers = json!([
+                { "effect": "refund-execution", "retry": offered("rmd_1:refund-execution:idem_3:retry"), "waive": null, "release": null },
+                { "effect": "buyer-notification", "retry": null, "waive": offered("rmd_1:buyer-notification:idem_4:waive"), "release": null },
+                none("coverage-reservation"),
+                { "effect": "operator-release", "retry": null, "waive": null, "release": offered("rmd_1:operator-release") },
+            ]);
+            detail["remedy_offer"] =
+                remedy_offer(Value::Null, offered("rmd_1:approval"), offered("rmd_1:correction"), effect_offers);
             Json(detail).into_response()
         }
         (Method::POST, "/ops/req_done/remedy-proposals/preview") if body.contains(r#""rationale":"""#) => {
@@ -1659,8 +1687,7 @@ fn catalog_component(id: &str) -> Value {
 }
 
 /// A draft blueprint as its page reads it (`BlueprintDetail`): one component, a required field
-/// rule, a dimension rule, and a canonical order. The admin page's read misses the field rule
-/// the list has (`fld_more`), as chase-sets/chase-sets#10823 can.
+/// rule, a dimension rule, and a canonical order.
 fn catalog_blueprint(id: &str) -> Value {
     json!({
         "blueprint_id": id, "key": "single", "name": "Card single", "description": "", "status": "draft",
@@ -1927,12 +1954,45 @@ fn scope_api(method: &Method, path: &str, query: &str, body: &str) -> Option<Res
         json!({ "jobId": id, "kind": kind, "status": status, "progress": { "completed": 1, "total": 2 },
                 "result": result, "errorMessage": error })
     };
+    let pending_ja = json!({
+        "aliasHash": "ah_ja", "targetKind": "reference-record", "targetId": "ref_scp_paf",
+        "nativePrintedName": "Shiny Treasure ex", "proposedAlias": "Paldean Fates", "aliasLanguageCode": "ja",
+        "confidence": "medium", "reviewStatus": "pending", "autoAccept": { "reasons": ["Confidence is below high."] },
+        "availableActions": ["alias.accept", "alias.reject", "alias.defer"],
+    });
+    // The scope as `/scope-records/{id}/journey` answers it: `stages` the five stages' statuses in
+    // order, the editions drawn as the API composed them.
+    let journey = |scope: Value, editions: Value, condition: &str, stages: [&str; 5], pending: usize| {
+        let count = scope["languageEditions"].as_array().map_or(0, Vec::len);
+        let keys = ["coverage", "sync", "jobs", "candidates", "promotion"];
+        let stages: Vec<Value> = keys.iter().zip(stages).map(|(k, s)| json!({ "key": k, "status": s })).collect();
+        json!({ "generatedAt": "2026-11-04T12:00:00.000Z", "languageEditions": editions,
+                "languageEditionReviewFailed": false,
+                "overview": { "scopeRecordId": scope["scopeRecordId"], "condition": condition, "stages": stages,
+                              "editionCount": count, "linkedEditionCount": count - pending.min(count),
+                              "pendingCandidateCount": pending, "promotionReadiness": scope["promotionReadiness"],
+                              "syncFreshness": scope["syncFreshness"] },
+                "scope": scope })
+    };
     let rest = path.strip_prefix(CATALOG)?;
     let answer = match (method.clone(), rest) {
-        (Method::GET, "/scope-records/scp_paf") => Json(scope("scp_paf", &["en", "ja"], "draft")).into_response(),
-        (Method::GET, "/scope-records/scp_one") => Json(scope("scp_one", &["en"], "active")).into_response(),
-        (Method::GET, "/scope-records/scp_down") => Json(scope("scp_down", &["en"], "active")).into_response(),
-        (Method::GET, "/scope-records/scp_gone") => refusal(StatusCode::NOT_FOUND, "not_found", "Scope record not found."),
+        (Method::GET, "/scope-records/scp_paf/journey") => {
+            let editions = json!({ "scopeRecordId": "scp_paf", "referenceRecordId": "ref_scp_paf", "editions": [
+                { "languageCode": "en", "isCanonical": true, "linkState": "linked", "acceptedAliasCount": 0,
+                  "pendingCandidates": [], "acceptedCandidates": [] },
+                { "languageCode": "ja", "isCanonical": false, "linkState": "pending-review", "acceptedAliasCount": 0,
+                  "pendingCandidates": [pending_ja], "acceptedCandidates": [] },
+            ] });
+            let stages = ["complete", "complete", "complete", "current", "upcoming"];
+            Json(journey(scope("scp_paf", &["en", "ja"], "draft"), editions, "conflict", stages, 1)).into_response()
+        }
+        (Method::GET, path @ ("/scope-records/scp_one/journey" | "/scope-records/scp_down/journey")) => {
+            let id = path.trim_start_matches("/scope-records/").trim_end_matches("/journey");
+            Json(journey(scope(id, &["en"], "active"), Value::Null, "ready", ["complete"; 5], 0)).into_response()
+        }
+        (Method::GET, "/scope-records/scp_gone/journey") => {
+            refusal(StatusCode::NOT_FOUND, "not_found", "Scope record not found.")
+        }
         (Method::GET, "/provider-scope-mappings/coverage/scp_down") | (Method::GET, "/source-observations/bulk-jobs/active")
             if query.contains("scp_down") || rest.ends_with("scp_down") =>
         {
@@ -1986,13 +2046,7 @@ fn scope_api(method: &Method, path: &str, query: &str, body: &str) -> Option<Res
         (Method::GET, "/source-observations/bulk-jobs/active" | "/source-observations/merge-candidate-bulk-jobs/failed") => {
             Json(json!({ "items": [] })).into_response()
         }
-        (Method::GET, "/alias-review") => Json(json!({ "candidates": [{
-            "aliasHash": "ah_ja", "targetKind": "reference-record", "targetId": "ref_scp_paf",
-            "nativePrintedName": "Shiny Treasure ex", "proposedAlias": "Paldean Fates", "aliasLanguageCode": "ja",
-            "confidence": "medium", "reviewStatus": "pending", "autoAccept": { "reasons": ["Confidence is below high."] },
-            "availableActions": ["alias.accept", "alias.reject", "alias.defer"],
-        }] }))
-        .into_response(),
+        (Method::GET, "/alias-review") => Json(json!({ "candidates": [pending_ja] })).into_response(),
         (Method::POST, "/provider-scope-mappings/commands" | "/provider-scope-mappings/propose") if body.contains("refuse") => {
             refusal(StatusCode::UNPROCESSABLE_ENTITY, "validation_failed", "The mapping moved meanwhile.")
         }
@@ -2867,14 +2921,16 @@ async fn components_are_created_and_their_rules_added_and_removed() {
     let body = |i: usize| serde_json::from_str::<Value>(&sent[i].body).unwrap();
     assert_eq!((&sent[0].method, sent[0].path.as_str()), (&Method::POST, "/api/catalog/components"));
     assert_eq!(body(0)["componentId"], "cmp_01JZ");
-    // The edit restates the rules the API has, read from the list (the component's own table)
-    // just before the write, not from the page's read.
+    // The edit sends the key, name and description only, as admin-web's does: the API's revise
+    // leaves the rules as they are.
     assert_eq!((&sent[1].method, sent[1].path.as_str()), (&Method::PUT, "/api/catalog/components/cmp_seed"));
-    assert_eq!(body(1)["fieldRules"], json!([{ "fieldId": "fld_seed", "required": true }]));
     assert_eq!(
-        body(1)["dimensionRules"],
-        json!([{ "dimensionId": "dim_seed", "required": false, "allowedOptionIds": ["chc_a"],
-                 "appliesWhen": [{ "dimensionId": "dim_b", "optionIds": ["chc_x"] }] }])
+        body(1),
+        json!({
+            "key": "card-face",
+            "name": { "defaultLocale": "en", "values": { "en": "Card front" } },
+            "description": { "defaultLocale": "en", "values": {} },
+        })
     );
     assert_eq!(sent[2].path, "/api/catalog/components/cmp_seed/field-rules");
     assert_eq!(body(2), json!({ "fieldId": "fld_x", "required": true }));
@@ -2898,12 +2954,8 @@ async fn components_are_created_and_their_rules_added_and_removed() {
         .collect();
     assert_eq!(
         reads,
-        [
-            "/api/catalog/components?hasFieldRules=true&limit=50&offset=0",
-            "/api/catalog/components/cmp_seed",
-            "/api/catalog/components?limit=50&offset=0",
-        ],
-        "the list, the page, and the edit's read of the rules"
+        ["/api/catalog/components?hasFieldRules=true&limit=50&offset=0", "/api/catalog/components/cmp_seed"],
+        "the list and the page; the edit reads nothing"
     );
 }
 
@@ -2917,13 +2969,6 @@ async fn a_refused_rule_removal_is_its_rows_message_and_a_component_bulk_change_
     let (status, _, html) = pilot.send(post("/catalog/components/cmp_seed/field-rules/fld_gone/remove", "", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.starts_with("<!DOCTYPE html>") && html.contains("The component has no rule for this field."), "{html}");
-
-    // An edit of a component the list does not have writes nothing: its rules would be lost.
-    let pilot = Pilot::new().await;
-    let (status, _, html) = pilot.send(post("/catalog/components/cmp_other/edit", "key=x&name=X&description=", true)).await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert!(html.contains("rules could not be read, so it was not saved"), "{html}");
-    assert!(pilot.catalog_writes().is_empty());
 
     let pilot = Pilot::new().await;
     let (status, _, html) =
@@ -2970,21 +3015,21 @@ async fn blueprints_are_created_and_their_components_attached_and_rules_set() {
     assert!(html.contains(r#"name="after_write" value=""#), "{html}");
     assert!(html.contains(r#"name="action" value="publish">Publish</button>"#), "{html}");
 
-    // A Set dialog starts from the list's rules (two field rules), not the page's (one).
+    // A Set dialog starts from the blueprint's detail, read when it is opened, by id.
     let (status, headers, html) =
         pilot.send(opened(&format!("/catalog/blueprints/bpr_seed/field-rules?after_write={receipt}"))).await;
     assert_eq!(status, StatusCode::OK);
     assert!(headers.contains_key("corten-patch"), "{headers:?}");
-    assert!(html.contains(r#"value="fld_seed""#) && html.contains(r#"value="fld_more""#), "{html}");
-    assert!(html.contains(r#"name="required" value="0" checked"#) && !html.contains(r#"value="1" checked"#), "{html}");
-    let list_read = pilot.catalog_calls().into_iter().last().unwrap();
-    assert_eq!(list_read.path, "/api/catalog/blueprints?limit=50&offset=0");
-    assert!(list_read.headers.contains_key("chase-sets-read-after-write"), "the list read waits for the page's write");
+    assert!(html.contains(r#"value="fld_seed""#) && html.matches(r#"name="field_id""#).count() == 1, "{html}");
+    assert!(html.contains(r#"name="required" value="0" checked"#), "{html}");
+    let detail_read = pilot.catalog_calls().into_iter().last().unwrap();
+    assert_eq!(detail_read.path, "/api/catalog/blueprints/bpr_seed");
+    assert!(detail_read.headers.contains_key("chase-sets-read-after-write"), "the read waits for the page's write");
     let (_, _, html) = pilot.send(opened("/catalog/blueprints/bpr_seed/dimension-rules")).await;
     assert!(html.contains(r#"value="dim_seed""#) && html.contains(r#"value="chc_a""#), "{html}");
-    assert!(html.contains(r#"value="dim_b=chc_x|chc_y""#), "{html}");
+    assert!(html.contains(r#"value="dim_b=chc_x""#), "{html}");
     let (_, _, html) = pilot.send(opened("/catalog/blueprints/bpr_seed/product-resolution-rules")).await;
-    assert!(html.contains(r#"value="dim_seed, dim_b""#), "{html}");
+    assert!(html.contains(r#"value="dim_seed""#), "{html}");
 
     // Add Rule draws the form again with a row more, and writes nothing.
     let (status, _, html) =
@@ -3039,16 +3084,8 @@ async fn blueprints_are_created_and_their_components_attached_and_rules_set() {
 }
 
 #[tokio::test]
-async fn a_set_dialog_the_list_cannot_fill_has_no_form_and_blueprint_refusals_stay_on_the_page() {
+async fn blueprint_refusals_stay_on_the_page_and_a_blueprint_bulk_change_previews() {
     let pilot = Pilot::new().await;
-    // The list does not have bpr_other: its rules are not known, so there is nothing to save.
-    let (status, _, html) = pilot.send(opened("/catalog/blueprints/bpr_other/field-rules")).await;
-    assert_eq!(status, StatusCode::OK);
-    assert!(html.contains("rules could not be read") && !html.contains(r#"name="field_id""#), "{html}");
-    let (status, _, html) = pilot.send(get("/catalog/blueprints/bpr_other/dimension-rules", Some("staff"))).await;
-    assert_eq!(status, StatusCode::OK);
-    assert!(html.starts_with("<!DOCTYPE html>") && html.contains("rules could not be read"), "{html}");
-
     // Without a component id there is no command to send.
     let (status, _, html) = pilot.send(post("/catalog/blueprints/bpr_seed/components", "component_id=+", true)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
@@ -4629,15 +4666,15 @@ async fn a_scopes_page_draws_its_journey_coverage_jobs_and_editions_from_the_cat
     assert_eq!(status, StatusCode::OK, "{html}");
     let calls: Vec<String> = pilot.catalog_calls().into_iter().map(|c| c.path).collect();
     for path in [
-        "/api/catalog/scope-records/scp_paf",
+        "/api/catalog/scope-records/scp_paf/journey",
         "/api/catalog/provider-scope-mappings/coverage/scp_paf",
         "/api/catalog/source-observations/bulk-jobs/active?scopeRecordId=scp_paf",
         "/api/catalog/source-observations/bulk-jobs/active?scopeRecordId=scp_paf&status=completed",
         "/api/catalog/source-observations/merge-candidate-bulk-jobs/failed?scopeRecordId=scp_paf",
-        "/api/catalog/alias-review?targetKind=reference-record&targetId=ref_scp_paf",
     ] {
         assert!(calls.iter().any(|c| c == path), "{path} in {calls:?}");
     }
+    assert!(!calls.iter().any(|c| c.contains("alias-review")), "the API reads the editions' aliases: {calls:?}");
     assert!(html.contains("Paldean Fates") && html.contains(r#"href="/catalog/scopes""#), "{html}");
     // The journey: a pending Japanese alias is a conflict.
     assert!(html.contains(r#"data-status="current""#), "{html}");
@@ -4863,7 +4900,7 @@ async fn a_scope_with_one_edition_reads_no_alias_review_and_a_failed_read_is_its
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(get("/catalog/scopes/scp_one", Some("staff"))).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(!pilot.catalog_calls().iter().any(|c| c.path.contains("alias-review")), "one edition has nothing to review");
+    assert!(!pilot.catalog_calls().iter().any(|c| c.path.contains("alias-review")), "the API reads the editions' aliases");
     assert!(!html.contains("scope-editions"), "{html}");
 
     let (status, _, html) = pilot.send(get("/catalog/scopes/scp_down", Some("staff"))).await;
@@ -6451,12 +6488,15 @@ async fn a_refund_decision_offers_a_remedy_proposal_previewed_before_it_is_reque
     let (status, _, html) = pilot.send(get("/support/requests?requestId=req_done", Some("support-remedies"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains(r#"name="remedyAmount" inputmode="decimal" value="5.00""#), "the decided refund: {html}");
-    assert!(html.contains(r#"name="currencyCode" value="usd""#), "no affected lines, admin-web's usd: {html}");
+    assert!(html.contains(r#"name="currencyCode" value="usd""#), "the offered currency: {html}");
+    assert!(html.contains(r#"<option value="published-goodwill">"#), "the active policy's reasons: {html}");
+    assert!(!html.contains(r#"value="carrier-accepted""#), "not the launch policy's triggers: {html}");
+    assert!(!html.contains(r#"<option value="split""#), "split funding the policy does not allow: {html}");
     assert!(html.contains(r#"value="req_done:platform-remedy-proposal""#), "{html}");
     assert!(html.contains(r#"value="preview-remedy">"#), "{html}");
     assert!(html.contains(r#"value="propose-remedy" disabled>"#), "no reservation before a preview: {html}");
     let (_, _, html) = pilot.send(get("/support/requests?requestId=req_done", Some("support-agent"))).await;
-    assert!(html.contains(r#"value="preview-remedy" disabled>"#), "without support.remedies.propose: {html}");
+    assert!(html.contains(r#"value="preview-remedy" disabled>"#), "the read does not allow it: {html}");
 
     let at = "/support/requests/req_done?status=resolved";
     let form = "intent=preview-remedy&remedyKind=partial-refund&remedyAmount=5.00&currencyCode=usd&fundingKind=platform-funded\
@@ -6529,7 +6569,7 @@ async fn a_remedy_shows_its_workflow_and_the_recovery_admin_web_offers() {
     for intent in
         ["approve-remedy", "retry-remedy-effect", "waive-remedy-effect", "release-remedy-refund", "request-remedy-correction"]
     {
-        assert!(html.contains(&format!(r#"value="{intent}" disabled>"#)), "{intent} needs its capability: {html}");
+        assert!(html.contains(&format!(r#"value="{intent}" disabled>"#)), "{intent} the read does not allow: {html}");
     }
 
     let reasoned =
@@ -9080,7 +9120,7 @@ fn section_groups() -> Value {
 /// Two of provider detail's section workspaces: one the API lets be saved, one it does not.
 fn section_workspaces() -> Value {
     json!([
-        { "sectionKey": "basics", "displayName": "Basics", "groupLabel": "Profile foundation",
+        { "sectionKey": "basics", "displayName": "Basics", "groupLabel": "Profile foundation", "sectionFingerprint": "sha256:basics-read",
             "description": "The profile's name and scopes.", "domainConcept": "Provider profile", "status": "valid",
             "editable": true, "actionState": "available", "blockers": [], "dirtyState": "clean", "staleState": "fresh",
             "saveOutcome": "not-submitted", "anchorId": "profile-section-basics", "semanticChangeCount": 0,
@@ -9303,6 +9343,7 @@ fn validation_readiness(selected: &str) -> Value {
         "activationDecision": { "status": "blocked", "actionState": "blocked", "blockers": ["migration-evidence-missing"],
             "saveEvidenceState": "available", "saveEvidenceBlockers": [],
             "activationCommandKey": "provider-profile.activate", "evidenceCommandKey": "provider-profile.edit-section",
+            "evidenceSectionFingerprint": "sha256:migration-evidence-read",
             "workspaceHref": format!("/catalog/providers/tcgplayer?profileVersion={selected}"),
             "providerKey": "tcgplayer", "profileVersion": selected, "lifecycle": "draft", "importEligibility": "blocked",
             "affectedReferences": { "referenceCount": 4, "requiresMigrationEvidence": true,
@@ -9349,7 +9390,7 @@ const OPERATOR_GRANT: &str = "Q2hhc2VTZXRzT3BlcmF0b3JHcmFudEZvclRlc3RzXzA";
 /// API refuses it, and a deprecate of 2026.06.23 is refused as a lifecycle conflict. Migration
 /// evidence with a blank text is refused, as the API's section check does, and activating
 /// 2026.06.23 is refused for its missing evidence.
-fn provider_api(method: &Method, path: &str, body: &str) -> Option<Response> {
+fn provider_api(method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
     if let Some(rest) = path.strip_prefix("/api/catalog/provider-scope-discovery/refresh-schedule") {
         return Some(match (method.as_str(), rest) {
             ("POST", "/lorcast/run") => {
@@ -9367,16 +9408,21 @@ fn provider_api(method: &Method, path: &str, body: &str) -> Option<Response> {
             .into_response(),
         );
     }
+    // The API checks a section save against the revision its form was drawn from.
+    let revision = headers.get(header::IF_MATCH).and_then(|v| v.to_str().ok()).unwrap_or_default();
     if *method == Method::PATCH && rest == "tcgplayer/2026.07.13/sections/basics" {
-        let sent: Value = serde_json::from_str(body).unwrap_or(Value::Null);
-        return Some(if sent["command"]["displayName"] == "Stale" {
-            refusal(
+        return Some(match revision {
+            r#""sha256:basics-read""# => written(StatusCode::OK, "profile_1"),
+            "" | r#""""# => refusal(
+                StatusCode::PRECONDITION_REQUIRED,
+                "profile_section_fingerprint_required",
+                "Saving a profile section needs the section revision it was read at. Read the profile again and resend the change.",
+            ),
+            _ => refusal(
                 StatusCode::CONFLICT,
-                "profile_section_conflict",
-                "Catalog provider profile section 'basics' has changed; reload before saving.",
-            )
-        } else {
-            written(StatusCode::OK, "profile_1")
+                "profile_section_changed",
+                "This section changed after the page read it. Read the profile again before saving.",
+            ),
         });
     }
     if *method == Method::PATCH && rest.ends_with("/sections/migration-evidence") {
@@ -9770,7 +9816,7 @@ async fn the_activation_decision_saves_evidence_and_activates_and_draws_the_apis
     let pilot = Pilot::new().await;
     let at = "profileVersion=2026.07.13";
     let landed = |headers: &HeaderMap| headers[header::LOCATION].to_str().unwrap().to_owned();
-    let form = "profileVersion=2026.07.13&migrationEvidenceText=Replayed+the+changed+fixtures.&migrationFixtureRunId=";
+    let form = "profileVersion=2026.07.13&sectionFingerprint=sha256%3Amigration-evidence-read&migrationEvidenceText=Replayed+the+changed+fixtures.&migrationFixtureRunId=";
     let (status, headers, _) = pilot.send(post(&format!("/catalog/providers/tcgplayer/evidence?{at}"), form, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert!(
@@ -9780,6 +9826,7 @@ async fn the_activation_decision_saves_evidence_and_activates_and_draws_the_apis
     );
     let sent = pilot.calls.lock().unwrap().iter().find(|c| c.path.ends_with("/sections/migration-evidence")).cloned().unwrap();
     assert_eq!(sent.method, Method::PATCH);
+    assert_eq!(sent.headers[header::IF_MATCH], r#""sha256:migration-evidence-read""#);
     assert_eq!(
         serde_json::from_str::<Value>(&sent.body).unwrap(),
         json!({ "command": { "section": "migration-evidence", "migrationEvidence": {
@@ -11990,6 +12037,7 @@ async fn a_profile_section_is_drawn_from_its_workspace_and_saved_over_the_stored
     let basics = section("basics");
     assert!(basics.contains(r#"action="/catalog/providers/tcgplayer/sections/basics?profileVersion=2026.07.13""#), "{basics}");
     assert!(basics.contains(r#"name="profileVersion" value="2026.07.13""#), "{basics}");
+    assert!(basics.contains(r#"name="sectionFingerprint" value="sha256:basics-read""#), "{basics}");
     assert!(basics.contains(r#"name="displayName" value="TCGplayer Pokemon Cards" required"#), "{basics}");
     assert!(basics.contains(r#"<option value="active" selected>Active</option>"#), "{basics}");
     // A field the API disables is disabled, so it is not sent and its stored value stays.
@@ -12005,12 +12053,13 @@ async fn a_profile_section_is_drawn_from_its_workspace_and_saved_over_the_stored
     let save = &fixtures[fixtures.find(r#"type="submit""#).unwrap()..];
     assert!(save[..save.find('>').unwrap()].contains("disabled"), "{fixtures}");
 
-    // A save reads the version's authoring model and sends the posted fields over the stored ones.
+    // A save reads the version's authoring model and sends the posted fields over the stored ones,
+    // checked against the revision the form was drawn from.
     let at = "profileVersion=2026.07.13";
     let (status, headers, _) = pilot
         .send(post(
             &format!("/catalog/providers/tcgplayer/sections/basics?{at}"),
-            "profileVersion=2026.07.13&displayName=+Pokemon+Singles+&status=planned",
+            "profileVersion=2026.07.13&sectionFingerprint=sha256%3Abasics-read&displayName=+Pokemon+Singles+&status=planned",
             false,
         ))
         .await;
@@ -12019,6 +12068,7 @@ async fn a_profile_section_is_drawn_from_its_workspace_and_saved_over_the_stored
     assert!(landed.starts_with(&format!("/catalog/providers/tcgplayer?{at}&done=section-saved&after_write=")), "{landed}");
     let sent = pilot.calls.lock().unwrap().iter().find(|c| c.path.ends_with("/sections/basics")).cloned().unwrap();
     assert_eq!(sent.method, Method::PATCH);
+    assert_eq!(sent.headers[header::IF_MATCH], r#""sha256:basics-read""#);
     assert_eq!(
         serde_json::from_str::<Value>(&sent.body).unwrap(),
         json!({ "command": { "section": "basics", "displayName": "Pokemon Singles", "status": "planned",
@@ -12029,16 +12079,17 @@ async fn a_profile_section_is_drawn_from_its_workspace_and_saved_over_the_stored
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("Profile section saved"), "{html}");
 
-    // The API's refusal is the page's notice, patched in place.
+    // A form drawn from a revision another save replaced is the API's to refuse, and its refusal is
+    // the page's notice, patched in place.
     let (status, _, patch) = pilot
         .send(post(
             &format!("/catalog/providers/tcgplayer/sections/basics?{at}"),
-            "profileVersion=2026.07.13&displayName=Stale",
+            "profileVersion=2026.07.13&sectionFingerprint=sha256%3Aolder&displayName=Stale",
             true,
         ))
         .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{patch}");
-    assert!(patch.contains("has changed; reload before saving."), "{patch}");
+    assert!(patch.contains("This section changed after the page read it."), "{patch}");
 
     // A section the command does not take, or no version, sends nothing; a reader may not save.
     let before = provider_writes(&pilot).len();
