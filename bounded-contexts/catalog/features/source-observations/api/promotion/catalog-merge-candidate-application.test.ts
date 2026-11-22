@@ -1039,7 +1039,7 @@ describe("Catalog Merge Candidate Catalog-owned pictures", () => {
     );
     vi.stubGlobal("fetch", fetcher);
     const listProfileVersions = vi.fn(async (providerKey: string) =>
-      members.map(({ version }) => version).filter((entry) => entry.providerKey === providerKey),
+      [...new Set(members.map(({ version }) => version))].filter((entry) => entry.providerKey === providerKey),
     );
     const ports = {
       deps: { eventStore, db, promotionTargetExclusion, assetStorage: { putObject } },
@@ -1092,17 +1092,27 @@ describe("Catalog Merge Candidate Catalog-owned pictures", () => {
     ["scryfall", "magic-card-print"],
     ["scrydex", "one-piece-card-print"],
     ["scrydex", "one-piece-sealed-product"],
-    ["tcgplayer", "one-piece-card-print"],
-    ["tcgplayer", "one-piece-sealed-product"],
     ["ygoprodeck", "yugioh-card-print"],
     ["ygoprodeck", "yugioh-sealed-product"],
-    ["tcgplayer", "yugioh-card-print"],
-    ["tcgplayer", "yugioh-sealed-product"],
   ])("rehosts %s %s evidence into a created Catalog Item", async (providerKey, kind) => {
     const fixture = await arrange([member(providerKey, kind)]);
     await expect(fixture.apply()).resolves.toMatchObject({ status: "promoted", appliedMode: "create" });
     expectCatalogPicture(fixture, providerKey);
     expect(fixture.fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it.each<ImageKind>([
+    "one-piece-card-print",
+    "one-piece-sealed-product",
+    "yugioh-card-print",
+    "yugioh-sealed-product",
+  ])("does not fetch or publish a TCGplayer picture for %s", async (kind) => {
+    const fixture = await arrange([member("tcgplayer", kind)]);
+    await expect(fixture.apply()).resolves.toMatchObject({ status: "promoted", appliedMode: "create" });
+    expect(fixture.item().productAssetSets).toEqual([]);
+    expect(fixture.item().imageUrls).toEqual([]);
+    expect(fixture.fetcher).not.toHaveBeenCalled();
+    expect(fixture.putObject).not.toHaveBeenCalled();
   });
 
   it("ignores unapproved image evidence from an item-producing provider", async () => {
@@ -1117,26 +1127,24 @@ describe("Catalog Merge Candidate Catalog-owned pictures", () => {
   it("does not let an unapproved provider block or supply the picture for an approved member", async () => {
     const fixture = await arrange([
       member("ygojson", "yugioh-sealed-product", "https://images.example/unapproved.jpg"),
-      member("tcgplayer", "yugioh-sealed-product"),
+      member("ygoprodeck", "yugioh-sealed-product"),
     ]);
     await expect(fixture.apply()).resolves.toMatchObject({ status: "promoted" });
-    expectCatalogPicture(fixture, "tcgplayer");
+    expectCatalogPicture(fixture, "ygoprodeck");
     expect(fixture.fetcher).toHaveBeenCalledExactlyOnceWith(
-      imageUrls.tcgplayer,
+      imageUrls.ygoprodeck,
       expect.objectContaining({ redirect: "error" }),
     );
   });
 
   it("never fetches an approved provider's non-image host", async () => {
-    const fixture = await arrange([
-      member("tcgplayer", "one-piece-card-print", "https://www.tcgplayer.com/product/synthetic.jpg"),
-    ]);
+    const fixture = await arrange([member("scrydex", "one-piece-card-print", imageUrls.tcgplayer)]);
     await expect(fixture.apply()).resolves.toMatchObject({ status: "promoted" });
     expect(fixture.item().imageUrls).toEqual([]);
     expect(fixture.fetcher).not.toHaveBeenCalled();
   });
 
-  it("uses the registered TCGplayer One Piece listing's picture without giving it Item authority", async () => {
+  it("keeps the registered TCGplayer One Piece listing as evidence without using its picture or giving it Item authority", async () => {
     const version = catalogProviderIntegrationProfileVersions.find(
       (entry) => entry.providerKey === "tcgplayer" && entry.profileKey === "one-piece-single-card-product-sku",
     )!;
@@ -1156,7 +1164,10 @@ describe("Catalog Merge Candidate Catalog-owned pictures", () => {
       { observation: observation!, version },
     ]);
     await expect(fixture.apply()).resolves.toMatchObject({ status: "promoted" });
-    expectCatalogPicture(fixture, "tcgplayer");
+    expect(fixture.item().productAssetSets).toEqual([]);
+    expect(fixture.item().imageUrls).toEqual([]);
+    expect(fixture.fetcher).not.toHaveBeenCalled();
+    expect(fixture.putObject).not.toHaveBeenCalled();
     expect(fixture.plan().profiles.map(({ providerKey }) => providerKey)).toEqual(["scrydex"]);
   });
 
@@ -1199,9 +1210,17 @@ describe("Catalog Merge Candidate Catalog-owned pictures", () => {
   });
 
   it("blocks disagreeing approved picture evidence before download", async () => {
+    const first = member("scrydex", "one-piece-card-print");
     const fixture = await arrange([
-      member("scrydex", "one-piece-card-print"),
-      member("tcgplayer", "one-piece-card-print"),
+      first,
+      {
+        ...first,
+        observation: {
+          ...member("scrydex", "one-piece-card-print", "https://images.scrydex.com/onepiece/different/large")
+            .observation,
+          observationId: `${first.observation.observationId}_different`,
+        },
+      },
     ]);
     await expect(fixture.apply()).rejects.toMatchObject({ code: "promotion-plan-blocked:asset-provenance-ambiguous" });
     expect(fixture.fetcher).not.toHaveBeenCalled();
@@ -1216,6 +1235,26 @@ describe("Catalog Merge Candidate Catalog-owned pictures", () => {
     await expect(fixture.apply()).resolves.toEqual(outcome);
     expect(fixture.item().id).not.toBeNull();
     expect(fixture.item().productAssetSets).toEqual([]);
+    expect(fixture.putObject).not.toHaveBeenCalled();
+  });
+
+  it("does not count a failed picture retry as another Catalog Item promotion", async () => {
+    const fixture = await arrange([member("scryfall", "magic-card-print")]);
+    fixture.fetcher.mockRejectedValue(new Error("synthetic transport failure"));
+    await expect(fixture.apply()).resolves.toMatchObject({
+      status: "promoted",
+      diagnosticCode: "asset-processing-failed",
+    });
+    const before = fixture.itemEvents();
+
+    await expect(fixture.apply("job_synthetic_picture_retry")).resolves.toMatchObject({
+      status: "skipped-not-eligible",
+      diagnosticCode: "asset-processing-failed",
+      appliedCatalogItemId: null,
+    });
+    expect(fixture.itemEvents()).toEqual(before);
+    expect(fixture.item().productAssetSets).toEqual([]);
+    expect(fixture.fetcher).toHaveBeenCalledTimes(2);
     expect(fixture.putObject).not.toHaveBeenCalled();
   });
 

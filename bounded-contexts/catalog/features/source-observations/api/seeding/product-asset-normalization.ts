@@ -23,13 +23,12 @@ const LORCANA_IMAGE_EVIDENCE_STALE_AFTER_DAYS = 365;
 const LORCANA_APPROVED_IMAGE_PROVIDER_PRECEDENCE = ["lorcanajson", "scrydex", "lorcast", "tcgplayer"] as const;
 const PROMOTION_IMAGE_PROVIDERS = {
   magic: ["scryfall"],
-  onePiece: ["scrydex", "tcgplayer"],
-  yugioh: ["ygoprodeck", "tcgplayer"],
+  onePiece: ["scrydex"],
+  yugioh: ["ygoprodeck"],
 };
 const PROMOTION_IMAGE_HOSTS: Readonly<Record<string, readonly string[]>> = {
   scryfall: ["cards.scryfall.io"],
   scrydex: ["images.scrydex.com", "cdn.scrydex.com"],
-  tcgplayer: ["tcgplayer-cdn.tcgplayer.com", "images.tcgplayer.com"],
   ygoprodeck: ["images.ygoprodeck.com"],
 };
 
@@ -410,6 +409,7 @@ export function approvedPromotionImageUrls(input: PromotionImageEvidenceInput): 
         : [];
     case "one-piece-card-print":
     case "one-piece-sealed-product": {
+      if (!PROMOTION_IMAGE_PROVIDERS.onePiece.includes(providerKey)) return [];
       const evidence = extractApprovedOnePieceImageEvidence({ ...input, imageUrls: normalized.imageUrls });
       return evidence.status === "current" ? safeImageUrls(providerKey, evidence.imageUrls) : [];
     }
@@ -418,13 +418,6 @@ export function approvedPromotionImageUrls(input: PromotionImageEvidenceInput): 
       return PROMOTION_IMAGE_PROVIDERS.yugioh.includes(providerKey)
         ? safeImageUrls(providerKey, normalized.imageUrls)
         : [];
-    case "provider-product":
-      if (providerKey !== "tcgplayer") return [];
-      if (normalized.tcg === "one-piece") {
-        const evidence = extractApprovedOnePieceImageEvidence({ ...input, imageUrls: normalized.imageUrls });
-        return evidence.status === "current" ? safeImageUrls(providerKey, evidence.imageUrls) : [];
-      }
-      return normalized.tcg === "yugioh" ? safeImageUrls(providerKey, normalized.imageUrls) : [];
     default:
       return [];
   }

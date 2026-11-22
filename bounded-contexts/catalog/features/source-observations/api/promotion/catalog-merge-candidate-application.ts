@@ -18,11 +18,7 @@ import {
   type CatalogItemEvent,
   type CatalogItemState,
 } from "../../../catalog-items/domain/domain";
-import type {
-  SourceObservationProviderProductNormalized,
-  SourceObservationState,
-  SourceObservationYugiohCardPrintNormalized,
-} from "../../domain/domain";
+import type { SourceObservationState, SourceObservationYugiohCardPrintNormalized } from "../../domain/domain";
 import {
   decideCatalogMergeCandidate,
   evolveCatalogMergeCandidate,
@@ -182,11 +178,6 @@ type ResolvedMember = ItemAuthor &
     mapping: CatalogProviderPromotionResolvedCatalogMapping;
   }>;
 
-type CandidateMembers = Readonly<{
-  authors: readonly ItemAuthor[];
-  referenceRevisions: readonly SourceObservationState[];
-}>;
-
 /**
  * Apply one approved (or ready-then-approved) candidate inside a version-1
  * scope promotion unit. Every decision folds the complete candidate, member and
@@ -218,12 +209,15 @@ export async function applyCatalogMergeCandidatePromotion(
           throw error;
         })
       : null;
-    return assets
-      ? promotedOutcome(unit.candidateId, state.snapshot, application, assets)
+    return assets?.productAssetSets && assets.imageUrls
+      ? promotedOutcome(unit.candidateId, state.snapshot, application)
       : unappliedOutcome(
           unit.candidateId,
           "skipped-not-eligible",
-          "Catalog Merge Candidate application is already complete.",
+          assets?.diagnosticCode
+            ? "Catalog Merge Candidate application is already complete; its missing picture could not be backfilled."
+            : "Catalog Merge Candidate application is already complete.",
+          assets?.diagnosticCode,
         );
   }
   if (plan) {
@@ -233,14 +227,14 @@ export async function applyCatalogMergeCandidatePromotion(
     return unappliedOutcome(unit.candidateId, "skipped-not-eligible", `Catalog Merge Candidate is ${state.status}.`);
   }
 
-  const members = await resolveCandidateMembers(ports, state.snapshot);
-  if (members.authors.length === 0) return referenceOnlyOutcome(unit.candidateId);
+  const authors = await resolveItemAuthors(ports, state.snapshot);
+  if (authors.length === 0) return referenceOnlyOutcome(unit.candidateId);
   const approvalVersion = state.status === "promoted" ? loaded.approvalVersion! : loaded.version + 1;
   const prepared = await prepareApplicationPlan(
     ports,
     unit,
     state.snapshot,
-    members,
+    authors,
     approvalVersion,
     loaded.resolvedConflicts,
   );
@@ -354,21 +348,16 @@ function checkpointCommand(checkpoint: ApplicationCheckpoint): CatalogMergeCandi
  * presence, another member's profile or an external reference never qualifies
  * a member. Empty means the candidate is reference-only.
  */
-async function resolveCandidateMembers(
+async function resolveItemAuthors(
   ports: CatalogMergeCandidateApplicationPorts,
   snapshot: CatalogMergeCandidateReviewSnapshot,
-): Promise<CandidateMembers> {
+): Promise<readonly ItemAuthor[]> {
   const authors: ItemAuthor[] = [];
-  const referenceRevisions: SourceObservationState[] = [];
-  const revisions = await resolveApprovedMemberRevisions(ports.deps.eventStore, snapshot);
   let referenceOnly = false;
-  for (const revision of revisions) {
+  for (const revision of await resolveApprovedMemberRevisions(ports.deps.eventStore, snapshot)) {
     const normalized = promotableNormalized(revision);
     if (!normalized) {
-      if (await isReferenceOnlyMember(ports.profileVersions, revision)) {
-        referenceOnly = true;
-        referenceRevisions.push(revision);
-      }
+      if (await isReferenceOnlyMember(ports.profileVersions, revision)) referenceOnly = true;
       continue;
     }
     const version = await resolveMemberPromotionProfile(ports.profileVersions, revision, normalized);
@@ -381,7 +370,7 @@ async function resolveCandidateMembers(
   }
   if (authors.length === 0 && !referenceOnly)
     throw blocked("no-promotable-member", "no approved member has a Catalog Item promotion mapping");
-  return { authors, referenceRevisions };
+  return authors;
 }
 
 async function isReferenceOnlyMember(
@@ -531,7 +520,7 @@ async function prepareApplicationPlan(
   ports: CatalogMergeCandidateApplicationPorts,
   unit: ApplicationUnit,
   snapshot: CatalogMergeCandidateReviewSnapshot,
-  { authors, referenceRevisions }: CandidateMembers,
+  authors: readonly ItemAuthor[],
   approvalVersion: number,
   resolvedConflicts: readonly CatalogMergeCandidateConflictResolution[],
 ): Promise<Readonly<{ plan: CatalogMergeCandidatePromotionPlan; session: PromotionTargetSession }>> {
@@ -627,12 +616,7 @@ async function prepareApplicationPlan(
   if (mode === "create" && snapshot.promotionIntent !== "create-catalog-item")
     throw blocked("missing-catalog-item-target", "the reviewed intent requires an existing Catalog Item");
 
-  const assetPlan = await prepareCandidateAssets(
-    deps,
-    { authors: resolved, referenceRevisions },
-    targetId as CatalogItemId,
-    target,
-  );
+  const assetPlan = await prepareCandidateAssets(deps, resolved, targetId as CatalogItemId, target);
   const planned = await planCatalogMergeCandidatePromotionCommands({
     db: deps.db,
     candidate: {
@@ -803,10 +787,10 @@ async function reapplyMissingCandidateAssets(
   const item = history.map(codec.decode).reduce(evolveCatalogItem, initialCatalogItemState);
   if (!needsCandidatePicture(item, history)) return null;
 
-  const members = await resolveCandidateMembers(ports, snapshot);
-  const authors = members.authors.filter(({ normalized }) => isCatalogOwnedPromotionImageKind(normalized.kind));
-  const pictureMembers = { ...members, authors };
-  if (!candidateImageMembers(pictureMembers).some(imageEvidence)) return null;
+  const authors = (await resolveItemAuthors(ports, snapshot)).filter(({ normalized }) =>
+    isCatalogOwnedPromotionImageKind(normalized.kind),
+  );
+  if (!authors.some(imageEvidence)) return null;
   const session = await acquireCandidateTarget(ports, {
     candidateId: unit.candidateId,
     snapshot,
@@ -825,7 +809,7 @@ async function reapplyMissingCandidateAssets(
   )
     return null;
   verifyBoundTargetHistory(baseline, plan, "applied-prefix");
-  const assets = await prepareCandidateAssets(ports.deps, pictureMembers, target.id!, target);
+  const assets = await prepareCandidateAssets(ports.deps, authors, target.id!, target);
   if (!assets?.productAssetSets || !assets.imageUrls) return assets;
   const events = [
     ...decideCatalogItem(target, { type: "SetCatalogItemImageUrls", imageUrls: assets.imageUrls }),
@@ -1108,38 +1092,13 @@ type CandidateAssetPlan = CatalogMergeCandidatePromotionAssetPlan & {
   diagnosticCode?: CatalogMergeCandidateApplicationDiagnosticCode;
 };
 
-type CandidateImageMember =
-  | ItemAuthor
-  | Readonly<{
-      revision: SourceObservationState;
-      normalized: SourceObservationProviderProductNormalized;
-      version?: undefined;
-    }>;
-
-function candidateImageMembers({ authors, referenceRevisions }: CandidateMembers): readonly CandidateImageMember[] {
-  const item = authors[0]?.normalized;
-  if (!item || (item.tcg !== "one-piece" && item.tcg !== "yugioh")) return authors;
-  return [
-    ...authors,
-    ...referenceRevisions.flatMap((revision) => {
-      const normalized = revision.normalized;
-      // A reviewed TCGplayer listing can supply a picture without authoring Item facts.
-      return normalized?.kind === "provider-product" &&
-        normalized.tcg === item.tcg &&
-        revision.providerKey === "tcgplayer"
-        ? [{ revision, normalized }]
-        : [];
-    }),
-  ];
-}
-
 async function prepareCandidateAssets(
   deps: CatalogRuntimeDeps,
-  members: CandidateMembers,
+  members: readonly ItemAuthor[],
   catalogItemId: CatalogItemId,
   target: CatalogItemState,
 ): Promise<CandidateAssetPlan | null> {
-  const withImages = candidateImageMembers(members).flatMap((member) => {
+  const withImages = members.flatMap((member) => {
     const evidence = imageEvidence(member);
     return evidence ? [{ member, evidence }] : [];
   });
@@ -1148,14 +1107,14 @@ async function prepareCandidateAssets(
   if (withImages.some((entry) => !isDeepStrictEqual(entry.evidence, source.evidence)))
     throw blocked("asset-provenance-ambiguous", "approved members carry different product image evidence");
   const { revision, normalized, version } = source.member;
-  const catalogOwned = normalized.kind === "provider-product" || isCatalogOwnedPromotionImageKind(normalized.kind);
+  const catalogOwned = isCatalogOwnedPromotionImageKind(normalized.kind);
   try {
     const productAssetSet = await normalizePromotionProductAssetSet({
       deps,
       catalogItemId,
       normalized,
       providerKey: revision.providerKey,
-      providerProfile: version?.profile,
+      providerProfile: version.profile,
       sourceUpdatedAt: revision.sourceUpdatedAt,
       observedAt: revision.observedAt ?? new Date(0).toISOString(),
       currentProductAssetSets: target.productAssetSets,
@@ -1182,7 +1141,7 @@ async function prepareCandidateAssets(
   }
 }
 
-function imageEvidence({ normalized, revision }: CandidateImageMember): JsonObject | null {
+function imageEvidence({ normalized, revision }: ItemAuthor): JsonObject | null {
   if (normalized.kind === "pokemon-card" && normalized.imageBaseUrl) return { imageBaseUrl: normalized.imageBaseUrl };
   if (
     (normalized.kind === "lorcana-card-print" || normalized.kind === "lorcana-sealed-product") &&
