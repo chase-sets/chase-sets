@@ -1,5 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { toTransportEvent } from "@chase-sets/event-core/transport";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { AccountId, PaymentId } from "@chase-sets/primitives/typed-ids";
 import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
@@ -9,7 +12,15 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { module as settlementModule } from "../../../index";
-import { listPendingCreditEntriesMaturedBy } from "./queries";
+import { createSettlementBalanceCreditResolver } from "../api/balance-credit-resolver";
+import { createSettlementWalletSpendHoldPort } from "../api/balance-credit-hold-port";
+import { balanceCreditHoldId } from "../domain/domain";
+import { buildWalletProjectionHandlers } from "./projection";
+import {
+  getAccountActiveSpendHoldAmount,
+  listExpiredActiveSpendHolds,
+  listPendingCreditEntriesMaturedBy,
+} from "./queries";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) {
@@ -39,6 +50,88 @@ describeDb("settlement money maturity query persistence boundary", () => {
     if (pools) {
       await closeMultiContextTestPools(pools);
     }
+  });
+
+  it("keeps suspended spend holds out of expiry until expiry is set from original placement", async () => {
+    const accountId = "acc_synthetic_suspended_hold" as AccountId;
+    const suspended = "pay_synthetic_suspended" as PaymentId;
+    const ordinary = "pay_synthetic_ordinary" as PaymentId;
+    const retired = "pay_synthetic_retired" as PaymentId;
+    const context: EventStoreContext = {
+      tenantId: "tnt_synthetic" as never,
+      audit: { performedByUserId: "usr_synthetic" as never, forAccountId: accountId },
+    };
+    const { wallets } = settlementModule.createServices(pool, {});
+    const resolver = createSettlementBalanceCreditResolver(pool, {
+      walletSpendHolds: createSettlementWalletSpendHoldPort(pool),
+    });
+    await wallets.postEntry(
+      {
+        accountId,
+        ledgerEntryId: "led_synthetic_suspended" as never,
+        kind: "adjustment",
+        direction: "credit",
+        amount: "50.00",
+      },
+      context,
+    );
+    const placement = { buyerAccountId: accountId, currencyCode: "usd", requestedAmount: "10.00" };
+    await resolver.placeSpendHold({ ...placement, paymentId: suspended, expiresAt: null }, context);
+    await resolver.placeSpendHold({ ...placement, paymentId: ordinary }, context);
+    await expect(
+      resolver.retireSpendHold({ buyerAccountId: accountId, paymentId: retired, reason: "payment-cancelled" }, context),
+    ).resolves.toBe("retired");
+
+    const eventStore = createPostgresEventStore({ pool });
+    const handlers = buildWalletProjectionHandlers(pool);
+    const streamId = `settlement.wallet-${accountId}`;
+    let projected = 0;
+    async function projectWallet() {
+      const history = await eventStore.readStream({ streamId });
+      for (const event of history.slice(projected)) await handlers[event.eventType]?.(toTransportEvent(event));
+      projected = history.length;
+      return history;
+    }
+
+    await projectWallet();
+    const initial = await wallets.loadWalletState(accountId);
+    expect(initial.heldBalanceAmount).toBe("20.00");
+    const hold = initial.spendHolds.find((item) => item.paymentId === suspended)!;
+    const ordinaryHold = initial.spendHolds.find((item) => item.paymentId === ordinary)!;
+    const ttl = 72 * 60 * 60_000;
+    expect(hold.expiresAt).toBeNull();
+    expect(Date.parse(ordinaryHold.expiresAt!) - Date.parse(ordinaryHold.placedAt)).toBe(ttl);
+    const future = new Date(Date.parse(ordinaryHold.placedAt) + ttl + 60_000).toISOString();
+    expect((await listExpiredActiveSpendHolds(pool, { now: future })).map((item) => item.hold_id)).toEqual([
+      ordinaryHold.holdId,
+    ]);
+    await expect(wallets.sweepExpiredSpendHolds({ now: future }, context)).resolves.toEqual({
+      released: 1,
+      skipped: 0,
+    });
+    await projectWallet();
+    expect(await getAccountActiveSpendHoldAmount(pool, accountId)).toBe("10.00");
+    const { rows } = await pool.query(
+      `SELECT status, amount::text, expires_at FROM settlement_wallet_spend_holds WHERE hold_id = $1`,
+      [balanceCreditHoldId(retired)],
+    );
+    expect(rows).toEqual([{ status: "released", amount: "0.00", expires_at: null }]);
+
+    for (const paymentId of [ordinary, retired, suspended, suspended]) {
+      await resolver.setSpendHoldExpiry({ buyerAccountId: accountId, paymentId }, context);
+    }
+    const history = await projectWallet();
+    expect(history.filter((event) => event.eventType === "settlement.wallet.spend-hold-expiry-set.v1")).toHaveLength(1);
+    const [eligible] = await listExpiredActiveSpendHolds(pool, { now: future });
+    expect(eligible?.hold_id).toBe(hold.holdId);
+    expect(new Date(eligible!.expires_at!).getTime()).toBe(Date.parse(hold.placedAt) + ttl);
+    await expect(wallets.sweepExpiredSpendHolds({ now: future }, context)).resolves.toEqual({
+      released: 1,
+      skipped: 0,
+    });
+    await projectWallet();
+    expect(await getAccountActiveSpendHoldAmount(pool, accountId)).toBe("0.00");
+    expect((await wallets.loadWalletState(accountId)).heldBalanceAmount).toBe("0.00");
   });
 
   it("executes the money-maturity SQL predicate across risk, fulfillment, and support holds", async () => {
