@@ -185,7 +185,7 @@ const shippedEvidenceChecks: readonly {
 }[] = [
   {
     subjectId: "service-nature",
-    ref: "bounded-contexts/authenticity/support/runtime-support/common.ts:18",
+    ref: "bounded-contexts/authenticity/features/cases/domain/case-primitives.ts:18",
     keyword: "passed",
   },
   {
@@ -210,7 +210,7 @@ const shippedEvidenceChecks: readonly {
   },
   {
     subjectId: "verification-outcomes",
-    ref: "bounded-contexts/authenticity/support/runtime-support/common.ts:18",
+    ref: "bounded-contexts/authenticity/features/cases/domain/case-primitives.ts:18",
     keyword: "inconclusive",
   },
   {
@@ -268,7 +268,7 @@ describe("authenticity service terms artifact: product-truth provenance matrix",
 
     // Mutant: an adjacent line range describing an unrelated type does not
     // support the counterfeit-handling return-path claim.
-    const mutantRef = "bounded-contexts/authenticity/support/runtime-support/common.ts:33-36";
+    const mutantRef = "bounded-contexts/authenticity/features/cases/domain/case-primitives.ts:33-36";
     expect(readCitedText(mutantRef).toLowerCase()).not.toContain("returnauthenticitycase");
   });
 
