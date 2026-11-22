@@ -836,25 +836,40 @@ describe("Catalog Merge Candidate Catalog-owned pictures", () => {
 
   function member(
     providerKey: string,
-    kind: ImageKind,
+    kind: ImageKind | "lorcana-card-print",
     url = imageUrls[providerKey] ?? imageUrls.ygoprodeck!,
   ): { observation: CatalogProviderSourceObservationInput; version: CatalogProviderIntegrationProfileVersionRecord } {
+    const registered =
+      kind === "lorcana-card-print"
+        ? catalogProviderIntegrationProfileVersions.find(
+            (entry) => entry.providerKey === providerKey && entry.profile.normalizedObservationMapping.kind === kind,
+          )!
+        : magic;
     const profile = {
       ...magic.profile,
       duplicatePreventionMapping: { ...magic.profile.duplicatePreventionMapping, rules: [] },
       normalizedObservationMapping: { ...magic.profile.normalizedObservationMapping, kind },
     };
-    const version = { ...magic, providerKey, profile };
+    const version = { ...registered, providerKey, profile };
     const observation = {
       ...scryfall,
       observationId: `obs_synthetic_${providerKey}_${kind}`,
       providerKey,
+      sourceProfileKey: version.profileKey,
+      sourceProfileVersion: version.profileVersion,
       sourceUpdatedAt: null,
       normalized: {
         ...scryfall.normalized,
         kind,
-        tcg: kind === "magic-card-print" ? "magic" : kind.startsWith("one-piece-") ? "one-piece" : "yugioh",
-        imageUrls: [url],
+        tcg:
+          kind === "magic-card-print"
+            ? "magic"
+            : kind === "lorcana-card-print"
+              ? "lorcana"
+              : kind.startsWith("one-piece-")
+                ? "one-piece"
+                : "yugioh",
+        imageUrls: url ? [url] : [],
       },
     } as CatalogProviderSourceObservationInput;
     return { observation, version };
@@ -937,9 +952,11 @@ describe("Catalog Merge Candidate Catalog-owned pictures", () => {
         recordedAt: at as StoredEvent["recordedAt"],
         metadata: {},
       }));
+    const readStream = vi.fn<EventStore["readStream"]>(async ({ streamId, fromVersion = 1, limit = 1000 }) =>
+      rows(streamId).slice(fromVersion - 1, fromVersion - 1 + limit),
+    );
     const eventStore: EventStore = {
-      readStream: async ({ streamId, fromVersion = 1, limit = 1000 }: Parameters<EventStore["readStream"]>[0]) =>
-        rows(streamId).slice(fromVersion - 1, fromVersion - 1 + limit),
+      readStream,
       appendToStream: vi.fn(),
       readAll: vi.fn(),
     };
@@ -1021,13 +1038,13 @@ describe("Catalog Merge Candidate Catalog-owned pictures", () => {
       async () => new Response(new Uint8Array(bytes), { headers: { "content-type": "image/png" } }),
     );
     vi.stubGlobal("fetch", fetcher);
+    const listProfileVersions = vi.fn(async (providerKey: string) =>
+      members.map(({ version }) => version).filter((entry) => entry.providerKey === providerKey),
+    );
     const ports = {
       deps: { eventStore, db, promotionTargetExclusion, assetStorage: { putObject } },
       referenceData: {},
-      profileVersions: {
-        listProfileVersions: async (providerKey: string) =>
-          members.map(({ version }) => version).filter((entry) => entry.providerKey === providerKey),
-      },
+      profileVersions: { listProfileVersions },
       rolloutControlPolicy: { assertAllowed: vi.fn() },
       applyCandidateCommandAtVersion: async ({
         command,
@@ -1046,6 +1063,8 @@ describe("Catalog Merge Candidate Catalog-owned pictures", () => {
       apply,
       fetcher,
       putObject,
+      readStream,
+      listProfileVersions,
       plan: () => candidateState.promotionPlan!,
       item: () => item,
       itemEvents: () => itemEvents,
@@ -1226,6 +1245,42 @@ describe("Catalog Merge Candidate Catalog-owned pictures", () => {
     expect(fixture.fetcher).toHaveBeenCalledTimes(2);
     expect(fixture.putObject).toHaveBeenCalledTimes(writes);
     await expect(fixture.apply()).resolves.toEqual(first);
+  });
+
+  it("skips an applied Lorcana candidate with no Item picture without reading its member", async () => {
+    const lorcana = member("scrydex", "lorcana-card-print", "");
+    const fixture = await arrange([lorcana]);
+    await expect(fixture.apply()).resolves.toMatchObject({ status: "promoted" });
+    expect(fixture.item().productAssetSets).toEqual([]);
+    fixture.readStream.mockClear();
+
+    await expect(fixture.apply("job_synthetic_lorcana_reapply")).resolves.toMatchObject({
+      status: "skipped-not-eligible",
+    });
+    expect(fixture.readStream).not.toHaveBeenCalledWith(
+      expect.objectContaining({ streamId: sourceObservationStreamId(lorcana.observation.observationId) }),
+    );
+  });
+
+  it("skips an applied Magic candidate's picture replay when its profile is inactive", async () => {
+    const scryfall = member("scryfall", "magic-card-print");
+    const fixture = await arrange([scryfall]);
+    fixture.fetcher.mockRejectedValueOnce(new Error("synthetic transport failure"));
+    await expect(fixture.apply()).resolves.toMatchObject({
+      status: "promoted",
+      diagnosticCode: "asset-processing-failed",
+    });
+    const before = fixture.itemEvents().length;
+    fixture.listProfileVersions.mockClear();
+    fixture.listProfileVersions.mockResolvedValue([{ ...scryfall.version, lifecycle: "retired", active: false }]);
+
+    await expect(fixture.apply("job_synthetic_inactive_profile_reapply")).resolves.toMatchObject({
+      status: "skipped-not-eligible",
+      reason: "Catalog Merge Candidate application is already complete.",
+    });
+    expect(fixture.listProfileVersions).toHaveBeenCalledWith("scryfall");
+    expect(fixture.itemEvents()).toHaveLength(before);
+    expect(fixture.fetcher).toHaveBeenCalledTimes(1);
   });
 });
 

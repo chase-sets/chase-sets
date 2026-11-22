@@ -40,12 +40,16 @@ import {
   type CatalogMergeCandidateState,
 } from "../../domain/catalog-merge-candidate";
 import {
+  CatalogIntegrationRolloutControlError,
   assertCatalogIntegrationProfileUnitAllowed,
   type CatalogIntegrationRolloutControlPolicy,
 } from "../governance/catalog-integration-rollout-controls";
 import type { CatalogProviderIntegrationProfileVersionRecord } from "../provider-integration-profiles";
 import { createCatalogProviderIntegrationProfileVersionStore } from "../providers/provider-integration-profile-store";
-import { catalogProviderProfileVersionsCompete } from "../providers/registry";
+import {
+  catalogProviderProfileVersionsCompete,
+  getCatalogProviderIntegrationProfileVersion,
+} from "../providers/registry";
 import {
   CatalogAssetStorageError,
   executeCatalogItemPromotionCommands,
@@ -208,7 +212,12 @@ export async function applyCatalogMergeCandidatePromotion(
   if (application) {
     if (application.jobId === unit.jobId && application.unitId === unit.unitId)
       return promotedOutcome(unit.candidateId, state.snapshot, application, plan?.assetPlan);
-    const assets = plan ? await reapplyMissingCandidateAssets(ports, unit, state.snapshot, plan) : null;
+    const assets = plan
+      ? await reapplyMissingCandidateAssets(ports, unit, state.snapshot, plan).catch((error: unknown) => {
+          if (isCandidateAssetReplayRefusal(error)) return null;
+          throw error;
+        })
+      : null;
     return assets
       ? promotedOutcome(unit.candidateId, state.snapshot, application, assets)
       : unappliedOutcome(
@@ -780,7 +789,11 @@ async function reapplyMissingCandidateAssets(
 ): Promise<CandidateAssetPlan | null> {
   if (
     plan.assetPlan?.productAssetSets ||
-    !snapshot.membership.some(({ providerKey }) => canSupplyCatalogOwnedPromotionImage(providerKey))
+    !snapshot.membership.some(({ providerKey }) => canSupplyCatalogOwnedPromotionImage(providerKey)) ||
+    !plan.profiles.some(({ providerKey, profileKey, profileVersion }) => {
+      const pinned = getCatalogProviderIntegrationProfileVersion(providerKey, profileVersion, { profileKey });
+      return pinned !== null && isCatalogOwnedPromotionImageKind(pinned.profile.normalizedObservationMapping.kind);
+    })
   )
     return null;
 
@@ -827,6 +840,18 @@ async function reapplyMissingCandidateAssets(
     context: unit.context,
   });
   return assets;
+}
+
+function isCandidateAssetReplayRefusal(error: unknown): boolean {
+  return (
+    error instanceof CatalogMergeCandidateApplicationError ||
+    error instanceof CatalogIntegrationRolloutControlError ||
+    (error instanceof Error &&
+      (error.message === "promotion-target-bound-elsewhere" ||
+        error.message === "promotion-target-inactive" ||
+        error.message === "promotion-target-missing-recorded-target" ||
+        error.message.startsWith("promotion-target-conflicting-")))
+  );
 }
 
 function needsCandidatePicture(item: CatalogItemState, history: readonly { eventType: string }[]): boolean {

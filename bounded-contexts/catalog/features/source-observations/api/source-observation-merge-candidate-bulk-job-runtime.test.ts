@@ -222,6 +222,10 @@ describe("candidate promotion application versioning", () => {
     ["a promoted result without applied facts", [legacyPromoted("cand_malformed")]],
     ["a promoted result with an unknown mode", [{ ...promoted("cand_bad_mode", "cat_x"), appliedMode: "publish" }]],
     [
+      "a promoted result with an unknown diagnostic code",
+      [{ ...promoted("cand_bad_diagnostic", "cat_x"), diagnosticCode: "unrecognized-synthetic-diagnostic" }],
+    ],
+    [
       "a failed result carrying an applied id",
       [{ ...promoted("cand_failed", "cat_x"), status: "failed" as const, appliedMode: null }],
     ],
