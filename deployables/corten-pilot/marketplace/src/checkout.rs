@@ -1198,7 +1198,14 @@ pub(crate) async fn write(
                         // A card the page took: the issuer's authentication when it asks for one,
                         // else the payment's page, read after the write.
                         (None, Some(payment)) if token.is_some() => {
-                            match confirmed.payment_authentication_url.as_deref().and_then(authentication) {
+                            let asked = confirmed.payment_authentication_url.as_deref();
+                            let followed = asked.and_then(authentication);
+                            if asked.is_some() && followed.is_none() {
+                                tracing::warn!(
+                                    "Pay now's payment asked for authentication at an address that is not an https URL with a host; showing the payment's page instead"
+                                );
+                            }
+                            match followed {
                                 Some(to) => req.redirect(&to),
                                 None => to_payment(&req, viewer.guest(), &payment, latest(receipts).as_ref().map(Receipt::param)),
                             }
