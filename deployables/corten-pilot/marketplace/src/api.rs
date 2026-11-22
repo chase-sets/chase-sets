@@ -4818,7 +4818,8 @@ pub enum AccountAnswer {
     /// `destination`).
     Committed(Option<String>),
     /// Nothing was recorded, for `code`: `validation-failed` (with the field a required-field
-    /// refusal names), `address-standardization-suggested` (with the address), and the rest.
+    /// refusal names), one of [`DISPLAY_NAME_REJECTIONS`] (with `displayName`),
+    /// `address-standardization-suggested` (with the address), and the rest.
     NotRecorded { code: String, field: Option<String>, suggested: Option<Box<SuggestedAddress>> },
     /// The address book changed under the write (`owner-state-conflict`, `attempt-hash-conflict`, ..).
     Conflict,
@@ -4847,6 +4848,11 @@ struct AnswerError {
 struct AnswerDetail {
     field: Option<String>,
 }
+
+/// The codes Identity refuses a new marketplace name with (`displayNameRejectionCodes`), each
+/// answered 400 `{ "error": { "code": .. } }` to `update-profile`.
+pub const DISPLAY_NAME_REJECTIONS: [&str; 4] =
+    ["text_control_character", "text_direction_override", "text_unsafe_link", "text_duplicate_link"];
 
 /// The `afterWrite` a lookup's `destination` carries (`/account/shipping-addresses?afterWrite=..`,
 /// the receipt's JSON encoded twice), as the page's `after_write`.
@@ -4885,6 +4891,10 @@ impl AccountAnswer {
                         field: details.into_iter().find_map(|d| d.field),
                         suggested: None,
                     }),
+                    // Identity's closed refusals of a marketplace name (`DisplayNameRejectionCode`).
+                    Some(AnswerError { code: Some(c), .. }) if DISPLAY_NAME_REJECTIONS.contains(&c.as_str()) => {
+                        Ok(AccountAnswer::NotRecorded { code: c, field: Some("displayName".into()), suggested: None })
+                    }
                     error => Err(ApiError::Status {
                         status: StatusCode::BAD_REQUEST,
                         code: error.and_then(|e| e.code),
@@ -6033,6 +6043,15 @@ mod address_tests {
             panic!("a suggestion")
         };
         assert_eq!(address.postal_code, "78701-0001");
+        for code in DISPLAY_NAME_REJECTIONS {
+            let refused = format!(r#"{{"error":{{"code":"{code}"}}}}"#);
+            assert_eq!(
+                AccountAnswer::read(400, &refused, None).unwrap(),
+                AccountAnswer::NotRecorded { code: code.into(), field: Some("displayName".into()), suggested: None }
+            );
+        }
+        let unknown = r#"{"error":{"code":"text_something_new"}}"#;
+        assert!(AccountAnswer::read(400, unknown, None).is_err(), "a code the pilot does not know is not a field refusal");
         let conflict =
             r#"{"outcome":"conflict","code":"owner-state-conflict","current":{"id":"adr_1","version":3,"status":"archived"}}"#;
         assert_eq!(AccountAnswer::read(409, conflict, None).unwrap(), AccountAnswer::Conflict);
