@@ -337,6 +337,7 @@ instead. Remove the workaround when the issue closes.
 | [chase-sets/chase-sets#10245 [auth] Make registration non-committal: create accounts on a verified email link](https://github.com/chase-sets/chase-sets/issues/10245) | [marketplace/src/register.rs](marketplace/src/register.rs) |
 | [chase-sets/chase-sets#5736 [checkout] P1: Capture and bind guest contact in the session contact section with sign-in collision handling](https://github.com/chase-sets/chase-sets/issues/5736) | [marketplace/src/checkout.rs](marketplace/src/checkout.rs), [marketplace/src/guest_claim.rs](marketplace/src/guest_claim.rs) |
 | [chase-sets/chase-sets#10820 [payments] Start payment offers wallet balance that Payments withholds, and never says why](https://github.com/chase-sets/chase-sets/issues/10820) | [marketplace/src/views/payment_start_page.rs](marketplace/src/views/payment_start_page.rs) |
+| [chase-sets/chase-sets#11830 [discovery] Item detail adds the default placeholder as an extra gallery picture to items that have their own pictures](https://github.com/chase-sets/chase-sets/issues/11830) (the pilot shows the placeholder only for an item with no picture) | [marketplace/src/views/item_detail.rs](marketplace/src/views/item_detail.rs) |
 
 These are closed and still cited in the pilot's code as the decision or fix the code relies on.
 None of them leaves a workaround behind:

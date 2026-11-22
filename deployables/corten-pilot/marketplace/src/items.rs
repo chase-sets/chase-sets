@@ -1352,7 +1352,8 @@ pub fn render(
     let description =
         item.description.as_deref().filter(|d| !d.trim().is_empty()).unwrap_or(t.route_browse_the_chase_sets_marketplace_with());
     let title = t.route_meta_title(&item.title).to_string();
-    let image = views::item_image(item).map(|image| image.src.clone());
+    // `selectItemImageUrl`, else the default picture, as marketplace's meta does.
+    let image = views::item_picture(item).map_or_else(|| views::on_marketplace(views::DEFAULT_PRODUCT_IMAGE), |image| image.src);
     let product = views::product_json_ld(item, &canonical);
     let breadcrumb = views::breadcrumb_json_ld(t, item, &canonical);
     let og_title = title.as_str();
@@ -1362,9 +1363,7 @@ pub fn render(
         <meta property="og:title" content={og_title}>
         <meta property="og:description" content={description}>
         <meta property="og:type" content="product">
-        if let Some(image) = &image {
-            <meta property="og:image" content={image}>
-        }
+        <meta property="og:image" content={&image}>
         if let Some(ld) = &product {
             <JsonLd value={ld} />
         }
