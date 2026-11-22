@@ -220,8 +220,8 @@
 // - public/locales/help.en.json: the help center's English catalog (publicPresence.help.*).
 // - public/developers.json: the developer portal (features/developer-portal's generated articles and
 //   MCP tool catalog, the supported MCP protocol versions and the Agent Connector Terms' address).
-// - public/locales/developers.en.json: the developer portal's English catalog
-//   (publicPresence.developers.*).
+// - public/locales/developers.en.json: the developer portal's feature-owned English catalog
+//   (features/developer-portal/ui/localization/locales/en.ts; publicPresence.developers.*).
 // - public/locales/compare.en.json: the compare pages' and Contact's English catalog
 //   (publicPresence.compare.*, each compare route's meta as meta.tcgplayer.* and meta.ebay.*,
 //   .info.contact.* as contact.*, and Contact's meta as meta.contact.*).
@@ -1925,7 +1925,11 @@ const outputs = [
   [
     "public/locales/developers.en.json",
     json(
-      await catalog("public-presence.ts", "publicPresenceEnglishTranslations", [["publicPresence.developers.", ""]]),
+      await catalogFrom(
+        "bounded-contexts/public-presence/features/developer-portal/ui/localization/locales/en.ts",
+        "developerPortalEnglishTranslations",
+        [["publicPresence.developers.", ""]],
+      ),
     ),
   ],
   [
