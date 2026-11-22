@@ -368,7 +368,7 @@ async function planProviderUnit(input: {
   required: boolean;
   explicitlySelected: boolean;
 }): Promise<CatalogSyncProviderParticipationUnit> {
-  const blockers = eligibilityBlockers(input.version, input.unitKey, input.scope, input.mapping);
+  const blockers = catalogSyncProfileEligibilityBlockers(input.version, input.unitKey, input.scope, input.mapping);
   const adapter = input.registry.get(input.version.providerKey);
   const rolloutEvidence: Array<
     NonNullable<CatalogSyncProviderParticipationUnit["planningEvidence"]>["rollout"][number]
@@ -421,7 +421,7 @@ async function planProviderUnit(input: {
   const selected = input.explicitlySelected || input.required || blockers.length === 0;
   const estimate =
     childExecutionScope && adapter ? await planEstimate(adapter, input.unitKey, childExecutionScope, blockers) : null;
-  const eligibility = blockers.some((blocker) => blocker.severity === "error") ? "ineligible" : "eligible";
+  const eligibility = catalogSyncProviderEligibility(blockers);
 
   return {
     providerKey: input.version.providerKey,
@@ -583,7 +583,13 @@ function declaresNoImportPlanning(registry: ProviderAdapterRegistry, providerKey
   return registry.get(providerKey)?.capabilities.supportsImportPlanning === false;
 }
 
-function eligibilityBlockers(
+export function catalogSyncProviderEligibility(
+  blockers: readonly Pick<CatalogSyncProviderParticipationBlocker, "severity">[],
+): CatalogSyncProviderParticipationUnit["eligibility"] {
+  return blockers.some((blocker) => blocker.severity === "error") ? "ineligible" : "eligible";
+}
+
+export function catalogSyncProfileEligibilityBlockers(
   version: CatalogProviderIntegrationProfileVersionRecord,
   unitKey: CatalogIntegrationUnitKey,
   scope: CatalogSyncScope,
