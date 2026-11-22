@@ -22,6 +22,24 @@ describe("promo bar schedule times", () => {
     expect(query.mock.calls[0]![1]![8]).toBe(stored);
   });
 
+  it("answers the stored start and end as ISO instants, not PostgreSQL's text form", async () => {
+    const query = vi.fn(async () => ({
+      rows: [
+        {
+          id: "pbm_1",
+          starts_at: "2026-07-02 00:00:00+00",
+          ends_at: "2026-07-02 05:30:00.123456-05",
+          display_order: "1",
+        },
+      ],
+      rowCount: 1,
+    }));
+
+    const message = await createPromoBarMessage({ query } as unknown as PgQueryable, { title: "Fee holiday" });
+
+    expect(message).toMatchObject({ starts_at: "2026-07-02T00:00:00.000Z", ends_at: "2026-07-02T10:30:00.123Z" });
+  });
+
   it.each(["2026-11-10T09:00", "2026-11-10 09:00:00", "next week"])(
     "refuses %s rather than read it in this server's zone",
     async (startsAt) => {
