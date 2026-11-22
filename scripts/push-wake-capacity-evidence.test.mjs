@@ -8,6 +8,7 @@ import {
   loadPushWakeCapacityInputs,
   parseSourceContextWakeRegistryEntries,
   PUSH_WAKE_CAPACITY_EVIDENCE_VERSION,
+  readPendingRegistrationLockPoolMax,
   readSourceContextWakeRegistryShards,
   renderPushWakeCapacityMarkdown,
 } from "./push-wake-capacity-evidence.mjs";
@@ -50,11 +51,28 @@ describe("push wake capacity evidence", () => {
     ]);
 
     expect(evidence.environments.staging).toMatchObject({ upgradeTriggerPercent: 80, upgradeTrigger: 75 });
-    expect(evidence.environments.staging.steadyState).toMatchObject({ total: 55, limit: 94, headroom: 39 });
-    expect(evidence.environments.staging.deployOverlap).toMatchObject({
-      total: 70,
+    expect(evidence.environments.staging.authPendingRegistrationLocks).toEqual({
+      poolMax: 2,
+      apiInstances: 2,
+      steadyState: 4,
+      deployOverlap: 8,
+    });
+    expect(evidence.environments.staging.steadyState).toMatchObject({
+      base: 55,
+      locks: 4,
+      total: 59,
       limit: 94,
-      headroom: 24,
+      headroom: 35,
+    });
+    // Runtime-only rolling overlap: the envelope adds worker startup pools.
+    expect(evidence.environments.staging.deployOverlap).toMatchObject({
+      base: 70,
+      locks: 8,
+      total: 78,
+      limit: 94,
+      headroom: 16,
+      upgradeTriggerHeadroom: 5,
+      allowance: "Auth pending-registration direct locks",
       additionalDirectListenerContextsBeforeUpgradeTrigger: 2,
     });
     expect(evidence.terraformDefaults.doksStagingWorkerDatabasePoolMax).toBe(12);
@@ -74,20 +92,24 @@ describe("push wake capacity evidence", () => {
         steadyStatePoolDelta: 0,
         deployOverlapPoolDelta: 0,
       },
-      steadyState: { total: 55, limit: 94, headroom: 39 },
+      steadyState: { base: 55, locks: 4, total: 59, limit: 94, headroom: 35 },
       deployOverlap: {
-        total: 70,
+        base: 70,
+        locks: 8,
+        total: 78,
         limit: 94,
-        headroom: 24,
+        headroom: 16,
+        allowance: "Auth pending-registration direct locks",
         additionalDirectListenerContextsBeforeUpgradeTrigger: 2,
       },
     });
     // #4655 converged production query traffic onto managed transaction pools:
     // production now uses the PgBouncer server-side allocation branch (summed
     // production pool sizes = 33) instead of direct database bindings, so
-    // apiPoolDemand/workerPoolDemand are client-side only and the rolling-deploy
-    // overlap (55) is well clear of the 75 tier-upgrade trigger and no longer
-    // moves when worker/API instances scale.
+    // apiPoolDemand/workerPoolDemand are client-side only and the pooled
+    // rolling-deploy overlap base (55) no longer moves when worker/API
+    // instances scale. Only the capped direct Auth lock pool grows with API
+    // instances: 2 per process, 4 across a rollout's two generations.
     expect(evidence.environments.production).toMatchObject({
       apiPoolDemand: 6,
       workerPoolDemand: 8,
@@ -95,13 +117,18 @@ describe("push wake capacity evidence", () => {
       upgradeTriggerPercent: 80,
       upgradeTrigger: 75,
       apiWaiterListenerDemand: 4,
-      steadyState: { total: 44, limit: 94, headroom: 50 },
+      authPendingRegistrationLocks: { poolMax: 2, apiInstances: 1, steadyState: 2, deployOverlap: 4 },
+      steadyState: { base: 44, locks: 2, total: 46, limit: 94, headroom: 48 },
       deployOverlap: {
-        total: 55,
+        base: 55,
+        locks: 4,
+        total: 59,
         limit: 94,
-        headroom: 39,
-        additionalDirectListenerContextsAtCurrentTier: 19,
-        additionalDirectListenerContextsBeforeUpgradeTrigger: 10,
+        headroom: 35,
+        upgradeTriggerHeadroom: 16,
+        allowance: null,
+        additionalDirectListenerContextsAtCurrentTier: 17,
+        additionalDirectListenerContextsBeforeUpgradeTrigger: 8,
       },
     });
   });
@@ -125,19 +152,57 @@ describe("push wake capacity evidence", () => {
     expect(evidence.expansionDecision.wave2DirectListenerExpansion).toMatchObject({
       additionalListenerContextCount: 3,
       additionalOverlapDemand: 6,
-      expandedOverlapDemand: 61,
+      expandedOverlapDemand: 65,
       fitsCurrentTier: true,
       requiredDatabaseSize: null,
     });
     expect(evidence.volumeLoadProofPosture.posture).toBe("not-proven-by-this-ci-evidence");
 
     const markdown = renderPushWakeCapacityMarkdown(evidence);
-    expect(markdown).toContain("Rolling-deploy overlap: 55/94");
+    expect(markdown).toContain(
+      "Rolling-deploy overlap: 59/94 (base 55 + 4 Auth pending-registration direct locks; headroom 35)",
+    );
+    expect(markdown).toContain(
+      "Rolling-deploy overlap: 78/94 (base 70 + 8 Auth pending-registration direct locks; headroom 16)",
+    );
+    expect(markdown).toContain("non-lock headroom 5, allowance `Auth pending-registration direct locks`");
     expect(markdown).toContain("Worker pool: 8 -> 12; wake max 3; standard lane 2");
     expect(markdown).toContain("Query connection mode: `transaction-pool`");
-    expect(markdown).toContain("Tier-upgrade trigger: 75/94 (80%)");
+    expect(markdown).toContain("Tier-upgrade trigger: 75/94 (80%; headroom 16, no allowance)");
     expect(markdown).toContain("Posture: **wave-2-direct-listeners-fit-current-tier**");
     expect(markdown).toContain("Production-like volume load proof for #1363 still requires live load evidence");
+  });
+
+  it("counts the Auth lock pool only from a factory that applies its cap after every override", () => {
+    const source = readFileSync(resolve("deployables/platform-api/src/database-pools.ts"), "utf8");
+    expect(readPendingRegistrationLockPoolMax(source)).toBe(2);
+    expect(
+      readPendingRegistrationLockPoolMax(
+        source.replace(
+          "...defined, max: PENDING_REGISTRATION_LOCK_POOL_MAX }",
+          "max: PENDING_REGISTRATION_LOCK_POOL_MAX, ...defined }",
+        ),
+      ),
+    ).toBeNaN();
+    expect(
+      readPendingRegistrationLockPoolMax(
+        source.replace("PENDING_REGISTRATION_LOCK_POOL_MAX = 2;", "PENDING_REGISTRATION_LOCK_POOL_MAX = 0;"),
+      ),
+    ).toBeNaN();
+
+    const input = loadPushWakeCapacityInputs();
+    expect(() =>
+      buildPushWakeCapacityEvidence({
+        ...input,
+        defaults: { ...input.defaults, authPendingRegistrationLockPoolMax: NaN },
+      }),
+    ).toThrow("lock pool cap is unverified");
+    const threeLocks = buildPushWakeCapacityEvidence({
+      ...input,
+      defaults: { ...input.defaults, authPendingRegistrationLockPoolMax: 3 },
+    });
+    expect(threeLocks.environments.doksStaging.deployOverlap).toMatchObject({ base: 70, locks: 12, total: 82 });
+    expect(threeLocks.environments.production.deployOverlap).toMatchObject({ base: 55, locks: 6, total: 61 });
   });
 
   it("parses registry entries without importing TypeScript runtime code", () => {

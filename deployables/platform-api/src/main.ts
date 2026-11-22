@@ -110,7 +110,7 @@ import {
   type PlatformApiCatalogAssetStorageConfig,
   type PlatformApiListingPhotoStorageConfig,
 } from "./config";
-import { closePlatformApiPools, createPlatformApiPools } from "./database-pools";
+import { closePlatformApiPools, createPlatformApiRuntimePools, runPlatformApiStartup } from "./database-pools";
 import { createSupportEvidenceAttachmentStorage, openPlatformSupportEvidenceCanonicalizer } from "./bootstrap-storage";
 import { createProductionTaxQuoteResolverBlocker, shouldBlockProductionTaxQuotes } from "./tax-readiness";
 import {
@@ -123,826 +123,840 @@ const observability = getObservabilityRuntime();
 const logger = observability.logger;
 registerPostWriteConsistencyRecorder(recordPostWriteConsistencyEvent);
 const config = loadConfig();
-const pools = createPlatformApiPools(config);
-await bootstrapPlatformControlPlane(pools.control);
-const runtimeLifecycle = createRuntimeLifecycleRegistry();
-const controlPlane = createPostgresPlatformControlPlane(pools.control, { lifecycle: runtimeLifecycle });
-const workSignalStore = createPostgresWorkSignalStore(pools.workSignal, {
-  ...(config.readConsistency?.wakeBeforeWaitEnabled || config.readConsistency?.readinessNotificationsEnabled
-    ? {
-        readConsistencyGateway: {
-          observer: { wakeEnqueueCompleted: recordProjectionFreshnessWakeEnqueue },
-          waitForReadinessNotifications: config.readConsistency?.readinessNotificationsEnabled,
-        },
-      }
-    : {}),
-});
-const evidenceWindowRegistration = config.evidenceWindowAdmissionSecret
-  ? createPostgresEvidenceWindowRegistration(pools.control)
-  : undefined;
-const evidenceWindowById = config.evidenceWindowAdmissionSecret
-  ? createPostgresEvidenceWindowById(pools.control)
-  : undefined;
-const evidenceWindowCorrelation =
-  evidenceWindowRegistration && config.stripeEffectiveMode === "test"
-    ? createEvidenceWindowCorrelation(evidenceWindowRegistration)
-    : createNullEvidenceWindowCorrelation();
-
-const evidenceWindowProviderWrite = createPostgresEvidenceWindowProviderWrite(pools.control);
-const paymentProcessorGateway =
-  config.paymentProcessor.kind === "stripe"
-    ? createStripePaymentProcessorGateway({
-        evidenceWindowCorrelation,
-        evidenceWindowProviderWrite,
-        secretKey: config.paymentProcessor.secretKey,
-        publishableKey: config.paymentProcessor.publishableKey,
-        webhookSecret: config.paymentProcessor.webhookSecret,
-        previousWebhookSecrets: config.paymentProcessor.previousWebhookSecrets,
-        apiBaseUrl: config.paymentProcessor.apiBaseUrl,
-      })
-    : createFakePaymentProcessorGateway();
-const moneyMovementGateway =
-  config.moneyMovement.kind === "stripe"
-    ? createStripeConnectMoneyMovementGateway({
-        evidenceWindowCorrelation,
-        evidenceWindowProviderWrite,
-        secretKey: config.moneyMovement.secretKey,
-        webhookSecret: config.moneyMovement.webhookSecret,
-        previousWebhookSecrets: config.moneyMovement.previousWebhookSecrets,
-        accountsApi: config.moneyMovement.connectAccountsApi,
-        apiBaseUrl: config.moneyMovement.apiBaseUrl,
-      })
-    : createFakeMoneyMovementGateway();
-const settlementOperationsRecorder = {
-  record(event: Record<string, unknown>) {
-    recordSettlementOperationSignal({
-      kind: String(event.kind ?? "unknown"),
-      providerName: typeof event.providerName === "string" ? event.providerName : null,
-      setupSurface: typeof event.setupSurface === "string" ? event.setupSurface : null,
-      safeCategory: typeof event.safeCategory === "string" ? event.safeCategory : null,
-      readinessStatus: typeof event.readinessStatus === "string" ? event.readinessStatus : null,
-    });
-    logger.info("Settlement operation recorded.", {
-      type: "settlement.operation",
-      ...settlementOperationLogFields(event),
-    });
-  },
-};
-const webhookTelemetry = {
-  record(
-    event: Parameters<typeof recordProviderWebhookIngestion>[0] &
-      Pick<ProviderWebhookTelemetryEvent, "tokenMint" | "keyFetch">,
-  ) {
-    recordProviderWebhookIngestion(event);
-    const fields = {
-      type: "provider.webhook.ingestion",
-      endpoint: event.endpoint,
-      failure_class: event.failureClass ?? "none",
-      outcome: event.outcome,
-      status_code: event.statusCode,
-      retryable: event.retryable,
-      provider_event_id: event.providerEventId ?? null,
-      event_kind: event.eventKind ?? null,
-      token_mint: event.tokenMint ?? "not-attempted",
-      key_fetch: event.keyFetch ?? "not-attempted",
-    };
-    if (event.outcome === "failed") {
-      logger.error("Provider webhook ingestion failed.", fields);
-    } else if (event.failureClass) {
-      logger.warn("Provider webhook ingestion classified.", fields);
-    } else {
-      logger.info("Provider webhook ingestion completed.", fields);
-    }
-  },
-};
-const postageLabelProvider =
-  config.postage.kind === "easypost"
-    ? createEasyPostPostageLabelProvider({
-        apiKey: config.postage.apiKey,
-        apiBaseUrl: config.postage.apiBaseUrl,
-        mode: config.postage.mode,
-      })
-    : createSandboxPostageLabelProvider();
-const postageWebhookGateway =
-  config.postage.kind === "easypost"
-    ? createEasyPostPostageWebhookGateway({
-        webhookSecret: config.postage.webhookSecret,
-      })
+const runtimePools = createPlatformApiRuntimePools(config);
+// The host mounts only the context pools; the lock pool goes to Auth alone, and shutdown closes both.
+const { pendingRegistrationLocks, pendingRegistrationLockRefusal, ...pools } = runtimePools;
+if (pendingRegistrationLockRefusal) {
+  logger.warn("Pending Registration magic-link consumes are refused until the lock pool is configured.", {
+    type: "auth.pending-registration.lock-pool.absent",
+    reason: pendingRegistrationLockRefusal,
+  });
+}
+// Every step before listening runs inside this boundary: a failure ends the pools before it propagates.
+await runPlatformApiStartup(runtimePools, async () => {
+  await bootstrapPlatformControlPlane(pools.control);
+  const runtimeLifecycle = createRuntimeLifecycleRegistry();
+  const controlPlane = createPostgresPlatformControlPlane(pools.control, { lifecycle: runtimeLifecycle });
+  const workSignalStore = createPostgresWorkSignalStore(pools.workSignal, {
+    ...(config.readConsistency?.wakeBeforeWaitEnabled || config.readConsistency?.readinessNotificationsEnabled
+      ? {
+          readConsistencyGateway: {
+            observer: { wakeEnqueueCompleted: recordProjectionFreshnessWakeEnqueue },
+            waitForReadinessNotifications: config.readConsistency?.readinessNotificationsEnabled,
+          },
+        }
+      : {}),
+  });
+  const evidenceWindowRegistration = config.evidenceWindowAdmissionSecret
+    ? createPostgresEvidenceWindowRegistration(pools.control)
     : undefined;
-const socialLoginProviders = [
-  ...(config.socialLogin.google
-    ? [
-        createGoogleSocialLoginProvider({
-          clientId: config.socialLogin.google.clientId,
-          clientSecret: config.socialLogin.google.clientSecret,
-        }),
-      ]
-    : []),
-  ...(config.socialLogin.facebook
-    ? [
-        createFacebookSocialLoginProvider({
-          clientId: config.socialLogin.facebook.clientId,
-          clientSecret: config.socialLogin.facebook.clientSecret,
-        }),
-      ]
-    : []),
-];
-const mobileMessageWebhookGateway =
-  config.mobileMessaging.kind === "twilio"
-    ? createTwilioMessagingWebhookGateway({
-        authToken: config.mobileMessaging.authToken,
-        requireSignature: config.mobileMessaging.requireWebhookSignature,
-      })
+  const evidenceWindowById = config.evidenceWindowAdmissionSecret
+    ? createPostgresEvidenceWindowById(pools.control)
     : undefined;
-const emailWebhookGateway = createSesEmailWebhookGateway();
-const catalogAssetStorage = createCatalogAssetStorage(config.catalogAssetStorage);
-const sourceObservationTelemetry = createSourceObservationTelemetry();
-const checkoutObservabilityTelemetry = createCheckoutObservabilityTelemetry();
-const waitlistAnalyticsRecorder = {
-  record(event: {
-    event: string;
-    section?: string | null;
-    target?: string | null;
-    field?: string | null;
-    role?: string | null;
-    interest?: string | null;
-    variant?: string | null;
-    status?: string | null;
-    page_path?: string | null;
-    utm_source?: string | null;
-    utm_medium?: string | null;
-    utm_campaign?: string | null;
-    checked?: boolean | null;
-  }) {
-    recordPublicPresenceWaitlistAnalytics(event);
-    logger.info("Public waitlist analytics event captured.", {
-      type: "public_presence.waitlist.analytics_event",
-      event: event.event,
-      section: event.section,
-      target: event.target,
-      field: event.field,
-      role: event.role,
-      interest: event.interest,
-      variant: event.variant,
-      status: event.status,
-      page_path: event.page_path,
-      utm_source: event.utm_source,
-      utm_medium: event.utm_medium,
-      utm_campaign: event.utm_campaign,
-      checked: event.checked,
-    });
-  },
-};
-const listingPhotoStorage = createListingPhotoStorage(config.listingPhotoStorage);
-const returnIntakeEvidenceStorage = createReturnIntakeEvidenceStorage(config.listingPhotoStorage);
-const supportEvidenceAttachmentStorage = createSupportEvidenceAttachmentStorage(config.listingPhotoStorage);
-const supportEvidenceCanonicalizer = await openPlatformSupportEvidenceCanonicalizer(
-  ["production", "staging", "preview"].includes(config.deploymentEnvironment ?? "dev"),
-);
-const taxQuoteResolver = shouldBlockProductionTaxQuotes(
-  config.deploymentEnvironment,
-  Boolean(config.taxProviderBackedQuotesRequired),
-)
-  ? createProductionTaxQuoteResolverBlocker()
-  : undefined;
+  const evidenceWindowCorrelation =
+    evidenceWindowRegistration && config.stripeEffectiveMode === "test"
+      ? createEvidenceWindowCorrelation(evidenceWindowRegistration)
+      : createNullEvidenceWindowCorrelation();
 
-if (config.paymentProcessor.kind === "fake") {
-  logger.warn("Platform API is using the fake payment processor.", {
-    type: "provider.fake",
-    provider: "stripe-payments",
-  });
-}
-if (config.moneyMovement.kind === "fake") {
-  logger.warn("Platform API is using the fake money movement provider.", {
-    type: "provider.fake",
-    provider: "stripe-connect",
-  });
-}
-if (config.postage.kind === "sandbox") {
-  logger.warn("Platform API is using the sandbox USPS postage provider.", {
-    type: "provider.sandbox",
-    provider: "easypost",
-  });
-}
-logger.info("Stripe go-live checks resolved.", {
-  type: "stripe.go-live-checks",
-  ...config.stripeGoLive,
-});
-
-const capabilityAdministrationPorts: Pick<IdentityHostPorts, "capabilityAdministrationAuthority"> = {
-  capabilityAdministrationAuthority:
-    config.capabilityAdministrationAuthority ?? DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY,
-};
-if (capabilityAdministrationPorts.capabilityAdministrationAuthority.kind === "deny-all") {
-  logger.info("Capability administration is disabled.", {
-    type: "identity.capability-administration-authority",
-    reason: capabilityAdministrationPorts.capabilityAdministrationAuthority.diagnostic,
-  });
-}
-const runtime = createPlatformApiHost({
-  runtimeProfile: config.runtimeProfile,
-  pools,
-  runtimeLifecycle,
-  controlPlane,
-  workSignalStore,
-  hostPorts: {
-    ...capabilityAdministrationPorts,
-    deploymentEnvironment: config.deploymentEnvironment,
-    channelCredentialKeyring: config.channelCredentialKeyring,
-    ebayAccountDeletionConfiguration: config.ebayAccountDeletionConfiguration,
-    ebayOAuthConfiguration: config.ebayOAuthConfiguration,
-    offerLifecycleAdmission: createOfferLifecycleAdmission({ open: config.offerLifecycleOpen, db: pools.control }),
-    processorGateway: paymentProcessorGateway,
-    paymentProcessorPublicConfiguration: paymentProcessorGateway.getPublicConfiguration(),
-    webhookTelemetry,
-    providerModeObservation: config.providerModeObservation,
-    moneyMovementGateway,
-    operationsRecorder: settlementOperationsRecorder,
-    postageLabelProvider,
-    addressVerificationProvider: postageLabelProvider,
-    ...(postageWebhookGateway ? { postageWebhookGateway } : {}),
-    catalogAssetStorage,
-    sourceObservationTelemetry,
-    checkoutObservabilityTelemetry,
-    waitlistAnalyticsRecorder,
-    listingPhotoStorage,
-    returnIntakeEvidenceStorage,
-    supportEvidenceAttachmentStorage,
-    supportEvidenceCanonicalizer,
-    ...(taxQuoteResolver ? { taxQuoteResolver } : {}),
-    socialLoginProviders,
-    adminGoogleWorkspaceSso: config.adminGoogleWorkspaceSso,
-    registrationAdmission: config.registrationAdmission,
-    stagingPersonaMagicLinkVerifierSha256: config.stagingPersonaMagicLinkVerifierSha256,
-    readConsistencyWorkSignalGateway: workSignalStore.readConsistencyGateway,
-    evidenceWindowCorrelation,
-    evidenceWindowProviderWrite,
-    securityLifetimes: config.authSecurityLifetimes,
-    searchEmbeddingConfig: config.discoverySearchEmbeddings,
-    searchTelemetry: {
-      recordSearchQuery: recordDiscoverySearchQuerySignal,
-      recordQueryEmbeddingLoad: recordDiscoveryQueryEmbeddingLoad,
-      recordSearchRetrievalFailure: recordDiscoverySearchRetrievalFailure,
+  const evidenceWindowProviderWrite = createPostgresEvidenceWindowProviderWrite(pools.control);
+  const paymentProcessorGateway =
+    config.paymentProcessor.kind === "stripe"
+      ? createStripePaymentProcessorGateway({
+          evidenceWindowCorrelation,
+          evidenceWindowProviderWrite,
+          secretKey: config.paymentProcessor.secretKey,
+          publishableKey: config.paymentProcessor.publishableKey,
+          webhookSecret: config.paymentProcessor.webhookSecret,
+          previousWebhookSecrets: config.paymentProcessor.previousWebhookSecrets,
+          apiBaseUrl: config.paymentProcessor.apiBaseUrl,
+        })
+      : createFakePaymentProcessorGateway();
+  const moneyMovementGateway =
+    config.moneyMovement.kind === "stripe"
+      ? createStripeConnectMoneyMovementGateway({
+          evidenceWindowCorrelation,
+          evidenceWindowProviderWrite,
+          secretKey: config.moneyMovement.secretKey,
+          webhookSecret: config.moneyMovement.webhookSecret,
+          previousWebhookSecrets: config.moneyMovement.previousWebhookSecrets,
+          accountsApi: config.moneyMovement.connectAccountsApi,
+          apiBaseUrl: config.moneyMovement.apiBaseUrl,
+        })
+      : createFakeMoneyMovementGateway();
+  const settlementOperationsRecorder = {
+    record(event: Record<string, unknown>) {
+      recordSettlementOperationSignal({
+        kind: String(event.kind ?? "unknown"),
+        providerName: typeof event.providerName === "string" ? event.providerName : null,
+        setupSurface: typeof event.setupSurface === "string" ? event.setupSurface : null,
+        safeCategory: typeof event.safeCategory === "string" ? event.safeCategory : null,
+        readinessStatus: typeof event.readinessStatus === "string" ? event.readinessStatus : null,
+      });
+      logger.info("Settlement operation recorded.", {
+        type: "settlement.operation",
+        ...settlementOperationLogFields(event),
+      });
     },
-    emailWebhookGateway,
-    ...(mobileMessageWebhookGateway ? { mobileMessageWebhookGateway } : {}),
-  },
-});
-// Refuse to serve routes until the process's authority receipt has settled.
-try {
-  await (runtime.services.identity as IdentityServices).accountCapabilities.initializeAdministrationAuthority();
-} catch {
-  throw new Error("Identity capability administration authority receipt refused boot.");
-}
-await runtime.initializeListingAuthority();
-const realtimeStores = runtime.mountedContexts
-  .filter(
-    (entry) =>
-      entry.contextName === "catalog" ||
-      entry.contextName === "discovery" ||
-      entry.contextName === "marketplace" ||
-      entry.contextName === "platform-operations",
+  };
+  const webhookTelemetry = {
+    record(
+      event: Parameters<typeof recordProviderWebhookIngestion>[0] &
+        Pick<ProviderWebhookTelemetryEvent, "tokenMint" | "keyFetch">,
+    ) {
+      recordProviderWebhookIngestion(event);
+      const fields = {
+        type: "provider.webhook.ingestion",
+        endpoint: event.endpoint,
+        failure_class: event.failureClass ?? "none",
+        outcome: event.outcome,
+        status_code: event.statusCode,
+        retryable: event.retryable,
+        provider_event_id: event.providerEventId ?? null,
+        event_kind: event.eventKind ?? null,
+        token_mint: event.tokenMint ?? "not-attempted",
+        key_fetch: event.keyFetch ?? "not-attempted",
+      };
+      if (event.outcome === "failed") {
+        logger.error("Provider webhook ingestion failed.", fields);
+      } else if (event.failureClass) {
+        logger.warn("Provider webhook ingestion classified.", fields);
+      } else {
+        logger.info("Provider webhook ingestion completed.", fields);
+      }
+    },
+  };
+  const postageLabelProvider =
+    config.postage.kind === "easypost"
+      ? createEasyPostPostageLabelProvider({
+          apiKey: config.postage.apiKey,
+          apiBaseUrl: config.postage.apiBaseUrl,
+          mode: config.postage.mode,
+        })
+      : createSandboxPostageLabelProvider();
+  const postageWebhookGateway =
+    config.postage.kind === "easypost"
+      ? createEasyPostPostageWebhookGateway({
+          webhookSecret: config.postage.webhookSecret,
+        })
+      : undefined;
+  const socialLoginProviders = [
+    ...(config.socialLogin.google
+      ? [
+          createGoogleSocialLoginProvider({
+            clientId: config.socialLogin.google.clientId,
+            clientSecret: config.socialLogin.google.clientSecret,
+          }),
+        ]
+      : []),
+    ...(config.socialLogin.facebook
+      ? [
+          createFacebookSocialLoginProvider({
+            clientId: config.socialLogin.facebook.clientId,
+            clientSecret: config.socialLogin.facebook.clientSecret,
+          }),
+        ]
+      : []),
+  ];
+  const mobileMessageWebhookGateway =
+    config.mobileMessaging.kind === "twilio"
+      ? createTwilioMessagingWebhookGateway({
+          authToken: config.mobileMessaging.authToken,
+          requireSignature: config.mobileMessaging.requireWebhookSignature,
+        })
+      : undefined;
+  const emailWebhookGateway = createSesEmailWebhookGateway();
+  const catalogAssetStorage = createCatalogAssetStorage(config.catalogAssetStorage);
+  const sourceObservationTelemetry = createSourceObservationTelemetry();
+  const checkoutObservabilityTelemetry = createCheckoutObservabilityTelemetry();
+  const waitlistAnalyticsRecorder = {
+    record(event: {
+      event: string;
+      section?: string | null;
+      target?: string | null;
+      field?: string | null;
+      role?: string | null;
+      interest?: string | null;
+      variant?: string | null;
+      status?: string | null;
+      page_path?: string | null;
+      utm_source?: string | null;
+      utm_medium?: string | null;
+      utm_campaign?: string | null;
+      checked?: boolean | null;
+    }) {
+      recordPublicPresenceWaitlistAnalytics(event);
+      logger.info("Public waitlist analytics event captured.", {
+        type: "public_presence.waitlist.analytics_event",
+        event: event.event,
+        section: event.section,
+        target: event.target,
+        field: event.field,
+        role: event.role,
+        interest: event.interest,
+        variant: event.variant,
+        status: event.status,
+        page_path: event.page_path,
+        utm_source: event.utm_source,
+        utm_medium: event.utm_medium,
+        utm_campaign: event.utm_campaign,
+        checked: event.checked,
+      });
+    },
+  };
+  const listingPhotoStorage = createListingPhotoStorage(config.listingPhotoStorage);
+  const returnIntakeEvidenceStorage = createReturnIntakeEvidenceStorage(config.listingPhotoStorage);
+  const supportEvidenceAttachmentStorage = createSupportEvidenceAttachmentStorage(config.listingPhotoStorage);
+  const supportEvidenceCanonicalizer = await openPlatformSupportEvidenceCanonicalizer(
+    ["production", "staging", "preview"].includes(config.deploymentEnvironment ?? "dev"),
+  );
+  const taxQuoteResolver = shouldBlockProductionTaxQuotes(
+    config.deploymentEnvironment,
+    Boolean(config.taxProviderBackedQuotesRequired),
   )
-  .map((entry) => ({
-    contextName: entry.contextName,
-    db: entry.pool,
-    notificationWaiterPool: entry.notificationWaiterPool ?? entry.pool,
-  }));
-let realtimeActiveConnectionCount = 0;
-const realtimeObserver = {
-  connectionOpened: (event) => {
-    realtimeActiveConnectionCount = event.activeConnectionCount;
-    recordRealtimeConnectionOpened(event);
-    logger.info("Realtime SSE connection opened.", {
-      type: "realtime.connection.opened",
-      activeConnectionCount: event.activeConnectionCount,
-      topicCount: event.topics.length,
-      storeNames: event.storeNames,
-      actorAccountId: event.actorAccountId,
-    });
-  },
-  connectionClosed: (event) => {
-    realtimeActiveConnectionCount = event.activeConnectionCount;
-    recordRealtimeConnectionClosed(event);
-    logger.info("Realtime SSE connection closed.", {
-      type: "realtime.connection.closed",
-      activeConnectionCount: event.activeConnectionCount,
-      durationMs: Math.round(event.durationMs),
-    });
-  },
-  authorizationRejected: (event) => {
-    recordRealtimeAuthorizationRejected(event);
-    logger.warn("Realtime SSE subscription rejected.", {
-      type: "realtime.authorization.rejected",
-      reason: event.reason,
-      topicCount: event.topics.length,
-      actorAccountId: event.actorAccountId,
-    });
-  },
-  topicNormalizationAdjusted: (event) => {
-    logger.info("Realtime SSE topics normalized.", {
-      type: "realtime.topic.normalized",
-      requestedCount: event.diagnostic.requestedCount,
-      normalizedCount: event.diagnostic.normalizedCount,
-      duplicateCount: event.diagnostic.duplicateCount,
-      blankCount: event.diagnostic.blankCount,
-      invalidCount: event.diagnostic.invalidCount,
-      sorted: event.diagnostic.sorted,
-      actorAccountId: event.actorAccountId,
-    });
-  },
-  batchRead: (event) => {
-    recordRealtimeBatchRead(event);
-    if (event.messageCount === 0 && event.expiredContextCount === 0) {
-      return;
-    }
+    ? createProductionTaxQuoteResolverBlocker()
+    : undefined;
 
-    logger.info("Realtime SSE batch read.", {
-      type: "realtime.batch",
-      topicCount: event.topics.length,
-      storeNames: event.storeNames,
-      messageCount: event.messageCount,
-      expiredContextCount: event.expiredContextCount,
-      maxTopicLag: Math.max(0, ...event.topicLags.map((lag) => lag.lag)),
+  if (config.paymentProcessor.kind === "fake") {
+    logger.warn("Platform API is using the fake payment processor.", {
+      type: "provider.fake",
+      provider: "stripe-payments",
     });
-  },
-  readStarted: (event) => {
-    recordRealtimeReadHub({ action: "started", topics: event.topics });
-  },
-  readCoalesced: (event) => {
-    recordRealtimeReadHub({ action: "coalesced", topics: event.topics });
-  },
-  messageSent: (event) => {
-    recordRealtimeMessageSent(event);
-  },
-  syncRequired: (event) => {
-    recordRealtimeSyncRequired(event);
-    logger.warn("Realtime SSE sync required.", {
-      type: "realtime.sync.required",
-      reason: event.reason,
-      contexts: event.contexts,
-      topicCount: event.topicCount,
-      payloadBytes: event.payloadBytes,
+  }
+  if (config.moneyMovement.kind === "fake") {
+    logger.warn("Platform API is using the fake money movement provider.", {
+      type: "provider.fake",
+      provider: "stripe-connect",
     });
-  },
-  wakeWaitEnded: (event) => {
-    recordRealtimeWakeWaitEnded(event);
-  },
-  wakeNotificationReceived: (event) => {
-    recordRealtimeWakeNotificationReceived(event);
-    if (event.matchedWaiterCount > 0) {
-      return;
-    }
+  }
+  if (config.postage.kind === "sandbox") {
+    logger.warn("Platform API is using the sandbox USPS postage provider.", {
+      type: "provider.sandbox",
+      provider: "easypost",
+    });
+  }
+  logger.info("Stripe go-live checks resolved.", {
+    type: "stripe.go-live-checks",
+    ...config.stripeGoLive,
+  });
 
-    logger.debug("Realtime wake notification had no local matching waiters.", {
-      type: "realtime.wake_notification.unmatched",
-      waiterCount: event.waiterCount,
-      notificationTopicCount: event.notificationTopics.length,
+  const capabilityAdministrationPorts: Pick<IdentityHostPorts, "capabilityAdministrationAuthority"> = {
+    capabilityAdministrationAuthority:
+      config.capabilityAdministrationAuthority ?? DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY,
+  };
+  if (capabilityAdministrationPorts.capabilityAdministrationAuthority.kind === "deny-all") {
+    logger.info("Capability administration is disabled.", {
+      type: "identity.capability-administration-authority",
+      reason: capabilityAdministrationPorts.capabilityAdministrationAuthority.diagnostic,
     });
-  },
-  retentionPruned: (event) => {
-    if (event.deletedCount === 0) {
-      return;
-    }
-
-    logger.info("Realtime retention pruned.", {
-      type: "realtime.retention.pruned",
-      contextName: event.contextName,
-      deletedCount: event.deletedCount,
-    });
-  },
-  streamError: (event) => {
-    logger.error("Realtime SSE stream failed.", {
-      type: "realtime.stream.error",
-      connectionKey: event.connectionKey,
-      error: event.error,
-    });
-  },
-} satisfies RealtimeObserver;
-const realtimeWakeSignal = config.realtime.wakeSignalEnabled
-  ? createPlatformRealtimeWakeSignal(
-      [...new Set(realtimeStores.map((store) => store.notificationWaiterPool))],
-      realtimeObserver,
+  }
+  const runtime = createPlatformApiHost({
+    runtimeProfile: config.runtimeProfile,
+    pools,
+    runtimeLifecycle,
+    controlPlane,
+    workSignalStore,
+    hostPorts: {
+      ...capabilityAdministrationPorts,
+      deploymentEnvironment: config.deploymentEnvironment,
+      channelCredentialKeyring: config.channelCredentialKeyring,
+      ebayAccountDeletionConfiguration: config.ebayAccountDeletionConfiguration,
+      ebayOAuthConfiguration: config.ebayOAuthConfiguration,
+      offerLifecycleAdmission: createOfferLifecycleAdmission({ open: config.offerLifecycleOpen, db: pools.control }),
+      processorGateway: paymentProcessorGateway,
+      paymentProcessorPublicConfiguration: paymentProcessorGateway.getPublicConfiguration(),
+      webhookTelemetry,
+      providerModeObservation: config.providerModeObservation,
+      moneyMovementGateway,
+      operationsRecorder: settlementOperationsRecorder,
+      postageLabelProvider,
+      addressVerificationProvider: postageLabelProvider,
+      ...(postageWebhookGateway ? { postageWebhookGateway } : {}),
+      catalogAssetStorage,
+      sourceObservationTelemetry,
+      checkoutObservabilityTelemetry,
+      waitlistAnalyticsRecorder,
+      listingPhotoStorage,
+      returnIntakeEvidenceStorage,
+      supportEvidenceAttachmentStorage,
+      supportEvidenceCanonicalizer,
+      ...(taxQuoteResolver ? { taxQuoteResolver } : {}),
+      socialLoginProviders,
+      adminGoogleWorkspaceSso: config.adminGoogleWorkspaceSso,
+      registrationAdmission: config.registrationAdmission,
+      stagingPersonaMagicLinkVerifierSha256: config.stagingPersonaMagicLinkVerifierSha256,
+      ...(pendingRegistrationLocks ? { pendingRegistrationLocks } : {}),
+      readConsistencyWorkSignalGateway: workSignalStore.readConsistencyGateway,
+      evidenceWindowCorrelation,
+      evidenceWindowProviderWrite,
+      securityLifetimes: config.authSecurityLifetimes,
+      searchEmbeddingConfig: config.discoverySearchEmbeddings,
+      searchTelemetry: {
+        recordSearchQuery: recordDiscoverySearchQuerySignal,
+        recordQueryEmbeddingLoad: recordDiscoveryQueryEmbeddingLoad,
+        recordSearchRetrievalFailure: recordDiscoverySearchRetrievalFailure,
+      },
+      emailWebhookGateway,
+      ...(mobileMessageWebhookGateway ? { mobileMessageWebhookGateway } : {}),
+    },
+  });
+  // Refuse to serve routes until the process's authority receipt has settled.
+  try {
+    await (runtime.services.identity as IdentityServices).accountCapabilities.initializeAdministrationAuthority();
+  } catch {
+    throw new Error("Identity capability administration authority receipt refused boot.");
+  }
+  await runtime.initializeListingAuthority();
+  const realtimeStores = runtime.mountedContexts
+    .filter(
+      (entry) =>
+        entry.contextName === "catalog" ||
+        entry.contextName === "discovery" ||
+        entry.contextName === "marketplace" ||
+        entry.contextName === "platform-operations",
     )
-  : undefined;
-if (realtimeWakeSignal?.stop) {
-  runtimeLifecycle.register({
-    name: "platform-api.realtime-wake-signal",
-    stop: () => realtimeWakeSignal.stop?.() ?? Promise.resolve(),
-  });
-}
-const ucpObserver = {
-  negotiationRejected: (event) => {
-    recordUcpOperationCompleted({ transport: event.transport, operation: event.operation, status: "error" });
-    logger.warn("UCP profile negotiation rejected.", {
-      type: "ucp.negotiation.rejected",
-      ...event,
-    });
-  },
-  signedWriteRejected: (event) => {
-    recordUcpSignedWriteRejected(event);
-    logger.warn("UCP signed write rejected.", {
-      type: "ucp.signed_write.rejected",
-      ...event,
-    });
-  },
-  signatureVerificationFailed: (event) => {
-    recordUcpSignatureVerificationFailed(event);
-    logger.warn("UCP signature verification failed.", {
-      type: "ucp.signature_verification.failed",
-      ...event,
-    });
-  },
-  idempotencyReplayed: (event) => {
-    recordUcpIdempotencyReplayed(event);
-    logger.info("UCP idempotent response replayed.", {
-      type: "ucp.idempotency.replayed",
-      transport: event.transport,
-      operation: event.operation,
-      agentProfileUrl: event.agentProfileUrl,
-    });
-  },
-  idempotencyConflict: (event) => {
-    recordUcpIdempotencyConflict(event);
-    logger.warn("UCP idempotency conflict.", {
-      type: "ucp.idempotency.conflict",
-      transport: event.transport,
-      operation: event.operation,
-      agentProfileUrl: event.agentProfileUrl,
-    });
-  },
-  operationCompleted: (event) => {
-    recordUcpOperationCompleted(event);
-    logger.info("UCP operation completed.", {
-      type: "ucp.operation.completed",
-      ...event,
-    });
-  },
-  toolCallLimited: (event) => {
-    logger.warn("UCP MCP tool call limited.", {
-      type: "ucp.mcp.tool_call.limited",
-      ...event,
-    });
-  },
-  agentGuardrailTriggered: (event) => {
-    logger.warn("Agent grant guardrail triggered.", {
-      type: "ucp.agent_guardrail.triggered",
-      ...event,
-    });
-  },
-} satisfies UcpRuntimeObserver;
-// Durable, queryable read model over the same audit records — powers the connected-agents
-// activity view. This persists off the existing sink rather than opening a
-// second logging path; the fire-and-forget write below never blocks or fails the request.
-const mcpAuditLog = createPostgresMcpAuditLog(pools.control);
-const mcpAudit = (record: McpAuditRecord) => {
-  recordMcpAuditRecord(record);
-  const logFields = {
-    type: "mcp.audit.record",
-    outcome: record.outcome,
-    method: record.method,
-    toolName: record.toolName,
-    resourceUriPresent: record.resourceUri ? true : undefined,
-    actorId: record.actorId,
-    accountId: record.accountId,
-    agentGrantId: record.agentGrantId,
-    auditEventName: record.auditEventName,
-    targetType: record.targetType,
-    reason: record.reason,
-    limitKind: record.limitKind,
-  };
+    .map((entry) => ({
+      contextName: entry.contextName,
+      db: entry.pool,
+      notificationWaiterPool: entry.notificationWaiterPool ?? entry.pool,
+    }));
+  let realtimeActiveConnectionCount = 0;
+  const realtimeObserver = {
+    connectionOpened: (event) => {
+      realtimeActiveConnectionCount = event.activeConnectionCount;
+      recordRealtimeConnectionOpened(event);
+      logger.info("Realtime SSE connection opened.", {
+        type: "realtime.connection.opened",
+        activeConnectionCount: event.activeConnectionCount,
+        topicCount: event.topics.length,
+        storeNames: event.storeNames,
+        actorAccountId: event.actorAccountId,
+      });
+    },
+    connectionClosed: (event) => {
+      realtimeActiveConnectionCount = event.activeConnectionCount;
+      recordRealtimeConnectionClosed(event);
+      logger.info("Realtime SSE connection closed.", {
+        type: "realtime.connection.closed",
+        activeConnectionCount: event.activeConnectionCount,
+        durationMs: Math.round(event.durationMs),
+      });
+    },
+    authorizationRejected: (event) => {
+      recordRealtimeAuthorizationRejected(event);
+      logger.warn("Realtime SSE subscription rejected.", {
+        type: "realtime.authorization.rejected",
+        reason: event.reason,
+        topicCount: event.topics.length,
+        actorAccountId: event.actorAccountId,
+      });
+    },
+    topicNormalizationAdjusted: (event) => {
+      logger.info("Realtime SSE topics normalized.", {
+        type: "realtime.topic.normalized",
+        requestedCount: event.diagnostic.requestedCount,
+        normalizedCount: event.diagnostic.normalizedCount,
+        duplicateCount: event.diagnostic.duplicateCount,
+        blankCount: event.diagnostic.blankCount,
+        invalidCount: event.diagnostic.invalidCount,
+        sorted: event.diagnostic.sorted,
+        actorAccountId: event.actorAccountId,
+      });
+    },
+    batchRead: (event) => {
+      recordRealtimeBatchRead(event);
+      if (event.messageCount === 0 && event.expiredContextCount === 0) {
+        return;
+      }
 
-  void mcpAuditLog.record(record).catch((error) => {
-    logger.warn("Failed to persist MCP audit record.", { type: "mcp.audit.persist_failed", error });
-  });
+      logger.info("Realtime SSE batch read.", {
+        type: "realtime.batch",
+        topicCount: event.topics.length,
+        storeNames: event.storeNames,
+        messageCount: event.messageCount,
+        expiredContextCount: event.expiredContextCount,
+        maxTopicLag: Math.max(0, ...event.topicLags.map((lag) => lag.lag)),
+      });
+    },
+    readStarted: (event) => {
+      recordRealtimeReadHub({ action: "started", topics: event.topics });
+    },
+    readCoalesced: (event) => {
+      recordRealtimeReadHub({ action: "coalesced", topics: event.topics });
+    },
+    messageSent: (event) => {
+      recordRealtimeMessageSent(event);
+    },
+    syncRequired: (event) => {
+      recordRealtimeSyncRequired(event);
+      logger.warn("Realtime SSE sync required.", {
+        type: "realtime.sync.required",
+        reason: event.reason,
+        contexts: event.contexts,
+        topicCount: event.topicCount,
+        payloadBytes: event.payloadBytes,
+      });
+    },
+    wakeWaitEnded: (event) => {
+      recordRealtimeWakeWaitEnded(event);
+    },
+    wakeNotificationReceived: (event) => {
+      recordRealtimeWakeNotificationReceived(event);
+      if (event.matchedWaiterCount > 0) {
+        return;
+      }
 
-  if (record.outcome === "allowed") {
-    logger.info("Native MCP invocation completed.", logFields);
-    return;
+      logger.debug("Realtime wake notification had no local matching waiters.", {
+        type: "realtime.wake_notification.unmatched",
+        waiterCount: event.waiterCount,
+        notificationTopicCount: event.notificationTopics.length,
+      });
+    },
+    retentionPruned: (event) => {
+      if (event.deletedCount === 0) {
+        return;
+      }
+
+      logger.info("Realtime retention pruned.", {
+        type: "realtime.retention.pruned",
+        contextName: event.contextName,
+        deletedCount: event.deletedCount,
+      });
+    },
+    streamError: (event) => {
+      logger.error("Realtime SSE stream failed.", {
+        type: "realtime.stream.error",
+        connectionKey: event.connectionKey,
+        error: event.error,
+      });
+    },
+  } satisfies RealtimeObserver;
+  const realtimeWakeSignal = config.realtime.wakeSignalEnabled
+    ? createPlatformRealtimeWakeSignal(
+        [...new Set(realtimeStores.map((store) => store.notificationWaiterPool))],
+        realtimeObserver,
+      )
+    : undefined;
+  if (realtimeWakeSignal?.stop) {
+    runtimeLifecycle.register({
+      name: "platform-api.realtime-wake-signal",
+      stop: () => realtimeWakeSignal.stop?.() ?? Promise.resolve(),
+    });
   }
+  const ucpObserver = {
+    negotiationRejected: (event) => {
+      recordUcpOperationCompleted({ transport: event.transport, operation: event.operation, status: "error" });
+      logger.warn("UCP profile negotiation rejected.", {
+        type: "ucp.negotiation.rejected",
+        ...event,
+      });
+    },
+    signedWriteRejected: (event) => {
+      recordUcpSignedWriteRejected(event);
+      logger.warn("UCP signed write rejected.", {
+        type: "ucp.signed_write.rejected",
+        ...event,
+      });
+    },
+    signatureVerificationFailed: (event) => {
+      recordUcpSignatureVerificationFailed(event);
+      logger.warn("UCP signature verification failed.", {
+        type: "ucp.signature_verification.failed",
+        ...event,
+      });
+    },
+    idempotencyReplayed: (event) => {
+      recordUcpIdempotencyReplayed(event);
+      logger.info("UCP idempotent response replayed.", {
+        type: "ucp.idempotency.replayed",
+        transport: event.transport,
+        operation: event.operation,
+        agentProfileUrl: event.agentProfileUrl,
+      });
+    },
+    idempotencyConflict: (event) => {
+      recordUcpIdempotencyConflict(event);
+      logger.warn("UCP idempotency conflict.", {
+        type: "ucp.idempotency.conflict",
+        transport: event.transport,
+        operation: event.operation,
+        agentProfileUrl: event.agentProfileUrl,
+      });
+    },
+    operationCompleted: (event) => {
+      recordUcpOperationCompleted(event);
+      logger.info("UCP operation completed.", {
+        type: "ucp.operation.completed",
+        ...event,
+      });
+    },
+    toolCallLimited: (event) => {
+      logger.warn("UCP MCP tool call limited.", {
+        type: "ucp.mcp.tool_call.limited",
+        ...event,
+      });
+    },
+    agentGuardrailTriggered: (event) => {
+      logger.warn("Agent grant guardrail triggered.", {
+        type: "ucp.agent_guardrail.triggered",
+        ...event,
+      });
+    },
+  } satisfies UcpRuntimeObserver;
+  // Durable, queryable read model over the same audit records — powers the connected-agents
+  // activity view. This persists off the existing sink rather than opening a
+  // second logging path; the fire-and-forget write below never blocks or fails the request.
+  const mcpAuditLog = createPostgresMcpAuditLog(pools.control);
+  const mcpAudit = (record: McpAuditRecord) => {
+    recordMcpAuditRecord(record);
+    const logFields = {
+      type: "mcp.audit.record",
+      outcome: record.outcome,
+      method: record.method,
+      toolName: record.toolName,
+      resourceUriPresent: record.resourceUri ? true : undefined,
+      actorId: record.actorId,
+      accountId: record.accountId,
+      agentGrantId: record.agentGrantId,
+      auditEventName: record.auditEventName,
+      targetType: record.targetType,
+      reason: record.reason,
+      limitKind: record.limitKind,
+    };
 
-  logger.warn("Native MCP invocation did not complete.", logFields);
-};
-const realtimeStreamLimiter = await createPlatformRealtimeStreamLimiter();
-configureDefaultDurableJobStreamLimiter(
-  realtimeStreamLimiter.limiter
-    ? createDurableJobStreamLimiterFromRealtime(realtimeStreamLimiter.limiter, {
-        maxActiveStreams: config.realtime.maxActiveStreams,
-        maxActiveStreamsPerConnectionKey: config.realtime.maxActiveStreamsPerConnectionKey,
+    void mcpAuditLog.record(record).catch((error) => {
+      logger.warn("Failed to persist MCP audit record.", { type: "mcp.audit.persist_failed", error });
+    });
+
+    if (record.outcome === "allowed") {
+      logger.info("Native MCP invocation completed.", logFields);
+      return;
+    }
+
+    logger.warn("Native MCP invocation did not complete.", logFields);
+  };
+  const realtimeStreamLimiter = await createPlatformRealtimeStreamLimiter();
+  configureDefaultDurableJobStreamLimiter(
+    realtimeStreamLimiter.limiter
+      ? createDurableJobStreamLimiterFromRealtime(realtimeStreamLimiter.limiter, {
+          maxActiveStreams: config.realtime.maxActiveStreams,
+          maxActiveStreamsPerConnectionKey: config.realtime.maxActiveStreamsPerConnectionKey,
+        })
+      : undefined,
+  );
+  const mcpToolCallLimiter = realtimeStreamLimiter.limiter
+    ? createMcpToolCallLimiterFromRealtime(realtimeStreamLimiter.limiter, config.mcpToolCallLimits)
+    : undefined;
+  const agentGrantRateLimiter = createAgentGrantRateLimiter(config.agentGrantRateLimit);
+  const agentGrantConsent = createPostgresAgentGrantConsentDirectory(pools.control);
+  const agentGrantSpendPolicy = createPostgresAgentGrantSpendPolicy(pools.control, {
+    ...config.agentGrantSpendCap,
+    mandateResolver: agentGrantConsent.resolveMandate,
+  });
+  const drainState = createProcessDrainState();
+  const ucpProfileResolver = createUcpProfileResolver({
+    db: pools.control,
+    onFailure: ({ kind, host }) => logger.warn("UCP platform profile resolution failed.", { kind, host }),
+  });
+  // A missing or empty widget build leaves that widget unlinked; the tools it renders keep working.
+  const readWidgetHtml = (uri: string, file: URL) =>
+    readFile(file, "utf8")
+      .then((html) => {
+        if (html.trim()) return html;
+        logger.warn("MCP widget unavailable.", { uri, code: "empty_file" });
+        return undefined;
       })
-    : undefined,
-);
-const mcpToolCallLimiter = realtimeStreamLimiter.limiter
-  ? createMcpToolCallLimiterFromRealtime(realtimeStreamLimiter.limiter, config.mcpToolCallLimits)
-  : undefined;
-const agentGrantRateLimiter = createAgentGrantRateLimiter(config.agentGrantRateLimit);
-const agentGrantConsent = createPostgresAgentGrantConsentDirectory(pools.control);
-const agentGrantSpendPolicy = createPostgresAgentGrantSpendPolicy(pools.control, {
-  ...config.agentGrantSpendCap,
-  mandateResolver: agentGrantConsent.resolveMandate,
-});
-const drainState = createProcessDrainState();
-const ucpProfileResolver = createUcpProfileResolver({
-  db: pools.control,
-  onFailure: ({ kind, host }) => logger.warn("UCP platform profile resolution failed.", { kind, host }),
-});
-// A missing or empty widget build leaves that widget unlinked; the tools it renders keep working.
-const readWidgetHtml = (uri: string, file: URL) =>
-  readFile(file, "utf8")
-    .then((html) => {
-      if (html.trim()) return html;
-      logger.warn("MCP widget unavailable.", { uri, code: "empty_file" });
-      return undefined;
-    })
-    .catch((error: unknown) => {
-      const missing = error instanceof Error && "code" in error && error.code === "ENOENT";
-      logger.warn("MCP widget unavailable.", { uri, code: missing ? "missing_file" : "read_failed" });
-      return undefined;
-    });
-const widgetFiles: readonly (readonly [uri: string, file: URL])[] = [
-  [UCP_MCP_PRODUCT_CARDS_RESOURCE_URI, new URL("../../agent-apps/build/product-cards.html", import.meta.url)],
-  [UCP_MCP_CART_REVIEW_RESOURCE_URI, new URL("../../agent-apps/build/cart-review.html", import.meta.url)],
-  [UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI, new URL("../../agent-apps/build/checkout-handoff.html", import.meta.url)],
-];
-const widgetHtml = new Map(
-  await Promise.all(widgetFiles.map(async ([uri, file]) => [uri, await readWidgetHtml(uri, file)] as const)),
-);
-const app = buildPlatformApiApp(runtime, {
-  widgetResources: (uri) => widgetHtml.get(uri),
-  runtimeProfile: config.runtimeProfile,
-  receiptLookupActor: config.receiptLookupActor,
-  internalAuthSecret: config.internalAuthSecret,
-  adminRegistrationEnabled: config.adminRegistrationEnabled,
-  checkoutClosed: config.checkoutClosed,
-  controlPlane,
-  ...(evidenceWindowRegistration && evidenceWindowById && config.evidenceWindowAdmissionSecret
-    ? {
-        evidenceWindowRegistration: {
-          admissionSecret: config.evidenceWindowAdmissionSecret,
-          authority: {
-            effectiveMode: config.stripeEffectiveMode,
-            gatewayKinds: {
-              paymentProcessor: config.paymentProcessor.kind,
-              moneyMovement: config.moneyMovement.kind,
+      .catch((error: unknown) => {
+        const missing = error instanceof Error && "code" in error && error.code === "ENOENT";
+        logger.warn("MCP widget unavailable.", { uri, code: missing ? "missing_file" : "read_failed" });
+        return undefined;
+      });
+  const widgetFiles: readonly (readonly [uri: string, file: URL])[] = [
+    [UCP_MCP_PRODUCT_CARDS_RESOURCE_URI, new URL("../../agent-apps/build/product-cards.html", import.meta.url)],
+    [UCP_MCP_CART_REVIEW_RESOURCE_URI, new URL("../../agent-apps/build/cart-review.html", import.meta.url)],
+    [UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI, new URL("../../agent-apps/build/checkout-handoff.html", import.meta.url)],
+  ];
+  const widgetHtml = new Map(
+    await Promise.all(widgetFiles.map(async ([uri, file]) => [uri, await readWidgetHtml(uri, file)] as const)),
+  );
+  const app = buildPlatformApiApp(runtime, {
+    widgetResources: (uri) => widgetHtml.get(uri),
+    runtimeProfile: config.runtimeProfile,
+    receiptLookupActor: config.receiptLookupActor,
+    internalAuthSecret: config.internalAuthSecret,
+    adminRegistrationEnabled: config.adminRegistrationEnabled,
+    checkoutClosed: config.checkoutClosed,
+    controlPlane,
+    ...(evidenceWindowRegistration && evidenceWindowById && config.evidenceWindowAdmissionSecret
+      ? {
+          evidenceWindowRegistration: {
+            admissionSecret: config.evidenceWindowAdmissionSecret,
+            authority: {
+              effectiveMode: config.stripeEffectiveMode,
+              gatewayKinds: {
+                paymentProcessor: config.paymentProcessor.kind,
+                moneyMovement: config.moneyMovement.kind,
+              },
             },
+            registration: evidenceWindowRegistration,
           },
-          registration: evidenceWindowRegistration,
-        },
-        evidenceWindowSourceRecovery: {
-          admissionSecret: config.evidenceWindowAdmissionSecret,
-          authority: {
-            effectiveMode: config.stripeEffectiveMode,
-            gatewayKinds: {
-              paymentProcessor: config.paymentProcessor.kind,
-              moneyMovement: config.moneyMovement.kind,
+          evidenceWindowSourceRecovery: {
+            admissionSecret: config.evidenceWindowAdmissionSecret,
+            authority: {
+              effectiveMode: config.stripeEffectiveMode,
+              gatewayKinds: {
+                paymentProcessor: config.paymentProcessor.kind,
+                moneyMovement: config.moneyMovement.kind,
+              },
             },
+            registrationById: evidenceWindowById,
           },
-          registrationById: evidenceWindowById,
+        }
+      : {}),
+    workSignalStore,
+    getProjectionReplay: () => refreshProjectionReplaySummary(runtime),
+    readConsistencyAuditLogger: logger,
+    projectionInlineApplyEnabled: config.projectionInlineApplyEnabled,
+    readConsistency: {
+      ...config.readConsistency,
+      workSignalGateway: workSignalStore.readConsistencyGateway,
+    },
+    readinessChecks: [
+      {
+        name: "control.database",
+        check: async () => {
+          await pools.control.query("SELECT 1");
         },
-      }
-    : {}),
-  workSignalStore,
-  getProjectionReplay: () => refreshProjectionReplaySummary(runtime),
-  readConsistencyAuditLogger: logger,
-  projectionInlineApplyEnabled: config.projectionInlineApplyEnabled,
-  readConsistency: {
-    ...config.readConsistency,
-    workSignalGateway: workSignalStore.readConsistencyGateway,
-  },
-  readinessChecks: [
-    {
-      name: "control.database",
-      check: async () => {
-        await pools.control.query("SELECT 1");
       },
+    ],
+    resolveActor: (request) =>
+      resolveActorFromRequest(runtime.services.auth as Parameters<typeof resolveActorFromRequest>[0], request, {
+        linkedPlatformAuthorizations: (
+          runtime.services.identity as Readonly<{
+            linkedPlatformAuthorizations: NonNullable<
+              Parameters<typeof resolveActorFromRequest>[2]
+            >["linkedPlatformAuthorizations"];
+          }>
+        ).linkedPlatformAuthorizations,
+      }),
+    realtimeObserver,
+    realtimeWakeSignal,
+    realtimeStreamLimiter: realtimeStreamLimiter.limiter,
+    realtimeActiveConnectionCount: () => realtimeActiveConnectionCount,
+    isDraining: drainState.isDraining,
+    realtimeRouteTuning: {
+      batchSize: config.realtime.batchSize,
+      pollIntervalMs: config.realtime.pollIntervalMs,
+      heartbeatIntervalMs: config.realtime.heartbeatIntervalMs,
+      retentionPruneIntervalMs: config.realtime.retentionPruneIntervalMs,
+      maxConsecutiveFullBatches: config.realtime.maxConsecutiveFullBatches,
     },
-  ],
-  resolveActor: (request) =>
-    resolveActorFromRequest(runtime.services.auth as Parameters<typeof resolveActorFromRequest>[0], request, {
-      linkedPlatformAuthorizations: (
-        runtime.services.identity as Readonly<{
-          linkedPlatformAuthorizations: NonNullable<
-            Parameters<typeof resolveActorFromRequest>[2]
-          >["linkedPlatformAuthorizations"];
-        }>
-      ).linkedPlatformAuthorizations,
-    }),
-  realtimeObserver,
-  realtimeWakeSignal,
-  realtimeStreamLimiter: realtimeStreamLimiter.limiter,
-  realtimeActiveConnectionCount: () => realtimeActiveConnectionCount,
-  isDraining: drainState.isDraining,
-  realtimeRouteTuning: {
-    batchSize: config.realtime.batchSize,
-    pollIntervalMs: config.realtime.pollIntervalMs,
-    heartbeatIntervalMs: config.realtime.heartbeatIntervalMs,
-    retentionPruneIntervalMs: config.realtime.retentionPruneIntervalMs,
-    maxConsecutiveFullBatches: config.realtime.maxConsecutiveFullBatches,
-  },
-  realtimeCursorSigningKeys: config.realtime.cursorSigningSecret
-    ? {
-        current: config.realtime.cursorSigningSecret,
-        previous: config.realtime.previousCursorSigningSecrets,
-      }
-    : undefined,
-  ucp: {
-    profileResolver: ucpProfileResolver,
-    businessSigningKeys: config.ucpBusinessSigningKeys,
-    idempotencyStore: createPostgresUcpIdempotencyStore(pools.control, {
-      retentionMs: 7 * 24 * 60 * 60 * 1000,
-    }),
-    signatureVerification: {
-      keyResolver: createUcpProfileKeyResolver(ucpProfileResolver),
-      createdFreshnessWindowMs: config.ucpSignatureCreatedFreshnessWindowMs,
+    realtimeCursorSigningKeys: config.realtime.cursorSigningSecret
+      ? {
+          current: config.realtime.cursorSigningSecret,
+          previous: config.realtime.previousCursorSigningSecrets,
+        }
+      : undefined,
+    ucp: {
+      profileResolver: ucpProfileResolver,
+      businessSigningKeys: config.ucpBusinessSigningKeys,
+      idempotencyStore: createPostgresUcpIdempotencyStore(pools.control, {
+        retentionMs: 7 * 24 * 60 * 60 * 1000,
+      }),
+      signatureVerification: {
+        keyResolver: createUcpProfileKeyResolver(ucpProfileResolver),
+        createdFreshnessWindowMs: config.ucpSignatureCreatedFreshnessWindowMs,
+      },
+      observer: ucpObserver,
+      mcpToolCallLimiter,
+      agentGrantRateLimiter,
     },
-    observer: ucpObserver,
-    mcpToolCallLimiter,
-    agentGrantRateLimiter,
-  },
-  agentGrantSpendPolicy,
-  agentGrantConsent,
-  agentGrantActivity: mcpAuditLog,
-  mcp: {
-    audit: mcpAudit,
-    idempotencyStore: createPostgresUcpIdempotencyStore<unknown>(pools.control, {
-      retentionMs: 7 * 24 * 60 * 60 * 1000,
-    }),
-    toolCallLimiter: mcpToolCallLimiter,
-    agentGrantRateLimiter,
-  },
-  realtimeResourceLimits: {
-    maxTopicsPerStream: config.realtime.maxTopicsPerStream,
-    maxActiveStreams: config.realtime.maxActiveStreams,
-    maxActiveStreamsPerConnectionKey: config.realtime.maxActiveStreamsPerConnectionKey,
-  },
-});
-mountLocalCatalogAssetRoute(app, config.catalogAssetStorage);
-mountLocalListingPhotoRoute(app, config.listingPhotoStorage);
-const realtimeRetentionSweeper = config.realtime.backgroundMaintenanceEnabled
-  ? createRealtimeRetentionSweeper({
-      stores: realtimeStores,
-      intervalMs: config.realtime.retentionPruneIntervalMs,
-      observer: realtimeObserver,
-      onError: (error) => {
-        logger.error("Realtime retention sweep failed.", {
-          type: "realtime.retention.failed",
-          error,
-        });
-      },
-    })
-  : undefined;
-if (realtimeRetentionSweeper) {
-  void realtimeRetentionSweeper.sweep();
-}
-
-function createCatalogAssetStorage(storageConfig: PlatformApiCatalogAssetStorageConfig): ObjectStorage {
-  return storageConfig.kind === "s3"
-    ? createS3ObjectStorage(storageConfig)
-    : createFilesystemObjectStorage(storageConfig);
-}
-
-function createSourceObservationTelemetry() {
-  return {
-    recordProviderOptionQuery: recordCatalogIntegrationOptionQuery,
-    recordIntegrationJob: (event: { jobKind: string; result: string }) =>
-      recordCatalogIntegrationJob({ ...event, operation: "integration-job" }),
-    recordBulkReviewWorkUnit: (event: { jobKind: string; result: string }) =>
-      recordCatalogIntegrationJob({ ...event, operation: "bulk-review-work-unit" }),
-    recordControlPlaneEvent: recordCatalogControlPlaneEvent,
-  };
-}
-
-function createCheckoutObservabilityTelemetry() {
-  return {
-    recordCheckoutEvent: recordCheckoutObservabilityEvent,
-  };
-}
-
-function createListingPhotoStorage(storageConfig: PlatformApiListingPhotoStorageConfig): ObjectStorage {
-  return storageConfig.kind === "s3"
-    ? createS3ObjectStorage(storageConfig)
-    : createFilesystemObjectStorage(storageConfig);
-}
-
-function createReturnIntakeEvidenceStorage(storageConfig: PlatformApiListingPhotoStorageConfig): ObjectStorage {
-  if (storageConfig.kind === "s3") {
-    return createS3ObjectStorage({ ...storageConfig, publicBaseUrl: "private://return-intake-evidence" });
-  }
-  return createFilesystemObjectStorage({
-    rootDir: `${storageConfig.rootDir}/private-return-intake`,
-    publicBaseUrl: "private://return-intake-evidence",
+    agentGrantSpendPolicy,
+    agentGrantConsent,
+    agentGrantActivity: mcpAuditLog,
+    mcp: {
+      audit: mcpAudit,
+      idempotencyStore: createPostgresUcpIdempotencyStore<unknown>(pools.control, {
+        retentionMs: 7 * 24 * 60 * 60 * 1000,
+      }),
+      toolCallLimiter: mcpToolCallLimiter,
+      agentGrantRateLimiter,
+    },
+    realtimeResourceLimits: {
+      maxTopicsPerStream: config.realtime.maxTopicsPerStream,
+      maxActiveStreams: config.realtime.maxActiveStreams,
+      maxActiveStreamsPerConnectionKey: config.realtime.maxActiveStreamsPerConnectionKey,
+    },
   });
-}
-
-function mountLocalCatalogAssetRoute(
-  app: ReturnType<typeof buildPlatformApiApp>,
-  storageConfig: PlatformApiCatalogAssetStorageConfig,
-) {
-  if (storageConfig.kind !== "filesystem") {
-    return;
-  }
-
-  const routePrefix = "/catalog-assets/";
-  app.get("/catalog-assets/*", async (c) => {
-    const key = c.req.path.slice(routePrefix.length);
-    const object = await readFilesystemObject(storageConfig.rootDir, key);
-    if (!object) {
-      return c.notFound();
-    }
-
-    return new Response(toArrayBuffer(object.body), {
-      headers: {
-        "cache-control": "public, max-age=31536000, immutable",
-        "content-type": object.contentType,
-      },
-    });
-  });
-}
-
-function mountLocalListingPhotoRoute(
-  app: ReturnType<typeof buildPlatformApiApp>,
-  storageConfig: PlatformApiListingPhotoStorageConfig,
-) {
-  if (storageConfig.kind !== "filesystem") {
-    return;
-  }
-
-  const routePrefix = "/marketplace-listing-photos/";
-  app.get("/marketplace-listing-photos/*", async (c) => {
-    const key = c.req.path.slice(routePrefix.length);
-    const object = await readFilesystemObject(storageConfig.rootDir, key);
-    if (!object) {
-      return c.notFound();
-    }
-
-    return new Response(toArrayBuffer(object.body), {
-      headers: {
-        "cache-control": "public, max-age=31536000, immutable",
-        "content-type": object.contentType,
-      },
-    });
-  });
-}
-
-function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
-  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-}
-const realtimePartitionMaintainerStores = [...new Set(realtimeStores.map((store) => store.db))].map((db) => {
-  const contextNames = realtimeStores.filter((store) => store.db === db).map((store) => store.contextName);
-  return { db, contextNames };
-});
-const realtimePartitionMaintainers = config.realtime.backgroundMaintenanceEnabled
-  ? realtimePartitionMaintainerStores.map((store) =>
-      createRealtimeOutboxPartitionMaintainer({
-        db: store.db,
+  mountLocalCatalogAssetRoute(app, config.catalogAssetStorage);
+  mountLocalListingPhotoRoute(app, config.listingPhotoStorage);
+  const realtimeRetentionSweeper = config.realtime.backgroundMaintenanceEnabled
+    ? createRealtimeRetentionSweeper({
+        stores: realtimeStores,
+        intervalMs: config.realtime.retentionPruneIntervalMs,
+        observer: realtimeObserver,
         onError: (error) => {
-          logger.error("Realtime outbox partition maintenance failed.", {
-            type: "realtime.partition_maintenance.failed",
-            contextNames: store.contextNames,
+          logger.error("Realtime retention sweep failed.", {
+            type: "realtime.retention.failed",
             error,
           });
         },
-      }),
-    )
-  : [];
-for (const maintainer of realtimePartitionMaintainers) {
-  void maintainer.maintain();
-}
+      })
+    : undefined;
+  if (realtimeRetentionSweeper) {
+    void realtimeRetentionSweeper.sweep();
+  }
 
-startGracefulHttpServer({
-  name: "platform-api",
-  port: config.port,
-  serve,
-  fetch: app.fetch,
-  drainState,
-  logger,
-  onListening: (info) => {
-    logger.info("Platform API listening.", {
-      type: "platform-api.started",
-      port: info.port,
+  function createCatalogAssetStorage(storageConfig: PlatformApiCatalogAssetStorageConfig): ObjectStorage {
+    return storageConfig.kind === "s3"
+      ? createS3ObjectStorage(storageConfig)
+      : createFilesystemObjectStorage(storageConfig);
+  }
+
+  function createSourceObservationTelemetry() {
+    return {
+      recordProviderOptionQuery: recordCatalogIntegrationOptionQuery,
+      recordIntegrationJob: (event: { jobKind: string; result: string }) =>
+        recordCatalogIntegrationJob({ ...event, operation: "integration-job" }),
+      recordBulkReviewWorkUnit: (event: { jobKind: string; result: string }) =>
+        recordCatalogIntegrationJob({ ...event, operation: "bulk-review-work-unit" }),
+      recordControlPlaneEvent: recordCatalogControlPlaneEvent,
+    };
+  }
+
+  function createCheckoutObservabilityTelemetry() {
+    return {
+      recordCheckoutEvent: recordCheckoutObservabilityEvent,
+    };
+  }
+
+  function createListingPhotoStorage(storageConfig: PlatformApiListingPhotoStorageConfig): ObjectStorage {
+    return storageConfig.kind === "s3"
+      ? createS3ObjectStorage(storageConfig)
+      : createFilesystemObjectStorage(storageConfig);
+  }
+
+  function createReturnIntakeEvidenceStorage(storageConfig: PlatformApiListingPhotoStorageConfig): ObjectStorage {
+    if (storageConfig.kind === "s3") {
+      return createS3ObjectStorage({ ...storageConfig, publicBaseUrl: "private://return-intake-evidence" });
+    }
+    return createFilesystemObjectStorage({
+      rootDir: `${storageConfig.rootDir}/private-return-intake`,
+      publicBaseUrl: "private://return-intake-evidence",
     });
-  },
-  onDrainStart: [
-    () => {
-      logger.info("Platform API stopping background realtime maintenance.", {
-        type: "platform-api.drain.background_stopping",
-      });
-      realtimeRetentionSweeper?.stop();
-      for (const maintainer of realtimePartitionMaintainers) {
-        maintainer.stop();
+  }
+
+  function mountLocalCatalogAssetRoute(
+    app: ReturnType<typeof buildPlatformApiApp>,
+    storageConfig: PlatformApiCatalogAssetStorageConfig,
+  ) {
+    if (storageConfig.kind !== "filesystem") {
+      return;
+    }
+
+    const routePrefix = "/catalog-assets/";
+    app.get("/catalog-assets/*", async (c) => {
+      const key = c.req.path.slice(routePrefix.length);
+      const object = await readFilesystemObject(storageConfig.rootDir, key);
+      if (!object) {
+        return c.notFound();
       }
+
+      return new Response(toArrayBuffer(object.body), {
+        headers: {
+          "cache-control": "public, max-age=31536000, immutable",
+          "content-type": object.contentType,
+        },
+      });
+    });
+  }
+
+  function mountLocalListingPhotoRoute(
+    app: ReturnType<typeof buildPlatformApiApp>,
+    storageConfig: PlatformApiListingPhotoStorageConfig,
+  ) {
+    if (storageConfig.kind !== "filesystem") {
+      return;
+    }
+
+    const routePrefix = "/marketplace-listing-photos/";
+    app.get("/marketplace-listing-photos/*", async (c) => {
+      const key = c.req.path.slice(routePrefix.length);
+      const object = await readFilesystemObject(storageConfig.rootDir, key);
+      if (!object) {
+        return c.notFound();
+      }
+
+      return new Response(toArrayBuffer(object.body), {
+        headers: {
+          "cache-control": "public, max-age=31536000, immutable",
+          "content-type": object.contentType,
+        },
+      });
+    });
+  }
+
+  function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+    return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  }
+  const realtimePartitionMaintainerStores = [...new Set(realtimeStores.map((store) => store.db))].map((db) => {
+    const contextNames = realtimeStores.filter((store) => store.db === db).map((store) => store.contextName);
+    return { db, contextNames };
+  });
+  const realtimePartitionMaintainers = config.realtime.backgroundMaintenanceEnabled
+    ? realtimePartitionMaintainerStores.map((store) =>
+        createRealtimeOutboxPartitionMaintainer({
+          db: store.db,
+          onError: (error) => {
+            logger.error("Realtime outbox partition maintenance failed.", {
+              type: "realtime.partition_maintenance.failed",
+              contextNames: store.contextNames,
+              error,
+            });
+          },
+        }),
+      )
+    : [];
+  for (const maintainer of realtimePartitionMaintainers) {
+    void maintainer.maintain();
+  }
+
+  startGracefulHttpServer({
+    name: "platform-api",
+    port: config.port,
+    serve,
+    fetch: app.fetch,
+    drainState,
+    logger,
+    onListening: (info) => {
+      logger.info("Platform API listening.", {
+        type: "platform-api.started",
+        port: info.port,
+      });
     },
-  ],
-  onShutdown: [
-    async () => {
-      await runtimeLifecycle.stopAll({ logger });
-    },
-    async () => realtimeStreamLimiter.stop?.(),
-    async () => {
-      await runWithRuntimeLifecycleTimeout("platform-api.close-pools", () => closePlatformApiPools(pools), { logger });
-    },
-    async () => observability.shutdown(),
-  ],
+    onDrainStart: [
+      () => {
+        logger.info("Platform API stopping background realtime maintenance.", {
+          type: "platform-api.drain.background_stopping",
+        });
+        realtimeRetentionSweeper?.stop();
+        for (const maintainer of realtimePartitionMaintainers) {
+          maintainer.stop();
+        }
+      },
+    ],
+    onShutdown: [
+      async () => {
+        await runtimeLifecycle.stopAll({ logger });
+      },
+      async () => realtimeStreamLimiter.stop?.(),
+      async () => {
+        await runWithRuntimeLifecycleTimeout("platform-api.close-pools", () => closePlatformApiPools(runtimePools), {
+          logger,
+        });
+      },
+      async () => observability.shutdown(),
+    ],
+  });
 });
 
 async function createPlatformRealtimeStreamLimiter(): Promise<

@@ -38,6 +38,10 @@ The User Session Authority generation a Session was started in, recorded on `aut
 
 The continuation step used when one authenticated user can act for more than one account and must choose which account to use for the current session.
 
+## Pending Registration
+
+A registration staged on its magic-link row (`identity_magic_link_tokens.pending_registration`) until the emailed link is consumed: names, the signed registration consent submission, an optional password hash and verified passkey material, and the User, credential and Session ids reserved for it. It never holds a plaintext password. Consuming the link finishes the registration under those reserved ids and is retry-safe: the link's row lock is held on a separate capped direct Auth pool, Identity's registration claim decides which writes are still missing, the reserved Session starts once, and the Session Token write commits together with the link's consumption, which also clears the payload. A different User that already owns the email is signed in normally instead and receives none of the staged details. Expiry retention deletes an unconsumed payload with its row.
+
 ## Actor
 
 The authenticated execution identity used by hosts and APIs after session resolution. An actor includes the selected account context and permission set.

@@ -281,6 +281,15 @@
       "enrollment": "bounded-contexts/auth/support/auth-support/store.ts::upsertSessionToken"
     },
     {
+      "file": "bounded-contexts/auth/support/auth-support/store.ts",
+      "symbol": "upsertSessionTokenOnClient",
+      "sink": "session SQL",
+      "ordinal": 1,
+      "keys": ["session"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/auth/support/auth-support/store.ts::upsertSessionTokenOnClient"
+    },
+    {
       "file": "bounded-contexts/auth/support/runtime-support/retention-policy.ts",
       "symbol": "<module>",
       "sink": "expired",
