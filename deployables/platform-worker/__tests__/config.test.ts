@@ -283,6 +283,7 @@ describe("platform worker config", () => {
   });
 
   it("hybrid config removed", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     expect(loadConfig().discoverySearchEmbeddings).not.toHaveProperty("hybridValue");
   });
 

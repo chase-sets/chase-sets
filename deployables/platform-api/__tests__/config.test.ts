@@ -286,6 +286,7 @@ describe("release-scoped Capability Administration Authority configuration", () 
 
 describe("platform api config", () => {
   it("hybrid config removed", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     expect(loadConfig().discoverySearchEmbeddings).not.toHaveProperty("hybridValue");
   });
 

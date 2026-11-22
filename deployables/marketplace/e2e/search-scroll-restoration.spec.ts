@@ -98,12 +98,13 @@ test.describe("marketplace search scroll restoration", () => {
   });
 
   test("replaces restored pages when a former hybrid cursor restarts @marketplace-browse", async ({ page }) => {
-    const firstPageUrl = `/api/marketplace/items?search=${encodeURIComponent(searchQuery)}&sort=relevance&limit=24`;
+    const firstPageUrl = `/api/marketplace/items?search=${encodeURIComponent(searchQuery)}&sort=relevance&limit=24&includeTotal=true`;
     const firstResponse = await page.request.get(firstPageUrl);
     expect(firstResponse.ok()).toBe(true);
     const firstPage = (await firstResponse.json()) as SearchResponse;
     const template = firstPage.items[0];
     expect(template, "the marketplace seed must include the configured search item").toBeDefined();
+    expect(firstPage.total).toBeGreaterThanOrEqual(firstPage.items.length);
     const formerHybridCursor = "eyJraW5kIjoiaHlicmlkIiwib2Zmc2V0IjoyNH0";
     const resultSetKey = JSON.stringify([searchQuery, "", "", "", "", "", "", false, "relevance", []]);
     const storedSnapshot = JSON.stringify({
