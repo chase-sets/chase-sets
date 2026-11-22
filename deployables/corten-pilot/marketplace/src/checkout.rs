@@ -1201,7 +1201,9 @@ pub(crate) async fn write(
                             let asked = confirmed.payment_authentication_url.as_deref();
                             let followed = asked.and_then(authentication);
                             if asked.is_some() && followed.is_none() {
-                                tracing::warn!("Pay now's payment asked for authentication at an address that is not an https URL with a host; showing the payment's page instead");
+                                tracing::warn!(
+                                    "Pay now's payment asked for authentication at an address that is not an https URL with a host; showing the payment's page instead"
+                                );
                             }
                             match followed {
                                 Some(to) => req.redirect(&to),
