@@ -308,7 +308,7 @@ mod tests {
             role_key: "owner".into(),
             permissions: vec![],
             session_id: "ses_1".into(),
-            agent: false,
+            withheld_permissions: Vec::new(),
         };
         Viewer { actor, color_mode: Default::default() }
     }

@@ -569,14 +569,18 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             // An owner whose offers.manage Auth withholds until its email is verified.
             "offers_unverified" => Json(json!({ "actor": {
                 "userId": "usr_seller", "accountId": "acc_seller", "roleKey": "owner", "permissions": ["offers.view", "listings.view"],
+                "withheldPermissions": [{ "permission": "offers.manage", "reason": "email_verification_required" }],
             } }))
             .into_response(),
             // An owner whose orders.manage Auth withholds until its email is verified, and an agent
-            // acting for an owner with the same permissions (never asked to verify).
+            // acting for an owner with the same permissions (Auth withholds nothing from an agent).
             "unverified" | "unverified_agent" => {
                 let mut actor = json!({ "userId": "usr_buyer", "accountId": "acc_buyer", "roleKey": "owner", "permissions": ["orders.view"] });
                 if session == "unverified_agent" {
                     actor["agentGrant"] = json!({ "grantId": "agr_1" });
+                } else {
+                    actor["withheldPermissions"] =
+                        json!([{ "permission": "orders.manage", "reason": "email_verification_required" }]);
                 }
                 Json(json!({ "actor": actor })).into_response()
             }
