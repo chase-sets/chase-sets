@@ -51,6 +51,33 @@ function createServices() {
 }
 
 describe("identity internal auth routes", () => {
+  it.each(["personal-identities", "guest-accounts"])(
+    "account-profile-marker-scan: %s sends the decider's closed code before any append",
+    async (path) => {
+      const services = createServices();
+      const eventStore = services.eventStore as InMemoryEventStore;
+      const append = vi.fn();
+      vi.mocked(services.accounts.commandHandler).mockImplementation(async ({ command }) => {
+        append(decideAccount(initialAccountState, command));
+        throw new Error("Unexpected success");
+      });
+      const response = await buildIdentityApi(services).request(`/internal/auth/${path}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          email: "owner@example.test",
+          displayName: "account-profile-marker-scan http://test.example",
+          registrationConsent: registrationConsent(),
+        }),
+      });
+      expect(response.status).toBe(400);
+      const body = await response.text();
+      expect(JSON.parse(body)).toEqual({ error: { code: "text_unsafe_link" } });
+      expect(body).not.toContain("account-profile-marker-scan");
+      expect(eventStore.streamIdsWithPrefix("identity.")).toEqual([]);
+      expect(append).not.toHaveBeenCalled();
+    },
+  );
   it("normalizes account display names for uniqueness checks", () => {
     expect(normalizeAccountDisplayNameKey("  PokeBash   TCG  ")).toBe("pokebash tcg");
   });

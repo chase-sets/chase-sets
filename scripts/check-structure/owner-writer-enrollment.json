@@ -1261,6 +1261,24 @@
       "enrollment": "bounded-contexts/identity/features/account-management/api/fences.ts::createIdentityMutationPersistence > attempt > append"
     },
     {
+      "file": "bounded-contexts/identity/features/account-profile-reports/api/runtime.ts",
+      "symbol": "createAccountProfileReportRuntime",
+      "sink": "tx.append",
+      "ordinal": 1,
+      "keys": ["account"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/identity/features/account-management/api/fences.ts::createIdentityMutationPersistence > attempt > append"
+    },
+    {
+      "file": "bounded-contexts/identity/features/account-profile-reports/integrations/moderation/profile-redaction-reaction.ts",
+      "symbol": "buildProfileRedactionReactionHandlers > \"platform-operations.reported-content.action-recorded\"",
+      "sink": "tx.append",
+      "ordinal": 1,
+      "keys": ["account"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/identity/features/account-management/api/fences.ts::createIdentityMutationPersistence > attempt > append"
+    },
+    {
       "file": "bounded-contexts/identity/features/accounts/api/account-enforcement.ts",
       "symbol": "submitAccountEnforcement",
       "sink": "services.commandHandler",

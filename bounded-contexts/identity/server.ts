@@ -4,6 +4,7 @@ import {
   type ResolvedActor,
 } from "@chase-sets/platform-runtime/auth";
 export type { IdentityHostPorts, IdentityServices } from "./support/runtime-support/services";
+export { isDisplayNameRejectionCode } from "./features/accounts/domain/display-name-safeguard";
 export { createIdentityListingActivationAuthority } from "./features/accounts/api/listing-activation-authority";
 export type { ListingActivationAuthorityInput } from "./features/accounts/api/listing-activation-authority";
 export { createIdentityOwnerEpochs } from "./features/accounts/api/owner-epochs";

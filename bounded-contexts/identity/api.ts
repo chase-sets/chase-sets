@@ -30,6 +30,9 @@ import {
 } from "./support/runtime-support/common";
 import type { IdentityServices } from "./support/runtime-support/services";
 import { accountRoutes } from "./features/accounts/api/route";
+import { DisplayNameRejectedError } from "./features/accounts/domain/display-name-safeguard";
+import { accountProfileReportRoutes } from "./features/account-profile-reports/api/route";
+import { createAccountProfileReportRuntime } from "./features/account-profile-reports/api/runtime";
 import { accountCapabilityRoutes } from "./features/account-capabilities/api/route";
 import { accessHubRoutes } from "./features/access-hub/api/route";
 import { userRoutes } from "./features/users/api/route";
@@ -378,6 +381,7 @@ const accountRegistrationHistory: RegistrationParticipantHistory = {
   allowedEventTypes: new Set([
     "identity.account.created",
     "identity.account.profile-updated",
+    "identity.account.display-name-redacted",
     "identity.account.suspended",
     "identity.account.reactivated",
     "identity.account.closed",
@@ -1534,13 +1538,17 @@ export function buildIdentityApi(
 
   app.post("/internal/auth/guest-accounts", async (c) => {
     const body = await c.req.json();
-    const account = await createGuestAccountForAuth(services, {
-      email: String(body.email ?? ""),
-      displayName: String(body.displayName ?? ""),
-      context: getBootstrapContext(c),
-    });
-
-    return c.json(account, 201);
+    try {
+      const account = await createGuestAccountForAuth(services, {
+        email: String(body.email ?? ""),
+        displayName: String(body.displayName ?? ""),
+        context: getBootstrapContext(c),
+      });
+      return c.json(account, 201);
+    } catch (error) {
+      if (error instanceof DisplayNameRejectedError) return c.json({ error: { code: error.code } }, 400);
+      throw error;
+    }
   });
 
   app.post("/internal/auth/users", async (c) => {
@@ -1602,6 +1610,7 @@ export function buildIdentityApi(
         context: getBootstrapContext(c),
       });
     } catch (error) {
+      if (error instanceof DisplayNameRejectedError) return c.json({ error: { code: error.code } }, 400);
       if (error instanceof RegistrationConsentRejectedError) {
         return c.json(
           {
@@ -1920,6 +1929,7 @@ export function buildIdentityApi(
     );
   });
 
+  app.route("/accounts", accountProfileReportRoutes(createAccountProfileReportRuntime(services.mutationPersistence)));
   app.use("/accounts", requirePermission("accounts.view", "accounts.manage"));
   app.use("/accounts/*", requirePermission("accounts.view", "accounts.manage"));
   app.use("/users", requirePermission("security.manage"));

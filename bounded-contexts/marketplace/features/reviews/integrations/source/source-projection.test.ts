@@ -564,6 +564,21 @@ describe("marketplace review account source projection", () => {
     expect(account?.slug).not.toBe(originalSlug);
   });
 
+  it("projects the ordinary redaction update in the account source without changing account status", async () => {
+    const db = new ReviewAccountSourceDb();
+    const handlers = buildReviewAccountProjectionHandlers(db);
+    db.accounts.set("acc_seller_1", { display_name: "Card Vault", slug: "card-vault", status: "suspended" });
+    await handlers["identity.account.profile-updated"]?.({
+      ...event("identity.account.profile-updated", { name: "Card Vault LLC", displayName: "Name removed" }),
+      streamId: "identity.account-acc_seller_1" as never,
+    });
+    expect(db.accounts.get("acc_seller_1")).toEqual({
+      display_name: "Name removed",
+      slug: expect.stringMatching(/^name-removed-/),
+      status: "suspended",
+    });
+  });
+
   it("derives the same slug for the same account id and display name every time", async () => {
     const dbA = new ReviewAccountSourceDb();
     const dbB = new ReviewAccountSourceDb();

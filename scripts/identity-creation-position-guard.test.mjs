@@ -77,7 +77,7 @@ describe("identity creation position guard real discovery", () => {
     expect(result.report.sweptFiles).toBe(result.report.trackedFiles);
     expect(result.report).not.toHaveProperty("excluded");
     expect(result.report.tokens).toEqual([
-      { command: "CreateAccount", anchorId: "C1", hitCount: 24, registeredCount: 24, violationCount: 0 },
+      { command: "CreateAccount", anchorId: "C1", hitCount: 27, registeredCount: 27, violationCount: 0 },
       { command: "CreateUser", anchorId: "C2", hitCount: 21, registeredCount: 21, violationCount: 0 },
       {
         command: "GrantMembership",
