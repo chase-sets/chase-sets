@@ -1388,6 +1388,7 @@
 ["candidate","edges",{"from":"infrastructure/platform-policy/resolver.ts","specifier":"./define-policy","resolved":"repo:/infrastructure/platform-policy/define-policy.ts"}]
 ["candidate","edges",{"from":"infrastructure/platform-policy/resolver.ts","specifier":"./queries","resolved":"repo:/infrastructure/platform-policy/queries.ts"}]
 ["candidate","edges",{"from":"infrastructure/platform-policy/resolver.ts","specifier":"@chase-sets/event-core-postgres","resolved":"repo:/infrastructure/event-core-postgres/index.ts"}]
+["candidate","edges",{"from":"infrastructure/platform-policy/resolver.ts","specifier":"@chase-sets/observability","resolved":"repo:/infrastructure/observability/index.ts"}]
 ["candidate","edges",{"from":"infrastructure/platform-policy/resolver.ts","specifier":"@chase-sets/primitives/json","resolved":"repo:/contracts/primitives/json.ts"}]
 ["candidate","edges",{"from":"infrastructure/platform-policy/runtime.ts","specifier":"./cache","resolved":"repo:/infrastructure/platform-policy/cache.ts"}]
 ["candidate","edges",{"from":"infrastructure/platform-policy/runtime.ts","specifier":"./commands","resolved":"repo:/infrastructure/platform-policy/commands.ts"}]
