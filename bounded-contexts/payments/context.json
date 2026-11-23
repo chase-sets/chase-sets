@@ -34,7 +34,8 @@
   "contextName": "payments",
   "packageName": "@chase-sets/payments",
   "localeCatalogs": [
-    "contracts/localization/locales/en/payments.ts"
+    "contracts/localization/locales/en/payments.ts",
+    "bounded-contexts/payments/features/payments/ui/localization/locales/en.ts"
   ],
   "ownedNouns": [
     "payment",
@@ -494,7 +495,7 @@
       },
       "proof": {
         "tests": [
-          "bounded-contexts/payments/tests/account-payment-new-wallet-status.test.tsx"
+          "bounded-contexts/payments/features/payments/ui/routes/account-payment-new-wallet-status.test.tsx"
         ]
       }
     },
@@ -631,7 +632,7 @@
       },
       "proof": {
         "tests": [
-          "bounded-contexts/payments/tests/account-payment-new-wallet-status.test.tsx"
+          "bounded-contexts/payments/features/payments/ui/routes/account-payment-new-wallet-status.test.tsx"
         ]
       }
     },

@@ -41,7 +41,12 @@ describe("fresh payments schemas", () => {
   });
 
   it("keeps Payments localization free of schema and query payloads", () => {
-    const localization = readFileSync(resolve(repoRoot, "contracts/localization/locales/en/payments.ts"), "utf8");
+    const localization = [
+      "contracts/localization/locales/en/payments.ts",
+      "bounded-contexts/payments/features/payments/ui/localization/locales/en.ts",
+    ]
+      .map((path) => readFileSync(resolve(repoRoot, path), "utf8"))
+      .join("\n");
 
     expect(localization).not.toContain("CREATE TABLE IF NOT EXISTS payments_");
     expect(localization).not.toContain("ALTER TABLE payments_");
