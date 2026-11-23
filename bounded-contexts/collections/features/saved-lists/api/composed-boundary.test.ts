@@ -2,8 +2,9 @@ import type { RateLimitRule } from "@chase-sets/http/rate-limit";
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import { buildCollectionsApi, type CollectionsApiEnv } from "../../../api";
-import { CollectionsApiError, createCollectionsRequestApiClient } from "../../../server";
+import { CollectionsApiError } from "./client";
 import type { SavedListRecoveryServices } from "./recovery-runtime";
+import { createCollectionsRequestApiClient } from "./request-client";
 
 const capturePath = "/guest/saved-list-intents";
 const unknownGuestPath = "/guest/deliberately-unknown";

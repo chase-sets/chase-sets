@@ -1,7 +1,7 @@
-import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
+import type { CollectionsActor, CollectionsApiEnv } from "../../../support/runtime-support/api-auth";
 import type { SavedListId } from "../../saved-lists/domain";
 import { createSavedListValuationRoutes } from "./route";
 import type { SavedListValuationServices } from "./runtime";
@@ -18,12 +18,12 @@ function services(getOwnerValuation = vi.fn()): SavedListValuationServices {
 
 function appWithActor(
   valuationServices: SavedListValuationServices,
-  actor: Readonly<{ accountId: string; permissions: readonly string[] }> | null,
+  actor: CollectionsActor | null,
   recorder?: SavedListAnalyticsRecorder,
 ) {
-  const app = new Hono<AuthenticatedApiEnv>();
+  const app = new Hono<CollectionsApiEnv>();
   app.use("*", async (c, next) => {
-    c.set("actor", actor as never);
+    if (actor) c.set("actor", actor);
     await next();
   });
   app.route("/", createSavedListValuationRoutes(valuationServices, recorder));
