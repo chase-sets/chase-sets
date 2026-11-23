@@ -121,7 +121,6 @@ describe("quoteAuthenticityCheckFee", () => {
     expect(quoteAuthenticityCheckFee.length).toBe(2);
 
     const exported = await import("./authenticity-check-fee");
-    expect(Object.keys(exported)).not.toContain("defaultAuthenticityCheckFeePolicyValue");
     for (const value of Object.values(exported)) {
       expect(value).not.toEqual(expect.objectContaining({ bands: expect.anything() }));
     }

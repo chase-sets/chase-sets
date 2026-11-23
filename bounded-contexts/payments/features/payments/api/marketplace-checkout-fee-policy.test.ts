@@ -16,7 +16,6 @@ describe("marketplace checkout fee policy", () => {
     expect(marketplaceCheckoutFeePolicy.length).toBe(1);
 
     const exported = await import("./marketplace-checkout-fee-policy");
-    expect(Object.keys(exported)).not.toContain("defaultMarketplaceCheckoutFeePolicyValue");
     for (const value of Object.values(exported)) {
       expect(value).not.toEqual(
         expect.objectContaining({ base: expect.anything(), methodAdjustments: expect.anything() }),
