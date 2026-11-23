@@ -1661,6 +1661,21 @@
       "batches": ["admin_support"]
     },
     {
+      "changedFiles": ["bounded-contexts/customer-feedback/routes/admin/attention.tsx"],
+      "suiteIds": ["admin_support"],
+      "batches": ["admin_support"]
+    },
+    {
+      "changedFiles": ["bounded-contexts/customer-feedback/features/attention/ui/routes/attention.tsx"],
+      "suiteIds": ["admin_support"],
+      "batches": ["admin_support"]
+    },
+    {
+      "changedFiles": ["bounded-contexts/customer-feedback/features/attention/ui/localization/locales/en.ts"],
+      "suiteIds": ["admin_support"],
+      "batches": ["admin_support"]
+    },
+    {
       "changedFiles": ["bounded-contexts/discovery/features/browse/api/contracts.ts"],
       "suiteIds": ["marketplace_browse"],
       "batches": ["marketplace_browse"]

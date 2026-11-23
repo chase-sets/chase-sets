@@ -1,17 +1,22 @@
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
-import { t } from "@chase-sets/localization";
+import { createTranslator } from "@chase-sets/localization/core";
 import { Hono } from "hono";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { transactionalCsatV1 } from "../domain/survey";
 import { normalizePrivacyReason, privacyPermission } from "../../privacy/domain/policy";
 import {
   CsatQueryRefusal,
+  type CsatAdminDashboardResponse,
   type CsatAdminExportAudit,
+  type CsatAdminExportMetadata,
   type CsatAdminQueueFilters,
   type CsatAdminQueueQuery,
   type CsatAnalyticsQuery,
 } from "./analytics-contract";
 import type { CsatAdminReadPort } from "./runtime";
+import { csatAdminExperienceCopy } from "./localization/experience-copy";
+
+const { t } = createTranslator({ catalogs: { en: csatAdminExperienceCopy } });
 
 type CustomerFeedbackApiEnv = AuthenticatedApiEnv;
 
@@ -115,7 +120,7 @@ export function buildCustomerFeedbackApi(port: CsatAdminReadPort) {
         port.readAdminAnalytics(analyticsQuery(c, filters)),
         port.listAdminQueue(queueQuery(c, filters)),
       ]);
-      return c.json({ analytics, queue, filters });
+      return c.json({ analytics, queue, filters } satisfies CsatAdminDashboardResponse);
     } catch (error) {
       return refusal(error);
     }
@@ -163,13 +168,7 @@ async function createExportArtifact(
   query: CsatAdminQueueQuery,
   reason: string,
   startedAt: string,
-): Promise<{
-  exportId: string;
-  rowCount: number;
-  artifactExpiresAt: string;
-  status: "completed";
-  downloadHref: string;
-}> {
+): Promise<CsatAdminExportMetadata> {
   const exportId = createId("cse");
   const retention = await port.resolveRetentionPolicy(startedAt);
   const artifactExpiresAt = new Date(

@@ -1,7 +1,7 @@
 import type { WorkerRunner } from "@chase-sets/bounded-context-module";
 
 import { createScheduledJobRunner, type WorkerJobInput } from "@chase-sets/platform-runtime/worker-jobs";
-import type { CustomerFeedbackServices } from "./services";
+import type { FeedbackAttentionDigestService } from "../../api/digest-runner";
 
 const SYSTEM_CONTEXT = {
   tenantId: "tnt_identity" as never,
@@ -24,7 +24,7 @@ export function createCustomerFeedbackAttentionDigestRunners({
   WorkerJobInput<CreateCustomerFeedbackAttentionDigestRunnersConfig>,
   "services" | "config" | "controlPlane" | "logger"
 >): readonly WorkerRunner[] {
-  const customerFeedback = services["customer-feedback"] as CustomerFeedbackServices | undefined;
+  const customerFeedback = services["customer-feedback"] as FeedbackAttentionDigestService | undefined;
   const runners: WorkerRunner[] = [];
   if (customerFeedback?.runAttentionDigest && input.customerFeedbackAttentionDigestIntervalMs) {
     runners.push(
