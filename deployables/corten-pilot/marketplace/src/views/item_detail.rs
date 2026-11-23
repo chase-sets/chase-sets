@@ -84,9 +84,8 @@ pub struct Shot {
 
 /// The gallery's pictures (`buildItemDetailImages`, then `ImageGallery`'s): the catalog-detail
 /// rendition, else every image URL, then the fallback when it stays (`permanent`), which
-/// marketplace shows as one more picture. Marketplace also adds the default picture as one more to
-/// an item with pictures and no fallback; the pilot shows it only for an item with no picture
-/// ([chase-sets/chase-sets#11830](https://github.com/chase-sets/chase-sets/issues/11830)).
+/// marketplace shows as one more picture. The default picture shows only for an item with no
+/// picture of its own.
 pub fn item_shots(t: ItemMsg, item: &Item) -> Vec<Shot> {
     let mut shots = Vec::new();
     let detail = item_picture(item)
