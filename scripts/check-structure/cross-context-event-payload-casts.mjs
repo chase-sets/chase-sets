@@ -3,8 +3,8 @@
 // payload to a local shape is not linked to the producer's published type; the
 // typed route is defineProjectorHandlers over a Pick of the published payload
 // map. This is a text scan with no type analysis: a file is exempt only when it
-// declares handler keys and every key is its own context's, so a cast moved
-// into a keyless helper stays counted.
+// declares handler keys and every key is its own context's or under a prefix
+// no context registers, so a cast moved into a keyless helper stays counted.
 
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -33,9 +33,13 @@ const unregisteredStreamPrefixes = Object.freeze(["support.", "experience.", "pl
 const eventTypeShape = String.raw`[a-z][a-z0-9-]*(?:\.[a-z0-9][a-z0-9-]*)+`;
 const payloadCastPattern = /(?<![\w$])[A-Za-z_$][\w$]*\.data\s+as\b/g;
 // A property name starts its line or follows `{` or `,`, which keeps `case "..."` labels and ternary arms out.
-const handlerPropertyKeyPattern = new RegExp(String.raw`(?:^|[{,])[ \t]*(["'])(${eventTypeShape})\1[ \t]*:`, "gm");
+// It ends in `:` or, for a method written with a string name, `(`.
+const handlerPropertyKeyPattern = new RegExp(
+  String.raw`(?:^|[{,])[ \t]*(?:async[ \t]+)?(["'])(${eventTypeShape})\1[ \t]*[:(]`,
+  "gm",
+);
 const handlerAssignmentKeyPattern = new RegExp(
-  String.raw`\bhandlers\[\s*(["'])(${eventTypeShape})\1\s*\]\s*=(?!=)`,
+  String.raw`\bhandlers\[\s*(["'])(${eventTypeShape})\1\s*\]\s*(?:\?\?|\|\|)?=(?!=)`,
   "g",
 );
 
@@ -173,7 +177,7 @@ function staleEntryReason({ repoRoot, file, exemptFiles }) {
     return "the file is gone";
   }
   if (exemptFiles.has(file)) {
-    return "the file is exempt because every handler key in it is its own context's";
+    return "the file is exempt because every handler key in it is its own context's or under an unregistered prefix";
   }
   return "the file holds no counted cast";
 }
@@ -194,7 +198,9 @@ export function validateCrossContextEventPayloadCasts(options) {
     const allowed = baseline.entries.get(file);
     if (allowed === undefined) {
       violations.push(
-        `${file}: ${count} '<identifier>.data as' cast(s) and no entry in ${baselinePath} (allowed 0). ${typedRouteAdvice}`,
+        `${file}: ${count} '<identifier>.data as' cast(s) and no entry in ${baselinePath} (allowed 0). ${typedRouteAdvice} ` +
+          "A file that was exempt until it gained a handler key for another context's event needs that handler moved " +
+          "to its own file, or its own casts typed.",
       );
     } else if (count > allowed) {
       violations.push(

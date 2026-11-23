@@ -239,6 +239,41 @@ describe("cross-context event payload cast exemption", () => {
     expect(result.violations).toHaveLength(2);
   });
 
+  it("reads a method written with a string name and a defaulting assignment as handler keys", () => {
+    const methodKeys =
+      "export function buildHandlers() {\n" +
+      "  return {\n" +
+      `    "checkout.cart.line-added"(event) {\n      ${cast}\n    },\n` +
+      `    async "marketplace.offer.accepted"(event) {\n      ${cast}\n    },\n` +
+      "  };\n" +
+      "}\n";
+    const defaultedKey =
+      "export function register(handlers) {\n" +
+      `  handlers["marketplace.offer.accepted"] ??= async (event) => {\n    ${cast}\n  };\n` +
+      "}\n";
+    const ownMethodKey =
+      "export function buildHandlers() {\n" +
+      `  return { async "checkout.cart.cleared"(event) {\n    ${cast}\n  } };\n` +
+      "}\n";
+    const fixture = createFixture(
+      { [foreignProjection]: methodKeys, [keylessHelper]: defaultedKey, [ownProjection]: ownMethodKey },
+      { baseline: {} },
+    );
+
+    const collected = collectCrossContextEventPayloadCasts(fixture);
+    const result = validateCrossContextEventPayloadCasts(fixture);
+
+    expect([...collected.exemptFiles]).toEqual([ownProjection]);
+    expect([...collected.casts]).toEqual([
+      [keylessHelper, 1],
+      [foreignProjection, 2],
+    ]);
+    expect(result.violations).toHaveLength(2);
+    expect(result.violations.every((violation) => violation.includes("was exempt until it gained a handler key"))).toBe(
+      true,
+    );
+  });
+
   it("does not let a file without a handler key claim the exemption", () => {
     const fixture = createFixture(
       {
