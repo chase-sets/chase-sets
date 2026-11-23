@@ -4,10 +4,13 @@ import { decideOrderingOrder, evolveOrderingOrder, initialOrderingOrderState } f
 import type {
   CreateOrderCommand,
   OrderCancelledEvent,
+  OrderCreatedEvent,
   OrderingOrderEvent,
   OrderingOrderState,
   OrderStatusBeforeCancellation,
 } from "./domain";
+import { OrderingDomainError } from "./common";
+import type { ShippingRates } from "./shipping-rates";
 
 const commercialTermsSnapshot = {
   marketplaceSalesFeeAmount: "1.00",
@@ -88,6 +91,24 @@ const shippingPlanSnapshot: PackagePlan = {
     reasons: ["test-order-uses-parcel"],
   },
   missingProductIds: [],
+};
+
+// Deliberately not the compiled default, so a recorded value proves the command's rates were kept.
+const quotedShippingRates: ShippingRates = {
+  letterAmount: "2.00",
+  standardParcelAmount: "6.00",
+  expeditedParcelAmount: "8.25",
+  priorityParcelAmount: "12.00",
+  parcelIncludedOunces: 8,
+  parcelAdditionalOunceAmount: "0.50",
+};
+
+const orderCreatedEventFrom = (events: readonly OrderingOrderEvent[]): OrderCreatedEvent => {
+  const created = events.find((event): event is OrderCreatedEvent => event.type === "ordering.order.created");
+  if (created === undefined) {
+    throw new Error(`Expected an order-created event, saw [${events.map((event) => event.type).join(", ")}].`);
+  }
+  return created;
 };
 
 describe("ordering order domain", () => {
@@ -293,6 +314,79 @@ describe("ordering order domain", () => {
         ],
       }),
     ).toThrow("Order line marketplace fee plus seller net must equal the line total.");
+  });
+
+  it("records the Shipping Rates the command carries, unchanged", () => {
+    const command = createOrderCommand("cart-checkout");
+    const created = orderCreatedEventFrom(
+      decideOrderingOrder(initialOrderingOrderState, {
+        ...command,
+        commercialTermsSnapshot: { ...command.commercialTermsSnapshot, shippingRates: quotedShippingRates },
+      }),
+    );
+
+    expect(created.data.commercialTermsSnapshot.shippingRates).toEqual(quotedShippingRates);
+    expect(evolveOrderingOrder(initialOrderingOrderState, created).commercialTermsSnapshot?.shippingRates).toEqual(
+      quotedShippingRates,
+    );
+  });
+
+  it("records no Shipping Rates, and no default, when the command carries none", () => {
+    const created = orderCreatedEventFrom(
+      decideOrderingOrder(initialOrderingOrderState, createOrderCommand("cart-checkout")),
+    );
+
+    expect(created.data.commercialTermsSnapshot).not.toHaveProperty("shippingRates");
+    expect(JSON.stringify(created)).not.toContain("shippingRates");
+  });
+
+  it.each([
+    ["a numeric amount", { ...quotedShippingRates, letterAmount: 2 }],
+    ["a missing rate", { letterAmount: "2.00" }],
+    ["an unknown rate", { ...quotedShippingRates, overnightParcelAmount: "19.99" }],
+    ["fractional ounces", { ...quotedShippingRates, parcelIncludedOunces: 8.5 }],
+    ["null", null],
+  ])("rejects an order whose Shipping Rates carry %s", (_label, shippingRates) => {
+    const command = createOrderCommand("cart-checkout");
+    const createWithShippingRates = () =>
+      decideOrderingOrder(initialOrderingOrderState, {
+        ...command,
+        commercialTermsSnapshot: {
+          ...command.commercialTermsSnapshot,
+          shippingRates: shippingRates as unknown as ShippingRates,
+        },
+      });
+
+    expect(createWithShippingRates).toThrow(OrderingDomainError);
+    expect(createWithShippingRates).toThrow(/^Shipping Rates /);
+  });
+
+  it("folds an order-created event that predates Shipping Rates without them", () => {
+    const command = createOrderCommand("cart-checkout");
+    const recorded = orderCreatedEventFrom(
+      decideOrderingOrder(initialOrderingOrderState, {
+        ...command,
+        commercialTermsSnapshot: { ...command.commercialTermsSnapshot, shippingRates: quotedShippingRates },
+      }),
+    );
+    const { shippingRates: recordedShippingRates, ...snapshotBeforeShippingRates } =
+      recorded.data.commercialTermsSnapshot;
+    const historical: OrderCreatedEvent = {
+      ...recorded,
+      data: { ...recorded.data, commercialTermsSnapshot: snapshotBeforeShippingRates },
+    };
+
+    expect(recordedShippingRates).toEqual(quotedShippingRates);
+    expect(historical.data.commercialTermsSnapshot).not.toHaveProperty("shippingRates");
+
+    const folded = evolveOrderingOrder(initialOrderingOrderState, historical);
+
+    expect(folded.commercialTermsSnapshot).toEqual(snapshotBeforeShippingRates);
+    expect(folded.commercialTermsSnapshot).not.toHaveProperty("shippingRates");
+    expect(folded).toEqual({
+      ...evolveOrderingOrder(initialOrderingOrderState, recorded),
+      commercialTermsSnapshot: snapshotBeforeShippingRates,
+    });
   });
 
   it("marks a pending order ready for fulfillment after payment capture", () => {

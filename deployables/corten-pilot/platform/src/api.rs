@@ -234,8 +234,18 @@ pub struct Actor {
     #[serde(default)]
     pub session_id: String,
     /// The permissions the actor's role grants that Auth withheld, and why (`withheldPermissions`).
-    #[serde(default)]
+    /// Absent and `null` both mean nothing was withheld, as marketplace-web reads it.
+    #[serde(default, deserialize_with = "null_as_empty")]
     pub withheld_permissions: Vec<WithheldPermission>,
+}
+
+/// A list Auth may send as `null`: read as empty.
+fn null_as_empty<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Ok(Option::<Vec<T>>::deserialize(deserializer)?.unwrap_or_default())
 }
 
 /// A permission Auth withheld from an actor and its reason (`ResolvedActorWithheldPermission`).
@@ -250,9 +260,9 @@ impl Actor {
         self.permissions.iter().any(|p| p == permission)
     }
 
-    /// Whether Auth withheld `permission` from this actor for `reason`.
+    /// Whether Auth withheld `permission` from this actor for `reason`; never for one it holds.
     pub fn withheld(&self, permission: &str, reason: &str) -> bool {
-        self.withheld_permissions.iter().any(|w| w.permission == permission && w.reason == reason)
+        !self.can(permission) && self.withheld_permissions.iter().any(|w| w.permission == permission && w.reason == reason)
     }
 }
 

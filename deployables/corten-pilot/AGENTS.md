@@ -15,7 +15,9 @@ deployed. The root `.dockerignore` keeps the pilot out of the platform image; do
 platform. Business
 rules stay in the platform API; the pilot checks only the shape of what it sends. A gap another
 Corten app would hit goes to Corten (one issue per gap, with a repro in one of its `examples/`
-apps); a workaround here links to it. Move the Corten pin in `Cargo.toml` forward to Corten's latest
+apps); a workaround here links to it, and each workaround the pilot keeps is one file in
+`workarounds/open/` or `workarounds/cited/` (README.md, "Open workarounds"), deleted when it is
+retired. Move the Corten pin in `Cargo.toml` forward to Corten's latest
 `main` whenever it moves, in its own commit that says why. Run `node --import tsx deployables/corten-pilot/scripts/export.mjs`
 before building (it writes two files that are not committed) and with `--check` after changing
 text, nav or tokens the pilot exports.

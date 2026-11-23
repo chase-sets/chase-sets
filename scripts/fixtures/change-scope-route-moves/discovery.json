@@ -1,0 +1,8 @@
+{
+  "addedCaseCount": 0,
+  "families": {
+    "boundedContextRouteSuiteOwnership:45": {
+      "pattern": "/^bounded-contexts\\/discovery\\/routes\\/item-detail(?:\\.|-market-history\\.|-rail-analytics\\.)/"
+    }
+  }
+}
