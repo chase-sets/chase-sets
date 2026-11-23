@@ -635,23 +635,36 @@ function resolveAdminAppVariable(env, variable, defaultApp) {
   return { app: value, source: "variable" };
 }
 
-// Whether staging deploys the advisory Corten marketplace pilot. STAGING_MARKETPLACE_PILOT is a GitHub variable,
-// so a pilot that never becomes ready (which would fail the atomic staging release) is dropped with a variable
-// change and a re-run, with no pull request. Unset means deployed; any other value fails.
+// Whether staging deploys an advisory Corten pilot. STAGING_MARKETPLACE_PILOT and STAGING_PUBLIC_PILOT are GitHub
+// variables, so a pilot that never becomes ready (which would fail the atomic staging release) is dropped with a
+// variable change and a re-run, with no pull request. Unset means deployed; any other value fails.
 export const STAGING_MARKETPLACE_PILOT_STATES = Object.freeze(["deployed", "withheld"]);
+export const STAGING_PILOT_STATES = STAGING_MARKETPLACE_PILOT_STATES;
 export const defaultStagingMarketplacePilot = "deployed";
 
-export function resolveStagingMarketplacePilot(env = {}) {
-  const value = String(env.STAGING_MARKETPLACE_PILOT ?? "").trim();
+// The variable that withholds each advisory pilot on staging.
+export const STAGING_PILOT_VARIABLES = Object.freeze({
+  "marketplace-corten": "STAGING_MARKETPLACE_PILOT",
+  "public-corten": "STAGING_PUBLIC_PILOT",
+});
+
+export function resolveStagingPilot(env = {}, variable) {
+  const value = String(env[variable] ?? "").trim();
   if (value === "") {
     return { state: defaultStagingMarketplacePilot, source: "default" };
   }
-  if (!STAGING_MARKETPLACE_PILOT_STATES.includes(value)) {
-    throw new Error(
-      `STAGING_MARKETPLACE_PILOT must be one of ${STAGING_MARKETPLACE_PILOT_STATES.join(", ")}; got "${value}".`,
-    );
+  if (!STAGING_PILOT_STATES.includes(value)) {
+    throw new Error(`${variable} must be one of ${STAGING_PILOT_STATES.join(", ")}; got "${value}".`);
   }
   return { state: value, source: "variable" };
+}
+
+export function resolveStagingMarketplacePilot(env = {}) {
+  return resolveStagingPilot(env, "STAGING_MARKETPLACE_PILOT");
+}
+
+export function resolveStagingPublicPilot(env = {}) {
+  return resolveStagingPilot(env, "STAGING_PUBLIC_PILOT");
 }
 
 export function buildDoksIngressValues(options = {}) {
@@ -686,6 +699,11 @@ export function buildDoksIngressValues(options = {}) {
     hosts.push({
       host: `marketplace-corten.${stagingEnvironmentZone}`,
       paths: doksIngressPaths("marketplace-corten"),
+    });
+    // The public pilot, beside public-web until www.staging switches to it.
+    hosts.push({
+      host: `public-corten.${stagingEnvironmentZone}`,
+      paths: doksIngressPaths("public-corten"),
     });
   }
   const certificateDnsNames = production ? hosts.map((host) => host.host) : [];
