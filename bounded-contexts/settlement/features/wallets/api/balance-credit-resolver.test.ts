@@ -162,7 +162,7 @@ describe("createSettlementBalanceCreditResolver", () => {
       const placed = (
         placeSpendHold.mock.calls as unknown as [{ placedAt: string; expiresAt: string | null }][]
       )[0]![0];
-      expect(Date.parse(placed.expiresAt!) - Date.parse(placed.placedAt)).toBe(259_200_000);
+      expect(placed.expiresAt).toBe(new Date(Date.parse(placed.placedAt) + 259_200_000).toISOString());
     });
 
     it("places a hold with no expiry when the Payment suspends expiry", async () => {

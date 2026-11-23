@@ -60,7 +60,7 @@ export function balanceCreditHoldId(paymentId: string): string {
   return `hold_balance_credit_${paymentId}`;
 }
 
-/** The only definition of when a spend hold placed at `placedAt` expires, for placement and for restored expiry. */
+/** The only computation of when a spend hold placed at `placedAt` expires, for placement and for restored expiry. */
 export function spendHoldExpiresAt(placedAt: string): string {
   return new Date(Date.parse(placedAt) + DEFAULT_SPEND_HOLD_TTL_MS).toISOString();
 }
