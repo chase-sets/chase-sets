@@ -4,7 +4,7 @@ import { developerArticles } from "../features/developer-portal/domain/developer
 import { publicHelpArticles } from "../features/help/domain/article-catalog";
 import { assertPublicCopyGuard } from "../features/help/domain/public-copy-guard.mjs";
 import { policiesEnglishTranslations } from "../features/policies/ui/localization/locales/en";
-import { hasTranslation as hasPolicyTranslation, t as policyT } from "../features/policies/ui/localization/translator";
+import { has as hasPolicyTranslation, t as policyT } from "../features/policies/ui/localization/translator";
 import { publicPresenceHasTranslation, publicPresenceT } from "../features/waitlist/ui/public-presence-translator";
 
 describe("public presence translator", () => {
