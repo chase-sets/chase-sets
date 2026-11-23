@@ -348,7 +348,7 @@ describe("ordering postage policy MCP handlers", () => {
         .map((tool: { name: string }) => tool.name)
         .sort(),
     ).toEqual(names);
-    const source = readFileSync(new URL("../../../routes/admin/postage-policies.tsx", import.meta.url), "utf8");
+    const source = readFileSync(new URL("../ui/routes/postage-policies.tsx", import.meta.url), "utf8");
     const calls = [...source.matchAll(/\.(\w+PostagePolic\w*)\(/g)].map((match) => match[1]).sort();
     expect(calls).toEqual(
       [

@@ -1,8 +1,9 @@
-import { t } from "@chase-sets/localization";
+import { t } from "../ui/localization/translator";
 import { Hono } from "hono";
 import type { OrderingApiEnv } from "../../../api";
 import { mapPostagePolicyDomainError, type OrderingPostagePolicyPayload } from "../domain/domain";
-import type { PostagePolicyPreviewRequest, PostagePolicyServices } from "./runtime";
+import type { PostagePolicyPreviewRequest } from "./contracts";
+import type { PostagePolicyServices } from "./runtime";
 
 type PostagePolicyPermission = "postage-policies.view" | "postage-policies.manage";
 

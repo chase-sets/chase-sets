@@ -1,5 +1,5 @@
 import { Grid, Checkbox, NumberField, PageSection, Stack, TextInput } from "@chase-sets/design-system";
-import { t } from "@chase-sets/localization";
+import { t } from "./localization/translator";
 import { defaultPostagePolicy, type PostagePolicy } from "@chase-sets/product-measures";
 
 export const postagePolicyShippingOptions = [
