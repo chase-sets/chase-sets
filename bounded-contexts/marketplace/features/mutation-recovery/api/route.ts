@@ -12,6 +12,8 @@ export function createMarketplaceMutationRecoveryRoutes(lookup: ReturnType<typeo
     const kind = marketplaceMutationKindSchema.safeParse(c.req.query("kind"));
     const hash = recoveryHashSchema.safeParse(c.req.query("requestHash"));
     const target = c.req.query("target") ?? "";
+    if (kind.success && kind.data === "offer-payment-authorization.command" && target && target !== actor.accountId)
+      return c.json({ error: { code: "not_found" } }, 404);
     if (!kind.success || !hash.success || !target || target.length > 1024)
       return c.json({ error: { code: "invalid_attempt" } }, 400);
     try {

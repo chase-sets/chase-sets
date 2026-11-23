@@ -5712,8 +5712,9 @@ struct ErrorCode {
 /// The signed-in user's sessions (Auth's `sessions`) and their two writes. Neither write is an
 /// attempt: Auth takes no `Idempotency-Key` for them, and names a refusal by its error code.
 pub trait SessionCalls {
-    /// A page of the signed-in user's sessions, newest first, and how many there are: Auth lists
-    /// only the caller's own sessions to a user.
+    /// A page of sessions, newest first, and how many there are, as Auth answers it: a user's own
+    /// sessions, but every user's to a platform admin, as on marketplace-web
+    /// ([chase-sets/chase-sets#11822](https://github.com/chase-sets/chase-sets/issues/11822)).
     async fn sessions(&self, status: Option<&str>, limit: u32, offset: u32) -> Result<(Vec<SessionRecord>, u64), ApiError>;
     async fn session(&self, id: &str) -> Result<SessionRecord, ApiError>;
     /// Send `write`; the write's receipt when it is done. A call with no answer is
