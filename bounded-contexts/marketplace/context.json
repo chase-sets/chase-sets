@@ -144,6 +144,7 @@
     "mutation-recovery",
     "offer-policy",
     "offer-payment-consent",
+    "offer-payment-authorization",
     "channel-inbound-clamp",
     "listing-evidence-policy",
     "listings",
@@ -176,6 +177,35 @@
   ],
   "seedRequirements": ["catalog", "commercial-terms", "identity", "inventory"],
   "eventSubscriptions": [
+    {
+      "sourceContextName": "payments",
+      "projectionName": "marketplace.buyer-payment-instrument-projection",
+      "subscriptionName": "marketplace.buyer-payment-instrument-projection",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": ["payments.checkout-affordances-published"],
+      "order": 98,
+      "projectionHandlerSetNames": ["marketplace.buyer-payment-instrument-projection"]
+    },
+    {
+      "sourceContextName": "marketplace",
+      "projectionName": "marketplace.offer-payment-authorization-projection",
+      "subscriptionName": "marketplace.offer-payment-authorization-projection",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": [
+        "marketplace.offer-payment-authorization.previewed",
+        "marketplace.offer-payment-authorization.authorized",
+        "marketplace.offer-payment-authorization.resumed",
+        "marketplace.offer-payment-authorization.revoked",
+        "marketplace.offer-payment-authorization.held",
+        "marketplace.offer-payment-authorization.payment-method-unavailable",
+        "marketplace.offer-payment-authorization.marked-required"
+      ],
+      "streamPrefixes": ["marketplace.offer-payment-authorization-"],
+      "order": 99,
+      "projectionHandlerSetNames": ["marketplace.offer-payment-authorization-projection"]
+    },
     {
       "sourceContextName": "catalog",
       "projectionName": "marketplace-catalog-item-projection",
@@ -416,6 +446,20 @@
   ],
   "eventReactions": [
     {
+      "sourceContextName": "marketplace",
+      "reactionName": "marketplace.offer-payment-authorization-reconcile",
+      "subscriptionName": "marketplace.offer-payment-authorization-reconcile",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": [
+        "marketplace.buyer-payment-instrument.mirrored",
+        "marketplace.offer-payment-authorization.authorized",
+        "marketplace.offer-payment-authorization.resumed"
+      ],
+      "order": 100,
+      "reactionHandlerSetNames": ["marketplace.offer-payment-authorization-reconcile"]
+    },
+    {
       "sourceContextName": "platform-operations",
       "reactionName": "marketplace-listing-moderation-reaction",
       "subscriptionVersion": 1,
@@ -470,6 +514,28 @@
     }
   ],
   "projectionGroups": [
+    {
+      "projectionName": "marketplace.buyer-payment-instrument-projection",
+      "sourceContextNames": ["payments"],
+      "ownedTables": ["marketplace_buyer_payment_instrument_snapshots", "marketplace_buyer_payment_instruments"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "marketplace.offer-payment-authorization-projection",
+      "sourceContextNames": ["marketplace"],
+      "ownedTables": ["marketplace_offer_payment_authorizations"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "marketplace.offer-payment-authorization-reconcile",
+      "handlerKind": "reaction",
+      "sourceContextNames": ["marketplace"],
+      "ownedTables": [],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
     {
       "projectionName": "marketplace-listing-moderation-reaction",
       "handlerKind": "reaction",
@@ -1410,6 +1476,23 @@
     }
   ],
   "mutationConsistencyInventory": [
+    {
+      "id": "marketplace.offer-payment-authorization-command-snapshots",
+      "owner": "marketplace",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/marketplace/features/offer-payment-authorization/api/route.ts:POST /commands",
+        "api-client:bounded-contexts/marketplace/client.ts:POST Hfa64bb525130#1"
+      ],
+      "visibleDestination": {
+        "description": "The buyer receives the committed command result, including the exact Preview or authorization and its version. The self read shows projected standing separately."
+      },
+      "proof": {
+        "authoritativeResponse": "The buyer facts and attempt receipt commit atomically. A committed recovery lookup triggers an exact retry that returns the original result, never a latest-state read.",
+        "tests": ["bounded-contexts/marketplace/features/offer-payment-authorization/api/route.test.ts"]
+      }
+    },
     {
       "id": "marketplace.offer-payment-consent-activation",
       "owner": "marketplace",
@@ -2555,6 +2638,11 @@
       "purpose": "Own Offer Payment Consent publications, activation, and automatic charging enforcement resolution.",
       "expectedConsumers": ["Marketplace API", "Platform API policy runtime composition"]
     },
+    "offer-payment-authorization": {
+      "classification": "slice",
+      "purpose": "Own Marketplace Offer Payment Authorization: buyer payment source and consent, payment instrument readiness reconciliation, and published standing.",
+      "expectedConsumers": ["Marketplace account API", "Marketplace worker"]
+    },
     "channel-inbound-clamp": {
       "classification": "slice",
       "purpose": "Own the account-wide, revision-fenced Listing clamp and conservative recovery used while Channel inbound coverage is dark.",
@@ -2622,7 +2710,14 @@
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by marketplace-owned features and composition seams.",
-      "expectedConsumers": ["channel-inbound-clamp", "listings", "offer-payment-consent", "offers", "reviews"]
+      "expectedConsumers": [
+        "channel-inbound-clamp",
+        "listings",
+        "offer-payment-authorization",
+        "offer-payment-consent",
+        "offers",
+        "reviews"
+      ]
     },
     "seed-support": {
       "classification": "support",

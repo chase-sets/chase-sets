@@ -982,8 +982,63 @@ export function createMarketplaceApiClient({
           ),
       });
     },
+    async getOfferPaymentAuthorization(): Promise<OfferPaymentAuthorizationSnapshot> {
+      return parseJsonResponse(await configuredFetch(joinApiPath(baseUrl, "/account/offer-payment"), { headers }));
+    },
+    async commandOfferPaymentAuthorization(
+      accountId: string,
+      command: AuthorizationRequest,
+    ): Promise<AuthorizationResult> {
+      const { attemptId, ...request } = command;
+      const kind = "offer-payment-authorization.command";
+      const send = async () => {
+        const result = await parseJsonResponse<AuthorizationResult>(
+          await configuredFetch(joinApiPath(baseUrl, "/account/offer-payment/commands"), {
+            method: "POST",
+            headers: { ...headersToRecord(headers), "content-type": "application/json" },
+            body: JSON.stringify(command),
+          }),
+        );
+        authorizationResultSchema.parse(result);
+        return result;
+      };
+      const result = await recoverMarketplaceCommand<AuthorizationResult>({
+        attemptId,
+        mutationKind: kind,
+        target: accountId,
+        request,
+        send,
+        isCommandResponse: isDefiniteMarketplaceCommandResponse,
+        lookup: (requestHash) => lookupAttempt(attemptId, kind, accountId, requestHash),
+        resolveReceipt: async (receipt) => {
+          const replay = await send().catch((error: unknown) => {
+            throw new MarketplaceCommandRecoveryError("ambiguous", error);
+          });
+          if (replay.authorizationId !== receipt.id || replay.version !== receipt.version)
+            throw new MarketplaceCommandRecoveryError("ambiguous");
+          return replay;
+        },
+      });
+      if (!("authorizationId" in result)) throw new MarketplaceCommandRecoveryError("ambiguous");
+      return result;
+    },
   };
 }
+
+// Keep the existing source-attested client methods at their recorded line numbers.
+import {
+  authorizationResultSchema,
+  type AuthorizationRequest,
+  type AuthorizationResult,
+} from "./features/offer-payment-authorization/domain/contracts";
+import type { createOfferPaymentAuthorization } from "./features/offer-payment-authorization/api/runtime";
+export type {
+  AuthorizationRequest,
+  AuthorizationResult,
+} from "./features/offer-payment-authorization/domain/contracts";
+export type OfferPaymentAuthorizationSnapshot = Awaited<
+  ReturnType<ReturnType<typeof createOfferPaymentAuthorization>["read"]>
+>;
 
 export const marketplaceApi = createMarketplaceApiClient();
 export type MarketplaceApiClient = ReturnType<typeof createMarketplaceApiClient>;
