@@ -163,6 +163,14 @@
       "authorityAnchor": "A10"
     },
     {
+      "host": "public-corten.staging.chasesets.com",
+      "status": "current",
+      "environment": "staging",
+      "class": "application",
+      "templated": false,
+      "authorityAnchor": "A3"
+    },
+    {
       "host": "staging.chasesets.com",
       "status": "current",
       "environment": "staging",

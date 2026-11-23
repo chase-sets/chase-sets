@@ -110,12 +110,18 @@ const cortenPilotImages = [
     component: "marketplace-corten",
     repository: "chase-sets-corten-marketplace",
   },
+  {
+    option: "cortenPublicImage",
+    flag: "corten-public-image",
+    component: "public-corten",
+    repository: "chase-sets-corten-public",
+  },
 ];
 
 // Corten pilots still served beside their React app. Staging deploys one of these disabled when its image
 // is missing. A pilot leaves this list when it becomes the app that serves its host; from then on a missing
 // image fails the deploy instead of removing what serves the host.
-export const ADVISORY_CORTEN_PILOT_COMPONENTS = Object.freeze(["admin-corten", "marketplace-corten"]);
+export const ADVISORY_CORTEN_PILOT_COMPONENTS = Object.freeze(["admin-corten", "marketplace-corten", "public-corten"]);
 
 // The advisory pilots a staging deploy drops because no image was given for them.
 export function droppedAdvisoryCortenPilots(options = {}) {
@@ -4265,6 +4271,7 @@ export function parseArgs(argv, env = process.env) {
     image: readOption(rest, "--image", env.PLATFORM_IMAGE_REF),
     cortenAdminImage: readOption(rest, "--corten-admin-image"),
     cortenMarketplaceImage: readOption(rest, "--corten-marketplace-image"),
+    cortenPublicImage: readOption(rest, "--corten-public-image"),
     imagePullSecret: readOption(rest, "--image-pull-secret", managedRegistryPullSecretName),
     observabilityExporterEndpoint: readOption(
       rest,

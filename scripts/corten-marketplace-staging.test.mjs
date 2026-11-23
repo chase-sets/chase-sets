@@ -73,6 +73,7 @@ describe("Corten marketplace staging, first slice", () => {
         '    "admin",',
         '    "marketplace-corten",',
         '    "marketplace",',
+        '    "public-corten",',
         '    "www",',
         "    ]) : local.is_production ? toset(concat(",
         '    ["admin", "www"],',

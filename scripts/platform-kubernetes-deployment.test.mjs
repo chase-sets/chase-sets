@@ -7636,6 +7636,7 @@ describe("advisory Corten pilots without an image", () => {
     expect(platformKubernetesDeployment.ADVISORY_CORTEN_PILOT_COMPONENTS).toEqual([
       "admin-corten",
       "marketplace-corten",
+      "public-corten",
     ]);
   });
 
@@ -7662,7 +7663,7 @@ describe("advisory Corten pilots without an image", () => {
   });
 
   it("refuses a staging deploy with no image for a pilot that is no longer advisory", async () => {
-    const serving = { advisoryCortenPilotComponents: ["marketplace-corten"] };
+    const serving = { advisoryCortenPilotComponents: ["marketplace-corten", "public-corten"] };
     expect(() => buildHelmUpgradeArgs({ ...staging, ...serving })).toThrow(
       "corten-admin-image is required on staging: admin-corten is not an advisory pilot.",
     );

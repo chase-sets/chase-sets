@@ -295,7 +295,7 @@ describe("Corten admin staging deployment", () => {
     const push = build.steps.find(({ id }) => id === "corten_pilot_push");
     const publish = build.steps.find(({ id }) => id === "corten_pilot_image");
     expect(build.environment).toBe("staging");
-    expect(build.strategy).toEqual({ "fail-fast": false, matrix: { pilot: ["admin", "marketplace"] } });
+    expect(build.strategy).toEqual({ "fail-fast": false, matrix: { pilot: ["admin", "marketplace", "public"] } });
     expect(build.outputs.corten_admin_image).toBe("${{ steps.corten_pilot_image.outputs.corten_admin_image }}");
     // The registry admission runs before, and in a different step from, the write; a refusal skips the push.
     expect(gate.run).toContain("digitalocean-registry-gc-gate.mjs assert-writable");

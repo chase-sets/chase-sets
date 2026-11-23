@@ -905,10 +905,12 @@ jobs:
         pilot:
           - admin
           - marketplace
+          - public
     # Each leg writes only its own key, and an unset output never overrides the other leg's.
     outputs:
       corten_admin_image: ${{ steps.corten_pilot_image.outputs.corten_admin_image }}
       corten_marketplace_image: ${{ steps.corten_pilot_image.outputs.corten_marketplace_image }}
+      corten_public_image: ${{ steps.corten_pilot_image.outputs.corten_public_image }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         continue-on-error: true
