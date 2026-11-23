@@ -11,9 +11,10 @@ import { supportFlowCatalog } from "./flow-catalog";
  * whether a flow even HAS a seller-response phase) stays compiled behavior;
  * only the two NUMBERS move onto this policy. Platform Operations both owns
  * this policy's schema/admin routes (see `../api/deadline-policy-route.ts`)
- * and is its only consumer -- the `OpenSupportRequest` resolution in
- * `../api/runtime.ts`, which resolves the current value once and stamps the
- * hours onto the command -- so no cross-context host port is needed.
+ * and is the only consumer of the hours -- the `OpenSupportRequest`
+ * resolution in `../api/runtime.ts`, which resolves the current value once
+ * and stamps the hours onto the command. Public help values read the same
+ * documents through `supportDeadlinePublicPolicy` below.
  *
  * Fairness invariant: `decideSupportRequest` never reads this policy live.
  * It only ever consumes the hours already resolved onto the
@@ -38,7 +39,7 @@ export type SupportDeadlinePolicyValue = Readonly<Record<SupportFlowType, Suppor
 /**
  * The policy value as public readers see it: each flow's hours beside its
  * compiled post-delivery open window. The window is flow-catalog behavior,
- * not policy, so it is added on read and never stored or revised.
+ * not policy, so it is added on read and is not part of the policy value.
  */
 export type SupportDeadlinePublicPolicyValue = Readonly<
   Record<SupportFlowType, SupportFlowDeadlineHours & Readonly<{ postDeliveryOpenWindowDays: number | null }>>
@@ -103,9 +104,9 @@ export function decodeSupportDeadlinePolicyValue(raw: JsonValue): SupportDeadlin
     );
 
     // Documents stored while the value still carried the compiled open
-    // window keep that key. One equal to the flow catalog is dropped; a
-    // different one is rejected so a revision cannot appear to move the
-    // window.
+    // window keep that key. One equal to the flow catalog is dropped from
+    // the decoded value; a different one is rejected so a revision cannot
+    // appear to move the window.
     if (
       entryRecord.postDeliveryOpenWindowDays !== undefined &&
       entryRecord.postDeliveryOpenWindowDays !== flow.postDeliveryOpenWindowDays
@@ -141,7 +142,8 @@ function withCompiledOpenWindows(value: SupportDeadlinePolicyValue): SupportDead
  * The same policy (same key, same documents) for public readers, with each
  * flow's compiled open window beside its hours. It is a view over
  * `supportDeadlinePolicy`, not a second declaration, so only that definition
- * is registered for revision.
+ * is registered for revision. Read-only: never pass this one to a create or
+ * revise path, which would store the window again.
  */
 export const supportDeadlinePublicPolicy: PolicyDefinition<SupportDeadlinePublicPolicyValue> = {
   ...supportDeadlinePolicy,
