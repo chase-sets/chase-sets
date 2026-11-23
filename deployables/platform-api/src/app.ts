@@ -95,6 +95,7 @@ import {
 import { createPaymentsUcpHandoff, type PaymentsServices } from "@chase-sets/payments/server";
 import {
   getLockedFeeListingCohortSummary,
+  marketplaceListingBulkPriceUpdatePolicy,
   marketplaceListingGatePolicy,
   marketplaceOfferPaymentConsentPolicy,
   marketplaceRealtimeManifest,
@@ -130,6 +131,7 @@ import {
   getSellerCohortGmvSummary,
   getSellerCohortWeeklyGmv,
   getTopCatalogItemsByGmv,
+  bulkRepriceIngestionPolicy,
   marketAnalyticsDisplayPolicy,
   marketEstimatePolicy,
   demandCurvePolicy,
@@ -144,6 +146,7 @@ import {
   type PricingServices,
 } from "@chase-sets/pricing/server";
 import {
+  accountLinkageFlagPolicy,
   createBlockedPayoutAttentionSourceFromReadModel,
   createSellerCheckoutRiskReader,
   createSettlementBalanceCreditResolver,
@@ -161,6 +164,8 @@ import {
   settlementPayoutFeePolicy,
   type SettlementSupportLookupRow,
   type SettlementWalletAdjustmentSupportLookupRow,
+  walletAdjustmentControlsPolicy,
+  walletAdjustmentLimitsPolicy,
 } from "@chase-sets/settlement/server";
 import type { PayoutReviewHoldCrossContextPort } from "@chase-sets/platform-operations/server";
 import {
@@ -552,6 +557,9 @@ export function createPlatformApiHost(
         stagingProofCreditPolicy,
         settlementPayoutBoundsPolicy,
         settlementPayoutFeePolicy,
+        walletAdjustmentLimitsPolicy,
+        walletAdjustmentControlsPolicy,
+        accountLinkageFlagPolicy,
       ] as unknown as readonly PolicyDefinition<JsonValue>[],
       write: lazyPolicyConsoleWritePort(() => runtime?.services.settlement as SettlementServices | undefined),
     });
@@ -578,6 +586,7 @@ export function createPlatformApiHost(
         marketplaceListingGatePolicy,
         marketplaceOfferPaymentConsentPolicy,
         marketplaceSellerBehavioralMetricsPolicy,
+        marketplaceListingBulkPriceUpdatePolicy,
       ] as unknown as readonly PolicyDefinition<JsonValue>[],
       write: lazyPolicyConsoleWritePort(
         () => runtime?.services.marketplace as { policies?: PolicyConsoleWritePort } | undefined,
@@ -599,6 +608,7 @@ export function createPlatformApiHost(
         repricingEnginePolicy,
         repricingManagementPolicy,
         forecastLedgerPolicy,
+        bulkRepriceIngestionPolicy,
       ] as unknown as readonly PolicyDefinition<JsonValue>[],
       write: lazyPolicyConsoleWritePort(
         () => runtime?.services.pricing as { policies?: PolicyConsoleWritePort } | undefined,

@@ -7,9 +7,12 @@ import type { JsonValue } from "@chase-sets/primitives/json";
 
 /**
  * The platform policy console is registry-driven: it lists
- * every policy declared with `definePolicy` across the contexts that have
- * migrated onto the shared platform-policy machinery, grouped by owning
- * context, with history and scheduled-revision support.
+ * every policy registered with it (this context's own definitions and each
+ * cross-context source's `definitions`), grouped by owning context, with
+ * history and scheduled-revision support. The structure check
+ * `scripts/check-structure/policy-console-registration.mjs` fails on a
+ * `definePolicy` declaration that is neither registered nor on its reviewed
+ * exception list.
  *
  * Reads go straight at each owning context's own `platform_policy_documents`
  * table -- the shared read model, one copy per context's own database --
