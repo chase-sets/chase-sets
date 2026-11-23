@@ -17,7 +17,7 @@ promiseTable:
     tests: ["bounded-contexts/public-presence/features/waitlist/ui/public-pages.test.tsx"]
   - claim: Published fees, checkout, and shipping promises reflect tested marketplace behavior.
     issues: ["#4352"]
-    tests: ["bounded-contexts/commercial-terms/routes/public/sales-fees.test.tsx", "bounded-contexts/payments/features/payments/api/runtime.test.ts", "bounded-contexts/fulfillment/features/shipments/api/runtime.test.ts"]
+    tests: ["bounded-contexts/commercial-terms/features/marketplace-sales-fee/ui/routes/sales-fees.test.tsx", "bounded-contexts/payments/features/payments/api/runtime.test.ts", "bounded-contexts/fulfillment/features/shipments/api/runtime.test.ts"]
   - claim: Seller funds release after recorded delivery plus the published clearance window.
     issues: ["#4287"]
     tests: ["bounded-contexts/settlement/features/wallets/read-model/queries.db.test.ts"]

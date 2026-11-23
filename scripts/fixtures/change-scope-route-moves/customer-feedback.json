@@ -1,0 +1,21 @@
+{
+  "addedCaseCount": 3,
+  "families": {},
+  "selectorCases": [
+    {
+      "file": "bounded-contexts/customer-feedback/routes/admin/attention.tsx",
+      "suites": ["admin_support"],
+      "batches": ["admin_support"]
+    },
+    {
+      "file": "bounded-contexts/customer-feedback/features/attention/ui/routes/attention.tsx",
+      "suites": ["admin_support"],
+      "batches": ["admin_support"]
+    },
+    {
+      "file": "bounded-contexts/customer-feedback/features/attention/ui/localization/locales/en.ts",
+      "suites": ["admin_support"],
+      "batches": ["admin_support"]
+    }
+  ]
+}

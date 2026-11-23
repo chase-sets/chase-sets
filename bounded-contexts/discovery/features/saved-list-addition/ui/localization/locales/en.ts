@@ -1,4 +1,4 @@
-export const savedListsUiEnglishTranslations = {
+export const savedListAdditionEnglishTranslations = {
   "collections.features.savedLists.ui.addToList.button": "Add to List",
   "collections.features.savedLists.ui.addToList.accessible": "Add {product} to a Saved List",
   "collections.features.savedLists.ui.addToList.sheet.title": "Add to List",

@@ -9819,8 +9819,8 @@ fn session_row(id: &str, user: &str, status: &str, method: &str, available: &[&s
 }
 
 /// The stand-in Auth sessions: `ses_one` (active, two accounts), `ses_old` (revoked, by magic
-/// link), `ses_down` (active, one account, whose revoke fails), and `ses_else`, another user's
-/// whose display name mentions `usr_seller`, which Auth's list matches too. A read that waits for 45
+/// link), `ses_down` (active, one account, whose revoke fails), and `ses_else`, another user's,
+/// which Auth's list leaves out as it lists only the caller's. A read that waits for 45
 /// is still catching up; `ses_gone` is not found and `ses_else` forbidden. A revoke of `ses_one`
 /// or a switch of it to `acc_two` is done (a receipt at 42), and a revoke of the revoked `ses_old`
 /// is done with nothing written. Auth names a refusal: a switch to the current or an unavailable
@@ -9838,7 +9838,10 @@ fn auth_sessions(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) ->
     Some(match (method.as_str(), rest) {
         ("GET", "") => {
             let status = uri.query().unwrap_or_default().split('&').find_map(|p| p.strip_prefix("status=")).map(str::to_owned);
-            let items: Vec<&Value> = rows.iter().filter(|r| status.as_deref().is_none_or(|s| r["status"] == s)).collect();
+            let items: Vec<&Value> = rows
+                .iter()
+                .filter(|r| r["user_id"] == "usr_seller" && status.as_deref().is_none_or(|s| r["status"] == s))
+                .collect();
             Json(json!({ "items": items, "total": items.len(), "count": items.len() })).into_response()
         }
         ("GET", _) if waits_for(headers).as_deref() == Some("45") => refusal(
@@ -9908,7 +9911,6 @@ async fn the_list_shows_the_users_own_sessions_by_status_and_page() {
     assert!(html.contains("<title>Sessions | Chase Sets") || html.contains("<title>Sessions"), "{html}");
     assert!(shown.contains("User Synthetic Seller Account Synthetic Shop Method Password Status Active"), "{shown}");
     assert!(shown.contains("Method Magic link Status Revoked"), "{shown}");
-    assert!(!shown.contains("Other usr_seller"), "another user's session is not shown: {shown}");
     assert!(html.contains(r#"href="/account/sessions/ses_one""#), "{html}");
     assert!(!html.contains(r#"name="search""#), "no Search: Auth replaces it with the user's id");
     let read = pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.path.starts_with(SESSIONS_API)).cloned().unwrap();

@@ -4,7 +4,6 @@ import {
   parseTypedIdBoundary,
   TypedIdBoundaryDomainError,
 } from "@chase-sets/http/typed-id";
-import { t } from "@chase-sets/localization";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { Hono } from "hono";
 import { createId } from "@chase-sets/primitives/typed-ids";
@@ -13,6 +12,8 @@ import { FeedbackCaseDecisionError } from "../../cases/domain";
 import type { CsatAdminReadPort } from "../../csat/api/runtime";
 import { normalizePrivacyReason, privacyPermission } from "../../privacy/domain/policy";
 import { canAccessFeedbackAttention } from "./access";
+import type { FeedbackAttentionResponse } from "./attention-contract";
+import { t } from "./localization/translator";
 import {
   feedbackOverdueSql,
   feedbackTriageDeadlineSql,
@@ -51,7 +52,7 @@ export function buildCustomerFeedbackAttentionApi(services: FeedbackAttentionApi
       overdueOnly: url.searchParams.get("overdueOnly") === "true",
       now: readNow,
     });
-    return c.json({ items, metrics: await readMetrics(db, readNow) });
+    return c.json({ items, metrics: await readMetrics(db, readNow) } satisfies FeedbackAttentionResponse);
   });
 
   app.get("/attention/export", async (c) => {

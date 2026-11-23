@@ -18,7 +18,10 @@
   ],
   "contextName": "discovery",
   "packageName": "@chase-sets/discovery",
-  "localeCatalogs": ["contracts/localization/locales/en/discovery.ts"],
+  "localeCatalogs": [
+    "contracts/localization/locales/en/discovery.ts",
+    "bounded-contexts/discovery/features/saved-list-addition/ui/localization/locales/en.ts"
+  ],
   "ownedNouns": ["search", "browse", "item-detail", "product-alert"],
   "streamPrefix": "discovery.",
   "apiBasePath": "/api/marketplace",
