@@ -1,0 +1,164 @@
+import { t } from "@chase-sets/localization";
+import type { MetaFunction } from "react-router";
+import { useActionData, useLoaderData } from "react-router";
+import { defineFormAction, defineResourceRoute, formActionRedirect } from "@chase-sets/platform-runtime/http";
+import { CommercialTermsHomePage, type CommercialTermsCreateKind } from "../commercial-terms-home-page";
+import {
+  CommercialTermsApiError,
+  createCommercialTermsRequestApiClient,
+  createCommercialTermsPublicRequestApiClient,
+} from "../../integrations/admin-api-client";
+import { commercialTermsApiErrorAdapter } from "../../integrations/admin-api-error";
+import { normalizeAgreementAccountIdText } from "../../../agreements/api/account-id";
+import { formatCommercialTermsAdminLoadError } from "../../integrations/admin-loader-error";
+import metadata from "../../metadata.json";
+
+function createKind(value: string | null): CommercialTermsCreateKind | null {
+  return value === "schedule" || value === "agreement" ? value : null;
+}
+
+function sharedTermsBody(formData: FormData) {
+  return {
+    label: formData.get("label"),
+    marketplaceSalesFeePercentageBps: Number(formData.get("marketplaceSalesFeePercentageBps") ?? 0),
+    marketplaceSalesFeeFixedAmount: formData.get("marketplaceSalesFeeFixedAmount"),
+    status: formData.get("status"),
+    effectiveFrom: formData.get("effectiveFrom"),
+    effectiveUntil: formData.get("effectiveUntil"),
+  };
+}
+
+function scheduleTermsBody(formData: FormData) {
+  return {
+    ...sharedTermsBody(formData),
+    shippingAllowancePercentageBps: Number(formData.get("shippingAllowancePercentageBps") ?? 500),
+  };
+}
+
+// A blank Shipping Allowance is left out of the body, so the agreement follows the schedule. Text that is
+// not a number is sent as typed: JSON would write NaN as null, which the API reads as "none", not as an error.
+function agreementTermsBody(formData: FormData) {
+  const shippingAllowance = formData.get("shippingAllowancePercentageBps");
+  const isStated = typeof shippingAllowance === "string" && shippingAllowance.trim().length > 0;
+  const stated = Number(shippingAllowance);
+  return {
+    ...sharedTermsBody(formData),
+    ...(isStated ? { shippingAllowancePercentageBps: Number.isFinite(stated) ? stated : shippingAllowance } : {}),
+  };
+}
+
+function homeQueryState(request: Request) {
+  const url = new URL(request.url);
+  return {
+    createKind: createKind(url.searchParams.get("create")),
+    initialAccountId: url.searchParams.get("account"),
+  };
+}
+
+function unavailableHome(request: Request, error: unknown) {
+  return {
+    publishedSchedule: null,
+    home: null,
+    accounts: [],
+    selectedSchedule: null,
+    selectedAgreement: null,
+    ...homeQueryState(request),
+    loadError: formatCommercialTermsAdminLoadError(error),
+  };
+}
+
+export const loader = defineResourceRoute({
+  manifest: {
+    contextName: "commercial-terms",
+    readAfterWriteRouteInventory: metadata.readAfterWriteRouteInventory,
+  },
+  routeId: "commercial-terms-home",
+  errorAdapter: commercialTermsApiErrorAdapter,
+  load: async ({ request }) => {
+    const url = new URL(request.url);
+    const api = createCommercialTermsRequestApiClient(request);
+    const scheduleId = url.searchParams.get("schedule");
+    const agreementId = url.searchParams.get("agreement");
+    const [home, accounts, selectedSchedule, selectedAgreement, publishedSchedule] = await Promise.all([
+      api.getHome(scheduleId),
+      api.listAccountOptions(),
+      scheduleId ? api.getSchedule(scheduleId) : null,
+      agreementId ? api.getAgreement(agreementId) : null,
+      createCommercialTermsPublicRequestApiClient(request).getMarketplaceSalesFeeSchedule(),
+    ]);
+    return {
+      publishedSchedule,
+      home,
+      accounts,
+      selectedSchedule,
+      selectedAgreement,
+      ...homeQueryState(request),
+    };
+  },
+  map: (data) => ({ ...data, loadError: null as string | null }),
+  onPending: (result, { request }) => unavailableHome(request, "error" in result ? result.error : null),
+  onPermanentFailure: (result, { request }) => unavailableHome(request, "error" in result ? result.error : null),
+  telemetry: { surface: "commercial-terms-home", routeTemplate: "/commerce/terms" },
+});
+
+export const action = defineFormAction({
+  intents: {
+    "create-schedule": async ({ request, formData }) => {
+      const result = await createCommercialTermsRequestApiClient(request).createSchedule({
+        ...scheduleTermsBody(formData),
+        accountType: formData.get("accountType"),
+      });
+      return formActionRedirect(result, `/commerce/terms?schedule=${encodeURIComponent(result.id)}`);
+    },
+    "revise-schedule": async ({ request, formData }) => {
+      const id = String(formData.get("id") ?? "");
+      const result = await createCommercialTermsRequestApiClient(request).updateSchedule(
+        id,
+        scheduleTermsBody(formData),
+      );
+      return formActionRedirect(result, `/commerce/terms?schedule=${encodeURIComponent(id)}`);
+    },
+    "create-agreement": async ({ request, formData }) => {
+      const result = await createCommercialTermsRequestApiClient(request).createAgreement({
+        ...agreementTermsBody(formData),
+        accountId: normalizeAgreementAccountIdText(formData.get("accountId")),
+      });
+      return formActionRedirect(result, `/commerce/terms?agreement=${encodeURIComponent(result.id)}`);
+    },
+    "revise-agreement": async ({ request, formData }) => {
+      const id = String(formData.get("id") ?? "");
+      const result = await createCommercialTermsRequestApiClient(request).updateAgreement(
+        id,
+        agreementTermsBody(formData),
+      );
+      return formActionRedirect(result, `/commerce/terms?agreement=${encodeURIComponent(id)}`);
+    },
+  },
+  onUnknownIntent: () => ({ error: t("commercialTerms.features.home.unknownAction") }),
+  onError: (error) => {
+    if (error instanceof CommercialTermsApiError || error instanceof Error) {
+      return { error: error.message };
+    }
+    throw error;
+  },
+});
+
+export const meta: MetaFunction = () => [{ title: t("commercialTerms.features.home.metaTitle") }];
+
+export default function CommercialTermsHomeRoute() {
+  const data = useLoaderData<typeof loader>();
+  const actionData = useActionData<typeof action>();
+  return (
+    <CommercialTermsHomePage
+      publishedSchedule={data.publishedSchedule}
+      home={data.home}
+      accounts={data.accounts}
+      selectedSchedule={data.selectedSchedule}
+      selectedAgreement={data.selectedAgreement}
+      createKind={data.createKind}
+      initialAccountId={data.initialAccountId}
+      errorMessage={actionData?.error ?? null}
+      loadErrorMessage={data.loadError}
+    />
+  );
+}

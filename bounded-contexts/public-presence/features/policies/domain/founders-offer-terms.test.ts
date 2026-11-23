@@ -257,6 +257,11 @@ const listingRuntime = "bounded-contexts/marketplace/features/listings/api/runti
 const runtimeTests = "bounded-contexts/marketplace/features/listings/api/runtime.test.ts";
 const feeLock = "bounded-contexts/marketplace/features/listings/domain/fee-lock.ts";
 const feeQuotes = "bounded-contexts/marketplace/support/runtime-support/fee-quotes.ts";
+const foundersReaction =
+  "bounded-contexts/commercial-terms/features/agreements/integrations/identity/founders-window-reaction.ts";
+const foundersReactionCall = `${foundersReaction}:22-35`;
+const commercialTermsResolver = "bounded-contexts/commercial-terms/features/resolutions/read-model/resolve.ts";
+const resolverAllowanceFallback = `${commercialTermsResolver}:349-352`;
 type Citation = readonly [ref: string, ...patterns: RegExp[]];
 const quoteChain: Citation[] = [
   [
@@ -356,8 +361,9 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
     "The founders agreement",
     [
       [
-        "bounded-contexts/commercial-terms/features/agreements/integrations/identity/founders-window-reaction.ts:22-35",
-        /agreements.createAgreement/,
+        foundersReactionCall,
+        /^await agreements\.createAgreement\(/,
+        /\);$/,
         /marketplaceSalesFeePercentageBps: 0/,
         /marketplaceSalesFeeFixedAmount: "0.00"/,
         /effectiveFrom: data.betaAccessStartedAt/,
@@ -372,6 +378,23 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
         /agreement\?\.marketplace_sales_fee_percentage_bps === 0/,
         /agreement.marketplace_sales_fee_fixed_amount === "0.00"/,
         /Founders window agreement is not ready/,
+      ],
+    ],
+  ],
+  [
+    "The founders seller-fee agreement retains shipping allowance",
+    [
+      [
+        resolverAllowanceFallback,
+        /^shippingAllowancePercentageBps:/,
+        /agreement\?\.shipping_allowance_percentage_bps \?\?\s+schedule\?\.shipping_allowance_percentage_bps \?\?/,
+        /DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS,$/,
+      ],
+      [
+        "bounded-contexts/public-presence/features/policies/domain/seller-agreement.ts:151-175",
+        /id: "fees-and-deductions"/,
+        /seller-funded fulfillment allowance under the Marketplace Sales Fee Schedule/,
+        /funds the order's Order Protection contribution first and your shipping cost second/,
       ],
     ],
   ],
@@ -519,13 +542,13 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
         /status: "active"/,
       ],
       [
-        "bounded-contexts/commercial-terms/routes/public/sales-fees.test.tsx:20-22",
+        "bounded-contexts/commercial-terms/features/marketplace-sales-fee/ui/routes/sales-fees.test.tsx:20-22",
         /standard.bps": policyValue\("bps", 500\)/,
         /standard.fixed": policyValue\("money", "0.00"/,
         /standard.cap": policyValue\("money", "25.00"/,
       ],
       [
-        "bounded-contexts/commercial-terms/routes/public/sales-fees.test.tsx:67-97",
+        "bounded-contexts/commercial-terms/features/marketplace-sales-fee/ui/routes/sales-fees.test.tsx:67-97",
         /renders the standard account schedule/,
         /await loader/,
         /5% of the item price plus \$0.00, capped at \$25.00 per item/,
@@ -606,6 +629,41 @@ describe("founders clause-level source authority", () => {
       );
     expect(mutant).not.toBe(real);
     expect(() => assertCitations(artifact, { [listingRuntime]: mutant })).toThrow("Creation locks:");
+  });
+  it("pins every reaction citation to the whole createAgreement call, which states no Shipping Allowance", () => {
+    const refs = artifact.sections.flatMap(({ reviewManifest }) => [
+      ...reviewManifest.productTruthRefs,
+      ...reviewManifest.assumptions.flatMap(({ evidenceRef }) => evidenceRef.split("; ")),
+    ]);
+    const reactionRefs = refs.filter((ref) => ref.startsWith(foundersReaction));
+    expect(reactionRefs).toEqual([foundersReactionCall, foundersReactionCall]);
+
+    const [, , from, to] = /^(.+):(\d+)-(\d+)$/.exec(foundersReactionCall)!;
+    const call = readSource(foundersReaction)
+      .split(/\r?\n/)
+      .slice(Number(from) - 1, Number(to))
+      .join("\n")
+      .trim();
+    expect(call).toMatch(/^await agreements\.createAgreement\(/);
+    expect(call).toMatch(/\);$/);
+    expect(call.match(/createAgreement\(/g)).toHaveLength(1);
+    expect(call).not.toMatch(/shippingAllowance/i);
+    expect(readSource(foundersReaction)).not.toMatch(/SHIPPING_ALLOWANCE|shippingAllowance/i);
+  });
+  it("cites the resolver fallback, not the reaction, for the retained Shipping Allowance", () => {
+    const allowance = artifact.sections
+      .flatMap(({ reviewManifest }) => reviewManifest.assumptions)
+      .filter(({ assertion }) => assertion.startsWith("The founders seller-fee agreement retains shipping allowance"));
+    expect(allowance).toHaveLength(1);
+    expect(allowance[0]!.evidenceRef.split("; ")).toContain(resolverAllowanceFallback);
+    expect(allowance[0]!.evidenceRef).not.toContain(foundersReaction);
+
+    const real = readSource(commercialTermsResolver);
+    const withoutScheduleFallback = real.replace("schedule?.shipping_allowance_percentage_bps ??", "undefined ??");
+    expect(withoutScheduleFallback).not.toBe(real);
+    expect(() => assertCitations(artifact, { [commercialTermsResolver]: withoutScheduleFallback })).toThrow(
+      "The founders seller-fee agreement retains shipping allowance:",
+    );
   });
   it("rejects each changed canonical schedule value without copying those values into public text", () => {
     const path = "bounded-contexts/commercial-terms/features/marketplace-sales-fee/domain/policy.ts";

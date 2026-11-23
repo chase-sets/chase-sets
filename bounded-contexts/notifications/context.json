@@ -18,8 +18,8 @@
   "contextName": "notifications",
   "packageName": "@chase-sets/notifications",
   "localeCatalogs": [
-    "contracts/localization/locales/en/notifications.ts",
-    "bounded-contexts/notifications/features/notification-center/ui/localization/locales/en.ts"
+    "bounded-contexts/notifications/features/notification-center/ui/localization/locales/en.ts",
+    "bounded-contexts/notifications/features/preferences/ui/localization/locales/en.ts"
   ],
   "ownedNouns": [
     "notification-center",
@@ -34,7 +34,6 @@
     "preferences"
   ],
   "allowedSupportDirectories": [
-    "request-support",
     "runtime-support",
     "shell-support"
   ],
@@ -377,13 +376,6 @@
     "preferences": {
       "classification": "slice",
       "purpose": "Own account notification preferences and settings behavior.",
-      "expectedConsumers": [
-        "notification-center"
-      ]
-    },
-    "request-support": {
-      "classification": "support",
-      "purpose": "Provide request-scoped HTTP adapters that forward the signed-in request to the Notifications API and to Discovery's Marketplace-mounted Product Alert summary for the notification-center route loader.",
       "expectedConsumers": [
         "notification-center"
       ]

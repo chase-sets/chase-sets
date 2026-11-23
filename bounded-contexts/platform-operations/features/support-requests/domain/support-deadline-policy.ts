@@ -11,9 +11,10 @@ import { supportFlowCatalog } from "./flow-catalog";
  * whether a flow even HAS a seller-response phase) stays compiled behavior;
  * only the two NUMBERS move onto this policy. Platform Operations both owns
  * this policy's schema/admin routes (see `../api/deadline-policy-route.ts`)
- * and is its only consumer -- the `OpenSupportRequest` resolution in
- * `../api/runtime.ts`, which resolves the current value once and stamps the
- * hours onto the command -- so no cross-context host port is needed.
+ * and is the only consumer of the hours -- the `OpenSupportRequest`
+ * resolution in `../api/runtime.ts`, which resolves the current value once
+ * and stamps the hours onto the command. Public help values read the same
+ * documents through `supportDeadlinePublicPolicy` below.
  *
  * Fairness invariant: `decideSupportRequest` never reads this policy live.
  * It only ever consumes the hours already resolved onto the
@@ -31,11 +32,18 @@ export type SupportFlowDeadlineHours = Readonly<{
   sellerResponseHours: number | null;
   /** Hours support has to review the case once it is ready for support. */
   supportReviewHours: number;
-  /** Compiled intake boundary; exposed with the timing policy but never revised independently of the flow catalog. */
-  postDeliveryOpenWindowDays: number | null;
 }>;
 
 export type SupportDeadlinePolicyValue = Readonly<Record<SupportFlowType, SupportFlowDeadlineHours>>;
+
+/**
+ * The policy value as public readers see it: each flow's hours beside its
+ * compiled post-delivery open window. The window is flow-catalog behavior,
+ * not policy, so it is added on read and is not part of the policy value.
+ */
+export type SupportDeadlinePublicPolicyValue = Readonly<
+  Record<SupportFlowType, SupportFlowDeadlineHours & Readonly<{ postDeliveryOpenWindowDays: number | null }>>
+>;
 
 /** Bounds validation at revise: a support window narrower than 4 hours gives sellers no realistic chance to act; wider than 14 days stalls buyer remedies indefinitely. */
 export const MIN_SUPPORT_DEADLINE_HOURS = 4;
@@ -49,11 +57,7 @@ export const MAX_SUPPORT_DEADLINE_HOURS = 336;
 export const SUPPORT_DEADLINE_LAUNCH_POLICY_VALUE: SupportDeadlinePolicyValue = Object.fromEntries(
   supportFlowCatalog.map((flow) => [
     flow.flowType,
-    {
-      sellerResponseHours: flow.sellerResponseHours,
-      supportReviewHours: flow.supportReviewHours,
-      postDeliveryOpenWindowDays: flow.postDeliveryOpenWindowDays,
-    },
+    { sellerResponseHours: flow.sellerResponseHours, supportReviewHours: flow.supportReviewHours },
   ]),
 ) as SupportDeadlinePolicyValue;
 
@@ -99,6 +103,10 @@ export function decodeSupportDeadlinePolicyValue(raw: JsonValue): SupportDeadlin
       `'${flow.flowType}' support review hours`,
     );
 
+    // Documents stored while the value still carried the compiled open
+    // window keep that key. One equal to the flow catalog is dropped from
+    // the decoded value; a different one is rejected so a revision cannot
+    // appear to move the window.
     if (
       entryRecord.postDeliveryOpenWindowDays !== undefined &&
       entryRecord.postDeliveryOpenWindowDays !== flow.postDeliveryOpenWindowDays
@@ -106,11 +114,7 @@ export function decodeSupportDeadlinePolicyValue(raw: JsonValue): SupportDeadlin
       throw new SupportDomainError(`'${flow.flowType}' post-delivery open window is compiled flow behavior.`);
     }
 
-    result[flow.flowType] = {
-      sellerResponseHours,
-      supportReviewHours,
-      postDeliveryOpenWindowDays: flow.postDeliveryOpenWindowDays,
-    };
+    result[flow.flowType] = { sellerResponseHours, supportReviewHours };
   }
 
   return result as SupportDeadlinePolicyValue;
@@ -120,10 +124,32 @@ export const supportDeadlinePolicy: PolicyDefinition<SupportDeadlinePolicyValue>
   policyKey: "platform-operations.support-deadlines",
   contextName: "platform-operations",
   schemaSummary:
-    "{ [flowType]: { sellerResponseHours: integer 4-336 or null (structural), supportReviewHours: integer 4-336, postDeliveryOpenWindowDays: compiled integer or null } } for every support flow type",
+    "{ [flowType]: { sellerResponseHours: integer 4-336 or null (structural), supportReviewHours: integer 4-336 } } for every support flow type",
   defaultValue: SUPPORT_DEADLINE_LAUNCH_POLICY_VALUE,
   decodeValue: decodeSupportDeadlinePolicyValue,
 });
+
+function withCompiledOpenWindows(value: SupportDeadlinePolicyValue): SupportDeadlinePublicPolicyValue {
+  return Object.fromEntries(
+    supportFlowCatalog.map((flow) => [
+      flow.flowType,
+      { ...value[flow.flowType], postDeliveryOpenWindowDays: flow.postDeliveryOpenWindowDays },
+    ]),
+  ) as SupportDeadlinePublicPolicyValue;
+}
+
+/**
+ * The same policy (same key, same documents) for public readers, with each
+ * flow's compiled open window beside its hours. It is a view over
+ * `supportDeadlinePolicy`, not a second declaration, so only that definition
+ * is registered for revision. Read-only: never pass this one to a create or
+ * revise path, which would store the window again.
+ */
+export const supportDeadlinePublicPolicy: PolicyDefinition<SupportDeadlinePublicPolicyValue> = {
+  ...supportDeadlinePolicy,
+  defaultValue: withCompiledOpenWindows(supportDeadlinePolicy.defaultValue),
+  decodeValue: (raw) => withCompiledOpenWindows(supportDeadlinePolicy.decodeValue(raw)),
+};
 
 /**
  * Resolves the tunable hours for one flow type from a policy value, falling
@@ -135,7 +161,5 @@ export function resolveSupportFlowDeadlineHours(
   flowType: SupportFlowType,
   value: SupportDeadlinePolicyValue = SUPPORT_DEADLINE_LAUNCH_POLICY_VALUE,
 ): SupportFlowDeadlineHours {
-  const compiled = SUPPORT_DEADLINE_LAUNCH_POLICY_VALUE[flowType];
-  const resolved = value[flowType];
-  return resolved ? { ...resolved, postDeliveryOpenWindowDays: compiled.postDeliveryOpenWindowDays } : compiled;
+  return value[flowType] ?? SUPPORT_DEADLINE_LAUNCH_POLICY_VALUE[flowType];
 }

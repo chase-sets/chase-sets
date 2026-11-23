@@ -6,7 +6,7 @@ export type { CatalogHostPorts, CatalogServices } from "./services";
 export { catalogAuthoringSchemaMigrations, catalogAuthoringSchemaSql } from "./schema";
 export { seedCatalogDatabase } from "./seed";
 
-import { defineBoundedContextModule } from "@chase-sets/bounded-context-module";
+import { defineBoundedContextModule, type BcContextManifest } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "../../context.json" with { type: "json" };
 import type { CatalogHostPorts, CatalogServices } from "./services";
@@ -16,7 +16,7 @@ import { catalogAuthoringSchemaMigrations, catalogAuthoringSchemaSql } from "./s
 import { seedCatalogDatabase } from "./seed";
 
 export const module = defineBoundedContextModule<CatalogServices, PgTransactionalPool, CatalogHostPorts>({
-  manifest: contextManifest,
+  manifest: contextManifest as BcContextManifest,
   schemaSql: catalogAuthoringSchemaSql,
   schemaMigrations: catalogAuthoringSchemaMigrations,
   createServices: (pool, ports) => createCatalogServices(pool, ports),

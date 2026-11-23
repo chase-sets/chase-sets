@@ -294,6 +294,28 @@ async function catalogFrom(file, exportName, rules) {
   return out;
 }
 
+async function channelsMarketplaceCatalog() {
+  const channels = Object.entries(
+    await catalog("channels.ts", "channelsEnglishTranslations", [
+      ["channels.connections.", "connections"],
+      ["channels.manualSync.", "manual_sync"],
+      ["channels.ebay.", "ebay"],
+    ]),
+  );
+  const publication = await catalogFrom(
+    "bounded-contexts/channels/features/listing-composition/ui/localization/locales/en.ts",
+    "listingCompositionEnglishTranslations",
+    [["channels.publication.", "publication"]],
+  );
+  // Preserve the export order from before publication had its own catalog.
+  const boundary = channels.findIndex(([key]) => key === "connections.eyebrow");
+  return Object.fromEntries([
+    ...channels.slice(0, boundary),
+    ...Object.entries(publication),
+    ...channels.slice(boundary),
+  ]);
+}
+
 /** Every bounded context's shell contributions to `deployable`'s `slot`. */
 function contributions(deployable, slot) {
   const contexts = path.join(repo, "bounded-contexts");
@@ -1030,9 +1052,11 @@ const outputs = [
         ["support.features.supportRequests.ui.attachments.", "att"],
       ])),
       ...(await catalog("channels.ts", "channelsEnglishTranslations", [["channels.ebayDeletion.", "ebay"]])),
-      ...(await catalog("customer-feedback.ts", "customerFeedbackEnglishTranslations", [
-        ["customer-feedback.attention.", "cfa"],
-      ])),
+      ...(await catalogFrom(
+        "bounded-contexts/customer-feedback/features/attention/ui/localization/locales/en.ts",
+        "feedbackAttentionEnglishTranslations",
+        [["customer-feedback.attention.", "cfa"]],
+      )),
     }),
   ],
   [
@@ -1334,8 +1358,8 @@ const outputs = [
         [["collections.features.savedLists.api.route.", "saved_api"]],
       )),
       ...(await catalogFrom(
-        "bounded-contexts/collections/features/saved-lists/ui/localization/locales/en.ts",
-        "savedListsUiEnglishTranslations",
+        "bounded-contexts/discovery/features/saved-list-addition/ui/localization/locales/en.ts",
+        "savedListAdditionEnglishTranslations",
         [["collections.features.savedLists.ui.addToList.", "saved"]],
       )),
       // A sell form's Sell List add that did not fully apply (`SellListAttemptBoundary`).
@@ -1404,14 +1428,28 @@ const outputs = [
   [
     "marketplace/locales/notifications.en.json",
     json({
-      ...(await catalog("notifications.ts", "notificationsEnglishTranslations", [
-        ["notifications.features.notificationCenter.ui.page.", "page"],
-        ["notifications.features.notificationCenter.ui.shell.", "shell"],
-      ])),
+      // Keep the legacy export order across the two feature catalogs.
       ...(await catalogFrom(
         "bounded-contexts/notifications/features/notification-center/ui/localization/locales/en.ts",
         "notificationCenterEnglishTranslations",
-        [["notifications.routes.accountNotifications.", "route"]],
+        [
+          ["notifications.features.notificationCenter.ui.page.", "page"],
+          ["notifications.features.notificationCenter.ui.shell.open", "shell.open"],
+        ],
+      )),
+      ...(await catalogFrom(
+        "bounded-contexts/notifications/features/preferences/ui/localization/locales/en.ts",
+        "notificationPreferencesEnglishTranslations",
+        [["notifications.features.notificationCenter.ui.shell.preference.", "shell.preference"]],
+      )),
+      ...(await catalogFrom(
+        "bounded-contexts/notifications/features/notification-center/ui/localization/locales/en.ts",
+        "notificationCenterEnglishTranslations",
+        [
+          ["notifications.features.notificationCenter.ui.shell.productAlerts.", "shell.productAlerts"],
+          ["notifications.features.notificationCenter.ui.shell.source.", "shell.source"],
+          ["notifications.routes.accountNotifications.", "route"],
+        ],
       )),
     }),
   ],
@@ -1822,17 +1860,7 @@ const outputs = [
       ])),
     }),
   ],
-  [
-    "marketplace/locales/channels.en.json",
-    json(
-      await catalog("channels.ts", "channelsEnglishTranslations", [
-        ["channels.connections.", "connections"],
-        ["channels.publication.", "publication"],
-        ["channels.manualSync.", "manual_sync"],
-        ["channels.ebay.", "ebay"],
-      ]),
-    ),
-  ],
+  ["marketplace/locales/channels.en.json", json(await channelsMarketplaceCatalog())],
   [
     "marketplace/locales/offer-matches.en.json",
     json(
