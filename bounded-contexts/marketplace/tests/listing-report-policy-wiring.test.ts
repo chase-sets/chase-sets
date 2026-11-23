@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import { marketplaceListingReportAutoUnlistPolicy } from "../features/reports/domain/listing-report-auto-unlist-policy";
 import { createMarketplaceServices } from "../support/runtime-support/services";
 
 // Hoisted by Vitest; hands the composed Marketplace services an in-memory event store.
@@ -121,7 +122,9 @@ describe("Marketplace services", () => {
             ]
           : [],
     }));
-    const { reports } = createMarketplaceServices({ query } as never);
+    const { reports, policies } = createMarketplaceServices({ query } as never);
+    // The policy console writes through, and the projection invalidates, this one policy runtime.
+    const resolvePolicy = vi.spyOn(policies, "resolvePolicy");
 
     const result = await reports.reportListing(
       {
@@ -141,6 +144,7 @@ describe("Marketplace services", () => {
     expect(allEvents.filter((event) => event.eventType === "marketplace.listing.auto-unlisted")).toMatchObject([
       { payload: { reportId: result.reportId, reportCount: 2, threshold: 2 } },
     ]);
+    expect(resolvePolicy.mock.calls).toEqual([[marketplaceListingReportAutoUnlistPolicy]]);
     expect(
       query.mock.calls.filter(
         ([sql, values]) => sql.includes("FROM platform_policy_documents") && values?.includes(policyKey),

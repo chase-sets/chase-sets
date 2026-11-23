@@ -319,7 +319,7 @@ Notes:
 - `distinctReporterThreshold` is a whole number from 2 to 100 and `windowDays` is a whole number from 1 to 90. A threshold of 1 is not allowed: a visitor may report a Listing, so one visitor could unlist any Listing.
 - With no active policy document, the terms are 3 distinct reporters inside 7 days.
 - Trust & Safety revises the policy through the Policy Console. Each evaluation of a Listing Report reads the policy once, at the time of the evaluation, so one revision decides both numbers and a revision applies from the next evaluation, including the retry of a Report stored earlier. Nothing re-evaluates Listings when the policy is revised.
-- The automatic removal records the threshold it used and the distinct-reporter count. The window in force at that time is reproduced from the policy's document history.
+- The automatic removal records the threshold it used and the distinct-reporter count. The window in force is reproduced from the policy's document history at the time the removal event was recorded, which is the time of the evaluation. That is not the event's `autoUnlistedAt`, which carries the sourcing Report's submission time, or the Listing's activation time when that is later, and can predate a revision.
 - Review Reports do not depend on this policy.
 
 ## Offer Status
