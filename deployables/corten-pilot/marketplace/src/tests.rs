@@ -6166,7 +6166,7 @@ async fn an_item_with_no_picture_and_no_fallback_shows_the_game_neutral_placehol
     assert!(html.contains(r#"alt="Default product image""#), "{html}");
     assert!(html.contains(&format!(r#"<meta property="og:image" content="{placeholder}""#)), "{html}");
     assert!(!html.contains("Image coming soon") && !html.contains("item-detail__gallery"), "{html}");
-    // One picture and no fallback: the picture alone, without the placeholder (chase-sets#11830).
+    // One picture and no fallback: the picture alone, without the placeholder.
     let (status, _, html) = pilot.send(get("/items/one-picture", None)).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains(r#"src="http://localhost:7753/fake-cdn/front.png""#), "{html}");

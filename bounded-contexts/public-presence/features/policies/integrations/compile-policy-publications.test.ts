@@ -517,9 +517,11 @@ describe("public policy corpus compiler", () => {
     // Re-derived for the Identity account-domain citation shift that the required profile name check makes.
     // Re-derived for the payout review hold and whole-construct registration citations.
     // Re-derived with the inline card confirmation, Account Profile, and reservation-sweep citation changes.
+    // Re-derived for the Ordering order-domain citation re-pin: one line fewer above the cited events with the
+    // authenticity plan category removed, and two lines more that the recorded shipping rates had added unpinned.
     expect(
       fingerprint(baseline.find(({ relativePath }) => relativePath === "terms-of-service-publication.ts")?.content),
-    ).toBe("sha256:b24facf822eb379808b27403212f97cec1372a091f0e2004f92c08ad1eaaceed");
+    ).toBe("sha256:b833aebc40f3cc88b06228f5b312ca40268288173c261130f7e5f29c83fd4544");
 
     for (const module of changed) {
       const before = baseline.find((candidate) => candidate.relativePath === module.relativePath)?.content;

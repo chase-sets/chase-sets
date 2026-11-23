@@ -10,6 +10,14 @@ replayable. Repricing an already active listing does not emit another publicatio
 
 A **Marketplace Mutation Attempt** binds one opaque command identity to its actor, target and canonical request. Marketplace records its first result atomically with the business facts. An exact replay returns that result without another command; a changed request conflicts. Owner lookup is read-only and never treats connectivity or projection presence as command success.
 
+## Offer Payment Authorization
+
+An **Offer Payment Authorization** records a buyer's payment source (Wallet balance, a ready card or bank account, or balance followed by that instrument) and consent to automatically charge each Offer accepted while the authorization is active. Each buyer has one authorization; authorizing a new source or resuming creates a new generation. Marketplace publishes standing without revealing the source.
+
+## Buyer Payment Instrument
+
+A **Buyer Payment Instrument** is Marketplace's account-scoped mirror of a Payments checkout instrument. It describes eligibility and display information, not provider credentials or the authority to charge it.
+
 ## Inventory Draft Listing Message
 
 An **Inventory Draft Listing Message** is the recursively closed, versioned committed-row snapshot defined by `contracts/inventory-draft-listing`. Its message identity is the Inventory import-row identity; the target draft identity is derived from that row, never supplied by delivery. Trusted delivery authority must match its tenant, account and acting User.

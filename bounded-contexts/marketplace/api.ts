@@ -14,6 +14,7 @@ import { createMarketplaceReportRoutes } from "./features/reports/api/route";
 import { createListingEvidencePolicyRoutes } from "./features/listing-evidence-policy/api/route";
 import { createSellerAttentionQueueRoutes } from "./features/seller-desk/api/route";
 import { createBuyerOfferPolicyRoutes } from "./features/offer-policy/api/route";
+import { createOfferPaymentAuthorizationRoutes } from "./features/offer-payment-authorization/api/route";
 import { createMarketplaceMutationRecoveryRoutes } from "./features/mutation-recovery/api/route";
 import {
   createOfferPaymentConsentActivationRoutes,
@@ -36,6 +37,7 @@ export function buildMarketplaceApi(
   const app = new Hono<MarketplaceApiEnv>();
   app.route("/", createMarketplaceMutationRecoveryRoutes(services.mutationRecovery));
   app.route("/account/offer-policies", createBuyerOfferPolicyRoutes(services.buyerOfferPolicies));
+  app.route("/account/offer-payment", createOfferPaymentAuthorizationRoutes(services.offerPaymentAuthorization));
 
   app.route("/account", createAccountSubmittedOfferRoutes(services.offers));
   app.route("/account", createAccountListingRoutes(services.listings, services.rateLimitPolicyResolver));

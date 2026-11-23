@@ -19,15 +19,14 @@ import {
  * `authenticityFeePolicyResolver` host port (see `../../../server.ts`).
  */
 
-export const AUTHENTICITY_FEE_CATEGORIES = ["raw", "graded", "any"] as const;
-
-export type AuthenticityFeeCategory = (typeof AUTHENTICITY_FEE_CATEGORIES)[number];
-
 export type AuthenticityFeeBand = Readonly<{
   /** Inclusive lower bound on the declared order value this band applies to. */
   minOrderValueAmount: string;
-  /** "any" matches every category; "raw"/"graded" only match that category. */
-  category: AuthenticityFeeCategory;
+  /**
+   * Always "any": the band is chosen by order value alone. The key stays on
+   * the stored band so a build that requires it decodes every document.
+   */
+  category: "any";
   flatAmount: string;
   percentageBps: number;
   /** The maximum fee this band can produce, regardless of order value. */
@@ -43,11 +42,8 @@ export type AuthenticityFeePolicyValue = Readonly<{
 /**
  * The launch values: $8 flat + 2% of the declared order value, capped at
  * $50, offered once the order value reaches $100 -- the epic's launch
- * recommendation, tuned with data post-launch. A single "any"-category
- * band covers both raw and graded orders in v1; the schema already
- * supports category-specific bands for when per-line grading
- * classification is wired into the quote (a later platform-mandated-tier
- * follow-on).
+ * recommendation, tuned with data post-launch. A single band covers every
+ * order value.
  */
 export const AUTHENTICITY_FEE_LAUNCH_POLICY_VALUE: AuthenticityFeePolicyValue = {
   optInThresholdAmount: "100.00",
@@ -62,16 +58,30 @@ export const AUTHENTICITY_FEE_LAUNCH_POLICY_VALUE: AuthenticityFeePolicyValue = 
   ],
 };
 
-function normalizeCategory(value: unknown): AuthenticityFeeCategory {
-  if (typeof value !== "string" || !AUTHENTICITY_FEE_CATEGORIES.includes(value as AuthenticityFeeCategory)) {
-    throw new CommercialTermsDomainError(
-      `Authenticity fee band category must be one of ${AUTHENTICITY_FEE_CATEGORIES.join(", ")}.`,
-    );
-  }
-  return value as AuthenticityFeeCategory;
+/**
+ * Categories a band could be stored with before bands were chosen by order
+ * value alone. Ordering never quoted a band stored with one, so decoding
+ * drops it rather than letting it start to match.
+ */
+const RETIRED_BAND_CATEGORIES = ["raw", "graded"] as const;
+
+type RetiredBandCategory = (typeof RETIRED_BAND_CATEGORIES)[number];
+
+type StoredBand = Omit<AuthenticityFeeBand, "category"> & Readonly<{ category: "any" | RetiredBandCategory }>;
+
+function isRetiredBandCategory(value: unknown): value is RetiredBandCategory {
+  return RETIRED_BAND_CATEGORIES.some((category) => category === value);
 }
 
-function normalizeBand(value: unknown): AuthenticityFeeBand {
+export function normalizeAuthenticityFeeBandCategory(value: unknown): "any" {
+  if (value !== "any") {
+    throw new CommercialTermsDomainError('Authenticity fee band category must be "any".');
+  }
+  return value;
+}
+
+/** Validates every field of a band as stored, a band with a retired category included. */
+function normalizeStoredBand(value: unknown): StoredBand {
   if (typeof value !== "object" || value === null) {
     throw new CommercialTermsDomainError("Authenticity fee band must be an object.");
   }
@@ -82,7 +92,9 @@ function normalizeBand(value: unknown): AuthenticityFeeBand {
       fieldName: "Authenticity fee band minimum order value",
       allowZero: true,
     }),
-    category: normalizeCategory(record.category),
+    category: isRetiredBandCategory(record.category)
+      ? record.category
+      : normalizeAuthenticityFeeBandCategory(record.category),
     flatAmount: normalizeMoneyAmount(String(record.flatAmount ?? ""), {
       fieldName: "Authenticity fee band flat amount",
       allowZero: true,
@@ -110,13 +122,15 @@ export function decodeAuthenticityFeePolicyValue(raw: JsonValue): AuthenticityFe
   if (!Array.isArray(bandsRaw) || bandsRaw.length === 0) {
     throw new CommercialTermsDomainError("Authenticity fee policy must declare at least one band.");
   }
-  const bands = bandsRaw.map((band) => normalizeBand(band));
-  const seenKeys = new Set(bands.map((band) => `${band.category}|${band.minOrderValueAmount}`));
-  if (seenKeys.size !== bands.length) {
-    throw new CommercialTermsDomainError(
-      "Authenticity fee policy bands must not repeat a category and minimum order value pair.",
-    );
+  // Every band is validated and the category and minimum order value pair is checked across all of them,
+  // retired bands included, so a document this decoder accepts also decodes on a build that predates it.
+  // Among the bands that remain, the pair rule is uniqueness by minimum order value.
+  const storedBands = bandsRaw.map((band) => normalizeStoredBand(band));
+  const pairs = new Set(storedBands.map((band) => `${band.category}|${band.minOrderValueAmount}`));
+  if (pairs.size !== storedBands.length) {
+    throw new CommercialTermsDomainError("Authenticity fee policy bands must not repeat a minimum order value.");
   }
+  const bands = storedBands.filter((band): band is AuthenticityFeeBand => band.category === "any");
 
   return { optInThresholdAmount, bands };
 }
@@ -125,7 +139,7 @@ export const authenticityFeePolicy: PolicyDefinition<AuthenticityFeePolicyValue>
   policyKey: "commercial-terms.authenticity-fee",
   contextName: "commercial-terms",
   schemaSummary:
-    "{ optInThresholdAmount: string, bands: [{ minOrderValueAmount, category, flatAmount, percentageBps, capAmount }] }",
+    '{ optInThresholdAmount: string, bands: [{ minOrderValueAmount, category: "any", flatAmount, percentageBps, capAmount }] }',
   defaultValue: AUTHENTICITY_FEE_LAUNCH_POLICY_VALUE,
   decodeValue: decodeAuthenticityFeePolicyValue,
 });

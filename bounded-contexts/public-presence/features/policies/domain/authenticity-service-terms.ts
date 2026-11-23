@@ -75,10 +75,10 @@ export const authenticityServiceTermsPolicyArtifact: PublicPolicyArtifact<
           "Describe the buyer's checkout opt-in and reference the live authenticity fee policy without restating a fee amount.",
         decisionRefs: [4275],
         productTruthRefs: [
-          "bounded-contexts/commercial-terms/features/authenticity-fee/domain/policy.ts:52-63",
-          "bounded-contexts/commercial-terms/features/authenticity-fee/domain/policy.ts:124-131",
+          "bounded-contexts/commercial-terms/features/authenticity-fee/domain/policy.ts:48-59",
+          "bounded-contexts/commercial-terms/features/authenticity-fee/domain/policy.ts:138-145",
           "bounded-contexts/checkout/features/sessions/domain/domain.ts:833-855",
-          "bounded-contexts/ordering/features/orders/domain/authenticity-check-fee.ts:79-105",
+          "bounded-contexts/ordering/features/orders/domain/authenticity-check-fee.ts:70-94",
         ],
         openQuestions: [
           "Checkout's buyer opt-in and fee quoting (Ordering, #4275) and the Authenticity Case judgment lifecycle described elsewhere in this document (Authenticity) are two separately shipped surfaces; Authenticity's README records no wired integration event connecting them yet (bounded-contexts/authenticity/README.md:39-42), so this document must not describe them as one connected end-to-end service.",
@@ -97,7 +97,7 @@ export const authenticityServiceTermsPolicyArtifact: PublicPolicyArtifact<
           {
             assertion:
               "The order-value eligibility gate is Ordering's own policy gate, not a checkout.session behavior: Ordering's authenticity-check fee quoting treats an order as eligible only once its order value is at or above the resolved policy's optInThresholdAmount.",
-            evidenceRef: "bounded-contexts/ordering/features/orders/domain/authenticity-check-fee.ts:79-105",
+            evidenceRef: "bounded-contexts/ordering/features/orders/domain/authenticity-check-fee.ts:70-94",
           },
         ],
       },

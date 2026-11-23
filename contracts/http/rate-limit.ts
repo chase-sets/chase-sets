@@ -171,7 +171,7 @@ export type CreatePolicyBackedRateLimiterOptions = Readonly<{
  * being fixed at construction time. The bucket store itself is a long-lived,
  * in-process `Map` exactly like `createInMemoryRateLimiter` -- only the rule
  * (max/windowMs/disabled) is re-resolved on every call, so a policy revision
- * changes enforcement on the very next request without resetting existing
+ * changes enforcement as soon as `resolveRule` returns it, without resetting existing
  * counters or restarting the process.
  */
 export function createPolicyBackedRateLimiter(

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type {
@@ -345,7 +345,8 @@ describe("platform policy runtime (define -> create -> revise -> resolve -> inva
   it("creates a document, resolves it, revises it, and reflects the revision without a stale cache read", async () => {
     const { eventStore } = createInMemoryEventStore();
     const { db, documents } = createFakePolicyDb();
-    const cache = createPolicyCache();
+    // A pinned age clock: this test is about the projection's invalidation, not the age bound.
+    const cache = createPolicyCache({ now: () => 0 });
     const runtime = createPolicyRuntime({ eventStore, db, cache });
     // Wire the same projection handlers the runtime exposes, mirroring how a
     // host process would apply projected events after appendToStream.
@@ -398,8 +399,8 @@ describe("platform policy runtime (define -> create -> revise -> resolve -> inva
 
     const streamEvents = await eventStore.readStream({ streamId: `platform-policy.document-${documentId}` });
     const revisedStoredEvent = streamEvents[streamEvents.length - 1]!;
-    // The cache still holds the pre-revision candidate until the projection
-    // (the push-based invalidation trigger) actually applies the event.
+    // Inside the age bound the cache still holds the pre-revision candidate
+    // until the projection actually applies the event.
     expect(cache.get(gracePeriodPolicy.policyKey)).toBeDefined();
     await handlers[revisedStoredEvent.eventType]?.({
       id: revisedStoredEvent.eventId,
@@ -409,7 +410,7 @@ describe("platform policy runtime (define -> create -> revise -> resolve -> inva
     } as never);
 
     // The projection handler invalidated the cache as part of applying the
-    // revised event -- push-based, no TTL.
+    // revised event, so the applying process does not wait out the age bound.
     expect(cache.get(gracePeriodPolicy.policyKey)).toBeUndefined();
 
     const resolvedAfterRevise = await runtime.resolvePolicy(gracePeriodPolicy, { at: "2026-05-01T00:00:00.000Z" });
@@ -498,6 +499,180 @@ async function seedDocumentStream(eventStore: EventStore, documentId: string, re
     events: Array.from({ length: revisions }, () => revisedEvent(documentId, 7)),
   });
 }
+
+/**
+ * Two runtimes over one event store and one read model, as two processes
+ * are: `worker` applies the policy projection, `api` never does. One wall
+ * clock drives both the age of each cache and the instant a resolution
+ * without `at` asks about.
+ */
+function createWorkerAndApi(startAt: string) {
+  const { eventStore } = createInMemoryEventStore();
+  const { db, queryLog } = createFakePolicyDb();
+  let wallMs = Date.parse(startAt);
+  const now = () => new Date(wallMs);
+  const apiCache = createPolicyCache({ now: () => wallMs });
+  const apiInvalidate = vi.fn(apiCache.invalidate);
+  const apiInvalidateAll = vi.fn(apiCache.invalidateAll);
+  const worker = createPolicyRuntime({ eventStore, db, cache: createPolicyCache({ now: () => wallMs }), now });
+  const api = createPolicyRuntime({
+    eventStore,
+    db,
+    cache: { ...apiCache, invalidate: apiInvalidate, invalidateAll: apiInvalidateAll },
+    now,
+  });
+
+  return {
+    worker,
+    api,
+    apiInvalidate,
+    apiInvalidateAll,
+    activeDocumentReads: () => queryLog.filter((sql) => sql.includes("WHERE policy_key = $1")).length,
+    moveTo: (at: string) => {
+      wallMs = Date.parse(at);
+    },
+    advance: (ms: number) => {
+      wallMs += ms;
+    },
+    /** Applies a document's latest event through the worker's own projector, as its host would. */
+    projectThroughWorker: async (documentId: string) => {
+      const stored = (await eventStore.readStream({ streamId: `platform-policy.document-${documentId}` })).at(-1)!;
+      await worker.projectors[0]!.handlers[stored.eventType]?.({
+        id: stored.eventId,
+        data: stored.payload,
+        timing: { recordedAt: stored.recordedAt },
+        audit: { performedByUserId: stored.performedByUserId },
+      } as never);
+    },
+  };
+}
+
+describe("a revision reaching a process that does not apply the projection", () => {
+  it("serves the old value until one second after that process's read began, then the revision", async () => {
+    const processes = createWorkerAndApi("2026-05-01T00:00:00.000Z");
+    const { worker, api } = processes;
+    const { documentId } = await worker.createPolicyDocument(gracePeriodPolicy, createParams, context);
+    await processes.projectThroughWorker(documentId);
+
+    expect(await api.resolvePolicy(gracePeriodPolicy)).toMatchObject({ source: "policy", value: { graceDays: 5 } });
+
+    processes.advance(200);
+    await worker.revisePolicyDocument(
+      gracePeriodPolicy,
+      documentId,
+      { ...createParams, value: { graceDays: 10 } },
+      context,
+    );
+    await processes.projectThroughWorker(documentId);
+
+    expect(await worker.resolvePolicy(gracePeriodPolicy)).toMatchObject({ value: { graceDays: 10 } });
+    expect(await api.resolvePolicy(gracePeriodPolicy)).toMatchObject({ value: { graceDays: 5 } });
+
+    processes.advance(799);
+    expect(await api.resolvePolicy(gracePeriodPolicy)).toMatchObject({ value: { graceDays: 5 } });
+
+    processes.advance(1);
+    expect(await api.resolvePolicy(gracePeriodPolicy)).toMatchObject({
+      source: "policy",
+      documentId,
+      value: { graceDays: 10 },
+    });
+    expect(processes.apiInvalidate).not.toHaveBeenCalled();
+    expect(processes.apiInvalidateAll).not.toHaveBeenCalled();
+  });
+
+  it("serves the first document to a process that cached the compiled default", async () => {
+    const processes = createWorkerAndApi("2026-05-01T00:00:00.000Z");
+    const { worker, api } = processes;
+
+    expect(await api.resolvePolicy(gracePeriodPolicy)).toMatchObject({ source: "fallback", value: { graceDays: 3 } });
+
+    const { documentId } = await worker.createPolicyDocument(gracePeriodPolicy, createParams, context);
+    await processes.projectThroughWorker(documentId);
+
+    processes.advance(999);
+    expect(await api.resolvePolicy(gracePeriodPolicy)).toMatchObject({ source: "fallback" });
+
+    processes.advance(1);
+    expect(await api.resolvePolicy(gracePeriodPolicy)).toMatchObject({ source: "policy", value: { graceDays: 5 } });
+    expect(processes.apiInvalidate).not.toHaveBeenCalled();
+  });
+
+  const scheduledFrom = "2026-06-01T00:00:00.000Z";
+
+  /** Ends the current document at `scheduledFrom` and creates its successor from that instant. */
+  async function scheduleRevision(processes: ReturnType<typeof createWorkerAndApi>, currentDocumentId: string) {
+    await processes.worker.revisePolicyDocument(
+      gracePeriodPolicy,
+      currentDocumentId,
+      { ...createParams, effectiveUntil: scheduledFrom },
+      context,
+    );
+    await processes.projectThroughWorker(currentDocumentId);
+    const scheduled = await processes.worker.createPolicyDocument(
+      gracePeriodPolicy,
+      { ...createParams, value: { graceDays: 9 }, effectiveFrom: scheduledFrom },
+      context,
+    );
+    await processes.projectThroughWorker(scheduled.documentId);
+    return scheduled.documentId;
+  }
+
+  it("switches to a scheduled revision at effectiveFrom when its cache predates the schedule", async () => {
+    const processes = createWorkerAndApi("2026-05-31T23:00:00.000Z");
+    const { worker, api } = processes;
+    const current = await worker.createPolicyDocument(gracePeriodPolicy, createParams, context);
+    await processes.projectThroughWorker(current.documentId);
+
+    // The latest read the process can hold that still predates the schedule:
+    // it began one millisecond before the projection applied.
+    processes.moveTo("2026-05-31T23:59:58.999Z");
+    expect(await api.resolvePolicy(gracePeriodPolicy)).toMatchObject({ value: { graceDays: 5 } });
+
+    processes.moveTo("2026-05-31T23:59:59.000Z");
+    const scheduledDocumentId = await scheduleRevision(processes, current.documentId);
+
+    processes.moveTo("2026-05-31T23:59:59.998Z");
+    expect(await api.resolvePolicy(gracePeriodPolicy)).toMatchObject({
+      documentId: current.documentId,
+      value: { graceDays: 5 },
+    });
+
+    processes.moveTo(scheduledFrom);
+    expect(await api.resolvePolicy(gracePeriodPolicy)).toMatchObject({
+      documentId: scheduledDocumentId,
+      value: { graceDays: 9 },
+      effectiveFrom: scheduledFrom,
+    });
+    expect(processes.apiInvalidate).not.toHaveBeenCalled();
+  });
+
+  it("switches at effectiveFrom from one cached set that holds both documents", async () => {
+    const processes = createWorkerAndApi("2026-05-31T23:00:00.000Z");
+    const { worker, api } = processes;
+    const current = await worker.createPolicyDocument(gracePeriodPolicy, createParams, context);
+    await processes.projectThroughWorker(current.documentId);
+    await api.resolvePolicy(gracePeriodPolicy);
+    const scheduledDocumentId = await scheduleRevision(processes, current.documentId);
+
+    processes.moveTo("2026-05-31T23:59:59.500Z");
+    expect(await api.resolvePolicy(gracePeriodPolicy)).toMatchObject({ value: { graceDays: 5 } });
+    const readsBeforeTheBoundary = processes.activeDocumentReads();
+
+    processes.moveTo("2026-05-31T23:59:59.999Z");
+    expect(await api.resolvePolicy(gracePeriodPolicy)).toMatchObject({
+      documentId: current.documentId,
+      value: { graceDays: 5 },
+    });
+
+    processes.moveTo(scheduledFrom);
+    expect(await api.resolvePolicy(gracePeriodPolicy)).toMatchObject({
+      documentId: scheduledDocumentId,
+      value: { graceDays: 9 },
+    });
+    expect(processes.activeDocumentReads()).toBe(readsBeforeTheBoundary);
+  });
+});
 
 describe("authoritative policy document state read", () => {
   it("returns exactly state and version from a complete replay whose decisive event is 501", async () => {
