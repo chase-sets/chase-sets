@@ -69,7 +69,7 @@
   "bounded-contexts/pricing/features/price-signals/integrations/catalog/projection.ts": 4,
   "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts": 26,
   "bounded-contexts/pricing/features/repricing-engine/read-model/projection.ts": 1,
-  "bounded-contexts/settlement/features/wallets/integrations/account-risk-source/account-risk-source-projection.ts": 19,
+  "bounded-contexts/settlement/features/wallets/integrations/account-risk-source/account-risk-source-projection.ts": 16,
   "bounded-contexts/settlement/features/wallets/integrations/account-risk-source/payout-review-hold-migration.ts": 1,
   "bounded-contexts/settlement/features/wallets/integrations/fulfillment-source/fulfillment-source-projection.ts": 4,
   "bounded-contexts/settlement/features/wallets/integrations/payment-source/payment-source-projection.ts": 6,
