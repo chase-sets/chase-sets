@@ -179,7 +179,7 @@ const schedulerOwnedArtifacts = new Set([
   "scripts/fixtures/workspace-unit-duration-replay-v1.json",
 ]);
 const deploymentScriptPatterns = [
-  /^Dockerfile\.corten-(?:admin|marketplace)(?:\.dockerignore)?$/,
+  /^Dockerfile\.corten-(?:admin|marketplace|public)(?:\.dockerignore)?$/,
   /^deployables\/corten-pilot\/(?:admin\/|platform\/|Cargo\.(?:toml|lock)$|scripts\/export\.mjs$)/,
   /^\.github\/workflows\/platform-production-stale-helm-recovery\.yml$/,
   /^scripts\/digitalocean-/,
