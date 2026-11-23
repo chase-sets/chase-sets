@@ -108,6 +108,7 @@ export type {
  * Marketplace's domain code directly.
  */
 export { marketplaceListingGatePolicy } from "./features/listings/domain/listing-gate-policy";
+export { marketplaceListingBulkPriceUpdatePolicy } from "./features/listings/domain/bulk-price-update-policy";
 export { marketplaceOfferPaymentConsentPolicy } from "./features/offer-payment-consent/domain/policy";
 export { resolveOfferPaymentEnforcement } from "./features/offer-payment-consent/api/enforcement";
 export type { MarketplaceListingGatePolicyValue } from "./features/listings/domain/listing-gate-policy";

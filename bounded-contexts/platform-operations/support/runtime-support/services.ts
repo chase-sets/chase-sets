@@ -29,6 +29,7 @@ import { createCohortEvaluationRuntime } from "../../features/seller-compliance-
 import { createPolicyHistoryReader } from "@chase-sets/platform-policy/policy-history-reader";
 import { createReportedContentRuntime } from "../../features/reported-content/api/runtime";
 import { createRiskAlertRuntime } from "../../features/risk-alerts/api/runtime";
+import { riskAlertThresholdPolicy } from "../../features/risk-alerts/domain/risk-alert-threshold-policy";
 import { supportDeadlinePolicy } from "../../features/support-requests/domain/support-deadline-policy";
 import { platformRemedyPolicy } from "../../features/support-requests/domain/platform-remedy-policy";
 import { createSupportRequestRuntime } from "../../features/support-requests/api/runtime";
@@ -173,6 +174,7 @@ export function createPlatformOperationsServices(
     supportDeadlinePolicy,
     platformRemedyPolicy,
     sellerComplianceCohortPolicy,
+    riskAlertThresholdPolicy,
   ] as unknown as readonly PolicyDefinition<JsonValue>[];
   const policyConsoleEntries: readonly PolicyConsoleEntry[] = [
     ...ownPolicyDefinitions.map(
