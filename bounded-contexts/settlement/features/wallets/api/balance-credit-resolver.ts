@@ -9,7 +9,7 @@ import {
   type CurrencyCode,
 } from "../../../support/runtime-support/common";
 import { getAccountActiveSpendHoldAmount, getWallet } from "../read-model/queries";
-import { balanceCreditHoldId, DEFAULT_SPEND_HOLD_TTL_MS, type WalletSpendHoldReleaseReason } from "../domain/domain";
+import { balanceCreditHoldId, spendHoldExpiresAt, type WalletSpendHoldReleaseReason } from "../domain/domain";
 import type { WalletServices } from "./runtime";
 
 export { balanceCreditHoldId } from "../domain/domain";
@@ -107,8 +107,6 @@ export type SettlementBalanceCreditResolverDeps = Readonly<{
    * placed (read-only / preview wirings).
    */
   walletSpendHolds?: WalletSpendHoldPort;
-  /** Overrides the default buyer-spend hold TTL; the stale-hold sweep releases holds past this age. */
-  spendHoldTtlMs?: number;
 }>;
 
 function minMoney(...values: readonly string[]) {
@@ -123,8 +121,6 @@ export function createSettlementBalanceCreditResolver(
   db: PgQueryable,
   deps: SettlementBalanceCreditResolverDeps = {},
 ): SettlementBalanceCreditResolver {
-  const spendHoldTtlMs = deps.spendHoldTtlMs ?? DEFAULT_SPEND_HOLD_TTL_MS;
-
   return {
     async resolveBalanceCredit(input) {
       normalizeCurrencyCode(String(input.currencyCode));
@@ -204,7 +200,7 @@ export function createSettlementBalanceCreditResolver(
           amount: requestedAmount,
           currencyCode: normalizeCurrencyCode(String(input.currencyCode)),
           placedAt,
-          expiresAt: input.expiresAt === null ? null : new Date(Date.parse(placedAt) + spendHoldTtlMs).toISOString(),
+          expiresAt: input.expiresAt === null ? null : spendHoldExpiresAt(placedAt),
         },
         context,
       );

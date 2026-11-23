@@ -79,21 +79,32 @@ describe("presents only allowlisted Listing feedback", () => {
     expect(inspect(result, { depth: null })).not.toMatch(/password=secret|nested-secret-body/);
   });
   it.each([
-    [listingsAction, "set-order-capacity", "order_capacity_invalid", "orderCapacityInvalid"],
-    [listingsNewAction, "create-listing", "listing_command_rejected", "commandRejected"],
-  ] as const)("presents only allowlisted Listing feedback for %s %s", async (action, intent, code, copy) => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: string | URL | Request, init?: RequestInit) =>
-        String(input).includes("/api/auth/session")
-          ? json({ actor })
-          : (recoveryResponse(input, init) ?? json({ error: { code, message: "untrusted-copy-secret" } }, 400)),
-      ),
-    );
-    const result = await action(actionArgs(intent));
-    expect(result).toMatchObject({ error: t(`marketplace.features.listings.api.route.error.${copy}`) });
-    expect(inspect(result)).not.toContain("untrusted-copy-secret");
-  });
+    [listingsAction, "set-order-capacity", 400, "order_capacity_invalid", "orderCapacityInvalid"],
+    [listingsNewAction, "create-listing", 400, "listing_command_rejected", "commandRejected"],
+    [listingsNewAction, "create-listing", 409, "listing_shipping_measure_missing", "shippingMeasureMissing"],
+    [
+      listingsNewAction,
+      "create-and-publish-listing",
+      409,
+      "listing_shipping_measure_missing",
+      "shippingMeasureMissing",
+    ],
+  ] as const)(
+    "presents only allowlisted Listing feedback for %s %s: %s %s",
+    async (action, intent, status, code, copy) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: string | URL | Request, init?: RequestInit) =>
+          String(input).includes("/api/auth/session")
+            ? json({ actor })
+            : (recoveryResponse(input, init) ?? json({ error: { code, message: "untrusted-copy-secret" } }, status)),
+        ),
+      );
+      const result = await action(actionArgs(intent));
+      expect(result).toMatchObject({ error: t(`marketplace.features.listings.api.route.error.${copy}`) });
+      expect(inspect(result)).not.toContain("untrusted-copy-secret");
+    },
+  );
 
   it.each([
     [listingsAction, "set-order-capacity"],

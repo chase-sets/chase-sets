@@ -14,6 +14,18 @@ Each evaluated package plan records a `postagePolicySnapshot` containing:
 
 Those fields are immutable order facts. Checkout uses them through delivery preview summaries, and Fulfillment uses them for label enforcement.
 
+## Physical Flags
+
+A Postage Policy decides letter eligibility from the Physical Flags on each line's Resolved Product Measure. A Physical Flag names a physical property: `rigid`, `bendable`, `metal`, `jumbo`, or `irregular`. It never names a product kind.
+
+- A line is letter eligible only when it carries every flag in `letterRequiredPhysicalFlags` and none in `parcelRequiredPhysicalFlags`.
+- The default policy, `default-postage-policy-v3`, requires `bendable` for a letter and forces a parcel for `rigid`, `metal`, `jumbo`, and `irregular`. An unflagged line needs a parcel.
+- `signatureRequiredPhysicalFlags` requires signature delivery confirmation when any line carries one of its flags.
+
+Measures and policies stored while product kinds were Physical Flags may still carry `raw-card`, `slab`, or `sealed`. They stay readable and are evaluated as stored, with no mapping from a kind to a property. Create and revise commands reject a kind in any flag list, so revising such a policy means choosing properties: the Admin Web form names the stored values it no longer offers, by rule, and checks nothing in their place. Cloning such a policy is refused, because a clone creates a policy from the stored payload unchanged; revise the policy first when it is not retired, or recreate it with properties.
+
+The Ordering scenario seed keeps its seeded "Default postage policy" on the compiled default. When that policy is not retired and stores a different `policyVersion`, the seed revises it in place with the stored label and dates. Policies an operator created are never revised by the seed.
+
 ## Default Value Tiers
 
 The default platform Postage Policy is runtime-configurable through Admin Web and starts with these value rules:

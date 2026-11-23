@@ -108,7 +108,9 @@ pub(crate) use guest_claim_page::title as guest_claim_title;
 pub use imports_page::ImportsPage;
 pub use inventory_item_page::{InventoryItemPage, refused_stock};
 pub use inventory_page::{CreateItemForm, InventoryPage, SaleForm, refused_item};
-pub use item_detail::{ItemDetail, breadcrumb_json_ld, item_image, item_live_parts, item_page, product_json_ld, purchase_limit};
+pub use item_detail::{
+    ItemDetail, breadcrumb_json_ld, item_live_parts, item_page, item_picture, product_json_ld, purchase_limit,
+};
 pub use listing_new_page::{ListingAccessRequired, NewListingPage, NewListingParts};
 pub use listing_page::{
     ListingGone, ListingNotice, ListingPage, fulfillment, grouped, listing_json_ld, listing_live_parts, listing_price, unbuyable,
@@ -415,6 +417,10 @@ pub struct Forms {
     pub status: Option<Status>,
     pub draft: Option<(Which, Draft)>,
 }
+
+/// The picture an item shows when it has neither a picture nor a fallback of its own (catalog-seed's
+/// `defaultProductImageUrl`, which marketplace serves): game-neutral, not any game's card back.
+pub const DEFAULT_PRODUCT_IMAGE: &str = "/fake-cdn/assets/product-image-placeholder.svg";
 
 /// A link to a marketplace page outside the pilot.
 pub fn marketplace(path: &str) -> Option<Uri> {

@@ -62,6 +62,11 @@ export const listingErrorContract = {
     code: "inventory_item_not_found",
     copy: "marketplace.features.listings.api.route.error.inventoryItemNotFound",
   },
+  "shipping-measure-missing": {
+    status: 409,
+    code: "listing_shipping_measure_missing",
+    copy: "marketplace.features.listings.api.route.error.shippingMeasureMissing",
+  },
   "command-rejected": {
     status: 400,
     code: "listing_command_rejected",

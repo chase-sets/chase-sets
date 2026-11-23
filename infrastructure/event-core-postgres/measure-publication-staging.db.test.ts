@@ -1,13 +1,19 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { ProductMeasurePublicationError } from "@chase-sets/product-measures";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ProjectorHandler } from "@chase-sets/event-core/projector";
+import {
+  productMeasurePublicationPartRecorded,
+  ProductMeasurePublicationError,
+  type ProductMeasureSnapshot,
+} from "@chase-sets/product-measures";
 import { createIsolatedPostgresTestSchema, type IsolatedPostgresTestSchema } from "./postgres-db-test-support";
 import {
+  buildProductMeasurePublicationHandlers,
   purgeProductMeasurePublicationParts,
   resetProductMeasurePublicationParts,
   stageProductMeasurePublicationPart,
   takeProductMeasurePublication,
 } from "./measure-publication-staging";
-import { syntheticPublication } from "./measure-publication-test-support";
+import { measureEvent, syntheticMeasures, syntheticPublication } from "./measure-publication-test-support";
 import { withPgTransaction } from "./types";
 
 const adminDatabaseUrl = process.env.TEST_DATABASE_URL;
@@ -115,6 +121,47 @@ describe("Product Measure Publication staging in real Postgres", () => {
       }),
     ).rejects.toThrow();
     expect(await rows()).toEqual(before);
+  });
+
+  it("keeps stored publications that carry product kinds readable and rejects an unknown physical flag", async () => {
+    // Stored while product kinds were Physical Flags; nothing authors these any more.
+    const stored = syntheticMeasures(31).map((product) => ({
+      ...product,
+      physicalFlags: ["raw-card", "bendable"],
+    })) as unknown as ProductMeasureSnapshot[];
+    const replace = vi.fn<ProjectorHandler>(async () => undefined);
+    const handlers = buildProductMeasurePublicationHandlers(schema.pool, "synthetic-checkpoint", replace);
+
+    const singleEvent = measureEvent("catalog.catalog-item.product-measures-resolved", 1, {
+      catalogItemId: "cat_1",
+      products: stored,
+    });
+    const singleEventBefore = structuredClone(singleEvent);
+    await handlers[singleEvent.type]!(singleEvent);
+    expect(replace).toHaveBeenCalledTimes(1);
+    expect(replace.mock.calls[0]![0]).toBe(singleEvent);
+    expect(singleEvent).toEqual(singleEventBefore);
+
+    const publication = await syntheticPublication(stored);
+    expect(publication.parts).toHaveLength(2);
+    for (const event of [...publication.parts, publication.completion]) await handlers[event.type]!(event);
+    expect(replace).toHaveBeenCalledTimes(2);
+    expect(replace.mock.calls[1]![0]).toEqual({
+      ...publication.completion,
+      data: { catalogItemId: "cat_1", products: stored },
+    });
+    expect(await rows()).toEqual([]);
+
+    const unknownFlagPart = measureEvent(productMeasurePublicationPartRecorded, 5, {
+      catalogItemId: "cat_1",
+      partIndex: 0,
+      products: [{ ...stored[0]!, physicalFlags: ["foil"] }],
+    });
+    await expect(handlers[unknownFlagPart.type]!(unknownFlagPart)).rejects.toBeInstanceOf(
+      ProductMeasurePublicationError,
+    );
+    expect(await rows()).toEqual([]);
+    expect(replace).toHaveBeenCalledTimes(2);
   });
 
   it("purges only prior versions for legacy replacement and resets only the owning checkpoint for replay", async () => {

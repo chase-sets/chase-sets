@@ -98,7 +98,7 @@ describe("seed commands with owned capped pools and preview-shaped waiters", () 
                 unitWidthInches: 2.5,
                 unitHeightInches: 0.012,
                 unitWeightOunces: 0.064,
-                physicalFlags: ["raw-card", "bendable"],
+                physicalFlags: ["bendable"],
                 stackBehavior: "stackable-thickness",
                 confidence: "conservative-estimate",
               });

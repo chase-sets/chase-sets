@@ -107,23 +107,29 @@ export function createPolicyConsoleRoutes(entries: readonly PolicyConsoleEntry[]
       return access.response;
     }
 
-    const knownKeys = new Set(entries.map((entry) => entry.policyKey));
     const dbByContext = new Map(entries.map((entry) => [entry.contextName, entry.db]));
 
+    // A stored row's own schema summary is the text its document was written
+    // under, so the declared definition's current summary is shown instead.
     const rowsByContext = await Promise.all(Array.from(dbByContext.values()).map((db) => listPolicyRegistry(db)));
-    const items: PolicyConsoleRegistryItem[] = rowsByContext
-      .flat()
-      .filter((row) => knownKeys.has(row.policy_key))
-      .map((row) => ({
-        policyKey: row.policy_key,
-        contextName: row.context_name,
-        schemaSummary: row.schema_summary,
-        status: row.status,
-        value: row.value as PolicyConsoleRegistryItem["value"],
-        effectiveFrom: row.effective_from,
-        effectiveUntil: row.effective_until,
-        updatedAt: row.updated_at,
-      }));
+    const items: PolicyConsoleRegistryItem[] = rowsByContext.flat().flatMap((row) => {
+      const entry = findEntry(entries, row.policy_key);
+      if (!entry) {
+        return [];
+      }
+      return [
+        {
+          policyKey: row.policy_key,
+          contextName: row.context_name,
+          schemaSummary: entry.definition.schemaSummary,
+          status: row.status,
+          value: row.value as PolicyConsoleRegistryItem["value"],
+          effectiveFrom: row.effective_from,
+          effectiveUntil: row.effective_until,
+          updatedAt: row.updated_at,
+        },
+      ];
+    });
 
     // Policies declared but never revised have no document row yet -- the
     // registry read model is derived from documents, not a separate

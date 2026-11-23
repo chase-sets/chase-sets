@@ -18,7 +18,11 @@
   ],
   "contextName": "customer-feedback",
   "packageName": "@chase-sets/customer-feedback",
-  "localeCatalogs": ["contracts/localization/locales/en/customer-feedback.ts"],
+  "localeCatalogs": [
+    "bounded-contexts/customer-feedback/features/csat/ui/localization/locales/en.ts",
+    "bounded-contexts/customer-feedback/features/attention/api/localization/locales/en.ts",
+    "bounded-contexts/customer-feedback/features/attention/ui/localization/locales/en.ts"
+  ],
   "ownedNouns": [
     "customer-satisfaction",
     "csat-survey",
@@ -44,9 +48,22 @@
   ],
   "streamPrefix": "customer-feedback.",
   "apiBasePath": "/api/customer-feedback",
-  "slices": ["csat", "cases", "attention", "privacy"],
-  "allowedSupportDirectories": ["runtime-support"],
-  "publicExports": [".", "./context", "./routes/*", "./server", "./integration/link-intents"],
+  "slices": [
+    "csat",
+    "cases",
+    "attention",
+    "privacy"
+  ],
+  "allowedSupportDirectories": [
+    "runtime-support"
+  ],
+  "publicExports": [
+    ".",
+    "./context",
+    "./routes/*",
+    "./server",
+    "./integration/link-intents"
+  ],
   "allowedContextDependencies": [],
   "seedRequirements": [],
   "eventReactions": [
@@ -55,78 +72,226 @@
       "reactionName": "customer-feedback-feedback-case-opening",
       "subscriptionVersion": 1,
       "filterToEventTypes": true,
-      "eventTypes": ["customer-feedback.survey.submitted", "customer-feedback.response.redacted"],
+      "eventTypes": [
+        "customer-feedback.survey.submitted",
+        "customer-feedback.response.redacted"
+      ],
       "order": 10,
-      "reactionHandlerSetNames": ["customer-feedback-feedback-case-opening"],
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure"
+      "reactionHandlerSetNames": [
+        "customer-feedback-feedback-case-opening"
+      ]
     },
     {
       "sourceContextName": "notifications",
       "reactionName": "customer-feedback-notification-delivery-recording",
       "subscriptionVersion": 1,
       "filterToEventTypes": true,
-      "eventTypes": ["notifications.customer-feedback.delivery-reported"],
+      "eventTypes": [
+        "notifications.customer-feedback.delivery-reported"
+      ],
       "order": 20,
-      "reactionHandlerSetNames": ["customer-feedback-notification-delivery-recording"],
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure"
+      "reactionHandlerSetNames": [
+        "customer-feedback-notification-delivery-recording"
+      ]
     }
   ],
   "eventSubscriptions": [
-    { "sourceContextName": "auth", "projectionName": "customer-feedback-csat-outcome-fact-projection", "subscriptionVersion": 1, "filterToEventTypes": true, "eventTypes": ["auth.session.started"], "order": 1, "projectionHandlerSetNames": ["customer-feedback-csat-outcome-fact-projection"] },
-    { "sourceContextName": "identity", "projectionName": "customer-feedback-csat-outcome-fact-projection", "subscriptionVersion": 1, "filterToEventTypes": true, "eventTypes": ["identity.registration.completed", "identity.onboarding.completed"], "order": 2, "projectionHandlerSetNames": ["customer-feedback-csat-outcome-fact-projection"] },
-    { "sourceContextName": "discovery", "projectionName": "customer-feedback-csat-outcome-fact-projection", "subscriptionVersion": 1, "filterToEventTypes": true, "eventTypes": ["discovery.search-session.started"], "order": 3, "projectionHandlerSetNames": ["customer-feedback-csat-outcome-fact-projection"] },
-    { "sourceContextName": "fulfillment", "projectionName": "customer-feedback-csat-outcome-fact-projection", "subscriptionVersion": 1, "filterToEventTypes": true, "eventTypes": ["fulfillment.shipment.delivered"], "order": 4, "projectionHandlerSetNames": ["customer-feedback-csat-outcome-fact-projection"] },
-    { "sourceContextName": "payments", "projectionName": "customer-feedback-csat-outcome-fact-projection", "subscriptionVersion": 1, "filterToEventTypes": true, "eventTypes": ["payments.payment-captured"], "order": 5, "projectionHandlerSetNames": ["customer-feedback-csat-outcome-fact-projection"] },
-    { "sourceContextName": "settlement", "projectionName": "customer-feedback-csat-outcome-fact-projection", "subscriptionVersion": 1, "filterToEventTypes": true, "eventTypes": ["settlement.payout.completed"], "order": 6, "projectionHandlerSetNames": ["customer-feedback-csat-outcome-fact-projection"] },
-    { "sourceContextName": "platform-operations", "projectionName": "customer-feedback-csat-outcome-fact-projection", "subscriptionVersion": 1, "filterToEventTypes": true, "eventTypes": ["support.support-request.resolved"], "order": 7, "projectionHandlerSetNames": ["customer-feedback-csat-outcome-fact-projection"] },
-    { "sourceContextName": "marketplace", "projectionName": "customer-feedback-csat-outcome-fact-projection", "subscriptionVersion": 1, "filterToEventTypes": true, "eventTypes": ["marketplace.listing.published", "marketplace.offer.accepted", "marketplace.review.submitted"], "order": 8, "projectionHandlerSetNames": ["customer-feedback-csat-outcome-fact-projection"] },
-    { "sourceContextName": "inventory", "projectionName": "customer-feedback-csat-outcome-fact-projection", "subscriptionVersion": 1, "filterToEventTypes": true, "eventTypes": ["inventory.item.created", "inventory.item.adjusted"], "order": 9, "projectionHandlerSetNames": ["customer-feedback-csat-outcome-fact-projection"] }
+    {
+      "sourceContextName": "auth",
+      "projectionName": "customer-feedback-csat-outcome-fact-projection",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": [
+        "auth.session.started"
+      ],
+      "order": 1,
+      "projectionHandlerSetNames": [
+        "customer-feedback-csat-outcome-fact-projection"
+      ]
+    },
+    {
+      "sourceContextName": "identity",
+      "projectionName": "customer-feedback-csat-outcome-fact-projection",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": [
+        "identity.registration.completed",
+        "identity.onboarding.completed"
+      ],
+      "order": 2,
+      "projectionHandlerSetNames": [
+        "customer-feedback-csat-outcome-fact-projection"
+      ]
+    },
+    {
+      "sourceContextName": "discovery",
+      "projectionName": "customer-feedback-csat-outcome-fact-projection",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": [
+        "discovery.search-session.started"
+      ],
+      "order": 3,
+      "projectionHandlerSetNames": [
+        "customer-feedback-csat-outcome-fact-projection"
+      ]
+    },
+    {
+      "sourceContextName": "fulfillment",
+      "projectionName": "customer-feedback-csat-outcome-fact-projection",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": [
+        "fulfillment.shipment.delivered"
+      ],
+      "order": 4,
+      "projectionHandlerSetNames": [
+        "customer-feedback-csat-outcome-fact-projection"
+      ]
+    },
+    {
+      "sourceContextName": "payments",
+      "projectionName": "customer-feedback-csat-outcome-fact-projection",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": [
+        "payments.payment-captured"
+      ],
+      "order": 5,
+      "projectionHandlerSetNames": [
+        "customer-feedback-csat-outcome-fact-projection"
+      ]
+    },
+    {
+      "sourceContextName": "settlement",
+      "projectionName": "customer-feedback-csat-outcome-fact-projection",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": [
+        "settlement.payout.completed"
+      ],
+      "order": 6,
+      "projectionHandlerSetNames": [
+        "customer-feedback-csat-outcome-fact-projection"
+      ]
+    },
+    {
+      "sourceContextName": "platform-operations",
+      "projectionName": "customer-feedback-csat-outcome-fact-projection",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": [
+        "support.support-request.resolved"
+      ],
+      "order": 7,
+      "projectionHandlerSetNames": [
+        "customer-feedback-csat-outcome-fact-projection"
+      ]
+    },
+    {
+      "sourceContextName": "marketplace",
+      "projectionName": "customer-feedback-csat-outcome-fact-projection",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": [
+        "marketplace.listing.published",
+        "marketplace.offer.accepted",
+        "marketplace.review.submitted"
+      ],
+      "order": 8,
+      "projectionHandlerSetNames": [
+        "customer-feedback-csat-outcome-fact-projection"
+      ]
+    },
+    {
+      "sourceContextName": "inventory",
+      "projectionName": "customer-feedback-csat-outcome-fact-projection",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": [
+        "inventory.item.created",
+        "inventory.item.adjusted"
+      ],
+      "order": 9,
+      "projectionHandlerSetNames": [
+        "customer-feedback-csat-outcome-fact-projection"
+      ]
+    }
   ],
   "projectionGroups": [
     {
       "projectionName": "customer-feedback-csat-invitation-projection",
-      "sourceContextNames": ["customer-feedback"],
-      "ownedTables": ["customer_feedback_csat_invitations", "customer_feedback_response_privacy_audit"],
+      "sourceContextNames": [
+        "customer-feedback"
+      ],
+      "ownedTables": [
+        "customer_feedback_csat_invitations",
+        "customer_feedback_response_privacy_audit"
+      ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     },
     {
       "projectionName": "customer-feedback-csat-outcome-fact-projection",
-      "sourceContextNames": ["auth", "identity", "discovery", "fulfillment", "payments", "settlement", "platform-operations", "marketplace", "inventory"],
-      "ownedTables": ["customer_feedback_csat_outcome_facts"],
+      "sourceContextNames": [
+        "auth",
+        "identity",
+        "discovery",
+        "fulfillment",
+        "payments",
+        "settlement",
+        "platform-operations",
+        "marketplace",
+        "inventory"
+      ],
+      "ownedTables": [
+        "customer_feedback_csat_outcome_facts"
+      ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     },
     {
       "projectionName": "customer-feedback-csat-analytics-projection",
-      "sourceContextNames": ["customer-feedback"],
-      "ownedTables": ["customer_feedback_csat_analytics_facts"],
+      "sourceContextNames": [
+        "customer-feedback"
+      ],
+      "ownedTables": [
+        "customer_feedback_csat_analytics_facts"
+      ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     },
     {
       "projectionName": "customer-feedback-feedback-case-opening",
       "handlerKind": "reaction",
-      "sourceContextNames": ["customer-feedback"],
+      "sourceContextNames": [
+        "customer-feedback"
+      ],
       "ownedTables": [],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
     },
     {
       "projectionName": "customer-feedback-feedback-case-projection",
-      "sourceContextNames": ["customer-feedback"],
-      "ownedTables": ["customer_feedback_feedback_cases", "customer_feedback_feedback_case_timeline"],
+      "sourceContextNames": [
+        "customer-feedback"
+      ],
+      "ownedTables": [
+        "customer_feedback_feedback_cases",
+        "customer_feedback_feedback_case_timeline"
+      ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     },
     {
       "projectionName": "customer-feedback-case-attention-projection",
-      "sourceContextNames": ["customer-feedback"],
-      "ownedTables": ["customer_feedback_case_attention", "customer_feedback_attention_digest_runs"],
+      "sourceContextNames": [
+        "customer-feedback"
+      ],
+      "ownedTables": [
+        "customer_feedback_case_attention",
+        "customer_feedback_attention_digest_runs"
+      ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     },
@@ -134,22 +299,34 @@
       "projectionName": "customer-feedback-notification-delivery-recording",
       "handlerKind": "reaction",
       "sideEffectOnly": true,
-      "sourceContextNames": ["notifications"],
+      "sourceContextNames": [
+        "notifications"
+      ],
       "ownedTables": [],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
     },
     {
       "projectionName": "platform-policy-document-projection",
-      "sourceContextNames": ["customer-feedback"],
-      "ownedTables": ["platform_policy_documents", "platform_policy_document_history"],
+      "sourceContextNames": [
+        "customer-feedback"
+      ],
+      "ownedTables": [
+        "platform_policy_documents",
+        "platform_policy_document_history"
+      ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     }
   ],
   "hostPorts": [],
-  "apiDeployables": ["platform-api"],
-  "apiRuntimeProfiles": ["proof", "public"],
+  "apiDeployables": [
+    "platform-api"
+  ],
+  "apiRuntimeProfiles": [
+    "proof",
+    "public"
+  ],
   "apiMounts": [
     {
       "mountPath": "/api/customer-feedback",
@@ -201,7 +378,9 @@
     }
   ],
   "agentCoverage": {
-    "customer-feedback-attention": { "pending": "#9238" }
+    "customer-feedback-attention": {
+      "pending": "#9238"
+    }
   },
   "deployableContributions": [
     {
@@ -227,7 +406,9 @@
           },
           "authorization": {
             "kind": "authenticated",
-            "requiredPermissions": ["support.view"]
+            "requiredPermissions": [
+              "support.view"
+            ]
           },
           "availability": {
             "web": true,
@@ -248,7 +429,9 @@
       "section": "support",
       "order": 20,
       "visibility": "signed-in",
-      "requiredPermissions": ["support.view"]
+      "requiredPermissions": [
+        "support.view"
+      ]
     }
   ],
   "directoryIntent": {
@@ -271,24 +454,39 @@
     "attention": {
       "classification": "slice",
       "purpose": "Own low-score attention classification, triage SLA aging, breach visibility, and bounded staff digest inputs.",
-      "expectedConsumers": ["Customer Feedback operator attention surface", "Notifications staff digest integration"]
+      "expectedConsumers": [
+        "Customer Feedback operator attention surface",
+        "Notifications staff digest integration"
+      ]
     },
     "privacy": {
       "classification": "slice",
       "purpose": "Own the versioned privacy classification, response redaction and hold behavior, consent applicability, sensitive access/export audit, artifact expiry, and bounded retention execution.",
-      "expectedConsumers": ["Customer Feedback privacy APIs", "Customer Feedback retention operations"]
+      "expectedConsumers": [
+        "Customer Feedback privacy APIs",
+        "Customer Feedback retention operations"
+      ]
     },
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide CSAT invitation event-store, wake notification, schema, and runtime service composition for the aggregate and projections.",
-      "expectedConsumers": ["Root customer-feedback module composition"]
+      "expectedConsumers": [
+        "Root customer-feedback module composition"
+      ]
     },
     "routes": {
       "classification": "routes",
       "purpose": "Reserve Customer Feedback route metadata for the future csat invitation, survey, and operator page route contributions.",
-      "expectedConsumers": ["Future generated deployable route adapters"]
+      "expectedConsumers": [
+        "Future generated deployable route adapters"
+      ]
     }
   },
-  "runtimeDeployables": ["platform-worker"],
-  "workerRuntimeProfiles": ["proof", "public"]
+  "runtimeDeployables": [
+    "platform-worker"
+  ],
+  "workerRuntimeProfiles": [
+    "proof",
+    "public"
+  ]
 }

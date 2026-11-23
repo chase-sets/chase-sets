@@ -49,6 +49,18 @@ describe("Customer Feedback attention API authorization", () => {
     const { app } = buildApp(null);
     const response = await app.request("/attention");
     expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({
+      error: { code: "authentication_required", message: "Authentication required." },
+    });
+  });
+
+  it("preserves the forbidden body for a signed-in operator without view access", async () => {
+    const { app } = buildApp([]);
+    const response = await app.request("/attention");
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: { code: "authorization_forbidden", message: "Forbidden." },
+    });
   });
 
   it("allows notify-only operators to request follow-up but not reopen cases", async () => {

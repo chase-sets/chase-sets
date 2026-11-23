@@ -689,7 +689,6 @@ jobs:
     outputs:
       platform_image: ${{ steps.release_image_identity.outputs.image }}
       platform_image_digest: ${{ steps.release_image_identity.outputs.digest }}
-      corten_admin_image: ${{ steps.corten_admin_image.outputs.image }}
       root_cause_code: ${{ steps.build_image_failure_classification.outputs.root_cause_code || 'unknown' }}
       root_cause_summary: ${{ steps.build_image_failure_classification.outputs.root_cause_summary || 'The image build failed without a known safe classification.' }}
       affected_component: ${{ steps.build_image_failure_classification.outputs.affected_component || 'unknown' }}
@@ -843,34 +842,6 @@ jobs:
           docker push "$RELEASE_IMAGE"
           echo "Pushed release image ${RELEASE_IMAGE}"
 
-      - name: Build and push Corten admin image
-        id: corten_admin_image
-        env:
-          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-          RELEASE_IMAGE: ${{ steps.release_image.outputs.image }}
-        run: |
-          set -euo pipefail
-          registry_name="${RELEASE_IMAGE#registry.digitalocean.com/}"
-          registry_name="${registry_name%%/*}"
-          image="registry.digitalocean.com/${registry_name}/chase-sets-corten-admin:${{ needs.resolve-release.outputs.release_commit }}"
-          if ! docker buildx imagetools inspect "$image" >/dev/null 2>&1; then
-            node ./scripts/digitalocean-registry-gc-gate.mjs assert-writable \
-              --registry="$registry_name" \
-              --out=artifacts/release-health/registry-gc-corten-admin.json
-            docker buildx build \
-              --pull \
-              --file Dockerfile.corten-admin \
-              --cache-from type=gha,scope=corten-admin-image \
-              --cache-to type=gha,scope=corten-admin-image,mode=max \
-              --push --tag "$image" .
-          fi
-          digest="$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')"
-          if ! [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
-            echo "Corten admin image did not resolve to an immutable sha256 digest." >&2
-            exit 1
-          fi
-          echo "image=${image}@${digest}" >> "$GITHUB_OUTPUT"
-
       - name: Pin release image identity
         id: release_image_identity
         env:
@@ -912,6 +883,123 @@ jobs:
             --out artifacts/release-health/build-image-root-cause.json \
             --github-summary "$GITHUB_STEP_SUMMARY" \
             --format github-output >> "$GITHUB_OUTPUT"
+
+  build-corten-pilot-images:
+    name: Build Corten pilot image (${{ matrix.pilot }})
+    runs-on: ubuntu-latest
+    # Above the sum of the step limits, so only a runner-level failure can fail the job.
+    timeout-minutes: 35
+    needs:
+      - resolve-release
+      - deployment-contract-preflight
+    if: needs.resolve-release.outputs.deployment_required == 'true'
+    # The staging-only Corten pilots build beside Build Release Image, so their
+    # build time stays off the production path. Only Deploy Staging needs this
+    # job. Every step continues on error, so the job itself succeeds and a
+    # failed leg only leaves its output empty; the deploy then drops that
+    # advisory pilot, and no descendant ever sees a failed ancestor.
+    environment: staging
+    strategy:
+      fail-fast: false
+      matrix:
+        pilot:
+          - admin
+          - marketplace
+    # Each leg writes only its own key, and an unset output never overrides the other leg's.
+    outputs:
+      corten_admin_image: ${{ steps.corten_pilot_image.outputs.corten_admin_image }}
+      corten_marketplace_image: ${{ steps.corten_pilot_image.outputs.corten_marketplace_image }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        continue-on-error: true
+        timeout-minutes: 3
+        with:
+          ref: ${{ needs.resolve-release.outputs.release_commit }}
+
+      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+        id: buildx
+        continue-on-error: true
+        timeout-minutes: 3
+
+      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+        if: steps.buildx.outcome == 'failure'
+        continue-on-error: true
+        timeout-minutes: 3
+
+      - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          NODE_OPTIONS: --no-deprecation
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Admit the Corten pilot image write
+        id: corten_pilot_gate
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          PILOT: ${{ matrix.pilot }}
+          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/release-health
+          # Read only: Build Release Image owns the registry's create-only fallback.
+          registry_name="$(doctl registry get --format Name --no-header | tr -d '[:space:]')"
+          test -n "$registry_name"
+          doctl registry login --expiry-seconds 3600
+          image="registry.digitalocean.com/${registry_name}/chase-sets-corten-${PILOT}:${RELEASE_COMMIT}"
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
+          if docker buildx imagetools inspect "$image" >/dev/null 2>&1; then
+            echo "Corten ${PILOT} image ${image} already exists, so no registry write is needed."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          node ./scripts/digitalocean-registry-gc-gate.mjs assert-writable \
+            --registry="$registry_name" \
+            --out="artifacts/release-health/registry-gc-corten-${PILOT}.json"
+          echo "exists=false" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push Corten pilot image
+        id: corten_pilot_push
+        # A refused or failed gate skips the push.
+        if: steps.corten_pilot_gate.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 15
+        env:
+          IMAGE: ${{ steps.corten_pilot_gate.outputs.image }}
+          IMAGE_EXISTS: ${{ steps.corten_pilot_gate.outputs.exists }}
+          PILOT: ${{ matrix.pilot }}
+        run: |
+          set -euo pipefail
+          # Write only what the gate admitted. An existing image is resolved to its digest and published unchanged.
+          if [ "$IMAGE_EXISTS" = "false" ]; then
+            docker buildx build \
+              --pull \
+              --file "Dockerfile.corten-${PILOT}" \
+              --cache-from "type=gha,scope=corten-${PILOT}-image" \
+              --cache-to "type=gha,scope=corten-${PILOT}-image,mode=max" \
+              --push --tag "$IMAGE" .
+          fi
+          digest="$(docker buildx imagetools inspect "$IMAGE" --format '{{.Manifest.Digest}}')"
+          if ! [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Corten ${PILOT} image did not resolve to an immutable sha256 digest." >&2
+            exit 1
+          fi
+          echo "image=${IMAGE}@${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish the Corten pilot image reference
+        id: corten_pilot_image
+        if: steps.corten_pilot_push.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          IMAGE_REF: ${{ steps.corten_pilot_push.outputs.image }}
+          PILOT: ${{ matrix.pilot }}
+        run: |
+          set -euo pipefail
+          echo "corten_${PILOT}_image=${IMAGE_REF}" >> "$GITHUB_OUTPUT"
 
   reconcile-managed-postgres-ca-staging:
     name: Reconcile Managed Postgres CA (staging)
@@ -1201,11 +1289,20 @@ jobs:
     needs:
       - resolve-release
       - build-image
-    if: needs.resolve-release.outputs.deployment_required == 'true'
+      - build-corten-pilot-images
+    # Deploy Staging starts whatever the pilot images job's result, and never after a
+    # cancellation. The deploy script then fails on a missing image only for a pilot
+    # that serves its host (admin-corten, unless STAGING_ADMIN_APP=admin-web).
+    if: >-
+      !cancelled() &&
+      needs.resolve-release.result == 'success' &&
+      needs.build-image.result == 'success' &&
+      needs.resolve-release.outputs.deployment_required == 'true'
     environment: staging
     outputs:
       deployed: ${{ steps.staging_applied.outputs.deployed || 'false' }}
       applied: ${{ steps.staging_applied.outputs.applied || 'false' }}
+      admin_app: ${{ steps.staging_kubernetes_deploy.outputs.admin_app }}
       failure_classification: ${{ steps.staging_failure_classification.outputs.root_cause_code || 'unknown' }}
       root_cause_code: ${{ steps.staging_failure_classification.outputs.root_cause_code || 'unknown' }}
       root_cause_summary: ${{ steps.staging_failure_classification.outputs.root_cause_summary || 'The deployment failed without a known safe classification.' }}
@@ -1303,6 +1400,9 @@ jobs:
       # DOKS ingress load balancer IPv4 for live serving and retained diagnostics.
       DOKS_INGRESS_TARGET: ${{ vars.DOKS_INGRESS_TARGET || '' }}
       TF_VAR_doks_ingress_target: ${{ vars.DOKS_INGRESS_TARGET || '' }}
+      # The app that serves admin.staging: admin-corten, or admin-web to roll back (docs/runbooks/staging-admin-app.md).
+      # Unset means admin-corten; the deploy script refuses any other value and records which one served.
+      STAGING_ADMIN_APP: ${{ vars.STAGING_ADMIN_APP || '' }}
     steps:
       - name: Record staging start
         env:
@@ -2020,7 +2120,7 @@ jobs:
           PLATFORM_IMAGE_REF: ${{ steps.image.outputs.image }}@${{ steps.image.outputs.digest }}
           RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
           RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
-          CORTEN_ADMIN_IMAGE: ${{ needs.build-image.outputs.corten_admin_image }}
+          CORTEN_ADMIN_IMAGE: ${{ needs.build-corten-pilot-images.outputs.corten_admin_image }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
@@ -2085,13 +2185,23 @@ jobs:
                 end
             ] | unique | select(length > 0) | join(",")')"
 
+          # With no admin image, the deploy script fails while admin-corten serves admin.staging. Under
+          # STAGING_ADMIN_APP=admin-web it does not deploy the pilot at all, image or not (withheldCortenPilots).
+          corten_image_args=()
+          if [ -n "$CORTEN_ADMIN_IMAGE" ]; then
+            corten_image_args+=(--corten-admin-image "$CORTEN_ADMIN_IMAGE")
+          else
+            echo "::warning title=Corten admin pilot::No Corten admin image was built for this release."
+          fi
+
           # Keep the deploy-critical pre-upgrade hook aligned with production:
           # only schemas and the two long-lived bootstrap profiles belong there.
           # Scenario data is reconciled after this rollout by a separate Job,
           # while the worker fleet is available to drain projections.
           pnpm run platform:kubernetes-deployment -- deploy \
             --image "$PLATFORM_IMAGE_REF" \
-            --corten-admin-image "$CORTEN_ADMIN_IMAGE" \
+            "${corten_image_args[@]}" \
+            --github-summary "$GITHUB_STEP_SUMMARY" \
             --image-pull-secret chase-sets \
             --runtime-env "DEPLOYMENT_ENVIRONMENT=staging" \
             --runtime-env "ADMIN_WEB_ORIGIN=https://${admin_domain}" \
@@ -2147,6 +2257,7 @@ jobs:
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
+          ADMIN_APP: ${{ steps.staging_kubernetes_deploy.outputs.admin_app }}
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
@@ -2172,8 +2283,11 @@ jobs:
           ingress_urls=(
             "https://${landing_domain}/health/ready"
             "https://${admin_domain}/health/ready"
-            "https://admin-corten.staging.chasesets.com/health/ready"
           )
+          # admin-corten runs only while it serves admin.staging; under STAGING_ADMIN_APP=admin-web it is not deployed (withheldCortenPilots).
+          if [ "$ADMIN_APP" != "admin-web" ]; then
+            ingress_urls+=("https://admin-corten.staging.chasesets.com/health/ready")
+          fi
           for hostname in "${marketplace_domains[@]}" "${staging_root_marketplace_domains[@]}"; do
             ingress_urls+=("https://${hostname}/health/ready")
           done
@@ -2242,12 +2356,13 @@ jobs:
           SMOKE_WRITE_WAITLIST: "false"
           SMOKE_SOURCE: staging-smoke
           SMOKE_UTM_CAMPAIGN: staging-main
+          ADMIN_APP: ${{ steps.staging_kubernetes_deploy.outputs.admin_app }}
           SMOKE_FETCH_ATTEMPTS: "24"
           SMOKE_FETCH_RETRY_DELAY_MS: "5000"
           SMOKE_FETCH_TIMEOUT_MS: "15000"
         run: |
           set -euo pipefail
-          echo "Smoking the live staging hosts served by DOKS."
+          echo "Smoking the live staging hosts served by DOKS; ${ADMIN_APP} serves admin."
           landing_domain="$(terraform output -raw landing_domain)"
           admin_domain="$(terraform output -raw admin_domain)"
           catalog_asset_public_base_url="$(terraform output -raw catalog_asset_public_base_url)"
@@ -2269,10 +2384,13 @@ jobs:
 
           cd ../../..
           export MARKETPLACE_ROOT_WEB_URL="https://${staging_root_marketplace_domain}"
-          node ./scripts/platform-ingress-wait.mjs \
-            --attempts 1 \
-            --expect-status 200 \
-            --url "https://admin-corten.staging.chasesets.com/health/ready"
+          # admin-corten runs only while it serves admin.staging; under STAGING_ADMIN_APP=admin-web it is not deployed (withheldCortenPilots).
+          if [ "$ADMIN_APP" != "admin-web" ]; then
+            node ./scripts/platform-ingress-wait.mjs \
+              --attempts 1 \
+              --expect-status 200 \
+              --url "https://admin-corten.staging.chasesets.com/health/ready"
+          fi
           pnpm run smoke:platform -- \
             "https://${landing_domain}" \
             "https://${admin_domain}" \
@@ -2293,10 +2411,10 @@ jobs:
           fi
           echo "Catalog asset CDN root returned expected protected status 403."
 
-      # Advisory until admin.staging switches to the Corten admin (#11750):
-      # the same authenticated admin smoke admin-web passes above, with the
-      # pilot as the admin origin. Landing and marketplace are smoked above,
-      # so they are off here. It never fails Deploy Staging (#11327).
+      # While admin-corten serves admin.staging, the Smoke check above already
+      # runs the authenticated admin smoke against it, so this step only says
+      # so. Under STAGING_ADMIN_APP=admin-web it smokes the pilot at
+      # admin-corten, advisory: it never fails Deploy Staging.
       - name: Advisory Corten admin smoke
         timeout-minutes: 12
         if: env.SHOULD_DEPLOY != 'false'
@@ -2312,22 +2430,18 @@ jobs:
           PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
           SMOKE_SOURCE: staging-corten-admin-smoke
           SMOKE_UTM_CAMPAIGN: staging-main
+          ADMIN_APP: ${{ steps.staging_kubernetes_deploy.outputs.admin_app }}
           SMOKE_FETCH_ATTEMPTS: "24"
           SMOKE_FETCH_RETRY_DELAY_MS: "5000"
           SMOKE_FETCH_TIMEOUT_MS: "15000"
         run: |
           set -euo pipefail
-          landing_domain="$(terraform output -raw landing_domain)"
-          if [ -z "$landing_domain" ]; then
-            echo "The staging landing domain was not present in Terraform outputs." >&2
-            exit 1
+          # admin-corten runs only while it serves admin.staging; under STAGING_ADMIN_APP=admin-web it is not deployed (withheldCortenPilots).
+          if [ "$ADMIN_APP" != "admin-web" ]; then
+            echo "admin-corten serves admin.staging, so the Smoke check above smoked it with the admin required."
+            exit 0
           fi
-          cd ../../..
-          echo "Smoking the Corten admin pilot at admin-corten.staging.chasesets.com (advisory)."
-          # Admin-only entry: it smokes the admin origin and never fetches the landing URL.
-          pnpm run smoke:corten-admin -- \
-            "https://${landing_domain}" \
-            "https://admin-corten.staging.chasesets.com"
+          echo "admin-web serves admin.staging (STAGING_ADMIN_APP=admin-web), so admin-corten is not deployed and is not smoked."
       - name: Resolve Playwright Chromium version
         env:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}

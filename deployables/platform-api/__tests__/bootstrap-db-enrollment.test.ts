@@ -31,7 +31,7 @@ import {
 const testDirectory = dirname(fileURLToPath(import.meta.url));
 // Historical timing captures remain immutable. This retained seed-command
 // regression pins one DB file's bytes; no capture binds the checkout's sources.
-const seedCommandSourceSha256 = "a4add82973906e499b2d9e0cd8dbd399d5187323b0c66acf5157df3b82f8f356";
+const seedCommandSourceSha256 = "aad4ee696b5e93d4d28777392c707690f3d1f638db66baf3d7c388d54a74a456";
 // Historical 39498669434 remains the immutable algorithm corpus. The current
 // 39950765563 pair is bound separately to the declared floor.
 // Each artifactDigest is the live `gh api .../actions/artifacts/<id> --jq .digest`
@@ -668,6 +668,15 @@ const postCaptureOfferConsent = {
     identity: "d02abcddabdae4d0",
   },
 };
+// Cases whose bodies changed after the frozen capture: each keeps the capture's measured duration under the
+// identity of its current body. The first two gained Catalog Product Measure reaction assertions; the seed-command
+// case's Measure Profile fixture stopped declaring a product kind as a Physical Flag.
+const postCaptureCaseIdentities: Readonly<Record<string, string>> = Object.freeze({
+  "serializes two concurrent full production-like API host bootstraps with a database advisory lock":
+    "6d1a3765438bca21",
+  "boots with context-owned pools and replays cross-context projections": "a8d0c5cb21c9870d",
+  "completes representative commerce seeds, projections, fan-outs and post-state": "82a36472c9bb9213",
+});
 const derivedShippedAssignment: Readonly<Record<string, BootstrapDbEnrollmentPartition["executionUnit"]>> =
   Object.freeze({
     "bootstrap-production-reconciliation.db.test.ts": "test:db:1",
@@ -1471,7 +1480,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     const source = readFileSync(join(testDirectory, fileName));
     expect(createHash("sha256").update(source).digest("hex")).toBe(seedCommandSourceSha256);
     expect(deriveBootstrapDbCaseIdentities(fileName, source.toString()).map((testCase) => testCase.identity)).toEqual([
-      "0204be7639f55534",
+      "82a36472c9bb9213",
       "9e7b99abfd2756ab",
     ]);
   });
@@ -3017,7 +3026,7 @@ describe("Platform API bootstrap DB enrollment", () => {
           ...(file.fileName === postCaptureOfferConsent.fileName ? [postCaptureOfferConsent.testCase] : []),
           ...file.cases.map(({ name, identity, referenceDurationMs }) => ({
             name,
-            identity,
+            identity: postCaptureCaseIdentities[name] ?? identity,
             referenceDurationMs,
           })),
         ]);

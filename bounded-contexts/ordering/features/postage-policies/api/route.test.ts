@@ -98,7 +98,7 @@ describe("ordering postage policy routes", () => {
         shippingOption: "standard",
         itemSubtotalAmount: "25.00",
         quantity: 1,
-        physicalFlags: ["raw-card"],
+        physicalFlags: ["rigid", "jumbo"],
       }),
       headers: { "Content-Type": "application/json" },
     });
@@ -114,9 +114,27 @@ describe("ordering postage policy routes", () => {
     expect(previewPolicy).toHaveBeenCalledWith(
       expect.objectContaining({
         shippingOption: "standard",
-        physicalFlags: ["raw-card"],
+        physicalFlags: ["rigid", "jumbo"],
       }),
     );
+  });
+
+  it.each([
+    ["omits physical flags", {}],
+    ["sends an empty list", { physicalFlags: [] }],
+    ["sends an empty string", { physicalFlags: "" }],
+  ])("previews a bendable Product when the request %s", async (_label, flags) => {
+    const previewPolicy = vi.fn(() => ({ packagePlanVersion: "measured-package-plan-v1" }) as PackagePlan);
+    const app = createApp({ previewPolicy }, ["postage-policies.manage"]);
+
+    const response = await app.request("/preview", {
+      method: "POST",
+      body: JSON.stringify({ policy: { policyVersion: "operator-postage-v1" }, ...flags }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(response.status).toBe(200);
+    expect(previewPolicy).toHaveBeenCalledWith(expect.objectContaining({ physicalFlags: ["bendable"] }));
   });
 
   it("clones policies as rollback drafts through the admin API", async () => {

@@ -12,6 +12,7 @@ import {
   type BcContextManifest,
   type BcShellContribution,
   type BcShellContributionItem,
+  type BcEventReactionDeclaration,
   type BcEventReactionHandlerRegistrations,
   type BcEventSubscriptionHandler,
   type BcEventSubscriptionHandlerRegistrations,
@@ -162,9 +163,6 @@ const manifest: BcContextManifest = {
       reactionHandlerSetNames: ["inventory-order-reservation-workflow"],
       sourceContextMount: "when-mounted",
       eventTypes: ["ordering.order.created"],
-      idempotencyPolicy: "idempotent-command-dispatch",
-      retryPolicy: "retry-from-last-checkpoint",
-      failurePolicy: "surface-as-reaction-failure",
       order: 20,
     },
   ],
@@ -379,7 +377,7 @@ describe("buildEventSubscriptionsFromManifest", () => {
 });
 
 describe("buildEventReactionsFromManifest", () => {
-  it("copies reaction semantics and registers reaction-kind subscriptions", () => {
+  it("registers reaction-kind subscriptions from the declaration identity, events and order", () => {
     const handler = vi.fn(async () => undefined);
     const reactions = buildEventReactionsFromManifest({
       contextName: "inventory",
@@ -404,15 +402,33 @@ describe("buildEventReactionsFromManifest", () => {
         handlers: {
           "ordering.order.created": handler,
         },
-        idempotencyPolicy: "idempotent-command-dispatch",
-        retryPolicy: "retry-from-last-checkpoint",
-        failurePolicy: "surface-as-reaction-failure",
         eventTypes: ["ordering.order.created"],
         streamPrefixes: undefined,
         errorPolicy: undefined,
         order: 20,
       },
     ]);
+  });
+
+  it("builds reaction subscriptions without the retired per-reaction policy properties", () => {
+    const [declared] = manifest.eventReactions ?? [];
+    if (!declared) throw new Error("the fixture manifest declares one reaction");
+    const staleDeclaration = { ...declared, idempotencyPolicy: "stale", retryPolicy: "stale", failurePolicy: "stale" };
+    const buildReaction = (declaration: BcEventReactionDeclaration) =>
+      buildEventReactionsFromManifest({
+        contextName: "inventory",
+        manifest: { eventReactions: [declaration] },
+        handlers: {
+          "ordering.inventory-order-reservation-workflow": () => ({}),
+        },
+      })[0];
+
+    for (const reaction of [buildReaction(declared), buildReaction(staleDeclaration)]) {
+      expect(reaction).toMatchObject({ handlerKind: "reaction", subscriptionVersion: 1, order: 20 });
+      for (const retiredKey of ["idempotencyPolicy", "retryPolicy", "failurePolicy"]) {
+        expect(reaction, retiredKey).not.toHaveProperty(retiredKey);
+      }
+    }
   });
 
   it("uses one canonical missing reaction declaration error", () => {
@@ -787,9 +803,6 @@ describe("defineBoundedContextModule", () => {
             reactionName: "inventory-order-reservation-workflow",
             subscriptionVersion: 1,
             reactionHandlerSetNames: ["inventory-order-reservation-workflow"],
-            idempotencyPolicy: "idempotent-command-dispatch",
-            retryPolicy: "retry-from-last-checkpoint",
-            failurePolicy: "surface-as-reaction-failure",
           },
         ],
       },

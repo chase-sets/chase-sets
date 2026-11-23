@@ -121,16 +121,7 @@ export type PostagePolicyEvent =
   | PostagePolicyRetiredEvent;
 
 const shippingOptions: readonly ShippingOption[] = ["standard", "expedited", "priority"];
-const physicalFlags: readonly ProductPhysicalFlag[] = [
-  "raw-card",
-  "slab",
-  "sealed",
-  "rigid",
-  "bendable",
-  "metal",
-  "jumbo",
-  "irregular",
-];
+const physicalFlags: readonly ProductPhysicalFlag[] = ["rigid", "bendable", "metal", "jumbo", "irregular"];
 
 function normalizeNumber(value: unknown, fieldName: string, options: Readonly<{ allowZero?: boolean }> = {}) {
   const numeric = typeof value === "number" ? value : Number(value);

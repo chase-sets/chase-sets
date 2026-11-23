@@ -25,7 +25,7 @@ components:
       - name: "PORT"
         value: "8080"
       - name: "HOSTS"
-        value: "admin-corten.staging.chasesets.com"
+        value: "admin-corten.staging.chasesets.com,admin.staging.chasesets.com"
       - name: "PROXIES"
         value: ""
       - name: "PUBLIC_PROTO"
@@ -41,6 +41,69 @@ components:
         value: "https://admin.staging.chasesets.com"
       - name: "CHASE_SETS_MARKETPLACE_ORIGIN"
         value: "https://marketplace.staging.chasesets.com"
+    port: 8080
+    service:
+      type: "ClusterIP"
+      port: 8080
+    healthPath: "/health/ready"
+    livenessPath: "/health/live"
+    readinessProbe:
+      timeoutSeconds: 2
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "1"
+        memory: "512Mi"
+    podAnnotations: {}
+    podLabels: {}
+  marketplace-corten:
+    enabled: false
+    kind: "service"
+    replicas: 1
+    image: ""
+    command: "exec /usr/local/bin/corten-pilot-marketplace"
+    env:
+      - name: "HOST"
+        value: "0.0.0.0"
+      - name: "PORT"
+        value: "8080"
+      - name: "HOSTS"
+        value: "marketplace-corten.staging.chasesets.com"
+      - name: "PROXIES"
+        value: ""
+      - name: "PUBLIC_PROTO"
+        value: "https"
+      - name: "NODE_ENV"
+        value: "production"
+      - name: "DEPLOYMENT_ENVIRONMENT"
+        value: "staging"
+      - name: "CHASE_SETS_INTERNAL_API_ORIGIN"
+        value: ""
+      - name: "PLATFORM_API_ORIGIN"
+        value: ""
+      - name: "PLATFORM_INTERNAL_AUTH_SECRET"
+        secret: true
+        secretKey: "PLATFORM_INTERNAL_AUTH_SECRET"
+      - name: "STRIPE_PUBLISHABLE_KEY"
+        secret: true
+        secretKey: "STRIPE_PUBLISHABLE_KEY"
+      - name: "MARKETPLACE_WEB_ORIGIN"
+        value: "https://marketplace.staging.chasesets.com"
+      - name: "CHASE_SETS_MARKETPLACE_INDEXING"
+        value: "false"
+      - name: "OBSERVABILITY_ENABLED"
+        value: "false"
+      - name: "OTEL_EXPORTER_OTLP_ENDPOINT"
+        value: ""
+      - name: "OTEL_EXPORTER_OTLP_HEADERS"
+        secret: true
+        secretKey: "OTEL_EXPORTER_OTLP_HEADERS"
+      - name: "OTEL_SERVICE_NAME"
+        value: "marketplace-corten"
+      - name: "OTEL_RESOURCE_ATTRIBUTES"
+        value: "cloud.provider=digitalocean,cloud.platform=kubernetes,chase_sets.environment_slug=staging"
     port: 8080
     service:
       type: "ClusterIP"

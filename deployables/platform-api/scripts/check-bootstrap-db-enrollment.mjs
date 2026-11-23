@@ -82,7 +82,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       {
         name: "serializes two concurrent full production-like API host bootstraps with a database advisory lock",
         referenceDurationMs: 22397,
-        identity: "19168dc535e66536",
+        identity: "6d1a3765438bca21",
       },
       {
         name: "limits and reconciles every production-like seed context against current-code state",
@@ -295,7 +295,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       {
         name: "completes representative commerce seeds, projections, fan-outs and post-state",
         referenceDurationMs: 27984,
-        identity: "0204be7639f55534",
+        identity: "82a36472c9bb9213",
       },
       {
         name: "completes admin-QA fixtures and retains their seeded identity post-state",
@@ -317,7 +317,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       {
         name: "boots with context-owned pools and replays cross-context projections",
         referenceDurationMs: 95835,
-        identity: "543c346f4daf119b",
+        identity: "a8d0c5cb21c9870d",
       },
       {
         name: "revokes agent-owned saved instruments through the composed OAuth route with a valid audit context",

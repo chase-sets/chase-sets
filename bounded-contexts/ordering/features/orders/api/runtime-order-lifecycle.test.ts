@@ -1,13 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import { defaultShippingQuotePolicy } from "../domain/policies";
+import { defaultShippingRates, type ShippingRates } from "../domain/shipping-rates";
 import {
   context,
   createCheckpointStore,
   createOrderingOrderRuntimeForTest,
   createSupplyDb,
+  productMeasureForCandidate,
   shipFromAddress,
   shippingAddress,
   taxSnapshot,
+  type SupplyCandidate,
 } from "./runtime-test-harness";
 
 const exactCommitment = (listingId: string, inventoryItemId: string) => ({
@@ -249,6 +253,165 @@ describe("ordering order runtime: order creation and cancellation", () => {
       },
     });
     expect((createdEvent?.payload as { lines?: unknown[] } | undefined)?.lines).toHaveLength(2);
+  });
+
+  it("records the Shipping Rates the default policy quoted on merged and unmerged accepted offer batch orders", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    // 4.3 ounces each plus 2 ounces of parcel packaging: one box bills as a
+    // 7 ounce parcel and two merged boxes as an 11 ounce parcel.
+    const sealedBox = (
+      listingId: string,
+      sellerAccountId: string,
+      catalogItemId: string,
+      inventoryItemId: string,
+      itemTitle: string,
+    ): SupplyCandidate => {
+      const candidate: SupplyCandidate = {
+        listingId,
+        sellerAccountId,
+        inventoryItemId,
+        catalogItemId,
+        productId: `${catalogItemId}::`,
+        itemTitle,
+        itemSubtitle: null,
+        selectedOptions: [],
+        productSummary: null,
+        storageLocationName: "A",
+        shipFromCode: "A",
+        priceAmount: "99.00",
+        availableQuantity: 1,
+        updatedAt: "2026-03-31T00:00:00.000Z",
+      };
+      return {
+        ...candidate,
+        productMeasureSnapshot: {
+          ...productMeasureForCandidate(candidate),
+          measureVersion: "test-sealed-box-v1",
+          unitLengthInches: 7,
+          unitWidthInches: 5,
+          unitHeightInches: 2,
+          unitWeightOunces: 4.3,
+          physicalFlags: ["rigid"],
+          stackBehavior: "stackable-height",
+        },
+      };
+    };
+    const supplyByListingId: Readonly<Record<string, SupplyCandidate>> = {
+      lst_1: sealedBox("lst_1", "acc_seller", "cat_1", "inv_1", "Charizard"),
+      lst_2: sealedBox("lst_2", "acc_seller", "cat_2", "inv_2", "Blastoise"),
+      lst_3: sealedBox("lst_3", "acc_other_seller", "cat_3", "inv_3", "Venusaur"),
+    };
+    const db = createSupplyDb((params) => {
+      const supply = supplyByListingId[String(params?.[0] ?? "")];
+      return supply ? [supply] : [];
+    });
+    const quote = vi.fn(defaultShippingQuotePolicy.quote);
+    const services = createOrderingOrderRuntimeForTest({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      carts: {
+        listCartLines: async () => [],
+        checkout: async () => ({ version: 1 }),
+      } as never,
+      shippingQuotePolicy: { quote },
+    });
+    const offer = (offerId: string, listingId: string) => {
+      const supply = supplyByListingId[listingId]!;
+      return {
+        offerId,
+        buyerAccountId: "acc_buyer" as never,
+        sellerAccountId: supply.sellerAccountId as never,
+        ...exactCommitment(listingId, supply.inventoryItemId),
+        catalogItemId: supply.catalogItemId,
+        productId: supply.productId,
+        itemTitle: supply.itemTitle,
+        itemSubtitle: null,
+        selectedOptions: [],
+        productSummary: null,
+        priceAmount: "10.00",
+        marketplaceSalesFeePercentageBps: 500,
+        marketplaceSalesFeeFixedAmount: "0.00",
+        marketplaceSalesFeeCapAmount: "25.00",
+        marketplaceSalesFeeUnitAmount: "0.50",
+        sellerNetUnitAmount: "9.50",
+        shippingAllowancePercentageBps: 500,
+        termsScheduleId: "cts_offer",
+        termsAgreementId: null,
+        termsResolvedAt: "2026-03-31T00:00:00.000Z",
+        quantityRequested: 1,
+        shippingDestinationSnapshot: shippingAddress,
+      };
+    };
+
+    const result = await services.createOrdersFromAcceptedOfferBatch(
+      {
+        acceptanceBatchId: "ofb_recorded_rates",
+        offers: [offer("off_1", "lst_1"), offer("off_2", "lst_2"), offer("off_3", "lst_3")],
+      },
+      context,
+    );
+
+    expect(result.orderIds).toHaveLength(2);
+    const createdOrders = readAllEvents()
+      .filter((event) => event.eventType === "ordering.order.created")
+      .map(
+        (event) =>
+          event.payload as Readonly<{
+            sellerAccountId: string;
+            commercialTermsSnapshot: Readonly<{ shippingRates?: ShippingRates }>;
+          }>,
+      );
+    const mergedOrder = createdOrders.find((order) => order.sellerAccountId === "acc_seller");
+    const unmergedOrder = createdOrders.find((order) => order.sellerAccountId === "acc_other_seller");
+
+    // The merged order is re-quoted as one 11 ounce parcel: 499 + 7 x 32 cents.
+    expect(mergedOrder).toMatchObject({
+      sourceReferenceId: "ofb_recorded_rates",
+      itemSubtotalAmount: "20.00",
+      shippingBaseAmount: "7.23",
+      shippingDiscountAmount: "0.80",
+      shippingAllowanceAmount: "0.80",
+      shippingOverageAmount: "6.43",
+      protectionAmount: "0.20",
+      protectionAllowanceAmount: "0.20",
+      protectionOverageAmount: "0.00",
+      shippingChargeAmount: "6.43",
+      totalAmount: "26.43",
+      shippingPlanSnapshot: { packageCount: 1, packages: [{ mailpieceClass: "parcel", billableWeightOunces: 11 }] },
+      commercialTermsSnapshot: {
+        sellerItemNetAmount: "19.00",
+        shippingAllowanceAmount: "0.80",
+        sellerShippingPayoutAmount: "6.43",
+        sellerPayoutAmount: "25.23",
+      },
+    });
+    // The unmerged order keeps its own 7 ounce parcel quote: 499 + 3 x 32 cents.
+    expect(unmergedOrder).toMatchObject({
+      sourceReferenceId: "ofb_recorded_rates",
+      itemSubtotalAmount: "10.00",
+      shippingBaseAmount: "5.95",
+      shippingDiscountAmount: "0.40",
+      shippingAllowanceAmount: "0.40",
+      shippingOverageAmount: "5.55",
+      protectionAmount: "0.10",
+      protectionAllowanceAmount: "0.10",
+      protectionOverageAmount: "0.00",
+      shippingChargeAmount: "5.55",
+      totalAmount: "15.55",
+      shippingPlanSnapshot: { packageCount: 1, packages: [{ mailpieceClass: "parcel", billableWeightOunces: 7 }] },
+    });
+
+    const mergeQuote = quote.mock.calls.find(
+      ([quoted]) => quoted.packagePlan.packages[0]?.billableWeightOunces === 11,
+    )?.[0];
+    expect(mergeQuote).toMatchObject({ sellerAccountId: "acc_seller", itemSubtotalAmount: "20.00" });
+    expect(mergedOrder?.commercialTermsSnapshot.shippingRates).toEqual(defaultShippingRates);
+    expect(mergedOrder?.commercialTermsSnapshot.shippingRates).toEqual(mergeQuote?.shippingRates);
+    expect(unmergedOrder?.commercialTermsSnapshot.shippingRates).toEqual(defaultShippingRates);
+    for (const [quoted] of quote.mock.calls) {
+      expect(quoted.shippingRates).toEqual(defaultShippingRates);
+    }
   });
 
   it("creates buy-now orders from the requested listing only", async () => {

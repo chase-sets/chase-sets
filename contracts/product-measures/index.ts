@@ -1,14 +1,6 @@
 export * from "./publication";
 
-export type ProductPhysicalFlag =
-  | "raw-card"
-  | "slab"
-  | "sealed"
-  | "rigid"
-  | "bendable"
-  | "metal"
-  | "jumbo"
-  | "irregular";
+export type ProductPhysicalFlag = "rigid" | "bendable" | "metal" | "jumbo" | "irregular";
 
 export type ProductMeasureStackBehavior = "stackable-thickness" | "stackable-height" | "non-stackable";
 
@@ -119,10 +111,10 @@ export const defaultPackagePlanPolicy: PackagePlanPolicy = {
 
 export const defaultPostagePolicy: PostagePolicy = {
   ...defaultPackagePlanPolicy,
-  policyVersion: "default-postage-policy-v2",
+  policyVersion: "default-postage-policy-v3",
   parcelRequiredShippingOptions: ["expedited", "priority"],
-  letterRequiredPhysicalFlags: ["raw-card"],
-  parcelRequiredPhysicalFlags: ["slab", "sealed", "rigid", "metal", "jumbo", "irregular"],
+  letterRequiredPhysicalFlags: ["bendable"],
+  parcelRequiredPhysicalFlags: ["rigid", "metal", "jumbo", "irregular"],
   signatureRequiredShippingOptions: ["priority"],
   signatureRequiredDeclaredValueAmount: 250,
   signatureRequiredPhysicalFlags: [],

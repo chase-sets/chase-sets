@@ -1564,6 +1564,7 @@ function executeStep(step, env = {}) {
         RELEASE_IMAGE_DIGEST: `sha256:${"b".repeat(64)}`,
         GITHUB_OUTPUT: join(directory, "output"),
         GITHUB_ENV: join(directory, "env"),
+        GITHUB_STEP_SUMMARY: join(directory, "summary"),
         TRACE: join(directory, "trace"),
         ...env,
       },

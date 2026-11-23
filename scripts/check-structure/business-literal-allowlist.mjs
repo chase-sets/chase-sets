@@ -16,9 +16,8 @@
 //      reporting query's own FILTER-clause window, not a value duplicated
 //      across functions. (The m107 fraud/velocity heuristic thresholds that
 //      used to live in this bucket were migrated onto `definePolicy` by
-//      the settlement and platform-operations trust-and-safety policies --
-//      see `bounded-contexts/settlement/features/wallets/domain/fraud-velocity-policy.ts`
-//      and `bounded-contexts/platform-operations/features/risk-alerts/domain/risk-alert-threshold-policy.ts`.)
+//      the platform-operations trust-and-safety policy -- see
+//      `bounded-contexts/platform-operations/features/risk-alerts/domain/risk-alert-threshold-policy.ts`.)
 //   2. A page-size / result-count constant that only coincidentally matches
 //      the curated `_LIMIT` suffix.
 //   3. A pre-existing business-shaped threshold outside the audit's Tier

@@ -48,9 +48,6 @@ describe("listing moderation reaction", () => {
       eventTypes: [directiveType],
       order: 95,
       reactionHandlerSetNames: [reactionName],
-      idempotencyPolicy: "idempotent-command-dispatch",
-      retryPolicy: "retry-from-last-checkpoint",
-      failurePolicy: "surface-as-reaction-failure",
     });
     expect(manifest.projectionGroups?.find(({ projectionName }) => projectionName === reactionName)).toEqual({
       projectionName: reactionName,

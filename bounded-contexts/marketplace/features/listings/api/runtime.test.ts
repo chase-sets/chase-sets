@@ -70,7 +70,7 @@ const productMeasureSnapshot = {
   unitWidthInches: 2.5,
   unitHeightInches: 0.01,
   unitWeightOunces: 0.1,
-  physicalFlags: ["raw-card"],
+  physicalFlags: ["bendable"],
   stackBehavior: "stackable-thickness",
   source: "profile",
   confidence: "measured",
@@ -688,82 +688,6 @@ describe("marketplace listing runtime", () => {
       priceAmount: "20.00",
       priceCurrencyCode: "EUR",
     });
-  });
-
-  it("rejects publication when inventory supply lacks a resolved shipping measure", async () => {
-    const { eventStore } = createInMemoryEventStore();
-    const db = {
-      query: vi.fn(async (sql: string) => {
-        if (sql.includes("FROM marketplace_supply_items AS item")) {
-          return {
-            rows: [
-              {
-                item_id: "inv_1",
-                account_id: "acc_seller",
-                catalog_catalog_item_id: "cat_1",
-                product_id: "cat_1::",
-                item_title: "Charizard",
-                item_subtitle: null,
-                selected_options: [],
-                product_summary: null,
-                product_measure_snapshot: null,
-                storage_location_name: "North shelf",
-                ship_from_code: "CHI",
-                ship_from_address: shipFromAddress,
-                available_quantity: 2,
-              },
-            ],
-          };
-        }
-
-        if (sql.includes("COALESCE(SUM(quantity_cap), 0)::text AS quantity_cap")) {
-          return { rows: [{ quantity_cap: "0" }] };
-        }
-
-        throw new Error(`Unexpected query in test: ${sql}`);
-      }),
-    };
-
-    const services = createMarketplaceListingRuntime({
-      eventStore,
-      checkpointStore: createCheckpointStore(),
-      db: db as never,
-      commercialTermsResolver: {
-        resolveListingTerms: vi.fn(async ({ amount, accountId }) => ({
-          accountId,
-          accountType: "business" as const,
-          basisAmount: amount,
-          marketplaceSalesFeeUnitAmount: "1.00",
-          sellerNetUnitAmount: "19.00",
-          scheduleId: "cts_default",
-          agreementId: null,
-          resolvedAt: "2026-04-17T00:00:00.000Z",
-        })),
-      } as never,
-    });
-
-    const created = await services.createListing(
-      listingTestCommand("listing.create", {
-        accountId: "acc_seller" as never,
-        inventoryItemId: "inv_1",
-        priceAmount: "20.00",
-        priceCurrencyCode: "USD",
-        quantityCap: 1,
-        listingIdOverride: "lst_missing_measure" as never,
-      }),
-      context,
-    );
-
-    await expect(
-      services.publishListing(
-        listingTestCommand("listing.publish", {
-          accountId: "acc_seller",
-          listingId: "lst_missing_measure",
-          feeQuoteFingerprint: created.feeQuoteFingerprint,
-        }),
-        context,
-      ),
-    ).rejects.toThrow("Listings require a resolved shipping measure before publication.");
   });
 
   it("lists fee history from listing events owned by the seller", async () => {
@@ -3338,5 +3262,203 @@ describe("inventory capacity recovery revision races", () => {
       status: "paused",
       block: null,
     });
+  });
+});
+
+describe("native Listing creation requires a resolved shipping measure", () => {
+  function createFixture(memory = createInMemoryEventStore()) {
+    let measure: typeof productMeasureSnapshot | null = null;
+    const resolveListingTerms = vi.fn(async ({ amount, accountId }) => ({
+      accountId,
+      accountType: "business" as const,
+      basisAmount: amount,
+      marketplaceSalesFeeUnitAmount: "1.00",
+      sellerNetUnitAmount: "19.00",
+      scheduleId: "cts_default",
+      agreementId: null,
+      resolvedAt: "2026-04-17T00:00:00.000Z",
+    }));
+    const putObject = vi.fn();
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("INSERT INTO marketplace_supply_locations")) return { rows: [] };
+        if (sql.includes("INSERT INTO marketplace_supply_items")) return { rows: [] };
+        if (sql.includes("FROM marketplace_supply_items AS item")) {
+          return {
+            rows: [
+              {
+                item_id: "inv_1",
+                account_id: "acc_seller",
+                catalog_catalog_item_id: "cat_1",
+                product_id: "cat_1::",
+                item_title: "Charizard",
+                item_subtitle: null,
+                selected_options: [],
+                product_summary: null,
+                product_measure_snapshot: measure,
+                storage_location_name: "North shelf",
+                ship_from_code: "CHI",
+                ship_from_address: shipFromAddress,
+                available_quantity: 2,
+              },
+            ],
+          };
+        }
+        if (sql.includes("COALESCE(SUM(quantity_cap), 0)::text AS quantity_cap")) {
+          return { rows: [{ quantity_cap: "0" }] };
+        }
+        throw new Error(`Unexpected query in test: ${sql}`);
+      }),
+    };
+    const services = createMarketplaceListingRuntime({
+      eventStore: memory.eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      commercialTermsResolver: { resolveListingTerms } as never,
+      listingPhotoStorage: { getObject: vi.fn(), putObject },
+    });
+    return {
+      ...memory,
+      services,
+      resolveListingTerms,
+      putObject,
+      /** The supply mirror applies the measure, as it does once Catalog publishes one for the Product. */
+      resolveMeasure: () => {
+        measure = productMeasureSnapshot;
+      },
+    };
+  }
+
+  const createParams = {
+    accountId: "acc_seller" as never,
+    inventoryItemId: "inv_1",
+    priceAmount: "20.00",
+    priceCurrencyCode: "USD",
+    quantityCap: 1,
+  };
+  const inventorySnapshot = {
+    ...createParams,
+    catalogItemId: "cat_1",
+    productId: "cat_1::",
+    selectedOptions: [],
+    storageLocationId: "loc_1",
+    storageLocationName: "North shelf",
+    shipFromCode: "CHI",
+    shipFromAddress,
+    totalQuantity: 2,
+    acquisitionCostAmount: null,
+  };
+  type Services = ReturnType<typeof createFixture>["services"];
+  /** Each entry builds one request and returns the call that sends it, so a retry repeats the same attempt. */
+  const creators = {
+    createListing: (services: Services) => {
+      const command = listingTestCommand("listing.create", createParams);
+      return () => services.createListing(command, context);
+    },
+    createListingFromInventorySnapshot: (services: Services) => {
+      const command = listingTestCommand("listing.create", inventorySnapshot);
+      return () => services.createListingFromInventorySnapshot(command, context);
+    },
+    createBatchDraftListingFromInventorySnapshot: (services: Services) => () =>
+      services.createBatchDraftListingFromInventorySnapshot(
+        {
+          ...inventorySnapshot,
+          importBatchId: "imb_1",
+          importRowId: "imr_1",
+          listingIdOverride: "lst_batch_measure" as never,
+        },
+        context,
+      ),
+  };
+  const createdEvents = (events: readonly StoredEvent[]) =>
+    events.filter((event) => event.eventType === "marketplace.listing.created");
+  const refusal = {
+    name: "MarketplaceListingDomainError",
+    code: "shipping-measure-missing",
+    message: "Listings require a resolved shipping measure before creation.",
+  };
+
+  it.each(Object.keys(creators) as (keyof typeof creators)[])(
+    "refuses %s before any fee quote or append, then creates the draft on the same attempt",
+    async (creator) => {
+      const { allEvents, services, resolveListingTerms, resolveMeasure } = createFixture();
+      const create = creators[creator](services);
+
+      await expect(create()).rejects.toMatchObject(refusal);
+      expect(resolveListingTerms).not.toHaveBeenCalled();
+      expect(allEvents).toHaveLength(0);
+
+      resolveMeasure();
+      const created = await create();
+      expect(created.version).toBe(1);
+      expect(createdEvents(allEvents).map((event) => event.payload)).toMatchObject([
+        { listingId: created.listingId, productMeasureSnapshot },
+      ]);
+      await expect(services.loadListingState(created.listingId)).resolves.toMatchObject({
+        status: "draft",
+        productMeasureSnapshot,
+      });
+    },
+  );
+
+  it("refuses before any photo work, storing and appending nothing", async () => {
+    const { allEvents, services, resolveListingTerms, putObject } = createFixture();
+
+    await expect(
+      services.createListing(
+        listingTestCommand("listing.create", {
+          ...createParams,
+          listingPhotoUploads: [
+            { body: new Uint8Array([1, 2, 3]), contentType: "image/png", originalFilename: "front.png", altText: null },
+          ],
+        }),
+        context,
+      ),
+    ).rejects.toMatchObject(refusal);
+    expect(putObject).not.toHaveBeenCalled();
+    expect(resolveListingTerms).not.toHaveBeenCalled();
+    expect(allEvents).toHaveLength(0);
+  });
+
+  it("creates a channel-only Listing for supply without a shipping measure", async () => {
+    const { allEvents, services, resolveListingTerms } = createFixture();
+
+    const created = await services.createListing(
+      listingTestCommand("listing.create", { ...createParams, publicationScope: "channel-only" as const }),
+      context,
+    );
+
+    expect(created.state).toMatchObject({ publicationScope: "channel-only", productMeasureSnapshot: null });
+    expect(resolveListingTerms).not.toHaveBeenCalled();
+    expect(createdEvents(allEvents)).toHaveLength(1);
+  });
+
+  it("rejects publication of a stored draft that lacks a resolved shipping measure", async () => {
+    const source = createFixture();
+    source.resolveMeasure();
+    await source.services.createListing(
+      listingTestCommand("listing.create", { ...createParams, listingIdOverride: "lst_missing_measure" as never }),
+      context,
+    );
+    const stored = createdEvents(source.allEvents)[0]!;
+    // The same creation fact as it was stored before native creation required a measure.
+    const { eventStore, services } = createFixture();
+    await eventStore.appendToStream({
+      streamId: stored.streamId,
+      expectedVersion: 0,
+      context,
+      events: [{ eventType: stored.eventType, payload: { ...stored.payload, productMeasureSnapshot: null } }],
+    });
+
+    await expect(services.loadListingState("lst_missing_measure")).resolves.toMatchObject({
+      status: "draft",
+      productMeasureSnapshot: null,
+    });
+    await expect(
+      services.publishListing(
+        listingTestCommand("listing.publish", { accountId: "acc_seller", listingId: "lst_missing_measure" }),
+        context,
+      ),
+    ).rejects.toThrow("Listings require a resolved shipping measure before publication.");
   });
 });

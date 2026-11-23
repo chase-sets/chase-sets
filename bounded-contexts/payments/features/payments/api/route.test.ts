@@ -6,6 +6,7 @@ import type { PaymentsApiEnv } from "./route";
 import { createAccountPaymentRoutes, createPaymentProcessorWebhookRoutes, preflightPaymentStart } from "./route";
 import type { PaymentServices } from "./runtime";
 import { PaymentDeclineLimitUnavailableError, PaymentsRateLimitExceededError } from "./runtime";
+import { MarketplaceCheckoutFeePolicyUnavailableError } from "./marketplace-checkout-fee-policy";
 import { PaymentsDomainError } from "../../../support/runtime-support/common";
 import { ProviderWebhookError } from "@chase-sets/http/provider-errors";
 import { DEPLOYMENT_ENVIRONMENTS } from "@chase-sets/platform-runtime/config-schema";
@@ -643,6 +644,66 @@ describe("payments routes", () => {
         message: "Order ord_1 is not eligible for payment in status pending-reservation.",
       },
     });
+  });
+
+  it("answers an unavailable Marketplace Checkout Fee policy with its own code, never as a payment in progress", async () => {
+    const services = createServices();
+    vi.mocked(services.createAccountPayment)
+      .mockRejectedValueOnce(new Error("Synthetic unclassified failure."))
+      .mockRejectedValue(new MarketplaceCheckoutFeePolicyUnavailableError());
+    vi.mocked(services.getCheckoutStatus).mockRejectedValue(new MarketplaceCheckoutFeePolicyUnavailableError());
+    const app = buildAccountApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_buyer",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["orders.view", "orders.manage"],
+      },
+      services,
+    });
+    const refusal = {
+      error: {
+        code: "marketplace_checkout_fee_policy_unavailable",
+        message: "The Marketplace Checkout Fee policy is unavailable.",
+      },
+    };
+
+    const startPayment = () =>
+      app.fetch(
+        new Request("http://payments.test/account/payments", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            orderIds: ["ord_1"],
+            paymentMethodCategory: "card",
+            sourceContext: "checkout",
+            sourceReferenceId: "chk_1",
+            confirmationTokenId: "ctoken_synthetic",
+            marketplaceCheckoutFeeQuoteFingerprint: checkoutFeeQuote.quote_fingerprint,
+          }),
+        }),
+      );
+
+    // Control: with a confirmation token, a failure that is not a Payments domain error reads as in progress.
+    const unclassified = await startPayment();
+    expect(unclassified.status).toBe(409);
+    await expect(unclassified.json()).resolves.toMatchObject({ error: { code: "payment_start_ambiguous" } });
+
+    const payment = await startPayment();
+    expect(services.createAccountPayment).toHaveBeenCalledTimes(2);
+    expect(services.createAccountPayment).toHaveBeenLastCalledWith(
+      expect.objectContaining({ confirmationTokenId: "ctoken_synthetic" }),
+      expect.anything(),
+    );
+    expect(payment.status).toBe(400);
+    await expect(payment.json()).resolves.toEqual(refusal);
+
+    const status = await app.fetch(new Request("http://payments.test/account/checkout/status?orderId=ord_1"));
+    expect(status.status).toBe(400);
+    await expect(status.json()).resolves.toEqual(refusal);
   });
 
   it("passes checkout source metadata into account payment creation", async () => {

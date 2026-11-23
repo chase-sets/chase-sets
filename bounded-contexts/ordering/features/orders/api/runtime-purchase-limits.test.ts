@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { TaxQuoteResolver } from "./runtime";
 import type { AuthenticityFeePolicyResolver } from "./authenticity-fee-policy-resolver";
-import { defaultAuthenticityCheckFeePolicyValue } from "../domain/authenticity-check-fee";
 import {
   context,
   createCheckpointStore,
@@ -57,7 +56,18 @@ describe("checkout purchase-limit admission", () => {
           throw new Error("authenticity unavailable");
         })
         .mockResolvedValueOnce({
-          value: defaultAuthenticityCheckFeePolicyValue,
+          value: {
+            optInThresholdAmount: "100.00",
+            bands: [
+              {
+                minOrderValueAmount: "0.00",
+                category: "any",
+                flatAmount: "8.00",
+                percentageBps: 200,
+                capAmount: "50.00",
+              },
+            ],
+          },
           source: "fallback",
           documentId: null,
           effectiveFrom: null,

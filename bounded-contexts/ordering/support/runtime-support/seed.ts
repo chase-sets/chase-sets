@@ -311,6 +311,42 @@ function buildSeedPostagePolicyReconciler(ordering: OrderingServices, context: E
   });
 }
 
+/**
+ * Brings the seeded policy's stored payload up to the compiled default.
+ *
+ * The reconciler matches steps by position and event type, so a later run never
+ * changes a payload it already stored, and a stored active policy is preferred
+ * to the compiled default. The revision cannot be a third reconcile step:
+ * activating another policy retires this one, and a plan expecting a revision
+ * at that stream position fails on the retirement. A retired policy plans no
+ * orders and is left alone.
+ */
+async function reviseSeedPostagePolicyToDefault(ordering: OrderingServices, context: EventStoreContext) {
+  const streamId = postagePolicyStreamId(orderingReservedSeedIds.postagePolicies.default);
+  const committed = await loadSeedStreamEvents<PostagePolicyEvent>(ordering.db, streamId);
+  const state = committed.reduce(evolvePostagePolicy, initialPostagePolicyState);
+  if (state.payload === null || state.label === null || state.effectiveFrom === null) {
+    return;
+  }
+  if (state.status === "retired" || state.payload.policyVersion === defaultPostagePolicy.policyVersion) {
+    return;
+  }
+
+  await ordering.postagePolicies.commandHandler({
+    streamId,
+    command: {
+      type: "RevisePostagePolicy",
+      label: state.label,
+      payload: defaultPostagePolicy,
+      effectiveFrom: state.effectiveFrom,
+      effectiveUntil: state.effectiveUntil,
+      revisedByUserId: identitySeedIds.demo.userId,
+    },
+    context,
+  });
+  console.log(`  Default postage policy revised to ${defaultPostagePolicy.policyVersion}`);
+}
+
 const seedOrderInventory = [
   {
     id: orderingReservedSeedIds.orders.checkoutPending,
@@ -411,6 +447,7 @@ export async function seedOrderingDatabase(
   const systemContext = createSeedContextFor(identitySeedIds.demo.accountId, identitySeedIds.demo.userId);
 
   await buildSeedPostagePolicyReconciler(ordering, systemContext).reconcile(true);
+  await reviseSeedPostagePolicyToDefault(ordering, systemContext);
 
   if ((await loadSeedOrderState(ordering.db, orderingReservedSeedIds.orders.checkoutPending)).kind === "absent") {
     const checkoutLine = await buildCheckoutLine(ordering, checkoutCartLines[0]!);

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { InventoryMutationProvider } from "../../../support/request-support/mutation-form";
+import { InventoryMutationProvider } from "../../../support/ui-support/mutation-recovery";
 import { createInventoryMutationRecovery } from "../../../support/request-support/mutation-recovery";
 import { inventoryApi } from "../../../client";
 import { InventoryImportBatchPage } from "../ui/import-batch-page";

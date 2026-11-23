@@ -11,6 +11,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ChannelConnectionServices } from "../../connections/domain/contracts";
 import { createUnavailableOutboundSyncServices } from "../../outbound-sync/tests/test-support";
 import { buildChannelsApi, type ChannelsApiEnv } from "../../../api";
+import { loader as listLoader } from "../../../routes/marketplace/account-channels-publication";
 import AccountChannelsPublicationConnectionRoute, {
   action,
   loader,
@@ -24,6 +25,28 @@ afterEach(() => {
 });
 
 describe("channel-publication-settings-route", () => {
+  it("loads the publication list through the public route and account-scoped API after authorization", async () => {
+    const harness = routeHarness([]);
+    const listingComposition = services({});
+    harness.mountApi(listingComposition);
+    const url = new URL("http://localhost/account/channels/publication");
+    const args = {
+      request: new Request(url),
+      url,
+      pattern: url.pathname,
+      params: {},
+      context: {},
+    } satisfies Parameters<typeof listLoader>[0];
+
+    await expect(listLoader(args)).rejects.toMatchObject({ status: 403 });
+    expect(harness.apiRequests).toEqual([]);
+
+    harness.permissions.push("channels.view");
+    await expect(listLoader(args)).resolves.toEqual({ connections: [detailAt(null).connection] });
+    expect(harness.apiRequests).toEqual([{ url: "/api/channels/publication", method: "GET" }]);
+    expect(listingComposition.listChannelPublicationConnections).toHaveBeenCalledWith({ accountId: "account-1" });
+  });
+
   it("drives the real authorized data-router load/action/revalidation transition beyond the first cursor", async () => {
     const harness = routeHarness(["channels.view", "channels.manage"]);
     let detail = detailAt(null);

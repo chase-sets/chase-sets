@@ -137,6 +137,8 @@ export const marketplaceEnglishTranslations = {
     "Check the inventory details and try again.",
   "marketplace.features.listings.api.route.error.listingNotFound": "Listing not found.",
   "marketplace.features.listings.api.route.error.inventoryItemNotFound": "Inventory item not found.",
+  "marketplace.features.listings.api.route.error.shippingMeasureMissing":
+    "This product has no shipping measure yet, so it cannot be listed. Try again later.",
   "marketplace.features.listings.api.route.error.commandRejected":
     "This listing change is not available. Check the listing details and try again.",
   "marketplace.features.listings.api.route.error.bulkPriceUpdateInvalid":

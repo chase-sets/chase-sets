@@ -26,10 +26,38 @@ function workflowRunBlocks(source) {
   return Object.entries(parseYaml(source).jobs).flatMap(([jobId, job]) =>
     (job.steps ?? []).flatMap((step, index) =>
       typeof step.run === "string"
-        ? [{ name: step.name ?? `${jobId} unnamed step ${index}`, text: step.run, step }]
+        ? [{ name: step.name ?? `${jobId} unnamed step ${index}`, text: step.run, step, steps: job.steps, index }]
         : [],
     ),
   );
+}
+
+const gateCommand = "digitalocean-registry-gc-gate.mjs assert-writable";
+
+function assertStrictGate(lines, gateIndex, writerIndex) {
+  const gate = lines[gateIndex];
+  expect(gate).toMatch(/^\s*node\s/);
+  expect(lines.slice(gateIndex, writerIndex).join("\n")).toContain("--registry=");
+  expect(lines.slice(gateIndex, writerIndex).join("\n")).not.toMatch(/assert-writable[\s\S]*\|\|\s*(?:true|:)/);
+}
+
+// A writer that continues on error is admitted only behind an earlier gate step of its own job, and runs only
+// when that gate succeeded; a refusal there skips the write.
+function assertSeparatelyGatedWriter(block) {
+  const condition = /^steps\.([A-Za-z0-9_-]+)\.outcome == 'success'$/.exec(String(block.step.if ?? "").trim());
+  expect(condition, `${block.name} must run only after its gate step succeeded`).not.toBeNull();
+  const gateIndex = block.steps.findIndex((step) => step.id === condition[1]);
+  expect(gateIndex).toBeGreaterThanOrEqual(0);
+  expect(gateIndex).toBeLessThan(block.index);
+  const gateStep = block.steps[gateIndex];
+  expect(gateStep.if).toBeUndefined();
+  expect(gateStep.run).toMatch(/\bset\s+-euo\s+pipefail\b/);
+  expect(gateStep.run).not.toMatch(/\bset\s+\+e\b/);
+  const lines = gateStep.run.split(/\r?\n/);
+  const gateLines = lines.map((line, index) => ({ line, index })).filter(({ line }) => line.includes(gateCommand));
+  expect(gateLines, `missing gate step before ${block.name}`).toHaveLength(1);
+  assertStrictGate(lines, gateLines[0].index, lines.length);
+  expect(writerBlock({ text: gateStep.run })).toBe(false);
 }
 
 function assertWriterGates(source, writers) {
@@ -40,6 +68,12 @@ function assertWriterGates(source, writers) {
     const lines = block.text.split(/\r?\n/);
     const writerIndex = writer(lines);
     expect(writerIndex, `missing writer in ${name}`).toBeGreaterThanOrEqual(0);
+    if (block.step["continue-on-error"] === true) {
+      expect(block.text).not.toMatch(/\bset\s+\+e\b/);
+      expect(lines.slice(0, writerIndex).some((line) => line.includes(gateCommand))).toBe(false);
+      assertSeparatelyGatedWriter(block);
+      continue;
+    }
     const gateIndices = lines
       .map((line, index) => ({ line, index }))
       .filter(
@@ -122,7 +156,7 @@ it("census enumerates every DOCR writer and kills the m4 sibling-writer mutant",
   const pullRequest = readFileSync(resolve(".github/workflows/platform-pr.yml"), "utf8");
   const marker = readFileSync(resolve("scripts/production-release-marker.mjs"), "utf8");
   expect(registrySource).toContain("timeout-minutes: 135");
-  assertWriterSet(production, ["Build release image", "Push release image", "Build and push Corten admin image"]);
+  assertWriterSet(production, ["Build release image", "Push release image", "Build and push Corten pilot image"]);
   assertWriterSet(pullRequest, ["Push boot-smoked merge-group image", "Build and push platform image"]);
   for (const source of [production, pullRequest]) {
     const blocks = workflowRunBlocks(source);
@@ -142,7 +176,7 @@ it("census enumerates every DOCR writer and kills the m4 sibling-writer mutant",
   const productionWriters = [
     { name: "Build release image", writer: lineContaining(/docker buildx imagetools create/) },
     { name: "Push release image", writer: lineContaining(/docker push "\$RELEASE_IMAGE"/) },
-    { name: "Build and push Corten admin image", writer: buildPushWriter },
+    { name: "Build and push Corten pilot image", writer: buildPushWriter },
   ];
   const pullRequestWriters = [
     { name: "Push boot-smoked merge-group image", writer: lineContaining(/docker push "\$image"/) },
@@ -170,6 +204,32 @@ it("census enumerates every DOCR writer and kills the m4 sibling-writer mutant",
       const mutant = `${source}\n  synthetic-sibling:\n    steps:\n      - run: |\n          ${command}\n`;
       expect(() => assertWriterSet(mutant, writerStepNames(source))).toThrow();
     }
+  }
+});
+
+it("admits a continue-on-error writer only behind a succeeded gate step of its own job", () => {
+  const production = readFileSync(resolve(".github/workflows/platform-production.yml"), "utf8");
+  const pilotWriter = [{ name: "Build and push Corten pilot image", writer: buildPushWriter }];
+  assertWriterGates(production, pilotWriter);
+  for (const mutant of [
+    production.replace("        if: steps.corten_pilot_gate.outcome == 'success'\n", ""),
+    production.replace("if: steps.corten_pilot_gate.outcome == 'success'", "if: always()"),
+    // Under continue-on-error a refused gate's conclusion is success; only its outcome records the refusal.
+    production.replace(
+      "if: steps.corten_pilot_gate.outcome == 'success'",
+      "if: steps.corten_pilot_gate.conclusion == 'success'",
+    ),
+    production.replace(
+      "      - name: Admit the Corten pilot image write\n        id: corten_pilot_gate\n",
+      "      - name: Admit the Corten pilot image write\n        id: corten_pilot_gate\n        if: always()\n",
+    ),
+    production.replace(
+      '            --out="artifacts/release-health/registry-gc-corten-${PILOT}.json"\n',
+      '            --out="artifacts/release-health/registry-gc-corten-${PILOT}.json" || true\n',
+    ),
+  ]) {
+    expect(mutant).not.toBe(production);
+    expect(() => assertWriterGates(mutant, pilotWriter)).toThrow();
   }
 });
 

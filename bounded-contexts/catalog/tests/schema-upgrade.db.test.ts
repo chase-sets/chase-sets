@@ -41,7 +41,7 @@ import {
   queryCatalogProviderIntegrationOptionsWithCache,
 } from "../features/source-observations/api/providers/provider-option-query-cache";
 import { createProductMeasureRuntime } from "../features/product-measures/api/runtime";
-import { seedProductMeasures } from "../features/product-measures/api/seed";
+import { seedProductMeasureProfiles } from "../features/product-measures/api/seed";
 import type { CatalogRuntimeDeps } from "../support/authoring-support/runtime-support";
 import type { CatalogServices } from "../support/authoring-support/services";
 import { seedContext } from "../support/seed-support/context";
@@ -773,9 +773,7 @@ describeDb("catalog schema upgrades", () => {
     expect(await persistence("catalog_blueprints")).toEqual(["u"]);
 
     // A database first bootstrapped by a build that still set the table UNLOGGED, already seeded.
-    await seedProductMeasures({ productMeasures } as unknown as CatalogServices, {
-      resolveExistingCatalogItems: false,
-    });
+    await seedProductMeasureProfiles({ productMeasures } as unknown as CatalogServices);
     await pool.query("ALTER TABLE catalog_product_measure_profiles SET UNLOGGED");
     await pool.query("DELETE FROM bounded_context_schema_migrations WHERE migration_id = $1", [loggedMigrationId]);
     const retainedProfiles = await productMeasures.listProductMeasureProfiles();

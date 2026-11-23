@@ -34,6 +34,29 @@ const cortenAdminImageDelta = [
     purpose: "terraform-infra",
   },
 ];
+// The staging-only Corten marketplace image is built right after the admin pilot's, with the same registry token.
+const cortenMarketplaceImageDelta = [
+  {
+    file: workflowPath,
+    jobId: "build-image",
+    stepAnchor: "name:Build and push Corten marketplace image#10",
+    secretName: "DIGITALOCEAN_ACCESS_TOKEN",
+    purpose: "terraform-infra",
+  },
+];
+// The pilot images moved out of Build Release Image into their own matrix job: its admission step logs in to the
+// registry for either pilot, the push step after it reads no secret, and that job authenticates doctl itself. Reviewed removals of the two build-image grants above, then the additions.
+const cortenPilotImagesJobRemovals = [...cortenAdminImageDelta, ...cortenMarketplaceImageDelta];
+const cortenPilotImagesJobDelta = [
+  "name:Admit the Corten pilot image write#5",
+  "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+].map((stepAnchor) => ({
+  file: workflowPath,
+  jobId: "build-corten-pilot-images",
+  stepAnchor,
+  secretName: "DIGITALOCEAN_ACCESS_TOKEN",
+  purpose: "terraform-infra",
+}));
 const stripeEndpointRotationDelta = [
   {
     file: ".github/workflows/platform-production-stripe-webhook-endpoint-create.yml",
@@ -1147,7 +1170,13 @@ describe("managed Postgres authority source generator", () => {
         .concat(stripeEndpointRotationDelta)
         .concat(catalogCompletionManifestDelta)
         .map((record) => applyStepInsertions(record, cortenAdminSmokeStepInsertion))
-        .concat(cortenAdminSmokeDelta),
+        .concat(cortenAdminSmokeDelta)
+        .concat(cortenMarketplaceImageDelta)
+        .filter(
+          (record) =>
+            !cortenPilotImagesJobRemovals.some((removal) => JSON.stringify(removal) === JSON.stringify(record)),
+        )
+        .concat(cortenPilotImagesJobDelta),
     };
     // Exact stable-record multiset parity below is the authority; a whole-corpus total would only re-conflict.
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";

@@ -1,8 +1,9 @@
-import { t } from "@chase-sets/localization";
+import { t } from "../ui/localization/translator";
 import { Hono } from "hono";
 import type { OrderingApiEnv } from "../../../api";
 import { mapPostagePolicyDomainError, type OrderingPostagePolicyPayload } from "../domain/domain";
-import type { PostagePolicyPreviewRequest, PostagePolicyServices } from "./runtime";
+import type { PostagePolicyPreviewRequest } from "./contracts";
+import type { PostagePolicyServices } from "./runtime";
 
 type PostagePolicyPermission = "postage-policies.view" | "postage-policies.manage";
 
@@ -121,7 +122,7 @@ function previewBody(body: Record<string, unknown>) {
     physicalFlags:
       readArray(body.physicalFlags).length > 0
         ? (readArray(body.physicalFlags) as PostagePolicyPreviewRequest["physicalFlags"])
-        : (["raw-card"] as PostagePolicyPreviewRequest["physicalFlags"]),
+        : (["bendable"] as PostagePolicyPreviewRequest["physicalFlags"]),
   };
 }
 

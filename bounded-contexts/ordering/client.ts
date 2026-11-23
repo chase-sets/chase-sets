@@ -1,8 +1,14 @@
 import { hc } from "hono/client";
 import { honoClientResource } from "@chase-sets/http/hono-client";
-import { attachResponseMetadata, type ListResponse, type SourceCommitPosition } from "@chase-sets/http/responses";
+import type { ListResponse, SourceCommitPosition } from "@chase-sets/http/responses";
 import type { CheckoutOrderingSourceType } from "@chase-sets/checkout-order-source";
 import type { buildOrderingApi } from "./api";
+import { createPostagePolicyClient } from "./features/postage-policies/api/client";
+import {
+  createOrderingClientTransport,
+  parseJsonResponse,
+  type OrderingApiClientOptions,
+} from "./support/request-support/client";
 
 export type {
   OrderingOrderProjection,
@@ -23,7 +29,6 @@ import type {
   SaleDetail,
   SaleListItem,
 } from "./features/orders/api/contracts";
-import type { PackagePlan, PostagePolicy, ProductPhysicalFlag, ShippingOption } from "@chase-sets/product-measures";
 import type { OrderCleanupAuthorityReport } from "./features/orders/api/cleanup-authority";
 
 export type { OrderCleanupAuthorityReport, OrderCleanupAuthorityState } from "./features/orders/api/cleanup-authority";
@@ -34,9 +39,6 @@ export type { OrderCleanupAuthorityReport, OrderCleanupAuthorityState } from "./
  * buyer, Order, or source identity travels in the body.
  */
 export type ObserveOrderCleanupAuthorityRequest = Readonly<{ windowOpenedAt: string }>;
-
-type OrderingApiApp = ReturnType<typeof buildOrderingApi>;
-const DEFAULT_BASE_URL = "/api/marketplace";
 
 export type OrderingCheckoutLineSnapshot = Readonly<{
   listingId: string | null;
@@ -186,114 +188,19 @@ export type CheckoutFulfillmentPreview = Readonly<{
   }> | null;
 }>;
 
-export type PostagePolicyAdminRecord = Readonly<{
-  policy_id: string;
-  label: string;
-  status: string;
-  policy_version: string;
-  payload: PostagePolicy;
-  effective_from: string;
-  effective_until: string | null;
-  activation_reason: string | null;
-  created_by_user_id: string;
-  created_at: string;
-  updated_at: string;
-  activated_at: string | null;
-  retired_at: string | null;
-  history?: readonly Readonly<{
-    history_id: string;
-    policy_id: string;
-    event_type: string;
-    actor_user_id: string;
-    reason: string | null;
-    status: string;
-    policy_version: string;
-    payload: PostagePolicy;
-    effective_from: string;
-    effective_until: string | null;
-    recorded_at: string;
-  }>[];
-  activeComparison?: readonly Readonly<{
-    field: string;
-    activeValue: string;
-    candidateValue: string;
-  }>[];
-}>;
+export type {
+  PostagePolicyAdminRecord,
+  PostagePolicyCommandRequest,
+  PostagePolicyPreviewRequest,
+} from "./features/postage-policies/api/contracts";
+export { OrderingApiError, type OrderingApiClientOptions } from "./support/request-support/client";
 
-export type PostagePolicyCommandRequest = Partial<PostagePolicy> &
-  Readonly<{
-    label: string;
-    effectiveFrom: string;
-    effectiveUntil?: string | null;
-  }>;
+type OrderingApiApp = ReturnType<typeof buildOrderingApi>;
 
-export type PostagePolicyPreviewRequest = Readonly<{
-  policy: Partial<PostagePolicy>;
-  shippingOption: ShippingOption;
-  itemSubtotalAmount: string;
-  quantity: number;
-  unitLengthInches: number;
-  unitWidthInches: number;
-  unitHeightInches: number;
-  unitWeightOunces: number;
-  physicalFlags: readonly ProductPhysicalFlag[];
-}>;
-
-export class OrderingApiError extends Error {
-  public constructor(
-    public readonly status: number,
-    public readonly body: unknown,
-  ) {
-    super(
-      typeof body === "object" &&
-        body !== null &&
-        "error" in body &&
-        typeof (body as { error?: unknown }).error === "object" &&
-        (body as { error?: unknown }).error !== null &&
-        "message" in (body as { error: Record<string, unknown> }).error
-        ? String((body as { error: { message?: unknown } }).error.message)
-        : `API error ${status}`,
-    );
-  }
-}
-
-export interface OrderingApiClientOptions {
-  baseUrl?: string;
-  fetch?: typeof globalThis.fetch;
-  headers?: HeadersInit | (() => HeadersInit);
-  credentials?: RequestCredentials;
-}
-
-function resolveHeaders(headers?: HeadersInit | (() => HeadersInit)) {
-  return typeof headers === "function" ? headers() : headers;
-}
-
-async function parseJsonResponse<T>(response: Response): Promise<T> {
-  if (!response.ok) {
-    const errorBody = await response.json().catch(() => null);
-    throw new OrderingApiError(response.status, errorBody);
-  }
-
-  return attachResponseMetadata(await response.json(), response) as T;
-}
-
-export function createOrderingApiClient({
-  baseUrl = DEFAULT_BASE_URL,
-  fetch = globalThis.fetch,
-  headers: initialHeaders,
-  credentials = "include",
-}: OrderingApiClientOptions = {}) {
-  const configuredFetch: typeof globalThis.fetch = (input, init = {}) =>
-    fetch(input, {
-      ...init,
-      credentials: init.credentials ?? credentials,
-    });
-  const client = honoClientResource(
-    hc<OrderingApiApp>(baseUrl, {
-      fetch: configuredFetch,
-    }),
-  );
-  const headers = resolveHeaders(initialHeaders);
+export function createOrderingApiClient(options?: OrderingApiClientOptions) {
+  const transport = createOrderingClientTransport(options);
+  const { baseUrl, configuredFetch, headers } = transport;
+  const client = honoClientResource(hc<OrderingApiApp>(baseUrl, { fetch: configuredFetch }));
 
   return {
     async createCheckoutOrders(body: CreateCheckoutOrdersRequest): Promise<CreateCheckoutOrdersResponse> {
@@ -382,80 +289,7 @@ export function createOrderingApiClient({
         }),
       );
     },
-    async listPostagePolicies(query = ""): Promise<ListResponse<PostagePolicyAdminRecord>> {
-      return parseJsonResponse(
-        await configuredFetch(`${baseUrl}/admin/postage-policies?${query}`, {
-          headers,
-        }),
-      );
-    },
-    async getPostagePolicy(policyId: string): Promise<PostagePolicyAdminRecord> {
-      return parseJsonResponse(
-        await configuredFetch(`${baseUrl}/admin/postage-policies/${encodeURIComponent(policyId)}`, {
-          headers,
-        }),
-      );
-    },
-    async createPostagePolicy(body: PostagePolicyCommandRequest): Promise<{ id: string; version: number }> {
-      return parseJsonResponse(
-        await configuredFetch(`${baseUrl}/admin/postage-policies`, {
-          method: "POST",
-          headers: { ...headers, "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        }),
-      );
-    },
-    async previewPostagePolicy(body: PostagePolicyPreviewRequest): Promise<{ packagePlan: PackagePlan }> {
-      return parseJsonResponse(
-        await configuredFetch(`${baseUrl}/admin/postage-policies/preview`, {
-          method: "POST",
-          headers: { ...headers, "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        }),
-      );
-    },
-    async revisePostagePolicy(
-      policyId: string,
-      body: PostagePolicyCommandRequest,
-    ): Promise<{ id: string; version: number }> {
-      return parseJsonResponse(
-        await configuredFetch(`${baseUrl}/admin/postage-policies/${encodeURIComponent(policyId)}`, {
-          method: "PUT",
-          headers: { ...headers, "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        }),
-      );
-    },
-    async activatePostagePolicy(policyId: string, activationReason: string): Promise<{ id: string; version: number }> {
-      return parseJsonResponse(
-        await configuredFetch(`${baseUrl}/admin/postage-policies/${encodeURIComponent(policyId)}/activate`, {
-          method: "POST",
-          headers: { ...headers, "Content-Type": "application/json" },
-          body: JSON.stringify({ activationReason }),
-        }),
-      );
-    },
-    async clonePostagePolicy(
-      policyId: string,
-      body: Readonly<{ label: string; effectiveFrom: string; effectiveUntil?: string | null }>,
-    ): Promise<{ id: string; version: number }> {
-      return parseJsonResponse(
-        await configuredFetch(`${baseUrl}/admin/postage-policies/${encodeURIComponent(policyId)}/clone`, {
-          method: "POST",
-          headers: { ...headers, "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        }),
-      );
-    },
-    async retirePostagePolicy(policyId: string, retirementReason: string): Promise<{ id: string; version: number }> {
-      return parseJsonResponse(
-        await configuredFetch(`${baseUrl}/admin/postage-policies/${encodeURIComponent(policyId)}/retire`, {
-          method: "POST",
-          headers: { ...headers, "Content-Type": "application/json" },
-          body: JSON.stringify({ retirementReason }),
-        }),
-      );
-    },
+    ...createPostagePolicyClient(transport),
   };
 }
 

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { buildPackagePlan, type ProductMeasureSnapshot } from "./index";
+import {
+  buildPackagePlan,
+  defaultPostagePolicy,
+  type PostagePolicy,
+  type ProductMeasureSnapshot,
+  type ProductPhysicalFlag,
+} from "./index";
 
 const rawCardMeasure: ProductMeasureSnapshot = {
   catalogItemId: "cat_card",
@@ -10,7 +16,7 @@ const rawCardMeasure: ProductMeasureSnapshot = {
   unitWidthInches: 2.5,
   unitHeightInches: 0.012,
   unitWeightOunces: 0.064,
-  physicalFlags: ["raw-card", "bendable"],
+  physicalFlags: ["bendable"],
   stackBehavior: "stackable-thickness",
   source: "profile",
   confidence: "conservative-estimate",
@@ -24,8 +30,31 @@ const slabMeasure: ProductMeasureSnapshot = {
   unitWidthInches: 3.25,
   unitHeightInches: 0.375,
   unitWeightOunces: 2.4,
-  physicalFlags: ["slab", "rigid"],
+  physicalFlags: ["rigid"],
 };
+
+// Stored measures and policies can still carry the product kinds that were once Physical Flags.
+function storedFlags(...flags: string[]) {
+  return flags as ProductPhysicalFlag[];
+}
+
+const storedPolicyThatNamesKinds: Partial<PostagePolicy> = {
+  policyVersion: "default-postage-policy-v2",
+  letterRequiredPhysicalFlags: storedFlags("raw-card"),
+  parcelRequiredPhysicalFlags: storedFlags("slab", "sealed", "rigid", "metal", "jumbo", "irregular"),
+};
+
+function planOneWithinLetterLimits(
+  physicalFlags: readonly ProductPhysicalFlag[],
+  postagePolicy?: Partial<PostagePolicy>,
+) {
+  return buildPackagePlan({
+    shippingOption: "standard",
+    itemSubtotalAmount: "12.00",
+    lines: [{ productId: rawCardMeasure.productId, quantity: 1, measure: { ...rawCardMeasure, physicalFlags } }],
+    postagePolicy,
+  });
+}
 
 describe("measured package planning", () => {
   it("selects letter mail for low-value raw singles within limits", () => {
@@ -39,7 +68,7 @@ describe("measured package planning", () => {
     expect(plan.packages[0]?.mailpieceClass).toBe("letter");
     expect(plan.letterEligibility.eligible).toBe(true);
     expect(plan.postagePolicySnapshot).toMatchObject({
-      policyVersion: "default-postage-policy-v2",
+      policyVersion: "default-postage-policy-v3",
       parcelRequired: false,
       signatureRequired: false,
       insuranceRequired: false,
@@ -78,6 +107,61 @@ describe("measured package planning", () => {
     expect(plan.postagePolicySnapshot?.parcelRequired).toBe(true);
   });
 
+  it("decides letter eligibility from physical properties under the default policy", () => {
+    expect(defaultPostagePolicy).toMatchObject({
+      policyVersion: "default-postage-policy-v3",
+      letterRequiredPhysicalFlags: ["bendable"],
+      parcelRequiredPhysicalFlags: ["rigid", "metal", "jumbo", "irregular"],
+    });
+
+    const bendable = planOneWithinLetterLimits(["bendable"]);
+    expect(bendable.packages[0]?.mailpieceClass).toBe("letter");
+    expect(bendable.letterEligibility).toEqual({ eligible: true, reasons: [] });
+  });
+
+  it.each<[string, readonly ProductPhysicalFlag[]]>([
+    ["rigid", ["rigid"]],
+    ["metal", ["metal"]],
+    ["jumbo", ["jumbo"]],
+    ["irregular", ["irregular"]],
+    ["bendable and rigid", ["bendable", "rigid"]],
+    ["unflagged", []],
+  ])("needs a parcel for a %s line within the letter limits", (_label, physicalFlags) => {
+    const plan = planOneWithinLetterLimits(physicalFlags);
+
+    expect(plan.packages[0]?.mailpieceClass).toBe("parcel");
+    expect(plan.letterEligibility.reasons).toEqual(["product-type-requires-parcel"]);
+  });
+
+  it.each<[string[], "letter" | "parcel"]>([
+    [["raw-card", "bendable"], "letter"],
+    [["slab", "rigid"], "parcel"],
+    [["sealed"], "parcel"],
+    [["sealed", "rigid"], "parcel"],
+  ])("plans a measure stored as %j the way the policy that named kinds did", (flags, mailpieceClass) => {
+    const underDefault = planOneWithinLetterLimits(storedFlags(...flags));
+    const underStoredPolicy = planOneWithinLetterLimits(storedFlags(...flags), storedPolicyThatNamesKinds);
+
+    expect(underDefault.packages[0]?.mailpieceClass).toBe(mailpieceClass);
+    expect(underStoredPolicy.packages[0]?.mailpieceClass).toBe(mailpieceClass);
+    expect(underDefault.letterEligibility).toEqual(underStoredPolicy.letterEligibility);
+  });
+
+  it("needs a parcel for a measure stored with only the raw-card kind", () => {
+    const plan = planOneWithinLetterLimits(storedFlags("raw-card"));
+
+    expect(plan.packages[0]?.mailpieceClass).toBe("parcel");
+    expect(plan.letterEligibility.reasons).toEqual(["product-type-requires-parcel"]);
+  });
+
+  it("needs a parcel for a bendable line while a stored policy still requires the raw-card kind", () => {
+    const plan = planOneWithinLetterLimits(["bendable"], storedPolicyThatNamesKinds);
+
+    expect(plan.packages[0]?.mailpieceClass).toBe("parcel");
+    expect(plan.letterEligibility.reasons).toEqual(["product-type-requires-parcel"]);
+    expect(plan.postagePolicySnapshot?.policyVersion).toBe("default-postage-policy-v2");
+  });
+
   it("records signature requirements from the active postage policy", () => {
     const plan = buildPackagePlan({
       shippingOption: "priority",
@@ -87,7 +171,7 @@ describe("measured package planning", () => {
 
     expect(plan.packages[0]?.mailpieceClass).toBe("parcel");
     expect(plan.postagePolicySnapshot).toMatchObject({
-      policyVersion: "default-postage-policy-v2",
+      policyVersion: "default-postage-policy-v3",
       parcelRequired: true,
       signatureRequired: true,
       insuranceRequired: false,

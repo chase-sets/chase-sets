@@ -457,7 +457,7 @@ export function MarketplaceListingCreatePage({
   const [evidenceReadiness, setEvidenceReadiness] = useState(initialEvidenceReadiness ?? null);
   const [evidenceReadinessPending, setEvidenceReadinessPending] = useState(false);
   const selectedInventory = selectedInventorySummary(inventoryItems, inventoryItemId);
-  const selectedInventoryBlocksPublication =
+  const selectedInventoryBlocksCreation =
     selectedInventory !== null && selectedInventory.product_measure_snapshot === null;
   const hasInventory = inventoryItems.length > 0;
   const [catalogPicker, dispatchCatalogPicker] = useReducer(
@@ -607,13 +607,11 @@ export function MarketplaceListingCreatePage({
                   }
                 />
               ) : null}
-              {selectedInventoryBlocksPublication ? (
+              {selectedInventoryBlocksCreation ? (
                 <MarketplaceNotice
                   tone="warning"
                   title={t("marketplace.features.listings.ui.listingCreatePage.shipping.measure.missing")}
-                  description={t(
-                    "marketplace.features.listings.ui.listingCreatePage.publish.requires.shipping.measure",
-                  )}
+                  description={t("marketplace.features.listings.api.route.error.shippingMeasureMissing")}
                 />
               ) : null}
               <HiddenInput name="idempotencyKey" value={idempotencyKey} />
@@ -847,7 +845,7 @@ export function MarketplaceListingCreatePage({
                   value="create-and-publish-listing"
                   disabled={
                     catalogSelectionBlocksMutation ||
-                    selectedInventoryBlocksPublication ||
+                    selectedInventoryBlocksCreation ||
                     !evidenceReadiness?.coverage.complete
                   }
                 >
@@ -867,7 +865,7 @@ export function MarketplaceListingCreatePage({
                   name="intent"
                   value="create-listing"
                   tone="ghost"
-                  disabled={catalogSelectionBlocksMutation}
+                  disabled={catalogSelectionBlocksMutation || selectedInventoryBlocksCreation}
                 >
                   {t("marketplace.features.listings.ui.listingCreatePage.save.as.draft")}
                 </Button>

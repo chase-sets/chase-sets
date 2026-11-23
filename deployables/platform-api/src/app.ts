@@ -116,7 +116,7 @@ import {
   type PolicyConsoleWritePort,
   type SupportReferenceLookupCrossContextPort,
   type SupportReferenceLookupResult,
-  supportDeadlinePolicy,
+  supportDeadlinePublicPolicy,
 } from "@chase-sets/platform-operations/server";
 import {
   betaWavePolicy,
@@ -634,7 +634,7 @@ export function createPlatformApiHost(
   if (platformOperationsPool) {
     publicPolicySources.push(
       createPublicPolicySource(platformOperationsPool, rateLimitPolicy),
-      createPublicPolicySource(platformOperationsPool, supportDeadlinePolicy),
+      createPublicPolicySource(platformOperationsPool, supportDeadlinePublicPolicy),
     );
   }
   const supportReferenceLookupCrossContextSources: SupportReferenceLookupCrossContextPort["sources"][number][] = [];

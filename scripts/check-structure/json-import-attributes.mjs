@@ -4,6 +4,7 @@ import path from "node:path";
 import ts from "@chase-sets/typescript-compiler-api";
 import { CONTEXT_REGISTRY_HOST_ARMS, listWorkspacePackages, repoRoot } from "../lib/repo.mjs";
 import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
+import { findFeatureRouteReexports } from "./feature-route-reexports.mjs";
 
 const sourceExtensions = [".ts", ".tsx", ".mts", ".cts"];
 const sourceExtensionSet = new Set(sourceExtensions);
@@ -451,6 +452,7 @@ function stringProperty(source, propertyName) {
 }
 
 function viteExecution({
+  rootDir,
   packages,
   paths,
   readContent,
@@ -464,6 +466,7 @@ function viteExecution({
 }) {
   const files = new Set();
   const apps = [];
+  const routeModules = new Set();
 
   for (const workspace of packages) {
     const hostMatch = /^@chase-sets\/app-(.+)$/.exec(workspace.name);
@@ -514,12 +517,33 @@ function viteExecution({
         for (const route of contribution.routes) {
           if (typeof route?.fileExport !== "string" || !route.fileExport.startsWith(".")) continue;
           const resolved = resolveRelative(manifestPath, route.fileExport, paths);
-          if (resolved && sourceExtensionSet.has(path.posix.extname(resolved))) files.add(resolved);
+          if (!resolved || !sourceExtensionSet.has(path.posix.extname(resolved))) continue;
+          files.add(resolved);
+          routeModules.add(resolved);
+          for (const target of findFeatureRouteReexports(rootDir, resolved, readContent(resolved))) {
+            if (paths.has(target)) files.add(target);
+          }
         }
       }
       if (!context) throw new Error(`missing implemented context for ${manifestPath}`);
     }
     apps.push({ hostName, routeRoot, activeManifests });
+  }
+
+  // A registered route can be an export-only adapter. Follow its local runtime
+  // graph just as Vite does, without classifying unregistered modules as routes.
+  for (const relativeFile of moduleClosure({
+    seeds: [...routeModules].sort(),
+    paths,
+    packages,
+    readContent,
+    readRecords,
+    readImports,
+    localOnly: true,
+    targets,
+    work,
+  })) {
+    files.add(relativeFile);
   }
 
   return { files, apps };
@@ -710,6 +734,7 @@ export function inspectJsonImportAttributes(options = {}) {
     work,
   });
   const vite = viteExecution({
+    rootDir,
     packages,
     paths,
     readContent,

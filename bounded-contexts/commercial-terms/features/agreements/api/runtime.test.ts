@@ -10,6 +10,7 @@ import type {
 } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { createCommercialTermsPolicyRuntime } from "../../../support/runtime-support/policy-runtime";
+import { buildFoundersWindowReactionHandlers } from "../integrations/identity/founders-window-reaction";
 import { createAgreementRuntime } from "./runtime";
 
 const context = {
@@ -218,5 +219,129 @@ describe("commercial terms agreement runtime", () => {
       "cag_current",
     ]);
     expect(allEvents).toHaveLength(0);
+  });
+});
+
+describe("commercial terms agreement Shipping Allowance", () => {
+  const ALLOWANCE_KEY = "shippingAllowancePercentageBps";
+
+  function createAgreementHarness() {
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const db = {
+      query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
+        if (sql.includes("FROM platform_policy_document_history")) return { rows: [] };
+        if (sql.includes("WHERE agreement.document_id = $1")) {
+          return { rows: [{ agreement_id: params?.[0], account_id: "acc_seller" }] };
+        }
+        if (sql.includes("FROM commercial_terms_account_pages")) return { rows: [{ account_id: "acc_seller" }] };
+        return { rows: [] };
+      }),
+    };
+    const policies = createCommercialTermsPolicyRuntime({ eventStore, db: db as never });
+    const runtime = createAgreementRuntime({ policies, db: db as never });
+    const storedValues = (eventType: string) =>
+      allEvents
+        .filter((event) => event.eventType === eventType)
+        .map((event) => (event.payload as { value: Record<string, unknown> }).value);
+    return { runtime, storedValues };
+  }
+
+  const terms = {
+    label: "Preferred",
+    marketplaceSalesFeePercentageBps: 550,
+    marketplaceSalesFeeFixedAmount: "0.00",
+    status: "active",
+    effectiveFrom: "2026-05-01T00:00:00.000Z",
+    effectiveUntil: null,
+  } as const;
+  const storedTerms = {
+    label: "Preferred",
+    accountId: "acc_seller",
+    marketplaceSalesFeePercentageBps: 550,
+    marketplaceSalesFeeFixedAmount: "0.00",
+  };
+
+  it("stores no Shipping Allowance key when an agreement is created or revised without one", async () => {
+    const { runtime, storedValues } = createAgreementHarness();
+
+    await runtime.createAgreement(
+      { ...terms, agreementId: "cag_follows", accountId: "acc_seller", createdByUserId: "usr_admin" },
+      context,
+    );
+    await runtime.reviseAgreement("cag_follows", { ...terms, label: "Renewed", revisedByUserId: "usr_admin" }, context);
+
+    const [created] = storedValues("platform-policy.document.created");
+    const [revised] = storedValues("platform-policy.document.revised");
+    expect(created).toStrictEqual(storedTerms);
+    expect(Object.keys(created!)).not.toContain(ALLOWANCE_KEY);
+    expect(revised).toStrictEqual({ ...storedTerms, label: "Renewed" });
+    expect(Object.keys(revised!)).not.toContain(ALLOWANCE_KEY);
+  });
+
+  it("stores the stated Shipping Allowance on create and revise, including zero", async () => {
+    const { runtime, storedValues } = createAgreementHarness();
+
+    await runtime.createAgreement(
+      {
+        ...terms,
+        agreementId: "cag_stated",
+        accountId: "acc_seller",
+        shippingAllowancePercentageBps: 700,
+        createdByUserId: "usr_admin",
+      },
+      context,
+    );
+    await runtime.reviseAgreement(
+      "cag_stated",
+      { ...terms, shippingAllowancePercentageBps: 0, revisedByUserId: "usr_admin" },
+      context,
+    );
+
+    expect(storedValues("platform-policy.document.created")).toStrictEqual([{ ...storedTerms, [ALLOWANCE_KEY]: 700 }]);
+    expect(storedValues("platform-policy.document.revised")).toStrictEqual([{ ...storedTerms, [ALLOWANCE_KEY]: 0 }]);
+  });
+
+  it("drops a pinned Shipping Allowance when a revision states none", async () => {
+    const { runtime, storedValues } = createAgreementHarness();
+
+    await runtime.createAgreement(
+      {
+        ...terms,
+        agreementId: "cag_unpinned",
+        accountId: "acc_seller",
+        shippingAllowancePercentageBps: 700,
+        createdByUserId: "usr_admin",
+      },
+      context,
+    );
+    await runtime.reviseAgreement("cag_unpinned", { ...terms, revisedByUserId: "usr_admin" }, context);
+
+    expect(storedValues("platform-policy.document.revised")).toStrictEqual([storedTerms]);
+  });
+
+  it("stores the founders window agreement without a Shipping Allowance", async () => {
+    const { runtime, storedValues } = createAgreementHarness();
+    const handlers = buildFoundersWindowReactionHandlers(runtime);
+
+    await handlers["identity.account.founders-window-opened"]!({
+      streamId: "identity.account-acc_seller",
+      tenantId: context.tenantId,
+      audit: context.audit,
+      trace: {},
+      timing: { occurredAt: "2026-07-01T00:00:00.000Z", recordedAt: "2026-07-01T00:00:01.000Z" },
+      data: {
+        betaAccessStartedAt: "2026-07-01T00:00:00.000Z",
+        foundersWindowEndsAt: "2026-08-30T00:00:00.000Z",
+      },
+    } as never);
+
+    const [founders] = storedValues("platform-policy.document.created");
+    expect(founders).toStrictEqual({
+      label: "Founders window",
+      accountId: "acc_seller",
+      marketplaceSalesFeePercentageBps: 0,
+      marketplaceSalesFeeFixedAmount: "0.00",
+    });
+    expect(Object.keys(founders!)).not.toContain(ALLOWANCE_KEY);
   });
 });

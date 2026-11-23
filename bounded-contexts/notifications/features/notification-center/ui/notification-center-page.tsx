@@ -18,14 +18,16 @@ import {
   Switch,
   Text,
 } from "@chase-sets/design-system";
-import { formatDateTime, t } from "@chase-sets/localization";
+import { formatDateTime } from "@chase-sets/localization/core";
 import {
   createNotificationCenterApiClient,
   type NotificationCenterFeedResponse,
   type NotificationCenterReadMutationResponse,
   type NotificationPreference,
 } from "../../../client";
+import { getNotificationPreferenceCopy } from "../../preferences/ui/localization/translator";
 import type { NotificationCenterProductAlert, NotificationCenterProductAlertList } from "../api/request-client";
+import { t } from "./localization/translator";
 import {
   notificationCenterPath,
   notificationCenterSettingsHref,
@@ -55,21 +57,6 @@ export type NotificationCenterPageData =
 const productAlertActionPath = "/account/product-alerts";
 const productAlertsSectionId = "product-alerts";
 const productAlertsCatchUpReadMs = 2_000;
-
-const preferenceCopyKeys: Record<NotificationPreference["key"], { labelKey: string; descriptionKey: string }> = {
-  web: {
-    labelKey: "notifications.features.notificationCenter.ui.shell.preference.web.label",
-    descriptionKey: "notifications.features.notificationCenter.ui.shell.preference.web.description",
-  },
-  email: {
-    labelKey: "notifications.features.notificationCenter.ui.shell.preference.email.label",
-    descriptionKey: "notifications.features.notificationCenter.ui.shell.preference.email.description",
-  },
-  "product-alerts": {
-    labelKey: "notifications.features.notificationCenter.ui.shell.preference.productAlerts.label",
-    descriptionKey: "notifications.features.notificationCenter.ui.shell.preference.productAlerts.description",
-  },
-};
 
 export function NotificationCenterPage({ data }: Readonly<{ data: NotificationCenterPageData }>) {
   const revalidator = useRevalidator();
@@ -297,13 +284,13 @@ function NotificationSettings({
         <Stack gap={3}>
           {preferenceFailed ? <NotificationCommandFailure /> : null}
           {preferences.map((preference) => {
-            const copy = preferenceCopyKeys[preference.key];
+            const copy = getNotificationPreferenceCopy(preference.key);
 
             return (
               <Switch
                 key={preference.key}
-                label={copy ? t(copy.labelKey) : preference.key}
-                description={copy ? t(copy.descriptionKey) : undefined}
+                label={copy?.label ?? preference.key}
+                description={copy?.description}
                 checked={preference.enabled}
                 onCheckedChange={(enabled) => void changePreference(preference.key, enabled)}
               />

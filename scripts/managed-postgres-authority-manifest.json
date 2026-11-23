@@ -5351,8 +5351,15 @@
     },
     {
       "file": ".github/workflows/platform-production.yml",
-      "jobId": "build-image",
-      "stepAnchor": "name:Build and push Corten admin image#9",
+      "jobId": "build-corten-pilot-images",
+      "stepAnchor": "name:Admit the Corten pilot image write#5",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "build-corten-pilot-images",
+      "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },

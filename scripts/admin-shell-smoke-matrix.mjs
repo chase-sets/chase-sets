@@ -129,7 +129,7 @@ export const ADMIN_WEB_API_DEPENDENCIES = [
     section: "Commerce",
     surface: "Commerce Postage Policies",
     callerType: "server-loader/action",
-    sourceFile: "bounded-contexts/ordering/client.ts",
+    sourceFile: "bounded-contexts/ordering/features/postage-policies/api/client.ts",
     apiPath: "/api/marketplace/admin/postage-policies",
     sourceEvidence: ["admin/postage-policies"],
     contract: "internal-origin server call",

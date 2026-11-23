@@ -658,6 +658,33 @@
       "order": 12
     },
     {
+      "subscriptionName": "catalog.product-measure-resolution",
+      "handlerKind": "reaction",
+      "projectionName": "catalog-product-measure-resolution",
+      "sourceContextName": "catalog",
+      "targetContextName": "catalog",
+      "subscriptionVersion": 1,
+      "checkpointKey": "catalog-product-measure-resolution:catalog:v1",
+      "handlers": {
+        "catalog.catalog-item.published": "<function>",
+        "catalog.catalog-item.category-assigned": "<function>",
+        "catalog.catalog-item.category-removed": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 1,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "catalog.catalog-item.published",
+        "catalog.catalog-item.category-assigned",
+        "catalog.catalog-item.category-removed"
+      ],
+      "streamPrefixes": "<undefined>",
+      "order": 100
+    },
+    {
       "subscriptionName": "catalog.catalog-product-measures-projection",
       "handlerKind": "projection",
       "projectionName": "catalog-product-measures-projection",
@@ -849,7 +876,29 @@
       "order": 16
     }
   ],
-  "subscriptions": [],
+  "subscriptions": [
+    {
+      "subscriptionName": "catalog.product-measure-resolution",
+      "handlerKind": "reaction",
+      "sourceContextName": "catalog",
+      "projectionName": "catalog-product-measure-resolution",
+      "reactionName": "catalog-product-measure-resolution",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "catalog.catalog-item.published": "<function>",
+        "catalog.catalog-item.category-assigned": "<function>",
+        "catalog.catalog-item.category-removed": "<function>"
+      },
+      "eventTypes": [
+        "catalog.catalog-item.published",
+        "catalog.catalog-item.category-assigned",
+        "catalog.catalog-item.category-removed"
+      ],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "order": 100
+    }
+  ],
   "projectionRevisions": {
     "catalog-scope-registry-projection": 2
   }

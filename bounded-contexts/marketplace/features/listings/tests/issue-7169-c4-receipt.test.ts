@@ -4,7 +4,13 @@ import {
   canonicalInventoryDraftListingIntent,
   listingIdForInventoryDraftRow,
 } from "@chase-sets/inventory-draft-listing";
-import { directPortInput, draftContext, draftMessage, type InventorySnapshotDraftInput } from "./issue-7169-c4-fixture";
+import {
+  directPortInput,
+  draftContext,
+  draftMessage,
+  draftProductMeasure,
+  type InventorySnapshotDraftInput,
+} from "./issue-7169-c4-fixture";
 import { createInventoryDraftListingConsumer, InventoryDraftListingUnavailable } from "../api/inventory-draft-consumer";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { normalizeAddressSnapshot } from "@chase-sets/primitives/address-snapshot";
@@ -146,6 +152,7 @@ function harness() {
       itemSubtitle: null,
       selectedOptions: input.selectedOptions,
       productSummary: null,
+      productMeasureSnapshot: draftProductMeasure(),
       gradedCard: null,
       storageLocationName: input.storageLocationName,
       shipFromCode: input.shipFromCode,
@@ -462,6 +469,19 @@ describe("issue-7169-c4-draft-receipt transaction", () => {
     expect(h.queries.filter((sql) => sql === "ROLLBACK")).toHaveLength(1);
     expect(h.events()).toHaveLength(0);
     expect(h.receipts()).toHaveLength(0);
+
+    const measure = harness();
+    measure.createDraft.mockImplementation(async () => {
+      measure.seedLegacy(draftMessage(), { productMeasureSnapshot: null });
+      throw new Error("Expected creation to refuse a native Listing without a shipping measure");
+    });
+    await expect(measure.consumer.accept(draftMessage(), draftContext)).rejects.toMatchObject({
+      code: "inventory-draft-unavailable",
+      diagnostic: "listing-rejected",
+    });
+    expect(measure.queries.filter((sql) => sql === "ROLLBACK")).toHaveLength(1);
+    expect(measure.events()).toHaveLength(0);
+    expect(measure.receipts()).toHaveLength(0);
 
     const evidence = harness();
     evidence.createDraft.mockRejectedValue(new Error("evidence requirements unavailable"));

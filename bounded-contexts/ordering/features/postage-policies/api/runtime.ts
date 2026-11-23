@@ -12,8 +12,6 @@ import {
   type PackagePlan,
   type PostagePolicy,
   type ProductMeasureSnapshot,
-  type ProductPhysicalFlag,
-  type ShippingOption,
 } from "@chase-sets/product-measures";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import {
@@ -26,23 +24,12 @@ import {
 } from "../domain/domain";
 import { buildPostagePolicyProjectionHandlers } from "../read-model/projection";
 import { getActivePostagePolicy, getPostagePolicy, listPostagePolicies } from "../read-model/queries";
+import type { PostagePolicyPreviewRequest } from "./contracts";
 
 type PostagePolicyRuntimeDeps = Readonly<{
   eventStore: EventStore;
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;
-}>;
-
-export type PostagePolicyPreviewRequest = Readonly<{
-  policy: Partial<PostagePolicy>;
-  shippingOption: ShippingOption;
-  itemSubtotalAmount: string;
-  quantity: number;
-  unitLengthInches: number;
-  unitWidthInches: number;
-  unitHeightInches: number;
-  unitWeightOunces: number;
-  physicalFlags: readonly ProductPhysicalFlag[];
 }>;
 
 export type PostagePolicyServices = Readonly<{

@@ -1,4 +1,8 @@
-export type MarketplaceListingDomainErrorCode = "listing-not-found" | "inventory-item-not-found" | "command-rejected";
+export type MarketplaceListingDomainErrorCode =
+  | "listing-not-found"
+  | "inventory-item-not-found"
+  | "shipping-measure-missing"
+  | "command-rejected";
 
 export class MarketplaceListingDomainError extends Error {
   public constructor(

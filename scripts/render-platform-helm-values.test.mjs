@@ -20,6 +20,7 @@ import {
   platformHelmComponentName,
   platformHelmFullname,
   previewWildcardTlsSecretName,
+  resolveStagingAdminApp,
   syncPlatformHelmValues,
 } from "./render-platform-helm-values.mjs";
 
@@ -968,7 +969,7 @@ spec:
       "staging.chasesets.com": { path: "/", service: "marketplace" },
       "www.staging.chasesets.com": { path: "/", service: "public-web" },
       "marketplace.staging.chasesets.com": { path: "/", service: "marketplace" },
-      "admin.staging.chasesets.com": { path: "/", service: "admin-web" },
+      "admin.staging.chasesets.com": { path: "/", service: "admin-corten" },
       "admin-corten.staging.chasesets.com": { path: "/", service: "admin-corten" },
     });
     expect(doksIngress.hosts[0].paths.map((route) => route.path)).toEqual([
@@ -984,6 +985,58 @@ spec:
       "/",
     ]);
     expect(doksIngress.hosts[0].paths.slice(0, -1).every((route) => route.service === "platform-api")).toBe(true);
+  });
+
+  it("serves admin.staging from the app STAGING_ADMIN_APP names, and nothing else", () => {
+    const adminHost = (env) =>
+      buildDoksIngressValues({ env: { DOKS_INGRESS_TARGET: "203.0.113.10", ...env } }).hosts.filter(({ host }) =>
+        host.startsWith("admin"),
+      );
+    const serving = (env) => Object.fromEntries(adminHost(env).map(({ host, paths }) => [host, paths.at(-1).service]));
+    for (const env of [{}, { STAGING_ADMIN_APP: "" }, { STAGING_ADMIN_APP: " admin-corten " }]) {
+      expect(serving(env)).toEqual({
+        "admin.staging.chasesets.com": "admin-corten",
+        "admin-corten.staging.chasesets.com": "admin-corten",
+      });
+    }
+    expect(serving({ STAGING_ADMIN_APP: "admin-web" })).toEqual({
+      "admin.staging.chasesets.com": "admin-web",
+      "admin-corten.staging.chasesets.com": "admin-corten",
+    });
+    // The switch moves only "/": every platform-api path on the admin host stays where it was.
+    const apiPaths = (env) => adminHost(env)[0].paths.slice(0, -1);
+    expect(apiPaths({ STAGING_ADMIN_APP: "admin-web" })).toEqual(apiPaths({}));
+    for (const value of ["admin", "Admin-Corten", "marketplace", "public-web", "admin-corten,admin-web"]) {
+      expect(() => adminHost({ STAGING_ADMIN_APP: value })).toThrow(
+        `STAGING_ADMIN_APP must be one of admin-corten, admin-web; got "${value}".`,
+      );
+    }
+    // A bad value fails even before the ingress is enabled, so it cannot wait for the first live deploy.
+    expect(() => buildDoksIngressValues({ env: { STAGING_ADMIN_APP: "admin" } })).toThrow("STAGING_ADMIN_APP");
+    expect(resolveStagingAdminApp({})).toEqual({ app: "admin-corten", source: "default" });
+    expect(resolveStagingAdminApp({ STAGING_ADMIN_APP: "admin-web" })).toEqual({
+      app: "admin-web",
+      source: "variable",
+    });
+  });
+
+  it("leaves production admin on admin-web whatever STAGING_ADMIN_APP says", () => {
+    const production = (env) =>
+      buildDoksIngressValues({
+        environment: "production",
+        env: { PRODUCTION_DOKS_INGRESS_TARGET: "203.0.113.20", ...env },
+      });
+    for (const STAGING_ADMIN_APP of ["admin-corten", "admin-web", "not-an-app"]) {
+      expect(production({ STAGING_ADMIN_APP })).toEqual(production({}));
+    }
+    expect(
+      production({})
+        .hosts.find(({ host }) => host === "admin.chasesets.com")
+        .paths.at(-1),
+    ).toEqual({
+      path: "/",
+      service: "admin-web",
+    });
   });
 
   // #9985: the browser extension's connector credential mount

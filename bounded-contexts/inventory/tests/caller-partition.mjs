@@ -196,7 +196,10 @@ export function discoverInventoryCallers(sources) {
       } else if (ts.isPropertyAssignment(node) && name(node.name) === "type" && commandFamily(name(node.initializer))) {
         symbol = name(node.initializer);
         family = commandFamily(symbol);
-      } else if (ts.isMethodDeclaration(node) && file === "bounded-contexts/inventory/client.ts") {
+      } else if (
+        ts.isMethodDeclaration(node) &&
+        /^bounded-contexts\/inventory\/(?:features\/[^/]+\/api\/)?client\.ts$/.test(file)
+      ) {
         symbol = name(node.name);
         family = methodFamily(symbol);
       }

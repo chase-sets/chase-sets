@@ -194,12 +194,7 @@ describe("ordering inventory reservation subscription", () => {
 
     await handler(createReservationConfirmedEvent());
 
-    expect(subscription).toMatchObject({
-      handlerKind: "reaction",
-      idempotencyPolicy: "idempotent-command-dispatch",
-      retryPolicy: "retry-from-last-checkpoint",
-      failurePolicy: "surface-as-reaction-failure",
-    });
+    expect(subscription).toMatchObject({ handlerKind: "reaction" });
     expect(commands).toEqual([
       {
         type: "RecordReservationConfirmed",

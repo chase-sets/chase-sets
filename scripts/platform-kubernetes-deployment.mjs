@@ -20,6 +20,7 @@ import {
   platformHelmPreviewPostgresName,
   previewWildcardTlsSecretName,
   previewWildcardTlsSecretNamespace,
+  resolveStagingAdminApp,
 } from "./render-platform-helm-values.mjs";
 import { writeJsonRecord } from "./lib/output-file.mjs";
 import { MERGE_GATE_NAMESPACE_PATTERN, VERIFICATION_NAMESPACE_PATTERN } from "./ephemeral-verification-namespace.mjs";
@@ -96,12 +97,54 @@ function isDisposableNamespace(namespace) {
   );
 }
 
+// The staging-only Corten pilot apps: each is built as its own image and pinned by digest on staging.
+const cortenPilotImages = [
+  {
+    option: "cortenAdminImage",
+    flag: "corten-admin-image",
+    component: "admin-corten",
+    repository: "chase-sets-corten-admin",
+  },
+  {
+    option: "cortenMarketplaceImage",
+    flag: "corten-marketplace-image",
+    component: "marketplace-corten",
+    repository: "chase-sets-corten-marketplace",
+  },
+];
+
+// Corten pilots still served beside their React app. Staging deploys one of these disabled when its image
+// is missing. A pilot leaves this list when it becomes the app that serves its host; from then on a missing
+// image fails the deploy instead of removing what serves the host. admin-corten left it when it began
+// serving admin.staging.
+export const ADVISORY_CORTEN_PILOT_COMPONENTS = Object.freeze(["marketplace-corten"]);
+
+// The advisory pilots a staging deploy drops because no image was given for them.
+export function droppedAdvisoryCortenPilots(options = {}) {
+  if (options.envOverrides?.DEPLOYMENT_ENVIRONMENT !== "staging") return [];
+  const advisory = options.advisoryCortenPilotComponents ?? ADVISORY_CORTEN_PILOT_COMPONENTS;
+  return cortenPilotImages
+    .filter(({ option, component }) => !options[option] && advisory.includes(component))
+    .map(({ component }) => component);
+}
+
+// The pilots a staging deploy renders disabled whatever image it was given. While STAGING_ADMIN_APP rolls
+// admin.staging back to admin-web, admin-corten is not deployed: the release waits for every enabled pod
+// (helm --wait --atomic), so a pilot that never becomes ready would otherwise fail the rollback itself.
+export function withheldCortenPilots(options = {}) {
+  if (options.envOverrides?.DEPLOYMENT_ENVIRONMENT !== "staging") return [];
+  return resolveStagingAdminApp(options.env ?? {}).app === "admin-web" ? ["admin-corten"] : [];
+}
+
 export function platformKubernetesWorkloads(options = {}) {
   const values = options.values ?? buildPlatformHelmValues({ repoRoot: options.repoRoot });
-  const stagingComponents =
+  const staging =
     !options.values && options.envOverrides?.DEPLOYMENT_ENVIRONMENT === "staging"
-      ? { "admin-corten": buildPlatformHelmStagingValues({ repoRoot: options.repoRoot }).components["admin-corten"] }
-      : {};
+      ? buildPlatformHelmStagingValues({ repoRoot: options.repoRoot }).components
+      : undefined;
+  const stagingComponents = staging
+    ? Object.fromEntries(cortenPilotImages.map(({ component }) => [component, staging[component]]))
+    : {};
   const release = options.release ?? defaultRelease;
   const deployments = [];
   const rollouts = [];
@@ -140,17 +183,32 @@ export function buildHelmUpgradeArgs(options = {}) {
   const imagePullSecret = managedRegistryPullSecret(options.imagePullSecret);
   const requestedEnvOverrides = normalizeEnvOverrides(options.envOverrides ?? {});
   const deploymentEnvironment = requestedEnvOverrides.DEPLOYMENT_ENVIRONMENT;
-  const cortenAdminSetArgs = [];
-  if (options.cortenAdminImage) {
+  const cortenPilotSetArgs = [];
+  const droppedPilots = droppedAdvisoryCortenPilots({ ...options, envOverrides: requestedEnvOverrides });
+  const withheldPilots = withheldCortenPilots({ ...options, envOverrides: requestedEnvOverrides });
+  for (const { option, flag, component, repository } of cortenPilotImages) {
+    const reference = options[option];
+    if (withheldPilots.includes(component)) {
+      cortenPilotSetArgs.push("--set", `components.${component}.enabled=false`);
+      continue;
+    }
+    if (!reference) {
+      if (deploymentEnvironment !== "staging") continue;
+      if (!droppedPilots.includes(component)) {
+        throw new Error(`${flag} is required on staging: ${component} is not an advisory pilot.`);
+      }
+      cortenPilotSetArgs.push("--set", `components.${component}.enabled=false`);
+      continue;
+    }
     if (deploymentEnvironment !== "staging") {
-      throw new Error("corten-admin-image is staging-only.");
+      throw new Error(`${flag} is staging-only.`);
     }
-    const cortenImage = parsePlatformImageRef(options.cortenAdminImage);
-    requiredSha256Digest(cortenImage.digest, "corten-admin-image digest");
-    if (cortenImage.registryName !== image.registryName || cortenImage.repository !== "chase-sets-corten-admin") {
-      throw new Error("corten-admin-image must use the platform registry and chase-sets-corten-admin repository.");
+    const cortenImage = parsePlatformImageRef(reference);
+    requiredSha256Digest(cortenImage.digest, `${flag} digest`);
+    if (cortenImage.registryName !== image.registryName || cortenImage.repository !== repository) {
+      throw new Error(`${flag} must use the platform registry and ${repository} repository.`);
     }
-    cortenAdminSetArgs.push("--set-string", `components.admin-corten.image=${options.cortenAdminImage}`);
+    cortenPilotSetArgs.push("--set-string", `components.${component}.image=${reference}`);
   }
   const stagingRuntimeRevisionArgs =
     deploymentEnvironment === "staging"
@@ -283,7 +341,7 @@ export function buildHelmUpgradeArgs(options = {}) {
     ...previewSchedulingSetArgs,
     ...stagingRuntimeRevisionArgs,
     ...productionRuntimeRevisionArgs,
-    ...cortenAdminSetArgs,
+    ...cortenPilotSetArgs,
     ...(managedPostgresCaSha256 ? ["--set-string", `global.managedPostgresCaSha256=${managedPostgresCaSha256}`] : []),
     "--set-string",
     `global.image.registry=${image.registry}`,
@@ -736,6 +794,9 @@ export function buildDeploymentEvidence(options = {}) {
     completedAt: options.completedAt ?? null,
     result: options.result ?? "unknown",
     ...(options.reason ? { reason: options.reason } : {}),
+    ...(options.envOverrides?.DEPLOYMENT_ENVIRONMENT === "staging"
+      ? { stagingAdminApp: stagingAdminAppRecord(options.env ?? {}) }
+      : {}),
     workloads,
     ...(options.rollbackIdentity ? { rollbackIdentity: options.rollbackIdentity } : {}),
   };
@@ -2446,6 +2507,26 @@ async function readHelmHistory(options) {
   return normalized;
 }
 
+export function buildCurrentHelmValuesArgs(options = {}) {
+  const release = requiredOption(options.release ?? defaultRelease, "release");
+  const namespace = requiredOption(options.namespace ?? defaultNamespace, "namespace");
+  return ["get", "values", release, "--namespace", namespace, "--all", "--output", "json"];
+}
+
+async function readCurrentHelmValues(options) {
+  const result = await runProcess({
+    command: options.helmPath ?? "helm",
+    args: buildCurrentHelmValuesArgs(options),
+    spawn: options.spawn,
+    captureOutput: true,
+  });
+  const values = parseJsonCommandOutput(result.stdout, "Helm values for the current release");
+  if (!values || typeof values !== "object" || Array.isArray(values) || !values.components) {
+    throw new Error("Helm values for the current release must be a JSON object with components.");
+  }
+  return values;
+}
+
 async function readHelmRevisionValues(options) {
   const result = await runProcess({
     command: options.helmPath ?? "helm",
@@ -2598,10 +2679,30 @@ function assertHelmHistoryUnchanged(before, after, phase) {
   }
 }
 
+function withoutWorkloads(workloads, names) {
+  return Object.fromEntries(
+    Object.entries(workloads).map(([kind, items]) => [kind, items.filter((name) => !names.has(name))]),
+  );
+}
+
 export async function deployPlatformToKubernetes(options = {}) {
   const helmPath = options.helmPath ?? "helm";
   const kubectlPath = options.kubectlPath ?? "kubectl";
-  const workloads = options.workloads ?? platformKubernetesWorkloads(options);
+  const droppedPilots = droppedAdvisoryCortenPilots(options);
+  for (const component of droppedPilots) {
+    console.error(`Warning: no image was given for the advisory Corten pilot ${component}; deploying it disabled.`);
+  }
+  const withheldPilots = withheldCortenPilots(options);
+  for (const component of withheldPilots) {
+    console.error(
+      `Warning: ${component} is not deployed because admin-web serves admin.staging (STAGING_ADMIN_APP=admin-web).`,
+    );
+  }
+  const release = options.release ?? defaultRelease;
+  const droppedWorkloads = new Set(
+    [...droppedPilots, ...withheldPilots].map((component) => kubernetesComponentName(release, component)),
+  );
+  const workloads = options.workloads ?? withoutWorkloads(platformKubernetesWorkloads(options), droppedWorkloads);
 
   // Previews reference the shared *.preview.chasesets.com wildcard secret, so
   // it must exist in this namespace before the Helm deploy creates the
@@ -3052,7 +3153,11 @@ export function assertDeployAttemptsRecord(record) {
 export async function reconcileManagedPostgresCaOnKubernetes(options = {}) {
   const helmPath = options.helmPath ?? "helm";
   const kubectlPath = options.kubectlPath ?? "kubectl";
-  const workloads = options.workloads ?? platformKubernetesWorkloads(options);
+  // The upgrade reuses the live release's values, so wait for that release's workloads, not the values
+  // files': a pilot the last deploy rendered disabled (withheld or without an image) has no workload.
+  const workloads =
+    options.workloads ??
+    platformKubernetesWorkloads({ ...options, values: await readCurrentHelmValues({ ...options, helmPath }) });
   await runProcess({
     command: helmPath,
     args: buildManagedPostgresCaReconcileArgs(options),
@@ -4200,7 +4305,7 @@ export function parseArgs(argv, env = process.env) {
     ].includes(command)
   ) {
     throw new Error(
-      "Usage: node ./scripts/platform-kubernetes-deployment.mjs <deploy|reconcile-managed-postgres-ca|scenario-seed|promote|abort|rollback|diagnostics|preview-postgres-snapshot|plan|capture-rollback-target|verify-deployment-transition|recover-stale-pending-upgrade|teardown> [--image <ref>] [--namespace <name>] [--release <name>] [--timeout <duration>] [--revision <n>] [--pending-revision <n>] [--source-description <text>] [--pending-description <text>] [--issue-number <n>] [--admission-out <path>] [--rollback-target <path>] [--attempts-out <path>] [--admission-retry-rollback-target <path>] [--deploy-attempts <path>] [--index-manifest <path>] [--platform <os/architecture>] [--rollouts-enabled true|false] [--quiesce-workers true|false] [--preview-postgres true|false] [--beta-wave-size <n>] [--beta-wave-rollout-exposure <10|25|50>] [--observability-exporter-endpoint <url>] [--managed-postgres-ca-sha256 <digest>] [--runtime-env NAME=VALUE] [--out <path>] [--github-output <path>]",
+      "Usage: node ./scripts/platform-kubernetes-deployment.mjs <deploy|reconcile-managed-postgres-ca|scenario-seed|promote|abort|rollback|diagnostics|preview-postgres-snapshot|plan|capture-rollback-target|verify-deployment-transition|recover-stale-pending-upgrade|teardown> [--image <ref>] [--namespace <name>] [--release <name>] [--timeout <duration>] [--revision <n>] [--pending-revision <n>] [--source-description <text>] [--pending-description <text>] [--issue-number <n>] [--admission-out <path>] [--rollback-target <path>] [--attempts-out <path>] [--admission-retry-rollback-target <path>] [--deploy-attempts <path>] [--index-manifest <path>] [--platform <os/architecture>] [--rollouts-enabled true|false] [--quiesce-workers true|false] [--preview-postgres true|false] [--beta-wave-size <n>] [--beta-wave-rollout-exposure <10|25|50>] [--observability-exporter-endpoint <url>] [--managed-postgres-ca-sha256 <digest>] [--runtime-env NAME=VALUE] [--out <path>] [--github-output <path>] [--github-summary <path>]",
     );
   }
 
@@ -4209,6 +4314,7 @@ export function parseArgs(argv, env = process.env) {
     command,
     image: readOption(rest, "--image", env.PLATFORM_IMAGE_REF),
     cortenAdminImage: readOption(rest, "--corten-admin-image"),
+    cortenMarketplaceImage: readOption(rest, "--corten-marketplace-image"),
     imagePullSecret: readOption(rest, "--image-pull-secret", managedRegistryPullSecretName),
     observabilityExporterEndpoint: readOption(
       rest,
@@ -4251,6 +4357,7 @@ export function parseArgs(argv, env = process.env) {
     deployAttemptsPath: readOption(rest, "--deploy-attempts"),
     jobName: readOption(rest, "--job-name", env.PLATFORM_KUBERNETES_SCENARIO_SEED_JOB_NAME),
     githubOutputPath: readOption(rest, "--github-output", env.GITHUB_OUTPUT),
+    githubSummaryPath: readOption(rest, "--github-summary"),
     env,
   };
 }
@@ -4328,6 +4435,9 @@ async function main(argv, env = process.env, overrides = {}) {
   }
 
   if (options.command === "deploy") {
+    if (options.envOverrides?.DEPLOYMENT_ENVIRONMENT === "staging") {
+      recordStagingAdminApp(options);
+    }
     const admissionRetryRollbackTarget = options.admissionRetryRollbackTargetPath
       ? parseJsonCommandOutput(readFileSync(options.admissionRetryRollbackTargetPath, "utf8"), "rollback target file")
       : undefined;
@@ -4499,6 +4609,32 @@ async function main(argv, env = process.env, overrides = {}) {
     await writeJsonRecord(options.outPath, buildKubernetesDiagnosticsRecord({ ...options, ...diagnostics }));
   }
   return 0;
+}
+
+// Which app serves admin.staging, what chose it, and whether admin-corten runs at all.
+export function stagingAdminAppRecord(env = {}) {
+  const { app, source } = resolveStagingAdminApp(env);
+  return { app, source, adminCorten: app === "admin-web" ? "not-deployed" : "deployed" };
+}
+
+// Says which app serves admin.staging before the deploy starts, in the step summary and as the step's
+// admin_app output, so every run's evidence names it even when the deploy then fails.
+export function recordStagingAdminApp(options = {}) {
+  const record = stagingAdminAppRecord(options.env ?? {});
+  const why =
+    record.source === "default"
+      ? "STAGING_ADMIN_APP is unset, so the default applies"
+      : `STAGING_ADMIN_APP=${record.app}`;
+  const lines = [`admin.staging is served by ${record.app} (${why}).`];
+  if (record.adminCorten === "not-deployed") {
+    lines.push("admin-corten is not deployed while admin-web serves admin.staging.");
+  }
+  for (const line of lines) console.error(line);
+  if (options.githubSummaryPath) {
+    appendFileSync(options.githubSummaryPath, `### Staging admin app\n\n${lines.join("\n\n")}\n\n`);
+  }
+  writeGithubOutput(options.githubOutputPath, { admin_app: record.app, admin_app_source: record.source });
+  return record;
 }
 
 function writeGithubOutput(filePath, values) {

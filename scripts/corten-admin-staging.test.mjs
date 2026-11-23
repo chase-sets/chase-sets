@@ -1,6 +1,8 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { delimiter, dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import {
@@ -9,7 +11,15 @@ import {
   buildPlatformHelmStagingValues,
   buildPlatformHelmValues,
 } from "./render-platform-helm-values.mjs";
-import { buildHelmUpgradeArgs, parseArgs, platformKubernetesWorkloads } from "./platform-kubernetes-deployment.mjs";
+import {
+  ADVISORY_CORTEN_PILOT_COMPONENTS,
+  buildDeploymentEvidence,
+  buildHelmUpgradeArgs,
+  parseArgs,
+  platformKubernetesWorkloads,
+  recordStagingAdminApp,
+  withheldCortenPilots,
+} from "./platform-kubernetes-deployment.mjs";
 import { classifyChanges } from "./change-scope.mjs";
 
 const read = (file) => readFileSync(file, "utf8").replaceAll("\r\n", "\n");
@@ -109,7 +119,7 @@ describe("Corten admin staging deployment", () => {
     expect(env).toMatchObject({
       HOST: "0.0.0.0",
       PORT: "8080",
-      HOSTS: "admin-corten.staging.chasesets.com",
+      HOSTS: "admin-corten.staging.chasesets.com,admin.staging.chasesets.com",
       PUBLIC_PROTO: "https",
       PROXIES: "",
       CHASE_SETS_INTERNAL_API_ORIGIN: "",
@@ -231,18 +241,42 @@ describe("Corten admin staging deployment", () => {
     expect(read("Dockerfile.corten-admin.dockerignore")).not.toContain("\ndeployables/corten-pilot\n");
   });
 
-  it("requires pilot readiness in both staging ingress wait and admin smoke", () => {
+  it("requires pilot readiness in both staging ingress wait and admin smoke unless admin-web serves admin", () => {
     const steps = workflow.jobs["deploy-staging"].steps;
     const url = "https://admin-corten.staging.chasesets.com/health/ready";
-    expect(steps.find(({ name }) => name === "Wait for staging ingress URLs").run).toContain(url);
-    const smoke = steps.find(({ name }) => name === "Smoke check").run;
-    expect(smoke).toContain(`--url "${url}"`);
-    expect(smoke).toContain("node ./scripts/platform-ingress-wait.mjs");
-    expect(smoke).toContain("--expect-status 200");
-    expect(smoke).toContain('"https://${admin_domain}"');
+    const adminApp = "${{ steps.staging_kubernetes_deploy.outputs.admin_app }}";
+    const gate = 'if [ "$ADMIN_APP" != "admin-web" ]; then';
+    const wait = steps.find(({ name }) => name === "Wait for staging ingress URLs");
+    expect(wait.env.ADMIN_APP).toBe(adminApp);
+    // Under admin-web the pilot is not deployed at all, so no image can bring it back into the wait or smoke.
+    expect(wait.env).not.toHaveProperty("CORTEN_ADMIN_IMAGE");
+    expect(wait.run).toContain(`${gate}\n  ingress_urls+=("${url}")\nfi`);
+    expect(wait.run.split(url)).toHaveLength(2);
+    const smoke = steps.find(({ name }) => name === "Smoke check");
+    expect(smoke.env.ADMIN_APP).toBe(adminApp);
+    expect(smoke.env).not.toHaveProperty("CORTEN_ADMIN_IMAGE");
+    expect(smoke.run).toContain(
+      `${gate}\n  node ./scripts/platform-ingress-wait.mjs \\\n    --attempts 1 \\\n    --expect-status 200 \\\n    --url "${url}"\nfi`,
+    );
+    expect(smoke.run.split(url)).toHaveLength(2);
+    // The gates read the deploy step's resolved app, never the raw variable, so they agree with the ingress.
+    for (const step of [wait, smoke]) {
+      expect(step.run).not.toMatch(/\$\{?STAGING_ADMIN_APP/);
+      expect(step.run).not.toContain("CORTEN_ADMIN_IMAGE");
+    }
+    // Each conditional gate names the rule that makes the pilot advisory.
+    const pointer =
+      "# admin-corten runs only while it serves admin.staging; under STAGING_ADMIN_APP=admin-web it is not deployed (withheldCortenPilots).";
+    const advisory = steps.find(({ name }) => name === "Advisory Corten admin smoke");
+    for (const run of [wait.run, smoke.run, advisory.run]) {
+      expect(run.split(pointer)).toHaveLength(2);
+    }
+    // The enforcing smoke runs the admin smoke against admin.staging, whichever app serves it.
+    expect(smoke.env.SMOKE_REQUIRE_ADMIN).toBe("true");
+    expect(smoke.run).toContain('"https://${admin_domain}"');
   });
 
-  it("runs the authenticated admin smoke against the pilot after admin-web's, without gating the deploy", () => {
+  it("keeps the advisory admin smoke step after the Smoke check, smoking nothing and saying why", () => {
     const steps = workflow.jobs["deploy-staging"].steps;
     const names = steps.map(({ name }) => name);
     const advisory = steps.find(({ name }) => name === "Advisory Corten admin smoke");
@@ -264,26 +298,212 @@ describe("Corten admin staging deployment", () => {
         "SPACES_SECRET_KEY",
       ].sort(),
     );
-    expect(advisory.run).toContain("pnpm run smoke:corten-admin --");
-    expect(advisory.run).not.toContain("smoke:platform");
-    expect(advisory.run).toContain('"https://admin-corten.staging.chasesets.com"');
     expect(advisory.run).not.toMatch(/PLATFORM_ADMIN_(EMAIL|PASSWORD)/);
     expect(advisory.run).not.toContain("set -x");
+    expect(advisory.env).not.toHaveProperty("CORTEN_ADMIN_IMAGE");
+    expect(advisory.env.ADMIN_APP).toBe("${{ steps.staging_kubernetes_deploy.outputs.admin_app }}");
+    // While the pilot serves admin.staging the Smoke check smoked it with the admin required. Under admin-web the
+    // pilot is not deployed, so there is nothing to smoke; either way the step only says which case applied.
+    expect(advisory.run).toBe(
+      [
+        "set -euo pipefail",
+        "# admin-corten runs only while it serves admin.staging; under STAGING_ADMIN_APP=admin-web it is not deployed (withheldCortenPilots).",
+        'if [ "$ADMIN_APP" != "admin-web" ]; then',
+        '  echo "admin-corten serves admin.staging, so the Smoke check above smoked it with the admin required."',
+        "  exit 0",
+        "fi",
+        'echo "admin-web serves admin.staging (STAGING_ADMIN_APP=admin-web), so admin-corten is not deployed and is not smoked."',
+        "",
+      ].join("\n"),
+    );
   });
   it("uses the existing release writer admission and passes its immutable output only to staging", () => {
-    const build = workflow.jobs["build-image"];
-    const step = build.steps.find(({ id }) => id === "corten_admin_image");
+    const build = workflow.jobs["build-corten-pilot-images"];
+    const gate = build.steps.find(({ id }) => id === "corten_pilot_gate");
+    const push = build.steps.find(({ id }) => id === "corten_pilot_push");
+    const publish = build.steps.find(({ id }) => id === "corten_pilot_image");
     expect(build.environment).toBe("staging");
-    expect(step.run).toContain("digitalocean-registry-gc-gate.mjs assert-writable");
-    expect(step.run.indexOf("assert-writable")).toBeLessThan(step.run.indexOf("--push --tag"));
-    expect(step.run).toContain("--file Dockerfile.corten-admin");
-    expect(step.run).toContain("image=${image}@${digest}");
+    expect(build.strategy).toEqual({ "fail-fast": false, matrix: { pilot: ["admin", "marketplace"] } });
+    expect(build.outputs.corten_admin_image).toBe("${{ steps.corten_pilot_image.outputs.corten_admin_image }}");
+    // The registry admission runs before, and in a different step from, the write; a refusal skips the push.
+    expect(gate.run).toContain("digitalocean-registry-gc-gate.mjs assert-writable");
+    expect(gate.run).not.toContain("--push");
+    expect(gate.run).not.toContain("doctl registry create");
+    expect(build.steps.indexOf(gate)).toBeLessThan(build.steps.indexOf(push));
+    expect(push.if).toBe("steps.corten_pilot_gate.outcome == 'success'");
+    expect(push.env.IMAGE).toBe("${{ steps.corten_pilot_gate.outputs.image }}");
+    expect(push.run).toContain('--file "Dockerfile.corten-${PILOT}"');
+    expect(push.run).toContain('--cache-from "type=gha,scope=corten-${PILOT}-image"');
+    expect(push.run).toContain('echo "image=${IMAGE}@${digest}"');
+    // The reference reaches the job output only after a successful push.
+    expect(publish.if).toBe("steps.corten_pilot_push.outcome == 'success'");
+    expect(publish.env).toMatchObject({
+      IMAGE_REF: "${{ steps.corten_pilot_push.outputs.image }}",
+      PILOT: "${{ matrix.pilot }}",
+    });
+    expect(publish.run).toContain('echo "corten_${PILOT}_image=${IMAGE_REF}"');
+    expect(
+      build.steps.filter(({ run }) => String(run ?? "").includes("GITHUB_OUTPUT") && String(run).includes("corten_")),
+    ).toEqual([publish]);
     const deploy = workflow.jobs["deploy-staging"].steps.find(({ id }) => id === "staging_kubernetes_deploy");
-    expect(deploy.env.CORTEN_ADMIN_IMAGE).toBe("${{ needs.build-image.outputs.corten_admin_image }}");
-    expect(deploy.run).toContain('--corten-admin-image "$CORTEN_ADMIN_IMAGE"');
+    expect(deploy.env.CORTEN_ADMIN_IMAGE).toBe("${{ needs.build-corten-pilot-images.outputs.corten_admin_image }}");
+    expect(deploy.run).toContain(
+      'if [ -n "$CORTEN_ADMIN_IMAGE" ]; then\n  corten_image_args+=(--corten-admin-image "$CORTEN_ADMIN_IMAGE")',
+    );
+    expect(deploy.run).toContain('"${corten_image_args[@]}" \\\n');
     expect(deploy.run).toContain("PROXIES=${ingress_pod_cidrs}");
     expect(deploy.run).toContain('metadata.annotations["network.cilium.io/ipv4-pod-cidr"]');
     expect(deploy.run).toContain("ADMIN_WEB_ORIGIN=https://${admin_domain}");
+  });
+
+  it("builds the pilot images beside the release image, where neither their failure nor their delay reaches production", () => {
+    const jobs = workflow.jobs;
+    const pilot = jobs["build-corten-pilot-images"];
+    expect(pilot.needs).toEqual(jobs["build-image"].needs);
+    expect(pilot.if).toBe(jobs["build-image"].if);
+    // The job itself never fails: every step continues on error under its own limit, and the job's limit is
+    // above their sum, so only a runner-level failure can fail it. No job-level continue-on-error is relied on.
+    expect(pilot).not.toHaveProperty("continue-on-error");
+    for (const step of pilot.steps) {
+      expect(step["continue-on-error"], step.name ?? step.uses).toBe(true);
+      expect(step["timeout-minutes"], step.name ?? step.uses).toBeGreaterThan(0);
+    }
+    const stepMinutes = pilot.steps.reduce((total, step) => total + step["timeout-minutes"], 0);
+    expect(pilot["timeout-minutes"]).toBeGreaterThan(stepMinutes);
+    expect(pilot.steps.find(({ id }) => id === "corten_pilot_push")["timeout-minutes"]).toBe(15);
+
+    expect(jobs["deploy-staging"].needs).toEqual(["resolve-release", "build-image", "build-corten-pilot-images"]);
+    expect(jobs["deploy-staging"].if).toBe(
+      "!cancelled() && " +
+        "needs.resolve-release.result == 'success' && " +
+        "needs.build-image.result == 'success' && " +
+        "needs.resolve-release.outputs.deployment_required == 'true'",
+    );
+    expect(jobs["deploy-staging"].if).not.toContain("always()");
+    expect(JSON.stringify(jobs["deploy-staging"].if)).not.toContain("build-corten-pilot-images");
+
+    // Deploy Production's gate is byte-for-byte unchanged, and only Deploy Staging names the pilot job.
+    const heading = workflowText.indexOf("\n  deploy-production:\n");
+    expect(workflowText.slice(heading, workflowText.indexOf("    environment:", heading))).toContain(
+      "    needs:\n      - resolve-release\n      - deploy-staging\n    if: needs.deploy-staging.outputs.deployed == 'true'\n",
+    );
+    const dependants = Object.entries(jobs)
+      .filter(([, job]) => [job.needs ?? []].flat().includes("build-corten-pilot-images"))
+      .map(([name]) => name);
+    expect(dependants).toEqual(["deploy-staging"]);
+  });
+
+  describe("pilot image steps, run in order with stubbed registry tools", () => {
+    const steps = workflow.jobs["build-corten-pilot-images"].steps;
+    const step = (id) => steps.find((candidate) => candidate.id === id);
+    const bash = process.platform === "win32" ? "C:\\Program Files\\Git\\usr\\bin\\bash.exe" : "bash";
+    const digestValue = "sha256:" + "c".repeat(64);
+    // The stubs record each call. The registry has the image when $REGISTRY_HAS_IMAGE says so, or once a push ran.
+    const stubs = [
+      'doctl() { echo "doctl $*" >> "$CALLS"; if [ "$1 $2" = "registry get" ]; then echo chase-sets; fi; }',
+      "docker() {",
+      '  echo "docker $*" >> "$CALLS"',
+      '  if [ "$2" = "build" ]; then touch "$PUSHED"; return 0; fi',
+      '  if [ "$REGISTRY_HAS_IMAGE" != true ] && [ ! -e "$PUSHED" ]; then return 1; fi',
+      '  case "$*" in *--format*) echo "$DIGEST_VALUE" ;; esac',
+      "}",
+      'node() { echo "node $*" >> "$CALLS"; return "$GATE_EXIT"; }',
+    ].join("\n");
+    // Bash's own tools first on PATH, and no ambient credential reaches the stubbed steps.
+    const ambientPath = process.env.PATH ?? process.env.Path ?? "";
+    const shellEnv = (extra) => {
+      const environment = Object.fromEntries(
+        Object.entries(process.env).filter(
+          ([name]) => name.toLowerCase() !== "path" && !/(?:DIGITALOCEAN|GITHUB|TOKEN|SECRET|PASSWORD)/i.test(name),
+        ),
+      );
+      const shellDirectory = process.platform === "win32" ? dirname(bash) : null;
+      return {
+        ...environment,
+        ...extra,
+        PATH: shellDirectory ? `${shellDirectory}${delimiter}${ambientPath}` : ambientPath,
+      };
+    };
+    const readFile = (path) =>
+      spawnSync(bash, ["-c", 'cat "$1" 2>/dev/null || true', "read", path], { encoding: "utf8", env: shellEnv({}) })
+        .stdout;
+    // Runs one step's script; returns its exit code and the outputs it wrote.
+    const runStep = (id, env, scratch) => {
+      const output = `${scratch}/output-${id}`;
+      const result = spawnSync(bash, ["-c", `${stubs}\n${step(id).run}`], {
+        encoding: "utf8",
+        cwd: scratch,
+        env: shellEnv({ ...env, GITHUB_OUTPUT: output }),
+      });
+      const outputs = Object.fromEntries(
+        readFile(output)
+          .split("\n")
+          .filter(Boolean)
+          .map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)]),
+      );
+      return { status: result.status, outputs };
+    };
+    // The workflow's step conditions, read from the steps themselves rather than restated.
+    const runsAfter = (id, outcomes) => {
+      const condition = /^steps\.([a-z_]+)\.outcome == 'success'$/.exec(step(id).if);
+      return outcomes[condition[1]] === "success";
+    };
+    const runLeg = ({ registryHasImage, gateExit }) => {
+      const scratch = mkdtempSync(join(tmpdir(), "corten-pilot-image-"));
+      try {
+        const base = {
+          CALLS: `${scratch}/calls`,
+          PUSHED: `${scratch}/pushed`,
+          REGISTRY_HAS_IMAGE: String(registryHasImage),
+          GATE_EXIT: String(gateExit),
+          DIGEST_VALUE: digestValue,
+          PILOT: "admin",
+          RELEASE_COMMIT: "r".repeat(40),
+        };
+        const outcomes = {};
+        const gate = runStep("corten_pilot_gate", base, scratch);
+        outcomes.corten_pilot_gate = gate.status === 0 ? "success" : "failure";
+        let published = {};
+        if (runsAfter("corten_pilot_push", outcomes)) {
+          const push = runStep(
+            "corten_pilot_push",
+            { ...base, IMAGE: gate.outputs.image, IMAGE_EXISTS: gate.outputs.exists ?? "" },
+            scratch,
+          );
+          outcomes.corten_pilot_push = push.status === 0 ? "success" : "failure";
+          if (runsAfter("corten_pilot_image", outcomes)) {
+            published = runStep("corten_pilot_image", { ...base, IMAGE_REF: push.outputs.image }, scratch).outputs;
+          }
+        }
+        return { outcomes, published, calls: readFile(base.CALLS) };
+      } finally {
+        rmSync(scratch, { recursive: true, force: true });
+      }
+    };
+    const image = "registry.digitalocean.com/chase-sets/chase-sets-corten-admin:" + "r".repeat(40);
+
+    it("publishes an image a rerun finds already pushed, without a gate or a write", () => {
+      const { outcomes, published, calls } = runLeg({ registryHasImage: true, gateExit: 0 });
+      expect(outcomes).toEqual({ corten_pilot_gate: "success", corten_pilot_push: "success" });
+      expect(published).toEqual({ corten_admin_image: image + "@" + digestValue });
+      expect(calls).not.toContain("assert-writable");
+      expect(calls).not.toContain("buildx build");
+    });
+
+    it("admits, builds and publishes a new image", () => {
+      const { published, calls } = runLeg({ registryHasImage: false, gateExit: 0 });
+      expect(published).toEqual({ corten_admin_image: image + "@" + digestValue });
+      expect(calls.indexOf("assert-writable")).toBeGreaterThan(-1);
+      expect(calls.indexOf("assert-writable")).toBeLessThan(calls.indexOf("buildx build"));
+    });
+
+    it("never writes or publishes after the gate refuses", () => {
+      const { outcomes, published, calls } = runLeg({ registryHasImage: false, gateExit: 1 });
+      expect(outcomes).toEqual({ corten_pilot_gate: "failure" });
+      expect(published).toEqual({});
+      expect(calls).toContain("assert-writable");
+      expect(calls).not.toContain("buildx build");
+    });
   });
 
   describe("ingress pod CIDR discovery", () => {
@@ -343,5 +563,129 @@ describe("Corten admin staging deployment", () => {
       expect(result.status).not.toBe(0);
       expect(result.stderr).toContain("Missing pod CIDR for ingress node: synthetic-ingress-node");
     });
+  });
+});
+
+describe("the staging admin app switch", () => {
+  const withoutAdminImage = { ...options, cortenAdminImage: undefined };
+  const withApp = (base, STAGING_ADMIN_APP) => ({ ...base, env: { ...base.env, STAGING_ADMIN_APP } });
+
+  it("reads STAGING_ADMIN_APP from the staging environment's variables for the whole Deploy Staging job", () => {
+    const job = workflow.jobs["deploy-staging"];
+    expect(job.environment).toBe("staging");
+    expect(job.env.STAGING_ADMIN_APP).toBe("${{ vars.STAGING_ADMIN_APP || '' }}");
+    expect(job.outputs.admin_app).toBe("${{ steps.staging_kubernetes_deploy.outputs.admin_app }}");
+    const deploy = job.steps.find(({ id }) => id === "staging_kubernetes_deploy");
+    expect(deploy.run).toContain('--github-summary "$GITHUB_STEP_SUMMARY" \\\n');
+    // Only the deploy step reads the variable, through the script, so one resolution decides the ingress and the gates.
+    for (const step of job.steps) expect(String(step.run ?? "")).not.toMatch(/\$\{?STAGING_ADMIN_APP/);
+  });
+
+  it("keeps admin-corten off the advisory list and withholds it only while admin-web serves admin.staging", () => {
+    expect(ADVISORY_CORTEN_PILOT_COMPONENTS).toEqual(["marketplace-corten"]);
+    const staging = (env) => withheldCortenPilots({ ...options, env });
+    expect(staging({})).toEqual([]);
+    expect(staging({ STAGING_ADMIN_APP: "admin-corten" })).toEqual([]);
+    expect(staging({ STAGING_ADMIN_APP: "admin-web" })).toEqual(["admin-corten"]);
+    expect(() => staging({ STAGING_ADMIN_APP: "admin" })).toThrow("STAGING_ADMIN_APP must be one of");
+  });
+
+  it("fails a deploy without the admin image while the pilot serves admin.staging", () => {
+    for (const value of [undefined, "", "admin-corten"]) {
+      expect(() => buildHelmUpgradeArgs(withApp(withoutAdminImage, value))).toThrow(
+        "corten-admin-image is required on staging: admin-corten is not an advisory pilot.",
+      );
+    }
+  });
+
+  it("renders the pilot disabled while admin-web serves admin.staging, whether or not its image was given", () => {
+    // helm --wait --atomic waits for every enabled pod, so a pilot that never becomes ready would fail the rollback.
+    for (const base of [withoutAdminImage, options]) {
+      const args = buildHelmUpgradeArgs(withApp(base, "admin-web"));
+      expect(args[args.indexOf("components.admin-corten.enabled=false") - 1]).toBe("--set");
+      expect(args.filter((arg) => String(arg).startsWith("components.admin-corten."))).toEqual([
+        "components.admin-corten.enabled=false",
+      ]);
+    }
+    expect(buildHelmUpgradeArgs(options)).toContain(`components.admin-corten.image=${image}`);
+    expect(buildHelmUpgradeArgs(options)).not.toContain("components.admin-corten.enabled=false");
+  });
+
+  it("refuses any other value before Helm runs", () => {
+    for (const value of ["admin", "ADMIN-WEB", "public-web", "admin-corten,admin-web"]) {
+      expect(() => buildHelmUpgradeArgs(withApp(options, value))).toThrow("STAGING_ADMIN_APP must be one of");
+    }
+  });
+
+  it("routes admin.staging to the selected app in the Helm arguments", () => {
+    const adminRoot = (STAGING_ADMIN_APP) => {
+      const args = buildHelmUpgradeArgs({
+        ...options,
+        env: { ...options.env, DOKS_INGRESS_TARGET: "192.0.2.1", STAGING_ADMIN_APP },
+      });
+      const hostIndex = args.find((arg) =>
+        /^doksIngress\.hosts\[\d+\]\.host=admin\.staging\.chasesets\.com$/.test(arg),
+      );
+      const host = hostIndex.match(/hosts\[(\d+)\]/)[1];
+      const services = args.filter(
+        (arg) => arg.startsWith(`doksIngress.hosts[${host}].paths[`) && arg.includes(".service="),
+      );
+      return services.at(-1).split("=")[1];
+    };
+    expect(adminRoot(undefined)).toBe("admin-corten");
+    expect(adminRoot("admin-web")).toBe("admin-web");
+  });
+
+  it("says which app served admin and why, in the summary, the step output and the deploy record", () => {
+    const dir = mkdtempSync(join(tmpdir(), "staging-admin-app-"));
+    try {
+      const record = (env) => {
+        const summary = join(dir, `summary-${env.STAGING_ADMIN_APP ?? "unset"}.md`);
+        const output = join(dir, `output-${env.STAGING_ADMIN_APP ?? "unset"}.txt`);
+        const result = recordStagingAdminApp({ env, githubSummaryPath: summary, githubOutputPath: output });
+        return { result, summary: read(summary), output: read(output) };
+      };
+      const unset = record({});
+      expect(unset.result).toEqual({ app: "admin-corten", source: "default", adminCorten: "deployed" });
+      expect(unset.summary).toContain(
+        "admin.staging is served by admin-corten (STAGING_ADMIN_APP is unset, so the default applies).",
+      );
+      expect(unset.output).toBe("admin_app=admin-corten\nadmin_app_source=default\n");
+      expect(unset.summary).not.toContain("not deployed");
+      const rolledBack = record({ STAGING_ADMIN_APP: "admin-web" });
+      expect(rolledBack.result).toEqual({ app: "admin-web", source: "variable", adminCorten: "not-deployed" });
+      expect(rolledBack.summary).toBe(
+        "### Staging admin app\n\n" +
+          "admin.staging is served by admin-web (STAGING_ADMIN_APP=admin-web).\n\n" +
+          "admin-corten is not deployed while admin-web serves admin.staging.\n\n",
+      );
+      expect(rolledBack.output).toBe("admin_app=admin-web\nadmin_app_source=variable\n");
+      expect(() => record({ STAGING_ADMIN_APP: "admin" })).toThrow("STAGING_ADMIN_APP must be one of");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+    const evidence = (env) => buildDeploymentEvidence({ ...options, env, workloads: {} }).stagingAdminApp;
+    expect(evidence({})).toEqual({ app: "admin-corten", source: "default", adminCorten: "deployed" });
+    expect(evidence({ STAGING_ADMIN_APP: "admin-web" })).toEqual({
+      app: "admin-web",
+      source: "variable",
+      adminCorten: "not-deployed",
+    });
+    expect(
+      buildDeploymentEvidence({ ...options, envOverrides: { DEPLOYMENT_ENVIRONMENT: "production" }, workloads: {} }),
+    ).not.toHaveProperty("stagingAdminApp");
+    // parseArgs reads the summary path only from the flag, so no other command writes a summary by inheriting it.
+    expect(parseArgs(["deploy", "--github-summary", "s.md"], {}).githubSummaryPath).toBe("s.md");
+    expect(parseArgs(["deploy"], { GITHUB_STEP_SUMMARY: "s.md" }).githubSummaryPath).toBeUndefined();
+  });
+
+  it("writes the rollback steps the runbook promises", () => {
+    const runbook = read("docs/runbooks/staging-admin-app.md");
+    expect(runbook).toContain(
+      "gh variable set STAGING_ADMIN_APP --repo chase-sets/chase-sets --env staging --body admin-web",
+    );
+    expect(runbook).toContain("gh variable delete STAGING_ADMIN_APP --repo chase-sets/chase-sets --env staging");
+    expect(runbook).toContain("-f force_deploy=true");
+    expect(read("docs/README.md")).toContain("(./runbooks/staging-admin-app.md)");
   });
 });

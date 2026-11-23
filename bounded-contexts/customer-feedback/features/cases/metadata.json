@@ -1,0 +1,58 @@
+{
+  "slice": "cases",
+  "ownedNouns": ["feedback-case", "feedback-case-disposition", "feedback-case-follow-up"],
+  "eventReactions": [
+    {
+      "sourceContextName": "customer-feedback",
+      "reactionName": "customer-feedback-feedback-case-opening",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": ["customer-feedback.survey.submitted", "customer-feedback.response.redacted"],
+      "order": 10,
+      "reactionHandlerSetNames": ["customer-feedback-feedback-case-opening"]
+    },
+    {
+      "sourceContextName": "notifications",
+      "reactionName": "customer-feedback-notification-delivery-recording",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": ["notifications.customer-feedback.delivery-reported"],
+      "order": 20,
+      "reactionHandlerSetNames": ["customer-feedback-notification-delivery-recording"]
+    }
+  ],
+  "caseProjectionGroups": [
+    {
+      "projectionName": "customer-feedback-feedback-case-opening",
+      "handlerKind": "reaction",
+      "sourceContextNames": ["customer-feedback"],
+      "ownedTables": [],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "customer-feedback-feedback-case-projection",
+      "sourceContextNames": ["customer-feedback"],
+      "ownedTables": ["customer_feedback_feedback_cases", "customer_feedback_feedback_case_timeline"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    }
+  ],
+  "deliveryRecordingProjection": {
+    "projectionName": "customer-feedback-notification-delivery-recording",
+    "handlerKind": "reaction",
+    "sideEffectOnly": true,
+    "sourceContextNames": ["notifications"],
+    "ownedTables": [],
+    "requiredDuringBootstrap": false,
+    "resetStrategy": "replay-only"
+  },
+  "directoryIntent": {
+    "classification": "slice",
+    "purpose": "Own the attributed, event-sourced feedback case lifecycle opened from immutable CSAT responses, including triage, ownership, priority, disposition, linked work, consented follow-up, closure, and reopen.",
+    "expectedConsumers": [
+      "Customer Feedback case opening reaction",
+      "Future Customer Feedback operator queue and detail surfaces"
+    ]
+  }
+}

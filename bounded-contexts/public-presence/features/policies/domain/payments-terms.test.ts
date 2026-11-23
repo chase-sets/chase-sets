@@ -369,8 +369,8 @@ describe("payments terms artifact", () => {
     expect(section.reviewManifest.productTruthRefs).toEqual([
       "bounded-contexts/commercial-terms/features/checkout-processing-fee/domain/policy.ts:42-53",
       "bounded-contexts/identity/features/accounts/api/wallet-funding-eligibility.ts:6-23",
-      "bounded-contexts/payments/features/wallet-funding/api/runtime.ts:39-43",
-      "bounded-contexts/payments/features/wallet-funding/api/runtime.ts:99-128",
+      "bounded-contexts/payments/features/wallet-funding/api/runtime.ts:42-46",
+      "bounded-contexts/payments/features/wallet-funding/api/runtime.ts:102-131",
     ]);
     expect(section.reviewManifest.assumptions).toContainEqual({
       assertion: rolloutStatement,

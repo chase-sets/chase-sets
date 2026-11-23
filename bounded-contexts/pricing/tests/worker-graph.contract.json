@@ -941,9 +941,6 @@
         "marketplace.listing.paused": "<function>",
         "marketplace.listing.withdrawn": "<function>"
       },
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure",
       "eventTypes": [
         "marketplace.listing.created",
         "marketplace.listing.price-updated",
@@ -966,9 +963,6 @@
       "handlers": {
         "pricing.market-price.estimated": "<function>"
       },
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure",
       "eventTypes": ["pricing.market-price.estimated"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
