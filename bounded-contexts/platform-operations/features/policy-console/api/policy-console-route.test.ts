@@ -161,6 +161,65 @@ describe("policy console routes", () => {
     expect(body.items.map((item) => item.policyKey)).toEqual(["settlement.clearance-window"]);
   });
 
+  it("lists each stored row with its own entry's current schema summary and its stored value unchanged", async () => {
+    const payoutBoundsPolicy = definePolicy<{ maximumAmount: string }>({
+      policyKey: "settlement.payout-bounds",
+      contextName: "settlement",
+      schemaSummary: "{ maximumAmount: decimal string }",
+      defaultValue: { maximumAmount: "10000.00" },
+      decodeValue: (raw) => raw as { maximumAmount: string },
+    });
+    const storedRow = {
+      context_name: "settlement",
+      status: "active",
+      effective_from: "2026-05-01T00:00:00.000Z",
+      effective_until: null,
+      updated_at: "2026-05-01T00:00:00.000Z",
+    };
+    const db = createQueryableDb({
+      registry: [
+        {
+          ...storedRow,
+          policy_key: testPolicy.policyKey,
+          schema_summary: "{ maxDays: integer, retiredDays: integer }",
+          value: { maxDays: 3, retiredDays: 30 },
+        },
+        {
+          ...storedRow,
+          policy_key: payoutBoundsPolicy.policyKey,
+          schema_summary: "{ maximumAmount: decimal string, retiredAmount: decimal string }",
+          value: { maximumAmount: "5000.00", retiredAmount: "1.00" },
+        },
+      ],
+    });
+    const entry = buildEntry({ db });
+    const payoutBoundsEntry = {
+      ...entry,
+      policyKey: payoutBoundsPolicy.policyKey,
+      definition: payoutBoundsPolicy,
+    } as unknown as PolicyConsoleEntry;
+    const app = createApp([entry, payoutBoundsEntry], ["platform-policy.view"]);
+
+    const response = await app.request("/");
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { items: unknown[] };
+    expect(body.items).toEqual([
+      expect.objectContaining({
+        policyKey: testPolicy.policyKey,
+        schemaSummary: "{ maxDays: integer }",
+        status: "active",
+        value: { maxDays: 3, retiredDays: 30 },
+      }),
+      expect.objectContaining({
+        policyKey: payoutBoundsPolicy.policyKey,
+        schemaSummary: "{ maximumAmount: decimal string }",
+        status: "active",
+        value: { maximumAmount: "5000.00", retiredAmount: "1.00" },
+      }),
+    ]);
+  });
+
   it("returns the current and upcoming windows for a policy overview", async () => {
     const nowIso = new Date().toISOString();
     const futureIso = new Date(Date.now() + 86_400_000).toISOString();

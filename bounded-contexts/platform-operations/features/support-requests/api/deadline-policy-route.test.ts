@@ -33,6 +33,14 @@ function createApp(policies: Partial<PolicyRuntime>, permissions: readonly strin
   return app;
 }
 
+/** Mirrors the real `createPolicyDocument`'s defensive `definition.decodeValue` re-validation before persisting. */
+function validatingCreatePolicyDocument() {
+  return vi.fn(async (definition: { decodeValue: (value: unknown) => unknown }, params: { value: unknown }) => {
+    definition.decodeValue(JSON.parse(JSON.stringify(params.value)));
+    return { documentId: "pol_1", version: 1 };
+  }) as PolicyRuntime["createPolicyDocument"];
+}
+
 const revisedFlows = {
   ...SUPPORT_DEADLINE_LAUNCH_POLICY_VALUE,
   "product-not-received": { sellerResponseHours: 72, supportReviewHours: 36 },
@@ -54,11 +62,13 @@ describe("support deadline policy routes", () => {
     const response = await app.request("/");
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
+    const body = await response.json();
+    expect(body).toMatchObject({
       policy_key: "platform-operations.support-deadlines",
       source: "fallback",
       value: SUPPORT_DEADLINE_LAUNCH_POLICY_VALUE,
     });
+    expect(body.value["product-not-received"]).toEqual({ sellerResponseHours: 48, supportReviewHours: 24 });
   });
 
   it("requires view permission to read the current policy", async () => {
@@ -99,17 +109,7 @@ describe("support deadline policy routes", () => {
   });
 
   it("rejects an out-of-bounds revision with a validation error", async () => {
-    // Mirrors the real `createPolicyDocument`'s defensive
-    // `definition.decodeValue` re-validation before persisting.
-    const createPolicyDocument = vi.fn(
-      async (definition: { decodeValue: (value: unknown) => unknown }, params: { value: unknown }) => {
-        definition.decodeValue(JSON.parse(JSON.stringify(params.value)));
-        return { documentId: "pol_1", version: 1 };
-      },
-    );
-    const app = createApp({ createPolicyDocument: createPolicyDocument as PolicyRuntime["createPolicyDocument"] }, [
-      "support.manage",
-    ]);
+    const app = createApp({ createPolicyDocument: validatingCreatePolicyDocument() }, ["support.manage"]);
 
     const response = await app.request("/", {
       method: "POST",
@@ -127,6 +127,27 @@ describe("support deadline policy routes", () => {
     expect(response.status).toBe(400);
     const body = await response.json();
     expect(body.error.message).toMatch(/between 4 and 336/);
+  });
+
+  it("rejects a revision that carries a different post-delivery open window", async () => {
+    const app = createApp({ createPolicyDocument: validatingCreatePolicyDocument() }, ["support.manage"]);
+
+    const response = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify({
+        flows: {
+          ...SUPPORT_DEADLINE_LAUNCH_POLICY_VALUE,
+          "product-not-received": { sellerResponseHours: 48, supportReviewHours: 24, postDeliveryOpenWindowDays: 31 },
+        },
+        status: "active",
+        effectiveFrom: "2026-05-03T00:00:00.000Z",
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.message).toMatch(/compiled flow behavior/);
   });
 
   it("requires manage permission for policy revisions", async () => {
