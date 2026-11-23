@@ -20,6 +20,7 @@ export const paymentsWakeRegistryEntry = registryEntry({
     "checkout:checkout.payment-affordance-projection",
     "checkout:checkout.payment-summary-projection",
     "fulfillment:fulfillment-payment-fraud-source-projection",
+    "marketplace:marketplace.buyer-payment-instrument-projection",
     "ordering:ordering-order-money-timeline-projection",
     "ordering:ordering-payment-capture",
     "payments:payments-account-risk-source-projection",

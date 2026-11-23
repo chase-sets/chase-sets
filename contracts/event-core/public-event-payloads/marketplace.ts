@@ -849,7 +849,15 @@ export type AcceptedListingTargetPriceV1 = Readonly<{
   }> | null;
 }>;
 
+export type OfferPaymentAuthorizationChanged = Readonly<{
+  buyerAccountId: string;
+  state: "none" | "active" | "payment-method-unavailable" | "held" | "revoked";
+  available: boolean;
+  streamVersion: number;
+}>;
+
 export type MarketplaceEventPayloads = Readonly<{
+  "marketplace.offer-payment-authorization.changed": OfferPaymentAuthorizationChanged;
   "marketplace.listing.target-price-accepted": Readonly<{
     schemaVersion: 1;
     acceptedTargetPrice: AcceptedListingTargetPriceV1;

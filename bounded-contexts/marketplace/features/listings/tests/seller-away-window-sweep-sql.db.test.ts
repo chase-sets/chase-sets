@@ -23,8 +23,8 @@ const NO_API_ENTRIES: readonly BcApiEntry[] = [];
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 const describeDb = databaseBaseUrl ? describe : describe.skip;
 // Marketplace's own manifest declares cross-context event subscriptions
-// (catalog, identity, inventory) alongside its "self" subscription that
-// feeds the seller listing availability read model. None of those
+// alongside its "self" subscription that feeds the seller listing
+// availability read model. None of those
 // cross-context sources publish events this test cares about, but the
 // runtime still validates every declared source context is mounted, so
 // they ride along as source-only placeholders.
@@ -38,6 +38,7 @@ const contextNames = [
   "platform-operations",
   "settlement",
   "pricing",
+  "payments",
 ] as const;
 
 function sourceOnlyModule(contextName: string, streamPrefix: string) {
@@ -60,6 +61,7 @@ const fulfillmentSourceModule = sourceOnlyModule("fulfillment", "fulfillment.");
 const platformOperationsSourceModule = sourceOnlyModule("platform-operations", "platform-operations.");
 const settlementSourceModule = sourceOnlyModule("settlement", "settlement.");
 const pricingSourceModule = sourceOnlyModule("pricing", "pricing.");
+const paymentsSourceModule = sourceOnlyModule("payments", "payments.");
 
 function context(accountId: string): EventStoreContext {
   return {
@@ -99,6 +101,7 @@ describeDb("marketplace seller away-window start sweep SQL persistence boundary"
     await bootstrapContextDatabase(platformOperationsSourceModule, pools["platform-operations"]);
     await bootstrapContextDatabase(settlementSourceModule, pools.settlement);
     await bootstrapContextDatabase(pricingSourceModule, pools.pricing);
+    await bootstrapContextDatabase(paymentsSourceModule, pools.payments);
   });
 
   afterAll(async () => {
@@ -160,6 +163,13 @@ describeDb("marketplace seller away-window start sweep SQL persistence boundary"
         mountRole: "source-only",
         module: pricingSourceModule,
         pool: pools.pricing,
+        ports: {},
+      },
+      {
+        contextName: "payments",
+        mountRole: "source-only",
+        module: paymentsSourceModule,
+        pool: pools.payments,
         ports: {},
       },
     ]);

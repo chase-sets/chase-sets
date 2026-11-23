@@ -32,6 +32,8 @@ import { createListingActionAttentionSourceFromReadModel } from "../../features/
 import { createOfferResponseAttentionSourceFromReadModel } from "../../features/offers/read-model/seller-attention-source";
 import { createMarketplaceChannelInboundClampRuntime } from "../../features/channel-inbound-clamp/api/runtime";
 import { createBuyerOfferPolicyRuntime } from "../../features/offer-policy/api/runtime";
+import { createOfferPaymentAuthorization } from "../../features/offer-payment-authorization/api/runtime";
+import { buyerInstrumentHandoff } from "../../features/offer-payment-authorization/integrations/payments/reconcile";
 import { createMarketplaceMutationLookup } from "../../features/mutation-recovery/api/lookup";
 import type { ManagedOfferPricing } from "../../features/offers/api/managed-authority";
 import type { MarketplaceOfferLifecycleAdmission } from "../../features/offers/api/lifecycle-admission";
@@ -60,6 +62,8 @@ export type MarketplaceServices = Readonly<{
   listings: ReturnType<typeof createMarketplaceListingRuntime>;
   offers: ReturnType<typeof createMarketplaceOfferRuntime>;
   buyerOfferPolicies: ReturnType<typeof createBuyerOfferPolicyRuntime>;
+  offerPaymentAuthorization: ReturnType<typeof createOfferPaymentAuthorization>;
+  recordBuyerInstrumentHandoff: ReturnType<typeof buyerInstrumentHandoff>;
   reports: ReturnType<typeof createMarketplaceReportRuntime>;
   reviews: ReturnType<typeof createReviewRuntime>;
   sellerMetrics: ReturnType<typeof createSellerMetricsRuntime>;
@@ -170,6 +174,8 @@ export function createMarketplaceServices(
     listings,
     offers,
     buyerOfferPolicies,
+    offerPaymentAuthorization: createOfferPaymentAuthorization({ eventStore, db }),
+    recordBuyerInstrumentHandoff: buyerInstrumentHandoff(eventStore),
     reports,
     reviews,
     reviewOpportunityPublication: createReviewOpportunityPublication({ pool, eventStore }),
