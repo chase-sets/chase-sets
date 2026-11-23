@@ -9,6 +9,7 @@ import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-se
 import type { RateLimitRuleResolver } from "@chase-sets/http/rate-limit";
 import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
+import { createPolicyRuntime, type PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { createDiscoveryBrowseRuntime, type DiscoveryBrowseServices } from "../../features/browse/api/runtime";
 import { createDiscoveryCategoryRuntime, type DiscoveryCategoryServices } from "../../features/categories/api/runtime";
 import { createProductAlertRuntime, type ProductAlertServices } from "../../features/product-alerts/api/runtime";
@@ -74,6 +75,7 @@ export type DiscoveryServices = Readonly<{
   searchEmbeddings?: DiscoverySearchEmbeddingEnrichment;
   notificationOutbox: NotificationOutbox;
   rateLimitPolicyResolver?: RateLimitRuleResolver;
+  policies: PolicyRuntime;
   projectors: readonly ProjectionHandlerSet[];
   db: PgQueryable;
   pool: PgTransactionalPool;
@@ -87,6 +89,7 @@ export function createDiscoveryServices(pool: PgTransactionalPool, ports: Discov
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
   const deps = { eventStore, checkpointStore, db, pool } as const;
+  const policies = createPolicyRuntime({ eventStore, db, commitSourceContextName: "discovery" });
   const notificationOutbox = ports.notificationOutbox ?? createPostgresNotificationOutbox({ db });
   const browse = createDiscoveryBrowseRuntime(deps);
   const categories = createDiscoveryCategoryRuntime(deps);
@@ -156,12 +159,14 @@ export function createDiscoveryServices(pool: PgTransactionalPool, ports: Discov
     ...(searchEmbeddings ? { searchEmbeddings } : {}),
     notificationOutbox,
     rateLimitPolicyResolver: ports.rateLimitPolicyResolver,
+    policies,
     projectors: [
       ...items.projectors,
       ...googleShoppingProjectors,
       ...categories.projectors,
       ...productAlerts.projectors,
       ...savedListPickerProjectors,
+      ...policies.projectors,
     ],
     db,
     pool,

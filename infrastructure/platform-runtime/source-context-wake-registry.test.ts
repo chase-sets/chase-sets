@@ -228,6 +228,16 @@ describe("source-context wake registry", () => {
     }
   });
 
+  it("registers Discovery's policy projection only under its Discovery source, as its manifest declares", () => {
+    const key = "discovery:platform-policy-document-projection";
+    const discovery = requireSourceContextWakeRegistryEntry("discovery");
+    expect(inventory.projectionsBySource.get("discovery")).toContain(key);
+    expect(sourceContextWakeRegistry.filter((entry) => entry.affectedProjectionNames.includes(key))).toEqual([
+      discovery,
+    ]);
+    expect(discovery.affectedProjectionNames.filter((projectionKey) => projectionKey === key)).toHaveLength(1);
+  });
+
   it("creates write-side and relay configs from the same source-context entry", () => {
     delete process.env.PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED;
     delete process.env.PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS;
