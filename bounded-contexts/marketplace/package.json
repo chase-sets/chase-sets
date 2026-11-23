@@ -46,7 +46,6 @@
     "@chase-sets/primitives": "workspace:*",
     "@chase-sets/product-measures": "workspace:*",
     "@chase-sets/product-selection": "workspace:*",
-    "@chase-sets/review-eligibility": "workspace:*",
     "@chase-sets/seller-desk": "workspace:*",
     "hono": "^4.13.13",
     "sharp": "^0.35.5",

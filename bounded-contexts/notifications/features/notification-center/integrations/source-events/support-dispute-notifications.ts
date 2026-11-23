@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { t } from "../../ui/localization/translator";
 import { links as supportLinks } from "@chase-sets/platform-operations/integration/link-intents";
 import { deriveDisplayReferenceOrRaw } from "@chase-sets/primitives/display-reference";
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";

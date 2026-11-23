@@ -181,7 +181,6 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "provider-credentials": "runtime-library",
     "public-docs": "runtime-library",
     realtime: "runtime-library",
-    "review-eligibility": "runtime-library",
     "seller-attention-queue": "runtime-library",
     "seller-desk": "runtime-library",
     "tcgplayer-market-observations": "event-store-persistence",

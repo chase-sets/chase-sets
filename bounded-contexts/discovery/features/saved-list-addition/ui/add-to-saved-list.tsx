@@ -1,4 +1,3 @@
-import { t } from "@chase-sets/localization";
 import { DEFAULT_FRESH_WRITE_MAX_AGE_MS } from "@chase-sets/http/responses";
 import { useEffect, useRef, useState } from "react";
 import { useFetcher, useLocation } from "react-router";
@@ -14,6 +13,7 @@ import {
   TextInput,
 } from "@chase-sets/design-system";
 import type { SavedListPickerPreparation, SavedListRouteActionData } from "./contracts";
+import { t } from "./localization/translator";
 
 const NEW_LIST_VALUE = "__new_saved_list__";
 

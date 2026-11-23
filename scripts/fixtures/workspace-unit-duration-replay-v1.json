@@ -339,15 +339,6 @@
       "runAttempt": 1,
       "jobId": 89364607063,
       "invocation": "test--exclude-test-profile=db",
-      "workspace": "@chase-sets/review-eligibility",
-      "script": "test",
-      "observedDurationMs": 3890
-    },
-    {
-      "runId": 30054895589,
-      "runAttempt": 1,
-      "jobId": 89364607063,
-      "invocation": "test--exclude-test-profile=db",
       "workspace": "@chase-sets/seller-attention-queue",
       "script": "test",
       "observedDurationMs": 4214

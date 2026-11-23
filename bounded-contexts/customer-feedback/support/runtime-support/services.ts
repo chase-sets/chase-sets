@@ -4,7 +4,10 @@ import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import { createCsatInvitationRuntime } from "../../features/csat/api/runtime";
 import { createFeedbackCaseRuntime } from "../../features/cases/api/runtime";
-import { createFeedbackAttentionDigestRunner } from "../../features/attention/api/digest-runner";
+import {
+  createFeedbackAttentionDigestRunner,
+  type FeedbackAttentionDigestService,
+} from "../../features/attention/api/digest-runner";
 import { createFeedbackNotificationDeliveryGuard } from "../../features/attention/integrations/notifications/delivery-authorization";
 import { createCustomerFeedbackPrivacyRuntime } from "../../features/privacy/api/runtime";
 import { createPolicyRuntime, type PolicyRuntime } from "@chase-sets/platform-policy/runtime";
@@ -15,18 +18,18 @@ import { createPolicyRuntime, type PolicyRuntime } from "@chase-sets/platform-po
  * Composes the invitation and feedback case aggregates, event-store wake wiring,
  * and context-owned query projections while keeping the deployable host thin.
  */
-export type CustomerFeedbackServices = Readonly<{
-  invitations: ReturnType<typeof createCsatInvitationRuntime>;
-  cases: ReturnType<typeof createFeedbackCaseRuntime>;
-  runAttentionDigest: ReturnType<typeof createFeedbackAttentionDigestRunner>;
-  notificationDeliveryGuard: ReturnType<typeof createFeedbackNotificationDeliveryGuard>;
-  eventStore: ReturnType<typeof createPostgresEventStore>;
-  privacy: ReturnType<typeof createCustomerFeedbackPrivacyRuntime>;
-  policies: PolicyRuntime;
-  projectors: readonly ProjectionHandlerSet[];
-  pool: PgTransactionalPool;
-  db: PgQueryable;
-}>;
+export type CustomerFeedbackServices = FeedbackAttentionDigestService &
+  Readonly<{
+    invitations: ReturnType<typeof createCsatInvitationRuntime>;
+    cases: ReturnType<typeof createFeedbackCaseRuntime>;
+    notificationDeliveryGuard: ReturnType<typeof createFeedbackNotificationDeliveryGuard>;
+    eventStore: ReturnType<typeof createPostgresEventStore>;
+    privacy: ReturnType<typeof createCustomerFeedbackPrivacyRuntime>;
+    policies: PolicyRuntime;
+    projectors: readonly ProjectionHandlerSet[];
+    pool: PgTransactionalPool;
+    db: PgQueryable;
+  }>;
 
 export type CustomerFeedbackHostPorts = Readonly<Record<string, never>>;
 

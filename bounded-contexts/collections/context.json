@@ -3,7 +3,6 @@
   "packageName": "@chase-sets/collections",
   "localeCatalogs": [
     "bounded-contexts/collections/features/saved-lists/api/localization/locales/en.ts",
-    "bounded-contexts/collections/features/saved-lists/ui/localization/locales/en.ts",
     "bounded-contexts/collections/features/saved-list-valuation/api/localization/locales/en.ts",
     "bounded-contexts/collections/features/saved-list-valuation/ui/localization/locales/en.ts"
   ],
