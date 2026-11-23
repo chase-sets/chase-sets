@@ -16,6 +16,18 @@
       "lockScope": "job:pricing.market-rollups-closer"
     },
     {
+      "id": "pricing.evaluated-decision-recovery",
+      "schedule": {
+        "kind": "interval",
+        "intervalMs": 60000
+      },
+      "runnerExport": "createPricingEvaluatedDecisionRecoveryRunners",
+      "group": "scheduled",
+      "order": 114,
+      "runtimeProfiles": ["proof", "public"],
+      "lockScope": "job:pricing.evaluated-decision-recovery"
+    },
+    {
       "id": "pricing.repricing-dry-run-jobs",
       "schedule": {
         "kind": "durable",

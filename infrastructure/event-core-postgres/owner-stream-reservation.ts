@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { createEventStoreError } from "@chase-sets/event-core/event-store";
 import {
   assertOwnerStreamReservationInput,
@@ -76,8 +77,219 @@ const TERMINAL_LOCK_SQL =
   "SELECT pg_advisory_xact_lock(hashtextextended('request_terminal:' || $1::text || ':' || $2::text, 0))";
 const RESERVATION_COLUMNS =
   "reservation_id, operation_id, owner_stream_id, purpose, resource_key, consumer_store_id, consumer_incarnation, request_id, seal_version, store_incarnation, target, command_fingerprint, status, release_status";
+
+/** Install only on the consumer that witnesses never-opened requests. */
+export const requestTerminalWitnessSchemaSql = `
+CREATE TABLE IF NOT EXISTS event_request_terminal_witnesses (
+  consumer_store_id text NOT NULL,
+  request_id text NOT NULL,
+  consumer_incarnation text NOT NULL,
+  token uuid,
+  status text NOT NULL CHECK (status IN ('VIRGIN', 'SEEN', 'CLAIMED', 'ISSUING', 'ISSUED')),
+  binding jsonb,
+  PRIMARY KEY (consumer_store_id, request_id),
+  CHECK (status = 'SEEN' OR token IS NOT NULL),
+  CHECK ((binding IS NOT NULL) = (status IN ('CLAIMED', 'ISSUING', 'ISSUED')))
+);
+
+CREATE FUNCTION event_fence_request_terminal_insert() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE witness event_request_terminal_witnesses%ROWTYPE;
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtextextended('request_terminal:' || NEW.consumer_store_id || ':' || NEW.request_id, 0));
+  SELECT * INTO witness FROM event_request_terminal_witnesses
+    WHERE consumer_store_id = NEW.consumer_store_id AND request_id = NEW.request_id FOR UPDATE;
+  IF witness.status IN ('CLAIMED', 'ISSUED') OR
+    (witness.status = 'ISSUING' AND (NEW.status <> 'ABORTED' OR NEW.binding IS DISTINCT FROM witness.binding)) THEN
+    RAISE EXCEPTION 'Request terminal first insert is fenced by recovery' USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE FUNCTION event_witness_request_terminal_insert() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  UPDATE event_request_terminal_witnesses SET status = 'ISSUED'
+    WHERE consumer_store_id = NEW.consumer_store_id AND request_id = NEW.request_id
+      AND status = 'ISSUING' AND NEW.status = 'ABORTED' AND binding = NEW.binding;
+  IF FOUND THEN RETURN NEW; END IF;
+
+  INSERT INTO event_request_terminal_witnesses (consumer_store_id, request_id, consumer_incarnation, status)
+    VALUES (NEW.consumer_store_id, NEW.request_id, COALESCE(NEW.binding->>'consumerIncarnation', ''), 'SEEN')
+    ON CONFLICT (consumer_store_id, request_id) DO UPDATE SET status = 'SEEN'
+      WHERE event_request_terminal_witnesses.status IN ('VIRGIN', 'SEEN');
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Request terminal insert lost its witness fence' USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE FUNCTION event_require_request_terminal_publication() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM event_request_terminal_witnesses w JOIN event_request_terminals t
+      USING (consumer_store_id, request_id)
+      WHERE w.consumer_store_id = NEW.consumer_store_id AND w.request_id = NEW.request_id
+        AND w.status = 'ISSUED' AND w.binding = NEW.binding AND t.status = 'ABORTED' AND t.binding = NEW.binding) THEN
+    RAISE EXCEPTION 'Request terminal publication did not seal' USING ERRCODE = '23514';
+  END IF;
+  RETURN NULL;
+END;
+$$;
+
+CREATE TRIGGER event_fence_request_terminal_insert BEFORE INSERT ON event_request_terminals
+  FOR EACH ROW EXECUTE FUNCTION event_fence_request_terminal_insert();
+CREATE TRIGGER event_witness_request_terminal_insert AFTER INSERT ON event_request_terminals
+  FOR EACH ROW EXECUTE FUNCTION event_witness_request_terminal_insert();
+CREATE CONSTRAINT TRIGGER event_require_request_terminal_publication
+  AFTER INSERT OR UPDATE ON event_request_terminal_witnesses DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW WHEN (NEW.status = 'ISSUING') EXECUTE FUNCTION event_require_request_terminal_publication();
+`;
+
+type TerminalWitness = Readonly<{
+  token: string | null;
+  consumer_incarnation: string;
+  status: "VIRGIN" | "SEEN" | "CLAIMED" | "ISSUING" | "ISSUED";
+  binding: RequestTerminalBinding | null;
+}>;
 function conflict(message: string): never {
   throw createEventStoreError("concurrency_conflict", message);
+}
+
+async function lockWitness(client: PgQueryable, binding: RequestTerminalBinding) {
+  const key = [binding.consumerStoreId, binding.requestId] as const;
+  await client.query(TERMINAL_LOCK_SQL, key);
+  await assertConsumerIdentity(client, binding, true);
+  const witness = await client.query<TerminalWitness>(
+    `SELECT token, consumer_incarnation, status, binding FROM event_request_terminal_witnesses
+     WHERE consumer_store_id = $1 AND request_id = $2 FOR UPDATE`,
+    key,
+  );
+  const terminal = await client.query<DbTerminal>(
+    `SELECT binding, status FROM event_request_terminals
+     WHERE consumer_store_id = $1 AND request_id = $2 FOR UPDATE`,
+    key,
+  );
+  return { key, witness: witness.rows[0], terminal: terminal.rows[0] };
+}
+
+export function registerRequestTerminalWitness(pool: PgTransactionalPool, binding: RequestTerminalBinding) {
+  return withPgTransaction(pool, async (client) => {
+    const { key, witness, terminal } = await lockWitness(client, binding);
+    if (terminal) return undefined;
+    if (witness)
+      return witness.status === "VIRGIN" && witness.consumer_incarnation === binding.consumerIncarnation
+        ? (witness.token ?? undefined)
+        : undefined;
+    const inserted = await client.query<{ token: string }>(
+      `INSERT INTO event_request_terminal_witnesses (consumer_store_id, request_id, consumer_incarnation, token, status)
+       VALUES ($1,$2,$3,$4,'VIRGIN') ON CONFLICT DO NOTHING RETURNING token`,
+      [...key, binding.consumerIncarnation, randomUUID()],
+    );
+    return inserted.rows[0]?.token;
+  });
+}
+
+/** Advance one consumer-local recovery step, returning only committed facts. */
+export function advanceRequestTerminalRecovery(
+  pool: PgTransactionalPool,
+  binding: RequestTerminalBinding,
+  token: string,
+  decision: "PREPARED" | "RECOVERING",
+) {
+  return withPgTransaction(pool, async (client) => {
+    const { key, witness, terminal } = await lockWitness(client, binding);
+    if (witness?.token !== token || witness.consumer_incarnation !== binding.consumerIncarnation) return;
+    if (witness.status === "VIRGIN" && !terminal && decision === "PREPARED") {
+      const claimed = await client.query(
+        `UPDATE event_request_terminal_witnesses SET status = 'CLAIMED', binding = $4
+         WHERE consumer_store_id = $1 AND request_id = $2 AND token = $3 AND status = 'VIRGIN'
+           AND clock_timestamp() >= $5::timestamptz`,
+        [...key, token, binding, binding.preparationDeadline],
+      );
+      if (claimed.rowCount === 1) return "CLAIMED";
+      return;
+    }
+    if (!witness.binding || !sameRequestTerminalBinding(witness.binding, binding)) return;
+    if (
+      witness.status === "ISSUED" &&
+      decision === "RECOVERING" &&
+      terminal?.status === "ABORTED" &&
+      sameRequestTerminalBinding(terminal.binding, binding)
+    )
+      return "ISSUED";
+    if (witness.status !== "CLAIMED" || terminal) return;
+    if (decision === "PREPARED") return "CLAIMED";
+
+    const issuing = await client.query(
+      `UPDATE event_request_terminal_witnesses SET status = 'ISSUING'
+       WHERE consumer_store_id = $1 AND request_id = $2 AND token = $3 AND status = 'CLAIMED' AND binding = $4`,
+      [...key, token, binding],
+    );
+    if (issuing.rowCount !== 1) return;
+    const inserted = await client.query<DbTerminal>(
+      `INSERT INTO event_request_terminals (consumer_store_id, request_id, status, binding, created_at, updated_at)
+       VALUES ($1,$2,'ABORTED',$3,now(),now()) RETURNING binding, status`,
+      [...key, binding],
+    );
+    const sealed = await client.query(
+      `SELECT 1 FROM event_request_terminal_witnesses WHERE consumer_store_id = $1 AND request_id = $2
+         AND token = $3 AND binding = $4 AND status = 'ISSUED'`,
+      [...key, token, binding],
+    );
+    if (
+      inserted.rowCount !== 1 ||
+      inserted.rows[0]?.status !== "ABORTED" ||
+      !sameRequestTerminalBinding(inserted.rows[0].binding, binding) ||
+      sealed.rowCount !== 1
+    )
+      conflict("Recovery terminal publication was not sealed.");
+    return "PUBLISHED";
+  });
+}
+
+export async function drainAbortedOwnerReservationsInTransaction(
+  client: PgQueryable,
+  ownerStoreId: string,
+  members: readonly ReserveOwnerStreamInput[],
+  allowNeverReserved: boolean,
+) {
+  if (!members.length) return true;
+  await boundStep(client);
+  await lockOwnerStreamInvalidationsInTransaction(
+    client,
+    members.map(({ ownerStreamId }) => ownerStreamId),
+  );
+  const identity = await client.query<{ store_id: string; incarnation: string }>(
+    "SELECT store_id, incarnation FROM event_configuration_store_identity WHERE singleton = true FOR SHARE",
+  );
+  const store = identity.rows[0];
+  if (
+    identity.rows.length !== 1 ||
+    store?.store_id !== ownerStoreId ||
+    members.some(({ seal }) => seal.storeIncarnation !== store.incarnation)
+  )
+    return false;
+  const open = [];
+  for (const input of members) {
+    const result = await client.query<DbReservation>(
+      `SELECT ${RESERVATION_COLUMNS} FROM event_owner_stream_reservations WHERE reservation_id = $1 FOR UPDATE`,
+      [input.reservationId],
+    );
+    const row = result.rows[0];
+    if (!row && allowNeverReserved) continue;
+    if (!row || reservationIdentity(reservationInput(mapReservation(row))) !== reservationIdentity(input)) return false;
+    if (row.status === "OPEN" && row.release_status === null) open.push(input.reservationId);
+    else if (row.status !== "RELEASED" || row.release_status !== "ABORTED") return false;
+  }
+  if (open.length) {
+    const result = await client.query(
+      `UPDATE event_owner_stream_reservations SET status = 'RELEASED', release_status = 'ABORTED', released_at = now()
+       WHERE reservation_id = ANY($1::text[]) AND status = 'OPEN'`,
+      [open],
+    );
+    if (result.rowCount !== open.length) conflict("Exact owner drain did not release every open member.");
+  }
+  return true;
 }
 
 export function createPostgresOwnerStreamReservationStore(
@@ -362,10 +574,14 @@ export async function applyOwnerStreamInvalidationInTransaction(
   return { ...current, status: "APPLIED" };
 }
 
-async function assertConsumerIdentity(client: PgQueryable, binding: RequestTerminalBinding): Promise<void> {
+async function assertConsumerIdentity(
+  client: PgQueryable,
+  binding: RequestTerminalBinding,
+  lock = false,
+): Promise<void> {
   assertRequestTerminalBinding(binding);
   const result = await client.query<{ store_id: string; incarnation: string }>(
-    "SELECT store_id, incarnation FROM event_configuration_store_identity WHERE singleton = true",
+    `SELECT store_id, incarnation FROM event_configuration_store_identity WHERE singleton = true${lock ? " FOR SHARE" : ""}`,
   );
   if (
     result.rows.length !== 1 ||

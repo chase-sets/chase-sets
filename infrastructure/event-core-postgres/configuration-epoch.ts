@@ -10,6 +10,7 @@ import {
   replayConfigurationEpoch,
   sameConfigurationConsumer,
   type ConfigurationConsumer,
+  type ConfigurationClosureStatus,
   type ConfigurationConsumerGuard,
   type ConfigurationEpochGrant,
   type ConfigurationEpochRecord,
@@ -286,10 +287,23 @@ export function createPostgresConfigurationEpochStore(config: PostgresConfigurat
       await append(client, key, { kind: "CLOSING", epoch: state.epoch, topologyRevision: state.topologyRevision });
     return configurationClosureStatus(key, (await load(client, key)).state);
   }
-  async function installClosureInTransaction(client: PgQueryable, key: string) {
+  async function installClosureInTransaction(
+    client: PgQueryable,
+    key: string,
+    repairOf?: Pick<ConfigurationClosureStatus, "epoch" | "topologyRevision">,
+  ) {
     await boundStep(client);
     await client.query(EXCLUSIVE_LOCK_SQL, [key]);
     const { state } = await load(client, key);
+    if (
+      repairOf &&
+      (state.state !== "CLOSING" ||
+        state.blockedReason !== undefined ||
+        state.epoch !== repairOf.epoch ||
+        state.topologyRevision !== repairOf.topologyRevision ||
+        state.receipts.length !== state.consumers.length)
+    )
+      throw new ConfigurationEpochError("repair requires the exact complete unblocked closure");
     await append(client, key, { kind: "APPLIED", epoch: state.epoch, topologyRevision: state.topologyRevision });
     return configurationClosureStatus(key, (await load(client, key)).state);
   }

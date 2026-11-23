@@ -86,6 +86,22 @@ CREATE TABLE IF NOT EXISTS pricing_repricing_daily_sweep_cursor (
 
 export const pricingRepricingEngineSchemaMigrations: readonly BcSchemaMigration[] = [
   {
+    migrationId: "20261123_pricing_evaluated_decision_recovery",
+    description: "Enroll only new decisions and retain the recovery gate and bounded scan position.",
+    statements: [
+      `ALTER TABLE pricing_evaluated_decisions ADD COLUMN IF NOT EXISTS terminal_witness_token uuid,
+       DROP CONSTRAINT IF EXISTS pricing_evaluated_decisions_status_check,
+       ADD CONSTRAINT pricing_evaluated_decisions_status_check
+         CHECK (status IN ('PREPARED', 'RECOVERING', 'COMMITTED', 'ABORTED'))`,
+      `CREATE INDEX IF NOT EXISTS pricing_evaluated_decisions_recovery_idx
+       ON pricing_evaluated_decisions (request_id) WHERE status IN ('PREPARED', 'RECOVERING')`,
+      `CREATE TABLE IF NOT EXISTS pricing_evaluated_decision_recovery_cursor (
+         singleton boolean PRIMARY KEY CHECK (singleton),
+         last_request_id text
+       )`,
+    ],
+  },
+  {
     migrationId: "20260914_pricing_repricing_spiral_breaker",
     description: "Retain product-scoped repricing direction and automatic freeze expiry in the cooldown ledger.",
     statements: [

@@ -10,7 +10,7 @@ import { createNoopNotificationAdapter } from "@chase-sets/outbound-messaging";
 
 // Services are deliberately inert. Composition may inspect capabilities, but
 // any database access during construction is a regression.
-export function censusInput(profile: "landing" | "proof" | "public", enabled = true) {
+export function censusInput(profile: "landing" | "proof" | "public", enabled = true, evaluationAuthority = true) {
   const databaseUrl = "postgresql://synthetic:synthetic@localhost:1/census";
   vi.stubEnv("PLATFORM_CONTROL_DATABASE_URL", databaseUrl);
   for (const contextName of getPlatformWorkerContextsForRuntimeProfile(profile))
@@ -39,6 +39,12 @@ export function censusInput(profile: "landing" | "proof" | "public", enabled = t
     new Proxy({}, { get: (_target, key) => (key === "then" ? undefined : nested()), has: () => true });
   const entries = getWorkerHostEntries(workerContextRegistry, "platform-worker", profile);
   const services = Object.fromEntries(entries.map((entry) => [entry.contextName, service()]));
+  if (services.pricing && !evaluationAuthority) {
+    const pricing = services.pricing as object;
+    services.pricing = new Proxy(pricing, {
+      get: (target, key) => (key === "evaluationAuthority" ? undefined : Reflect.get(target, key)),
+    });
+  }
   if (services.channels) services.channels = channelsModule.createServices(pool, { channelSaleRecorder: unavailable });
   const config: PlatformWorkerConfig = { ...loadConfig(), workerId: "census-worker", leaseTtlMs: 1000 };
   for (const key of Object.keys(config)) {
