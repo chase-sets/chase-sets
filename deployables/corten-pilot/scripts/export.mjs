@@ -156,8 +156,10 @@
 // - marketplace/locales/seller-listing.en.json: the seller's listing page's English catalog
 //   (marketplace.features.listings.ui.listingCreatePage.* as page.*, marketplace.routes.accountListingsNew.* as
 //   route.*, the evidence checklist's marketplace.features.listings.ui.evidence.* and the API's coverage words
-//   marketplace.features.listings.evidenceCoverage.* as coverage.*, and the authored-text guidance,
-//   marketplace.features.reviews.ui.authoredTextGuidance.*, as guidance.*).
+//   marketplace.features.listings.evidenceCoverage.* as coverage.*, the authored-text guidance,
+//   marketplace.features.reviews.ui.authoredTextGuidance.*, as guidance.*, and Create listing's notice for
+//   inventory without a shipping measure, the create's own refusal
+//   marketplace.features.listings.api.route.error.shippingMeasureMissing, as error.shipping_measure_missing).
 // - marketplace/locales/seller-listings.en.json: the seller's list of listings' English catalog
 //   (marketplace.features.listings.ui.listingListPage.* as list.*, marketplace.routes.accountListings.* as
 //   route.*, the listing API's refusals marketplace.features.listings.api.route.error.* as error.*, the seller
@@ -1688,6 +1690,7 @@ const outputs = [
       await catalog("marketplace.ts", "marketplaceEnglishTranslations", [
         ["marketplace.features.listings.ui.listingCreatePage.", "page"],
         ["marketplace.routes.accountListingsNew.", "route"],
+        ["marketplace.features.listings.api.route.error.shippingMeasureMissing", "error.shipping_measure_missing"],
         ["marketplace.features.listings.ui.evidence.", "evidence"],
         ["marketplace.features.listings.evidenceCoverage.", "coverage"],
         ["marketplace.features.reviews.ui.authoredTextGuidance.", "guidance"],

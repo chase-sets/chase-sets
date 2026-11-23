@@ -210,10 +210,10 @@ fn NoticePart<'a>(t: ListingNewMsg, p: Pilot, screen: &'a NewListingScreen) -> i
                     <p>{t.page_the_listing_will_use_this_inventory()}</p>
                 </div>
             }
-            if screen.blocks_publication() {
+            if screen.blocks_creation() {
                 <div class={Banner} data-tone="warning">
                     <p class={Strong}>{t.page_shipping_measure_missing()}</p>
-                    <p>{t.page_publish_requires_shipping_measure()}</p>
+                    <p>{t.error_shipping_measure_missing()}</p>
                 </div>
             }
         </div>
@@ -619,7 +619,13 @@ fn ActionsPart<'a>(t: ListingNewMsg, screen: &'a NewListingScreen) -> impl Patch
             >
                 {t.page_preview_fees()}
             </button>
-            <button class={(Button, Ghost)} type="submit" name={f.intent} value={Intent::Draft.as_str()} disabled={blocked}>
+            <button
+                class={(Button, Ghost)}
+                type="submit"
+                name={f.intent}
+                value={Intent::Draft.as_str()}
+                disabled={blocked || screen.blocks_creation()}
+            >
                 {t.page_save_as_draft()}
             </button>
         </div>

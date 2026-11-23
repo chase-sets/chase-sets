@@ -10958,6 +10958,31 @@ async fn create_listing_reads_the_sellers_inventory_and_only_a_listing_manager_w
 }
 
 #[tokio::test]
+async fn inventory_without_a_shipping_measure_says_it_cannot_be_listed_and_neither_create_is_on() {
+    // A button's opening tag, found by an attribute only it has.
+    fn button<'a>(html: &'a str, attribute: &str) -> &'a str {
+        let at = html.find(attribute).unwrap_or_else(|| panic!("no {attribute}: {html}"));
+        let tag = &html[html[..at].rfind("<button").unwrap()..at + html[at..].find('>').unwrap()];
+        assert!(!tag.contains('>'), "{attribute} is a button's: {tag}");
+        tag
+    }
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(&format!("{LISTING_NEW}?inventoryItemId=inv_bare"), Some("lister"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    // The notice is the create's own refusal, as marketplace's page words it.
+    assert!(page.contains("This product has no shipping measure yet, so it cannot be listed. Try again later."), "{page}");
+    assert!(!page.contains("before creating an active listing"), "a draft is refused too: {page}");
+    assert!(button(&html, r#"value="create-and-publish-listing""#).contains(" disabled"), "{html}");
+    assert!(button(&html, r#"value="create-listing""#).contains(" disabled"), "{html}");
+    assert!(!button(&html, r#"name="preview""#).contains(" disabled"), "the fees can still be previewed: {html}");
+    // Inventory with a measure: a draft can be saved.
+    let (_, _, html) = pilot.send(get(&format!("{LISTING_NEW}?inventoryItemId=inv_etb"), Some("lister"))).await;
+    assert!(!text(&html).contains("so it cannot be listed"), "{html}");
+    assert!(!button(&html, r#"value="create-listing""#).contains(" disabled"), "{html}");
+}
+
+#[tokio::test]
 async fn the_catalog_search_finds_chooses_and_asks_for_each_option_that_applies() {
     let pilot = Pilot::new().await;
     let (_, _, html) = pilot.send(get(&format!("{LISTING_NEW}?q=twilight"), Some("lister"))).await;
