@@ -118,7 +118,7 @@ export type PlatformOperationsServices = Readonly<{
   riskAlerts: ReturnType<typeof createRiskAlertRuntime>;
   supportRequests: ReturnType<typeof createSupportRequestRuntime>;
   supportEvidenceLegacy: ReturnType<typeof createLegacyReferenceReconstruction>;
-  /** The shared platform-policy runtime, mounted for this context's `definePolicy` documents (the rate-limit policy and the support-flow deadline policy). */
+  /** The shared platform-policy runtime, mounted for this context's `definePolicy` documents. */
   policies: PolicyRuntime;
   /** The platform policy console's full registry: this context's own policies plus any injected cross-context ones. */
   policyConsoleEntries: readonly PolicyConsoleEntry[];
