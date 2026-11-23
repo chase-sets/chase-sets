@@ -17,7 +17,7 @@ use platform::{
     },
 };
 
-use super::{listing_page::options, on_marketplace};
+use super::{DEFAULT_PRODUCT_IMAGE, listing_page::options, on_marketplace};
 use crate::{
     accounts::{AccountScreen, MOST_DETAILS, REASONS, ReviewNotice, ReviewReportFields, Role},
     api::{AccountListing, AccountReview, PublicAccount},
@@ -39,8 +39,6 @@ pub struct AccountHeadId;
 /// The active listings (or that there are none), drawn again on each change to the account.
 #[derive(Id)]
 pub struct AccountListingsId;
-/// The picture every listing card shows (`discoveryAssetUrls.defaultProductImage`).
-const CARD_BACK: &str = "/fake-cdn/assets/pokemon_tcg_back.png";
 
 /// A review, so a redirect after its report can bring the browser back to it.
 #[derive(Id)]
@@ -708,7 +706,7 @@ fn ListingCard<'a>(
         (Some(title), false) => format!("{title}, {}", chips.join(", ")),
         (Some(title), true) => title.to_owned(),
         (None, false) => chips.join(", "),
-        (None, true) => t.page_pokemon_card_back().to_owned(),
+        (None, true) => t.page_marketplace_listing().to_owned(),
     };
     let available = t.page_quantity_available(listing.visible_quantity).to_string();
     let detail = match limit(listing) {
@@ -731,7 +729,7 @@ fn ListingCard<'a>(
         <li class={Listing}>
             <img
                 class={Media}
-                src={&on_marketplace(CARD_BACK)}
+                src={&on_marketplace(DEFAULT_PRODUCT_IMAGE)}
                 alt={&alt}
                 loading={if index < 2 { "eager" } else { "lazy" }}
                 decoding="async"

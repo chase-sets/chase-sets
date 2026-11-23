@@ -3348,7 +3348,8 @@ async fn the_cart_shows_each_line_the_total_and_the_lower_price_the_api_offers()
         assert!(form.contains(&format!(">{label}</button>")), "{form}");
     }
     assert!(forms.iter().all(|f| !f.contains("data-patch")), "the browser follows each form's redirect to marketplace: {html}");
-    assert!(html.contains(r#"src="http://localhost:7753/fake-cdn/assets/pokemon-card-back.png""#), "{html}");
+    // A line without a picture shows the game-neutral placeholder, not a card back.
+    assert!(html.contains(r#"src="http://localhost:7753/fake-cdn/assets/product-image-placeholder.svg""#), "{html}");
     assert!(!html.contains("<script>"), "the page needs no inline script");
 
     let reads = cart_calls(&pilot);
@@ -4254,6 +4255,19 @@ fn discovery_item(stand: &Stand, id: &str) -> Response {
         ] }))
         .into_response(),
         "unlisted/similar" => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        "unpictured" => {
+            let mut item = item();
+            item["slug"] = json!("unpictured");
+            item["image_fallback"] = Value::Null;
+            Json(item).into_response()
+        }
+        "one-picture" => {
+            let mut item = item();
+            item["slug"] = json!("one-picture");
+            item["image_urls"] = json!(["/fake-cdn/front.png"]);
+            item["image_fallback"] = Value::Null;
+            Json(item).into_response()
+        }
         "pictured" => {
             let mut item = item();
             item["slug"] = json!("pictured");
@@ -6143,6 +6157,23 @@ async fn an_item_with_more_than_one_picture_shows_one_at_a_time_picked_by_its_th
 }
 
 #[tokio::test]
+async fn an_item_with_no_picture_and_no_fallback_shows_the_game_neutral_placeholder() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/items/unpictured", None)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let placeholder = "http://localhost:7753/fake-cdn/assets/product-image-placeholder.svg";
+    assert!(html.contains(&format!(r#"src="{placeholder}""#)), "{html}");
+    assert!(html.contains(r#"alt="Default product image""#), "{html}");
+    assert!(html.contains(&format!(r#"<meta property="og:image" content="{placeholder}""#)), "{html}");
+    assert!(!html.contains("Image coming soon") && !html.contains("item-detail__gallery"), "{html}");
+    // One picture and no fallback: the picture alone, without the placeholder (chase-sets#11830).
+    let (status, _, html) = pilot.send(get("/items/one-picture", None)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"src="http://localhost:7753/fake-cdn/front.png""#), "{html}");
+    assert!(!html.contains("item-detail__gallery") && !html.contains("product-image-placeholder"), "{html}");
+}
+
+#[tokio::test]
 async fn similar_items_are_cards_under_the_market_book_and_a_failed_read_leaves_them_out() {
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(get(ITEM_PAGE, None)).await;
@@ -7238,6 +7269,8 @@ async fn an_accounts_page_shows_its_standing_chips_feedback_reviews_and_listings
         html.contains(r#"href="/listings/psa-8">View listing</a>"#) && html.contains(r#"href="/items/charizard">Compare</a>"#),
         "{html}"
     );
+    // Every listing card shows the game-neutral placeholder.
+    assert!(html.contains(r#"src="http://localhost:7753/fake-cdn/assets/product-image-placeholder.svg""#), "{html}");
 }
 
 #[tokio::test]
