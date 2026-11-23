@@ -4,8 +4,9 @@ import {
   reportedContentDueTimes,
   reportedContentReason,
   reportedContentSeverity,
-  reportedContentRepeatDispositionDaysPolicy,
   isReportedContentBusinessDay,
+  REPORTED_CONTENT_REPEAT_OWNER_PRIOR_DISPOSITIONS,
+  REPORTED_CONTENT_REPEAT_OWNER_WINDOW_DAYS,
   REPORTED_CONTENT_RESPONSE_POLICY,
 } from "../read-model/response-policy";
 import {
@@ -19,18 +20,15 @@ import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 describe("reported-content-severity-matrix", () => {
-  it("single-sources the repeat-owner window in the policy default and parameterizes its query", async () => {
-    expect(reportedContentRepeatDispositionDaysPolicy.defaultValue).toBe(180);
-    expect(reportedContentRepeatDispositionDaysPolicy.decodeValue(90)).toBe(90);
-    for (const invalid of [0, -1, 1.5, "180", null]) {
-      expect(() => reportedContentRepeatDispositionDaysPolicy.decodeValue(invalid)).toThrow();
-    }
+  it("single-sources the repeat-owner window and count, and parameterizes the window in its query", async () => {
+    expect(REPORTED_CONTENT_REPEAT_OWNER_WINDOW_DAYS).toBe(180);
+    expect(REPORTED_CONTENT_REPEAT_OWNER_PRIOR_DISPOSITIONS).toBe(2);
     const query = vi.fn().mockResolvedValue({ rows: [] });
     await refreshReportedContentResponses({ query } as PgQueryable, "listing", "lst_repeat");
     expect(query).toHaveBeenCalledWith(expect.stringContaining("make_interval(days => $3::integer)"), [
       "listing",
       "lst_repeat",
-      reportedContentRepeatDispositionDaysPolicy.defaultValue,
+      REPORTED_CONTENT_REPEAT_OWNER_WINDOW_DAYS,
     ]);
   });
 
@@ -52,6 +50,8 @@ describe("reported-content-severity-matrix", () => {
   it("takes the maximum and raises repeat owners without creating any enforcement events", () => {
     expect(reportedContentSeverity(["other"], 1)).toBe("standard");
     expect(reportedContentSeverity(["other"], 2)).toBe("high");
+    expect(reportedContentSeverity(["other"], REPORTED_CONTENT_REPEAT_OWNER_PRIOR_DISPOSITIONS - 1)).toBe("standard");
+    expect(reportedContentSeverity(["other"], REPORTED_CONTENT_REPEAT_OWNER_PRIOR_DISPOSITIONS)).toBe("high");
     expect(reportedContentSeverity(["other", "sexual-exploitation"], 2)).toBe("critical");
     const response = deriveReportedContentResponse({ ...row(), prior_dispositions: 2 });
     expect(response.severity).toBe("high");
@@ -60,6 +60,21 @@ describe("reported-content-severity-matrix", () => {
 });
 
 describe("reported-content-due-time-matrix", () => {
+  it("keeps only the fields a revision varies, and stamps the revision and primary role on every severity", () => {
+    expect(Object.keys(REPORTED_CONTENT_RESPONSE_POLICY[0]!)).toEqual([
+      "revision",
+      "effectiveAt",
+      "primaryRole",
+      "targets",
+    ]);
+    for (const severity of ["critical", "high", "standard"] as const) {
+      expect(reportedContentDueTimes("2026-11-16T15:00:00.000Z", severity)).toMatchObject({
+        policy_revision: "reported-content-response/2026-11-14",
+        policy_code: null,
+        accountable_role: "Founder",
+      });
+    }
+  });
   it.each([
     "2026-01-01",
     "2026-01-19",
@@ -130,6 +145,15 @@ describe("reported-content-due-time-matrix", () => {
         partial,
       ] as unknown as typeof REPORTED_CONTENT_RESPONSE_POLICY),
     ).toMatchObject({ severity: "critical", policy_code: "policy-incomplete" });
+    const first = REPORTED_CONTENT_RESPONSE_POLICY[0]!;
+    for (const target of [0, -1]) {
+      const nonPositive = { ...first, targets: { ...first.targets, high: [4, target] as const } };
+      expect(reportedContentDueTimes("2026-11-16T15:00:00Z", "standard", [nonPositive])).toMatchObject({
+        severity: "critical",
+        policy_code: "policy-incomplete",
+        policy_revision: null,
+      });
+    }
   });
   it("selects the revision effective at the start, not a future revision", () => {
     const first = REPORTED_CONTENT_RESPONSE_POLICY[0]!;

@@ -1,47 +1,30 @@
-import { definePolicy } from "@chase-sets/platform-policy/define-policy";
+/** Repeat-Owner Priority: this many prior dispositions against one owner, within this many days, raise severity. */
+export const REPORTED_CONTENT_REPEAT_OWNER_PRIOR_DISPOSITIONS = 2;
+export const REPORTED_CONTENT_REPEAT_OWNER_WINDOW_DAYS = 180;
 
-export const reportedContentRepeatDispositionDaysPolicy = definePolicy({
-  policyKey: "platform-operations.reported-content-repeat-disposition-days",
-  contextName: "platform-operations",
-  schemaSummary: "Positive whole days of prior owner dispositions considered for repeat-owner severity.",
-  defaultValue: 180,
-  decodeValue: (raw) => {
-    if (typeof raw !== "number" || !Number.isSafeInteger(raw) || raw <= 0) {
-      throw new Error("Reported Content repeat disposition days must be a positive whole number.");
-    }
-    return raw;
-  },
-});
+/** Coverage is the same for every revision: these hours on business days in this time zone. */
+export const REPORTED_CONTENT_COVERAGE_TIME_ZONE = "America/Chicago";
+export const REPORTED_CONTENT_COVERAGE_OPEN_HOUR = 9;
+export const REPORTED_CONTENT_COVERAGE_CLOSE_HOUR = 17;
+const STAFFED_HOURS_PER_BUSINESS_DAY = REPORTED_CONTENT_COVERAGE_CLOSE_HOUR - REPORTED_CONTENT_COVERAGE_OPEN_HOUR;
 
 export type ReportedContentSeverity = "critical" | "high" | "standard";
 export const severityRank = { critical: 0, high: 1, standard: 2 } as const;
 export type ReportedContentResponsePolicy = Readonly<{
   revision: string;
   effectiveAt: string;
-  timeZone: string;
-  openHour: number;
-  closeHour: number;
-  businessDayRule: string;
   primaryRole: string;
-  backupRole: string;
-  backupAuthority: string;
-  escalationChannelSetting: string;
   targets: Readonly<Record<ReportedContentSeverity, readonly [number, number]>>;
 }>;
 
 // Revisions remain in code so a rebuild uses the policy effective at the report's start.
+// The backup role, its authority and the critical escalation channel are defined in the
+// Platform Operations glossary under Response Policy Revision and Accountable Role; no code reads them.
 export const REPORTED_CONTENT_RESPONSE_POLICY: readonly ReportedContentResponsePolicy[] = [
   {
     revision: "reported-content-response/2026-11-14",
     effectiveAt: "1970-01-01T00:00:00.000Z",
-    timeZone: "America/Chicago",
-    openHour: 9,
-    closeHour: 17,
-    businessDayRule: "weekdays-excluding-observed-us-federal-holidays",
     primaryRole: "Founder",
-    backupRole: "Host agent",
-    backupAuthority: "triage-and-page-only",
-    escalationChannelSetting: "REPORTED_CONTENT_CRITICAL_ESCALATION_CHANNEL",
     targets: { critical: [1, 4], high: [4, 1], standard: [1, 3] },
   },
 ] as const;
@@ -74,12 +57,12 @@ export function reportedContentSeverity(reasons: readonly string[], priorDisposi
       const next = reportedContentReason(reason).severity;
       return severityRank[next] < severityRank[severity] ? next : severity;
     },
-    priorDispositions >= 2 ? "high" : "standard",
+    priorDispositions >= REPORTED_CONTENT_REPEAT_OWNER_PRIOR_DISPOSITIONS ? "high" : "standard",
   );
 }
 
 const calendar = new Intl.DateTimeFormat("en-US", {
-  timeZone: "America/Chicago",
+  timeZone: REPORTED_CONTENT_COVERAGE_TIME_ZONE,
   year: "numeric",
   month: "2-digit",
   day: "2-digit",
@@ -158,8 +141,8 @@ function staffedHours(start: number, hours: number) {
   for (let days = 0; days < 370; days++) {
     const date = localDate(cursor);
     if (isReportedContentBusinessDay(date)) {
-      const open = localInstant(date, 9);
-      const close = localInstant(date, 17);
+      const open = localInstant(date, REPORTED_CONTENT_COVERAGE_OPEN_HOUR);
+      const close = localInstant(date, REPORTED_CONTENT_COVERAGE_CLOSE_HOUR);
       cursor = Math.max(cursor, open);
       if (cursor < close) {
         const available = close - cursor;
@@ -168,7 +151,7 @@ function staffedHours(start: number, hours: number) {
       }
     }
     date.setUTCDate(date.getUTCDate() + 1);
-    cursor = localInstant(date, 9);
+    cursor = localInstant(date, REPORTED_CONTENT_COVERAGE_OPEN_HOUR);
   }
   throw new Error("policy-incomplete");
 }
@@ -181,18 +164,7 @@ export function reportedContentDueTimes(
   try {
     const instant = Date.parse(start);
     const policy = [...revisions].reverse().find((revision) => Date.parse(revision.effectiveAt) <= instant);
-    if (
-      !policy?.revision?.trim() ||
-      policy.timeZone !== "America/Chicago" ||
-      policy.openHour !== 9 ||
-      policy.closeHour !== 17 ||
-      !policy.primaryRole?.trim() ||
-      !policy.backupRole?.trim() ||
-      policy.backupAuthority !== "triage-and-page-only" ||
-      !policy.escalationChannelSetting?.trim() ||
-      !policy.targets?.[severity] ||
-      policy.businessDayRule !== "weekdays-excluding-observed-us-federal-holidays"
-    )
+    if (!policy?.revision?.trim() || !policy.primaryRole?.trim() || !policy.targets?.[severity])
       throw new Error("policy-incomplete");
     for (const tier of ["critical", "high", "standard"] as const) {
       const pair = policy.targets[tier];
@@ -206,12 +178,18 @@ export function reportedContentDueTimes(
       date.setUTCDate(date.getUTCDate() + disposition);
       const p = localParts(instant);
       dispositionAt = localInstant(date, p.hour, p.minute, p.second, instant % 1000);
-    } else dispositionAt = staffedHours(instant, severity === "standard" ? disposition * 8 : disposition);
+    } else
+      dispositionAt = staffedHours(
+        instant,
+        severity === "standard" ? disposition * STAFFED_HOURS_PER_BUSINESS_DAY : disposition,
+      );
     return {
       policy_revision: policy.revision,
       severity,
       policy_code: null,
-      acknowledge_due_at: new Date(staffedHours(instant, severity === "standard" ? ack * 8 : ack)).toISOString(),
+      acknowledge_due_at: new Date(
+        staffedHours(instant, severity === "standard" ? ack * STAFFED_HOURS_PER_BUSINESS_DAY : ack),
+      ).toISOString(),
       disposition_due_at: new Date(dispositionAt).toISOString(),
       accountable_role: policy.primaryRole,
     };

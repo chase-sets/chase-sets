@@ -112,6 +112,20 @@ const cortenPilotImages = [
   },
 ];
 
+// Corten pilots still served beside their React app. Staging deploys one of these disabled when its image
+// is missing. A pilot leaves this list when it becomes the app that serves its host; from then on a missing
+// image fails the deploy instead of removing what serves the host.
+export const ADVISORY_CORTEN_PILOT_COMPONENTS = Object.freeze(["admin-corten", "marketplace-corten"]);
+
+// The advisory pilots a staging deploy drops because no image was given for them.
+export function droppedAdvisoryCortenPilots(options = {}) {
+  if (options.envOverrides?.DEPLOYMENT_ENVIRONMENT !== "staging") return [];
+  const advisory = options.advisoryCortenPilotComponents ?? ADVISORY_CORTEN_PILOT_COMPONENTS;
+  return cortenPilotImages
+    .filter(({ option, component }) => !options[option] && advisory.includes(component))
+    .map(({ component }) => component);
+}
+
 export function platformKubernetesWorkloads(options = {}) {
   const values = options.values ?? buildPlatformHelmValues({ repoRoot: options.repoRoot });
   const staging =
@@ -160,9 +174,17 @@ export function buildHelmUpgradeArgs(options = {}) {
   const requestedEnvOverrides = normalizeEnvOverrides(options.envOverrides ?? {});
   const deploymentEnvironment = requestedEnvOverrides.DEPLOYMENT_ENVIRONMENT;
   const cortenPilotSetArgs = [];
+  const droppedPilots = droppedAdvisoryCortenPilots({ ...options, envOverrides: requestedEnvOverrides });
   for (const { option, flag, component, repository } of cortenPilotImages) {
     const reference = options[option];
-    if (!reference) continue;
+    if (!reference) {
+      if (deploymentEnvironment !== "staging") continue;
+      if (!droppedPilots.includes(component)) {
+        throw new Error(`${flag} is required on staging: ${component} is not an advisory pilot.`);
+      }
+      cortenPilotSetArgs.push("--set", `components.${component}.enabled=false`);
+      continue;
+    }
     if (deploymentEnvironment !== "staging") {
       throw new Error(`${flag} is staging-only.`);
     }
@@ -2619,10 +2641,22 @@ function assertHelmHistoryUnchanged(before, after, phase) {
   }
 }
 
+function withoutWorkloads(workloads, names) {
+  return Object.fromEntries(
+    Object.entries(workloads).map(([kind, items]) => [kind, items.filter((name) => !names.has(name))]),
+  );
+}
+
 export async function deployPlatformToKubernetes(options = {}) {
   const helmPath = options.helmPath ?? "helm";
   const kubectlPath = options.kubectlPath ?? "kubectl";
-  const workloads = options.workloads ?? platformKubernetesWorkloads(options);
+  const droppedPilots = droppedAdvisoryCortenPilots(options);
+  for (const component of droppedPilots) {
+    console.error(`Warning: no image was given for the advisory Corten pilot ${component}; deploying it disabled.`);
+  }
+  const release = options.release ?? defaultRelease;
+  const droppedWorkloads = new Set(droppedPilots.map((component) => kubernetesComponentName(release, component)));
+  const workloads = options.workloads ?? withoutWorkloads(platformKubernetesWorkloads(options), droppedWorkloads);
 
   // Previews reference the shared *.preview.chasesets.com wildcard secret, so
   // it must exist in this namespace before the Helm deploy creates the

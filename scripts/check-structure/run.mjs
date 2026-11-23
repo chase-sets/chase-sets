@@ -21,6 +21,7 @@ import {
   isSoftwareDeliveryConceptGuardedFile,
 } from "./software-delivery-concepts.mjs";
 import { findBusinessLiteralGuardViolations, isBusinessLiteralGuardedFile } from "./business-literal-guard.mjs";
+import { validateCrossContextEventPayloadCasts } from "./cross-context-event-payload-casts.mjs";
 import { validateCrossContextFallbackInventory } from "./cross-context-fallback-inventory.mjs";
 import { validateLinkIntentActionProducers } from "./link-intent-action-producer-inventory.mjs";
 import { validateCrossContextReadInventory } from "./cross-context-read-inventory.mjs";
@@ -3973,6 +3974,17 @@ export async function runStructureCheck(options = {}) {
     violations.push(violation);
   }
   for (const warning of crossContextReadInventoryResult.warnings) {
+    warnings.push(warning);
+  }
+
+  const crossContextEventPayloadCastsResult = validateCrossContextEventPayloadCasts({
+    repoRoot,
+    contextManifests,
+  });
+  for (const violation of crossContextEventPayloadCastsResult.violations) {
+    violations.push(violation);
+  }
+  for (const warning of crossContextEventPayloadCastsResult.warnings) {
     warnings.push(warning);
   }
 

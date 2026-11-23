@@ -79,7 +79,7 @@ function createDb(
       agreement_id: string;
       marketplace_sales_fee_percentage_bps: number;
       marketplace_sales_fee_fixed_amount: string;
-      shipping_allowance_percentage_bps?: number;
+      shipping_allowance_percentage_bps?: number | null;
       effective_from?: string;
       effective_until?: string;
     } | null;
@@ -425,6 +425,89 @@ describe("commercial terms resolver", () => {
     });
 
     expect(result.shippingAllowancePercentageBps).toBe(625);
+  });
+
+  it("follows the schedule Shipping Allowance, through a schedule revision, when the agreement states none", async () => {
+    const schedule = {
+      schedule_id: "cts_default",
+      marketplace_sales_fee_percentage_bps: 500,
+      marketplace_sales_fee_fixed_amount: "0.25",
+      shipping_allowance_percentage_bps: 625,
+    };
+    const resolver = createCommercialTermsResolver({
+      db: createDb({
+        foundersWindow: { startedAt: "2026-04-01T00:00:00.000Z", endsAt: "2026-05-31T00:00:00.000Z" },
+        schedule,
+        agreement: {
+          agreement_id: "cag_fnd_test",
+          marketplace_sales_fee_percentage_bps: 0,
+          marketplace_sales_fee_fixed_amount: "0.00",
+          // The stored document has no allowance key, which the resolver's SQL reads as NULL.
+          shipping_allowance_percentage_bps: null,
+        },
+      }),
+    });
+    const resolveNow = () =>
+      resolver.resolveListingTerms({
+        accountId: "acc_test",
+        amount: "20.00",
+        effectiveAt: "2026-04-16T10:00:00.000Z",
+      });
+
+    const beforeRevision = await resolveNow();
+    expect(beforeRevision).toMatchObject({
+      agreementId: "cag_fnd_test",
+      scheduleId: "cts_default",
+      marketplaceSalesFeePercentageBps: 0,
+      marketplaceSalesFeeUnitAmount: "0.00",
+      sellerNetUnitAmount: "20.00",
+      shippingAllowancePercentageBps: 625,
+    });
+
+    // The operator revises the schedule's Shipping Allowance while the agreement is active.
+    schedule.schedule_id = "cts_revised";
+    schedule.shipping_allowance_percentage_bps = 800;
+
+    const afterRevision = await resolveNow();
+    expect(afterRevision).toMatchObject({
+      agreementId: "cag_fnd_test",
+      scheduleId: "cts_revised",
+      marketplaceSalesFeePercentageBps: 0,
+      marketplaceSalesFeeUnitAmount: "0.00",
+      sellerNetUnitAmount: "20.00",
+      shippingAllowancePercentageBps: 800,
+    });
+  });
+
+  it.each([750, 0])("keeps an agreement's stated Shipping Allowance of %i bps over the schedule's", async (stated) => {
+    const resolver = createCommercialTermsResolver({
+      db: createDb({
+        schedule: {
+          schedule_id: "cts_default",
+          marketplace_sales_fee_percentage_bps: 500,
+          marketplace_sales_fee_fixed_amount: "0.25",
+          shipping_allowance_percentage_bps: 625,
+        },
+        agreement: {
+          agreement_id: "cag_stated",
+          marketplace_sales_fee_percentage_bps: 250,
+          marketplace_sales_fee_fixed_amount: "0.10",
+          shipping_allowance_percentage_bps: stated,
+        },
+      }),
+    });
+
+    const result = await resolver.resolveListingTerms({
+      accountId: "acc_test",
+      amount: "20.00",
+      effectiveAt: "2026-04-16T10:00:00.000Z",
+    });
+
+    expect(result).toMatchObject({
+      agreementId: "cag_stated",
+      scheduleId: "cts_default",
+      shippingAllowancePercentageBps: stated,
+    });
   });
 
   it("uses the host account source when the commercial terms account projection has not caught up", async () => {

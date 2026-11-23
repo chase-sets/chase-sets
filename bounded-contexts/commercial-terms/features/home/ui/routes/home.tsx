@@ -17,15 +17,33 @@ function createKind(value: string | null): CommercialTermsCreateKind | null {
   return value === "schedule" || value === "agreement" ? value : null;
 }
 
-function termsBody(formData: FormData) {
+function sharedTermsBody(formData: FormData) {
   return {
     label: formData.get("label"),
     marketplaceSalesFeePercentageBps: Number(formData.get("marketplaceSalesFeePercentageBps") ?? 0),
     marketplaceSalesFeeFixedAmount: formData.get("marketplaceSalesFeeFixedAmount"),
-    shippingAllowancePercentageBps: Number(formData.get("shippingAllowancePercentageBps") ?? 500),
     status: formData.get("status"),
     effectiveFrom: formData.get("effectiveFrom"),
     effectiveUntil: formData.get("effectiveUntil"),
+  };
+}
+
+function scheduleTermsBody(formData: FormData) {
+  return {
+    ...sharedTermsBody(formData),
+    shippingAllowancePercentageBps: Number(formData.get("shippingAllowancePercentageBps") ?? 500),
+  };
+}
+
+// A blank Shipping Allowance is left out of the body, so the agreement follows the schedule. Text that is
+// not a number is sent as typed: JSON would write NaN as null, which the API reads as "none", not as an error.
+function agreementTermsBody(formData: FormData) {
+  const shippingAllowance = formData.get("shippingAllowancePercentageBps");
+  const isStated = typeof shippingAllowance === "string" && shippingAllowance.trim().length > 0;
+  const stated = Number(shippingAllowance);
+  return {
+    ...sharedTermsBody(formData),
+    ...(isStated ? { shippingAllowancePercentageBps: Number.isFinite(stated) ? stated : shippingAllowance } : {}),
   };
 }
 
@@ -87,26 +105,32 @@ export const action = defineFormAction({
   intents: {
     "create-schedule": async ({ request, formData }) => {
       const result = await createCommercialTermsRequestApiClient(request).createSchedule({
-        ...termsBody(formData),
+        ...scheduleTermsBody(formData),
         accountType: formData.get("accountType"),
       });
       return formActionRedirect(result, `/commerce/terms?schedule=${encodeURIComponent(result.id)}`);
     },
     "revise-schedule": async ({ request, formData }) => {
       const id = String(formData.get("id") ?? "");
-      const result = await createCommercialTermsRequestApiClient(request).updateSchedule(id, termsBody(formData));
+      const result = await createCommercialTermsRequestApiClient(request).updateSchedule(
+        id,
+        scheduleTermsBody(formData),
+      );
       return formActionRedirect(result, `/commerce/terms?schedule=${encodeURIComponent(id)}`);
     },
     "create-agreement": async ({ request, formData }) => {
       const result = await createCommercialTermsRequestApiClient(request).createAgreement({
-        ...termsBody(formData),
+        ...agreementTermsBody(formData),
         accountId: normalizeAgreementAccountIdText(formData.get("accountId")),
       });
       return formActionRedirect(result, `/commerce/terms?agreement=${encodeURIComponent(result.id)}`);
     },
     "revise-agreement": async ({ request, formData }) => {
       const id = String(formData.get("id") ?? "");
-      const result = await createCommercialTermsRequestApiClient(request).updateAgreement(id, termsBody(formData));
+      const result = await createCommercialTermsRequestApiClient(request).updateAgreement(
+        id,
+        agreementTermsBody(formData),
+      );
       return formActionRedirect(result, `/commerce/terms?agreement=${encodeURIComponent(id)}`);
     },
   },
