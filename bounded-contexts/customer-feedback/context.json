@@ -79,10 +79,7 @@
       "order": 10,
       "reactionHandlerSetNames": [
         "customer-feedback-feedback-case-opening"
-      ],
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure"
+      ]
     },
     {
       "sourceContextName": "notifications",
@@ -95,10 +92,7 @@
       "order": 20,
       "reactionHandlerSetNames": [
         "customer-feedback-notification-delivery-recording"
-      ],
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure"
+      ]
     }
   ],
   "eventSubscriptions": [

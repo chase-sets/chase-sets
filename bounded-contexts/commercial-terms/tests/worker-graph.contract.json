@@ -132,9 +132,6 @@
       "handlers": {
         "identity.account.founders-window-opened": "<function>"
       },
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure",
       "eventTypes": ["identity.account.founders-window-opened"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",

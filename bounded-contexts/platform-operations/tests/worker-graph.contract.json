@@ -1169,9 +1169,6 @@
       "handlers": {
         "inventory.reservation.released": "<function>"
       },
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure",
       "eventTypes": ["inventory.reservation.released"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",

@@ -54,9 +54,6 @@ export const contextManifest = {
       eventTypes: ["identity.account.founders-window-opened"],
       order: 11,
       reactionHandlerSetNames: ["commercial-terms-founders-window-reaction"],
-      idempotencyPolicy: "idempotent-command-dispatch",
-      retryPolicy: "retry-from-last-checkpoint",
-      failurePolicy: "surface-as-reaction-failure",
     },
   ],
   projectionGroups: [

@@ -321,10 +321,7 @@
       "filterToEventTypes": true,
       "eventTypes": ["inventory.external-channel-sale.recorded"],
       "order": 64,
-      "reactionHandlerSetNames": ["channel-fulfillment-observation-retry"],
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure"
+      "reactionHandlerSetNames": ["channel-fulfillment-observation-retry"]
     },
     {
       "sourceContextName": "channels",
@@ -336,10 +333,7 @@
         "channels.channel-publication-configuration.mapping-review-decided"
       ],
       "order": 65,
-      "reactionHandlerSetNames": ["channel-fulfillment-observation-retry"],
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure"
+      "reactionHandlerSetNames": ["channel-fulfillment-observation-retry"]
     },
     {
       "sourceContextName": "marketplace",
@@ -358,10 +352,7 @@
         "marketplace.seller-listing-availability.disabled"
       ],
       "order": 60,
-      "reactionHandlerSetNames": ["channel-listing-desired-state-reaction"],
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure"
+      "reactionHandlerSetNames": ["channel-listing-desired-state-reaction"]
     },
     {
       "sourceContextName": "catalog",
@@ -377,10 +368,7 @@
         "catalog.catalog-item.external-catalog-item-reference-unlinked"
       ],
       "order": 61,
-      "reactionHandlerSetNames": ["channel-listing-desired-state-reaction"],
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure"
+      "reactionHandlerSetNames": ["channel-listing-desired-state-reaction"]
     },
     {
       "sourceContextName": "inventory",
@@ -399,10 +387,7 @@
         "inventory.channel-stock-allocation.set"
       ],
       "order": 62,
-      "reactionHandlerSetNames": ["channel-listing-desired-state-reaction"],
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure"
+      "reactionHandlerSetNames": ["channel-listing-desired-state-reaction"]
     },
     {
       "sourceContextName": "channels",
@@ -424,10 +409,7 @@
         "channels.channel-listing-reconciliation.run-settled"
       ],
       "order": 63,
-      "reactionHandlerSetNames": ["channel-listing-desired-state-reaction"],
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure"
+      "reactionHandlerSetNames": ["channel-listing-desired-state-reaction"]
     }
   ],
   "projectionGroups": [

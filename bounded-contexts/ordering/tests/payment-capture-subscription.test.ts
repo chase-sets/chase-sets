@@ -162,12 +162,9 @@ function createPaymentFailedEvent(orderIds: readonly string[]): TransportEvent {
 }
 
 describe("ordering payment-capture subscription", () => {
-  it("registers payment capture as a reaction with explicit failure semantics", () => {
+  it("registers payment capture as a reaction", () => {
     expect(getPaymentCaptureSubscription(createServices(async () => undefined as never))).toMatchObject({
       handlerKind: "reaction",
-      idempotencyPolicy: "idempotent-command-dispatch",
-      retryPolicy: "retry-from-last-checkpoint",
-      failurePolicy: "surface-as-reaction-failure",
     });
   });
 

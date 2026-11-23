@@ -9,10 +9,7 @@
       "filterToEventTypes": true,
       "eventTypes": ["customer-feedback.survey.submitted", "customer-feedback.response.redacted"],
       "order": 10,
-      "reactionHandlerSetNames": ["customer-feedback-feedback-case-opening"],
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure"
+      "reactionHandlerSetNames": ["customer-feedback-feedback-case-opening"]
     },
     {
       "sourceContextName": "notifications",
@@ -21,10 +18,7 @@
       "filterToEventTypes": true,
       "eventTypes": ["notifications.customer-feedback.delivery-reported"],
       "order": 20,
-      "reactionHandlerSetNames": ["customer-feedback-notification-delivery-recording"],
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure"
+      "reactionHandlerSetNames": ["customer-feedback-notification-delivery-recording"]
     }
   ],
   "caseProjectionGroups": [
