@@ -215,10 +215,7 @@
         "inventory.reservation.released"
       ],
       "order": 45,
-      "reactionHandlerSetNames": ["ordering-inventory-reservation-outcomes"],
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure"
+      "reactionHandlerSetNames": ["ordering-inventory-reservation-outcomes"]
     },
     {
       "sourceContextName": "marketplace",
@@ -227,10 +224,7 @@
       "filterToEventTypes": true,
       "eventTypes": ["marketplace.offer.accepted"],
       "order": 50,
-      "reactionHandlerSetNames": ["ordering-marketplace-offer-acceptance"],
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure"
+      "reactionHandlerSetNames": ["ordering-marketplace-offer-acceptance"]
     },
     {
       "sourceContextName": "payments",
@@ -243,10 +237,7 @@
         "payments.payment-cancelled"
       ],
       "order": 60,
-      "reactionHandlerSetNames": ["ordering-payment-capture"],
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure"
+      "reactionHandlerSetNames": ["ordering-payment-capture"]
     },
     {
       "sourceContextName": "platform-operations",
@@ -255,10 +246,7 @@
       "filterToEventTypes": true,
       "eventTypes": ["support.support-request.resolved"],
       "order": 65,
-      "reactionHandlerSetNames": ["ordering-support-cancellation"],
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure"
+      "reactionHandlerSetNames": ["ordering-support-cancellation"]
     }
   ],
   "projectionGroups": [

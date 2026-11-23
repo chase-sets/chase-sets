@@ -819,16 +819,16 @@ export function validateEventReactionDeclaration(reaction, reactionLabel) {
     addDiagnostic("reactionHandlerSetNames must be a non-empty array of strings");
   }
 
-  if (reaction.idempotencyPolicy !== "idempotent-command-dispatch") {
-    addDiagnostic("idempotencyPolicy must be idempotent-command-dispatch");
-  }
-
-  if (reaction.retryPolicy !== "retry-from-last-checkpoint") {
-    addDiagnostic("retryPolicy must be retry-from-last-checkpoint");
-  }
-
-  if (reaction.failurePolicy !== "surface-as-reaction-failure") {
-    addDiagnostic("failurePolicy must be surface-as-reaction-failure");
+  // Legacy guard. Reaction retry and failure behavior is fixed by the shared
+  // runtime, so these retired single-value keys are refused on presence instead
+  // of being ignored: validateEventDeclarationOptions does not reject unknown
+  // declaration keys, and a stale declaration would otherwise pass silently.
+  // Delete this guard when unknown declaration keys are rejected there.
+  const retiredReactionKeys = ["idempotencyPolicy", "retryPolicy", "failurePolicy"];
+  for (const retiredKey of retiredReactionKeys) {
+    if (retiredKey in reaction) {
+      addDiagnostic(`${retiredKey} is retired and must be removed; the shared runtime fixes reaction semantics`);
+    }
   }
 
   if ("eventTypes" in reaction && !isStringArray(reaction.eventTypes)) {

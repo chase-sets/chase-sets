@@ -626,9 +626,6 @@
         "inventory.reservation.rejected": "<function>",
         "inventory.reservation.released": "<function>"
       },
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure",
       "eventTypes": [
         "inventory.reservation.confirmed",
         "inventory.reservation.rejected",
@@ -686,9 +683,6 @@
       "handlers": {
         "marketplace.offer.accepted": "<function>"
       },
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure",
       "eventTypes": ["marketplace.offer.accepted"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
@@ -963,9 +957,6 @@
         "payments.payment-failed": "<function>",
         "payments.payment-cancelled": "<function>"
       },
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure",
       "eventTypes": [
         "payments.payment-created",
         "payments.payment-captured",
@@ -986,9 +977,6 @@
       "handlers": {
         "support.support-request.resolved": "<function>"
       },
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure",
       "eventTypes": ["support.support-request.resolved"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
