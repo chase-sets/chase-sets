@@ -244,7 +244,7 @@
     "consumer": "Ordering",
     "status": "cutover"
   },
-  "bounded-contexts/inventory/routes/marketplace/account-inventory-imports.tsx": {
+  "bounded-contexts/inventory/features/import-batches/ui/routes/account-inventory-imports.tsx": {
     "families": ["import-commit", "import-create", "import-resolve", "location-read"],
     "authority": "existing Inventory account authority",
     "attempt": "create-batch and resolve-row forward the form's persisted attempt (import-create, import-resolve-row) and resolve-row forwards the rendered row facts; commit retained until #9503",
@@ -252,7 +252,7 @@
     "consumer": "pending later-family cutover",
     "status": "pending"
   },
-  "bounded-contexts/inventory/routes/marketplace/account-inventory-item.tsx": {
+  "bounded-contexts/inventory/features/inventory-items/ui/routes/account-inventory-item.tsx": {
     "families": ["hold-create", "hold-release", "item-adjust", "item-read"],
     "authority": "authenticated request actor/account; checkout targets require server authority",
     "attempt": "caller UUIDv4 in Inventory-Mutation-Attempt; browser forms persist bounded identity before sending",
@@ -260,7 +260,7 @@
     "consumer": "inventory",
     "status": "cutover"
   },
-  "bounded-contexts/inventory/routes/marketplace/account-inventory-restock-decisions.tsx": {
+  "bounded-contexts/inventory/features/restock-decisions/ui/routes/account-inventory-restock-decisions.tsx": {
     "families": ["restock-record"],
     "authority": "authenticated request actor/account",
     "attempt": "form-persisted caller UUID forwarded unchanged with the expected decision version",
@@ -268,7 +268,7 @@
     "consumer": "Inventory restock browser",
     "status": "cutover"
   },
-  "bounded-contexts/inventory/routes/marketplace/account-inventory.tsx": {
+  "bounded-contexts/inventory/features/inventory-items/ui/routes/account-inventory.tsx": {
     "families": ["item-create", "item-read", "location-read"],
     "authority": "authenticated request actor/account; checkout targets require server authority",
     "attempt": "caller UUIDv4 in Inventory-Mutation-Attempt; browser forms persist bounded identity before sending",

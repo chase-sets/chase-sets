@@ -263,8 +263,8 @@ export default {
           "Bootstrap locations: loc_seed_north_shelf and loc_seed_vault_annex active; loc_seed_archived_overflow ('Archived overflow') archived. Compare against the storage location read model.",
       },
       routes: {
-        "bounded-contexts/inventory/routes/marketplace/account-inventory.tsx": "stock-and-location",
-        "bounded-contexts/inventory/routes/marketplace/account-inventory-item.tsx": "held-units",
+        "bounded-contexts/inventory/features/inventory-items/ui/routes/account-inventory.tsx": "stock-and-location",
+        "bounded-contexts/inventory/features/inventory-items/ui/routes/account-inventory-item.tsx": "held-units",
         "bounded-contexts/inventory/features/storage-locations/ui/routes/account-inventory-locations.tsx":
           "retired-locations",
       },
@@ -285,11 +285,12 @@ export default {
           "Same read model row: return reason 'Carrier return to sender', pending since 2026-03-22T12:00Z. The decision must still be pending with no outcome after the run.",
       },
       routes: {
-        "bounded-contexts/inventory/routes/marketplace/account-inventory-restock-decisions.tsx": "returned-item",
+        "bounded-contexts/inventory/features/restock-decisions/ui/routes/account-inventory-restock-decisions.tsx":
+          "returned-item",
       },
       paths: [
         "bounded-contexts/inventory/features/restock-decisions/",
-        "bounded-contexts/inventory/routes/marketplace/account-inventory-restock-decisions",
+        "bounded-contexts/inventory/features/restock-decisions/ui/routes/account-inventory-restock-decisions",
       ],
     },
     {
@@ -484,7 +485,7 @@ export default {
       reason: "fixture-gap: demo sale shipment still awaiting packing (every seeded shipment is already packed)",
     },
     {
-      path: "bounded-contexts/inventory/routes/marketplace/account-inventory-imports.tsx",
+      path: "bounded-contexts/inventory/features/import-batches/ui/routes/account-inventory-imports.tsx",
       reason: "fixture-gap: inventory import batch for the demo seller",
     },
     {

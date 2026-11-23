@@ -1,6 +1,10 @@
 import type { ListResponse } from "@chase-sets/http/responses";
 import { createStorageLocationClient } from "./features/storage-locations/api/client";
-import { createInventoryClientTransport, parseJsonResponse, type InventoryApiClientOptions } from "./support/request-support/client";
+import {
+  createInventoryClientTransport,
+  parseJsonResponse,
+  type InventoryApiClientOptions,
+} from "./support/request-support/client";
 import type { InventoryMutationReceipt } from "./support/runtime-support/mutation-attempt";
 import type { InventoryCatalogItemSnapshot } from "./features/inventory-items/integrations/catalog/queries";
 import type {

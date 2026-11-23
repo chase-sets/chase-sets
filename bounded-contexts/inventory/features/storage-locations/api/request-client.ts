@@ -2,7 +2,7 @@ import { createInventoryClientTransport } from "../../../support/request-support
 import {
   inventoryRequestOptions,
   type InventoryRequestClientOptions,
-} from "../../../support/request-support/request-options";
+} from "../../../support/request-support/api-client";
 import { createStorageLocationClient } from "./client";
 
 export function createStorageLocationRequestClient(request: Request, options?: InventoryRequestClientOptions) {

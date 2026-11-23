@@ -16,7 +16,7 @@ import {
 } from "../domain/import-source-adapters";
 import type { InventoryImportBatch, InventoryImportBatchDetail, InventoryImportBatchRow } from "../read-model/queries";
 import { InventoryImportBatchPage } from "./import-batch-page";
-import { InventoryMutationProvider } from "../../../support/ui-support/mutation-recovery";
+import { InventoryMutationProvider } from "../../../support/request-support/mutation-form";
 
 vi.mock("@chase-sets/platform-runtime/durable-job-web", () => ({ subscribeDurableJobStatus: vi.fn() }));
 vi.mock("../../../client", async (importOriginal) => {

@@ -360,7 +360,7 @@
       "pattern": "/^bounded-contexts\\/inventory\\/features\\/[^/]+\\/(?:api|ui)\\//",
       "suites": ["marketplace_seller"],
       "path": "bounded-contexts/inventory/features/channel-allocations/api/contracts.ts",
-      "trackedCandidates": 46,
+      "trackedCandidates": 52,
       "synthetic": false
     },
     {
@@ -1007,7 +1007,7 @@
       "pattern": "/^bounded-contexts\\/inventory\\/features\\/recovered-items\\/(?:api|ui)\\//",
       "suites": ["admin_commerce"],
       "path": "bounded-contexts/inventory/features/recovered-items/api/route.ts",
-      "trackedCandidates": 3,
+      "trackedCandidates": 4,
       "synthetic": false
     },
     {
@@ -1736,7 +1736,36 @@
       "batches": ["marketplace_seller"]
     },
     {
-      "changedFiles": ["bounded-contexts/inventory/features/storage-locations/ui/routes/account-inventory-locations.tsx"],
+      "changedFiles": ["bounded-contexts/inventory/features/recovered-items/ui/routes/recovered-items.tsx"],
+      "suiteIds": ["admin_commerce"],
+      "batches": ["admin_commerce"]
+    },
+    {
+      "changedFiles": ["bounded-contexts/inventory/features/import-batches/ui/routes/account-inventory-imports.tsx"],
+      "suiteIds": ["marketplace_seller"],
+      "batches": ["marketplace_seller"]
+    },
+    {
+      "changedFiles": ["bounded-contexts/inventory/features/inventory-items/ui/routes/account-inventory-item.tsx"],
+      "suiteIds": ["marketplace_seller"],
+      "batches": ["marketplace_seller"]
+    },
+    {
+      "changedFiles": ["bounded-contexts/inventory/features/inventory-items/ui/routes/account-inventory.tsx"],
+      "suiteIds": ["marketplace_seller"],
+      "batches": ["marketplace_seller"]
+    },
+    {
+      "changedFiles": [
+        "bounded-contexts/inventory/features/restock-decisions/ui/routes/account-inventory-restock-decisions.tsx"
+      ],
+      "suiteIds": ["marketplace_seller"],
+      "batches": ["marketplace_seller"]
+    },
+    {
+      "changedFiles": [
+        "bounded-contexts/inventory/features/storage-locations/ui/routes/account-inventory-locations.tsx"
+      ],
       "suiteIds": ["marketplace_seller"],
       "batches": ["marketplace_seller"]
     },

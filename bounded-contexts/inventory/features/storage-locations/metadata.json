@@ -1,7 +1,5 @@
 {
-  "localeCatalogs": [
-    "bounded-contexts/inventory/features/storage-locations/ui/localization/locales/en.ts"
-  ],
+  "localeCatalogs": ["bounded-contexts/inventory/features/storage-locations/ui/localization/locales/en.ts"],
   "accountCapability": {
     "key": "inventory.locations",
     "description": "Declares the Account's inventory location limit.",
@@ -10,21 +8,14 @@
   },
   "projectionGroup": {
     "projectionName": "inventory-storage-location-projection",
-    "sourceContextNames": [
-      "inventory"
-    ],
-    "ownedTables": [
-      "inventory_storage_locations"
-    ],
+    "sourceContextNames": ["inventory"],
+    "ownedTables": ["inventory_storage_locations"],
     "requiredDuringBootstrap": false,
     "resetStrategy": "truncate-owned-tables"
   },
   "readFreshnessRoute": {
     "routePath": "/storage-locations",
-    "methods": [
-      "GET",
-      "HEAD"
-    ],
+    "methods": ["GET", "HEAD"],
     "dependencies": [
       {
         "readModelTable": "inventory_storage_locations"
@@ -42,26 +33,16 @@
     },
     "source": {
       "routeId": "account-inventory-locations",
-      "actions": [
-        "Create storage location",
-        "Update storage location",
-        "Archive storage location"
-      ],
+      "actions": ["Create storage location", "Update storage location", "Archive storage location"],
       "command": "Inventory storage location commands",
-      "helperUses": [
-        "navigateAfterWrite"
-      ]
+      "helperUses": ["navigateAfterWrite"]
     },
     "destination": {
       "routeId": "account-inventory-locations",
       "apiContextName": "inventory",
       "apiRoutePath": "/storage-locations",
-      "readModelTables": [
-        "inventory_storage_locations"
-      ],
-      "helperUses": [
-        "loadAfterWrite"
-      ],
+      "readModelTables": ["inventory_storage_locations"],
+      "helperUses": ["loadAfterWrite"],
       "transientRecovery": {
         "kinds": "refreshable-catching-up",
         "behavior": "Storage location writes redirect with afterWrite and the locations loader converts valid projection catch-up timeouts into route-owned temporary recovery copy."
@@ -83,18 +64,14 @@
       "routeId": "account-inventory-locations",
       "apiContextName": "inventory",
       "apiRoutePath": "/storage-locations",
-      "readModelTables": [
-        "inventory_storage_locations"
-      ],
+      "readModelTables": ["inventory_storage_locations"],
       "transientRecovery": {
         "kinds": "refreshable-catching-up",
         "behavior": "Storage location create, update, and archive redirect with afterWrite to the locations list; the loader waits on the storage-location projection and shows bounded recovery copy during valid projection catch-up."
       }
     },
     "proof": {
-      "tests": [
-        "bounded-contexts/inventory/tests/account-inventory-routes.test.ts"
-      ]
+      "tests": ["bounded-contexts/inventory/tests/account-inventory-routes.test.ts"]
     }
   },
   "apiCommandSurfaces": [
@@ -130,8 +107,6 @@
   "directoryIntent": {
     "classification": "slice",
     "purpose": "Own storage-locations feature behavior, read models, and UI contracts for the inventory context.",
-    "expectedConsumers": [
-      "Internal inventory module composition"
-    ]
+    "expectedConsumers": ["Internal inventory module composition"]
   }
 }

@@ -1,1 +1,1 @@
-export { InventoryMutationProvider, InventoryMutationForm } from "./support/ui-support/mutation-recovery";
+export { InventoryMutationProvider, InventoryMutationForm } from "./support/request-support/mutation-form";

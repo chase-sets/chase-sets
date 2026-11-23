@@ -88,8 +88,7 @@
     "catalog-item-support",
     "request-support",
     "runtime-support",
-    "seed-support",
-    "ui-support"
+    "seed-support"
   ],
   "publicExports": [
     ".",
@@ -757,7 +756,7 @@
       "strategy": "snapshot-return",
       "surfaces": [
         "post-form:bounded-contexts/inventory/features/import-batches/ui/import-batch-page.tsx:H2df726441e2a#1",
-        "route-action:bounded-contexts/inventory/routes/marketplace/account-inventory-imports.tsx"
+        "route-action:bounded-contexts/inventory/features/import-batches/ui/routes/account-inventory-imports.tsx"
       ],
       "visibleDestination": {
         "routeId": "account-inventory-imports",
@@ -822,7 +821,7 @@
         "api-route:bounded-contexts/inventory/features/restock-decisions/api/route.ts:POST /:id/decision",
         "post-form:bounded-contexts/inventory/features/restock-decisions/ui/restock-decision-queue-page.tsx:Hc1f1674003a0#1",
         "post-form:bounded-contexts/inventory/features/restock-decisions/ui/restock-decision-queue-page.tsx:Hc1f1674003a0#2",
-        "route-action:bounded-contexts/inventory/routes/marketplace/account-inventory-restock-decisions.tsx"
+        "route-action:bounded-contexts/inventory/features/restock-decisions/ui/routes/account-inventory-restock-decisions.tsx"
       ],
       "visibleDestination": {
         "routeId": "account-inventory-restock-decisions",
@@ -855,7 +854,7 @@
       "strategy": "fresh-read",
       "surfaces": [
         "post-form:bounded-contexts/inventory/features/inventory-items/ui/inventory-item-list-page.tsx:H540f811b57f9#1",
-        "route-action:bounded-contexts/inventory/routes/marketplace/account-inventory.tsx"
+        "route-action:bounded-contexts/inventory/features/inventory-items/ui/routes/account-inventory.tsx"
       ],
       "visibleDestination": {
         "routeId": "account-inventory-item",
@@ -886,7 +885,7 @@
         "post-form:bounded-contexts/inventory/features/inventory-items/ui/inventory-item-detail-page.tsx:H128ecb5f1379#1",
         "post-form:bounded-contexts/inventory/features/inventory-items/ui/inventory-item-detail-page.tsx:H26a9c8c25c77#1",
         "post-form:bounded-contexts/inventory/features/inventory-items/ui/inventory-item-detail-page.tsx:He8d8cbd954d7#1",
-        "route-action:bounded-contexts/inventory/routes/marketplace/account-inventory-item.tsx"
+        "route-action:bounded-contexts/inventory/features/inventory-items/ui/routes/account-inventory-item.tsx"
       ],
       "visibleDestination": {
         "routeId": "account-inventory-item",
@@ -915,8 +914,8 @@
       "strategy": "fresh-read",
       "surfaces": [
         "post-form:bounded-contexts/inventory/features/inventory-items/ui/offline-sale-form.tsx:H5572ea7ef0df#1",
-        "route-action:bounded-contexts/inventory/routes/marketplace/account-inventory.tsx",
-        "route-action:bounded-contexts/inventory/routes/marketplace/account-inventory-item.tsx"
+        "route-action:bounded-contexts/inventory/features/inventory-items/ui/routes/account-inventory.tsx",
+        "route-action:bounded-contexts/inventory/features/inventory-items/ui/routes/account-inventory-item.tsx"
       ],
       "visibleDestination": {
         "apiContextName": "inventory",
@@ -978,7 +977,7 @@
       "surfaces": [
         "api-route:bounded-contexts/inventory/features/recovered-items/api/route.ts:POST /:id/actions",
         "post-form:bounded-contexts/inventory/features/recovered-items/ui/recovered-items-page.tsx:H1abed2c1c746#1",
-        "route-action:bounded-contexts/inventory/routes/admin/recovered-items.tsx"
+        "route-action:bounded-contexts/inventory/features/recovered-items/ui/routes/recovered-items.tsx"
       ],
       "visibleDestination": {
         "routeId": "inventory-recovered-items",
@@ -1368,6 +1367,7 @@
       "expectedConsumers": [
         "import-batches",
         "inventory-items",
+        "recovered-items",
         "restock-decisions",
         "storage-locations"
       ],
@@ -1391,18 +1391,9 @@
     },
     "seed-support": {
       "classification": "support",
-      "purpose": "Provide reusable seed-support assets shared by inventory-owned features and composition seams.",
-      "expectedConsumers": [
-        "restock-decisions"
-      ],
+      "purpose": "Expose stable Inventory seed entry points to context and deployable callers.",
+      "expectedConsumers": [],
       "crossCuttingRuntimeComposition": true
-    },
-    "ui-support": {
-      "classification": "support",
-      "purpose": "Expose the Inventory browser recovery provider through the web composition surface.",
-      "expectedConsumers": [
-        "import-batches"
-      ]
     },
     "routes": {
       "classification": "routes",

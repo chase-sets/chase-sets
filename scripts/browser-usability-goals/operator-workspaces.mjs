@@ -464,7 +464,7 @@ export default {
       reason: "fixture-gap: no seeded return shipments or unidentified return packages",
     },
     {
-      path: "bounded-contexts/inventory/routes/admin/recovered-items.tsx",
+      path: "bounded-contexts/inventory/features/recovered-items/ui/routes/recovered-items.tsx",
       reason: "fixture-gap: no seeded recovered inventory items",
     },
     {
