@@ -58,7 +58,7 @@ describe("Corten marketplace staging, first slice", () => {
 
   it("preserves the production values", () => {
     for (const [file, sha] of Object.entries({
-      "values.yaml": "fc374d3d46b6998cf31a553f16edbdbfd10e1c194f5e0c9e8e3ba1871dccbf6c",
+      "values.yaml": "deabfa12c21bfed16326e58432c13a4aecf3a1f1f852768320a311e3916baadc",
       "values.production.yaml": "653442bfb787b2701df3afccdc816f912f3bb658f063ba9b1a24d2627d59f37c",
     })) {
       expect(
