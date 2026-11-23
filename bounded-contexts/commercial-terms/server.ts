@@ -189,11 +189,7 @@ export function createNoopAuthenticityFeePolicyResolver(): AuthenticityFeePolicy
   };
 }
 
-export type {
-  AuthenticityFeePolicyValue,
-  AuthenticityFeeBand,
-  AuthenticityFeeCategory,
-} from "./features/authenticity-fee/domain/policy";
+export type { AuthenticityFeePolicyValue, AuthenticityFeeBand } from "./features/authenticity-fee/domain/policy";
 
 /**
  * Policy definitions for the platform policy console: Platform

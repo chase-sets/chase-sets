@@ -61,7 +61,6 @@ describe("checkout purchase-limit admission", () => {
             bands: [
               {
                 minOrderValueAmount: "0.00",
-                category: "any",
                 flatAmount: "8.00",
                 percentageBps: 200,
                 capAmount: "50.00",
