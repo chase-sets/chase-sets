@@ -18,6 +18,7 @@ import {
   type PublicPolicyArtifact,
 } from "../features/policies/domain/policy-artifact";
 import { publicPolicyRegistry } from "../features/policies/domain/policy-registry";
+import { policiesEnglishTranslations } from "../features/policies/ui/localization/locales/en";
 
 const articlesDirectory = join(dirname(fileURLToPath(import.meta.url)), "../features/help/domain/articles");
 const helpArticleSources = readdirSync(articlesDirectory)
@@ -25,8 +26,9 @@ const helpArticleSources = readdirSync(articlesDirectory)
   .sort()
   .map((fileName) => ({ fileName, source: readFileSync(join(articlesDirectory, fileName), "utf8") }));
 const mutantKey = "publicPresence.home.foundersOffer.syntheticControl.body";
+const founderClaimTranslations = { ...publicPresenceEnglishTranslations, ...policiesEnglishTranslations };
 
-function evaluateRealCorpus(translations: Readonly<Record<string, string>> = publicPresenceEnglishTranslations) {
+function evaluateRealCorpus(translations: Readonly<Record<string, string>> = founderClaimTranslations) {
   return evaluateFounderClaimCorpus(collectFounderClaimCorpus(translations, helpArticleSources, publicPolicyRegistry));
 }
 
@@ -51,11 +53,7 @@ describe("founder badge permanence claim guard", () => {
   });
 
   it("keeps the real scan live with non-trivial source counts", () => {
-    const corpus = collectFounderClaimCorpus(
-      publicPresenceEnglishTranslations,
-      helpArticleSources,
-      publicPolicyRegistry,
-    );
+    const corpus = collectFounderClaimCorpus(founderClaimTranslations, helpArticleSources, publicPolicyRegistry);
     // #8503 trimmed the landing founders offer to title, description and the
     // terms link, so the founder locale corpus is the three retained
     // `home.foundersOffer.*` keys plus the /founders info namespaces.
@@ -88,7 +86,7 @@ describe("founder badge permanence claim guard", () => {
     ["cannot be changed", "Your founder badge cannot be changed."],
     ["permanent", "Your founder badge is publicly displayed. It remains permanent."],
   ] as const)("flags the '%s' founder-badge mutant through the real corpus path", (term, text) => {
-    const translations = { ...publicPresenceEnglishTranslations, [mutantKey]: text };
+    const translations = { ...founderClaimTranslations, [mutantKey]: text };
     const violations = evaluateRealCorpus(translations);
     expect(violations).toHaveLength(1);
     expect(violations[0]).toMatchObject({ sourceId: mutantKey, term });
@@ -96,7 +94,7 @@ describe("founder badge permanence claim guard", () => {
 
   it("accepts the ratified publicly-displayed wording through the real corpus path", () => {
     const translations = {
-      ...publicPresenceEnglishTranslations,
+      ...founderClaimTranslations,
       [mutantKey]:
         "The first 500 accounts to list or make an offer claim a numbered founder badge, publicly displayed.",
     };
@@ -153,7 +151,7 @@ describe("founder badge permanence claim guard", () => {
   });
 
   it("scopes locale scanning to founder claim namespaces", () => {
-    const localeSources = founderLocaleClaimSources(publicPresenceEnglishTranslations);
+    const localeSources = founderLocaleClaimSources(founderClaimTranslations);
     expect(localeSources.some(({ id }) => id === "publicPresence.promoBar.delete.confirm.description")).toBe(false);
     expect(localeSources.some(({ id }) => id === "publicPresence.info.founders.eyebrow")).toBe(true);
   });
@@ -202,7 +200,7 @@ describe("registered founders artifact claim controls", () => {
     (term, phrase) => {
       for (const text of [`Your founder badge ${phrase}.`, `Your founder badge is publicly displayed. It ${phrase}.`]) {
         const corpus = collectFounderClaimCorpus(
-          publicPresenceEnglishTranslations,
+          founderClaimTranslations,
           helpArticleSources,
           withFoundersDraft("what-the-badge-means", text),
         );
@@ -219,9 +217,7 @@ describe("registered founders artifact claim controls", () => {
       "Listings you locked at 0% keep that rate forever, and your founder badge is publicly displayed.",
     );
     expect(
-      evaluateFounderClaimCorpus(
-        collectFounderClaimCorpus(publicPresenceEnglishTranslations, helpArticleSources, registry),
-      ),
+      evaluateFounderClaimCorpus(collectFounderClaimCorpus(founderClaimTranslations, helpArticleSources, registry)),
     ).toEqual([]);
   });
 

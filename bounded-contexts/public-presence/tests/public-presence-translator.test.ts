@@ -3,6 +3,8 @@ import { publicPresenceEnglishTranslations } from "@chase-sets/localization/loca
 import { developerArticles } from "../features/developer-portal/domain/developer-article-catalog";
 import { publicHelpArticles } from "../features/help/domain/article-catalog";
 import { assertPublicCopyGuard } from "../features/help/domain/public-copy-guard.mjs";
+import { policiesEnglishTranslations } from "../features/policies/ui/localization/locales/en";
+import { has as hasPolicyTranslation, t as policyT } from "../features/policies/ui/localization/translator";
 import { publicPresenceHasTranslation, publicPresenceT } from "../features/waitlist/ui/public-presence-translator";
 
 describe("public presence translator", () => {
@@ -30,13 +32,16 @@ describe("public presence translator", () => {
       "publicPresence.footer.description",
       "publicPresence.info.contact.description",
       "publicPresence.info.contact.status.body",
+    ];
+    const policyMetaKeys = [
       "publicPresence.routes.privacy.meta.description",
       "publicPresence.routes.terms.meta.description",
     ];
 
     expect(launchPolicyKeys.every((key) => publicPresenceHasTranslation(key))).toBe(true);
+    expect(policyMetaKeys.every((key) => hasPolicyTranslation(key))).toBe(true);
 
-    const copy = `${launchPolicyKeys.map((key) => publicPresenceT(key)).join(" ")} ${JSON.stringify(publicHelpArticles)}`;
+    const copy = `${[...launchPolicyKeys.map((key) => publicPresenceT(key)), ...policyMetaKeys.map((key) => policyT(key))].join(" ")} ${JSON.stringify(publicHelpArticles)}`;
 
     expect(() => assertPublicCopyGuard({ corpus: "consumer", copy, guard: "launch-language" })).not.toThrow();
     expect(copy).not.toMatch(/\b(future|intended|planned|expected)\b/i);
@@ -46,7 +51,7 @@ describe("public presence translator", () => {
   });
 
   it("keeps uncertified UCP and AP2 agent-commerce claims out of public launch copy", () => {
-    const publicLaunchCopy = `${Object.entries(publicPresenceEnglishTranslations)
+    const publicLaunchCopy = `${Object.entries({ ...publicPresenceEnglishTranslations, ...policiesEnglishTranslations })
       .filter(([key]) => {
         return (
           key.startsWith("publicPresence.faq.") ||

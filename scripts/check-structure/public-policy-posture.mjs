@@ -70,6 +70,36 @@ function isPendingPostureValue(value) {
   );
 }
 
+function staticCatalogProperties(sourceFile) {
+  if (!/\/localization\/locales\/en\.ts$/.test(sourceFile.fileName) || sourceFile.statements.length !== 1) {
+    return undefined;
+  }
+  const [statement] = sourceFile.statements;
+  if (
+    !ts.isVariableStatement(statement) ||
+    !statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ||
+    !(statement.declarationList.flags & ts.NodeFlags.Const) ||
+    statement.declarationList.declarations.length !== 1
+  ) {
+    return undefined;
+  }
+  let { initializer } = statement.declarationList.declarations[0];
+  if (initializer && ts.isAsExpression(initializer)) initializer = initializer.expression;
+  if (
+    !initializer ||
+    !ts.isObjectLiteralExpression(initializer) ||
+    !initializer.properties.every(
+      (property) =>
+        ts.isPropertyAssignment(property) &&
+        ts.isStringLiteral(property.name) &&
+        ts.isStringLiteral(property.initializer),
+    )
+  ) {
+    return undefined;
+  }
+  return initializer;
+}
+
 function pageElementName(tagName) {
   return ts.isIdentifier(tagName) ? tagName.text : tagName.getText();
 }
@@ -87,9 +117,9 @@ function propertyNameText(name) {
 
 /**
  * AST guard for every production module in the policy UI and marketplace
- * route ownership roots. Pending copy is permitted only as the exact finite
- * set of localization keys inside the canonical copy builder. The public page
- * API cannot accept posture-deciding copy or spread props.
+ * route ownership roots. Catalog entries declare data; only the canonical
+ * copy builder may select the exact finite set of pending keys. The public
+ * page API cannot accept posture-deciding copy or spread props.
  */
 export function findPublicPolicyPostureViolations(sourceRecords) {
   const guardedRecords = sourceRecords
@@ -121,6 +151,7 @@ export function findPublicPolicyPostureViolations(sourceRecords) {
 
   for (const record of guardedRecords) {
     const { relativePath, sourceFile } = record;
+    const catalog = staticCatalogProperties(sourceFile);
 
     function report(node, message) {
       violations.push(`${relativePath}:${lineFor(sourceFile, node)}: ${message}`);
@@ -128,6 +159,15 @@ export function findPublicPolicyPostureViolations(sourceRecords) {
 
     function visit(node) {
       if (ts.isStringLiteralLike(node) && isPendingPostureValue(node.text)) {
+        const property = node.parent;
+        const declaresCanonicalCopy =
+          catalog !== undefined &&
+          ts.isPropertyAssignment(property) &&
+          property.parent === catalog &&
+          ts.isStringLiteral(property.name) &&
+          canonicalPendingCounts.has(property.name.text);
+        // The catalog defines the value; it cannot select when that copy is used.
+        if (declaresCanonicalCopy) return;
         const inCanonicalBuilder =
           record === canonicalMapper && containingFunctionName(node) === "buildPolicyArtifactPageCopy";
         if (!inCanonicalBuilder || !canonicalPendingCounts.has(node.text)) {
