@@ -621,6 +621,24 @@ describe("UCP OAuth routes", () => {
     }
   });
 
+  it.each(["not a URL", "http://marketplace.example"])(
+    "falls back to relative sign-in with an unusable marketplace origin: %s",
+    async (marketplaceOrigin) => {
+      vi.stubEnv("CHASE_SETS_MARKETPLACE_ORIGIN", marketplaceOrigin);
+      try {
+        const fixture = await consentFixture();
+        fixture.setActor(null);
+        const response = await fixture.app.request(`https://www.example${fixture.authorizePath}`);
+        expect(response.status).toBe(302);
+        expect(response.headers.get("location")).toBe(
+          `/sign-in?${new URLSearchParams({ returnTo: fixture.authorizePath })}`,
+        );
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    },
+  );
+
   it.each(["bearer", "guest"])(
     "consent refuses %s actors on GET, read and otherwise valid approve (F7)",
     async (kind) => {

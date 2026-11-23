@@ -69,6 +69,7 @@ describe("Auth same-site path caller matrix", () => {
     [`${SAME_SITE_TEST_ORIGIN}/account/orders`],
     ["//marketplace.example.test/ucp/oauth/authorize"],
     ["https://user@marketplace.example.test/ucp/oauth/authorize"],
+    [`${SAME_SITE_TEST_ORIGIN}/ucp/oauth/authorize#fragment`],
   ])("rejects an absolute sign-in continuation outside the OAuth exception: %s", (returnTo) => {
     const url = new URL("/sign-in", SAME_SITE_TEST_ORIGIN);
     url.searchParams.set("returnTo", returnTo);
