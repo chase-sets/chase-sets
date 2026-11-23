@@ -20,7 +20,7 @@ const options = {
   image: `registry.digitalocean.com/chase-sets/chase-sets-platform:release@${digest}`,
   cortenMarketplaceImage: image,
   envOverrides: { DEPLOYMENT_ENVIRONMENT: "staging", OBSERVABILITY_ENABLED: "false" },
-  // admin-web serving admin.staging makes the admin pilot advisory, so these marketplace cases may omit its image.
+  // admin-web serving admin.staging withholds the admin pilot, so these marketplace cases may omit its image.
   env: { GITHUB_RUN_ID: "123", GITHUB_RUN_ATTEMPT: "1", STAGING_ADMIN_APP: "admin-web" },
   managedPostgresCaSha256: "b".repeat(64),
 };
@@ -195,8 +195,10 @@ describe("Corten marketplace staging, first slice", () => {
         }),
       ).toThrow("chase-sets-corten-marketplace repository");
     }
+    // Both pilots pinned while admin-corten serves admin.staging (STAGING_ADMIN_APP unset).
     const both = buildHelmUpgradeArgs({
       ...options,
+      env: { GITHUB_RUN_ID: "123", GITHUB_RUN_ATTEMPT: "1" },
       cortenAdminImage: image.replace("corten-marketplace", "corten-admin"),
     });
     expect(both).toContain(`components.admin-corten.image=${image.replace("corten-marketplace", "corten-admin")}`);

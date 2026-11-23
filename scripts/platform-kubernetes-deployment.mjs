@@ -119,21 +119,21 @@ const cortenPilotImages = [
 // serving admin.staging.
 export const ADVISORY_CORTEN_PILOT_COMPONENTS = Object.freeze(["marketplace-corten"]);
 
-// The advisory pilots on this staging deploy: the list above, plus admin-corten while STAGING_ADMIN_APP
-// rolls admin.staging back to admin-web, so a rollback forced by a broken pilot build can still deploy.
-export function advisoryCortenPilotComponents(env = {}) {
-  return resolveStagingAdminApp(env).app === "admin-web"
-    ? [...ADVISORY_CORTEN_PILOT_COMPONENTS, "admin-corten"]
-    : [...ADVISORY_CORTEN_PILOT_COMPONENTS];
-}
-
 // The advisory pilots a staging deploy drops because no image was given for them.
 export function droppedAdvisoryCortenPilots(options = {}) {
   if (options.envOverrides?.DEPLOYMENT_ENVIRONMENT !== "staging") return [];
-  const advisory = options.advisoryCortenPilotComponents ?? advisoryCortenPilotComponents(options.env ?? {});
+  const advisory = options.advisoryCortenPilotComponents ?? ADVISORY_CORTEN_PILOT_COMPONENTS;
   return cortenPilotImages
     .filter(({ option, component }) => !options[option] && advisory.includes(component))
     .map(({ component }) => component);
+}
+
+// The pilots a staging deploy renders disabled whatever image it was given. While STAGING_ADMIN_APP rolls
+// admin.staging back to admin-web, admin-corten is not deployed: the release waits for every enabled pod
+// (helm --wait --atomic), so a pilot that never becomes ready would otherwise fail the rollback itself.
+export function withheldCortenPilots(options = {}) {
+  if (options.envOverrides?.DEPLOYMENT_ENVIRONMENT !== "staging") return [];
+  return resolveStagingAdminApp(options.env ?? {}).app === "admin-web" ? ["admin-corten"] : [];
 }
 
 export function platformKubernetesWorkloads(options = {}) {
@@ -185,8 +185,13 @@ export function buildHelmUpgradeArgs(options = {}) {
   const deploymentEnvironment = requestedEnvOverrides.DEPLOYMENT_ENVIRONMENT;
   const cortenPilotSetArgs = [];
   const droppedPilots = droppedAdvisoryCortenPilots({ ...options, envOverrides: requestedEnvOverrides });
+  const withheldPilots = withheldCortenPilots({ ...options, envOverrides: requestedEnvOverrides });
   for (const { option, flag, component, repository } of cortenPilotImages) {
     const reference = options[option];
+    if (withheldPilots.includes(component)) {
+      cortenPilotSetArgs.push("--set", `components.${component}.enabled=false`);
+      continue;
+    }
     if (!reference) {
       if (deploymentEnvironment !== "staging") continue;
       if (!droppedPilots.includes(component)) {
@@ -790,7 +795,7 @@ export function buildDeploymentEvidence(options = {}) {
     result: options.result ?? "unknown",
     ...(options.reason ? { reason: options.reason } : {}),
     ...(options.envOverrides?.DEPLOYMENT_ENVIRONMENT === "staging"
-      ? { stagingAdminApp: resolveStagingAdminApp(options.env ?? {}) }
+      ? { stagingAdminApp: stagingAdminAppRecord(options.env ?? {}) }
       : {}),
     workloads,
     ...(options.rollbackIdentity ? { rollbackIdentity: options.rollbackIdentity } : {}),
@@ -2667,8 +2672,16 @@ export async function deployPlatformToKubernetes(options = {}) {
   for (const component of droppedPilots) {
     console.error(`Warning: no image was given for the advisory Corten pilot ${component}; deploying it disabled.`);
   }
+  const withheldPilots = withheldCortenPilots(options);
+  for (const component of withheldPilots) {
+    console.error(
+      `Warning: ${component} is not deployed because admin-web serves admin.staging (STAGING_ADMIN_APP=admin-web).`,
+    );
+  }
   const release = options.release ?? defaultRelease;
-  const droppedWorkloads = new Set(droppedPilots.map((component) => kubernetesComponentName(release, component)));
+  const droppedWorkloads = new Set(
+    [...droppedPilots, ...withheldPilots].map((component) => kubernetesComponentName(release, component)),
+  );
   const workloads = options.workloads ?? withoutWorkloads(platformKubernetesWorkloads(options), droppedWorkloads);
 
   // Previews reference the shared *.preview.chasesets.com wildcard secret, so
@@ -4574,18 +4587,30 @@ async function main(argv, env = process.env, overrides = {}) {
   return 0;
 }
 
+// Which app serves admin.staging, what chose it, and whether admin-corten runs at all.
+export function stagingAdminAppRecord(env = {}) {
+  const { app, source } = resolveStagingAdminApp(env);
+  return { app, source, adminCorten: app === "admin-web" ? "not-deployed" : "deployed" };
+}
+
 // Says which app serves admin.staging before the deploy starts, in the step summary and as the step's
 // admin_app output, so every run's evidence names it even when the deploy then fails.
 export function recordStagingAdminApp(options = {}) {
-  const { app, source } = resolveStagingAdminApp(options.env ?? {});
-  const why = source === "default" ? "STAGING_ADMIN_APP is unset, so the default applies" : `STAGING_ADMIN_APP=${app}`;
-  const line = `admin.staging is served by ${app} (${why}).`;
-  console.error(line);
-  if (options.githubSummaryPath) {
-    appendFileSync(options.githubSummaryPath, `### Staging admin app\n\n${line}\n\n`);
+  const record = stagingAdminAppRecord(options.env ?? {});
+  const why =
+    record.source === "default"
+      ? "STAGING_ADMIN_APP is unset, so the default applies"
+      : `STAGING_ADMIN_APP=${record.app}`;
+  const lines = [`admin.staging is served by ${record.app} (${why}).`];
+  if (record.adminCorten === "not-deployed") {
+    lines.push("admin-corten is not deployed while admin-web serves admin.staging.");
   }
-  writeGithubOutput(options.githubOutputPath, { admin_app: app, admin_app_source: source });
-  return { app, source };
+  for (const line of lines) console.error(line);
+  if (options.githubSummaryPath) {
+    appendFileSync(options.githubSummaryPath, `### Staging admin app\n\n${lines.join("\n\n")}\n\n`);
+  }
+  writeGithubOutput(options.githubOutputPath, { admin_app: record.app, admin_app_source: record.source });
+  return record;
 }
 
 function writeGithubOutput(filePath, values) {

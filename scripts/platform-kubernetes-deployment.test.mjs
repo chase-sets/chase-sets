@@ -7625,7 +7625,8 @@ describe("managed Postgres CA trust across rollout and rollback (#7313)", () => 
 
 describe("advisory Corten pilots without an image", () => {
   const adminImage = `registry.digitalocean.com/chase-sets/chase-sets-corten-admin@sha256:${"a".repeat(64)}`;
-  // admin-web serves admin.staging here, which makes the admin pilot advisory.
+  const marketplaceImage = `registry.digitalocean.com/chase-sets/chase-sets-corten-marketplace@sha256:${"c".repeat(64)}`;
+  // admin-corten serves admin.staging here (STAGING_ADMIN_APP unset), so marketplace-corten is the advisory pilot.
   const staging = {
     release: "proof",
     namespace: "staging",
@@ -7633,9 +7634,11 @@ describe("advisory Corten pilots without an image", () => {
     image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
     rolloutsEnabled: false,
     envOverrides: { DEPLOYMENT_ENVIRONMENT: "staging", OBSERVABILITY_ENABLED: "false" },
-    env: { STAGING_ADMIN_APP: "admin-web" },
+    env: {},
+    cortenAdminImage: adminImage,
   };
-  const pilotWorkload = "proof-chase-sets-platform-admin-corten";
+  const adminWorkload = "proof-chase-sets-platform-admin-corten";
+  const pilotWorkload = "proof-chase-sets-platform-marketplace-corten";
   const deployStaging = async (options) => {
     const calls = [];
     const warn = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -7657,48 +7660,74 @@ describe("advisory Corten pilots without an image", () => {
   });
 
   it("refuses a staging deploy with no admin image while the pilot serves admin.staging", async () => {
-    await expect(deployStaging({ env: {} })).rejects.toThrow(
+    await expect(deployStaging({ cortenAdminImage: undefined })).rejects.toThrow(
       "corten-admin-image is required on staging: admin-corten is not an advisory pilot.",
     );
   });
 
   it("deploys an advisory pilot that has no image disabled, warns, and does not wait for it", async () => {
     const { result, warnings, helm, waited } = await deployStaging({});
-    const disabled = helm.indexOf("components.admin-corten.enabled=false");
+    const disabled = helm.indexOf("components.marketplace-corten.enabled=false");
     expect(helm[disabled - 1]).toBe("--set");
-    expect(helm.filter((arg) => String(arg).startsWith("components.admin-corten.image="))).toEqual([]);
+    expect(helm.filter((arg) => String(arg).startsWith("components.marketplace-corten.image="))).toEqual([]);
     expect(warnings).toContain(
-      "Warning: no image was given for the advisory Corten pilot admin-corten; deploying it disabled.",
+      "Warning: no image was given for the advisory Corten pilot marketplace-corten; deploying it disabled.",
     );
     expect(waited.some((args) => args.includes("proof-chase-sets-platform-platform-api"))).toBe(true);
     expect(waited.filter((args) => args.includes(pilotWorkload))).toEqual([]);
     expect(JSON.stringify(result)).not.toContain(pilotWorkload);
   });
 
-  it("deploys and waits for an advisory pilot whose image was built", async () => {
-    const { result, warnings, helm, waited } = await deployStaging({ cortenAdminImage: adminImage });
+  it("pins an advisory pilot's built image and waits for the admin pilot that serves admin.staging", async () => {
+    const { result, warnings, helm, waited } = await deployStaging({ cortenMarketplaceImage: marketplaceImage });
+    expect(helm).toContain(`components.marketplace-corten.image=${marketplaceImage}`);
+    expect(helm).not.toContain("components.marketplace-corten.enabled=false");
     expect(helm).toContain(`components.admin-corten.image=${adminImage}`);
     expect(helm).not.toContain("components.admin-corten.enabled=false");
-    expect(warnings.filter((message) => message.includes("admin-corten"))).toEqual([]);
-    expect(waited.filter((args) => args.includes(pilotWorkload))).toHaveLength(1);
-    expect(JSON.stringify(result)).toContain(pilotWorkload);
+    expect(warnings.filter((message) => message.includes("corten"))).toEqual([]);
+    // The marketplace workload stays declared disabled in the staging values until its Deploy Staging wiring
+    // enables it, so only the serving admin pilot is waited for here.
+    expect(waited.filter((args) => args.includes(adminWorkload))).toHaveLength(1);
+    expect(JSON.stringify(result)).toContain(adminWorkload);
   });
 
   it("refuses a staging deploy with no image for a pilot that is no longer advisory", async () => {
-    const serving = { advisoryCortenPilotComponents: ["marketplace-corten"] };
+    const serving = { advisoryCortenPilotComponents: [] };
     expect(() => buildHelmUpgradeArgs({ ...staging, ...serving })).toThrow(
-      "corten-admin-image is required on staging: admin-corten is not an advisory pilot.",
+      "corten-marketplace-image is required on staging: marketplace-corten is not an advisory pilot.",
     );
-    await expect(deployStaging(serving)).rejects.toThrow("admin-corten is not an advisory pilot");
-    expect(buildHelmUpgradeArgs({ ...staging, ...serving, cortenAdminImage: adminImage })).toContain(
-      `components.admin-corten.image=${adminImage}`,
+    await expect(deployStaging(serving)).rejects.toThrow("marketplace-corten is not an advisory pilot");
+    expect(buildHelmUpgradeArgs({ ...staging, ...serving, cortenMarketplaceImage: marketplaceImage })).toContain(
+      `components.marketplace-corten.image=${marketplaceImage}`,
     );
+  });
+
+  it("does not deploy admin-corten while admin-web serves admin.staging, whether or not its image was built", async () => {
+    for (const cortenAdminImage of [adminImage, undefined]) {
+      const { result, warnings, helm, waited } = await deployStaging({
+        env: { STAGING_ADMIN_APP: "admin-web" },
+        cortenAdminImage,
+      });
+      const disabled = helm.indexOf("components.admin-corten.enabled=false");
+      expect(helm[disabled - 1]).toBe("--set");
+      expect(helm.filter((arg) => String(arg).startsWith("components.admin-corten."))).toEqual([
+        "components.admin-corten.enabled=false",
+      ]);
+      expect(warnings).toContain(
+        "Warning: admin-corten is not deployed because admin-web serves admin.staging (STAGING_ADMIN_APP=admin-web).",
+      );
+      expect(waited.some((args) => args.includes("proof-chase-sets-platform-platform-api"))).toBe(true);
+      expect(waited.filter((args) => args.includes(adminWorkload))).toEqual([]);
+      expect(JSON.stringify(result)).not.toContain(adminWorkload);
+    }
   });
 
   it("drops no pilot outside staging", () => {
     for (const DEPLOYMENT_ENVIRONMENT of ["production", "preview"]) {
       const envOverrides = { DEPLOYMENT_ENVIRONMENT, PREVIEW_IDENTIFIER: "pr-123" };
       expect(platformKubernetesDeployment.droppedAdvisoryCortenPilots({ envOverrides })).toEqual([]);
+      const env = { STAGING_ADMIN_APP: "admin-web" };
+      expect(platformKubernetesDeployment.withheldCortenPilots({ envOverrides, env })).toEqual([]);
     }
   });
 });

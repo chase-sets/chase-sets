@@ -2185,8 +2185,8 @@ jobs:
                 end
             ] | unique | select(length > 0) | join(",")')"
 
-          # With no admin image, the deploy script fails while admin-corten serves admin.staging, and deploys
-          # the pilot disabled while STAGING_ADMIN_APP=admin-web (advisoryCortenPilotComponents).
+          # With no admin image, the deploy script fails while admin-corten serves admin.staging. Under
+          # STAGING_ADMIN_APP=admin-web it does not deploy the pilot at all, image or not (withheldCortenPilots).
           corten_image_args=()
           if [ -n "$CORTEN_ADMIN_IMAGE" ]; then
             corten_image_args+=(--corten-admin-image "$CORTEN_ADMIN_IMAGE")
@@ -2257,7 +2257,6 @@ jobs:
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
-          CORTEN_ADMIN_IMAGE: ${{ needs.build-corten-pilot-images.outputs.corten_admin_image }}
           ADMIN_APP: ${{ steps.staging_kubernetes_deploy.outputs.admin_app }}
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
@@ -2285,8 +2284,8 @@ jobs:
             "https://${landing_domain}/health/ready"
             "https://${admin_domain}/health/ready"
           )
-          # Required while admin-corten serves admin.staging; advisory only under STAGING_ADMIN_APP=admin-web (advisoryCortenPilotComponents).
-          if [ "$ADMIN_APP" != "admin-web" ] || [ -n "$CORTEN_ADMIN_IMAGE" ]; then
+          # admin-corten runs only while it serves admin.staging; under STAGING_ADMIN_APP=admin-web it is not deployed (withheldCortenPilots).
+          if [ "$ADMIN_APP" != "admin-web" ]; then
             ingress_urls+=("https://admin-corten.staging.chasesets.com/health/ready")
           fi
           for hostname in "${marketplace_domains[@]}" "${staging_root_marketplace_domains[@]}"; do
@@ -2357,7 +2356,6 @@ jobs:
           SMOKE_WRITE_WAITLIST: "false"
           SMOKE_SOURCE: staging-smoke
           SMOKE_UTM_CAMPAIGN: staging-main
-          CORTEN_ADMIN_IMAGE: ${{ needs.build-corten-pilot-images.outputs.corten_admin_image }}
           ADMIN_APP: ${{ steps.staging_kubernetes_deploy.outputs.admin_app }}
           SMOKE_FETCH_ATTEMPTS: "24"
           SMOKE_FETCH_RETRY_DELAY_MS: "5000"
@@ -2386,8 +2384,8 @@ jobs:
 
           cd ../../..
           export MARKETPLACE_ROOT_WEB_URL="https://${staging_root_marketplace_domain}"
-          # Required while admin-corten serves admin.staging; advisory only under STAGING_ADMIN_APP=admin-web (advisoryCortenPilotComponents).
-          if [ "$ADMIN_APP" != "admin-web" ] || [ -n "$CORTEN_ADMIN_IMAGE" ]; then
+          # admin-corten runs only while it serves admin.staging; under STAGING_ADMIN_APP=admin-web it is not deployed (withheldCortenPilots).
+          if [ "$ADMIN_APP" != "admin-web" ]; then
             node ./scripts/platform-ingress-wait.mjs \
               --attempts 1 \
               --expect-status 200 \
@@ -2432,33 +2430,18 @@ jobs:
           PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
           SMOKE_SOURCE: staging-corten-admin-smoke
           SMOKE_UTM_CAMPAIGN: staging-main
-          CORTEN_ADMIN_IMAGE: ${{ needs.build-corten-pilot-images.outputs.corten_admin_image }}
           ADMIN_APP: ${{ steps.staging_kubernetes_deploy.outputs.admin_app }}
           SMOKE_FETCH_ATTEMPTS: "24"
           SMOKE_FETCH_RETRY_DELAY_MS: "5000"
           SMOKE_FETCH_TIMEOUT_MS: "15000"
         run: |
           set -euo pipefail
-          # Required while admin-corten serves admin.staging; advisory only under STAGING_ADMIN_APP=admin-web (advisoryCortenPilotComponents).
+          # admin-corten runs only while it serves admin.staging; under STAGING_ADMIN_APP=admin-web it is not deployed (withheldCortenPilots).
           if [ "$ADMIN_APP" != "admin-web" ]; then
             echo "admin-corten serves admin.staging, so the Smoke check above smoked it with the admin required."
             exit 0
           fi
-          if [ -z "$CORTEN_ADMIN_IMAGE" ]; then
-            echo "No Corten admin image was built for this release, so the pilot was not deployed and is not smoked."
-            exit 0
-          fi
-          landing_domain="$(terraform output -raw landing_domain)"
-          if [ -z "$landing_domain" ]; then
-            echo "The staging landing domain was not present in Terraform outputs." >&2
-            exit 1
-          fi
-          cd ../../..
-          echo "Smoking the Corten admin pilot at admin-corten.staging.chasesets.com (advisory)."
-          # Admin-only entry: it smokes the admin origin and never fetches the landing URL.
-          pnpm run smoke:corten-admin -- \
-            "https://${landing_domain}" \
-            "https://admin-corten.staging.chasesets.com"
+          echo "admin-web serves admin.staging (STAGING_ADMIN_APP=admin-web), so admin-corten is not deployed and is not smoked."
       - name: Resolve Playwright Chromium version
         env:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
