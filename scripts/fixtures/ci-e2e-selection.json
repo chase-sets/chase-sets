@@ -360,7 +360,7 @@
       "pattern": "/^bounded-contexts\\/inventory\\/features\\/[^/]+\\/(?:api|ui)\\//",
       "suites": ["marketplace_seller"],
       "path": "bounded-contexts/inventory/features/channel-allocations/api/contracts.ts",
-      "trackedCandidates": 41,
+      "trackedCandidates": 46,
       "synthetic": false
     },
     {
@@ -1732,6 +1732,11 @@
     },
     {
       "changedFiles": ["bounded-contexts/inventory/routes/marketplace/account-inventory-imports.tsx"],
+      "suiteIds": ["marketplace_seller"],
+      "batches": ["marketplace_seller"]
+    },
+    {
+      "changedFiles": ["bounded-contexts/inventory/features/storage-locations/ui/routes/account-inventory-locations.tsx"],
       "suiteIds": ["marketplace_seller"],
       "batches": ["marketplace_seller"]
     },

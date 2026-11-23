@@ -1167,17 +1167,21 @@ const outputs = [
   ["admin/reported-content-actions.json", json(platformOperationsReportedContentActionsByTargetType)],
   [
     "marketplace/locales/en.json",
-    json(
-      await catalog("inventory.ts", "inventoryEnglishTranslations", [
-        ["inventory.features.storageLocations.ui.storageLocationPage.", "page"],
-        ["inventory.recovery.", "recovery"],
-        ["inventory.routes.marketplace.accountInventoryLocations.inventory.locations.marketplace", "route.title"],
+    json({
+      ...(await catalog("inventory.ts", "inventoryEnglishTranslations", [["inventory.recovery.", "recovery"]])),
+      ...(await catalogFrom(
+        "bounded-contexts/inventory/features/storage-locations/ui/localization/locales/en.ts",
+        "storageLocationsEnglishTranslations",
         [
-          "inventory.routes.marketplace.accountInventoryLocations.manage.the.storage.locations.and.ship",
-          "route.description",
+          ["inventory.features.storageLocations.ui.storageLocationPage.", "page"],
+          ["inventory.routes.marketplace.accountInventoryLocations.inventory.locations.marketplace", "route.title"],
+          [
+            "inventory.routes.marketplace.accountInventoryLocations.manage.the.storage.locations.and.ship",
+            "route.description",
+          ],
         ],
-      ]),
-    ),
+      )),
+    }),
   ],
   [
     "marketplace/locales/restock.en.json",

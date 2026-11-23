@@ -1,0 +1,22 @@
+{
+  "families": {
+    "contextSuiteOwnership:inventory": {
+      "trackedCandidates": 46
+    }
+  },
+  "movedRoutes": {
+    "legacyDirectory": "bounded-contexts/inventory/routes/marketplace/",
+    "featureDirectory": "bounded-contexts/inventory/features/storage-locations/ui/routes/",
+    "files": [["account-inventory-locations.tsx", "marketplace_seller"]]
+  },
+  "selectorCases": [
+    {
+      "file": "bounded-contexts/inventory/routes/marketplace/account-inventory-locations.tsx",
+      "suites": ["marketplace_seller"]
+    },
+    {
+      "file": "bounded-contexts/inventory/features/storage-locations/ui/routes/account-inventory-locations.tsx",
+      "suites": ["marketplace_seller"]
+    }
+  ]
+}

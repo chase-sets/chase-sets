@@ -265,7 +265,8 @@ export default {
       routes: {
         "bounded-contexts/inventory/routes/marketplace/account-inventory.tsx": "stock-and-location",
         "bounded-contexts/inventory/routes/marketplace/account-inventory-item.tsx": "held-units",
-        "bounded-contexts/inventory/routes/marketplace/account-inventory-locations.tsx": "retired-locations",
+        "bounded-contexts/inventory/features/storage-locations/ui/routes/account-inventory-locations.tsx":
+          "retired-locations",
       },
       paths: ["bounded-contexts/inventory/features/", "bounded-contexts/inventory/routes/marketplace/"],
     },

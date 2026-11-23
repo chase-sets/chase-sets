@@ -1,4 +1,4 @@
-import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
+import { inventoryRequestOptions, type InventoryRequestClientOptions } from "./request-options";
 export { createInventoryApiClient, InventoryApiError, inventoryApi } from "../../client";
 export type {
   InventoryApiClientOptions,
@@ -19,18 +19,8 @@ export type {
   InventoryRecoveredItemRow,
   InventoryStorageLocation,
 } from "../../client";
-import { createInventoryApiClient, type InventoryApiClientOptions } from "../../client";
+import { createInventoryApiClient } from "../../client";
 
-export function createInventoryRequestApiClient(
-  request: Request,
-  options: Pick<
-    InventoryApiClientOptions,
-    "requestTimeoutMs" | "recoverTransportErrorsAsGatewayTimeout" | "mutationAttemptId"
-  > = {},
-) {
-  return createInventoryApiClient({
-    baseUrl: resolveRequestApiBaseUrl(request, "/api/inventory"),
-    fetch: createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "inventory" }),
-    ...options,
-  });
+export function createInventoryRequestApiClient(request: Request, options?: InventoryRequestClientOptions) {
+  return createInventoryApiClient(inventoryRequestOptions(request, options));
 }

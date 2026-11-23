@@ -464,6 +464,7 @@ function viteExecution({
 }) {
   const files = new Set();
   const apps = [];
+  const routeModules = new Set();
 
   for (const workspace of packages) {
     const hostMatch = /^@chase-sets\/app-(.+)$/.exec(workspace.name);
@@ -514,12 +515,28 @@ function viteExecution({
         for (const route of contribution.routes) {
           if (typeof route?.fileExport !== "string" || !route.fileExport.startsWith(".")) continue;
           const resolved = resolveRelative(manifestPath, route.fileExport, paths);
-          if (resolved && sourceExtensionSet.has(path.posix.extname(resolved))) files.add(resolved);
+          if (resolved && sourceExtensionSet.has(path.posix.extname(resolved))) routeModules.add(resolved);
         }
       }
       if (!context) throw new Error(`missing implemented context for ${manifestPath}`);
     }
     apps.push({ hostName, routeRoot, activeManifests });
+  }
+
+  // A registered route can be an export-only adapter. Follow its local runtime
+  // graph just as Vite does, without classifying unregistered modules as routes.
+  for (const relativeFile of moduleClosure({
+    seeds: [...routeModules].sort(),
+    paths,
+    packages,
+    readContent,
+    readRecords,
+    readImports,
+    localOnly: true,
+    targets,
+    work,
+  })) {
+    files.add(relativeFile);
   }
 
   return { files, apps };
