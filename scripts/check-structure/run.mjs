@@ -38,6 +38,7 @@ import { validateResponsiveEvidenceGuard } from "./responsive-evidence-guard.mjs
 import { validateBrandFoilSites } from "./brand-foil-sites.mjs";
 import { validatePublicPolicyPosture } from "./public-policy-posture.mjs";
 import { validatePolicyValueDiscriminantChokepoint } from "./policy-value-discriminant-chokepoint.mjs";
+import { validatePolicyConsoleRegistration } from "./policy-console-registration.mjs";
 import { findGitKeySetTripwireViolations } from "./catalog-localization-keyset-tripwire.mjs";
 import { validateLostUpdateWriteGuard } from "./lost-update-write-guard.mjs";
 import { validateRealClockElapsedBounds } from "./real-clock-elapsed-bounds.mjs";
@@ -4042,6 +4043,9 @@ export async function runStructureCheck(options = {}) {
 
   const policyValueDiscriminantChokepointResult = validatePolicyValueDiscriminantChokepoint({ repoRoot });
   violations.push(...policyValueDiscriminantChokepointResult.violations);
+
+  const policyConsoleRegistrationResult = validatePolicyConsoleRegistration({ repoRoot });
+  violations.push(...policyConsoleRegistrationResult.violations);
 
   const workspaceTsconfigResult = await checkWorkspaceTsconfigExtends({ repoRoot });
   for (const violation of workspaceTsconfigResult.violations) {

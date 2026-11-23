@@ -768,6 +768,7 @@
 ["candidate","edges",{"from":"bounded-contexts/marketplace/server.ts","specifier":"./features/listings/api/listing-request","resolved":"repo:/bounded-contexts/marketplace/features/listings/api/listing-request.ts"}]
 ["candidate","edges",{"from":"bounded-contexts/marketplace/server.ts","specifier":"./features/listings/api/runtime","resolved":"repo:/bounded-contexts/marketplace/features/listings/api/runtime.ts"}]
 ["candidate","edges",{"from":"bounded-contexts/marketplace/server.ts","specifier":"./features/listings/api/target-contracts","resolved":"repo:/bounded-contexts/marketplace/features/listings/api/target-contracts.ts"}]
+["candidate","edges",{"from":"bounded-contexts/marketplace/server.ts","specifier":"./features/listings/domain/bulk-price-update-policy","resolved":"repo:/bounded-contexts/marketplace/features/listings/domain/bulk-price-update-policy.ts"}]
 ["candidate","edges",{"from":"bounded-contexts/marketplace/server.ts","specifier":"./features/listings/domain/evidence-coverage","resolved":"repo:/bounded-contexts/marketplace/features/listings/domain/evidence-coverage.ts"}]
 ["candidate","edges",{"from":"bounded-contexts/marketplace/server.ts","specifier":"./features/listings/domain/evidence-gallery","resolved":"repo:/bounded-contexts/marketplace/features/listings/domain/evidence-gallery.ts"}]
 ["candidate","edges",{"from":"bounded-contexts/marketplace/server.ts","specifier":"./features/listings/domain/evidence-snapshot","resolved":"repo:/bounded-contexts/marketplace/features/listings/domain/evidence-snapshot.ts"}]
