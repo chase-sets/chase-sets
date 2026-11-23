@@ -1678,7 +1678,7 @@ export const helpArticles = [
         claim: "Published fees, checkout, and shipping promises reflect tested marketplace behavior.",
         issues: ["#4352"],
         tests: [
-          "bounded-contexts/commercial-terms/routes/public/sales-fees.test.tsx",
+          "bounded-contexts/commercial-terms/features/marketplace-sales-fee/ui/routes/sales-fees.test.tsx",
           "bounded-contexts/payments/features/payments/api/runtime.test.ts",
           "bounded-contexts/fulfillment/features/shipments/api/runtime.test.ts",
         ],
@@ -6192,7 +6192,7 @@ export const helpArticles = [
       {
         claim: "Published fee figures resolve from the current ratified policy documents.",
         issues: ["#4353"],
-        tests: ["bounded-contexts/commercial-terms/routes/public/sales-fees.test.tsx"],
+        tests: ["bounded-contexts/commercial-terms/features/marketplace-sales-fee/ui/routes/sales-fees.test.tsx"],
       },
       {
         claim: "Access follows the waitlist, numbered beta invite waves, then open signup, with no promised dates.",
@@ -6673,7 +6673,7 @@ export const helpArticles = [
       {
         claim: "Published fee figures resolve from the current ratified policy documents.",
         issues: ["#4353"],
-        tests: ["bounded-contexts/commercial-terms/routes/public/sales-fees.test.tsx"],
+        tests: ["bounded-contexts/commercial-terms/features/marketplace-sales-fee/ui/routes/sales-fees.test.tsx"],
       },
       {
         claim: "Published payout-fee figures resolve from the current Settlement payout-fee policy document.",
@@ -6713,7 +6713,7 @@ export const helpArticles = [
           "Beta access uses three numbered invite waves with ratified capacities and explicit wave-one qualification.",
         issues: ["#3955"],
         tests: [
-          "bounded-contexts/commercial-terms/routes/public/sales-fees.test.tsx",
+          "bounded-contexts/commercial-terms/features/marketplace-sales-fee/ui/routes/sales-fees.test.tsx",
           "bounded-contexts/public-presence/features/waitlist/ui/public-pages.test.tsx",
         ],
       },
