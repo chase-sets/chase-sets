@@ -83,6 +83,108 @@ describe("dimension seed", () => {
     expect(harness.sent).toEqual([]);
   });
 
+  it("keeps every seeded Option, in order, when it reconciles fully seeded streams", async () => {
+    const streams = new Map<string, StoredEvent[]>();
+    await seedDimensions(createSeedDimensionsHarness(streams).services);
+    // The same streams as an environment seeded before option matching existed holds them.
+    for (const [streamId, events] of streams) {
+      streams.set(
+        streamId,
+        events.map((event) =>
+          event.event_type === "catalog.dimension.created"
+            ? { ...event, payload: { ...event.payload, optionMatching: undefined } }
+            : event,
+        ),
+      );
+    }
+    const harness = createSeedDimensionsHarness(streams);
+    const before = [conditionStream, gradeStream].map((streamId) => harness.fold(streamId));
+    expect(before.map((state) => state.optionMatching)).toEqual(["exact", "exact"]);
+    expect(before.every((state) => state.options.length > 1)).toBe(true);
+
+    await seedDimensions(harness.services);
+
+    expect(harness.sent.map(({ streamId, command }) => [streamId, command.type])).toEqual([
+      [conditionStream, "ReviseDimension"],
+      [gradeStream, "ReviseDimension"],
+    ]);
+    for (const [index, streamId] of [conditionStream, gradeStream].entries()) {
+      expect(harness.fold(streamId)).toEqual({ ...before[index]!, optionMatching: "or-better" });
+    }
+  });
+
+  it("keeps a retained value kind that differs from the seeded one", async () => {
+    const retained = retainedDimensions();
+    retained.set(gradeStream, [
+      {
+        event_type: "catalog.dimension.created",
+        payload: {
+          dimensionId: catalogSeedIds.dimensions.grade.dimensionId,
+          key: "grade",
+          name: localizedTextMapFromEnglish("Grade"),
+          description: localizedTextMapFromEnglish(""),
+          valueKind: "ordered",
+        },
+      },
+      { event_type: "catalog.dimension.activated", payload: {} },
+    ]);
+    const harness = createSeedDimensionsHarness(retained);
+
+    await seedDimensions(harness.services);
+
+    expect(harness.sent.find(({ streamId }) => streamId === gradeStream)?.command).toMatchObject({
+      type: "ReviseDimension",
+      valueKind: "ordered",
+      optionMatching: "or-better",
+    });
+    expect(harness.fold(gradeStream)).toMatchObject({ valueKind: "ordered", optionMatching: "or-better" });
+  });
+
+  it("leaves a retained Dimension that was created with an option matching choice", async () => {
+    const retained = retainedDimensions();
+    const [created, activated] = retained.get(conditionStream)!;
+    retained.set(conditionStream, [
+      { ...created!, payload: { ...created!.payload, optionMatching: "exact" } },
+      activated!,
+    ]);
+    const harness = createSeedDimensionsHarness(retained);
+
+    await seedDimensions(harness.services);
+
+    expect(harness.sent.map(({ streamId }) => streamId)).toEqual([gradeStream]);
+    expect(harness.fold(conditionStream).optionMatching).toBe("exact");
+  });
+
+  it("fails instead of overwriting a revision that lands after the seed read the stream", async () => {
+    const retained = retainedDimensions();
+    const harness = createSeedDimensionsHarness(retained, (streamId) => {
+      if (streamId === conditionStream) {
+        retained.get(conditionStream)!.push({
+          event_type: "catalog.dimension.revised",
+          payload: {
+            key: "condition",
+            name: localizedTextMapFromEnglish("Renamed by an operator"),
+            description: localizedTextMapFromEnglish(""),
+            valueKind: "ordered",
+            optionMatching: "exact",
+          },
+        });
+      }
+    });
+
+    await expect(seedDimensions(harness.services)).rejects.toThrow("concurrency_conflict");
+
+    expect(harness.fold(conditionStream)).toMatchObject({
+      name: localizedTextMapFromEnglish("Renamed by an operator"),
+      optionMatching: "exact",
+    });
+
+    harness.sent.length = 0;
+    await seedDimensions(harness.services);
+
+    expect(harness.sent.map(({ streamId }) => streamId)).toEqual([gradeStream]);
+  });
+
   it("reconciles a draft Dimension seeded before option matching existed, then finishes it", async () => {
     const retained = retainedDimensions();
     retained.set(conditionStream, retained.get(conditionStream)!.slice(0, 1));
@@ -211,7 +313,11 @@ function retainedDimensions(): Map<string, StoredEvent[]> {
 }
 
 /** Commands go through the real decider and their events are stored, so a second run reads what the first one wrote. */
-function createSeedDimensionsHarness(streams: Map<string, StoredEvent[]>) {
+function createSeedDimensionsHarness(
+  streams: Map<string, StoredEvent[]>,
+  /** Runs after the seed has read a stream and before its command is handled, as a concurrent writer would. */
+  beforeHandle: (streamId: string) => void = () => {},
+) {
   const sent: SentCommand[] = [];
   const fold = (streamId: string) =>
     (streams.get(streamId) ?? [])
@@ -231,11 +337,24 @@ function createSeedDimensionsHarness(streams: Map<string, StoredEvent[]>) {
       },
     },
     dimensions: {
-      commandHandler: async ({ streamId, command }: { streamId: string; command: DimensionCommand }) => {
-        sent.push({ streamId, command });
+      commandHandler: async ({
+        streamId,
+        command,
+        expectedVersion,
+      }: {
+        streamId: string;
+        command: DimensionCommand;
+        expectedVersion?: number;
+      }) => {
+        beforeHandle(streamId);
         const stored = streams.get(streamId) ?? [];
         streams.set(streamId, stored);
-        for (const event of decideDimension(fold(streamId), command)) {
+        const events = decideDimension(fold(streamId), command);
+        if (expectedVersion !== undefined && expectedVersion !== stored.length) {
+          throw new Error("concurrency_conflict");
+        }
+        sent.push({ streamId, command });
+        for (const event of events) {
           stored.push({ event_type: event.type, payload: event.data as Record<string, unknown> });
         }
       },

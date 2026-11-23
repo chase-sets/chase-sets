@@ -2,7 +2,7 @@ import { coerceLocalizedTextMap, localizedTextMapFromEnglish } from "@chase-sets
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import type { CatalogServices } from "../../../support/authoring-support/services";
 import type { OptionId, DimensionId } from "../../../ids";
-import { sendSeedCommand } from "../../../support/seed-support/context";
+import { seedContext, sendSeedCommand } from "../../../support/seed-support/context";
 import { loadSeedAggregateState } from "../../../support/seed-support/aggregate-state";
 import {
   decideDimension,
@@ -41,6 +41,8 @@ type DimensionSeedRun = Readonly<{
   states: Map<string, DimensionState>;
   /** Streams whose events already record an option matching choice; reconciliation leaves those alone. */
   optionMatchingRecorded: Set<string>;
+  /** The stream version each retained stream had when this run read it. */
+  readVersions: Map<string, number>;
 }>;
 
 const dimensionDefs: DimensionDef[] = [
@@ -333,7 +335,7 @@ export const dimensionSeedRequirements = dimensionDefs.map((def) => ({
 export async function seedDimensions(services: CatalogServices): Promise<DimensionIds> {
   console.log("Seeding dimensions...");
   const result: DimensionIds = {};
-  const run: DimensionSeedRun = { states: new Map(), optionMatchingRecorded: new Set() };
+  const run: DimensionSeedRun = { states: new Map(), optionMatchingRecorded: new Set(), readVersions: new Map() };
 
   for (const def of dimensionDefs) {
     const streamId = `catalog.dimension-${def.dimensionId}`;
@@ -387,10 +389,17 @@ async function reconcileDimensionOptionMatching(
   def: DimensionDef,
 ): Promise<void> {
   const state = run.states.get(streamId);
-  if (!state || state.key === null || state.name === null || run.optionMatchingRecorded.has(streamId)) {
+  const readVersion = run.readVersions.get(streamId);
+  if (!state || state.key === null || state.name === null || state.optionMatching === def.optionMatching) {
     return;
   }
-  if (state.optionMatching === def.optionMatching || state.valueKind === "unordered") {
+  const keptBecause = run.optionMatchingRecorded.has(streamId)
+    ? "its stream already records a choice"
+    : state.valueKind === "unordered"
+      ? "it is unordered"
+      : null;
+  if (keptBecause !== null || readVersion === undefined) {
+    console.log(`  Dimension "${def.name}" keeps ${state.optionMatching} option matching: ${keptBecause}`);
     return;
   }
 
@@ -403,7 +412,8 @@ async function reconcileDimensionOptionMatching(
     valueKind: state.valueKind,
     optionMatching: def.optionMatching,
   };
-  await sendSeedCommand(services.dimensions.commandHandler, streamId, command);
+  // The revision repeats values read above, so it must not land on top of a revision made since that read.
+  await services.dimensions.commandHandler({ streamId, command, context: seedContext, expectedVersion: readVersion });
   run.states.set(streamId, decideDimension(state, command).reduce(evolveDimension, state));
   run.optionMatchingRecorded.add(streamId);
   console.log(`  Dimension "${def.name}" reconciled to ${def.optionMatching} option matching`);
@@ -450,8 +460,12 @@ async function sendDimensionSeedCommand(
   const state = states.get(streamId) ?? persisted?.state ?? initialDimensionState;
   const kind = persisted?.kind ?? (state.id === null ? "absent" : state.status === "active" ? "active" : "draft");
   states.set(streamId, state);
-  if (persisted?.events.some(recordsOptionMatching)) {
-    run.optionMatchingRecorded.add(streamId);
+  if (persisted) {
+    // Stream versions are gapless from 1, so the event count is the version this read saw.
+    run.readVersions.set(streamId, persisted.events.length);
+    if (persisted.events.some(recordsOptionMatching)) {
+      run.optionMatchingRecorded.add(streamId);
+    }
   }
 
   if (kind === "active") {
