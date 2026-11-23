@@ -66,6 +66,16 @@ import { reviewOpportunityPublicationMigrations } from "./features/reviews/integ
 import { inspectMarketplaceSeedState, seedMarketplaceContextDatabase } from "./support/runtime-support/seed";
 import { marketplaceChannelInboundClampSchemaMigrations } from "./features/channel-inbound-clamp/read-model/schema";
 import { marketplaceBuyerOfferPolicySchemaMigrations } from "./features/offer-policy/read-model/schema";
+import { offerPaymentAuthorizationMigrations } from "./features/offer-payment-authorization/read-model/schema";
+import {
+  buildInstrumentProjection,
+  buyerPaymentInstrumentProjectionName,
+} from "./features/offer-payment-authorization/integrations/payments/instrument-projection";
+import { buildBuyerInstrumentReconciliation } from "./features/offer-payment-authorization/integrations/payments/reconcile";
+import {
+  authorizationProjectionName,
+  buildAuthorizationProjection,
+} from "./features/offer-payment-authorization/read-model/projection";
 import { marketplaceManagedOfferSchemaMigrations } from "./features/offers/read-model/managed-schema";
 import { inventoryDraftReceiptMigrations } from "./features/listings/read-model/inventory-draft-receipt-schema";
 import { buildManagedOfferMarketPriceReactions } from "./features/offers/integrations/managed-work";
@@ -84,6 +94,7 @@ const baseModule = defineBoundedContextModule<MarketplaceServices, PgTransaction
     ...marketplaceListingReadModelSchemaMigrations,
     ...marketplaceOfferSchemaMigrations,
     ...marketplaceBuyerOfferPolicySchemaMigrations,
+    ...offerPaymentAuthorizationMigrations,
     ...marketplaceManagedOfferSchemaMigrations,
     ...reviewSchemaMigrations,
     ...reviewOpportunityPublicationMigrations,
@@ -169,12 +180,17 @@ const baseModule = defineBoundedContextModule<MarketplaceServices, PgTransaction
             }),
           "settlement.marketplace-settlement-negative-balance-projection": () =>
             buildMarketplaceSettlementNegativeBalanceProjectionHandlers(services.listings),
+          [`payments.${buyerPaymentInstrumentProjectionName}`]: () =>
+            buildInstrumentProjection(services.recordBuyerInstrumentHandoff),
+          [`marketplace.${authorizationProjectionName}`]: () => buildAuthorizationProjection(services.db),
         },
       }),
       ...buildEventReactionsFromManifest({
         contextName: "marketplace",
         manifest: marketplaceContextManifest,
         handlers: {
+          "marketplace.marketplace.offer-payment-authorization-reconcile": () =>
+            buildBuyerInstrumentReconciliation(services.offerPaymentAuthorization.reconcile),
           "pricing.marketplace-managed-offer-reaction": () =>
             buildManagedOfferMarketPriceReactions(services.managedOfferWork),
           "platform-operations.marketplace-listing-moderation-reaction": () =>

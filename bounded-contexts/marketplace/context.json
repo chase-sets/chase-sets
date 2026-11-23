@@ -126,6 +126,7 @@
   "localeCatalogs": ["contracts/localization/locales/en/marketplace.ts"],
   "ownedNouns": [
     "offer-policy",
+    "offer-payment-authorization",
     "channel-inbound-clamp",
     "listing",
     "listing-evidence-policy",
@@ -144,6 +145,7 @@
     "mutation-recovery",
     "offer-policy",
     "offer-payment-consent",
+    "offer-payment-authorization",
     "channel-inbound-clamp",
     "listing-evidence-policy",
     "listings",
@@ -176,6 +178,35 @@
   ],
   "seedRequirements": ["catalog", "commercial-terms", "identity", "inventory"],
   "eventSubscriptions": [
+    {
+      "sourceContextName": "payments",
+      "projectionName": "marketplace.buyer-payment-instrument-projection",
+      "subscriptionName": "marketplace.buyer-payment-instrument-projection",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": ["payments.checkout-affordances-published"],
+      "order": 98,
+      "projectionHandlerSetNames": ["marketplace.buyer-payment-instrument-projection"]
+    },
+    {
+      "sourceContextName": "marketplace",
+      "projectionName": "marketplace.offer-payment-authorization-projection",
+      "subscriptionName": "marketplace.offer-payment-authorization-projection",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": [
+        "marketplace.offer-payment-authorization.previewed",
+        "marketplace.offer-payment-authorization.authorized",
+        "marketplace.offer-payment-authorization.resumed",
+        "marketplace.offer-payment-authorization.revoked",
+        "marketplace.offer-payment-authorization.held",
+        "marketplace.offer-payment-authorization.payment-method-unavailable",
+        "marketplace.offer-payment-authorization.marked-required"
+      ],
+      "streamPrefixes": ["marketplace.offer-payment-authorization-"],
+      "order": 99,
+      "projectionHandlerSetNames": ["marketplace.offer-payment-authorization-projection"]
+    },
     {
       "sourceContextName": "catalog",
       "projectionName": "marketplace-catalog-item-projection",
@@ -416,6 +447,20 @@
   ],
   "eventReactions": [
     {
+      "sourceContextName": "marketplace",
+      "reactionName": "marketplace.offer-payment-authorization-reconcile",
+      "subscriptionName": "marketplace.offer-payment-authorization-reconcile",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": [
+        "marketplace.buyer-payment-instrument.mirrored",
+        "marketplace.offer-payment-authorization.authorized",
+        "marketplace.offer-payment-authorization.resumed"
+      ],
+      "order": 100,
+      "reactionHandlerSetNames": ["marketplace.offer-payment-authorization-reconcile"]
+    },
+    {
       "sourceContextName": "platform-operations",
       "reactionName": "marketplace-listing-moderation-reaction",
       "subscriptionVersion": 1,
@@ -470,6 +515,28 @@
     }
   ],
   "projectionGroups": [
+    {
+      "projectionName": "marketplace.buyer-payment-instrument-projection",
+      "sourceContextNames": ["payments"],
+      "ownedTables": ["marketplace_buyer_payment_instrument_snapshots", "marketplace_buyer_payment_instruments"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "marketplace.offer-payment-authorization-projection",
+      "sourceContextNames": ["marketplace"],
+      "ownedTables": ["marketplace_offer_payment_authorizations"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "marketplace.offer-payment-authorization-reconcile",
+      "handlerKind": "reaction",
+      "sourceContextNames": ["marketplace"],
+      "ownedTables": [],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
     {
       "projectionName": "marketplace-listing-moderation-reaction",
       "handlerKind": "reaction",
@@ -718,6 +785,11 @@
       "kind": "primary",
       "requiresAuth": true,
       "readFreshnessRoutes": [
+        {
+          "routePath": "/account/offer-payment",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [{ "readModelTable": "marketplace_offer_payment_authorizations" }]
+        },
         {
           "routePath": "/account/listings",
           "methods": ["GET", "HEAD"],
@@ -2554,6 +2626,11 @@
       "classification": "slice",
       "purpose": "Own Offer Payment Consent publications, activation, and automatic charging enforcement resolution.",
       "expectedConsumers": ["Marketplace API", "Platform API policy runtime composition"]
+    },
+    "offer-payment-authorization": {
+      "classification": "slice",
+      "purpose": "Own buyer payment source and consent, payment instrument readiness reconciliation, and published authorization standing.",
+      "expectedConsumers": ["Marketplace account API", "Marketplace worker"]
     },
     "channel-inbound-clamp": {
       "classification": "slice",
