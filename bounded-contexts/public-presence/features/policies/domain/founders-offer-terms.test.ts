@@ -265,7 +265,7 @@ const resolverAllowanceFallback = `${commercialTermsResolver}:349-352`;
 type Citation = readonly [ref: string, ...patterns: RegExp[]];
 const quoteChain: Citation[] = [
   [
-    `${listingRuntime}:1369-1388`,
+    `${listingRuntime}:1370-1389`,
     /async function quoteListingTerms\(accountId: string, priceAmount: string\)\s*\{\s*return quoteMarketplaceTerms\(deps.commercialTermsResolver,/,
     /providedFingerprint !== currentQuote.fee_quote_fingerprint/,
   ],
@@ -286,15 +286,15 @@ const quoteChain: Citation[] = [
 ];
 const creationChain: Citation[] = [
   [`${listingDomain}:446-471`, /type: "CreateListing"/, /feeLock: MarketplaceListingFeeLock/, /quantityCap: number/],
-  [`${listingDomain}:618-657`, /"marketplace.listing.created"/, /feeLocks: MarketplaceListingFeeLock\[\]/],
+  [`${listingDomain}:630-669`, /"marketplace.listing.created"/, /feeLocks: MarketplaceListingFeeLock\[\]/],
   [
-    `${listingDomain}:1202-1243`,
+    `${listingDomain}:1215-1256`,
     /catalogItemId: event.data.catalogItemId/,
     /selectedOptions: event.data.selectedOptions/,
     /feeLocks: event.data.feeLocks/,
   ],
   [
-    `${listingRuntime}:1900-1955`,
+    `${listingRuntime}:1901-1957`,
     /params.publicationScope === "channel-only" \? null : await quoteListingTerms\(params.accountId, params.priceAmount\)/,
     /type: "CreateListing"/,
     /feeLock: quote \? feeLockFromMarketplaceTermsQuote\(params.quantityCap, quote\) : null/,
@@ -302,7 +302,7 @@ const creationChain: Citation[] = [
   ...quoteChain,
 ];
 const changedSchedule: Citation = [
-  `${runtimeTests}:1023-1159`,
+  `${runtimeTests}:947-1083`,
   /keeps existing listing fee locks when management changes future terms/,
   /scheduleId: "cts_launch"/,
   /scheduleId: "cts_after_launch"/,
@@ -403,18 +403,18 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
     "Single and bulk",
     [
       [
-        `${listingRuntime}:2509-2542`,
+        `${listingRuntime}:2511-2544`,
         /updateListingPrice: async/,
         /listing.feeLocks.map\(\(lock\) => requoteMarketplaceListingFeeLock\(lock, params.priceAmount\)\)/,
         /type: "UpdateListingPrice"/,
       ],
       [
-        `${listingRuntime}:2543-2633`,
+        `${listingRuntime}:2545-2635`,
         /applyBulkListingPriceUpdates: async/,
         /driveBulkPriceUpdates\(params.accountId, /,
       ],
       [
-        `${listingRuntime}:2004-2110`,
+        `${listingRuntime}:2006-2112`,
         /async function driveBulkPriceUpdates\(/,
         /assertConfirmedFeeQuote\(update.feeQuoteFingerprint, quote\)/,
         /listing.feeLocks.map\(\(lock\) => requoteMarketplaceListingFeeLock\(lock, update.priceAmount\)\)/,
@@ -426,7 +426,7 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
         /return \{\s*\.\.\.feeLock,/,
       ],
       [
-        `${listingDomain}:955-985`,
+        `${listingDomain}:968-998`,
         /case "UpdateListingPrice"/,
         /assertFeeLockTranchesPreserved\(state.feeLocks, feeLocks\)/,
       ],
@@ -463,12 +463,12 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
     "Purchase-limit edits",
     [
       [
-        `${listingDomain}:1008-1017`,
+        `${listingDomain}:1021-1030`,
         /case "UpdateListingPurchaseLimits"/,
         /return \[\{ type: "marketplace.listing.purchase-limits-updated", data: \{ purchaseLimits \} \}\]/,
       ],
       [
-        `${listingDomain}:1284-1288`,
+        `${listingDomain}:1297-1301`,
         /case "marketplace.listing.purchase-limits-updated":\s*return \{\s*\.\.\.state,\s*purchaseLimits: event.data.purchaseLimits,/,
       ],
     ],
@@ -477,7 +477,7 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
     "Added units",
     [
       [
-        `${listingDomain}:990-1010`,
+        `${listingDomain}:1003-1023`,
         /resizeMarketplaceListingFeeLocks\(state.feeLocks, quantityCap, command.addedUnitsFeeLock\)/,
       ],
       [
@@ -488,7 +488,7 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
         /const latest = resized.pop\(\)/,
       ],
       [
-        `${listingRuntime}:2662-2702`,
+        `${listingRuntime}:2664-2704`,
         /addedUnitCount = Math.max\(0, params.quantityCap - listing.quantityCap\)/,
         /addedUnitCount > 0 \? await quoteListingTerms\(params.accountId, listing.priceAmount\) : null/,
         /assertConfirmedFeeQuote\(params.feeQuoteFingerprint, quote\)/,
@@ -500,7 +500,7 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
   [
     "Withdrawal is terminal",
     [
-      [`${listingDomain}:1193-1196`, /case "WithdrawListing"/, /"marketplace.listing.withdrawn"/],
+      [`${listingDomain}:1206-1209`, /case "WithdrawListing"/, /"marketplace.listing.withdrawn"/],
       [
         `${listingTests}:476-496`,
         /Withdrawn listings cannot be published/,
@@ -709,7 +709,7 @@ describe("founders clause-level source authority", () => {
         /method: "POST"/,
       ],
       [
-        "bounded-contexts/marketplace/features/listings/api/route.ts:1600-1632",
+        "bounded-contexts/marketplace/features/listings/api/route.ts:1601-1633",
         /"\/listings\/prices\/bulk"/,
         /const batch = parseBulkListingPriceUpdates\(body, c\.req\.header\("Idempotency-Key"\)\)/,
         /services.applyBulkListingPriceUpdates/,

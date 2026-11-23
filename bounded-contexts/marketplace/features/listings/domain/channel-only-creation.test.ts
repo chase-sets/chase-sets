@@ -95,6 +95,18 @@ describe("channel-only Listing creation", () => {
     });
   });
 
+  it.each([{}, { productMeasureSnapshot: null }])(
+    "stays creatable without a resolved shipping measure: %j",
+    (overrides) => {
+      expect(decideMarketplaceListing(initialMarketplaceListingState, { ...create, ...overrides })).toMatchObject([
+        {
+          type: "marketplace.listing.created",
+          data: { publicationScope: "channel-only", productMeasureSnapshot: null },
+        },
+      ]);
+    },
+  );
+
   it.each([
     { priceAmount: undefined },
     { priceCurrencyCode: undefined },

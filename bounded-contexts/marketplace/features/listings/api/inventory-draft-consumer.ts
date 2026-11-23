@@ -349,7 +349,10 @@ export function createInventoryDraftListingConsumer(
       } catch (error) {
         if (error instanceof InventoryDraftListingConflict) throw error;
         if (error instanceof InventoryDraftListingUnavailable) throw error;
-        if (error instanceof MarketplaceListingDomainError && error.code === "command-rejected")
+        if (
+          error instanceof MarketplaceListingDomainError &&
+          (error.code === "command-rejected" || error.code === "shipping-measure-missing")
+        )
           throw new InventoryDraftListingUnavailable("listing-rejected");
         throw new InventoryDraftListingUnavailable("unexpected-failure");
       }

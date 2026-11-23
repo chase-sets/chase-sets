@@ -8099,6 +8099,7 @@ export const englishTranslations = {
   "marketplace.features.listings.api.route.error.photoMultipartRequired": "Upload listing photos using the photo form.",
   "marketplace.features.listings.api.route.error.photoReplacementRequired": "Choose a replacement photo.",
   "marketplace.features.listings.api.route.error.priceCurrencyInvalid": "Choose a valid three-letter currency code.",
+  "marketplace.features.listings.api.route.error.shippingMeasureMissing": "This product has no shipping measure yet, so it cannot be listed. Try again later.",
   "marketplace.features.listings.api.route.error.unknownField": "Remove unrecognized fields and try again.",
   "marketplace.features.listings.api.route.evidence.incomplete": "Listing evidence requirements changed or remain incomplete. Follow the current readiness actions before publishing.",
   "marketplace.features.listings.api.route.forbidden": "Forbidden.",

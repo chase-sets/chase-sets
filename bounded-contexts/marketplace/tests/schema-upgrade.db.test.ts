@@ -253,6 +253,20 @@ describeDb("marketplace schema upgrades", () => {
       ...create,
       listingId: "lst_native_reader" as never,
       publicationScope: "native" as const,
+      productMeasureSnapshot: {
+        catalogItemId: create.catalogItemId,
+        productId: create.productId,
+        selectedOptions: [],
+        measureVersion: "pm_native_reader",
+        unitLengthInches: 3.5,
+        unitWidthInches: 2.5,
+        unitHeightInches: 0.01,
+        unitWeightOunces: 0.1,
+        physicalFlags: ["bendable"],
+        stackBehavior: "stackable-thickness",
+        source: "profile",
+        confidence: "measured",
+      },
       feeLock: {
         unitCount: 1,
         terms: {
