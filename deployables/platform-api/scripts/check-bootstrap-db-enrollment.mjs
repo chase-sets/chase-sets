@@ -72,7 +72,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       {
         name: "payout-fee-console-and-resolve bootstraps every whitelisted value in the production landing profile",
         referenceDurationMs: 11569,
-        identity: "eb26893b2802a2d8",
+        identity: "5fdb2c0f5f9da735",
       },
       {
         name: "reconciles a queued active public bootstrap after its predecessor fails with partial Commercial Terms history",

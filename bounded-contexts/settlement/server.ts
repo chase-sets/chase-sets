@@ -53,6 +53,9 @@ export type {
   SettlementPayoutBoundsPolicyValue,
   SettlementPayoutFeePolicyValue,
 } from "./features/payouts/domain/payout-policy";
+export { walletAdjustmentLimitsPolicy } from "./features/wallets/domain/wallet-adjustment-limits-policy";
+export { walletAdjustmentControlsPolicy } from "./features/wallets/domain/wallet-adjustment-controls-policy";
+export { accountLinkageFlagPolicy } from "./features/wallets/domain/account-linkage-policy";
 /**
  * Support-safe payout-by-reference lookups for the unified
  * support-reference router, assembled in the `platform-api` composition
