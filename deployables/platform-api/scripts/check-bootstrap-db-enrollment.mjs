@@ -295,7 +295,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       {
         name: "completes representative commerce seeds, projections, fan-outs and post-state",
         referenceDurationMs: 27984,
-        identity: "0204be7639f55534",
+        identity: "82a36472c9bb9213",
       },
       {
         name: "completes admin-QA fixtures and retains their seeded identity post-state",

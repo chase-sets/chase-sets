@@ -259,7 +259,7 @@ describe("ordering postage policy MCP handlers", () => {
     expect(fake.listPolicies).toHaveBeenLastCalledWith({ limit: 250, offset: 250 });
     expect((await boundary.call("ordering.preview-postage-policy", { policy: payload })).result.isError).not.toBe(true);
     expect(fake.previewPolicy).toHaveBeenCalledWith(
-      expect.objectContaining({ quantity: 1, unitLengthInches: 3.5, physicalFlags: ["raw-card"] }),
+      expect.objectContaining({ quantity: 1, unitLengthInches: 3.5, physicalFlags: ["bendable"] }),
     );
     expect(
       (await boundary.call("ordering.create-postage-policy", { ...createArguments, effectiveUntil: null })).result
@@ -374,7 +374,7 @@ describe("ordering postage policy MCP handlers", () => {
         unitWidthInches: 2,
         unitHeightInches: 0.1,
         unitWeightOunces: 1,
-        physicalFlags: ["raw-card"],
+        physicalFlags: ["bendable"],
       }),
     );
     await handlers.toolHandlers["ordering.create-postage-policy"]?.(request(createArguments));
@@ -530,7 +530,7 @@ describe("ordering postage policy MCP handlers", () => {
         unitWidthInches: 2,
         unitHeightInches: 0.1,
         unitWeightOunces: 1,
-        physicalFlags: ["raw-card"],
+        physicalFlags: ["bendable"],
       }),
     );
     await handlers.toolHandlers["ordering.create-postage-policy"]?.(request(commandArgs));

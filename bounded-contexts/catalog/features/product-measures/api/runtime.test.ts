@@ -220,7 +220,7 @@ async function createProfiledMeasureFixture(existingEvents: readonly StoredEvent
     unitWidthInches: 2.5,
     unitHeightInches: 0.012,
     unitWeightOunces: 0.064,
-    physicalFlags: ["raw-card"],
+    physicalFlags: ["bendable"],
     stackBehavior: "stackable-thickness",
     confidence: "measured",
   });
@@ -281,7 +281,7 @@ async function createSyntheticMeasureFixture(
     unitWidthInches: 2.5,
     unitHeightInches: 0.012,
     unitWeightOunces: 0.064,
-    physicalFlags: ["raw-card"],
+    physicalFlags: ["bendable"],
     stackBehavior: "stackable-thickness",
     confidence: "measured",
   });
@@ -405,7 +405,7 @@ describe("Catalog multipart publication", () => {
       unitWidthInches: 2.5,
       unitHeightInches: 0.012,
       unitWeightOunces: 0.064,
-      physicalFlags: ["raw-card"],
+      physicalFlags: ["bendable"],
       stackBehavior: "stackable-thickness",
       source: "profile",
       confidence: "measured",
@@ -451,7 +451,7 @@ describe("product measure runtime", () => {
       unitWidthInches: 2.5,
       unitHeightInches: 0.012,
       unitWeightOunces: 0.064,
-      physicalFlags: ["raw-card"],
+      physicalFlags: ["bendable"],
       stackBehavior: "stackable-thickness",
       confidence: "measured",
     });
@@ -466,7 +466,7 @@ describe("product measure runtime", () => {
       unitWidthInches: 3.25,
       unitHeightInches: 0.3,
       unitWeightOunces: 2.1,
-      physicalFlags: ["slab", "rigid"],
+      physicalFlags: ["rigid"],
       stackBehavior: "stackable-height",
       confidence: "measured",
     });
@@ -504,12 +504,12 @@ describe("product measure runtime", () => {
 
     expect(resolved.get("cat_1::form:raw")?.measure_snapshot).toMatchObject({
       productId: "cat_1::form:raw",
-      physicalFlags: ["raw-card"],
+      physicalFlags: ["bendable"],
       unitWeightOunces: 0.064,
     });
     expect(resolved.get("cat_1::form:graded-psa")?.measure_snapshot).toMatchObject({
       productId: "cat_1::form:graded-psa",
-      physicalFlags: ["slab", "rigid"],
+      physicalFlags: ["rigid"],
       unitWeightOunces: 2.1,
     });
   });
@@ -557,7 +557,7 @@ describe("product measure runtime", () => {
       unitWidthInches: 2.5,
       unitHeightInches: 0.012,
       unitWeightOunces: 0.064,
-      physicalFlags: ["raw-card"],
+      physicalFlags: ["bendable"],
       stackBehavior: "stackable-thickness",
       confidence: "measured",
     });
@@ -727,7 +727,7 @@ const cardProfile = {
   unitWidthInches: 2.5,
   unitHeightInches: 0.012,
   unitWeightOunces: 0.064,
-  physicalFlags: ["raw-card"],
+  physicalFlags: ["bendable"],
   stackBehavior: "stackable-thickness",
   confidence: "measured",
 } as const;

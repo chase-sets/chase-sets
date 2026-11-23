@@ -1053,7 +1053,7 @@ describeDatabase("registered platform-worker scheduled runners", () => {
       unitWidthInches: 2.5,
       unitHeightInches: 0.012,
       unitWeightOunces: 0.064,
-      physicalFlags: ["raw-card"],
+      physicalFlags: ["bendable"],
       stackBehavior: "stackable-thickness",
       source: "profile",
       confidence: "measured",

@@ -160,6 +160,7 @@ The current implementation also uses four supporting authoring concepts:
 - `Provider Integration Profile` — Catalog-owned configuration that defines how one provider's observations, lookup scopes, normalized facts, Catalog mappings, external references, and ambiguity rules are interpreted
 - `Catalog Item Image Fallback` — the configured fallback image for a Catalog Item, including whether it is permanent item imagery or loading-only presentation imagery
 - `Product Measure Profile` — a reusable Catalog-owned physical measurement rule for Products that share size, weight, stack behavior, and physical flags
+- `Physical Flag` — a physical property of a Product declared on its Product Measure Profile and carried on its Resolved Product Measure: `rigid`, `bendable`, `metal`, `jumbo`, or `irregular`
 - `Resolved Product Measure` — the per-Product measurement snapshot published for downstream shipping quote and fulfillment use
 - `Product Measure Publication` — the complete resolved measure set for one Catalog Item, applied as one replacement
 - `Publication Part` — a contiguous, zero-based portion of a Product Measure Publication, staged until completion
@@ -367,6 +368,8 @@ Notes:
 - An External Product Reference must be scoped by provider and must map to selected Options that are valid for the Catalog Item's active Product schema.
 - A Catalog Item Image Fallback never changes `product_id`; it only describes fallback imagery for item presentation.
 - Product weight, dimensions, physical flags, and stack behavior are Catalog-owned product facts.
+- A Physical Flag names a physical property, never a product kind. A raw single is `bendable`, a slab or a boxed sealed product is `rigid`, and a booster pack declares none.
+- Measures published while product kinds were Physical Flags may still carry `raw-card`, `slab`, or `sealed`. Those values stay readable in stored publications and are never authored.
 - Shipping price, letter eligibility, and carrier service selection are not Catalog facts; downstream contexts derive them from Resolved Product Measures and their own policies.
 
 - Product Contents command inputs use `catalog_item_id` plus `selected_options`; `product_id` is derived in validation, projections, or read models.

@@ -1,4 +1,4 @@
-import { Grid, Checkbox, NumberField, PageSection, Stack, TextInput } from "@chase-sets/design-system";
+import { Banner, Grid, Checkbox, NumberField, PageSection, Stack, TextInput } from "@chase-sets/design-system";
 import { t } from "./localization/translator";
 import { defaultPostagePolicy, type PostagePolicy } from "@chase-sets/product-measures";
 
@@ -9,15 +9,27 @@ export const postagePolicyShippingOptions = [
 ] as const;
 
 export const postagePolicyPhysicalFlags = [
-  { value: "raw-card", label: t("ordering.features.postagePolicies.ui.form.raw.card") },
-  { value: "slab", label: t("ordering.features.postagePolicies.ui.form.slab") },
-  { value: "sealed", label: t("ordering.features.postagePolicies.ui.form.sealed") },
   { value: "rigid", label: t("ordering.features.postagePolicies.ui.form.rigid") },
   { value: "bendable", label: t("ordering.features.postagePolicies.ui.form.bendable") },
   { value: "metal", label: t("ordering.features.postagePolicies.ui.form.metal") },
   { value: "jumbo", label: t("ordering.features.postagePolicies.ui.form.jumbo") },
   { value: "irregular", label: t("ordering.features.postagePolicies.ui.form.irregular") },
 ] as const;
+
+// A policy stored before product kinds stopped being Physical Flags can still carry them. Each entry names the form
+// section whose rule held the values, in form order.
+function storedFlagsNoLongerOffered(policy: PostagePolicy): readonly string[] {
+  const offered: readonly string[] = postagePolicyPhysicalFlags.map((flag) => flag.value);
+  const sections: readonly (readonly [string, readonly string[]])[] = [
+    [t("ordering.features.postagePolicies.ui.form.parcel.requirements"), policy.parcelRequiredPhysicalFlags],
+    [t("ordering.features.postagePolicies.ui.form.letter.eligibility"), policy.letterRequiredPhysicalFlags],
+    [t("ordering.features.postagePolicies.ui.form.signature.requirements"), policy.signatureRequiredPhysicalFlags],
+  ];
+  return sections.flatMap(([section, stored]) => {
+    const notOffered = stored.filter((flag) => !offered.includes(flag));
+    return notOffered.length > 0 ? [`${section}: ${notOffered.join(", ")}`] : [];
+  });
+}
 
 function checkboxList({
   name,
@@ -44,8 +56,19 @@ function checkboxList({
 }
 
 export function PostagePolicyFormFields({ policy = defaultPostagePolicy }: { policy?: PostagePolicy }) {
+  const flagsNoLongerOffered = storedFlagsNoLongerOffered(policy);
+
   return (
     <Stack gap={4}>
+      {flagsNoLongerOffered.length > 0 ? (
+        <Banner
+          tone="warning"
+          title={t("ordering.features.postagePolicies.ui.form.flags.no.longer.offered.title")}
+          description={t("ordering.features.postagePolicies.ui.form.flags.no.longer.offered.description", {
+            values: flagsNoLongerOffered.join("; "),
+          })}
+        />
+      ) : null}
       <TextInput
         label={t("ordering.features.postagePolicies.ui.form.policy.version")}
         name="policyVersion"

@@ -9342,6 +9342,8 @@ export const englishTranslations = {
   "ordering.features.postagePolicies.ui.detail.unit.width.in": "Unit width in",
   "ordering.features.postagePolicies.ui.form.bendable": "Bendable",
   "ordering.features.postagePolicies.ui.form.expedited": "Expedited",
+  "ordering.features.postagePolicies.ui.form.flags.no.longer.offered.description": "Stored values: {values}. Nothing is checked in their place, and saving removes them. Check the physical property each rule should use before you save.",
+  "ordering.features.postagePolicies.ui.form.flags.no.longer.offered.title": "This policy stores physical flags that are no longer offered",
   "ordering.features.postagePolicies.ui.form.insurance.declared.value": "Insurance declared value",
   "ordering.features.postagePolicies.ui.form.irregular": "Irregular",
   "ordering.features.postagePolicies.ui.form.jumbo": "Jumbo",

@@ -21,7 +21,7 @@ export function syntheticMeasures(count = 85, catalogItemId = "cat_1"): ProductM
     unitWidthInches: 2,
     unitHeightInches: 0.1,
     unitWeightOunces: index + 1,
-    physicalFlags: ["raw-card"],
+    physicalFlags: ["bendable"],
     stackBehavior: "stackable-thickness",
     source: "profile",
     confidence: "measured",

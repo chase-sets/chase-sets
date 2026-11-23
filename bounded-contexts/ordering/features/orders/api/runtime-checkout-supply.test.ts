@@ -840,7 +840,7 @@ describe("ordering order runtime: Shipping Rates recorded under the default Ship
       unitWidthInches: 5,
       unitHeightInches: 2,
       unitWeightOunces: 4.3,
-      physicalFlags: ["sealed"],
+      physicalFlags: ["rigid"],
       stackBehavior: "stackable-height",
     },
   };

@@ -230,7 +230,7 @@ describe("ordering postage policy routes", () => {
           previewUnitWidthInches: "2.5",
           previewUnitHeightInches: "0.016",
           previewUnitWeightOunces: "0.05",
-          previewPhysicalFlags: "raw-card",
+          previewPhysicalFlags: "bendable",
         }),
       }),
       params: {},

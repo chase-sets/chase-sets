@@ -5,17 +5,15 @@
   "maxLetterDeclaredValueAmount": 50,
   "letterEnvelopeWeightOunces": 0.4,
   "parcelPackagingWeightOunces": 2,
-  "policyVersion": "default-postage-policy-v2",
+  "policyVersion": "default-postage-policy-v3",
   "parcelRequiredShippingOptions": [
     "expedited",
     "priority"
   ],
   "letterRequiredPhysicalFlags": [
-    "raw-card"
+    "bendable"
   ],
   "parcelRequiredPhysicalFlags": [
-    "slab",
-    "sealed",
     "rigid",
     "metal",
     "jumbo",

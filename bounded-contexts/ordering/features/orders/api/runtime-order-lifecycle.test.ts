@@ -291,7 +291,7 @@ describe("ordering order runtime: order creation and cancellation", () => {
           unitWidthInches: 5,
           unitHeightInches: 2,
           unitWeightOunces: 4.3,
-          physicalFlags: ["sealed"],
+          physicalFlags: ["rigid"],
           stackBehavior: "stackable-height",
         },
       };

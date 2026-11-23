@@ -122,7 +122,7 @@ function previewBody(body: Record<string, unknown>) {
     physicalFlags:
       readArray(body.physicalFlags).length > 0
         ? (readArray(body.physicalFlags) as PostagePolicyPreviewRequest["physicalFlags"])
-        : (["raw-card"] as PostagePolicyPreviewRequest["physicalFlags"]),
+        : (["bendable"] as PostagePolicyPreviewRequest["physicalFlags"]),
   };
 }
 

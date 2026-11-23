@@ -155,7 +155,7 @@ export function createOrderingPostagePolicyMcpHandlers(
         physicalFlags:
           requiredArray<ProductPhysicalFlag>(args, "physicalFlags").length > 0
             ? requiredArray<ProductPhysicalFlag>(args, "physicalFlags")
-            : ["raw-card"],
+            : ["bendable"],
       }),
     };
   };
