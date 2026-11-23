@@ -17,10 +17,10 @@ import { buildSavedListProjectionHandlers } from "./features/saved-lists/read-mo
 import type { CollectionsHostPorts, CollectionsServices } from "./support/runtime-support/services";
 import { createCollectionsServices } from "./support/runtime-support/services";
 import { collectionsSchemaSql } from "./support/runtime-support/schema";
-import { anonymousOwnerSchemaMigrations } from "./support/runtime-support/anonymous-owner-migrations";
+import { anonymousOwnerSchemaMigrations } from "./features/saved-lists/read-model/migrations/anonymous-owner";
 import { anonymousOwnerActivationMigrations } from "./features/saved-lists/read-model/anonymous-owner-activation";
-import { savedListRecoveryMigrations } from "./support/runtime-support/recovery-migrations";
-import { collectionsRetentionSweeps } from "./support/runtime-support/retention-policy";
+import { savedListRecoveryMigrations } from "./features/saved-lists/read-model/migrations/recovery";
+import { collectionsRetentionSweeps } from "./features/saved-lists/read-model/retention-policy";
 import { buildSavedListPickerProjectionHandlers } from "./features/saved-lists/read-model/picker-projection";
 
 const collectionsContextManifest = contextManifest as BcContextManifest;

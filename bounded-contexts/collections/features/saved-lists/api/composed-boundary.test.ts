@@ -2,6 +2,8 @@ import type { RateLimitRule } from "@chase-sets/http/rate-limit";
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import { buildCollectionsApi, type CollectionsApiEnv } from "../../../api";
+import { CollectionsApiError, createCollectionsRequestApiClient } from "../../../server";
+import type { SavedListRecoveryServices } from "./recovery-runtime";
 
 const capturePath = "/guest/saved-list-intents";
 const unknownGuestPath = "/guest/deliberately-unknown";
@@ -241,5 +243,32 @@ describe("Saved List composed actor boundary", () => {
     await expect(response.json()).resolves.toEqual({
       error: { code: "authentication_required" },
     });
+  });
+
+  it("preserves the public request client's transport and error at the actor fence", async () => {
+    const list = vi.fn<SavedListRecoveryServices["list"]>();
+    const app = new Hono().route("/api/collections", buildApi({ recovery: { list } }));
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const request = new Request(input, init);
+      const { pathname, search } = new URL(request.url);
+      expect(pathname + search).toBe("/api/collections/account/list-operations?cursor=cursor%20%2B%2F");
+      expect(request.method).toBe("GET");
+      expect(request.headers.get("cookie")).toBe("session=synthetic");
+      expect(request.credentials).toBe("include");
+      return app.fetch(request);
+    });
+
+    try {
+      const client = createCollectionsRequestApiClient(
+        new Request("https://collections.example.test/search", { headers: { cookie: "session=synthetic" } }),
+      );
+      const result = client.listSavedListRecovery("cursor +/");
+      await expect(result).rejects.toBeInstanceOf(CollectionsApiError);
+      await expect(result).rejects.toMatchObject({ status: 401, body: { error: { code: "authentication_required" } } });
+      expect(fetch).toHaveBeenCalledOnce();
+      expect(list).not.toHaveBeenCalled();
+    } finally {
+      fetch.mockRestore();
+    }
   });
 });

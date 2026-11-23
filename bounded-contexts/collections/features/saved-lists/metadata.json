@@ -1,9 +1,6 @@
 {
   "slice": "saved-lists",
-  "localeCatalogs": [
-    "bounded-contexts/collections/features/saved-lists/api/localization/locales/en.ts",
-    "bounded-contexts/collections/features/saved-lists/ui/localization/locales/en.ts"
-  ],
+  "localeCatalogs": ["bounded-contexts/collections/features/saved-lists/api/localization/locales/en.ts"],
   "ownedNouns": [
     "saved-list",
     "saved-list-line",

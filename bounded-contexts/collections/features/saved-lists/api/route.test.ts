@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createGuestSavedListRoutes, createSavedListRoutes } from "./route";
 import { Hono } from "hono";
-import type { CollectionsApiEnv } from "../../../api";
+import type { CollectionsApiEnv } from "../../../support/runtime-support/api-auth";
 import type { SavedListAnalyticsRecorder } from "./analytics-telemetry";
 import { savedListAnalyticsValues, savedListAnalyticsKeys } from "./analytics-telemetry";
 import { additionAnalytics } from "./analytics-telemetry";

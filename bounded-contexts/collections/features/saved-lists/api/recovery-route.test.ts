@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
-import type { CollectionsApiEnv } from "../../../api";
+import type { CollectionsApiEnv } from "../../../support/runtime-support/api-auth";
 import { createSavedListRecoveryRoutes } from "./recovery-route";
 import { createCollectionsApiClient } from "./client";
 import { createCollectionsRequestApiClient } from "./request-client";
