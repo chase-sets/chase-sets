@@ -22,7 +22,11 @@ import {
 import { bootstrapPlatformControlPlane, type PlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
 import { publicPolicyValueKeys } from "@chase-sets/public-presence/server";
-import { settlementPayoutFeePolicy, type SettlementServices } from "@chase-sets/settlement/server";
+import {
+  settlementPayoutFeePolicy,
+  walletAdjustmentLimitsPolicy,
+  type SettlementServices,
+} from "@chase-sets/settlement/server";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import { createPostgresEventStore, type PgQueryable } from "@chase-sets/event-core-postgres";
 import type { AppendToStreamInput } from "@chase-sets/event-core/storage";
@@ -677,6 +681,47 @@ describe("platform api bootstrap production reconciliation", () => {
           "settlement.payout-fee.monthly": { value: "0.50", currency: "USD" },
         },
       });
+
+      // The Wallet Adjustment limits policy has no route of its own: the console is its only authoring path.
+      const limitsPolicyKey = walletAdjustmentLimitsPolicy.policyKey;
+      const listPolicyConsoleItems = async () => {
+        const consoleResponse = await app.request("/api/platform/policy-console");
+        expect(consoleResponse.status).toBe(200);
+        return ((await consoleResponse.json()) as typeof listBody).items;
+      };
+      await expect(settlementServices.walletAdjustments.resolveLimits()).resolves.toEqual(
+        walletAdjustmentLimitsPolicy.defaultValue,
+      );
+      expect(await listPolicyConsoleItems()).toContainEqual(
+        expect.objectContaining({
+          policyKey: limitsPolicyKey,
+          status: "fallback",
+          value: walletAdjustmentLimitsPolicy.defaultValue,
+        }),
+      );
+
+      const haltedLimits = { ...walletAdjustmentLimitsPolicy.defaultValue, haltNewActions: true };
+      const limitsRevisionResponse = await app.request(`/api/platform/policy-console/${limitsPolicyKey}/revisions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          value: haltedLimits,
+          status: "active",
+          effectiveFrom: "2026-01-01T00:00:00.000Z",
+        }),
+      });
+      expect(limitsRevisionResponse.status).toBe(201);
+      await expect(limitsRevisionResponse.json()).resolves.toMatchObject({ version: 1, scheduled: false });
+
+      await drainLocalProjectionHandlerSets(
+        "settlement",
+        landingPools.settlement,
+        settlementServices.policies.projectors,
+      );
+      expect(await listPolicyConsoleItems()).toContainEqual(
+        expect.objectContaining({ policyKey: limitsPolicyKey, status: "active", value: haltedLimits }),
+      );
+      await expect(settlementServices.walletAdjustments.resolveLimits()).resolves.toEqual(haltedLimits);
     } finally {
       await closePlatformApiPools(landingPools);
     }
