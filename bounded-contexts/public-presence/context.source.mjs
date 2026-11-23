@@ -1,9 +1,13 @@
 import developerPortal from "./features/developer-portal/metadata.json" with { type: "json" };
+import policies from "./features/policies/metadata.json" with { type: "json" };
 
 export const contextManifest = {
   contextName: "public-presence",
   packageName: "@chase-sets/public-presence",
-  localeCatalogs: ["contracts/localization/locales/en/public-presence.ts"],
+  localeCatalogs: [
+    "contracts/localization/locales/en/public-presence.ts",
+    "bounded-contexts/public-presence/features/policies/ui/localization/locales/en.ts",
+  ],
   ownedNouns: [
     "public-presence",
     "waitlist-signup",
@@ -76,13 +80,7 @@ export const contextManifest = {
       requiredDuringBootstrap: true,
       resetStrategy: "append-only-no-reset",
     },
-    {
-      projectionName: "platform-policy-document-projection",
-      sourceContextNames: ["public-presence"],
-      ownedTables: ["platform_policy_documents", "platform_policy_document_history"],
-      requiredDuringBootstrap: false,
-      resetStrategy: "truncate-owned-tables",
-    },
+    policies.projectionGroup,
   ],
   hostPorts: [
     {
@@ -395,22 +393,7 @@ export const contextManifest = {
           sourceContext: "public-presence",
           placement: "root",
         },
-        {
-          routeId: "terms",
-          routePath: "terms",
-          fileExport: "./routes/marketplace/terms",
-          routeType: "route",
-          sourceContext: "public-presence",
-          placement: "root",
-        },
-        {
-          routeId: "privacy",
-          routePath: "privacy",
-          fileExport: "./routes/marketplace/privacy",
-          routeType: "route",
-          sourceContext: "public-presence",
-          placement: "root",
-        },
+        ...policies.noticeRoutes,
         {
           routeId: "refunds-and-returns",
           routePath: "refunds-and-returns",
@@ -427,46 +410,7 @@ export const contextManifest = {
           sourceContext: "public-presence",
           placement: "root",
         },
-        {
-          routeId: "founders",
-          routePath: "founders",
-          fileExport: "./routes/marketplace/founders",
-          routeType: "route",
-          sourceContext: "public-presence",
-          placement: "root",
-        },
-        {
-          routeId: "seller-agreement",
-          routePath: "seller-agreement",
-          fileExport: "./routes/marketplace/seller-agreement",
-          routeType: "route",
-          sourceContext: "public-presence",
-          placement: "root",
-        },
-        {
-          routeId: "payments-terms",
-          routePath: "payments-terms",
-          fileExport: "./routes/marketplace/payments-terms",
-          routeType: "route",
-          sourceContext: "public-presence",
-          placement: "root",
-        },
-        {
-          routeId: "agent-terms",
-          routePath: "agent-terms",
-          fileExport: "./routes/marketplace/agent-terms",
-          routeType: "route",
-          sourceContext: "public-presence",
-          placement: "root",
-        },
-        {
-          routeId: "authenticity-terms",
-          routePath: "authenticity-terms",
-          fileExport: "./routes/marketplace/authenticity-terms",
-          routeType: "route",
-          sourceContext: "public-presence",
-          placement: "root",
-        },
+        ...policies.agreementRoutes,
         {
           routeId: "compare-tcgplayer",
           routePath: "compare/tcgplayer",

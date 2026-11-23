@@ -260,6 +260,7 @@ const pilot = path.resolve(here, "..");
 const repo = path.resolve(pilot, "../..");
 const check = process.argv.includes("--check");
 const apps = ["admin", "marketplace", "public"];
+const policiesCatalogFile = "bounded-contexts/public-presence/features/policies/ui/localization/locales/en.ts";
 
 const snake = (text) => text.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
 
@@ -1913,28 +1914,32 @@ const outputs = [
   ],
   [
     "public/locales/home.en.json",
-    json(
-      await catalog("public-presence.ts", "publicPresenceEnglishTranslations", [
-        ["publicPresence.home.", "home"],
-        ["publicPresence.waitlist.", "waitlist"],
-        ["publicPresence.nav.", "nav"],
-        ["publicPresence.footer.", "footer"],
-        ["publicPresence.faq.", "faq"],
-        ["publicPresence.routes.home.", "route"],
-        ["publicPresence.welcome.", "welcome"],
-        ["publicPresence.routes.welcome.", "route_welcome"],
+    json({
+      ...(await catalog("public-presence.ts", "publicPresenceEnglishTranslations", [
         ["publicPresence.brand", "brand"],
+        ["publicPresence.faq.", "faq"],
+        ["publicPresence.footer.", "footer"],
+        ["publicPresence.home.", "home"],
+      ])),
+      ...(await catalogFrom(policiesCatalogFile, "policiesEnglishTranslations", [
         ["publicPresence.info.sellerAgreement.eyebrow", "info.seller_agreement"],
         ["publicPresence.info.paymentsTerms.eyebrow", "info.payments_terms"],
         ["publicPresence.info.authenticityTerms.eyebrow", "info.authenticity_terms"],
         ["publicPresence.info.agentTerms.eyebrow", "info.agent_terms"],
-      ]),
-    ),
+      ])),
+      ...(await catalog("public-presence.ts", "publicPresenceEnglishTranslations", [
+        ["publicPresence.waitlist.", "waitlist"],
+        ["publicPresence.nav.", "nav"],
+        ["publicPresence.routes.home.", "route"],
+        ["publicPresence.welcome.", "welcome"],
+        ["publicPresence.routes.welcome.", "route_welcome"],
+      ])),
+    }),
   ],
   [
     "public/locales/policy.en.json",
     json(
-      await catalog("public-presence.ts", "publicPresenceEnglishTranslations", [
+      await catalogFrom(policiesCatalogFile, "policiesEnglishTranslations", [
         ["publicPresence.info.policies.", "policies"],
         ["publicPresence.info.terms.", "terms"],
         ["publicPresence.info.privacy.eyebrow", "eyebrow.privacy"],
