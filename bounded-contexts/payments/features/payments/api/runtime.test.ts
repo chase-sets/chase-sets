@@ -2282,6 +2282,7 @@ describe("payment runtime", () => {
       await resolving.createPayment();
       expect(reservationInserts(resolving.db)).toHaveLength(1);
       expect(resolving.placeSpendHold).toHaveBeenCalledTimes(1);
+      expect(resolving.processorGateway.createCustomer).toHaveBeenCalledTimes(1);
       expect(resolving.processorGateway.createPaymentSession).toHaveBeenCalledTimes(1);
     });
 

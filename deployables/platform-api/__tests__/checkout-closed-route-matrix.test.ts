@@ -1011,6 +1011,13 @@ describe("checkout-closed-session-lifecycle", () => {
     expect(payment.status, await payment.clone().text()).toBe(201);
     if (!paymentRow) throw new Error("Synthetic C payment did not start");
     expect(paymentRow.status).toBe("pending-confirmation");
+    // Payments' own services pass the Card Authentication Policy resolver to the payment runtime.
+    expect(
+      paymentQuery.mock.calls.filter(
+        ([sql, values]) =>
+          sql.includes("FROM platform_policy_documents") && values?.includes("payments.card-authentication"),
+      ),
+    ).toHaveLength(1);
     await sessions.recordPaymentStarted(
       { sessionId, accountId: "acc_synthetic", paymentId: paymentRow.payment_id },
       context,
