@@ -73,7 +73,7 @@
       "podLabels": {}
     },
     "public-corten": {
-      "enabled": false,
+      "enabled": true,
       "kind": "service",
       "replicas": 1,
       "image": "",

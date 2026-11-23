@@ -668,6 +668,11 @@ export function buildDoksIngressValues(options = {}) {
       host: `marketplace-corten.${stagingEnvironmentZone}`,
       paths: doksIngressPaths("marketplace-corten"),
     });
+    // The public pilot, beside public-web until www.staging switches to it.
+    hosts.push({
+      host: `public-corten.${stagingEnvironmentZone}`,
+      paths: doksIngressPaths("public-corten"),
+    });
   }
   const certificateDnsNames = production ? hosts.map((host) => host.host) : [];
 

@@ -8,7 +8,12 @@ import {
   buildPlatformHelmStagingValues,
   buildPlatformHelmValues,
 } from "./render-platform-helm-values.mjs";
-import { buildHelmUpgradeArgs, parseArgs, platformKubernetesWorkloads } from "./platform-kubernetes-deployment.mjs";
+import {
+  buildHelmUpgradeArgs,
+  droppedAdvisoryCortenPilots,
+  parseArgs,
+  platformKubernetesWorkloads,
+} from "./platform-kubernetes-deployment.mjs";
 import { classifyChanges } from "./change-scope.mjs";
 
 const read = (file) => readFileSync(file, "utf8").replaceAll("\r\n", "\n");
@@ -27,8 +32,9 @@ const options = {
 };
 const workload = "chase-sets-platform-chase-sets-platform-public-corten";
 
-// The first slice builds the public pilot's image and declares its staging workload disabled and its DNS name.
-// Deploy Staging does not pass the image yet, so nothing runs on staging until the workload is enabled with it.
+// The first slice built the public pilot's image and named its staging host. The second enables the staging
+// workload, has Deploy Staging pass the image, and walks the public routes on it advisorily. With no image the
+// deploy drops it.
 describe("Corten public staging, first slice", () => {
   it("preserves every production job byte-for-byte", () => {
     const expected = {
@@ -127,10 +133,10 @@ describe("Corten public staging, first slice", () => {
     ).toBe(false);
   });
 
-  it("declares the staging workload disabled, with existing secrets only, until the deploy passes its image", () => {
+  it("enables the staging workload with existing secrets only, and waits for it only when the deploy passes its image", () => {
     const component = buildPlatformHelmStagingValues().components["public-corten"];
     expect(component).toMatchObject({
-      enabled: false,
+      enabled: true,
       kind: "service",
       replicas: 1,
       image: "",
@@ -174,10 +180,12 @@ describe("Corten public staging, first slice", () => {
       expect(secretKey).toBe(name);
       expect(existing.has(secretKey), secretKey).toBe(true);
     }
-    expect(platformKubernetesWorkloads(options).deployments).not.toContain(workload);
-    expect(platformKubernetesWorkloads(options).deployments).toContain(
-      "chase-sets-platform-chase-sets-platform-admin-corten",
-    );
+    expect(platformKubernetesWorkloads(options).deployments).toContain(workload);
+    expect(droppedAdvisoryCortenPilots(options)).not.toContain("public-corten");
+    // With no image the advisory pilot is deployed disabled, so the release neither runs nor waits for it.
+    const withoutImage = { ...options, cortenPublicImage: undefined };
+    expect(droppedAdvisoryCortenPilots(withoutImage)).toContain("public-corten");
+    expect(buildHelmUpgradeArgs(withoutImage)).toContain("components.public-corten.enabled=false");
   });
 
   it("pins the pilot image only on staging and refuses mutable or wrong-repository references", () => {
@@ -228,7 +236,7 @@ describe("Corten public staging, first slice", () => {
     expect(read("Dockerfile.corten-public.dockerignore")).not.toContain("\ndeployables/corten-pilot\n");
   });
 
-  it("builds the image in the pilot images job with the same writer admission, and no deploy reads it yet", () => {
+  it("builds the image in the pilot images job with the same writer admission, and only Deploy Staging reads it", () => {
     const build = workflow.jobs["build-corten-pilot-images"];
     const gate = build.steps.find(({ id }) => id === "corten_pilot_gate");
     const push = build.steps.find(({ id }) => id === "corten_pilot_push");
@@ -243,7 +251,35 @@ describe("Corten public staging, first slice", () => {
     );
     expect(build.outputs.corten_public_image).toBe("${{ steps.corten_pilot_image.outputs.corten_public_image }}");
     expect(JSON.stringify(workflow.jobs["build-image"])).not.toContain("corten");
-    expect(JSON.stringify(workflow.jobs["deploy-staging"])).not.toContain("corten_public_image");
-    expect(JSON.stringify(workflow.jobs["deploy-staging"])).not.toContain("corten-public");
+    const deploy = workflow.jobs["deploy-staging"].steps.find(({ id }) => id === "staging_kubernetes_deploy");
+    expect(deploy.env.CORTEN_PUBLIC_IMAGE).toBe("${{ needs.build-corten-pilot-images.outputs.corten_public_image }}");
+    expect(deploy.run).toContain(
+      'if [ -n "${CORTEN_PUBLIC_IMAGE:-}" ]; then\n  corten_image_args+=(--corten-public-image "$CORTEN_PUBLIC_IMAGE")\nfi',
+    );
+    expect(JSON.stringify(workflow.jobs["deploy-production"])).not.toContain("corten_public_image");
+    expect(JSON.stringify(workflow.jobs["deploy-production"])).not.toContain("corten-public");
+  });
+
+  it("walks the public routes on the pilot after the other pilot smokes, never failing Deploy Staging", () => {
+    const steps = workflow.jobs["deploy-staging"].steps;
+    const index = steps.findIndex(({ name }) => name === "Advisory Corten public smoke");
+    const smoke = steps[index];
+    expect(steps[index - 1].name).toBe("Advisory Corten marketplace smoke");
+    expect(smoke["continue-on-error"]).toBe(true);
+    expect(smoke["timeout-minutes"]).toBe(15);
+    expect(smoke.if).toBe(steps.find(({ name }) => name === "Smoke check").if);
+    // It reads no secret at all.
+    expect(smoke.env).toEqual({
+      CORTEN_PUBLIC_IMAGE: "${{ needs.build-corten-pilot-images.outputs.corten_public_image }}",
+    });
+    expect(JSON.stringify(smoke)).not.toContain("secrets.");
+    expect(smoke.run).not.toContain("set -x");
+    // With no image the pilot was dropped, so there is nothing to smoke.
+    expect(smoke.run).toMatch(/if \[ -z "\$\{CORTEN_PUBLIC_IMAGE:-\}" \]; then\n[^\n]*\n\s*exit 0\n\s*fi/);
+    expect(smoke.run).toContain('--url "https://public-corten.staging.chasesets.com/health/ready"');
+    // The same derived route walk and mode the Smoke check runs against public-web.
+    expect(smoke.run).toContain(
+      'pnpm run smoke:public-web-routes -- \\\n  --base-url "https://public-corten.staging.chasesets.com" \\\n  --mode healthy',
+    );
   });
 });
