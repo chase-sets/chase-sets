@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  defaultAuthenticityCheckFeePolicyValue,
-  quoteAuthenticityCheckFee,
-  type AuthenticityCheckFeePolicyValue,
-} from "./authenticity-check-fee";
+import { quoteAuthenticityCheckFee, type AuthenticityCheckFeePolicyValue } from "./authenticity-check-fee";
+
+// The policy value these tests quote against unless a test states its own: offered from $100.00,
+// $8.00 plus 2% of the order value, capped at $50.00.
+const quotedPolicy: AuthenticityCheckFeePolicyValue = {
+  optInThresholdAmount: "100.00",
+  bands: [{ minOrderValueAmount: "0.00", category: "any", flatAmount: "8.00", percentageBps: 200, capAmount: "50.00" }],
+};
 
 describe("quoteAuthenticityCheckFee", () => {
   afterEach(() => {
@@ -11,38 +14,39 @@ describe("quoteAuthenticityCheckFee", () => {
   });
 
   it("is not eligible below the opt-in threshold", () => {
-    const quote = quoteAuthenticityCheckFee({ orderValueAmount: "99.99" });
+    const quote = quoteAuthenticityCheckFee({ orderValueAmount: "99.99" }, quotedPolicy);
     expect(quote.eligible).toBe(false);
     expect(quote.fee_amount).toBe("0.00");
   });
 
   it("is eligible at the opt-in threshold and quotes flat + percentage", () => {
-    const quote = quoteAuthenticityCheckFee({ orderValueAmount: "100.00" });
+    const quote = quoteAuthenticityCheckFee({ orderValueAmount: "100.00" }, quotedPolicy);
     expect(quote.eligible).toBe(true);
     // $8.00 flat + 2% of $100.00 = $8.00 + $2.00 = $10.00
     expect(quote.fee_amount).toBe("10.00");
   });
 
   it("caps the fee at the band's cap amount for high order values", () => {
-    const quote = quoteAuthenticityCheckFee({ orderValueAmount: "10000.00" });
+    const quote = quoteAuthenticityCheckFee({ orderValueAmount: "10000.00" }, quotedPolicy);
     expect(quote.eligible).toBe(true);
     expect(quote.fee_amount).toBe("50.00");
   });
 
   it("produces a stable fingerprint for identical inputs", () => {
-    const first = quoteAuthenticityCheckFee({ orderValueAmount: "250.00", quotedAt: "2026-07-10T00:00:00.000Z" });
-    const second = quoteAuthenticityCheckFee({ orderValueAmount: "250.00", quotedAt: "2026-07-10T00:00:00.000Z" });
+    const params = { orderValueAmount: "250.00", quotedAt: "2026-07-10T00:00:00.000Z" };
+    const first = quoteAuthenticityCheckFee(params, quotedPolicy);
+    const second = quoteAuthenticityCheckFee(params, quotedPolicy);
     expect(first.quote_fingerprint).toBe(second.quote_fingerprint);
   });
 
   it("changes the fingerprint when the order value changes", () => {
-    const first = quoteAuthenticityCheckFee({ orderValueAmount: "250.00" });
-    const second = quoteAuthenticityCheckFee({ orderValueAmount: "260.00" });
+    const first = quoteAuthenticityCheckFee({ orderValueAmount: "250.00" }, quotedPolicy);
+    const second = quoteAuthenticityCheckFee({ orderValueAmount: "260.00" }, quotedPolicy);
     expect(first.quote_fingerprint).not.toBe(second.quote_fingerprint);
   });
 
   it("changes the fingerprint when the policy changes even at the same order value (staleness detection)", () => {
-    const original = quoteAuthenticityCheckFee({ orderValueAmount: "250.00" });
+    const original = quoteAuthenticityCheckFee({ orderValueAmount: "250.00" }, quotedPolicy);
     const revisedPolicy: AuthenticityCheckFeePolicyValue = {
       optInThresholdAmount: "100.00",
       bands: [
@@ -113,18 +117,31 @@ describe("quoteAuthenticityCheckFee", () => {
     expect(quote.fee_amount).toBe("0.00");
   });
 
-  it("uses the compiled launch default when no policy is supplied", () => {
+  it("declares the policy value as a required parameter and exports no policy value of its own", async () => {
+    expect(quoteAuthenticityCheckFee.length).toBe(2);
+
+    const exported = await import("./authenticity-check-fee");
+    expect(Object.keys(exported)).not.toContain("defaultAuthenticityCheckFeePolicyValue");
+    for (const value of Object.values(exported)) {
+      expect(value).not.toEqual(expect.objectContaining({ bands: expect.anything() }));
+    }
+  });
+
+  it("quotes the same decision for the same policy value and stamps each quote with the current time", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-10T00:00:00.000Z"));
-    const { quoted_at: quotedAt, ...quote } = quoteAuthenticityCheckFee({ orderValueAmount: "100.00" });
-    vi.advanceTimersByTime(1);
-    const { quoted_at: defaultQuotedAt, ...withDefault } = quoteAuthenticityCheckFee(
+    const { quoted_at: firstQuotedAt, ...first } = quoteAuthenticityCheckFee(
       { orderValueAmount: "100.00" },
-      defaultAuthenticityCheckFeePolicyValue,
+      quotedPolicy,
     );
-    expect(quote).toEqual(withDefault);
-    expect(new Date(quotedAt).toISOString()).toBe(quotedAt);
-    expect(new Date(defaultQuotedAt).toISOString()).toBe(defaultQuotedAt);
-    expect(Date.parse(defaultQuotedAt) - Date.parse(quotedAt)).toBe(1);
+    vi.advanceTimersByTime(1);
+    const { quoted_at: secondQuotedAt, ...second } = quoteAuthenticityCheckFee(
+      { orderValueAmount: "100.00" },
+      quotedPolicy,
+    );
+    expect(first).toEqual(second);
+    expect(new Date(firstQuotedAt).toISOString()).toBe(firstQuotedAt);
+    expect(new Date(secondQuotedAt).toISOString()).toBe(secondQuotedAt);
+    expect(Date.parse(secondQuotedAt) - Date.parse(firstQuotedAt)).toBe(1);
   });
 });

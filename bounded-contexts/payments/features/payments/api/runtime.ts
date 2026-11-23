@@ -116,7 +116,7 @@ import {
 import { decideRefund, evolveRefund, initialRefundState, type RefundEvent } from "../../refunds/domain/domain";
 import { createRefundRuntime } from "../../refunds/api/runtime";
 import {
-  defaultMarketplaceCheckoutFeePolicyValue,
+  MarketplaceCheckoutFeePolicyUnavailableError,
   marketplaceCheckoutFeePaymentMethodCategories,
   marketplaceCheckoutFeePolicy,
   normalizeMarketplaceCheckoutFeePaymentMethodCategory,
@@ -154,17 +154,18 @@ type PaymentRuntimeDeps = Readonly<{
 }>;
 
 /**
- * Resolves the checkout processing-fee policy in effect at quote time. When
- * no resolver is wired (standalone/dev usage without Commercial Terms
- * mounted) this falls back to the compiled launch values -- an empty or
- * absent policy table can never break the checkout hot path.
+ * Resolves the checkout processing-fee policy in effect at quote time. The
+ * value always comes from the wired resolver, which answers an empty policy
+ * table with the policy's own default, so an empty table never breaks the
+ * checkout hot path. With no resolver wired there is no sanctioned value to
+ * quote from, and this refuses instead of quoting.
  */
 async function resolveMarketplaceCheckoutFeePolicy(
   deps: Pick<PaymentRuntimeDeps, "checkoutProcessingFeePolicyResolver">,
   at?: string,
 ): Promise<Readonly<{ value: MarketplaceCheckoutFeePolicyValue; effectiveFrom: string | null }>> {
   if (!deps.checkoutProcessingFeePolicyResolver) {
-    return { value: defaultMarketplaceCheckoutFeePolicyValue, effectiveFrom: null };
+    throw new MarketplaceCheckoutFeePolicyUnavailableError();
   }
 
   const resolved = await deps.checkoutProcessingFeePolicyResolver.resolveCheckoutProcessingFeePolicy(

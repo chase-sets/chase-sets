@@ -29,7 +29,15 @@ import { runInNewContext } from "node:vm";
 import ts from "@chase-sets/typescript-compiler-api";
 import * as money from "@chase-sets/primitives/money";
 import type { PaymentId } from "@chase-sets/primitives/typed-ids";
-import { normalizeMoneyAmount as normalizeDomainMoneyAmount } from "../../../support/runtime-support/common";
+import {
+  PaymentsDomainError,
+  normalizeMoneyAmount as normalizeDomainMoneyAmount,
+} from "../../../support/runtime-support/common";
+import { MarketplaceCheckoutFeePolicyUnavailableError } from "./marketplace-checkout-fee-policy";
+import {
+  checkoutProcessingFeePolicyResolverFor,
+  quotedCheckoutProcessingFeePolicyValue,
+} from "../../../tests/test-support/checkout-processing-fee-policy";
 
 // The high-value allocation witness cannot enter checkout: its combined payment
 // exceeds the payment maximum even though each resulting order cap is in range.
@@ -228,6 +236,8 @@ describe("payments money consolidation", () => {
   });
 });
 
+// Every runtime built here quotes against `quotedCheckoutProcessingFeePolicyValue` unless the test
+// wires its own resolver. A test of the unwired case passes the resolver as `undefined`.
 function createPaymentRuntime(
   deps: Omit<
     Parameters<typeof createRuntime>[0],
@@ -249,6 +259,7 @@ function createPaymentRuntime(
   };
   return createRuntime({
     cardDeclineStore: { check: vi.fn(async () => null), record: vi.fn(async () => undefined) },
+    checkoutProcessingFeePolicyResolver: checkoutProcessingFeePolicyResolverFor(quotedCheckoutProcessingFeePolicyValue),
     ...deps,
     runWebhookTransaction: createPaymentWebhookRunner(pool, store),
     runPaymentTransaction: createPaymentTransactionRunner(pool, store),
@@ -2444,13 +2455,17 @@ describe("payment runtime", () => {
     });
   });
 
-  it("falls back to the compiled checkout processing-fee policy when no resolver is wired at all", async () => {
+  it("quotes checkout status, payment creation and the published policy from the wired resolver's value", async () => {
     const { eventStore } = createInMemoryEventStore();
+    const processorGateway = createProcessorGateway();
     const services = createPaymentRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
       db: createOrderInputDb() as never,
-      processorGateway: createProcessorGateway(),
+      processorGateway,
+      checkoutProcessingFeePolicyResolver: checkoutProcessingFeePolicyResolverFor(
+        quotedCheckoutProcessingFeePolicyValue,
+      ),
     });
 
     const status = await services.getCheckoutStatus({
@@ -2458,11 +2473,100 @@ describe("payment runtime", () => {
       orderIds: ["ord_1" as never],
       paymentMethodCategory: "card",
     });
-
     expect(status.marketplace_checkout_fee).toMatchObject({
       marketplace_checkout_fee_amount: "1.06",
       total_amount: "26.05",
+      quote_fingerprint: "marketplace-checkout-fee-v1|card|24.99|0.00|24.99|1.06|26.05|26.05",
     });
+    expect(status.payment_method_quotes.map((quote) => quote.quote_fingerprint)).toEqual([
+      "marketplace-checkout-fee-v1|card|24.99|0.00|24.99|1.06|26.05|26.05",
+      "marketplace-checkout-fee-v1|bank-account|24.99|0.00|24.99|0.13|25.12|25.12",
+      "marketplace-checkout-fee-v1|platform-credit|24.99|0.00|24.99|0.00|24.99|24.99",
+    ]);
+
+    const preview = await services.previewCheckoutStatus({
+      accountId: "acc_buyer" as never,
+      amount: "24.99",
+      paymentMethodCategory: "card",
+    });
+    expect(preview.marketplace_checkout_fee.quote_fingerprint).toBe(
+      "marketplace-checkout-fee-v1|card|24.99|0.00|24.99|1.06|26.05|26.05",
+    );
+
+    const payment = await services.createAccountPayment(
+      {
+        accountId: "acc_buyer" as never,
+        orderIds: ["ord_1" as never],
+        currencyCode: "usd",
+        paymentMethodCategory: "card",
+        marketplaceCheckoutFeeQuoteFingerprint: status.marketplace_checkout_fee.quote_fingerprint,
+      },
+      context,
+    );
+    expect(payment.amount).toBe("26.05");
+    expect(processorGateway.createPaymentSession).toHaveBeenCalledWith(expect.objectContaining({ amount: "26.05" }));
+
+    await expect(services.getMarketplaceCheckoutFeePolicy()).resolves.toMatchObject({
+      policy_version: "marketplace-checkout-fee-v1",
+      effective_at: "2026-01-01T00:00:00.000Z",
+      base: { percentage_bps: 290, fixed_amount: "0.30" },
+      method_adjustments: [
+        { payment_method_category: "card", resulting_percentage_bps: 290, resulting_fixed_amount: "0.30" },
+        { payment_method_category: "bank-account", resulting_percentage_bps: 50, resulting_fixed_amount: "0.00" },
+        { payment_method_category: "platform-credit", resulting_percentage_bps: 0, resulting_fixed_amount: "0.00" },
+      ],
+    });
+  });
+
+  it("refuses every Marketplace Checkout Fee quote when no policy resolver is wired and creates no payment", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const processorGateway = createProcessorGateway();
+    const services = createPaymentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: createOrderInputDb() as never,
+      processorGateway,
+      checkoutProcessingFeePolicyResolver: undefined,
+    });
+    const quotingOperations: readonly (() => Promise<unknown>)[] = [
+      () =>
+        services.getCheckoutStatus({
+          accountId: "acc_buyer" as never,
+          orderIds: ["ord_1" as never],
+          paymentMethodCategory: "card",
+        }),
+      () =>
+        services.previewCheckoutStatus({
+          accountId: "acc_buyer" as never,
+          amount: "24.99",
+          paymentMethodCategory: "card",
+        }),
+      () => services.getMarketplaceCheckoutFeePolicy(),
+      () =>
+        services.createAccountPayment(
+          {
+            accountId: "acc_buyer" as never,
+            orderIds: ["ord_1" as never],
+            currencyCode: "usd",
+            paymentMethodCategory: "card",
+            marketplaceCheckoutFeeQuoteFingerprint:
+              "marketplace-checkout-fee-v1|card|24.99|0.00|24.99|1.06|26.05|26.05",
+          },
+          context,
+        ),
+    ];
+
+    for (const quote of quotingOperations) {
+      const error = await quote().then(
+        () => null,
+        (reason: unknown) => reason,
+      );
+      expect(error).toBeInstanceOf(MarketplaceCheckoutFeePolicyUnavailableError);
+      expect(error).toBeInstanceOf(PaymentsDomainError);
+      expect(error).toMatchObject({ code: "marketplace_checkout_fee_policy_unavailable" });
+    }
+    expect(processorGateway.createPaymentSession).not.toHaveBeenCalled();
+    expect(readAllEvents()).toEqual([]);
   });
 
   it("uses an explicit relative return path for processor payment sessions", async () => {

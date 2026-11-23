@@ -92,6 +92,23 @@ export const mockListSellListShipFromAddresses = vi.fn();
  * What Payments' checkout preview-status answers under the launch fee policy, with a balance-credit
  * resolver that grants the requested credit up to the amount.
  */
+/**
+ * The checkout processing-fee policy value the Payments preview stand-in quotes against: 2.9% plus
+ * $0.30 for card, 0.5% for bank account and nothing for platform credit. It is an input the route
+ * tests state for themselves, so their expected fee amounts can be derived from it.
+ */
+const quotedCheckoutProcessingFeePolicyValue: Parameters<
+  typeof import("@chase-sets/payments/server").quoteMarketplaceCheckoutFee
+>[1] = {
+  enabledJurisdictions: ["US"],
+  base: { percentageBps: 290, fixedAmount: "0.30" },
+  methodAdjustments: [
+    { paymentMethodCategory: "card", percentageBpsDelta: 0, fixedAmountDelta: "0.00" },
+    { paymentMethodCategory: "bank-account", percentageBpsDelta: -240, fixedAmountDelta: "-0.30" },
+    { paymentMethodCategory: "platform-credit", percentageBpsDelta: -290, fixedAmountDelta: "-0.30" },
+  ],
+};
+
 export async function paymentsCheckoutPreviewStatus(
   params: Readonly<{
     amount: string;
@@ -110,12 +127,15 @@ export async function paymentsCheckoutPreviewStatus(
   const applied = compareMoneyAmounts(requested, params.amount) <= 0 ? requested : params.amount;
   const external = subtractMoneyAmounts(params.amount, applied);
   const quotes = marketplaceCheckoutFeePaymentMethodCategories.map((method) =>
-    quoteMarketplaceCheckoutFee({
-      orderAmount: params.amount,
-      externalBasisAmount: external,
-      balanceCreditAmount: applied,
-      paymentMethodCategory: method,
-    }),
+    quoteMarketplaceCheckoutFee(
+      {
+        orderAmount: params.amount,
+        externalBasisAmount: external,
+        balanceCreditAmount: applied,
+        paymentMethodCategory: method,
+      },
+      quotedCheckoutProcessingFeePolicyValue,
+    ),
   );
   const method = normalizeMarketplaceCheckoutFeePaymentMethodCategory(params.paymentMethodCategory);
   const payable = compareMoneyAmounts(params.amount, "0.00") > 0;
