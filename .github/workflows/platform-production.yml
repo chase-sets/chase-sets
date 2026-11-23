@@ -1407,6 +1407,9 @@ jobs:
       # The app that serves admin.staging: admin-corten, or admin-web to roll back (docs/runbooks/staging-admin-app.md).
       # Unset means admin-corten; the deploy script refuses any other value and records which one served.
       STAGING_ADMIN_APP: ${{ vars.STAGING_ADMIN_APP || '' }}
+      # Whether staging deploys the Corten marketplace pilot: deployed, or withheld to drop a pilot that never
+      # becomes ready (docs/runbooks/staging-marketplace-pilot.md). Unset means deployed; any other value fails.
+      STAGING_MARKETPLACE_PILOT: ${{ vars.STAGING_MARKETPLACE_PILOT || '' }}
     steps:
       - name: Record staging start
         env:
@@ -2473,6 +2476,7 @@ jobs:
           TF_VAR_facebook_social_login_client_id: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
           TF_VAR_facebook_social_login_client_secret: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
           CORTEN_MARKETPLACE_IMAGE: ${{ needs.build-corten-pilot-images.outputs.corten_marketplace_image }}
+          MARKETPLACE_PILOT: ${{ steps.staging_kubernetes_deploy.outputs.marketplace_pilot }}
           SMOKE_SOURCE: staging-corten-marketplace-smoke
           SMOKE_UTM_CAMPAIGN: staging-main
           SMOKE_FETCH_ATTEMPTS: "24"
@@ -2482,6 +2486,10 @@ jobs:
           set -euo pipefail
           if [ -z "${CORTEN_MARKETPLACE_IMAGE:-}" ]; then
             echo "No Corten marketplace image was built for this release, so the pilot was not deployed and is not smoked."
+            exit 0
+          fi
+          if [ "$MARKETPLACE_PILOT" = "withheld" ]; then
+            echo "STAGING_MARKETPLACE_PILOT=withheld, so the pilot was not deployed and is not smoked."
             exit 0
           fi
           landing_domain="$(terraform output -raw landing_domain)"

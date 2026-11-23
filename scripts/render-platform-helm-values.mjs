@@ -635,6 +635,25 @@ function resolveAdminAppVariable(env, variable, defaultApp) {
   return { app: value, source: "variable" };
 }
 
+// Whether staging deploys the advisory Corten marketplace pilot. STAGING_MARKETPLACE_PILOT is a GitHub variable,
+// so a pilot that never becomes ready (which would fail the atomic staging release) is dropped with a variable
+// change and a re-run, with no pull request. Unset means deployed; any other value fails.
+export const STAGING_MARKETPLACE_PILOT_STATES = Object.freeze(["deployed", "withheld"]);
+export const defaultStagingMarketplacePilot = "deployed";
+
+export function resolveStagingMarketplacePilot(env = {}) {
+  const value = String(env.STAGING_MARKETPLACE_PILOT ?? "").trim();
+  if (value === "") {
+    return { state: defaultStagingMarketplacePilot, source: "default" };
+  }
+  if (!STAGING_MARKETPLACE_PILOT_STATES.includes(value)) {
+    throw new Error(
+      `STAGING_MARKETPLACE_PILOT must be one of ${STAGING_MARKETPLACE_PILOT_STATES.join(", ")}; got "${value}".`,
+    );
+  }
+  return { state: value, source: "variable" };
+}
+
 export function buildDoksIngressValues(options = {}) {
   const env = options.env ?? {};
   const environment = options.environment ?? "staging";
