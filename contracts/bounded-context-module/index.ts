@@ -521,13 +521,15 @@ export type BcSubscriptionHandlerKind = "projection" | "reaction";
 
 /**
  * A reaction declares which facts it consumes and which handler set runs. It
- * does not configure delivery: the shared runtime treats every reaction the
- * same way.
+ * carries no retry or idempotency setting; its only failure setting is the
+ * optional `errorPolicy` it shares with projections.
  *
  * - Failure follows the subscription `errorPolicy`, which defaults to
- *   `strict-per-stream`: the first failing event blocks its stream, later
- *   events on that stream are deferred, other streams keep draining, and a
- *   retry replays the blocked stream from its first blocked version.
+ *   `strict-per-stream`: the first poison (non-transient) event blocks its
+ *   stream, later events on that stream are deferred, other streams keep
+ *   draining, and a retry replays the blocked stream from its first blocked
+ *   version. A transient failure halts the reaction at that event, which is
+ *   retried on the next pass.
  * - The applied ledger skips already-applied events on redelivery.
  * - The handler author owns idempotency of the dispatched command.
  */

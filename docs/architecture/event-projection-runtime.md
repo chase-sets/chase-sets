@@ -113,9 +113,9 @@ After a durable checkpoint advances, the runtime compacts `applied` ledger rows 
 
 ### Reactions
 
-An event reaction declares which facts it consumes and which handler set runs. It carries no retry, failure or idempotency setting of its own, because the shared runtime treats every reaction the same way:
+An event reaction declares which facts it consumes and which handler set runs. It carries no retry or idempotency setting, and its only failure setting is the optional `errorPolicy` it shares with projections:
 
-- A reaction follows the subscription `errorPolicy`, which defaults to `strict-per-stream` in `infrastructure/bounded-context-runtime/subscriptions.ts`. The first failing event blocks its stream, later events on that stream are deferred, other streams keep draining, and a retry replays the blocked stream from its first blocked version.
+- A reaction follows the subscription `errorPolicy`, which defaults to `strict-per-stream` in `infrastructure/bounded-context-runtime/subscriptions.ts`. The first poison (non-transient) event blocks its stream, later events on that stream are deferred, other streams keep draining, and a retry replays the blocked stream from its first blocked version. A transient failure halts the reaction at that event, which is retried on the next pass.
 - The applied ledger described under [Idempotency](#idempotency) skips already-applied events on redelivery.
 - The handler author owns idempotency of the dispatched command.
 
