@@ -36,9 +36,11 @@ export type CreatePolicyResolverOptions = Readonly<{
  * because the request instant falls outside every active document's window
  * -- falls back to `definition.defaultValue` rather than throwing.
  *
- * The candidate set is read through `db` at most once per key per
- * `POLICY_CACHE_MAX_AGE_MS`, and resolutions that find no fresh set share
- * one read. When that read fails after this process loaded a set for the
+ * While reads succeed and return within `POLICY_CACHE_MAX_AGE_MS`, the
+ * candidate set is read through `db` at most once per key per that age, and
+ * resolutions that find no fresh set share one read. A slower read is
+ * already expired when it is stored, so the next resolution reads again.
+ * When a read fails after this process loaded a set for the
  * key, the resolution serves the loaded set, records the stale-served signal
  * and caches nothing, so the next resolution reads again. It rejects only
  * when no set was ever loaded.

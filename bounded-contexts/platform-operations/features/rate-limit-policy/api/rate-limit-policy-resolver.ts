@@ -12,10 +12,11 @@ import { applyRateLimitPolicy, rateLimitPolicy } from "../domain/rate-limit-poli
  *
  * Rate-limit checks run on every request to every rate-limited surface,
  * including the flood an abusive client sends to defeat the limiter, so this
- * port holds one long-lived policy resolver and inherits its rules: at most
- * one Postgres read per second per process, one shared read for concurrent
- * requests, and a revision enforced on every surface within one second of
- * the read model having it. Once a value has been loaded, a failed refresh
+ * port holds one long-lived policy resolver and inherits its rules: while
+ * reads succeed within a second, at most one Postgres read per second, one
+ * shared read for concurrent requests, and a revision enforced on every
+ * surface within one second of the read model having it. A failed refresh is
+ * retried on the next request. Once a value has been loaded, a failed refresh
  * keeps enforcing that value. Only a failed first read rejects, and the
  * limiter then applies the surface's compiled rule.
  *
