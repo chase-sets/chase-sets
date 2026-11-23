@@ -11,7 +11,7 @@ import {
 import { InventoryApiError } from "../../../../support/request-support/client";
 import { RestockDecisionQueuePage } from "../restock-decision-queue-page";
 import { inventoryApiErrorAdapter } from "../../../../support/request-support/route-api-error";
-import { InventoryMutationProvider } from "../../../../support/request-support/mutation-form";
+import { InventoryMutationProvider } from "../../../../support/ui-support/mutation-recovery";
 
 const DEFAULT_QUERY = "limit=100&offset=0";
 

@@ -38,7 +38,7 @@ import type { InventoryStorageLocation } from "../../storage-locations/ui/contra
 import type { InventoryItemListItem } from "./contracts";
 import { inventoryListingHref } from "./listing-handoff";
 import { OfflineSaleForm, OfflineSaleResult } from "./offline-sale-form";
-import { InventoryMutationRouterForm as Form } from "../../../support/request-support/mutation-form";
+import { InventoryMutationRouterForm as Form } from "../../../support/ui-support/mutation-recovery";
 
 const CATALOG_ITEM_SUGGESTIONS_URL = "/api/marketplace/items/suggest";
 const CATALOG_ITEM_API_BASE_URL = "/api/inventory/catalog-items";

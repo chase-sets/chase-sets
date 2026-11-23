@@ -67,7 +67,13 @@ export const contextManifest = {
     "restock-decisions",
     "storage-locations",
   ],
-  allowedSupportDirectories: ["catalog-item-support", "request-support", "runtime-support", "seed-support"],
+  allowedSupportDirectories: [
+    "catalog-item-support",
+    "request-support",
+    "runtime-support",
+    "seed-support",
+    "ui-support",
+  ],
   publicExports: [
     ".",
     "./context",
@@ -1092,8 +1098,13 @@ export const contextManifest = {
     "seed-support": {
       classification: "support",
       purpose: "Expose stable Inventory seed entry points to context and deployable callers.",
-      expectedConsumers: [],
+      expectedConsumers: ["Inventory runtime seed composition"],
       crossCuttingRuntimeComposition: true,
+    },
+    "ui-support": {
+      classification: "support",
+      purpose: "Provide the shared Inventory mutation recovery provider and forms to feature routes and web hosts.",
+      expectedConsumers: ["import-batches", "inventory-items", "restock-decisions", "storage-locations"],
     },
     routes: {
       classification: "routes",

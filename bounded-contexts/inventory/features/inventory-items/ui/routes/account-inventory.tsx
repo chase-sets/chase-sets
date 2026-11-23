@@ -19,11 +19,11 @@ import {
 } from "../../../../support/request-support/api-client";
 import { createInventoryRequestApiClient } from "../../../../support/request-support/api-client";
 import { InventoryItemListPage } from "../inventory-item-list-page";
-import { inventoryItemPageQuery } from "./list-pagination";
+import { inventoryItemPageQuery } from "../list-pagination";
 import { inventoryApiErrorAdapter } from "../../../../support/request-support/route-api-error";
 import { createOfflineSaleFormToken, submitOfflineSaleForm } from "../offline-sale-form";
 import type { InventoryOfflineSaleResult } from "../../../../client";
-import { InventoryMutationProvider } from "../../../../support/request-support/mutation-form";
+import { InventoryMutationProvider } from "../../../../support/ui-support/mutation-recovery";
 
 const ACCOUNT_INVENTORY_READ_TIMEOUT_MS = 10_000;
 const TEMPORARY_INVENTORY_ITEMS_LOAD_ERROR =

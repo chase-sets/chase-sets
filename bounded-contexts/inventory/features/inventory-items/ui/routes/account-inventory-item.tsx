@@ -14,7 +14,7 @@ import { inventoryApiErrorAdapter } from "../../../../support/request-support/ro
 import { InventoryItemDetailPage } from "../inventory-item-detail-page";
 import { createOfflineSaleFormToken, submitOfflineSaleForm } from "../offline-sale-form";
 import type { InventoryOfflineSaleResult } from "../../../../client";
-import { InventoryMutationProvider } from "../../../../support/request-support/mutation-form";
+import { InventoryMutationProvider } from "../../../../support/ui-support/mutation-recovery";
 
 type OfflineSaleActionData = Readonly<{
   offlineSale: InventoryOfflineSaleResult;

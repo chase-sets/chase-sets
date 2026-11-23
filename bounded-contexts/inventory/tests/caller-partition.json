@@ -276,7 +276,7 @@
     "consumer": "inventory",
     "status": "cutover"
   },
-  "bounded-contexts/inventory/support/request-support/mutation-form.tsx": {
+  "bounded-contexts/inventory/support/ui-support/mutation-recovery.tsx": {
     "families": ["attempt-read"],
     "authority": "authenticated acting User and requesting account; no payload scope",
     "attempt": "exact original caller UUID; read-only restore",

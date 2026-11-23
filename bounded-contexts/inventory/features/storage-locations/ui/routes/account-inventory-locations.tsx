@@ -5,7 +5,7 @@ import { defineFormAction, defineResourceRoute, formActionRedirect } from "@chas
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import contextManifest from "../../../../context.json";
 import { inventoryApiErrorAdapter } from "../../../../support/request-support/route-api-error";
-import { InventoryMutationProvider } from "../../../../support/request-support/mutation-form";
+import { InventoryMutationProvider } from "../../../../support/ui-support/mutation-recovery";
 import type { InventoryStorageLocation } from "../../api/contracts";
 import { createStorageLocationRequestClient } from "../../api/request-client";
 import { t } from "../localization/translator";

@@ -3,7 +3,7 @@ import { Button, Form, HiddenInput, LinkButton, Stack, Text } from "@chase-sets/
 import { RouterForm } from "@chase-sets/design-system/react-router";
 import { t } from "@chase-sets/localization";
 import { inventoryApi } from "../../client";
-import { createInventoryMutationRecovery, type InventoryRecoveryAuthority } from "./mutation-recovery";
+import { createInventoryMutationRecovery, type InventoryRecoveryAuthority } from "../request-support/mutation-recovery";
 import type { InventoryMutationFamily } from "../runtime-support/mutation-intent";
 
 const families: readonly InventoryMutationFamily[] = [

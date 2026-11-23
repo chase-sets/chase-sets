@@ -32,7 +32,7 @@ import type { InventoryCatalogItemSnapshot } from "../../inventory-items/integra
 import type { InventoryStorageLocation } from "../../storage-locations/api/contracts";
 import { listInventoryImportSources } from "../domain/import-source-adapters";
 import { appendInventoryHandoffSearch, inventoryListingHref } from "../../inventory-items/ui/listing-handoff";
-import { InventoryMutationForm } from "../../../support/request-support/mutation-form";
+import { InventoryMutationForm } from "../../../support/ui-support/mutation-recovery";
 import {
   normalizeSelectedOptionsForSchema,
   recordToSelectionEntries,

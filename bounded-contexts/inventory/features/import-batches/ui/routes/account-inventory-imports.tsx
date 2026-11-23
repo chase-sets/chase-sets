@@ -20,7 +20,7 @@ import {
 import { InventoryImportBatchPage } from "../import-batch-page";
 import { inventoryApiErrorAdapter } from "../../../../support/request-support/route-api-error";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { InventoryMutationProvider } from "../../../../support/request-support/mutation-form";
+import { InventoryMutationProvider } from "../../../../support/ui-support/mutation-recovery";
 
 const DEFAULT_IMPORT_QUERY = "limit=25&offset=0";
 const IMPORT_SECONDARY_READ_TIMEOUT_MS = 10_000;

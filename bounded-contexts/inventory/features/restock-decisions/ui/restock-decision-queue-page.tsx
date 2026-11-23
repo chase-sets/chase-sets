@@ -14,7 +14,7 @@ import {
   Textarea,
 } from "@chase-sets/design-system";
 import type { InventoryRestockDecision } from "../api/contracts";
-import { InventoryMutationForm, InventoryMutationRouterForm } from "../../../support/request-support/mutation-form";
+import { InventoryMutationForm, InventoryMutationRouterForm } from "../../../support/ui-support/mutation-recovery";
 
 function itemLabel(decision: InventoryRestockDecision) {
   return decision.item_title ?? decision.item_id;
