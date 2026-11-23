@@ -273,10 +273,7 @@ describeDb("seller checkout risk source revision persistence", () => {
     const normalized = await row();
     expect(normalized?.revision).toBe("0");
     expect(normalized?.updated_at).toEqual(new Date(timestamp));
-    for (const name of columns)
-      expect(normalized?.[name], name).toEqual(
-        name === "velocity_alert_flags" ? [] : name === "stripe_fraud_flag" ? false : name.endsWith("_cents") ? "0" : 0,
-      );
+    for (const name of columns) expect(normalized?.[name], name).toEqual(name === "stripe_fraud_flag" ? false : 0);
     await bootstrapContextDatabase(settlementModule, traced);
     expect(observed).toHaveLength(legacyStatements.length);
     expect(await row()).toEqual(normalized);
@@ -380,7 +377,7 @@ describeDb("seller checkout risk source revision persistence", () => {
         .rows,
     ).toEqual([{ relpersistence: "u" }]);
     await pool.query(`TRUNCATE settlement_account_risk_sources, settlement_account_review_sources, settlement_account_address_risk_sources,
-      settlement_account_instrument_risk_sources, settlement_account_velocity_sources, settlement_order_trust_signal_sources, settlement_payment_sources`);
+      settlement_account_instrument_risk_sources, settlement_order_trust_signal_sources, settlement_payment_sources`);
     expect(await reader(owner)).toEqual({
       schemaVersion: "settlement.seller-checkout-risk.v1",
       policyRevision: "seller-checkout-risk-v1",

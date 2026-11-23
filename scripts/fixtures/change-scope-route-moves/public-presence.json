@@ -1,0 +1,54 @@
+{
+  "families": {
+    "contextSuiteOwnership:public-presence": {
+      "trackedCandidates": 58
+    },
+    "boundedContextRouteSuiteOwnership:48": {
+      "pattern": "/^bounded-contexts\\/public-presence\\/(?:routes\\/marketplace|features\\/policies\\/ui\\/routes)\\//",
+      "trackedCandidates": 26
+    }
+  },
+  "movedRoutes": {
+    "legacyDirectory": "bounded-contexts/public-presence/routes/marketplace/",
+    "featureDirectory": "bounded-contexts/public-presence/features/policies/ui/routes/",
+    "files": [
+      ["agent-terms.tsx", "marketplace_browse"],
+      ["authenticity-terms.tsx", "marketplace_browse"],
+      ["founders.tsx", "marketplace_browse"],
+      ["payments-terms.tsx", "marketplace_browse"],
+      ["privacy.tsx", "marketplace_browse"],
+      ["seller-agreement.tsx", "marketplace_browse"],
+      ["terms.tsx", "marketplace_browse"]
+    ]
+  },
+  "selectorCases": [
+    {
+      "file": "bounded-contexts/public-presence/features/policies/ui/routes/agent-terms.tsx",
+      "suites": ["marketplace_browse"]
+    },
+    {
+      "file": "bounded-contexts/public-presence/features/policies/ui/routes/authenticity-terms.tsx",
+      "suites": ["marketplace_browse"]
+    },
+    {
+      "file": "bounded-contexts/public-presence/features/policies/ui/routes/founders.tsx",
+      "suites": ["marketplace_browse"]
+    },
+    {
+      "file": "bounded-contexts/public-presence/features/policies/ui/routes/payments-terms.tsx",
+      "suites": ["marketplace_browse"]
+    },
+    {
+      "file": "bounded-contexts/public-presence/features/policies/ui/routes/privacy.tsx",
+      "suites": ["marketplace_browse"]
+    },
+    {
+      "file": "bounded-contexts/public-presence/features/policies/ui/routes/seller-agreement.tsx",
+      "suites": ["marketplace_browse"]
+    },
+    {
+      "file": "bounded-contexts/public-presence/features/policies/ui/routes/terms.tsx",
+      "suites": ["marketplace_browse"]
+    }
+  ]
+}

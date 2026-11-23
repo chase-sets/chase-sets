@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import { t as paymentMethodsT } from "../localization/translator";
 import { loadStripe } from "@stripe/stripe-js";
 import type { Stripe, StripeElements, StripePaymentElement } from "@stripe/stripe-js";
 import { useEffect, useRef, useState } from "react";
@@ -168,7 +169,7 @@ export function StripeSetupCard({ setup, onSaved }: { setup: PaymentsSavedChecko
             ? t("payments.routes.marketplace.accountPayment.processing.payment")
             : setupPhase === "confirming"
               ? t("payments.routes.marketplace.accountPayment.confirming.payment")
-              : t("payments.routes.marketplace.accountPaymentMethods.save")}
+              : paymentMethodsT("payments.routes.marketplace.accountPaymentMethods.save")}
         </Button>
       </Stack>
     </Surface>

@@ -367,8 +367,7 @@
         "settlement_account_risk_sources",
         "settlement_account_review_sources",
         "settlement_account_instrument_risk_sources",
-        "settlement_account_address_risk_sources",
-        "settlement_account_velocity_sources"
+        "settlement_account_address_risk_sources"
       ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"

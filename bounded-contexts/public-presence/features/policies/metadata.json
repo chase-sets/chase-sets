@@ -1,0 +1,69 @@
+{
+  "projectionGroup": {
+    "projectionName": "platform-policy-document-projection",
+    "sourceContextNames": ["public-presence"],
+    "ownedTables": ["platform_policy_documents", "platform_policy_document_history"],
+    "requiredDuringBootstrap": false,
+    "resetStrategy": "truncate-owned-tables"
+  },
+  "noticeRoutes": [
+    {
+      "routeId": "terms",
+      "routePath": "terms",
+      "fileExport": "./routes/marketplace/terms",
+      "routeType": "route",
+      "sourceContext": "public-presence",
+      "placement": "root"
+    },
+    {
+      "routeId": "privacy",
+      "routePath": "privacy",
+      "fileExport": "./routes/marketplace/privacy",
+      "routeType": "route",
+      "sourceContext": "public-presence",
+      "placement": "root"
+    }
+  ],
+  "agreementRoutes": [
+    {
+      "routeId": "founders",
+      "routePath": "founders",
+      "fileExport": "./routes/marketplace/founders",
+      "routeType": "route",
+      "sourceContext": "public-presence",
+      "placement": "root"
+    },
+    {
+      "routeId": "seller-agreement",
+      "routePath": "seller-agreement",
+      "fileExport": "./routes/marketplace/seller-agreement",
+      "routeType": "route",
+      "sourceContext": "public-presence",
+      "placement": "root"
+    },
+    {
+      "routeId": "payments-terms",
+      "routePath": "payments-terms",
+      "fileExport": "./routes/marketplace/payments-terms",
+      "routeType": "route",
+      "sourceContext": "public-presence",
+      "placement": "root"
+    },
+    {
+      "routeId": "agent-terms",
+      "routePath": "agent-terms",
+      "fileExport": "./routes/marketplace/agent-terms",
+      "routeType": "route",
+      "sourceContext": "public-presence",
+      "placement": "root"
+    },
+    {
+      "routeId": "authenticity-terms",
+      "routePath": "authenticity-terms",
+      "fileExport": "./routes/marketplace/authenticity-terms",
+      "routeType": "route",
+      "sourceContext": "public-presence",
+      "placement": "root"
+    }
+  ]
+}
