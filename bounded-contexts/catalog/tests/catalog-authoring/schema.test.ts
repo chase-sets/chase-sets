@@ -59,6 +59,17 @@ describe("catalog authoring schema composition", () => {
     expect(migration?.dataStep).toBeTypeOf("function");
   });
 
+  it("returns Product Measure Profiles to a logged table in one rerunnable migration", () => {
+    const migration: BcSchemaMigration | undefined = catalogAuthoringSchemaMigrations.find(
+      ({ migrationId }) => migrationId === "20261122_catalog_product_measure_profiles_logged",
+    );
+    expect(migration?.statements).toEqual([
+      "SET lock_timeout = '5s';",
+      "ALTER TABLE catalog_product_measure_profiles SET LOGGED;",
+    ]);
+    expect(migration?.dataStep).toBeUndefined();
+  });
+
   it("does not create retired custody tables on a fresh database", () => {
     expect(catalogAuthoringSchemaSql).not.toContain("CREATE TABLE IF NOT EXISTS catalog_tcgplayer_operator_sessions");
     expect(catalogAuthoringSchemaSql).not.toContain(

@@ -3,15 +3,23 @@ import {
   EMPTY_EVENT_DATA,
   assert,
   assertNever,
+  ensureUniqueBy,
   hasSameMembers,
   localizedTextMapFromEnglish,
   normalizeLocalizedTextMap,
+  toSortedUniqueList,
   type CatalogLifecycleStatus,
   type OptionStatus,
   type EmptyEventData,
   type LocalizedTextMap,
 } from "../../../support/runtime-support/common";
 import type { OptionId, DimensionId } from "../../../ids";
+
+/** One condition of an Option's applicability: another Dimension must have one of these Options selected. */
+export type OptionApplicabilityClause = Readonly<{
+  dimensionId: DimensionId;
+  optionIds: OptionId[];
+}>;
 
 export type DimensionOption = Readonly<{
   id: OptionId;
@@ -20,6 +28,8 @@ export type DimensionOption = Readonly<{
   displayOrder: number;
   numericValue: number | null;
   status: OptionStatus;
+  /** The Option can be selected only when every clause holds. Empty means it always applies. */
+  appliesWhen: OptionApplicabilityClause[];
 }>;
 
 export type DimensionValueKind = "unordered" | "ordered" | "numeric";
@@ -77,6 +87,7 @@ export type AddOptionCommand = Readonly<{
   code: string;
   label: LocalizedTextMap;
   numericValue?: number | null;
+  appliesWhen?: readonly OptionApplicabilityClause[];
 }>;
 
 export type ReviseOptionCommand = Readonly<{
@@ -85,6 +96,7 @@ export type ReviseOptionCommand = Readonly<{
   code: string;
   label: LocalizedTextMap;
   numericValue?: number | null;
+  appliesWhen?: readonly OptionApplicabilityClause[];
 }>;
 
 export type ReorderOptionsCommand = Readonly<{
@@ -133,6 +145,7 @@ type OptionSnapshot = Readonly<{
   displayOrder: number;
   numericValue: number | null;
   status: OptionStatus;
+  appliesWhen?: OptionApplicabilityClause[];
 }>;
 
 export type DimensionCreatedEvent = DomainEvent<
@@ -275,6 +288,7 @@ export const decideDimension: AggregateDecider<DimensionState, DimensionCommand,
             displayOrder: state.options.length,
             numericValue: command.numericValue ?? null,
             status: "active",
+            appliesWhen: normalizeOptionApplicability(state.id, command.appliesWhen ?? []),
           },
         },
       ];
@@ -303,6 +317,7 @@ export const decideDimension: AggregateDecider<DimensionState, DimensionCommand,
             displayOrder: option.displayOrder,
             numericValue,
             status: option.status,
+            appliesWhen: normalizeOptionApplicability(state.id, command.appliesWhen ?? option.appliesWhen),
           },
         },
       ];
@@ -422,7 +437,9 @@ export const evolveDimension: AggregateEvolver<DimensionState, DimensionEvent> =
       return {
         ...state,
         options: sortOptions(
-          state.options.map((option) => (option.id === event.data.optionId ? fromOptionSnapshot(event.data) : option)),
+          state.options.map((option) =>
+            option.id === event.data.optionId ? fromOptionSnapshot(event.data, option.appliesWhen) : option,
+          ),
         ),
       };
     case "catalog.dimension.options-reordered":
@@ -485,7 +502,11 @@ function requireCreatedDimension(state: DimensionState): void {
   assert(state.id !== null, "Dimension must be created first.");
 }
 
-function fromOptionSnapshot(snapshot: OptionSnapshot): DimensionOption {
+// A snapshot recorded without applicability keeps what the Option already had.
+function fromOptionSnapshot(
+  snapshot: OptionSnapshot,
+  currentAppliesWhen: OptionApplicabilityClause[] = [],
+): DimensionOption {
   return {
     id: snapshot.optionId,
     code: snapshot.code,
@@ -493,7 +514,28 @@ function fromOptionSnapshot(snapshot: OptionSnapshot): DimensionOption {
     displayOrder: snapshot.displayOrder,
     numericValue: snapshot.numericValue,
     status: snapshot.status,
+    appliesWhen: snapshot.appliesWhen ?? currentAppliesWhen,
   };
+}
+
+function normalizeOptionApplicability(
+  dimensionId: DimensionId | null,
+  clauses: readonly OptionApplicabilityClause[],
+): OptionApplicabilityClause[] {
+  const normalized = clauses.map((clause) => {
+    assert(clause.dimensionId !== dimensionId, "Option applicability cannot depend on the option's own dimension.");
+    assert(clause.optionIds.length > 0, "Option applicability clauses must name at least one option.");
+
+    return { dimensionId: clause.dimensionId, optionIds: toSortedUniqueList(clause.optionIds) };
+  });
+
+  ensureUniqueBy(
+    normalized,
+    (clause) => clause.dimensionId,
+    "Option applicability must be unique per referenced dimension.",
+  );
+
+  return normalized.sort((left, right) => left.dimensionId.localeCompare(right.dimensionId));
 }
 
 function findOption(state: DimensionState, optionId: OptionId): DimensionOption {

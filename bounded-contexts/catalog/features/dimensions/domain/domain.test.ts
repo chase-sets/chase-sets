@@ -5,6 +5,8 @@ import { givenEvents, decide, expectDomainError } from "../../../support/authori
 import { localizedTextMapFromEnglish } from "../../../support/runtime-support/common";
 
 const dimId = "dim_test" as DimensionId;
+const firstDimId = "dim_a_first" as DimensionId;
+const otherDimId = "dim_other" as DimensionId;
 const optionA = "chc_a" as OptionId;
 const optionB = "chc_b" as OptionId;
 const optionC = "chc_c" as OptionId;
@@ -31,6 +33,23 @@ function orBetterState() {
         description: l10n(""),
         valueKind: "ordered",
         optionMatching: "or-better",
+      },
+    },
+  ] as DimensionEvent[]);
+}
+
+function scopedOptionState() {
+  return givenEvents(createdState(), evolveDimension, [
+    {
+      type: "catalog.dimension.option-added",
+      data: {
+        optionId: optionA,
+        code: "black-label-10",
+        label: l10n("Black Label 10"),
+        displayOrder: 0,
+        numericValue: null,
+        status: "active",
+        appliesWhen: [{ dimensionId: otherDimId, optionIds: [optionB] }],
       },
     },
   ] as DimensionEvent[]);
@@ -268,6 +287,111 @@ describe("Dimension aggregate", () => {
       });
 
       expect(events[0].data).toMatchObject({ optionId: optionA, numericValue: 7 });
+    });
+
+    it("adds an option that always applies when no applicability is given", () => {
+      const events = decide(decideDimension, createdState(), {
+        type: "AddOption" as const,
+        optionId: optionA,
+        code: "red",
+        label: l10n("Red"),
+      });
+
+      expect(events[0].data).toMatchObject({ appliesWhen: [] });
+    });
+
+    it("records normalized option applicability", () => {
+      const events = decide(decideDimension, createdState(), {
+        type: "AddOption" as const,
+        optionId: optionA,
+        code: "black-label-10",
+        label: l10n("Black Label 10"),
+        appliesWhen: [
+          { dimensionId: otherDimId, optionIds: [optionC, optionB, optionC] },
+          { dimensionId: firstDimId, optionIds: [optionB] },
+        ],
+      });
+
+      expect(events[0].data).toMatchObject({
+        appliesWhen: [
+          { dimensionId: firstDimId, optionIds: [optionB] },
+          { dimensionId: otherDimId, optionIds: [optionB, optionC] },
+        ],
+      });
+    });
+
+    it.each([
+      [
+        "its own dimension",
+        [{ dimensionId: dimId, optionIds: [optionB] }],
+        "Option applicability cannot depend on the option's own dimension.",
+      ],
+      [
+        "a clause without options",
+        [{ dimensionId: otherDimId, optionIds: [] }],
+        "Option applicability clauses must name at least one option.",
+      ],
+      [
+        "two clauses for one dimension",
+        [
+          { dimensionId: otherDimId, optionIds: [optionB] },
+          { dimensionId: otherDimId, optionIds: [optionC] },
+        ],
+        "Option applicability must be unique per referenced dimension.",
+      ],
+    ])("rejects option applicability that names %s", (_label, appliesWhen, message) => {
+      expectDomainError(
+        () =>
+          decide(decideDimension, createdState(), {
+            type: "AddOption" as const,
+            optionId: optionA,
+            code: "red",
+            label: l10n("Red"),
+            appliesWhen,
+          }),
+        message,
+      );
+    });
+
+    it("keeps option applicability on a revision that does not name it, and clears it with an empty list", () => {
+      const revise = (appliesWhen?: []) =>
+        decide(decideDimension, scopedOptionState(), {
+          type: "ReviseOption" as const,
+          optionId: optionA,
+          code: "black-label-10",
+          label: l10n("Black Label"),
+          appliesWhen,
+        })[0].data;
+
+      expect(revise()).toMatchObject({ appliesWhen: [{ dimensionId: otherDimId, optionIds: [optionB] }] });
+      expect(revise([])).toMatchObject({ appliesWhen: [] });
+    });
+
+    it("normalizes and validates option applicability named on a revision", () => {
+      const revise = (appliesWhen: { dimensionId: typeof dimId; optionIds: (typeof optionB)[] }[]) =>
+        decide(decideDimension, scopedOptionState(), {
+          type: "ReviseOption" as const,
+          optionId: optionA,
+          code: "black-label-10",
+          label: l10n("Black Label"),
+          appliesWhen,
+        })[0].data;
+
+      expect(
+        revise([
+          { dimensionId: otherDimId, optionIds: [optionC, optionB, optionC] },
+          { dimensionId: firstDimId, optionIds: [optionB] },
+        ]),
+      ).toMatchObject({
+        appliesWhen: [
+          { dimensionId: firstDimId, optionIds: [optionB] },
+          { dimensionId: otherDimId, optionIds: [optionB, optionC] },
+        ],
+      });
+      expectDomainError(
+        () => revise([{ dimensionId: dimId, optionIds: [optionB] }]),
+        "Option applicability cannot depend on the option's own dimension.",
+      );
     });
 
     it("rejects duplicate option IDs", () => {
@@ -516,6 +640,26 @@ describe("Dimension aggregate", () => {
 
       expect(state.options).toHaveLength(1);
       expect(state.options[0].id).toBe(optionA);
+      expect(state.options[0].appliesWhen).toEqual([]);
+    });
+
+    it("keeps option applicability across a revision recorded without it", () => {
+      const revised = (appliesWhen?: []) =>
+        evolveDimension(scopedOptionState(), {
+          type: "catalog.dimension.option-revised",
+          data: {
+            optionId: optionA,
+            code: "black-label-10",
+            label: l10n("Black Label"),
+            displayOrder: 0,
+            numericValue: null,
+            status: "active",
+            appliesWhen,
+          },
+        } as DimensionEvent).options[0].appliesWhen;
+
+      expect(revised()).toEqual([{ dimensionId: otherDimId, optionIds: [optionB] }]);
+      expect(revised([])).toEqual([]);
     });
   });
 });

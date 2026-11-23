@@ -6,6 +6,7 @@ import {
 import {
   catalogProviderProfileSectionCommandFromEdit,
   catalogProviderProfileSectionFieldKeys,
+  catalogProviderProfileSectionFields,
   parseCatalogProviderProfileSectionEdit,
 } from "./provider-profile-section-edit";
 import { catalogProviderProfileEditableSectionKeys } from "./provider-profile-section-registry";
@@ -15,6 +16,40 @@ describe("Catalog provider profile section edit", () => {
     expect(Object.keys(catalogProviderProfileSectionFieldKeys)).toEqual([...catalogProviderProfileEditableSectionKeys]);
   });
 
+  it("describes each section's form, and its edit takes exactly the fields Catalog does not fix", () => {
+    for (const section of catalogProviderProfileEditableSectionKeys) {
+      const fields = catalogProviderProfileSectionFields[section];
+      expect(new Set(fields.map((field) => field.key)).size, section).toBe(fields.length);
+      expect(catalogProviderProfileSectionFieldKeys[section], section).toEqual(
+        fields.filter((field) => field.fixedValue === null).map((field) => field.key),
+      );
+    }
+    const fixed = catalogProviderProfileEditableSectionKeys.flatMap((section) =>
+      catalogProviderProfileSectionFields[section]
+        .filter((field) => field.fixedValue !== null)
+        .map((field) => [section, field.key, field.fixedValue]),
+    );
+    expect(fixed).toEqual([
+      ["fixtures", "liveProviderCallsAllowed", "false"],
+      ["promotion-plan", "promotionRequiresReview", "true"],
+    ]);
+  });
+
+  it("describes the defaults its edit applies", () => {
+    const defaults = catalogProviderProfileEditableSectionKeys.flatMap((section) =>
+      catalogProviderProfileSectionFields[section]
+        .filter((field) => field.defaultValue !== null)
+        .map((field) => [section, field.key, field.defaultValue]),
+    );
+    // "applies Catalog's defaults" below shows the edit applying each of these.
+    expect(defaults).toEqual([
+      ["external-references", "externalReferenceTarget", "catalog-item-reference"],
+      ["duplicate-prevention", "ambiguousCandidatePolicy", "review-only"],
+      ["duplicate-prevention", "replayPolicy", "same-profile-version"],
+      ["promotion-plan", "promotionPlanKind", "catalog-item-promotion"],
+      ["retirement-plan", "retirementReason", "Remove retired profile completely before launch."],
+    ]);
+  });
   it("takes the section's fields as strings, drops a fixed value sent as it is, and refuses the rest", () => {
     expect(
       parseCatalogProviderProfileSectionEdit({ fixtureRoot: "f", liveProviderCallsAllowed: "false" }, "fixtures"),
