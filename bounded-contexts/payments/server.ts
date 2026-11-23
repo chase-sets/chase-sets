@@ -1,5 +1,6 @@
 export type { WalletFundingServices, WalletFundingEligibilityResolver } from "./features/wallet-funding/api/runtime";
 export { walletFundingLimitsPolicy } from "./features/wallet-funding/api/limits-policy";
+export { cardAuthenticationPolicy } from "./features/payments/domain/card-authentication-policy";
 export type {
   PrepaidRefundAuthority,
   PrepaidRefundIdentity,

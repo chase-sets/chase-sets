@@ -151,6 +151,18 @@ describe("policy console registration guard", () => {
       }
     });
 
+    it("registers the Card Authentication Policy in the Payments source, without excepting it", () => {
+      const symbol = "cardAuthenticationPolicy";
+      expect(result.registered.map((declaration) => declaration.symbol)).toContain(symbol);
+      expect(policyConsoleRegistrationExceptions.map((exception) => exception.symbol)).not.toContain(symbol);
+      const compositionRoot = readFileSync(path.join(repoRoot, policyConsoleCrossContextRegistrationFile), "utf8");
+      const paymentsSource = compositionRoot.slice(
+        compositionRoot.indexOf('contextName: "payments"'),
+        compositionRoot.indexOf('contextName: "identity"'),
+      );
+      expect(paymentsSource).toMatch(/definitions: \[[^\]]*\bcardAuthenticationPolicy\b[^\]]*\]/);
+    });
+
     // The inventory is the omission check: a declaration the scanner misses
     // lowers the first number, and one counted twice breaks the uniqueness
     // assertion. A change that adds or removes a declaration updates the
@@ -162,7 +174,7 @@ describe("policy console registration guard", () => {
         declarations: result.declarations.length,
         registered: result.registered.length,
         excepted: result.excepted.length,
-      }).toEqual({ declarations: 52, registered: 33, excepted: 19 });
+      }).toEqual({ declarations: 53, registered: 34, excepted: 19 });
       expect(result.excepted).toHaveLength(policyConsoleRegistrationExceptions.length);
     });
 
