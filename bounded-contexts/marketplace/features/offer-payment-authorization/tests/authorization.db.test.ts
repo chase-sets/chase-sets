@@ -179,9 +179,10 @@ describeDb("Offer Payment Authorization with PostgreSQL workers and streams", ()
       ...services,
       async recordBuyerInstrumentHandoff(db, event) {
         await services.recordBuyerInstrumentHandoff(db, event);
-        // A competing worker checks while both the removal and its handoff are still uncommitted.
+        // An early reconciliation reads committed state on an independent connection. The
+        // subscription runner's gap-safe head fence must wait for this transaction to commit.
         expect(await handoffs()).toHaveLength(1);
-        await reconcile();
+        await services.offerPaymentAuthorization.reconcile(account);
         expect(await events()).toEqual(active);
       },
     });
