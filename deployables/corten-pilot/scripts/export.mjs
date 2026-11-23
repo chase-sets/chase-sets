@@ -1336,8 +1336,8 @@ const outputs = [
         [["collections.features.savedLists.api.route.", "saved_api"]],
       )),
       ...(await catalogFrom(
-        "bounded-contexts/collections/features/saved-lists/ui/localization/locales/en.ts",
-        "savedListsUiEnglishTranslations",
+        "bounded-contexts/discovery/features/saved-list-addition/ui/localization/locales/en.ts",
+        "savedListAdditionEnglishTranslations",
         [["collections.features.savedLists.ui.addToList.", "saved"]],
       )),
       // A sell form's Sell List add that did not fully apply (`SellListAttemptBoundary`).
