@@ -8,7 +8,12 @@ import {
   buildPlatformHelmStagingValues,
   buildPlatformHelmValues,
 } from "./render-platform-helm-values.mjs";
-import { buildHelmUpgradeArgs, parseArgs, platformKubernetesWorkloads } from "./platform-kubernetes-deployment.mjs";
+import {
+  buildHelmUpgradeArgs,
+  droppedAdvisoryCortenPilots,
+  parseArgs,
+  platformKubernetesWorkloads,
+} from "./platform-kubernetes-deployment.mjs";
 import { classifyChanges } from "./change-scope.mjs";
 
 const read = (file) => readFileSync(file, "utf8").replaceAll("\r\n", "\n");
@@ -26,8 +31,8 @@ const options = {
 };
 const workload = "chase-sets-platform-chase-sets-platform-marketplace-corten";
 
-// The first slice builds the marketplace pilot's image and declares its staging workload disabled and its DNS name.
-// Deploy Staging does not pass the image yet, so nothing runs on staging until the workload is enabled with it.
+// The first slice built the marketplace pilot's image and named its staging host. The second enables the staging
+// workload, has Deploy Staging pass the image, and smokes the pilot advisorily. With no image the deploy drops it.
 describe("Corten marketplace staging, first slice", () => {
   it("preserves every production job byte-for-byte", () => {
     const expected = {
@@ -127,10 +132,10 @@ describe("Corten marketplace staging, first slice", () => {
     ).toBe(false);
   });
 
-  it("declares the staging workload disabled, with existing secrets only, until the deploy passes its image", () => {
+  it("enables the staging workload with existing secrets only, and waits for it only when the deploy passes its image", () => {
     const component = buildPlatformHelmStagingValues().components["marketplace-corten"];
     expect(component).toMatchObject({
-      enabled: false,
+      enabled: true,
       kind: "service",
       replicas: 1,
       image: "",
@@ -172,10 +177,12 @@ describe("Corten marketplace staging, first slice", () => {
       expect(secretKey).toBe(name);
       expect(existing.has(secretKey), secretKey).toBe(true);
     }
-    expect(platformKubernetesWorkloads(options).deployments).not.toContain(workload);
-    expect(platformKubernetesWorkloads(options).deployments).toContain(
-      "chase-sets-platform-chase-sets-platform-admin-corten",
-    );
+    expect(platformKubernetesWorkloads(options).deployments).toContain(workload);
+    expect(droppedAdvisoryCortenPilots(options)).not.toContain("marketplace-corten");
+    // With no image the advisory pilot is deployed disabled, so the release neither runs nor waits for it.
+    const withoutImage = { ...options, cortenMarketplaceImage: undefined };
+    expect(droppedAdvisoryCortenPilots(withoutImage)).toContain("marketplace-corten");
+    expect(buildHelmUpgradeArgs(withoutImage)).toContain("components.marketplace-corten.enabled=false");
   });
 
   it("pins the pilot image only on staging and refuses mutable or wrong-repository references", () => {
@@ -227,7 +234,7 @@ describe("Corten marketplace staging, first slice", () => {
     expect(read("Dockerfile.corten-marketplace.dockerignore")).not.toContain("\ndeployables/corten-pilot\n");
   });
 
-  it("builds the image in the pilot images job with the same writer admission, and no deploy reads it yet", () => {
+  it("builds the image in the pilot images job with the same writer admission, and only Deploy Staging reads it", () => {
     const build = workflow.jobs["build-corten-pilot-images"];
     const gate = build.steps.find(({ id }) => id === "corten_pilot_gate");
     const push = build.steps.find(({ id }) => id === "corten_pilot_push");
@@ -244,7 +251,41 @@ describe("Corten marketplace staging, first slice", () => {
       "${{ steps.corten_pilot_image.outputs.corten_marketplace_image }}",
     );
     expect(JSON.stringify(workflow.jobs["build-image"])).not.toContain("corten");
-    expect(JSON.stringify(workflow.jobs["deploy-staging"])).not.toContain("corten_marketplace_image");
-    expect(JSON.stringify(workflow.jobs["deploy-staging"])).not.toContain("corten-marketplace");
+    const deploy = workflow.jobs["deploy-staging"].steps.find(({ id }) => id === "staging_kubernetes_deploy");
+    expect(deploy.env.CORTEN_MARKETPLACE_IMAGE).toBe(
+      "${{ needs.build-corten-pilot-images.outputs.corten_marketplace_image }}",
+    );
+    expect(deploy.run).toContain(
+      'if [ -n "${CORTEN_MARKETPLACE_IMAGE:-}" ]; then\n  corten_image_args+=(--corten-marketplace-image "$CORTEN_MARKETPLACE_IMAGE")\nfi',
+    );
+    expect(JSON.stringify(workflow.jobs["deploy-production"])).not.toContain("corten_marketplace_image");
+    expect(JSON.stringify(workflow.jobs["deploy-production"])).not.toContain("corten-marketplace");
+  });
+
+  it("smokes the pilot after the admin smokes without ever failing Deploy Staging or signing in", () => {
+    const steps = workflow.jobs["deploy-staging"].steps;
+    const index = steps.findIndex(({ name }) => name === "Advisory Corten marketplace smoke");
+    const smoke = steps[index];
+    expect(steps[index - 1].name).toBe("Advisory Corten admin smoke");
+    expect(smoke["continue-on-error"]).toBe(true);
+    expect(smoke["timeout-minutes"]).toBe(15);
+    expect(smoke.if).toBe(steps.find(({ name }) => name === "Smoke check").if);
+    expect(smoke.env.CORTEN_MARKETPLACE_IMAGE).toBe(
+      "${{ needs.build-corten-pilot-images.outputs.corten_marketplace_image }}",
+    );
+    // No admin credentials reach it, and it reads no secret the Smoke check does not already read.
+    expect(JSON.stringify(smoke)).not.toMatch(/PLATFORM_ADMIN_(EMAIL|PASSWORD)/);
+    expect(smoke.run).not.toContain("set -x");
+    const smokeCheckSecrets = new Set(
+      JSON.stringify(steps.find(({ name }) => name === "Smoke check")).match(/secrets\.[A-Z_]+/g),
+    );
+    for (const secret of JSON.stringify(smoke).match(/secrets\.[A-Z_]+/g) ?? []) {
+      expect(smokeCheckSecrets.has(secret), secret).toBe(true);
+    }
+    // With no image the pilot was dropped, so there is nothing to smoke.
+    expect(smoke.run).toMatch(/if \[ -z "\$\{CORTEN_MARKETPLACE_IMAGE:-\}" \]; then\n[^\n]*\n\s*exit 0\n\s*fi/);
+    expect(smoke.run).toContain('--url "https://marketplace-corten.staging.chasesets.com/health/ready"');
+    expect(smoke.run).toContain("pnpm run smoke:corten-marketplace --");
+    expect(smoke.run).toContain('"https://marketplace-corten.staging.chasesets.com"');
   });
 });
