@@ -20,7 +20,7 @@ export type DiscoveryItemsServices = Readonly<{
 
 export function createDiscoveryItemRuntime(
   deps: DiscoveryRuntimeDeps,
-  searchRetrieval: DiscoverySearchRetrievalOptions = {},
+  searchRetrieval: DiscoverySearchRetrievalOptions,
 ): DiscoveryItemsServices {
   const market = createDiscoveryMarketRuntime(deps);
   const search = createDiscoveryItemSearchRuntime(deps, searchRetrieval);

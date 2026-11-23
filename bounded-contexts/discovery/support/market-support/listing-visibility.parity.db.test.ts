@@ -23,6 +23,9 @@ import {
   getDiscoveryItemDetailSellerOverlay,
 } from "../../features/item-detail/read-model/queries";
 import { searchDiscoveryItems } from "../../features/search/read-model/queries";
+import { queryVocabularyPolicy } from "../../features/search/domain/query-vocabulary-policy";
+
+const queryVocabulary = queryVocabularyPolicy.defaultValue;
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseUrl && process.env.CI)
@@ -208,7 +211,7 @@ describeDb("Discovery Listing and Offer visibility parity on Postgres", () => {
           dimensionFilters: [{ dimensionId: "finish", optionId: "foil" }],
           includeTotal: true,
         },
-        { loadFacets: true },
+        { queryVocabulary, loadFacets: true },
       );
       expect(detail?.offer_demand_matches.map((row) => row.offer_id)).toEqual(visible ? [`off_${slug}`] : []);
       expect(overlay.accountOfferMatches.map((row) => row.offer_id)).toEqual(visible ? [`off_${slug}`] : []);

@@ -26,6 +26,7 @@ import {
   discoverySearchRescueEnabled,
 } from "../../features/search/domain/embedding-rollout";
 import { createQueryEmbeddingCache } from "../../features/search/domain/query-embedding-cache";
+import { queryVocabularyPolicy } from "../../features/search/domain/query-vocabulary-policy";
 import {
   createVoyageEmbeddingProvider,
   type DiscoveryEmbeddingProvider,
@@ -131,6 +132,7 @@ export function createDiscoveryServices(pool: PgTransactionalPool, ports: Discov
       : undefined;
   const retrievalProvider = embeddingRolloutEnabled ? embeddingProvider : undefined;
   const items = createDiscoveryItemRuntime(deps, {
+    resolveQueryVocabulary: async () => (await policies.resolvePolicy(queryVocabularyPolicy)).value,
     provider: retrievalProvider,
     cache: retrievalProvider
       ? createQueryEmbeddingCache({

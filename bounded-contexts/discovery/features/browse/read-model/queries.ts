@@ -5,6 +5,7 @@ import {
   setCodeFromReferenceAttributes,
   type ReferenceRecordRef,
 } from "../../../support/item-support/reference-records";
+import { EMPTY_QUERY_VOCABULARY } from "../../search/domain/query-vocabulary-policy";
 import { searchDiscoveryItems, type DiscoverySearchItemRow } from "../../search/read-model/queries";
 
 const SEARCH_REFERENCE_RECORDS_TABLE = "discovery_search_catalog_reference_records";
@@ -97,7 +98,7 @@ export async function getDiscoveryBrowseSetPageBySlug(
       limit: BROWSE_SET_ITEM_GRID_LIMIT,
       includeTotal: true,
     },
-    { loadFacets: false, loadMarketSummaries: true },
+    { queryVocabulary: EMPTY_QUERY_VOCABULARY, loadFacets: false, loadMarketSummaries: true },
   );
 
   return {
