@@ -14,16 +14,6 @@ const facts = {
   stripe_review_open_count: 99,
   shared_instrument_cluster_count: 99,
   shared_address_cluster_count: 99,
-  chargeback_7d_count: 99,
-  chargeback_30d_count: 99,
-  chargeback_30d_rate_bps: 10000,
-  listing_24h_count: 99,
-  listing_24h_value_cents: "999999999",
-  review_24h_count: 99,
-  review_24h_median_reviewer_age_days: "0.01",
-  buyer_order_24h_count: 99,
-  buyer_spend_24h_cents: "999999999",
-  velocity_alert_flags: ["synthetic-high-velocity"],
   review_count: 99,
   average_rating: "1.00",
 };
@@ -78,13 +68,9 @@ describe("seller checkout risk v1 policy", () => {
           ? !value
           : typeof value === "number"
             ? value + 1
-            : Array.isArray(value)
-              ? []
-              : fact.endsWith("_at")
-                ? "2026-10-30T00:00:00.000Z"
-                : fact.endsWith("_cents")
-                  ? "2"
-                  : "2.00";
+            : fact.endsWith("_at")
+              ? "2026-10-30T00:00:00.000Z"
+              : "2.00";
       const after = await reader(owner);
       expect(before).toEqual({
         schemaVersion: "settlement.seller-checkout-risk.v1",

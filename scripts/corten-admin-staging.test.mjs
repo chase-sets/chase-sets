@@ -7,7 +7,6 @@ import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import {
   buildDoksIngressValues,
-  buildPlatformHelmProductionValues,
   buildPlatformHelmStagingValues,
   buildPlatformHelmValues,
 } from "./render-platform-helm-values.mjs";
@@ -40,7 +39,8 @@ describe("Corten admin staging deployment", () => {
     const expected = {
       "reconcile-production-marker": "6e7171774b3d654c0dcd81d993140ebcfb0bf8436d05c7a5809c7137b5f2c317",
       "reconcile-managed-postgres-ca-production": "2a089333675961592792931dc522f4a8725e1f4b2f8688a0a7ecbb5a3246f389",
-      "deploy-production": "b2cff7ebb9ea3b5d64c01681b05d304c7b1df7c40f7a7984edc18cf5f01fb884",
+      // Moved for the production admin switch: PRODUCTION_ADMIN_APP, the staged Corten admin image, best-effort PROXIES.
+      "deploy-production": "1839392f04347528f1c5cedc10be1258157b6340772cc35c7802c674d846f3a4",
       "notify-production-deploy-incident": "45ba7ca357af41620cb066784a2ef94c80741725d98aa98a6520f3b049166262",
       "notify-production-rollback-incident": "6620994b81902ec45da29e5b3f049a1e49b2e9a2483d1b6acf6663584272710e",
     };
@@ -60,7 +60,7 @@ describe("Corten admin staging deployment", () => {
   it("preserves the production values at the deployment baseline", () => {
     for (const [file, digest] of Object.entries({
       "values.yaml": "fc374d3d46b6998cf31a553f16edbdbfd10e1c194f5e0c9e8e3ba1871dccbf6c",
-      "values.production.yaml": "71515689eabc8c257834810ef7fbb65b4f69cc71e054055c9005a08c6dffb81e",
+      "values.production.yaml": "653442bfb787b2701df3afccdc816f912f3bb658f063ba9b1a24d2627d59f37c",
     })) {
       expect(
         createHash("sha256")
@@ -82,19 +82,17 @@ describe("Corten admin staging deployment", () => {
     expect(classifyChanges({ changedFiles: [file], workspaces: [] }).deployRequired).toBe(true);
   });
 
-  it("keeps the pilot out of base, production and preview values", () => {
+  it("keeps the pilot out of base and preview values, and out of production's hosts and DNS", () => {
     expect(buildPlatformHelmValues().components).not.toHaveProperty("admin-corten");
-    expect(buildPlatformHelmProductionValues().components).not.toHaveProperty("admin-corten");
     expect(read("infrastructure/helm/platform/values.preview.yaml")).not.toContain("admin-corten");
-    for (const environment of ["production", "preview"]) {
-      expect(
-        platformKubernetesWorkloads({ envOverrides: { DEPLOYMENT_ENVIRONMENT: environment } }).deployments,
-      ).not.toContain("chase-sets-platform-chase-sets-platform-admin-corten");
-    }
+    expect(
+      platformKubernetesWorkloads({ envOverrides: { DEPLOYMENT_ENVIRONMENT: "preview" } }).deployments,
+    ).not.toContain("chase-sets-platform-chase-sets-platform-admin-corten");
+    // Production takes over admin.chasesets.com itself (corten-admin-production.test.mjs); it has no pilot host.
     expect(
       buildDoksIngressValues({
         environment: "production",
-        env: { PRODUCTION_DOKS_INGRESS_TARGET: "192.0.2.1" },
+        env: { PRODUCTION_DOKS_INGRESS_TARGET: "192.0.2.1", PRODUCTION_ADMIN_APP: "admin-corten" },
       }).hosts.some(({ host }) => host.includes("corten")),
     ).toBe(false);
     const dns = read("infrastructure/digitalocean/platform/locals.tf");
@@ -207,14 +205,17 @@ describe("Corten admin staging deployment", () => {
     ).toThrow("component.image is required");
   });
 
-  it("pins the pilot image only on staging and refuses mutable or wrong-repository references", () => {
+  it("pins the pilot image only on staging and production and refuses mutable or wrong-repository references", () => {
     expect(buildHelmUpgradeArgs(options)).toContain(`components.admin-corten.image=${image}`);
     expect(parseArgs(["deploy", "--corten-admin-image", image], {}).cortenAdminImage).toBe(image);
-    for (const environment of ["production", "preview"]) {
-      expect(() => buildHelmUpgradeArgs({ ...options, envOverrides: { DEPLOYMENT_ENVIRONMENT: environment } })).toThrow(
-        "staging-only",
-      );
-    }
+    expect(() => buildHelmUpgradeArgs({ ...options, envOverrides: { DEPLOYMENT_ENVIRONMENT: "preview" } })).toThrow(
+      "corten-admin-image is staging and production only.",
+    );
+    // Production under its default (admin-web) does not deploy the pilot, whatever image it was given.
+    const production = buildHelmUpgradeArgs({ ...options, envOverrides: { DEPLOYMENT_ENVIRONMENT: "production" } });
+    expect(production.filter((arg) => String(arg).startsWith("components.admin-corten."))).toEqual([
+      "components.admin-corten.enabled=false",
+    ]);
     expect(() => buildHelmUpgradeArgs({ ...options, cortenAdminImage: image.split("@")[0] + ":latest" })).toThrow();
     expect(() =>
       buildHelmUpgradeArgs({ ...options, cortenAdminImage: image.replace("corten-admin", "platform") }),
@@ -323,7 +324,7 @@ describe("Corten admin staging deployment", () => {
     const push = build.steps.find(({ id }) => id === "corten_pilot_push");
     const publish = build.steps.find(({ id }) => id === "corten_pilot_image");
     expect(build.environment).toBe("staging");
-    expect(build.strategy).toEqual({ "fail-fast": false, matrix: { pilot: ["admin", "marketplace"] } });
+    expect(build.strategy).toEqual({ "fail-fast": false, matrix: { pilot: ["admin", "marketplace", "public"] } });
     expect(build.outputs.corten_admin_image).toBe("${{ steps.corten_pilot_image.outputs.corten_admin_image }}");
     // The registry admission runs before, and in a different step from, the write; a refusal skips the push.
     expect(gate.run).toContain("digitalocean-registry-gc-gate.mjs assert-writable");
@@ -582,7 +583,7 @@ describe("the staging admin app switch", () => {
   });
 
   it("keeps admin-corten off the advisory list and withholds it only while admin-web serves admin.staging", () => {
-    expect(ADVISORY_CORTEN_PILOT_COMPONENTS).toEqual(["marketplace-corten"]);
+    expect(ADVISORY_CORTEN_PILOT_COMPONENTS).toEqual(["marketplace-corten", "public-corten"]);
     const staging = (env) => withheldCortenPilots({ ...options, env });
     expect(staging({})).toEqual([]);
     expect(staging({ STAGING_ADMIN_APP: "admin-corten" })).toEqual([]);

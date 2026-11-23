@@ -408,7 +408,7 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
         decisionRefs: [],
         productTruthRefs: [
           "bounded-contexts/marketplace/features/offers/domain/domain.ts:72,207-241,289",
-          "bounded-contexts/ordering/features/orders/domain/domain.ts:263-300,338-346",
+          "bounded-contexts/ordering/features/orders/domain/domain.ts:264-301,339-347",
           "bounded-contexts/ordering/README.md:5,73",
         ],
         openQuestions: [

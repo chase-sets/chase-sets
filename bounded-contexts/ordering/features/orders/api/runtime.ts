@@ -1355,7 +1355,7 @@ async function resolveAuthenticityCheckOffer(
 
   const draft = plan.orderDrafts[0]!;
   const resolved = await deps.authenticityFeePolicyResolver.resolveAuthenticityFeePolicy();
-  return quoteAuthenticityCheckFee({ orderValueAmount: draft.itemSubtotalAmount, category: "any" }, resolved.value);
+  return quoteAuthenticityCheckFee({ orderValueAmount: draft.itemSubtotalAmount }, resolved.value);
 }
 
 /**
@@ -1364,7 +1364,7 @@ async function resolveAuthenticityCheckOffer(
  * committed order value rather than trusting the client-supplied amount --
  * the buyer only supplies the fingerprint of the quote they saw at opt-in
  * time, which must match Ordering's authoritative recomputation exactly
- * (order value, category, and policy version) or the whole checkout
+ * (order value and policy version) or the whole checkout
  * submission is rejected as stale (`authenticity_fee_quote_stale`),
  * mirroring the marketplace checkout fee's `fee_quote_stale` 409 pattern.
  */
@@ -1907,7 +1907,6 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
                   feeAmount: authenticityFeeAmount,
                   payer: "buyer",
                   policyVersion: authenticityPlan.policy_version,
-                  category: authenticityPlan.category,
                   thresholdAmount: authenticityPlan.threshold_amount,
                   orderValueAmount: authenticityPlan.order_value_amount,
                   quotedAt: authenticityPlan.quoted_at,

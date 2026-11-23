@@ -451,9 +451,9 @@ describe("privacy product-truth one-variable controls", () => {
       const mutant = deriveWithMutatedSources(
         [
           {
-            relativePath: "bounded-contexts/payments/routes/marketplace/account-payment-methods.tsx",
+            relativePath: "bounded-contexts/payments/features/payments/ui/routes/account-payment-methods.tsx",
             mutate: (source) =>
-              `import { ArbitraryProviderWidget } from "../../../../some/arbitrary/tracked/place/provider-widget";\n${source}`,
+              `import { ArbitraryProviderWidget } from "../../../../../../some/arbitrary/tracked/place/provider-widget";\n${source}`,
           },
         ],
         [

@@ -403,7 +403,7 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     inventorySubject:
       "@stripe/stripe-js@bounded-contexts/payments/features/payments/ui/account-payment/stripe-setup-card.tsx",
     evidenceRefs: [
-      "bounded-contexts/payments/features/payments/ui/account-payment/stripe-setup-card.tsx:38",
+      "bounded-contexts/payments/features/payments/ui/account-payment/stripe-setup-card.tsx:39",
       "bounded-contexts/payments/package.json:42",
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:7",
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:9",

@@ -905,10 +905,12 @@ jobs:
         pilot:
           - admin
           - marketplace
+          - public
     # Each leg writes only its own key, and an unset output never overrides the other leg's.
     outputs:
       corten_admin_image: ${{ steps.corten_pilot_image.outputs.corten_admin_image }}
       corten_marketplace_image: ${{ steps.corten_pilot_image.outputs.corten_marketplace_image }}
+      corten_public_image: ${{ steps.corten_pilot_image.outputs.corten_public_image }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         continue-on-error: true
@@ -1303,6 +1305,8 @@ jobs:
       deployed: ${{ steps.staging_applied.outputs.deployed || 'false' }}
       applied: ${{ steps.staging_applied.outputs.applied || 'false' }}
       admin_app: ${{ steps.staging_kubernetes_deploy.outputs.admin_app }}
+      # Set only when staging deployed and so smoked the Corten admin; production deploys this digest.
+      corten_admin_image: ${{ steps.staging_kubernetes_deploy.outputs.corten_admin_image }}
       failure_classification: ${{ steps.staging_failure_classification.outputs.root_cause_code || 'unknown' }}
       root_cause_code: ${{ steps.staging_failure_classification.outputs.root_cause_code || 'unknown' }}
       root_cause_summary: ${{ steps.staging_failure_classification.outputs.root_cause_summary || 'The deployment failed without a known safe classification.' }}
@@ -3343,6 +3347,7 @@ jobs:
     if: needs.deploy-staging.outputs.deployed == 'true'
     environment: production
     outputs:
+      admin_app: ${{ steps.production_kubernetes_deploy.outputs.admin_app }}
       rollback_result: ${{ steps.production_rollback.outputs.result || 'not-attempted' }}
       rollback_target_commit: ${{ steps.production_rollback.outputs.rollback_target_commit || '' }}
       rollback_reference: ${{ steps.production_rollback.outputs.rollback_reference || '' }}
@@ -3371,6 +3376,8 @@ jobs:
       PRODUCTION_DOKS_INGRESS_TARGET: ${{ vars.PRODUCTION_DOKS_INGRESS_TARGET || '' }}
       PRODUCTION_MARKETPLACE_SERVED: ${{ vars.PRODUCTION_MARKETPLACE_SERVED || 'false' }}
       PRODUCTION_MARKETPLACE_PUBLIC_ENABLED: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED || 'false' }}
+      # admin-web (the default) or admin-corten; see docs/runbooks/production-admin-app.md.
+      PRODUCTION_ADMIN_APP: ${{ vars.PRODUCTION_ADMIN_APP || '' }}
       TF_VAR_doks_ingress_target: ${{ vars.PRODUCTION_DOKS_INGRESS_TARGET || '' }}
       TF_VAR_production_runtime_profile: ${{ vars.PRODUCTION_RUNTIME_PROFILE || (vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' && 'proof' || 'landing') }}
       TF_VAR_production_marketplace_served: ${{ vars.PRODUCTION_MARKETPLACE_SERVED || 'false' }}
@@ -4404,6 +4411,7 @@ jobs:
           PLATFORM_IMAGE_REF: ${{ steps.image.outputs.image }}@${{ steps.image.outputs.digest }}
           RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
           RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+          CORTEN_ADMIN_IMAGE: ${{ needs.deploy-staging.outputs.corten_admin_image }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
           ADMISSION_RETRY_READINESS_RESULT: ${{ steps.rollback_readiness.outputs.result }}
@@ -4470,6 +4478,37 @@ jobs:
           add_optional_runtime_env "STRIPE_API_BASE_URL" "${TF_VAR_stripe_api_base_url:-}"
           add_optional_runtime_env "EASYPOST_API_BASE_URL" "${TF_VAR_easypost_api_base_url:-}"
 
+          # The Corten admin believes X-Forwarded-For only from the ingress pods in PROXIES. Discovery is
+          # best-effort: while admin-web serves admin the pilot is not deployed and a failure here must not hold
+          # the release; under PRODUCTION_ADMIN_APP=admin-corten the deploy script refuses an empty PROXIES.
+          ingress_pod_cidrs=""
+          if ingress_nodes="$(kubectl -n ingress-nginx get pods -l app.kubernetes.io/component=controller -o json \
+            | jq -ce '[.items[] | select(.status.phase == "Running") | .spec.nodeName] | unique | select(length > 0)')" \
+            && ingress_pod_cidrs="$(kubectl get nodes -o json | jq -er --argjson nodes "$ingress_nodes" \
+            '.items as $items | [
+              $nodes[] as $name
+              | ($items | map(select(.metadata.name == $name)) | first)
+              | (.spec.podCIDRs // [] | map(select(type == "string" and length > 0))) as $cidrs
+              | .metadata.annotations["network.cilium.io/ipv4-pod-cidr"] as $cilium_cidr
+              | if ($cidrs | length) > 0 then $cidrs[]
+                elif ($cilium_cidr | type == "string" and length > 0) then $cilium_cidr
+                else error("Missing pod CIDR for ingress node: \($name)")
+                end
+            ] | unique | select(length > 0) | join(",")')"; then
+            echo "Ingress pod CIDRs for PROXIES: ${ingress_pod_cidrs}"
+          else
+            ingress_pod_cidrs=""
+            echo "::warning title=Corten admin PROXIES::The ingress pod CIDRs could not be read; PROXIES is not set."
+          fi
+          add_optional_runtime_env "PROXIES" "$ingress_pod_cidrs"
+
+          # Production deploys the Corten admin image that Deploy Staging deployed and smoked. Under admin-web
+          # the script does not deploy the pilot, image or not; under admin-corten it refuses a missing image.
+          corten_image_args=()
+          if [ -n "$CORTEN_ADMIN_IMAGE" ]; then
+            corten_image_args+=(--corten-admin-image "$CORTEN_ADMIN_IMAGE")
+          fi
+
           # Application pods send to the in-cluster Collector Service; the
           # in-cluster Collector Service; the deployment helper owns that
           # endpoint and the production Kubernetes resource identity.
@@ -4481,6 +4520,8 @@ jobs:
 
           pnpm run platform:kubernetes-deployment -- deploy \
             --image "$PLATFORM_IMAGE_REF" \
+            "${corten_image_args[@]}" \
+            --github-summary "$GITHUB_STEP_SUMMARY" \
             --image-pull-secret chase-sets \
             --observability-exporter-endpoint "$observability_exporter_endpoint" \
             --runtime-env "DEPLOYMENT_ENVIRONMENT=production" \

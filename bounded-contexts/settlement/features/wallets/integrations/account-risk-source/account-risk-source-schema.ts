@@ -12,50 +12,10 @@ CREATE TABLE IF NOT EXISTS settlement_account_risk_sources (
   stripe_review_open_count integer NOT NULL DEFAULT 0,
   shared_instrument_cluster_count integer NOT NULL DEFAULT 0,
   shared_address_cluster_count integer NOT NULL DEFAULT 0,
-  chargeback_7d_count integer NOT NULL DEFAULT 0,
-  chargeback_30d_count integer NOT NULL DEFAULT 0,
-  chargeback_30d_rate_bps integer NOT NULL DEFAULT 0,
-  listing_24h_count integer NOT NULL DEFAULT 0,
-  listing_24h_value_cents bigint NOT NULL DEFAULT 0,
-  review_24h_count integer NOT NULL DEFAULT 0,
-  review_24h_median_reviewer_age_days numeric(10, 2) NULL,
-  buyer_order_24h_count integer NOT NULL DEFAULT 0,
-  buyer_spend_24h_cents bigint NOT NULL DEFAULT 0,
-  velocity_alert_flags jsonb NOT NULL DEFAULT '[]'::jsonb,
   review_count integer NOT NULL DEFAULT 0,
   average_rating numeric(4, 2) NULL,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
-
-ALTER TABLE settlement_account_risk_sources
-  ADD COLUMN IF NOT EXISTS chargeback_7d_count integer NOT NULL DEFAULT 0;
-
-ALTER TABLE settlement_account_risk_sources
-  ADD COLUMN IF NOT EXISTS chargeback_30d_count integer NOT NULL DEFAULT 0;
-
-ALTER TABLE settlement_account_risk_sources
-  ADD COLUMN IF NOT EXISTS chargeback_30d_rate_bps integer NOT NULL DEFAULT 0;
-
-ALTER TABLE settlement_account_risk_sources
-  ADD COLUMN IF NOT EXISTS listing_24h_count integer NOT NULL DEFAULT 0;
-
-ALTER TABLE settlement_account_risk_sources
-  ADD COLUMN IF NOT EXISTS listing_24h_value_cents bigint NOT NULL DEFAULT 0;
-
-ALTER TABLE settlement_account_risk_sources
-  ADD COLUMN IF NOT EXISTS review_24h_count integer NOT NULL DEFAULT 0;
-
-ALTER TABLE settlement_account_risk_sources
-  ADD COLUMN IF NOT EXISTS review_24h_median_reviewer_age_days numeric(10, 2) NULL;
-
-ALTER TABLE settlement_account_risk_sources
-  ADD COLUMN IF NOT EXISTS buyer_order_24h_count integer NOT NULL DEFAULT 0;
-
-ALTER TABLE settlement_account_risk_sources
-  ADD COLUMN IF NOT EXISTS buyer_spend_24h_cents bigint NOT NULL DEFAULT 0;
-
-ALTER TABLE settlement_account_risk_sources
-  ADD COLUMN IF NOT EXISTS velocity_alert_flags jsonb NOT NULL DEFAULT '[]'::jsonb;
 
 -- author_role records the review AUTHOR's role (m108): the SUBJECT played the
 -- opposite role, so payout-risk inputs must filter WHERE author_role = 'buyer'
@@ -149,43 +109,12 @@ CREATE TABLE IF NOT EXISTS settlement_account_linkage_closer_cursors (
   after_cluster_key text NOT NULL,
   updated_at timestamptz NOT NULL
 );
-
-CREATE TABLE IF NOT EXISTS settlement_account_velocity_sources (
-  source_kind text NOT NULL,
-  source_id text NOT NULL,
-  account_id text NOT NULL,
-  occurred_at timestamptz NOT NULL,
-  amount_cents bigint NOT NULL DEFAULT 0,
-  amount_currency_code text NULL,
-  source_stream_version integer NULL,
-  reviewer_account_id text NULL,
-  reviewer_account_created_at timestamptz NULL,
-  updated_at timestamptz NOT NULL,
-  PRIMARY KEY (source_kind, source_id, account_id)
-);
-
-CREATE INDEX IF NOT EXISTS settlement_account_velocity_sources_account_window_idx
-  ON settlement_account_velocity_sources (account_id, source_kind, occurred_at DESC);
-
-CREATE INDEX IF NOT EXISTS settlement_account_velocity_sources_reviewer_idx
-  ON settlement_account_velocity_sources (reviewer_account_id)
-  WHERE reviewer_account_id IS NOT NULL;
 `;
 
 export const settlementPayoutReviewHoldFallbackGuardMigrationId =
   "20261120_settlement_payout_review_hold_fallback_guard";
 
 export const settlementAccountRiskSourceSchemaMigrations: readonly BcSchemaMigration[] = [
-  {
-    migrationId: "20260907_settlement_listing_risk_currency",
-    description:
-      "Preserve nullable Listing value currency and Marketplace stream version for USD-denominated risk aggregation.",
-    statements: [
-      `ALTER TABLE settlement_account_velocity_sources
-  ADD COLUMN IF NOT EXISTS amount_currency_code text NULL,
-  ADD COLUMN IF NOT EXISTS source_stream_version integer NULL`,
-    ],
-  },
   {
     migrationId: "20260720_settlement_account_linkage_clusters",
     description: "Map private risk clusters to opaque identifiers and track their publication lifecycle.",
@@ -286,66 +215,6 @@ export const settlementAccountRiskSourceSchemaMigrations: readonly BcSchemaMigra
     ],
   },
   {
-    migrationId: "20260707_settlement_account_velocity_risk_sources",
-    description: "Track account velocity counters as Settlement account risk sources.",
-    statements: [
-      `CREATE TABLE IF NOT EXISTS settlement_account_velocity_sources (
-  source_kind text NOT NULL,
-  source_id text NOT NULL,
-  account_id text NOT NULL,
-  occurred_at timestamptz NOT NULL,
-  amount_cents bigint NOT NULL DEFAULT 0,
-  reviewer_account_id text NULL,
-  reviewer_account_created_at timestamptz NULL,
-  updated_at timestamptz NOT NULL,
-  PRIMARY KEY (source_kind, source_id, account_id)
-)`,
-      `CREATE INDEX CONCURRENTLY IF NOT EXISTS settlement_account_velocity_sources_account_window_idx
-  ON settlement_account_velocity_sources (account_id, source_kind, occurred_at DESC)`,
-      `CREATE INDEX CONCURRENTLY IF NOT EXISTS settlement_account_velocity_sources_reviewer_idx
-  ON settlement_account_velocity_sources (reviewer_account_id)
-  WHERE reviewer_account_id IS NOT NULL`,
-      `SET lock_timeout = '2s'`,
-      `ALTER TABLE settlement_account_risk_sources ADD COLUMN IF NOT EXISTS chargeback_7d_count integer NULL`,
-      `UPDATE settlement_account_risk_sources SET chargeback_7d_count = 0 WHERE chargeback_7d_count IS NULL`,
-      `ALTER TABLE settlement_account_risk_sources ALTER COLUMN chargeback_7d_count SET DEFAULT 0`,
-      `ALTER TABLE settlement_account_risk_sources ALTER COLUMN chargeback_7d_count SET NOT NULL`,
-      `ALTER TABLE settlement_account_risk_sources ADD COLUMN IF NOT EXISTS chargeback_30d_count integer NULL`,
-      `UPDATE settlement_account_risk_sources SET chargeback_30d_count = 0 WHERE chargeback_30d_count IS NULL`,
-      `ALTER TABLE settlement_account_risk_sources ALTER COLUMN chargeback_30d_count SET DEFAULT 0`,
-      `ALTER TABLE settlement_account_risk_sources ALTER COLUMN chargeback_30d_count SET NOT NULL`,
-      `ALTER TABLE settlement_account_risk_sources ADD COLUMN IF NOT EXISTS chargeback_30d_rate_bps integer NULL`,
-      `UPDATE settlement_account_risk_sources SET chargeback_30d_rate_bps = 0 WHERE chargeback_30d_rate_bps IS NULL`,
-      `ALTER TABLE settlement_account_risk_sources ALTER COLUMN chargeback_30d_rate_bps SET DEFAULT 0`,
-      `ALTER TABLE settlement_account_risk_sources ALTER COLUMN chargeback_30d_rate_bps SET NOT NULL`,
-      `ALTER TABLE settlement_account_risk_sources ADD COLUMN IF NOT EXISTS listing_24h_count integer NULL`,
-      `UPDATE settlement_account_risk_sources SET listing_24h_count = 0 WHERE listing_24h_count IS NULL`,
-      `ALTER TABLE settlement_account_risk_sources ALTER COLUMN listing_24h_count SET DEFAULT 0`,
-      `ALTER TABLE settlement_account_risk_sources ALTER COLUMN listing_24h_count SET NOT NULL`,
-      `ALTER TABLE settlement_account_risk_sources ADD COLUMN IF NOT EXISTS listing_24h_value_cents bigint NULL`,
-      `UPDATE settlement_account_risk_sources SET listing_24h_value_cents = 0 WHERE listing_24h_value_cents IS NULL`,
-      `ALTER TABLE settlement_account_risk_sources ALTER COLUMN listing_24h_value_cents SET DEFAULT 0`,
-      `ALTER TABLE settlement_account_risk_sources ALTER COLUMN listing_24h_value_cents SET NOT NULL`,
-      `ALTER TABLE settlement_account_risk_sources ADD COLUMN IF NOT EXISTS review_24h_count integer NULL`,
-      `UPDATE settlement_account_risk_sources SET review_24h_count = 0 WHERE review_24h_count IS NULL`,
-      `ALTER TABLE settlement_account_risk_sources ALTER COLUMN review_24h_count SET DEFAULT 0`,
-      `ALTER TABLE settlement_account_risk_sources ALTER COLUMN review_24h_count SET NOT NULL`,
-      `ALTER TABLE settlement_account_risk_sources ADD COLUMN IF NOT EXISTS review_24h_median_reviewer_age_days numeric(10, 2) NULL`,
-      `ALTER TABLE settlement_account_risk_sources ADD COLUMN IF NOT EXISTS buyer_order_24h_count integer NULL`,
-      `UPDATE settlement_account_risk_sources SET buyer_order_24h_count = 0 WHERE buyer_order_24h_count IS NULL`,
-      `ALTER TABLE settlement_account_risk_sources ALTER COLUMN buyer_order_24h_count SET DEFAULT 0`,
-      `ALTER TABLE settlement_account_risk_sources ALTER COLUMN buyer_order_24h_count SET NOT NULL`,
-      `ALTER TABLE settlement_account_risk_sources ADD COLUMN IF NOT EXISTS buyer_spend_24h_cents bigint NULL`,
-      `UPDATE settlement_account_risk_sources SET buyer_spend_24h_cents = 0 WHERE buyer_spend_24h_cents IS NULL`,
-      `ALTER TABLE settlement_account_risk_sources ALTER COLUMN buyer_spend_24h_cents SET DEFAULT 0`,
-      `ALTER TABLE settlement_account_risk_sources ALTER COLUMN buyer_spend_24h_cents SET NOT NULL`,
-      `ALTER TABLE settlement_account_risk_sources ADD COLUMN IF NOT EXISTS velocity_alert_flags jsonb NULL`,
-      `UPDATE settlement_account_risk_sources SET velocity_alert_flags = '[]'::jsonb WHERE velocity_alert_flags IS NULL`,
-      `ALTER TABLE settlement_account_risk_sources ALTER COLUMN velocity_alert_flags SET DEFAULT '[]'::jsonb`,
-      `ALTER TABLE settlement_account_risk_sources ALTER COLUMN velocity_alert_flags SET NOT NULL`,
-    ],
-  },
-  {
     migrationId: "20260711_settlement_account_review_sources_reveal",
     description:
       "Add the revealed_at gate to settlement_account_review_sources and mark every existing (pre-launch) row revealed (m108).",
@@ -399,6 +268,25 @@ BEGIN
   END IF;
 END;
 $$`,
+    ],
+  },
+  {
+    migrationId: "20261123_settlement_drop_account_velocity_storage",
+    description: "Drop the account velocity source table and counters that Settlement no longer reads or writes.",
+    statements: [
+      `SET lock_timeout = '5s'`,
+      `DROP TABLE IF EXISTS settlement_account_velocity_sources`,
+      `ALTER TABLE settlement_account_risk_sources
+  DROP COLUMN IF EXISTS chargeback_7d_count,
+  DROP COLUMN IF EXISTS chargeback_30d_count,
+  DROP COLUMN IF EXISTS chargeback_30d_rate_bps,
+  DROP COLUMN IF EXISTS listing_24h_count,
+  DROP COLUMN IF EXISTS listing_24h_value_cents,
+  DROP COLUMN IF EXISTS review_24h_count,
+  DROP COLUMN IF EXISTS review_24h_median_reviewer_age_days,
+  DROP COLUMN IF EXISTS buyer_order_24h_count,
+  DROP COLUMN IF EXISTS buyer_spend_24h_cents,
+  DROP COLUMN IF EXISTS velocity_alert_flags`,
     ],
   },
 ] as const;

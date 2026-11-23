@@ -15,7 +15,8 @@ const authenticityFeePolicyResolver = {
       bands: [
         {
           minOrderValueAmount: "0.00",
-          category: "any" as const,
+          // Commercial Terms resolves every band with this key; Ordering does not read it.
+          category: "any",
           flatAmount: "8.00",
           percentageBps: 200,
           capAmount: "50.00",
@@ -29,7 +30,7 @@ const authenticityFeePolicyResolver = {
   })),
 };
 
-function highValueSupplyDb() {
+function highValueSupplyDb(priceAmount = "150.00") {
   return createSupplyDb(() => [
     {
       listingId: "lst_1",
@@ -43,7 +44,7 @@ function highValueSupplyDb() {
       productSummary: null,
       storageLocationName: "North shelf",
       shipFromCode: "CHI",
-      priceAmount: "150.00",
+      priceAmount,
       availableQuantity: 1,
       updatedAt: "2026-03-31T00:00:00.000Z",
     },
@@ -193,6 +194,59 @@ describe("ordering order runtime: authenticity check opt-in (m109 #4275)", () =>
           policyVersion: "authenticity-check-fee-v1",
         }),
       }),
+    ]);
+  });
+
+  it("accepts an opt-in that presents the fingerprint quoted before the offer stopped carrying a category", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const services = createOrderingOrderRuntimeForTest({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: highValueSupplyDb("100.00") as never,
+      shippingQuotePolicy: {
+        quote: () => ({ shippingOption: "standard", baseAmount: "4.99", discountAmount: "0.00", chargeAmount: "4.99" }),
+      },
+      authenticityFeePolicyResolver,
+    });
+    const checkoutParams = {
+      buyerAccountId: "acc_buyer" as never,
+      checkoutSessionId: "chk_authenticity_in_flight",
+      sourceType: "cart-checkout" as const,
+      shippingOption: "standard" as const,
+      shippingAddress,
+      lines: checkoutLines(),
+    };
+    // The fingerprint every build quotes for a $100.00 order under the launch values.
+    const quoteFingerprint = "authenticity-check-fee-v1|eligible|100.00|100.00|any|10.00";
+
+    const preview = await services.previewCheckoutFulfillment(checkoutParams);
+    expect(preview.authenticityCheckOffer).toStrictEqual({
+      eligible: true,
+      order_value_amount: "100.00",
+      threshold_amount: "100.00",
+      fee_amount: "10.00",
+      policy_version: "authenticity-check-fee-v1",
+      quote_fingerprint: quoteFingerprint,
+      quoted_at: expect.any(String),
+    });
+
+    await services.createOrdersFromCheckout(
+      { ...checkoutParams, authenticityCheckOptIn: { selected: true, quoteFingerprint } },
+      context,
+    );
+
+    const createdEvents = readAllEvents()
+      .filter((event) => event.eventType === "ordering.order.created")
+      .map((event) => (event.payload as { authenticityPlanSnapshot: unknown }).authenticityPlanSnapshot);
+    expect(createdEvents).toStrictEqual([
+      {
+        feeAmount: "10.00",
+        payer: "buyer",
+        policyVersion: "authenticity-check-fee-v1",
+        thresholdAmount: "100.00",
+        orderValueAmount: "100.00",
+        quotedAt: expect.any(String),
+      },
     ]);
   });
 

@@ -109,7 +109,6 @@ export type OrderingAuthenticityPlanSnapshot = Readonly<{
   feeAmount: string;
   payer: "buyer";
   policyVersion: string;
-  category: "raw" | "graded" | "any";
   thresholdAmount: string;
   orderValueAmount: string;
   quotedAt: string;
@@ -656,7 +655,6 @@ function normalizeAuthenticityPlanSnapshot(
       snapshot.policyVersion,
       "Authenticity plan must include a fee policy version.",
     ),
-    category: snapshot.category === "raw" || snapshot.category === "graded" ? snapshot.category : "any",
     thresholdAmount: normalizeMoneyAmount(snapshot.thresholdAmount, {
       fieldName: "Authenticity check opt-in threshold",
       allowZero: true,

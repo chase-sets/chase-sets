@@ -1,8 +1,61 @@
 {
+  "localeCatalogs": ["bounded-contexts/payments/features/payments/ui/localization/locales/en.ts"],
   "accountPaymentRoute": {
     "routeId": "account-payment",
     "routePath": "account/payments/:paymentId",
     "fileExport": "./routes/marketplace/account-payment",
+    "routeType": "route",
+    "sourceContext": "payments",
+    "delivery": "server-only",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    },
+    "canonicalLink": {
+      "kind": "not-applicable",
+      "reason": "Canonical-link publication is deferred with mobile route extraction."
+    },
+    "availability": {
+      "web": true,
+      "mobile": false
+    },
+    "pageComponentExport": "default",
+    "unsupportedMobile": {
+      "owner": "payments",
+      "followUp": "#5238",
+      "reason": "Portable data operations have not been extracted for this route."
+    }
+  },
+  "accountPaymentNewRoute": {
+    "routeId": "account-payment-new",
+    "routePath": "account/payments/new",
+    "fileExport": "./routes/marketplace/account-payment-new",
+    "routeType": "route",
+    "sourceContext": "payments",
+    "delivery": "server-only",
+    "authorization": {
+      "kind": "authenticated",
+      "requiredPermissions": []
+    },
+    "canonicalLink": {
+      "kind": "not-applicable",
+      "reason": "Canonical-link publication is deferred with mobile route extraction."
+    },
+    "availability": {
+      "web": true,
+      "mobile": false
+    },
+    "pageComponentExport": "default",
+    "unsupportedMobile": {
+      "owner": "payments",
+      "followUp": "#5238",
+      "reason": "Portable data operations have not been extracted for this route."
+    }
+  },
+  "accountPaymentMethodsRoute": {
+    "routeId": "account-payment-methods",
+    "routePath": "account/payment-methods",
+    "fileExport": "./routes/marketplace/account-payment-methods",
     "routeType": "route",
     "sourceContext": "payments",
     "delivery": "server-only",
@@ -78,7 +131,7 @@
         }
       },
       "proof": {
-        "tests": ["bounded-contexts/payments/tests/account-payment-new-wallet-status.test.tsx"]
+        "tests": ["bounded-contexts/payments/features/payments/ui/routes/account-payment-new-wallet-status.test.tsx"]
       }
     },
     {
