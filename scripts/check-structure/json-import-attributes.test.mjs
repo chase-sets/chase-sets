@@ -135,6 +135,37 @@ async function validateFixture(files) {
 }
 
 describe("JSON import-attribute production guard", () => {
+  it("proves Vite execution for feature routes only through registered value re-exports", async () => {
+    const routeFile = "bounded-contexts/example/features/orders/ui/routes/summary.tsx";
+    const adapterFile = "bounded-contexts/example/routes/summary.tsx";
+    const files = contextFiles('export { default } from "./context.json" with { type: "json" };', {
+      "bounded-contexts/example/context.json": JSON.stringify({
+        contextName: "example",
+        deployableContributions: [{ deployable: "demo", routes: [{ fileExport: "./routes/summary" }] }],
+      }),
+      "deployables/demo/package.json": JSON.stringify({ name: "@chase-sets/app-demo" }),
+      "deployables/demo/vite.config.ts": "",
+      "deployables/demo/react-router.config.ts": "",
+      "deployables/demo/app/routes.ts": 'import manifest from "@chase-sets/example/context";',
+      [routeFile]: 'import manifest from "../../../../context.json"; export const loader = () => manifest;',
+    });
+
+    const registered = inspectFixture({
+      ...files,
+      [adapterFile]: 'export { loader } from "../features/orders/ui/routes/summary";',
+    });
+    const detached = inspectFixture({
+      ...files,
+      [adapterFile]: 'export type { Loader } from "../features/orders/ui/routes/summary";',
+    });
+    expect(registered.declarations.find(({ relativeFile }) => relativeFile === routeFile)?.disposition).toBe(
+      "vite-excluded",
+    );
+    expect(detached.declarations.find(({ relativeFile }) => relativeFile === routeFile)?.disposition).toBe(
+      "indeterminate",
+    );
+  });
+
   it("accepts attributed imports and exports and rejects every missing-attribute mutant", async () => {
     const canonicalImport = 'import contextManifest from "./context.json" with { type: "json" };';
     const canonicalExport = 'export { default as contextManifest } from "./context.json" with { type: "json" };';
@@ -649,7 +680,7 @@ describe("real repository execution membership", () => {
         },
       ]);
       expect(createHash("sha256").update(JSON.stringify(normalized)).digest("hex")).toBe(
-        "5b71ff3ae01f53e37b7c1e81fc7456b1b17f8711660efc0c08e479783815a870",
+        "4b1023228a20f5ca5cbe38f66aa5f2763fad7edf61266e579bbabe31259f0428",
       );
       expect(
         normalized.filter(

@@ -18,7 +18,10 @@
   ],
   "contextName": "ordering",
   "packageName": "@chase-sets/ordering",
-  "localeCatalogs": ["contracts/localization/locales/en/ordering.ts"],
+  "localeCatalogs": [
+    "contracts/localization/locales/en/ordering.ts",
+    "bounded-contexts/ordering/features/postage-policies/ui/localization/locales/en.ts"
+  ],
   "ownedNouns": ["order", "postage-policy", "tax quote", "tax nexus readiness"],
   "streamPrefix": "ordering.",
   "apiBasePath": "/api/marketplace",
@@ -774,12 +777,12 @@
       "risk": "important",
       "strategy": "snapshot-return",
       "surfaces": [
-        "api-client:bounded-contexts/ordering/client.ts:POST H1cf225056a37#1",
-        "api-client:bounded-contexts/ordering/client.ts:POST H6af656666ad9#1",
-        "api-client:bounded-contexts/ordering/client.ts:POST H963d9ea2d823#1",
-        "api-client:bounded-contexts/ordering/client.ts:POST Ha9bc4789d519#1",
-        "api-client:bounded-contexts/ordering/client.ts:POST Hfab331c80ed6#1",
-        "api-client:bounded-contexts/ordering/client.ts:PUT Hb45b45ccd165#1",
+        "api-client:bounded-contexts/ordering/features/postage-policies/api/client.ts:POST H1cf225056a37#1",
+        "api-client:bounded-contexts/ordering/features/postage-policies/api/client.ts:POST H6af656666ad9#1",
+        "api-client:bounded-contexts/ordering/features/postage-policies/api/client.ts:POST H963d9ea2d823#1",
+        "api-client:bounded-contexts/ordering/features/postage-policies/api/client.ts:POST Ha9bc4789d519#1",
+        "api-client:bounded-contexts/ordering/features/postage-policies/api/client.ts:POST Hfab331c80ed6#1",
+        "api-client:bounded-contexts/ordering/features/postage-policies/api/client.ts:PUT Hb45b45ccd165#1",
         "api-route:bounded-contexts/ordering/features/postage-policies/api/route.ts:POST /",
         "api-route:bounded-contexts/ordering/features/postage-policies/api/route.ts:POST /:id/activate",
         "api-route:bounded-contexts/ordering/features/postage-policies/api/route.ts:POST /:id/clone",
@@ -809,7 +812,7 @@
         "post-form:bounded-contexts/ordering/features/postage-policies/ui/postage-policy-detail-drawer.tsx:H367d201fba25#1",
         "post-form:bounded-contexts/ordering/features/postage-policies/ui/postage-policy-detail-drawer.tsx:H2df726441e2a#1",
         "post-form:bounded-contexts/ordering/features/postage-policies/ui/postage-policy-detail-drawer.tsx:H2df726441e2a#2",
-        "route-action:bounded-contexts/ordering/routes/admin/postage-policies.tsx"
+        "route-action:bounded-contexts/ordering/features/postage-policies/ui/routes/postage-policies.tsx"
       ],
       "visibleDestination": {
         "routeId": "ordering-postage-policies",

@@ -855,10 +855,14 @@ const outputs = [
   [
     "admin/locales/en.json",
     json(
-      await catalog("ordering.ts", "orderingEnglishTranslations", [
-        ["ordering.features.postagePolicies.ui.", ""],
-        ["ordering.routes.admin.postagePolicies.title", "route.title"],
-      ]),
+      await catalogFrom(
+        "bounded-contexts/ordering/features/postage-policies/ui/localization/locales/en.ts",
+        "postagePoliciesEnglishTranslations",
+        [
+          ["ordering.features.postagePolicies.ui.", ""],
+          ["ordering.routes.admin.postagePolicies.title", "route.title"],
+        ],
+      ),
     ),
   ],
   [

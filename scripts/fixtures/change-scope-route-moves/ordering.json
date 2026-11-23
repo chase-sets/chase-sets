@@ -1,0 +1,25 @@
+{
+  "families": {
+    "boundedContextRouteSuiteOwnership:14": {
+      "trackedCandidates": 15
+    }
+  },
+  "movedRoutes": {
+    "legacyDirectory": "bounded-contexts/ordering/routes/admin/",
+    "featureDirectory": "bounded-contexts/ordering/features/postage-policies/ui/routes/",
+    "files": [
+      ["postage-policies.tsx", "admin_commerce"],
+      ["postage-policies-detail.tsx", "admin_commerce"]
+    ]
+  },
+  "selectorCases": [
+    {
+      "file": "bounded-contexts/ordering/features/postage-policies/ui/routes/postage-policies.tsx",
+      "suites": ["admin_commerce"]
+    },
+    {
+      "file": "bounded-contexts/ordering/features/postage-policies/ui/routes/postage-policies-detail.tsx",
+      "suites": ["admin_commerce"]
+    }
+  ]
+}
