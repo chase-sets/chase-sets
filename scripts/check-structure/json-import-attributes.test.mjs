@@ -649,7 +649,7 @@ describe("real repository execution membership", () => {
         },
       ]);
       expect(createHash("sha256").update(JSON.stringify(normalized)).digest("hex")).toBe(
-        "506ee38dcd81cdb330ecef5de15bad4cd87ca61b9eea6e98ebba495231326a79",
+        "37aa22621554757ee334e5fe4984c975a96482a733d31cb9aa4c2ed8a922a4bd",
       );
       expect(
         normalized.find(
