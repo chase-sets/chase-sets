@@ -15,6 +15,7 @@ import { marketplaceSellerMetricsSourceSchemaSql } from "../../features/seller-m
 import { marketplaceSellerMetricsSummarySchemaSql } from "../../features/seller-metrics/read-model/schema";
 import { marketplaceChannelInboundClampSchemaSql } from "../../features/channel-inbound-clamp/read-model/schema";
 import { marketplaceBuyerOfferPolicySchemaSql } from "../../features/offer-policy/read-model/schema";
+import { offerPaymentAuthorizationSchemaSql } from "../../features/offer-payment-authorization/read-model/schema";
 import { marketplaceManagedOfferSchemaSql } from "../../features/offers/read-model/managed-schema";
 
 export const marketplaceSchemaSql = [
@@ -27,6 +28,7 @@ export const marketplaceSchemaSql = [
   marketplaceListingSchemaSql,
   marketplaceOfferSchemaSql,
   marketplaceBuyerOfferPolicySchemaSql,
+  offerPaymentAuthorizationSchemaSql,
   marketplaceManagedOfferSchemaSql,
   marketplaceReviewSourceProjectionSchemaSql,
   reviewSchemaSql,

@@ -111,6 +111,9 @@ const eventStoreAppendAdvisoryLockHoldDuration = lazyHistogram(
     unit: "ms",
   },
 );
+const platformPolicyStaleServedAge = lazyHistogram("chase_sets_platform_policy_stale_served_age_ms", {
+  unit: "ms",
+});
 const projectorCounter = lazyCounter("chase_sets_projection_runs_total");
 const projectionBlockedStreams = lazyGauge("chase_sets_projection_blocked_streams");
 const projectionPoisonEvents = lazyGauge("chase_sets_projection_poison_events");
@@ -556,6 +559,12 @@ export type EventStoreAppendAdvisoryLockHoldSignal = Readonly<{
   subscriptionName?: string | null;
 }>;
 
+export type PlatformPolicyStaleServedSignal = Readonly<{
+  policyKey: string;
+  contextName: string;
+  ageMs: number;
+}>;
+
 let runtime: ObservabilityRuntime | null = null;
 
 type Meter = ReturnType<typeof metrics.getMeter>;
@@ -922,6 +931,21 @@ export function recordEventStoreAppendAdvisoryLockHold(event: EventStoreAppendAd
     source_context: boundedMetricLabel(event.sourceContextName),
     projection: boundedMetricLabel(event.projectionName),
     subscription: boundedMetricLabel(event.subscriptionName),
+  });
+}
+
+/**
+ * One sample per policy resolution served from a loaded candidate set
+ * because the refresh read failed. The value is that set's age.
+ */
+export function recordPlatformPolicyStaleServed(event: PlatformPolicyStaleServedSignal): void {
+  if (!Number.isFinite(event.ageMs)) {
+    return;
+  }
+
+  platformPolicyStaleServedAge.record(Math.max(0, Math.round(event.ageMs)), {
+    policy_key: boundedMetricLabel(event.policyKey),
+    context: boundedMetricLabel(event.contextName),
   });
 }
 

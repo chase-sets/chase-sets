@@ -47,7 +47,10 @@ export function completedMarketplaceAttemptSchema<T>(resultSchema: z.ZodType<T>)
       if (
         completed.recovery.ownerStatus !== "committed" ||
         !receipt ||
-        receipt.id !== (result.offerId ?? result.policyId ?? result.reportId ?? result.reviewId) ||
+        receipt.id !==
+          (completed.recovery.mutationKind === "offer-payment-authorization.command"
+            ? result.authorizationId
+            : (result.offerId ?? result.policyId ?? result.reportId ?? result.reviewId)) ||
         receipt.version !== result.version
       )
         ctx.addIssue({ code: "custom", message: t("marketplace.recovery.receiptMismatch") });
