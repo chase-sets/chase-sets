@@ -22,6 +22,26 @@
   },
   "selectorCases": [
     {
+      "file": "bounded-contexts/payments/features/payments/ui/routes/account-payment-methods.tsx",
+      "suites": ["marketplace_account"]
+    },
+    {
+      "file": "bounded-contexts/payments/features/payments/ui/routes/account-payment-new.tsx",
+      "suites": ["marketplace_account"]
+    },
+    {
+      "file": "bounded-contexts/payments/features/payments/ui/routes/account-payment-new-wallet-status.test.tsx",
+      "suites": []
+    },
+    {
+      "file": "bounded-contexts/payments/features/payments/api/request-client.ts",
+      "suites": ["marketplace_account", "marketplace_checkout"]
+    },
+    {
+      "file": "bounded-contexts/payments/features/payments/ui/localization/locales/en.ts",
+      "suites": ["marketplace_account", "marketplace_checkout"]
+    },
+    {
       "file": "bounded-contexts/payments/features/payments/ui/routes/account-payment.tsx",
       "suites": ["marketplace_checkout"]
     },

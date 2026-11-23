@@ -80,7 +80,8 @@ describeDb("consent activation authority against a real event store", () => {
     await schema.pool.query(platformPolicySchemaSql);
     await schema.pool.query("TRUNCATE TABLE platform_policy_documents, platform_policy_document_history");
     eventStore = createPostgresEventStore({ pool: schema.pool });
-    cache = createPolicyCache();
+    // A pinned age clock, so the entry a case plants with `cache.set` never expires under it.
+    cache = createPolicyCache({ now: () => 0 });
     runtime = createPolicyRuntime({ eventStore, db: schema.pool, cache });
   });
 

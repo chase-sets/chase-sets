@@ -5,7 +5,10 @@ import {
   decodeFreshWriteReceipt,
   encodeFreshWriteReceipt,
 } from "@chase-sets/http/responses";
-import { createPaymentsRequestApiHeaders, hasPaymentsFreshReadAfterWriteSource } from "./api-client";
+import {
+  createPaymentsRequestApiHeaders,
+  hasPaymentsFreshReadAfterWriteSource,
+} from "../../features/payments/api/request-client";
 
 describe("payments request API client support", () => {
   afterEach(() => {

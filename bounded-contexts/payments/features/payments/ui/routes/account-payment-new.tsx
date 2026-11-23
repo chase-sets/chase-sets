@@ -1,4 +1,4 @@
-import { formatMoney as formatMoneyDisplay, t } from "@chase-sets/localization";
+import { formatMoney as formatMoneyDisplay } from "@chase-sets/localization/core";
 import {
   centsToMoneyAmount,
   compareMoneyAmounts,
@@ -60,7 +60,8 @@ import {
   createPaymentsRequestApiClient,
   normalizeRequestedBalanceCreditAmount,
   type PaymentsAccountOrderInput,
-} from "../../../../support/request-support/api-client";
+} from "../../api/request-client";
+import { t } from "../localization/translator";
 
 function parseOrderIds(value: string | null) {
   return (value ?? "")

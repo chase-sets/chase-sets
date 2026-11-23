@@ -87,10 +87,12 @@ export function useItemDetailPageModel({
   });
 
   const images = buildItemDetailImages(data);
+  // The default picture stands in only for an item with no picture of its own. For an item that has
+  // pictures it covers them while they load, but is not one more gallery picture.
   const imageFallback = data.image_fallback ?? {
     url: discoveryAssetUrls.defaultProductImage,
     alt: t("discovery.features.itemDetail.ui.itemDetailPage.default.product.image"),
-    usage: "permanent" as const,
+    usage: images.length > 0 ? ("loading-only" as const) : ("permanent" as const),
     variants: {},
   };
   const explicitSelectedOptions = data.product_schema ? summarizeSelections(data.product_schema, selections) : [];

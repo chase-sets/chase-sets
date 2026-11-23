@@ -33,7 +33,7 @@ export type OrderingOrderLineSnapshotPayload = Readonly<{
  * Every field below the reservation requests is optional on decode because events written
  * before it was published are immutable and must still decode; each one is populated on
  * produce by the single Ordering emitter. `authenticityPlanSnapshot` is narrowed to the fee
- * amount alone -- the policy version, category, and threshold stay inside Ordering.
+ * amount alone -- the policy version and threshold stay inside Ordering.
  */
 export type OrderingOrderCreatedPayload = Readonly<{
   orderId: string;

@@ -47,7 +47,12 @@ const otherConsentPolicy: PolicyDefinition<ConsentValue> = definePolicy<ConsentV
 /** Reads never touch Postgres in this suite; the authority is stream-derived. */
 const emptyDb = { query: async () => ({ rows: [], rowCount: 0 }) } as never;
 
-function createHarness(cache = createPolicyCache()) {
+/** A pinned age clock, so an entry a test plants with `cache.set` never expires under it. */
+function createPinnedPolicyCache() {
+  return createPolicyCache({ now: () => 0 });
+}
+
+function createHarness(cache = createPinnedPolicyCache()) {
   const { eventStore } = createInMemoryEventStore();
   const runtime = createPolicyRuntime({ eventStore, db: emptyDb, cache });
   return { eventStore, runtime, cache };
@@ -1042,7 +1047,7 @@ describe("guardable transitions", () => {
 
 describe("one authoritative read", () => {
   it("never pairs a cached policy value with an independently read authority revision", async () => {
-    const cache = createPolicyCache();
+    const cache = createPinnedPolicyCache();
     const { runtime } = createHarness(cache);
 
     await runtime.consentActivation.register(consentPolicy, context);
