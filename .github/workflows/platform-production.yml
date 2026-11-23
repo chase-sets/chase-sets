@@ -1410,6 +1410,8 @@ jobs:
       # Whether staging deploys the Corten marketplace pilot: deployed, or withheld to drop a pilot that never
       # becomes ready (docs/runbooks/staging-marketplace-pilot.md). Unset means deployed; any other value fails.
       STAGING_MARKETPLACE_PILOT: ${{ vars.STAGING_MARKETPLACE_PILOT || '' }}
+      # The same for the Corten public pilot (docs/runbooks/staging-public-pilot.md).
+      STAGING_PUBLIC_PILOT: ${{ vars.STAGING_PUBLIC_PILOT || '' }}
     steps:
       - name: Record staging start
         env:
@@ -2535,10 +2537,15 @@ jobs:
         continue-on-error: true
         env:
           CORTEN_PUBLIC_IMAGE: ${{ needs.build-corten-pilot-images.outputs.corten_public_image }}
+          PUBLIC_PILOT: ${{ steps.staging_kubernetes_deploy.outputs.public_pilot }}
         run: |
           set -euo pipefail
           if [ -z "${CORTEN_PUBLIC_IMAGE:-}" ]; then
             echo "No Corten public image was built for this release, so the pilot was not deployed and is not smoked."
+            exit 0
+          fi
+          if [ "$PUBLIC_PILOT" = "withheld" ]; then
+            echo "STAGING_PUBLIC_PILOT=withheld, so the pilot was not deployed and is not smoked."
             exit 0
           fi
           echo "Smoking the Corten public pilot at public-corten.staging.chasesets.com (advisory)."
