@@ -49,12 +49,13 @@ export type CheckoutProcessingFeePolicyResolver = Readonly<{
  * without ever querying Commercial Terms' storage directly. Unlike
  * `createCommercialTermsResolver`, this constructs a fresh
  * `PolicyResolver` (and therefore a fresh, unpopulated cache) on every
- * call rather than reusing one long-lived instance: Payments does not run
- * Commercial Terms' own projector, so it has no way to receive that
- * resolver's push-based cache invalidation, and a stale money policy is a
- * worse failure mode than one extra indexed read per quote. This matches
- * the existing cross-context resolver precedent (`createCommercialTermsResolver`
- * also queries fresh, uncached, on every call).
+ * call rather than reusing one long-lived instance: a long-lived resolver
+ * follows a revision only within its cache's one-second age bound and keeps
+ * serving the set it last loaded while a refresh fails, and a stale money
+ * policy is a worse failure mode than one extra indexed read per quote. A
+ * failed read here rejects. This matches the existing cross-context resolver
+ * precedent (`createCommercialTermsResolver` also queries fresh, uncached,
+ * on every call).
  */
 export function createCheckoutProcessingFeePolicyResolver(db: PgQueryable): CheckoutProcessingFeePolicyResolver {
   return {
