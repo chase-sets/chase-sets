@@ -1,4 +1,4 @@
-import { localizedTextMapFromEnglish } from "@chase-sets/localization";
+import { coerceLocalizedTextMap, localizedTextMapFromEnglish } from "@chase-sets/localization";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import type { CatalogServices } from "../../../support/authoring-support/services";
 import type { OptionId, DimensionId } from "../../../ids";
@@ -36,6 +36,12 @@ type DimensionDef = {
   optionMatching: DimensionOptionMatching;
   options: DimensionOptionDef[];
 };
+
+type DimensionSeedRun = Readonly<{
+  states: Map<string, DimensionState>;
+  /** Streams whose events already record an option matching choice; reconciliation leaves those alone. */
+  optionMatchingRecorded: Set<string>;
+}>;
 
 const dimensionDefs: DimensionDef[] = [
   {
@@ -327,14 +333,14 @@ export const dimensionSeedRequirements = dimensionDefs.map((def) => ({
 export async function seedDimensions(services: CatalogServices): Promise<DimensionIds> {
   console.log("Seeding dimensions...");
   const result: DimensionIds = {};
-  const states = new Map<string, DimensionState>();
+  const run: DimensionSeedRun = { states: new Map(), optionMatchingRecorded: new Set() };
 
   for (const def of dimensionDefs) {
     const streamId = `catalog.dimension-${def.dimensionId}`;
     const optionIds: Record<string, OptionId> = {};
     const orderedOptionIds: OptionId[] = [];
 
-    await sendDimensionSeedCommand(services, states, streamId, {
+    await sendDimensionSeedCommand(services, run, streamId, {
       type: "CreateDimension",
       dimensionId: def.dimensionId,
       key: def.key,
@@ -343,12 +349,13 @@ export async function seedDimensions(services: CatalogServices): Promise<Dimensi
       valueKind: def.valueKind,
       optionMatching: def.optionMatching,
     });
+    await reconcileDimensionOptionMatching(services, run, streamId, def);
 
     for (const option of def.options) {
       optionIds[option.code] = option.optionId;
       orderedOptionIds.push(option.optionId);
 
-      await sendDimensionSeedCommand(services, states, streamId, {
+      await sendDimensionSeedCommand(services, run, streamId, {
         type: "AddOption",
         optionId: option.optionId,
         code: option.code,
@@ -357,7 +364,7 @@ export async function seedDimensions(services: CatalogServices): Promise<Dimensi
       });
     }
 
-    await sendDimensionSeedCommand(services, states, streamId, {
+    await sendDimensionSeedCommand(services, run, streamId, {
       type: "ActivateDimension",
     });
 
@@ -368,12 +375,54 @@ export async function seedDimensions(services: CatalogServices): Promise<Dimensi
   return result;
 }
 
+/**
+ * A Dimension seeded before option matching existed records no choice, so it folds to `exact`.
+ * Give it the seeded choice once, keeping every other value it holds. A stream that already
+ * records a choice is an operator's or an earlier reconciliation's and is left alone.
+ */
+async function reconcileDimensionOptionMatching(
+  services: CatalogServices,
+  run: DimensionSeedRun,
+  streamId: string,
+  def: DimensionDef,
+): Promise<void> {
+  const state = run.states.get(streamId);
+  if (!state || state.key === null || state.name === null || run.optionMatchingRecorded.has(streamId)) {
+    return;
+  }
+  if (state.optionMatching === def.optionMatching || state.valueKind === "unordered") {
+    return;
+  }
+
+  // A stream may hold the name or description as a plain string. The projection coerces it; the revision would reject it.
+  const command: DimensionCommand = {
+    type: "ReviseDimension",
+    key: state.key,
+    name: coerceLocalizedTextMap(state.name),
+    description: coerceLocalizedTextMap(state.description),
+    valueKind: state.valueKind,
+    optionMatching: def.optionMatching,
+  };
+  await sendSeedCommand(services.dimensions.commandHandler, streamId, command);
+  run.states.set(streamId, decideDimension(state, command).reduce(evolveDimension, state));
+  run.optionMatchingRecorded.add(streamId);
+  console.log(`  Dimension "${def.name}" reconciled to ${def.optionMatching} option matching`);
+}
+
+function recordsOptionMatching(event: DimensionEvent): boolean {
+  return (
+    (event.type === "catalog.dimension.created" || event.type === "catalog.dimension.revised") &&
+    event.data.optionMatching !== undefined
+  );
+}
+
 async function sendDimensionSeedCommand(
   services: CatalogServices,
-  states: Map<string, DimensionState>,
+  run: DimensionSeedRun,
   streamId: string,
   command: DimensionCommand,
 ): Promise<void> {
+  const { states } = run;
   const expectedId =
     command.type === "CreateDimension"
       ? command.dimensionId
@@ -401,6 +450,9 @@ async function sendDimensionSeedCommand(
   const state = states.get(streamId) ?? persisted?.state ?? initialDimensionState;
   const kind = persisted?.kind ?? (state.id === null ? "absent" : state.status === "active" ? "active" : "draft");
   states.set(streamId, state);
+  if (persisted?.events.some(recordsOptionMatching)) {
+    run.optionMatchingRecorded.add(streamId);
+  }
 
   if (kind === "active") {
     return;
@@ -429,4 +481,7 @@ async function sendDimensionSeedCommand(
 
   await sendSeedCommand(services.dimensions.commandHandler, streamId, command);
   states.set(streamId, decideDimension(state, command).reduce(evolveDimension, state));
+  if (command.type === "CreateDimension") {
+    run.optionMatchingRecorded.add(streamId);
+  }
 }
