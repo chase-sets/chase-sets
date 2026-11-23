@@ -61,7 +61,7 @@ export function paymentWebhookFailureCause(error: ProviderWebhookError): Provide
       : "PaymentsDomainError";
   }
   if (cause instanceof ProviderAdapterError) return "ProviderAdapterError";
-  if (cause instanceof Error && "code" in cause && cause.code === "57P05") return "postgres_idle_transaction_timeout";
+  if (cause instanceof Error && "code" in cause && cause.code === "25P03") return "postgres_idle_transaction_timeout";
   if (cause instanceof TypeError) return "TypeError";
   return cause instanceof Error ? "Error" : "unknown";
 }

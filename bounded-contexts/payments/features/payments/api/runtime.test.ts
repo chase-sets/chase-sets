@@ -877,7 +877,7 @@ describe("payment runtime", () => {
     let checkedOut = false;
     const pool: PgTransactionalPool = {
       query: (async (sql: string, params?: readonly unknown[]) => {
-        if (checkedOut) throw Object.assign(new Error("synthetic idle-in-transaction termination"), { code: "57P05" });
+        if (checkedOut) throw Object.assign(new Error("synthetic idle-in-transaction termination"), { code: "25P03" });
         return db.query(sql, params);
       }) as PgTransactionalPool["query"],
       connect: async () => {
@@ -957,7 +957,8 @@ describe("payment runtime", () => {
   });
 
   it.each([
-    { code: "57P05", causeCode: "postgres_idle_transaction_timeout" },
+    { code: "25P03", causeCode: "postgres_idle_transaction_timeout" },
+    { code: "57P05", causeCode: "Error" },
     { code: "SYNTHETIC_UNSAFE_CODE", causeCode: "Error" },
   ])("logs only the allowlisted handler cause $causeCode", async ({ code, causeCode }) => {
     const processorGateway = createProcessorGateway();
