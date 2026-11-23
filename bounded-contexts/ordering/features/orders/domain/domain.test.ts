@@ -238,26 +238,54 @@ describe("ordering order domain", () => {
         feeAmount: "10.00",
         payer: "buyer",
         policyVersion: "authenticity-check-fee-v1",
-        category: "any",
         thresholdAmount: "100.00",
         orderValueAmount: "150.00",
         quotedAt: "2026-03-31T00:00:00.000Z",
       },
     };
-    const createdState = decideOrderingOrder(initialOrderingOrderState, command).reduce(
-      evolveOrderingOrder,
-      initialOrderingOrderState,
-    );
-
-    expect(createdState.authenticityPlanSnapshot).toEqual({
+    const events = decideOrderingOrder(initialOrderingOrderState, command);
+    const createdState = events.reduce(evolveOrderingOrder, initialOrderingOrderState);
+    const recordedSnapshot = {
       feeAmount: "10.00",
       payer: "buyer",
       policyVersion: "authenticity-check-fee-v1",
-      category: "any",
       thresholdAmount: "100.00",
       orderValueAmount: "150.00",
       quotedAt: "2026-03-31T00:00:00.000Z",
-    });
+    };
+
+    expect((events[0] as OrderCreatedEvent).data.authenticityPlanSnapshot).toStrictEqual(recordedSnapshot);
+    expect(createdState.authenticityPlanSnapshot).toStrictEqual(recordedSnapshot);
+  });
+
+  it("folds a stored creation event whose authenticity plan carries a category to its fee amount", () => {
+    // The creation event as the event store holds it for an Order created while the plan recorded
+    // the band category, which was always "any".
+    const created = decideOrderingOrder(initialOrderingOrderState, createOrderCommand("cart-checkout"))[0]!;
+    const storedCreatedEvent = JSON.parse(
+      JSON.stringify({
+        ...created,
+        data: {
+          ...created.data,
+          totalAmount: "34.99",
+          authenticityPlanSnapshot: {
+            feeAmount: "10.00",
+            payer: "buyer",
+            policyVersion: "authenticity-check-fee-v1",
+            category: "any",
+            thresholdAmount: "100.00",
+            orderValueAmount: "150.00",
+            quotedAt: "2026-03-31T00:00:00.000Z",
+          },
+        },
+      }),
+    ) as OrderCreatedEvent;
+
+    const state = evolveOrderingOrder(initialOrderingOrderState, storedCreatedEvent);
+
+    expect(state.status).toBe("pending-reservation");
+    expect(state.totalAmount).toBe("34.99");
+    expect(state.authenticityPlanSnapshot?.feeAmount).toBe("10.00");
   });
 
   it("rejects a line total that does not equal unit price times quantity", () => {

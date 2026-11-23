@@ -82,7 +82,6 @@ export type CheckoutFulfillmentPreview = Readonly<{
     eligible: boolean;
     order_value_amount: string;
     threshold_amount: string;
-    category: "raw" | "graded" | "any";
     fee_amount: string;
     policy_version: string;
     quote_fingerprint: string;

@@ -13,13 +13,8 @@ import { normalizeMoneyAmount } from "./common";
  * separate host-port-holding context is warranted.
  */
 
-export const authenticityCheckFeeCategories = ["raw", "graded", "any"] as const;
-
-export type AuthenticityCheckFeeCategory = (typeof authenticityCheckFeeCategories)[number];
-
 export type AuthenticityCheckFeeBand = Readonly<{
   minOrderValueAmount: string;
-  category: AuthenticityCheckFeeCategory;
   flatAmount: string;
   percentageBps: number;
   capAmount: string;
@@ -38,40 +33,36 @@ export type AuthenticityCheckFeePolicyValue = Readonly<{
 
 export const AUTHENTICITY_CHECK_FEE_QUOTE_FORMAT_VERSION = "authenticity-check-fee-v1";
 
+/**
+ * The fifth fingerprint segment held a band category whose only quoted value
+ * was "any". The segment stays so a fingerprint a buyer was shown before the
+ * category was removed still matches at order creation.
+ */
+const QUOTE_FINGERPRINT_CATEGORY_SEGMENT = "any";
+
 export type AuthenticityCheckFeeQuote = Readonly<{
   eligible: boolean;
   order_value_amount: string;
   threshold_amount: string;
-  category: AuthenticityCheckFeeCategory;
   fee_amount: string;
   policy_version: string;
   quote_fingerprint: string;
   quoted_at: string;
 }>;
 
+/** The band with the highest minimum order value at or below the order value. */
 function resolveBand(
   policy: AuthenticityCheckFeePolicyValue,
   orderValueAmount: string,
-  category: AuthenticityCheckFeeCategory,
 ): AuthenticityCheckFeeBand | null {
-  const matching = policy.bands.filter(
-    (band) =>
-      (band.category === category || band.category === "any") &&
-      compareMoneyAmounts(orderValueAmount, band.minOrderValueAmount) >= 0,
-  );
+  const matching = policy.bands.filter((band) => compareMoneyAmounts(orderValueAmount, band.minOrderValueAmount) >= 0);
   if (matching.length === 0) {
     return null;
   }
 
-  return matching.reduce((best, candidate) => {
-    const minValueComparison = compareMoneyAmounts(candidate.minOrderValueAmount, best.minOrderValueAmount);
-    if (minValueComparison !== 0) {
-      return minValueComparison > 0 ? candidate : best;
-    }
-    // Tie on minimum order value: prefer the band whose category matches
-    // exactly over the "any" catch-all band.
-    return candidate.category === category && best.category !== category ? candidate : best;
-  });
+  return matching.reduce((best, candidate) =>
+    compareMoneyAmounts(candidate.minOrderValueAmount, best.minOrderValueAmount) > 0 ? candidate : best,
+  );
 }
 
 /**
@@ -86,7 +77,6 @@ function resolveBand(
 export function quoteAuthenticityCheckFee(
   params: Readonly<{
     orderValueAmount: string;
-    category?: AuthenticityCheckFeeCategory;
     quotedAt?: string;
   }>,
   policy: AuthenticityCheckFeePolicyValue,
@@ -95,14 +85,13 @@ export function quoteAuthenticityCheckFee(
     fieldName: "Order value",
     allowZero: true,
   });
-  const category = params.category ?? "any";
   const thresholdAmount = normalizeMoneyAmount(policy.optInThresholdAmount, {
     fieldName: "Authenticity fee opt-in threshold",
     allowZero: true,
   });
   const quotedAt = params.quotedAt ?? new Date().toISOString();
   const meetsThreshold = compareMoneyAmounts(orderValueAmount, thresholdAmount) >= 0;
-  const band = meetsThreshold ? resolveBand(policy, orderValueAmount, category) : null;
+  const band = meetsThreshold ? resolveBand(policy, orderValueAmount) : null;
   const eligible = band !== null;
 
   const feeAmount = band
@@ -117,7 +106,7 @@ export function quoteAuthenticityCheckFee(
     eligible ? "eligible" : "ineligible",
     orderValueAmount,
     thresholdAmount,
-    category,
+    QUOTE_FINGERPRINT_CATEGORY_SEGMENT,
     feeAmount,
   ].join("|");
 
@@ -125,7 +114,6 @@ export function quoteAuthenticityCheckFee(
     eligible,
     order_value_amount: orderValueAmount,
     threshold_amount: thresholdAmount,
-    category,
     fee_amount: feeAmount,
     policy_version: AUTHENTICITY_CHECK_FEE_QUOTE_FORMAT_VERSION,
     quote_fingerprint: quoteFingerprint,
