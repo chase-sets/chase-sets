@@ -305,10 +305,22 @@ Notes:
 
 - Reports are owned by Marketplace.
 - Reports are grouped by reported target and reporter; one reporter may report the same target once.
-- Listing Reports can automatically unlist an active Listing when the distinct-reporter threshold is reached.
+- Listing Reports can automatically unlist an active Listing when the distinct-reporter threshold is reached. The Listing Report Auto-Unlist Policy holds the threshold and the window.
 - Review Reports require an authenticated account, use a structured reason with an optional explanation, and never automatically remove the Review.
 - Review reporting is independent of Scoring Disposition and Review Response: reporting does not change either fact, and neither fact changes reporting eligibility.
 - Platform Operations consumes Report facts to render the operator moderation queue, but Marketplace owns report capture and listing visibility consequences.
+
+## Listing Report Auto-Unlist Policy
+
+The **Listing Report Auto-Unlist Policy** is the Marketplace platform policy (`marketplace.listing-report-auto-unlist`) that holds how many distinct reporters, inside how many days, automatically unlist an active Listing.
+
+Notes:
+
+- `distinctReporterThreshold` is a whole number from 2 to 100 and `windowDays` is a whole number from 1 to 90. A threshold of 1 is not allowed: a visitor may report a Listing, so one visitor could unlist any Listing.
+- With no active policy document, the terms are 3 distinct reporters inside 7 days.
+- Trust & Safety revises the policy through the Policy Console. Each evaluation of a Listing Report reads the policy once, at the time of the evaluation, so one revision decides both numbers and a revision applies from the next evaluation, including the retry of a Report stored earlier. Nothing re-evaluates Listings when the policy is revised.
+- The automatic removal records the threshold it used and the distinct-reporter count. The window in force at that time is reproduced from the policy's document history.
+- Review Reports do not depend on this policy.
 
 ## Offer Status
 
