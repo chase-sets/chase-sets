@@ -209,8 +209,10 @@ describe("commercial terms agreement routes", () => {
         body: JSON.stringify({ ...body, accountId: "acc_seller" }),
         headers: { "Content-Type": "application/json" },
       });
+      // createAgreement takes the params first; reviseAgreement takes them after the agreement id.
+      const service = method === "POST" ? createAgreement : reviseAgreement;
       const commandParams = () =>
-        (method === "POST" ? createAgreement.mock.calls[0]?.[0] : reviseAgreement.mock.calls[0]?.[1]) as
+        (service.mock.calls as readonly unknown[][])[0]?.[method === "POST" ? 0 : 1] as
           | Record<string, unknown>
           | undefined;
       return { response, createAgreement, reviseAgreement, commandParams };

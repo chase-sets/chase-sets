@@ -357,7 +357,7 @@ describe("commercial terms home", () => {
   });
 
   describe("Shipping Allowance on an account override", () => {
-    const allowanceField = (sheet: ReturnType<typeof within>) =>
+    const allowanceField = (sheet: Pick<typeof screen, "getByRole">) =>
       sheet.getByRole<HTMLInputElement>("spinbutton", { name: /^Shipping allowance \(bps\)/ });
     const submittedAllowance = (field: HTMLInputElement) =>
       new FormData(field.closest("form")!).get("shippingAllowancePercentageBps");
