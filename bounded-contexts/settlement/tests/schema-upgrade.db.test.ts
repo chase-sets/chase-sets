@@ -284,6 +284,25 @@ ALTER TABLE settlement_account_risk_sources
       ).rows;
     const riskSourceRows = async () =>
       (await pools.settlement.query("SELECT * FROM settlement_account_risk_sources ORDER BY account_id")).rows;
+    const retiredLedgerIds = async () =>
+      (
+        await pools.settlement.query<{ migration_id: string }>(
+          `SELECT migration_id FROM bounded_context_schema_migrations
+           WHERE migration_id = ANY($1::text[])
+           ORDER BY migration_id`,
+          [retiredMigrationIds],
+        )
+      ).rows.map((row) => row.migration_id);
+    const bootstrapBeforeTheDrop = () =>
+      bootstrapContextDatabase(
+        {
+          ...settlementModule,
+          schemaMigrations: settlementModule.schemaMigrations!.filter(
+            (migration) => migration.migrationId !== migrationId,
+          ),
+        },
+        pools.settlement,
+      );
 
     it("bootstraps a fresh database without the storage, records the drop and changes nothing on a second boot", async () => {
       const pool = pools.settlement;
@@ -295,23 +314,17 @@ ALTER TABLE settlement_account_risk_sources
       );
       const applied = await ledger();
       expect(applied).toHaveLength(1);
+      expect(await retiredLedgerIds()).toEqual([]);
 
       await bootstrapContextDatabase(settlementModule, pool);
       expect(await catalog()).toEqual(fresh);
       expect(await ledger()).toEqual(applied);
+      expect(await retiredLedgerIds()).toEqual([]);
     });
 
     it("drops exactly the retained storage, keeps every other risk source fact and restores nothing on a second boot", async () => {
       const pool = pools.settlement;
-      await bootstrapContextDatabase(
-        {
-          ...settlementModule,
-          schemaMigrations: settlementModule.schemaMigrations!.filter(
-            (migration) => migration.migrationId !== migrationId,
-          ),
-        },
-        pool,
-      );
+      await bootstrapBeforeTheDrop();
       const withoutStorage = await catalog();
       expect(velocityObjects(withoutStorage)).toEqual({ tables: [], indexes: [], columns: [] });
 
@@ -386,17 +399,57 @@ ALTER TABLE settlement_account_risk_sources
       expect(await catalog()).toEqual(withoutStorage);
       expect(await riskSourceRows()).toEqual(retained);
       expect(await ledger()).toEqual(applied);
-      expect(
-        (
-          await pool.query(
-            `SELECT migration_id FROM bounded_context_schema_migrations
-             WHERE migration_id = ANY($1::text[])
-             ORDER BY migration_id`,
-            [retiredMigrationIds],
-          )
-        ).rows,
-      ).toEqual(retiredMigrationIds.map((id) => ({ migration_id: id })));
+      expect(await retiredLedgerIds()).toEqual(retiredMigrationIds);
     });
+
+    // A drop that stopped between its statements leaves one half of the storage and no ledger row.
+    it.each([
+      {
+        remaining: "the counters",
+        removeTheOtherHalf: `DROP TABLE ${velocityTable}`,
+        expected: { tables: [], indexes: [], columns: velocityColumns },
+      },
+      {
+        remaining: "the table",
+        removeTheOtherHalf: `ALTER TABLE settlement_account_risk_sources ${velocityColumns
+          .map((column) => `DROP COLUMN ${column}`)
+          .join(", ")}`,
+        expected: {
+          tables: [velocityTable],
+          indexes: [`${velocityTable}_account_window_idx`, `${velocityTable}_pkey`, `${velocityTable}_reviewer_idx`],
+          columns: [],
+        },
+      },
+    ])(
+      "finishes a drop that left only $remaining, keeps the other risk source facts and records it once",
+      async ({ removeTheOtherHalf, expected }) => {
+        const pool = pools.settlement;
+        await bootstrapBeforeTheDrop();
+        const withoutStorage = await catalog();
+
+        await pool.query(retainedVelocityStorageSql);
+        await pool.query(removeTheOtherHalf);
+        await pool.query(`INSERT INTO settlement_account_risk_sources (account_id, trusted_seller, updated_at, revision)
+          VALUES ('acc_velocity_partial', true, '2026-11-22T00:00:00.000Z', 4)`);
+        expect(velocityObjects(await catalog())).toEqual(expected);
+        const retained = (await riskSourceRows()).map((row) =>
+          Object.fromEntries(Object.entries(row).filter(([name]) => !velocityColumns.includes(name))),
+        );
+        expect(retained).toMatchObject([{ account_id: "acc_velocity_partial", trusted_seller: true, revision: "4" }]);
+        expect(await ledger()).toEqual([]);
+
+        await bootstrapContextDatabase(settlementModule, pool);
+        expect(await catalog()).toEqual(withoutStorage);
+        expect(await riskSourceRows()).toEqual(retained);
+        const applied = await ledger();
+        expect(applied).toHaveLength(1);
+
+        await bootstrapContextDatabase(settlementModule, pool);
+        expect(await catalog()).toEqual(withoutStorage);
+        expect(await riskSourceRows()).toEqual(retained);
+        expect(await ledger()).toEqual(applied);
+      },
+    );
   });
 
   it("backfills stable hold identities outside boot-time schema SQL", async () => {
