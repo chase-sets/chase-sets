@@ -1408,14 +1408,28 @@ const outputs = [
   [
     "marketplace/locales/notifications.en.json",
     json({
-      ...(await catalog("notifications.ts", "notificationsEnglishTranslations", [
-        ["notifications.features.notificationCenter.ui.page.", "page"],
-        ["notifications.features.notificationCenter.ui.shell.", "shell"],
-      ])),
+      // Keep the legacy export order across the two feature catalogs.
       ...(await catalogFrom(
         "bounded-contexts/notifications/features/notification-center/ui/localization/locales/en.ts",
         "notificationCenterEnglishTranslations",
-        [["notifications.routes.accountNotifications.", "route"]],
+        [
+          ["notifications.features.notificationCenter.ui.page.", "page"],
+          ["notifications.features.notificationCenter.ui.shell.open", "shell.open"],
+        ],
+      )),
+      ...(await catalogFrom(
+        "bounded-contexts/notifications/features/preferences/ui/localization/locales/en.ts",
+        "notificationPreferencesEnglishTranslations",
+        [["notifications.features.notificationCenter.ui.shell.preference.", "shell.preference"]],
+      )),
+      ...(await catalogFrom(
+        "bounded-contexts/notifications/features/notification-center/ui/localization/locales/en.ts",
+        "notificationCenterEnglishTranslations",
+        [
+          ["notifications.features.notificationCenter.ui.shell.productAlerts.", "shell.productAlerts"],
+          ["notifications.features.notificationCenter.ui.shell.source.", "shell.source"],
+          ["notifications.routes.accountNotifications.", "route"],
+        ],
       )),
     }),
   ],
