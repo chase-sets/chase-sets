@@ -431,6 +431,11 @@ describeDb("Pricing Evaluated Decision with separate owner stores", () => {
     await bootstrapContextDatabase(pricingModule, pools.pricing);
     await bootstrapContextDatabase(marketplaceModule, pools.marketplace);
     expect((await decision(legacy.requestId)).terminal_witness_token).toBeNull();
+    await pools.marketplace.query(
+      "DELETE FROM bounded_context_schema_migrations WHERE migration_id = '20261123_marketplace_request_terminal_witness'",
+    );
+    await bootstrapContextDatabase(marketplaceModule, pools.marketplace);
+    expect(await witnessFact(deleted.requestId)).toMatchObject({ status: "SEEN" });
     expect(await charge()).toBe(6);
     const runner = f.restart();
     expect(await runner.recoverExpiredDecisions(unexpected)).toBe(1);

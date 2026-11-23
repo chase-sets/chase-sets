@@ -80,6 +80,8 @@ const RESERVATION_COLUMNS =
 
 /** Install only on the consumer that witnesses never-opened requests. */
 export const requestTerminalWitnessSchemaSql = `
+SET LOCAL lock_timeout = '5s';
+
 CREATE TABLE IF NOT EXISTS event_request_terminal_witnesses (
   consumer_store_id text NOT NULL,
   request_id text NOT NULL,
@@ -92,7 +94,7 @@ CREATE TABLE IF NOT EXISTS event_request_terminal_witnesses (
   CHECK ((binding IS NOT NULL) = (status IN ('CLAIMED', 'ISSUING', 'ISSUED')))
 );
 
-CREATE FUNCTION event_fence_request_terminal_insert() RETURNS trigger LANGUAGE plpgsql AS $$
+CREATE OR REPLACE FUNCTION event_fence_request_terminal_insert() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE witness event_request_terminal_witnesses%ROWTYPE;
 BEGIN
   PERFORM pg_advisory_xact_lock(hashtextextended('request_terminal:' || NEW.consumer_store_id || ':' || NEW.request_id, 0));
@@ -106,7 +108,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION event_witness_request_terminal_insert() RETURNS trigger LANGUAGE plpgsql AS $$
+CREATE OR REPLACE FUNCTION event_witness_request_terminal_insert() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
   UPDATE event_request_terminal_witnesses SET status = 'ISSUED'
     WHERE consumer_store_id = NEW.consumer_store_id AND request_id = NEW.request_id
@@ -124,7 +126,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION event_require_request_terminal_publication() RETURNS trigger LANGUAGE plpgsql AS $$
+CREATE OR REPLACE FUNCTION event_require_request_terminal_publication() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM event_request_terminal_witnesses w JOIN event_request_terminals t
       USING (consumer_store_id, request_id)
@@ -136,10 +138,13 @@ BEGIN
 END;
 $$;
 
+DROP TRIGGER IF EXISTS event_fence_request_terminal_insert ON event_request_terminals;
 CREATE TRIGGER event_fence_request_terminal_insert BEFORE INSERT ON event_request_terminals
   FOR EACH ROW EXECUTE FUNCTION event_fence_request_terminal_insert();
+DROP TRIGGER IF EXISTS event_witness_request_terminal_insert ON event_request_terminals;
 CREATE TRIGGER event_witness_request_terminal_insert AFTER INSERT ON event_request_terminals
   FOR EACH ROW EXECUTE FUNCTION event_witness_request_terminal_insert();
+DROP TRIGGER IF EXISTS event_require_request_terminal_publication ON event_request_terminal_witnesses;
 CREATE CONSTRAINT TRIGGER event_require_request_terminal_publication
   AFTER INSERT OR UPDATE ON event_request_terminal_witnesses DEFERRABLE INITIALLY DEFERRED
   FOR EACH ROW WHEN (NEW.status = 'ISSUING') EXECUTE FUNCTION event_require_request_terminal_publication();
