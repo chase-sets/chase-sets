@@ -1,15 +1,9 @@
-import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
-import type { LoaderFunctionArgs, MetaFunction } from "react-router";
+import type { MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
-import { createChannelsPublicationRequestApiClient } from "../../api/request-client";
 import { t } from "../localization/translator";
 import { ChannelPublicationListPage } from "../publication-pages";
-
-export async function loader({ request }: LoaderFunctionArgs) {
-  await requireActorFromAuthApi({ request, permission: "channels.view" });
-  return { connections: await createChannelsPublicationRequestApiClient(request).listConnections() };
-}
+import type { loader } from "./account-channels-publication.server";
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({
