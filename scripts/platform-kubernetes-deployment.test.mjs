@@ -1088,6 +1088,44 @@ describe("platform Kubernetes deployment", () => {
     expect(calls[0].args).toEqual(args);
   });
 
+  it("waits only for the workloads the live release runs, so a withheld pilot is not awaited", async () => {
+    const live = {
+      components: {
+        "platform-api": { enabled: true, kind: "service" },
+        "admin-corten": { enabled: false, kind: "service" },
+        "marketplace-corten": { enabled: false, kind: "service" },
+      },
+    };
+    const calls = [];
+    await reconcileManagedPostgresCaOnKubernetes({
+      release: "chase-sets-platform",
+      namespace: "chase-sets-platform",
+      timeout: "15m",
+      managedPostgresCaSha256,
+      envOverrides: { DEPLOYMENT_ENVIRONMENT: "staging" },
+      env: { STAGING_ADMIN_APP: "admin-web" },
+      rolloutsEnabled: false,
+      helmPath: "helm",
+      kubectlPath: "kubectl",
+      spawn: completedSpawn(calls, [{ code: 0, stdout: JSON.stringify(live) }]),
+    });
+    expect(calls[0].args).toEqual([
+      "get",
+      "values",
+      "chase-sets-platform",
+      "--namespace",
+      "chase-sets-platform",
+      "--all",
+      "--output",
+      "json",
+    ]);
+    expect(calls[1].args[0]).toBe("upgrade");
+    const waited = calls.slice(2).map(({ args }) => args.join(" "));
+    expect(waited).toHaveLength(1);
+    expect(waited[0]).toContain("chase-sets-platform-chase-sets-platform-platform-api");
+    expect(waited.join(" ")).not.toContain("corten");
+  });
+
   it("pins Helm to the provider-managed Kubernetes image pull authority", () => {
     expect(
       buildHelmUpgradeArgs({

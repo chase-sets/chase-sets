@@ -2507,6 +2507,26 @@ async function readHelmHistory(options) {
   return normalized;
 }
 
+export function buildCurrentHelmValuesArgs(options = {}) {
+  const release = requiredOption(options.release ?? defaultRelease, "release");
+  const namespace = requiredOption(options.namespace ?? defaultNamespace, "namespace");
+  return ["get", "values", release, "--namespace", namespace, "--all", "--output", "json"];
+}
+
+async function readCurrentHelmValues(options) {
+  const result = await runProcess({
+    command: options.helmPath ?? "helm",
+    args: buildCurrentHelmValuesArgs(options),
+    spawn: options.spawn,
+    captureOutput: true,
+  });
+  const values = parseJsonCommandOutput(result.stdout, "Helm values for the current release");
+  if (!values || typeof values !== "object" || Array.isArray(values) || !values.components) {
+    throw new Error("Helm values for the current release must be a JSON object with components.");
+  }
+  return values;
+}
+
 async function readHelmRevisionValues(options) {
   const result = await runProcess({
     command: options.helmPath ?? "helm",
@@ -3133,7 +3153,11 @@ export function assertDeployAttemptsRecord(record) {
 export async function reconcileManagedPostgresCaOnKubernetes(options = {}) {
   const helmPath = options.helmPath ?? "helm";
   const kubectlPath = options.kubectlPath ?? "kubectl";
-  const workloads = options.workloads ?? platformKubernetesWorkloads(options);
+  // The upgrade reuses the live release's values, so wait for that release's workloads, not the values
+  // files': a pilot the last deploy rendered disabled (withheld or without an image) has no workload.
+  const workloads =
+    options.workloads ??
+    platformKubernetesWorkloads({ ...options, values: await readCurrentHelmValues({ ...options, helmPath }) });
   await runProcess({
     command: helmPath,
     args: buildManagedPostgresCaReconcileArgs(options),
