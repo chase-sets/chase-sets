@@ -34,6 +34,7 @@ import {
   type RefundId,
 } from "../../../support/runtime-support/common";
 import { checkoutUnavailableReasonLabel } from "./reason-codes";
+import { cardAuthenticationPolicy, type CardAuthenticationPolicyValue } from "../domain/card-authentication-policy";
 import { isDeferredCheckoutPayment } from "../domain/deferred-checkout-payment";
 import { DeferredPaymentNotSent, isPaymentConfirmationTokenId } from "@chase-sets/payment-processing";
 import type {
@@ -149,6 +150,7 @@ type PaymentRuntimeDeps = Readonly<{
   processorGateway: PaymentProcessorGateway;
   balanceCreditResolver?: BalanceCreditResolver;
   checkoutProcessingFeePolicyResolver?: CheckoutProcessingFeePolicyResolver;
+  resolveCardAuthenticationPolicy?: () => Promise<CardAuthenticationPolicyValue>;
   notificationOutbox?: NotificationOutbox;
   webhookTelemetry?: ProviderWebhookTelemetry;
 }>;
@@ -522,6 +524,7 @@ function buildOrderRefundCaps(
 
 function buildMarketplaceRiskMetadata(
   sellerPayouts: readonly SellerPayoutComponent[],
+  highSellerExposureAmount: string,
 ): Record<string, string | number | boolean> {
   const sellerAccountIds = [...new Set(sellerPayouts.map((payout) => payout.sellerAccountId))].sort();
   const maxSellerOrderAmount = sellerPayouts.reduce(
@@ -533,7 +536,7 @@ function buildMarketplaceRiskMetadata(
     seller_account_ids: sellerAccountIds.join(","),
     seller_account_count: sellerAccountIds.length,
     max_seller_order_amount: maxSellerOrderAmount,
-    high_dollar_order: compareMoney(maxSellerOrderAmount, "250.00") >= 0,
+    high_dollar_order: compareMoney(maxSellerOrderAmount, highSellerExposureAmount) >= 0,
     fulfillment_required: sellerPayouts.length > 0,
   };
 }
@@ -543,12 +546,11 @@ type CardAuthenticationAssessment = Readonly<{
   reasonCodes: readonly string[];
 }>;
 
-const THREE_D_SECURE_PAYMENT_AMOUNT_THRESHOLD = "250.00";
-
 function buildCardAuthenticationAssessment(
   params: Readonly<{
     paymentMethodCategory: PaymentMethodCategory;
     processorAmount: string;
+    highPaymentAmount: string;
     marketplaceRiskMetadata: Readonly<Record<string, string | number | boolean>>;
     accountRisk: PaymentAccountRiskSourceRow | null;
   }>,
@@ -561,9 +563,7 @@ function buildCardAuthenticationAssessment(
     ...(params.accountRisk?.stripe_fraud_flag ? ["stripe-fraud-flag"] : []),
     ...(params.accountRisk && params.accountRisk.stripe_review_open_count > 0 ? ["stripe-fraud-review-open"] : []),
     ...(params.accountRisk?.manual_payout_review ? ["manual-payout-review"] : []),
-    ...(compareMoney(params.processorAmount, THREE_D_SECURE_PAYMENT_AMOUNT_THRESHOLD) >= 0
-      ? ["high-payment-amount"]
-      : []),
+    ...(compareMoney(params.processorAmount, params.highPaymentAmount) >= 0 ? ["high-payment-amount"] : []),
     ...(params.marketplaceRiskMetadata.high_dollar_order === true ? ["high-dollar-seller-exposure"] : []),
   ];
 
@@ -2283,11 +2283,18 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       const sellerPayoutAmount = sumFeeAmounts(orders, "seller_payout_amount");
       const sellerPayouts = buildSellerPayoutComponents(orders);
       const orderRefundCaps = buildOrderRefundCaps(orders, marketplaceCheckoutFeeAmount);
-      const marketplaceRiskMetadata = buildMarketplaceRiskMetadata(sellerPayouts);
+      const cardAuthenticationAmounts = deps.resolveCardAuthenticationPolicy
+        ? await deps.resolveCardAuthenticationPolicy()
+        : cardAuthenticationPolicy.defaultValue;
+      const marketplaceRiskMetadata = buildMarketplaceRiskMetadata(
+        sellerPayouts,
+        cardAuthenticationAmounts.highSellerExposureAmount,
+      );
       const accountRisk = await getPaymentAccountRiskSource(deps.db, accountId);
       const cardAuthentication = buildCardAuthenticationAssessment({
         paymentMethodCategory,
         processorAmount,
+        highPaymentAmount: cardAuthenticationAmounts.highPaymentAmount,
         marketplaceRiskMetadata,
         accountRisk,
       });
