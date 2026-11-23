@@ -33,6 +33,7 @@ export const marketplaceMutationKindSchema = z.enum([
   "offer.update-price",
   "offer.decline",
   "offer-policy.command",
+  "offer-payment-authorization.command",
   "review.submit",
   "review.reply",
   "review.report",
@@ -42,7 +43,17 @@ export const marketplaceMutationKindSchema = z.enum([
 export type MarketplaceMutationKind = z.infer<typeof marketplaceMutationKindSchema>;
 export type MarketplaceListingMutationKind = (typeof marketplaceListingMutationKinds)[number];
 export const marketplaceRecoveryTargetSchema = z.strictObject({
-  kind: z.enum(["offer", "product", "offer-policy", "inventory-item", "listing", "seller", "order", "review"]),
+  kind: z.enum([
+    "offer",
+    "product",
+    "offer-policy",
+    "offer-payment-authorization",
+    "inventory-item",
+    "listing",
+    "seller",
+    "order",
+    "review",
+  ]),
   id: identity,
 });
 export type MarketplaceRecoveryTarget = z.infer<typeof marketplaceRecoveryTargetSchema>;
@@ -56,6 +67,7 @@ export function marketplaceRecoveryTargetKind(kind: MarketplaceMutationKind): Ma
   if (kind === "review.reply" || kind === "review.report") return "review";
   if (kind === "offer.submit") return "product";
   if (kind === "offer-policy.command") return "offer-policy";
+  if (kind === "offer-payment-authorization.command") return "offer-payment-authorization";
   if (kind === "listing.create") return "inventory-item";
   if (kind.startsWith("listing.")) return "listing";
   if (kind.startsWith("seller.")) return "seller";
@@ -91,7 +103,7 @@ export function canonicalMarketplaceRequest(value: unknown): string {
 }
 
 export function marketplaceCanonicalRequest(kind: MarketplaceMutationKind, input: unknown): unknown {
-  if (kind === "offer-policy.command" || input === null) return input;
+  if (kind === "offer-policy.command" || kind === "offer-payment-authorization.command" || input === null) return input;
   const request = input as Record<string, unknown>;
   if (kind === "review.submit")
     return {

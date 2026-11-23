@@ -14,6 +14,7 @@ import {
   offerPriceAttemptResultSchema,
 } from "../../offers/api/attempt-result";
 import { offerPolicyAttemptResultSchema } from "../../offer-policy/api/attempt-result";
+import { authorizationResultSchema } from "../../offer-payment-authorization/domain/contracts";
 import { withMarketplaceAttemptReceipt } from "./receipt";
 import { reviewAttemptResultSchema, reviewReplyAttemptResultSchema } from "../../reviews/api/attempt-result";
 import { listingReportAttemptResultSchema, reviewReportAttemptResultSchema } from "../../reports/api/attempt-result";
@@ -44,21 +45,23 @@ export function createMarketplaceMutationLookup(eventStore: Pick<EventStore, "re
       ownerStatus: "not-observed",
     };
     const resultSchema =
-      input.mutationKind === "review.submit"
-        ? reviewAttemptResultSchema
-        : input.mutationKind === "review.reply"
-          ? reviewReplyAttemptResultSchema
-          : input.mutationKind === "review.report"
-            ? reviewReportAttemptResultSchema
-            : input.mutationKind === "listing.report"
-              ? listingReportAttemptResultSchema
-              : input.mutationKind === "offer.accept"
-                ? offerAcceptanceResultSchema
-                : input.mutationKind === "offer-policy.command"
-                  ? offerPolicyAttemptResultSchema
-                  : input.mutationKind === "offer.update-price"
-                    ? offerPriceAttemptResultSchema
-                    : offerAttemptResultSchema;
+      input.mutationKind === "offer-payment-authorization.command"
+        ? authorizationResultSchema
+        : input.mutationKind === "review.submit"
+          ? reviewAttemptResultSchema
+          : input.mutationKind === "review.reply"
+            ? reviewReplyAttemptResultSchema
+            : input.mutationKind === "review.report"
+              ? reviewReportAttemptResultSchema
+              : input.mutationKind === "listing.report"
+                ? listingReportAttemptResultSchema
+                : input.mutationKind === "offer.accept"
+                  ? offerAcceptanceResultSchema
+                  : input.mutationKind === "offer-policy.command"
+                    ? offerPolicyAttemptResultSchema
+                    : input.mutationKind === "offer.update-price"
+                      ? offerPriceAttemptResultSchema
+                      : offerAttemptResultSchema;
     const completedSchema = completedMarketplaceAttemptSchema<unknown>(resultSchema);
     let wrongOwner = false;
     let completedResult: unknown;
@@ -96,7 +99,11 @@ export function createMarketplaceMutationLookup(eventStore: Pick<EventStore, "re
     )
       return notObserved;
     if (prior.canonicalRequestHash !== input.requestHash) {
-      if (input.mutationKind.startsWith("review.") || input.mutationKind === "listing.report")
+      if (
+        input.mutationKind.startsWith("review.") ||
+        input.mutationKind === "listing.report" ||
+        input.mutationKind === "offer-payment-authorization.command"
+      )
         return { ...notObserved, ownerStatus: "conflict" };
       return notObserved;
     }

@@ -2,6 +2,89 @@
   "contextName": "marketplace",
   "runners": [
     {
+      "subscriptionName": "marketplace.buyer-payment-instrument-projection",
+      "handlerKind": "projection",
+      "projectionName": "marketplace.buyer-payment-instrument-projection",
+      "sourceContextName": "payments",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "payments.checkout-affordances-published": "<function>"
+      },
+      "targetContextName": "marketplace",
+      "checkpointKey": "marketplace.buyer-payment-instrument-projection:payments:v1",
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": ["payments.checkout-affordances-published"],
+      "streamPrefixes": "<undefined>",
+      "order": 98
+    },
+    {
+      "subscriptionName": "marketplace.offer-payment-authorization-projection",
+      "handlerKind": "projection",
+      "projectionName": "marketplace.offer-payment-authorization-projection",
+      "sourceContextName": "marketplace",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "marketplace.offer-payment-authorization.previewed": "<function>",
+        "marketplace.offer-payment-authorization.authorized": "<function>",
+        "marketplace.offer-payment-authorization.resumed": "<function>",
+        "marketplace.offer-payment-authorization.revoked": "<function>",
+        "marketplace.offer-payment-authorization.held": "<function>",
+        "marketplace.offer-payment-authorization.payment-method-unavailable": "<function>",
+        "marketplace.offer-payment-authorization.marked-required": "<function>"
+      },
+      "targetContextName": "marketplace",
+      "checkpointKey": "marketplace.offer-payment-authorization-projection:marketplace:v1",
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "marketplace.offer-payment-authorization.previewed",
+        "marketplace.offer-payment-authorization.authorized",
+        "marketplace.offer-payment-authorization.resumed",
+        "marketplace.offer-payment-authorization.revoked",
+        "marketplace.offer-payment-authorization.held",
+        "marketplace.offer-payment-authorization.payment-method-unavailable",
+        "marketplace.offer-payment-authorization.marked-required"
+      ],
+      "streamPrefixes": ["marketplace.offer-payment-authorization-"],
+      "order": 99
+    },
+    {
+      "subscriptionName": "marketplace.offer-payment-authorization-reconcile",
+      "handlerKind": "reaction",
+      "projectionName": "marketplace.offer-payment-authorization-reconcile",
+      "sourceContextName": "marketplace",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "marketplace.buyer-payment-instrument.mirrored": "<function>",
+        "marketplace.offer-payment-authorization.authorized": "<function>",
+        "marketplace.offer-payment-authorization.resumed": "<function>"
+      },
+      "targetContextName": "marketplace",
+      "checkpointKey": "marketplace.offer-payment-authorization-reconcile:marketplace:v1",
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 1,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": [
+        "marketplace.buyer-payment-instrument.mirrored",
+        "marketplace.offer-payment-authorization.authorized",
+        "marketplace.offer-payment-authorization.resumed"
+      ],
+      "streamPrefixes": "<undefined>",
+      "order": 100
+    },
+    {
       "subscriptionName": "marketplace.catalog-item-projection",
       "handlerKind": "projection",
       "projectionName": "marketplace-catalog-item-projection",
@@ -831,6 +914,81 @@
     }
   ],
   "subscriptions": [
+    {
+      "subscriptionName": "marketplace.buyer-payment-instrument-projection",
+      "handlerKind": "projection",
+      "projectionName": "marketplace.buyer-payment-instrument-projection",
+      "sourceContextName": "payments",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "payments.checkout-affordances-published": "<function>"
+      },
+      "eventTypes": ["payments.checkout-affordances-published"],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 98
+    },
+    {
+      "subscriptionName": "marketplace.offer-payment-authorization-projection",
+      "handlerKind": "projection",
+      "projectionName": "marketplace.offer-payment-authorization-projection",
+      "sourceContextName": "marketplace",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "marketplace.offer-payment-authorization.previewed": "<function>",
+        "marketplace.offer-payment-authorization.authorized": "<function>",
+        "marketplace.offer-payment-authorization.resumed": "<function>",
+        "marketplace.offer-payment-authorization.revoked": "<function>",
+        "marketplace.offer-payment-authorization.held": "<function>",
+        "marketplace.offer-payment-authorization.payment-method-unavailable": "<function>",
+        "marketplace.offer-payment-authorization.marked-required": "<function>"
+      },
+      "eventTypes": [
+        "marketplace.offer-payment-authorization.previewed",
+        "marketplace.offer-payment-authorization.authorized",
+        "marketplace.offer-payment-authorization.resumed",
+        "marketplace.offer-payment-authorization.revoked",
+        "marketplace.offer-payment-authorization.held",
+        "marketplace.offer-payment-authorization.payment-method-unavailable",
+        "marketplace.offer-payment-authorization.marked-required"
+      ],
+      "streamPrefixes": ["marketplace.offer-payment-authorization-"],
+      "errorPolicy": "<undefined>",
+      "batchSize": "<undefined>",
+      "checkpointBatchSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "projectionTransactionBudgetEscalationMs": "<undefined>",
+      "projectionCascadeChunkSize": "<undefined>",
+      "order": 99
+    },
+    {
+      "subscriptionName": "marketplace.offer-payment-authorization-reconcile",
+      "handlerKind": "reaction",
+      "projectionName": "marketplace.offer-payment-authorization-reconcile",
+      "sourceContextName": "marketplace",
+      "subscriptionVersion": 1,
+      "handlers": {
+        "marketplace.buyer-payment-instrument.mirrored": "<function>",
+        "marketplace.offer-payment-authorization.authorized": "<function>",
+        "marketplace.offer-payment-authorization.resumed": "<function>"
+      },
+      "reactionName": "marketplace.offer-payment-authorization-reconcile",
+      "eventTypes": [
+        "marketplace.buyer-payment-instrument.mirrored",
+        "marketplace.offer-payment-authorization.authorized",
+        "marketplace.offer-payment-authorization.resumed"
+      ],
+      "streamPrefixes": "<undefined>",
+      "errorPolicy": "<undefined>",
+      "order": 100
+    },
     {
       "subscriptionName": "marketplace.catalog-item-projection",
       "handlerKind": "projection",
