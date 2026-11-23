@@ -156,10 +156,25 @@ describe("createSettlementBalanceCreditResolver", () => {
           paymentId: "pay_1",
           amount: "20.00",
           currencyCode: "usd",
-          expiresAt: expect.any(String),
         }),
         context,
       );
+      const placed = (
+        placeSpendHold.mock.calls as unknown as [{ placedAt: string; expiresAt: string | null }][]
+      )[0]![0];
+      expect(Date.parse(placed.expiresAt!) - Date.parse(placed.placedAt)).toBe(259_200_000);
+    });
+
+    it("places a hold with no expiry when the Payment suspends expiry", async () => {
+      const placeSpendHold = vi.fn(async () => ({ accountId: "acc_1" as AccountId, holdId: "x", heldAmount: "20.00" }));
+      const releaseSpendHold = vi.fn(async () => ({ accountId: "acc_1" as AccountId, holdId: "x", released: true }));
+      const resolver = createSettlementBalanceCreditResolver(fakeDb("30.00"), {
+        walletSpendHolds: { placeSpendHold, releaseSpendHold, retireSpendHold, setSpendHoldExpiry },
+      });
+
+      await resolver.placeSpendHold({ ...holdInput, expiresAt: null }, context);
+
+      expect(placeSpendHold).toHaveBeenCalledWith(expect.objectContaining({ expiresAt: null }), context);
     });
 
     it("returns the capped held amount when the port reserves less than requested", async () => {
