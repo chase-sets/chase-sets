@@ -314,8 +314,8 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
       { role: "provider funding correlation", file: queries, lines: [61], receiver: "db" },
       { role: "projection current version", file: projection, lines: [30], receiver: "db" },
       { role: "projection version-fenced upsert", file: projection, lines: [41], receiver: "db" },
-      { role: "bounded non-refused sweep", file: runtime, lines: [538], receiver: "deps.pool" },
-      { role: "sweep scheduling progress", file: runtime, lines: [652], receiver: "deps.pool" },
+      { role: "bounded non-refused sweep", file: runtime, lines: [542], receiver: "deps.pool" },
+      { role: "sweep scheduling progress", file: runtime, lines: [656], receiver: "deps.pool" },
     ];
     expect(obligations).toHaveLength(10);
     const result = classify([queries, projection, runtime]);
