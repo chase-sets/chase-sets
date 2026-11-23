@@ -20,6 +20,7 @@ import {
   platformHelmPreviewPostgresName,
   previewWildcardTlsSecretName,
   previewWildcardTlsSecretNamespace,
+  resolveStagingAdminApp,
 } from "./render-platform-helm-values.mjs";
 import { writeJsonRecord } from "./lib/output-file.mjs";
 import { MERGE_GATE_NAMESPACE_PATTERN, VERIFICATION_NAMESPACE_PATTERN } from "./ephemeral-verification-namespace.mjs";
@@ -114,13 +115,22 @@ const cortenPilotImages = [
 
 // Corten pilots still served beside their React app. Staging deploys one of these disabled when its image
 // is missing. A pilot leaves this list when it becomes the app that serves its host; from then on a missing
-// image fails the deploy instead of removing what serves the host.
-export const ADVISORY_CORTEN_PILOT_COMPONENTS = Object.freeze(["admin-corten", "marketplace-corten"]);
+// image fails the deploy instead of removing what serves the host. admin-corten left it when it began
+// serving admin.staging.
+export const ADVISORY_CORTEN_PILOT_COMPONENTS = Object.freeze(["marketplace-corten"]);
+
+// The advisory pilots on this staging deploy: the list above, plus admin-corten while STAGING_ADMIN_APP
+// rolls admin.staging back to admin-web, so a rollback forced by a broken pilot build can still deploy.
+export function advisoryCortenPilotComponents(env = {}) {
+  return resolveStagingAdminApp(env).app === "admin-web"
+    ? [...ADVISORY_CORTEN_PILOT_COMPONENTS, "admin-corten"]
+    : [...ADVISORY_CORTEN_PILOT_COMPONENTS];
+}
 
 // The advisory pilots a staging deploy drops because no image was given for them.
 export function droppedAdvisoryCortenPilots(options = {}) {
   if (options.envOverrides?.DEPLOYMENT_ENVIRONMENT !== "staging") return [];
-  const advisory = options.advisoryCortenPilotComponents ?? ADVISORY_CORTEN_PILOT_COMPONENTS;
+  const advisory = options.advisoryCortenPilotComponents ?? advisoryCortenPilotComponents(options.env ?? {});
   return cortenPilotImages
     .filter(({ option, component }) => !options[option] && advisory.includes(component))
     .map(({ component }) => component);
@@ -779,6 +789,9 @@ export function buildDeploymentEvidence(options = {}) {
     completedAt: options.completedAt ?? null,
     result: options.result ?? "unknown",
     ...(options.reason ? { reason: options.reason } : {}),
+    ...(options.envOverrides?.DEPLOYMENT_ENVIRONMENT === "staging"
+      ? { stagingAdminApp: resolveStagingAdminApp(options.env ?? {}) }
+      : {}),
     workloads,
     ...(options.rollbackIdentity ? { rollbackIdentity: options.rollbackIdentity } : {}),
   };
@@ -4255,7 +4268,7 @@ export function parseArgs(argv, env = process.env) {
     ].includes(command)
   ) {
     throw new Error(
-      "Usage: node ./scripts/platform-kubernetes-deployment.mjs <deploy|reconcile-managed-postgres-ca|scenario-seed|promote|abort|rollback|diagnostics|preview-postgres-snapshot|plan|capture-rollback-target|verify-deployment-transition|recover-stale-pending-upgrade|teardown> [--image <ref>] [--namespace <name>] [--release <name>] [--timeout <duration>] [--revision <n>] [--pending-revision <n>] [--source-description <text>] [--pending-description <text>] [--issue-number <n>] [--admission-out <path>] [--rollback-target <path>] [--attempts-out <path>] [--admission-retry-rollback-target <path>] [--deploy-attempts <path>] [--index-manifest <path>] [--platform <os/architecture>] [--rollouts-enabled true|false] [--quiesce-workers true|false] [--preview-postgres true|false] [--beta-wave-size <n>] [--beta-wave-rollout-exposure <10|25|50>] [--observability-exporter-endpoint <url>] [--managed-postgres-ca-sha256 <digest>] [--runtime-env NAME=VALUE] [--out <path>] [--github-output <path>]",
+      "Usage: node ./scripts/platform-kubernetes-deployment.mjs <deploy|reconcile-managed-postgres-ca|scenario-seed|promote|abort|rollback|diagnostics|preview-postgres-snapshot|plan|capture-rollback-target|verify-deployment-transition|recover-stale-pending-upgrade|teardown> [--image <ref>] [--namespace <name>] [--release <name>] [--timeout <duration>] [--revision <n>] [--pending-revision <n>] [--source-description <text>] [--pending-description <text>] [--issue-number <n>] [--admission-out <path>] [--rollback-target <path>] [--attempts-out <path>] [--admission-retry-rollback-target <path>] [--deploy-attempts <path>] [--index-manifest <path>] [--platform <os/architecture>] [--rollouts-enabled true|false] [--quiesce-workers true|false] [--preview-postgres true|false] [--beta-wave-size <n>] [--beta-wave-rollout-exposure <10|25|50>] [--observability-exporter-endpoint <url>] [--managed-postgres-ca-sha256 <digest>] [--runtime-env NAME=VALUE] [--out <path>] [--github-output <path>] [--github-summary <path>]",
     );
   }
 
@@ -4307,6 +4320,7 @@ export function parseArgs(argv, env = process.env) {
     deployAttemptsPath: readOption(rest, "--deploy-attempts"),
     jobName: readOption(rest, "--job-name", env.PLATFORM_KUBERNETES_SCENARIO_SEED_JOB_NAME),
     githubOutputPath: readOption(rest, "--github-output", env.GITHUB_OUTPUT),
+    githubSummaryPath: readOption(rest, "--github-summary"),
     env,
   };
 }
@@ -4384,6 +4398,9 @@ async function main(argv, env = process.env, overrides = {}) {
   }
 
   if (options.command === "deploy") {
+    if (options.envOverrides?.DEPLOYMENT_ENVIRONMENT === "staging") {
+      recordStagingAdminApp(options);
+    }
     const admissionRetryRollbackTarget = options.admissionRetryRollbackTargetPath
       ? parseJsonCommandOutput(readFileSync(options.admissionRetryRollbackTargetPath, "utf8"), "rollback target file")
       : undefined;
@@ -4555,6 +4572,20 @@ async function main(argv, env = process.env, overrides = {}) {
     await writeJsonRecord(options.outPath, buildKubernetesDiagnosticsRecord({ ...options, ...diagnostics }));
   }
   return 0;
+}
+
+// Says which app serves admin.staging before the deploy starts, in the step summary and as the step's
+// admin_app output, so every run's evidence names it even when the deploy then fails.
+export function recordStagingAdminApp(options = {}) {
+  const { app, source } = resolveStagingAdminApp(options.env ?? {});
+  const why = source === "default" ? "STAGING_ADMIN_APP is unset, so the default applies" : `STAGING_ADMIN_APP=${app}`;
+  const line = `admin.staging is served by ${app} (${why}).`;
+  console.error(line);
+  if (options.githubSummaryPath) {
+    appendFileSync(options.githubSummaryPath, `### Staging admin app\n\n${line}\n\n`);
+  }
+  writeGithubOutput(options.githubOutputPath, { admin_app: app, admin_app_source: source });
+  return { app, source };
 }
 
 function writeGithubOutput(filePath, values) {

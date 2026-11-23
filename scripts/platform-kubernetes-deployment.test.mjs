@@ -88,6 +88,8 @@ const rollbackTag = "c0bd688d64bd5140fcbd2790489717a042e5432b";
 const failedCandidateDigest = "sha256:389894cef6b5ebc5dd63d1b3b5aada76264a8d353d8fa4852018bafe9496292d";
 const managedPostgresCaSha256 = "a".repeat(64);
 const rollbackImageRef = `registry.digitalocean.com/chase-sets/chase-sets-platform@${rollbackDigest}`;
+// admin-corten serves admin.staging, so every staging deploy carries its pinned image.
+const stagingCortenAdminImage = `registry.digitalocean.com/chase-sets/chase-sets-corten-admin@sha256:${"c".repeat(64)}`;
 const productionIndex = {
   schemaVersion: 2,
   mediaType: "application/vnd.oci.image.index.v1+json",
@@ -481,7 +483,15 @@ describe("platform Kubernetes deployment", () => {
   it.each([undefined, "true", "false"])(
     "threads Catalog send-window %s through real CLI parsing and Helm arguments",
     (flag) => {
-      const argv = ["deploy", "--image", rollbackImageRef, "--runtime-env", "DEPLOYMENT_ENVIRONMENT=staging"];
+      const argv = [
+        "deploy",
+        "--image",
+        rollbackImageRef,
+        "--corten-admin-image",
+        stagingCortenAdminImage,
+        "--runtime-env",
+        "DEPLOYMENT_ENVIRONMENT=staging",
+      ];
       if (flag !== undefined) argv.push("--runtime-env", `CATALOG_PROVIDER_SEND_WINDOW_ENABLED=${flag}`);
       const parsed = parseArgs(argv, {});
       expect(parsed.envOverrides.CATALOG_PROVIDER_SEND_WINDOW_ENABLED).toBe(flag);
@@ -1128,6 +1138,7 @@ describe("platform Kubernetes deployment", () => {
         namespace: "staging",
         timeout: "12m",
         image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
+        cortenAdminImage: stagingCortenAdminImage,
         envOverrides: {
           DEPLOYMENT_ENVIRONMENT: "staging",
         },
@@ -1194,6 +1205,7 @@ describe("platform Kubernetes deployment", () => {
       release: "chase-sets-platform",
       namespace: "chase-sets-platform",
       image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
+      cortenAdminImage: stagingCortenAdminImage,
       envOverrides: { DEPLOYMENT_ENVIRONMENT: "staging", OBSERVABILITY_ENABLED: "true" },
     });
     expect(stagingArgs).toEqual(
@@ -1305,6 +1317,8 @@ describe("platform Kubernetes deployment", () => {
       "deploy",
       "--image",
       "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha@sha256:4db059aed0e208b2ab1ebe0e8cbb562070d3962fc21d0f088af85a9942e76d86",
+      "--corten-admin-image",
+      stagingCortenAdminImage,
       "--image-pull-secret",
       "chase-sets",
       "--runtime-env",
@@ -1396,6 +1410,7 @@ describe("platform Kubernetes deployment", () => {
       namespace: "staging",
       timeout: "12m",
       image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
+      cortenAdminImage: stagingCortenAdminImage,
       envOverrides: {
         DEPLOYMENT_ENVIRONMENT: "staging",
         CHASE_SETS_RUNTIME_PROFILE: "public",
@@ -1450,6 +1465,7 @@ describe("platform Kubernetes deployment", () => {
       namespace: "staging",
       timeout: "12m",
       image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
+      cortenAdminImage: stagingCortenAdminImage,
       envOverrides: {
         DEPLOYMENT_ENVIRONMENT: "staging",
       },
@@ -1686,6 +1702,7 @@ describe("platform Kubernetes deployment", () => {
         namespace: "staging",
         timeout: "12m",
         image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
+        cortenAdminImage: stagingCortenAdminImage,
         envOverrides: { DEPLOYMENT_ENVIRONMENT: "staging" },
         spawn: successfulSpawn(stagingCalls),
       });
@@ -1730,6 +1747,7 @@ describe("platform Kubernetes deployment", () => {
         namespace: environment,
         timeout: "12m",
         image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
+        ...(environment === "staging" ? { cortenAdminImage: stagingCortenAdminImage } : {}),
         envOverrides: {
           DEPLOYMENT_ENVIRONMENT: environment,
         },
@@ -7607,6 +7625,7 @@ describe("managed Postgres CA trust across rollout and rollback (#7313)", () => 
 
 describe("advisory Corten pilots without an image", () => {
   const adminImage = `registry.digitalocean.com/chase-sets/chase-sets-corten-admin@sha256:${"a".repeat(64)}`;
+  // admin-web serves admin.staging here, which makes the admin pilot advisory.
   const staging = {
     release: "proof",
     namespace: "staging",
@@ -7614,6 +7633,7 @@ describe("advisory Corten pilots without an image", () => {
     image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
     rolloutsEnabled: false,
     envOverrides: { DEPLOYMENT_ENVIRONMENT: "staging", OBSERVABILITY_ENABLED: "false" },
+    env: { STAGING_ADMIN_APP: "admin-web" },
   };
   const pilotWorkload = "proof-chase-sets-platform-admin-corten";
   const deployStaging = async (options) => {
@@ -7633,10 +7653,13 @@ describe("advisory Corten pilots without an image", () => {
   };
 
   it("names the advisory pilots explicitly", () => {
-    expect(platformKubernetesDeployment.ADVISORY_CORTEN_PILOT_COMPONENTS).toEqual([
-      "admin-corten",
-      "marketplace-corten",
-    ]);
+    expect(platformKubernetesDeployment.ADVISORY_CORTEN_PILOT_COMPONENTS).toEqual(["marketplace-corten"]);
+  });
+
+  it("refuses a staging deploy with no admin image while the pilot serves admin.staging", async () => {
+    await expect(deployStaging({ env: {} })).rejects.toThrow(
+      "corten-admin-image is required on staging: admin-corten is not an advisory pilot.",
+    );
   });
 
   it("deploys an advisory pilot that has no image disabled, warns, and does not wait for it", async () => {

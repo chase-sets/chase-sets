@@ -1290,8 +1290,9 @@ jobs:
       - resolve-release
       - build-image
       - build-corten-pilot-images
-    # The pilot images are advisory: whatever their job's result, Deploy Staging
-    # runs on the release image alone, and never after a cancellation.
+    # Deploy Staging starts whatever the pilot images job's result, and never after a
+    # cancellation. The deploy script then fails on a missing image only for a pilot
+    # that serves its host (admin-corten, unless STAGING_ADMIN_APP=admin-web).
     if: >-
       !cancelled() &&
       needs.resolve-release.result == 'success' &&
@@ -1301,6 +1302,7 @@ jobs:
     outputs:
       deployed: ${{ steps.staging_applied.outputs.deployed || 'false' }}
       applied: ${{ steps.staging_applied.outputs.applied || 'false' }}
+      admin_app: ${{ steps.staging_kubernetes_deploy.outputs.admin_app }}
       failure_classification: ${{ steps.staging_failure_classification.outputs.root_cause_code || 'unknown' }}
       root_cause_code: ${{ steps.staging_failure_classification.outputs.root_cause_code || 'unknown' }}
       root_cause_summary: ${{ steps.staging_failure_classification.outputs.root_cause_summary || 'The deployment failed without a known safe classification.' }}
@@ -1398,6 +1400,9 @@ jobs:
       # DOKS ingress load balancer IPv4 for live serving and retained diagnostics.
       DOKS_INGRESS_TARGET: ${{ vars.DOKS_INGRESS_TARGET || '' }}
       TF_VAR_doks_ingress_target: ${{ vars.DOKS_INGRESS_TARGET || '' }}
+      # The app that serves admin.staging: admin-corten, or admin-web to roll back (docs/runbooks/staging-admin-app.md).
+      # Unset means admin-corten; the deploy script refuses any other value and records which one served.
+      STAGING_ADMIN_APP: ${{ vars.STAGING_ADMIN_APP || '' }}
     steps:
       - name: Record staging start
         env:
@@ -2180,13 +2185,13 @@ jobs:
                 end
             ] | unique | select(length > 0) | join(",")')"
 
-          # The deploy script drops an advisory pilot that has no image; say so here too.
-          # Advisory while admin-corten is in ADVISORY_CORTEN_PILOT_COMPONENTS (scripts/platform-kubernetes-deployment.mjs); unconditional once it leaves.
+          # With no admin image, the deploy script fails while admin-corten serves admin.staging, and deploys
+          # the pilot disabled while STAGING_ADMIN_APP=admin-web (advisoryCortenPilotComponents).
           corten_image_args=()
           if [ -n "$CORTEN_ADMIN_IMAGE" ]; then
             corten_image_args+=(--corten-admin-image "$CORTEN_ADMIN_IMAGE")
           else
-            echo "::warning title=Corten admin pilot::No Corten admin image was built for this release, so staging deploys without the pilot."
+            echo "::warning title=Corten admin pilot::No Corten admin image was built for this release."
           fi
 
           # Keep the deploy-critical pre-upgrade hook aligned with production:
@@ -2196,6 +2201,7 @@ jobs:
           pnpm run platform:kubernetes-deployment -- deploy \
             --image "$PLATFORM_IMAGE_REF" \
             "${corten_image_args[@]}" \
+            --github-summary "$GITHUB_STEP_SUMMARY" \
             --image-pull-secret chase-sets \
             --runtime-env "DEPLOYMENT_ENVIRONMENT=staging" \
             --runtime-env "ADMIN_WEB_ORIGIN=https://${admin_domain}" \
@@ -2252,6 +2258,7 @@ jobs:
         working-directory: infrastructure/digitalocean/platform
         env:
           CORTEN_ADMIN_IMAGE: ${{ needs.build-corten-pilot-images.outputs.corten_admin_image }}
+          ADMIN_APP: ${{ steps.staging_kubernetes_deploy.outputs.admin_app }}
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
@@ -2278,8 +2285,8 @@ jobs:
             "https://${landing_domain}/health/ready"
             "https://${admin_domain}/health/ready"
           )
-          # Advisory while admin-corten is in ADVISORY_CORTEN_PILOT_COMPONENTS (scripts/platform-kubernetes-deployment.mjs); unconditional once it leaves.
-          if [ -n "$CORTEN_ADMIN_IMAGE" ]; then
+          # Required while admin-corten serves admin.staging; advisory only under STAGING_ADMIN_APP=admin-web (advisoryCortenPilotComponents).
+          if [ "$ADMIN_APP" != "admin-web" ] || [ -n "$CORTEN_ADMIN_IMAGE" ]; then
             ingress_urls+=("https://admin-corten.staging.chasesets.com/health/ready")
           fi
           for hostname in "${marketplace_domains[@]}" "${staging_root_marketplace_domains[@]}"; do
@@ -2351,12 +2358,13 @@ jobs:
           SMOKE_SOURCE: staging-smoke
           SMOKE_UTM_CAMPAIGN: staging-main
           CORTEN_ADMIN_IMAGE: ${{ needs.build-corten-pilot-images.outputs.corten_admin_image }}
+          ADMIN_APP: ${{ steps.staging_kubernetes_deploy.outputs.admin_app }}
           SMOKE_FETCH_ATTEMPTS: "24"
           SMOKE_FETCH_RETRY_DELAY_MS: "5000"
           SMOKE_FETCH_TIMEOUT_MS: "15000"
         run: |
           set -euo pipefail
-          echo "Smoking the live staging hosts served by DOKS."
+          echo "Smoking the live staging hosts served by DOKS; ${ADMIN_APP} serves admin."
           landing_domain="$(terraform output -raw landing_domain)"
           admin_domain="$(terraform output -raw admin_domain)"
           catalog_asset_public_base_url="$(terraform output -raw catalog_asset_public_base_url)"
@@ -2378,8 +2386,8 @@ jobs:
 
           cd ../../..
           export MARKETPLACE_ROOT_WEB_URL="https://${staging_root_marketplace_domain}"
-          # Advisory while admin-corten is in ADVISORY_CORTEN_PILOT_COMPONENTS (scripts/platform-kubernetes-deployment.mjs); unconditional once it leaves.
-          if [ -n "$CORTEN_ADMIN_IMAGE" ]; then
+          # Required while admin-corten serves admin.staging; advisory only under STAGING_ADMIN_APP=admin-web (advisoryCortenPilotComponents).
+          if [ "$ADMIN_APP" != "admin-web" ] || [ -n "$CORTEN_ADMIN_IMAGE" ]; then
             node ./scripts/platform-ingress-wait.mjs \
               --attempts 1 \
               --expect-status 200 \
@@ -2405,10 +2413,10 @@ jobs:
           fi
           echo "Catalog asset CDN root returned expected protected status 403."
 
-      # Advisory until admin.staging switches to the Corten admin (#11750):
-      # the same authenticated admin smoke admin-web passes above, with the
-      # pilot as the admin origin. Landing and marketplace are smoked above,
-      # so they are off here. It never fails Deploy Staging (#11327).
+      # While admin-corten serves admin.staging, the Smoke check above already
+      # runs the authenticated admin smoke against it, so this step only says
+      # so. Under STAGING_ADMIN_APP=admin-web it smokes the pilot at
+      # admin-corten, advisory: it never fails Deploy Staging.
       - name: Advisory Corten admin smoke
         timeout-minutes: 12
         if: env.SHOULD_DEPLOY != 'false'
@@ -2425,12 +2433,17 @@ jobs:
           SMOKE_SOURCE: staging-corten-admin-smoke
           SMOKE_UTM_CAMPAIGN: staging-main
           CORTEN_ADMIN_IMAGE: ${{ needs.build-corten-pilot-images.outputs.corten_admin_image }}
+          ADMIN_APP: ${{ steps.staging_kubernetes_deploy.outputs.admin_app }}
           SMOKE_FETCH_ATTEMPTS: "24"
           SMOKE_FETCH_RETRY_DELAY_MS: "5000"
           SMOKE_FETCH_TIMEOUT_MS: "15000"
         run: |
           set -euo pipefail
-          # Advisory while admin-corten is in ADVISORY_CORTEN_PILOT_COMPONENTS (scripts/platform-kubernetes-deployment.mjs); unconditional once it leaves.
+          # Required while admin-corten serves admin.staging; advisory only under STAGING_ADMIN_APP=admin-web (advisoryCortenPilotComponents).
+          if [ "$ADMIN_APP" != "admin-web" ]; then
+            echo "admin-corten serves admin.staging, so the Smoke check above smoked it with the admin required."
+            exit 0
+          fi
           if [ -z "$CORTEN_ADMIN_IMAGE" ]; then
             echo "No Corten admin image was built for this release, so the pilot was not deployed and is not smoked."
             exit 0

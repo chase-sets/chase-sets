@@ -10,7 +10,7 @@
       "env": [
         { "name": "HOST", "value": "0.0.0.0" },
         { "name": "PORT", "value": "8080" },
-        { "name": "HOSTS", "value": "admin-corten.staging.chasesets.com" },
+        { "name": "HOSTS", "value": "admin-corten.staging.chasesets.com,admin.staging.chasesets.com" },
         { "name": "PROXIES", "value": "" },
         { "name": "PUBLIC_PROTO", "value": "https" },
         { "name": "CHASE_SETS_INTERNAL_API_ORIGIN", "value": "" },

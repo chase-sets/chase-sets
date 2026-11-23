@@ -20,7 +20,8 @@ const options = {
   image: `registry.digitalocean.com/chase-sets/chase-sets-platform:release@${digest}`,
   cortenMarketplaceImage: image,
   envOverrides: { DEPLOYMENT_ENVIRONMENT: "staging", OBSERVABILITY_ENABLED: "false" },
-  env: { GITHUB_RUN_ID: "123", GITHUB_RUN_ATTEMPT: "1" },
+  // admin-web serving admin.staging makes the admin pilot advisory, so these marketplace cases may omit its image.
+  env: { GITHUB_RUN_ID: "123", GITHUB_RUN_ATTEMPT: "1", STAGING_ADMIN_APP: "admin-web" },
   managedPostgresCaSha256: "b".repeat(64),
 };
 const workload = "chase-sets-platform-chase-sets-platform-marketplace-corten";
