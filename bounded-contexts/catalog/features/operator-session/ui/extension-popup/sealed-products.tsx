@@ -99,7 +99,7 @@ export function SealedProductsAction({
       <NativeSelect
         label={t("catalog.operatorExtension.sealed.set")}
         value={setId}
-        disabled={disabled || busy || !line}
+        disabled={disabled || busy || sets.length === 0}
         items={[
           { value: "", label: t("catalog.operatorExtension.sealed.empty") },
           ...sets.map((set) => ({ value: String(set.setNameId), label: set.name })),
@@ -110,7 +110,7 @@ export function SealedProductsAction({
           setOutcome(null);
         }}
       />
-      {!setId ? <Text>{t("catalog.operatorExtension.sealed.empty")}</Text> : null}
+      {line && sets.length === 0 ? <Text>{t("catalog.operatorExtension.sealed.needsSetNames")}</Text> : null}
       <Button disabled={disabled || busy || !paired || !setId || !request || !post} onClick={() => void run()}>
         {t("catalog.operatorExtension.sealed.run")}
       </Button>

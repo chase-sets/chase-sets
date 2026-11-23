@@ -7,6 +7,30 @@ import {
 } from "../../../domain/extension/sealed-products/collector";
 import { page, response, selection, detail } from "./fixture";
 describe("sealed product collector", () => {
+  it("retains the endpoint's fixed failure code without copying a response body", async () => {
+    const request = vi.fn<SealedFetch>(async () =>
+      response(
+        { diagnostic: "Never include this provider data" },
+        {
+          ok: false,
+          status: null,
+          contentClass: "unknown",
+          bytes: 0,
+          code: "network-error",
+        },
+      ),
+    );
+    const { receipt } = await collectSealedProducts({ selection: selection(), request });
+    expect(receipt).toMatchObject({
+      verdict: "unqualified",
+      pages: 0,
+      posts: 0,
+      requests: [{ endpoint: "search", status: null, contentClass: "unknown", bytes: 0, code: "network-error" }],
+    });
+    expect(JSON.stringify(receipt)).not.toContain("Never include this provider data");
+    expect(request).toHaveBeenCalledOnce();
+  });
+
   it("reconciles three pages, finding the only sealed product beyond page two", async () => {
     const request = vi.fn<SealedFetch>(async (request) =>
       response(request.endpoint === "search" ? page(request.from, 49) : { ...detail(), productId: request.productId }),
