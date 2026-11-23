@@ -120,7 +120,7 @@ export type PlatformOperationsServices = Readonly<{
   supportEvidenceLegacy: ReturnType<typeof createLegacyReferenceReconstruction>;
   /** The shared platform-policy runtime, mounted for this context's `definePolicy` documents (the rate-limit policy and the support-flow deadline policy). */
   policies: PolicyRuntime;
-  /** The platform policy console's full registry: this context's own two policies plus any injected cross-context ones. */
+  /** The platform policy console's full registry: this context's own policies plus any injected cross-context ones. */
   policyConsoleEntries: readonly PolicyConsoleEntry[];
   /** The unified support-reference lookup, routing to whichever cross-context sources were injected. */
   supportReferenceLookup: ReturnType<typeof createSupportReferenceLookupRuntime>;
