@@ -30,6 +30,25 @@ describe("session read-model queries", () => {
     expect(calls[1]?.values).toEqual(["active", "%session\\_\\%%", 50, 10_000]);
   });
 
+  it.each(["usr_1", ""])("scopes a user's list to sessions whose user_id is %j, by equality", async (userId) => {
+    const calls: Array<Readonly<{ sql: string; values: readonly unknown[] }>> = [];
+    const db: PgQueryable = {
+      query: async <QueryRow>(sql: string, values: readonly unknown[] = []) => {
+        calls.push({ sql, values });
+        return {
+          rows: (sql.includes("COUNT(*)") ? [{ count: "0" }] : []) as QueryRow[],
+          rowCount: sql.includes("COUNT(*)") ? 1 : 0,
+        };
+      },
+    };
+
+    await listSessions(db, { userId, status: "active" });
+
+    expect(calls[0]?.sql).toContain("WHERE sessions.user_id = $1 AND sessions.status = $2");
+    expect(calls[0]?.sql).not.toContain("ILIKE");
+    expect(calls[0]?.values).toEqual([userId, "active"]);
+  });
+
   it("selects the session's own started_at -- the recent-auth ('step-up') fact -- alongside updated_at", async () => {
     // sessions.updated_at is overwritten by account-switch/revoke/expire; a
     // recent-auth check must read the immutable started_at instead --
