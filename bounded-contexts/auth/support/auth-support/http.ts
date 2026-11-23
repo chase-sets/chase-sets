@@ -104,8 +104,23 @@ function isSafeReturnTo(value: string | null): value is string {
 }
 
 export function getSafeReturnTo(request: Request, fallback: string) {
-  const returnTo = new URL(request.url).searchParams.get("returnTo");
-  return isSafeReturnTo(returnTo) ? returnTo : fallback;
+  const url = new URL(request.url);
+  const returnTo = url.searchParams.get("returnTo");
+  if (isSafeReturnTo(returnTo)) return returnTo;
+
+  // An OAuth issuer on another host sends users here with an absolute continuation.
+  const authorizeUrl = returnTo && URL.parse(returnTo);
+  if (
+    !authorizeUrl ||
+    authorizeUrl.origin !== url.origin ||
+    authorizeUrl.pathname !== "/ucp/oauth/authorize" ||
+    authorizeUrl.username ||
+    authorizeUrl.password ||
+    authorizeUrl.hash
+  ) {
+    return fallback;
+  }
+  return getSafeSameSitePath(`${authorizeUrl.pathname}${authorizeUrl.search}`) ?? fallback;
 }
 
 export function readAuthSessionToken(request: Request) {

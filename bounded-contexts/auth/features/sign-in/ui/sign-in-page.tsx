@@ -312,7 +312,7 @@ export function SignInPage(
               </Text>
               <Inline>
                 {socialLoginLinks.map((link) => (
-                  <LinkButton key={link.href} href={link.href} leadingIcon={link.icon} block>
+                  <LinkButton key={link.href} href={link.href} reloadDocument leadingIcon={link.icon} block>
                     {link.label}
                   </LinkButton>
                 ))}

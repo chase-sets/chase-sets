@@ -281,6 +281,8 @@ components:
         value: ""
       - name: "CHASE_SETS_IMPLEMENTATION_SHA"
         value: ""
+      - name: "CHASE_SETS_MARKETPLACE_ORIGIN"
+        value: ""
       - name: "SUPPORT_EVIDENCE_CAPABILITY_ADMIN_AUTHORITY_JSON"
         value: ""
       - name: "CHASE_SETS_CHECKOUT_CLOSED"

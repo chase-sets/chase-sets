@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { ChaseRoot } from "@chase-sets/design-system";
+import { RouterLinkAdapter } from "@chase-sets/design-system/react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RegisterPage } from "./register-page";
 import { createPasskeyCredential } from "../../../support/ui-support/passkey-browser";
@@ -8,12 +10,13 @@ import MarketplaceRegisterRoute, { loader } from "../../../routes/marketplace/re
 import {
   missingPhoneFailure,
   renderAuthRoute,
+  expectDocumentNavigation,
   safeFailure,
   mockNativeRequestSubmit,
   successfulPasskey,
   pendingPasskey,
 } from "../../../tests/auth-form-route-test-support";
-import { createBrowserRouter, redirect, RouterProvider } from "react-router";
+import { createBrowserRouter, MemoryRouter, redirect, RouterProvider } from "react-router";
 
 vi.mock("../../../support/route-support/auth-host.server", async () => {
   const { defineAuthHost } = await import("../../../support/route-support/auth-host");
@@ -30,6 +33,22 @@ const createPasskeyCredentialMock = vi.mocked(createPasskeyCredential);
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+});
+
+it.each(["Google", "Facebook"])("opens marketplace %s registration as a document", (provider) => {
+  render(
+    <MemoryRouter>
+      <ChaseRoot linkComponent={RouterLinkAdapter}>
+        <RegisterPage returnTo="/account/orders" />
+      </ChaseRoot>
+    </MemoryRouter>,
+  );
+
+  const link = screen.getByRole("link", { name: `Continue with ${provider}` });
+  expect(link.getAttribute("href")).toBe(
+    `/api/auth/social/${provider.toLowerCase()}/start?journey=registration&returnTo=%2Faccount%2Forders`,
+  );
+  expectDocumentNavigation(link);
 });
 
 describe("routed registration errors", () => {

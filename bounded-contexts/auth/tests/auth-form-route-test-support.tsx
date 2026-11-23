@@ -1,7 +1,7 @@
-import { act, render, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { useEffect } from "react";
 import { createMemoryRouter, RouterProvider, useNavigation, type RouteObject } from "react-router";
-import { afterEach, vi } from "vitest";
+import { afterEach, expect, vi } from "vitest";
 import { AuthApiError } from "../client";
 import { authApiActionError, type AuthActionIntent } from "../support/route-support/auth-action-errors";
 import { missingPhoneResponse } from "../support/api-support/phone-code-errors";
@@ -49,6 +49,17 @@ export function mockNativeRequestSubmit() {
   return vi.spyOn(HTMLFormElement.prototype, "requestSubmit").mockImplementation(function (this: HTMLFormElement) {
     this.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
   });
+}
+
+export function expectDocumentNavigation(link: HTMLElement) {
+  const afterReact = vi.fn((event: Event) => {
+    const intercepted = event.defaultPrevented;
+    event.preventDefault(); // jsdom cannot perform the document navigation.
+    return intercepted;
+  });
+  document.addEventListener("click", afterReact, { once: true });
+  fireEvent.click(link);
+  expect(afterReact).toHaveReturnedWith(false);
 }
 
 export async function renderAuthRoute(route: RouteObject, path: string) {

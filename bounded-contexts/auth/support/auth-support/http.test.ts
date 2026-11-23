@@ -64,6 +64,17 @@ describe("Auth same-site path caller matrix", () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
+  it.each([
+    ["https://outside.example.test/ucp/oauth/authorize"],
+    [`${SAME_SITE_TEST_ORIGIN}/account/orders`],
+    ["//marketplace.example.test/ucp/oauth/authorize"],
+    ["https://user@marketplace.example.test/ucp/oauth/authorize"],
+  ])("rejects an absolute sign-in continuation outside the OAuth exception: %s", (returnTo) => {
+    const url = new URL("/sign-in", SAME_SITE_TEST_ORIGIN);
+    url.searchParams.set("returnTo", returnTo);
+    expect(getSafeReturnTo(new Request(url), "/account")).toBe("/account");
+  });
+
   it("decodes query transport once, not repeatedly", () => {
     expect(getSafeReturnTo(new Request(`${SAME_SITE_TEST_ORIGIN}/sign-in?returnTo=/%5Chost`), "/account")).toBe(
       "/account",
