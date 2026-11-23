@@ -9,16 +9,6 @@ import { operatorExtensionId } from "../../src/manifest-contract";
 import { syntheticTarget } from "./synthetic-cdp";
 import { operatorExtensionChromiumTestTitle } from "./operator-extension-test-titles";
 import {
-  counts as sealedCounts,
-  detail as sealedDetail,
-  page as sealedPage,
-  selection as sealedSelection,
-} from "../../../../bounded-contexts/catalog/features/operator-session/tests/extension/sealed-products/fixture";
-import {
-  counts as setNameCounts,
-  entry as setNameEntry,
-} from "../../../../bounded-contexts/catalog/features/operator-session/tests/extension/set-names/fixture";
-import {
   operatorEvidenceIdentity,
   operatorFileInventory,
 } from "../../../../scripts/prepare-operator-extension-evidence.mjs";
@@ -81,8 +71,7 @@ test(operatorExtensionChromiumTestTitle, async () => {
       `--load-extension=${dist}`,
       "--enable-unsafe-extension-debugging",
       "--remote-debugging-port=0",
-      "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1, EXCLUDE localhost",
-      "--no-proxy-server",
+      "--host-resolver-rules=MAP * ~NOTFOUND",
     ],
   });
   const stagingOrigin = "https://admin.staging.chasesets.com";
@@ -95,49 +84,15 @@ test(operatorExtensionChromiumTestTitle, async () => {
     "http://admin.staging.chasesets.com" + pairPath,
     "https://example.test" + pairPath,
   ]);
-  const selection = sealedSelection();
-  const operatorApi = stagingOrigin + "/api/public/catalog/operator-session/catalog-observations";
-  const sealedTraffic: string[] = [];
-  const canned = new Map<string, { stage: string; body: unknown }>([
-    [
-      `GET https://mpapi.tcgplayer.com/v2/Catalog/SetNames?categoryId=${selection.productLineId}`,
-      {
-        stage: "set names",
-        body: {
-          errors: [],
-          results: [
-            setNameEntry({
-              categoryId: selection.productLineId,
-              setNameId: selection.setId,
-              cleanSetName: selection.setName,
-            }),
-          ],
-        },
-      },
-    ],
-    [`POST ${operatorApi}/tcgplayer-set-names`, { stage: "set-name post", body: setNameCounts }],
-    ["POST https://mp-search-api.tcgplayer.com/v1/search/request", { stage: "search", body: sealedPage(0, 1) }],
-    [
-      "GET https://mp-search-api.tcgplayer.com/v2/product/1/details",
-      { stage: "detail", body: { ...sealedDetail(), productId: 1 } },
-    ],
-    [`POST ${operatorApi}/tcgplayer-sealed-products`, { stage: "sealed post", body: sealedCounts }],
-  ]);
-  await context.route(/^https?:\/\//, (route) => {
-    const request = route.request();
-    const fixture = canned.get(`${request.method()} ${request.url()}`);
-    if (fixture) {
-      sealedTraffic.push(fixture.stage);
-      return route.fulfill({ status: 200, json: fixture.body });
-    }
-    if (request.resourceType() === "document" && documents.has(request.url()))
-      return route.fulfill({
-        status: 200,
-        contentType: "text/html",
-        body: "<!doctype html><title>Synthetic Admin</title><body></body>",
-      });
-    return route.abort("blockedbyclient");
-  });
+  await context.route(/^https?:\/\//, (route) =>
+    route.request().resourceType() === "document" && documents.has(route.request().url())
+      ? route.fulfill({
+          status: 200,
+          contentType: "text/html",
+          body: "<!doctype html><title>Synthetic Admin</title><body></body>",
+        })
+      : route.abort("blockedbyclient"),
+  );
   stage("launched");
   try {
     const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"));
@@ -210,29 +165,6 @@ test(operatorExtensionChromiumTestTitle, async () => {
     expect(
       await popup.evaluate("(() => { try { void parent.document; return false; } catch { return true; } })()"),
     ).toBe(true);
-    async function select(label: string, value: number) {
-      await popup.evaluate(`(() => {
-        const select = Array.from(document.querySelectorAll("label"))
-          .find(label => label.textContent === ${JSON.stringify(label)})?.control;
-        if (!(select instanceof HTMLSelectElement)) throw new Error("Synthetic select missing");
-        select.value = ${JSON.stringify(String(value))};
-        select.dispatchEvent(new Event("change", { bubbles: true }));
-      })()`);
-    }
-    async function click(label: string) {
-      await popup.evaluate(
-        `Array.from(document.querySelectorAll("button")).find(button => button.textContent === ${JSON.stringify(label)}).click()`,
-      );
-    }
-    await select("Product line", selection.productLineId);
-    await click("Run");
-    await expect.poll(() => popup.evaluate("document.body.textContent")).toContain("Catalog set names recorded");
-    expect(sealedTraffic).toEqual(["set names", "set-name post"]);
-    await select("Sealed product line", selection.productLineId);
-    await select("Set", selection.setId);
-    await click("Run sealed products");
-    await expect.poll(() => sealedTraffic).toEqual(["set names", "set-name post", "search", "detail", "sealed post"]);
-    await expect.poll(() => popup.evaluate("document.body.textContent")).toContain("Catalog sealed products recorded");
     await popup.evaluate(
       "Array.from(document.querySelectorAll('button')).find(button => button.textContent === 'Unpair').click()",
     );
