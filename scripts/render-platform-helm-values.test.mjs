@@ -964,6 +964,7 @@ spec:
       "marketplace.staging.chasesets.com",
       "admin.staging.chasesets.com",
       "admin-corten.staging.chasesets.com",
+      "marketplace-corten.staging.chasesets.com",
     ]);
     expect(Object.fromEntries(doksIngress.hosts.map((host) => [host.host, host.paths.at(-1)]))).toEqual({
       "staging.chasesets.com": { path: "/", service: "marketplace" },
@@ -971,6 +972,7 @@ spec:
       "marketplace.staging.chasesets.com": { path: "/", service: "marketplace" },
       "admin.staging.chasesets.com": { path: "/", service: "admin-corten" },
       "admin-corten.staging.chasesets.com": { path: "/", service: "admin-corten" },
+      "marketplace-corten.staging.chasesets.com": { path: "/", service: "marketplace-corten" },
     });
     expect(doksIngress.hosts[0].paths.map((route) => route.path)).toEqual([
       "/.well-known",
@@ -1093,9 +1095,10 @@ spec:
       "marketplace.staging.chasesets.com",
       "admin.staging.chasesets.com",
       "admin-corten.staging.chasesets.com",
+      "marketplace-corten.staging.chasesets.com",
     ]);
 
-    // The staging pilot adds a fifth host, none of them the legacy landing-/marketplace-/admin-staging
+    // The staging pilots add a fifth and sixth host, none of them the legacy landing-/marketplace-/admin-staging
     // redirect hostnames (those were retired outright, not rewired to DOKS;
     // see #5568). The deploy-blocking ingress-wait gate in
     // .github/workflows/platform-production.yml probes exactly this host set

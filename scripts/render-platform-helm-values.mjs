@@ -663,6 +663,11 @@ export function buildDoksIngressValues(options = {}) {
       host: `admin-corten.${stagingEnvironmentZone}`,
       paths: doksIngressPaths("admin-corten"),
     });
+    // The marketplace pilot, beside marketplace-web until marketplace.staging switches to it.
+    hosts.push({
+      host: `marketplace-corten.${stagingEnvironmentZone}`,
+      paths: doksIngressPaths("marketplace-corten"),
+    });
   }
   const certificateDnsNames = production ? hosts.map((host) => host.host) : [];
 
