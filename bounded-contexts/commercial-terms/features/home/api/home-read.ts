@@ -33,13 +33,23 @@ export type CommercialTermsStartingTerms = Readonly<{
   effective_until: string | null;
 }>;
 
+/**
+ * A new account override starts without a Shipping Allowance, so it follows the
+ * schedule unless the operator states one.
+ */
+export type CommercialTermsOverrideStartingTerms = Omit<
+  CommercialTermsStartingTerms,
+  "shipping_allowance_percentage_bps"
+> &
+  Readonly<{ shipping_allowance_percentage_bps: null }>;
+
 export type CommercialTermsHome = Readonly<{
   resolvedAt: string;
   schedulesInEffect: Readonly<Record<CommercialAccountType, CommercialTermsScheduleRow | null>>;
   activeTerms: readonly CommercialTermsHomeTerm[];
   startingTerms: Readonly<{
     schedule: CommercialTermsStartingTerms;
-    override: Readonly<Record<CommercialAccountType | "default", CommercialTermsStartingTerms>>;
+    override: Readonly<Record<CommercialAccountType | "default", CommercialTermsOverrideStartingTerms>>;
   }>;
   scheduleComparison: CommercialTermsScheduleRow | null;
 }>;
@@ -139,6 +149,13 @@ function startingTermsFrom(schedule: CommercialTermsScheduleRow | null, at: stri
   };
 }
 
+function overrideStartingTermsFrom(
+  schedule: CommercialTermsScheduleRow | null,
+  at: string,
+): CommercialTermsOverrideStartingTerms {
+  return { ...startingTermsFrom(schedule, at), shipping_allowance_percentage_bps: null };
+}
+
 export function resolveCommercialTermsHome(
   input: Readonly<{
     schedules: readonly CommercialTermsScheduleRow[];
@@ -181,10 +198,10 @@ export function resolveCommercialTermsHome(
     startingTerms: {
       schedule: startingTermsFrom(schedulesInEffect.business, at),
       override: {
-        personal: startingTermsFrom(schedulesInEffect.personal, at),
-        business: startingTermsFrom(schedulesInEffect.business, at),
-        enterprise: startingTermsFrom(schedulesInEffect.enterprise, at),
-        default: startingTermsFrom(null, at),
+        personal: overrideStartingTermsFrom(schedulesInEffect.personal, at),
+        business: overrideStartingTermsFrom(schedulesInEffect.business, at),
+        enterprise: overrideStartingTermsFrom(schedulesInEffect.enterprise, at),
+        default: overrideStartingTermsFrom(null, at),
       },
     },
     scheduleComparison: selectedSchedule
