@@ -17,9 +17,10 @@ import type { JsonValue } from "@chase-sets/primitives/json";
  * (`listPolicyRegistry`, `listActivePolicyDocuments`, `getPolicyDocument`,
  * `listPolicyDocumentHistory`). Writes delegate to that context's own,
  * already-running `PolicyRuntime` instance -- reusing its cache and its
- * event store -- instead of building a parallel one, so a console revision
- * invalidates exactly the same cache the owning context's own resolvers
- * read from.
+ * event store -- instead of building a parallel one. A console revision
+ * reaches a process's cache when that process applies the policy projection,
+ * and otherwise within the cache's one-second age bound; while a refresh
+ * fails, a process keeps serving the set it last loaded.
  *
  * Settlement's and Commercial Terms' policies are cross-context sources,
  * injected as an opaque host port (`policyConsoleCrossContext`; see

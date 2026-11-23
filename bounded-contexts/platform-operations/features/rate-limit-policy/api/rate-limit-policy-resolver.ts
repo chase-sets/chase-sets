@@ -1,7 +1,8 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { RateLimitRule, RateLimitRuleResolver } from "@chase-sets/http/rate-limit";
+import { createPolicyCache } from "@chase-sets/platform-policy/cache";
 import { createPolicyResolver } from "@chase-sets/platform-policy/resolver";
-import { applyRateLimitPolicy, rateLimitPolicy, type RateLimitPolicyValue } from "../domain/rate-limit-policy";
+import { applyRateLimitPolicy, rateLimitPolicy } from "../domain/rate-limit-policy";
 
 /**
  * Cross-context read port for the platform-wide rate-limit policy: checkout,
@@ -9,61 +10,27 @@ import { applyRateLimitPolicy, rateLimitPolicy, type RateLimitPolicyValue } from
  * `rateLimitPolicyResolver` host port) without ever querying Platform
  * Operations' storage directly -- see `platform-api`'s composition root.
  *
- * Unlike the checkout-processing-fee cross-context port (which resolves once
- * per checkout and can afford a fresh, uncached read every time), rate-limit
- * checks run on every request to every rate-limited surface -- an uncached
- * read here would mean a Postgres round trip per incoming request, including
- * the flood of requests an abusive client sends specifically to defeat the
- * limiter. So this resolver memoizes the whole policy VALUE for a short,
- * fixed window (default 1000ms, matching the "~1s via the wake path"
- * propagation expectation) rather than resolving
- * fresh on every call: at most one Postgres read per refresh window per
- * process, regardless of request volume, with a revision visible to every
- * rate-limited surface within one refresh window of being saved.
+ * Rate-limit checks run on every request to every rate-limited surface,
+ * including the flood an abusive client sends to defeat the limiter, so this
+ * port holds one long-lived policy resolver and inherits its rules: while
+ * reads succeed within a second, at most one Postgres read per second, one
+ * shared read for concurrent requests, and a revision enforced on every
+ * surface within one second of the read model having it. A failed refresh is
+ * retried on the next request. Once a value has been loaded, a failed refresh
+ * keeps enforcing that value. Only a failed first read rejects, and the
+ * limiter then applies the surface's compiled rule.
  *
- * This is a deliberate, documented simplification relative to same-context
- * push-invalidated consumption (which Platform Operations' own admin routes
- * get for free via the mounted `PolicyRuntime` in
- * `../../../support/runtime-support/services.ts`): a short poll here avoids
- * standing up a full platform-policy projector (and its own copy of the
- * policy-document tables) inside four other bounded contexts for one shared
- * dial, while still keeping enforcement changes to seconds, not deploys.
+ * `options.now` is the resolver cache's age clock in epoch milliseconds.
  */
 export function createRateLimitPolicyResolver(
   db: PgQueryable,
-  options: Readonly<{ refreshIntervalMs?: number; now?: () => number }> = {},
+  options: Readonly<{ now?: () => number }> = {},
 ): RateLimitRuleResolver {
-  const refreshIntervalMs = options.refreshIntervalMs ?? 1_000;
-  const now = options.now ?? Date.now;
-  let cached: { value: RateLimitPolicyValue; fetchedAt: number } | null = null;
-  let inflight: Promise<RateLimitPolicyValue> | null = null;
-
-  async function currentPolicyValue(): Promise<RateLimitPolicyValue> {
-    const nowMs = now();
-    if (cached && nowMs - cached.fetchedAt < refreshIntervalMs) {
-      return cached.value;
-    }
-    if (inflight) {
-      return inflight;
-    }
-
-    inflight = (async () => {
-      const resolver = createPolicyResolver({ db });
-      const resolved = await resolver.resolvePolicy(rateLimitPolicy);
-      cached = { value: resolved.value, fetchedAt: now() };
-      return resolved.value;
-    })();
-
-    try {
-      return await inflight;
-    } finally {
-      inflight = null;
-    }
-  }
+  const resolver = createPolicyResolver({ db, cache: createPolicyCache(options) });
 
   return async (surface: string, defaults: RateLimitRule): Promise<RateLimitRule> => {
-    const value = await currentPolicyValue();
-    return applyRateLimitPolicy(value, surface, defaults);
+    const resolved = await resolver.resolvePolicy(rateLimitPolicy);
+    return applyRateLimitPolicy(resolved.value, surface, defaults);
   };
 }
 

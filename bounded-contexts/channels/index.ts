@@ -422,7 +422,7 @@ const contextModule = defineBoundedContextModule<ChannelsServices, PgTransaction
           try {
             killSwitch = (await policies.resolvePolicy(channelOutboundKillSwitchPolicy)).value;
           } catch {
-            // An unreadable policy fails closed as an operator hold.
+            // A policy this process never loaded and cannot read fails closed as an operator hold.
           }
           const sources: ("health" | "operator-kill")[] = [];
           if (await readChannelHealthHold(connectionId)) sources.push("health");

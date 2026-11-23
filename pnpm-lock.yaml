@@ -2557,6 +2557,9 @@ importers:
       '@chase-sets/event-core-postgres':
         specifier: workspace:*
         version: link:../event-core-postgres
+      '@chase-sets/observability':
+        specifier: workspace:*
+        version: link:../observability
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../../contracts/primitives

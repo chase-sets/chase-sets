@@ -181,8 +181,12 @@ export class ConsentActivationDocumentError extends PlatformPolicyDomainError {
  * Composes the shared platform-policy machinery into one runtime: a context
  * mounts `projectors` alongside its own, and calls `createPolicyDocument` /
  * `revisePolicyDocument` / `resolvePolicy` from its own feature code. The
- * cache is shared between the projection handlers and the resolver so a
- * revision invalidates exactly the reads that depend on it.
+ * cache is shared between the projection handlers and the resolver, so in a
+ * process that applies the projection a revision invalidates exactly the
+ * reads that depend on it. A process that mounts this runtime without
+ * applying the projection follows the read model within
+ * `POLICY_CACHE_MAX_AGE_MS`, and either kind keeps serving the set it last
+ * loaded while a refresh fails (see `createPolicyResolver`).
  */
 export function createPolicyRuntime(deps: PolicyRuntimeDeps): PolicyRuntime {
   const cache = deps.cache ?? createPolicyCache();
