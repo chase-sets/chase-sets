@@ -105,6 +105,26 @@ const cortenAdminSmokeDelta = [
   secretName,
   purpose: "terraform-infra",
 }));
+// The advisory Corten marketplace smoke at deploy-staging position 44, after the admin one, shifts later anchors by
+// one. It reuses the Smoke check's Terraform and social-login secrets; no admin credential and no new secret.
+const cortenMarketplaceSmokeStepInsertion = [{ file: workflowPath, jobId: "deploy-staging", position: 44 }];
+const cortenMarketplaceSmokeDelta = [
+  "DIGITALOCEAN_ACCESS_TOKEN",
+  "FACEBOOK_SOCIAL_LOGIN_CLIENT_ID",
+  "FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET",
+  "GOOGLE_SOCIAL_LOGIN_CLIENT_ID",
+  "GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET",
+  "SPACES_ACCESS_ID",
+  "SPACES_ACCESS_ID",
+  "SPACES_SECRET_KEY",
+  "SPACES_SECRET_KEY",
+].map((secretName) => ({
+  file: workflowPath,
+  jobId: "deploy-staging",
+  stepAnchor: "name:Advisory Corten marketplace smoke#44",
+  secretName,
+  purpose: "terraform-infra",
+}));
 const fragmentPath = `${AUTHORITY_ROOT}/platform-production/deploy.json`;
 const boundaryTarget = "./.github/actions/export-managed-postgres-authority";
 // Rule for later grant changes: `migrationBase` and its 1609-grant assertion never move. A slice that adds grants
@@ -1176,7 +1196,9 @@ describe("managed Postgres authority source generator", () => {
           (record) =>
             !cortenPilotImagesJobRemovals.some((removal) => JSON.stringify(removal) === JSON.stringify(record)),
         )
-        .concat(cortenPilotImagesJobDelta),
+        .concat(cortenPilotImagesJobDelta)
+        .map((record) => applyStepInsertions(record, cortenMarketplaceSmokeStepInsertion))
+        .concat(cortenMarketplaceSmokeDelta),
     };
     // Exact stable-record multiset parity below is the authority; a whole-corpus total would only re-conflict.
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
