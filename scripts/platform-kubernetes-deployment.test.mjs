@@ -1133,6 +1133,56 @@ describe("platform Kubernetes deployment", () => {
     expect(waited.join(" ")).not.toContain("corten");
   });
 
+  it("reads production's live release too, waiting only for what it runs, such as a disabled admin-corten", async () => {
+    const live = {
+      components: {
+        "platform-api": { enabled: true, kind: "service" },
+        "admin-corten": { enabled: false, kind: "service" },
+      },
+    };
+    const calls = [];
+    await reconcileManagedPostgresCaOnKubernetes({
+      release: "chase-sets-platform",
+      namespace: "chase-sets-platform",
+      timeout: "15m",
+      managedPostgresCaSha256,
+      envOverrides: { DEPLOYMENT_ENVIRONMENT: "production" },
+      rolloutsEnabled: false,
+      helmPath: "helm",
+      kubectlPath: "kubectl",
+      spawn: completedSpawn(calls, [{ code: 0, stdout: JSON.stringify(live) }]),
+    });
+    expect(calls[0].args.slice(0, 2)).toEqual(["get", "values"]);
+    expect(calls[0].args).toContain("--all");
+    expect(calls[1].args[0]).toBe("upgrade");
+    const waited = calls.slice(2).map(({ args }) => args.join(" "));
+    expect(waited).toHaveLength(1);
+    expect(waited[0]).toContain("chase-sets-platform-chase-sets-platform-platform-api");
+    expect(waited.join(" ")).not.toContain("corten");
+  });
+
+  it.each([
+    ["helm get values fails", { code: 1, stderr: "Error: release: not found" }],
+    ["the live values have no components", { code: 0, stdout: JSON.stringify({ global: {} }) }],
+  ])("refuses the CA reconcile before any upgrade when %s", async (_case, completion) => {
+    const calls = [];
+    await expect(
+      reconcileManagedPostgresCaOnKubernetes({
+        release: "chase-sets-platform",
+        namespace: "chase-sets-platform",
+        timeout: "15m",
+        managedPostgresCaSha256,
+        envOverrides: { DEPLOYMENT_ENVIRONMENT: "production" },
+        rolloutsEnabled: false,
+        helmPath: "helm",
+        kubectlPath: "kubectl",
+        spawn: completedSpawn(calls, [completion]),
+      }),
+    ).rejects.toThrow();
+    expect(calls).toHaveLength(1);
+    expect(calls[0].args.slice(0, 2)).toEqual(["get", "values"]);
+  });
+
   it("pins Helm to the provider-managed Kubernetes image pull authority", () => {
     expect(
       buildHelmUpgradeArgs({
