@@ -71,12 +71,16 @@ describe("createRateLimitPolicyResolver", () => {
 
   it("ages the loaded value from when its read began, with no interval of its own", async () => {
     let now = 0;
-    const db = stubDb([]);
-    const query = db.query as ReturnType<typeof vi.fn>;
-    query.mockImplementationOnce(async () => {
-      now += 700;
+    let reads = 0;
+    // The first read takes 700 ms.
+    const query = vi.fn(async () => {
+      reads += 1;
+      if (reads === 1) {
+        now += 700;
+      }
       return { rows: [] };
     });
+    const db = { query } as unknown as PgQueryable;
     const resolveRateLimitRule = createRateLimitPolicyResolver(db, { now: () => now });
 
     await resolveRateLimitRule("public-presence.waitlist.submit", defaults);
