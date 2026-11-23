@@ -147,6 +147,22 @@ describe("ordering postage policies", () => {
     ).toThrow("physical flag includes an unsupported value.");
   });
 
+  it("refuses to create a policy from a stored payload that names a kind, which is what a clone sends", () => {
+    const stored = evolvePostagePolicy(initialPostagePolicyState, storedCreatedEventThatNamesKinds);
+
+    expect(() =>
+      decidePostagePolicy(initialPostagePolicyState, {
+        type: "CreatePostagePolicy",
+        policyId: "opp_clone",
+        label: "Clone of a stored policy",
+        createdByUserId: "usr_admin",
+        effectiveFrom: "2026-06-01T00:00:00.000Z",
+        effectiveUntil: null,
+        payload: stored.payload!,
+      }),
+    ).toThrow("physical flag includes an unsupported value.");
+  });
+
   it("folds a stream whose stored events name a kind to their payload, then to its revision", () => {
     const stored = evolvePostagePolicy(initialPostagePolicyState, storedCreatedEventThatNamesKinds);
 

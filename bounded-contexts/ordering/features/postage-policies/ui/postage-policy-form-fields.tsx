@@ -16,15 +16,19 @@ export const postagePolicyPhysicalFlags = [
   { value: "irregular", label: t("ordering.features.postagePolicies.ui.form.irregular") },
 ] as const;
 
-// A policy stored before product kinds stopped being Physical Flags can still carry them.
+// A policy stored before product kinds stopped being Physical Flags can still carry them. Each entry names the form
+// section whose rule held the values, in form order.
 function storedFlagsNoLongerOffered(policy: PostagePolicy): readonly string[] {
   const offered: readonly string[] = postagePolicyPhysicalFlags.map((flag) => flag.value);
-  const stored: readonly string[] = [
-    ...policy.letterRequiredPhysicalFlags,
-    ...policy.parcelRequiredPhysicalFlags,
-    ...policy.signatureRequiredPhysicalFlags,
+  const sections: readonly (readonly [string, readonly string[]])[] = [
+    [t("ordering.features.postagePolicies.ui.form.parcel.requirements"), policy.parcelRequiredPhysicalFlags],
+    [t("ordering.features.postagePolicies.ui.form.letter.eligibility"), policy.letterRequiredPhysicalFlags],
+    [t("ordering.features.postagePolicies.ui.form.signature.requirements"), policy.signatureRequiredPhysicalFlags],
   ];
-  return [...new Set(stored.filter((flag) => !offered.includes(flag)))];
+  return sections.flatMap(([section, stored]) => {
+    const notOffered = stored.filter((flag) => !offered.includes(flag));
+    return notOffered.length > 0 ? [`${section}: ${notOffered.join(", ")}`] : [];
+  });
 }
 
 function checkboxList({
@@ -61,7 +65,7 @@ export function PostagePolicyFormFields({ policy = defaultPostagePolicy }: { pol
           tone="warning"
           title={t("ordering.features.postagePolicies.ui.form.flags.no.longer.offered.title")}
           description={t("ordering.features.postagePolicies.ui.form.flags.no.longer.offered.description", {
-            values: flagsNoLongerOffered.join(", "),
+            values: flagsNoLongerOffered.join("; "),
           })}
         />
       ) : null}

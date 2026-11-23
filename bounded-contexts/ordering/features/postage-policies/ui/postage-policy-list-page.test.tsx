@@ -72,6 +72,7 @@ const storedKindPolicy = policy("opp_stored", "Stored policy", "active", {
   ...defaultPayload,
   letterRequiredPhysicalFlags: ["raw-card"],
   parcelRequiredPhysicalFlags: ["slab", "sealed", "rigid", "metal", "jumbo", "irregular"],
+  signatureRequiredPhysicalFlags: ["slab", "metal"],
 } as unknown as PostagePolicyAdminViewModel["payload"]);
 
 const physicalProperties = ["rigid", "bendable", "metal", "jumbo", "irregular"];
@@ -229,12 +230,14 @@ describe("postage policy lifecycle home", () => {
     for (const form of [formForIntent("revise"), formForIntent("preview")]) {
       const notice = within(form).getByRole("alert");
       expect(within(notice).getByText(flagsNoLongerOfferedTitle)).toBeTruthy();
-      expect(notice.textContent).toContain("Stored values: raw-card, slab, sealed.");
+      expect(notice.textContent).toContain(
+        "Stored values: Parcel Requirements: slab, sealed; Letter Eligibility: raw-card; Signature Requirements: slab.",
+      );
 
       for (const flagList of flagLists) expect(offeredFlags(form, flagList)).toEqual(physicalProperties);
       expect(checkedFlags(form, "letterRequiredPhysicalFlags")).toEqual([]);
       expect(checkedFlags(form, "parcelRequiredPhysicalFlags")).toEqual(["rigid", "metal", "jumbo", "irregular"]);
-      expect(checkedFlags(form, "signatureRequiredPhysicalFlags")).toEqual([]);
+      expect(checkedFlags(form, "signatureRequiredPhysicalFlags")).toEqual(["metal"]);
     }
     expect(checkedFlags(formForIntent("preview"), "previewPhysicalFlags")).toEqual(["bendable"]);
   });
