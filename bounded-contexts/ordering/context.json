@@ -778,10 +778,10 @@
       "strategy": "snapshot-return",
       "surfaces": [
         "api-client:bounded-contexts/ordering/features/postage-policies/api/client.ts:POST H1cf225056a37#1",
-        "api-client:bounded-contexts/ordering/features/postage-policies/api/client.ts:POST H6af656666ad9#1",
+        "api-client:bounded-contexts/ordering/features/postage-policies/api/client.ts:POST Hcad52d907f0b#1",
         "api-client:bounded-contexts/ordering/features/postage-policies/api/client.ts:POST H963d9ea2d823#1",
-        "api-client:bounded-contexts/ordering/features/postage-policies/api/client.ts:POST Ha9bc4789d519#1",
-        "api-client:bounded-contexts/ordering/features/postage-policies/api/client.ts:POST Hfab331c80ed6#1",
+        "api-client:bounded-contexts/ordering/features/postage-policies/api/client.ts:POST H5a026d95eeb3#1",
+        "api-client:bounded-contexts/ordering/features/postage-policies/api/client.ts:POST Hcddfb67f1747#1",
         "api-client:bounded-contexts/ordering/features/postage-policies/api/client.ts:PUT Hb45b45ccd165#1",
         "api-route:bounded-contexts/ordering/features/postage-policies/api/route.ts:POST /",
         "api-route:bounded-contexts/ordering/features/postage-policies/api/route.ts:POST /:id/activate",
