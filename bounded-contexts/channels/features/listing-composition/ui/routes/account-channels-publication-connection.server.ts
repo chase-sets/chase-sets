@@ -1,8 +1,8 @@
 import { defineApiErrorAdapter, defineFormAction, defineResourceRoute } from "@chase-sets/platform-runtime/http";
-import { contextManifest } from "../../../index";
-import { ChannelsPublicationApiError, createChannelsPublicationRequestApiClient } from "../api/request-client";
-import { parseChannelPublicationSettingsForm } from "../api/route-actions";
-import { t } from "./localization/translator";
+import { contextManifest } from "../../../../index";
+import { ChannelsPublicationApiError, createChannelsPublicationRequestApiClient } from "../../api/request-client";
+import { parseChannelPublicationSettingsForm } from "../../api/route-actions";
+import { t } from "../localization/translator";
 
 const channelsPublicationApiErrorAdapter = defineApiErrorAdapter<ChannelsPublicationApiError>({
   isError: (error): error is ChannelsPublicationApiError => error instanceof ChannelsPublicationApiError,

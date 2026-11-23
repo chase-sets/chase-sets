@@ -1110,7 +1110,7 @@
         "api-route:bounded-contexts/channels/features/listing-composition/api/route.ts:PUT /:connectionId/settings",
         "post-form:bounded-contexts/channels/features/listing-composition/ui/publication-pages.tsx:H8d7b1af0483d#1",
         "post-form:bounded-contexts/channels/features/listing-composition/ui/publication-pages.tsx:Hdedc9988f2e2#1",
-        "route-action:bounded-contexts/channels/features/listing-composition/ui/account-channels-publication-connection.server.ts"
+        "route-action:bounded-contexts/channels/features/listing-composition/ui/routes/account-channels-publication-connection.server.ts"
       ],
       "visibleDestination": {
         "description": "Publication settings and mapping forms retain submitted values in disabled forms with a pending notice while the real data-router revalidates; a changed configuration stream version remounts the forms from authoritative loader data, while conflicts and command errors remain visible."

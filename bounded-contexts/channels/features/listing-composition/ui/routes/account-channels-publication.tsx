@@ -3,7 +3,7 @@ import type { MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import { t } from "../localization/translator";
 import { ChannelPublicationListPage } from "../publication-pages";
-import type { loader } from "../account-channels-publication.server";
+import type { loader } from "./account-channels-publication.server";
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({
