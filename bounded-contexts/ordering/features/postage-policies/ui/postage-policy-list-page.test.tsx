@@ -7,7 +7,7 @@ import { createMemoryRouter, RouterProvider } from "react-router";
 import type { PostagePolicyAdminViewModel } from "./contracts";
 import { PostagePolicyListPage } from "./postage-policy-list-page";
 
-const payload = {
+const defaultPayload = {
   policyVersion: "operator-postage-v1",
   maxLetterUnits: 8,
   maxLetterWeightOunces: 3,
@@ -24,7 +24,12 @@ const payload = {
   insuranceRequiredDeclaredValueAmount: null,
 } as const;
 
-function policy(policyId: string, label: string, status: "active" | "draft" | "retired"): PostagePolicyAdminViewModel {
+function policy(
+  policyId: string,
+  label: string,
+  status: "active" | "draft" | "retired",
+  payload: PostagePolicyAdminViewModel["payload"] = defaultPayload,
+): PostagePolicyAdminViewModel {
   return {
     policy_id: policyId,
     label,
@@ -61,6 +66,37 @@ function policy(policyId: string, label: string, status: "active" | "draft" | "r
 const activePolicy = policy("opp_active", "Current policy", "active");
 const draftPolicy = policy("opp_draft", "Candidate policy", "draft");
 const retiredPolicy = policy("opp_retired", "Archived policy", "retired");
+
+// A policy stored while product kinds were Physical Flags.
+const storedKindPolicy = policy("opp_stored", "Stored policy", "active", {
+  ...defaultPayload,
+  letterRequiredPhysicalFlags: ["raw-card"],
+  parcelRequiredPhysicalFlags: ["slab", "sealed", "rigid", "metal", "jumbo", "irregular"],
+} as unknown as PostagePolicyAdminViewModel["payload"]);
+
+const physicalProperties = ["rigid", "bendable", "metal", "jumbo", "irregular"];
+const flagLists = ["parcelRequiredPhysicalFlags", "letterRequiredPhysicalFlags", "signatureRequiredPhysicalFlags"];
+const flagsNoLongerOfferedTitle = "This policy stores physical flags that are no longer offered";
+
+function formForIntent(intent: string) {
+  const form = document.querySelector(`input[name="intent"][value="${intent}"]`)?.closest("form");
+  expect(form, `${intent} form`).not.toBeNull();
+  return form as HTMLFormElement;
+}
+
+function flagBoxes(form: HTMLElement, name: string) {
+  return [...form.querySelectorAll<HTMLInputElement>(`input[type="checkbox"][name="${name}"]`)];
+}
+
+function offeredFlags(form: HTMLElement, name: string) {
+  return flagBoxes(form, name).map((box) => box.value);
+}
+
+function checkedFlags(form: HTMLElement, name: string) {
+  return flagBoxes(form, name)
+    .filter((box) => box.checked)
+    .map((box) => box.value);
+}
 
 function renderPage(
   selectedPolicy: PostagePolicyAdminViewModel | null = null,
@@ -158,6 +194,49 @@ describe("postage policy lifecycle home", () => {
       errors.find((error) => error.closest('[role="dialog"]') !== null)?.closest(".rounded-tokenLg") ?? null,
       "drawer error",
     );
+  });
+
+  it("offers the five physical properties in every flag list and the preview, with Bendable pre-checked", () => {
+    const { container } = renderPage(draftPolicy);
+
+    const createForm = container.querySelector('form[method="post"]') as HTMLFormElement;
+    expect(createForm.querySelector('input[name="intent"]')).toBeNull();
+    for (const form of [createForm, formForIntent("revise"), formForIntent("preview")]) {
+      for (const flagList of flagLists) expect(offeredFlags(form, flagList)).toEqual(physicalProperties);
+      expect(within(form).queryByText(flagsNoLongerOfferedTitle)).toBeNull();
+    }
+    expect(checkedFlags(createForm, "letterRequiredPhysicalFlags")).toEqual(["bendable"]);
+    expect(checkedFlags(createForm, "parcelRequiredPhysicalFlags")).toEqual(["rigid", "metal", "jumbo", "irregular"]);
+    expect(checkedFlags(createForm, "signatureRequiredPhysicalFlags")).toEqual([]);
+
+    const previewForm = formForIntent("preview");
+    expect(offeredFlags(previewForm, "previewPhysicalFlags")).toEqual(physicalProperties);
+    expect(checkedFlags(previewForm, "previewPhysicalFlags")).toEqual(["bendable"]);
+    expect(flagBoxes(formForIntent("revise"), "previewPhysicalFlags")).toEqual([]);
+
+    const drawer = screen.getByRole("dialog", { name: "Candidate policy" });
+    for (const label of ["Rigid", "Bendable", "Metal", "Jumbo", "Irregular"]) {
+      expect(within(drawer).getAllByRole("checkbox", { name: label }).length, label).toBeGreaterThan(0);
+    }
+    for (const label of ["Raw card", "Slab", "Sealed"]) {
+      expect(screen.queryAllByRole("checkbox", { name: label }), label).toEqual([]);
+    }
+  });
+
+  it("names stored flags that are no longer offered and checks nothing in their place", () => {
+    renderPage(storedKindPolicy);
+
+    for (const form of [formForIntent("revise"), formForIntent("preview")]) {
+      const notice = within(form).getByRole("alert");
+      expect(within(notice).getByText(flagsNoLongerOfferedTitle)).toBeTruthy();
+      expect(notice.textContent).toContain("Stored values: raw-card, slab, sealed.");
+
+      for (const flagList of flagLists) expect(offeredFlags(form, flagList)).toEqual(physicalProperties);
+      expect(checkedFlags(form, "letterRequiredPhysicalFlags")).toEqual([]);
+      expect(checkedFlags(form, "parcelRequiredPhysicalFlags")).toEqual(["rigid", "metal", "jumbo", "irregular"]);
+      expect(checkedFlags(form, "signatureRequiredPhysicalFlags")).toEqual([]);
+    }
+    expect(checkedFlags(formForIntent("preview"), "previewPhysicalFlags")).toEqual(["bendable"]);
   });
 
   it("separates active policies, candidates awaiting activation, and the retired archive", () => {

@@ -63,7 +63,7 @@ Notes:
 
 ## Letter Mailpiece
 
-A **Letter Mailpiece** is a non-parcel shipment path for eligible low-risk raw-card orders.
+A **Letter Mailpiece** is a non-parcel shipment path for low-risk orders the Postage Policy finds letter eligible.
 
 Notes:
 

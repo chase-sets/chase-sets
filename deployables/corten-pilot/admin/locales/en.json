@@ -68,6 +68,8 @@
   "detail.unit.width.in": "Unit width in",
   "form.bendable": "Bendable",
   "form.expedited": "Expedited",
+  "form.flags.no.longer.offered.description": "Stored values: {values}. Nothing is checked in their place, and saving removes them. Check the physical property each rule should use before you save.",
+  "form.flags.no.longer.offered.title": "This policy stores physical flags that are no longer offered",
   "form.irregular": "Irregular",
   "form.jumbo": "Jumbo",
   "form.letter.eligibility": "Letter Eligibility",

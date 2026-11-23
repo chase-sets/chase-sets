@@ -18,7 +18,7 @@ export async function seedProductMeasureProfiles(services: CatalogServices) {
     unitWidthInches: 2.5,
     unitHeightInches: 0.012,
     unitWeightOunces: 0.064,
-    physicalFlags: ["raw-card", "bendable"],
+    physicalFlags: ["bendable"],
     stackBehavior: "stackable-thickness",
     confidence: "conservative-estimate",
   });
@@ -43,7 +43,7 @@ export async function seedProductMeasureProfiles(services: CatalogServices) {
     unitWidthInches: 3.25,
     unitHeightInches: 0.375,
     unitWeightOunces: 2.4,
-    physicalFlags: ["slab", "rigid"],
+    physicalFlags: ["rigid"],
     stackBehavior: "stackable-height",
     confidence: "conservative-estimate",
   });
@@ -64,7 +64,7 @@ export async function seedProductMeasureProfiles(services: CatalogServices) {
     unitWidthInches: 3.25,
     unitHeightInches: 0.375,
     unitWeightOunces: 2.4,
-    physicalFlags: ["slab", "rigid"],
+    physicalFlags: ["rigid"],
     stackBehavior: "stackable-height",
     confidence: "conservative-estimate",
   });
@@ -80,7 +80,7 @@ export async function seedProductMeasureProfiles(services: CatalogServices) {
     unitWidthInches: 2.75,
     unitHeightInches: 0.18,
     unitWeightOunces: 0.9,
-    physicalFlags: ["sealed"],
+    physicalFlags: [],
     stackBehavior: "stackable-height",
     confidence: "conservative-estimate",
   });
@@ -96,7 +96,7 @@ export async function seedProductMeasureProfiles(services: CatalogServices) {
     unitWidthInches: 5,
     unitHeightInches: 2.75,
     unitWeightOunces: 27,
-    physicalFlags: ["sealed", "rigid"],
+    physicalFlags: ["rigid"],
     stackBehavior: "non-stackable",
     confidence: "conservative-estimate",
   });
@@ -112,7 +112,7 @@ export async function seedProductMeasureProfiles(services: CatalogServices) {
     unitWidthInches: 6.5,
     unitHeightInches: 3.5,
     unitWeightOunces: 32,
-    physicalFlags: ["sealed", "rigid"],
+    physicalFlags: ["rigid"],
     stackBehavior: "non-stackable",
     confidence: "conservative-estimate",
   });
@@ -133,7 +133,7 @@ export async function seedProductMeasureProfiles(services: CatalogServices) {
     unitWidthInches: 2.5,
     unitHeightInches: 0.012,
     unitWeightOunces: 0.064,
-    physicalFlags: ["raw-card", "bendable"],
+    physicalFlags: ["bendable"],
     stackBehavior: "stackable-thickness",
     confidence: "conservative-estimate",
   });
@@ -158,7 +158,7 @@ export async function seedProductMeasureProfiles(services: CatalogServices) {
     unitWidthInches: 3.25,
     unitHeightInches: 0.375,
     unitWeightOunces: 2.4,
-    physicalFlags: ["slab", "rigid"],
+    physicalFlags: ["rigid"],
     stackBehavior: "stackable-height",
     confidence: "conservative-estimate",
   });
@@ -179,7 +179,7 @@ export async function seedProductMeasureProfiles(services: CatalogServices) {
     unitWidthInches: 3.25,
     unitHeightInches: 0.375,
     unitWeightOunces: 2.4,
-    physicalFlags: ["slab", "rigid"],
+    physicalFlags: ["rigid"],
     stackBehavior: "stackable-height",
     confidence: "conservative-estimate",
   });
@@ -195,7 +195,7 @@ export async function seedProductMeasureProfiles(services: CatalogServices) {
     unitWidthInches: 2.75,
     unitHeightInches: 0.18,
     unitWeightOunces: 0.9,
-    physicalFlags: ["sealed"],
+    physicalFlags: [],
     stackBehavior: "stackable-height",
     confidence: "conservative-estimate",
   });
@@ -211,7 +211,7 @@ export async function seedProductMeasureProfiles(services: CatalogServices) {
     unitWidthInches: 5,
     unitHeightInches: 2.75,
     unitWeightOunces: 27,
-    physicalFlags: ["sealed", "rigid"],
+    physicalFlags: ["rigid"],
     stackBehavior: "non-stackable",
     confidence: "conservative-estimate",
   });
@@ -232,7 +232,7 @@ export async function seedProductMeasureProfiles(services: CatalogServices) {
     unitWidthInches: 2.5,
     unitHeightInches: 0.012,
     unitWeightOunces: 0.064,
-    physicalFlags: ["raw-card", "bendable"],
+    physicalFlags: ["bendable"],
     stackBehavior: "stackable-thickness",
     confidence: "conservative-estimate",
   });
@@ -248,7 +248,7 @@ export async function seedProductMeasureProfiles(services: CatalogServices) {
     unitWidthInches: 5,
     unitHeightInches: 2.75,
     unitWeightOunces: 27,
-    physicalFlags: ["sealed", "rigid"],
+    physicalFlags: ["rigid"],
     stackBehavior: "non-stackable",
     confidence: "conservative-estimate",
   });

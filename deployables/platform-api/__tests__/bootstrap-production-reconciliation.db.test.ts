@@ -297,7 +297,7 @@ async function ensureRepresentativeProductContentsTestMeasureProfile(
     unitWidthInches: 2.5,
     unitHeightInches: 0.012,
     unitWeightOunces: 0.064,
-    physicalFlags: ["raw-card", "bendable"],
+    physicalFlags: ["bendable"],
     stackBehavior: "stackable-thickness",
     confidence: "conservative-estimate",
   });
@@ -1605,7 +1605,7 @@ describe("platform api bootstrap production reconciliation", () => {
       unitWidthInches: 2.5,
       unitHeightInches: 0.012,
       unitWeightOunces: 0.064,
-      physicalFlags: ["raw-card", "bendable"],
+      physicalFlags: ["bendable"],
       stackBehavior: "stackable-thickness",
       confidence: "conservative-estimate",
     });

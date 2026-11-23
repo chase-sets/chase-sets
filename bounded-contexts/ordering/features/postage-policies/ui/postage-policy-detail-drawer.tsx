@@ -311,17 +311,15 @@ export function PostagePolicyDetailDrawer({
                   />
                 </Grid>
                 <Grid columns={{ base: 1, sm: 2, lg: 4 }} gap={2}>
-                  {postagePolicyPhysicalFlags
-                    .filter((flag) => flag.value !== "bendable")
-                    .map((flag) => (
-                      <Checkbox
-                        key={flag.value}
-                        name="previewPhysicalFlags"
-                        value={flag.value}
-                        label={flag.label}
-                        defaultChecked={flag.value === "raw-card"}
-                      />
-                    ))}
+                  {postagePolicyPhysicalFlags.map((flag) => (
+                    <Checkbox
+                      key={flag.value}
+                      name="previewPhysicalFlags"
+                      value={flag.value}
+                      label={flag.label}
+                      defaultChecked={flag.value === "bendable"}
+                    />
+                  ))}
                 </Grid>
                 <Button type="submit">{t("ordering.features.postagePolicies.ui.detail.preview.result.action")}</Button>
               </Stack>

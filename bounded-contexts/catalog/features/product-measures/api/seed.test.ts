@@ -52,4 +52,29 @@ describe("product measure seed", () => {
       }),
     );
   });
+
+  it("flags seeded profiles with physical properties only", async () => {
+    const { services, productMeasures } = createSeedServices();
+
+    await seedProductMeasureProfiles(services);
+
+    const flagsByProfileKey = Object.fromEntries(
+      productMeasures.upsertProfile.mock.calls.map(([profile]) => [profile.key, profile.physicalFlags]),
+    );
+    expect(flagsByProfileKey).toEqual({
+      "pokemon-raw-single": ["bendable"],
+      "pokemon-psa-slab": ["rigid"],
+      "pokemon-graded-slab": ["rigid"],
+      "pokemon-booster-pack": [],
+      "pokemon-booster-box": ["rigid"],
+      "pokemon-elite-trainer-box": ["rigid"],
+      "magic-raw-single": ["bendable"],
+      "magic-psa-slab": ["rigid"],
+      "magic-graded-slab": ["rigid"],
+      "magic-booster-pack": [],
+      "magic-booster-box": ["rigid"],
+      "one-piece-raw-single": ["bendable"],
+      "one-piece-booster-box": ["rigid"],
+    });
+  });
 });

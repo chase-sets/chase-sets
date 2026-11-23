@@ -1,4 +1,4 @@
-import { Grid, Checkbox, NumberField, PageSection, Stack, TextInput } from "@chase-sets/design-system";
+import { Banner, Grid, Checkbox, NumberField, PageSection, Stack, TextInput } from "@chase-sets/design-system";
 import { t } from "@chase-sets/localization";
 import { defaultPostagePolicy, type PostagePolicy } from "@chase-sets/product-measures";
 
@@ -9,15 +9,23 @@ export const postagePolicyShippingOptions = [
 ] as const;
 
 export const postagePolicyPhysicalFlags = [
-  { value: "raw-card", label: t("ordering.features.postagePolicies.ui.form.raw.card") },
-  { value: "slab", label: t("ordering.features.postagePolicies.ui.form.slab") },
-  { value: "sealed", label: t("ordering.features.postagePolicies.ui.form.sealed") },
   { value: "rigid", label: t("ordering.features.postagePolicies.ui.form.rigid") },
   { value: "bendable", label: t("ordering.features.postagePolicies.ui.form.bendable") },
   { value: "metal", label: t("ordering.features.postagePolicies.ui.form.metal") },
   { value: "jumbo", label: t("ordering.features.postagePolicies.ui.form.jumbo") },
   { value: "irregular", label: t("ordering.features.postagePolicies.ui.form.irregular") },
 ] as const;
+
+// A policy stored before product kinds stopped being Physical Flags can still carry them.
+function storedFlagsNoLongerOffered(policy: PostagePolicy): readonly string[] {
+  const offered: readonly string[] = postagePolicyPhysicalFlags.map((flag) => flag.value);
+  const stored: readonly string[] = [
+    ...policy.letterRequiredPhysicalFlags,
+    ...policy.parcelRequiredPhysicalFlags,
+    ...policy.signatureRequiredPhysicalFlags,
+  ];
+  return [...new Set(stored.filter((flag) => !offered.includes(flag)))];
+}
 
 function checkboxList({
   name,
@@ -44,8 +52,19 @@ function checkboxList({
 }
 
 export function PostagePolicyFormFields({ policy = defaultPostagePolicy }: { policy?: PostagePolicy }) {
+  const flagsNoLongerOffered = storedFlagsNoLongerOffered(policy);
+
   return (
     <Stack gap={4}>
+      {flagsNoLongerOffered.length > 0 ? (
+        <Banner
+          tone="warning"
+          title={t("ordering.features.postagePolicies.ui.form.flags.no.longer.offered.title")}
+          description={t("ordering.features.postagePolicies.ui.form.flags.no.longer.offered.description", {
+            values: flagsNoLongerOffered.join(", "),
+          })}
+        />
+      ) : null}
       <TextInput
         label={t("ordering.features.postagePolicies.ui.form.policy.version")}
         name="policyVersion"
