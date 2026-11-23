@@ -8201,6 +8201,7 @@ export const englishTranslations = {
   "marketplace.features.listings.ui.listingCreatePage.price.currency.code": "Price currency code",
   "marketplace.features.listings.ui.listingCreatePage.price.currency.code.placeholder": "ISO 4217",
   "marketplace.features.listings.ui.listingCreatePage.product.options.changed": "Product options changed since this listing was started. Choose the current options to continue.",
+  "marketplace.features.listings.ui.listingCreatePage.publish.requires.shipping.measure": "Resolve the catalog shipping measure before creating an active listing from this inventory.",
   "marketplace.features.listings.ui.listingCreatePage.purchase.limits.copy": "Purchase limits control how many units one buyer can buy from this listing. Leave blank for unlimited.",
   "marketplace.features.listings.ui.listingCreatePage.quantity.available": "{quantity} available",
   "marketplace.features.listings.ui.listingCreatePage.quantity.cap": "Quantity cap",
