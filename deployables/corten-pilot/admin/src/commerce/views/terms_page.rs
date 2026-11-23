@@ -31,6 +31,11 @@ fn fee(t: Com, bps: i64, fixed: &str) -> String {
     format!("{} + {}", percent(bps), usd(t, fixed))
 }
 
+/// A Shipping Allowance, or that the override follows the schedule when it states none.
+fn allowance(t: Com, bps: Option<i64>) -> String {
+    bps.map_or_else(|| t.ct_follows_schedule().to_owned(), percent)
+}
+
 /// An effective window, "from \u{2013} until" (or None for an open end).
 fn window(t: Com, fees: &Fees) -> String {
     format!("{} \u{2013} {}", date(&fees.effective_from), fees.effective_until.as_deref().map_or(t.ct_none(), date))
@@ -109,9 +114,10 @@ fn TermsHistory<'a>(t: Com, history: &'a [HistoryItem]) -> impl Render {
     }
 }
 
-/// The fee fields every form shares (`TermsFields`).
+/// The fee fields every form shares (`TermsFields`). A schedule always states a Shipping
+/// Allowance; an override's may be left blank to follow the schedule.
 #[component(css = TermsPage)]
-fn TermsFields<'a>(t: Com, form: &'a TermsForm, submit: &'a str) -> impl Render {
+fn TermsFields<'a>(t: Com, form: &'a TermsForm, submit: &'a str, follows_schedule_when_blank: bool) -> impl Render {
     let f = TermsForm::FIELDS;
     html! {
         <label class={Field}><span>{t.ct_label()}</span><input type="text" name={f.label} value={&form.label} required></label>
@@ -144,8 +150,11 @@ fn TermsFields<'a>(t: Com, form: &'a TermsForm, submit: &'a str) -> impl Render 
                 value={&form.shipping_allowance_percentage_bps}
                 min="0"
                 max="10000"
-                required
+                required={!follows_schedule_when_blank}
             >
+            if follows_schedule_when_blank {
+                <span class={Small}>{t.ct_shipping_allowance_follows_schedule_hint()}</span>
+            }
         </label>
         <label class={Field}>
             <span>{t.ct_status()}</span>
@@ -225,8 +234,8 @@ fn ScheduleSheet<'a>(t: Com, schedule: &'a Schedule, active: Option<&'a Schedule
         ),
         (
             t.ct_shipping_allowance(),
-            active.map_or(none.clone(), |a| percent(a.fees.shipping_allowance_percentage_bps)),
-            percent(fees.shipping_allowance_percentage_bps),
+            active.map_or(none.clone(), |a| allowance(t, a.fees.shipping_allowance_percentage_bps)),
+            allowance(t, fees.shipping_allowance_percentage_bps),
         ),
         (t.ct_effective_window(), active.map_or(none, |a| window(t, &a.fees)), window(t, fees)),
     ];
@@ -252,7 +261,7 @@ fn ScheduleSheet<'a>(t: Com, schedule: &'a Schedule, active: Option<&'a Schedule
                 <form class={Form} method="post">
                     <input type="hidden" name={f.intent} value="revise-schedule">
                     <input type="hidden" name={f.id} value={&schedule.schedule_id}>
-                    <TermsFields t={t} form={&form} submit={t.ct_save_schedule_revision()} />
+                    <TermsFields t={t} form={&form} submit={t.ct_save_schedule_revision()} follows_schedule_when_blank={false} />
                 </form>
             </section>
         </TermsSheet>
@@ -299,7 +308,7 @@ fn AgreementSheet<'a>(
                         (
                             t.ct_shipping_allowance(),
                             percent(published.value.shipping_allowance_percentage_bps),
-                            percent(fees.shipping_allowance_percentage_bps),
+                            allowance(t, fees.shipping_allowance_percentage_bps),
                         ),
                         (t.ct_marketplace_fee_cap(), usd(t, &published.value.marketplace_sales_fee_cap_amount), t.ct_none().to_owned()),
                         (
@@ -316,7 +325,7 @@ fn AgreementSheet<'a>(
                 <form class={Form} method="post">
                     <input type="hidden" name={f.intent} value="revise-agreement">
                     <input type="hidden" name={f.id} value={&agreement.agreement_id}>
-                    <TermsFields t={t} form={&form} submit={t.ct_save_account_override()} />
+                    <TermsFields t={t} form={&form} submit={t.ct_save_account_override()} follows_schedule_when_blank={true} />
                 </form>
             </section>
         </TermsSheet>
@@ -339,7 +348,7 @@ fn CreateScheduleSheet<'a>(t: Com, form: TermsForm, account_type: &'a str) -> im
                         }
                     </select>
                 </label>
-                <TermsFields t={t} form={form} submit={t.ct_save_schedule()} />
+                <TermsFields t={t} form={form} submit={t.ct_save_schedule()} follows_schedule_when_blank={false} />
             </form>
         </TermsSheet>
     }
@@ -370,7 +379,7 @@ fn CreateAgreementSheet<'a>(t: Com, form: TermsForm, accounts: &'a [AccountOptio
                         }
                     </select>
                 </label>
-                <TermsFields t={t} form={form} submit={t.ct_save_account_override()} />
+                <TermsFields t={t} form={form} submit={t.ct_save_account_override()} follows_schedule_when_blank={true} />
                 <button type="submit" class={(Button, Secondary)} name={f.review} value="account" formnovalidate>
                     {t.ct_review()}
                 </button>
