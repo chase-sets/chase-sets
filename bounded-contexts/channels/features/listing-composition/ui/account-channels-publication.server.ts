@@ -1,6 +1,6 @@
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import type { LoaderFunctionArgs } from "react-router";
-import { createChannelsPublicationRequestApiClient } from "../../api/request-client";
+import { createChannelsPublicationRequestApiClient } from "../api/request-client";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({ request, permission: "channels.view" });

@@ -5,7 +5,7 @@ import { useActionData, useLoaderData, useNavigation, useParams, useRevalidator 
 import type { ChannelPublicationConnectionDetail, ChannelPublicationSettings } from "../../../../index";
 import { t } from "../localization/translator";
 import { ChannelPublicationDetailPage } from "../publication-pages";
-import type { action, loader } from "./account-channels-publication-connection.server";
+import type { action, loader } from "../account-channels-publication-connection.server";
 
 export const meta: MetaFunction = () => buildOpenGraphMeta({ title: t("channels.publication.connection.meta.title") });
 
