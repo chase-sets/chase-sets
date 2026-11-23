@@ -68,7 +68,7 @@ export {
   createRateLimitPolicyResolver,
 } from "./features/rate-limit-policy/api/rate-limit-policy-resolver";
 export { rateLimitPolicy } from "./features/rate-limit-policy/domain/rate-limit-policy";
-export { supportDeadlinePolicy } from "./features/support-requests/domain/support-deadline-policy";
+export { supportDeadlinePublicPolicy } from "./features/support-requests/domain/support-deadline-policy";
 export { createSupportEvidenceSeedContext } from "./features/support-requests/domain/common";
 export { platformRemedyPolicy } from "./features/support-requests/domain/platform-remedy-policy";
 export type {

@@ -38,19 +38,6 @@ export type AuthenticityCheckFeePolicyValue = Readonly<{
 
 export const AUTHENTICITY_CHECK_FEE_QUOTE_FORMAT_VERSION = "authenticity-check-fee-v1";
 
-export const defaultAuthenticityCheckFeePolicyValue: AuthenticityCheckFeePolicyValue = {
-  optInThresholdAmount: "100.00",
-  bands: [
-    {
-      minOrderValueAmount: "0.00",
-      category: "any",
-      flatAmount: "8.00",
-      percentageBps: 200,
-      capAmount: "50.00",
-    },
-  ],
-};
-
 export type AuthenticityCheckFeeQuote = Readonly<{
   eligible: boolean;
   order_value_amount: string;
@@ -102,7 +89,7 @@ export function quoteAuthenticityCheckFee(
     category?: AuthenticityCheckFeeCategory;
     quotedAt?: string;
   }>,
-  policy: AuthenticityCheckFeePolicyValue = defaultAuthenticityCheckFeePolicyValue,
+  policy: AuthenticityCheckFeePolicyValue,
 ): AuthenticityCheckFeeQuote {
   const orderValueAmount = normalizeMoneyAmount(params.orderValueAmount, {
     fieldName: "Order value",

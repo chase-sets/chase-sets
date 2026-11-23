@@ -53,11 +53,16 @@ export type WalletSpendHoldReleaseReason = "payment-captured" | "payment-failed"
 
 export type WalletSpendHoldStatus = "active" | "released";
 
-/** Default lifetime before an ordinary spend hold becomes eligible for the expiry sweep. */
-export const DEFAULT_SPEND_HOLD_TTL_MS = 72 * 60 * 60 * 1000;
+/** Lifetime before an ordinary spend hold becomes eligible for the expiry sweep. */
+const DEFAULT_SPEND_HOLD_TTL_MS = 72 * 60 * 60 * 1000;
 
 export function balanceCreditHoldId(paymentId: string): string {
   return `hold_balance_credit_${paymentId}`;
+}
+
+/** The only computation of when a spend hold placed at `placedAt` expires, for placement and for restored expiry. */
+export function spendHoldExpiresAt(placedAt: string): string {
+  return new Date(Date.parse(placedAt) + DEFAULT_SPEND_HOLD_TTL_MS).toISOString();
 }
 
 /**
@@ -705,7 +710,7 @@ export const decideWallet: AggregateDecider<WalletState, WalletCommand, WalletEv
           data: {
             accountId: state.accountId,
             holdId: hold.holdId,
-            expiresAt: new Date(Date.parse(hold.placedAt) + DEFAULT_SPEND_HOLD_TTL_MS).toISOString(),
+            expiresAt: spendHoldExpiresAt(hold.placedAt),
             setAt: ensureIsoTimestamp(command.setAt, "Setting spend hold expiry must record a timestamp."),
           },
         },

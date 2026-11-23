@@ -42,6 +42,17 @@ import type { TenantContextEnv } from "../src/middleware/auth-context";
 afterEach(() => vi.restoreAllMocks());
 
 type PaymentRuntime = ReturnType<typeof paymentsModule.createServices>["payments"];
+// The checkout processing-fee policy value this matrix quotes against: 2.9% plus $0.30 for card,
+// 0.5% for bank account and nothing for platform credit.
+const quotedCheckoutProcessingFeePolicyValue: Parameters<typeof quoteMarketplaceCheckoutFee>[1] = {
+  enabledJurisdictions: ["US"],
+  base: { percentageBps: 290, fixedAmount: "0.30" },
+  methodAdjustments: [
+    { paymentMethodCategory: "card", percentageBpsDelta: 0, fixedAmountDelta: "0.00" },
+    { paymentMethodCategory: "bank-account", percentageBpsDelta: -240, fixedAmountDelta: "-0.30" },
+    { paymentMethodCategory: "platform-credit", percentageBpsDelta: -290, fixedAmountDelta: "-0.30" },
+  ],
+};
 const memoryStores = vi.hoisted(() => new WeakMap<object, ReturnType<typeof createInMemoryEventStore>>());
 vi.mock("@chase-sets/event-core-postgres", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@chase-sets/event-core-postgres")>();
@@ -899,6 +910,15 @@ describe("checkout-closed-session-lifecycle", () => {
     });
     const payments = paymentsModule.createServices(memoryPool(paymentStore, paymentQuery), {
       processorGateway: gateway,
+      checkoutProcessingFeePolicyResolver: {
+        resolveCheckoutProcessingFeePolicy: async () => ({
+          value: quotedCheckoutProcessingFeePolicyValue,
+          source: "policy",
+          documentId: "pol_synthetic_checkout_processing_fee",
+          effectiveFrom: "2026-01-01T00:00:00.000Z",
+          resolvedAt: "2026-01-01T00:00:00.000Z",
+        }),
+      },
     }).payments;
     const f = fixture(checkoutServices, payments);
     // Capture the real runtime receipt, not a hand-written payment snapshot.
@@ -973,12 +993,15 @@ describe("checkout-closed-session-lifecycle", () => {
     expect(checkoutStore.allEvents.filter((event) => event.eventType === "checkout.cart.line-removed")).toHaveLength(1);
     expect(await checkoutServices.cart.listAuthorizedCartLines({ accountId: "acc_synthetic" })).toEqual([]);
     expect(paymentStore.allEvents).toHaveLength(0);
-    const quote = quoteMarketplaceCheckoutFee({
-      orderAmount: "20.00",
-      externalBasisAmount: "20.00",
-      balanceCreditAmount: "0.00",
-      paymentMethodCategory: "card",
-    });
+    const quote = quoteMarketplaceCheckoutFee(
+      {
+        orderAmount: "20.00",
+        externalBasisAmount: "20.00",
+        balanceCreditAmount: "0.00",
+        paymentMethodCategory: "card",
+      },
+      quotedCheckoutProcessingFeePolicyValue,
+    );
     const payment = await post(f.open, "/payments", "acc_synthetic", "owner", "C-payment", {
       orderIds,
       sourceContext: "checkout",

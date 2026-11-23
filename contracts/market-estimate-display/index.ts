@@ -12,7 +12,8 @@ export type MarketEstimateBand = Readonly<{
 /**
  * Pricing-owned estimate fields needed by displaying consumers. Pricing keeps
  * ownership of estimation and publication; this contract only centralizes the
- * eligibility semantics that Inventory and Collections must render alike.
+ * eligibility semantics Collections renders for display and the freshness
+ * predicate Pricing recommendations judge by, so both read fresh-until alike.
  */
 export type MarketEstimateForDisplay = Readonly<{
   amount: string;
@@ -49,13 +50,17 @@ export function classifyMarketEstimateForDisplay(
     return { status: "missing", reason: "currency-mismatch", estimate: null };
   }
 
-  const asOf = timestamp(input.asOf, "Valuation as-of time");
-  const freshUntil = timestamp(estimate.freshUntil, "Estimate fresh-until time");
-  if (freshUntil < asOf) {
+  if (!isMarketEstimateCurrentAt(estimate.freshUntil, input.asOf)) {
     return { status: "stale", reason: "stale", estimate };
   }
 
   return { status: "current", reason: null, estimate };
+}
+
+/** An estimate is current through its fresh-until instant, inclusive. */
+export function isMarketEstimateCurrentAt(freshUntil: string, asOf: string): boolean {
+  const asOfTime = timestamp(asOf, "Valuation as-of time");
+  return timestamp(freshUntil, "Estimate fresh-until time") >= asOfTime;
 }
 
 export function multiplyMarketValueAmount(amount: string, quantity: number): string {

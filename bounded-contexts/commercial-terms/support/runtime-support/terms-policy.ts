@@ -32,13 +32,15 @@ export type CommercialTermsPolicyTermsBase = Readonly<{
   label: string;
   marketplaceSalesFeePercentageBps: number;
   marketplaceSalesFeeFixedAmount: string;
-  shippingAllowancePercentageBps: number;
 }>;
 
+/** A schedule is the fallback for every account, so it always states a Shipping Allowance. */
 export type CommercialTermsSchedulePolicyValue = CommercialTermsPolicyTermsBase &
-  Readonly<{ accountType: CommercialAccountType }>;
+  Readonly<{ accountType: CommercialAccountType; shippingAllowancePercentageBps: number }>;
 
-export type CommercialTermsAgreementPolicyValue = CommercialTermsPolicyTermsBase & Readonly<{ accountId: string }>;
+/** An agreement that states no Shipping Allowance follows the schedule in force at resolution. */
+export type CommercialTermsAgreementPolicyValue = CommercialTermsPolicyTermsBase &
+  Readonly<{ accountId: string; shippingAllowancePercentageBps?: number }>;
 
 const SCHEDULE_SCHEMA_SUMMARY =
   "{ label, accountType, marketplaceSalesFeePercentageBps, marketplaceSalesFeeFixedAmount, shippingAllowancePercentageBps }";
@@ -72,11 +74,11 @@ function decodeTermsBase(record: Record<string, unknown>): CommercialTermsPolicy
       fieldName: "Marketplace sales fee fixed amount",
       allowZero: true,
     }),
-    shippingAllowancePercentageBps: normalizePercentageBps(
-      Number(record.shippingAllowancePercentageBps ?? DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS),
-      "Shipping allowance percentage",
-    ),
   };
+}
+
+function decodeShippingAllowancePercentageBps(raw: unknown): number {
+  return normalizePercentageBps(Number(raw), "Shipping allowance percentage");
 }
 
 function asRecord(raw: JsonValue, fieldName: string): Record<string, unknown> {
@@ -90,14 +92,22 @@ export function decodeCommercialTermsSchedulePolicyValue(raw: JsonValue): Commer
   const record = asRecord(raw, "Schedule policy");
   return {
     ...decodeTermsBase(record),
+    shippingAllowancePercentageBps: decodeShippingAllowancePercentageBps(
+      record.shippingAllowancePercentageBps ?? DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS,
+    ),
     accountType: normalizeCommercialAccountType(String(record.accountType ?? "")),
   };
 }
 
 export function decodeCommercialTermsAgreementPolicyValue(raw: JsonValue): CommercialTermsAgreementPolicyValue {
   const record = asRecord(raw, "Agreement policy");
+  const shippingAllowance = record.shippingAllowancePercentageBps;
   return {
     ...decodeTermsBase(record),
+    // Absent stays absent: the resolver reads a missing or null key as "follow the schedule".
+    ...(shippingAllowance === undefined || shippingAllowance === null
+      ? {}
+      : { shippingAllowancePercentageBps: decodeShippingAllowancePercentageBps(shippingAllowance) }),
     accountId: normalizeCommercialAccountId(record.accountId),
   };
 }
@@ -161,7 +171,6 @@ export function commercialTermsAgreementPolicy(
       accountId: normalizedAccountId,
       marketplaceSalesFeePercentageBps: 0,
       marketplaceSalesFeeFixedAmount: "0.00",
-      shippingAllowancePercentageBps: DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS,
     },
     decodeValue: decodeCommercialTermsAgreementPolicyValue,
   });

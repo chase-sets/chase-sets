@@ -5,7 +5,7 @@ Payments owns the buyer-side Marketplace Checkout Fee. The fee is quoted before 
 ## Current State
 
 - Commercial Terms owns the checkout processing-fee *policy* (base bps/fixed terms, per-payment-method-category adjustments, enabled jurisdictions) as a runtime-configurable, admin-managed `@chase-sets/platform-policy` document (`commercial-terms.checkout-processing-fee`). Commercial Terms owns seller-side marketplace sales fee policy as before.
-- Payments owns the checkout processing-fee *quote math*, the fingerprint/staleness flow, and payment processor state; it resolves the current policy value at quote time via the `checkoutProcessingFeePolicyResolver` host port (provided by Commercial Terms) rather than compiling the values. The compiled launch values are the fallback used only when no policy document is active.
+- Payments owns the checkout processing-fee *quote math*, the fingerprint/staleness flow, and payment processor state; it resolves the current policy value at quote time via the `checkoutProcessingFeePolicyResolver` host port (provided by Commercial Terms) rather than compiling the values. Payments holds no copy of the launch values: when no policy document is active the resolver returns the policy's own default from Commercial Terms, and when no resolver is wired Payments refuses to quote with `marketplace_checkout_fee_policy_unavailable`.
 - Marketplace owns seller confirmation for listing and accepted-offer fee snapshots.
 - Ordering consumes Marketplace snapshots and does not call Commercial Terms for normal listing purchases.
 - Ordering stores item subtotal, shipping, sales tax, Marketplace Sales Fee economics, and seller net totals.
@@ -20,7 +20,7 @@ Payments owns the buyer-side Marketplace Checkout Fee. The fee is quoted before 
 - Platform-credit-only: $0.00.
 - Unsupported or unknown methods default to no positive Marketplace Checkout Fee in the current US-only V1 policy.
 - Positive fractional cents round up; exact zero remains zero.
-- These are the launch values, seeded into Commercial Terms' checkout processing-fee policy document and used as Payments' compiled fallback. An operator can revise them going forward through the Commercial Terms admin API (`/api/commercial-terms/checkout-processing-fee`); a JSON API exists today, and an admin-web UI page under the existing `/terms` section is tracked as follow-up work (not required for this migration's behavior-preservation scope).
+- These are the launch values: the default of Commercial Terms' checkout processing-fee policy, seeded into its policy document. An operator can revise them going forward through the Commercial Terms admin API (`/api/commercial-terms/checkout-processing-fee`); a JSON API exists today, and an admin-web UI page under the existing `/terms` section is tracked as follow-up work (not required for this migration's behavior-preservation scope).
 
 ## Marketplace Sales Fee Lock Interaction (m105)
 

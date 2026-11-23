@@ -9,8 +9,8 @@ import { supportDeadlinePolicy, type SupportDeadlinePolicyValue } from "../domai
  * policy, mounted on the shared platform-policy machinery (see
  * `../../../support/runtime-support/services.ts`). Mirrors the settlement
  * clearance-policy/payout-bounds-policy route shape -- Platform Operations
- * both owns this policy's schema/admin routes and is its only consumer, so
- * no cross-context host port is needed. Gated behind the same
+ * both owns this policy's schema/admin routes and is the only consumer of
+ * its hours. Gated behind the same
  * `support.view`/`support.manage` permissions the rest of this slice's admin
  * surfaces use.
  */

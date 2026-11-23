@@ -4,6 +4,7 @@ import path from "node:path";
 import ts from "@chase-sets/typescript-compiler-api";
 import { CONTEXT_REGISTRY_HOST_ARMS, listWorkspacePackages, repoRoot } from "../lib/repo.mjs";
 import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
+import { findFeatureRouteReexports } from "./feature-route-reexports.mjs";
 
 const sourceExtensions = [".ts", ".tsx", ".mts", ".cts"];
 const sourceExtensionSet = new Set(sourceExtensions);
@@ -451,6 +452,7 @@ function stringProperty(source, propertyName) {
 }
 
 function viteExecution({
+  rootDir,
   packages,
   paths,
   readContent,
@@ -514,7 +516,11 @@ function viteExecution({
         for (const route of contribution.routes) {
           if (typeof route?.fileExport !== "string" || !route.fileExport.startsWith(".")) continue;
           const resolved = resolveRelative(manifestPath, route.fileExport, paths);
-          if (resolved && sourceExtensionSet.has(path.posix.extname(resolved))) files.add(resolved);
+          if (!resolved || !sourceExtensionSet.has(path.posix.extname(resolved))) continue;
+          files.add(resolved);
+          for (const target of findFeatureRouteReexports(rootDir, resolved, readContent(resolved))) {
+            if (paths.has(target)) files.add(target);
+          }
         }
       }
       if (!context) throw new Error(`missing implemented context for ${manifestPath}`);
@@ -710,6 +716,7 @@ export function inspectJsonImportAttributes(options = {}) {
     work,
   });
   const vite = viteExecution({
+    rootDir,
     packages,
     paths,
     readContent,

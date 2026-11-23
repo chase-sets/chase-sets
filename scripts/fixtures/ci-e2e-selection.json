@@ -999,7 +999,7 @@
       "pattern": "/^bounded-contexts\\/ordering\\/features\\/postage-policies\\/(?:api|ui)\\//",
       "suites": ["admin_commerce"],
       "path": "bounded-contexts/ordering/features/postage-policies/api/route.ts",
-      "trackedCandidates": 7,
+      "trackedCandidates": 15,
       "synthetic": false
     },
     {
@@ -1849,6 +1849,16 @@
     },
     {
       "changedFiles": ["bounded-contexts/ordering/routes/admin/postage-policies-detail.tsx"],
+      "suiteIds": ["admin_commerce"],
+      "batches": ["admin_commerce"]
+    },
+    {
+      "changedFiles": ["bounded-contexts/ordering/features/postage-policies/ui/routes/postage-policies.tsx"],
+      "suiteIds": ["admin_commerce"],
+      "batches": ["admin_commerce"]
+    },
+    {
+      "changedFiles": ["bounded-contexts/ordering/features/postage-policies/ui/routes/postage-policies-detail.tsx"],
       "suiteIds": ["admin_commerce"],
       "batches": ["admin_commerce"]
     },
