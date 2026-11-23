@@ -1,9 +1,9 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { ReportedContentQueueStatus } from "../api/contracts";
 import {
+  REPORTED_CONTENT_REPEAT_OWNER_WINDOW_DAYS,
   reportedContentDueTimes,
   reportedContentReason,
-  reportedContentRepeatDispositionDaysPolicy,
   reportedContentSeverity,
 } from "./response-policy";
 
@@ -79,7 +79,7 @@ export async function refreshReportedContentResponses(db: PgQueryable, targetTyp
       WHERE q.report_count > 0 AND ((q.target_type = $1 AND q.target_id = $2)
         OR q.target_owner_account_id = (SELECT target_owner_account_id
           FROM platform_operations_reported_content_queue_pages WHERE target_type = $1 AND target_id = $2))`,
-      [targetType, targetId, reportedContentRepeatDispositionDaysPolicy.defaultValue],
+      [targetType, targetId, REPORTED_CONTENT_REPEAT_OWNER_WINDOW_DAYS],
     );
     let conflict = false;
     for (const row of rows.rows) {
