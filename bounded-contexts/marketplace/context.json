@@ -126,7 +126,6 @@
   "localeCatalogs": ["contracts/localization/locales/en/marketplace.ts"],
   "ownedNouns": [
     "offer-policy",
-    "offer-payment-authorization",
     "channel-inbound-clamp",
     "listing",
     "listing-evidence-policy",
@@ -785,11 +784,6 @@
       "kind": "primary",
       "requiresAuth": true,
       "readFreshnessRoutes": [
-        {
-          "routePath": "/account/offer-payment",
-          "methods": ["GET", "HEAD"],
-          "dependencies": [{ "readModelTable": "marketplace_offer_payment_authorizations" }]
-        },
         {
           "routePath": "/account/listings",
           "methods": ["GET", "HEAD"],
@@ -1482,6 +1476,23 @@
     }
   ],
   "mutationConsistencyInventory": [
+    {
+      "id": "marketplace.offer-payment-authorization-command-snapshots",
+      "owner": "marketplace",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/marketplace/features/offer-payment-authorization/api/route.ts:POST /commands",
+        "api-client:bounded-contexts/marketplace/client.ts:POST Hfa64bb525130#1"
+      ],
+      "visibleDestination": {
+        "description": "The buyer receives the committed command result, including the exact Preview or authorization and its version. The self read shows projected standing separately."
+      },
+      "proof": {
+        "authoritativeResponse": "The buyer facts and attempt receipt commit atomically. A committed recovery lookup triggers an exact retry that returns the original result, never a latest-state read.",
+        "tests": ["bounded-contexts/marketplace/features/offer-payment-authorization/api/route.test.ts"]
+      }
+    },
     {
       "id": "marketplace.offer-payment-consent-activation",
       "owner": "marketplace",
@@ -2699,7 +2710,14 @@
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by marketplace-owned features and composition seams.",
-      "expectedConsumers": ["channel-inbound-clamp", "listings", "offer-payment-consent", "offers", "reviews"]
+      "expectedConsumers": [
+        "channel-inbound-clamp",
+        "listings",
+        "offer-payment-authorization",
+        "offer-payment-consent",
+        "offers",
+        "reviews"
+      ]
     },
     "seed-support": {
       "classification": "support",
