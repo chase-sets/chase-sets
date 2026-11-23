@@ -106,7 +106,7 @@ const chargeSourceRoles = [
   },
   {
     role: "saved request",
-    ref: "infrastructure/stripe-payments/index.ts:1685-1739",
+    ref: "infrastructure/stripe-payments/index.ts:1723-1777",
     markers: [
       'confirm: "true"',
       "paymentIntentAuthenticationUrl(body)",
@@ -116,7 +116,7 @@ const chargeSourceRoles = [
   },
   {
     role: "new session request",
-    ref: "infrastructure/stripe-payments/index.ts:1801-1889",
+    ref: "infrastructure/stripe-payments/index.ts:1839-1927",
     markers: [
       'mode: "payment"',
       '"/v1/checkout/sessions"',
@@ -126,7 +126,7 @@ const chargeSourceRoles = [
   },
   {
     role: "new card confirmation request",
-    ref: "infrastructure/stripe-payments/index.ts:1758-1799",
+    ref: "infrastructure/stripe-payments/index.ts:1796-1837",
     markers: [
       '"/v1/payment_intents"',
       'confirm: "true"',
@@ -142,7 +142,7 @@ const chargeSourceRoles = [
   },
   {
     role: "session outcomes",
-    ref: "infrastructure/stripe-payments/index.ts:943-1024",
+    ref: "infrastructure/stripe-payments/index.ts:979-1060",
     markers: [
       'case "checkout.session.completed"',
       'paymentObject.mode === "setup"',
@@ -154,7 +154,7 @@ const chargeSourceRoles = [
   },
   {
     role: "intent outcomes",
-    ref: "infrastructure/stripe-payments/index.ts:1070-1097",
+    ref: "infrastructure/stripe-payments/index.ts:1106-1133",
     markers: [
       'case "payment_intent.processing"',
       'case "payment_intent.amount_capturable_updated"',
@@ -176,7 +176,7 @@ const chargeSourceRoles = [
   },
   {
     role: "reconciliation outcomes",
-    ref: "infrastructure/stripe-payments/index.ts:415-491",
+    ref: "infrastructure/stripe-payments/index.ts:418-494",
     markers: [
       'processorStatus === "succeeded"',
       'processorStatus === "requires_capture"',
@@ -1112,7 +1112,7 @@ const citationFencePaths = {
 
 const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
   // Repinned for #11151 and its follow-up: the Checkout Session domain's opt-in block is at 833-855.
-  [citationFencePaths.authenticityTerms]: "3ff396f5f6b4f5e4a5e8635076f54a9fd9587ca0c4745ac94f0eabf6c2f46d24",
+  [citationFencePaths.authenticityTerms]: "1c22a1696b1bd9c7e87bbb42c228c8365cce1d43b7b7d4b630414aac9ed202f8",
   // Includes #7422 revocation, #9499 Inventory recovery storage, #10610 truthful search failure citations, the #9106 Search Interpretation marker in
   // stored search restoration, #9721 byte-identical citation relocations, and the #9034 rollout, notice-email,
   // and Connector Pairing manifest reconciliation; only C1-C7 digits remain normalized.
@@ -1120,7 +1120,7 @@ const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
   // [#9050 Fill the legal-notice email in the Terms, Seller Agreement and Privacy Policy drafts](https://github.com/chase-sets/chase-sets/issues/9050).
   // Repinned for the whole-construct registration refs without changing the C1-C7 normalization.
   [citationFencePaths.privacyPolicy]: "f1b3d0a6b2a688d481c6af4a390e0d30c532fe0313cee53d9d4255a9e0d911ee",
-  [citationFencePaths.authenticityTest]: "700ac32ceea294c75f90d708a0e7656e7b2abe2beebff9569e71abed24aa40d9",
+  [citationFencePaths.authenticityTest]: "c329837c0df3338f0b8081ec19f90d40d0fda192e9e89f6b4fa29e7e7afa0556",
   // Repinned for #10066, #8846, the current-main lost-update guard surface merge, and the #10176 JSON import census
   // evidence-citation update, #9878 TCGplayer guard surface, the #9553 context-registry guard surface, and the
   // #7313 managed-Postgres client policy surface with its authority-guard and client-policy evidence ranges.
@@ -1502,7 +1502,7 @@ describe("canonical claim consistency guard", () => {
     // Privacy keeps the same settled claim but swaps one canonical citation for
     // an adjacent range that still resolves and still contains a required
     // keyword, so only the provenance-identity rule can catch it.
-    const adjacentRef = "infrastructure/stripe-payments/index.ts:1610-1667";
+    const adjacentRef = "infrastructure/stripe-payments/index.ts:1648-1705";
     expect(canonicalRefs).not.toContain(adjacentRef);
     const drifted = publicPolicyRegistry.map((entry) =>
       entry.artifact.metadata.policyKey === "privacy-policy"

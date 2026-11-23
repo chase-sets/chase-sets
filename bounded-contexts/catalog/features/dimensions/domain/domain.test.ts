@@ -5,6 +5,8 @@ import { givenEvents, decide, expectDomainError } from "../../../support/authori
 import { localizedTextMapFromEnglish } from "../../../support/runtime-support/common";
 
 const dimId = "dim_test" as DimensionId;
+const firstDimId = "dim_a_first" as DimensionId;
+const otherDimId = "dim_other" as DimensionId;
 const optionA = "chc_a" as OptionId;
 const optionB = "chc_b" as OptionId;
 const optionC = "chc_c" as OptionId;
@@ -16,6 +18,39 @@ function createdState() {
     {
       type: "catalog.dimension.created",
       data: { dimensionId: dimId, key: "color", name: l10n("Color"), description: l10n("") },
+    },
+  ] as DimensionEvent[]);
+}
+
+function orBetterState() {
+  return givenEvents(initialDimensionState, evolveDimension, [
+    {
+      type: "catalog.dimension.created",
+      data: {
+        dimensionId: dimId,
+        key: "condition",
+        name: l10n("Condition"),
+        description: l10n(""),
+        valueKind: "ordered",
+        optionMatching: "or-better",
+      },
+    },
+  ] as DimensionEvent[]);
+}
+
+function scopedOptionState() {
+  return givenEvents(createdState(), evolveDimension, [
+    {
+      type: "catalog.dimension.option-added",
+      data: {
+        optionId: optionA,
+        code: "black-label-10",
+        label: l10n("Black Label 10"),
+        displayOrder: 0,
+        numericValue: null,
+        status: "active",
+        appliesWhen: [{ dimensionId: otherDimId, optionIds: [optionB] }],
+      },
     },
   ] as DimensionEvent[]);
 }
@@ -60,6 +95,7 @@ describe("Dimension aggregate", () => {
             name: l10n("Color"),
             description: l10n(""),
             valueKind: "unordered",
+            optionMatching: "exact",
           },
         },
       ]);
@@ -74,7 +110,84 @@ describe("Dimension aggregate", () => {
         valueKind: "ordered",
       });
 
-      expect(events[0].data).toMatchObject({ valueKind: "ordered" });
+      expect(events[0].data).toMatchObject({ valueKind: "ordered", optionMatching: "exact" });
+    });
+
+    it.each(["ordered", "numeric"] as const)("creates an or-better %s dimension", (valueKind) => {
+      const events = decide(decideDimension, initialDimensionState, {
+        type: "CreateDimension" as const,
+        dimensionId: dimId,
+        key: "condition",
+        name: l10n("Condition"),
+        valueKind,
+        optionMatching: "or-better",
+      });
+
+      expect(events[0].data).toMatchObject({ valueKind, optionMatching: "or-better" });
+    });
+
+    it("rejects an or-better unordered dimension", () => {
+      expectDomainError(
+        () =>
+          decide(decideDimension, initialDimensionState, {
+            type: "CreateDimension" as const,
+            dimensionId: dimId,
+            key: "color",
+            name: l10n("Color"),
+            optionMatching: "or-better",
+          }),
+        "Or-better option matching requires an ordered or numeric dimension.",
+      );
+    });
+
+    it("rejects an unknown option matching", () => {
+      expectDomainError(
+        () =>
+          decide(decideDimension, initialDimensionState, {
+            type: "CreateDimension" as const,
+            dimensionId: dimId,
+            key: "condition",
+            name: l10n("Condition"),
+            valueKind: "ordered",
+            optionMatching: "at-least" as "exact",
+          }),
+        "Dimension option matching must be exact or or-better.",
+      );
+    });
+
+    it("keeps or-better option matching when a revision does not name it", () => {
+      const events = decide(decideDimension, orBetterState(), {
+        type: "ReviseDimension" as const,
+        key: "condition",
+        name: l10n("Card Condition"),
+      });
+
+      expect(events[0].data).toMatchObject({ valueKind: "ordered", optionMatching: "or-better" });
+    });
+
+    it("rejects revising an or-better dimension to unordered without also making it exact", () => {
+      expectDomainError(
+        () =>
+          decide(decideDimension, orBetterState(), {
+            type: "ReviseDimension" as const,
+            key: "condition",
+            name: l10n("Condition"),
+            valueKind: "unordered",
+          }),
+        "Or-better option matching requires an ordered or numeric dimension.",
+      );
+    });
+
+    it("revises an or-better dimension to unordered and exact together", () => {
+      const events = decide(decideDimension, orBetterState(), {
+        type: "ReviseDimension" as const,
+        key: "condition",
+        name: l10n("Condition"),
+        valueKind: "unordered",
+        optionMatching: "exact",
+      });
+
+      expect(events[0].data).toMatchObject({ valueKind: "unordered", optionMatching: "exact" });
     });
 
     it("rejects creating a dimension twice", () => {
@@ -174,6 +287,111 @@ describe("Dimension aggregate", () => {
       });
 
       expect(events[0].data).toMatchObject({ optionId: optionA, numericValue: 7 });
+    });
+
+    it("adds an option that always applies when no applicability is given", () => {
+      const events = decide(decideDimension, createdState(), {
+        type: "AddOption" as const,
+        optionId: optionA,
+        code: "red",
+        label: l10n("Red"),
+      });
+
+      expect(events[0].data).toMatchObject({ appliesWhen: [] });
+    });
+
+    it("records normalized option applicability", () => {
+      const events = decide(decideDimension, createdState(), {
+        type: "AddOption" as const,
+        optionId: optionA,
+        code: "black-label-10",
+        label: l10n("Black Label 10"),
+        appliesWhen: [
+          { dimensionId: otherDimId, optionIds: [optionC, optionB, optionC] },
+          { dimensionId: firstDimId, optionIds: [optionB] },
+        ],
+      });
+
+      expect(events[0].data).toMatchObject({
+        appliesWhen: [
+          { dimensionId: firstDimId, optionIds: [optionB] },
+          { dimensionId: otherDimId, optionIds: [optionB, optionC] },
+        ],
+      });
+    });
+
+    it.each([
+      [
+        "its own dimension",
+        [{ dimensionId: dimId, optionIds: [optionB] }],
+        "Option applicability cannot depend on the option's own dimension.",
+      ],
+      [
+        "a clause without options",
+        [{ dimensionId: otherDimId, optionIds: [] }],
+        "Option applicability clauses must name at least one option.",
+      ],
+      [
+        "two clauses for one dimension",
+        [
+          { dimensionId: otherDimId, optionIds: [optionB] },
+          { dimensionId: otherDimId, optionIds: [optionC] },
+        ],
+        "Option applicability must be unique per referenced dimension.",
+      ],
+    ])("rejects option applicability that names %s", (_label, appliesWhen, message) => {
+      expectDomainError(
+        () =>
+          decide(decideDimension, createdState(), {
+            type: "AddOption" as const,
+            optionId: optionA,
+            code: "red",
+            label: l10n("Red"),
+            appliesWhen,
+          }),
+        message,
+      );
+    });
+
+    it("keeps option applicability on a revision that does not name it, and clears it with an empty list", () => {
+      const revise = (appliesWhen?: []) =>
+        decide(decideDimension, scopedOptionState(), {
+          type: "ReviseOption" as const,
+          optionId: optionA,
+          code: "black-label-10",
+          label: l10n("Black Label"),
+          appliesWhen,
+        })[0].data;
+
+      expect(revise()).toMatchObject({ appliesWhen: [{ dimensionId: otherDimId, optionIds: [optionB] }] });
+      expect(revise([])).toMatchObject({ appliesWhen: [] });
+    });
+
+    it("normalizes and validates option applicability named on a revision", () => {
+      const revise = (appliesWhen: { dimensionId: typeof dimId; optionIds: (typeof optionB)[] }[]) =>
+        decide(decideDimension, scopedOptionState(), {
+          type: "ReviseOption" as const,
+          optionId: optionA,
+          code: "black-label-10",
+          label: l10n("Black Label"),
+          appliesWhen,
+        })[0].data;
+
+      expect(
+        revise([
+          { dimensionId: otherDimId, optionIds: [optionC, optionB, optionC] },
+          { dimensionId: firstDimId, optionIds: [optionB] },
+        ]),
+      ).toMatchObject({
+        appliesWhen: [
+          { dimensionId: firstDimId, optionIds: [optionB] },
+          { dimensionId: otherDimId, optionIds: [optionB, optionC] },
+        ],
+      });
+      expectDomainError(
+        () => revise([{ dimensionId: dimId, optionIds: [optionB] }]),
+        "Option applicability cannot depend on the option's own dimension.",
+      );
     });
 
     it("rejects duplicate option IDs", () => {
@@ -359,6 +577,45 @@ describe("Dimension aggregate", () => {
       expect(state.status).toBe("draft");
     });
 
+    it("folds events recorded before option matching existed to exact", () => {
+      const state = givenEvents(createdState(), evolveDimension, [
+        {
+          type: "catalog.dimension.revised",
+          data: { key: "condition", name: l10n("Condition"), description: l10n(""), valueKind: "ordered" },
+        },
+      ] as DimensionEvent[]);
+
+      expect(state.optionMatching).toBe("exact");
+    });
+
+    it("evolves option matching from created and revised events", () => {
+      expect(orBetterState().optionMatching).toBe("or-better");
+
+      const revised = evolveDimension(orBetterState(), {
+        type: "catalog.dimension.revised",
+        data: {
+          key: "condition",
+          name: l10n("Condition"),
+          description: l10n(""),
+          valueKind: "ordered",
+          optionMatching: "exact",
+        },
+      } as DimensionEvent);
+
+      expect(revised.optionMatching).toBe("exact");
+    });
+
+    it("keeps or-better across a revision recorded without a choice, unless it left the dimension unordered", () => {
+      const revisedWithoutChoice = (valueKind: string) =>
+        evolveDimension(orBetterState(), {
+          type: "catalog.dimension.revised",
+          data: { key: "condition", name: l10n("Condition"), description: l10n(""), valueKind },
+        } as DimensionEvent);
+
+      expect(revisedWithoutChoice("ordered").optionMatching).toBe("or-better");
+      expect(revisedWithoutChoice("unordered").optionMatching).toBe("exact");
+    });
+
     it("evolves activated event", () => {
       const state = evolveDimension(createdState(), {
         type: "catalog.dimension.activated",
@@ -383,6 +640,26 @@ describe("Dimension aggregate", () => {
 
       expect(state.options).toHaveLength(1);
       expect(state.options[0].id).toBe(optionA);
+      expect(state.options[0].appliesWhen).toEqual([]);
+    });
+
+    it("keeps option applicability across a revision recorded without it", () => {
+      const revised = (appliesWhen?: []) =>
+        evolveDimension(scopedOptionState(), {
+          type: "catalog.dimension.option-revised",
+          data: {
+            optionId: optionA,
+            code: "black-label-10",
+            label: l10n("Black Label"),
+            displayOrder: 0,
+            numericValue: null,
+            status: "active",
+            appliesWhen,
+          },
+        } as DimensionEvent).options[0].appliesWhen;
+
+      expect(revised()).toEqual([{ dimensionId: otherDimId, optionIds: [optionB] }]);
+      expect(revised([])).toEqual([]);
     });
   });
 });

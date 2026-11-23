@@ -10,7 +10,7 @@ import {
 } from "./integrations-command-context";
 import {
   editableProfileSectionKey,
-  profileSectionCommandFromFormData,
+  profileSectionEditFromFormData,
   profileSectionFailureResult,
 } from "./integrations-profile-section-command";
 
@@ -156,17 +156,12 @@ async function updateProviderProfileSection(
   }
 
   try {
-    const command = await profileSectionCommandFromFormData(api, {
-      providerKey,
-      profileVersion,
-      sectionKey,
-      formData,
-    });
+    const edit = profileSectionEditFromFormData(sectionKey, formData);
     const profile = await api.updateSourceObservationProviderProfileSection<CatalogProviderProfileVersionReview>(
       providerKey,
       profileVersion,
       sectionKey,
-      command,
+      edit.fields,
       stringValue(formData.get("sectionFingerprint")) ?? "",
     );
 

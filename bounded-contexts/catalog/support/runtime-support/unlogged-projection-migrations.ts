@@ -46,6 +46,10 @@ export const catalogUnloggedProjectionExclusions = [
     tableName: "catalog_product_content_inclusion_policies",
     reason: "FK-coupled to logged table catalog_resolved_product_contents",
   },
+  {
+    tableName: "catalog_product_measure_profiles",
+    reason: "Seed-written Product Measure Profiles; no event stream or projection replays them",
+  },
 ] as const;
 
 export const catalogUnloggedProjectionSchemaMigrations: readonly BcSchemaMigration[] = [
@@ -76,7 +80,6 @@ export const catalogUnloggedProjectionSchemaMigrations: readonly BcSchemaMigrati
       "ALTER TABLE catalog_item_resolved_aliases SET UNLOGGED;",
       "ALTER TABLE catalog_merge_candidate_observations SET UNLOGGED;",
       "ALTER TABLE catalog_merge_candidates SET UNLOGGED;",
-      "ALTER TABLE catalog_product_measure_profiles SET UNLOGGED;",
       "ALTER TABLE catalog_provider_scope_mappings SET UNLOGGED;",
       "ALTER TABLE catalog_reference_record_aliases SET UNLOGGED;",
       "ALTER TABLE catalog_reference_record_resolved_aliases SET UNLOGGED;",

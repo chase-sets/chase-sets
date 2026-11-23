@@ -1,0 +1,37 @@
+# syntax=ghcr.io/chase-sets/ci-mirror-dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+FROM ghcr.io/chase-sets/ci-mirror-node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS build
+
+WORKDIR /app
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends build-essential ca-certificates curl git pkg-config \
+  && rm -rf /var/lib/apt/lists/* \
+  && npm install -g pnpm@11.0.9
+
+ENV CARGO_HOME=/usr/local/cargo
+ENV RUSTUP_HOME=/usr/local/rustup
+ENV PATH=/usr/local/cargo/bin:$PATH
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup-init.sh \
+  && sh /tmp/rustup-init.sh -y --profile minimal --default-toolchain 1.93.1 \
+  && rm /tmp/rustup-init.sh
+
+COPY . .
+RUN pnpm run deps:install \
+  && node --import tsx deployables/corten-pilot/scripts/export.mjs
+
+WORKDIR /app/deployables/corten-pilot
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    cargo build --release --locked -p corten-pilot-marketplace
+
+FROM ghcr.io/chase-sets/ci-mirror-node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS runtime
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+COPY --from=build /app/deployables/corten-pilot/target/release/corten-pilot-marketplace /usr/local/bin/corten-pilot-marketplace
+USER node
+ENV HOST=0.0.0.0
+ENV PORT=8080
+EXPOSE 8080
+CMD ["/usr/local/bin/corten-pilot-marketplace"]

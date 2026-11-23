@@ -19,6 +19,9 @@ import { catalogAuthoringSchemaMigrations, catalogAuthoringSchemaSql } from "./s
 import { catalogUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import { seedCatalogDatabase } from "./support/authoring-support";
 import { inspectCatalogSeedState } from "./support/seed-support/catalog-integration-state";
+import { createCatalogItemMcpHandlers } from "./features/catalog-items/api/mcp";
+import { createFieldMcpHandlers } from "./features/fields/api/mcp";
+import { createProductContentsMcpHandlers } from "./features/product-contents/api/mcp";
 import { operatorSessionPublicRoutes } from "./features/operator-session/api/route";
 import { createProviderScopeDiscoveryMcpHandlers } from "./features/provider-scope-discovery/api/mcp";
 import { createProviderScopeMappingMcpHandlers } from "./features/provider-scope-mapping/api/mcp";
@@ -27,6 +30,7 @@ import { createScopeRegistryMcpHandlers } from "./features/scope-registry/api/mc
 import { createScopeSyncBatchMcpHandlers } from "./features/scope-sync-batches/api/mcp";
 import { createSourceObservationsMcpHandlers } from "./features/source-observations/api/mcp";
 import { createBlueprintMcpHandlers } from "./features/blueprints/api/mcp";
+import { createCategoryMcpHandlers } from "./features/categories/api/mcp";
 
 const baseModule = defineBoundedContextModule<CatalogServices, PgTransactionalPool, CatalogHostPorts>({
   manifest: contextManifest,
@@ -43,6 +47,9 @@ const baseModule = defineBoundedContextModule<CatalogServices, PgTransactionalPo
     },
   ],
   buildMcpHandlers: (services) => {
+    const items = createCatalogItemMcpHandlers(services.items, services.authoringBulkJobs);
+    const fields = createFieldMcpHandlers(services.fields);
+    const contents = createProductContentsMcpHandlers(services.productContents);
     const discovery = createProviderScopeDiscoveryMcpHandlers(services.providerScopeDiscovery);
     const mappings = createProviderScopeMappingMcpHandlers(services.providerScopeMappings);
     const references = createReferenceDataMcpHandlers(services.referenceData);
@@ -50,8 +57,12 @@ const baseModule = defineBoundedContextModule<CatalogServices, PgTransactionalPo
     const batches = createScopeSyncBatchMcpHandlers(services.scopeSyncBatches);
     const observations = createSourceObservationsMcpHandlers(services.sourceObservations);
     const blueprints = createBlueprintMcpHandlers(services.blueprints, services.authoringBulkJobs);
+    const categories = createCategoryMcpHandlers(services.categories, services.authoringBulkJobs);
     return {
       toolHandlers: {
+        ...items.toolHandlers,
+        ...fields.toolHandlers,
+        ...contents.toolHandlers,
         ...discovery.toolHandlers,
         ...mappings.toolHandlers,
         ...references.toolHandlers,
@@ -59,6 +70,7 @@ const baseModule = defineBoundedContextModule<CatalogServices, PgTransactionalPo
         ...batches.toolHandlers,
         ...observations.toolHandlers,
         ...blueprints.toolHandlers,
+        ...categories.toolHandlers,
       },
       resourceHandlers: {},
     };

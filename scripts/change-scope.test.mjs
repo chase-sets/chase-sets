@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -29,6 +29,11 @@ import {
 } from "./lib/context-proof-sets.mjs";
 
 const REPOSITORY_SCAN_TEST_TIMEOUT_MS = 120_000;
+
+const routeMovesDir = new URL("./fixtures/change-scope-route-moves/", import.meta.url);
+const routeMoves = readdirSync(routeMovesDir, { withFileTypes: true })
+  .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+  .map(({ name }) => JSON.parse(readFileSync(new URL(name, routeMovesDir), "utf8")));
 
 const settlementProofPaths = [
   "bounded-contexts/marketplace/features/offers/api/route.test.ts",
@@ -381,6 +386,51 @@ describe("canonical proof sets:", () => {
       expect(() => requireCanonicalProofResult(settlementProofPaths, result)).toThrow(/required job/);
     }
     for (const result of ["failure", "cancelled", ""]) expect(() => requireCanonicalProofResult([], result)).toThrow();
+  });
+
+  it("requires the Corten pilot export check for catalog and locale changes on PRs and merge groups", () => {
+    const workflow = parseYaml(readFileSync(path.join(repoRoot, ".github/workflows/platform-pr.yml"), "utf8"));
+    expect(workflow.on).toHaveProperty("pull_request");
+    expect(workflow.on.merge_group.types).toContain("checks_requested");
+
+    for (const mode of ["pull-request", "merge-group"]) {
+      for (const file of [
+        "bounded-contexts/collections/features/saved-lists/ui/localization/locales/en.ts",
+        "deployables/corten-pilot/marketplace/locales/item.en.json",
+      ]) {
+        const scope = classifyChanges({ changedFiles: [file] });
+        const plan = createCiGatePlan({ mode, labels: [], provenance: "same-repository", scope });
+        expect(ciGatePlanOutputMap(plan).static_required).toBe("true");
+      }
+    }
+
+    const source = workflow.jobs["static-source"];
+    expect(source.needs).toBe("change-scope");
+    expect(source.if).toBe("needs['change-scope'].outputs.static_required == 'true'");
+    const installIndex = source.steps.findIndex(
+      (step) => step.uses === "./.github/actions/setup-pnpm-workspace" && step.with?.install === true,
+    );
+    expect(installIndex).toBeGreaterThanOrEqual(0);
+    expect(source.steps[installIndex + 1]).toEqual({
+      name: "Check Corten pilot export",
+      run: "node --import tsx deployables/corten-pilot/scripts/export.mjs --check",
+    });
+
+    const aggregate = workflow.jobs.static;
+    expect(aggregate.needs).toContain("static-source");
+    expect(aggregate.if).toContain("always()");
+    expect(aggregate.steps).toContainEqual({
+      name: "Require full source checks",
+      if: "always()",
+      env: { SOURCE_RESULT: "${{ needs.static-source.result }}" },
+      run: 'test "$SOURCE_RESULT" = success',
+    });
+    const required = workflow.jobs["pr-required"];
+    expect(required.needs).toContain("static");
+    expect(required.if).toBe("always()");
+    expect(required.steps.find((step) => step.name === "Verify required jobs")?.run).toContain(
+      'require_job "Static Checks" "${{ needs.static.result }}" "${{ needs[\'change-scope\'].outputs.static_required }}"',
+    );
   });
 
   it("canonical proof sets: pins exact-head invocation and fail-closed workflow aggregation", () => {
@@ -998,32 +1048,54 @@ describe("shared E2E setup selection", () => {
     const fallback = captured.cases.find(({ changedFiles }) =>
       changedFiles.includes("deployables/marketplace/e2e/unmapped.spec.ts"),
     );
+    // Five agent/MCP cases and the Chromium install setup case were added independently of route moves.
+    const nonRouteCasesAdded = 6;
+    const routeCasesAdded = routeMoves.reduce(
+      (total, { addedCaseCount, movedRoutes }) => total + (addedCaseCount ?? movedRoutes.files.length),
+      0,
+    );
     expect(captured.cases).toHaveLength(150);
-    expect(candidate.cases).toHaveLength(157);
-    expect(candidate.families).toEqual([
-      ...captured.families
+    expect(candidate.cases).toHaveLength(captured.cases.length + nonRouteCasesAdded + routeCasesAdded);
+
+    const expectedFamilies = new Map(
+      captured.families
         .filter((family) => family.path !== retired)
         .map((family) =>
-          family.family === "boundedContextRouteSuiteOwnership:45"
-            ? {
-                ...family,
-                pattern:
-                  "/^bounded-contexts\\/discovery\\/routes\\/item-detail(?:\\.|-market-history\\.|-rail-analytics\\.)/",
-              }
-            : family.family === "e2eNoSuiteExclusions:4"
-              ? { ...family, family: "e2eNoSuiteExclusions:3" }
-              : family,
-        ),
-      {
-        family: "boundedContextRouteSuiteOwnership:52",
-        pattern: "/^bounded-contexts\\/fulfillment\\/routes\\/seller-shipping-setup\\.tsx$/",
-        suites: ["marketplace_checkout"],
-        path: "bounded-contexts/fulfillment/routes/seller-shipping-setup.tsx",
-        trackedCandidates: 1,
-        synthetic: false,
-      },
-    ]);
-    expect(candidate.families).toHaveLength(143);
+          family.family === "e2eNoSuiteExclusions:4" ? { ...family, family: "e2eNoSuiteExclusions:3" } : family,
+        )
+        .map((family) => [family.family, family]),
+    );
+    const familyDeltas = routeMoves.flatMap(({ families }) => Object.entries(families));
+    // Updates retain captured order; new route families are appended in registry order.
+    for (const [family, delta] of familyDeltas.sort(([left], [right]) =>
+      left.localeCompare(right, "en", { numeric: true }),
+    )) {
+      expectedFamilies.set(family, { family, ...expectedFamilies.get(family), ...delta });
+    }
+    expect(candidate.families).toEqual([...expectedFamilies.values()]);
+    expect(candidate.families).toHaveLength(expectedFamilies.size);
+    for (const { movedRoutes } of routeMoves) {
+      if (!movedRoutes) continue;
+      const { legacyDirectory, featureDirectory, files } = movedRoutes;
+      expect(
+        candidate.cases.filter(({ changedFiles }) => changedFiles.some((file) => file.startsWith(featureDirectory))),
+        featureDirectory,
+      ).toEqual(
+        files.map(([file, suite]) => ({
+          changedFiles: [`${featureDirectory}${file}`],
+          suiteIds: [suite],
+          batches: [suite],
+        })),
+      );
+      for (const [file, suite] of files) {
+        const legacyPath = `${legacyDirectory}${file}`;
+        const featurePath = `${featureDirectory}${file}`;
+        expect(baseline.classifyChanges({ changedFiles: [legacyPath] }).e2eSuiteIds, legacyPath).toEqual([suite]);
+        for (const route of [legacyPath, featurePath]) {
+          expect(classifyChanges({ changedFiles: [route], workspaces }).e2eSuiteIds, route).toEqual([suite]);
+        }
+      }
+    }
     expect(
       candidate.cases.find(({ changedFiles }) =>
         changedFiles.includes("bounded-contexts/fulfillment/routes/seller-shipping-setup.tsx"),
@@ -4031,6 +4103,24 @@ describe("change-scope", () => {
 
     expect(scope.e2eTestsRequired).toBe(true);
     expect(scope.e2eSuiteIds).toEqual(["marketplace_browse", "marketplace_checkout"]);
+  });
+
+  it.each(routeMoves.flatMap(({ selectorCases = [] }) => selectorCases))(
+    "selects the owning E2E suites for feature-local route files: $file",
+    ({ file, suites }) => {
+      expect(e2eSuiteIdsForChangedFile(file)).toEqual(suites);
+    },
+  );
+
+  it.each([
+    ["bounded-contexts/notifications/routes/account-notifications.tsx", ["marketplace_account"]],
+    [
+      "bounded-contexts/notifications/features/notification-center/ui/routes/account-notifications.tsx",
+      ["marketplace_account"],
+    ],
+    ["bounded-contexts/notifications/routes/account-notifications.test.tsx", []],
+  ])("selects the owning E2E suite for account notification files: %s", (file, suites) => {
+    expect(e2eSuiteIdsForChangedFile(file)).toEqual(suites);
   });
 
   it("routes context changes to the consolidated marketplace seed DB acceptance suite", () => {

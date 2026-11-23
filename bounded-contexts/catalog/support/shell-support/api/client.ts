@@ -1423,7 +1423,7 @@ export function createCatalogApiClient({
       providerKey: string,
       profileVersion: string,
       section: string,
-      command: unknown,
+      fields: Readonly<Record<string, string>>,
       sectionFingerprint: string,
     ): Promise<T> {
       const response = await configuredFetch(
@@ -1435,7 +1435,7 @@ export function createCatalogApiClient({
             ...headersToRecord(headers),
             "if-match": `"${sectionFingerprint}"`,
           },
-          body: JSON.stringify({ command }),
+          body: JSON.stringify({ fields }),
         },
       );
       return parseJsonResponse<T>(response);
@@ -2351,6 +2351,8 @@ export function createCatalogApiClient({
       intent: "accept" | "reject" | "revoke";
       aliasHashes: readonly string[];
       reason?: string;
+      /** Accept only the named candidates Catalog marks auto-accept eligible. */
+      eligibleOnly?: boolean;
     }): Promise<T> {
       const response = await configuredFetch(`${baseUrl.replace(/\/$/, "")}/alias-review/commands`, {
         method: "POST",
@@ -2362,6 +2364,7 @@ export function createCatalogApiClient({
           intent: input.intent,
           aliasHashes: input.aliasHashes.join(","),
           ...(input.reason !== undefined ? { reason: input.reason } : {}),
+          ...(input.eligibleOnly ? { eligibleOnly: true } : {}),
         }),
       });
       return parseJsonResponse<T>(response);

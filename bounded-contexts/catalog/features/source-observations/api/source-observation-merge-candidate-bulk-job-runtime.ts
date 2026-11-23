@@ -723,8 +723,7 @@ function isWellFormedApplicationOutcome(outcome: CatalogMergeCandidateBulkUnitRe
         Number.isSafeInteger(outcome.approvalVersion) &&
         (outcome.approvalVersion ?? 0) > 0 &&
         typeof outcome.planFingerprint === "string" &&
-        outcome.planFingerprint.length > 0 &&
-        outcome.diagnosticCode === undefined
+        outcome.planFingerprint.length > 0
       );
     case "failed":
     case "skipped-not-eligible":

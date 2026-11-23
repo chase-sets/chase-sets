@@ -35,11 +35,12 @@ export type McpNullableJsonSchemaType = readonly [McpJsonSchemaPrimitiveType, "n
   Readonly<{ [nullableTypeBrand]: true }>;
 
 export type McpJsonSchemaProperty = Readonly<{
-  type: McpJsonSchemaPrimitiveType | McpNullableJsonSchemaType;
+  type?: McpJsonSchemaPrimitiveType | McpNullableJsonSchemaType;
   description: string;
+  anyOf?: readonly McpJsonSchemaProperty[];
   enum?: readonly string[];
   items?: McpJsonSchemaProperty;
-  additionalProperties?: boolean;
+  additionalProperties?: boolean | McpJsonSchemaProperty;
   properties?: Readonly<Record<string, McpJsonSchemaProperty>>;
   required?: readonly string[];
 }>;

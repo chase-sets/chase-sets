@@ -3,15 +3,23 @@ import {
   EMPTY_EVENT_DATA,
   assert,
   assertNever,
+  ensureUniqueBy,
   hasSameMembers,
   localizedTextMapFromEnglish,
   normalizeLocalizedTextMap,
+  toSortedUniqueList,
   type CatalogLifecycleStatus,
   type OptionStatus,
   type EmptyEventData,
   type LocalizedTextMap,
 } from "../../../support/runtime-support/common";
 import type { OptionId, DimensionId } from "../../../ids";
+
+/** One condition of an Option's applicability: another Dimension must have one of these Options selected. */
+export type OptionApplicabilityClause = Readonly<{
+  dimensionId: DimensionId;
+  optionIds: OptionId[];
+}>;
 
 export type DimensionOption = Readonly<{
   id: OptionId;
@@ -20,9 +28,17 @@ export type DimensionOption = Readonly<{
   displayOrder: number;
   numericValue: number | null;
   status: OptionStatus;
+  /** The Option can be selected only when every clause holds. Empty means it always applies. */
+  appliesWhen: OptionApplicabilityClause[];
 }>;
 
 export type DimensionValueKind = "unordered" | "ordered" | "numeric";
+
+/**
+ * How a want for one Option is satisfied. `exact` accepts only that Option. `or-better` also
+ * accepts every Option ordered before it: an or-better Dimension lists its Options best first.
+ */
+export type DimensionOptionMatching = "exact" | "or-better";
 
 export type DimensionState = Readonly<{
   id: DimensionId | null;
@@ -30,6 +46,7 @@ export type DimensionState = Readonly<{
   name: LocalizedTextMap | null;
   description: LocalizedTextMap;
   valueKind: DimensionValueKind;
+  optionMatching: DimensionOptionMatching;
   status: CatalogLifecycleStatus;
   options: DimensionOption[];
 }>;
@@ -40,6 +57,7 @@ export const initialDimensionState: DimensionState = {
   name: null,
   description: localizedTextMapFromEnglish(""),
   valueKind: "unordered",
+  optionMatching: "exact",
   status: "draft",
   options: [],
 };
@@ -51,6 +69,7 @@ export type CreateDimensionCommand = Readonly<{
   name: LocalizedTextMap;
   description?: LocalizedTextMap;
   valueKind?: DimensionValueKind;
+  optionMatching?: DimensionOptionMatching;
 }>;
 
 export type ReviseDimensionCommand = Readonly<{
@@ -59,6 +78,7 @@ export type ReviseDimensionCommand = Readonly<{
   name: LocalizedTextMap;
   description?: LocalizedTextMap;
   valueKind?: DimensionValueKind;
+  optionMatching?: DimensionOptionMatching;
 }>;
 
 export type AddOptionCommand = Readonly<{
@@ -67,6 +87,7 @@ export type AddOptionCommand = Readonly<{
   code: string;
   label: LocalizedTextMap;
   numericValue?: number | null;
+  appliesWhen?: readonly OptionApplicabilityClause[];
 }>;
 
 export type ReviseOptionCommand = Readonly<{
@@ -75,6 +96,7 @@ export type ReviseOptionCommand = Readonly<{
   code: string;
   label: LocalizedTextMap;
   numericValue?: number | null;
+  appliesWhen?: readonly OptionApplicabilityClause[];
 }>;
 
 export type ReorderOptionsCommand = Readonly<{
@@ -123,6 +145,7 @@ type OptionSnapshot = Readonly<{
   displayOrder: number;
   numericValue: number | null;
   status: OptionStatus;
+  appliesWhen?: OptionApplicabilityClause[];
 }>;
 
 export type DimensionCreatedEvent = DomainEvent<
@@ -133,6 +156,7 @@ export type DimensionCreatedEvent = DomainEvent<
     name: LocalizedTextMap;
     description: LocalizedTextMap;
     valueKind?: DimensionValueKind;
+    optionMatching?: DimensionOptionMatching;
   }>
 >;
 
@@ -143,6 +167,7 @@ export type DimensionRevisedEvent = DomainEvent<
     name: LocalizedTextMap;
     description: LocalizedTextMap;
     valueKind?: DimensionValueKind;
+    optionMatching?: DimensionOptionMatching;
   }>
 >;
 
@@ -191,10 +216,14 @@ export type DimensionEvent =
 
 export const decideDimension: AggregateDecider<DimensionState, DimensionCommand, DimensionEvent> = (state, command) => {
   switch (command.type) {
-    case "CreateDimension":
+    case "CreateDimension": {
       assert(state.id === null, "Dimension has already been created.");
 
-      assertValueKind(command.valueKind ?? "unordered");
+      const valueKind = command.valueKind ?? "unordered";
+      const optionMatching = command.optionMatching ?? "exact";
+
+      assertValueKind(valueKind);
+      assertOptionMatching(valueKind, optionMatching);
 
       return [
         {
@@ -206,16 +235,22 @@ export const decideDimension: AggregateDecider<DimensionState, DimensionCommand,
             description: command.description
               ? normalizeLocalizedTextMap(command.description)
               : localizedTextMapFromEnglish(""),
-            valueKind: command.valueKind ?? "unordered",
+            valueKind,
+            optionMatching,
           },
         },
       ];
-    case "ReviseDimension":
+    }
+    case "ReviseDimension": {
       requireCreatedDimension(state);
       assert(state.status !== "archived", "Archived dimensions cannot be revised.");
 
-      assertValueKind(command.valueKind ?? state.valueKind);
-      assertNumericDimensionHasValues(command.valueKind ?? state.valueKind, state.options);
+      const valueKind = command.valueKind ?? state.valueKind;
+      const optionMatching = command.optionMatching ?? state.optionMatching;
+
+      assertValueKind(valueKind);
+      assertNumericDimensionHasValues(valueKind, state.options);
+      assertOptionMatching(valueKind, optionMatching);
 
       return [
         {
@@ -224,10 +259,12 @@ export const decideDimension: AggregateDecider<DimensionState, DimensionCommand,
             key: command.key.trim(),
             name: normalizeLocalizedTextMap(command.name, { requiredEnglish: true }),
             description: command.description ? normalizeLocalizedTextMap(command.description) : state.description,
-            valueKind: command.valueKind ?? state.valueKind,
+            valueKind,
+            optionMatching,
           },
         },
       ];
+    }
     case "AddOption":
       requireCreatedDimension(state);
       assert(state.status !== "archived", "Archived dimensions cannot add options.");
@@ -251,6 +288,7 @@ export const decideDimension: AggregateDecider<DimensionState, DimensionCommand,
             displayOrder: state.options.length,
             numericValue: command.numericValue ?? null,
             status: "active",
+            appliesWhen: normalizeOptionApplicability(state.id, command.appliesWhen ?? []),
           },
         },
       ];
@@ -279,6 +317,7 @@ export const decideDimension: AggregateDecider<DimensionState, DimensionCommand,
             displayOrder: option.displayOrder,
             numericValue,
             status: option.status,
+            appliesWhen: normalizeOptionApplicability(state.id, command.appliesWhen ?? option.appliesWhen),
           },
         },
       ];
@@ -373,16 +412,22 @@ export const evolveDimension: AggregateEvolver<DimensionState, DimensionEvent> =
         name: event.data.name,
         description: event.data.description,
         valueKind: event.data.valueKind ?? "unordered",
+        optionMatching: event.data.optionMatching ?? "exact",
         status: "draft",
       };
-    case "catalog.dimension.revised":
+    case "catalog.dimension.revised": {
+      const valueKind = event.data.valueKind ?? "unordered";
+
       return {
         ...state,
         key: event.data.key,
         name: event.data.name,
         description: event.data.description,
-        valueKind: event.data.valueKind ?? "unordered",
+        valueKind,
+        // A revision recorded without a choice keeps the current one, unless it left the Dimension unordered.
+        optionMatching: event.data.optionMatching ?? (valueKind === "unordered" ? "exact" : state.optionMatching),
       };
+    }
     case "catalog.dimension.option-added":
       return {
         ...state,
@@ -392,7 +437,9 @@ export const evolveDimension: AggregateEvolver<DimensionState, DimensionEvent> =
       return {
         ...state,
         options: sortOptions(
-          state.options.map((option) => (option.id === event.data.optionId ? fromOptionSnapshot(event.data) : option)),
+          state.options.map((option) =>
+            option.id === event.data.optionId ? fromOptionSnapshot(event.data, option.appliesWhen) : option,
+          ),
         ),
       };
     case "catalog.dimension.options-reordered":
@@ -455,7 +502,11 @@ function requireCreatedDimension(state: DimensionState): void {
   assert(state.id !== null, "Dimension must be created first.");
 }
 
-function fromOptionSnapshot(snapshot: OptionSnapshot): DimensionOption {
+// A snapshot recorded without applicability keeps what the Option already had.
+function fromOptionSnapshot(
+  snapshot: OptionSnapshot,
+  currentAppliesWhen: OptionApplicabilityClause[] = [],
+): DimensionOption {
   return {
     id: snapshot.optionId,
     code: snapshot.code,
@@ -463,7 +514,28 @@ function fromOptionSnapshot(snapshot: OptionSnapshot): DimensionOption {
     displayOrder: snapshot.displayOrder,
     numericValue: snapshot.numericValue,
     status: snapshot.status,
+    appliesWhen: snapshot.appliesWhen ?? currentAppliesWhen,
   };
+}
+
+function normalizeOptionApplicability(
+  dimensionId: DimensionId | null,
+  clauses: readonly OptionApplicabilityClause[],
+): OptionApplicabilityClause[] {
+  const normalized = clauses.map((clause) => {
+    assert(clause.dimensionId !== dimensionId, "Option applicability cannot depend on the option's own dimension.");
+    assert(clause.optionIds.length > 0, "Option applicability clauses must name at least one option.");
+
+    return { dimensionId: clause.dimensionId, optionIds: toSortedUniqueList(clause.optionIds) };
+  });
+
+  ensureUniqueBy(
+    normalized,
+    (clause) => clause.dimensionId,
+    "Option applicability must be unique per referenced dimension.",
+  );
+
+  return normalized.sort((left, right) => left.dimensionId.localeCompare(right.dimensionId));
 }
 
 function findOption(state: DimensionState, optionId: OptionId): DimensionOption {
@@ -482,6 +554,20 @@ function assertValueKind(valueKind: string): asserts valueKind is DimensionValue
   assert(
     valueKind === "unordered" || valueKind === "ordered" || valueKind === "numeric",
     "Dimension value kind must be unordered, ordered, or numeric.",
+  );
+}
+
+function assertOptionMatching(
+  valueKind: DimensionValueKind,
+  optionMatching: string,
+): asserts optionMatching is DimensionOptionMatching {
+  assert(
+    optionMatching === "exact" || optionMatching === "or-better",
+    "Dimension option matching must be exact or or-better.",
+  );
+  assert(
+    optionMatching === "exact" || valueKind !== "unordered",
+    "Or-better option matching requires an ordered or numeric dimension.",
   );
 }
 

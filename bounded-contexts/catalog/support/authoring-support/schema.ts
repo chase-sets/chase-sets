@@ -12,7 +12,10 @@ import {
 } from "../../features/catalog-items/read-model/schema";
 import { catalogCategorySchemaSql } from "../../features/categories/read-model/schema";
 import { catalogComponentSchemaSql } from "../../features/components/read-model/schema";
-import { catalogDimensionSchemaSql } from "../../features/dimensions/read-model/schema";
+import {
+  catalogDimensionSchemaMigrations,
+  catalogDimensionSchemaSql,
+} from "../../features/dimensions/read-model/schema";
 import { catalogDisplayTemplateSchemaSql } from "../../features/display-templates/read-model/schema";
 import { catalogFieldSchemaSql } from "../../features/fields/read-model/schema";
 import {
@@ -20,7 +23,10 @@ import {
   catalogOperatorSessionGrantSchemaMigrations,
 } from "../../features/operator-session/read-model/grant-schema";
 import { catalogProductContentsSchemaSql } from "../../features/product-contents/read-model/schema";
-import { catalogProductMeasureSchemaSql } from "../../features/product-measures/read-model/schema";
+import {
+  catalogProductMeasureSchemaMigrations,
+  catalogProductMeasureSchemaSql,
+} from "../../features/product-measures/read-model/schema";
 import {
   catalogProviderScopeDiscoverySchemaMigrations,
   catalogProviderScopeDiscoverySchemaSql,
@@ -103,7 +109,9 @@ export const catalogAuthoringSchemaMigrations = [
     ],
   },
   ...catalogCatalogItemSchemaMigrations,
+  ...catalogProductMeasureSchemaMigrations,
   ...catalogProviderScopeDiscoverySchemaMigrations,
   ...catalogScopeSyncStateSchemaMigrations,
   ...catalogPromotionReferenceAccessPathMigrations,
+  ...catalogDimensionSchemaMigrations,
 ] as const;

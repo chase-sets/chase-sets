@@ -3,7 +3,7 @@ import type { AppendToStreamInput, EventStoreContext } from "@chase-sets/event-c
 import type { CatalogRuntimeDeps } from "../../../../support/authoring-support/runtime-support";
 import {
   resolvePromotionReferenceHierarchyReadOnly,
-  type CatalogItemPromotableSourceObservationNormalized,
+  type ReferenceHierarchySourceObservationNormalized,
 } from "../source-observation-promotion-reference-hierarchy";
 import type { CatalogProviderIntegrationProfile } from "../provider-integration-profiles";
 import type { CatalogProviderPromotionResolvedCatalogMapping } from "./provider-promotion-command-planner";
@@ -39,7 +39,7 @@ export async function guardPromotionMaterial(input: {
   session: Pick<PromotionTargetSession, "guard">;
   profile: CatalogProviderIntegrationProfile;
   mapping: CatalogProviderPromotionResolvedCatalogMapping;
-  normalized: CatalogItemPromotableSourceObservationNormalized;
+  normalized: ReferenceHierarchySourceObservationNormalized;
 }): Promise<void> {
   const versions = new Map<string, number>();
   const deps: CatalogRuntimeDeps = {

@@ -67,6 +67,13 @@ describe("nullable MCP input schema vocabulary", () => {
     ]);
 
     expect(nullablePaths.sort()).toEqual([
+      "catalog.create-category.input.parentCategoryId",
+      "catalog.create-item.input.subtitle",
+      "catalog.replace-product-contents.input.lines[].containedCatalogItemId",
+      "catalog.replace-product-contents.input.lines[].inclusionPolicyId",
+      "catalog.replace-product-contents.input.lines[].quantity",
+      "catalog.revise-category.input.parentCategoryId",
+      "catalog.revise-item-metadata.input.subtitle",
       "identity.close-account.input.reference",
       "identity.reactivate-account.input.reference",
       "identity.suspend-account.input.reference",
@@ -167,7 +174,11 @@ function nullableSchemaPaths(schema: Pick<McpJsonSchema, "properties">, path: st
 
 function propertyPaths(property: McpJsonSchemaProperty, path: string): string[] {
   return [
-    ...(typeof property.type === "string" ? [] : [path]),
+    ...(Array.isArray(property.type) ? [path] : []),
+    ...(property.anyOf ?? []).flatMap((branch, index) => propertyPaths(branch, `${path}.anyOf[${index}]`)),
+    ...(typeof property.additionalProperties === "object"
+      ? propertyPaths(property.additionalProperties, `${path}.*`)
+      : []),
     ...(property.items ? propertyPaths(property.items, `${path}[]`) : []),
     ...(property.properties ? nullableSchemaPaths({ properties: property.properties }, path) : []),
   ];

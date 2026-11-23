@@ -40,6 +40,13 @@ import {
   catalogProviderProfileEditableSectionFingerprints,
 } from "./provider-profile-section-fingerprint";
 import { stableJsonStringify } from "../source-observation-job-serialization";
+import {
+  type CatalogProviderProfileSectionEdit,
+  type CatalogProviderProfileSectionField,
+  catalogProviderProfileSectionCommandFromEdit,
+  catalogProviderProfileSectionFields,
+  isCatalogProviderProfileSectionEdit,
+} from "./provider-profile-section-edit";
 import { catalogProviderRequiredFixtureFlows } from "./provider-integration-mapping-contract";
 import {
   catalogProviderProfileEditableSectionMetadata,
@@ -250,7 +257,9 @@ export type CatalogProviderProfileDuplicatePreventionCandidatePreview = Readonly
   evidenceSummaries: JsonValue;
 }>;
 
-export type CatalogProviderProfileEditableSection = CatalogProviderProfileEditableSectionMetadata;
+/** An editable section and its form's fields, so a client draws the form from Catalog, not a copy. */
+export type CatalogProviderProfileEditableSection = CatalogProviderProfileEditableSectionMetadata &
+  Readonly<{ fields: readonly CatalogProviderProfileSectionField[] }>;
 
 export type CatalogProviderProfileFixtureMetadata = Readonly<{
   flow: CatalogProviderProfileFixtureCase["flow"];
@@ -725,7 +734,8 @@ export async function updateCatalogProviderProfileSectionForReview(input: {
   profileVersion: string;
   profileKey?: string | null;
   ingestionUnitKey?: string | null;
-  command: CatalogProviderProfileSectionUpdateCommand;
+  /** An operator's edit, composed over each read of the version, or a whole section command. */
+  command: CatalogProviderProfileSectionUpdateCommand | CatalogProviderProfileSectionEdit;
   /** The section's fingerprint when the operator's form was drawn (`sectionFingerprints`). */
   expectedSectionFingerprint: string;
   audit?: CatalogProviderIntegrationProfileAuthoringAudit | null;
@@ -739,9 +749,13 @@ export async function updateCatalogProviderProfileSectionForReview(input: {
       input.profileVersion,
       profileVersionSelectorFromInput(input),
     );
-    const patch = toCatalogProviderProfileSectionPatch(existing, input.command, {
+    // An edit is composed over this read, so a retry after another section's save keeps that save.
+    const command = isCatalogProviderProfileSectionEdit(input.command)
+      ? catalogProviderProfileSectionCommandFromEdit(existing, input.command)
+      : input.command;
+    const patch = toCatalogProviderProfileSectionPatch(existing, command, {
       migrationEvidenceRecording:
-        input.command.section === "migration-evidence"
+        command.section === "migration-evidence"
           ? await migrationEvidenceRecording(input.store, existing, input.audit ?? null)
           : null,
     });
@@ -870,7 +884,10 @@ export async function retireCatalogProviderProfileVersionForReview(input: {
 }
 
 function catalogProviderProfileEditableSections(): readonly CatalogProviderProfileEditableSection[] {
-  return catalogProviderProfileEditableSectionMetadata();
+  return catalogProviderProfileEditableSectionMetadata().map((metadata) => ({
+    ...metadata,
+    fields: catalogProviderProfileSectionFields[metadata.section],
+  }));
 }
 
 function authoringFixtureCasesForVersion(

@@ -1681,7 +1681,8 @@ const CATALOG: &str = "/api/catalog";
 fn dimension(id: &str, status: &str) -> Value {
     json!({
         "dimension_id": id, "key": "condition", "name": "Condition", "description": null,
-        "value_kind": "ordered", "status": status, "updated_at": "2026-01-01T00:00:00.000Z",
+        "value_kind": "ordered", "option_matching": "or-better", "status": status,
+        "updated_at": "2026-01-01T00:00:00.000Z",
     })
 }
 
@@ -2688,7 +2689,7 @@ async fn the_list_asks_the_api_as_admin_web_does_and_pages() {
 #[tokio::test]
 async fn a_create_sends_its_drawn_id_and_comes_back_with_the_receipt_and_the_toast() {
     let pilot = Pilot::new().await;
-    let body = "dimension_id=dim_01JZ&key=size&name=+Size+&description=&value_kind=ordered";
+    let body = "dimension_id=dim_01JZ&key=size&name=+Size+&description=&value_kind=ordered&option_matching=or-better";
     let (status, headers, _) = pilot.send(post("/catalog/dimensions?status=active", body, true)).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
     let to = headers["corten-location"].to_str().unwrap().to_owned();
@@ -2697,7 +2698,7 @@ async fn a_create_sends_its_drawn_id_and_comes_back_with_the_receipt_and_the_toa
     assert_eq!((sent.method, sent.path.as_str()), (Method::POST, "/api/catalog/dimensions"));
     assert_eq!(
         serde_json::from_str::<Value>(&sent.body).unwrap(),
-        json!({ "dimensionId": "dim_01JZ", "key": "size", "valueKind": "ordered",
+        json!({ "dimensionId": "dim_01JZ", "key": "size", "valueKind": "ordered", "optionMatching": "or-better",
                 "name": { "defaultLocale": "en", "values": { "en": "Size" } },
                 "description": { "defaultLocale": "en", "values": {} } })
     );
@@ -2736,12 +2737,40 @@ async fn a_dimension_shows_its_options_and_the_changes_its_status_allows() {
     assert!(html.contains(r#"name="action" value="reactivate">Reactivate</button>"#), "the deprecated one: {html}");
     assert!(html.contains(r#"value="chc_a, chc_b""#), "the reorder form starts from the order: {html}");
     assert!(html.contains(r#"name="label_locale" value="fr""#), "an option's edit form has its labels: {html}");
+    assert!(html.contains("<dt>Option Matching</dt><dd>Or better</dd>"), "{html}");
+    let edit = &html[html.find(r#"id="catalog-edit""#).expect("the edit form")..];
+    assert!(edit.contains(r#"<select name="option_matching""#), "{edit}");
+    assert!(edit.contains(r#"<option value="or-better" selected>Or better</option>"#), "the edit form starts from it: {edit}");
+    assert!(edit.contains("Or better lets a want for one option also accept every option listed before it."), "{edit}");
 
     let (status, _, _) = pilot.send(get("/catalog/dimensions/dim_missing", Some("staff"))).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     let (status, _, _) =
         pilot.send(get(&format!("/catalog/dimensions/dim_pending?after_write={}", fresh_receipt()), Some("staff"))).await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "the write is not readable yet");
+}
+
+#[tokio::test]
+async fn an_edit_sends_its_option_matching_and_an_unordered_dimension_matches_exactly() {
+    let pilot = Pilot::new().await;
+    let form = |kind: &str, matching: &str| {
+        format!("key=condition&name=Condition&description=&value_kind={kind}&option_matching={matching}")
+    };
+    for (kind, matching, sent) in
+        [("numeric", "or-better", "or-better"), ("ordered", "exact", "exact"), ("unordered", "or-better", "exact")]
+    {
+        let (status, _, _) = pilot.send(post("/catalog/dimensions/dim_seed/edit", &form(kind, matching), true)).await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{kind} {matching}");
+        let write = pilot.catalog_writes().pop().unwrap();
+        assert_eq!((write.method, write.path.as_str()), (Method::PUT, "/api/catalog/dimensions/dim_seed"));
+        let body = serde_json::from_str::<Value>(&write.body).unwrap();
+        assert_eq!((body["valueKind"].as_str(), body["optionMatching"].as_str()), (Some(kind), Some(sent)), "{body}");
+    }
+    // A dimension recorded before the choice reads as Exact.
+    let mut old = dimension("dim_old", "active");
+    old.as_object_mut().unwrap().remove("option_matching");
+    let old: crate::catalog::api::Dimension = serde_json::from_value(old).unwrap();
+    assert_eq!(old.option_matching, "exact");
 }
 
 #[tokio::test]
@@ -4480,14 +4509,14 @@ async fn the_alias_reviews_bulk_bar_posts_the_checked_candidates_and_auto_accept
         bodies,
         [
             json!({ "intent": "accept", "aliasHashes": "ah_glurak,ah_dracaufeu" }),
-            json!({ "intent": "accept", "aliasHashes": "ah_dracaufeu" }),
+            json!({ "intent": "accept", "aliasHashes": "ah_glurak,ah_dracaufeu", "eligibleOnly": true }),
             json!({ "intent": "reject", "aliasHashes": "ah_glurak", "reason": "Machine translation" })
         ],
-        "Auto-accept eligible sends only the eligible one (chase-sets/chase-sets#11024)"
+        "Auto-accept eligible sends the picked candidates and leaves the rule to Catalog"
     );
 
-    // None eligible, none checked, or a reject without its reason: the failed banner, nothing sent.
-    for body in ["intent=alias.accept-eligible&picked=ah_glurak", "intent=alias.accept", "intent=alias.reject&picked=ah_glurak"] {
+    // None checked, or a reject without its reason: the failed banner, nothing sent.
+    for body in ["intent=alias.accept", "intent=alias.reject&picked=ah_glurak"] {
         let (_, headers, _) = pilot.send(post("/catalog/scopes/aliases", body, false)).await;
         assert_eq!(headers[header::LOCATION], "/catalog/scopes?done=failed", "{body}");
     }
@@ -9454,13 +9483,6 @@ fn provider_api(method: &Method, path: &str, headers: &HeaderMap, body: &str) ->
         });
     }
     let rest = path.strip_prefix("/api/catalog/source-observations/provider-profiles/")?;
-    if *method == Method::GET && rest == "tcgplayer/2026.07.13/authoring" {
-        return Some(
-            Json(json!({ "review": { "providerKey": "tcgplayer", "profileVersion": "2026.07.13", "displayName": "TCGplayer Pokemon Cards",
-                "status": "active", "capabilities": ["source-observation-import"], "supportedScopes": ["set-name"], "languageOptions": ["en"] } }))
-            .into_response(),
-        );
-    }
     // The API checks a section save against the revision its form was drawn from.
     let revision = headers.get(header::IF_MATCH).and_then(|v| v.to_str().ok()).unwrap_or_default();
     if *method == Method::PATCH && rest == "tcgplayer/2026.07.13/sections/basics" {
@@ -9480,7 +9502,7 @@ fn provider_api(method: &Method, path: &str, headers: &HeaderMap, body: &str) ->
     }
     if *method == Method::PATCH && rest.ends_with("/sections/migration-evidence") {
         let sent: Value = serde_json::from_str(body).unwrap_or(Value::Null);
-        let text = sent["command"]["migrationEvidence"]["evidenceText"].as_str().unwrap_or_default();
+        let text = sent["fields"]["migrationEvidenceText"].as_str().unwrap_or_default();
         return Some(if text.trim().is_empty() {
             refusal(
                 StatusCode::BAD_REQUEST,
@@ -9882,8 +9904,7 @@ async fn the_activation_decision_saves_evidence_and_activates_and_draws_the_apis
     assert_eq!(sent.headers[header::IF_MATCH], r#""sha256:migration-evidence-read""#);
     assert_eq!(
         serde_json::from_str::<Value>(&sent.body).unwrap(),
-        json!({ "command": { "section": "migration-evidence", "migrationEvidence": {
-            "evidenceText": "Replayed the changed fixtures.", "fixtureRunId": null } } })
+        json!({ "fields": { "migrationEvidenceText": "Replayed the changed fixtures.", "migrationFixtureRunId": "" } })
     );
     let (status, headers, _) =
         pilot.send(post(&format!("/catalog/providers/tcgplayer/activate?{at}"), "profileVersion=2026.07.13", false)).await;
@@ -10611,11 +10632,14 @@ async fn the_review_stage_folds_the_providers_alias_review_and_its_commands_land
     };
     assert_eq!(sent(&pilot), [json!({ "intent": "accept", "aliasHashes": "ah_glurak" })]);
 
-    // Auto-accept eligible keeps the eligible ones (chase-sets/chase-sets#11024); defer writes nothing.
+    // Auto-accept eligible leaves the rule to Catalog; defer writes nothing.
     let picked = "intent=alias.accept-eligible&picked=ah_glurak&picked=ah_dracaufeu";
     let (status, _, _) = pilot.send(post(&format!("/catalog/integrations/aliases?{at}"), picked, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
-    assert_eq!(sent(&pilot).last().unwrap(), &json!({ "intent": "accept", "aliasHashes": "ah_dracaufeu" }));
+    assert_eq!(
+        sent(&pilot).last().unwrap(),
+        &json!({ "intent": "accept", "aliasHashes": "ah_glurak,ah_dracaufeu", "eligibleOnly": true })
+    );
     let (status, headers, _) = pilot
         .send(post(&format!("/catalog/integrations/aliases?{at}"), "intent=alias.defer&alias_hashes=ah_glurak", false))
         .await;
@@ -12106,8 +12130,8 @@ async fn a_profile_section_is_drawn_from_its_workspace_and_saved_over_the_stored
     let save = &fixtures[fixtures.find(r#"type="submit""#).unwrap()..];
     assert!(save[..save.find('>').unwrap()].contains("disabled"), "{fixtures}");
 
-    // A save reads the version's authoring model and sends the posted fields over the stored ones,
-    // checked against the revision the form was drawn from.
+    // A save sends only the fields the form posted, as typed, checked against the revision the form
+    // was drawn from; Catalog composes them over the stored section (chase-sets/chase-sets#11074).
     let at = "profileVersion=2026.07.13";
     let (status, headers, _) = pilot
         .send(post(
@@ -12124,9 +12148,9 @@ async fn a_profile_section_is_drawn_from_its_workspace_and_saved_over_the_stored
     assert_eq!(sent.headers[header::IF_MATCH], r#""sha256:basics-read""#);
     assert_eq!(
         serde_json::from_str::<Value>(&sent.body).unwrap(),
-        json!({ "command": { "section": "basics", "displayName": "Pokemon Singles", "status": "planned",
-            "capabilities": ["source-observation-import"], "supportedScopes": ["set-name"], "languageOptions": ["en"] } })
+        json!({ "fields": { "displayName": " Pokemon Singles ", "status": "planned" } })
     );
+    assert!(!pilot.calls.lock().unwrap().iter().any(|c| c.path.ends_with("/authoring")), "the save reads nothing first");
     let (status, _, html) =
         pilot.send(get(&format!("/catalog/providers/tcgplayer?{at}&done=section-saved"), Some("staff"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");

@@ -62,11 +62,9 @@ import {
 import {
   assertSupplyAvailable,
   calculateOrderFulfillmentEconomics,
-  defaultOrderPaymentDeadlinePolicy,
   quoteMarketplaceSalesFeeFromSnapshot,
   resolveOrderPaymentDeadline,
   resolveTerminalPaymentFailureDeadline,
-  type OrderPaymentDeadlinePolicy,
   type MarketplaceDemand,
   type MarketplaceSupplyCandidate,
   type MarketplaceSupplyFeeLock,
@@ -110,6 +108,7 @@ import {
   type OrderingOrderEvent,
   type OrderingOrderState,
 } from "../domain/domain";
+import { defaultShippingRates, type ShippingRates } from "../domain/shipping-rates";
 import { createFulfillmentDeliveryPromise } from "../domain/fulfillment-delivery-promise";
 import { quoteAuthenticityCheckFee, type AuthenticityCheckFeeQuote } from "../domain/authenticity-check-fee";
 import type { AuthenticityFeePolicyResolver } from "./authenticity-fee-policy-resolver";
@@ -239,7 +238,6 @@ type OrderRuntimeDeps = Readonly<{
   checkpointStore: ProjectionCheckpointStore;
   db: PgTransactionalPool;
   shippingQuotePolicy: ShippingQuotePolicy;
-  paymentDeadlinePolicy?: OrderPaymentDeadlinePolicy;
   postagePolicyResolver?: PostagePolicyResolver;
   taxQuoteResolver?: TaxQuoteResolver;
   notificationOutbox?: NotificationOutbox;
@@ -315,6 +313,7 @@ type SellerOrderDraft = Readonly<{
   protectionOverageAmount: string;
   shippingChargeAmount: string;
   shippingPlanSnapshot: PackagePlan;
+  shippingRates: ShippingRates;
   salesTaxAmount: string;
   totalAmount: string;
   taxQuote: TaxQuote;
@@ -982,6 +981,7 @@ function quotePlan(
   const orderDrafts: SellerOrderDraft[] = [];
   let totalAmount = 0n;
   let itemSubtotalAmount = 0n;
+  const shippingRates = defaultShippingRates;
 
   for (const draft of groupedBySellerAndOrigin.values()) {
     const shippingAllowancePercentageBps = planShippingAllowanceBps(draft.lines);
@@ -1006,6 +1006,7 @@ function quotePlan(
       quantity: draft.quantity,
       listingCount: draft.listingIds.size,
       packagePlan,
+      shippingRates,
     });
     const shippingEconomics = calculateOrderFulfillmentEconomics({
       itemSubtotalAmount: draftSubtotalAmount,
@@ -1033,6 +1034,7 @@ function quotePlan(
       protectionOverageAmount: shippingEconomics.protectionOverageAmount,
       shippingChargeAmount: shippingEconomics.shippingChargeAmount,
       shippingPlanSnapshot: quote.packagePlan ?? packagePlan,
+      shippingRates,
       salesTaxAmount: "0.00",
       totalAmount: centsToMoneyAmount(orderTotalCents),
       taxQuote: {
@@ -1515,7 +1517,6 @@ async function getPurchaseWithDeliverySummary(
 export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrderServices {
   const taxQuoteResolver = deps.taxQuoteResolver ?? zeroTaxQuoteResolver;
   const postagePolicyResolver = deps.postagePolicyResolver ?? defaultPostagePolicyResolver;
-  const paymentDeadlinePolicy = deps.paymentDeadlinePolicy ?? defaultOrderPaymentDeadlinePolicy;
   const notificationOutbox = deps.notificationOutbox ?? createNoopNotificationOutbox();
   const { commandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
@@ -1943,6 +1944,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
             protectionOverageAmount: draft.protectionOverageAmount,
             sellerPayoutAmount,
             shippingAllowancePercentageBps,
+            shippingRates: draft.shippingRates,
             termsScheduleId,
             termsAgreementId,
             termsResolvedAt,
@@ -2237,6 +2239,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
         if (packagePlan.missingProductIds.length > 0) {
           throw new OrderingDomainError("Product measurements are required before checkout can be confirmed.");
         }
+        const shippingRates = defaultShippingRates;
         const quote = deps.shippingQuotePolicy.quote({
           sellerAccountId: draft.sellerAccountId,
           shippingOption: draft.shippingOption,
@@ -2244,6 +2247,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
           quantity,
           listingCount: listingIds.size,
           packagePlan,
+          shippingRates,
         });
         const shippingAllowancePercentageBps = planShippingAllowanceBps(lines);
         const shippingEconomics = calculateOrderFulfillmentEconomics({
@@ -2264,6 +2268,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
           protectionOverageAmount: shippingEconomics.protectionOverageAmount,
           shippingChargeAmount: shippingEconomics.shippingChargeAmount,
           shippingPlanSnapshot: quote.packagePlan ?? packagePlan,
+          shippingRates,
           salesTaxAmount: "0.00",
           totalAmount: addMoneyAmounts(itemSubtotalAmount, shippingEconomics.shippingChargeAmount),
           lines,
@@ -2762,11 +2767,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
       let recorded = 0;
 
       for (const order of startedOrders.rows) {
-        const deadline = resolveOrderPaymentDeadline(
-          order.pending_payment_at,
-          params.paymentMethodCategory,
-          paymentDeadlinePolicy,
-        );
+        const deadline = resolveOrderPaymentDeadline(order.pending_payment_at, params.paymentMethodCategory);
         await deps.db.query(
           `INSERT INTO ordering_payment_deadline_inputs (
              order_id,
@@ -2804,7 +2805,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
       if (params.orderIds.length === 0) {
         return 0;
       }
-      const deadline = resolveTerminalPaymentFailureDeadline(params.failedAt, paymentDeadlinePolicy);
+      const deadline = resolveTerminalPaymentFailureDeadline(params.failedAt);
       const result = await deps.db.query(
         `INSERT INTO ordering_payment_deadline_inputs (
            order_id,

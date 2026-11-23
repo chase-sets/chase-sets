@@ -29,7 +29,7 @@ import type {
   SavedListDestination,
   SavedListDiscoverySurface,
 } from "./discovery-contracts";
-import { readAnonymousOwnerActivation } from "../../../support/runtime-support/anonymous-owner-activation";
+import { readAnonymousOwnerActivation } from "../read-model/anonymous-owner-activation";
 
 const ANONYMOUS_SAVED_LIST_TTL_MS = 1000 * 60 * 60 * 24 * 30;
 const MAX_ACTIVE_ANONYMOUS_SAVED_LIST_INTENTS = 20;

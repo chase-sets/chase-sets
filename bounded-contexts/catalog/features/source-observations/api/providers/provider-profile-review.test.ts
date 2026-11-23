@@ -19,6 +19,7 @@ import {
   listCatalogProviderProfileVersionReviews,
   retireCatalogProviderProfileVersionForReview,
 } from "./provider-profile-review";
+import { catalogProviderProfileSectionFields } from "./provider-profile-section-edit";
 import {
   CatalogProviderProfileEditableSectionChangedError,
   catalogProviderProfileEditableSectionFingerprint,
@@ -314,6 +315,14 @@ describe("Catalog provider profile review", () => {
     expect(model.editableSections.map((section) => section.section)).toEqual(
       expect.arrayContaining(["basics", "provider-options", "promotion-plan", "migration-evidence"]),
     );
+    // Each section carries its form's fields, so a client draws the form from Catalog.
+    for (const section of model.editableSections) {
+      expect(section.fields, section.section).toBe(catalogProviderProfileSectionFields[section.section]);
+    }
+    expect(model.editableSections.find((section) => section.section === "promotion-plan")?.fields).toEqual([
+      expect.objectContaining({ key: "promotionPlanKind", defaultValue: "catalog-item-promotion", fixedValue: null }),
+      expect.objectContaining({ key: "promotionRequiresReview", control: "checkbox", fixedValue: "true" }),
+    ]);
     expect(model.fixtureCases.map((fixtureCase) => fixtureCase.flow)).toEqual(
       expect.arrayContaining(["normal", "ambiguous", "unknown-option"]),
     );
@@ -718,6 +727,61 @@ describe("Catalog provider profile review", () => {
       }),
     ).rejects.toBeInstanceOf(CatalogProviderProfileEditableSectionChangedError);
     expect((await store.getProfileVersion("tcgdex", "2026.06.04"))?.profile.displayName).toBe("Landed in between");
+  });
+
+  it("composes an edit over the version it reads again, keeping a save that landed in between", async () => {
+    const store = mutableProfileStore([tcgdexVersion("2026.06.04", "draft", false)]);
+    const basicsRead = await storedSectionFingerprint(store, "basics");
+    const racing = storeWithOneRacingSave(store, async () => {
+      await updateCatalogProviderProfileSectionForReview({
+        store,
+        providerKey: "tcgdex",
+        profileVersion: "2026.06.04",
+        expectedSectionFingerprint: basicsRead,
+        command: basicsCommand("Landed in between"),
+      });
+    });
+
+    const review = await updateCatalogProviderProfileSectionForReview({
+      store: racing,
+      providerKey: "tcgdex",
+      profileVersion: "2026.06.04",
+      expectedSectionFingerprint: await storedSectionFingerprint(store, "source-contract"),
+      command: { section: "source-contract", fields: { sourceCommit: " abc123 " } },
+    });
+
+    expect(review.displayName).toBe("Landed in between");
+    expect(review.sourceContract).toMatchObject({ commit: "abc123" });
+    expect(review.sourceContract.owner).toBe(tcgdexVersion("2026.06.04", "draft", false).sourceContract.owner);
+  });
+
+  // Each section's fields as the form would leave them unchanged: none posted. A checkbox is posted
+  // when it is checked, a retirement plan with its tracking issue, and evidence with its text.
+  it.each([
+    ["basics", {}],
+    ["provider-options", {}],
+    ["connector", {}],
+    ["catalog-field-mapping", {}],
+    ["source-contract", {}],
+    ["fixtures", {}],
+    ["source-observation", {}],
+    ["normalized-observation", {}],
+    ["selected-options", {}],
+    ["reference-hierarchy", {}],
+    ["promotion-plan", {}],
+  ] as const)("leaves the %s section as it was when an edit changes nothing", async (section, fields) => {
+    const store = mutableProfileStore([tcgdexVersion("2026.06.04", "draft", false)]);
+    const read = await storedSectionFingerprint(store, section);
+
+    const review = await updateCatalogProviderProfileSectionForReview({
+      store,
+      providerKey: "tcgdex",
+      profileVersion: "2026.06.04",
+      expectedSectionFingerprint: read,
+      command: { section, fields },
+    });
+
+    expect(review.sectionFingerprints[section]).toBe(read);
   });
 
   it("blocks activation when fixture harness validation fails", async () => {

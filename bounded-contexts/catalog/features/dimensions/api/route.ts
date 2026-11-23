@@ -6,6 +6,7 @@ import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api
 import { commandSnapshotResponse } from "../../../support/authoring-support/api-command-response";
 import type { CatalogAuthoringBulkJobServices } from "../../../support/authoring-support/bulk-authoring-jobs";
 import { normalizeBulkSelection, toOptionalString } from "../../../support/runtime-support/bulk-lifecycle";
+import { CatalogDomainError } from "../../../support/runtime-support/common";
 
 export function dimensionRoutes(services: DimensionServices, authoringBulkJobs: CatalogAuthoringBulkJobServices) {
   const app = new Hono<CatalogAuthoringEnv>();
@@ -24,6 +25,7 @@ export function dimensionRoutes(services: DimensionServices, authoringBulkJobs: 
         name: coerceLocalizedTextMap(body.name),
         description: coerceLocalizedTextMap(body.description ?? ""),
         valueKind: body.valueKind,
+        optionMatching: body.optionMatching,
       },
       context,
     });
@@ -67,6 +69,7 @@ export function dimensionRoutes(services: DimensionServices, authoringBulkJobs: 
         name: coerceLocalizedTextMap(body.name),
         description: coerceLocalizedTextMap(body.description ?? ""),
         valueKind: body.valueKind,
+        optionMatching: body.optionMatching,
       },
       context,
     });
@@ -87,6 +90,7 @@ export function dimensionRoutes(services: DimensionServices, authoringBulkJobs: 
         code: body.code,
         label: coerceOptionLabel(body.label),
         numericValue: body.numericValue,
+        appliesWhen: parseOptionApplicabilityBoundary(body.appliesWhen),
       },
       context,
     });
@@ -124,6 +128,7 @@ export function dimensionRoutes(services: DimensionServices, authoringBulkJobs: 
         code: body.code,
         label: coerceOptionLabel(body.label),
         numericValue: body.numericValue,
+        appliesWhen: parseOptionApplicabilityBoundary(body.appliesWhen),
       },
       context,
     });
@@ -237,6 +242,28 @@ function dimensionListQueryFromRecord(record: Record<string, unknown>) {
     status: toOptionalString(record.status),
     valueKind: toOptionalString(record.valueKind),
   };
+}
+
+/** Omitted applicability keeps what the Option has; an empty list clears it. */
+function parseOptionApplicabilityBoundary(value: unknown) {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(value)) {
+    throw new CatalogDomainError("appliesWhen must be a list of applicability clauses.");
+  }
+
+  return value.map((clause, index) => {
+    const candidate = (typeof clause === "object" && clause !== null ? clause : {}) as {
+      dimensionId?: unknown;
+      optionIds?: unknown;
+    };
+
+    return {
+      dimensionId: parseTypedIdBoundary(candidate.dimensionId, "dim", `appliesWhen[${index}].dimensionId`),
+      optionIds: parseTypedIdArrayBoundary(candidate.optionIds, "chc", `appliesWhen[${index}].optionIds`),
+    };
+  });
 }
 
 function coerceOptionLabel(value: unknown) {

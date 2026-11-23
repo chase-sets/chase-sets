@@ -13,10 +13,10 @@ import {
   assert,
   buildDemandSignature,
   normalizeMoneyAmount,
-  numberToMoneyAmount,
   type ShippingOption,
   type VersionSelectedOptionEntry,
 } from "./common";
+import type { ShippingRates } from "./shipping-rates";
 
 export type MarketplaceDemand = Readonly<{
   catalogItemId: CatalogItemId;
@@ -120,7 +120,8 @@ export interface ShippingQuotePolicy {
       itemSubtotalAmount: string;
       quantity: number;
       listingCount: number;
-      packagePlan?: PackagePlan;
+      packagePlan: PackagePlan;
+      shippingRates: ShippingRates;
     }>,
   ): ShippingQuoteResult;
 }
@@ -197,17 +198,10 @@ export type OrderPaymentDeadlinePolicyToken =
   | "ordering-payment-deadline-platform-credit-v1"
   | "ordering-payment-deadline-terminal-failure-grace-v1";
 
-export type OrderPaymentDeadlinePolicy = Readonly<{
-  card: Readonly<{ token: "ordering-payment-deadline-card-v1"; durationMs: number }>;
-  bankAccount: Readonly<{ token: "ordering-payment-deadline-bank-account-v1"; durationMs: number }>;
-  platformCredit: Readonly<{ token: "ordering-payment-deadline-platform-credit-v1"; durationMs: number }>;
-  terminalFailureGrace: Readonly<{
-    token: "ordering-payment-deadline-terminal-failure-grace-v1";
-    durationMs: number;
-  }>;
-}>;
+type OrderPaymentDeadline = Readonly<{ token: OrderPaymentDeadlinePolicyToken; durationMs: number }>;
 
-export const defaultOrderPaymentDeadlinePolicy: OrderPaymentDeadlinePolicy = {
+// Compiled on purpose: each token names its duration, so a new duration is a new token and a code change.
+const orderPaymentDeadlines = {
   card: { token: "ordering-payment-deadline-card-v1", durationMs: 60 * 60 * 1000 },
   bankAccount: { token: "ordering-payment-deadline-bank-account-v1", durationMs: 5 * 24 * 60 * 60 * 1000 },
   platformCredit: { token: "ordering-payment-deadline-platform-credit-v1", durationMs: 15 * 60 * 1000 },
@@ -215,7 +209,7 @@ export const defaultOrderPaymentDeadlinePolicy: OrderPaymentDeadlinePolicy = {
     token: "ordering-payment-deadline-terminal-failure-grace-v1",
     durationMs: 5 * 60 * 1000,
   },
-};
+} as const satisfies Record<string, OrderPaymentDeadline>;
 
 export function normalizeOrderPaymentMethodCategory(paymentMethodCategory?: string | null): OrderPaymentMethodCategory {
   if (paymentMethodCategory === "bank-account" || paymentMethodCategory === "platform-credit") {
@@ -225,26 +219,19 @@ export function normalizeOrderPaymentMethodCategory(paymentMethodCategory?: stri
   return "card";
 }
 
-export function resolveOrderPaymentDeadlinePolicy(
-  policy: OrderPaymentDeadlinePolicy,
-  paymentMethodCategory?: string | null,
-) {
+function orderPaymentDeadlineFor(paymentMethodCategory?: string | null): OrderPaymentDeadline {
   switch (normalizeOrderPaymentMethodCategory(paymentMethodCategory)) {
     case "bank-account":
-      return policy.bankAccount;
+      return orderPaymentDeadlines.bankAccount;
     case "platform-credit":
-      return policy.platformCredit;
+      return orderPaymentDeadlines.platformCredit;
     case "card":
-      return policy.card;
+      return orderPaymentDeadlines.card;
   }
 }
 
-export function resolveOrderPaymentDeadline(
-  pendingPaymentAt: string,
-  paymentMethodCategory?: string | null,
-  policy: OrderPaymentDeadlinePolicy = defaultOrderPaymentDeadlinePolicy,
-) {
-  const token = resolveOrderPaymentDeadlinePolicy(policy, paymentMethodCategory);
+export function resolveOrderPaymentDeadline(pendingPaymentAt: string, paymentMethodCategory?: string | null) {
+  const token = orderPaymentDeadlineFor(paymentMethodCategory);
   const startedAtMs = Date.parse(pendingPaymentAt);
   assert(Number.isFinite(startedAtMs), "Payment deadline requires a valid pending-payment timestamp.");
 
@@ -254,53 +241,50 @@ export function resolveOrderPaymentDeadline(
   };
 }
 
-export function resolveTerminalPaymentFailureDeadline(
-  failedAt: string,
-  policy: OrderPaymentDeadlinePolicy = defaultOrderPaymentDeadlinePolicy,
-) {
+export function resolveTerminalPaymentFailureDeadline(failedAt: string) {
   const failedAtMs = Date.parse(failedAt);
   assert(Number.isFinite(failedAtMs), "Terminal payment failure grace requires a valid failure timestamp.");
 
   return {
-    paymentDeadlineAt: new Date(failedAtMs + policy.terminalFailureGrace.durationMs).toISOString(),
-    paymentDeadlinePolicy: policy.terminalFailureGrace.token,
+    paymentDeadlineAt: new Date(failedAtMs + orderPaymentDeadlines.terminalFailureGrace.durationMs).toISOString(),
+    paymentDeadlinePolicy: orderPaymentDeadlines.terminalFailureGrace.token,
   };
 }
 
 export const defaultShippingQuotePolicy: ShippingQuotePolicy = {
-  quote({ shippingOption, itemSubtotalAmount, quantity, listingCount, packagePlan }) {
+  quote({ shippingOption, itemSubtotalAmount, packagePlan, shippingRates }) {
     normalizeMoneyAmount(itemSubtotalAmount, {
       allowZero: true,
       fieldName: "Item subtotal",
     });
-    if (packagePlan && packagePlan.packageCount > 0) {
-      const baseAmount = packagePlan.packages.reduce((sum, pkg) => {
-        if (pkg.mailpieceClass === "letter") {
-          return sum + 1.49;
-        }
-        const perPackageBase = shippingOption === "priority" ? 9.99 : shippingOption === "expedited" ? 7.49 : 4.99;
-        return sum + perPackageBase + Math.max(0, pkg.billableWeightOunces - 4) * 0.32;
-      }, 0);
+    assert(packagePlan.packages.length > 0, "A shipping quote requires a package plan with at least one package.");
 
-      return {
-        shippingOption,
-        baseAmount: numberToMoneyAmount(baseAmount),
-        discountAmount: "0.00",
-        chargeAmount: numberToMoneyAmount(baseAmount),
-        packagePlan,
-      };
-    }
-
-    const perOrderBase = shippingOption === "priority" ? 19.99 : shippingOption === "expedited" ? 9.99 : 4.99;
-    const volumeSurcharge = Math.max(0, quantity - 1) * 0.35;
-    const consolidationSurcharge = Math.max(0, listingCount - 1) * 0.5;
-    const baseAmount = perOrderBase + volumeSurcharge + consolidationSurcharge;
+    const letterCents = moneyToCents(shippingRates.letterAmount);
+    const parcelCents = moneyToCents(
+      shippingOption === "priority"
+        ? shippingRates.priorityParcelAmount
+        : shippingOption === "expedited"
+          ? shippingRates.expeditedParcelAmount
+          : shippingRates.standardParcelAmount,
+    );
+    const parcelIncludedOunces = BigInt(shippingRates.parcelIncludedOunces);
+    const parcelAdditionalOunceCents = moneyToCents(shippingRates.parcelAdditionalOunceAmount);
+    const baseCents = packagePlan.packages.reduce((sum, pkg) => {
+      if (pkg.mailpieceClass === "letter") {
+        return sum + letterCents;
+      }
+      const ouncesOverIncluded = BigInt(pkg.billableWeightOunces) - parcelIncludedOunces;
+      const additionalOunces = ouncesOverIncluded > 0n ? ouncesOverIncluded : 0n;
+      return sum + parcelCents + additionalOunces * parcelAdditionalOunceCents;
+    }, 0n);
+    const baseAmount = centsToMoneyAmount(baseCents);
 
     return {
       shippingOption,
-      baseAmount: numberToMoneyAmount(baseAmount),
+      baseAmount,
       discountAmount: "0.00",
-      chargeAmount: numberToMoneyAmount(baseAmount),
+      chargeAmount: baseAmount,
+      packagePlan,
     };
   },
 };

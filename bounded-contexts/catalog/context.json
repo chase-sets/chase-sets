@@ -308,6 +308,15 @@
       { "name": "catalog.set-blueprint-dimensions", "ownerSlice": "blueprints" },
       { "name": "catalog.set-blueprint-fields", "ownerSlice": "blueprints" },
       { "name": "catalog.set-blueprint-product-resolution-rules", "ownerSlice": "blueprints" },
+      { "name": "catalog.archive-category", "ownerSlice": "categories" },
+      { "name": "catalog.confirm-bulk-category-lifecycle", "ownerSlice": "categories" },
+      { "name": "catalog.create-category", "ownerSlice": "categories" },
+      { "name": "catalog.deprecate-category", "ownerSlice": "categories" },
+      { "name": "catalog.get-category", "ownerSlice": "categories" },
+      { "name": "catalog.list-categories", "ownerSlice": "categories" },
+      { "name": "catalog.preview-bulk-category-lifecycle", "ownerSlice": "categories" },
+      { "name": "catalog.publish-category", "ownerSlice": "categories" },
+      { "name": "catalog.revise-category", "ownerSlice": "categories" },
       { "name": "catalog.list-provider-refresh-schedules", "ownerSlice": "provider-scope-discovery" },
       { "name": "catalog.run-provider-refresh", "ownerSlice": "provider-scope-discovery" },
       { "name": "catalog.pause-provider-refresh", "ownerSlice": "provider-scope-discovery" },
@@ -328,7 +337,40 @@
       { "name": "catalog.cancel-scope-sync-batch", "ownerSlice": "scope-sync-batches" },
       { "name": "catalog.resume-scope-sync-batch", "ownerSlice": "scope-sync-batches" },
       { "name": "catalog.retry-scope-sync-unit", "ownerSlice": "scope-sync-batches" },
-      { "name": "catalog.list-source-observations", "ownerSlice": "source-observations" }
+      { "name": "catalog.list-source-observations", "ownerSlice": "source-observations" },
+      { "name": "catalog.archive-item", "ownerSlice": "catalog-items" },
+      { "name": "catalog.assign-blueprint", "ownerSlice": "catalog-items" },
+      { "name": "catalog.assign-category", "ownerSlice": "catalog-items" },
+      { "name": "catalog.clear-field-value", "ownerSlice": "catalog-items" },
+      { "name": "catalog.clear-image-fallback", "ownerSlice": "catalog-items" },
+      { "name": "catalog.confirm-bulk-catalog-item-edit", "ownerSlice": "catalog-items" },
+      { "name": "catalog.confirm-bulk-catalog-item-lifecycle", "ownerSlice": "catalog-items" },
+      { "name": "catalog.confirm-bulk-publish-catalog-items", "ownerSlice": "catalog-items" },
+      { "name": "catalog.create-item", "ownerSlice": "catalog-items" },
+      { "name": "catalog.get-item", "ownerSlice": "catalog-items" },
+      { "name": "catalog.link-external-catalog-item-reference", "ownerSlice": "catalog-items" },
+      { "name": "catalog.link-external-product-reference", "ownerSlice": "catalog-items" },
+      { "name": "catalog.list-fields", "ownerSlice": "fields" },
+      { "name": "catalog.list-product-containers-for-contained", "ownerSlice": "product-contents" },
+      { "name": "catalog.list-product-content-inclusion-policies", "ownerSlice": "product-contents" },
+      { "name": "catalog.list-product-content-types", "ownerSlice": "product-contents" },
+      { "name": "catalog.list-product-contents-for-container", "ownerSlice": "product-contents" },
+      { "name": "catalog.list-reference-records", "ownerSlice": "reference-data" },
+      { "name": "catalog.preview-bulk-catalog-item-edit", "ownerSlice": "catalog-items" },
+      { "name": "catalog.preview-bulk-catalog-item-lifecycle", "ownerSlice": "catalog-items" },
+      { "name": "catalog.preview-bulk-publish-catalog-items", "ownerSlice": "catalog-items" },
+      { "name": "catalog.publish-item", "ownerSlice": "catalog-items" },
+      { "name": "catalog.remove-category", "ownerSlice": "catalog-items" },
+      { "name": "catalog.remove-draft-item", "ownerSlice": "catalog-items" },
+      { "name": "catalog.replace-product-contents", "ownerSlice": "product-contents" },
+      { "name": "catalog.revise-item-metadata", "ownerSlice": "catalog-items" },
+      { "name": "catalog.search-items", "ownerSlice": "catalog-items" },
+      { "name": "catalog.set-field-value", "ownerSlice": "catalog-items" },
+      { "name": "catalog.set-image-fallback", "ownerSlice": "catalog-items" },
+      { "name": "catalog.set-image-urls", "ownerSlice": "catalog-items" },
+      { "name": "catalog.set-tags", "ownerSlice": "catalog-items" },
+      { "name": "catalog.unlink-external-catalog-item-reference", "ownerSlice": "catalog-items" },
+      { "name": "catalog.unlink-external-product-reference", "ownerSlice": "catalog-items" }
     ],
     "resources": []
   },
@@ -339,10 +381,55 @@
     "blueprints-detail": {
       "tools": ["catalog.get-blueprint", "catalog.publish-blueprint", "catalog.deprecate-blueprint", "catalog.archive-blueprint", "catalog.revise-blueprint", "catalog.attach-component", "catalog.detach-component", "catalog.set-blueprint-product-resolution-rules", "catalog.set-blueprint-fields", "catalog.set-blueprint-dimensions"]
     },
-    "catalog-items": { "pending": "#9238" },
-    "catalog-items-detail": { "pending": "#9238" },
-    "categories": { "pending": "#9238" },
-    "categories-detail": { "pending": "#9238" },
+    "catalog-items": {
+      "tools": [
+        "catalog.search-items",
+        "catalog.create-item",
+        "catalog.preview-bulk-publish-catalog-items",
+        "catalog.confirm-bulk-publish-catalog-items",
+        "catalog.remove-draft-item",
+        "catalog.preview-bulk-catalog-item-edit",
+        "catalog.confirm-bulk-catalog-item-edit",
+        "catalog.preview-bulk-catalog-item-lifecycle",
+        "catalog.confirm-bulk-catalog-item-lifecycle",
+        "catalog.get-authoring-job"
+      ]
+    },
+    "catalog-items-detail": {
+      "tools": [
+        "catalog.get-item",
+        "catalog.list-fields",
+        "catalog.list-reference-records",
+        "catalog.list-product-content-types",
+        "catalog.list-product-content-inclusion-policies",
+        "catalog.search-items",
+        "catalog.list-product-contents-for-container",
+        "catalog.list-product-containers-for-contained",
+        "catalog.archive-item",
+        "catalog.publish-item",
+        "catalog.assign-blueprint",
+        "catalog.set-field-value",
+        "catalog.clear-field-value",
+        "catalog.assign-category",
+        "catalog.remove-category",
+        "catalog.revise-item-metadata",
+        "catalog.set-tags",
+        "catalog.set-image-urls",
+        "catalog.set-image-fallback",
+        "catalog.clear-image-fallback",
+        "catalog.link-external-product-reference",
+        "catalog.link-external-catalog-item-reference",
+        "catalog.unlink-external-product-reference",
+        "catalog.unlink-external-catalog-item-reference",
+        "catalog.replace-product-contents"
+      ]
+    },
+    "categories": {
+      "tools": ["catalog.list-categories", "catalog.create-category", "catalog.preview-bulk-category-lifecycle", "catalog.confirm-bulk-category-lifecycle", "catalog.get-authoring-job"]
+    },
+    "categories-detail": {
+      "tools": ["catalog.get-category", "catalog.publish-category", "catalog.deprecate-category", "catalog.archive-category", "catalog.revise-category"]
+    },
     "components": { "pending": "#9238" },
     "components-detail": { "pending": "#9238" },
     "dimensions": { "pending": "#9238" },
@@ -1553,7 +1640,7 @@
       "risk": "important",
       "strategy": "realtime-correction",
       "surfaces": [
-        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:PATCH He6bb0bc44c9d#1",
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:PATCH H18b1dec8f36c#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H0be18cbb16a4#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H17cd86e76cd7#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H2ccae70b986c#1",
@@ -1616,14 +1703,14 @@
       "strategy": "snapshot-return",
       "surfaces": [
         "api-route:bounded-contexts/catalog/features/alias-equivalence/api/route.ts:POST /commands",
-        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST Hd32f89aae94c#1"
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H70c7da49db00#1"
       ],
       "visibleDestination": {
         "routeId": "integrations",
         "description": "The alias-review workspace accept/reject/revoke actions stay on the daily integrations surface and return the committed #1905 Catalog Alias aggregate snapshot (review status and version per alias hash); the next loader re-reads the alias-review read model so the operator never sees a stale candidate row after a review write."
       },
       "proof": {
-        "authoritativeResponse": "The alias-review POST /commands route dispatches the #1905 AcceptCatalogAlias/RejectCatalogAlias/RevokeCatalogAlias aggregate commands keyed by alias hash with the operator as actor, and responds from the command handler's evolved aggregate state (reviewStatus + version per applied alias hash). The client dispatchCatalogAliasReviewCommand returns that committed snapshot directly, and the daily route action result stays on the import-to-promotion surface so the next loader re-reads the alias-review read model.",
+        "authoritativeResponse": "The alias-review POST /commands route dispatches the #1905 AcceptCatalogAlias/RejectCatalogAlias/RevokeCatalogAlias aggregate commands keyed by alias hash with the operator as actor, and responds from the command handler's evolved aggregate state (reviewStatus + version per applied alias hash). It reads every named candidate before any write and refuses the whole request if one is missing; an accept with eligibleOnly then applies only the candidates the review read model marks auto-accept eligible and lists the rest under skipped as not-eligible. The client dispatchCatalogAliasReviewCommand returns that committed snapshot directly, and the daily route action result stays on the import-to-promotion surface so the next loader re-reads the alias-review read model.",
         "tests": [
           "bounded-contexts/catalog/features/alias-equivalence/api/route.test.ts",
           "bounded-contexts/catalog/tests/admin-integrations-route.test.tsx"

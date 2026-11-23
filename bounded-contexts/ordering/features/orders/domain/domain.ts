@@ -27,6 +27,7 @@ import {
   type VersionSelectedOptionEntry,
 } from "./common";
 import { resolveOrderPaymentDeadline, type OrderPaymentDeadlinePolicyToken } from "./policies";
+import { decodeShippingRates, type ShippingRates } from "./shipping-rates";
 
 export type OrderingOrderLine = Readonly<{
   lineId: OrderLineId;
@@ -79,6 +80,7 @@ export type OrderingCommercialTermsSnapshot = Readonly<{
   protectionOverageAmount?: string;
   sellerPayoutAmount?: string;
   shippingAllowancePercentageBps?: number;
+  shippingRates?: ShippingRates;
   termsScheduleId: string | null;
   termsAgreementId: string | null;
   termsResolvedAt: string;
@@ -599,6 +601,9 @@ function normalizeCommercialTermsSnapshot(snapshot: OrderingCommercialTermsSnaps
       allowZero: true,
     }),
     shippingAllowancePercentageBps: Math.max(0, Math.trunc(Number(snapshot.shippingAllowancePercentageBps ?? 500))),
+    // Recorded only when the command carries it: an order without the key was
+    // priced by the compiled rates of the build that created it.
+    ...(snapshot.shippingRates === undefined ? {} : { shippingRates: decodeShippingRates(snapshot.shippingRates) }),
     termsScheduleId: normalizeOptionalText(snapshot.termsScheduleId),
     termsAgreementId: normalizeOptionalText(snapshot.termsAgreementId),
     termsResolvedAt: normalizeRequiredText(

@@ -16,6 +16,7 @@ export type DimensionRow = Readonly<{
   description_i18n: unknown;
   description: string;
   value_kind: string;
+  option_matching: string;
   status: string;
   updated_at: string;
 }>;
@@ -29,6 +30,7 @@ export type DimensionOptionRow = Readonly<{
   display_order: number;
   numeric_value: number | null;
   status: string;
+  applies_when: unknown;
 }>;
 
 export type DimensionListParams = ListParams &
@@ -109,7 +111,8 @@ export async function getDimension(db: PgQueryable, dimensionId: string) {
        label,
        display_order,
        numeric_value::float8 AS numeric_value,
-       status
+       status,
+       applies_when
      FROM catalog_dimension_options
      WHERE dimension_id = $1
      ORDER BY display_order ASC`,
@@ -117,4 +120,27 @@ export async function getDimension(db: PgQueryable, dimensionId: string) {
   );
 
   return { ...dimensionResult.rows[0], options: optionsResult.rows };
+}
+
+export type SelectedOptionApplicabilityRow = Pick<DimensionOptionRow, "dimension_id" | "option_id" | "applies_when">;
+
+/** The applicability of each selected Option that has any; an Option without a row or without clauses is absent. */
+export async function listSelectedOptionApplicability(
+  db: PgQueryable,
+  selectedOptions: readonly Readonly<{ dimensionId: string; optionId: string }>[],
+): Promise<SelectedOptionApplicabilityRow[]> {
+  if (selectedOptions.length === 0) {
+    return [];
+  }
+
+  const result = await db.query<SelectedOptionApplicabilityRow>(
+    `SELECT option.dimension_id, option.option_id, option.applies_when
+     FROM unnest($1::text[], $2::text[]) AS selected(dimension_id, option_id)
+     JOIN catalog_dimension_options AS option
+       ON option.dimension_id = selected.dimension_id AND option.option_id = selected.option_id
+     WHERE option.applies_when <> '[]'::jsonb`,
+    [selectedOptions.map((entry) => entry.dimensionId), selectedOptions.map((entry) => entry.optionId)],
+  );
+
+  return result.rows;
 }

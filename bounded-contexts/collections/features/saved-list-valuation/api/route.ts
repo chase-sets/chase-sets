@@ -1,5 +1,4 @@
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
-import { t } from "@chase-sets/localization";
 import { parseTypedId, type AccountId } from "@chase-sets/primitives/typed-ids";
 import type { SavedListId } from "../../saved-lists/domain";
 import { Hono } from "hono";
@@ -9,6 +8,7 @@ import {
   valuationAnalytics,
   type SavedListAnalyticsRecorder,
 } from "../../saved-lists/api/analytics-telemetry";
+import { t } from "./localization/translator";
 
 export function createSavedListValuationRoutes(
   services: SavedListValuationServices,

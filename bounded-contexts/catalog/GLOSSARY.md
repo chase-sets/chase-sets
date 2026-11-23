@@ -9,6 +9,8 @@ Use these terms consistently across APIs, internal tools, docs, and formal UI co
 - `Catalog Item`
 - `Dimension`
 - `Option`
+- `Option Matching`
+- `Option Applicability`
 - `Product`
 - `Product Key`
 - `Blueprint`
@@ -98,6 +100,10 @@ The catalog is composed of four primary concepts:
 - `Dimension` — a category of variation used to distinguish Products
 - `Option` — a specific selectable value of a Dimension
 - `Product` — a valid sellable combination of selected Options under a Catalog Item
+
+`Option Matching` is a Dimension's statement of how a want for one of its Options is satisfied. `exact` accepts only that Option. `or-better` also accepts every Option ordered before it, so an or-better Dimension lists its Options best first and requires an `ordered` or `numeric` value kind. A Product is always one exact Option; Option Matching describes what satisfies a want, and it never changes `product_id`.
+
+`Option Applicability` is an Option's statement of when it can be selected: for each Dimension it names, the selection must hold one of the listed Options. An Option with no applicability always applies. It lets one Dimension hold a scale whose values depend on another Dimension, such as a Grade that only some grading companies award. A Blueprint's Dimension rule decides whether the Dimension is in play and which of its Options that Blueprint allows; Option Applicability narrows the Options further by what else is selected, for every Blueprint that uses the Dimension.
 
 ## Authoring Model
 
