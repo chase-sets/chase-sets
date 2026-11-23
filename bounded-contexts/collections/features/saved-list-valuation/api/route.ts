@@ -1,7 +1,7 @@
+import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import { parseTypedId, type AccountId } from "@chase-sets/primitives/typed-ids";
 import type { SavedListId } from "../../saved-lists/domain";
 import { Hono } from "hono";
-import type { CollectionsApiEnv } from "../../../support/runtime-support/api-auth";
 import type { SavedListValuationServices } from "./runtime";
 import {
   recordSavedListAnalytics,
@@ -14,7 +14,7 @@ export function createSavedListValuationRoutes(
   services: SavedListValuationServices,
   recorder?: SavedListAnalyticsRecorder,
 ) {
-  const app = new Hono<CollectionsApiEnv>();
+  const app = new Hono<AuthenticatedApiEnv>();
 
   app.get("/saved-lists/:listId/valuation", async (c) => {
     const actor = c.get("actor");

@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import type { CollectionsApiEnv } from "../../../support/runtime-support/api-auth";
+import type { CollectionsApiEnv } from "../../../api";
 import type { SavedListRecoveryServices } from "./recovery-runtime";
 import { SavedListRecoveryError } from "./recovery-runtime";
 import type {

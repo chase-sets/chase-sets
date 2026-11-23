@@ -3,7 +3,7 @@ import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import type { SavedListId, SavedListLifecycleState, SavedListVisibility } from "../domain/contracts";
 import { SavedListQueryError } from "../read-model/queries";
 import type { SavedListReadModelServices } from "../read-model/runtime";
-import type { CollectionsApiEnv } from "../../../support/runtime-support/api-auth";
+import type { CollectionsApiEnv } from "../../../api";
 
 const visibilities = new Set<SavedListVisibility>(["private", "unlisted", "public"]);
 const lifecycles = new Set<SavedListLifecycleState | "all">(["active", "archived", "all"]);

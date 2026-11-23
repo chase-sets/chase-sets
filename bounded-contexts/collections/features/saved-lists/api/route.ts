@@ -1,6 +1,6 @@
 import { createPolicyBackedRateLimiter, type RateLimitRuleResolver } from "@chase-sets/http/rate-limit";
 import { Hono } from "hono";
-import type { CollectionsApiEnv } from "../../../support/runtime-support/api-auth";
+import type { CollectionsApiEnv } from "../../../api";
 import type {
   AddProductToSavedListRequest,
   CreateAnonymousSavedListIntentRequest,
