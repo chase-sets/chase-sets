@@ -89,10 +89,6 @@ export const mockListShippingAddresses = vi.fn();
 export const mockListSellListShipFromAddresses = vi.fn();
 
 /**
- * What Payments' checkout preview-status answers under the launch fee policy, with a balance-credit
- * resolver that grants the requested credit up to the amount.
- */
-/**
  * The checkout processing-fee policy value the Payments preview stand-in quotes against: 2.9% plus
  * $0.30 for card, 0.5% for bank account and nothing for platform credit. It is an input the route
  * tests state for themselves, so their expected fee amounts can be derived from it.
@@ -109,6 +105,10 @@ const quotedCheckoutProcessingFeePolicyValue: Parameters<
   ],
 };
 
+/**
+ * What Payments' checkout preview-status answers under the launch fee policy, with a balance-credit
+ * resolver that grants the requested credit up to the amount.
+ */
 export async function paymentsCheckoutPreviewStatus(
   params: Readonly<{
     amount: string;
