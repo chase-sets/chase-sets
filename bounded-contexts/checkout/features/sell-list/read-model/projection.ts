@@ -1,4 +1,9 @@
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import type {
+  ChaseSetsEventPayloads,
+  MarketplaceOfferLifecyclePayload,
+} from "@chase-sets/event-core/public-event-payloads";
+import { defineProjectorHandlers, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import type { TypedTransportEvent } from "@chase-sets/event-core/transport";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 function resolveSellListSellerAccountId(event: { streamId: string }, data: { sellerAccountId?: unknown }) {
@@ -12,10 +17,10 @@ function resolveSellListSellerAccountId(event: { streamId: string }, data: { sel
 
 async function projectSellOfferStatus(
   db: PgQueryable,
-  event: Parameters<ProjectorHandlerMap[string]>[0],
+  event: TypedTransportEvent<MarketplaceOfferLifecyclePayload>,
   status: "submitted" | "paused" | "withdrawn",
 ) {
-  const data = event.data as { offerId: string };
+  const { data } = event;
   await db.query(
     `UPDATE checkout_sell_offer_pages
      SET status = $2,
@@ -250,27 +255,26 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
         );
       }
     },
-    "marketplace.offer.accepted": async (event) => {
-      const data = event.data as {
-        offerId: string;
-        sellerAccountId: string;
-        buyerAccountId?: string;
-        catalogItemId?: string;
-        productId?: string;
-        itemTitle?: string;
-        itemSubtitle?: string | null;
-        selectedOptions?: unknown;
-        productSummary?: string | null;
-        priceAmount?: string;
-        priceCurrencyCode?: string | null;
-        quantityRequested?: number;
-        acceptedAt?: string;
-      };
+    ...defineProjectorHandlers<
+      Pick<
+        ChaseSetsEventPayloads,
+        | "marketplace.offer.accepted"
+        | "marketplace.offer.submitted"
+        | "marketplace.offer.paused"
+        | "marketplace.offer.resumed"
+        | "marketplace.offer.withdrawn"
+        | "marketplace.offer.price-updated"
+        | "settlement.payout-readiness.recorded"
+      >
+    >({
+      "marketplace.offer.accepted": async (event) => {
+        const { data } = event;
 
-      let projected: { rows: readonly { offer_id: string }[] };
-      if (data.buyerAccountId && data.catalogItemId && data.productId && data.itemTitle && data.priceAmount) {
-        projected = await db.query<{ offer_id: string }>(
-          `INSERT INTO checkout_sell_offer_pages (
+        // Published as required, but recorded events may lack buyerAccountId, quantityRequested and acceptedAt.
+        let projected: { rows: readonly { offer_id: string }[] };
+        if (data.buyerAccountId && data.catalogItemId && data.productId && data.itemTitle && data.priceAmount) {
+          projected = await db.query<{ offer_id: string }>(
+            `INSERT INTO checkout_sell_offer_pages (
              offer_id,
              buyer_account_id,
              catalog_catalog_item_id,
@@ -307,27 +311,27 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
              last_stream_version = EXCLUDED.last_stream_version
            WHERE checkout_sell_offer_pages.last_stream_version < EXCLUDED.last_stream_version
            RETURNING offer_id`,
-          [
-            data.offerId,
-            data.buyerAccountId,
-            data.catalogItemId,
-            data.productId,
-            data.itemTitle,
-            data.itemSubtitle ?? null,
-            JSON.stringify(Array.isArray(data.selectedOptions) ? data.selectedOptions : []),
-            data.productSummary ?? null,
-            data.priceAmount,
-            data.priceCurrencyCode ?? null,
-            data.quantityRequested ?? 1,
-            data.sellerAccountId,
-            data.acceptedAt ?? event.timing.recordedAt,
-            event.timing.recordedAt,
-            event.streamVersion,
-          ],
-        );
-      } else {
-        projected = await db.query<{ offer_id: string }>(
-          `UPDATE checkout_sell_offer_pages
+            [
+              data.offerId,
+              data.buyerAccountId,
+              data.catalogItemId,
+              data.productId,
+              data.itemTitle,
+              data.itemSubtitle ?? null,
+              JSON.stringify(Array.isArray(data.selectedOptions) ? data.selectedOptions : []),
+              data.productSummary ?? null,
+              data.priceAmount,
+              data.priceCurrencyCode ?? null,
+              data.quantityRequested ?? 1,
+              data.sellerAccountId,
+              data.acceptedAt ?? event.timing.recordedAt,
+              event.timing.recordedAt,
+              event.streamVersion,
+            ],
+          );
+        } else {
+          projected = await db.query<{ offer_id: string }>(
+            `UPDATE checkout_sell_offer_pages
            SET status = 'accepted',
                accepted_seller_account_id = $2,
                accepted_at = $3,
@@ -336,37 +340,25 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
            WHERE offer_id = $1
              AND last_stream_version < $4
            RETURNING offer_id`,
-          [data.offerId, data.sellerAccountId, data.acceptedAt ?? event.timing.recordedAt, event.streamVersion],
-        );
-      }
+            [data.offerId, data.sellerAccountId, data.acceptedAt ?? event.timing.recordedAt, event.streamVersion],
+          );
+        }
 
-      if (projected.rows.length === 0) return;
+        if (projected.rows.length === 0) return;
 
-      await db.query(
-        `DELETE FROM checkout_sell_list_line_pages
+        await db.query(
+          `DELETE FROM checkout_sell_list_line_pages
          WHERE seller_account_id = $1
            AND line_type = 'selected-offer'
            AND offer_id = $2`,
-        [data.sellerAccountId, data.offerId],
-      );
-    },
-    "marketplace.offer.submitted": async (event) => {
-      const data = event.data as {
-        offerId: string;
-        buyerAccountId: string;
-        catalogItemId: string;
-        productId: string;
-        itemTitle: string;
-        itemSubtitle?: string | null;
-        selectedOptions?: unknown;
-        productSummary?: string | null;
-        priceAmount: string;
-        priceCurrencyCode?: string | null;
-        quantityRequested: number;
-      };
+          [data.sellerAccountId, data.offerId],
+        );
+      },
+      "marketplace.offer.submitted": async (event) => {
+        const { data } = event;
 
-      await db.query(
-        `INSERT INTO checkout_sell_offer_pages (
+        await db.query(
+          `INSERT INTO checkout_sell_offer_pages (
            offer_id,
            buyer_account_id,
            catalog_catalog_item_id,
@@ -402,49 +394,44 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
            updated_at = EXCLUDED.updated_at,
            last_stream_version = EXCLUDED.last_stream_version
          WHERE checkout_sell_offer_pages.last_stream_version < EXCLUDED.last_stream_version`,
-        [
-          data.offerId,
-          data.buyerAccountId,
-          data.catalogItemId,
-          data.productId,
-          data.itemTitle,
-          data.itemSubtitle ?? null,
-          JSON.stringify(Array.isArray(data.selectedOptions) ? data.selectedOptions : []),
-          data.productSummary ?? null,
-          data.priceAmount,
-          data.priceCurrencyCode ?? null,
-          data.quantityRequested,
-          event.timing.recordedAt,
-          event.streamVersion,
-        ],
-      );
-    },
-    "marketplace.offer.paused": (event) => projectSellOfferStatus(db, event, "paused"),
-    "marketplace.offer.resumed": (event) => projectSellOfferStatus(db, event, "submitted"),
-    "marketplace.offer.withdrawn": (event) => projectSellOfferStatus(db, event, "withdrawn"),
-    "marketplace.offer.price-updated": async (event) => {
-      const data = event.data as { offerId: string; priceAmount: string; priceCurrencyCode: string };
-      await db.query(
-        `UPDATE checkout_sell_offer_pages
+          [
+            data.offerId,
+            data.buyerAccountId,
+            data.catalogItemId,
+            data.productId,
+            data.itemTitle,
+            data.itemSubtitle ?? null,
+            JSON.stringify(Array.isArray(data.selectedOptions) ? data.selectedOptions : []),
+            data.productSummary ?? null,
+            data.priceAmount,
+            data.priceCurrencyCode ?? null,
+            data.quantityRequested,
+            event.timing.recordedAt,
+            event.streamVersion,
+          ],
+        );
+      },
+      "marketplace.offer.paused": (event) => projectSellOfferStatus(db, event, "paused"),
+      "marketplace.offer.resumed": (event) => projectSellOfferStatus(db, event, "submitted"),
+      "marketplace.offer.withdrawn": (event) => projectSellOfferStatus(db, event, "withdrawn"),
+      "marketplace.offer.price-updated": async (event) => {
+        const { data } = event;
+        await db.query(
+          `UPDATE checkout_sell_offer_pages
          SET price_amount = $2,
              price_currency_code = $3,
              updated_at = $4,
              last_stream_version = $5
          WHERE offer_id = $1
            AND last_stream_version < $5`,
-        [data.offerId, data.priceAmount, data.priceCurrencyCode, event.timing.recordedAt, event.streamVersion],
-      );
-    },
-    "settlement.payout-readiness.recorded": async (event) => {
-      const data = event.data as {
-        accountId: string;
-        status: string;
-        missingRequirements?: unknown;
-        recordedAt?: string;
-      };
+          [data.offerId, data.priceAmount, data.priceCurrencyCode, event.timing.recordedAt, event.streamVersion],
+        );
+      },
+      "settlement.payout-readiness.recorded": async (event) => {
+        const { data } = event;
 
-      await db.query(
-        `INSERT INTO checkout_sell_payout_readiness_pages (
+        await db.query(
+          `INSERT INTO checkout_sell_payout_readiness_pages (
            account_id,
            status,
            missing_requirements,
@@ -457,14 +444,15 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
              updated_at = EXCLUDED.updated_at,
              last_stream_version = EXCLUDED.last_stream_version
          WHERE checkout_sell_payout_readiness_pages.last_stream_version < EXCLUDED.last_stream_version`,
-        [
-          data.accountId,
-          data.status,
-          JSON.stringify(Array.isArray(data.missingRequirements) ? data.missingRequirements : []),
-          data.recordedAt ?? event.timing.recordedAt,
-          event.streamVersion,
-        ],
-      );
-    },
+          [
+            data.accountId,
+            data.status,
+            JSON.stringify(Array.isArray(data.missingRequirements) ? data.missingRequirements : []),
+            data.recordedAt ?? event.timing.recordedAt,
+            event.streamVersion,
+          ],
+        );
+      },
+    }),
   };
 }

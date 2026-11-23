@@ -8,7 +8,7 @@
   "bounded-contexts/checkout/features/cart/integrations/inventory/inventory-projection.ts": 10,
   "bounded-contexts/checkout/features/cart/integrations/marketplace/marketplace-projection.ts": 14,
   "bounded-contexts/checkout/features/cart/integrations/reputation/reputation-projection.ts": 5,
-  "bounded-contexts/checkout/features/sell-list/read-model/projection.ts": 9,
+  "bounded-contexts/checkout/features/sell-list/read-model/projection.ts": 4,
   "bounded-contexts/checkout/features/sessions/integrations/payments/payment-affordance-projection.ts": 1,
   "bounded-contexts/checkout/features/sessions/integrations/payments/payment-summary-projection.ts": 2,
   "bounded-contexts/collections/features/saved-lists/domain/codec.ts": 1,
