@@ -1,4 +1,3 @@
-import { t } from "@chase-sets/localization";
 import {
   HiddenInput,
   Badge,
@@ -14,7 +13,8 @@ import {
   Textarea,
 } from "@chase-sets/design-system";
 import type { InventoryStorageLocation } from "./contracts";
-import { InventoryMutationForm as Form } from "../../../support/request-support/mutation-form";
+import { t } from "./localization/translator";
+import { InventoryMutationForm as Form } from "../../../support/ui-support/mutation-recovery";
 
 function formatDescription(location: InventoryStorageLocation) {
   return location.description ?? t("inventory.features.storageLocations.ui.storageLocationPage.no.description");

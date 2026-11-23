@@ -48,7 +48,10 @@
   ],
   "contextName": "inventory",
   "packageName": "@chase-sets/inventory",
-  "localeCatalogs": ["contracts/localization/locales/en/inventory.ts"],
+  "localeCatalogs": [
+    "contracts/localization/locales/en/inventory.ts",
+    "bounded-contexts/inventory/features/storage-locations/ui/localization/locales/en.ts"
+  ],
   "ownedNouns": [
     "inventory-item",
     "acquisition-occurrence",
@@ -99,7 +102,10 @@
     "./test-support"
   ],
   "allowedContextDependencies": [],
-  "seedRequirements": ["catalog", "identity"],
+  "seedRequirements": [
+    "catalog",
+    "identity"
+  ],
   "eventSubscriptions": [
     {
       "sourceContextName": "catalog",
@@ -129,46 +135,68 @@
         "catalog.dimension.option-revised"
       ],
       "order": 10,
-      "projectionHandlerSetNames": ["inventory-catalog-item-projection"]
+      "projectionHandlerSetNames": [
+        "inventory-catalog-item-projection"
+      ]
     },
     {
       "sourceContextName": "ordering",
       "projectionName": "inventory-order-reservation-workflow",
       "subscriptionVersion": 1,
-      "eventTypes": ["ordering.order.created", "ordering.order.cancelled"],
+      "eventTypes": [
+        "ordering.order.created",
+        "ordering.order.cancelled"
+      ],
       "order": 20,
-      "projectionHandlerSetNames": ["inventory-order-reservation-workflow"]
+      "projectionHandlerSetNames": [
+        "inventory-order-reservation-workflow"
+      ]
     },
     {
       "sourceContextName": "fulfillment",
       "projectionName": "inventory-fulfillment-restock-workflow",
       "subscriptionVersion": 1,
       "sourceContextMount": "when-mounted",
-      "eventTypes": ["fulfillment.shipment.created", "fulfillment.shipment.returned"],
+      "eventTypes": [
+        "fulfillment.shipment.created",
+        "fulfillment.shipment.returned"
+      ],
       "order": 30,
-      "projectionHandlerSetNames": ["inventory-fulfillment-restock-workflow"]
+      "projectionHandlerSetNames": [
+        "inventory-fulfillment-restock-workflow"
+      ]
     },
     {
       "sourceContextName": "fulfillment",
       "projectionName": "inventory-fulfillment-recovered-item-workflow",
       "subscriptionVersion": 1,
       "sourceContextMount": "when-mounted",
-      "eventTypes": ["fulfillment.return-shipment.facility-intake-completed.v1"],
+      "eventTypes": [
+        "fulfillment.return-shipment.facility-intake-completed.v1"
+      ],
       "order": 31,
-      "projectionHandlerSetNames": ["inventory-fulfillment-recovered-item-workflow"]
+      "projectionHandlerSetNames": [
+        "inventory-fulfillment-recovered-item-workflow"
+      ]
     }
   ],
   "projectionGroups": [
     {
       "projectionName": "inventory-channel-stock-allocation-projection",
-      "sourceContextNames": ["inventory"],
-      "ownedTables": ["inventory_channel_stock_allocations"],
+      "sourceContextNames": [
+        "inventory"
+      ],
+      "ownedTables": [
+        "inventory_channel_stock_allocations"
+      ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     },
     {
       "projectionName": "inventory-catalog-item-projection",
-      "sourceContextNames": ["catalog"],
+      "sourceContextNames": [
+        "catalog"
+      ],
       "ownedTables": [
         "inventory_catalog_items",
         "inventory_catalog_blueprints",
@@ -182,7 +210,9 @@
     },
     {
       "projectionName": "inventory-order-reservation-workflow",
-      "sourceContextNames": ["ordering"],
+      "sourceContextNames": [
+        "ordering"
+      ],
       "ownedTables": [],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only",
@@ -190,16 +220,26 @@
     },
     {
       "projectionName": "inventory-fulfillment-restock-workflow",
-      "sourceContextNames": ["fulfillment"],
-      "optionalSourceContextNames": ["fulfillment"],
-      "ownedTables": ["inventory_fulfillment_shipment_sources"],
+      "sourceContextNames": [
+        "fulfillment"
+      ],
+      "optionalSourceContextNames": [
+        "fulfillment"
+      ],
+      "ownedTables": [
+        "inventory_fulfillment_shipment_sources"
+      ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     },
     {
       "projectionName": "inventory-fulfillment-recovered-item-workflow",
-      "sourceContextNames": ["fulfillment"],
-      "optionalSourceContextNames": ["fulfillment"],
+      "sourceContextNames": [
+        "fulfillment"
+      ],
+      "optionalSourceContextNames": [
+        "fulfillment"
+      ],
       "ownedTables": [],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only",
@@ -207,57 +247,91 @@
     },
     {
       "projectionName": "inventory-recovered-item-projection",
-      "sourceContextNames": ["inventory"],
-      "ownedTables": ["inventory_recovered_items", "inventory_recovered_item_audit", "inventory_recovered_item_values"],
+      "sourceContextNames": [
+        "inventory"
+      ],
+      "ownedTables": [
+        "inventory_recovered_items",
+        "inventory_recovered_item_audit",
+        "inventory_recovered_item_values"
+      ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     },
     {
       "projectionName": "inventory-reservation-projection",
-      "sourceContextNames": ["inventory"],
-      "ownedTables": ["inventory_reservation_pages"],
+      "sourceContextNames": [
+        "inventory"
+      ],
+      "ownedTables": [
+        "inventory_reservation_pages"
+      ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     },
     {
       "projectionName": "inventory-restock-decision-projection",
-      "sourceContextNames": ["inventory"],
-      "ownedTables": ["inventory_restock_decisions"],
+      "sourceContextNames": [
+        "inventory"
+      ],
+      "ownedTables": [
+        "inventory_restock_decisions"
+      ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     },
     {
       "projectionName": "inventory-item-projection",
-      "sourceContextNames": ["inventory"],
-      "ownedTables": ["inventory_items"],
+      "sourceContextNames": [
+        "inventory"
+      ],
+      "ownedTables": [
+        "inventory_items"
+      ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     },
     {
       "projectionName": "inventory-item-ledger-projection",
-      "sourceContextNames": ["inventory"],
-      "ownedTables": ["inventory_item_ledger"],
+      "sourceContextNames": [
+        "inventory"
+      ],
+      "ownedTables": [
+        "inventory_item_ledger"
+      ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     },
     {
       "projectionName": "inventory-hold-collision-projection",
-      "sourceContextNames": ["inventory"],
-      "ownedTables": ["inventory_hold_collisions"],
+      "sourceContextNames": [
+        "inventory"
+      ],
+      "ownedTables": [
+        "inventory_hold_collisions"
+      ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     },
     {
       "projectionName": "inventory-hold-projection",
-      "sourceContextNames": ["inventory"],
-      "ownedTables": ["inventory_holds"],
+      "sourceContextNames": [
+        "inventory"
+      ],
+      "ownedTables": [
+        "inventory_holds"
+      ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     },
     {
       "projectionName": "inventory-storage-location-projection",
-      "sourceContextNames": ["inventory"],
-      "ownedTables": ["inventory_storage_locations"],
+      "sourceContextNames": [
+        "inventory"
+      ],
+      "ownedTables": [
+        "inventory_storage_locations"
+      ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     }
@@ -279,8 +353,12 @@
       "purpose": "Delivers durable inventory-draft-listing/v1 outbox messages to Marketplace's receipt consumer; committed import rows never create Marketplace drafts directly."
     }
   ],
-  "apiDeployables": ["platform-api"],
-  "runtimeDeployables": ["platform-worker"],
+  "apiDeployables": [
+    "platform-api"
+  ],
+  "runtimeDeployables": [
+    "platform-worker"
+  ],
   "apiMounts": [
     {
       "mountPath": "/api/inventory",
@@ -289,7 +367,10 @@
       "readFreshnessRoutes": [
         {
           "routePath": "/items/:id",
-          "methods": ["GET", "HEAD"],
+          "methods": [
+            "GET",
+            "HEAD"
+          ],
           "dependencies": [
             {
               "readModelTable": "inventory_items"
@@ -304,7 +385,10 @@
         },
         {
           "routePath": "/storage-locations",
-          "methods": ["GET", "HEAD"],
+          "methods": [
+            "GET",
+            "HEAD"
+          ],
           "dependencies": [
             {
               "readModelTable": "inventory_storage_locations"
@@ -313,7 +397,10 @@
         },
         {
           "routePath": "/restock-decisions",
-          "methods": ["GET", "HEAD"],
+          "methods": [
+            "GET",
+            "HEAD"
+          ],
           "dependencies": [
             {
               "readModelTable": "inventory_restock_decisions"
@@ -331,24 +418,78 @@
   ],
   "mcpCapabilities": {
     "tools": [
-      { "name": "inventory.list-import-sources", "ownerSlice": "import-batches" },
-      { "name": "inventory.create-import-batch", "ownerSlice": "import-batches" },
-      { "name": "inventory.get-import-batch", "ownerSlice": "import-batches" },
-      { "name": "inventory.commit-import-batch", "ownerSlice": "import-batches" },
-      { "name": "inventory.list-items", "ownerSlice": "inventory-items" },
-      { "name": "inventory.adjust-item", "ownerSlice": "inventory-items" },
-      { "name": "inventory.get-mutation-attempt", "ownerSlice": "inventory-items" },
-      { "name": "inventory.list-recovered-items", "ownerSlice": "recovered-items" },
-      { "name": "inventory.get-recovered-item-metrics", "ownerSlice": "recovered-items" },
-      { "name": "inventory.identify-recovered-item", "ownerSlice": "recovered-items" },
-      { "name": "inventory.inspect-recovered-item", "ownerSlice": "recovered-items" },
-      { "name": "inventory.require-recovered-item-authenticity-review", "ownerSlice": "recovered-items" },
-      { "name": "inventory.complete-recovered-item-authenticity-review", "ownerSlice": "recovered-items" },
-      { "name": "inventory.record-recovered-item-disposition-authority", "ownerSlice": "recovered-items" },
-      { "name": "inventory.decide-recovered-item-disposition", "ownerSlice": "recovered-items" },
-      { "name": "inventory.record-recovered-item-value", "ownerSlice": "recovered-items" },
-      { "name": "inventory.correct-recovered-item-source", "ownerSlice": "recovered-items" },
-      { "name": "inventory.merge-recovered-item", "ownerSlice": "recovered-items" }
+      {
+        "name": "inventory.list-import-sources",
+        "ownerSlice": "import-batches"
+      },
+      {
+        "name": "inventory.create-import-batch",
+        "ownerSlice": "import-batches"
+      },
+      {
+        "name": "inventory.get-import-batch",
+        "ownerSlice": "import-batches"
+      },
+      {
+        "name": "inventory.commit-import-batch",
+        "ownerSlice": "import-batches"
+      },
+      {
+        "name": "inventory.list-items",
+        "ownerSlice": "inventory-items"
+      },
+      {
+        "name": "inventory.adjust-item",
+        "ownerSlice": "inventory-items"
+      },
+      {
+        "name": "inventory.get-mutation-attempt",
+        "ownerSlice": "inventory-items"
+      },
+      {
+        "name": "inventory.list-recovered-items",
+        "ownerSlice": "recovered-items"
+      },
+      {
+        "name": "inventory.get-recovered-item-metrics",
+        "ownerSlice": "recovered-items"
+      },
+      {
+        "name": "inventory.identify-recovered-item",
+        "ownerSlice": "recovered-items"
+      },
+      {
+        "name": "inventory.inspect-recovered-item",
+        "ownerSlice": "recovered-items"
+      },
+      {
+        "name": "inventory.require-recovered-item-authenticity-review",
+        "ownerSlice": "recovered-items"
+      },
+      {
+        "name": "inventory.complete-recovered-item-authenticity-review",
+        "ownerSlice": "recovered-items"
+      },
+      {
+        "name": "inventory.record-recovered-item-disposition-authority",
+        "ownerSlice": "recovered-items"
+      },
+      {
+        "name": "inventory.decide-recovered-item-disposition",
+        "ownerSlice": "recovered-items"
+      },
+      {
+        "name": "inventory.record-recovered-item-value",
+        "ownerSlice": "recovered-items"
+      },
+      {
+        "name": "inventory.correct-recovered-item-source",
+        "ownerSlice": "recovered-items"
+      },
+      {
+        "name": "inventory.merge-recovered-item",
+        "ownerSlice": "recovered-items"
+      }
     ],
     "resources": [
       {
@@ -373,16 +514,26 @@
       },
       "source": {
         "routeId": "account-inventory",
-        "actions": ["Create inventory item"],
+        "actions": [
+          "Create inventory item"
+        ],
         "command": "Inventory item create command",
-        "helperUses": ["navigateAfterWrite"]
+        "helperUses": [
+          "navigateAfterWrite"
+        ]
       },
       "destination": {
         "routeId": "account-inventory-item",
         "apiContextName": "inventory",
         "apiRoutePath": "/items/:id",
-        "readModelTables": ["inventory_items", "inventory_holds", "inventory_item_ledger"],
-        "helperUses": ["loadAfterWrite"],
+        "readModelTables": [
+          "inventory_items",
+          "inventory_holds",
+          "inventory_item_ledger"
+        ],
+        "helperUses": [
+          "loadAfterWrite"
+        ],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Inventory item create redirects to the created item detail with afterWrite so the item detail API waits on exact item, hold, and ledger projections before rendering the new stock record."
@@ -400,16 +551,28 @@
       },
       "source": {
         "routeId": "account-inventory-item",
-        "actions": ["Adjust inventory item", "Place inventory hold", "Release inventory hold"],
+        "actions": [
+          "Adjust inventory item",
+          "Place inventory hold",
+          "Release inventory hold"
+        ],
         "command": "Inventory item and hold commands",
-        "helperUses": ["navigateAfterWrite"]
+        "helperUses": [
+          "navigateAfterWrite"
+        ]
       },
       "destination": {
         "routeId": "account-inventory-item",
         "apiContextName": "inventory",
         "apiRoutePath": "/items/:id",
-        "readModelTables": ["inventory_items", "inventory_holds", "inventory_item_ledger"],
-        "helperUses": ["loadAfterWrite"],
+        "readModelTables": [
+          "inventory_items",
+          "inventory_holds",
+          "inventory_item_ledger"
+        ],
+        "helperUses": [
+          "loadAfterWrite"
+        ],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Inventory item detail forwards afterWrite to the API so exact item, hold, and ledger projections gate the detail read."
@@ -421,14 +584,26 @@
       "owner": "inventory",
       "risk": "important",
       "source": {
-        "routeIds": ["account-inventory-imports", "account-inventory-import"],
-        "actions": ["Load newly created import batch"],
+        "routeIds": [
+          "account-inventory-imports",
+          "account-inventory-import"
+        ],
+        "actions": [
+          "Load newly created import batch"
+        ],
         "command": "Inventory import batch job commands",
-        "helperUses": ["loadAfterWrite"]
+        "helperUses": [
+          "loadAfterWrite"
+        ]
       },
       "destination": {
-        "routeIds": ["account-inventory-imports", "account-inventory-import"],
-        "helperUses": ["loadAfterWrite"],
+        "routeIds": [
+          "account-inventory-imports",
+          "account-inventory-import"
+        ],
+        "helperUses": [
+          "loadAfterWrite"
+        ],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Import batch detail uses the completed import job receipt for compatibility fresh-write not-found retries, and the import result page carries that same receipt into inventory and listing setup handoff links while job-backed inventory routes remain snapshot-owned."
@@ -439,8 +614,12 @@
         "owner": "inventory",
         "reviewBy": "2026-07-31",
         "reason": "Import create and commit commands return durable InventoryImportBatchJobStatus snapshots and the page follows the job event stream; the completed job result now carries the Inventory commit receipt into import, inventory, and listing setup links, but the authoritative Inventory post-write contract remains the job snapshot rather than an Inventory read-model freshness wait.",
-        "files": ["bounded-contexts/inventory/features/import-batches/ui/import-batch-page.tsx"],
-        "helperUses": ["navigateAfterWrite"]
+        "files": [
+          "bounded-contexts/inventory/features/import-batches/ui/import-batch-page.tsx"
+        ],
+        "helperUses": [
+          "navigateAfterWrite"
+        ]
       }
     },
     {
@@ -454,16 +633,26 @@
       },
       "source": {
         "routeId": "account-inventory-locations",
-        "actions": ["Create storage location", "Update storage location", "Archive storage location"],
+        "actions": [
+          "Create storage location",
+          "Update storage location",
+          "Archive storage location"
+        ],
         "command": "Inventory storage location commands",
-        "helperUses": ["navigateAfterWrite"]
+        "helperUses": [
+          "navigateAfterWrite"
+        ]
       },
       "destination": {
         "routeId": "account-inventory-locations",
         "apiContextName": "inventory",
         "apiRoutePath": "/storage-locations",
-        "readModelTables": ["inventory_storage_locations"],
-        "helperUses": ["loadAfterWrite"],
+        "readModelTables": [
+          "inventory_storage_locations"
+        ],
+        "helperUses": [
+          "loadAfterWrite"
+        ],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Storage location writes redirect with afterWrite and the locations loader converts valid projection catch-up timeouts into route-owned temporary recovery copy."
@@ -481,16 +670,26 @@
       },
       "source": {
         "routeId": "account-inventory-restock-decisions",
-        "actions": ["Record restock decision"],
+        "actions": [
+          "Record restock decision"
+        ],
         "command": "Restock decision command",
-        "helperUses": ["navigateAfterWrite"]
+        "helperUses": [
+          "navigateAfterWrite"
+        ]
       },
       "destination": {
         "routeId": "account-inventory-restock-decisions",
         "apiContextName": "inventory",
         "apiRoutePath": "/restock-decisions",
-        "readModelTables": ["inventory_restock_decisions", "inventory_item_ledger", "inventory_items"],
-        "helperUses": ["loadAfterWrite"],
+        "readModelTables": [
+          "inventory_restock_decisions",
+          "inventory_item_ledger",
+          "inventory_items"
+        ],
+        "helperUses": [
+          "loadAfterWrite"
+        ],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Restock decision actions redirect with afterWrite to the pending queue so the list waits for the decision projection before rendering the updated queue."
@@ -558,7 +757,7 @@
       "strategy": "snapshot-return",
       "surfaces": [
         "post-form:bounded-contexts/inventory/features/import-batches/ui/import-batch-page.tsx:H2df726441e2a#1",
-        "route-action:bounded-contexts/inventory/routes/marketplace/account-inventory-imports.tsx"
+        "route-action:bounded-contexts/inventory/features/import-batches/ui/routes/account-inventory-imports.tsx"
       ],
       "visibleDestination": {
         "routeId": "account-inventory-imports",
@@ -623,13 +822,17 @@
         "api-route:bounded-contexts/inventory/features/restock-decisions/api/route.ts:POST /:id/decision",
         "post-form:bounded-contexts/inventory/features/restock-decisions/ui/restock-decision-queue-page.tsx:Hc1f1674003a0#1",
         "post-form:bounded-contexts/inventory/features/restock-decisions/ui/restock-decision-queue-page.tsx:Hc1f1674003a0#2",
-        "route-action:bounded-contexts/inventory/routes/marketplace/account-inventory-restock-decisions.tsx"
+        "route-action:bounded-contexts/inventory/features/restock-decisions/ui/routes/account-inventory-restock-decisions.tsx"
       ],
       "visibleDestination": {
         "routeId": "account-inventory-restock-decisions",
         "apiContextName": "inventory",
         "apiRoutePath": "/restock-decisions",
-        "readModelTables": ["inventory_restock_decisions", "inventory_item_ledger", "inventory_items"],
+        "readModelTables": [
+          "inventory_restock_decisions",
+          "inventory_item_ledger",
+          "inventory_items"
+        ],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Restock and write-off actions return a committed decision id/version and redirect to the queue with an afterWrite receipt so the updated pending list is projection-gated."
@@ -652,20 +855,26 @@
       "strategy": "fresh-read",
       "surfaces": [
         "post-form:bounded-contexts/inventory/features/inventory-items/ui/inventory-item-list-page.tsx:H540f811b57f9#1",
-        "route-action:bounded-contexts/inventory/routes/marketplace/account-inventory.tsx"
+        "route-action:bounded-contexts/inventory/features/inventory-items/ui/routes/account-inventory.tsx"
       ],
       "visibleDestination": {
         "routeId": "account-inventory-item",
         "apiContextName": "inventory",
         "apiRoutePath": "/items/:id",
-        "readModelTables": ["inventory_items", "inventory_holds", "inventory_item_ledger"],
+        "readModelTables": [
+          "inventory_items",
+          "inventory_holds",
+          "inventory_item_ledger"
+        ],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Inventory item create redirects to the created item detail with afterWrite and the detail loader retries valid fresh-write not-found reads before falling back to temporary recovery."
         }
       },
       "proof": {
-        "tests": ["bounded-contexts/inventory/tests/account-inventory-routes.test.ts"]
+        "tests": [
+          "bounded-contexts/inventory/tests/account-inventory-routes.test.ts"
+        ]
       }
     },
     {
@@ -677,20 +886,26 @@
         "post-form:bounded-contexts/inventory/features/inventory-items/ui/inventory-item-detail-page.tsx:H128ecb5f1379#1",
         "post-form:bounded-contexts/inventory/features/inventory-items/ui/inventory-item-detail-page.tsx:H26a9c8c25c77#1",
         "post-form:bounded-contexts/inventory/features/inventory-items/ui/inventory-item-detail-page.tsx:He8d8cbd954d7#1",
-        "route-action:bounded-contexts/inventory/routes/marketplace/account-inventory-item.tsx"
+        "route-action:bounded-contexts/inventory/features/inventory-items/ui/routes/account-inventory-item.tsx"
       ],
       "visibleDestination": {
         "routeId": "account-inventory-item",
         "apiContextName": "inventory",
         "apiRoutePath": "/items/:id",
-        "readModelTables": ["inventory_items", "inventory_holds", "inventory_item_ledger"],
+        "readModelTables": [
+          "inventory_items",
+          "inventory_holds",
+          "inventory_item_ledger"
+        ],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Adjust, hold, and release actions redirect with afterWrite to the same item detail page; the loader forwards the receipt and uses bounded fresh-write recovery for lagging item, hold, or ledger projections."
         }
       },
       "proof": {
-        "tests": ["bounded-contexts/inventory/tests/account-inventory-routes.test.ts"]
+        "tests": [
+          "bounded-contexts/inventory/tests/account-inventory-routes.test.ts"
+        ]
       }
     },
     {
@@ -700,14 +915,18 @@
       "strategy": "fresh-read",
       "surfaces": [
         "post-form:bounded-contexts/inventory/features/inventory-items/ui/offline-sale-form.tsx:H5572ea7ef0df#1",
-        "route-action:bounded-contexts/inventory/routes/marketplace/account-inventory.tsx",
-        "route-action:bounded-contexts/inventory/routes/marketplace/account-inventory-item.tsx"
+        "route-action:bounded-contexts/inventory/features/inventory-items/ui/routes/account-inventory.tsx",
+        "route-action:bounded-contexts/inventory/features/inventory-items/ui/routes/account-inventory-item.tsx"
       ],
       "visibleDestination": {
         "apiContextName": "inventory",
         "apiRoutePath": "/items/:id",
         "description": "Record sale from /account/inventory/items/:itemId stays on that item detail and fresh-reads the written item. Record sale from the paginated /account/inventory list stays on the selected limit/offset page, carries the command receipt with the written item id, then fresh-reads that item. The list reconciles the row only when it remains on the selected page; otherwise rows, count, total, and pagination stay unchanged while the result uses the separately returned fresh item. No stale list quantity receives completed wording.",
-        "readModelTables": ["inventory_items", "inventory_holds", "inventory_item_ledger"],
+        "readModelTables": [
+          "inventory_items",
+          "inventory_holds",
+          "inventory_item_ledger"
+        ],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "A valid receipt gates the item read. A delayed or failed fresh item read preserves the existing list page and renders the submitted outcome as unverified instead of completed."
@@ -731,20 +950,24 @@
         "post-form:bounded-contexts/inventory/features/storage-locations/ui/storage-location-page.tsx:H44ef8e2f59ba#1",
         "post-form:bounded-contexts/inventory/features/storage-locations/ui/storage-location-page.tsx:H5134385a04e6#1",
         "post-form:bounded-contexts/inventory/features/storage-locations/ui/storage-location-page.tsx:H80c8544a77bf#1",
-        "route-action:bounded-contexts/inventory/routes/marketplace/account-inventory-locations.tsx"
+        "route-action:bounded-contexts/inventory/features/storage-locations/ui/routes/account-inventory-locations.tsx"
       ],
       "visibleDestination": {
         "routeId": "account-inventory-locations",
         "apiContextName": "inventory",
         "apiRoutePath": "/storage-locations",
-        "readModelTables": ["inventory_storage_locations"],
+        "readModelTables": [
+          "inventory_storage_locations"
+        ],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Storage location create, update, and archive redirect with afterWrite to the locations list; the loader waits on the storage-location projection and shows bounded recovery copy during valid projection catch-up."
         }
       },
       "proof": {
-        "tests": ["bounded-contexts/inventory/tests/account-inventory-routes.test.ts"]
+        "tests": [
+          "bounded-contexts/inventory/tests/account-inventory-routes.test.ts"
+        ]
       }
     },
     {
@@ -755,7 +978,7 @@
       "surfaces": [
         "api-route:bounded-contexts/inventory/features/recovered-items/api/route.ts:POST /:id/actions",
         "post-form:bounded-contexts/inventory/features/recovered-items/ui/recovered-items-page.tsx:H1abed2c1c746#1",
-        "route-action:bounded-contexts/inventory/routes/admin/recovered-items.tsx"
+        "route-action:bounded-contexts/inventory/features/recovered-items/ui/routes/recovered-items.tsx"
       ],
       "visibleDestination": {
         "routeId": "inventory-recovered-items",
@@ -926,7 +1149,11 @@
               "ledgerKind": {
                 "kind": "value",
                 "maxLength": 13,
-                "values": ["hold-placed", "hold-released", "hold-consumed"]
+                "values": [
+                  "hold-placed",
+                  "hold-released",
+                  "hold-consumed"
+                ]
               }
             }
           }
@@ -984,12 +1211,17 @@
       "section": "commerce",
       "order": 30,
       "visibility": "signed-in",
-      "requiredPermissions": ["recovered-inventory.view"]
+      "requiredPermissions": [
+        "recovered-inventory.view"
+      ]
     },
     {
       "deployable": "marketplace-web",
       "slot": "top-nav",
-      "placements": ["top-nav", "bottom-nav"],
+      "placements": [
+        "top-nav",
+        "bottom-nav"
+      ],
       "key": "inventory",
       "label": "Inventory",
       "labelKey": "inventory.shell.inventory.label",
@@ -998,14 +1230,21 @@
       "parentKey": "selling-workspace",
       "order": 100,
       "visibility": "signed-in",
-      "requiredPermissions": ["inventory.view"],
-      "excludedRoleKeys": ["guest-buyer"],
+      "requiredPermissions": [
+        "inventory.view"
+      ],
+      "excludedRoleKeys": [
+        "guest-buyer"
+      ],
       "packingPriority": 0
     },
     {
       "deployable": "marketplace-web",
       "slot": "top-nav",
-      "placements": ["top-nav", "bottom-nav"],
+      "placements": [
+        "top-nav",
+        "bottom-nav"
+      ],
       "key": "inventory-imports",
       "label": "Import",
       "labelKey": "inventory.shell.inventoryImports.label",
@@ -1014,14 +1253,21 @@
       "parentKey": "selling-workspace",
       "order": 110,
       "visibility": "signed-in",
-      "requiredPermissions": ["inventory.view"],
-      "excludedRoleKeys": ["guest-buyer"],
+      "requiredPermissions": [
+        "inventory.view"
+      ],
+      "excludedRoleKeys": [
+        "guest-buyer"
+      ],
       "packingPriority": 0
     },
     {
       "deployable": "marketplace-web",
       "slot": "top-nav",
-      "placements": ["top-nav", "bottom-nav"],
+      "placements": [
+        "top-nav",
+        "bottom-nav"
+      ],
       "key": "inventory-restock-decisions",
       "label": "Restock",
       "icon": "package",
@@ -1029,8 +1275,12 @@
       "parentKey": "selling-workspace",
       "order": 120,
       "visibility": "signed-in",
-      "requiredPermissions": ["inventory.view"],
-      "excludedRoleKeys": ["guest-buyer"],
+      "requiredPermissions": [
+        "inventory.view"
+      ],
+      "excludedRoleKeys": [
+        "guest-buyer"
+      ],
       "packingPriority": 0
     }
   ],
@@ -1038,62 +1288,90 @@
     "channel-allocations": {
       "classification": "slice",
       "purpose": "Own the channel-allocations slice's per-item Channel Stock Allocation commands, event history, read model, and HTTP contract.",
-      "expectedConsumers": ["Internal Inventory module composition and Channels fact subscribers"]
+      "expectedConsumers": [
+        "Internal Inventory module composition and Channels fact subscribers"
+      ]
     },
     "channel-sales": {
       "classification": "slice",
       "purpose": "Own the channel-sales slice's provider-neutral command, permanent sale-line authority, replay, and conflict behavior.",
-      "expectedConsumers": ["Connected channel adapters through the Inventory server contract"]
+      "expectedConsumers": [
+        "Connected channel adapters through the Inventory server contract"
+      ]
     },
     "inventory-items": {
       "classification": "slice",
       "purpose": "Own inventory item feature behavior, read models, and UI contracts for the inventory context.",
-      "expectedConsumers": ["Internal inventory module composition"]
+      "expectedConsumers": [
+        "Internal inventory module composition"
+      ]
     },
     "import-batches": {
       "classification": "slice",
       "purpose": "Own CSV intake, row validation, commit history, and batch stock intake behavior for the inventory context.",
-      "expectedConsumers": ["Internal inventory module composition"]
+      "expectedConsumers": [
+        "Internal inventory module composition"
+      ]
     },
     "holds": {
       "classification": "slice",
       "purpose": "Own holds feature behavior, read models, and UI contracts for the inventory context.",
-      "expectedConsumers": ["Internal inventory module composition"]
+      "expectedConsumers": [
+        "Internal inventory module composition"
+      ]
     },
     "hold-collisions": {
       "classification": "slice",
       "purpose": "Resolve stock reductions that collide with active holds and publish the resulting order evidence.",
-      "expectedConsumers": ["Internal inventory module composition"]
+      "expectedConsumers": [
+        "Internal inventory module composition"
+      ]
     },
     "reservations": {
       "classification": "slice",
       "purpose": "Own reservations feature behavior, read models, and UI contracts for the inventory context.",
-      "expectedConsumers": ["Internal inventory module composition"]
+      "expectedConsumers": [
+        "Internal inventory module composition"
+      ]
     },
     "restock-decisions": {
       "classification": "slice",
       "purpose": "Own returned-stock seller decision behavior, read models, and UI contracts for the inventory context.",
-      "expectedConsumers": ["Internal inventory module composition"]
+      "expectedConsumers": [
+        "Internal inventory module composition"
+      ]
     },
     "recovered-items": {
       "classification": "slice",
       "purpose": "Own the recovered-items slice for custody, inspection, ownership authority, disposition, recovery value facts, read models, and operator workflow.",
-      "expectedConsumers": ["Internal inventory module composition"]
+      "expectedConsumers": [
+        "Internal inventory module composition"
+      ]
     },
     "storage-locations": {
       "classification": "slice",
       "purpose": "Own storage-locations feature behavior, read models, and UI contracts for the inventory context.",
-      "expectedConsumers": ["Internal inventory module composition"]
+      "expectedConsumers": [
+        "Internal inventory module composition"
+      ]
     },
     "catalog-item-support": {
       "classification": "support",
       "purpose": "Provide reusable catalog-item-support assets shared by inventory-owned features and composition seams.",
-      "expectedConsumers": ["inventory-items"]
+      "expectedConsumers": [
+        "inventory-items"
+      ]
     },
     "request-support": {
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by inventory-owned features and composition seams.",
-      "expectedConsumers": ["import-batches", "inventory-items", "restock-decisions", "storage-locations"],
+      "expectedConsumers": [
+        "import-batches",
+        "inventory-items",
+        "recovered-items",
+        "restock-decisions",
+        "storage-locations"
+      ],
       "crossCuttingRuntimeComposition": true
     },
     "runtime-support": {
@@ -1114,21 +1392,36 @@
     },
     "seed-support": {
       "classification": "support",
-      "purpose": "Provide reusable seed-support assets shared by inventory-owned features and composition seams.",
-      "expectedConsumers": ["restock-decisions"],
+      "purpose": "Expose stable Inventory seed entry points to context and deployable callers.",
+      "expectedConsumers": [
+        "Inventory runtime seed composition"
+      ],
       "crossCuttingRuntimeComposition": true
     },
     "ui-support": {
       "classification": "support",
-      "purpose": "Expose the Inventory browser recovery provider through the web composition surface.",
-      "expectedConsumers": ["import-batches"]
+      "purpose": "Provide the shared Inventory mutation recovery provider and forms to feature routes and web hosts.",
+      "expectedConsumers": [
+        "import-batches",
+        "inventory-items",
+        "restock-decisions",
+        "storage-locations"
+      ]
     },
     "routes": {
       "classification": "routes",
       "purpose": "Expose inventory-owned route modules consumed by generated deployable adapters.",
-      "expectedConsumers": ["Generated deployable route adapters"]
+      "expectedConsumers": [
+        "Generated deployable route adapters"
+      ]
     }
   },
-  "apiRuntimeProfiles": ["proof", "public"],
-  "workerRuntimeProfiles": ["proof", "public"]
+  "apiRuntimeProfiles": [
+    "proof",
+    "public"
+  ],
+  "workerRuntimeProfiles": [
+    "proof",
+    "public"
+  ]
 }

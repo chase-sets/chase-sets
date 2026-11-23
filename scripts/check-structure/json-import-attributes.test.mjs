@@ -696,8 +696,21 @@ describe("real repository execution membership", () => {
         },
       ]);
       expect(createHash("sha256").update(JSON.stringify(normalized)).digest("hex")).toBe(
-        "444d0f23bd7fc54e07b0bdeca0df475d7f34e8a1d21076a107a04e511ccce249",
+        "1fe4a6cbd644f58ed1b6b76fda1ab417cc3bb4f07152f873f8ceb556c358ade8",
       );
+      expect(
+        normalized.find(
+          ({ relativeFile }) =>
+            relativeFile ===
+            "bounded-contexts/inventory/features/storage-locations/ui/routes/account-inventory-locations.tsx",
+        ),
+      ).toMatchObject({
+        form: "import",
+        specifier: "../../../../context.json",
+        attributeText: null,
+        resolved: "bounded-contexts/inventory/context.json",
+        disposition: "vite-excluded",
+      });
       expect(
         normalized.filter(
           (entry) =>

@@ -9,7 +9,7 @@ import { toTransportEvent } from "@chase-sets/event-core/transport";
 import { closeMultiContextTestPools } from "@chase-sets/bounded-context-runtime/test-support";
 import type { JsonObject } from "@chase-sets/primitives/json";
 import { parseTypedId } from "@chase-sets/primitives/typed-ids";
-import { inventorySeedIds } from "../../../support/seed-support/ids";
+import { inventorySeedIds } from "../integrations/seed/ids";
 import { buildInventoryItemProjectionHandlers } from "../../inventory-items/read-model/projection";
 import { buildInventoryRestockDecisionProjectionHandlers } from "../read-model/projection";
 import { registerImportRecoveryBrowserTests } from "../../import-batches/tests/recovery.browser";

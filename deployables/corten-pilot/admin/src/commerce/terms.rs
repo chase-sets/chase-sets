@@ -105,7 +105,10 @@ pub struct Fees {
     pub label: String,
     pub marketplace_sales_fee_percentage_bps: i64,
     pub marketplace_sales_fee_fixed_amount: String,
-    pub shipping_allowance_percentage_bps: i64,
+    /// A schedule always states one. An override may not (null), and then follows the schedule
+    /// in force when it is resolved.
+    #[serde(default)]
+    pub shipping_allowance_percentage_bps: Option<i64>,
     pub status: String,
     pub effective_from: String,
     #[serde(default)]
@@ -228,7 +231,10 @@ pub struct StartingTerms {
     pub label: Option<String>,
     pub marketplace_sales_fee_percentage_bps: i64,
     pub marketplace_sales_fee_fixed_amount: String,
-    pub shipping_allowance_percentage_bps: i64,
+    /// Null for an override's starting terms: a new override follows the schedule unless the
+    /// operator states one.
+    #[serde(default)]
+    pub shipping_allowance_percentage_bps: Option<i64>,
     pub status: String,
     pub effective_from: String,
     #[serde(default)]
@@ -300,7 +306,7 @@ impl TermsForm {
             label: fees.label.clone(),
             marketplace_sales_fee_percentage_bps: fees.marketplace_sales_fee_percentage_bps.to_string(),
             marketplace_sales_fee_fixed_amount: fees.marketplace_sales_fee_fixed_amount.clone(),
-            shipping_allowance_percentage_bps: fees.shipping_allowance_percentage_bps.to_string(),
+            shipping_allowance_percentage_bps: allowance_field(fees.shipping_allowance_percentage_bps),
             status: fees.status.clone(),
             effective_from: fees.effective_from.clone(),
             effective_until: fees.effective_until.clone().unwrap_or_default(),
@@ -314,13 +320,18 @@ impl TermsForm {
             label: terms.label.clone().unwrap_or_else(|| label.to_owned()),
             marketplace_sales_fee_percentage_bps: terms.marketplace_sales_fee_percentage_bps.to_string(),
             marketplace_sales_fee_fixed_amount: terms.marketplace_sales_fee_fixed_amount.clone(),
-            shipping_allowance_percentage_bps: terms.shipping_allowance_percentage_bps.to_string(),
+            shipping_allowance_percentage_bps: allowance_field(terms.shipping_allowance_percentage_bps),
             status: terms.status.clone(),
             effective_from: terms.effective_from.clone(),
             effective_until: terms.effective_until.clone().unwrap_or_default(),
             ..TermsForm::default()
         }
     }
+}
+
+/// A Shipping Allowance as its field shows it: blank when none is stated.
+fn allowance_field(bps: Option<i64>) -> String {
+    bps.map(|bps| bps.to_string()).unwrap_or_default()
 }
 
 /// A number field as admin-web's `Number(..)` reads it: empty is 0, not a number is null.
@@ -332,13 +343,34 @@ fn number(value: &str) -> Value {
     value.parse::<f64>().ok().and_then(serde_json::Number::from_f64).map_or(Value::Null, Value::Number)
 }
 
-/// The fee terms admin-web's action sends (`termsBody`).
+/// The fee terms admin-web's action sends for a schedule (`scheduleTermsBody`).
 pub fn body(form: &TermsForm) -> Value {
+    let mut sent = shared_body(form);
+    sent["shippingAllowancePercentageBps"] = number(&form.shipping_allowance_percentage_bps);
+    sent
+}
+
+/// The fee terms admin-web's action sends for an override (`agreementTermsBody`): a blank Shipping
+/// Allowance is left out, so the override follows the schedule, and text that is not a number is
+/// sent as typed, for the API to refuse.
+pub fn agreement_body(form: &TermsForm) -> Value {
+    let mut sent = shared_body(form);
+    let stated = form.shipping_allowance_percentage_bps.trim();
+    if !stated.is_empty() {
+        sent["shippingAllowancePercentageBps"] = stated
+            .parse::<f64>()
+            .ok()
+            .and_then(serde_json::Number::from_f64)
+            .map_or_else(|| json!(form.shipping_allowance_percentage_bps), Value::Number);
+    }
+    sent
+}
+
+fn shared_body(form: &TermsForm) -> Value {
     json!({
         "label": form.label,
         "marketplaceSalesFeePercentageBps": number(&form.marketplace_sales_fee_percentage_bps),
         "marketplaceSalesFeeFixedAmount": form.marketplace_sales_fee_fixed_amount,
-        "shippingAllowancePercentageBps": number(&form.shipping_allowance_percentage_bps),
         "status": form.status,
         "effectiveFrom": form.effective_from,
         "effectiveUntil": form.effective_until,
@@ -538,13 +570,14 @@ async fn act(
             (caller.request(Method::PUT, &format!("{BASE}/schedules/{}", segment(&id)), CONTEXT).json(&body(&form)), "schedule")
         }
         "create-agreement" => {
-            let mut sent = body(&form);
+            let mut sent = agreement_body(&form);
             sent["accountId"] = json!(form.account_id.trim());
             (caller.request(Method::POST, &format!("{BASE}/agreements"), CONTEXT).json(&sent), "agreement")
         }
-        "revise-agreement" => {
-            (caller.request(Method::PUT, &format!("{BASE}/agreements/{}", segment(&id)), CONTEXT).json(&body(&form)), "agreement")
-        }
+        "revise-agreement" => (
+            caller.request(Method::PUT, &format!("{BASE}/agreements/{}", segment(&id)), CONTEXT).json(&agreement_body(&form)),
+            "agreement",
+        ),
         _ => {
             let error = Some(t.ct_unknown_action().to_owned());
             return draw(

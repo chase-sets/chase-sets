@@ -1,0 +1,1117 @@
+import storageLocations from "./features/storage-locations/metadata.json" with { type: "json" };
+
+export const contextManifest = {
+  scheduledJobs: [
+    {
+      id: "inventory.import-product-resolution-maintenance.enqueue",
+      schedule: {
+        kind: "interval",
+        intervalMs: 86400000,
+      },
+      runnerExport: "createInventoryImportProductResolutionMaintenanceEnqueueRunners",
+      group: "scheduled",
+      order: 129,
+      runtimeProfiles: ["proof", "public"],
+      lockScope: "job:inventory.import-product-resolution-maintenance.enqueue",
+    },
+    {
+      id: "inventory.import-batch-jobs",
+      schedule: {
+        kind: "durable",
+        laneCount: "inventoryImportBatchJobLaneCount",
+      },
+      runnerExport: "createInventoryJobRunners",
+      group: "inventory-jobs",
+      order: 0,
+      runtimeProfiles: ["proof", "public"],
+      lockScope: "job:job:inventory.import-batch-jobs.lane-{lane}",
+    },
+    {
+      id: "inventory.import-product-resolution-maintenance",
+      schedule: {
+        kind: "durable",
+        laneCount: 1,
+      },
+      runnerExport: "createInventoryJobRunners",
+      group: "inventory-jobs",
+      order: 0,
+      runtimeProfiles: ["proof", "public"],
+      lockScope: "job:job:inventory.import-product-resolution-maintenance.lane-{lane}",
+    },
+  ],
+  contextName: "inventory",
+  packageName: "@chase-sets/inventory",
+  localeCatalogs: ["contracts/localization/locales/en/inventory.ts", ...storageLocations.localeCatalogs],
+  ownedNouns: [
+    "inventory-item",
+    "acquisition-occurrence",
+    "inventory-hold",
+    "import-batch",
+    "recovered-item",
+    "storage-location",
+    "external-channel-sale",
+    "channel-stock-allocation",
+  ],
+  streamPrefix: "inventory.",
+  accountCapabilities: [storageLocations.accountCapability],
+  apiBasePath: "/api/inventory",
+  slices: [
+    "inventory-items",
+    "channel-allocations",
+    "channel-sales",
+    "hold-collisions",
+    "import-batches",
+    "holds",
+    "reservations",
+    "recovered-items",
+    "restock-decisions",
+    "storage-locations",
+  ],
+  allowedSupportDirectories: [
+    "catalog-item-support",
+    "request-support",
+    "runtime-support",
+    "seed-support",
+    "ui-support",
+  ],
+  publicExports: [
+    ".",
+    "./context",
+    "./routes/*",
+    "./seed-support/*",
+    "./server",
+    "./web",
+    "./integration/link-intents",
+    "./test-support",
+  ],
+  allowedContextDependencies: [],
+  seedRequirements: ["catalog", "identity"],
+  eventSubscriptions: [
+    {
+      sourceContextName: "catalog",
+      projectionName: "inventory-catalog-item-projection",
+      subscriptionVersion: 4,
+      eventTypes: [
+        "catalog.catalog-item.created",
+        "catalog.catalog-item.blueprint-assigned",
+        "catalog.catalog-item.published",
+        "catalog.catalog-item.display-identity-resolved",
+        "catalog.catalog-item.external-catalog-item-reference-linked",
+        "catalog.catalog-item.external-catalog-item-reference-unlinked",
+        "catalog.catalog-item.external-product-reference-linked",
+        "catalog.catalog-item.external-product-reference-unlinked",
+        "catalog.catalog-item.gtin-linked",
+        "catalog.catalog-item.gtin-unlinked",
+        "catalog.catalog-item.retired",
+        "catalog.catalog-item.archived",
+        "catalog.blueprint.created",
+        "catalog.blueprint.revised",
+        "catalog.blueprint.dimensions-set",
+        "catalog.blueprint.product-resolution-rules-set",
+        "catalog.blueprint.published",
+        "catalog.dimension.created",
+        "catalog.dimension.revised",
+        "catalog.dimension.option-added",
+        "catalog.dimension.option-revised",
+      ],
+      order: 10,
+      projectionHandlerSetNames: ["inventory-catalog-item-projection"],
+    },
+    {
+      sourceContextName: "ordering",
+      projectionName: "inventory-order-reservation-workflow",
+      subscriptionVersion: 1,
+      eventTypes: ["ordering.order.created", "ordering.order.cancelled"],
+      order: 20,
+      projectionHandlerSetNames: ["inventory-order-reservation-workflow"],
+    },
+    {
+      sourceContextName: "fulfillment",
+      projectionName: "inventory-fulfillment-restock-workflow",
+      subscriptionVersion: 1,
+      sourceContextMount: "when-mounted",
+      eventTypes: ["fulfillment.shipment.created", "fulfillment.shipment.returned"],
+      order: 30,
+      projectionHandlerSetNames: ["inventory-fulfillment-restock-workflow"],
+    },
+    {
+      sourceContextName: "fulfillment",
+      projectionName: "inventory-fulfillment-recovered-item-workflow",
+      subscriptionVersion: 1,
+      sourceContextMount: "when-mounted",
+      eventTypes: ["fulfillment.return-shipment.facility-intake-completed.v1"],
+      order: 31,
+      projectionHandlerSetNames: ["inventory-fulfillment-recovered-item-workflow"],
+    },
+  ],
+  projectionGroups: [
+    {
+      projectionName: "inventory-channel-stock-allocation-projection",
+      sourceContextNames: ["inventory"],
+      ownedTables: ["inventory_channel_stock_allocations"],
+      requiredDuringBootstrap: false,
+      resetStrategy: "truncate-owned-tables",
+    },
+    {
+      projectionName: "inventory-catalog-item-projection",
+      sourceContextNames: ["catalog"],
+      ownedTables: [
+        "inventory_catalog_items",
+        "inventory_catalog_blueprints",
+        "inventory_catalog_dimensions",
+        "inventory_catalog_dimension_options",
+        "inventory_catalog_external_catalog_item_references",
+        "inventory_catalog_external_product_references",
+      ],
+      requiredDuringBootstrap: true,
+      resetStrategy: "replay-only",
+    },
+    {
+      projectionName: "inventory-order-reservation-workflow",
+      sourceContextNames: ["ordering"],
+      ownedTables: [],
+      requiredDuringBootstrap: false,
+      resetStrategy: "replay-only",
+      sideEffectOnly: true,
+    },
+    {
+      projectionName: "inventory-fulfillment-restock-workflow",
+      sourceContextNames: ["fulfillment"],
+      optionalSourceContextNames: ["fulfillment"],
+      ownedTables: ["inventory_fulfillment_shipment_sources"],
+      requiredDuringBootstrap: false,
+      resetStrategy: "truncate-owned-tables",
+    },
+    {
+      projectionName: "inventory-fulfillment-recovered-item-workflow",
+      sourceContextNames: ["fulfillment"],
+      optionalSourceContextNames: ["fulfillment"],
+      ownedTables: [],
+      requiredDuringBootstrap: false,
+      resetStrategy: "replay-only",
+      sideEffectOnly: true,
+    },
+    {
+      projectionName: "inventory-recovered-item-projection",
+      sourceContextNames: ["inventory"],
+      ownedTables: ["inventory_recovered_items", "inventory_recovered_item_audit", "inventory_recovered_item_values"],
+      requiredDuringBootstrap: false,
+      resetStrategy: "truncate-owned-tables",
+    },
+    {
+      projectionName: "inventory-reservation-projection",
+      sourceContextNames: ["inventory"],
+      ownedTables: ["inventory_reservation_pages"],
+      requiredDuringBootstrap: false,
+      resetStrategy: "truncate-owned-tables",
+    },
+    {
+      projectionName: "inventory-restock-decision-projection",
+      sourceContextNames: ["inventory"],
+      ownedTables: ["inventory_restock_decisions"],
+      requiredDuringBootstrap: false,
+      resetStrategy: "truncate-owned-tables",
+    },
+    {
+      projectionName: "inventory-item-projection",
+      sourceContextNames: ["inventory"],
+      ownedTables: ["inventory_items"],
+      requiredDuringBootstrap: false,
+      resetStrategy: "truncate-owned-tables",
+    },
+    {
+      projectionName: "inventory-item-ledger-projection",
+      sourceContextNames: ["inventory"],
+      ownedTables: ["inventory_item_ledger"],
+      requiredDuringBootstrap: false,
+      resetStrategy: "truncate-owned-tables",
+    },
+    {
+      projectionName: "inventory-hold-collision-projection",
+      sourceContextNames: ["inventory"],
+      ownedTables: ["inventory_hold_collisions"],
+      requiredDuringBootstrap: false,
+      resetStrategy: "truncate-owned-tables",
+    },
+    {
+      projectionName: "inventory-hold-projection",
+      sourceContextNames: ["inventory"],
+      ownedTables: ["inventory_holds"],
+      requiredDuringBootstrap: false,
+      resetStrategy: "truncate-owned-tables",
+    },
+    storageLocations.projectionGroup,
+  ],
+  hostPorts: [
+    {
+      portName: "stockReservationConsumerPool",
+      providedBy: "composition root",
+      purpose:
+        "Supplies the durable request-terminal consumer store for Inventory stock reservation invalidation; unavailable terminal authority remains pending. Marketplace composition is separate.",
+    },
+    {
+      portName: "checkoutReservationAuthority",
+      providedBy: "platform-api",
+      purpose:
+        "Resolves stock account authority from the authenticated buyer's retained Checkout session, never from request seller IDs.",
+    },
+    {
+      portName: "draftListingDelivery",
+      providedBy: "platform-api, platform-worker",
+      purpose:
+        "Delivers durable inventory-draft-listing/v1 outbox messages to Marketplace's receipt consumer; committed import rows never create Marketplace drafts directly.",
+    },
+  ],
+  apiDeployables: ["platform-api"],
+  runtimeDeployables: ["platform-worker"],
+  apiMounts: [
+    {
+      mountPath: "/api/inventory",
+      kind: "primary",
+      requiresAuth: true,
+      readFreshnessRoutes: [
+        {
+          routePath: "/items/:id",
+          methods: ["GET", "HEAD"],
+          dependencies: [
+            {
+              readModelTable: "inventory_items",
+            },
+            {
+              readModelTable: "inventory_holds",
+            },
+            {
+              readModelTable: "inventory_item_ledger",
+            },
+          ],
+        },
+        storageLocations.readFreshnessRoute,
+        {
+          routePath: "/restock-decisions",
+          methods: ["GET", "HEAD"],
+          dependencies: [
+            {
+              readModelTable: "inventory_restock_decisions",
+            },
+            {
+              readModelTable: "inventory_item_ledger",
+            },
+            {
+              readModelTable: "inventory_items",
+            },
+          ],
+        },
+      ],
+    },
+  ],
+  mcpCapabilities: {
+    tools: [
+      {
+        name: "inventory.list-import-sources",
+        ownerSlice: "import-batches",
+      },
+      {
+        name: "inventory.create-import-batch",
+        ownerSlice: "import-batches",
+      },
+      {
+        name: "inventory.get-import-batch",
+        ownerSlice: "import-batches",
+      },
+      {
+        name: "inventory.commit-import-batch",
+        ownerSlice: "import-batches",
+      },
+      {
+        name: "inventory.list-items",
+        ownerSlice: "inventory-items",
+      },
+      {
+        name: "inventory.adjust-item",
+        ownerSlice: "inventory-items",
+      },
+      {
+        name: "inventory.get-mutation-attempt",
+        ownerSlice: "inventory-items",
+      },
+      {
+        name: "inventory.list-recovered-items",
+        ownerSlice: "recovered-items",
+      },
+      {
+        name: "inventory.get-recovered-item-metrics",
+        ownerSlice: "recovered-items",
+      },
+      {
+        name: "inventory.identify-recovered-item",
+        ownerSlice: "recovered-items",
+      },
+      {
+        name: "inventory.inspect-recovered-item",
+        ownerSlice: "recovered-items",
+      },
+      {
+        name: "inventory.require-recovered-item-authenticity-review",
+        ownerSlice: "recovered-items",
+      },
+      {
+        name: "inventory.complete-recovered-item-authenticity-review",
+        ownerSlice: "recovered-items",
+      },
+      {
+        name: "inventory.record-recovered-item-disposition-authority",
+        ownerSlice: "recovered-items",
+      },
+      {
+        name: "inventory.decide-recovered-item-disposition",
+        ownerSlice: "recovered-items",
+      },
+      {
+        name: "inventory.record-recovered-item-value",
+        ownerSlice: "recovered-items",
+      },
+      {
+        name: "inventory.correct-recovered-item-source",
+        ownerSlice: "recovered-items",
+      },
+      {
+        name: "inventory.merge-recovered-item",
+        ownerSlice: "recovered-items",
+      },
+    ],
+    resources: [
+      {
+        uriTemplate: "chase-sets://inventory/{accountId}/items/{inventoryItemId}",
+        ownerSlice: "inventory-items",
+      },
+      {
+        uriTemplate: "chase-sets://inventory/{accountId}/import-batches/{batchId}",
+        ownerSlice: "import-batches",
+      },
+    ],
+  },
+  readAfterWriteRouteInventory: [
+    {
+      id: "inventory.item-create-to-detail",
+      owner: "inventory",
+      risk: "important",
+      freshnessSlo: {
+        flowClass: "important-self-refresh",
+        p95Ms: 2500,
+        p99Ms: 5000,
+      },
+      source: {
+        routeId: "account-inventory",
+        actions: ["Create inventory item"],
+        command: "Inventory item create command",
+        helperUses: ["navigateAfterWrite"],
+      },
+      destination: {
+        routeId: "account-inventory-item",
+        apiContextName: "inventory",
+        apiRoutePath: "/items/:id",
+        readModelTables: ["inventory_items", "inventory_holds", "inventory_item_ledger"],
+        helperUses: ["loadAfterWrite"],
+        transientRecovery: {
+          kinds: "refreshable-catching-up",
+          behavior:
+            "Inventory item create redirects to the created item detail with afterWrite so the item detail API waits on exact item, hold, and ledger projections before rendering the new stock record.",
+        },
+      },
+    },
+    {
+      id: "inventory.item-adjust-to-detail",
+      owner: "inventory",
+      risk: "critical",
+      freshnessSlo: {
+        flowClass: "important-self-refresh",
+        p95Ms: 2500,
+        p99Ms: 5000,
+      },
+      source: {
+        routeId: "account-inventory-item",
+        actions: ["Adjust inventory item", "Place inventory hold", "Release inventory hold"],
+        command: "Inventory item and hold commands",
+        helperUses: ["navigateAfterWrite"],
+      },
+      destination: {
+        routeId: "account-inventory-item",
+        apiContextName: "inventory",
+        apiRoutePath: "/items/:id",
+        readModelTables: ["inventory_items", "inventory_holds", "inventory_item_ledger"],
+        helperUses: ["loadAfterWrite"],
+        transientRecovery: {
+          kinds: "refreshable-catching-up",
+          behavior:
+            "Inventory item detail forwards afterWrite to the API so exact item, hold, and ledger projections gate the detail read.",
+        },
+      },
+    },
+    {
+      id: "inventory.import-batch-detail",
+      owner: "inventory",
+      risk: "important",
+      source: {
+        routeIds: ["account-inventory-imports", "account-inventory-import"],
+        actions: ["Load newly created import batch"],
+        command: "Inventory import batch job commands",
+        helperUses: ["loadAfterWrite"],
+      },
+      destination: {
+        routeIds: ["account-inventory-imports", "account-inventory-import"],
+        helperUses: ["loadAfterWrite"],
+        transientRecovery: {
+          kinds: "refreshable-catching-up",
+          behavior:
+            "Import batch detail uses the completed import job receipt for compatibility fresh-write not-found retries, and the import result page carries that same receipt into inventory and listing setup handoff links while job-backed inventory routes remain snapshot-owned.",
+        },
+      },
+      exception: {
+        status: "not-read-model-backed",
+        owner: "inventory",
+        reviewBy: "2026-07-31",
+        reason:
+          "Import create and commit commands return durable InventoryImportBatchJobStatus snapshots and the page follows the job event stream; the completed job result now carries the Inventory commit receipt into import, inventory, and listing setup links, but the authoritative Inventory post-write contract remains the job snapshot rather than an Inventory read-model freshness wait.",
+        files: ["bounded-contexts/inventory/features/import-batches/ui/import-batch-page.tsx"],
+        helperUses: ["navigateAfterWrite"],
+      },
+    },
+    storageLocations.readAfterWriteRoute,
+    {
+      id: "inventory.restock-decision-list",
+      owner: "inventory",
+      risk: "important",
+      freshnessSlo: {
+        flowClass: "important-self-refresh",
+        p95Ms: 2500,
+        p99Ms: 5000,
+      },
+      source: {
+        routeId: "account-inventory-restock-decisions",
+        actions: ["Record restock decision"],
+        command: "Restock decision command",
+        helperUses: ["navigateAfterWrite"],
+      },
+      destination: {
+        routeId: "account-inventory-restock-decisions",
+        apiContextName: "inventory",
+        apiRoutePath: "/restock-decisions",
+        readModelTables: ["inventory_restock_decisions", "inventory_item_ledger", "inventory_items"],
+        helperUses: ["loadAfterWrite"],
+        transientRecovery: {
+          kinds: "refreshable-catching-up",
+          behavior:
+            "Restock decision actions redirect with afterWrite to the pending queue so the list waits for the decision projection before rendering the updated queue.",
+        },
+      },
+    },
+  ],
+  mutationConsistencyInventory: [
+    {
+      id: "inventory.api-command-snapshots",
+      owner: "inventory",
+      risk: "important",
+      strategy: "snapshot-return",
+      surfaces: [
+        "api-route:bounded-contexts/inventory/features/holds/api/route.ts:POST /",
+        "api-route:bounded-contexts/inventory/features/holds/api/route.ts:POST /:id/release",
+        "api-route:bounded-contexts/inventory/features/holds/api/route.ts:POST /:id/extend",
+        "api-route:bounded-contexts/inventory/features/import-batches/api/route.ts:POST /",
+        "api-route:bounded-contexts/inventory/features/import-batches/api/route.ts:POST /:id/commit",
+        "api-route:bounded-contexts/inventory/features/channel-allocations/api/route.ts:PUT /:itemId/channel-stock-allocation",
+        "api-route:bounded-contexts/inventory/features/inventory-items/api/route.ts:POST /",
+        "api-route:bounded-contexts/inventory/features/inventory-items/api/route.ts:POST /:id/adjustments",
+        "api-route:bounded-contexts/inventory/features/inventory-items/api/route.ts:POST /:id/offline-sales",
+        "api-route:bounded-contexts/inventory/features/inventory-items/api/route.ts:POST /:id/holds",
+        "api-route:bounded-contexts/inventory/features/inventory-items/api/route.ts:POST /listing-stock/ensure",
+        ...storageLocations.apiCommandSurfaces,
+      ],
+      visibleDestination: {
+        description:
+          "Inventory API commands return command-owned ids, versions, durable job statuses, allocation state, or listing-stock snapshots that callers can render or carry into a fresh-read route without trusting a stale projection response.",
+      },
+      proof: {
+        authoritativeResponse:
+          "Item, hold, checkout-reservation, storage-location, and Channel Stock Allocation commands return the committed aggregate id/version, allocation state, or reservation snapshot; import-batch commands return durable job public snapshots; listing-stock ensure returns the command-owned inventory stock snapshot.",
+        tests: [
+          "bounded-contexts/inventory/tests/acceptance/inventory-api.test.ts",
+          "bounded-contexts/inventory/features/channel-allocations/api/route.test.ts",
+          "bounded-contexts/inventory/features/holds/api/route.test.ts",
+          "bounded-contexts/inventory/features/inventory-items/api/route.test.ts",
+          "bounded-contexts/inventory/features/import-batches/api/runtime.test.ts",
+        ],
+      },
+    },
+    {
+      id: "inventory.account-sku-mappings-resolve-inventory-items",
+      owner: "inventory",
+      risk: "informational",
+      strategy: "snapshot-return",
+      surfaces: [
+        "api-route:bounded-contexts/inventory/features/import-batches/api/route.ts:POST /account-sku-mappings/resolve-inventory-items",
+      ],
+      visibleDestination: {
+        description:
+          "A POST-shaped read (the seller-SKU batch is a request body, not query params) that resolves seller SKUs to inventory items live from account_sku_mappings and inventory_items on every call -- no write, no snapshot to trust or distrust; built for m113 bulk reprice ingestion (#4328) to reuse Inventory's native-SKU resolution (m71) without a cross-context write.",
+      },
+      proof: {
+        authoritativeResponse:
+          "resolveAccountSellerSkusToInventoryItems queries the current account_sku_mappings and inventory_items rows on every call; there is no cached or projected intermediate to go stale.",
+        tests: [
+          "bounded-contexts/inventory/features/import-batches/tests/account-sku-mappings-resolve-inventory-items.db.test.ts",
+        ],
+      },
+    },
+    {
+      id: "inventory.import-batch-job-snapshot",
+      owner: "inventory",
+      risk: "important",
+      strategy: "snapshot-return",
+      surfaces: [
+        "post-form:bounded-contexts/inventory/features/import-batches/ui/import-batch-page.tsx:H2df726441e2a#1",
+        "route-action:bounded-contexts/inventory/features/import-batches/ui/routes/account-inventory-imports.tsx",
+      ],
+      visibleDestination: {
+        routeId: "account-inventory-imports",
+        description:
+          "Import create and commit actions redirect with the durable job id, render job progress from the command-owned job snapshot, and reload the completed batch from the terminal job result path.",
+      },
+      proof: {
+        authoritativeResponse:
+          "createImportBatch and commitImportBatch return InventoryImportBatchJobStatus snapshots; the import page subscribes to the job event stream and navigates only after a completed terminal snapshot includes the batch result.",
+        tests: [
+          "bounded-contexts/inventory/tests/account-inventory-routes.test.ts",
+          "bounded-contexts/inventory/features/import-batches/ui/import-batch-page.test.tsx",
+          "bounded-contexts/inventory/features/import-batches/api/runtime.test.ts",
+        ],
+      },
+    },
+    {
+      id: "inventory.import-row-review-resolution-snapshot",
+      owner: "inventory",
+      risk: "important",
+      strategy: "snapshot-return",
+      surfaces: [
+        "api-route:bounded-contexts/inventory/features/import-batches/api/route.ts:POST /:id/rows/:rowId/resolve",
+      ],
+      visibleDestination: {
+        routeId: "account-inventory-import",
+        description:
+          "Native import review row fixes synchronously update the Inventory import-batch row and account SKU mapping, return the updated InventoryImportBatchDetail snapshot, then redirect back to the same import batch detail route after the write completes.",
+      },
+      proof: {
+        authoritativeResponse:
+          "resolveRow refuses unless the caller's row_version, row_fingerprint and mutation attempt are current, validates the selected catalog item/options and storage location, writes the row resolution plus account SKU mapping in Inventory-owned tables, refreshes batch counts, and returns getImportBatch from the same request before the browser route redirects.",
+        tests: [
+          "bounded-contexts/inventory/features/import-batches/api/runtime.test.ts",
+          "bounded-contexts/inventory/features/import-batches/api/route.test.ts",
+          "bounded-contexts/inventory/features/import-batches/ui/import-batch-page.test.tsx",
+          "bounded-contexts/inventory/features/import-batches/tests/issue-7169-ac7-partial-resolution.test.ts",
+        ],
+      },
+    },
+    {
+      id: "inventory.list-from-inventory-create-publish-snapshot",
+      owner: "inventory",
+      risk: "important",
+      strategy: "snapshot-return",
+      surfaces: [
+        "post-form:bounded-contexts/inventory/features/inventory-items/ui/list-from-inventory-drawer.tsx:H2df726441e2a#1",
+      ],
+      visibleDestination: {
+        description:
+          "The list-from-inventory drawer posts to the marketplace create-and-publish listing route from the inventory item; on success the marketplace route redirects to the new listing detail with a post-write receipt token, so the seller lands on the command-owned listing without visiting the listings section or trusting a stale projection.",
+      },
+      proof: {
+        authoritativeResponse:
+          "The marketplace create route returns the command-owned listing id, version, and fee-quote fingerprint, and publish returns the published version; the redirect carries those receipts via the marketplace post-write token, so the inventory item surface performs no post-write read of an inventory projection.",
+        tests: [
+          "bounded-contexts/inventory/features/inventory-items/ui/list-from-inventory-drawer.test.tsx",
+          "bounded-contexts/marketplace/tests/account-listings-new-route.test.ts",
+        ],
+      },
+    },
+    {
+      id: "inventory.restock-decision-record-to-list",
+      owner: "inventory",
+      risk: "important",
+      strategy: "fresh-read",
+      surfaces: [
+        "api-route:bounded-contexts/inventory/features/restock-decisions/api/route.ts:POST /:id/decision",
+        "post-form:bounded-contexts/inventory/features/restock-decisions/ui/restock-decision-queue-page.tsx:Hc1f1674003a0#1",
+        "post-form:bounded-contexts/inventory/features/restock-decisions/ui/restock-decision-queue-page.tsx:Hc1f1674003a0#2",
+        "route-action:bounded-contexts/inventory/features/restock-decisions/ui/routes/account-inventory-restock-decisions.tsx",
+      ],
+      visibleDestination: {
+        routeId: "account-inventory-restock-decisions",
+        apiContextName: "inventory",
+        apiRoutePath: "/restock-decisions",
+        readModelTables: ["inventory_restock_decisions", "inventory_item_ledger", "inventory_items"],
+        transientRecovery: {
+          kinds: "refreshable-catching-up",
+          behavior:
+            "Restock and write-off actions return a committed decision id/version and redirect to the queue with an afterWrite receipt so the updated pending list is projection-gated.",
+        },
+      },
+      proof: {
+        authoritativeResponse:
+          "recordRestockDecision binds a caller attempt, expected decision version and normalized choice. Stock, decision, child receipt and first result commit in one Inventory transaction; recovery reads the exact private receipt without submitting again.",
+        tests: [
+          "bounded-contexts/inventory/tests/order-cancellation-subscription.test.ts",
+          "bounded-contexts/inventory/features/restock-decisions/domain/domain.test.ts",
+          "bounded-contexts/inventory/features/restock-decisions/tests/issue-7169-c2-recovery.test.ts",
+          "bounded-contexts/inventory/features/restock-decisions/tests/issue-7169-c2-recovery.db.test.ts",
+        ],
+      },
+    },
+    {
+      id: "inventory.item-create-to-detail-fresh-read",
+      owner: "inventory",
+      risk: "important",
+      strategy: "fresh-read",
+      surfaces: [
+        "post-form:bounded-contexts/inventory/features/inventory-items/ui/inventory-item-list-page.tsx:H540f811b57f9#1",
+        "route-action:bounded-contexts/inventory/features/inventory-items/ui/routes/account-inventory.tsx",
+      ],
+      visibleDestination: {
+        routeId: "account-inventory-item",
+        apiContextName: "inventory",
+        apiRoutePath: "/items/:id",
+        readModelTables: ["inventory_items", "inventory_holds", "inventory_item_ledger"],
+        transientRecovery: {
+          kinds: "refreshable-catching-up",
+          behavior:
+            "Inventory item create redirects to the created item detail with afterWrite and the detail loader retries valid fresh-write not-found reads before falling back to temporary recovery.",
+        },
+      },
+      proof: {
+        tests: ["bounded-contexts/inventory/tests/account-inventory-routes.test.ts"],
+      },
+    },
+    {
+      id: "inventory.item-detail-actions-fresh-read",
+      owner: "inventory",
+      risk: "critical",
+      strategy: "fresh-read",
+      surfaces: [
+        "post-form:bounded-contexts/inventory/features/inventory-items/ui/inventory-item-detail-page.tsx:H128ecb5f1379#1",
+        "post-form:bounded-contexts/inventory/features/inventory-items/ui/inventory-item-detail-page.tsx:H26a9c8c25c77#1",
+        "post-form:bounded-contexts/inventory/features/inventory-items/ui/inventory-item-detail-page.tsx:He8d8cbd954d7#1",
+        "route-action:bounded-contexts/inventory/features/inventory-items/ui/routes/account-inventory-item.tsx",
+      ],
+      visibleDestination: {
+        routeId: "account-inventory-item",
+        apiContextName: "inventory",
+        apiRoutePath: "/items/:id",
+        readModelTables: ["inventory_items", "inventory_holds", "inventory_item_ledger"],
+        transientRecovery: {
+          kinds: "refreshable-catching-up",
+          behavior:
+            "Adjust, hold, and release actions redirect with afterWrite to the same item detail page; the loader forwards the receipt and uses bounded fresh-write recovery for lagging item, hold, or ledger projections.",
+        },
+      },
+      proof: {
+        tests: ["bounded-contexts/inventory/tests/account-inventory-routes.test.ts"],
+      },
+    },
+    {
+      id: "inventory.offline-sale-route-aware-fresh-read",
+      owner: "inventory",
+      risk: "critical",
+      strategy: "fresh-read",
+      surfaces: [
+        "post-form:bounded-contexts/inventory/features/inventory-items/ui/offline-sale-form.tsx:H5572ea7ef0df#1",
+        "route-action:bounded-contexts/inventory/features/inventory-items/ui/routes/account-inventory.tsx",
+        "route-action:bounded-contexts/inventory/features/inventory-items/ui/routes/account-inventory-item.tsx",
+      ],
+      visibleDestination: {
+        apiContextName: "inventory",
+        apiRoutePath: "/items/:id",
+        description:
+          "Record sale from /account/inventory/items/:itemId stays on that item detail and fresh-reads the written item. Record sale from the paginated /account/inventory list stays on the selected limit/offset page, carries the command receipt with the written item id, then fresh-reads that item. The list reconciles the row only when it remains on the selected page; otherwise rows, count, total, and pagination stay unchanged while the result uses the separately returned fresh item. No stale list quantity receives completed wording.",
+        readModelTables: ["inventory_items", "inventory_holds", "inventory_item_ledger"],
+        transientRecovery: {
+          kinds: "refreshable-catching-up",
+          behavior:
+            "A valid receipt gates the item read. A delayed or failed fresh item read preserves the existing list page and renders the submitted outcome as unverified instead of completed.",
+        },
+      },
+      proof: {
+        authoritativeResponse:
+          "recordOfflineSale returns the committed Inventory command receipt and typed applied/refused outcome. The detail loader and list's receipt-gated getItem read observe the Inventory item projection before a completed quantity is rendered.",
+        tests: [
+          "bounded-contexts/inventory/tests/account-inventory-routes.test.ts",
+          "bounded-contexts/inventory/features/inventory-items/ui/offline-sale-form.test.tsx",
+          "bounded-contexts/inventory/features/inventory-items/ui/inventory-item-pages.test.tsx",
+        ],
+      },
+    },
+    storageLocations.mutationConsistency,
+    {
+      id: "inventory.recovered-item-operator-command-snapshot",
+      owner: "inventory",
+      risk: "important",
+      strategy: "snapshot-return",
+      surfaces: [
+        "api-route:bounded-contexts/inventory/features/recovered-items/api/route.ts:POST /:id/actions",
+        "post-form:bounded-contexts/inventory/features/recovered-items/ui/recovered-items-page.tsx:H1abed2c1c746#1",
+        "route-action:bounded-contexts/inventory/features/recovered-items/ui/routes/recovered-items.tsx",
+      ],
+      visibleDestination: {
+        routeId: "inventory-recovered-items",
+        description:
+          "Recovered-item operator commands return the committed aggregate version and status. The admin route renders that authoritative action result while the custody queue projection catches up.",
+      },
+      proof: {
+        authoritativeResponse:
+          "The recovered-item API builds its response from the event-sourced command result, including the committed stream version and evolved status; no projection read is used to claim success.",
+        tests: [
+          "bounded-contexts/inventory/features/recovered-items/api/runtime.test.ts",
+          "bounded-contexts/inventory/features/recovered-items/api/route.test.ts",
+          "bounded-contexts/inventory/features/recovered-items/domain/recovered-item.test.ts",
+          "bounded-contexts/inventory/features/recovered-items/ui/recovered-items-page.test.tsx",
+        ],
+      },
+    },
+  ],
+  agentCoverage: {
+    "inventory-recovered-items": {
+      tools: [
+        "inventory.list-recovered-items",
+        "inventory.get-recovered-item-metrics",
+        "inventory.identify-recovered-item",
+        "inventory.inspect-recovered-item",
+        "inventory.require-recovered-item-authenticity-review",
+        "inventory.complete-recovered-item-authenticity-review",
+        "inventory.record-recovered-item-disposition-authority",
+        "inventory.decide-recovered-item-disposition",
+        "inventory.record-recovered-item-value",
+        "inventory.correct-recovered-item-source",
+        "inventory.merge-recovered-item",
+      ],
+    },
+  },
+  deployableContributions: [
+    {
+      deployable: "marketplace-web",
+      routes: [
+        {
+          routeId: "account-inventory",
+          routePath: "account/inventory",
+          fileExport: "./routes/marketplace/account-inventory",
+          routeType: "route",
+          sourceContext: "inventory",
+          delivery: "server-only",
+          authorization: {
+            kind: "authenticated",
+            requiredPermissions: [],
+          },
+          canonicalLink: {
+            kind: "not-applicable",
+            reason: "Canonical-link publication is deferred with mobile route extraction.",
+          },
+          availability: {
+            web: true,
+            mobile: false,
+          },
+          pageComponentExport: "default",
+          unsupportedMobile: {
+            owner: "inventory",
+            followUp: "#5238",
+            reason: "Portable data operations have not been extracted for this route.",
+          },
+        },
+        {
+          routeId: "account-inventory-imports",
+          routePath: "account/inventory/imports",
+          fileExport: "./routes/marketplace/account-inventory-imports",
+          routeType: "route",
+          sourceContext: "inventory",
+          delivery: "server-only",
+          authorization: {
+            kind: "authenticated",
+            requiredPermissions: [],
+          },
+          canonicalLink: {
+            kind: "not-applicable",
+            reason: "Canonical-link publication is deferred with mobile route extraction.",
+          },
+          availability: {
+            web: true,
+            mobile: false,
+          },
+          pageComponentExport: "default",
+          unsupportedMobile: {
+            owner: "inventory",
+            followUp: "#5238",
+            reason: "Portable data operations have not been extracted for this route.",
+          },
+        },
+        {
+          routeId: "account-inventory-import",
+          routePath: "account/inventory/imports/:batchId",
+          fileExport: "./routes/marketplace/account-inventory-imports",
+          routeType: "route",
+          sourceContext: "inventory",
+          delivery: "server-only",
+          authorization: {
+            kind: "authenticated",
+            requiredPermissions: [],
+          },
+          canonicalLink: {
+            kind: "not-applicable",
+            reason: "Canonical-link publication is deferred with mobile route extraction.",
+          },
+          availability: {
+            web: true,
+            mobile: false,
+          },
+          pageComponentExport: "default",
+          unsupportedMobile: {
+            owner: "inventory",
+            followUp: "#5238",
+            reason: "Portable data operations have not been extracted for this route.",
+          },
+        },
+        storageLocations.marketplaceRoute,
+        {
+          routeId: "account-inventory-item",
+          routePath: "account/inventory/items/:itemId",
+          fileExport: "./routes/marketplace/account-inventory-item",
+          routeType: "route",
+          sourceContext: "inventory",
+          delivery: "server-only",
+          authorization: {
+            kind: "authenticated",
+            requiredPermissions: [],
+          },
+          canonicalLink: {
+            kind: "route-derived",
+          },
+          availability: {
+            web: true,
+            mobile: false,
+          },
+          pageComponentExport: "default",
+          unsupportedMobile: {
+            owner: "inventory",
+            followUp: "#5238",
+            reason: "Portable data operations have not been extracted for this route.",
+          },
+          linkParameters: {
+            query: {
+              ledgerKind: {
+                kind: "value",
+                maxLength: 13,
+                values: ["hold-placed", "hold-released", "hold-consumed"],
+              },
+            },
+          },
+        },
+        {
+          routeId: "account-inventory-restock-decisions",
+          routePath: "account/inventory/restock-decisions",
+          fileExport: "./routes/marketplace/account-inventory-restock-decisions",
+          routeType: "route",
+          sourceContext: "inventory",
+          delivery: "server-only",
+          authorization: {
+            kind: "authenticated",
+            requiredPermissions: [],
+          },
+          canonicalLink: {
+            kind: "not-applicable",
+            reason: "Canonical-link publication is deferred with mobile route extraction.",
+          },
+          availability: {
+            web: true,
+            mobile: false,
+          },
+          pageComponentExport: "default",
+          unsupportedMobile: {
+            owner: "inventory",
+            followUp: "#5238",
+            reason: "Portable data operations have not been extracted for this route.",
+          },
+        },
+      ],
+    },
+    {
+      deployable: "admin-web",
+      routes: [
+        {
+          routeId: "inventory-recovered-items",
+          routePath: "recovered-items",
+          fileExport: "./routes/admin/recovered-items",
+          routeType: "route",
+          sourceContext: "inventory",
+          section: "commerce",
+        },
+      ],
+    },
+  ],
+  shellContributions: [
+    {
+      deployable: "admin-web",
+      slot: "primary-nav",
+      key: "inventory-recovered-items",
+      label: "Recovered Returns",
+      icon: "package",
+      href: "/recovered-items",
+      section: "commerce",
+      order: 30,
+      visibility: "signed-in",
+      requiredPermissions: ["recovered-inventory.view"],
+    },
+    {
+      deployable: "marketplace-web",
+      slot: "top-nav",
+      placements: ["top-nav", "bottom-nav"],
+      key: "inventory",
+      label: "Inventory",
+      labelKey: "inventory.shell.inventory.label",
+      icon: "package",
+      href: "/account/inventory",
+      parentKey: "selling-workspace",
+      order: 100,
+      visibility: "signed-in",
+      requiredPermissions: ["inventory.view"],
+      excludedRoleKeys: ["guest-buyer"],
+      packingPriority: 0,
+    },
+    {
+      deployable: "marketplace-web",
+      slot: "top-nav",
+      placements: ["top-nav", "bottom-nav"],
+      key: "inventory-imports",
+      label: "Import",
+      labelKey: "inventory.shell.inventoryImports.label",
+      icon: "package",
+      href: "/account/inventory/imports",
+      parentKey: "selling-workspace",
+      order: 110,
+      visibility: "signed-in",
+      requiredPermissions: ["inventory.view"],
+      excludedRoleKeys: ["guest-buyer"],
+      packingPriority: 0,
+    },
+    {
+      deployable: "marketplace-web",
+      slot: "top-nav",
+      placements: ["top-nav", "bottom-nav"],
+      key: "inventory-restock-decisions",
+      label: "Restock",
+      icon: "package",
+      href: "/account/inventory/restock-decisions",
+      parentKey: "selling-workspace",
+      order: 120,
+      visibility: "signed-in",
+      requiredPermissions: ["inventory.view"],
+      excludedRoleKeys: ["guest-buyer"],
+      packingPriority: 0,
+    },
+  ],
+  directoryIntent: {
+    "channel-allocations": {
+      classification: "slice",
+      purpose:
+        "Own the channel-allocations slice's per-item Channel Stock Allocation commands, event history, read model, and HTTP contract.",
+      expectedConsumers: ["Internal Inventory module composition and Channels fact subscribers"],
+    },
+    "channel-sales": {
+      classification: "slice",
+      purpose:
+        "Own the channel-sales slice's provider-neutral command, permanent sale-line authority, replay, and conflict behavior.",
+      expectedConsumers: ["Connected channel adapters through the Inventory server contract"],
+    },
+    "inventory-items": {
+      classification: "slice",
+      purpose: "Own inventory item feature behavior, read models, and UI contracts for the inventory context.",
+      expectedConsumers: ["Internal inventory module composition"],
+    },
+    "import-batches": {
+      classification: "slice",
+      purpose:
+        "Own CSV intake, row validation, commit history, and batch stock intake behavior for the inventory context.",
+      expectedConsumers: ["Internal inventory module composition"],
+    },
+    holds: {
+      classification: "slice",
+      purpose: "Own holds feature behavior, read models, and UI contracts for the inventory context.",
+      expectedConsumers: ["Internal inventory module composition"],
+    },
+    "hold-collisions": {
+      classification: "slice",
+      purpose: "Resolve stock reductions that collide with active holds and publish the resulting order evidence.",
+      expectedConsumers: ["Internal inventory module composition"],
+    },
+    reservations: {
+      classification: "slice",
+      purpose: "Own reservations feature behavior, read models, and UI contracts for the inventory context.",
+      expectedConsumers: ["Internal inventory module composition"],
+    },
+    "restock-decisions": {
+      classification: "slice",
+      purpose: "Own returned-stock seller decision behavior, read models, and UI contracts for the inventory context.",
+      expectedConsumers: ["Internal inventory module composition"],
+    },
+    "recovered-items": {
+      classification: "slice",
+      purpose:
+        "Own the recovered-items slice for custody, inspection, ownership authority, disposition, recovery value facts, read models, and operator workflow.",
+      expectedConsumers: ["Internal inventory module composition"],
+    },
+    "storage-locations": storageLocations.directoryIntent,
+    "catalog-item-support": {
+      classification: "support",
+      purpose: "Provide reusable catalog-item-support assets shared by inventory-owned features and composition seams.",
+      expectedConsumers: ["inventory-items"],
+    },
+    "request-support": {
+      classification: "support",
+      purpose: "Provide reusable request-support assets shared by inventory-owned features and composition seams.",
+      expectedConsumers: [
+        "import-batches",
+        "inventory-items",
+        "recovered-items",
+        "restock-decisions",
+        "storage-locations",
+      ],
+      crossCuttingRuntimeComposition: true,
+    },
+    "runtime-support": {
+      classification: "support",
+      purpose: "Provide reusable runtime-support assets shared by inventory-owned features and composition seams.",
+      expectedConsumers: [
+        "hold-collisions",
+        "channel-allocations",
+        "channel-sales",
+        "holds",
+        "import-batches",
+        "inventory-items",
+        "reservations",
+        "recovered-items",
+        "restock-decisions",
+        "storage-locations",
+      ],
+    },
+    "seed-support": {
+      classification: "support",
+      purpose: "Expose stable Inventory seed entry points to context and deployable callers.",
+      expectedConsumers: ["Inventory runtime seed composition"],
+      crossCuttingRuntimeComposition: true,
+    },
+    "ui-support": {
+      classification: "support",
+      purpose: "Provide the shared Inventory mutation recovery provider and forms to feature routes and web hosts.",
+      expectedConsumers: ["import-batches", "inventory-items", "restock-decisions", "storage-locations"],
+    },
+    routes: {
+      classification: "routes",
+      purpose: "Expose inventory-owned route modules consumed by generated deployable adapters.",
+      expectedConsumers: ["Generated deployable route adapters"],
+    },
+  },
+  apiRuntimeProfiles: ["proof", "public"],
+  workerRuntimeProfiles: ["proof", "public"],
+};

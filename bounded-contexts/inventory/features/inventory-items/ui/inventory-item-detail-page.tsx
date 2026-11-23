@@ -22,7 +22,7 @@ import {
 import type { InventoryItemDetail } from "./contracts";
 import { ListFromInventoryDrawer } from "./list-from-inventory-drawer";
 import { OfflineSaleForm } from "./offline-sale-form";
-import { InventoryMutationForm as Form } from "../../../support/request-support/mutation-form";
+import { InventoryMutationForm as Form } from "../../../support/ui-support/mutation-recovery";
 
 function displayItemLabel(item: InventoryItemDetail) {
   return item.item_title ?? item.catalog_catalog_item_id;
