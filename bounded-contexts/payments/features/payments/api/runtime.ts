@@ -154,11 +154,10 @@ type PaymentRuntimeDeps = Readonly<{
 }>;
 
 /**
- * Resolves the checkout processing-fee policy in effect at quote time. The
- * value always comes from the wired resolver, which answers an empty policy
- * table with the policy's own default, so an empty table never breaks the
- * checkout hot path. With no resolver wired there is no sanctioned value to
- * quote from, and this refuses instead of quoting.
+ * Resolves the checkout processing-fee policy in effect at quote time from
+ * the wired resolver, which answers an empty policy table with the policy's
+ * own default, so an empty table never breaks the checkout hot path. With no
+ * resolver wired there is no sanctioned value, and this refuses to quote.
  */
 async function resolveMarketplaceCheckoutFeePolicy(
   deps: Pick<PaymentRuntimeDeps, "checkoutProcessingFeePolicyResolver">,

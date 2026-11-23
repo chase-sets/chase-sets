@@ -1112,7 +1112,9 @@ const citationFencePaths = {
 
 const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
   // Repinned for #11151 and its follow-up: the Checkout Session domain's opt-in block is at 833-855.
-  [citationFencePaths.authenticityTerms]: "1c22a1696b1bd9c7e87bbb42c228c8365cce1d43b7b7d4b630414aac9ed202f8",
+  // Repinned for #11849: Ordering's compiled copy of the launch fee is deleted, so the launch value is cited at
+  // its only definition in Commercial Terms (52-63) and Ordering's quote function is at 79-105.
+  [citationFencePaths.authenticityTerms]: "d3b1885f2164df4dc0c94631c05b8ff4ba42c1782a085d70d81517e9ac29a957",
   // Includes #7422 revocation, #9499 Inventory recovery storage, #10610 truthful search failure citations, the #9106 Search Interpretation marker in
   // stored search restoration, #9721 byte-identical citation relocations, and the #9034 rollout, notice-email,
   // and Connector Pairing manifest reconciliation; only C1-C7 digits remain normalized.
@@ -1120,7 +1122,8 @@ const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
   // [#9050 Fill the legal-notice email in the Terms, Seller Agreement and Privacy Policy drafts](https://github.com/chase-sets/chase-sets/issues/9050).
   // Repinned for the whole-construct registration refs without changing the C1-C7 normalization.
   [citationFencePaths.privacyPolicy]: "f1b3d0a6b2a688d481c6af4a390e0d30c532fe0313cee53d9d4255a9e0d911ee",
-  [citationFencePaths.authenticityTest]: "c329837c0df3338f0b8081ec19f90d40d0fda192e9e89f6b4fa29e7e7afa0556",
+  // Repinned for #11849: the quote function ref follows the same move to 79-105.
+  [citationFencePaths.authenticityTest]: "a545cead71c2a0ac2a4b84bfd679251cdbba4669bce264968ff7b197b0f0b338",
   // Repinned for #10066, #8846, the current-main lost-update guard surface merge, and the #10176 JSON import census
   // evidence-citation update, #9878 TCGplayer guard surface, the #9553 context-registry guard surface, and the
   // #7313 managed-Postgres client policy surface with its authority-guard and client-policy evidence ranges.
