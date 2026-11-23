@@ -139,6 +139,7 @@ describe("route support placement guard", () => {
 
     for (const route of [
       "bounded-contexts/public-presence/routes/developers/portal.tsx",
+      "bounded-contexts/public-presence/routes/marketplace/privacy.tsx",
       "bounded-contexts/public-presence/routes/marketplace/new.tsx",
       "bounded-contexts/fulfillment/routes/marketplace/help.tsx",
     ]) {

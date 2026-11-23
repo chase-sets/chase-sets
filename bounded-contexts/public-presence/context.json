@@ -2,7 +2,8 @@
   "contextName": "public-presence",
   "packageName": "@chase-sets/public-presence",
   "localeCatalogs": [
-    "contracts/localization/locales/en/public-presence.ts"
+    "contracts/localization/locales/en/public-presence.ts",
+    "bounded-contexts/public-presence/features/policies/ui/localization/locales/en.ts"
   ],
   "ownedNouns": [
     "public-presence",

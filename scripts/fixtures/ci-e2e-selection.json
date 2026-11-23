@@ -416,7 +416,7 @@
       "pattern": "/^bounded-contexts\\/public-presence\\/features\\/[^/]+\\/(?:api|ui)\\//",
       "suites": ["marketplace_browse", "admin_growth"],
       "path": "bounded-contexts/public-presence/features/developer-portal/ui/developer-pages.tsx",
-      "trackedCandidates": 44,
+      "trackedCandidates": 58,
       "synthetic": false
     },
     {
@@ -1268,10 +1268,10 @@
     },
     {
       "family": "boundedContextRouteSuiteOwnership:48",
-      "pattern": "/^bounded-contexts\\/public-presence\\/routes\\/marketplace\\//",
+      "pattern": "/^bounded-contexts\\/public-presence\\/(?:routes\\/marketplace|features\\/policies\\/ui\\/routes)\\//",
       "suites": ["marketplace_browse"],
       "path": "bounded-contexts/public-presence/routes/marketplace/agent-terms.tsx",
-      "trackedCandidates": 19,
+      "trackedCandidates": 26,
       "synthetic": false
     },
     {
@@ -1308,6 +1308,41 @@
     }
   ],
   "cases": [
+    {
+      "changedFiles": ["bounded-contexts/public-presence/features/policies/ui/routes/agent-terms.tsx"],
+      "suiteIds": ["marketplace_browse"],
+      "batches": ["marketplace_browse"]
+    },
+    {
+      "changedFiles": ["bounded-contexts/public-presence/features/policies/ui/routes/authenticity-terms.tsx"],
+      "suiteIds": ["marketplace_browse"],
+      "batches": ["marketplace_browse"]
+    },
+    {
+      "changedFiles": ["bounded-contexts/public-presence/features/policies/ui/routes/founders.tsx"],
+      "suiteIds": ["marketplace_browse"],
+      "batches": ["marketplace_browse"]
+    },
+    {
+      "changedFiles": ["bounded-contexts/public-presence/features/policies/ui/routes/payments-terms.tsx"],
+      "suiteIds": ["marketplace_browse"],
+      "batches": ["marketplace_browse"]
+    },
+    {
+      "changedFiles": ["bounded-contexts/public-presence/features/policies/ui/routes/privacy.tsx"],
+      "suiteIds": ["marketplace_browse"],
+      "batches": ["marketplace_browse"]
+    },
+    {
+      "changedFiles": ["bounded-contexts/public-presence/features/policies/ui/routes/seller-agreement.tsx"],
+      "suiteIds": ["marketplace_browse"],
+      "batches": ["marketplace_browse"]
+    },
+    {
+      "changedFiles": ["bounded-contexts/public-presence/features/policies/ui/routes/terms.tsx"],
+      "suiteIds": ["marketplace_browse"],
+      "batches": ["marketplace_browse"]
+    },
     {
       "changedFiles": ["bounded-contexts/fulfillment/routes/seller-shipping-setup.tsx"],
       "suiteIds": ["marketplace_checkout"],
