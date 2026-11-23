@@ -1,6 +1,8 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { delimiter, dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import {
@@ -231,15 +233,28 @@ describe("Corten admin staging deployment", () => {
     expect(read("Dockerfile.corten-admin.dockerignore")).not.toContain("\ndeployables/corten-pilot\n");
   });
 
-  it("requires pilot readiness in both staging ingress wait and admin smoke", () => {
+  it("requires pilot readiness in both staging ingress wait and admin smoke whenever its image was built", () => {
     const steps = workflow.jobs["deploy-staging"].steps;
     const url = "https://admin-corten.staging.chasesets.com/health/ready";
-    expect(steps.find(({ name }) => name === "Wait for staging ingress URLs").run).toContain(url);
-    const smoke = steps.find(({ name }) => name === "Smoke check").run;
-    expect(smoke).toContain(`--url "${url}"`);
-    expect(smoke).toContain("node ./scripts/platform-ingress-wait.mjs");
-    expect(smoke).toContain("--expect-status 200");
-    expect(smoke).toContain('"https://${admin_domain}"');
+    const output = "${{ needs.build-corten-pilot-images.outputs.corten_admin_image }}";
+    const wait = steps.find(({ name }) => name === "Wait for staging ingress URLs");
+    expect(wait.env.CORTEN_ADMIN_IMAGE).toBe(output);
+    expect(wait.run).toContain(`if [ -n "$CORTEN_ADMIN_IMAGE" ]; then\n  ingress_urls+=("${url}")\nfi`);
+    expect(wait.run.split(url)).toHaveLength(2);
+    const smoke = steps.find(({ name }) => name === "Smoke check");
+    expect(smoke.env.CORTEN_ADMIN_IMAGE).toBe(output);
+    expect(smoke.run).toContain(
+      `if [ -n "$CORTEN_ADMIN_IMAGE" ]; then\n  node ./scripts/platform-ingress-wait.mjs \\\n    --attempts 1 \\\n    --expect-status 200 \\\n    --url "${url}"\nfi`,
+    );
+    expect(smoke.run.split(url)).toHaveLength(2);
+    // Each advisory gate names the one list whose change makes it unconditional.
+    const pointer = "# Advisory while admin-corten is in ADVISORY_CORTEN_PILOT_COMPONENTS";
+    const deploy = steps.find(({ id }) => id === "staging_kubernetes_deploy");
+    const advisory = steps.find(({ name }) => name === "Advisory Corten admin smoke");
+    for (const run of [wait.run, smoke.run, advisory.run, deploy.run]) {
+      expect(run.split(pointer)).toHaveLength(2);
+    }
+    expect(smoke.run).toContain('"https://${admin_domain}"');
   });
 
   it("runs the authenticated admin smoke against the pilot after admin-web's, without gating the deploy", () => {
@@ -269,21 +284,198 @@ describe("Corten admin staging deployment", () => {
     expect(advisory.run).toContain('"https://admin-corten.staging.chasesets.com"');
     expect(advisory.run).not.toMatch(/PLATFORM_ADMIN_(EMAIL|PASSWORD)/);
     expect(advisory.run).not.toContain("set -x");
+    expect(advisory.env.CORTEN_ADMIN_IMAGE).toBe("${{ needs.build-corten-pilot-images.outputs.corten_admin_image }}");
+    expect(advisory.run.indexOf('if [ -z "$CORTEN_ADMIN_IMAGE" ]; then')).toBeLessThan(
+      advisory.run.indexOf("pnpm run smoke:corten-admin"),
+    );
   });
   it("uses the existing release writer admission and passes its immutable output only to staging", () => {
-    const build = workflow.jobs["build-image"];
-    const step = build.steps.find(({ id }) => id === "corten_admin_image");
+    const build = workflow.jobs["build-corten-pilot-images"];
+    const gate = build.steps.find(({ id }) => id === "corten_pilot_gate");
+    const push = build.steps.find(({ id }) => id === "corten_pilot_push");
+    const publish = build.steps.find(({ id }) => id === "corten_pilot_image");
     expect(build.environment).toBe("staging");
-    expect(step.run).toContain("digitalocean-registry-gc-gate.mjs assert-writable");
-    expect(step.run.indexOf("assert-writable")).toBeLessThan(step.run.indexOf("--push --tag"));
-    expect(step.run).toContain("--file Dockerfile.corten-admin");
-    expect(step.run).toContain("image=${image}@${digest}");
+    expect(build.strategy).toEqual({ "fail-fast": false, matrix: { pilot: ["admin", "marketplace"] } });
+    expect(build.outputs.corten_admin_image).toBe("${{ steps.corten_pilot_image.outputs.corten_admin_image }}");
+    // The registry admission runs before, and in a different step from, the write; a refusal skips the push.
+    expect(gate.run).toContain("digitalocean-registry-gc-gate.mjs assert-writable");
+    expect(gate.run).not.toContain("--push");
+    expect(gate.run).not.toContain("doctl registry create");
+    expect(build.steps.indexOf(gate)).toBeLessThan(build.steps.indexOf(push));
+    expect(push.if).toBe("steps.corten_pilot_gate.outcome == 'success'");
+    expect(push.env.IMAGE).toBe("${{ steps.corten_pilot_gate.outputs.image }}");
+    expect(push.run).toContain('--file "Dockerfile.corten-${PILOT}"');
+    expect(push.run).toContain('--cache-from "type=gha,scope=corten-${PILOT}-image"');
+    expect(push.run).toContain('echo "image=${IMAGE}@${digest}"');
+    // The reference reaches the job output only after a successful push.
+    expect(publish.if).toBe("steps.corten_pilot_push.outcome == 'success'");
+    expect(publish.env).toMatchObject({
+      IMAGE_REF: "${{ steps.corten_pilot_push.outputs.image }}",
+      PILOT: "${{ matrix.pilot }}",
+    });
+    expect(publish.run).toContain('echo "corten_${PILOT}_image=${IMAGE_REF}"');
+    expect(
+      build.steps.filter(({ run }) => String(run ?? "").includes("GITHUB_OUTPUT") && String(run).includes("corten_")),
+    ).toEqual([publish]);
     const deploy = workflow.jobs["deploy-staging"].steps.find(({ id }) => id === "staging_kubernetes_deploy");
-    expect(deploy.env.CORTEN_ADMIN_IMAGE).toBe("${{ needs.build-image.outputs.corten_admin_image }}");
-    expect(deploy.run).toContain('--corten-admin-image "$CORTEN_ADMIN_IMAGE"');
+    expect(deploy.env.CORTEN_ADMIN_IMAGE).toBe("${{ needs.build-corten-pilot-images.outputs.corten_admin_image }}");
+    expect(deploy.run).toContain(
+      'if [ -n "$CORTEN_ADMIN_IMAGE" ]; then\n  corten_image_args+=(--corten-admin-image "$CORTEN_ADMIN_IMAGE")',
+    );
+    expect(deploy.run).toContain('"${corten_image_args[@]}" \\\n');
     expect(deploy.run).toContain("PROXIES=${ingress_pod_cidrs}");
     expect(deploy.run).toContain('metadata.annotations["network.cilium.io/ipv4-pod-cidr"]');
     expect(deploy.run).toContain("ADMIN_WEB_ORIGIN=https://${admin_domain}");
+  });
+
+  it("builds the pilot images beside the release image, where neither their failure nor their delay reaches production", () => {
+    const jobs = workflow.jobs;
+    const pilot = jobs["build-corten-pilot-images"];
+    expect(pilot.needs).toEqual(jobs["build-image"].needs);
+    expect(pilot.if).toBe(jobs["build-image"].if);
+    // The job itself never fails: every step continues on error under its own limit, and the job's limit is
+    // above their sum, so only a runner-level failure can fail it. No job-level continue-on-error is relied on.
+    expect(pilot).not.toHaveProperty("continue-on-error");
+    for (const step of pilot.steps) {
+      expect(step["continue-on-error"], step.name ?? step.uses).toBe(true);
+      expect(step["timeout-minutes"], step.name ?? step.uses).toBeGreaterThan(0);
+    }
+    const stepMinutes = pilot.steps.reduce((total, step) => total + step["timeout-minutes"], 0);
+    expect(pilot["timeout-minutes"]).toBeGreaterThan(stepMinutes);
+    expect(pilot.steps.find(({ id }) => id === "corten_pilot_push")["timeout-minutes"]).toBe(15);
+
+    expect(jobs["deploy-staging"].needs).toEqual(["resolve-release", "build-image", "build-corten-pilot-images"]);
+    expect(jobs["deploy-staging"].if).toBe(
+      "!cancelled() && " +
+        "needs.resolve-release.result == 'success' && " +
+        "needs.build-image.result == 'success' && " +
+        "needs.resolve-release.outputs.deployment_required == 'true'",
+    );
+    expect(jobs["deploy-staging"].if).not.toContain("always()");
+    expect(JSON.stringify(jobs["deploy-staging"].if)).not.toContain("build-corten-pilot-images");
+
+    // Deploy Production's gate is byte-for-byte unchanged, and only Deploy Staging names the pilot job.
+    const heading = workflowText.indexOf("\n  deploy-production:\n");
+    expect(workflowText.slice(heading, workflowText.indexOf("    environment:", heading))).toContain(
+      "    needs:\n      - resolve-release\n      - deploy-staging\n    if: needs.deploy-staging.outputs.deployed == 'true'\n",
+    );
+    const dependants = Object.entries(jobs)
+      .filter(([, job]) => [job.needs ?? []].flat().includes("build-corten-pilot-images"))
+      .map(([name]) => name);
+    expect(dependants).toEqual(["deploy-staging"]);
+  });
+
+  describe("pilot image steps, run in order with stubbed registry tools", () => {
+    const steps = workflow.jobs["build-corten-pilot-images"].steps;
+    const step = (id) => steps.find((candidate) => candidate.id === id);
+    const bash = process.platform === "win32" ? "C:\\Program Files\\Git\\usr\\bin\\bash.exe" : "bash";
+    const digestValue = "sha256:" + "c".repeat(64);
+    // The stubs record each call. The registry has the image when $REGISTRY_HAS_IMAGE says so, or once a push ran.
+    const stubs = [
+      'doctl() { echo "doctl $*" >> "$CALLS"; if [ "$1 $2" = "registry get" ]; then echo chase-sets; fi; }',
+      "docker() {",
+      '  echo "docker $*" >> "$CALLS"',
+      '  if [ "$2" = "build" ]; then touch "$PUSHED"; return 0; fi',
+      '  if [ "$REGISTRY_HAS_IMAGE" != true ] && [ ! -e "$PUSHED" ]; then return 1; fi',
+      '  case "$*" in *--format*) echo "$DIGEST_VALUE" ;; esac',
+      "}",
+      'node() { echo "node $*" >> "$CALLS"; return "$GATE_EXIT"; }',
+    ].join("\n");
+    // Bash's own tools first on PATH, and no ambient credential reaches the stubbed steps.
+    const ambientPath = process.env.PATH ?? process.env.Path ?? "";
+    const shellEnv = (extra) => {
+      const environment = Object.fromEntries(
+        Object.entries(process.env).filter(
+          ([name]) => name.toLowerCase() !== "path" && !/(?:DIGITALOCEAN|GITHUB|TOKEN|SECRET|PASSWORD)/i.test(name),
+        ),
+      );
+      const shellDirectory = process.platform === "win32" ? dirname(bash) : null;
+      return {
+        ...environment,
+        ...extra,
+        PATH: shellDirectory ? `${shellDirectory}${delimiter}${ambientPath}` : ambientPath,
+      };
+    };
+    const readFile = (path) =>
+      spawnSync(bash, ["-c", 'cat "$1" 2>/dev/null || true', "read", path], { encoding: "utf8", env: shellEnv({}) })
+        .stdout;
+    // Runs one step's script; returns its exit code and the outputs it wrote.
+    const runStep = (id, env, scratch) => {
+      const output = `${scratch}/output-${id}`;
+      const result = spawnSync(bash, ["-c", `${stubs}\n${step(id).run}`], {
+        encoding: "utf8",
+        cwd: scratch,
+        env: shellEnv({ ...env, GITHUB_OUTPUT: output }),
+      });
+      const outputs = Object.fromEntries(
+        readFile(output)
+          .split("\n")
+          .filter(Boolean)
+          .map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)]),
+      );
+      return { status: result.status, outputs };
+    };
+    // The workflow's step conditions, read from the steps themselves rather than restated.
+    const runsAfter = (id, outcomes) => {
+      const condition = /^steps\.([a-z_]+)\.outcome == 'success'$/.exec(step(id).if);
+      return outcomes[condition[1]] === "success";
+    };
+    const runLeg = ({ registryHasImage, gateExit }) => {
+      const scratch = mkdtempSync(join(tmpdir(), "corten-pilot-image-"));
+      try {
+        const base = {
+          CALLS: `${scratch}/calls`,
+          PUSHED: `${scratch}/pushed`,
+          REGISTRY_HAS_IMAGE: String(registryHasImage),
+          GATE_EXIT: String(gateExit),
+          DIGEST_VALUE: digestValue,
+          PILOT: "admin",
+          RELEASE_COMMIT: "r".repeat(40),
+        };
+        const outcomes = {};
+        const gate = runStep("corten_pilot_gate", base, scratch);
+        outcomes.corten_pilot_gate = gate.status === 0 ? "success" : "failure";
+        let published = {};
+        if (runsAfter("corten_pilot_push", outcomes)) {
+          const push = runStep(
+            "corten_pilot_push",
+            { ...base, IMAGE: gate.outputs.image, IMAGE_EXISTS: gate.outputs.exists ?? "" },
+            scratch,
+          );
+          outcomes.corten_pilot_push = push.status === 0 ? "success" : "failure";
+          if (runsAfter("corten_pilot_image", outcomes)) {
+            published = runStep("corten_pilot_image", { ...base, IMAGE_REF: push.outputs.image }, scratch).outputs;
+          }
+        }
+        return { outcomes, published, calls: readFile(base.CALLS) };
+      } finally {
+        rmSync(scratch, { recursive: true, force: true });
+      }
+    };
+    const image = "registry.digitalocean.com/chase-sets/chase-sets-corten-admin:" + "r".repeat(40);
+
+    it("publishes an image a rerun finds already pushed, without a gate or a write", () => {
+      const { outcomes, published, calls } = runLeg({ registryHasImage: true, gateExit: 0 });
+      expect(outcomes).toEqual({ corten_pilot_gate: "success", corten_pilot_push: "success" });
+      expect(published).toEqual({ corten_admin_image: image + "@" + digestValue });
+      expect(calls).not.toContain("assert-writable");
+      expect(calls).not.toContain("buildx build");
+    });
+
+    it("admits, builds and publishes a new image", () => {
+      const { published, calls } = runLeg({ registryHasImage: false, gateExit: 0 });
+      expect(published).toEqual({ corten_admin_image: image + "@" + digestValue });
+      expect(calls.indexOf("assert-writable")).toBeGreaterThan(-1);
+      expect(calls.indexOf("assert-writable")).toBeLessThan(calls.indexOf("buildx build"));
+    });
+
+    it("never writes or publishes after the gate refuses", () => {
+      const { outcomes, published, calls } = runLeg({ registryHasImage: false, gateExit: 1 });
+      expect(outcomes).toEqual({ corten_pilot_gate: "failure" });
+      expect(published).toEqual({});
+      expect(calls).toContain("assert-writable");
+      expect(calls).not.toContain("buildx build");
+    });
   });
 
   describe("ingress pod CIDR discovery", () => {
