@@ -18,7 +18,7 @@ import { createMarketplaceServices } from "../../../support/runtime-support/serv
 import { createAccountListingRoutes } from "../api/route";
 import { buildMarketplaceInventoryProjectionHandlers } from "../integrations/supply/supply-projection";
 import { getInventoryItemSupply, listSellerInventoryItemSupply } from "../read-model/queries";
-import { directPortInput, draftContext, draftMessage } from "./issue-7169-c4-fixture";
+import { directPortInput, draftContext, draftMessage, draftProductMeasure } from "./issue-7169-c4-fixture";
 
 const adminUrl = process.env.TEST_DATABASE_URL;
 if (!adminUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for database-backed tests in CI.");
@@ -82,6 +82,10 @@ describeDb("Inventory snapshot PostgreSQL compatibility", () => {
   beforeEach(async () => {
     await resetMultiContextTestSchemas(pools);
     await bootstrapContextDatabase(marketplaceModule, pools.marketplace);
+    await pools.marketplace.query(
+      "INSERT INTO marketplace_catalog_items (catalog_item_id, title, status, product_measure_snapshots) VALUES ('cat_c4', 'Draft card', 'published', $1)",
+      [JSON.stringify([draftProductMeasure()])],
+    );
   });
   afterAll(async () => closeMultiContextTestPools(pools));
   const owner = () => createMarketplaceServices(pools.marketplace, { commercialTermsResolver: terms });

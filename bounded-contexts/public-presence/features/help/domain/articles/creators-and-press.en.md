@@ -12,7 +12,7 @@ claimCategories: ["fees", "protection"]
 promiseTable:
   - claim: Published fee figures resolve from the current ratified policy documents.
     issues: ["#4353"]
-    tests: ["bounded-contexts/commercial-terms/routes/public/sales-fees.test.tsx"]
+    tests: ["bounded-contexts/commercial-terms/features/marketplace-sales-fee/ui/routes/sales-fees.test.tsx"]
   - claim: Access follows the waitlist, numbered beta invite waves, then open signup, with no promised dates.
     issues: ["#8371"]
     tests: ["bounded-contexts/public-presence/features/waitlist/ui/public-pages.test.tsx"]

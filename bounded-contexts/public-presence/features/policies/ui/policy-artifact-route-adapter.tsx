@@ -6,7 +6,7 @@ import { paymentsTermsPolicyArtifact } from "../domain/payments-terms";
 import type { PublicPolicyArtifact } from "../domain/policy-artifact";
 import { privacyPolicyArtifact } from "../domain/privacy-policy";
 import { sellerAgreementPolicyArtifact } from "../domain/seller-agreement";
-import { publicPresenceT as t } from "../../waitlist/ui/public-presence-translator";
+import { t } from "./localization/translator";
 import {
   PolicyArtifactPage,
   type PolicyArtifactPageCopyProfile,

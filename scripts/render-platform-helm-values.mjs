@@ -361,6 +361,7 @@ export function buildPlatformHelmValues(options = {}) {
     productionEnvOverrides: _productionEnvOverrides,
     stagingApiEnv,
     stagingComponents: _stagingComponents,
+    productionComponents: _productionComponents,
     ...values
   } = runtimeValues;
   const components = Object.fromEntries(
@@ -533,7 +534,7 @@ const productionHostnameSpread = [
 
 export function buildPlatformHelmProductionValues(options = {}) {
   const rootDir = path.resolve(options.repoRoot ?? repoRoot);
-  const { productionEnvOverrides } = readPlatformRuntimeValues(rootDir);
+  const { productionEnvOverrides, productionComponents } = readPlatformRuntimeValues(rootDir);
 
   return {
     generatedBy,
@@ -547,15 +548,19 @@ export function buildPlatformHelmProductionValues(options = {}) {
         endpoint: `https://otel.${productionEnvironmentZone}`,
       },
     },
-    components: Object.fromEntries(
-      Object.entries(productionAppComponentRequests).map(([name, requests]) => [
-        name,
-        {
-          resources: { requests, limits: productionAppComponentLimits },
-          topologySpreadConstraints: productionHostnameSpread,
-        },
-      ]),
-    ),
+    components: {
+      // The Corten admin pilot. The deploy renders it disabled while admin-web serves admin.chasesets.com.
+      ...productionComponents,
+      ...Object.fromEntries(
+        Object.entries(productionAppComponentRequests).map(([name, requests]) => [
+          name,
+          {
+            resources: { requests, limits: productionAppComponentLimits },
+            topologySpreadConstraints: productionHostnameSpread,
+          },
+        ]),
+      ),
+    },
   };
 }
 
@@ -594,6 +599,42 @@ export function renderPlatformHelmStagingValues() {
   );
 }
 
+// The app that serves admin.staging. STAGING_ADMIN_APP is a GitHub variable, so a rollback to admin-web
+// is a variable change and a deploy, with no pull request. Unset means the default; any other value fails.
+export const STAGING_ADMIN_APPS = Object.freeze(["admin-corten", "admin-web"]);
+export const defaultStagingAdminApp = "admin-corten";
+
+export function resolveStagingAdminApp(env = {}) {
+  return resolveAdminAppVariable(env, "STAGING_ADMIN_APP", defaultStagingAdminApp);
+}
+
+// The app that serves admin.chasesets.com, from the production environment's PRODUCTION_ADMIN_APP. It
+// defaults to admin-web; switching production to the Corten admin is its own reviewed change.
+export const PRODUCTION_ADMIN_APPS = STAGING_ADMIN_APPS;
+export const defaultProductionAdminApp = "admin-web";
+
+export function resolveProductionAdminApp(env = {}) {
+  return resolveAdminAppVariable(env, "PRODUCTION_ADMIN_APP", defaultProductionAdminApp);
+}
+
+// The admin app for a staging or production deploy; null for any other environment.
+export function resolveAdminApp(env = {}, environment) {
+  if (environment === "staging") return { ...resolveStagingAdminApp(env), variable: "STAGING_ADMIN_APP" };
+  if (environment === "production") return { ...resolveProductionAdminApp(env), variable: "PRODUCTION_ADMIN_APP" };
+  return null;
+}
+
+function resolveAdminAppVariable(env, variable, defaultApp) {
+  const value = String(env[variable] ?? "").trim();
+  if (value === "") {
+    return { app: defaultApp, source: "default" };
+  }
+  if (!STAGING_ADMIN_APPS.includes(value)) {
+    throw new Error(`${variable} must be one of ${STAGING_ADMIN_APPS.join(", ")}; got "${value}".`);
+  }
+  return { app: value, source: "variable" };
+}
+
 export function buildDoksIngressValues(options = {}) {
   const env = options.env ?? {};
   const environment = options.environment ?? "staging";
@@ -602,6 +643,7 @@ export function buildDoksIngressValues(options = {}) {
   }
 
   const production = environment === "production";
+  const adminApp = production ? resolveProductionAdminApp(env).app : resolveStagingAdminApp(env).app;
   const targetVariable = production ? "PRODUCTION_DOKS_INGRESS_TARGET" : "DOKS_INGRESS_TARGET";
   const target = String(env[targetVariable] ?? "").trim();
 
@@ -610,8 +652,11 @@ export function buildDoksIngressValues(options = {}) {
   const marketplaceServed = marketplacePublicEnabled || env.PRODUCTION_MARKETPLACE_SERVED === "true";
   const hosts = enabled
     ? production
-      ? buildProductionDoksIngressHosts({ marketplaceServed })
-      : buildDoksIngressHosts(stagingEnvironmentZone, "live", { apexService: "marketplace" })
+      ? buildProductionDoksIngressHosts({ marketplaceServed, adminService: adminApp })
+      : buildDoksIngressHosts(stagingEnvironmentZone, "live", {
+          apexService: "marketplace",
+          adminService: adminApp,
+        })
     : [];
   if (enabled && !production) {
     hosts.push({
@@ -682,6 +727,7 @@ export function buildPreviewDoksIngressValues(options = {}) {
 
 function buildDoksIngressHosts(environmentZone, hostMode, options = {}) {
   const apexService = options.apexService ?? "public-web";
+  const adminService = options.adminService ?? "admin-web";
   const hosts =
     hostMode === "live"
       ? {
@@ -712,7 +758,7 @@ function buildDoksIngressHosts(environmentZone, hostMode, options = {}) {
     },
     {
       host: hosts.admin,
-      paths: doksIngressPaths("admin-web"),
+      paths: doksIngressPaths(adminService),
     },
   ];
 }
@@ -720,7 +766,7 @@ function buildDoksIngressHosts(environmentZone, hostMode, options = {}) {
 function buildProductionDoksIngressHosts(options = {}) {
   const includeMarketplace = options.marketplaceServed === true;
   const buildHostSet = (hostMode) =>
-    buildDoksIngressHosts(productionEnvironmentZone, hostMode).filter(
+    buildDoksIngressHosts(productionEnvironmentZone, hostMode, { adminService: options.adminService }).filter(
       (host) => includeMarketplace || !host.host.startsWith("marketplace."),
     );
 

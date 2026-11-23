@@ -1,5 +1,6 @@
 import type { InventoryDraftListingMessage } from "@chase-sets/inventory-draft-listing";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
 import type { MarketplaceListingServices } from "../api/runtime";
 
 export const draftContext = {
@@ -40,6 +41,25 @@ export function draftMessage(): InventoryDraftListingMessage {
       priceCurrencyCode: "USD",
       quantityCap: 2,
     },
+  };
+}
+
+/** The Resolved Product Measure of the draft's Product; a native Listing cannot be created without it. */
+export function draftProductMeasure(): ProductMeasureSnapshot {
+  const { catalogItemId, productId, selectedOptions } = draftMessage().snapshot;
+  return {
+    catalogItemId,
+    productId,
+    selectedOptions,
+    measureVersion: "pm_c4",
+    unitLengthInches: 3.5,
+    unitWidthInches: 2.5,
+    unitHeightInches: 0.01,
+    unitWeightOunces: 0.1,
+    physicalFlags: ["bendable"],
+    stackBehavior: "stackable-thickness",
+    source: "profile",
+    confidence: "measured",
   };
 }
 

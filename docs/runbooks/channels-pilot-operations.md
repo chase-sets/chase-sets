@@ -122,7 +122,7 @@ this route or its API — do not look for one.
 ### Pilot Inventory Intake
 
 Go to `/account/inventory/imports`
-(`bounded-contexts/inventory/routes/marketplace/account-inventory-imports.tsx`).
+(`bounded-contexts/inventory/features/import-batches/ui/routes/account-inventory-imports.tsx`).
 Submit the `create-batch` intent with:
 
 - `sourceKey` = `tcgplayer-csv` (profile defined in

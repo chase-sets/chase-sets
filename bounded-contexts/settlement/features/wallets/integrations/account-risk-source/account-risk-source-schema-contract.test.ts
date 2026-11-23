@@ -21,33 +21,53 @@ const holdSql = [
   "ALTER TABLE settlement_account_risk_sources\n  ADD COLUMN IF NOT EXISTS payout_review_hold boolean NOT NULL DEFAULT false",
   "ALTER TABLE settlement_account_risk_sources\n  ADD COLUMN IF NOT EXISTS payout_review_hold_stream_version bigint NOT NULL DEFAULT 0",
 ];
-const holdSchemaHash = "af2f9f9e83057747ef49bad4ed66f44018c2bb94299c15166074aca41518464d";
-const candidateHash = "6837c0d28d0223e4f18507050e806c73a0ce776882fed7d3f2e36933341a9973";
-const revisionSchemaHash = "47c64402367e57c6f9bca8fc4aafcc7483aee1849e71ad2cce5ee12d7e4e36b5";
-const historicalHash = "a1de72122075c49e538ddf87e471c3ca29e3fb3775bd17a84041a5f49d24e610";
-const stoppedHash = "c0d4c4dfd3a81a360336334e3f7f7ffb397bad3ebca065b1b43039bddec877ea";
+const holdSchemaHash = "e14971b090396ba9e002eb8b099c67ae150742f0e535c34b43f7589635b8cecc";
+const candidateHash = "e95ccc53aea76f9b7a823067400ab9fc831a2e066db5d176772f690055b459c4";
+const revisionSchemaHash = "1c3b950dad3bced9199589e975c399b63ce4564c91c36021f1e2531f87bc3ecb";
+const historicalHash = "30dbe2198e434cf97aac8f932e1d9ca27a90a10ef1413240a736e4bfad14bcdb";
+const stoppedHash = "3ef21801aa37729c7fe72cfe48375a770305bcb7c54fc7db8fb6874eb0aa7f3f";
+const dropId = "20261123_settlement_drop_account_velocity_storage";
+const velocityColumns = [
+  "chargeback_7d_count",
+  "chargeback_30d_count",
+  "chargeback_30d_rate_bps",
+  "listing_24h_count",
+  "listing_24h_value_cents",
+  "review_24h_count",
+  "review_24h_median_reviewer_age_days",
+  "buyer_order_24h_count",
+  "buyer_spend_24h_cents",
+  "velocity_alert_flags",
+];
+const dropSql = [
+  "SET lock_timeout = '5s'",
+  "DROP TABLE IF EXISTS settlement_account_velocity_sources",
+  `ALTER TABLE settlement_account_risk_sources\n${velocityColumns.map((column) => `  DROP COLUMN IF EXISTS ${column}`).join(",\n")}`,
+];
+const velocityStorage =
+  /settlement_account_velocity_sources|velocity_alert_flags|chargeback_(?:7d|30d)_|(?:listing|review|buyer_order|buyer_spend)_24h_/;
 const migrationIds = [
-  "20260907_settlement_listing_risk_currency",
   "20260720_settlement_account_linkage_clusters",
   "20260720_settlement_account_linkage_closer_cursor",
   "20260715_settlement_review_scoring_disposition",
   "20260706_settlement_payments_fraud_risk_sources",
   "20260707_settlement_linked_account_risk_sources",
-  "20260707_settlement_account_velocity_risk_sources",
   "20260711_settlement_account_review_sources_reveal",
   revisionId,
   holdId,
   guardId,
+  dropId,
 ];
 
-// Fixed Settlement lifecycle evidence at abb4857e, plus the Settlement hold projection wiring in index.ts.
+// Fixed Settlement lifecycle evidence at abb4857e, plus the Settlement hold projection wiring in index.ts and the
+// unlogged projection migration without the dropped velocity source table.
 // Full source pins include imports, exports, every executable member and opaque expressions.
 const composedSources = {
-  "bounded-contexts/settlement/index.ts": "0e81eec72120e81759b90d7671e3daec1173d42605097ff664e954d01fc2bbf4",
+  "bounded-contexts/settlement/index.ts": "e5d6a029b3040554b4f337a8b2abab019f1371370651abf37e1b9f7f5173c529",
   "bounded-contexts/settlement/support/runtime-support/schema.ts":
     "2274e4327827a68c647aa383821fe93b6157dadfceba961918ebbe3fe88ca7be",
   "bounded-contexts/settlement/support/runtime-support/unlogged-projection-migrations.ts":
-    "ed378de547da902d0bd329158adf9d7de733941ea875dfe5190bdee9987defa2",
+    "56108e18c26ef81dd582536493c83cdbec04befc41751cddb08e88d64f9f155b",
   "bounded-contexts/settlement/support/runtime-support/retention-policy.ts":
     "26eeeb90a1a35cc56857dc8f2ab5bcc7cfdf9fd5a080b3e27ed9a861023e9380",
   "bounded-contexts/settlement/features/wallets/read-model/schema.ts":
@@ -127,7 +147,7 @@ function hasExactSql(entry: ts.Node, expected: readonly string[], file: ts.Sourc
   );
 }
 
-type Obligation = "identity" | "prefix" | "order" | "add" | "boot" | "closed";
+type Obligation = "identity" | "prefix" | "order" | "add" | "boot" | "drop" | "closed";
 function violations(text: string, bypass?: Obligation) {
   const failures: string[] = [];
   const checkObligation = (key: Obligation, valid: boolean) => {
@@ -156,6 +176,7 @@ function violations(text: string, bypass?: Obligation) {
   const revision = array.elements[migrationIds.indexOf(revisionId)];
   const hold = array.elements[migrationIds.indexOf(holdId)];
   const guard = array.elements[migrationIds.indexOf(guardId)];
+  const drop = array.elements[migrationIds.indexOf(dropId)];
   checkObligation(
     "add",
     !!revision && !!hold && hasExactSql(revision, [revisionSql], file) && hasExactSql(hold, holdSql, file),
@@ -163,12 +184,19 @@ function violations(text: string, bypass?: Obligation) {
   checkObligation(
     "boot",
     !/\b(?:revision|payout_review_hold|payout_review_hold_stream_version)\b/.test(boot.text) &&
+      !velocityStorage.test(boot.text) &&
       boot.getText(file).slice(1, -1) === boot.text,
+  );
+  checkObligation(
+    "drop",
+    !!drop &&
+      hasExactSql(drop, dropSql, file) &&
+      array.elements.every((entry) => entry === drop || !velocityStorage.test(entry.getText(file))),
   );
   checkObligation(
     "closed",
     file.statements.length === 4 &&
-      [revision, hold, guard].every(
+      [revision, hold, guard, drop].every(
         (entry) =>
           !!entry &&
           ts.isObjectLiteralExpression(entry) &&
@@ -207,7 +235,7 @@ describe("Settlement ledger-only schema contract", () => {
       ts.forEachChild(node, visit);
     };
     visit(parsed.file);
-    expect(literalCount).toBeGreaterThan(70);
+    expect(literalCount).toBe(63);
     console.info(
       `SETTLEMENT_SCHEMA_INVENTORY ${JSON.stringify({ sourceFiles: Object.keys(composedSources).length + 1, accountMigrations: parsed.array.elements.length, literalCount, ids: migrationIds })}`,
     );
@@ -277,6 +305,73 @@ describe("Settlement ledger-only schema contract", () => {
       "  account_id text PRIMARY KEY,\n  payout_review_hold boolean NOT NULL DEFAULT false,",
     );
     expect(violations(mutant, "identity")).toContain("boot");
+  });
+
+  it.each([
+    [
+      "settlement_account_velocity_sources",
+      "CREATE TABLE IF NOT EXISTS settlement_account_velocity_sources (source_id text PRIMARY KEY);",
+    ],
+    ...velocityColumns.map((column) => [
+      column,
+      `ALTER TABLE settlement_account_risk_sources\n  ADD COLUMN IF NOT EXISTS ${column} integer NULL;`,
+    ]),
+  ])("refuses %s in bootstrap SQL even with source identity bypassed", (_name, statement) => {
+    const mutant = candidate.replace("\n`;\n", `\n\n${statement}\n\`;\n`);
+    expect(mutant).not.toBe(candidate);
+    expect(violations(mutant, "identity")).toContain("boot");
+  });
+
+  it("names velocity storage in the drop migration and in no other boot or ledger source", () => {
+    const { array, file } = declarations(candidate)!;
+    const drop = array.elements[migrationIds.indexOf(dropId)]!;
+    expect(array.elements.at(-1)).toBe(drop);
+    expect(candidate.replace(drop.getText(file), "")).not.toMatch(velocityStorage);
+    for (const sibling of Object.keys(composedSources)) expect(source(sibling), sibling).not.toMatch(velocityStorage);
+  });
+
+  it.each([
+    ["missing lock timeout", "      `SET lock_timeout = '5s'`,\n      `DROP TABLE", "      `DROP TABLE"],
+    [
+      "unguarded table drop",
+      "DROP TABLE IF EXISTS settlement_account_velocity_sources",
+      "DROP TABLE settlement_account_velocity_sources",
+    ],
+    ["unguarded column drop", "DROP COLUMN IF EXISTS velocity_alert_flags", "DROP COLUMN velocity_alert_flags"],
+    ["retained column", ",\n  DROP COLUMN IF EXISTS velocity_alert_flags", ""],
+    [
+      "widened drop",
+      "DROP COLUMN IF EXISTS velocity_alert_flags",
+      "DROP COLUMN IF EXISTS velocity_alert_flags,\n  DROP COLUMN IF EXISTS review_count",
+    ],
+    [
+      "cascading drop",
+      "DROP TABLE IF EXISTS settlement_account_velocity_sources",
+      "DROP TABLE IF EXISTS settlement_account_velocity_sources CASCADE",
+    ],
+    [
+      "older statement that still names the table",
+      "`ALTER TABLE settlement_account_review_sources ADD COLUMN IF NOT EXISTS revealed_at timestamptz NULL`,",
+      "`ALTER TABLE settlement_account_review_sources ADD COLUMN IF NOT EXISTS revealed_at timestamptz NULL`,\n      `ALTER TABLE IF EXISTS settlement_account_velocity_sources ADD COLUMN IF NOT EXISTS amount_currency_code text NULL`,",
+    ],
+  ])("refuses drop mutant %s even with source identity bypassed", (_name, before, after) => {
+    const mutant = candidate.replace(before, after);
+    expect(mutant).not.toBe(candidate);
+    expect(violations(mutant, "identity")).toContain("drop");
+    expect(violations(mutant, "drop")).toContain("identity");
+  });
+
+  it("refuses the drop ahead of an existing migration through the pinned order", () => {
+    const parsed = declarations(candidate)!;
+    const guard = parsed.array.elements[migrationIds.indexOf(guardId)]!;
+    const drop = parsed.array.elements[migrationIds.indexOf(dropId)]!;
+    const mutant =
+      candidate.slice(0, guard.getStart()) +
+      drop.getText() +
+      candidate.slice(guard.end, drop.getStart()) +
+      guard.getText() +
+      candidate.slice(drop.end);
+    expect(violations(mutant, "identity")).toContain("order");
   });
 
   it("refuses a missing hold statement or a changed default without relying on the full-source hash", () => {

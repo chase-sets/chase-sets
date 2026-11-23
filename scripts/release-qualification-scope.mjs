@@ -181,7 +181,6 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "provider-credentials": "runtime-library",
     "public-docs": "runtime-library",
     realtime: "runtime-library",
-    "review-eligibility": "runtime-library",
     "seller-attention-queue": "runtime-library",
     "seller-desk": "runtime-library",
     "tcgplayer-market-observations": "event-store-persistence",
@@ -217,6 +216,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     /^bounded-contexts\/[^/]+\/support\/seed-support\//,
     /^bounded-contexts\/catalog\/support\/authoring-support\/seed\.ts$/,
     /^bounded-contexts\/[^/]+\/features\/[^/]+\/api\/seed\.ts$/,
+    /^bounded-contexts\/[^/]+\/features\/[^/]+\/integrations\/seed\//,
     /^contracts\/catalog-seed\//,
     // Seed runner and boot entry points.
     /^infrastructure\/bounded-context-runtime\/seeding\.ts$/,

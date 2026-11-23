@@ -128,6 +128,8 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [Customer Feedback Privacy Operations](./runbooks/customer-feedback-privacy.md): retention preview/execution, privacy holds, redaction propagation, and sensitive export incident response.
 - [Facility Return Intake](./runbooks/facility-return-intake.md) — custody, discrepancy, unidentified-package, outage, wrong-facility, and correction procedures.
 
+- [Staging Admin App](./runbooks/staging-admin-app.md): which app serves admin.staging, the STAGING_ADMIN_APP switch, and the rollback to admin-web.
+- [Production Admin App](./runbooks/production-admin-app.md): which app serves admin.chasesets.com, the PRODUCTION_ADMIN_APP switch, its rollback, and recovering from a refused deploy.
 - [Beta Wave Exposure](./runbooks/beta-wave-exposure.md): policy-gated waitlist admission, proportional Argo exposure, monitoring, halt, and rollback procedure.
 - [Platform Loop Rollback](./runbooks/platform-loop-rollback.md): procedure for releasing a milestone from the orchestration-platform loop back to the host orchestrator, Todd-only authorization and ownership-change boundary, and exact run/supervisor identity binding.
 - [Money Operations](./runbooks/money-operations.md): checkout, wallet, Stripe payments, Connect payouts, launch checks, and smoke tests.

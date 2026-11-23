@@ -489,9 +489,6 @@
       "handlers": {
         "payments.payment-disputed": "<function>"
       },
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure",
       "eventTypes": ["payments.payment-disputed"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",

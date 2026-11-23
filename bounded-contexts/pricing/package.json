@@ -32,6 +32,7 @@
     "@chase-sets/http": "workspace:*",
     "@chase-sets/inventory": "workspace:*",
     "@chase-sets/localization": "workspace:*",
+    "@chase-sets/market-estimate-display": "workspace:*",
     "@chase-sets/marketplace": "workspace:*",
     "@chase-sets/platform-policy": "workspace:*",
     "@chase-sets/platform-runtime": "workspace:*",

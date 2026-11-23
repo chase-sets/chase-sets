@@ -1,33 +1,36 @@
 import { describe, expect, it } from "vitest";
 import {
-  defaultMarketplaceCheckoutFeePolicyValue,
+  MarketplaceCheckoutFeePolicyUnavailableError,
   marketplaceCheckoutFeePaymentMethodCategories,
   marketplaceCheckoutFeePolicy,
   normalizeMarketplaceCheckoutFeePaymentMethodCategory,
   quoteMarketplaceCheckoutFee,
   type MarketplaceCheckoutFeePolicyValue,
 } from "./marketplace-checkout-fee-policy";
+import { PaymentsDomainError } from "../../../support/runtime-support/common";
+import { quotedCheckoutProcessingFeePolicyValue } from "../../../tests/test-support/checkout-processing-fee-policy";
 
 describe("marketplace checkout fee policy", () => {
-  it("quotes the canonical card checkout fee fingerprint from the compiled default (no policy passed)", () => {
-    expect(
-      quoteMarketplaceCheckoutFee({
-        orderAmount: "26.00",
-        externalBasisAmount: "26.00",
-        balanceCreditAmount: "0.00",
-        paymentMethodCategory: "card",
-        quotedAt: "2026-05-03T00:00:00.000Z",
-      }),
-    ).toMatchObject({
-      payment_method_category: "card",
-      marketplace_checkout_fee_amount: "1.09",
-      total_amount: "27.09",
-      processor_amount: "27.09",
-      quote_fingerprint: "marketplace-checkout-fee-v1|card|26.00|0.00|26.00|1.09|27.09|27.09",
-    });
+  it("declares the policy value as a required parameter and exports no policy value of its own", async () => {
+    expect(quoteMarketplaceCheckoutFee.length).toBe(2);
+    expect(marketplaceCheckoutFeePolicy.length).toBe(1);
+
+    const exported = await import("./marketplace-checkout-fee-policy");
+    for (const value of Object.values(exported)) {
+      expect(value).not.toEqual(
+        expect.objectContaining({ base: expect.anything(), methodAdjustments: expect.anything() }),
+      );
+    }
   });
 
-  it("quotes byte-identically when the resolved default policy value is passed explicitly", () => {
+  it("names the refusal to quote without a policy as a Payments domain error with its own code", () => {
+    const refusal = new MarketplaceCheckoutFeePolicyUnavailableError();
+    expect(refusal).toBeInstanceOf(PaymentsDomainError);
+    expect(refusal.name).toBe("MarketplaceCheckoutFeePolicyUnavailableError");
+    expect(refusal.code).toBe("marketplace_checkout_fee_policy_unavailable");
+  });
+
+  it("quotes the canonical card checkout fee fingerprint from the stated policy value", () => {
     expect(
       quoteMarketplaceCheckoutFee(
         {
@@ -37,7 +40,7 @@ describe("marketplace checkout fee policy", () => {
           paymentMethodCategory: "card",
           quotedAt: "2026-05-03T00:00:00.000Z",
         },
-        defaultMarketplaceCheckoutFeePolicyValue,
+        quotedCheckoutProcessingFeePolicyValue,
       ),
     ).toMatchObject({
       payment_method_category: "card",
@@ -48,15 +51,18 @@ describe("marketplace checkout fee policy", () => {
     });
   });
 
-  it("quotes the canonical bank-account and platform-credit checkout fees from the default policy", () => {
+  it("quotes the canonical bank-account and platform-credit checkout fees from the stated policy value", () => {
     expect(
-      quoteMarketplaceCheckoutFee({
-        orderAmount: "26.00",
-        externalBasisAmount: "26.00",
-        balanceCreditAmount: "0.00",
-        paymentMethodCategory: "bank-account",
-        quotedAt: "2026-05-03T00:00:00.000Z",
-      }),
+      quoteMarketplaceCheckoutFee(
+        {
+          orderAmount: "26.00",
+          externalBasisAmount: "26.00",
+          balanceCreditAmount: "0.00",
+          paymentMethodCategory: "bank-account",
+          quotedAt: "2026-05-03T00:00:00.000Z",
+        },
+        quotedCheckoutProcessingFeePolicyValue,
+      ),
     ).toMatchObject({
       payment_method_category: "bank-account",
       marketplace_checkout_fee_amount: "0.14",
@@ -64,13 +70,16 @@ describe("marketplace checkout fee policy", () => {
     });
 
     expect(
-      quoteMarketplaceCheckoutFee({
-        orderAmount: "26.00",
-        externalBasisAmount: "0.00",
-        balanceCreditAmount: "26.00",
-        paymentMethodCategory: "platform-credit",
-        quotedAt: "2026-05-03T00:00:00.000Z",
-      }),
+      quoteMarketplaceCheckoutFee(
+        {
+          orderAmount: "26.00",
+          externalBasisAmount: "0.00",
+          balanceCreditAmount: "26.00",
+          paymentMethodCategory: "platform-credit",
+          quotedAt: "2026-05-03T00:00:00.000Z",
+        },
+        quotedCheckoutProcessingFeePolicyValue,
+      ),
     ).toMatchObject({
       payment_method_category: "platform-credit",
       marketplace_checkout_fee_amount: "0.00",
@@ -82,12 +91,14 @@ describe("marketplace checkout fee policy", () => {
     expect(normalizeMarketplaceCheckoutFeePaymentMethodCategory("bank_account")).toBe("bank-account");
     expect(normalizeMarketplaceCheckoutFeePaymentMethodCategory("credit")).toBe("platform-credit");
     expect(
-      marketplaceCheckoutFeePolicy().method_adjustments.map((adjustment) => adjustment.payment_method_category),
+      marketplaceCheckoutFeePolicy(quotedCheckoutProcessingFeePolicyValue).method_adjustments.map(
+        (adjustment) => adjustment.payment_method_category,
+      ),
     ).toEqual([...marketplaceCheckoutFeePaymentMethodCategories]);
   });
 
-  it("publishes the compiled default policy struct byte-identically", () => {
-    expect(marketplaceCheckoutFeePolicy()).toEqual({
+  it("publishes the stated policy value with the launch effective-at when the resolved policy carries none", () => {
+    expect(marketplaceCheckoutFeePolicy(quotedCheckoutProcessingFeePolicyValue)).toEqual({
       policy_version: "marketplace-checkout-fee-v1",
       effective_at: "2026-05-03T00:00:00.000Z",
       enabled_jurisdictions: ["US"],
@@ -153,7 +164,7 @@ describe("marketplace checkout fee policy", () => {
     });
   });
 
-  it("quotes a revised policy's fee and produces a different fingerprint than the default policy", () => {
+  it("quotes a revised policy's fee and produces a different fingerprint than the stated policy value", () => {
     const revisedPolicy: MarketplaceCheckoutFeePolicyValue = {
       enabledJurisdictions: ["US"],
       base: { percentageBps: 350, fixedAmount: "0.35" },
@@ -164,13 +175,16 @@ describe("marketplace checkout fee policy", () => {
       ],
     };
 
-    const defaultQuote = quoteMarketplaceCheckoutFee({
-      orderAmount: "26.00",
-      externalBasisAmount: "26.00",
-      balanceCreditAmount: "0.00",
-      paymentMethodCategory: "card",
-      quotedAt: "2026-05-03T00:00:00.000Z",
-    });
+    const statedQuote = quoteMarketplaceCheckoutFee(
+      {
+        orderAmount: "26.00",
+        externalBasisAmount: "26.00",
+        balanceCreditAmount: "0.00",
+        paymentMethodCategory: "card",
+        quotedAt: "2026-05-03T00:00:00.000Z",
+      },
+      quotedCheckoutProcessingFeePolicyValue,
+    );
     const revisedQuote = quoteMarketplaceCheckoutFee(
       {
         orderAmount: "26.00",
@@ -183,22 +197,25 @@ describe("marketplace checkout fee policy", () => {
     );
 
     // Same quote-format version (fingerprint schema is stable across revisions)...
-    expect(revisedQuote.policy_version).toBe(defaultQuote.policy_version);
+    expect(revisedQuote.policy_version).toBe(statedQuote.policy_version);
     // ...but a different fee and fingerprint, which is exactly what drives the
     // existing `fee_quote_stale` re-quote flow when a policy revision lands
     // mid-session.
-    expect(revisedQuote.marketplace_checkout_fee_amount).not.toBe(defaultQuote.marketplace_checkout_fee_amount);
-    expect(revisedQuote.quote_fingerprint).not.toBe(defaultQuote.quote_fingerprint);
+    expect(revisedQuote.marketplace_checkout_fee_amount).not.toBe(statedQuote.marketplace_checkout_fee_amount);
+    expect(revisedQuote.quote_fingerprint).not.toBe(statedQuote.quote_fingerprint);
   });
 
   it.each(["1e2", "12.999", "12.34abc", "-0.75"])("rejects malformed checkout fee amount %s", (amount) => {
     expect(() =>
-      quoteMarketplaceCheckoutFee({
-        orderAmount: amount,
-        externalBasisAmount: amount,
-        balanceCreditAmount: "0.00",
-        paymentMethodCategory: "card",
-      }),
+      quoteMarketplaceCheckoutFee(
+        {
+          orderAmount: amount,
+          externalBasisAmount: amount,
+          balanceCreditAmount: "0.00",
+          paymentMethodCategory: "card",
+        },
+        quotedCheckoutProcessingFeePolicyValue,
+      ),
     ).toThrow("Checkout amount must be a valid decimal.");
   });
 });

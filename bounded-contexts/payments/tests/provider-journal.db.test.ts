@@ -34,6 +34,10 @@ import { module as paymentsModule } from "../index";
 import { createPaymentsServices } from "../support/runtime-support/services";
 import { createPaymentMcpHandlers } from "../features/payments/api/mcp";
 import { createAccountPaymentRoutes, type PaymentsApiEnv } from "../features/payments/api/route";
+import {
+  checkoutProcessingFeePolicyResolverFor,
+  quotedCheckoutProcessingFeePolicyValue,
+} from "./test-support/checkout-processing-fee-policy";
 import { DISPOSITION_RECEIPT_POLICY } from "../../../scripts/provider-object-disposition/disposition-receipt-policy.mjs";
 
 const windowId = "a".repeat(32);
@@ -750,6 +754,9 @@ describe("deployed provider journal J1-J6 (synthetic DB proof)", () => {
           webhookSecret: "whsec_SYNTHETIC",
           apiBaseUrl: "https://stripe.test",
         }),
+        checkoutProcessingFeePolicyResolver: checkoutProcessingFeePolicyResolverFor(
+          quotedCheckoutProcessingFeePolicyValue,
+        ),
       });
       const app = new Hono<PaymentsApiEnv>();
       app.use("*", async (c, next) => {

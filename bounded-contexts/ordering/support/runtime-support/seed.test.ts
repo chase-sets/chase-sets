@@ -3,6 +3,13 @@ import { identitySeedIds } from "@chase-sets/identity-seed";
 import { defaultPostagePolicy } from "@chase-sets/product-measures";
 import { marketplaceReservedSeedIds, reputationReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
 import { OrderingDomainError } from "../../features/orders/domain/common";
+import {
+  decidePostagePolicy,
+  evolvePostagePolicy,
+  initialPostagePolicyState,
+  type PostagePolicyCommand,
+  type PostagePolicyEvent,
+} from "../../features/postage-policies/domain/domain";
 import { orderingReservedSeedIds } from "../seed-support/ids";
 import { inspectOrderingSeedState, seedOrderingDatabase } from "./seed";
 import type { OrderingOrderServices } from "../../features/orders/api/runtime";
@@ -47,7 +54,17 @@ function followupOrderEvent(orderId: string, eventType: string): StoredEvent {
   };
 }
 
-function activePostagePolicyEvents(): readonly StoredEvent[] {
+// The default the seed stored while product kinds were Physical Flags.
+const storedPolicyPayloadThatNamesKinds = {
+  ...defaultPostagePolicy,
+  policyVersion: "default-postage-policy-v2",
+  letterRequiredPhysicalFlags: ["raw-card"],
+  parcelRequiredPhysicalFlags: ["slab", "sealed", "rigid", "metal", "jumbo", "irregular"],
+};
+
+function activePostagePolicyEvents(
+  payload: Readonly<Record<string, unknown>> = defaultPostagePolicy,
+): readonly StoredEvent[] {
   return [
     {
       stream_id: postagePolicyStreamId,
@@ -57,7 +74,7 @@ function activePostagePolicyEvents(): readonly StoredEvent[] {
         policyId: orderingReservedSeedIds.postagePolicies.default,
         label: "Default postage policy",
         status: "draft",
-        payload: defaultPostagePolicy,
+        payload,
         effectiveFrom: "2026-01-01T00:00:00.000Z",
         effectiveUntil: null,
         createdByUserId: "usr_seed_demo",
@@ -182,7 +199,181 @@ function createSeedDb(
   };
 }
 
+/**
+ * Seed services over one in-memory event store whose Postage Policy command
+ * handler decides and appends like the real one. Every seeded order already
+ * exists, so a run exercises only the policy.
+ */
+function createPostagePolicySeedServices(policyEvents: readonly StoredEvent[]) {
+  const events: StoredEvent[] = [
+    ...policyEvents,
+    ...seededOrderEvents([
+      orderingReservedSeedIds.orders.acceptedOfferReady,
+      reputationReservedSeedIds.orders.reviewEligibleDelivered,
+    ]).filter((event) => event.stream_id !== postagePolicyStreamId),
+  ];
+  const policyStream = () =>
+    events
+      .filter((event) => event.stream_id === postagePolicyStreamId)
+      .sort((left, right) => left.stream_version - right.stream_version);
+  const commandHandler = vi.fn(async (input: Readonly<{ streamId: string; command: PostagePolicyCommand }>) => {
+    expect(input.streamId).toBe(postagePolicyStreamId);
+    const committed = policyStream();
+    const state = committed
+      .map((event) => ({ type: event.event_type, data: event.payload }) as PostagePolicyEvent)
+      .reduce(evolvePostagePolicy, initialPostagePolicyState);
+    for (const [index, event] of decidePostagePolicy(state, input.command).entries()) {
+      events.push({
+        stream_id: input.streamId,
+        stream_version: committed.length + index + 1,
+        event_type: event.type,
+        payload: event.data,
+      });
+    }
+    return { version: policyStream().length };
+  });
+  const db = createEventStoreDb(events);
+  const services = {
+    db,
+    orders: { createOrdersFromCheckout: vi.fn(), createOrdersFromAcceptedOffer: vi.fn(), cancelPurchase: vi.fn() },
+    postagePolicies: { commandHandler },
+  };
+  return {
+    db,
+    commandHandler,
+    policyStream,
+    seed: () => seedOrderingDatabase({} as never, services as never),
+  };
+}
+
 describe("ordering seed", () => {
+  it("revises a seeded policy that stores the earlier default once, then appends nothing", async () => {
+    const { seed, policyStream, commandHandler, db } = createPostagePolicySeedServices(
+      activePostagePolicyEvents(storedPolicyPayloadThatNamesKinds),
+    );
+
+    await seed();
+
+    expect(policyStream().map((event) => event.event_type)).toEqual([
+      "ordering.postage-policy.created",
+      "ordering.postage-policy.activated",
+      "ordering.postage-policy.revised",
+    ]);
+    expect(policyStream()[0]!.payload.payload).toEqual(storedPolicyPayloadThatNamesKinds);
+    expect(policyStream()[2]).toEqual({
+      stream_id: postagePolicyStreamId,
+      stream_version: 3,
+      event_type: "ordering.postage-policy.revised",
+      payload: {
+        policyId: orderingReservedSeedIds.postagePolicies.default,
+        label: "Default postage policy",
+        payload: defaultPostagePolicy,
+        effectiveFrom: "2026-01-01T00:00:00.000Z",
+        effectiveUntil: null,
+        revisedByUserId: identitySeedIds.demo.userId,
+      },
+    });
+    expect(commandHandler).toHaveBeenCalledTimes(1);
+
+    await seed();
+    await seed();
+
+    expect(policyStream()).toHaveLength(3);
+    expect(commandHandler).toHaveBeenCalledTimes(1);
+    expect((await inspectOrderingSeedState(db as never))[0]).toMatchObject({
+      aggregateName: "Postage Policy",
+      kind: "active",
+      status: "2/2 steps",
+      eventCount: 3,
+    });
+  });
+
+  it("revises with the label and dates the seeded policy stores", async () => {
+    const { seed, policyStream, commandHandler } = createPostagePolicySeedServices([
+      ...activePostagePolicyEvents(storedPolicyPayloadThatNamesKinds),
+      {
+        stream_id: postagePolicyStreamId,
+        stream_version: 3,
+        event_type: "ordering.postage-policy.revised",
+        payload: {
+          policyId: orderingReservedSeedIds.postagePolicies.default,
+          label: "Scenario postage policy",
+          payload: storedPolicyPayloadThatNamesKinds,
+          effectiveFrom: "2026-03-01T00:00:00.000Z",
+          effectiveUntil: "2027-03-01T00:00:00.000Z",
+          revisedByUserId: "usr_operator",
+        },
+      },
+    ]);
+
+    await seed();
+
+    expect(policyStream()).toHaveLength(4);
+    expect(policyStream()[3]).toMatchObject({
+      stream_version: 4,
+      event_type: "ordering.postage-policy.revised",
+      payload: {
+        label: "Scenario postage policy",
+        payload: defaultPostagePolicy,
+        effectiveFrom: "2026-03-01T00:00:00.000Z",
+        effectiveUntil: "2027-03-01T00:00:00.000Z",
+      },
+    });
+
+    await seed();
+
+    expect(policyStream()).toHaveLength(4);
+    expect(commandHandler).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves a retired seeded policy alone without error", async () => {
+    const retiredPolicyEvents: readonly StoredEvent[] = [
+      ...activePostagePolicyEvents(storedPolicyPayloadThatNamesKinds),
+      {
+        stream_id: postagePolicyStreamId,
+        stream_version: 3,
+        event_type: "ordering.postage-policy.retired",
+        payload: {
+          policyId: orderingReservedSeedIds.postagePolicies.default,
+          retiredByUserId: "usr_operator",
+          retirementReason: "Replaced by postage policy opp_operator.",
+        },
+      },
+    ];
+    const { seed, policyStream, commandHandler, db } = createPostagePolicySeedServices(retiredPolicyEvents);
+
+    await seed();
+    await seed();
+
+    expect(policyStream()).toEqual(retiredPolicyEvents);
+    expect(commandHandler).not.toHaveBeenCalled();
+    expect((await inspectOrderingSeedState(db as never))[0]).toMatchObject({
+      aggregateName: "Postage Policy",
+      kind: "active",
+      status: "2/2 steps",
+      eventCount: 3,
+    });
+  });
+
+  it("seeds a fresh database with two events that carry the compiled default", async () => {
+    const { seed, policyStream, commandHandler } = createPostagePolicySeedServices([]);
+
+    await seed();
+
+    expect(policyStream().map((event) => event.event_type)).toEqual([
+      "ordering.postage-policy.created",
+      "ordering.postage-policy.activated",
+    ]);
+    expect(policyStream()[0]!.payload.payload).toEqual(defaultPostagePolicy);
+    expect(defaultPostagePolicy.policyVersion).toBe("default-postage-policy-v3");
+    expect(commandHandler).toHaveBeenCalledTimes(2);
+
+    await seed();
+
+    expect(policyStream()).toHaveLength(2);
+    expect(commandHandler).toHaveBeenCalledTimes(2);
+  });
+
   it.each(["chk_seed_checkout_pending", "chk_seed_cancelled"])(
     "resumes %s through the shared checkout handler after a caught no-Order failure",
     async (failedSource) => {

@@ -37,6 +37,30 @@ function refusing(code: ConstructorParameters<typeof SessionRefusalError>[0]) {
   }) as unknown as SessionServices["commandHandler"];
 }
 
+describe("session list route", () => {
+  it.each([
+    ["a user", "owner", { userId: "usr_1" }],
+    ["a platform admin", "platform-admin", { search: "usr_other" }],
+  ])("lists %s's sessions as the role allows", async (_who, roleKey, scope) => {
+    const listSessions = vi.fn(async () => ({ items: [], total: 0 }));
+    const services = { listSessions } as unknown as SessionServices;
+    const hono = new Hono<AuthApiEnv>();
+    hono.use("*", async (c, next) => {
+      c.set("actor", { ...actor, roleKey } as never);
+      await next();
+    });
+    hono.route("/sessions", sessionRoutes(services));
+
+    expect((await hono.request("/sessions?search=usr_other&status=active")).status).toBe(200);
+    expect(listSessions).toHaveBeenCalledExactlyOnceWith({
+      ...scope,
+      status: "active",
+      limit: undefined,
+      offset: undefined,
+    });
+  });
+});
+
 describe("session write routes", () => {
   it.each([
     [

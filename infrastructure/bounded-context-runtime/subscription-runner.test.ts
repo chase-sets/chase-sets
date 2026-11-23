@@ -455,9 +455,6 @@ describe("bounded context subscription runner", () => {
       reactionName: "send-welcome-email",
       subscriptionVersion: 3,
       reactionHandlerSetNames: ["send-welcome-email"],
-      idempotencyPolicy: "idempotent-command-dispatch",
-      retryPolicy: "retry-from-last-checkpoint",
-      failurePolicy: "surface-as-reaction-failure",
     } as const satisfies BcEventReactionDeclaration;
     const notificationModule = Object.assign(
       {
@@ -1160,16 +1157,19 @@ describe("bounded context subscription runner", () => {
         "inventory.reservation.confirmed": async () => undefined,
       },
       eventTypes: ["inventory.reservation.confirmed"],
-      idempotencyPolicy: "idempotent-command-dispatch",
-      retryPolicy: "retry-from-last-checkpoint",
-      failurePolicy: "surface-as-reaction-failure",
     });
 
     expect(runner.handlerKind).toBe("reaction");
     expect(runner.checkpointKey).toBe("ordering-inventory-reservation-outcomes:inventory:v1");
     expect(runner.getStatus()).toMatchObject({
+      checkpointKey: "ordering-inventory-reservation-outcomes:inventory:v1",
+      subscriptionName: "ordering.inventory-reservation-outcomes",
       handlerKind: "reaction",
       projectionName: "ordering-inventory-reservation-outcomes",
+      sourceContextName: "inventory",
+      targetContextName: "ordering",
+      subscriptionVersion: 1,
+      state: "idle",
     });
   });
 

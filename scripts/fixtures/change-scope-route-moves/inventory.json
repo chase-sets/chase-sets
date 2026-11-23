@@ -1,0 +1,66 @@
+{
+  "addedCaseCount": 6,
+  "families": {
+    "contextSuiteOwnership:inventory": {
+      "trackedCandidates": 52
+    },
+    "boundedContextRouteSuiteOwnership:15": {
+      "trackedCandidates": 4
+    }
+  },
+  "movedRoutes": {
+    "legacyDirectory": "bounded-contexts/inventory/routes/marketplace/",
+    "featureDirectory": "bounded-contexts/inventory/features/storage-locations/ui/routes/",
+    "files": [["account-inventory-locations.tsx", "marketplace_seller"]]
+  },
+  "selectorCases": [
+    {
+      "file": "bounded-contexts/inventory/routes/admin/recovered-items.tsx",
+      "suites": ["admin_commerce"]
+    },
+    {
+      "file": "bounded-contexts/inventory/features/recovered-items/ui/routes/recovered-items.tsx",
+      "suites": ["admin_commerce"]
+    },
+    {
+      "file": "bounded-contexts/inventory/routes/marketplace/account-inventory-imports.tsx",
+      "suites": ["marketplace_seller"]
+    },
+    {
+      "file": "bounded-contexts/inventory/features/import-batches/ui/routes/account-inventory-imports.tsx",
+      "suites": ["marketplace_seller"]
+    },
+    {
+      "file": "bounded-contexts/inventory/routes/marketplace/account-inventory-item.tsx",
+      "suites": ["marketplace_seller"]
+    },
+    {
+      "file": "bounded-contexts/inventory/features/inventory-items/ui/routes/account-inventory-item.tsx",
+      "suites": ["marketplace_seller"]
+    },
+    {
+      "file": "bounded-contexts/inventory/routes/marketplace/account-inventory.tsx",
+      "suites": ["marketplace_seller"]
+    },
+    {
+      "file": "bounded-contexts/inventory/features/inventory-items/ui/routes/account-inventory.tsx",
+      "suites": ["marketplace_seller"]
+    },
+    {
+      "file": "bounded-contexts/inventory/routes/marketplace/account-inventory-restock-decisions.tsx",
+      "suites": ["marketplace_seller"]
+    },
+    {
+      "file": "bounded-contexts/inventory/features/restock-decisions/ui/routes/account-inventory-restock-decisions.tsx",
+      "suites": ["marketplace_seller"]
+    },
+    {
+      "file": "bounded-contexts/inventory/routes/marketplace/account-inventory-locations.tsx",
+      "suites": ["marketplace_seller"]
+    },
+    {
+      "file": "bounded-contexts/inventory/features/storage-locations/ui/routes/account-inventory-locations.tsx",
+      "suites": ["marketplace_seller"]
+    }
+  ]
+}

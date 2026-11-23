@@ -354,6 +354,27 @@ function createCatalogItemCommandHandler(
   aggregateCommandHandler: CommandHandler<CatalogItemCommand, CatalogItemState, CatalogItemEvent>,
 ): CommandHandler<CatalogItemCommand, CatalogItemState, CatalogItemEvent> {
   return async (input) => {
+    if (input.command.type === "ClearCatalogItemFieldValue" && input.command.requiredFieldIds !== undefined) {
+      const { state, version } = await repository.load(input.streamId);
+      if (state.status === "active") {
+        const blueprint = state.blueprintId && (await getCatalogItemPublicationBlueprint(deps.db, state.blueprintId));
+        if (!blueprint) throw new CatalogDomainError("Cannot verify required fields for this active Catalog Item.");
+        const requiredFieldIds = requiredFieldIdsFromBlueprint(blueprint.blueprint_field_rules);
+        const { fieldId } = input.command;
+        return aggregateCommandHandler({
+          ...input,
+          command: {
+            ...input.command,
+            requiredFieldIds: requiredFieldIds.includes(fieldId)
+              ? [...input.command.requiredFieldIds, fieldId]
+              : input.command.requiredFieldIds,
+          },
+          expectedVersion: input.expectedVersion ?? version,
+        });
+      }
+      // A draft must not become active between this check and the aggregate decision.
+      return aggregateCommandHandler({ ...input, expectedVersion: input.expectedVersion ?? version });
+    }
     if (input.command.type !== "PublishCatalogItem") {
       return aggregateCommandHandler(input);
     }

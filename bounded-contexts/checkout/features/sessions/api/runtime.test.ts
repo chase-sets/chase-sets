@@ -48,7 +48,7 @@ const productMeasureSnapshot = {
   unitWidthInches: 2.5,
   unitHeightInches: 0.02,
   unitWeightOunces: 0.08,
-  physicalFlags: ["raw-card"],
+  physicalFlags: ["bendable"],
   stackBehavior: "stackable-thickness",
   source: "profile",
   confidence: "measured",

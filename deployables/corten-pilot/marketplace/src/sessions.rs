@@ -154,7 +154,7 @@ pub(crate) async fn list(
     let filters = route.filters;
     let caller = config.platform.caller(&headers, config.proto, None);
     let (limit, offset, status) = (filters.limit(), filters.offset(), filters.status());
-    let (sessions, total) = match caller.sessions(&viewer.actor.user_id, status, limit, offset).await {
+    let (sessions, total) = match caller.sessions(status, limit, offset).await {
         Ok(found) => found,
         Err(error) => return read_failed(&req, Some(&viewer), error, None),
     };

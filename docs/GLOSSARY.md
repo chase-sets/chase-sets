@@ -66,6 +66,7 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 | Catalog Item | [Catalog](../bounded-contexts/catalog/GLOSSARY.md) | Canonical parent definition of a thing. |
 | Product | [Catalog](../bounded-contexts/catalog/GLOSSARY.md) | Valid sellable option combination under a Catalog Item. |
 | Product Measure Profile | [Catalog](../bounded-contexts/catalog/GLOSSARY.md) | Reusable physical measurement rule for Products that share size, weight, stack behavior, and physical flags. |
+| Physical Flag | [Catalog](../bounded-contexts/catalog/GLOSSARY.md) | Physical property of a Product (rigid, bendable, metal, jumbo, or irregular) declared on its Product Measure Profile; never a product kind. |
 | Resolved Product Measure | [Catalog](../bounded-contexts/catalog/GLOSSARY.md) | Per-Product measurement snapshot published for shipping quote and fulfillment use. |
 | Product Contents | [Catalog](../bounded-contexts/catalog/GLOSSARY.md) | Catalog-owned relationship describing what one configured Product contains. |
 | Product Content Type | [Catalog](../bounded-contexts/catalog/GLOSSARY.md) | Configured Catalog data that names and orders the meaning of a Product Content Line. |
@@ -94,7 +95,7 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 | Self-Service Purchase Cancellation | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | Buyer-initiated cancellation of a paid purchase before Fulfillment starts package preparation. |
 | Shipment | [Fulfillment](../bounded-contexts/fulfillment/GLOSSARY.md) | Physical delivery execution for an order. |
 | Package Plan | [Fulfillment](../bounded-contexts/fulfillment/GLOSSARY.md) | Immutable package dimensions, weight, mailpiece class, and measurement-version snapshot executed by Fulfillment. |
-| Letter Mailpiece | [Fulfillment](../bounded-contexts/fulfillment/GLOSSARY.md) | Non-parcel shipment path for eligible low-risk raw-card orders. |
+| Letter Mailpiece | [Fulfillment](../bounded-contexts/fulfillment/GLOSSARY.md) | Non-parcel shipment path for low-risk orders the Postage Policy finds letter eligible. |
 | Shipping Evidence Tier | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | Evaluated delivery-evidence level committed to the order shipping plan and consumed by Fulfillment. |
 | Carrier Insurance Required | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | Postage policy result requiring carrier insurance on the label request for high-value orders. |
 | Cancellation Cutoff | [Fulfillment](../bounded-contexts/fulfillment/GLOSSARY.md) | Shipment state boundary that closes self-service purchase cancellation. |

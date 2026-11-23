@@ -1327,6 +1327,7 @@ export function createAccountListingRoutes(
         "inventory-snapshot-invalid",
         "listing-not-found",
         "inventory-item-not-found",
+        "shipping-measure-missing",
         "command-rejected",
         "evidence-invalid",
         ...authoredTextListingErrors,

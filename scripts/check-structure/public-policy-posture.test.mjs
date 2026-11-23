@@ -9,6 +9,7 @@ import {
 const termsRoutePath = "bounded-contexts/public-presence/routes/marketplace/terms.tsx";
 const termsPagePath = "bounded-contexts/public-presence/features/policies/ui/terms-of-service-page.tsx";
 const canonicalPagePath = "bounded-contexts/public-presence/features/policies/ui/policy-artifact-page.tsx";
+const catalogPath = "bounded-contexts/public-presence/features/policies/ui/localization/locales/en.ts";
 
 const syntheticCanonicalSource = `
 export function resolvePolicyArtifactPublicationPosture() {}
@@ -32,6 +33,20 @@ describe("public policy publication posture guard", () => {
     expect(result.violations).toEqual([]);
     expect(result.canonicalMapperFiles).toEqual([canonicalPagePath]);
     expect(result.guardedFiles).toEqual(expect.arrayContaining([termsRoutePath, termsPagePath, canonicalPagePath]));
+    expect(result.guardedFiles).toEqual(
+      expect.arrayContaining([
+        catalogPath,
+        ...[
+          "agent-terms",
+          "authenticity-terms",
+          "founders",
+          "payments-terms",
+          "privacy",
+          "seller-agreement",
+          "terms",
+        ].map((route) => `bounded-contexts/public-presence/features/policies/ui/routes/${route}.tsx`),
+      ]),
+    );
     expect(
       result.guardedFiles.filter((file) => file.startsWith("bounded-contexts/public-presence/routes/marketplace/")),
     ).toEqual(
@@ -75,6 +90,21 @@ describe("public policy publication posture guard", () => {
     expect(result.violations).toEqual([
       expect.stringContaining("pending publication copy 'publicPresence.info.terms.metadata.effectivePending'"),
     ]);
+  });
+
+  it("distinguishes literal catalog declarations from code that selects pending copy", () => {
+    const catalog =
+      'export const en = { "publicPresence.info.terms.metadata.effectivePending": "Effective date pending counsel approval" } as const;';
+    const result = (source) =>
+      findPublicPolicyPostureViolations([
+        { relativePath: canonicalPagePath, source: syntheticCanonicalSource },
+        { relativePath: catalogPath, source },
+      ]);
+    expect(result(catalog).violations).toEqual([]);
+    expect(
+      result(`${catalog}\nexport const copy = en["publicPresence.info.terms.metadata.effectivePending"];`).violations,
+    ).toContainEqual(expect.stringContaining(`${catalogPath}:2:`));
+    expect(result(catalog.replace("terms.metadata", "unowned.metadata")).violations).not.toEqual([]);
   });
 
   it("rejects a route that injects pre-decided posture through the page API", () => {

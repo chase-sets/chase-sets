@@ -10,9 +10,9 @@ import {
 import { module as pricingModule } from "../../../index";
 import { createPricingRecommendationRuntime } from "../api/runtime";
 
-// This is deliberately a real Postgres test: freshness belongs in the read
-// query, so a mock cannot prove expired estimates are excluded before the
-// recommendation fallback runs.
+// This is deliberately a real Postgres test: freshness is judged on the
+// fresh_until the driver returns, so a mock cannot prove a stored estimate
+// anchors while current and is withheld before the fallback once expired.
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) {
   throw new Error("TEST_DATABASE_URL is required for database-backed tests in CI.");

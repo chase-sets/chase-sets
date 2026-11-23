@@ -68,6 +68,11 @@ const launchSeed = {
   effective_until: null,
 };
 
+/** A new account override starts from the same terms, minus the Shipping Allowance. */
+function overrideSeed<T extends object>(seed: T) {
+  return { ...seed, shipping_allowance_percentage_bps: null };
+}
+
 describe("commercial terms home read: schedule in effect", () => {
   it("treats a start at resolvedAt as in effect and an end at resolvedAt as ended", () => {
     const startsNow = schedule({ schedule_id: "cts_starts_now", effective_from: resolvedAt });
@@ -223,16 +228,52 @@ describe("commercial terms home read: starting terms", () => {
   it("seeds every create form with the business launch fees when no schedule is in effect", () => {
     const home = resolve([schedule({ account_type: "personal", status: "inactive" })]);
 
+    const launchOverride = overrideSeed(launchSeed);
     expect(home.startingTerms).toEqual({
       schedule: launchSeed,
-      override: { personal: launchSeed, business: launchSeed, enterprise: launchSeed, default: launchSeed },
+      override: {
+        personal: launchOverride,
+        business: launchOverride,
+        enterprise: launchOverride,
+        default: launchOverride,
+      },
     });
     for (const seed of [home.startingTerms.schedule, ...Object.values(home.startingTerms.override)]) {
       expect(seed.marketplace_sales_fee_percentage_bps).not.toBe(900);
       expect(seed.marketplace_sales_fee_percentage_bps).not.toBe(600);
       expect(seed.marketplace_sales_fee_fixed_amount).toBe("0.10");
-      expect(seed.shipping_allowance_percentage_bps).toBe(500);
     }
+    expect(home.startingTerms.schedule.shipping_allowance_percentage_bps).toBe(500);
+    for (const seed of Object.values(home.startingTerms.override)) {
+      expect(seed.shipping_allowance_percentage_bps).toBeNull();
+    }
+  });
+
+  it("starts every account override without a Shipping Allowance while schedule terms keep the schedule's", () => {
+    const home = resolve([
+      schedule({
+        schedule_id: "cts_personal",
+        account_type: "personal",
+        label: "Current personal terms",
+        shipping_allowance_percentage_bps: 610,
+      }),
+      schedule({ schedule_id: "cts_business", account_type: "business", shipping_allowance_percentage_bps: 650 }),
+      schedule({
+        schedule_id: "cts_enterprise",
+        account_type: "enterprise",
+        marketplace_sales_fee_percentage_bps: 450,
+        shipping_allowance_percentage_bps: 690,
+      }),
+    ]);
+
+    expect(home.startingTerms.schedule.shipping_allowance_percentage_bps).toBe(650);
+    expect(Object.keys(home.startingTerms.override).sort()).toEqual(["business", "default", "enterprise", "personal"]);
+    for (const [accountType, seed] of Object.entries(home.startingTerms.override)) {
+      expect(seed.shipping_allowance_percentage_bps, accountType).toBeNull();
+    }
+    // The override still starts from its account type's schedule for every other term.
+    expect(home.startingTerms.override.personal.label).toBe("Current personal terms");
+    expect(home.startingTerms.override.enterprise.marketplace_sales_fee_percentage_bps).toBe(450);
   });
 
   it("copies the schedule in effect for its account type and falls back to business launch fees for the rest", () => {
@@ -257,10 +298,10 @@ describe("commercial terms home read: starting terms", () => {
 
     expect(home.startingTerms.schedule).toEqual(businessSeed);
     expect(home.startingTerms.override).toEqual({
-      personal: launchSeed,
-      business: businessSeed,
-      enterprise: launchSeed,
-      default: launchSeed,
+      personal: overrideSeed(launchSeed),
+      business: overrideSeed(businessSeed),
+      enterprise: overrideSeed(launchSeed),
+      default: overrideSeed(launchSeed),
     });
   });
 });
@@ -419,7 +460,9 @@ describe("GET /api/commercial-terms/home", () => {
       ["cag_seller", "expiring"],
       ["cts_current", "in_effect"],
     ]);
-    expect(body.startingTerms.override.default).toEqual(launchSeed);
+    expect(body.startingTerms.schedule.shipping_allowance_percentage_bps).toBe(650);
+    expect(body.startingTerms.override.default).toEqual(overrideSeed(launchSeed));
+    expect(body.startingTerms.override.business.shipping_allowance_percentage_bps).toBeNull();
   });
 
   it("passes no schedule ID when the query omits or empties it", async () => {

@@ -402,11 +402,12 @@ const boundedContextRouteSuiteOwnership = [
     suites: ["admin_access"],
   },
   {
-    pattern: /^bounded-contexts\/commercial-terms\/routes\/admin\//,
+    pattern:
+      /^bounded-contexts\/commercial-terms\/(?:routes\/admin|features\/(?:agreements|home|schedules)\/ui\/routes)\//,
     suites: ["admin_commerce"],
   },
   {
-    pattern: /^bounded-contexts\/commercial-terms\/routes\/public\//,
+    pattern: /^bounded-contexts\/commercial-terms\/(?:routes\/public|features\/marketplace-sales-fee\/ui\/routes)\//,
     suites: ["marketplace_browse"],
   },
   {
@@ -566,7 +567,7 @@ const boundedContextRouteSuiteOwnership = [
     suites: ["marketplace_checkout"],
   },
   {
-    pattern: /^bounded-contexts\/public-presence\/routes\/marketplace\//,
+    pattern: /^bounded-contexts\/public-presence\/(?:routes\/marketplace|features\/policies\/ui\/routes)\//,
     suites: ["marketplace_browse"],
   },
   {

@@ -314,8 +314,8 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
       { role: "provider funding correlation", file: queries, lines: [61], receiver: "db" },
       { role: "projection current version", file: projection, lines: [30], receiver: "db" },
       { role: "projection version-fenced upsert", file: projection, lines: [41], receiver: "db" },
-      { role: "bounded non-refused sweep", file: runtime, lines: [534], receiver: "deps.pool" },
-      { role: "sweep scheduling progress", file: runtime, lines: [648], receiver: "deps.pool" },
+      { role: "bounded non-refused sweep", file: runtime, lines: [538], receiver: "deps.pool" },
+      { role: "sweep scheduling progress", file: runtime, lines: [652], receiver: "deps.pool" },
     ];
     expect(obligations).toHaveLength(10);
     const result = classify([queries, projection, runtime]);
@@ -334,7 +334,7 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
       ["infrastructure/event-core-postgres/types.ts", 49, "client"],
       ["scripts/catalog-integration-reset.ts", 239, "db"],
       ["infrastructure/event-core-postgres/projection-store.ts", 358, "config.db"],
-      ["bounded-contexts/catalog/features/product-measures/api/runtime.ts", 157, "deps.db"],
+      ["bounded-contexts/catalog/features/product-measures/api/runtime.ts", 170, "deps.db"],
       ["bounded-contexts/auth/support/ucp-support/oauth.ts", 354, "options.auth.db"],
       ["bounded-contexts/commercial-terms/support/runtime-support/seed.ts", 235, "db"],
       ["bounded-contexts/identity/features/accounts/api/listing-activation-authority.ts", 35, "db"],
@@ -451,7 +451,7 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
       expect(callAt(result, file, line)?.outcome, `${file}:${line}`).toBe(outcome);
     }
     expect(callAt(result, "bounded-contexts/auth/support/ucp-support/oauth.ts", 867)?.outcome).toBe("not-sql");
-    expect(callAt(result, "bounded-contexts/customer-feedback/features/attention/api/route.ts", 63)?.outcome).toBe(
+    expect(callAt(result, "bounded-contexts/customer-feedback/features/attention/api/route.ts", 64)?.outcome).toBe(
       "not-sql",
     );
     expect(callAt(result, "bounded-contexts/identity/features/api-keys/api/route.ts", 168)?.outcome).toBe("not-sql");

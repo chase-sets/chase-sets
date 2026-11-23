@@ -22,6 +22,10 @@ import { evolvePayment, initialPaymentState } from "../domain/domain";
 import { createCardDeclineStore } from "./card-decline-store";
 import { createPaymentRuntime } from "./runtime";
 import { createPaymentTransactionRunner, createPaymentWebhookRunner } from "./webhook-transaction";
+import {
+  checkoutProcessingFeePolicyResolverFor,
+  quotedCheckoutProcessingFeePolicyValue,
+} from "../../../tests/test-support/checkout-processing-fee-policy";
 
 const at = "2026-10-04T00:00:00.000Z";
 const context = {
@@ -104,6 +108,9 @@ describe("durable card decline velocity (real Postgres)", () => {
       runWebhookTransaction: createPaymentWebhookRunner(database, eventStore),
       runPaymentTransaction: createPaymentTransactionRunner(database, eventStore),
       processorGateway: gateway,
+      checkoutProcessingFeePolicyResolver: checkoutProcessingFeePolicyResolverFor(
+        quotedCheckoutProcessingFeePolicyValue,
+      ),
       webhookTelemetry: {
         record: (signal) => {
           signals.push(signal);

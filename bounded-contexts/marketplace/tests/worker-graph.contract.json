@@ -1025,9 +1025,6 @@
       "handlers": {
         "platform-operations.reported-content.listing-removal-directed": "<function>"
       },
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure",
       "eventTypes": ["platform-operations.reported-content.listing-removal-directed"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
@@ -1135,9 +1132,6 @@
       "handlers": {
         "pricing.market-price.estimated": "<function>"
       },
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure",
       "eventTypes": ["pricing.market-price.estimated"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
@@ -1185,9 +1179,6 @@
         "support.support-request.resolved": "<function>",
         "support.support-request.cancelled": "<function>"
       },
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure",
       "eventTypes": [
         "support.support-request.opened",
         "support.support-request.resolved",
@@ -1207,9 +1198,6 @@
       "handlers": {
         "platform-operations.reported-content.action-recorded": "<function>"
       },
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure",
       "eventTypes": ["platform-operations.reported-content.action-recorded"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
@@ -1255,9 +1243,6 @@
         "support.support-request.resolved": "<function>",
         "support.support-request.cancelled": "<function>"
       },
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure",
       "eventTypes": [
         "support.support-request.opened",
         "support.support-request.resolved",

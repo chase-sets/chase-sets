@@ -63,7 +63,9 @@ export function createAuthSessionMcpHandlers(services: SessionServices): AuthSes
   const listSessions: McpToolHandler = async ({ actor, arguments: args }) => {
     const scopedActor = requirePermission(actor, "security.manage");
     const result = await services.listSessions({
-      search: scopedActor.roleKey === "platform-admin" ? readOptionalString(args, "search") : scopedActor.userId,
+      ...(scopedActor.roleKey === "platform-admin"
+        ? { search: readOptionalString(args, "search") }
+        : { userId: scopedActor.userId }),
       status: readOptionalString(args, "status"),
       limit: readOptionalPaginationInteger(args, "limit"),
       offset: readOptionalPaginationInteger(args, "offset"),

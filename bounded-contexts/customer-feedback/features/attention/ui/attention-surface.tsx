@@ -1,4 +1,4 @@
-import { formatDateTime, t } from "@chase-sets/localization";
+import { formatDateTime } from "@chase-sets/localization/core";
 import {
   Badge,
   DataTable,
@@ -12,19 +12,8 @@ import {
   Text,
 } from "@chase-sets/design-system";
 import type { FeedbackAttentionQueueItem } from "../read-model/queries";
-
-export type FeedbackAttentionMetrics = Readonly<{
-  activeCount: number;
-  overdueCount: number;
-  medianTimeToTriageMs: number | null;
-  medianTimeToCloseMs: number | null;
-  oldestOverdueMs: number | null;
-  deliverySuccesses: number;
-  deliveryFailures: number;
-  digestPending: number;
-  digestFailures: number;
-  latestDigestAt: string | null;
-}>;
+import type { FeedbackAttentionMetrics } from "../api/attention-contract";
+import { t } from "./localization/translator";
 
 function priorityTone(priority: FeedbackAttentionQueueItem["priority"]) {
   return priority === "urgent" ? "danger" : priority === "high" ? "warning" : "neutral";

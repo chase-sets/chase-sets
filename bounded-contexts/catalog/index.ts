@@ -8,7 +8,11 @@ import { createCheckpointKey } from "@chase-sets/bounded-context-runtime";
 import { resetProductMeasurePublicationParts, type PgQueryable } from "@chase-sets/event-core-postgres";
 export { default as contextManifest } from "./context.json" with { type: "json" };
 
-import { defineBoundedContextModule } from "@chase-sets/bounded-context-module";
+import {
+  buildEventReactionsFromManifest,
+  defineBoundedContextModule,
+  type BcContextManifest,
+} from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json" with { type: "json" };
 import { catalogRetentionSweeps } from "./support/runtime-support/retention-policy";
@@ -19,6 +23,9 @@ import { catalogAuthoringSchemaMigrations, catalogAuthoringSchemaSql } from "./s
 import { catalogUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import { seedCatalogDatabase } from "./support/authoring-support";
 import { inspectCatalogSeedState } from "./support/seed-support/catalog-integration-state";
+import { createCatalogItemMcpHandlers } from "./features/catalog-items/api/mcp";
+import { createFieldMcpHandlers } from "./features/fields/api/mcp";
+import { createProductContentsMcpHandlers } from "./features/product-contents/api/mcp";
 import { operatorSessionPublicRoutes } from "./features/operator-session/api/route";
 import { createProviderScopeDiscoveryMcpHandlers } from "./features/provider-scope-discovery/api/mcp";
 import { createProviderScopeMappingMcpHandlers } from "./features/provider-scope-mapping/api/mcp";
@@ -29,8 +36,10 @@ import { createSourceObservationsMcpHandlers } from "./features/source-observati
 import { createBlueprintMcpHandlers } from "./features/blueprints/api/mcp";
 import { createCategoryMcpHandlers } from "./features/categories/api/mcp";
 
+const catalogContextManifest = contextManifest as BcContextManifest;
+
 const baseModule = defineBoundedContextModule<CatalogServices, PgTransactionalPool, CatalogHostPorts>({
-  manifest: contextManifest,
+  manifest: catalogContextManifest,
   schemaSql: catalogAuthoringSchemaSql,
   retentionSweeps: catalogRetentionSweeps,
   schemaMigrations: [...catalogUnloggedProjectionSchemaMigrations, ...catalogAuthoringSchemaMigrations],
@@ -44,6 +53,9 @@ const baseModule = defineBoundedContextModule<CatalogServices, PgTransactionalPo
     },
   ],
   buildMcpHandlers: (services) => {
+    const items = createCatalogItemMcpHandlers(services.items, services.authoringBulkJobs);
+    const fields = createFieldMcpHandlers(services.fields);
+    const contents = createProductContentsMcpHandlers(services.productContents);
     const discovery = createProviderScopeDiscoveryMcpHandlers(services.providerScopeDiscovery);
     const mappings = createProviderScopeMappingMcpHandlers(services.providerScopeMappings);
     const references = createReferenceDataMcpHandlers(services.referenceData);
@@ -54,6 +66,9 @@ const baseModule = defineBoundedContextModule<CatalogServices, PgTransactionalPo
     const categories = createCategoryMcpHandlers(services.categories, services.authoringBulkJobs);
     return {
       toolHandlers: {
+        ...items.toolHandlers,
+        ...fields.toolHandlers,
+        ...contents.toolHandlers,
         ...discovery.toolHandlers,
         ...mappings.toolHandlers,
         ...references.toolHandlers,
@@ -67,6 +82,18 @@ const baseModule = defineBoundedContextModule<CatalogServices, PgTransactionalPo
     };
   },
   projectionHandlerSets: (services) => services.projectors,
+  buildSubscriptions: (services) =>
+    buildEventReactionsFromManifest({
+      contextName: "catalog",
+      manifest: catalogContextManifest,
+      handlers: {
+        "catalog.catalog-product-measure-resolution": () => ({
+          "catalog.catalog-item.published": services.productMeasures.resolveMeasuresForCatalogItemEvent,
+          "catalog.catalog-item.category-assigned": services.productMeasures.resolveMeasuresForCatalogItemEvent,
+          "catalog.catalog-item.category-removed": services.productMeasures.resolveMeasuresForCatalogItemEvent,
+        }),
+      },
+    }),
   seedProfiles: [
     "catalog-integration-bootstrap",
     "scenario-seed",

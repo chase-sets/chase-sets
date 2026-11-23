@@ -1023,25 +1023,29 @@ describe("caller inventory (seed/bootstrap/import/reconciliation) — issue #583
       "bounded-contexts/catalog/features/source-observations/api/seeding/representative-catalog-asset-preparation.ts",
     );
     expect({ discovered: discovered.length, persistentCount, ruledCount }).toEqual({
-      discovered: 173,
-      persistentCount: 167,
+      discovered: 174,
+      persistentCount: 168,
       ruledCount: 6,
     });
   });
 
-  it("classifies the Inventory restock browser seed-support caller as persistence-sensitive", () => {
-    const filePath = "bounded-contexts/inventory/support/seed-support/restock-recovery-browser.ts";
-    expect(discovered).toContain(filePath);
-    const record = classifyReleaseQualificationScope({
-      base: DUMMY_BASE,
-      candidate: DUMMY_CANDIDATE,
-      changedFiles: [{ path: filePath, status: "modified" }],
-      readFileAt: realReadFileAt,
-      releaseWorkflowScriptReferences,
-      now: () => 1753100000000,
-    });
-    expect(record.class).toBe("persistent_required");
-    expect(record.reasonCodes).toContain("seed_bootstrap_import_reconciliation");
+  it("classifies the Inventory browser seed caller and feature seed IDs as persistence-sensitive", () => {
+    for (const filePath of [
+      "bounded-contexts/inventory/support/seed-support/restock-recovery-browser.ts",
+      "bounded-contexts/inventory/features/restock-decisions/integrations/seed/ids.ts",
+    ]) {
+      expect(discovered).toContain(filePath);
+      const record = classifyReleaseQualificationScope({
+        base: DUMMY_BASE,
+        candidate: DUMMY_CANDIDATE,
+        changedFiles: [{ path: filePath, status: "modified" }],
+        readFileAt: realReadFileAt,
+        releaseWorkflowScriptReferences,
+        now: () => 1753100000000,
+      });
+      expect(record.class, filePath).toBe("persistent_required");
+      expect(record.reasonCodes, filePath).toContain("seed_bootstrap_import_reconciliation");
+    }
   });
 
   it("pins both browser bootstrap callers and discriminates the exact inventory ruling", () => {

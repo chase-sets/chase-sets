@@ -615,6 +615,18 @@ export function assertNativeListingCommand(state: MarketplaceListingState): void
   assert(state.publicationScope !== "channel-only", "Native commands are not allowed for a channel-only Listing.");
 }
 
+/** A native Listing copies its Product's measure once, at creation, so one created without it can never publish. */
+export function assertListingShippingMeasure(
+  productMeasureSnapshot: ProductMeasureSnapshot | null | undefined,
+): asserts productMeasureSnapshot is ProductMeasureSnapshot {
+  if (!productMeasureSnapshot) {
+    throw new MarketplaceListingDomainError(
+      "shipping-measure-missing",
+      "Listings require a resolved shipping measure before creation.",
+    );
+  }
+}
+
 export type ListingCreatedEvent = DomainEvent<
   "marketplace.listing.created",
   Readonly<{
@@ -813,6 +825,7 @@ export const decideMarketplaceListing: AggregateDecider<
       );
       const feeLock = command.feeLock === null ? null : normalizeMarketplaceListingFeeLock(command.feeLock);
       if (publicationScope === "native") {
+        assertListingShippingMeasure(command.productMeasureSnapshot);
         assert(feeLock && feeLock.unitCount === quantityCap, "Creation-time fee lock must cover every listed unit.");
         assert(command.evidenceRequirements, "Native listing evidence requirements are unavailable.");
       } else {

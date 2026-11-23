@@ -3,9 +3,21 @@ import type { ResolvedActor } from "@chase-sets/auth-context";
 import type { McpToolHandler } from "@chase-sets/platform-runtime/mcp";
 import { createReferenceRecord } from "./route";
 import { parseTypedIdBoundary } from "@chase-sets/http/typed-id";
+import { z } from "zod";
 import type { ReferenceDataServices } from "./runtime";
 
 export type ReferenceDataMcpHandlers = Readonly<{ toolHandlers: Readonly<Record<string, McpToolHandler>> }>;
+const listQuery = z.strictObject({
+  search: z.string().optional(),
+  status: z.string().optional(),
+  typeKey: z.string().optional(),
+  relationshipType: z.string().optional(),
+  relatedReferenceId: z.string().optional(),
+  attributeKey: z.string().optional(),
+  attributeValue: z.string().optional(),
+  limit: z.int().optional(),
+  offset: z.int().optional(),
+});
 function operator(actor: ResolvedActor | null): ResolvedActor {
   if (!actor || actor.roleKey !== "platform-admin" || !actor.permissions.includes("catalog.manage")) {
     throw new Error("Missing required operator permission: catalog.manage.");
@@ -33,5 +45,23 @@ export function createReferenceDataMcpHandlers(services: ReferenceDataServices):
     });
     return { referenceRecordId, ...result };
   };
-  return { toolHandlers: { "catalog.create-reference-record": create, "catalog.publish-reference-record": publish } };
+  const list: McpToolHandler = async ({ actor, arguments: args }) => {
+    if (actor?.roleKey !== "platform-admin" || !actor.permissions.includes("catalog.view")) {
+      throw new Error("Missing required operator permission: catalog.view.");
+    }
+    const input = listQuery.parse(args);
+    const result = await services.listReferenceRecords({
+      ...input,
+      limit: input.limit || undefined,
+      offset: input.offset || undefined,
+    });
+    return { ...result, count: result.items.length };
+  };
+  return {
+    toolHandlers: {
+      "catalog.create-reference-record": create,
+      "catalog.publish-reference-record": publish,
+      "catalog.list-reference-records": list,
+    },
+  };
 }

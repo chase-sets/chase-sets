@@ -1,4 +1,5 @@
 import notificationCenter from "./features/notification-center/metadata.json" with { type: "json" };
+import preferences from "./features/preferences/metadata.json" with { type: "json" };
 
 export const contextManifest = {
   scheduledJobs: [
@@ -16,7 +17,7 @@ export const contextManifest = {
   ],
   contextName: "notifications",
   packageName: "@chase-sets/notifications",
-  localeCatalogs: ["contracts/localization/locales/en/notifications.ts", ...notificationCenter.localeCatalogs],
+  localeCatalogs: [...notificationCenter.localeCatalogs, ...preferences.localeCatalogs],
   ownedNouns: [
     "notification-center",
     "notification-feed-item",
@@ -26,7 +27,7 @@ export const contextManifest = {
   streamPrefix: "notifications.",
   apiBasePath: "/api/notifications",
   slices: ["notification-center", "preferences"],
-  allowedSupportDirectories: ["request-support", "runtime-support", "shell-support"],
+  allowedSupportDirectories: ["runtime-support", "shell-support"],
   publicExports: [".", "./context", "./routes/*", "./server", "./web"],
   allowedContextDependencies: [
     "@chase-sets/customer-feedback",
@@ -291,12 +292,6 @@ export const contextManifest = {
     preferences: {
       classification: "slice",
       purpose: "Own account notification preferences and settings behavior.",
-      expectedConsumers: ["notification-center"],
-    },
-    "request-support": {
-      classification: "support",
-      purpose:
-        "Provide request-scoped HTTP adapters that forward the signed-in request to the Notifications API and to Discovery's Marketplace-mounted Product Alert summary for the notification-center route loader.",
       expectedConsumers: ["notification-center"],
     },
     "runtime-support": {

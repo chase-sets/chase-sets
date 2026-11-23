@@ -260,6 +260,7 @@ const pilot = path.resolve(here, "..");
 const repo = path.resolve(pilot, "../..");
 const check = process.argv.includes("--check");
 const apps = ["admin", "marketplace", "public"];
+const policiesCatalogFile = "bounded-contexts/public-presence/features/policies/ui/localization/locales/en.ts";
 
 const snake = (text) => text.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
 
@@ -292,6 +293,28 @@ async function catalogFrom(file, exportName, rules) {
     );
   }
   return out;
+}
+
+async function channelsMarketplaceCatalog() {
+  const channels = Object.entries(
+    await catalog("channels.ts", "channelsEnglishTranslations", [
+      ["channels.connections.", "connections"],
+      ["channels.manualSync.", "manual_sync"],
+      ["channels.ebay.", "ebay"],
+    ]),
+  );
+  const publication = await catalogFrom(
+    "bounded-contexts/channels/features/listing-composition/ui/localization/locales/en.ts",
+    "listingCompositionEnglishTranslations",
+    [["channels.publication.", "publication"]],
+  );
+  // Preserve the export order from before publication had its own catalog.
+  const boundary = channels.findIndex(([key]) => key === "connections.eyebrow");
+  return Object.fromEntries([
+    ...channels.slice(0, boundary),
+    ...Object.entries(publication),
+    ...channels.slice(boundary),
+  ]);
 }
 
 /** Every bounded context's shell contributions to `deployable`'s `slot`. */
@@ -855,10 +878,14 @@ const outputs = [
   [
     "admin/locales/en.json",
     json(
-      await catalog("ordering.ts", "orderingEnglishTranslations", [
-        ["ordering.features.postagePolicies.ui.", ""],
-        ["ordering.routes.admin.postagePolicies.title", "route.title"],
-      ]),
+      await catalogFrom(
+        "bounded-contexts/ordering/features/postage-policies/ui/localization/locales/en.ts",
+        "postagePoliciesEnglishTranslations",
+        [
+          ["ordering.features.postagePolicies.ui.", ""],
+          ["ordering.routes.admin.postagePolicies.title", "route.title"],
+        ],
+      ),
     ),
   ],
   [
@@ -1030,9 +1057,11 @@ const outputs = [
         ["support.features.supportRequests.ui.attachments.", "att"],
       ])),
       ...(await catalog("channels.ts", "channelsEnglishTranslations", [["channels.ebayDeletion.", "ebay"]])),
-      ...(await catalog("customer-feedback.ts", "customerFeedbackEnglishTranslations", [
-        ["customer-feedback.attention.", "cfa"],
-      ])),
+      ...(await catalogFrom(
+        "bounded-contexts/customer-feedback/features/attention/ui/localization/locales/en.ts",
+        "feedbackAttentionEnglishTranslations",
+        [["customer-feedback.attention.", "cfa"]],
+      )),
     }),
   ],
   [
@@ -1167,17 +1196,21 @@ const outputs = [
   ["admin/reported-content-actions.json", json(platformOperationsReportedContentActionsByTargetType)],
   [
     "marketplace/locales/en.json",
-    json(
-      await catalog("inventory.ts", "inventoryEnglishTranslations", [
-        ["inventory.features.storageLocations.ui.storageLocationPage.", "page"],
-        ["inventory.recovery.", "recovery"],
-        ["inventory.routes.marketplace.accountInventoryLocations.inventory.locations.marketplace", "route.title"],
+    json({
+      ...(await catalog("inventory.ts", "inventoryEnglishTranslations", [["inventory.recovery.", "recovery"]])),
+      ...(await catalogFrom(
+        "bounded-contexts/inventory/features/storage-locations/ui/localization/locales/en.ts",
+        "storageLocationsEnglishTranslations",
         [
-          "inventory.routes.marketplace.accountInventoryLocations.manage.the.storage.locations.and.ship",
-          "route.description",
+          ["inventory.features.storageLocations.ui.storageLocationPage.", "page"],
+          ["inventory.routes.marketplace.accountInventoryLocations.inventory.locations.marketplace", "route.title"],
+          [
+            "inventory.routes.marketplace.accountInventoryLocations.manage.the.storage.locations.and.ship",
+            "route.description",
+          ],
         ],
-      ]),
-    ),
+      )),
+    }),
   ],
   [
     "marketplace/locales/restock.en.json",
@@ -1334,8 +1367,8 @@ const outputs = [
         [["collections.features.savedLists.api.route.", "saved_api"]],
       )),
       ...(await catalogFrom(
-        "bounded-contexts/collections/features/saved-lists/ui/localization/locales/en.ts",
-        "savedListsUiEnglishTranslations",
+        "bounded-contexts/discovery/features/saved-list-addition/ui/localization/locales/en.ts",
+        "savedListAdditionEnglishTranslations",
         [["collections.features.savedLists.ui.addToList.", "saved"]],
       )),
       // A sell form's Sell List add that did not fully apply (`SellListAttemptBoundary`).
@@ -1404,14 +1437,28 @@ const outputs = [
   [
     "marketplace/locales/notifications.en.json",
     json({
-      ...(await catalog("notifications.ts", "notificationsEnglishTranslations", [
-        ["notifications.features.notificationCenter.ui.page.", "page"],
-        ["notifications.features.notificationCenter.ui.shell.", "shell"],
-      ])),
+      // Keep the legacy export order across the two feature catalogs.
       ...(await catalogFrom(
         "bounded-contexts/notifications/features/notification-center/ui/localization/locales/en.ts",
         "notificationCenterEnglishTranslations",
-        [["notifications.routes.accountNotifications.", "route"]],
+        [
+          ["notifications.features.notificationCenter.ui.page.", "page"],
+          ["notifications.features.notificationCenter.ui.shell.open", "shell.open"],
+        ],
+      )),
+      ...(await catalogFrom(
+        "bounded-contexts/notifications/features/preferences/ui/localization/locales/en.ts",
+        "notificationPreferencesEnglishTranslations",
+        [["notifications.features.notificationCenter.ui.shell.preference.", "shell.preference"]],
+      )),
+      ...(await catalogFrom(
+        "bounded-contexts/notifications/features/notification-center/ui/localization/locales/en.ts",
+        "notificationCenterEnglishTranslations",
+        [
+          ["notifications.features.notificationCenter.ui.shell.productAlerts.", "shell.productAlerts"],
+          ["notifications.features.notificationCenter.ui.shell.source.", "shell.source"],
+          ["notifications.routes.accountNotifications.", "route"],
+        ],
       )),
     }),
   ],
@@ -1822,17 +1869,7 @@ const outputs = [
       ])),
     }),
   ],
-  [
-    "marketplace/locales/channels.en.json",
-    json(
-      await catalog("channels.ts", "channelsEnglishTranslations", [
-        ["channels.connections.", "connections"],
-        ["channels.publication.", "publication"],
-        ["channels.manualSync.", "manual_sync"],
-        ["channels.ebay.", "ebay"],
-      ]),
-    ),
-  ],
+  ["marketplace/locales/channels.en.json", json(await channelsMarketplaceCatalog())],
   [
     "marketplace/locales/offer-matches.en.json",
     json(
@@ -1877,28 +1914,32 @@ const outputs = [
   ],
   [
     "public/locales/home.en.json",
-    json(
-      await catalog("public-presence.ts", "publicPresenceEnglishTranslations", [
-        ["publicPresence.home.", "home"],
-        ["publicPresence.waitlist.", "waitlist"],
-        ["publicPresence.nav.", "nav"],
-        ["publicPresence.footer.", "footer"],
-        ["publicPresence.faq.", "faq"],
-        ["publicPresence.routes.home.", "route"],
-        ["publicPresence.welcome.", "welcome"],
-        ["publicPresence.routes.welcome.", "route_welcome"],
+    json({
+      ...(await catalog("public-presence.ts", "publicPresenceEnglishTranslations", [
         ["publicPresence.brand", "brand"],
+        ["publicPresence.faq.", "faq"],
+        ["publicPresence.footer.", "footer"],
+        ["publicPresence.home.", "home"],
+      ])),
+      ...(await catalogFrom(policiesCatalogFile, "policiesEnglishTranslations", [
         ["publicPresence.info.sellerAgreement.eyebrow", "info.seller_agreement"],
         ["publicPresence.info.paymentsTerms.eyebrow", "info.payments_terms"],
         ["publicPresence.info.authenticityTerms.eyebrow", "info.authenticity_terms"],
         ["publicPresence.info.agentTerms.eyebrow", "info.agent_terms"],
-      ]),
-    ),
+      ])),
+      ...(await catalog("public-presence.ts", "publicPresenceEnglishTranslations", [
+        ["publicPresence.waitlist.", "waitlist"],
+        ["publicPresence.nav.", "nav"],
+        ["publicPresence.routes.home.", "route"],
+        ["publicPresence.welcome.", "welcome"],
+        ["publicPresence.routes.welcome.", "route_welcome"],
+      ])),
+    }),
   ],
   [
     "public/locales/policy.en.json",
     json(
-      await catalog("public-presence.ts", "publicPresenceEnglishTranslations", [
+      await catalogFrom(policiesCatalogFile, "policiesEnglishTranslations", [
         ["publicPresence.info.policies.", "policies"],
         ["publicPresence.info.terms.", "terms"],
         ["publicPresence.info.privacy.eyebrow", "eyebrow.privacy"],

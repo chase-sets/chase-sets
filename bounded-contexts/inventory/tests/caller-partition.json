@@ -83,9 +83,6 @@
       "item-create",
       "item-read",
       "listing-stock-ensure",
-      "location-create",
-      "location-read",
-      "location-update",
       "restock-record",
       "attempt-read"
     ],
@@ -207,6 +204,14 @@
     "consumer": "Inventory restock HTTP",
     "status": "cutover"
   },
+  "bounded-contexts/inventory/features/storage-locations/api/client.ts": {
+    "families": ["location-create", "location-read", "location-update"],
+    "authority": "authenticated request headers, never payload account",
+    "attempt": "caller UUIDv4 in Inventory-Mutation-Attempt; browser forms persist bounded identity before sending",
+    "read": "retained account-scoped queries",
+    "consumer": "request callers",
+    "status": "cutover"
+  },
   "bounded-contexts/inventory/features/storage-locations/api/route.ts": {
     "families": ["location-create", "location-read", "location-update"],
     "authority": "authenticated request actor/account; checkout targets require server authority",
@@ -223,6 +228,14 @@
     "consumer": "Inventory command owner",
     "status": "cutover"
   },
+  "bounded-contexts/inventory/features/storage-locations/ui/routes/account-inventory-locations.tsx": {
+    "families": ["location-create", "location-read", "location-update"],
+    "authority": "authenticated request actor/account; checkout targets require server authority",
+    "attempt": "caller UUIDv4 in Inventory-Mutation-Attempt; browser forms persist bounded identity before sending",
+    "read": "private actor/requesting-account-bound mutation receipt; retained account-scoped queries",
+    "consumer": "inventory",
+    "status": "cutover"
+  },
   "bounded-contexts/inventory/index.ts": {
     "families": ["hold-read", "hold-release"],
     "authority": "trusted Ordering event context and reservation owner",
@@ -231,7 +244,7 @@
     "consumer": "Ordering",
     "status": "cutover"
   },
-  "bounded-contexts/inventory/routes/marketplace/account-inventory-imports.tsx": {
+  "bounded-contexts/inventory/features/import-batches/ui/routes/account-inventory-imports.tsx": {
     "families": ["import-commit", "import-create", "import-resolve", "location-read"],
     "authority": "existing Inventory account authority",
     "attempt": "create-batch and resolve-row forward the form's persisted attempt (import-create, import-resolve-row) and resolve-row forwards the rendered row facts; commit retained until #9503",
@@ -239,7 +252,7 @@
     "consumer": "pending later-family cutover",
     "status": "pending"
   },
-  "bounded-contexts/inventory/routes/marketplace/account-inventory-item.tsx": {
+  "bounded-contexts/inventory/features/inventory-items/ui/routes/account-inventory-item.tsx": {
     "families": ["hold-create", "hold-release", "item-adjust", "item-read"],
     "authority": "authenticated request actor/account; checkout targets require server authority",
     "attempt": "caller UUIDv4 in Inventory-Mutation-Attempt; browser forms persist bounded identity before sending",
@@ -247,15 +260,7 @@
     "consumer": "inventory",
     "status": "cutover"
   },
-  "bounded-contexts/inventory/routes/marketplace/account-inventory-locations.tsx": {
-    "families": ["location-create", "location-read", "location-update"],
-    "authority": "authenticated request actor/account; checkout targets require server authority",
-    "attempt": "caller UUIDv4 in Inventory-Mutation-Attempt; browser forms persist bounded identity before sending",
-    "read": "private actor/requesting-account-bound mutation receipt; retained account-scoped queries",
-    "consumer": "inventory",
-    "status": "cutover"
-  },
-  "bounded-contexts/inventory/routes/marketplace/account-inventory-restock-decisions.tsx": {
+  "bounded-contexts/inventory/features/restock-decisions/ui/routes/account-inventory-restock-decisions.tsx": {
     "families": ["restock-record"],
     "authority": "authenticated request actor/account",
     "attempt": "form-persisted caller UUID forwarded unchanged with the expected decision version",
@@ -263,7 +268,7 @@
     "consumer": "Inventory restock browser",
     "status": "cutover"
   },
-  "bounded-contexts/inventory/routes/marketplace/account-inventory.tsx": {
+  "bounded-contexts/inventory/features/inventory-items/ui/routes/account-inventory.tsx": {
     "families": ["item-create", "item-read", "location-read"],
     "authority": "authenticated request actor/account; checkout targets require server authority",
     "attempt": "caller UUIDv4 in Inventory-Mutation-Attempt; browser forms persist bounded identity before sending",
@@ -271,7 +276,7 @@
     "consumer": "inventory",
     "status": "cutover"
   },
-  "bounded-contexts/inventory/support/request-support/mutation-form.tsx": {
+  "bounded-contexts/inventory/support/ui-support/mutation-recovery.tsx": {
     "families": ["attempt-read"],
     "authority": "authenticated acting User and requesting account; no payload scope",
     "attempt": "exact original caller UUID; read-only restore",

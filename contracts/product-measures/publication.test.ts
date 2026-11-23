@@ -5,6 +5,7 @@ import {
   parseProductMeasurePublicationPart,
   ProductMeasurePublicationError,
   type ProductMeasureSnapshot,
+  type ProductPhysicalFlag,
 } from "./index";
 
 const measure: ProductMeasureSnapshot = {
@@ -16,14 +17,22 @@ const measure: ProductMeasureSnapshot = {
   unitWidthInches: 2,
   unitHeightInches: 0.1,
   unitWeightOunces: 1,
-  physicalFlags: ["raw-card", "bendable"],
+  physicalFlags: ["bendable"],
   stackBehavior: "stackable-thickness",
   source: "profile",
   confidence: "measured",
 };
 
-async function publication() {
-  const products = [measure, { ...measure, productId: "second-product" }];
+// Stored publications can still carry the product kinds that were once Physical Flags.
+function storedFlags(...flags: string[]) {
+  return flags as ProductPhysicalFlag[];
+}
+
+async function publication(physicalFlags: readonly ProductPhysicalFlag[] = measure.physicalFlags) {
+  const products = [
+    { ...measure, physicalFlags },
+    { ...measure, physicalFlags, productId: "second-product" },
+  ];
   return {
     completion: {
       streamId: "catalog.product-measures-synthetic-item",
@@ -58,18 +67,22 @@ describe("Product Measure Publication", () => {
     // Independently computed from the literal canonical JSON with SHA-256.
     expect(await digestProductMeasures([])).toBe("4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945");
     expect(await digestProductMeasures([measure])).toBe(
-      "92b2d7f4c8ff891851e62940d91f4281f66bab4761491dbedf611ccf5e41b194",
+      "aaa7b6777f41d20de1588edf8b9cfb4f3af0c9ddbe88851d39054ac8821339de",
     );
     expect(
       await digestProductMeasures([{ ...measure, selectedOptions: [{ optionId: "foil", dimensionId: "finish" }] }]),
-    ).toBe("92b2d7f4c8ff891851e62940d91f4281f66bab4761491dbedf611ccf5e41b194");
+    ).toBe("aaa7b6777f41d20de1588edf8b9cfb4f3af0c9ddbe88851d39054ac8821339de");
+    // A publication stored while product kinds were Physical Flags keeps the digest it was completed with.
+    expect(await digestProductMeasures([{ ...measure, physicalFlags: storedFlags("raw-card", "bendable") }])).toBe(
+      "92b2d7f4c8ff891851e62940d91f4281f66bab4761491dbedf611ccf5e41b194",
+    );
     const { products } = await publication();
     const reordered = [...products]
       .reverse()
       .map((product) => Object.fromEntries(Object.entries(product).reverse()) as ProductMeasureSnapshot);
     expect(await digestProductMeasures(products)).toBe(await digestProductMeasures(reordered));
-    expect(await digestProductMeasures([{ ...measure, physicalFlags: ["bendable", "raw-card"] }])).not.toBe(
-      await digestProductMeasures([measure]),
+    expect(await digestProductMeasures([{ ...measure, physicalFlags: ["jumbo", "bendable"] }])).not.toBe(
+      await digestProductMeasures([{ ...measure, physicalFlags: ["bendable", "jumbo"] }]),
     );
   });
 
@@ -79,7 +92,60 @@ describe("Product Measure Publication", () => {
         { ...measure, productId: "\u{10000}" },
         { ...measure, productId: "\ue000" },
       ]),
-    ).toBe("ea7f3b11b60e00428bab5ad5238c383a4344ccfdc05b2581a95122b344dd088c");
+    ).toBe("c16ce593ef0b5ba8779ddaa8e7918a5c94fc65e7fd5e267a02eb840a76bc3069");
+  });
+
+  function partFlagged(physicalFlags: unknown) {
+    return { catalogItemId: "synthetic-item", partIndex: 0, products: [{ ...measure, physicalFlags }] };
+  }
+
+  it.each([
+    { physicalFlags: ["rigid"] },
+    { physicalFlags: ["bendable", "metal", "jumbo", "irregular"] },
+    { physicalFlags: [] },
+  ])("parses a Publication Part whose Products are flagged $physicalFlags", ({ physicalFlags }) => {
+    const part = partFlagged(physicalFlags);
+    expect(parseProductMeasurePublicationPart(part)).toBe(part);
+  });
+
+  it.each([
+    { physicalFlags: ["raw-card", "bendable"] },
+    { physicalFlags: ["slab", "rigid"] },
+    { physicalFlags: ["sealed"] },
+    { physicalFlags: ["sealed", "rigid"] },
+    { physicalFlags: ["raw-card"] },
+  ])("keeps a stored Publication Part flagged $physicalFlags readable", ({ physicalFlags }) => {
+    const part = partFlagged(physicalFlags);
+    expect(parseProductMeasurePublicationPart(part)).toBe(part);
+    expect(part.products[0]!.physicalFlags).toEqual(physicalFlags);
+  });
+
+  it.each([
+    { physicalFlags: ["foil"] },
+    { physicalFlags: ["bendable", "graded"] },
+    { physicalFlags: ["Bendable"] },
+    { physicalFlags: [1] },
+    { physicalFlags: [null] },
+    { physicalFlags: "bendable" },
+    { physicalFlags: null },
+  ])("rejects a Publication Part whose physical flags are $physicalFlags", ({ physicalFlags }) => {
+    let thrown: unknown;
+    try {
+      parseProductMeasurePublicationPart(partFlagged(physicalFlags));
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(ProductMeasurePublicationError);
+    expect((thrown as ProductMeasurePublicationError).reason).toBe("invalid physical flags");
+  });
+
+  it("assembles a stored publication that carries product kinds without changing its Products", async () => {
+    const { completion, parts, products } = await publication(storedFlags("raw-card", "bendable"));
+    expect(await assembleProductMeasurePublication(completion, parts)).toEqual(products);
+    expect(products.map((product) => product.physicalFlags)).toEqual([
+      ["raw-card", "bendable"],
+      ["raw-card", "bendable"],
+    ]);
   });
 
   it("assembles precisely the contiguous predecessors and preserves publication Product order", async () => {

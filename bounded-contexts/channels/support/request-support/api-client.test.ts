@@ -1,9 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ChannelsConnectionsApiError,
-  ChannelsPublicationApiError,
   createChannelsConnectionsRequestApiClient,
-  createChannelsPublicationRequestApiClient,
   type ChannelConnectionPage,
   type PublicChannelConnection,
 } from "./api-client";
@@ -88,48 +86,6 @@ describe("Connections request API JSON object boundary", () => {
     });
   }
 });
-
-describe("Publication request API configuration commands", () => {
-  const conflict = { kind: "refused", code: "stream-version-conflict" };
-  const commands = {
-    replaceSettings: (client: ReturnType<typeof createChannelsPublicationRequestApiClient>) =>
-      client.replaceSettings("connection-a", {} as never, 3),
-    decideMapping: (client: ReturnType<typeof createChannelsPublicationRequestApiClient>) =>
-      client.decideMapping({
-        connectionId: "connection-a",
-        dimension: "category",
-        sourceKey: "source",
-        decision: "accept",
-        targetKey: null,
-        expectedStreamVersion: 3,
-      }),
-  };
-
-  for (const [name, send] of Object.entries(commands)) {
-    it(`${name} answers a stale version's 409 as the refusal, not an error`, async () => {
-      vi.stubGlobal(
-        "fetch",
-        vi.fn(async () => Response.json(conflict, { status: 409 })),
-      );
-      await expect(send(publicationClient())).resolves.toEqual(conflict);
-    });
-
-    it(`${name} still fails on any other 409`, async () => {
-      const body = { error: "synthetic conflict" };
-      vi.stubGlobal(
-        "fetch",
-        vi.fn(async () => Response.json(body, { status: 409 })),
-      );
-      const result = send(publicationClient());
-      await expect(result).rejects.toBeInstanceOf(ChannelsPublicationApiError);
-      await expect(result).rejects.toMatchObject({ status: 409, body });
-    });
-  }
-});
-
-function publicationClient() {
-  return createChannelsPublicationRequestApiClient(new Request("http://localhost:6403/account/channels/publication"));
-}
 
 function invoke(method: (typeof methods)[number]) {
   const client = createChannelsConnectionsRequestApiClient(

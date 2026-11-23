@@ -109,7 +109,6 @@
       "subscriptionVersion": 3,
       "checkpointKey": "settlement-account-risk-source-projection:marketplace:v3",
       "handlers": {
-        "marketplace.listing.created": "<function>",
         "marketplace.review.submitted": "<function>",
         "marketplace.review.updated": "<function>",
         "marketplace.review.withdrawn": "<function>",
@@ -128,7 +127,6 @@
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
       "eventTypes": [
-        "marketplace.listing.created",
         "marketplace.review.submitted",
         "marketplace.review.updated",
         "marketplace.review.withdrawn",
@@ -152,8 +150,6 @@
       "subscriptionVersion": 1,
       "checkpointKey": "settlement-account-risk-source-projection:payments:v1",
       "handlers": {
-        "payments.payment-created": "<function>",
-        "payments.payment-disputed": "<function>",
         "payments.payment-fraud-warning-received": "<function>",
         "payments.payment-fraud-review-opened": "<function>",
         "payments.payment-fraud-review-closed": "<function>",
@@ -166,8 +162,6 @@
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
       "eventTypes": [
-        "payments.payment-created",
-        "payments.payment-disputed",
         "payments.payment-fraud-warning-received",
         "payments.payment-fraud-review-opened",
         "payments.payment-fraud-review-closed",
@@ -648,7 +642,6 @@
       "projectionName": "settlement-account-risk-source-projection",
       "subscriptionVersion": 3,
       "handlers": {
-        "marketplace.listing.created": "<function>",
         "marketplace.review.submitted": "<function>",
         "marketplace.review.updated": "<function>",
         "marketplace.review.withdrawn": "<function>",
@@ -661,7 +654,6 @@
         "marketplace.review-hold.terminal-recorded": "<function>"
       },
       "eventTypes": [
-        "marketplace.listing.created",
         "marketplace.review.submitted",
         "marketplace.review.updated",
         "marketplace.review.withdrawn",
@@ -690,16 +682,12 @@
       "projectionName": "settlement-account-risk-source-projection",
       "subscriptionVersion": 1,
       "handlers": {
-        "payments.payment-created": "<function>",
-        "payments.payment-disputed": "<function>",
         "payments.payment-fraud-warning-received": "<function>",
         "payments.payment-fraud-review-opened": "<function>",
         "payments.payment-fraud-review-closed": "<function>",
         "payments.checkout-affordances-published": "<function>"
       },
       "eventTypes": [
-        "payments.payment-created",
-        "payments.payment-disputed",
         "payments.payment-fraud-warning-received",
         "payments.payment-fraud-review-opened",
         "payments.payment-fraud-review-closed",

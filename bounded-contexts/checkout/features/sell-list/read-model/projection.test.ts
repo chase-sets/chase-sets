@@ -478,3 +478,394 @@ describe("checkout Sell List Offer lifecycle", () => {
     expect(offers.get("off_1")).toEqual({ status: "withdrawn", version: 4 });
   });
 });
+
+describe("checkout Sell List statements for Marketplace Offer and Settlement events", () => {
+  const recordedAt = "2026-06-22T00:00:00.000Z";
+  const statement = (sql: string) => sql.replace(/\s+/g, " ").trim();
+
+  const upsertAcceptedOffer = statement(`
+    INSERT INTO checkout_sell_offer_pages (
+      offer_id,
+      buyer_account_id,
+      catalog_catalog_item_id,
+      product_id,
+      item_title,
+      item_subtitle,
+      selected_options,
+      product_summary,
+      price_amount,
+      price_currency_code,
+      quantity_requested,
+      status,
+      accepted_seller_account_id,
+      accepted_at,
+      created_at,
+      updated_at,
+      last_stream_version
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'accepted', $12, $13, $14, $14, $15)
+    ON CONFLICT (offer_id) DO UPDATE SET
+      buyer_account_id = EXCLUDED.buyer_account_id,
+      catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
+      product_id = EXCLUDED.product_id,
+      item_title = EXCLUDED.item_title,
+      item_subtitle = EXCLUDED.item_subtitle,
+      selected_options = EXCLUDED.selected_options,
+      product_summary = EXCLUDED.product_summary,
+      price_amount = EXCLUDED.price_amount,
+      price_currency_code = EXCLUDED.price_currency_code,
+      quantity_requested = EXCLUDED.quantity_requested,
+      status = EXCLUDED.status,
+      accepted_seller_account_id = EXCLUDED.accepted_seller_account_id,
+      accepted_at = EXCLUDED.accepted_at,
+      updated_at = EXCLUDED.updated_at,
+      last_stream_version = EXCLUDED.last_stream_version
+    WHERE checkout_sell_offer_pages.last_stream_version < EXCLUDED.last_stream_version
+    RETURNING offer_id`);
+  const markKnownOfferAccepted = statement(`
+    UPDATE checkout_sell_offer_pages
+    SET status = 'accepted',
+        accepted_seller_account_id = $2,
+        accepted_at = $3,
+        updated_at = $3,
+        last_stream_version = $4
+    WHERE offer_id = $1
+      AND last_stream_version < $4
+    RETURNING offer_id`);
+  const removeSelectedOfferLine = statement(`
+    DELETE FROM checkout_sell_list_line_pages
+    WHERE seller_account_id = $1
+      AND line_type = 'selected-offer'
+      AND offer_id = $2`);
+  const upsertSubmittedOffer = statement(`
+    INSERT INTO checkout_sell_offer_pages (
+      offer_id,
+      buyer_account_id,
+      catalog_catalog_item_id,
+      product_id,
+      item_title,
+      item_subtitle,
+      selected_options,
+      product_summary,
+      price_amount,
+      price_currency_code,
+      quantity_requested,
+      status,
+      accepted_seller_account_id,
+      accepted_at,
+      created_at,
+      updated_at,
+      last_stream_version
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'submitted', NULL, NULL, $12, $12, $13)
+    ON CONFLICT (offer_id) DO UPDATE SET
+      buyer_account_id = EXCLUDED.buyer_account_id,
+      catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
+      product_id = EXCLUDED.product_id,
+      item_title = EXCLUDED.item_title,
+      item_subtitle = EXCLUDED.item_subtitle,
+      selected_options = EXCLUDED.selected_options,
+      product_summary = EXCLUDED.product_summary,
+      price_amount = EXCLUDED.price_amount,
+      price_currency_code = EXCLUDED.price_currency_code,
+      quantity_requested = EXCLUDED.quantity_requested,
+      status = EXCLUDED.status,
+      accepted_seller_account_id = NULL,
+      accepted_at = NULL,
+      updated_at = EXCLUDED.updated_at,
+      last_stream_version = EXCLUDED.last_stream_version
+    WHERE checkout_sell_offer_pages.last_stream_version < EXCLUDED.last_stream_version`);
+  const setOfferStatus = statement(`
+    UPDATE checkout_sell_offer_pages
+    SET status = $2,
+        last_stream_version = $3,
+        updated_at = $4
+    WHERE offer_id = $1
+      AND last_stream_version < $3`);
+  const setOfferPrice = statement(`
+    UPDATE checkout_sell_offer_pages
+    SET price_amount = $2,
+        price_currency_code = $3,
+        updated_at = $4,
+        last_stream_version = $5
+    WHERE offer_id = $1
+      AND last_stream_version < $5`);
+  const upsertPayoutReadiness = statement(`
+    INSERT INTO checkout_sell_payout_readiness_pages (
+      account_id,
+      status,
+      missing_requirements,
+      updated_at,
+      last_stream_version
+    ) VALUES ($1, $2, $3, $4, $5)
+    ON CONFLICT (account_id) DO UPDATE
+    SET status = EXCLUDED.status,
+        missing_requirements = EXCLUDED.missing_requirements,
+        updated_at = EXCLUDED.updated_at,
+        last_stream_version = EXCLUDED.last_stream_version
+    WHERE checkout_sell_payout_readiness_pages.last_stream_version < EXCLUDED.last_stream_version`);
+
+  function recordStatements(acceptedOfferRows: readonly { offer_id: string }[] = [{ offer_id: "off_1" }]) {
+    const statements: { sql: string; values: readonly unknown[] }[] = [];
+    const db: PgQueryable = {
+      async query<Row = Record<string, unknown>>(sql: string, values: readonly unknown[] = []) {
+        statements.push({ sql: statement(sql), values });
+        return { rows: (sql.includes("RETURNING offer_id") ? acceptedOfferRows : []) as Row[], rowCount: 0 };
+      },
+    };
+    return { handlers: buildCheckoutSellListProjectionHandlers(db), statements };
+  }
+
+  function sourceEvent(type: string, data: Record<string, unknown>, streamVersion: number): TransportEvent {
+    return buildTransportEvent(type, data, {
+      streamId: "marketplace.offer-off_1",
+      streamVersion,
+      timing: { occurredAt: recordedAt, recordedAt },
+    });
+  }
+
+  const acceptedOffer = {
+    offerId: "off_1",
+    buyerAccountId: "acc_buyer",
+    sellerAccountId: "acc_seller",
+    catalogItemId: "cat_1",
+    productId: "cat_1::condition:raw",
+    itemTitle: "Charizard",
+    itemSubtitle: "Base Set",
+    selectedOptions: [{ dimensionId: "condition", optionId: "raw" }],
+    productSummary: "Raw",
+    priceAmount: "10.00",
+    priceCurrencyCode: "USD",
+    quantityRequested: 2,
+    acceptedAt: "2026-06-21T23:59:00.000Z",
+  };
+
+  it("writes the accepted Offer row and removes the seller's selected-offer line", async () => {
+    const { handlers, statements } = recordStatements();
+
+    await handlers["marketplace.offer.accepted"]!(sourceEvent("marketplace.offer.accepted", acceptedOffer, 7));
+
+    expect(statements).toEqual([
+      {
+        sql: upsertAcceptedOffer,
+        values: [
+          "off_1",
+          "acc_buyer",
+          "cat_1",
+          "cat_1::condition:raw",
+          "Charizard",
+          "Base Set",
+          JSON.stringify([{ dimensionId: "condition", optionId: "raw" }]),
+          "Raw",
+          "10.00",
+          "USD",
+          2,
+          "acc_seller",
+          "2026-06-21T23:59:00.000Z",
+          recordedAt,
+          7,
+        ],
+      },
+      { sql: removeSelectedOfferLine, values: ["acc_seller", "off_1"] },
+    ]);
+  });
+
+  it("marks a known Offer accepted when the recorded event lacks buyerAccountId, quantityRequested and acceptedAt", async () => {
+    const { handlers, statements } = recordStatements();
+
+    await handlers["marketplace.offer.accepted"]!(
+      sourceEvent("marketplace.offer.accepted", { offerId: "off_1", sellerAccountId: "acc_seller" }, 7),
+    );
+
+    expect(statements).toEqual([
+      { sql: markKnownOfferAccepted, values: ["off_1", "acc_seller", recordedAt, 7] },
+      { sql: removeSelectedOfferLine, values: ["acc_seller", "off_1"] },
+    ]);
+  });
+
+  it("defaults the quantity to one and the acceptance time to the recorded time when the recorded event lacks them", async () => {
+    const { handlers, statements } = recordStatements();
+
+    await handlers["marketplace.offer.accepted"]!(
+      sourceEvent(
+        "marketplace.offer.accepted",
+        {
+          offerId: "off_1",
+          buyerAccountId: "acc_buyer",
+          sellerAccountId: "acc_seller",
+          catalogItemId: "cat_1",
+          productId: "cat_1::condition:raw",
+          itemTitle: "Charizard",
+          priceAmount: "10.00",
+        },
+        7,
+      ),
+    );
+
+    expect(statements).toEqual([
+      {
+        sql: upsertAcceptedOffer,
+        values: [
+          "off_1",
+          "acc_buyer",
+          "cat_1",
+          "cat_1::condition:raw",
+          "Charizard",
+          null,
+          "[]",
+          null,
+          "10.00",
+          null,
+          1,
+          "acc_seller",
+          recordedAt,
+          recordedAt,
+          7,
+        ],
+      },
+      { sql: removeSelectedOfferLine, values: ["acc_seller", "off_1"] },
+    ]);
+  });
+
+  it("keeps the seller's selected-offer line when the accepted Offer write is stale", async () => {
+    const { handlers, statements } = recordStatements([]);
+
+    await handlers["marketplace.offer.accepted"]!(sourceEvent("marketplace.offer.accepted", acceptedOffer, 7));
+
+    expect(statements.map(({ sql }) => sql)).toEqual([upsertAcceptedOffer]);
+  });
+
+  it("writes the submitted Offer row", async () => {
+    const { handlers, statements } = recordStatements();
+
+    await handlers["marketplace.offer.submitted"]!(
+      sourceEvent(
+        "marketplace.offer.submitted",
+        {
+          offerId: "off_1",
+          buyerAccountId: "acc_buyer",
+          catalogItemId: "cat_1",
+          productId: "cat_1::condition:raw",
+          itemTitle: "Charizard",
+          itemSubtitle: "Base Set",
+          selectedOptions: [{ dimensionId: "condition", optionId: "raw" }],
+          productSummary: "Raw",
+          priceAmount: "10.00",
+          priceCurrencyCode: "USD",
+          quantityRequested: 2,
+        },
+        1,
+      ),
+    );
+    await handlers["marketplace.offer.submitted"]!(
+      sourceEvent(
+        "marketplace.offer.submitted",
+        {
+          offerId: "off_1",
+          buyerAccountId: "acc_buyer",
+          catalogItemId: "cat_1",
+          productId: "cat_1::condition:raw",
+          itemTitle: "Charizard",
+          priceAmount: "10.00",
+          quantityRequested: 2,
+        },
+        2,
+      ),
+    );
+
+    expect(statements).toEqual([
+      {
+        sql: upsertSubmittedOffer,
+        values: [
+          "off_1",
+          "acc_buyer",
+          "cat_1",
+          "cat_1::condition:raw",
+          "Charizard",
+          "Base Set",
+          JSON.stringify([{ dimensionId: "condition", optionId: "raw" }]),
+          "Raw",
+          "10.00",
+          "USD",
+          2,
+          recordedAt,
+          1,
+        ],
+      },
+      {
+        sql: upsertSubmittedOffer,
+        values: [
+          "off_1",
+          "acc_buyer",
+          "cat_1",
+          "cat_1::condition:raw",
+          "Charizard",
+          null,
+          "[]",
+          null,
+          "10.00",
+          null,
+          2,
+          recordedAt,
+          2,
+        ],
+      },
+    ]);
+  });
+
+  it("writes the Offer status for Pause, Resume and Withdraw", async () => {
+    const { handlers, statements } = recordStatements();
+    const lifecycle = { offerId: "off_1", buyerAccountId: "acc_buyer", at: "2026-06-21T23:59:00.000Z" };
+
+    await handlers["marketplace.offer.paused"]!(sourceEvent("marketplace.offer.paused", lifecycle, 2));
+    await handlers["marketplace.offer.resumed"]!(sourceEvent("marketplace.offer.resumed", lifecycle, 3));
+    await handlers["marketplace.offer.withdrawn"]!(sourceEvent("marketplace.offer.withdrawn", lifecycle, 4));
+
+    expect(statements).toEqual([
+      { sql: setOfferStatus, values: ["off_1", "paused", 2, recordedAt] },
+      { sql: setOfferStatus, values: ["off_1", "submitted", 3, recordedAt] },
+      { sql: setOfferStatus, values: ["off_1", "withdrawn", 4, recordedAt] },
+    ]);
+  });
+
+  it("writes the updated Offer price", async () => {
+    const { handlers, statements } = recordStatements();
+
+    await handlers["marketplace.offer.price-updated"]!(
+      sourceEvent(
+        "marketplace.offer.price-updated",
+        { offerId: "off_1", buyerAccountId: "acc_buyer", priceAmount: "12.50", priceCurrencyCode: "USD" },
+        5,
+      ),
+    );
+
+    expect(statements).toEqual([{ sql: setOfferPrice, values: ["off_1", "12.50", "USD", recordedAt, 5] }]);
+  });
+
+  it("writes payout readiness, falling back to the recorded time and no missing requirements", async () => {
+    const { handlers, statements } = recordStatements();
+
+    await handlers["settlement.payout-readiness.recorded"]!(
+      sourceEvent(
+        "settlement.payout-readiness.recorded",
+        {
+          accountId: "acc_seller",
+          status: "restricted",
+          missingRequirements: ["external_account"],
+          providerReference: null,
+          recordedAt: "2026-06-22T00:02:00.000Z",
+        },
+        3,
+      ),
+    );
+    await handlers["settlement.payout-readiness.recorded"]!(
+      sourceEvent("settlement.payout-readiness.recorded", { accountId: "acc_seller", status: "ready" }, 4),
+    );
+
+    expect(statements).toEqual([
+      {
+        sql: upsertPayoutReadiness,
+        values: ["acc_seller", "restricted", JSON.stringify(["external_account"]), "2026-06-22T00:02:00.000Z", 3],
+      },
+      { sql: upsertPayoutReadiness, values: ["acc_seller", "ready", "[]", recordedAt, 4] },
+    ]);
+  });
+});

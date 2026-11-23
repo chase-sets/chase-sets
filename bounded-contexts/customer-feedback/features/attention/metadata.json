@@ -1,0 +1,110 @@
+{
+  "slice": "attention",
+  "ownedNouns": ["feedback-attention", "triage-sla", "staff-attention-digest"],
+  "localeCatalogs": [
+    "bounded-contexts/customer-feedback/features/attention/api/localization/locales/en.ts",
+    "bounded-contexts/customer-feedback/features/attention/ui/localization/locales/en.ts"
+  ],
+  "scheduledJobs": [
+    {
+      "id": "customer-feedback.attention-digest",
+      "schedule": {
+        "kind": "configured-interval",
+        "configKey": "customerFeedbackAttentionDigestIntervalMs"
+      },
+      "runnerExport": "createCustomerFeedbackAttentionDigestRunners",
+      "group": "scheduled",
+      "order": 109,
+      "runtimeProfiles": ["proof", "public"],
+      "lockScope": "job:customer-feedback.attention-digest"
+    }
+  ],
+  "projectionGroups": [
+    {
+      "projectionName": "customer-feedback-case-attention-projection",
+      "sourceContextNames": ["customer-feedback"],
+      "ownedTables": ["customer_feedback_case_attention", "customer_feedback_attention_digest_runs"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    }
+  ],
+  "mutationConsistencyInventory": [
+    {
+      "id": "customer-feedback.case-attention-command-snapshots",
+      "owner": "customer-feedback",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/customer-feedback/features/attention/api/route.ts:POST /cases/:caseId/follow-up",
+        "api-route:bounded-contexts/customer-feedback/features/attention/api/route.ts:POST /cases/:caseId/reopen"
+      ],
+      "visibleDestination": {
+        "description": "Customer Feedback case actions return the committed case snapshot used to reconcile operator follow-up and attention state."
+      },
+      "proof": {
+        "authoritativeResponse": "The event-sourced command handler returns state after the append commits, and the route exposes only the bounded operational snapshot.",
+        "tests": [
+          "bounded-contexts/customer-feedback/features/attention/api/route.test.ts proves notify/manage authorization and committed snapshot responses."
+        ]
+      }
+    }
+  ],
+  "agentCoverage": {
+    "customer-feedback-attention": {
+      "pending": "#9238"
+    }
+  },
+  "deployableContributions": [
+    {
+      "deployable": "admin-web",
+      "routes": [
+        {
+          "routeId": "customer-feedback-attention",
+          "routePath": "customer-feedback/attention",
+          "fileExport": "./routes/admin/attention",
+          "routeType": "route",
+          "sourceContext": "customer-feedback",
+          "section": "support",
+          "canonicalLink": {
+            "kind": "route-derived"
+          },
+          "linkParameters": {
+            "query": {
+              "caseId": {
+                "kind": "value",
+                "maxLength": 256
+              }
+            }
+          },
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": ["support.view"]
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          }
+        }
+      ]
+    }
+  ],
+  "navigation": [
+    {
+      "deployable": "admin-web",
+      "slot": "primary-nav",
+      "key": "customer-feedback-attention",
+      "label": "Customer Feedback",
+      "icon": "message",
+      "href": "/customer-feedback/attention",
+      "section": "support",
+      "order": 20,
+      "visibility": "signed-in",
+      "requiredPermissions": ["support.view"]
+    }
+  ],
+  "directoryIntent": {
+    "classification": "slice",
+    "purpose": "Own low-score attention classification, triage SLA aging, breach visibility, and bounded staff digest inputs.",
+    "expectedConsumers": ["Customer Feedback operator attention surface", "Notifications staff digest integration"]
+  }
+}

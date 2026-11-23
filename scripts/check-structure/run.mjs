@@ -21,6 +21,7 @@ import {
   isSoftwareDeliveryConceptGuardedFile,
 } from "./software-delivery-concepts.mjs";
 import { findBusinessLiteralGuardViolations, isBusinessLiteralGuardedFile } from "./business-literal-guard.mjs";
+import { validateCrossContextEventPayloadCasts } from "./cross-context-event-payload-casts.mjs";
 import { validateCrossContextFallbackInventory } from "./cross-context-fallback-inventory.mjs";
 import { validateLinkIntentActionProducers } from "./link-intent-action-producer-inventory.mjs";
 import { validateCrossContextReadInventory } from "./cross-context-read-inventory.mjs";
@@ -818,16 +819,16 @@ export function validateEventReactionDeclaration(reaction, reactionLabel) {
     addDiagnostic("reactionHandlerSetNames must be a non-empty array of strings");
   }
 
-  if (reaction.idempotencyPolicy !== "idempotent-command-dispatch") {
-    addDiagnostic("idempotencyPolicy must be idempotent-command-dispatch");
-  }
-
-  if (reaction.retryPolicy !== "retry-from-last-checkpoint") {
-    addDiagnostic("retryPolicy must be retry-from-last-checkpoint");
-  }
-
-  if (reaction.failurePolicy !== "surface-as-reaction-failure") {
-    addDiagnostic("failurePolicy must be surface-as-reaction-failure");
+  // Legacy guard. Reaction retry and failure behavior is fixed by the shared
+  // runtime, so these retired single-value keys are refused on presence instead
+  // of being ignored: validateEventDeclarationOptions does not reject unknown
+  // declaration keys, and a stale declaration would otherwise pass silently.
+  // Delete this guard when unknown declaration keys are rejected there.
+  const retiredReactionKeys = ["idempotencyPolicy", "retryPolicy", "failurePolicy"];
+  for (const retiredKey of retiredReactionKeys) {
+    if (retiredKey in reaction) {
+      addDiagnostic(`${retiredKey} is retired and must be removed; the shared runtime fixes reaction semantics`);
+    }
   }
 
   if ("eventTypes" in reaction && !isStringArray(reaction.eventTypes)) {
@@ -1595,24 +1596,17 @@ const unmigratedPublicPresenceRoutes = new Set(
     "admin/campaign-analytics",
     "admin/promo-bar",
     "admin/waitlist",
-    "marketplace/agent-terms",
-    "marketplace/authenticity-terms",
     "marketplace/compare-ebay",
     "marketplace/compare-tcgplayer",
     "marketplace/contact",
     "marketplace/faq",
-    "marketplace/founders",
     "marketplace/help-article",
     "marketplace/help-category",
     "marketplace/help",
     "marketplace/home",
     "marketplace/order-protection",
-    "marketplace/payments-terms",
     "marketplace/press",
-    "marketplace/privacy",
     "marketplace/refunds-and-returns",
-    "marketplace/seller-agreement",
-    "marketplace/terms",
     "marketplace/welcome",
   ].map((route) => `bounded-contexts/public-presence/routes/${route}.tsx`),
 );
@@ -3973,6 +3967,17 @@ export async function runStructureCheck(options = {}) {
     violations.push(violation);
   }
   for (const warning of crossContextReadInventoryResult.warnings) {
+    warnings.push(warning);
+  }
+
+  const crossContextEventPayloadCastsResult = validateCrossContextEventPayloadCasts({
+    repoRoot,
+    contextManifests,
+  });
+  for (const violation of crossContextEventPayloadCastsResult.violations) {
+    violations.push(violation);
+  }
+  for (const warning of crossContextEventPayloadCastsResult.warnings) {
     warnings.push(warning);
   }
 

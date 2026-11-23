@@ -355,4 +355,72 @@ describe("commercial terms home", () => {
       accountType === "business" ? "2027-01-01T00:00:00.000Z" : "",
     );
   });
+
+  describe("Shipping Allowance on an account override", () => {
+    const allowanceField = (sheet: Pick<typeof screen, "getByRole">) =>
+      sheet.getByRole<HTMLInputElement>("spinbutton", { name: /^Shipping allowance \(bps\)/ });
+    const submittedAllowance = (field: HTMLInputElement) =>
+      new FormData(field.closest("form")!).get("shippingAllowancePercentageBps");
+
+    it("shows Follows published schedule, not 0%, for an override that states no Shipping Allowance", () => {
+      const agreement = { ...expiringAgreement, shipping_allowance_percentage_bps: null };
+      renderHome({
+        publishedSchedule: revisedSchedule,
+        home: homeOf(undefined, [agreement]),
+        selectedAgreement: agreement,
+      });
+
+      const sheet = within(screen.getByRole("dialog", { name: agreement.label }));
+      expect(sheet.getByText("Follows published schedule")).toBeTruthy();
+      expect(sheet.getByText("7.25%")).toBeTruthy();
+      expect(sheet.queryByText("0%")).toBeNull();
+      expect(allowanceField(sheet).value).toBe("");
+      expect(allowanceField(sheet).required).toBe(false);
+      expect(submittedAllowance(allowanceField(sheet)) ?? "").toBe("");
+    });
+
+    it.each([
+      [0, "0%", "0"],
+      [650, "6.5%", "650"],
+    ])("shows a stated Shipping Allowance of %i bps and keeps it in the revise form", (bps, text, value) => {
+      const agreement = { ...expiringAgreement, shipping_allowance_percentage_bps: bps };
+      renderHome({
+        publishedSchedule: revisedSchedule,
+        home: homeOf(undefined, [agreement]),
+        selectedAgreement: agreement,
+      });
+
+      const sheet = within(screen.getByRole("dialog", { name: agreement.label }));
+      expect(sheet.getByText(text)).toBeTruthy();
+      expect(sheet.queryByText("Follows published schedule")).toBeNull();
+      expect(allowanceField(sheet).value).toBe(value);
+      expect(submittedAllowance(allowanceField(sheet))).toBe(value);
+    });
+
+    it("opens the create-override form with the Shipping Allowance blank, optional and unsubmitted", () => {
+      renderHome({ createKind: "agreement" }, "/commerce/terms?create=agreement");
+
+      const sheet = within(screen.getByRole("dialog", { name: "Create account override" }));
+      expect(sheet.getByRole<HTMLInputElement>("spinbutton", { name: /^Marketplace sales fee \(bps\)/ }).value).toBe(
+        "850",
+      );
+      expect(allowanceField(sheet).value).toBe("");
+      expect(allowanceField(sheet).required).toBe(false);
+      expect(sheet.getByText("Leave blank to follow the published schedule.")).toBeTruthy();
+      // Untouched, the form carries no allowance value for the route action to send.
+      expect(submittedAllowance(allowanceField(sheet)) ?? "").toBe("");
+    });
+
+    it.each([
+      ["create", { createKind: "schedule" }, "Create schedule", "500"],
+      ["revise", { selectedSchedule: upcomingSchedule }, "August business terms", "500"],
+    ] as const)("still requires the Shipping Allowance on the %s schedule form", (_form, props, dialogName, value) => {
+      renderHome(props);
+
+      const sheet = within(screen.getByRole("dialog", { name: dialogName }));
+      expect(allowanceField(sheet).value).toBe(value);
+      expect(allowanceField(sheet).required).toBe(true);
+      expect(sheet.queryByText("Leave blank to follow the published schedule.")).toBeNull();
+    });
+  });
 });
