@@ -190,7 +190,7 @@ const shippedEvidenceChecks: readonly {
   },
   {
     subjectId: "opt-in-and-fee",
-    ref: "bounded-contexts/commercial-terms/features/authenticity-fee/domain/policy.ts:124-131",
+    ref: "bounded-contexts/commercial-terms/features/authenticity-fee/domain/policy.ts:126-133",
     keyword: "commercial-terms.authenticity-fee",
   },
   {
@@ -200,7 +200,7 @@ const shippedEvidenceChecks: readonly {
   },
   {
     subjectId: "opt-in-and-fee",
-    ref: "bounded-contexts/ordering/features/orders/domain/authenticity-check-fee.ts:79-105",
+    ref: "bounded-contexts/ordering/features/orders/domain/authenticity-check-fee.ts:70-94",
     keyword: "optInThresholdAmount",
   },
   {
