@@ -99,17 +99,14 @@ export function clearGuestCheckoutCookie(headers: Headers, request?: Request) {
   });
 }
 
-function isSafeReturnTo(value: string | null): value is string {
-  return value !== null && getSafeSameSitePath(value) === value;
-}
-
 export function getSafeReturnTo(request: Request, fallback: string) {
   const url = new URL(request.url);
   const returnTo = url.searchParams.get("returnTo");
-  if (isSafeReturnTo(returnTo)) return returnTo;
+  if (returnTo === null) return fallback;
+  if (getSafeSameSitePath(returnTo) === returnTo) return returnTo;
 
   // An OAuth issuer on another host sends users here with an absolute continuation.
-  const authorizeUrl = returnTo && URL.parse(returnTo);
+  const authorizeUrl = URL.parse(returnTo);
   if (
     !authorizeUrl ||
     authorizeUrl.origin !== url.origin ||
