@@ -1115,8 +1115,8 @@ const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
   // Repinned for #11849: Ordering's compiled copy of the launch fee is deleted, so the launch value is cited at
   // its only definition in Commercial Terms (52-63) and Ordering's quote function is at 79-105.
   // Repinned after the fee band category lists were deleted: the launch value moved to 48-59, the policy
-  // definition to 126-133 and Ordering's quote function to 70-94.
-  [citationFencePaths.authenticityTerms]: "9968602fcf14f66bd45950e686f6e2e45df8a58104ad36b15f53c847bcc593d8",
+  // definition to 138-145 and Ordering's quote function to 70-94.
+  [citationFencePaths.authenticityTerms]: "c9779924b995539855c63c9027ee0a8d36f774d7178e9621acf58a644b9a3c66",
   // Includes #7422 revocation, #9499 Inventory recovery storage, #10610 truthful search failure citations, the #9106 Search Interpretation marker in
   // stored search restoration, #9721 byte-identical citation relocations, and the #9034 rollout, notice-email,
   // and Connector Pairing manifest reconciliation; only C1-C7 digits remain normalized.
@@ -1127,9 +1127,9 @@ const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
   // from 14-59 to 8-53 after its velocity-only imports were removed; the C1-C7 normalization is unchanged.
   [citationFencePaths.privacyPolicy]: "fca2afca202dd342f1edb44a8098828cd1f4a7dbc8799388f20aeb22376b3aa1",
   // Repinned for #11849: the quote function ref follows the same move to 79-105.
-  // Repinned after the fee band category lists were deleted: the policy definition ref moved to 126-133 and
+  // Repinned after the fee band category lists were deleted: the policy definition ref moved to 138-145 and
   // the quote function ref to 70-94.
-  [citationFencePaths.authenticityTest]: "7846b94065fd3006be933cf95fd7e1a35bc00f2bc32d83fb183ceeced5bcd176",
+  [citationFencePaths.authenticityTest]: "aafa48e38489087192df9599b082563b07b5563f83d284f5b1790be9bb418624",
   // Repinned for #10066, #8846, the current-main lost-update guard surface merge, and the #10176 JSON import census
   // evidence-citation update, #9878 TCGplayer guard surface, the #9553 context-registry guard surface, and the
   // #7313 managed-Postgres client policy surface with its authority-guard and client-policy evidence ranges.

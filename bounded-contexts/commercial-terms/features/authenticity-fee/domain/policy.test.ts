@@ -175,6 +175,35 @@ describe("authenticity fee policy stored documents", () => {
     });
   });
 
+  // A build that predates the removal validates every band, so a value it would refuse is refused here too.
+  it("rejects a raw or graded band with a malformed field", () => {
+    expect(() =>
+      decodeAuthenticityFeePolicyValue({
+        optInThresholdAmount: "100.00",
+        bands: [
+          { minOrderValueAmount: "abc", category: "raw", flatAmount: "5.00", percentageBps: 100, capAmount: "25.00" },
+          storedAnyBand,
+        ],
+      }),
+    ).toThrow("Authenticity fee band minimum order value");
+  });
+
+  it("rejects two raw bands at one minimum order value", () => {
+    const rawBand = {
+      minOrderValueAmount: "0.00",
+      category: "raw",
+      flatAmount: "5.00",
+      percentageBps: 100,
+      capAmount: "25.00",
+    };
+    expect(() =>
+      decodeAuthenticityFeePolicyValue({
+        optInThresholdAmount: "100.00",
+        bands: [rawBand, { ...rawBand, flatAmount: "6.00" }, storedAnyBand],
+      }),
+    ).toThrow("Authenticity fee policy bands must not repeat a minimum order value.");
+  });
+
   it("decodes through the policy definition the resolver reads stored documents with", () => {
     expect(authenticityFeePolicy.decodeValue(storedValueWithRetiredBands).bands).toEqual([storedAnyBand]);
   });

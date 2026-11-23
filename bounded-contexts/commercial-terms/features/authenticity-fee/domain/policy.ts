@@ -63,7 +63,15 @@ export const AUTHENTICITY_FEE_LAUNCH_POLICY_VALUE: AuthenticityFeePolicyValue = 
  * value alone. Ordering never quoted a band stored with one, so decoding
  * drops it rather than letting it start to match.
  */
-const RETIRED_BAND_CATEGORIES: readonly unknown[] = ["raw", "graded"];
+const RETIRED_BAND_CATEGORIES = ["raw", "graded"] as const;
+
+type RetiredBandCategory = (typeof RETIRED_BAND_CATEGORIES)[number];
+
+type StoredBand = Omit<AuthenticityFeeBand, "category"> & Readonly<{ category: "any" | RetiredBandCategory }>;
+
+function isRetiredBandCategory(value: unknown): value is RetiredBandCategory {
+  return RETIRED_BAND_CATEGORIES.some((category) => category === value);
+}
 
 export function normalizeAuthenticityFeeBandCategory(value: unknown): "any" {
   if (value !== "any") {
@@ -72,21 +80,21 @@ export function normalizeAuthenticityFeeBandCategory(value: unknown): "any" {
   return value;
 }
 
-function normalizeBand(value: unknown): AuthenticityFeeBand | null {
+/** Validates every field of a band as stored, a band with a retired category included. */
+function normalizeStoredBand(value: unknown): StoredBand {
   if (typeof value !== "object" || value === null) {
     throw new CommercialTermsDomainError("Authenticity fee band must be an object.");
   }
   const record = value as Record<string, unknown>;
-  if (RETIRED_BAND_CATEGORIES.includes(record.category)) {
-    return null;
-  }
 
   return {
     minOrderValueAmount: normalizeMoneyAmount(String(record.minOrderValueAmount ?? ""), {
       fieldName: "Authenticity fee band minimum order value",
       allowZero: true,
     }),
-    category: normalizeAuthenticityFeeBandCategory(record.category),
+    category: isRetiredBandCategory(record.category)
+      ? record.category
+      : normalizeAuthenticityFeeBandCategory(record.category),
     flatAmount: normalizeMoneyAmount(String(record.flatAmount ?? ""), {
       fieldName: "Authenticity fee band flat amount",
       allowZero: true,
@@ -114,11 +122,15 @@ export function decodeAuthenticityFeePolicyValue(raw: JsonValue): AuthenticityFe
   if (!Array.isArray(bandsRaw) || bandsRaw.length === 0) {
     throw new CommercialTermsDomainError("Authenticity fee policy must declare at least one band.");
   }
-  const bands = bandsRaw.flatMap((band) => normalizeBand(band) ?? []);
-  const minimumOrderValues = new Set(bands.map((band) => band.minOrderValueAmount));
-  if (minimumOrderValues.size !== bands.length) {
+  // Every band is validated and the category and minimum order value pair is checked across all of them,
+  // retired bands included, so a document this decoder accepts also decodes on a build that predates it.
+  // Among the bands that remain, the pair rule is uniqueness by minimum order value.
+  const storedBands = bandsRaw.map((band) => normalizeStoredBand(band));
+  const pairs = new Set(storedBands.map((band) => `${band.category}|${band.minOrderValueAmount}`));
+  if (pairs.size !== storedBands.length) {
     throw new CommercialTermsDomainError("Authenticity fee policy bands must not repeat a minimum order value.");
   }
+  const bands = storedBands.filter((band): band is AuthenticityFeeBand => band.category === "any");
 
   return { optInThresholdAmount, bands };
 }

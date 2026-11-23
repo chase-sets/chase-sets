@@ -190,7 +190,7 @@ const shippedEvidenceChecks: readonly {
   },
   {
     subjectId: "opt-in-and-fee",
-    ref: "bounded-contexts/commercial-terms/features/authenticity-fee/domain/policy.ts:126-133",
+    ref: "bounded-contexts/commercial-terms/features/authenticity-fee/domain/policy.ts:138-145",
     keyword: "commercial-terms.authenticity-fee",
   },
   {
