@@ -60,6 +60,7 @@ import {
   type LandingIntent,
 } from "./landing-experiment";
 import { landingFaqEntries } from "./landing-faq";
+import { t as policyT } from "../../policies/ui/localization/translator";
 import { publicPresenceT as t } from "./public-presence-translator";
 
 export type WaitlistActionData = Readonly<{ status: "error"; message: string }> | null;
@@ -241,10 +242,10 @@ const policyLinks = [
   { href: "/order-protection", label: t("publicPresence.nav.buyerProtection") },
   { href: "/sales-fees", label: t("publicPresence.nav.sellerFees") },
   { href: "/founders", label: t("publicPresence.nav.foundersTerms") },
-  { href: "/seller-agreement", label: t("publicPresence.info.sellerAgreement.eyebrow") },
-  { href: "/payments-terms", label: t("publicPresence.info.paymentsTerms.eyebrow") },
-  { href: "/authenticity-terms", label: t("publicPresence.info.authenticityTerms.eyebrow") },
-  { href: "/agent-terms", label: t("publicPresence.info.agentTerms.eyebrow") },
+  { href: "/seller-agreement", label: policyT("publicPresence.info.sellerAgreement.eyebrow") },
+  { href: "/payments-terms", label: policyT("publicPresence.info.paymentsTerms.eyebrow") },
+  { href: "/authenticity-terms", label: policyT("publicPresence.info.authenticityTerms.eyebrow") },
+  { href: "/agent-terms", label: policyT("publicPresence.info.agentTerms.eyebrow") },
   { href: "/press", label: t("publicPresence.nav.press") },
 ];
 

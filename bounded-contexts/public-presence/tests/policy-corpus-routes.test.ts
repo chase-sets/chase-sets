@@ -6,6 +6,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { publicPresenceEnglishTranslations } from "@chase-sets/localization/locales/en/public-presence";
+import { policiesEnglishTranslations } from "../features/policies/ui/localization/locales/en";
 import { publicPolicyPublicationRecords } from "@chase-sets/public-docs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import FoundersRoute, { loader as foundersLoader, meta as foundersMeta } from "../routes/marketplace/founders";
@@ -155,16 +156,18 @@ async function observeFoundersMigration(): Promise<FoundersMigrationObservation>
     (candidate: { relativePath: string }) => candidate.relativePath === "founders-offer-terms-publication.ts",
   )!;
   const expectedFingerprint = /contentFingerprint: "(sha256:[0-9a-f]{64})"/.exec(module.content)![1]!;
-  const localeKeys = Object.keys(publicPresenceEnglishTranslations).sort();
+  const centralLocaleKeys = Object.keys(publicPresenceEnglishTranslations).sort();
+  const localeKeys = [...centralLocaleKeys, ...Object.keys(policiesEnglishTranslations)].sort();
   const keySetTest = source("contracts/localization/public-presence-key-set.test.ts");
-  const digest = createHash("sha256").update(JSON.stringify(localeKeys)).digest("hex");
+  const digest = createHash("sha256").update(JSON.stringify(centralLocaleKeys)).digest("hex");
   return {
     subjects: foundersOfferTermsPolicyArtifact.sections,
     routeHtml: renderToStaticMarkup(createElement(MemoryRouter, null, createElement(FoundersRoute))),
     fingerprint: publicPolicyPublicationRecords["founders-offer-terms"].contentFingerprint,
     expectedFingerprint,
     localeKeys,
-    localeRebaseline: keySetTest.includes(`count: ${localeKeys.length},`) && keySetTest.includes(`sha256: "${digest}"`),
+    localeRebaseline:
+      keySetTest.includes(`count: ${centralLocaleKeys.length},`) && keySetTest.includes(`sha256: "${digest}"`),
     routes: corpusRoutes.map((route) => route.routeName),
   };
 }

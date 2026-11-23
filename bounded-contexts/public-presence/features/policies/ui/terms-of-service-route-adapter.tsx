@@ -1,5 +1,5 @@
 import type { MetaFunction } from "react-router";
-import { publicPresenceT as t } from "../../waitlist/ui/public-presence-translator";
+import { t } from "./localization/translator";
 import { termsOfServicePolicyArtifact, type TermsOfServicePolicyArtifact } from "../domain/terms-of-service";
 import { buildPolicyArtifactMeta } from "./policy-artifact-route-adapter";
 import { TermsOfServicePage } from "./terms-of-service-page";
