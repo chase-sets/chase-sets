@@ -289,7 +289,9 @@ async function ensureRepresentativeProductContentsTestMeasureProfile(
   const catalogServices = runtime.services.catalog as ReturnType<typeof catalogModule.createServices>;
   await catalogServices.productMeasures.upsertProfile({
     profileId: "pmp_representative_commerce_resume_test_card",
-    key: "representative-commerce-resume-test-card",
+    // The key is written into every Product's measureVersion. The 85-Product publication case needs that length to
+    // stay larger than one event.
+    key: "representative-commerce-resume-test-card-profile",
     name: "Representative commerce resume test card",
     matchBlueprintId: catalogSeedIds.blueprints.pokemonCardSingle,
     precedence: 5,
