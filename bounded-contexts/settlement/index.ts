@@ -146,7 +146,7 @@ const contextModule = defineBoundedContextModule<SettlementServices, PgTransacti
           },
         }),
         "identity.settlement-account-risk-source-projection": () =>
-          buildSettlementIdentityAccountRiskSourceProjectionHandlers(services.db, { policies: services.policies }),
+          buildSettlementIdentityAccountRiskSourceProjectionHandlers(services.db),
         "settlement.settlement-account-risk-source-projection": () =>
           buildSettlementPayoutReviewHoldProjectionHandlers(services.db),
         "identity.settlement-payout-review-hold-migration": () =>
@@ -155,11 +155,9 @@ const contextModule = defineBoundedContextModule<SettlementServices, PgTransacti
             services.payoutReviewHold,
           ),
         "marketplace.settlement-account-risk-source-projection": () =>
-          buildSettlementReputationAccountRiskSourceProjectionHandlers(services.db, {
-            policies: services.policies,
-          }),
+          buildSettlementReputationAccountRiskSourceProjectionHandlers(services.db),
         "payments.settlement-account-risk-source-projection": () =>
-          buildSettlementPaymentsAccountRiskSourceProjectionHandlers(services.db, { policies: services.policies }),
+          buildSettlementPaymentsAccountRiskSourceProjectionHandlers(services.db),
       },
     });
   },

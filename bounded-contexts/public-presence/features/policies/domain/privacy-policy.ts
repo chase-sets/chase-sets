@@ -154,7 +154,7 @@ export const privacyPolicyArtifact: PublicPolicyArtifact<"privacy-policy", Priva
         productTruthRefs: [
           "bounded-contexts/auth/support/api-support/registration-gates.ts:4-25",
           "bounded-contexts/settlement/features/wallets/domain/clearance-policy.ts:5-18",
-          "bounded-contexts/settlement/features/wallets/integrations/account-risk-source/account-risk-source-projection.ts:14-59",
+          "bounded-contexts/settlement/features/wallets/integrations/account-risk-source/account-risk-source-projection.ts:8-53",
           "bounded-contexts/ordering/GLOSSARY.md:172",
           "bounded-contexts/platform-operations/features/support-requests/domain/common.ts:5-30",
           "infrastructure/ses-email/index.ts:1-7",
@@ -463,7 +463,7 @@ export const privacyPolicyArtifact: PublicPolicyArtifact<"privacy-policy", Priva
         productTruthRefs: [
           "bounded-contexts/auth/support/api-support/registration-gates.ts:4-25",
           "bounded-contexts/settlement/features/wallets/domain/clearance-policy.ts:5-18",
-          "bounded-contexts/settlement/features/wallets/integrations/account-risk-source/account-risk-source-projection.ts:14-59",
+          "bounded-contexts/settlement/features/wallets/integrations/account-risk-source/account-risk-source-projection.ts:8-53",
           "docs/adr/0020-wallet-adjustment-authority-and-balance-types.md:65-66",
           "bounded-contexts/platform-operations/features/support-requests/domain/common.ts:74-79",
           "docs/adr/0006-stripe-connect-custom-account-experience.md:54",
