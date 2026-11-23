@@ -1489,7 +1489,7 @@
     },
     "policy-console": {
       "classification": "slice",
-      "purpose": "Own the policy-console slice for platform-operations (#4291): lists every policy declared with definePolicy across the contexts that have migrated onto the shared platform-policy machinery, grouped by owning context, with history and scheduled-revision support. Reads query each owning context's own platform_policy_documents table directly; writes delegate to that context's own PolicyRuntime via the policyConsoleCrossContext host port.",
+      "purpose": "Own the policy-console slice for platform-operations (#4291): lists every policy registered with it (this context's own definitions and each cross-context source's definitions), grouped by owning context, with history and scheduled-revision support. Reads query each owning context's own platform_policy_documents table directly; writes delegate to that context's own PolicyRuntime via the policyConsoleCrossContext host port.",
       "expectedConsumers": ["Internal platform-operations module composition", "Admin web route contribution"]
     },
     "public-doc-reviews": {

@@ -233,7 +233,6 @@
 // - admin/locales/site.en.json: admin-web's offline page, its home (the sections), and its web app
 //   manifest's description (adminWeb.app.routes.offline.* as offline.*, adminWeb.app.routes.index.*
 //   as index.*, and adminWeb.app.routes.manifest.description as manifest_description).
-// - admin/static/icons/: admin-web's four app icons (public/icons), which its manifest names.
 // - public/static/home/: public-web's home page's hero picture (three widths) and social cards.
 // - marketplace/nav.json: marketplace-web's top-nav contributions, each group with its children.
 // - marketplace/nav.bottom.json, marketplace/nav.account.json: its bottom-nav (the phone bar, with
@@ -702,23 +701,14 @@ const homeAssets = [
   "chase-sets-og-founders.png",
 ];
 
-// marketplace-web's and admin-web's app icons (deployables/<app>/public/icons), which their web app
-// manifests name, in each pilot app's static/icons/.
+// marketplace-web's app icons (deployables/marketplace/public/icons), which its web app manifest
+// names, in the pilot marketplace's static/icons/. The admin app's four icons are committed and owned
+// in admin/static/icons, so the export reads nothing from admin-web for them.
 const appIcons = [
   [
     "marketplace",
     "marketplace",
     ["chase-sets-192.png", "chase-sets-512.png", "chase-sets-maskable-192.png", "chase-sets-maskable-512.png"],
-  ],
-  [
-    "admin-web",
-    "admin",
-    [
-      "chase-sets-admin-192.png",
-      "chase-sets-admin-512.png",
-      "chase-sets-admin-maskable-192.png",
-      "chase-sets-admin-maskable-512.png",
-    ],
   ],
 ];
 
