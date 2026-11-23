@@ -1081,8 +1081,8 @@
         "api-route:bounded-contexts/channels/features/connections/api/route.ts:POST /:id/resume",
         "api-route:bounded-contexts/channels/features/connections/api/route.ts:POST /:id/disconnect",
         "api-client:bounded-contexts/channels/support/request-support/api-client.ts:POST H542755c24d1e#1",
-        "api-client:bounded-contexts/channels/support/request-support/api-client.ts:POST H16abbc610122#1",
-        "api-client:bounded-contexts/channels/support/request-support/api-client.ts:POST Hf47bd35ee32b#1",
+        "api-client:bounded-contexts/channels/support/request-support/api-client.ts:POST H376260d5a0a2#1",
+        "api-client:bounded-contexts/channels/support/request-support/api-client.ts:POST Hbf9d7d3f0bab#1",
         "post-form:bounded-contexts/channels/features/connections/ui/connection-pages.tsx:Hbd7dd2c17dad#1",
         "route-action:bounded-contexts/channels/features/connections/ui/account-channels-connection-route-adapter.tsx"
       ],
@@ -1104,13 +1104,13 @@
       "risk": "important",
       "strategy": "optimistic-with-correction",
       "surfaces": [
-        "api-client:bounded-contexts/channels/support/request-support/api-client.ts:POST H129678891adc#1",
-        "api-client:bounded-contexts/channels/support/request-support/api-client.ts:PUT H16a1fa6d9680#1",
+        "api-client:bounded-contexts/channels/features/listing-composition/api/request-client.ts:POST H129678891adc#1",
+        "api-client:bounded-contexts/channels/features/listing-composition/api/request-client.ts:PUT H16a1fa6d9680#1",
         "api-route:bounded-contexts/channels/features/listing-composition/api/route.ts:POST /:connectionId/mappings/:dimension/:sourceKey/decision",
         "api-route:bounded-contexts/channels/features/listing-composition/api/route.ts:PUT /:connectionId/settings",
         "post-form:bounded-contexts/channels/features/listing-composition/ui/publication-pages.tsx:H8d7b1af0483d#1",
         "post-form:bounded-contexts/channels/features/listing-composition/ui/publication-pages.tsx:Hdedc9988f2e2#1",
-        "route-action:bounded-contexts/channels/routes/marketplace/account-channels-publication-connection.tsx"
+        "route-action:bounded-contexts/channels/features/listing-composition/ui/routes/account-channels-publication-connection.server.ts"
       ],
       "visibleDestination": {
         "description": "Publication settings and mapping forms retain submitted values in disabled forms with a pending notice while the real data-router revalidates; a changed configuration stream version remounts the forms from authoritative loader data, while conflicts and command errors remain visible."
@@ -1305,5 +1305,8 @@
     }
   },
   "runtimeDeployables": ["platform-worker"],
-  "localeCatalogs": ["contracts/localization/locales/en/channels.ts"]
+  "localeCatalogs": [
+    "contracts/localization/locales/en/channels.ts",
+    "bounded-contexts/channels/features/listing-composition/ui/localization/locales/en.ts"
+  ]
 }

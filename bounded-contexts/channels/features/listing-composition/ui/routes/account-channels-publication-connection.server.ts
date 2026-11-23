@@ -1,0 +1,98 @@
+import { defineApiErrorAdapter, defineFormAction, defineResourceRoute } from "@chase-sets/platform-runtime/http";
+import { contextManifest } from "../../../../index";
+import { ChannelsPublicationApiError, createChannelsPublicationRequestApiClient } from "../../api/request-client";
+import { parseChannelPublicationSettingsForm } from "../../api/route-actions";
+import { t } from "../localization/translator";
+
+const channelsPublicationApiErrorAdapter = defineApiErrorAdapter<ChannelsPublicationApiError>({
+  isError: (error): error is ChannelsPublicationApiError => error instanceof ChannelsPublicationApiError,
+  getStatus: (error) => error.status,
+  getBody: (error) => error.body,
+});
+
+export const loader = defineResourceRoute({
+  manifest: contextManifest,
+  routeId: "channels-publication-connection",
+  authorization: { permission: "channels.view" },
+  errorAdapter: channelsPublicationApiErrorAdapter,
+  load: ({ request, params }) =>
+    createChannelsPublicationRequestApiClient(request).getConnection(
+      required(params.connectionId),
+      new URL(request.url).searchParams.get("cursor"),
+    ),
+  map: (detail) => ({ kind: "ready" as const, detail }),
+  onPending: () => ({ kind: "loading" as const }),
+  onPermanentFailure: (result) => {
+    if ("error" in result) {
+      if (result.error instanceof ChannelsPublicationApiError && result.error.status === 404) {
+        return { kind: "foreign-account" as const };
+      }
+      throw result.error;
+    }
+    throw new Response(t("channels.publication.action.failed"), { status: 500 });
+  },
+});
+
+export const action = defineFormAction({
+  authorization: { permission: "channels.manage" },
+  intents: {
+    "replace-settings": async ({ request, formData }) => {
+      const settings = parseChannelPublicationSettingsForm(formData);
+      const result = await createChannelsPublicationRequestApiClient(request).replaceSettings(
+        connectionId(request),
+        settings,
+        integer(formData, "expectedStreamVersion"),
+      );
+      if (result.kind === "refused")
+        return result.code === "stream-version-conflict"
+          ? { kind: "stale-version-conflict" as const }
+          : { kind: "command-error" as const, message: result.code };
+      return { kind: "applied" as const, message: null, streamVersion: result.streamVersion, settings };
+    },
+    "decide-mapping": async ({ request, formData }) => {
+      const mapping = {
+        dimension: text(formData, "dimension"),
+        sourceKey: text(formData, "sourceKey"),
+        targetKey: optionalText(formData, "targetKey"),
+      };
+      const result = await createChannelsPublicationRequestApiClient(request).decideMapping({
+        connectionId: connectionId(request),
+        dimension: mapping.dimension,
+        sourceKey: mapping.sourceKey,
+        decision: text(formData, "decision"),
+        targetKey: mapping.targetKey,
+        expectedStreamVersion: integer(formData, "expectedStreamVersion"),
+      });
+      if (result.kind === "refused")
+        return result.code === "stream-version-conflict"
+          ? { kind: "stale-version-conflict" as const }
+          : { kind: "command-error" as const, message: result.code };
+      return { kind: "applied" as const, message: null, streamVersion: result.streamVersion, mapping };
+    },
+  },
+  onUnknownIntent: () => ({ kind: "command-error" as const, message: t("channels.publication.action.unknown") }),
+  onError: (error) => ({
+    kind: "command-error" as const,
+    message: error instanceof Error ? error.message : t("channels.publication.action.failed"),
+  }),
+});
+
+function required(value: string | undefined): string {
+  if (!value) throw new Response("Not found", { status: 404 });
+  return value;
+}
+function connectionId(request: Request): string {
+  return required(new URL(request.url).pathname.split("/").filter(Boolean).at(-1));
+}
+function text(data: FormData, key: string): string {
+  return String(data.get(key) ?? "");
+}
+function optionalText(data: FormData, key: string): string | null {
+  const value = text(data, key).trim();
+  return value || null;
+}
+function integer(data: FormData, key: string): number {
+  const value = Number(data.get(key));
+  if (!Number.isSafeInteger(value) || value < 0) throw new Error("invalid-version");
+  return value;
+}
