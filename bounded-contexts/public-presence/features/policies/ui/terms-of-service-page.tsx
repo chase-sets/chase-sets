@@ -1,4 +1,4 @@
-import { publicPresenceT as t } from "../../waitlist/ui/public-presence-translator";
+import { t } from "./localization/translator";
 import { termsOfServicePolicyArtifact, type TermsOfServicePolicyArtifact } from "../domain/terms-of-service";
 import { PolicyArtifactRouteAdapter } from "./policy-artifact-route-adapter";
 

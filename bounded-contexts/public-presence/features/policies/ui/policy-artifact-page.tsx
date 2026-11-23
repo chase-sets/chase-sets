@@ -20,7 +20,7 @@ import {
 } from "../domain/policy-artifact";
 import { getPublicPolicyRegistryEntry } from "../domain/policy-registry";
 import { PublicPresencePageShell } from "../../waitlist/ui/public-pages";
-import { publicPresenceT as t } from "../../waitlist/ui/public-presence-translator";
+import { t } from "./localization/translator";
 
 export type PolicyArtifactPageCopyProfile = "corpus" | "terms-of-service";
 
