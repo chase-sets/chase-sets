@@ -88,12 +88,9 @@ This does not quantize an existing policy value or authorize a stored-value migr
 ### 3a. Retained Executable Exceptions
 
 - Ordering's [shipping quote policy](../../bounded-contexts/ordering/features/orders/domain/policies.ts)
-  sums number constants and converts through
-  [numberToMoneyAmount](../../bounded-contexts/ordering/features/orders/domain/common.ts),
-  whose `toFixed(6)` path converts to bigint before rounding cents. This path is
-  retained, not debt to fix: it is exact for its inputs. The
-  [#9366 brief](https://github.com/chase-sets/chase-sets/issues/9366) reports zero
-  mismatches over about 990,000 fuzzed quotes; this ADR does not claim a new fuzz run.
+  was listed here while it summed number constants. It is no longer an exception: it
+  sums bigint cents from the two-decimal amounts in
+  [Shipping Rates](../../bounded-contexts/ordering/features/orders/domain/shipping-rates.ts).
 - The [platform remedy policy](../../bounded-contexts/platform-operations/features/support-requests/domain/platform-remedy-policy.ts)
   retains its stored decimal number percentage limit at any accepted precision,
   rather than converting the field to basis points. Its current comparison still

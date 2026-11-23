@@ -74,11 +74,6 @@ export function moneyToNumber(value: string) {
   return Number(moneyToCents(normalizeMoneyAmount(value, { allowZero: true }))) / 100;
 }
 
-export function numberToMoneyAmount(value: number) {
-  assert(Number.isFinite(value) && value >= 0, "Monetary values cannot be negative.");
-  return centsToMoneyAmount(numberToCents(value, "nearest"));
-}
-
 export function numberToMoneyAmountRoundDown(value: number) {
   assert(Number.isFinite(value) && value >= 0, "Monetary values cannot be negative.");
   return centsToMoneyAmount(numberToCents(value, "floor"));

@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import type { PackagePlan, PackagePlanPackage } from "@chase-sets/product-measures";
+import { OrderingDomainError, type ShippingOption } from "./common";
 import {
   calculateOrderFulfillmentEconomics,
   defaultShippingQuotePolicy,
@@ -6,34 +8,176 @@ import {
   resolveOrderPaymentDeadline,
   resolveTerminalPaymentFailureDeadline,
 } from "./policies";
+import { defaultShippingRates, type ShippingRates } from "./shipping-rates";
+
+const letter = (): PackagePlanPackage => ({
+  packageId: "pkg_letter",
+  mailpieceClass: "letter",
+  lengthInches: 6,
+  widthInches: 4,
+  heightInches: 0.1,
+  weightOunces: 0.46,
+  billableWeightOunces: 0.46,
+  serviceLevel: "letter",
+  productMeasureVersions: ["pmv_1"],
+});
+
+const parcel = (billableWeightOunces: number): PackagePlanPackage => ({
+  packageId: `pkg_parcel_${billableWeightOunces}`,
+  mailpieceClass: "parcel",
+  lengthInches: 7,
+  widthInches: 5,
+  heightInches: 1,
+  weightOunces: billableWeightOunces,
+  billableWeightOunces,
+  serviceLevel: "standard-parcel",
+  productMeasureVersions: ["pmv_1"],
+});
+
+const planOf = (...packages: PackagePlanPackage[]): PackagePlan => ({
+  packagePlanVersion: "test-package-plan-v1",
+  packageCount: packages.length,
+  packages,
+  letterEligibility: { eligible: false, reasons: ["test-plan"] },
+  missingProductIds: [],
+});
+
+const quoteShipping = (
+  packagePlan: PackagePlan,
+  shippingRates: ShippingRates,
+  shippingOption: ShippingOption = "standard",
+  itemSubtotalAmount = "20.00",
+) =>
+  defaultShippingQuotePolicy.quote({
+    sellerAccountId: "acc_seller",
+    shippingOption,
+    itemSubtotalAmount,
+    quantity: 1,
+    listingCount: 1,
+    packagePlan,
+    shippingRates,
+  });
+
+const zeroShippingRates: ShippingRates = {
+  letterAmount: "0.00",
+  standardParcelAmount: "0.00",
+  expeditedParcelAmount: "0.00",
+  priorityParcelAmount: "0.00",
+  parcelIncludedOunces: 0,
+  parcelAdditionalOunceAmount: "0.00",
+};
 
 describe("shipping quote subtotal validation", () => {
   it.each(["abc", "10000000000.00"])(
     "keeps subtotal validation after removing the unused binding: %s",
     (itemSubtotalAmount) => {
-      expect(() =>
-        defaultShippingQuotePolicy.quote({
-          sellerAccountId: "acc_seller",
-          shippingOption: "standard",
-          itemSubtotalAmount,
-          quantity: 1,
-          listingCount: 1,
-        }),
-      ).toThrow();
+      expect(() => quoteShipping(planOf(parcel(4)), defaultShippingRates, "standard", itemSubtotalAmount)).toThrow(
+        "Item subtotal must be a valid decimal.",
+      );
     },
   );
 
   it("keeps zero-subtotal shipping arithmetic unchanged", () => {
-    expect(
-      defaultShippingQuotePolicy.quote({
-        sellerAccountId: "acc_seller",
-        shippingOption: "standard",
-        itemSubtotalAmount: "0.00",
-        quantity: 1,
-        listingCount: 1,
-      }),
-    ).toEqual({ shippingOption: "standard", baseAmount: "4.99", discountAmount: "0.00", chargeAmount: "4.99" });
+    const packagePlan = planOf(parcel(4));
+
+    expect(quoteShipping(packagePlan, defaultShippingRates, "standard", "0.00")).toEqual({
+      shippingOption: "standard",
+      baseAmount: "4.99",
+      discountAmount: "0.00",
+      chargeAmount: "4.99",
+      packagePlan,
+    });
   });
+});
+
+describe("shipping quote under the default Shipping Rates", () => {
+  it.each([
+    ["a letter", "standard", letter(), "1.49"],
+    ["a 4 ounce standard parcel", "standard", parcel(4), "4.99"],
+    ["a 4 ounce expedited parcel", "expedited", parcel(4), "7.49"],
+    ["a 4 ounce priority parcel", "priority", parcel(4), "9.99"],
+    ["a 6 ounce standard parcel", "standard", parcel(6), "5.63"],
+    ["a 1 ounce standard parcel", "standard", parcel(1), "4.99"],
+    ["a 5 ounce priority parcel", "priority", parcel(5), "10.31"],
+  ] as const)("quotes %s", (_label, shippingOption, pkg, amount) => {
+    const packagePlan = planOf(pkg);
+
+    expect(quoteShipping(packagePlan, defaultShippingRates, shippingOption)).toEqual({
+      shippingOption,
+      baseAmount: amount,
+      discountAmount: "0.00",
+      chargeAmount: amount,
+      packagePlan,
+    });
+  });
+
+  it("sums every package of a multi-package plan in whole cents", () => {
+    // 149 + (499 + 2 x 32) + (499 + 16 x 32) + (499 + 3 x 32) cents.
+    expect(quoteShipping(planOf(letter(), parcel(6), parcel(20), parcel(7)), defaultShippingRates).baseAmount).toBe(
+      "23.18",
+    );
+  });
+});
+
+describe("shipping quote under the Shipping Rates it is given", () => {
+  const otherShippingRates: ShippingRates = {
+    letterAmount: "2.00",
+    standardParcelAmount: "6.00",
+    expeditedParcelAmount: "8.25",
+    priorityParcelAmount: "12.00",
+    parcelIncludedOunces: 8,
+    parcelAdditionalOunceAmount: "0.50",
+  };
+
+  it.each([
+    ["a letter", "standard", letter(), "2.00"],
+    ["an 8 ounce standard parcel", "standard", parcel(8), "6.00"],
+    ["a 10 ounce standard parcel", "standard", parcel(10), "7.00"],
+    ["a 10 ounce expedited parcel", "expedited", parcel(10), "9.25"],
+    ["a 10 ounce priority parcel", "priority", parcel(10), "13.00"],
+  ] as const)("charges other rates for %s", (_label, shippingOption, pkg, amount) => {
+    expect(quoteShipping(planOf(pkg), otherShippingRates, shippingOption).baseAmount).toBe(amount);
+  });
+
+  it.each([
+    ["letter", { letterAmount: "0.00" }, "10.11"],
+    ["standard parcel", { standardParcelAmount: "0.00" }, "6.61"],
+    ["additional ounce", { parcelAdditionalOunceAmount: "0.00" }, "6.48"],
+  ] as const)("adds nothing for a zero %s rate", (_label, zeroRate, amount) => {
+    // The default rates quote 149 + (499 + 16 x 32) cents for this plan.
+    const packagePlan = planOf(letter(), parcel(20));
+
+    expect(quoteShipping(packagePlan, defaultShippingRates).baseAmount).toBe("11.60");
+    expect(quoteShipping(packagePlan, { ...defaultShippingRates, ...zeroRate }).baseAmount).toBe(amount);
+  });
+
+  it("charges every billable ounce when no ounces are included", () => {
+    expect(quoteShipping(planOf(parcel(3)), { ...defaultShippingRates, parcelIncludedOunces: 0 }).baseAmount).toBe(
+      "5.95",
+    );
+  });
+
+  it("quotes 0.00 for a plan when every rate is zero", () => {
+    const packagePlan = planOf(letter(), parcel(20));
+
+    expect(quoteShipping(packagePlan, zeroShippingRates, "priority")).toEqual({
+      shippingOption: "priority",
+      baseAmount: "0.00",
+      discountAmount: "0.00",
+      chargeAmount: "0.00",
+      packagePlan,
+    });
+  });
+
+  it.each(["standard", "expedited", "priority"] as const)(
+    "refuses a plan with no packages under %s shipping instead of answering from a per-order table",
+    (shippingOption) => {
+      expect(() => quoteShipping(planOf(), defaultShippingRates, shippingOption)).toThrow(OrderingDomainError);
+      expect(() => quoteShipping(planOf(), zeroShippingRates, shippingOption)).toThrow(
+        "A shipping quote requires a package plan with at least one package.",
+      );
+    },
+  );
 });
 
 describe("ordering Order Protection economics (#4098)", () => {
