@@ -11,7 +11,6 @@ export const settlementUnloggedProjectionSchemaMigrations: readonly BcSchemaMigr
       "ALTER TABLE settlement_account_instrument_risk_sources SET UNLOGGED;",
       "ALTER TABLE settlement_account_review_sources SET UNLOGGED;",
       "ALTER TABLE settlement_account_risk_sources SET UNLOGGED;",
-      "ALTER TABLE settlement_account_velocity_sources SET UNLOGGED;",
       "ALTER TABLE settlement_ledger_entry_pages SET UNLOGGED;",
       "ALTER TABLE settlement_order_fulfillment_sources SET UNLOGGED;",
       "ALTER TABLE settlement_order_trust_signal_sources SET UNLOGGED;",
