@@ -29,6 +29,8 @@ const image = `registry.digitalocean.com/chase-sets/chase-sets-corten-admin@${di
 const options = {
   image: `registry.digitalocean.com/chase-sets/chase-sets-platform:release@${digest}`,
   cortenAdminImage: image,
+  // marketplace-corten serves marketplace.staging, so a staging deploy needs its image too.
+  cortenMarketplaceImage: `registry.digitalocean.com/chase-sets/chase-sets-corten-marketplace@${digest}`,
   envOverrides: { DEPLOYMENT_ENVIRONMENT: "staging", OBSERVABILITY_ENABLED: "false" },
   env: { GITHUB_RUN_ID: "123", GITHUB_RUN_ATTEMPT: "1" },
   managedPostgresCaSha256: "b".repeat(64),
@@ -191,6 +193,7 @@ describe("Corten admin staging deployment", () => {
     const productionArgs = buildHelmUpgradeArgs({
       ...options,
       cortenAdminImage: undefined,
+      cortenMarketplaceImage: undefined,
       envOverrides: { DEPLOYMENT_ENVIRONMENT: "production", OBSERVABILITY_ENABLED: "false" },
       env: { ...options.env, PRODUCTION_DOKS_INGRESS_TARGET: "192.0.2.1" },
     });
@@ -212,7 +215,11 @@ describe("Corten admin staging deployment", () => {
       "corten-admin-image is staging and production only.",
     );
     // Production under its default (admin-web) does not deploy the pilot, whatever image it was given.
-    const production = buildHelmUpgradeArgs({ ...options, envOverrides: { DEPLOYMENT_ENVIRONMENT: "production" } });
+    const production = buildHelmUpgradeArgs({
+      ...options,
+      cortenMarketplaceImage: undefined,
+      envOverrides: { DEPLOYMENT_ENVIRONMENT: "production" },
+    });
     expect(production.filter((arg) => String(arg).startsWith("components.admin-corten."))).toEqual([
       "components.admin-corten.enabled=false",
     ]);
@@ -583,7 +590,7 @@ describe("the staging admin app switch", () => {
   });
 
   it("keeps admin-corten off the advisory list and withholds it only while admin-web serves admin.staging", () => {
-    expect(ADVISORY_CORTEN_PILOT_COMPONENTS).toEqual(["marketplace-corten", "public-corten"]);
+    expect(ADVISORY_CORTEN_PILOT_COMPONENTS).toEqual(["public-corten"]);
     const staging = (env) => withheldCortenPilots({ ...options, env });
     expect(staging({})).toEqual([]);
     expect(staging({ STAGING_ADMIN_APP: "admin-corten" })).toEqual([]);

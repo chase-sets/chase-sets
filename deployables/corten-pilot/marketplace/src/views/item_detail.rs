@@ -1327,7 +1327,7 @@ fn Rail<'a>(
                     }
                     <Quantity t={t} id="buy-listing-quantity" value={typed(RailForm::Listing)} />
                     <fieldset class={BuyActions} disabled={held}>
-                        <button type="submit" class={(Button, Primary)} formaction={&buy_now} disabled={at_capacity}>
+                        <button type="submit" class={(Button, Primary)} formaction={&buy_now} name={field::INTENT} value="buy-now" disabled={at_capacity}>
                             if at_capacity {
                                 {t.route_seller_at_capacity()}
                             } else if screen.listing_explicit {

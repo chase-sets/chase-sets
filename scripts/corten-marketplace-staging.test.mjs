@@ -16,7 +16,7 @@ import {
   droppedAdvisoryCortenPilots,
   parseArgs,
   platformKubernetesWorkloads,
-  recordStagingMarketplacePilot,
+  recordStagingMarketplaceApp,
   withheldCortenPilots,
 } from "./platform-kubernetes-deployment.mjs";
 import { classifyChanges } from "./change-scope.mjs";
@@ -157,7 +157,7 @@ describe("Corten marketplace staging, first slice", () => {
     expect(env).toMatchObject({
       HOST: "0.0.0.0",
       PORT: "8080",
-      HOSTS: "marketplace-corten.staging.chasesets.com",
+      HOSTS: "marketplace-corten.staging.chasesets.com,marketplace.staging.chasesets.com,staging.chasesets.com",
       PUBLIC_PROTO: "https",
       PROXIES: "",
       CHASE_SETS_INTERNAL_API_ORIGIN: "",
@@ -184,10 +184,13 @@ describe("Corten marketplace staging, first slice", () => {
     }
     expect(platformKubernetesWorkloads(options).deployments).toContain(workload);
     expect(droppedAdvisoryCortenPilots(options)).not.toContain("marketplace-corten");
-    // With no image the advisory pilot is deployed disabled, so the release neither runs nor waits for it.
+    // It serves marketplace.staging, so it is no longer advisory: with no image the deploy refuses instead of
+    // removing what serves the host.
     const withoutImage = { ...options, cortenMarketplaceImage: undefined };
-    expect(droppedAdvisoryCortenPilots(withoutImage)).toContain("marketplace-corten");
-    expect(buildHelmUpgradeArgs(withoutImage)).toContain("components.marketplace-corten.enabled=false");
+    expect(droppedAdvisoryCortenPilots(withoutImage)).not.toContain("marketplace-corten");
+    expect(() => buildHelmUpgradeArgs(withoutImage)).toThrow(
+      "corten-marketplace-image is required on staging: marketplace-corten is not an advisory pilot.",
+    );
   });
 
   it("pins the pilot image only on staging and refuses mutable or wrong-repository references", () => {
@@ -261,109 +264,142 @@ describe("Corten marketplace staging, first slice", () => {
       "${{ needs.build-corten-pilot-images.outputs.corten_marketplace_image }}",
     );
     expect(deploy.run).toContain(
-      'if [ -n "${CORTEN_MARKETPLACE_IMAGE:-}" ]; then\n  corten_image_args+=(--corten-marketplace-image "$CORTEN_MARKETPLACE_IMAGE")\nfi',
+      'if [ -n "${CORTEN_MARKETPLACE_IMAGE:-}" ]; then\n  corten_image_args+=(--corten-marketplace-image "$CORTEN_MARKETPLACE_IMAGE")\nelse\n',
     );
     expect(JSON.stringify(workflow.jobs["deploy-production"])).not.toContain("corten_marketplace_image");
     expect(JSON.stringify(workflow.jobs["deploy-production"])).not.toContain("corten-marketplace");
   });
 
-  it("smokes the pilot after the admin smokes without ever failing Deploy Staging or signing in", () => {
+  it("only reports from the advisory step, which never fails Deploy Staging or signs in", () => {
     const steps = workflow.jobs["deploy-staging"].steps;
     const index = steps.findIndex(({ name }) => name === "Advisory Corten marketplace smoke");
     const smoke = steps[index];
     expect(steps[index - 1].name).toBe("Advisory Corten admin smoke");
     expect(smoke["continue-on-error"]).toBe(true);
-    expect(smoke["timeout-minutes"]).toBe(15);
     expect(smoke.if).toBe(steps.find(({ name }) => name === "Smoke check").if);
-    expect(smoke.env.CORTEN_MARKETPLACE_IMAGE).toBe(
-      "${{ needs.build-corten-pilot-images.outputs.corten_marketplace_image }}",
-    );
-    // No admin credentials reach it, and it reads no secret the Smoke check does not already read.
     expect(JSON.stringify(smoke)).not.toMatch(/PLATFORM_ADMIN_(EMAIL|PASSWORD)/);
-    expect(smoke.run).not.toContain("set -x");
     const smokeCheckSecrets = new Set(
       JSON.stringify(steps.find(({ name }) => name === "Smoke check")).match(/secrets\.[A-Z_]+/g),
     );
     for (const secret of JSON.stringify(smoke).match(/secrets\.[A-Z_]+/g) ?? []) {
       expect(smokeCheckSecrets.has(secret), secret).toBe(true);
     }
-    // With no image the pilot was dropped, so there is nothing to smoke.
-    expect(smoke.run).toMatch(/if \[ -z "\$\{CORTEN_MARKETPLACE_IMAGE:-\}" \]; then\n[^\n]*\n\s*exit 0\n\s*fi/);
-    expect(smoke.run).toContain('--url "https://marketplace-corten.staging.chasesets.com/health/ready"');
-    expect(smoke.run).toContain("pnpm run smoke:corten-marketplace --");
-    expect(smoke.run).toContain('"https://marketplace-corten.staging.chasesets.com"');
+    expect(smoke.env.MARKETPLACE_APP).toBe("${{ steps.staging_kubernetes_deploy.outputs.marketplace_app }}");
+    expect(smoke.run).toMatch(/if \[ "\$MARKETPLACE_APP" != "marketplace" \]; then\n[^\n]*\n\s*exit 0\n\s*fi/);
+    expect(smoke.run).not.toContain("smoke:");
+    expect(smoke.run).not.toContain("platform-ingress-wait");
   });
 
-  it("withholds the pilot with STAGING_MARKETPLACE_PILOT, whether or not its image was given", () => {
-    const withPilot = (base, STAGING_MARKETPLACE_PILOT) => ({
+  it("serves marketplace.staging and the staging root from STAGING_MARKETPLACE_APP, the Corten marketplace by default", () => {
+    const withApp = (base, STAGING_MARKETPLACE_APP) => ({
       ...base,
-      env: { ...base.env, STAGING_MARKETPLACE_PILOT },
+      env: { ...base.env, STAGING_MARKETPLACE_APP },
     });
-    const withoutImage = { ...options, cortenMarketplaceImage: undefined };
-    // Deployed (unset or explicit) with an image: enabled with that image.
-    for (const value of [undefined, "", "deployed"]) {
-      expect(withheldCortenPilots(withPilot(options, value))).not.toContain("marketplace-corten");
-      const args = buildHelmUpgradeArgs(withPilot(options, value));
+    const ingress = (env) =>
+      Object.fromEntries(
+        buildDoksIngressValues({ environment: "staging", env: { DOKS_INGRESS_TARGET: "192.0.2.1", ...env } }).hosts.map(
+          ({ host, paths }) => [host, paths.find(({ path }) => path === "/").service],
+        ),
+      );
+    for (const value of [undefined, "", "marketplace-corten"]) {
+      const hosts = ingress({ STAGING_MARKETPLACE_APP: value });
+      expect(hosts["marketplace.staging.chasesets.com"]).toBe("marketplace-corten");
+      expect(hosts["staging.chasesets.com"]).toBe("marketplace-corten");
+      expect(hosts["marketplace-corten.staging.chasesets.com"]).toBe("marketplace-corten");
+      expect(withheldCortenPilots(withApp(options, value))).not.toContain("marketplace-corten");
+      const args = buildHelmUpgradeArgs(withApp(options, value));
       expect(args).toContain(`components.marketplace-corten.image=${image}`);
       expect(args).not.toContain("components.marketplace-corten.enabled=false");
+      // Serving the host, a missing image refuses the deploy.
+      expect(() => buildHelmUpgradeArgs(withApp({ ...options, cortenMarketplaceImage: undefined }, value))).toThrow(
+        "corten-marketplace-image is required on staging",
+      );
     }
-    // Withheld: disabled, image or not, and its image is never set.
-    for (const base of [options, withoutImage]) {
-      expect(withheldCortenPilots(withPilot(base, "withheld"))).toContain("marketplace-corten");
-      const args = buildHelmUpgradeArgs(withPilot(base, "withheld"));
+    // Rolled back: marketplace-web serves both hosts, and the pilot is not deployed, image or not.
+    const rolledBack = ingress({ STAGING_MARKETPLACE_APP: "marketplace" });
+    expect(rolledBack["marketplace.staging.chasesets.com"]).toBe("marketplace");
+    expect(rolledBack["staging.chasesets.com"]).toBe("marketplace");
+    for (const base of [options, { ...options, cortenMarketplaceImage: undefined }]) {
+      expect(withheldCortenPilots(withApp(base, "marketplace"))).toContain("marketplace-corten");
+      const args = buildHelmUpgradeArgs(withApp(base, "marketplace"));
       expect(args.filter((arg) => String(arg).startsWith("components.marketplace-corten."))).toEqual([
         "components.marketplace-corten.enabled=false",
       ]);
     }
-    for (const value of ["withhold", "Withheld", "disabled", "deployed,withheld"]) {
-      expect(() => buildHelmUpgradeArgs(withPilot(options, value))).toThrow("STAGING_MARKETPLACE_PILOT must be one of");
+    for (const value of ["marketplace-web", "Marketplace", "corten", "marketplace,marketplace-corten"]) {
+      expect(() => buildHelmUpgradeArgs(withApp(options, value))).toThrow("STAGING_MARKETPLACE_APP must be one of");
     }
     // Production never reads it.
     expect(
       withheldCortenPilots({
         envOverrides: { DEPLOYMENT_ENVIRONMENT: "production" },
-        env: { STAGING_MARKETPLACE_PILOT: "withheld" },
+        env: { STAGING_MARKETPLACE_APP: "marketplace" },
       }),
     ).not.toContain("marketplace-corten");
   });
 
-  it("says whether the pilot was deployed, in the summary, the step output and the deploy record", () => {
-    const dir = mkdtempSync(join(tmpdir(), "staging-marketplace-pilot-"));
+  it("says which app served the marketplace, in the summary, the step output and the deploy record", () => {
+    const dir = mkdtempSync(join(tmpdir(), "staging-marketplace-app-"));
     try {
       const record = (env) => {
-        const summary = join(dir, `summary-${env.STAGING_MARKETPLACE_PILOT ?? "unset"}.md`);
-        const output = join(dir, `output-${env.STAGING_MARKETPLACE_PILOT ?? "unset"}.txt`);
-        const result = recordStagingMarketplacePilot({ env, githubSummaryPath: summary, githubOutputPath: output });
+        const summary = join(dir, `summary-${env.STAGING_MARKETPLACE_APP ?? "unset"}.md`);
+        const output = join(dir, `output-${env.STAGING_MARKETPLACE_APP ?? "unset"}.txt`);
+        const result = recordStagingMarketplaceApp({ env, githubSummaryPath: summary, githubOutputPath: output });
         return { result, summary: read(summary), output: read(output) };
       };
       const unset = record({});
-      expect(unset.result).toEqual({ state: "deployed", source: "default" });
-      expect(unset.output).toBe("marketplace_pilot=deployed\n");
-      const withheld = record({ STAGING_MARKETPLACE_PILOT: "withheld" });
-      expect(withheld.result).toEqual({ state: "withheld", source: "variable" });
-      expect(withheld.summary).toBe(
-        "### Staging marketplace pilot\n\n" +
-          "marketplace-corten is not deployed on staging (STAGING_MARKETPLACE_PILOT=withheld).\n\n",
+      expect(unset.result).toEqual({ app: "marketplace-corten", source: "default", marketplaceCorten: "deployed" });
+      expect(unset.summary).toBe(
+        "### Staging marketplace app\n\n" +
+          "marketplace.staging is served by marketplace-corten (STAGING_MARKETPLACE_APP is unset, so the default applies).\n\n",
       );
-      expect(withheld.output).toBe("marketplace_pilot=withheld\n");
+      expect(unset.output).toBe("marketplace_app=marketplace-corten\nmarketplace_app_source=default\n");
+      const rolledBack = record({ STAGING_MARKETPLACE_APP: "marketplace" });
+      expect(rolledBack.result).toEqual({ app: "marketplace", source: "variable", marketplaceCorten: "not-deployed" });
+      expect(rolledBack.summary).toBe(
+        "### Staging marketplace app\n\n" +
+          "marketplace.staging is served by marketplace (STAGING_MARKETPLACE_APP=marketplace).\n\n" +
+          "marketplace-corten is not deployed while marketplace-web serves marketplace.staging.\n\n",
+      );
+      expect(rolledBack.output).toBe("marketplace_app=marketplace\nmarketplace_app_source=variable\n");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
-    const evidence = (env) => buildDeploymentEvidence({ ...options, env, workloads: {} }).stagingMarketplacePilot;
-    expect(evidence({})).toEqual({ state: "deployed", source: "default" });
-    expect(evidence({ STAGING_MARKETPLACE_PILOT: "withheld" })).toEqual({ state: "withheld", source: "variable" });
+    const evidence = (env) => buildDeploymentEvidence({ ...options, env, workloads: {} }).stagingMarketplaceApp;
+    expect(evidence({})).toEqual({ app: "marketplace-corten", source: "default", marketplaceCorten: "deployed" });
+    expect(evidence({ STAGING_MARKETPLACE_APP: "marketplace" })).toEqual({
+      app: "marketplace",
+      source: "variable",
+      marketplaceCorten: "not-deployed",
+    });
   });
 
-  it("reads the variable once, in Deploy Staging only, and skips the smoke while the pilot is withheld", () => {
+  it("reads the variable once, in Deploy Staging only, and smokes a signed-in page on whichever app serves", () => {
     const job = workflow.jobs["deploy-staging"];
-    expect(job.env.STAGING_MARKETPLACE_PILOT).toBe("${{ vars.STAGING_MARKETPLACE_PILOT || '' }}");
-    for (const step of job.steps) expect(String(step.run ?? "")).not.toMatch(/\$\{?STAGING_MARKETPLACE_PILOT/);
-    expect(JSON.stringify(workflow.jobs["deploy-production"])).not.toContain("STAGING_MARKETPLACE_PILOT");
-    const smoke = job.steps.find(({ name }) => name === "Advisory Corten marketplace smoke");
-    expect(smoke.env.MARKETPLACE_PILOT).toBe("${{ steps.staging_kubernetes_deploy.outputs.marketplace_pilot }}");
-    expect(smoke.run).toMatch(/if \[ "\$MARKETPLACE_PILOT" = "withheld" \]; then\n[^\n]*\n\s*exit 0\n\s*fi/);
-    expect(read("docs/runbooks/staging-marketplace-pilot.md")).toContain(
-      "gh variable set STAGING_MARKETPLACE_PILOT --repo chase-sets/chase-sets --env staging --body withheld",
+    expect(job.env.STAGING_MARKETPLACE_APP).toBe("${{ vars.STAGING_MARKETPLACE_APP || '' }}");
+    expect(job.env).not.toHaveProperty("STAGING_MARKETPLACE_PILOT");
+    for (const step of job.steps) expect(String(step.run ?? "")).not.toMatch(/\$\{?STAGING_MARKETPLACE_APP/);
+    expect(JSON.stringify(workflow.jobs["deploy-production"])).not.toContain("STAGING_MARKETPLACE_APP");
+    const wait = job.steps.find(({ name }) => name === "Wait for staging ingress URLs");
+    const smoke = job.steps.find(({ name }) => name === "Smoke check");
+    for (const step of [wait, smoke]) {
+      expect(step.env.MARKETPLACE_APP).toBe("${{ steps.staging_kubernetes_deploy.outputs.marketplace_app }}");
+      expect(step.run).toMatch(
+        /if \[ "\$MARKETPLACE_APP" != "marketplace" \]; then\n[\s\S]*?https:\/\/marketplace-corten\.staging\.chasesets\.com\/health\/ready[\s\S]*?\n\s*fi/,
+      );
+    }
+    expect(smoke.env.SMOKE_REQUIRE_MARKETPLACE_SIGNED_IN).toBe("true");
+    expect(smoke.env.PLATFORM_ADMIN_EMAIL).toBe("${{ secrets.PLATFORM_ADMIN_EMAIL }}");
+    expect(smoke.run).toContain('"https://${marketplace_domain}"');
+    // The production Smoke check is unchanged and does not sign in on the marketplace.
+    expect(JSON.stringify(workflow.jobs["deploy-production"])).not.toContain("SMOKE_REQUIRE_MARKETPLACE_SIGNED_IN");
+    const platformSmoke = read("scripts/platform-smoke.mjs");
+    expect(platformSmoke).toContain('readBooleanEnv("SMOKE_REQUIRE_MARKETPLACE_SIGNED_IN", false)');
+    expect(platformSmoke).toContain("`${marketplaceOrigin}/account`");
+    const runbook = read("docs/runbooks/staging-marketplace-app.md");
+    expect(runbook).toContain(
+      "gh variable set STAGING_MARKETPLACE_APP --repo chase-sets/chase-sets --env staging --body marketplace",
     );
+    expect(runbook).toContain("gh variable delete STAGING_MARKETPLACE_APP --repo chase-sets/chase-sets --env staging");
   });
 });

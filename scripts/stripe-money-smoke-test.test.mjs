@@ -110,7 +110,7 @@ function createSmokeFetch(calls, { sellerBearer } = {}) {
       return jsonResponse({ error: { code: "authorization_forbidden", message: "Forbidden." } }, 403);
     }
 
-    if (path === "/health") {
+    if (path === "/api/health") {
       return jsonResponse({ ok: true });
     }
     if (path === "/api/auth/password-sign-in") {
