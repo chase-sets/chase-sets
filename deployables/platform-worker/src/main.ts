@@ -2,6 +2,7 @@ import type { CatalogServices } from "@chase-sets/catalog/server";
 import type { InventoryServices } from "@chase-sets/inventory/server";
 import type { SettlementServices } from "@chase-sets/settlement/server";
 
+import "./uncaught-exception";
 import "./observability-prelude";
 import { createMarketplaceListingConsumer } from "@chase-sets/marketplace/server";
 import { serve } from "@hono/node-server";
