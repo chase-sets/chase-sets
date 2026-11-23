@@ -163,6 +163,23 @@ describe("policy console registration guard", () => {
       expect(paymentsSource).toMatch(/definitions: \[[^\]]*\bcardAuthenticationPolicy\b[^\]]*\]/);
     });
 
+    it("registers the Listing Report Auto-Unlist Policy in the Marketplace source, without excepting it", () => {
+      const symbol = "marketplaceListingReportAutoUnlistPolicy";
+      expect(result.registered).toContainEqual(
+        expect.objectContaining({
+          symbol,
+          file: "bounded-contexts/marketplace/features/reports/domain/listing-report-auto-unlist-policy.ts",
+        }),
+      );
+      expect(policyConsoleRegistrationExceptions.map((exception) => exception.symbol)).not.toContain(symbol);
+      const compositionRoot = readFileSync(path.join(repoRoot, policyConsoleCrossContextRegistrationFile), "utf8");
+      const marketplaceSource = compositionRoot.slice(
+        compositionRoot.indexOf('contextName: "marketplace"'),
+        compositionRoot.indexOf('contextName: "pricing"'),
+      );
+      expect(marketplaceSource).toMatch(/definitions: \[[^\]]*\bmarketplaceListingReportAutoUnlistPolicy\b[^\]]*\]/);
+    });
+
     // The inventory is the omission check: a declaration the scanner misses
     // lowers the first number, and one counted twice breaks the uniqueness
     // assertion. A change that adds or removes a declaration updates the
@@ -174,7 +191,7 @@ describe("policy console registration guard", () => {
         declarations: result.declarations.length,
         registered: result.registered.length,
         excepted: result.excepted.length,
-      }).toEqual({ declarations: 53, registered: 34, excepted: 19 });
+      }).toEqual({ declarations: 54, registered: 35, excepted: 19 });
       expect(result.excepted).toHaveLength(policyConsoleRegistrationExceptions.length);
     });
 
