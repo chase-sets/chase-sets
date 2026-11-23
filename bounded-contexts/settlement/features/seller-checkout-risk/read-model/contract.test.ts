@@ -44,7 +44,7 @@ describe("seller checkout risk authority contract", () => {
 
   it("registers every AC and enrolls revision persistence exactly once in DB, never Unit", () => {
     expect(Object.keys(matrix.acceptanceTests)).toEqual(["AC1", "AC2", "AC3", "AC4", "AC5", "AC6"]);
-    expect(matrix.dbWriterCases).toHaveLength(10);
+    expect(matrix.dbWriterCases).toHaveLength(9);
     const pkg = JSON.parse(readFileSync(new URL("../../../package.json", import.meta.url), "utf8"));
     for (const fixture of [
       "features/seller-checkout-risk/read-model/seller-checkout-risk-revision.db.test.ts",

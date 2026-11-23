@@ -12,7 +12,7 @@ claimCategories: ["fees"]
 promiseTable:
   - claim: Published fee figures resolve from the current ratified policy documents.
     issues: ["#4353"]
-    tests: ["bounded-contexts/commercial-terms/routes/public/sales-fees.test.tsx"]
+    tests: ["bounded-contexts/commercial-terms/features/marketplace-sales-fee/ui/routes/sales-fees.test.tsx"]
   - claim: Published payout-fee figures resolve from the current Settlement payout-fee policy document.
     issues: ["#7819"]
     tests: ["bounded-contexts/public-presence/tests/help-route.test.tsx", "deployables/platform-api/__tests__/bootstrap-production-reconciliation.db.test.ts"]
@@ -27,7 +27,7 @@ promiseTable:
     tests: ["bounded-contexts/identity/features/founders-cohort/domain/domain.test.ts", "bounded-contexts/commercial-terms/features/agreements/integrations/identity/founders-window-reaction.test.ts"]
   - claim: Beta access uses three numbered invite waves with ratified capacities and explicit wave-one qualification.
     issues: ["#3955"]
-    tests: ["bounded-contexts/commercial-terms/routes/public/sales-fees.test.tsx", "bounded-contexts/public-presence/features/waitlist/ui/public-pages.test.tsx"]
+    tests: ["bounded-contexts/commercial-terms/features/marketplace-sales-fee/ui/routes/sales-fees.test.tsx", "bounded-contexts/public-presence/features/waitlist/ui/public-pages.test.tsx"]
 ---
 ## One standard sales fee
 

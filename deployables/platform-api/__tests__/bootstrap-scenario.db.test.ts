@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   bootstrapContextDatabase,
+  drainContextRuntime,
   drainLocalProjectionHandlerSets,
   refreshProjectionReplaySummary,
   SCHEMA_MIGRATIONS_TABLE,
@@ -11,6 +12,7 @@ import { module as paymentsModule } from "@chase-sets/payments";
 import { getApiHostSeedOrder, nonProductionDataProfiles, seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
+import { productMeasurePublicationCompleted } from "@chase-sets/product-measures";
 import { buildPlatformApiApp, createPlatformApiHost } from "../src/app";
 import type { PlatformApiContextName } from "../src/config";
 import { apiContextRegistry } from "../src/context-registry";
@@ -191,6 +193,32 @@ describe("platform api bootstrap scenario", () => {
     expect(Number(orderingOrderCreatedEvents.rows[0]?.count ?? 0)).toBeGreaterThan(0);
     expect(Number(fulfillmentDeliveredEvents.rows[0]?.count ?? 0)).toBeGreaterThan(0);
     expect(Number(reputationReviews.rows[0]?.count ?? 0)).toBeGreaterThan(0);
+
+    // The scenario seed resolved every Catalog Item. The Product Measure reaction caught up on the same items
+    // during bootstrap, and neither that catch-up nor a further drain may publish equal measures again.
+    await drainContextRuntime(runtime);
+    const measurePublications = await pools.catalog.query<Readonly<{ catalog_item_id: string; publications: string }>>(
+      `SELECT item.catalog_item_id,
+              COUNT(event.event_id) FILTER (WHERE event.event_type = ANY($1::text[])) AS publications
+       FROM catalog_items AS item
+       LEFT JOIN event_store_events AS event
+         ON event.stream_id = 'catalog.product-measures-' || item.catalog_item_id
+       GROUP BY item.catalog_item_id
+       ORDER BY item.catalog_item_id`,
+      [["catalog.catalog-item.product-measures-resolved", productMeasurePublicationCompleted]],
+    );
+    const measureReaction = await pools.catalog.query<Readonly<{ caught_up: boolean }>>(
+      `SELECT checkpoint.last_global_position >= (
+                SELECT MAX(global_position)
+                FROM event_store_events
+                WHERE event_type = 'catalog.catalog-item.published'
+              ) AS caught_up
+       FROM event_subscription_checkpoints AS checkpoint
+       WHERE checkpoint.projection_name = 'catalog-product-measure-resolution'`,
+    );
+    expect(measurePublications.rows.length).toBeGreaterThan(0);
+    expect(measurePublications.rows.filter((row) => Number(row.publications) !== 1)).toEqual([]);
+    expect(measureReaction.rows).toEqual([{ caught_up: true }]);
   }, 300_000);
 
   it("revokes agent-owned saved instruments through the composed OAuth route with a valid audit context", async () => {

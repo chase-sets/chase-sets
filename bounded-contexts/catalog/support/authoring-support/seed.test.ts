@@ -1,5 +1,7 @@
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { seedCatalogItems } from "../../features/catalog-items/api/seed";
+import { seedProductMeasureProfiles } from "../../features/product-measures/api/seed";
 import {
   seedChangedSourceObservationScenario,
   seedPromotedSourceObservationScenario,
@@ -21,7 +23,7 @@ vi.mock("../../features/display-templates/api/seed", () => ({
   seedDisplayTemplates: vi.fn(),
 }));
 vi.mock("../../features/fields/api/seed", () => ({ seedFields: vi.fn(() => ({})) }));
-vi.mock("../../features/product-measures/api/seed", () => ({ seedProductMeasures: vi.fn() }));
+vi.mock("../../features/product-measures/api/seed", () => ({ seedProductMeasureProfiles: vi.fn() }));
 vi.mock("../../features/product-contents/api/seed", () => ({
   seedProductContentConfiguration: vi.fn(),
   seedProductContentScenario: vi.fn(),
@@ -73,4 +75,42 @@ describe("Catalog scenario seed caller", () => {
       expect(seedChangedSourceObservationScenario).toHaveBeenCalledTimes(changedCalls);
     },
   );
+
+  it("seeds Product Measure Profiles before it publishes a Catalog Item, and resolves measures after", async () => {
+    const steps: string[] = [];
+    vi.mocked(seedProductMeasureProfiles).mockImplementation(async () => {
+      steps.push("profiles");
+    });
+    vi.mocked(seedCatalogItems).mockImplementation(async () => {
+      steps.push("items");
+    });
+    const pool: PgTransactionalPool = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("SELECT catalog_item_id FROM catalog_items")) {
+          steps.push("resolve");
+        }
+        return {
+          rows: sql.includes("AS dependency_kind")
+            ? [
+                { dependency_kind: "reference", key: "expansion" },
+                { dependency_kind: "reference", key: "set" },
+              ]
+            : [],
+        };
+      }) as PgTransactionalPool["query"],
+      connect: async () => {
+        throw new Error("Scenario caller test must not open a database connection.");
+      },
+    };
+
+    await seedCatalogDatabase(pool, createCatalogServices(pool), {
+      enabledDataProfiles: ["scenario-seed"],
+      environmentName: "test",
+    });
+
+    expect(steps[0]).toBe("profiles");
+    expect(steps.filter((step) => step === "profiles")).toHaveLength(1);
+    expect(steps).toContain("items");
+    expect(steps.at(-1)).toBe("resolve");
+  });
 });

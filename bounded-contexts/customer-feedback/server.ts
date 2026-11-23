@@ -12,6 +12,7 @@
  */
 export * from "./features/csat/domain";
 export * from "./features/csat/api/analytics-contract";
+export { createCsatAdminClient } from "./features/csat/api/request-client";
 export type { CsatAdminReadPort } from "./features/csat/api/runtime";
 export * from "./features/cases/domain";
 export * from "./features/attention/domain";
@@ -20,4 +21,4 @@ export * from "./features/privacy/domain/policy";
 
 export type { CustomerFeedbackServices } from "./support/runtime-support/services";
 
-export { createCustomerFeedbackAttentionDigestRunners } from "./support/runtime-support/worker-jobs";
+export { createCustomerFeedbackAttentionDigestRunners } from "./features/attention/integrations/worker/digest-job";

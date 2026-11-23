@@ -519,13 +519,13 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
         /status: "active"/,
       ],
       [
-        "bounded-contexts/commercial-terms/routes/public/sales-fees.test.tsx:20-22",
+        "bounded-contexts/commercial-terms/features/marketplace-sales-fee/ui/routes/sales-fees.test.tsx:20-22",
         /standard.bps": policyValue\("bps", 500\)/,
         /standard.fixed": policyValue\("money", "0.00"/,
         /standard.cap": policyValue\("money", "25.00"/,
       ],
       [
-        "bounded-contexts/commercial-terms/routes/public/sales-fees.test.tsx:67-97",
+        "bounded-contexts/commercial-terms/features/marketplace-sales-fee/ui/routes/sales-fees.test.tsx:67-97",
         /renders the standard account schedule/,
         /await loader/,
         /5% of the item price plus \$0.00, capped at \$25.00 per item/,

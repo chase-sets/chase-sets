@@ -906,6 +906,9 @@ describe("platform api bootstrap production reconciliation", () => {
       `SELECT COUNT(*) AS migration_count FROM ${SCHEMA_MIGRATIONS_TABLE}`,
     );
     expect(Number(migrations.rows[0]?.migration_count ?? 0)).toBeGreaterThan(0);
+
+    // Neither production-like bootstrap published Product Measures or ran the Catalog reaction's catch-up.
+    await expectCatalogReactionPublishesProductMeasures(firstRuntime);
   }, 240_000);
 
   it("limits and reconciles every production-like seed context against current-code state", async () => {
@@ -1497,6 +1500,173 @@ describe("platform api bootstrap production reconciliation", () => {
     );
     expect(await countRepresentativeIdentityCreationEvents(pools.identity)).toEqual(beforeCounts);
   }, 120_000);
+
+  // Runs on a host whose production-like bootstrap has completed and whose subscriptions have not drained since.
+  // The test makes no resolve call: every Product Measure Publication below comes from the Catalog reaction.
+  async function expectCatalogReactionPublishesProductMeasures(
+    runtime: ReturnType<typeof createPlatformApiHost>,
+  ): Promise<void> {
+    const measureStreamEvents = async (): Promise<readonly string[]> =>
+      (
+        await pools.catalog.query<Readonly<{ stream_id: string }>>(
+          `SELECT stream_id
+           FROM event_store_events
+           WHERE stream_id LIKE 'catalog.product-measures-%'
+           ORDER BY global_position`,
+        )
+      ).rows.map((row) => row.stream_id);
+    const publicationCount = async (catalogItemId: string): Promise<number> => {
+      const result = await pools.catalog.query<Readonly<{ count: string }>>(
+        `SELECT COUNT(*) AS count
+         FROM event_store_events
+         WHERE stream_id = $1
+           AND event_type = ANY($2::text[])`,
+        [
+          `catalog.product-measures-${catalogItemId}`,
+          ["catalog.catalog-item.product-measures-resolved", productMeasurePublicationCompleted],
+        ],
+      );
+      return Number(result.rows[0]?.count ?? 0);
+    };
+    const reactionCheckpoints = await pools.catalog.query(
+      "SELECT 1 FROM event_subscription_checkpoints WHERE projection_name = 'catalog-product-measure-resolution'",
+    );
+    // The production profiles publish no measures and never run the reaction's catch-up.
+    expect(await measureStreamEvents()).toEqual([]);
+    expect(reactionCheckpoints.rows).toHaveLength(0);
+
+    const catalogContext = runtime.mountedContexts.find((context) => context.contextName === "catalog");
+    if (!catalogContext) {
+      throw new Error("Expected the production-like host to mount Catalog.");
+    }
+    // Catalog's own projections only: the reaction is not one of them, so it stays unrun until the drains below.
+    const projectCatalog = () =>
+      drainLocalProjectionHandlerSets(
+        catalogContext.contextName,
+        catalogContext.pool,
+        catalogContext.projectionHandlerSets,
+      );
+    const catalogServices = runtime.services.catalog as ReturnType<typeof catalogModule.createServices>;
+    const context = {
+      tenantId: "tnt_measure_reaction" as never,
+      audit: {
+        performedByUserId: "usr_measure_reaction" as never,
+        forAccountId: "acc_measure_reaction" as never,
+      },
+    };
+    const text = (en: string) => ({ defaultLocale: "en" as const, values: { en } });
+    const blueprintId = "bpr_measure_reaction";
+    const displayTemplateStreamId = "catalog.display-template-dtp_measure_reaction";
+    await catalogServices.blueprints.commandHandler({
+      streamId: `catalog.blueprint-${blueprintId}`,
+      command: {
+        type: "CreateBlueprint",
+        blueprintId: blueprintId as never,
+        key: "measure-reaction",
+        name: text("Measure reaction"),
+        description: text("Product Measure reaction proof"),
+      },
+      context,
+    });
+    await catalogServices.blueprints.commandHandler({
+      streamId: `catalog.blueprint-${blueprintId}`,
+      command: { type: "PublishBlueprint" },
+      context,
+    });
+    await projectCatalog();
+    await catalogServices.displayTemplates.commandHandler({
+      streamId: displayTemplateStreamId,
+      command: {
+        type: "CreateDisplayTemplate",
+        displayTemplateId: "dtp_measure_reaction" as never,
+        key: "measure-reaction",
+        name: text("Measure reaction"),
+        description: text("Product Measure reaction proof"),
+        target: { kind: "blueprint", id: blueprintId },
+        priority: 10,
+        titleTemplate: "{item.title}",
+        subtitleTemplate: null,
+      },
+      context,
+    });
+    await catalogServices.displayTemplates.commandHandler({
+      streamId: displayTemplateStreamId,
+      command: { type: "PublishDisplayTemplate" },
+      context,
+    });
+    await projectCatalog();
+    await catalogServices.productMeasures.upsertProfile({
+      profileId: "pmp_measure_reaction",
+      key: "measure-reaction",
+      name: "Measure reaction",
+      matchBlueprintId: blueprintId,
+      precedence: 5,
+      unitLengthInches: 3.5,
+      unitWidthInches: 2.5,
+      unitHeightInches: 0.012,
+      unitWeightOunces: 0.064,
+      physicalFlags: ["raw-card", "bendable"],
+      stackBehavior: "stackable-thickness",
+      confidence: "conservative-estimate",
+    });
+
+    const publishCatalogItem = async (catalogItemId: string) => {
+      const streamId = `catalog.item-${catalogItemId}`;
+      await catalogServices.items.commandHandler({
+        streamId,
+        command: {
+          type: "CreateCatalogItem",
+          itemId: catalogItemId as never,
+          title: text(catalogItemId),
+          subtitle: null,
+          description: text("Product Measure reaction proof"),
+        },
+        context,
+      });
+      await catalogServices.items.commandHandler({
+        streamId,
+        command: { type: "AssignBlueprintToCatalogItem", blueprintId: blueprintId as never },
+        context,
+      });
+      await projectCatalog();
+      await catalogServices.items.commandHandler({ streamId, command: { type: "PublishCatalogItem" }, context });
+    };
+    const expectPublishedMeasures = async (catalogItemId: string) => {
+      const resolved = await pools.catalog.query<Readonly<{ product_id: string }>>(
+        "SELECT product_id FROM catalog_resolved_product_measures WHERE catalog_item_id = $1 ORDER BY product_id",
+        [catalogItemId],
+      );
+      const supply = await pools.marketplace.query<Readonly<{ product_measure_snapshots: ProductMeasureSnapshot[] }>>(
+        "SELECT product_measure_snapshots FROM marketplace_catalog_items WHERE catalog_item_id = $1",
+        [catalogItemId],
+      );
+      expect(resolved.rows.map((row) => row.product_id)).toEqual([`${catalogItemId}::`]);
+      expect(supply.rows).toHaveLength(1);
+      expect(supply.rows[0]!.product_measure_snapshots.map(({ productId }) => productId)).toEqual([
+        `${catalogItemId}::`,
+      ]);
+      expect(await publicationCount(catalogItemId)).toBe(1);
+    };
+
+    // Published before the reaction's first run: its catch-up from the first Catalog event covers the item.
+    const publishedBefore = "cat_measure_reaction_before";
+    await publishCatalogItem(publishedBefore);
+    expect(await measureStreamEvents()).toEqual([]);
+    await drainContextRuntime(runtime);
+    await expectPublishedMeasures(publishedBefore);
+
+    // Published after the reaction has run.
+    const publishedAfter = "cat_measure_reaction_after";
+    await publishCatalogItem(publishedAfter);
+    expect(await publicationCount(publishedAfter)).toBe(0);
+    await drainContextRuntime(runtime);
+    await expectPublishedMeasures(publishedAfter);
+    await expectPublishedMeasures(publishedBefore);
+
+    const settled = await measureStreamEvents();
+    await drainContextRuntime(runtime);
+    expect(await measureStreamEvents()).toEqual(settled);
+  }
 
   it("publishes the existing 85-Product bootstrap profile atomically through context and replaces all six consumer tables", async () => {
     const runtime = createPlatformApiHost({

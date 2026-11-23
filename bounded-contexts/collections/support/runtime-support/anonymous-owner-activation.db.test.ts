@@ -10,12 +10,15 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { module as collectionsModule } from "../../index";
-import { activateAnonymousOwnerCutover, anonymousOwnerActivationSchemaSql } from "./anonymous-owner-activation";
+import {
+  activateAnonymousOwnerCutover,
+  anonymousOwnerActivationSchemaSql,
+} from "../../features/saved-lists/read-model/anonymous-owner-activation";
 import { createSavedListDiscoveryRuntime } from "../../features/saved-lists/api/discovery-runtime";
 import { createSavedListRuntime } from "../../features/saved-lists/api/runtime";
 import { savedListFingerprint } from "../../features/saved-lists/api/anonymous-owner";
 import type { SavedListProductSelection } from "../../features/saved-lists/domain/contracts";
-import { collectionsRetentionSweeps } from "./retention-policy";
+import { collectionsRetentionSweeps } from "../../features/saved-lists/read-model/retention-policy";
 
 const baseUrl = process.env.TEST_DATABASE_URL;
 if (!baseUrl && process.env.CI)

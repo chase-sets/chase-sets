@@ -463,7 +463,7 @@ describe("auth session MCP contracts", () => {
     }
     await f.handlers["auth.list-sessions"]!(request(owner, { search: "forged" }));
     expect(f.services.listSessions).toHaveBeenLastCalledWith({
-      search: owner.userId,
+      userId: owner.userId,
       status: undefined,
       limit: undefined,
       offset: undefined,

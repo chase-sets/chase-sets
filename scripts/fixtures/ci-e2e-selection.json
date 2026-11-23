@@ -964,18 +964,18 @@
     },
     {
       "family": "boundedContextRouteSuiteOwnership:10",
-      "pattern": "/^bounded-contexts\\/commercial-terms\\/routes\\/admin\\//",
+      "pattern": "/^bounded-contexts\\/commercial-terms\\/(?:routes\\/admin|features\\/(?:agreements|home|schedules)\\/ui\\/routes)\\//",
       "suites": ["admin_commerce"],
       "path": "bounded-contexts/commercial-terms/routes/admin/account-agreement-new.tsx",
-      "trackedCandidates": 6,
+      "trackedCandidates": 12,
       "synthetic": false
     },
     {
       "family": "boundedContextRouteSuiteOwnership:11",
-      "pattern": "/^bounded-contexts\\/commercial-terms\\/routes\\/public\\//",
+      "pattern": "/^bounded-contexts\\/commercial-terms\\/(?:routes\\/public|features\\/marketplace-sales-fee\\/ui\\/routes)\\//",
       "suites": ["marketplace_browse"],
       "path": "bounded-contexts/commercial-terms/routes/public/sales-fees.tsx",
-      "trackedCandidates": 1,
+      "trackedCandidates": 2,
       "synthetic": false
     },
     {
@@ -1621,7 +1621,57 @@
       "batches": ["marketplace_browse"]
     },
     {
+      "changedFiles": ["bounded-contexts/commercial-terms/features/agreements/ui/routes/account-agreement-new.tsx"],
+      "suiteIds": ["admin_commerce"],
+      "batches": ["admin_commerce"]
+    },
+    {
+      "changedFiles": ["bounded-contexts/commercial-terms/features/agreements/ui/routes/agreements-detail.tsx"],
+      "suiteIds": ["admin_commerce"],
+      "batches": ["admin_commerce"]
+    },
+    {
+      "changedFiles": ["bounded-contexts/commercial-terms/features/agreements/ui/routes/agreements.tsx"],
+      "suiteIds": ["admin_commerce"],
+      "batches": ["admin_commerce"]
+    },
+    {
+      "changedFiles": ["bounded-contexts/commercial-terms/features/home/ui/routes/home.tsx"],
+      "suiteIds": ["admin_commerce"],
+      "batches": ["admin_commerce"]
+    },
+    {
+      "changedFiles": ["bounded-contexts/commercial-terms/features/schedules/ui/routes/schedules-detail.tsx"],
+      "suiteIds": ["admin_commerce"],
+      "batches": ["admin_commerce"]
+    },
+    {
+      "changedFiles": ["bounded-contexts/commercial-terms/features/schedules/ui/routes/schedules.tsx"],
+      "suiteIds": ["admin_commerce"],
+      "batches": ["admin_commerce"]
+    },
+    {
+      "changedFiles": ["bounded-contexts/commercial-terms/features/marketplace-sales-fee/ui/routes/sales-fees.tsx"],
+      "suiteIds": ["marketplace_browse"],
+      "batches": ["marketplace_browse"]
+    },
+    {
       "changedFiles": ["bounded-contexts/customer-feedback/features/attention/api/access.ts"],
+      "suiteIds": ["admin_support"],
+      "batches": ["admin_support"]
+    },
+    {
+      "changedFiles": ["bounded-contexts/customer-feedback/routes/admin/attention.tsx"],
+      "suiteIds": ["admin_support"],
+      "batches": ["admin_support"]
+    },
+    {
+      "changedFiles": ["bounded-contexts/customer-feedback/features/attention/ui/routes/attention.tsx"],
+      "suiteIds": ["admin_support"],
+      "batches": ["admin_support"]
+    },
+    {
+      "changedFiles": ["bounded-contexts/customer-feedback/features/attention/ui/localization/locales/en.ts"],
       "suiteIds": ["admin_support"],
       "batches": ["admin_support"]
     },

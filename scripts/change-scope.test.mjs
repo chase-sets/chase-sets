@@ -1074,7 +1074,14 @@ describe("shared E2E setup selection", () => {
     }
     expect(candidate.families).toEqual([...expectedFamilies.values()]);
     expect(candidate.families).toHaveLength(expectedFamilies.size);
-    for (const { movedRoutes } of routeMoves) {
+    for (const { movedRoutes, selectorCases = [] } of routeMoves) {
+      for (const { file, suites, batches } of selectorCases) {
+        if (batches === undefined) continue;
+        expect(
+          candidate.cases.find(({ changedFiles }) => changedFiles.length === 1 && changedFiles[0] === file),
+          file,
+        ).toEqual({ changedFiles: [file], suiteIds: suites, batches });
+      }
       if (!movedRoutes) continue;
       const { legacyDirectory, featureDirectory, files } = movedRoutes;
       expect(
@@ -1469,6 +1476,7 @@ const schedulerVocabularyLookalikePaths = [
 // Accepted inventory delta: #9919 adds @chase-sets/tcgplayer-market-observations.
 // Accepted inventory delta adds @chase-sets/inventory-draft-listing.
 // Accepted inventory delta adds @chase-sets/app-agent-apps.
+// Accepted inventory delta removes the unused Review Eligibility contract workspace.
 const baseCapturedSchedulerFanoutWorkspaces = [
   "@chase-sets/app-admin-web",
   "@chase-sets/app-agent-apps",
@@ -1536,7 +1544,6 @@ const baseCapturedSchedulerFanoutWorkspaces = [
   "@chase-sets/public-docs",
   "@chase-sets/public-presence",
   "@chase-sets/realtime",
-  "@chase-sets/review-eligibility",
   "@chase-sets/seller-attention-queue",
   "@chase-sets/seller-desk",
   "@chase-sets/ses-email",
@@ -4106,7 +4113,7 @@ describe("change-scope", () => {
   });
 
   it.each(routeMoves.flatMap(({ selectorCases = [] }) => selectorCases))(
-    "selects the owning E2E suites for feature-local route files: $file",
+    "selects the owning E2E suites for route-move files: $file",
     ({ file, suites }) => {
       expect(e2eSuiteIdsForChangedFile(file)).toEqual(suites);
     },

@@ -23,7 +23,7 @@ import {
 } from "../../features/display-templates/api/seed";
 import { seedFields } from "../../features/fields/api/seed";
 import type { FieldIds } from "../../features/fields/api/seed";
-import { seedProductMeasures } from "../../features/product-measures/api/seed";
+import { seedProductMeasureProfiles } from "../../features/product-measures/api/seed";
 import { seedProductContentConfiguration, seedProductContentScenario } from "../../features/product-contents/api/seed";
 import { seedReferenceData } from "../../features/reference-data/api/seed";
 import type { CatalogReferenceIds } from "../../features/reference-data/api/seed";
@@ -78,6 +78,12 @@ export async function seedCatalogDatabase(
     ? await seedCatalogIntegrationProfile(pool, services)
     : staticCatalogIntegrationIds();
 
+  // Profiles are seeded before this seed publishes any Catalog Item. The Product Measure reaction waits while no
+  // profile exists, and a bootstrap that drains it before this seed runs could not get past published items
+  // left by an interrupted run.
+  const productMeasureServices = createCatalogServices(createProjectionAwarePool(pool));
+  await seedProductMeasureProfiles(productMeasureServices);
+
   if (shouldSeedRepresentativeCatalog) {
     await drainLocalProjectionHandlerSets("catalog", pool, services.projectors);
     const summaries = await replayRepresentativeCatalogPacks({
@@ -117,10 +123,8 @@ export async function seedCatalogDatabase(
     await seedRepresentativeProductContentsCatalogItems(pool, services, authoring);
   }
 
-  if (shouldSeedAuthoring || shouldSeedScenarioData) {
-    await seedProductMeasures(createCatalogServices(createProjectionAwarePool(pool)), {
-      resolveExistingCatalogItems: shouldSeedScenarioData,
-    });
+  if (shouldSeedScenarioData) {
+    await productMeasureServices.productMeasures.resolveAllCatalogItemMeasures(seedContext);
   }
 
   await assertCatalogIntegrationSeedComplete(services.db);

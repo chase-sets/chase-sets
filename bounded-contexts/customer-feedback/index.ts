@@ -1,4 +1,4 @@
-import { createCustomerFeedbackAttentionDigestRunners } from "./support/runtime-support/worker-jobs";
+import { createCustomerFeedbackAttentionDigestRunners } from "./features/attention/integrations/worker/digest-job";
 export { default as contextManifest } from "./context.json" with { type: "json" };
 
 import {
