@@ -22,6 +22,11 @@ describe("authenticity fee policy definition", () => {
     expect(decodeAuthenticityFeePolicyValue(encoded)).toEqual(AUTHENTICITY_FEE_LAUNCH_POLICY_VALUE);
   });
 
+  it("keeps the category key on the launch value and states its one value in the schema summary", () => {
+    expect(AUTHENTICITY_FEE_LAUNCH_POLICY_VALUE.bands.map((band) => band.category)).toEqual(["any"]);
+    expect(authenticityFeePolicy.schemaSummary).toContain('category: "any"');
+  });
+
   it("rejects a policy with no bands", () => {
     expect(() => decodeAuthenticityFeePolicyValue({ optInThresholdAmount: "100.00", bands: [] })).toThrow(
       "at least one band",
