@@ -3,7 +3,7 @@
   "writers": [
     {
       "file": "bounded-contexts/settlement/features/wallets/integrations/account-risk-source/account-risk-source-projection.ts",
-      "count": 10
+      "count": 9
     },
     {
       "file": "bounded-contexts/settlement/features/wallets/integrations/payment-source/payment-source-projection.ts",

@@ -1,0 +1,12 @@
+{
+  "publicRoutes": [
+    {
+      "routeId": "sales-fees",
+      "routePath": "sales-fees",
+      "fileExport": "./routes/public/sales-fees",
+      "routeType": "route",
+      "sourceContext": "commercial-terms",
+      "placement": "root"
+    }
+  ]
+}

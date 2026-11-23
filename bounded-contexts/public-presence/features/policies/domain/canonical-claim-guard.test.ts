@@ -1119,7 +1119,9 @@ const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
   // Repinned for the legal-notice email and authority update with the same C1-C7 normalization:
   // [#9050 Fill the legal-notice email in the Terms, Seller Agreement and Privacy Policy drafts](https://github.com/chase-sets/chase-sets/issues/9050).
   // Repinned for the whole-construct registration refs without changing the C1-C7 normalization.
-  [citationFencePaths.privacyPolicy]: "f1b3d0a6b2a688d481c6af4a390e0d30c532fe0313cee53d9d4255a9e0d911ee",
+  // Repinned for the byte-identical relocation of the Settlement account risk source projection's cluster block
+  // from 14-59 to 8-53 after its velocity-only imports were removed; the C1-C7 normalization is unchanged.
+  [citationFencePaths.privacyPolicy]: "fca2afca202dd342f1edb44a8098828cd1f4a7dbc8799388f20aeb22376b3aa1",
   [citationFencePaths.authenticityTest]: "c329837c0df3338f0b8081ec19f90d40d0fda192e9e89f6b4fa29e7e7afa0556",
   // Repinned for #10066, #8846, the current-main lost-update guard surface merge, and the #10176 JSON import census
   // evidence-citation update, #9878 TCGplayer guard surface, the #9553 context-registry guard surface, and the

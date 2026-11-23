@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { t } from "./index";
-import { notificationsEnglishTranslations } from "./locales/en/notifications";
+import { englishTranslations } from "./locales/en";
 
 describe("notification center page copy", () => {
   it("approved notification center page catalog bytes", () => {
     const actual = Object.fromEntries(
-      Object.entries(notificationsEnglishTranslations).filter(([key]) =>
+      Object.entries(englishTranslations).filter(([key]) =>
         key.startsWith("notifications.features.notificationCenter.ui.page."),
       ),
     );

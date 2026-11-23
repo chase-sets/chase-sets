@@ -4,13 +4,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import ts from "@chase-sets/typescript-compiler-api";
-import { isTransientProjectionError } from "@chase-sets/event-core/projector";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
-import { isPgRetryableTransientError } from "@chase-sets/event-core-postgres";
 import {
   buildSettlementIdentityAccountRiskSourceProjectionHandlers,
   buildSettlementPaymentsAccountRiskSourceProjectionHandlers,
+  buildSettlementPayoutReviewHoldProjectionHandlers,
   buildSettlementReputationAccountRiskSourceProjectionHandlers,
 } from "./account-risk-source-projection";
 import authorityMatrix from "./authority-matrix.fixture.json" with { type: "json" };
@@ -110,106 +109,15 @@ function event(type: string, data: Record<string, unknown>, streamId = "identity
   });
 }
 
-const canonicalMoneyCases = [
-  { value: "12.34", cents: 1_234 },
-  { value: "12", cents: 1_200 },
-  { value: "12.3", cents: 1_230 },
-  { value: "0.00", cents: 0 },
-  { value: "9999999999.99", cents: 999_999_999_999 },
-  { value: "  12.34", cents: 1_234 },
-  { value: "12.34  ", cents: 1_234 },
-  { value: null, cents: 0 },
-  { value: undefined, cents: 0 },
-] as const;
+const projectionFile = authorityMatrix.writers[0]!.file;
 
-const malformedMoneyStrings = [
-  "12.345",
-  "1.0001",
-  "12. 34",
-  "12.34abc",
-  "12.34 USD",
-  "$12.34",
-  "1e2",
-  "1.5e3",
-  "-12.34",
-  "-0.00",
-  "+12.34",
-  "10000000000.00",
-  "9999999999.991",
-  "1,234.56",
-  "12,34",
-  "0x10",
-  "",
-  "   ",
-  "abc",
-  "Infinity",
-  "NaN",
-] as const;
+const velocityStorage =
+  /settlement_account_velocity_sources|velocity_alert_flags|chargeback_(?:7d|30d)_|listing_24h_|review_24h_|buyer_(?:order|spend)_24h_/;
 
-const malformedNonStringMoneyValues: readonly unknown[] = [
-  12.34,
-  1_234,
-  -12.34,
-  0.30000000000000004,
-  Number.NaN,
-  Number.POSITIVE_INFINITY,
-  Number.NEGATIVE_INFINITY,
-  Number.MAX_SAFE_INTEGER + 1,
-  1_234n,
-  -1n,
-  true,
-  false,
-  ["12.34"],
-  [12.34],
-  ["12.34", "56.78"],
-  [],
-  { amount: "12.34" },
-];
-
-function createMoneyDb() {
+function createRecordingDb() {
   return {
     query: vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [] })),
   };
-}
-
-function buildMoneyHandlerCases(db: ReturnType<typeof createMoneyDb>) {
-  return [
-    {
-      handler: buildSettlementReputationAccountRiskSourceProjectionHandlers(db as never)[
-        "marketplace.listing.created"
-      ]!,
-      makeEvent: (value: unknown) =>
-        event(
-          "marketplace.listing.created",
-          { listingId: "lst_money", accountId: "acc_money", priceAmount: value },
-          "marketplace.listing-lst_money",
-        ),
-    },
-    {
-      handler: buildSettlementPaymentsAccountRiskSourceProjectionHandlers(db as never)["payments.payment-created"]!,
-      makeEvent: (value: unknown) =>
-        event(
-          "payments.payment-created",
-          { paymentId: "pay_money", buyerAccountId: "acc_money", amount: value, sellerPayouts: [] },
-          "payments.payment-pay_money",
-        ),
-    },
-  ];
-}
-
-function velocitySourceInsertCalls(db: ReturnType<typeof createMoneyDb>) {
-  return db.query.mock.calls.filter(
-    ([sql]) => typeof sql === "string" && sql.includes("INSERT INTO settlement_account_velocity_sources"),
-  );
-}
-
-async function captureHandlerError(action: () => Promise<void>): Promise<unknown> {
-  try {
-    await action();
-  } catch (error) {
-    return error;
-  }
-  return undefined;
 }
 
 describe("settlement account risk source projection", () => {
@@ -317,62 +225,88 @@ describe("settlement account risk source projection", () => {
     expect(inventoryViolations(new Map([[file, `db.query(\`${sql}\`);`]]))).toHaveLength(1);
   });
 
-  it("risk projection money consolidation preserves canonical cents and the absent-value default", async () => {
-    for (const moneyCase of canonicalMoneyCases) {
-      for (const caseIndex of [0, 1] as const) {
-        const db = createMoneyDb();
-        const handlerCase = buildMoneyHandlerCases(db)[caseIndex];
-
-        await handlerCase.handler(handlerCase.makeEvent(moneyCase.value));
-
-        const insertCalls = velocitySourceInsertCalls(db);
-        expect(insertCalls).toHaveLength(1);
-        expect(insertCalls[0]?.[1]?.[4]).toBe(moneyCase.cents);
-      }
-    }
+  it("handles only the retained risk source events and none of the velocity-only events", () => {
+    const db = createRecordingDb();
+    expect(Object.keys(buildSettlementIdentityAccountRiskSourceProjectionHandlers(db as never)).sort()).toEqual([
+      "identity.account.badge-assigned",
+      "identity.account.badge-removed",
+      "identity.account.created",
+      "identity.shipping-address.added",
+      "identity.shipping-address.archived",
+      "identity.shipping-address.updated",
+    ]);
+    expect(Object.keys(buildSettlementReputationAccountRiskSourceProjectionHandlers(db as never)).sort()).toEqual([
+      "marketplace.review-hold.extended",
+      "marketplace.review-hold.placed",
+      "marketplace.review-hold.reduced",
+      "marketplace.review-hold.released",
+      "marketplace.review-hold.terminal-recorded",
+      "marketplace.review-scoring.disposition-projected.v1",
+      "marketplace.review.revealed",
+      "marketplace.review.submitted",
+      "marketplace.review.updated",
+      "marketplace.review.withdrawn",
+    ]);
+    expect(Object.keys(buildSettlementPaymentsAccountRiskSourceProjectionHandlers(db as never)).sort()).toEqual([
+      "payments.checkout-affordances-published",
+      "payments.payment-fraud-review-closed",
+      "payments.payment-fraud-review-opened",
+      "payments.payment-fraud-warning-received",
+    ]);
+    expect(Object.keys(buildSettlementPayoutReviewHoldProjectionHandlers(db as never)).sort()).toEqual([
+      "settlement.payout-review-hold.placed",
+      "settlement.payout-review-hold.released",
+    ]);
   });
 
-  it("risk projection money coercion applies the ruled outcome for every malformed payload shape", async () => {
-    for (const value of malformedMoneyStrings) {
-      for (const caseIndex of [0, 1] as const) {
-        const db = createMoneyDb();
-        const handlerCase = buildMoneyHandlerCases(db)[caseIndex];
-        const error = await captureHandlerError(() => handlerCase.handler(handlerCase.makeEvent(value)));
+  it("issues no velocity statement when an account is created or a review is submitted", async () => {
+    const db = createRecordingDb();
+    await buildSettlementIdentityAccountRiskSourceProjectionHandlers(db as never)["identity.account.created"]!(
+      event("identity.account.created", { accountId: "acc_reviewer", createdAt: "2026-07-06T00:00:00.000Z" }),
+    );
+    await buildSettlementReputationAccountRiskSourceProjectionHandlers(db as never)["marketplace.review.submitted"]!(
+      event(
+        "marketplace.review.submitted",
+        {
+          reviewId: "rev_2",
+          orderId: "ord_2",
+          authorAccountId: "acc_reviewer",
+          subjectAccountId: "acc_seller",
+          authorRole: "buyer",
+          rating: 5,
+          submittedAt: "2026-07-07T00:00:00.000Z",
+        },
+        "marketplace.review-rev_2",
+      ),
+    );
 
-        expect(error).toBeInstanceOf(Error);
-        expect(isTransientProjectionError(error)).toBe(false);
-        expect(isPgRetryableTransientError(error)).toBe(false);
-        expect(velocitySourceInsertCalls(db)).toHaveLength(0);
-      }
-    }
+    const statements = db.query.mock.calls.map(([sql]) => sql);
+    expect(statements).toHaveLength(3);
+    for (const sql of statements) expect(sql).not.toMatch(velocityStorage);
+    expect(readFileSync(path.join(repoRoot, projectionFile), "utf8")).not.toMatch(velocityStorage);
   });
 
-  it("risk projection money coercion rejects non-string payload values", async () => {
-    for (const value of malformedNonStringMoneyValues) {
-      for (const caseIndex of [0, 1] as const) {
-        const db = createMoneyDb();
-        const handlerCase = buildMoneyHandlerCases(db)[caseIndex];
-        const error = await captureHandlerError(() => handlerCase.handler(handlerCase.makeEvent(value)));
+  it("projects the account creation time once and keeps the first recorded value", async () => {
+    const db = createRecordingDb();
+    const handlers = buildSettlementIdentityAccountRiskSourceProjectionHandlers(db as never);
 
-        expect(error).toBeInstanceOf(Error);
-        expect(isTransientProjectionError(error)).toBe(false);
-        expect(isPgRetryableTransientError(error)).toBe(false);
-        expect(velocitySourceInsertCalls(db)).toHaveLength(0);
-      }
-    }
-  });
+    await handlers["identity.account.created"]!(
+      event("identity.account.created", { accountId: "acc_seller", createdAt: "2026-04-30T00:00:00.000Z" }),
+    );
+    await handlers["identity.account.created"]!(event("identity.account.created", { accountId: "acc_buyer" }));
 
-  it("risk projection money rejection raises a non-transient projection error and persists no velocity source", async () => {
-    for (const caseIndex of [0, 1] as const) {
-      const db = createMoneyDb();
-      const handlerCase = buildMoneyHandlerCases(db)[caseIndex];
-      const error = await captureHandlerError(() => handlerCase.handler(handlerCase.makeEvent("-12.34")));
-
-      expect(error).toBeInstanceOf(Error);
-      expect(isTransientProjectionError(error)).toBe(false);
-      expect(isPgRetryableTransientError(error)).toBe(false);
-      expect(velocitySourceInsertCalls(db)).toHaveLength(0);
-    }
+    expect(db.query).toHaveBeenCalledTimes(2);
+    expect(db.query).toHaveBeenNthCalledWith(
+      1,
+      expect.stringContaining(
+        "account_created_at = COALESCE(settlement_account_risk_sources.account_created_at, EXCLUDED.account_created_at)",
+      ),
+      ["acc_seller", "2026-04-30T00:00:00.000Z"],
+    );
+    expect(db.query).toHaveBeenNthCalledWith(2, expect.stringContaining("account_created_at"), [
+      "acc_buyer",
+      "2026-05-01T00:00:00.000Z",
+    ]);
   });
 
   it("ignores frozen manual payout review badge assignments and removals", async () => {
@@ -444,6 +378,11 @@ describe("settlement account risk source projection", () => {
       "acc_seller",
       "2026-05-03T00:00:00.000Z",
     ]);
+    expect(db.query).toHaveBeenNthCalledWith(3, expect.stringContaining("average_rating"), [
+      "acc_seller",
+      "2026-05-03T00:00:00.000Z",
+    ]);
+    expect(db.query).toHaveBeenCalledTimes(3);
   });
 
   it("projects Stripe fraud signals into buyer risk sources", async () => {
@@ -462,6 +401,76 @@ describe("settlement account risk source projection", () => {
     expect(db.query).toHaveBeenCalledWith(expect.stringContaining("stripe_fraud_signal_count"), [
       "acc_buyer",
       "2026-07-06T12:05:00.000Z",
+    ]);
+  });
+
+  it("projects Stripe fraud review openings and closings into buyer risk sources", async () => {
+    const db = createRecordingDb();
+    const handlers = buildSettlementPaymentsAccountRiskSourceProjectionHandlers(db as never);
+
+    await handlers["payments.payment-fraud-review-opened"]!(
+      event("payments.payment-fraud-review-opened", {
+        buyerAccountId: "acc_buyer",
+        openedAt: "2026-07-06T12:05:00.000Z",
+      }),
+    );
+    await handlers["payments.payment-fraud-review-closed"]!(
+      event("payments.payment-fraud-review-closed", {
+        buyerAccountId: "acc_buyer",
+        outcome: "approved",
+        closedAt: "2026-07-06T13:05:00.000Z",
+      }),
+    );
+
+    expect(db.query).toHaveBeenCalledTimes(2);
+    expect(db.query).toHaveBeenNthCalledWith(
+      1,
+      expect.stringContaining(
+        "stripe_review_open_count = settlement_account_risk_sources.stripe_review_open_count + 1",
+      ),
+      ["acc_buyer", "2026-07-06T12:05:00.000Z"],
+    );
+    expect(db.query).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining(
+        "stripe_review_open_count = GREATEST(0, settlement_account_risk_sources.stripe_review_open_count - 1)",
+      ),
+      ["acc_buyer", false, "2026-07-06T13:05:00.000Z"],
+    );
+  });
+
+  it("projects placed and released Payout Review Holds with their stream version", async () => {
+    const db = createRecordingDb();
+    const handlers = buildSettlementPayoutReviewHoldProjectionHandlers(db as never);
+    const holdEvent = (type: string, streamVersion: number) =>
+      buildTransportEvent(
+        type,
+        { accountId: "acc_seller" },
+        {
+          id: `evt_hold_${streamVersion}`,
+          streamId: "settlement.payout-review-hold-acc_seller",
+          streamVersion,
+          tenantId: "tnt_test",
+          audit: { performedByUserId: "usr_test", forAccountId: "acc_seller" },
+          timing: { occurredAt: "2026-05-01T00:00:00.000Z", recordedAt: "2026-05-01T00:00:00.000Z" },
+        },
+      );
+
+    await handlers["settlement.payout-review-hold.placed"]!(holdEvent("settlement.payout-review-hold.placed", 1));
+    await handlers["settlement.payout-review-hold.released"]!(holdEvent("settlement.payout-review-hold.released", 2));
+
+    expect(db.query).toHaveBeenCalledTimes(2);
+    expect(db.query).toHaveBeenNthCalledWith(1, expect.stringContaining("payout_review_hold"), [
+      "acc_seller",
+      true,
+      1,
+      "2026-05-01T00:00:00.000Z",
+    ]);
+    expect(db.query).toHaveBeenNthCalledWith(2, expect.stringContaining("payout_review_hold"), [
+      "acc_seller",
+      false,
+      2,
+      "2026-05-01T00:00:00.000Z",
     ]);
   });
 
@@ -547,142 +556,6 @@ describe("settlement account risk source projection", () => {
     expect(db.query).toHaveBeenCalledWith(expect.stringContaining("shared_address_cluster_count"), [
       "acc_linked",
       "2026-07-07T14:05:00.000Z",
-    ]);
-  });
-
-  it("projects event-sourced velocity counters for listing, review, spend, and chargeback windows", async () => {
-    const db = {
-      query: vi.fn(async (sql: string) => {
-        if (sql.includes("RETURNING subject_account_id")) {
-          return { rows: [] };
-        }
-        if (sql.includes("SELECT DISTINCT account_id")) {
-          return { rows: [] };
-        }
-        return { rows: [] };
-      }),
-    };
-    const identityHandlers = buildSettlementIdentityAccountRiskSourceProjectionHandlers(db as never);
-    const marketplaceHandlers = buildSettlementReputationAccountRiskSourceProjectionHandlers(db as never);
-    const paymentsHandlers = buildSettlementPaymentsAccountRiskSourceProjectionHandlers(db as never);
-
-    await identityHandlers["identity.account.created"]!(
-      event("identity.account.created", {
-        accountId: "acc_reviewer",
-        createdAt: "2026-07-06T00:00:00.000Z",
-      }),
-    );
-    await marketplaceHandlers["marketplace.listing.created"]!(
-      event(
-        "marketplace.listing.created",
-        {
-          listingId: "lst_1",
-          accountId: "acc_seller",
-          priceAmount: "2600.00",
-          priceCurrencyCode: "USD",
-        },
-        "marketplace.listing-lst_1",
-      ),
-    );
-    await marketplaceHandlers["marketplace.review.submitted"]!(
-      event(
-        "marketplace.review.submitted",
-        {
-          reviewId: "rev_2",
-          orderId: "ord_2",
-          authorAccountId: "acc_reviewer",
-          subjectAccountId: "acc_seller",
-          authorRole: "buyer",
-          rating: 5,
-          submittedAt: "2026-07-07T00:00:00.000Z",
-        },
-        "marketplace.review-rev_2",
-      ),
-    );
-    await paymentsHandlers["payments.payment-created"]!(
-      event("payments.payment-created", {
-        paymentId: "pay_1",
-        buyerAccountId: "acc_buyer",
-        amount: "2100.00",
-        createdAt: "2026-07-07T00:00:00.000Z",
-        sellerPayouts: [{ orderId: "ord_2", sellerAccountId: "acc_seller", sellerPayoutAmount: "1900.00" }],
-      }),
-    );
-    await paymentsHandlers["payments.payment-disputed"]!(
-      event("payments.payment-disputed", {
-        paymentId: "pay_1",
-        providerDisputeId: "dp_1",
-        disputedAt: "2026-07-07T00:00:00.000Z",
-        sellerPayouts: [{ orderId: "ord_2", sellerAccountId: "acc_seller", sellerPayoutAmount: "1900.00" }],
-      }),
-    );
-
-    const velocitySourceCalls = db.query.mock.calls.filter(
-      ([sql]) => typeof sql === "string" && sql.includes("INSERT INTO settlement_account_velocity_sources"),
-    );
-
-    expect(velocitySourceCalls).toContainEqual([
-      expect.stringContaining("settlement_account_velocity_sources"),
-      [
-        "listing-created",
-        "lst_1",
-        "acc_seller",
-        "2026-05-01T00:00:00.000Z",
-        260000,
-        "USD",
-        1,
-        null,
-        "2026-05-01T00:00:00.000Z",
-      ],
-    ]);
-    // Trailing params are the settlement fraud/velocity policy's compiled launch
-    // defaults (see ../../domain/fraud-velocity-policy.ts), stamped onto the SQL
-    // as parameters instead of hardcoded interval/threshold literals.
-    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("review_24h_median_reviewer_age_days"), [
-      "acc_seller",
-      expect.any(String),
-      7, // chargebackReportingWindowDays
-      30, // chargebackVelocity.lookbackDays
-      24, // newSellerListingVelocity.windowHours
-      24, // reviewVelocity.windowHours
-      24, // youngBuyerSpendVelocity.windowHours
-      2, // chargebackVelocity.minCount
-      200, // chargebackVelocity.minRateBps
-      30, // newSellerListingVelocity.newAccountAgeDays
-      250_000, // newSellerListingVelocity.minValueCents
-      5, // reviewVelocity.minCount
-      7, // reviewVelocity.maxMedianReviewerAgeDays
-      7, // youngBuyerSpendVelocity.newAccountAgeDays
-      200_000, // youngBuyerSpendVelocity.minSpendCents
-      "USD", // newSellerListingVelocity.minValueCurrencyCode
-    ]);
-    expect(velocitySourceCalls).toContainEqual([
-      expect.stringContaining("settlement_account_velocity_sources"),
-      [
-        "buyer-payment-created",
-        "pay_1",
-        "acc_buyer",
-        "2026-07-07T00:00:00.000Z",
-        210000,
-        null,
-        null,
-        null,
-        "2026-05-01T00:00:00.000Z",
-      ],
-    ]);
-    expect(velocitySourceCalls).toContainEqual([
-      expect.stringContaining("settlement_account_velocity_sources"),
-      [
-        "chargeback-received",
-        "dp_1:ord_2",
-        "acc_seller",
-        "2026-07-07T00:00:00.000Z",
-        0,
-        null,
-        null,
-        null,
-        "2026-05-01T00:00:00.000Z",
-      ],
     ]);
   });
 });

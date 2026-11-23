@@ -1,0 +1,71 @@
+{
+  "addedCaseCount": 7,
+  "families": {
+    "boundedContextRouteSuiteOwnership:10": {
+      "pattern": "/^bounded-contexts\\/commercial-terms\\/(?:routes\\/admin|features\\/(?:agreements|home|schedules)\\/ui\\/routes)\\//",
+      "trackedCandidates": 12
+    },
+    "boundedContextRouteSuiteOwnership:11": {
+      "pattern": "/^bounded-contexts\\/commercial-terms\\/(?:routes\\/public|features\\/marketplace-sales-fee\\/ui\\/routes)\\//",
+      "trackedCandidates": 2
+    }
+  },
+  "selectorCases": [
+    {
+      "file": "bounded-contexts/commercial-terms/routes/admin/account-agreement-new.tsx",
+      "suites": ["admin_commerce"]
+    },
+    {
+      "file": "bounded-contexts/commercial-terms/features/agreements/ui/routes/account-agreement-new.tsx",
+      "suites": ["admin_commerce"]
+    },
+    {
+      "file": "bounded-contexts/commercial-terms/routes/admin/agreements-detail.tsx",
+      "suites": ["admin_commerce"]
+    },
+    {
+      "file": "bounded-contexts/commercial-terms/features/agreements/ui/routes/agreements-detail.tsx",
+      "suites": ["admin_commerce"]
+    },
+    {
+      "file": "bounded-contexts/commercial-terms/routes/admin/agreements.tsx",
+      "suites": ["admin_commerce"]
+    },
+    {
+      "file": "bounded-contexts/commercial-terms/features/agreements/ui/routes/agreements.tsx",
+      "suites": ["admin_commerce"]
+    },
+    {
+      "file": "bounded-contexts/commercial-terms/routes/admin/home.tsx",
+      "suites": ["admin_commerce"]
+    },
+    {
+      "file": "bounded-contexts/commercial-terms/features/home/ui/routes/home.tsx",
+      "suites": ["admin_commerce"]
+    },
+    {
+      "file": "bounded-contexts/commercial-terms/routes/admin/schedules-detail.tsx",
+      "suites": ["admin_commerce"]
+    },
+    {
+      "file": "bounded-contexts/commercial-terms/features/schedules/ui/routes/schedules-detail.tsx",
+      "suites": ["admin_commerce"]
+    },
+    {
+      "file": "bounded-contexts/commercial-terms/routes/admin/schedules.tsx",
+      "suites": ["admin_commerce"]
+    },
+    {
+      "file": "bounded-contexts/commercial-terms/features/schedules/ui/routes/schedules.tsx",
+      "suites": ["admin_commerce"]
+    },
+    {
+      "file": "bounded-contexts/commercial-terms/routes/public/sales-fees.tsx",
+      "suites": ["marketplace_browse"]
+    },
+    {
+      "file": "bounded-contexts/commercial-terms/features/marketplace-sales-fee/ui/routes/sales-fees.tsx",
+      "suites": ["marketplace_browse"]
+    }
+  ]
+}

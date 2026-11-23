@@ -1,13 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { t } from "./index";
-import { notificationsEnglishTranslations } from "./locales/en/notifications";
+import { englishTranslations } from "./locales/en";
 
 describe("buyer cancellation copy", () => {
   it("approved cancellation catalog bytes", () => {
     const actual = Object.fromEntries(
-      Object.entries(notificationsEnglishTranslations).filter(([key]) =>
-        key.startsWith("notifications.intents.orderCancelled."),
-      ),
+      Object.entries(englishTranslations).filter(([key]) => key.startsWith("notifications.intents.orderCancelled.")),
     );
     expect(actual).toEqual({
       "notifications.intents.orderCancelled.title": "Order {orderReference} cancelled",

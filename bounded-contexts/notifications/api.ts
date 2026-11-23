@@ -1,11 +1,12 @@
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
-import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import {
   isNotificationPreferenceKey,
   type NotificationPreferenceKey,
   type NotificationsServices,
 } from "./features/notification-center/api/services";
+import { t } from "./features/notification-center/ui/localization/translator";
+import { invalidNotificationPreferenceMessage } from "./features/preferences/ui/localization/translator";
 
 export type NotificationsApiEnv = AuthenticatedApiEnv;
 
@@ -158,7 +159,7 @@ export function buildNotificationsApi(services: NotificationsServices) {
         {
           error: {
             code: "invalid_preference",
-            message: t("notifications.api.preference.invalid"),
+            message: invalidNotificationPreferenceMessage(),
           },
         },
         400,

@@ -3,7 +3,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import SalesFeesRoute, { headers, loader, meta } from "./sales-fees";
+import SalesFeesRoute, { headers, loader, meta } from "../../../../routes/public/sales-fees";
 
 // public-presence's help-article renderer contract (#6115): a machine-readable
 // marker for each unresolved public policy value plus a page-level aggregate.

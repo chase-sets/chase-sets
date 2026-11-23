@@ -91,18 +91,6 @@ function writerCases(db: PgQueryable) {
         }),
     },
     {
-      name: "velocity aggregation",
-      column: "listing_24h_count",
-      value: 1,
-      run: () =>
-        invoke(reputation, "marketplace.listing.created", {
-          listingId: "lst_synthetic",
-          accountId,
-          priceAmount: "12.34",
-          priceCurrencyCode: "USD",
-        }),
-    },
-    {
       name: "reputation aggregation",
       column: "review_count",
       value: 0,
