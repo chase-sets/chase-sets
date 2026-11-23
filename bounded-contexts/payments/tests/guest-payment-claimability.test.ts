@@ -7,7 +7,7 @@ import {
 import type { PaymentsPaymentDetail } from "../client";
 import { PaymentsApiError, PaymentsApiResponseError } from "../client";
 const { getAccountPayment, createClient } = vi.hoisted(() => ({ getAccountPayment: vi.fn(), createClient: vi.fn() }));
-vi.mock("../support/request-support/api-client", () => ({ createPaymentsRequestApiClient: createClient }));
+vi.mock("../features/payments/api/request-client", () => ({ createPaymentsRequestApiClient: createClient }));
 import { readGuestPaymentClaimability } from "../support/request-support/guest-payment-claimability";
 
 describe("guest payment claimability", () => {

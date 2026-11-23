@@ -6,15 +6,15 @@ import { ChaseRoot } from "@chase-sets/design-system";
 import { RouterLinkAdapter } from "@chase-sets/design-system/react-router";
 import { Hono } from "hono";
 import { attachReadConsistencyMiddleware } from "@chase-sets/bounded-context-runtime";
-import manifest from "../context.json";
+import manifest from "../../../../context.json";
 import {
   CHASE_SETS_READ_AFTER_WRITE_HEADER,
   decodeFreshWriteReceipt,
   encodeCommitReceipt,
   encodeFreshWriteReceipt,
 } from "@chase-sets/http/responses";
-import MarketplaceAccountPaymentNewRoute, { action, loader } from "../routes/marketplace/account-payment-new";
-import { jsonResponse, requestUrl } from "./test-support/http";
+import MarketplaceAccountPaymentNewRoute, { action, loader } from "./account-payment-new";
+import { jsonResponse, requestUrl } from "../../../../tests/test-support/http";
 
 vi.mock("@chase-sets/platform-runtime/auth", () => ({
   requireActorFromAuthApi: vi.fn(async () => ({ accountId: "acc_buyer", permissions: ["orders.manage"] })),
@@ -309,7 +309,7 @@ describe("Start payment authoritative wallet status", () => {
     const { helperUses: _helpers, ...destination } = inventory.destination;
     expect(mutation.visibleDestination).toEqual(destination);
     expect(mutation.proof?.tests).toContain(
-      "bounded-contexts/payments/tests/account-payment-new-wallet-status.test.tsx",
+      "bounded-contexts/payments/features/payments/ui/routes/account-payment-new-wallet-status.test.tsx",
     );
     const api = harness();
     const router = mount();

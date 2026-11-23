@@ -1,4 +1,3 @@
-import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
 export type { WalletFundingServices, WalletFundingEligibilityResolver } from "./features/wallet-funding/api/runtime";
 export { walletFundingLimitsPolicy } from "./features/wallet-funding/api/limits-policy";
 export type {
@@ -36,19 +35,9 @@ export { PaymentsDomainError } from "./support/runtime-support/common";
 export { isPaymentConfirmationTokenId } from "@chase-sets/payment-processing";
 export { createPaymentsUcpHandoff } from "./support/ucp-support/payment-handlers";
 export type { UcpPaymentHandlerHandoff } from "./support/ucp-support/payment-handlers";
-import {
-  createPaymentsApiClient,
-  createPaymentsRequestApiHeaders,
-  type PaymentsRequestApiClientOptions,
-} from "./support/request-support/api-client";
-export { hasPaymentsFreshReadAfterWriteSource } from "./support/request-support/api-client";
-
-export function createPaymentsRequestApiClient(request: Request, options: PaymentsRequestApiClientOptions = {}) {
-  return createPaymentsApiClient({
-    baseUrl: resolveRequestApiBaseUrl(request, "/api/marketplace"),
-    fetch: createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "payments" }),
-    headers: createPaymentsRequestApiHeaders(options),
-  });
-}
+export {
+  createPaymentsRequestApiClient,
+  hasPaymentsFreshReadAfterWriteSource,
+} from "./features/payments/api/request-client";
 export { createPaymentsWalletFundingReconciliationRunners } from "./support/runtime-support/worker-jobs";
 export { readGuestPaymentClaimability } from "./support/request-support/guest-payment-claimability";

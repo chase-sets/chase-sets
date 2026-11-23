@@ -1,4 +1,4 @@
-import { formatDateTime, t } from "@chase-sets/localization";
+import { formatDateTime } from "@chase-sets/localization/core";
 import { useEffect, useState } from "react";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useActionData, useLoaderData, useNavigation, useRevalidator } from "react-router";
@@ -23,13 +23,14 @@ import {
   Surface,
   Text,
 } from "@chase-sets/design-system";
-import { createPaymentsRequestApiClient } from "../../../../support/request-support/api-client";
+import { createPaymentsRequestApiClient } from "../../api/request-client";
 import {
   classifySavedPaymentMethodAttemptFailure,
   type SavedPaymentMethodAttemptFailureState,
 } from "../saved-payment-method-attempt";
 import type { SavedPaymentMethodAttempt } from "../../../../client";
 import { StripeSetupCard } from "../account-payment/stripe-setup-card";
+import { t } from "../localization/translator";
 
 type PaymentsRequestApiClient = ReturnType<typeof createPaymentsRequestApiClient>;
 type PaymentMethodSnapshot = Awaited<ReturnType<PaymentsRequestApiClient["listPaymentMethods"]>>["items"][number];
