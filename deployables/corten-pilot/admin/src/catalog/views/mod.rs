@@ -63,7 +63,7 @@ pub use detail_page::{
 pub use dialog::{
     AttachForm, BlueprintForm, CatalogDialog, CategoryForm, ComponentForm, DimensionForm, DimensionRuleForm, DimensionRulesForm,
     FieldForm, FieldRuleForm, FieldRulesForm, Input, Opens, OptionForm, OrderForm, RefRecordForm, RefTypeForm, ReorderForm,
-    TemplateForm, Toasts, Trigger, value_kinds, value_types,
+    TemplateForm, Toasts, Trigger, option_matching, value_kinds, value_types,
 };
 pub use display_templates::{TemplateForms, template_list, template_page, template_rows, template_transitions};
 pub use import_context::ImportContext;
@@ -103,6 +103,7 @@ pub const COMPONENTS: &[Component] = &[
     ListPage,
     DetailPage,
     CatalogDialog,
+    DimensionForm,
     BulkRows,
     ScopeRowView,
     ScopePage,
@@ -769,6 +770,7 @@ pub fn dimension_page<'a>(
         (t.dimension_name(), dimension.name.clone()),
         (t.dimension_description(), dimension.description.clone().unwrap_or_else(|| dash.into())),
         (t.dimension_value_kind(), dimension.value_kind.clone()),
+        (t.dimension_option_matching(), option_matching(t, &dimension.option_matching).to_owned()),
         (t.dimension_status(), dimension.status.clone()),
         (t.dimension_updated(), dimension.updated_at.clone()),
     ];

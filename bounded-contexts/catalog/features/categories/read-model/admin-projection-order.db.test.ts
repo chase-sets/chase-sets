@@ -96,6 +96,18 @@ describeDb("Catalog admin category pages when their subscription runs before the
     expect(await pageCounts()).toEqual({ base: 1, list: 1, detail: 1 });
   });
 
+  it("counts direct Catalog Item memberships for only the requested categories", async () => {
+    await pool.query(
+      `INSERT INTO catalog_items (catalog_item_id, category_ids) VALUES
+        ('itm_first', '["ctg_order", "ctg_other"]'), ('itm_second', '["ctg_order"]'),
+        ('itm_third', '["ctg_other"]'), ('itm_unassigned', '[]')`,
+    );
+
+    await expect(services.categories.getCategoryItemCounts(["ctg_order", "ctg_empty"])).resolves.toEqual(
+      new Map([["ctg_order", 2]]),
+    );
+  });
+
   it("holds the admin pages after crash recovery until the category projection has rebuilt past the event", async () => {
     await createCategory();
     await runner("catalog-category-projection").runOnce();

@@ -36,6 +36,10 @@ describe("email verification of withheld permissions", () => {
     expect(permissionAwaitsEmailVerification({ ...member, withheldPermissions: [] }, "orders.manage")).toBe(false);
     expect(permissionAwaitsEmailVerification(null, "orders.manage")).toBe(false);
     expect(permissionAwaitsEmailVerification(member, "listings.manage")).toBe(false);
+    // An actor that holds the permission is never asked to verify for it, whatever else it carries.
+    expect(
+      permissionAwaitsEmailVerification({ ...member, permissions: ["orders.view", "orders.manage"] }, "orders.manage"),
+    ).toBe(false);
     expect(
       permissionAwaitsEmailVerification(
         { withheldPermissions: [{ permission: "orders.manage", reason: "other" as never }] },

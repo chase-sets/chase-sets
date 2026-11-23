@@ -448,12 +448,16 @@ export const EMAIL_VERIFICATION_RESTRICTED_PERMISSIONS = [
  * True only when Auth withheld `permission` from this actor pending email
  * verification (`withheldPermissions`), so a surface can truthfully ask the
  * member to verify their email rather than hide the action unexplained. Grants
- * nothing; actors Auth does not restrict (agents, guests) never carry it.
+ * nothing; actors Auth does not restrict (agents, guests) never carry it, and
+ * an actor that already holds the permission is never asked to verify for it.
  */
 export function permissionAwaitsEmailVerification(
-  actor: Pick<ResolvedActor, "withheldPermissions"> | null | undefined,
+  actor: (Pick<ResolvedActor, "withheldPermissions"> & Partial<Pick<ResolvedActor, "permissions">>) | null | undefined,
   permission: PermissionKey,
 ): boolean {
+  if (actor?.permissions?.includes(permission)) {
+    return false;
+  }
   return (
     actor?.withheldPermissions?.some(
       (withheld) => withheld.permission === permission && withheld.reason === "email_verification_required",

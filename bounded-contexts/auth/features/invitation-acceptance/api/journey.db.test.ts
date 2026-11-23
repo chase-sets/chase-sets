@@ -261,75 +261,91 @@ const request = new Request("http://localhost/invite/ivt_invited");
     );
     expect((await pools.auth.query("SELECT session_id FROM identity_session_tokens")).rows).toHaveLength(1);
   });
+  const waveAdmission = {
+    registrationAdmission: {
+      mode: "invitation",
+      disposableEmailMode: "log-only",
+      disposableEmailDomains: [],
+      findAdmittedWaitlistSignupByEmail: async () => ({
+        signup_id: "wls_admitted",
+        beta_invitation_id: "bin_admitted",
+        admitted_wave: 1,
+      }),
+    },
+  } as const;
   for (const kind of ["password", "passkey"] as const)
     for (const existing of [false, true])
-      for (const storedPassword of kind === "password" && existing ? [false, true] : [false]) {
-        it.each(ATTEMPT_STAGES)(
-          `${kind} ${existing ? "existing" : "new"}${storedPassword ? " stored-password" : ""} User recovers a pre-%s checkpoint fault through real owner HTTP and Postgres`,
-          async (stage) => {
-            const f = await fixture(kind, existing, storedPassword);
-            let faulted = false;
-            const store = f.services.eventStore;
-            const services = {
-              ...f.services,
-              eventStore: {
-                ...store,
-                appendToStream: async (input: Parameters<typeof store.appendToStream>[0]) => {
-                  if (!faulted && input.events[0]?.payload.stage === stage) {
-                    faulted = true;
-                    throw new Error("synthetic checkpoint fault");
-                  }
-                  return store.appendToStream(input);
+      for (const storedPassword of kind === "password" && existing ? [false, true] : [false])
+        for (const waveAdmitted of existing ? [false] : [false, true]) {
+          it.each(ATTEMPT_STAGES)(
+            `${kind} ${existing ? "existing" : "new"}${storedPassword ? " stored-password" : ""}${waveAdmitted ? " wave-admitted" : ""} User recovers a pre-%s checkpoint fault through real owner HTTP and Postgres`,
+            async (stage) => {
+              const f = await fixture(kind, existing, storedPassword);
+              const admission = waveAdmitted ? waveAdmission : {};
+              let faulted = false;
+              const store = f.services.eventStore;
+              const services = {
+                ...f.services,
+                ...admission,
+                eventStore: {
+                  ...store,
+                  appendToStream: async (input: Parameters<typeof store.appendToStream>[0]) => {
+                    if (!faulted && input.events[0]?.payload.stage === stage) {
+                      faulted = true;
+                      throw new Error("synthetic checkpoint fault");
+                    }
+                    return store.appendToStream(input);
+                  },
                 },
-              },
-            };
-            await expect(
-              acceptInvitationAttempt(services, f.client, f.input, request, acceptanceContext),
-            ).rejects.toThrow();
-            const resumed = await acceptInvitationAttempt(
-              createAuthServices(pools.auth),
-              f.client,
-              f.input,
-              request,
-              acceptanceContext,
-            );
-            expect(resumed.type).toBe(stage === "completed" ? "accepted-reauth-required" : "session-started");
-            const state = await readAttempt(store, attemptId, acceptanceContext);
-            expect(state?.stage).toBe("completed");
-            const counts = await pools.auth.query<{ count: string }>(
-              "SELECT count(*) FROM event_store_events WHERE event_type = 'auth.session.started'",
-            );
-            expect(counts.rows[0].count).toBe("1");
-            expect(
-              (await pools.auth.query<{ count: string }>("SELECT count(*) FROM identity_session_tokens")).rows[0].count,
-            ).toBe("1");
-            const membership = await pools.identity.query<{ count: string }>(
-              "SELECT count(*) FROM event_store_events WHERE stream_id = $1 AND event_type = 'identity.membership.granted'",
-              [`identity.membership-${state!.binding.membershipId}`],
-            );
-            expect(membership.rows[0].count).toBe("1");
-            if (!existing) {
+              };
+              await expect(
+                acceptInvitationAttempt(services, f.client, f.input, request, acceptanceContext),
+              ).rejects.toThrow();
+              const resumed = await acceptInvitationAttempt(
+                createAuthServices(pools.auth, admission),
+                f.client,
+                f.input,
+                request,
+                acceptanceContext,
+              );
+              expect(resumed.type).toBe(stage === "completed" ? "accepted-reauth-required" : "session-started");
+              const state = await readAttempt(store, attemptId, acceptanceContext);
+              expect(state?.stage).toBe("completed");
+              const counts = await pools.auth.query<{ count: string }>(
+                "SELECT count(*) FROM event_store_events WHERE event_type = 'auth.session.started'",
+              );
+              expect(counts.rows[0].count).toBe("1");
+              expect(
+                (await pools.auth.query<{ count: string }>("SELECT count(*) FROM identity_session_tokens")).rows[0]
+                  .count,
+              ).toBe("1");
+              const membership = await pools.identity.query<{ count: string }>(
+                "SELECT count(*) FROM event_store_events WHERE stream_id = $1 AND event_type = 'identity.membership.granted'",
+                [`identity.membership-${state!.binding.membershipId}`],
+              );
+              expect(membership.rows[0].count).toBe("1");
               const founders = await pools.identity.query<{ payload: { betaAccessStartedAt: string } }>(
                 "SELECT payload FROM event_store_events WHERE event_type = 'identity.account.founders-window-opened'",
               );
-              expect(founders.rows).toHaveLength(1);
-              expect(founders.rows[0].payload.betaAccessStartedAt).toBe(state!.registrationStartedAt);
-            }
-            if (storedPassword) {
-              expect(state!.binding.credentialId).toBe("crd_existing");
-              expect((await pools.auth.query("SELECT credential_id FROM identity_password_credentials")).rows).toEqual([
-                { credential_id: "crd_existing" },
+              expect(founders.rows).toHaveLength(waveAdmitted ? 1 : 0);
+              if (waveAdmitted) {
+                expect(founders.rows[0].payload.betaAccessStartedAt).toBe(state!.registrationStartedAt);
+              }
+              if (storedPassword) {
+                expect(state!.binding.credentialId).toBe("crd_existing");
+                expect(
+                  (await pools.auth.query("SELECT credential_id FROM identity_password_credentials")).rows,
+                ).toEqual([{ credential_id: "crd_existing" }]);
+              }
+              const events = await pools.auth.query("SELECT payload FROM event_store_events WHERE stream_id = $1", [
+                `auth.invitation-acceptance-${attemptId}`,
               ]);
-            }
-            const events = await pools.auth.query("SELECT payload FROM event_store_events WHERE stream_id = $1", [
-              `auth.invitation-acceptance-${attemptId}`,
-            ]);
-            expect(JSON.stringify(events.rows)).not.toMatch(
-              /synthetic-invitation-token|synthetic-correct-horse-password|synthetic-challenge|synthetic-public-key/,
-            );
-          },
-        );
-      }
+              expect(JSON.stringify(events.rows)).not.toMatch(
+                /synthetic-invitation-token|synthetic-correct-horse-password|synthetic-challenge|synthetic-public-key/,
+              );
+            },
+          );
+        }
   it("retained restart and day-after lookup remain inert with the original credential and Session", async () => {
     const f = await fixture("password", true);
     await acceptInvitationAttempt(f.services, f.client, f.input, request, acceptanceContext);

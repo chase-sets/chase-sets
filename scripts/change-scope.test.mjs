@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -29,6 +29,11 @@ import {
 } from "./lib/context-proof-sets.mjs";
 
 const REPOSITORY_SCAN_TEST_TIMEOUT_MS = 120_000;
+
+const routeMovesDir = new URL("./fixtures/change-scope-route-moves/", import.meta.url);
+const routeMoves = readdirSync(routeMovesDir, { withFileTypes: true })
+  .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+  .map(({ name }) => JSON.parse(readFileSync(new URL(name, routeMovesDir), "utf8")));
 
 const settlementProofPaths = [
   "bounded-contexts/marketplace/features/offers/api/route.test.ts",
@@ -998,80 +1003,59 @@ describe("shared E2E setup selection", () => {
     const fallback = captured.cases.find(({ changedFiles }) =>
       changedFiles.includes("deployables/marketplace/e2e/unmapped.spec.ts"),
     );
-    const paymentFeatureRoutes = "bounded-contexts/payments/features/payments/ui/routes/";
-    const movedPaymentRoutes = [
-      ["account-payment-methods.tsx", "marketplace_account"],
-      ["account-payment-new.tsx", "marketplace_account"],
-      ["account-payment.tsx", "marketplace_checkout"],
-      ["checkout-payment.tsx", "marketplace_checkout"],
-    ];
-    const familyDeltas = new Map([
-      [
-        "boundedContextRouteSuiteOwnership:41",
-        {
-          pattern:
-            "/^bounded-contexts\\/payments\\/(?:routes\\/marketplace|features\\/payments\\/ui\\/routes)\\/account-payment(?:-methods|-new)/",
-          trackedCandidates: 4,
-        },
-      ],
-      [
-        "boundedContextRouteSuiteOwnership:45",
-        {
-          pattern:
-            "/^bounded-contexts\\/discovery\\/routes\\/item-detail(?:\\.|-market-history\\.|-rail-analytics\\.)/",
-        },
-      ],
-      [
-        "boundedContextRouteSuiteOwnership:47",
-        {
-          pattern:
-            "/^bounded-contexts\\/payments\\/(?:routes\\/marketplace|features\\/payments\\/ui\\/routes)\\/(?:account-payment|checkout-payment)\\./",
-          path: `${paymentFeatureRoutes}account-payment.tsx`,
-          trackedCandidates: 4,
-        },
-      ],
-      [
-        "boundedContextRouteSuiteOwnership:51",
-        {
-          pattern:
-            "/^bounded-contexts\\/notifications\\/(?:routes|features\\/notification-center\\/ui\\/routes)\\/account-notifications\\./",
-          path: "bounded-contexts/notifications/features/notification-center/ui/routes/account-notifications.tsx",
-          trackedCandidates: 2,
-        },
-      ],
-      ["e2eNoSuiteExclusions:4", { family: "e2eNoSuiteExclusions:3" }],
-    ]);
-    expect(captured.cases).toHaveLength(150);
-    expect(candidate.cases).toHaveLength(161 + movedPaymentRoutes.length);
-    expect(candidate.families).toEqual([
-      ...captured.families
-        .filter((family) => family.path !== retired)
-        .map((family) => ({ ...family, ...familyDeltas.get(family.family) })),
-      {
-        family: "boundedContextRouteSuiteOwnership:52",
-        pattern: "/^bounded-contexts\\/fulfillment\\/routes\\/seller-shipping-setup\\.tsx$/",
-        suites: ["marketplace_checkout"],
-        path: "bounded-contexts/fulfillment/routes/seller-shipping-setup.tsx",
-        trackedCandidates: 1,
-        synthetic: false,
-      },
-    ]);
-    expect(candidate.families).toHaveLength(143);
-    expect(
-      candidate.cases.filter(({ changedFiles }) => changedFiles.some((file) => file.startsWith(paymentFeatureRoutes))),
-    ).toEqual(
-      movedPaymentRoutes.map(([file, suite]) => ({
-        changedFiles: [`${paymentFeatureRoutes}${file}`],
-        suiteIds: [suite],
-        batches: [suite],
-      })),
+    // Five agent/MCP cases and the Chromium install setup case were added independently of route moves.
+    const nonRouteCasesAdded = 6;
+    const routeCasesAdded = routeMoves.reduce(
+      (total, { addedCaseCount, movedRoutes }) => total + (addedCaseCount ?? movedRoutes.files.length),
+      0,
     );
-    for (const [file, suite] of movedPaymentRoutes) {
-      const legacyPath = `bounded-contexts/payments/routes/marketplace/${file}`;
-      const featurePath = `${paymentFeatureRoutes}${file}`;
-      expect(baseline.classifyChanges({ changedFiles: [legacyPath] }).e2eSuiteIds, legacyPath).toEqual([suite]);
-      for (const route of [legacyPath, featurePath]) {
-        expect(classifyChanges({ changedFiles: [route], workspaces }).e2eSuiteIds, route).toEqual([suite]);
+    expect(captured.cases).toHaveLength(150);
+    expect(candidate.cases).toHaveLength(captured.cases.length + nonRouteCasesAdded + routeCasesAdded);
+
+    const expectedFamilies = new Map(
+      captured.families
+        .filter((family) => family.path !== retired)
+        .map((family) =>
+          family.family === "e2eNoSuiteExclusions:4" ? { ...family, family: "e2eNoSuiteExclusions:3" } : family,
+        )
+        .map((family) => [family.family, family]),
+    );
+    const familyDeltas = routeMoves.flatMap(({ families }) => Object.entries(families));
+    // Updates retain captured order; new route families are appended in registry order.
+    for (const [family, delta] of familyDeltas.sort(([left], [right]) =>
+      left.localeCompare(right, "en", { numeric: true }),
+    )) {
+      expectedFamilies.set(family, { family, ...expectedFamilies.get(family), ...delta });
+    }
+    expect(candidate.families).toEqual([...expectedFamilies.values()]);
+    expect(candidate.families).toHaveLength(expectedFamilies.size);
+    for (const { movedRoutes, selectorCases = [] } of routeMoves) {
+      for (const { file, suites, batches } of selectorCases) {
+        if (batches === undefined) continue;
+        expect(
+          candidate.cases.find(({ changedFiles }) => changedFiles.length === 1 && changedFiles[0] === file),
+          file,
+        ).toEqual({ changedFiles: [file], suiteIds: suites, batches });
+      }
+      if (!movedRoutes) continue;
+      const { legacyDirectory, featureDirectory, files } = movedRoutes;
+      expect(
+        candidate.cases.filter(({ changedFiles }) => changedFiles.some((file) => file.startsWith(featureDirectory))),
+        featureDirectory,
+      ).toEqual(
+        files.map(([file, suite]) => ({
+          changedFiles: [`${featureDirectory}${file}`],
+          suiteIds: [suite],
+          batches: [suite],
+        })),
+      );
+      for (const [file, suite] of files) {
+        const legacyPath = `${legacyDirectory}${file}`;
+        const featurePath = `${featureDirectory}${file}`;
+        expect(baseline.classifyChanges({ changedFiles: [legacyPath] }).e2eSuiteIds, legacyPath).toEqual([suite]);
+        for (const route of [legacyPath, featurePath]) {
+          expect(classifyChanges({ changedFiles: [route], workspaces }).e2eSuiteIds, route).toEqual([suite]);
+        }
       }
     }
     expect(
@@ -1162,23 +1146,6 @@ describe("shared E2E setup selection", () => {
         );
     }
   });
-});
-
-it("keeps admin support selected for both Attention route paths and its migrated copy", () => {
-  const paths = [
-    "bounded-contexts/customer-feedback/routes/admin/attention.tsx",
-    "bounded-contexts/customer-feedback/features/attention/ui/routes/attention.tsx",
-    "bounded-contexts/customer-feedback/features/attention/ui/localization/locales/en.ts",
-  ];
-  const fixture = JSON.parse(readFileSync("scripts/fixtures/ci-e2e-selection.json", "utf8"));
-  for (const file of paths) {
-    expect(e2eSuiteIdsForChangedFile(file)).toEqual(["admin_support"]);
-    expect(fixture.cases.find(({ changedFiles }) => changedFiles.length === 1 && changedFiles[0] === file)).toEqual({
-      changedFiles: [file],
-      suiteIds: ["admin_support"],
-      batches: ["admin_support"],
-    });
-  }
 });
 
 describe("rendered-copy real-provider selection corpus", () => {
@@ -4100,26 +4067,12 @@ describe("change-scope", () => {
     expect(scope.e2eSuiteIds).toEqual(["marketplace_browse", "marketplace_checkout"]);
   });
 
-  it.each([
-    {
-      file: "bounded-contexts/payments/features/payments/ui/routes/account-payment.tsx",
-      suites: ["marketplace_checkout"],
+  it.each(routeMoves.flatMap(({ selectorCases = [] }) => selectorCases))(
+    "selects the owning E2E suites for route-move files: $file",
+    ({ file, suites }) => {
+      expect(e2eSuiteIdsForChangedFile(file)).toEqual(suites);
     },
-    {
-      file: "bounded-contexts/payments/features/payments/ui/routes/checkout-payment.tsx",
-      suites: ["marketplace_checkout"],
-    },
-    {
-      file: "bounded-contexts/fulfillment/features/shipments/ui/routes/account-shipments.tsx",
-      suites: ["marketplace_account"],
-    },
-    {
-      file: "bounded-contexts/payments/features/payments/ui/routes/account-payment-route.test.tsx",
-      suites: [],
-    },
-  ])("selects the owning E2E suites for feature-local route files: $file", ({ file, suites }) => {
-    expect(e2eSuiteIdsForChangedFile(file)).toEqual(suites);
-  });
+  );
 
   it.each([
     ["bounded-contexts/notifications/routes/account-notifications.tsx", ["marketplace_account"]],

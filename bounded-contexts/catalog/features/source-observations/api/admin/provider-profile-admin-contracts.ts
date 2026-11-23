@@ -11,9 +11,14 @@ export {
 
 export {
   catalogProviderProfileSectionFieldKeys,
+  catalogProviderProfileSectionFields,
   parseCatalogProviderProfileSectionEdit,
 } from "../providers/provider-profile-section-edit";
-export type { CatalogProviderProfileSectionEdit } from "../providers/provider-profile-section-edit";
+export type {
+  CatalogProviderProfileSectionEdit,
+  CatalogProviderProfileSectionField,
+  CatalogProviderProfileSectionFieldControl,
+} from "../providers/provider-profile-section-edit";
 
 export type {
   CatalogProviderProfileBasicsUpdateCommand,

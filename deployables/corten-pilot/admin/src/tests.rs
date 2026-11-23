@@ -1681,7 +1681,8 @@ const CATALOG: &str = "/api/catalog";
 fn dimension(id: &str, status: &str) -> Value {
     json!({
         "dimension_id": id, "key": "condition", "name": "Condition", "description": null,
-        "value_kind": "ordered", "status": status, "updated_at": "2026-01-01T00:00:00.000Z",
+        "value_kind": "ordered", "option_matching": "or-better", "status": status,
+        "updated_at": "2026-01-01T00:00:00.000Z",
     })
 }
 
@@ -2688,7 +2689,7 @@ async fn the_list_asks_the_api_as_admin_web_does_and_pages() {
 #[tokio::test]
 async fn a_create_sends_its_drawn_id_and_comes_back_with_the_receipt_and_the_toast() {
     let pilot = Pilot::new().await;
-    let body = "dimension_id=dim_01JZ&key=size&name=+Size+&description=&value_kind=ordered";
+    let body = "dimension_id=dim_01JZ&key=size&name=+Size+&description=&value_kind=ordered&option_matching=or-better";
     let (status, headers, _) = pilot.send(post("/catalog/dimensions?status=active", body, true)).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
     let to = headers["corten-location"].to_str().unwrap().to_owned();
@@ -2697,7 +2698,7 @@ async fn a_create_sends_its_drawn_id_and_comes_back_with_the_receipt_and_the_toa
     assert_eq!((sent.method, sent.path.as_str()), (Method::POST, "/api/catalog/dimensions"));
     assert_eq!(
         serde_json::from_str::<Value>(&sent.body).unwrap(),
-        json!({ "dimensionId": "dim_01JZ", "key": "size", "valueKind": "ordered",
+        json!({ "dimensionId": "dim_01JZ", "key": "size", "valueKind": "ordered", "optionMatching": "or-better",
                 "name": { "defaultLocale": "en", "values": { "en": "Size" } },
                 "description": { "defaultLocale": "en", "values": {} } })
     );
@@ -2736,12 +2737,40 @@ async fn a_dimension_shows_its_options_and_the_changes_its_status_allows() {
     assert!(html.contains(r#"name="action" value="reactivate">Reactivate</button>"#), "the deprecated one: {html}");
     assert!(html.contains(r#"value="chc_a, chc_b""#), "the reorder form starts from the order: {html}");
     assert!(html.contains(r#"name="label_locale" value="fr""#), "an option's edit form has its labels: {html}");
+    assert!(html.contains("<dt>Option Matching</dt><dd>Or better</dd>"), "{html}");
+    let edit = &html[html.find(r#"id="catalog-edit""#).expect("the edit form")..];
+    assert!(edit.contains(r#"<select name="option_matching""#), "{edit}");
+    assert!(edit.contains(r#"<option value="or-better" selected>Or better</option>"#), "the edit form starts from it: {edit}");
+    assert!(edit.contains("Or better lets a want for one option also accept every option listed before it."), "{edit}");
 
     let (status, _, _) = pilot.send(get("/catalog/dimensions/dim_missing", Some("staff"))).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     let (status, _, _) =
         pilot.send(get(&format!("/catalog/dimensions/dim_pending?after_write={}", fresh_receipt()), Some("staff"))).await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "the write is not readable yet");
+}
+
+#[tokio::test]
+async fn an_edit_sends_its_option_matching_and_an_unordered_dimension_matches_exactly() {
+    let pilot = Pilot::new().await;
+    let form = |kind: &str, matching: &str| {
+        format!("key=condition&name=Condition&description=&value_kind={kind}&option_matching={matching}")
+    };
+    for (kind, matching, sent) in
+        [("numeric", "or-better", "or-better"), ("ordered", "exact", "exact"), ("unordered", "or-better", "exact")]
+    {
+        let (status, _, _) = pilot.send(post("/catalog/dimensions/dim_seed/edit", &form(kind, matching), true)).await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{kind} {matching}");
+        let write = pilot.catalog_writes().pop().unwrap();
+        assert_eq!((write.method, write.path.as_str()), (Method::PUT, "/api/catalog/dimensions/dim_seed"));
+        let body = serde_json::from_str::<Value>(&write.body).unwrap();
+        assert_eq!((body["valueKind"].as_str(), body["optionMatching"].as_str()), (Some(kind), Some(sent)), "{body}");
+    }
+    // A dimension recorded before the choice reads as Exact.
+    let mut old = dimension("dim_old", "active");
+    old.as_object_mut().unwrap().remove("option_matching");
+    let old: crate::catalog::api::Dimension = serde_json::from_value(old).unwrap();
+    assert_eq!(old.option_matching, "exact");
 }
 
 #[tokio::test]
