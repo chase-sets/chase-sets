@@ -448,6 +448,13 @@ function failedRollbackCaptureCompletions() {
   ];
 }
 
+// What every production deploy says about the admin app while PRODUCTION_ADMIN_APP is unset.
+const productionAdminWebLines = [
+  "admin.chasesets.com is served by admin-web (PRODUCTION_ADMIN_APP is unset, so the default applies).",
+  "admin-corten is not deployed while admin-web serves admin.chasesets.com.",
+  "Warning: admin-corten is not deployed because admin-web serves admin.chasesets.com (PRODUCTION_ADMIN_APP=admin-web).",
+];
+
 function successfulSpawn(calls) {
   return (command, args, options) => {
     calls.push({ command, args, options });
@@ -1124,6 +1131,56 @@ describe("platform Kubernetes deployment", () => {
     expect(waited).toHaveLength(1);
     expect(waited[0]).toContain("chase-sets-platform-chase-sets-platform-platform-api");
     expect(waited.join(" ")).not.toContain("corten");
+  });
+
+  it("reads production's live release too, waiting only for what it runs, such as a disabled admin-corten", async () => {
+    const live = {
+      components: {
+        "platform-api": { enabled: true, kind: "service" },
+        "admin-corten": { enabled: false, kind: "service" },
+      },
+    };
+    const calls = [];
+    await reconcileManagedPostgresCaOnKubernetes({
+      release: "chase-sets-platform",
+      namespace: "chase-sets-platform",
+      timeout: "15m",
+      managedPostgresCaSha256,
+      envOverrides: { DEPLOYMENT_ENVIRONMENT: "production" },
+      rolloutsEnabled: false,
+      helmPath: "helm",
+      kubectlPath: "kubectl",
+      spawn: completedSpawn(calls, [{ code: 0, stdout: JSON.stringify(live) }]),
+    });
+    expect(calls[0].args.slice(0, 2)).toEqual(["get", "values"]);
+    expect(calls[0].args).toContain("--all");
+    expect(calls[1].args[0]).toBe("upgrade");
+    const waited = calls.slice(2).map(({ args }) => args.join(" "));
+    expect(waited).toHaveLength(1);
+    expect(waited[0]).toContain("chase-sets-platform-chase-sets-platform-platform-api");
+    expect(waited.join(" ")).not.toContain("corten");
+  });
+
+  it.each([
+    ["helm get values fails", { code: 1, stderr: "Error: release: not found" }],
+    ["the live values have no components", { code: 0, stdout: JSON.stringify({ global: {} }) }],
+  ])("refuses the CA reconcile before any upgrade when %s", async (_case, completion) => {
+    const calls = [];
+    await expect(
+      reconcileManagedPostgresCaOnKubernetes({
+        release: "chase-sets-platform",
+        namespace: "chase-sets-platform",
+        timeout: "15m",
+        managedPostgresCaSha256,
+        envOverrides: { DEPLOYMENT_ENVIRONMENT: "production" },
+        rolloutsEnabled: false,
+        helmPath: "helm",
+        kubectlPath: "kubectl",
+        spawn: completedSpawn(calls, [completion]),
+      }),
+    ).rejects.toThrow();
+    expect(calls).toHaveLength(1);
+    expect(calls[0].args.slice(0, 2)).toEqual(["get", "values"]);
   });
 
   it("pins Helm to the provider-managed Kubernetes image pull authority", () => {
@@ -6684,7 +6741,9 @@ describe("attempts record", () => {
           expect(output).not.toContain(planted);
         }
         expect(output).not.toContain("--set-string");
-        if (exitCode) expect(error.mock.calls.flat()).toEqual(["helm upgrade exited with code 1."]);
+        if (exitCode) {
+          expect(error.mock.calls.flat()).toEqual([...productionAdminWebLines, "helm upgrade exited with code 1."]);
+        }
       } finally {
         log.mockRestore();
         error.mockRestore();
@@ -6979,7 +7038,7 @@ describe("admission webhook root cause", () => {
     const { exitCode, calls, record, rootCause, errors } = await classifiedDeploy(scenario, options);
     expect(exitCode).toBe(1);
     expect(upgradeCalls(calls)).toHaveLength(1);
-    expect(errors).toEqual(["helm upgrade exited with code 1."]);
+    expect(errors).toEqual([...productionAdminWebLines, "helm upgrade exited with code 1."]);
     expect(record).toMatchObject({ result: "failure", retry: "refused", refusal, attempts: [recognized(1)] });
     expect(rootCause).toMatchObject({ rootCauseCode: "doks-admission-webhook-unreachable", providerReason: longLine });
   });
@@ -7764,7 +7823,7 @@ describe("advisory Corten pilots without an image", () => {
     for (const DEPLOYMENT_ENVIRONMENT of ["production", "preview"]) {
       const envOverrides = { DEPLOYMENT_ENVIRONMENT, PREVIEW_IDENTIFIER: "pr-123" };
       expect(platformKubernetesDeployment.droppedAdvisoryCortenPilots({ envOverrides })).toEqual([]);
-      const env = { STAGING_ADMIN_APP: "admin-web" };
+      const env = { STAGING_ADMIN_APP: "admin-web", PRODUCTION_ADMIN_APP: "admin-corten" };
       expect(platformKubernetesDeployment.withheldCortenPilots({ envOverrides, env })).toEqual([]);
     }
   });

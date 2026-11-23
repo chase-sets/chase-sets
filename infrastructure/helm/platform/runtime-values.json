@@ -73,6 +73,38 @@
       "podLabels": {}
     }
   },
+  "productionComponents": {
+    "admin-corten": {
+      "enabled": true,
+      "kind": "service",
+      "replicas": 1,
+      "image": "",
+      "command": "exec /usr/local/bin/corten-pilot-admin",
+      "env": [
+        { "name": "HOST", "value": "0.0.0.0" },
+        { "name": "PORT", "value": "8080" },
+        { "name": "HOSTS", "value": "admin.chasesets.com" },
+        { "name": "PROXIES", "value": "" },
+        { "name": "PUBLIC_PROTO", "value": "https" },
+        { "name": "CHASE_SETS_INTERNAL_API_ORIGIN", "value": "" },
+        { "name": "PLATFORM_API_ORIGIN", "value": "" },
+        { "name": "PLATFORM_INTERNAL_AUTH_SECRET", "secret": true, "secretKey": "PLATFORM_INTERNAL_AUTH_SECRET" },
+        { "name": "ADMIN_WEB_ORIGIN", "value": "https://admin.chasesets.com" },
+        { "name": "CHASE_SETS_MARKETPLACE_ORIGIN", "value": "" }
+      ],
+      "port": 8080,
+      "service": { "type": "ClusterIP", "port": 8080 },
+      "healthPath": "/health/ready",
+      "livenessPath": "/health/live",
+      "readinessProbe": { "timeoutSeconds": 2 },
+      "resources": {
+        "requests": { "cpu": "100m", "memory": "128Mi" },
+        "limits": { "cpu": "1", "memory": "512Mi" }
+      },
+      "podAnnotations": {},
+      "podLabels": {}
+    }
+  },
   "stagingApiEnv": [
     {
       "name": "EBAY_APPLICATION_CLIENT_ID",
