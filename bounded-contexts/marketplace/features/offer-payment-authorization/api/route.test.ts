@@ -188,10 +188,19 @@ describe("Offer Payment Authorization account routes", () => {
     const command = await prepare(f, balance);
     expect((await f.app.request(commands, post(command))).status).toBe(200);
     await f.project();
-    const foreign = withActor({ ...context, audit: { ...context.audit, forAccountId: "acc_foreign" as never } });
+    const foreignContext = { ...context, audit: { ...context.audit, forAccountId: "acc_foreign" as never } };
+    const foreign = withActor(foreignContext);
     foreign.route(path, createOfferPaymentAuthorizationRoutes(f.runtime));
     expect(await (await foreign.request(path)).json()).toMatchObject({ state: "none", source: null });
     expect((await foreign.request(commands, post(command))).status).toBe(409);
+    const mismatched = withActor(foreignContext);
+    mismatched.use("*", async (c, next) => {
+      c.set("context", context);
+      await next();
+    });
+    mismatched.route(path, createOfferPaymentAuthorizationRoutes(f.runtime));
+    await expectError(await mismatched.request(path), "not_found", 404);
+    await expectError(await mismatched.request(commands, post(command)), "not_found", 404);
     for (const target of ["acc_foreign", "acc_does_not_exist"]) {
       if (target === "acc_foreign") {
         await f.runtime.markRequired({ ...context, audit: { ...context.audit, forAccountId: target as never } });

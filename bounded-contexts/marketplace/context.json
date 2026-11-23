@@ -2640,7 +2640,7 @@
     },
     "offer-payment-authorization": {
       "classification": "slice",
-      "purpose": "Own buyer payment source and consent, payment instrument readiness reconciliation, and published authorization standing.",
+      "purpose": "Own Marketplace Offer Payment Authorization: buyer payment source and consent, payment instrument readiness reconciliation, and published standing.",
       "expectedConsumers": ["Marketplace account API", "Marketplace worker"]
     },
     "channel-inbound-clamp": {
