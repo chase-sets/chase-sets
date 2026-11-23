@@ -13,10 +13,10 @@ import {
   assert,
   buildDemandSignature,
   normalizeMoneyAmount,
-  numberToMoneyAmount,
   type ShippingOption,
   type VersionSelectedOptionEntry,
 } from "./common";
+import type { ShippingRates } from "./shipping-rates";
 
 export type MarketplaceDemand = Readonly<{
   catalogItemId: CatalogItemId;
@@ -120,7 +120,8 @@ export interface ShippingQuotePolicy {
       itemSubtotalAmount: string;
       quantity: number;
       listingCount: number;
-      packagePlan?: PackagePlan;
+      packagePlan: PackagePlan;
+      shippingRates: ShippingRates;
     }>,
   ): ShippingQuoteResult;
 }
@@ -251,39 +252,39 @@ export function resolveTerminalPaymentFailureDeadline(failedAt: string) {
 }
 
 export const defaultShippingQuotePolicy: ShippingQuotePolicy = {
-  quote({ shippingOption, itemSubtotalAmount, quantity, listingCount, packagePlan }) {
+  quote({ shippingOption, itemSubtotalAmount, packagePlan, shippingRates }) {
     normalizeMoneyAmount(itemSubtotalAmount, {
       allowZero: true,
       fieldName: "Item subtotal",
     });
-    if (packagePlan && packagePlan.packageCount > 0) {
-      const baseAmount = packagePlan.packages.reduce((sum, pkg) => {
-        if (pkg.mailpieceClass === "letter") {
-          return sum + 1.49;
-        }
-        const perPackageBase = shippingOption === "priority" ? 9.99 : shippingOption === "expedited" ? 7.49 : 4.99;
-        return sum + perPackageBase + Math.max(0, pkg.billableWeightOunces - 4) * 0.32;
-      }, 0);
+    assert(packagePlan.packages.length > 0, "A shipping quote requires a package plan with at least one package.");
 
-      return {
-        shippingOption,
-        baseAmount: numberToMoneyAmount(baseAmount),
-        discountAmount: "0.00",
-        chargeAmount: numberToMoneyAmount(baseAmount),
-        packagePlan,
-      };
-    }
-
-    const perOrderBase = shippingOption === "priority" ? 19.99 : shippingOption === "expedited" ? 9.99 : 4.99;
-    const volumeSurcharge = Math.max(0, quantity - 1) * 0.35;
-    const consolidationSurcharge = Math.max(0, listingCount - 1) * 0.5;
-    const baseAmount = perOrderBase + volumeSurcharge + consolidationSurcharge;
+    const letterCents = moneyToCents(shippingRates.letterAmount);
+    const parcelCents = moneyToCents(
+      shippingOption === "priority"
+        ? shippingRates.priorityParcelAmount
+        : shippingOption === "expedited"
+          ? shippingRates.expeditedParcelAmount
+          : shippingRates.standardParcelAmount,
+    );
+    const parcelIncludedOunces = BigInt(shippingRates.parcelIncludedOunces);
+    const parcelAdditionalOunceCents = moneyToCents(shippingRates.parcelAdditionalOunceAmount);
+    const baseCents = packagePlan.packages.reduce((sum, pkg) => {
+      if (pkg.mailpieceClass === "letter") {
+        return sum + letterCents;
+      }
+      const ouncesOverIncluded = BigInt(pkg.billableWeightOunces) - parcelIncludedOunces;
+      const additionalOunces = ouncesOverIncluded > 0n ? ouncesOverIncluded : 0n;
+      return sum + parcelCents + additionalOunces * parcelAdditionalOunceCents;
+    }, 0n);
+    const baseAmount = centsToMoneyAmount(baseCents);
 
     return {
       shippingOption,
-      baseAmount: numberToMoneyAmount(baseAmount),
+      baseAmount,
       discountAmount: "0.00",
-      chargeAmount: numberToMoneyAmount(baseAmount),
+      chargeAmount: baseAmount,
+      packagePlan,
     };
   },
 };

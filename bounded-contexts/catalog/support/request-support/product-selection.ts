@@ -4,7 +4,12 @@ import { z } from "zod";
 import type { CatalogItemId, DimensionId, OptionId, SelectedOptionEntry } from "../../ids";
 import { getBlueprintProductResolutionRules } from "../../features/blueprints/read-model/queries";
 import { getCatalogItemDetail } from "../../features/catalog-items/read-model/queries";
-import { resolveProduct, type ProductDefiningBlueprint } from "../runtime-support/versioning";
+import { listSelectedOptionApplicability } from "../../features/dimensions/read-model/queries";
+import {
+  resolveProduct,
+  type ProductDefiningBlueprint,
+  type SelectedOptionApplicability,
+} from "../runtime-support/versioning";
 
 export type CatalogProductSelection = Readonly<{
   catalogItemId: CatalogItemId;
@@ -44,11 +49,16 @@ export async function resolveCatalogProductSelection(
   if (!row) return { availability: "unavailable", product: null };
   const blueprint = parseBlueprint(row.dimension_rules, row.canonical_dimension_order);
   if (!blueprint) return { availability: "unavailable", product: null };
+  const optionApplicability = parseOptionApplicability(
+    await listSelectedOptionApplicability(db, selection.selectedOptions),
+  );
+  if (!optionApplicability) return { availability: "unavailable", product: null };
 
   try {
     const resolved = resolveProduct({
       catalogItemId: selection.catalogItemId,
       blueprint,
+      optionApplicability,
       selectedOptions: selection.selectedOptions.map((entry) => ({
         dimensionId: entry.dimensionId as DimensionId,
         optionId: entry.optionId as OptionId,
@@ -67,6 +77,32 @@ export async function resolveCatalogProductSelection(
   }
 }
 
+const applicabilityClausesSchema = z.array(
+  z.object({
+    dimensionId: z.string().transform((id) => id as DimensionId),
+    optionIds: z.array(z.string().transform((id) => id as OptionId)),
+  }),
+);
+
+const storedOptionApplicabilitySchema = z.array(
+  z
+    .object({
+      dimension_id: z.string().min(1),
+      option_id: z.string().min(1),
+      applies_when: applicabilityClausesSchema,
+    })
+    .transform((row) => ({
+      dimensionId: row.dimension_id as DimensionId,
+      optionId: row.option_id as OptionId,
+      appliesWhen: row.applies_when,
+    })),
+);
+
+export function parseOptionApplicability(rows: unknown): SelectedOptionApplicability[] | null {
+  const result = storedOptionApplicabilitySchema.safeParse(rows);
+  return result.success ? result.data : null;
+}
+
 const storedBlueprintSchema = z.object({
   dimensionRules: z.array(
     z.object({
@@ -76,15 +112,7 @@ const storedBlueprintSchema = z.object({
         .transform((id) => id as DimensionId),
       required: z.boolean(),
       allowedOptionIds: z.array(z.string().transform((id) => id as OptionId)),
-      appliesWhen: z
-        .array(
-          z.object({
-            dimensionId: z.string().transform((id) => id as DimensionId),
-            optionIds: z.array(z.string().transform((id) => id as OptionId)),
-          }),
-        )
-        .optional()
-        .default([]),
+      appliesWhen: applicabilityClausesSchema.optional().default([]),
     }),
   ),
   canonicalDimensionOrder: z.array(
