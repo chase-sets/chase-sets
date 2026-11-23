@@ -2125,6 +2125,7 @@ jobs:
           RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
           RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
           CORTEN_ADMIN_IMAGE: ${{ needs.build-corten-pilot-images.outputs.corten_admin_image }}
+          CORTEN_MARKETPLACE_IMAGE: ${{ needs.build-corten-pilot-images.outputs.corten_marketplace_image }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
@@ -2196,6 +2197,11 @@ jobs:
             corten_image_args+=(--corten-admin-image "$CORTEN_ADMIN_IMAGE")
           else
             echo "::warning title=Corten admin pilot::No Corten admin image was built for this release."
+          fi
+          # marketplace-corten is an advisory pilot (ADVISORY_CORTEN_PILOT_COMPONENTS): with no image the deploy
+          # script deploys it disabled and warns, and staging deploys without it.
+          if [ -n "${CORTEN_MARKETPLACE_IMAGE:-}" ]; then
+            corten_image_args+=(--corten-marketplace-image "$CORTEN_MARKETPLACE_IMAGE")
           fi
 
           # Keep the deploy-critical pre-upgrade hook aligned with production:
@@ -2446,6 +2452,65 @@ jobs:
             exit 0
           fi
           echo "admin-web serves admin.staging (STAGING_ADMIN_APP=admin-web), so admin-corten is not deployed and is not smoked."
+
+      # Advisory until marketplace.staging switches to the Corten marketplace: the
+      # marketplace part of the Smoke check above, with the pilot as the marketplace origin.
+      # It never fails Deploy Staging. Advisory while marketplace-corten is in
+      # ADVISORY_CORTEN_PILOT_COMPONENTS (scripts/platform-kubernetes-deployment.mjs).
+      - name: Advisory Corten marketplace smoke
+        timeout-minutes: 15
+        if: env.SHOULD_DEPLOY != 'false'
+        continue-on-error: true
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          TF_VAR_google_social_login_client_id: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}
+          TF_VAR_google_social_login_client_secret: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+          TF_VAR_facebook_social_login_client_id: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
+          TF_VAR_facebook_social_login_client_secret: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+          CORTEN_MARKETPLACE_IMAGE: ${{ needs.build-corten-pilot-images.outputs.corten_marketplace_image }}
+          SMOKE_SOURCE: staging-corten-marketplace-smoke
+          SMOKE_UTM_CAMPAIGN: staging-main
+          SMOKE_FETCH_ATTEMPTS: "24"
+          SMOKE_FETCH_RETRY_DELAY_MS: "5000"
+          SMOKE_FETCH_TIMEOUT_MS: "15000"
+        run: |
+          set -euo pipefail
+          if [ -z "${CORTEN_MARKETPLACE_IMAGE:-}" ]; then
+            echo "No Corten marketplace image was built for this release, so the pilot was not deployed and is not smoked."
+            exit 0
+          fi
+          landing_domain="$(terraform output -raw landing_domain)"
+          admin_domain="$(terraform output -raw admin_domain)"
+          if [ -z "$landing_domain" ] || [ -z "$admin_domain" ]; then
+            echo "The staging landing and admin domains were not present in Terraform outputs." >&2
+            exit 1
+          fi
+          # The same social-login rule as the Smoke check above.
+          if [ -n "$TF_VAR_google_social_login_client_id" ] &&
+            [ -n "$TF_VAR_google_social_login_client_secret" ] &&
+            [ -n "$TF_VAR_facebook_social_login_client_id" ] &&
+            [ -n "$TF_VAR_facebook_social_login_client_secret" ]; then
+            export SMOKE_REQUIRE_SOCIAL_LOGIN=true
+          else
+            export SMOKE_REQUIRE_SOCIAL_LOGIN=false
+          fi
+          cd ../../..
+          echo "Smoking the Corten marketplace pilot at marketplace-corten.staging.chasesets.com (advisory)."
+          node ./scripts/platform-ingress-wait.mjs \
+            --attempts 20 \
+            --delay-ms 15000 \
+            --expect-status 200 \
+            --url "https://marketplace-corten.staging.chasesets.com/health/ready"
+          # Marketplace-only entry: the landing URL is never fetched and the admin is not signed in to.
+          pnpm run smoke:corten-marketplace -- \
+            "https://${landing_domain}" \
+            "https://${admin_domain}" \
+            "https://marketplace-corten.staging.chasesets.com"
       - name: Resolve Playwright Chromium version
         env:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
