@@ -18,6 +18,10 @@ export type FeedbackAttentionDigestRunResult = Readonly<{
   itemCount: number;
 }>;
 
+export type FeedbackAttentionDigestService = Readonly<{
+  runAttentionDigest: ReturnType<typeof createFeedbackAttentionDigestRunner>;
+}>;
+
 export function createFeedbackAttentionDigestRunner(deps: Readonly<{ db: PgQueryable; eventStore: EventStore }>) {
   return async function runFeedbackAttentionDigest(
     input: Readonly<{

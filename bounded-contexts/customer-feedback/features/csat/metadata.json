@@ -1,0 +1,141 @@
+{
+  "slice": "csat",
+  "ownedNouns": [
+    "customer-satisfaction",
+    "csat-survey",
+    "survey-version",
+    "csat-invitation",
+    "csat-response",
+    "workflow-outcome-code",
+    "outcome-fact",
+    "sampling-policy",
+    "response-rate",
+    "csat-analytics-fact",
+    "legacy-experience-rating"
+  ],
+  "localeCatalogs": ["bounded-contexts/customer-feedback/features/csat/ui/localization/locales/en.ts"],
+  "eventSubscriptions": [
+    {
+      "sourceContextName": "auth",
+      "projectionName": "customer-feedback-csat-outcome-fact-projection",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": ["auth.session.started"],
+      "order": 1,
+      "projectionHandlerSetNames": ["customer-feedback-csat-outcome-fact-projection"]
+    },
+    {
+      "sourceContextName": "identity",
+      "projectionName": "customer-feedback-csat-outcome-fact-projection",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": ["identity.registration.completed", "identity.onboarding.completed"],
+      "order": 2,
+      "projectionHandlerSetNames": ["customer-feedback-csat-outcome-fact-projection"]
+    },
+    {
+      "sourceContextName": "discovery",
+      "projectionName": "customer-feedback-csat-outcome-fact-projection",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": ["discovery.search-session.started"],
+      "order": 3,
+      "projectionHandlerSetNames": ["customer-feedback-csat-outcome-fact-projection"]
+    },
+    {
+      "sourceContextName": "fulfillment",
+      "projectionName": "customer-feedback-csat-outcome-fact-projection",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": ["fulfillment.shipment.delivered"],
+      "order": 4,
+      "projectionHandlerSetNames": ["customer-feedback-csat-outcome-fact-projection"]
+    },
+    {
+      "sourceContextName": "payments",
+      "projectionName": "customer-feedback-csat-outcome-fact-projection",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": ["payments.payment-captured"],
+      "order": 5,
+      "projectionHandlerSetNames": ["customer-feedback-csat-outcome-fact-projection"]
+    },
+    {
+      "sourceContextName": "settlement",
+      "projectionName": "customer-feedback-csat-outcome-fact-projection",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": ["settlement.payout.completed"],
+      "order": 6,
+      "projectionHandlerSetNames": ["customer-feedback-csat-outcome-fact-projection"]
+    },
+    {
+      "sourceContextName": "platform-operations",
+      "projectionName": "customer-feedback-csat-outcome-fact-projection",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": ["support.support-request.resolved"],
+      "order": 7,
+      "projectionHandlerSetNames": ["customer-feedback-csat-outcome-fact-projection"]
+    },
+    {
+      "sourceContextName": "marketplace",
+      "projectionName": "customer-feedback-csat-outcome-fact-projection",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": ["marketplace.listing.published", "marketplace.offer.accepted", "marketplace.review.submitted"],
+      "order": 8,
+      "projectionHandlerSetNames": ["customer-feedback-csat-outcome-fact-projection"]
+    },
+    {
+      "sourceContextName": "inventory",
+      "projectionName": "customer-feedback-csat-outcome-fact-projection",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": ["inventory.item.created", "inventory.item.adjusted"],
+      "order": 9,
+      "projectionHandlerSetNames": ["customer-feedback-csat-outcome-fact-projection"]
+    }
+  ],
+  "projectionGroups": [
+    {
+      "projectionName": "customer-feedback-csat-invitation-projection",
+      "sourceContextNames": ["customer-feedback"],
+      "ownedTables": ["customer_feedback_csat_invitations", "customer_feedback_response_privacy_audit"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "customer-feedback-csat-outcome-fact-projection",
+      "sourceContextNames": [
+        "auth",
+        "identity",
+        "discovery",
+        "fulfillment",
+        "payments",
+        "settlement",
+        "platform-operations",
+        "marketplace",
+        "inventory"
+      ],
+      "ownedTables": ["customer_feedback_csat_outcome_facts"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "customer-feedback-csat-analytics-projection",
+      "sourceContextNames": ["customer-feedback"],
+      "ownedTables": ["customer_feedback_csat_analytics_facts"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    }
+  ],
+  "directoryIntent": {
+    "classification": "slice",
+    "purpose": "Own the versioned transactional-CSAT contract and invitation lifecycle: survey identity, the workflow/outcome allow-list, outcome-fact redemption, eligibility, sampling, suppression, expiry, single-use recording and submission, the invitation query projection, replayable analytics facts, metrics, and legacy classification.",
+    "expectedConsumers": [
+      "Internal customer-feedback module composition",
+      "Customer Feedback invitation, recording, and analytics leaves"
+    ]
+  }
+}

@@ -219,7 +219,9 @@ describe("notifications api", () => {
         body: JSON.stringify({ enabled: true }),
       });
       expect(refused.status).toBe(400);
-      expect(await refused.json()).toMatchObject({ error: { code: "invalid_preference" } });
+      expect(await refused.json()).toEqual({
+        error: { code: "invalid_preference", message: "Notification preference is not supported." },
+      });
     }
     expect(services.preferences.setPreference).toHaveBeenCalledOnce();
   });

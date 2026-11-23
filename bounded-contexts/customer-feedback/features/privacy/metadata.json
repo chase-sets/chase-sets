@@ -1,0 +1,33 @@
+{
+  "slice": "privacy",
+  "ownedNouns": ["feedback-privacy-policy", "feedback-redaction", "feedback-privacy-hold", "sensitive-feedback-export"],
+  "mutationConsistencyInventory": [
+    {
+      "id": "customer-feedback.privacy-command-snapshots",
+      "owner": "customer-feedback",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/customer-feedback/features/privacy/api/route.ts:POST /privacy/responses/:invitationId/redactions",
+        "api-route:bounded-contexts/customer-feedback/features/privacy/api/route.ts:POST /privacy/responses/:invitationId/holds",
+        "api-route:bounded-contexts/customer-feedback/features/privacy/api/route.ts:POST /privacy/responses/:invitationId/holds/:holdId/release",
+        "api-route:bounded-contexts/customer-feedback/features/privacy/api/route.ts:POST /privacy/retention/runs"
+      ],
+      "visibleDestination": {
+        "description": "Privacy commands return the committed aggregate privacy state, and retention commands return the durable run cursor and counters written by that request."
+      },
+      "proof": {
+        "authoritativeResponse": "Redaction and hold routes return state produced by the event-store command result; retention returns the persisted run snapshot after its bounded batch update.",
+        "tests": [
+          "bounded-contexts/customer-feedback/features/csat/domain/invitation-decider.test.ts proves committed redaction and hold state, replay, and idempotency.",
+          "bounded-contexts/customer-feedback/features/privacy/api/runtime.test.ts proves preview, execution, durable cursor counters, holds, and concurrent-run exclusion."
+        ]
+      }
+    }
+  ],
+  "directoryIntent": {
+    "classification": "slice",
+    "purpose": "Own the versioned privacy classification, response redaction and hold behavior, consent applicability, sensitive access/export audit, artifact expiry, and bounded retention execution.",
+    "expectedConsumers": ["Customer Feedback privacy APIs", "Customer Feedback retention operations"]
+  }
+}

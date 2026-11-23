@@ -1,11 +1,18 @@
-import { createCheckpointKey } from "@chase-sets/bounded-context-runtime";
+import {
+  createCheckpointKey,
+  createProjectionDependencyWaitError,
+  hasProjectionAppliedEvent,
+  localProjectionCheckpointKey,
+} from "@chase-sets/bounded-context-runtime";
 import { buildProductMeasurePublicationHandlers } from "@chase-sets/event-core-postgres";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { withPgTransaction } from "@chase-sets/event-core-postgres";
 import {
   createProjectionHandlerSet,
+  createTransientProjectionError,
   resolveProjectionDb,
   type ProjectionHandlerSet,
+  type ProjectorHandler,
 } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type {
@@ -24,6 +31,10 @@ export const catalogProductMeasureSubscription = {
   subscriptionVersion: 1,
 } as const;
 const measurePublicationCheckpointKey = createCheckpointKey(catalogProductMeasureSubscription);
+
+const catalogItemStreamPrefix = "catalog.item-";
+const catalogItemProjectionName = "catalog-item-projection";
+const catalogItemProjectionCheckpointKey = localProjectionCheckpointKey("catalog", catalogItemProjectionName);
 
 type ProductMeasureProfileInput = Readonly<{
   profileId: string;
@@ -70,6 +81,7 @@ export type ProductMeasureServices = Readonly<{
   upsertProfile: (profile: ProductMeasureProfileInput) => Promise<void>;
   resolveCatalogItemMeasures: (catalogItemId: string, context?: EventStoreContext) => Promise<void>;
   resolveAllCatalogItemMeasures: (context?: EventStoreContext) => Promise<void>;
+  resolveMeasuresForCatalogItemEvent: ProjectorHandler;
   listProductMeasureProfiles: () => ReturnType<typeof listProductMeasureProfiles>;
   listResolvedProductMeasures: (catalogItemId?: string | null) => ReturnType<typeof listResolvedProductMeasures>;
   projectors: readonly ProjectionHandlerSet[];
@@ -80,6 +92,7 @@ export function createProductMeasureRuntime(deps: CatalogRuntimeDeps): ProductMe
     upsertProfile: (profile) => upsertProfile(deps.db, profile),
     resolveCatalogItemMeasures: (catalogItemId, context) => resolveCatalogItemMeasures(deps, catalogItemId, context),
     resolveAllCatalogItemMeasures: (context) => resolveAllCatalogItemMeasures(deps, context),
+    resolveMeasuresForCatalogItemEvent: (event, context) => resolveMeasuresForCatalogItemEvent(deps, event, context),
     listProductMeasureProfiles: () => listProductMeasureProfiles(deps.db),
     listResolvedProductMeasures: (catalogItemId) => listResolvedProductMeasures(deps.db, catalogItemId),
     projectors: [
@@ -184,6 +197,113 @@ async function resolveCatalogItemMeasures(
   }
 
   await replaceResolvedProductMeasuresAtomically(db, catalogItemId, resolvedProducts);
+}
+
+type CatalogItemResolutionState = Readonly<{
+  status: string;
+  blueprint_id: string | null;
+  blueprint_status: string | null;
+  has_product_measure_profiles: boolean;
+}>;
+
+/**
+ * Publishes one Catalog Item's Resolved Product Measures when the item is
+ * published or its Categories change. The resolver reads tables that other
+ * Catalog projections and the profile seed write, and those run independently
+ * of this reaction. So it first waits, as a dependency wait the subscription
+ * retries, until the Catalog Item projection has applied the event, the item's
+ * Blueprint is projected past draft, and a Product Measure Profile exists;
+ * resolving earlier would publish from a row that is behind or from tables a
+ * crash emptied. An item that was removed or is not active needs no
+ * publication and never holds the checkpoint.
+ */
+async function resolveMeasuresForCatalogItemEvent(
+  deps: CatalogRuntimeDeps,
+  event: Parameters<ProjectorHandler>[0],
+  context: Parameters<ProjectorHandler>[1],
+): Promise<void> {
+  const db = resolveProjectionDb(context, deps.db);
+  const eventId = String(event.id);
+  const applied = await hasProjectionAppliedEvent(db, catalogItemProjectionCheckpointKey, {
+    id: eventId,
+    streamId: event.streamId,
+    globalPosition: String(event.globalPosition),
+  });
+  if (!applied) {
+    throw createProjectionDependencyWaitError(
+      `${catalogItemProjectionName} has not applied ${event.type} ${eventId} yet.`,
+      eventId,
+    );
+  }
+
+  const catalogItemId = catalogItemIdFromStreamId(event.streamId);
+  const item = await loadCatalogItemResolutionState(db, catalogItemId);
+  if (!item || item.status !== "active" || item.blueprint_id === null) {
+    return;
+  }
+  if (item.blueprint_status === null || item.blueprint_status === "draft") {
+    throw createProjectionDependencyWaitError(
+      `Blueprint ${item.blueprint_id} of Catalog Item ${catalogItemId} is not projected as published yet.`,
+      eventId,
+    );
+  }
+  if (!item.has_product_measure_profiles) {
+    throw createProjectionDependencyWaitError(
+      `No Product Measure Profile exists yet to resolve Catalog Item ${catalogItemId}.`,
+      eventId,
+    );
+  }
+
+  try {
+    await resolveCatalogItemMeasures(deps, catalogItemId, subscriptionEventContext(event));
+  } catch (error) {
+    // Another writer published this item's measures first. A plain conflict
+    // would be recorded as poison; the retry reads the winner's publication.
+    if (isConcurrencyConflict(error)) {
+      throw createTransientProjectionError(
+        `Product Measure Publication for Catalog Item ${catalogItemId} lost an append race.`,
+        { cause: error },
+      );
+    }
+    throw error;
+  }
+}
+
+function subscriptionEventContext(event: Pick<EventStoreContext, "tenantId" | "audit" | "trace">): EventStoreContext {
+  return {
+    tenantId: event.tenantId,
+    audit: event.audit,
+    trace: event.trace,
+  };
+}
+
+function catalogItemIdFromStreamId(streamId: string): string {
+  if (!streamId.startsWith(catalogItemStreamPrefix)) {
+    throw new Error(`Stream ID "${streamId}" does not start with prefix "${catalogItemStreamPrefix}".`);
+  }
+  return streamId.slice(catalogItemStreamPrefix.length);
+}
+
+function isConcurrencyConflict(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "concurrency_conflict";
+}
+
+async function loadCatalogItemResolutionState(
+  db: PgQueryable,
+  catalogItemId: string,
+): Promise<CatalogItemResolutionState | null> {
+  const result = await db.query<CatalogItemResolutionState>(
+    `SELECT item.status,
+       item.blueprint_id,
+       blueprint.status AS blueprint_status,
+       EXISTS (SELECT 1 FROM catalog_product_measure_profiles) AS has_product_measure_profiles
+     FROM catalog_items AS item
+     LEFT JOIN catalog_blueprints AS blueprint
+       ON blueprint.blueprint_id = item.blueprint_id
+     WHERE item.catalog_item_id = $1`,
+    [catalogItemId],
+  );
+  return result.rows[0] ?? null;
 }
 
 async function replaceResolvedProductMeasuresAtomically(

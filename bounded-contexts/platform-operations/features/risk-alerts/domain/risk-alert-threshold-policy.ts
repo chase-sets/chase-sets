@@ -15,11 +15,9 @@ import type { JsonValue } from "@chase-sets/primitives/json";
  * Platform Operations owns and is the only consumer of this policy: the
  * risk-alert queue projection resolves it once per counter refresh and
  * stamps the resolved numbers onto both the SQL window parameters and the
- * JS-side threshold comparisons. Settlement's account-risk-source projection
- * tracks the same m107 signal shape for its own (currently write-only)
- * payout-risk read model but deliberately defines its own separate policy
- * (`../../../../settlement/features/wallets/domain/fraud-velocity-policy.ts`)
- * -- see that file's header comment for why the two are not shared.
+ * JS-side threshold comparisons. Settlement computes no velocity signal of
+ * its own: it owns the Payout Review Hold, not the thresholds that raise a
+ * Risk Alert.
  */
 
 export class RiskAlertPolicyDomainError extends Error {

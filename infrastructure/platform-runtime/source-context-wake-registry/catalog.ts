@@ -22,6 +22,7 @@ export const catalogWakeRegistryEntry = registryEntry({
     "catalog:catalog-field-projection",
     "catalog:catalog-item-projection",
     "catalog:catalog-product-contents-projection",
+    "catalog:catalog-product-measure-resolution",
     "catalog:catalog-provider-scope-mapping-projection",
     "catalog:catalog-scope-registry-projection",
     "catalog:catalog-source-observation-projection",
