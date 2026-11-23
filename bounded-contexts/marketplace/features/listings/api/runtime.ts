@@ -55,6 +55,7 @@ import type {
 } from "../ui/contracts";
 import {
   activeListingPhotos,
+  assertListingShippingMeasure,
   assertNativeListingCommand,
   decideMarketplaceListing,
   evolveMarketplaceListing,
@@ -1898,6 +1899,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     if (!supply) {
       throw new MarketplaceListingDomainError("inventory-item-not-found", "Inventory item not found.");
     }
+    if (params.publicationScope !== "channel-only") assertListingShippingMeasure(supply.product_measure_snapshot);
     const quote =
       params.publicationScope === "channel-only" ? null : await quoteListingTerms(params.accountId, params.priceAmount);
     const evidence = await normalizePhotoUploads({

@@ -14,6 +14,7 @@
   "error.inventory_snapshot_invalid": "Check the inventory details and try again.",
   "error.listing_not_found": "Listing not found.",
   "error.inventory_item_not_found": "Inventory item not found.",
+  "error.shipping_measure_missing": "This product has no shipping measure yet, so it cannot be listed. Try again later.",
   "error.command_rejected": "This listing change is not available. Check the listing details and try again.",
   "error.bulk_price_update_invalid": "Bulk price updates are not available with the current settings.",
   "error.evidence_invalid": "Check the listing photos and try again.",

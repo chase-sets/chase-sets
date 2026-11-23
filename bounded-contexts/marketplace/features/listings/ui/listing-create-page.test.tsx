@@ -2,6 +2,8 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { hasTranslation, t } from "@chase-sets/localization";
+import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
 import { MarketplaceListingCreatePage } from "./listing-create-page";
 import { ListingEvidenceReadiness } from "./listing-evidence-readiness";
 
@@ -344,12 +346,12 @@ describe("marketplace listing create page", () => {
     expect(markup).toContain('capture="environment"');
   });
 
-  it("blocks create-and-publish for selected inventory without a shipping measure", () => {
+  function renderSelectedInventory(productMeasureSnapshot: ProductMeasureSnapshot | null) {
     render(
       <MarketplaceListingCreatePage
         inventoryItems={[
           {
-            item_id: "inv_missing_measure",
+            item_id: "inv_selected",
             catalog_catalog_item_id: "cat_charizard",
             product_id: "cat_charizard::raw",
             item_language_code: "en",
@@ -357,7 +359,7 @@ describe("marketplace listing create page", () => {
             item_subtitle: "Base Set",
             selected_options: [],
             product_summary: "Raw",
-            product_measure_snapshot: null,
+            product_measure_snapshot: productMeasureSnapshot,
             graded_card: null,
             storage_location_id: "loc_1",
             storage_location_name: "North shelf",
@@ -378,20 +380,49 @@ describe("marketplace listing create page", () => {
         ]}
         hasListingStockLocation
         createForm={{
-          inventoryItemId: "inv_missing_measure",
+          inventoryItemId: "inv_selected",
           priceAmount: "20.00",
           quantityCap: "1",
         }}
       />,
     );
+  }
+  const shippingMeasureMissingCopy =
+    "This product has no shipping measure yet, so it cannot be listed. Try again later.";
+
+  it("blocks both create actions for selected inventory without a shipping measure", () => {
+    renderSelectedInventory(null);
 
     expect(screen.getByRole("button", { name: "Create and publish" }).hasAttribute("disabled")).toBe(true);
-    expect(
-      screen.getByText("Resolve the catalog shipping measure before creating an active listing from this inventory."),
-    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Save as draft" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Preview fees" }).hasAttribute("disabled")).toBe(false);
+    expect(screen.getByText(shippingMeasureMissingCopy)).toBeTruthy();
+    expect(t("marketplace.features.listings.api.route.error.shippingMeasureMissing")).toBe(shippingMeasureMissingCopy);
+    expect(hasTranslation("marketplace.features.listings.ui.listingCreatePage.publish.requires.shipping.measure")).toBe(
+      false,
+    );
+  });
+
+  it("keeps draft creation available for selected inventory with a shipping measure", () => {
+    renderSelectedInventory({
+      catalogItemId: "cat_charizard",
+      productId: "cat_charizard::raw",
+      selectedOptions: [],
+      measureVersion: "pm_test_v1",
+      unitLengthInches: 3.5,
+      unitWidthInches: 2.5,
+      unitHeightInches: 0.01,
+      unitWeightOunces: 0.1,
+      physicalFlags: ["raw-card"],
+      stackBehavior: "stackable-thickness",
+      source: "profile",
+      confidence: "measured",
+    });
+
     // Inventory Item-first creation is owned by the selected inventory, not the catalog picker.
     expect(screen.getByRole("button", { name: "Save as draft" }).hasAttribute("disabled")).toBe(false);
     expect(screen.getByRole("button", { name: "Preview fees" }).hasAttribute("disabled")).toBe(false);
+    expect(screen.queryByText(shippingMeasureMissingCopy)).toBeNull();
   });
 });
 

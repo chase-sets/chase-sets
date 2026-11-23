@@ -137,6 +137,8 @@ export const marketplaceEnglishTranslations = {
     "Check the inventory details and try again.",
   "marketplace.features.listings.api.route.error.listingNotFound": "Listing not found.",
   "marketplace.features.listings.api.route.error.inventoryItemNotFound": "Inventory item not found.",
+  "marketplace.features.listings.api.route.error.shippingMeasureMissing":
+    "This product has no shipping measure yet, so it cannot be listed. Try again later.",
   "marketplace.features.listings.api.route.error.commandRejected":
     "This listing change is not available. Check the listing details and try again.",
   "marketplace.features.listings.api.route.error.bulkPriceUpdateInvalid":
@@ -627,8 +629,6 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.ui.listingCreatePage.the.listing.will.use.this.inventory":
     "The listing will use this inventory item's product, location, and available quantity.",
   "marketplace.features.listings.ui.listingCreatePage.shipping.measure.missing": "Shipping measure missing",
-  "marketplace.features.listings.ui.listingCreatePage.publish.requires.shipping.measure":
-    "Resolve the catalog shipping measure before creating an active listing from this inventory.",
   "marketplace.features.listings.ui.listingCreatePage.search.catalog": "Search catalog",
   "marketplace.features.listings.ui.listingCreatePage.search.or.paste.catalog.item":
     "Search or paste a catalog item ID",
