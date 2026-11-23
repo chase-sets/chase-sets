@@ -294,6 +294,28 @@ async function catalogFrom(file, exportName, rules) {
   return out;
 }
 
+async function channelsMarketplaceCatalog() {
+  const channels = Object.entries(
+    await catalog("channels.ts", "channelsEnglishTranslations", [
+      ["channels.connections.", "connections"],
+      ["channels.manualSync.", "manual_sync"],
+      ["channels.ebay.", "ebay"],
+    ]),
+  );
+  const publication = await catalogFrom(
+    "bounded-contexts/channels/features/listing-composition/ui/localization/locales/en.ts",
+    "listingCompositionEnglishTranslations",
+    [["channels.publication.", "publication"]],
+  );
+  // Preserve the export order from before publication had its own catalog.
+  const boundary = channels.findIndex(([key]) => key === "connections.eyebrow");
+  return Object.fromEntries([
+    ...channels.slice(0, boundary),
+    ...Object.entries(publication),
+    ...channels.slice(boundary),
+  ]);
+}
+
 /** Every bounded context's shell contributions to `deployable`'s `slot`. */
 function contributions(deployable, slot) {
   const contexts = path.join(repo, "bounded-contexts");
@@ -1822,17 +1844,7 @@ const outputs = [
       ])),
     }),
   ],
-  [
-    "marketplace/locales/channels.en.json",
-    json(
-      await catalog("channels.ts", "channelsEnglishTranslations", [
-        ["channels.connections.", "connections"],
-        ["channels.publication.", "publication"],
-        ["channels.manualSync.", "manual_sync"],
-        ["channels.ebay.", "ebay"],
-      ]),
-    ),
-  ],
+  ["marketplace/locales/channels.en.json", json(await channelsMarketplaceCatalog())],
   [
     "marketplace/locales/offer-matches.en.json",
     json(

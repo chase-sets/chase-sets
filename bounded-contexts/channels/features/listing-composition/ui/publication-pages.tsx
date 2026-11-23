@@ -1,4 +1,3 @@
-import { t } from "@chase-sets/localization";
 import {
   Badge,
   Banner,
@@ -18,6 +17,7 @@ import {
 } from "@chase-sets/design-system";
 import { RouterForm } from "@chase-sets/design-system/react-router";
 import type { ChannelPublicationConnectionDetail, ChannelPublicationConnectionSummary } from "../domain/contracts";
+import { t } from "./localization/translator";
 
 export type ChannelPublicationListPageState =
   | Readonly<{ kind: "loading" }>
