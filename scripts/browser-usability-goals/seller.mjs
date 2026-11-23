@@ -384,9 +384,8 @@ export default {
       routes: {
         "bounded-contexts/channels/routes/marketplace/account-channels.tsx": "connection-identity",
         "bounded-contexts/channels/routes/marketplace/account-channels-connection.tsx": "connection-state",
-        "bounded-contexts/channels/features/listing-composition/ui/routes/account-channels-publication.tsx":
-          "publication-connection",
-        "bounded-contexts/channels/features/listing-composition/ui/routes/account-channels-publication-connection.tsx":
+        "bounded-contexts/channels/routes/marketplace/account-channels-publication.tsx": "publication-connection",
+        "bounded-contexts/channels/routes/marketplace/account-channels-publication-connection.tsx":
           "publication-readiness",
       },
       paths: ["bounded-contexts/channels/features/", "bounded-contexts/channels/routes/marketplace/"],
