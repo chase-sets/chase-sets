@@ -62,11 +62,9 @@ import {
 import {
   assertSupplyAvailable,
   calculateOrderFulfillmentEconomics,
-  defaultOrderPaymentDeadlinePolicy,
   quoteMarketplaceSalesFeeFromSnapshot,
   resolveOrderPaymentDeadline,
   resolveTerminalPaymentFailureDeadline,
-  type OrderPaymentDeadlinePolicy,
   type MarketplaceDemand,
   type MarketplaceSupplyCandidate,
   type MarketplaceSupplyFeeLock,
@@ -239,7 +237,6 @@ type OrderRuntimeDeps = Readonly<{
   checkpointStore: ProjectionCheckpointStore;
   db: PgTransactionalPool;
   shippingQuotePolicy: ShippingQuotePolicy;
-  paymentDeadlinePolicy?: OrderPaymentDeadlinePolicy;
   postagePolicyResolver?: PostagePolicyResolver;
   taxQuoteResolver?: TaxQuoteResolver;
   notificationOutbox?: NotificationOutbox;
@@ -1515,7 +1512,6 @@ async function getPurchaseWithDeliverySummary(
 export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrderServices {
   const taxQuoteResolver = deps.taxQuoteResolver ?? zeroTaxQuoteResolver;
   const postagePolicyResolver = deps.postagePolicyResolver ?? defaultPostagePolicyResolver;
-  const paymentDeadlinePolicy = deps.paymentDeadlinePolicy ?? defaultOrderPaymentDeadlinePolicy;
   const notificationOutbox = deps.notificationOutbox ?? createNoopNotificationOutbox();
   const { commandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
@@ -2762,11 +2758,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
       let recorded = 0;
 
       for (const order of startedOrders.rows) {
-        const deadline = resolveOrderPaymentDeadline(
-          order.pending_payment_at,
-          params.paymentMethodCategory,
-          paymentDeadlinePolicy,
-        );
+        const deadline = resolveOrderPaymentDeadline(order.pending_payment_at, params.paymentMethodCategory);
         await deps.db.query(
           `INSERT INTO ordering_payment_deadline_inputs (
              order_id,
@@ -2804,7 +2796,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
       if (params.orderIds.length === 0) {
         return 0;
       }
-      const deadline = resolveTerminalPaymentFailureDeadline(params.failedAt, paymentDeadlinePolicy);
+      const deadline = resolveTerminalPaymentFailureDeadline(params.failedAt);
       const result = await deps.db.query(
         `INSERT INTO ordering_payment_deadline_inputs (
            order_id,

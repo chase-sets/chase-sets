@@ -1,3 +1,4 @@
+import { catalogProviderProfileSectionFields } from "../api/provider-profile-admin-contracts";
 import {
   buildCatalogPrimaryWorkbenchReadModel,
   buildCatalogPrimaryWorkbenchSourceObservationReviewQuery,
@@ -125,6 +126,30 @@ describe("Catalog primary workbench read model - profile authoring", () => {
       expect(workspace.commandKey).toBe("provider-profile.edit-section");
       expect(workspace.actionState).toBe("available");
       expect(workspace.fields.length).toBeGreaterThan(0);
+      // Every field Catalog defines for the section is drawn from that definition; the rest only show values.
+      const defined = catalogProviderProfileSectionFields[workspace.sectionKey];
+      expect(
+        workspace.fields
+          .filter((field) => defined.some((definition) => definition.key === field.key))
+          .map((field) => field.key),
+        workspace.sectionKey,
+      ).toEqual(defined.map((definition) => definition.key));
+      for (const field of workspace.fields) {
+        const definition = defined.find((candidate) => candidate.key === field.key);
+        if (!definition) {
+          expect(field.disabled, `${workspace.sectionKey}.${field.key}`).toBe(true);
+          continue;
+        }
+        expect(field, `${workspace.sectionKey}.${field.key}`).toMatchObject({
+          label: definition.label,
+          control: definition.control,
+          required: definition.required,
+          helpText: definition.helpText,
+        });
+        if (definition.fixedValue !== null) {
+          expect(field.disabled, `${workspace.sectionKey}.${field.key}`).toBe(true);
+        }
+      }
       expect(`${workspace.displayName} ${workspace.fields.map((field) => field.label).join(" ")}`).not.toMatch(
         /raw JSON|Profile JSON|Candidate JSON|Active JSON/i,
       );

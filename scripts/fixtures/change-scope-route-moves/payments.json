@@ -1,0 +1,37 @@
+{
+  "families": {
+    "boundedContextRouteSuiteOwnership:41": {
+      "pattern": "/^bounded-contexts\\/payments\\/(?:routes\\/marketplace|features\\/payments\\/ui\\/routes)\\/account-payment(?:-methods|-new)/",
+      "trackedCandidates": 4
+    },
+    "boundedContextRouteSuiteOwnership:47": {
+      "pattern": "/^bounded-contexts\\/payments\\/(?:routes\\/marketplace|features\\/payments\\/ui\\/routes)\\/(?:account-payment|checkout-payment)\\./",
+      "path": "bounded-contexts/payments/features/payments/ui/routes/account-payment.tsx",
+      "trackedCandidates": 4
+    }
+  },
+  "movedRoutes": {
+    "legacyDirectory": "bounded-contexts/payments/routes/marketplace/",
+    "featureDirectory": "bounded-contexts/payments/features/payments/ui/routes/",
+    "files": [
+      ["account-payment-methods.tsx", "marketplace_account"],
+      ["account-payment-new.tsx", "marketplace_account"],
+      ["account-payment.tsx", "marketplace_checkout"],
+      ["checkout-payment.tsx", "marketplace_checkout"]
+    ]
+  },
+  "selectorCases": [
+    {
+      "file": "bounded-contexts/payments/features/payments/ui/routes/account-payment.tsx",
+      "suites": ["marketplace_checkout"]
+    },
+    {
+      "file": "bounded-contexts/payments/features/payments/ui/routes/checkout-payment.tsx",
+      "suites": ["marketplace_checkout"]
+    },
+    {
+      "file": "bounded-contexts/payments/features/payments/ui/routes/account-payment-route.test.tsx",
+      "suites": []
+    }
+  ]
+}

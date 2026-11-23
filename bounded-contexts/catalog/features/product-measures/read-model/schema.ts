@@ -1,3 +1,14 @@
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+
+export const catalogProductMeasureSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20261122_catalog_product_measure_profiles_logged",
+    description:
+      "Keep Product Measure Profiles through a crash: only the seed writes them, so nothing replays an emptied table.",
+    statements: ["SET lock_timeout = '5s';", "ALTER TABLE catalog_product_measure_profiles SET LOGGED;"],
+  },
+];
+
 export const catalogProductMeasureSchemaSql = `
 CREATE TABLE IF NOT EXISTS catalog_product_measure_profiles (
   profile_id text PRIMARY KEY,

@@ -166,6 +166,9 @@ jobs:
         with:
           install: true
 
+      - name: Check Corten pilot export
+        run: node --import tsx deployables/corten-pilot/scripts/export.mjs --check
+
       - name: Check generated metadata
         run: pnpm run verify:metadata
 

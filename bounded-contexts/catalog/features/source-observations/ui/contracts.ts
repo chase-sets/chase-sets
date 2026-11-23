@@ -33,6 +33,7 @@ import type {
   CatalogProviderProfileProviderOptionsUpdateCommand,
   CatalogProviderProfileReferenceHierarchyUpdateCommand,
   CatalogProviderProfileRetirementPlanUpdateCommand,
+  CatalogProviderProfileSectionField,
   CatalogProviderProfileSectionUpdateCommand,
   CatalogProviderProfileSelectedOptionsUpdateCommand,
   CatalogProviderProfileSourceContractUpdateCommand,
@@ -42,7 +43,10 @@ export {
   catalogProviderProfileEditableSectionKeys,
   catalogProviderProfileSectionFieldKeys,
 } from "../api/provider-profile-admin-contracts";
-export type { CatalogProviderProfileSectionEdit } from "../api/provider-profile-admin-contracts";
+export type {
+  CatalogProviderProfileSectionEdit,
+  CatalogProviderProfileSectionField,
+} from "../api/provider-profile-admin-contracts";
 
 export interface SourceObservationListItem {
   observation_id: string;
@@ -477,6 +481,7 @@ export interface CatalogProviderProfileEditableSection {
   displayName: string;
   requiredPermission: "catalog.manage";
   rawJsonBacked: false;
+  fields: CatalogProviderProfileSectionField[];
 }
 
 export interface CatalogProviderProfileFixtureMetadata {

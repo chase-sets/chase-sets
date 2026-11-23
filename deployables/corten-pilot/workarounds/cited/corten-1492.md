@@ -1,0 +1,5 @@
+# [corten-run/corten#1492 patch() is typed to take a string, which Trusted Types always refuses on a Corten page, so corten check passes a call that throws in every browser; a script has no one-call way to have the runtime read a part of its page](https://github.com/corten-run/corten/issues/1492)
+
+Closed, still cited as the change the pilot relies on or the decision that left part of the workaround to the app.
+
+What the pilot does now: closed (pinned since `7d9bbbf1`): `patch()` takes `TrustedHTML`, so `corten check` refuses a string, and Corten declined a second read export because a hidden `GET` `data-patch` form sent with `requestSubmit()` is its one way to read a part from a script. After Stripe confirms, the payment step sends a hidden `GET` form of the status part (`data-patch`) with `requestSubmit()` to have the runtime read it ([marketplace/src/views/payment_page.rs](../../marketplace/src/views/payment_page.rs), `PaymentEntry`; [payment_entry.js](../../marketplace/src/views/payment_entry.js))

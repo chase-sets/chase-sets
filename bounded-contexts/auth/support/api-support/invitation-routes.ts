@@ -41,7 +41,7 @@ import {
   resolveUnaffirmedRegistrationConsent,
   type AuthApiApp,
 } from "./support";
-import { screenRegistrationEmailDomain } from "./registration-gates";
+import { qualifiesForFoundersWindow, screenRegistrationEmailDomain } from "./registration-gates";
 
 const INVITATION_ACCEPTANCE_LINK_NOTIFICATION_PROJECTION = "auth-invitation-acceptance-link-notification-intent";
 
@@ -358,6 +358,13 @@ export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices
       return c.json({ error: t("auth.support.apiSupport.invitationRoutes.choose.a.password.or.passkey") }, 400);
     }
 
+    // Read before the passkey ceremony so a failed wave lookup cannot spend the challenge.
+    const existingUser = await services.identity.getUserByEmail(invitation.email);
+    const foundersBetaAccessStartedAt =
+      !existingUser && (await qualifiesForFoundersWindow(services, invitation.email))
+        ? new Date().toISOString()
+        : undefined;
+
     let verifiedPasskey: Awaited<ReturnType<typeof verifyPasskeyRegistration>> = null;
     if (hasPasskeyRegistration) {
       const challenge = await consumeChallenge(services.db, {
@@ -376,7 +383,6 @@ export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices
       if (!verifiedPasskey) return c.json(invalidInvitationToken(), 401);
     }
 
-    const existingUser = await services.identity.getUserByEmail(invitation.email);
     let userId = existingUser?.user_id ?? null;
     let createdIdentity: Awaited<ReturnType<typeof identityMutations.createPersonalIdentity>> | null = null;
     if (!userId) {
@@ -385,7 +391,7 @@ export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices
           email: invitation.email,
           displayName: createOwnedUserDisplayName(invitation.email),
           registrationConsent: await resolveUnaffirmedRegistrationConsent(identityMutations),
-          foundersBetaAccessStartedAt: new Date().toISOString(),
+          ...(foundersBetaAccessStartedAt ? { foundersBetaAccessStartedAt } : {}),
         });
       } catch (error) {
         const displayNameRejection = readIdentityDisplayNameRejection(error);
