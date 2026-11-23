@@ -1023,14 +1023,16 @@ describe("caller inventory (seed/bootstrap/import/reconciliation) — issue #583
       "bounded-contexts/catalog/features/source-observations/api/seeding/representative-catalog-asset-preparation.ts",
     );
     expect({ discovered: discovered.length, persistentCount, ruledCount }).toEqual({
-      discovered: 173,
-      persistentCount: 167,
+      discovered: 174,
+      persistentCount: 168,
       ruledCount: 6,
     });
   });
 
-  it("classifies the Inventory restock browser seed-support caller as persistence-sensitive", () => {
-    const filePath = "bounded-contexts/inventory/support/seed-support/restock-recovery-browser.ts";
+  it.each([
+    "bounded-contexts/inventory/support/seed-support/restock-recovery-browser.ts",
+    "bounded-contexts/inventory/features/restock-decisions/integrations/seed/ids.ts",
+  ])("classifies Inventory seed caller %s as persistence-sensitive", (filePath) => {
     expect(discovered).toContain(filePath);
     const record = classifyReleaseQualificationScope({
       base: DUMMY_BASE,

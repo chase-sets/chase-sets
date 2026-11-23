@@ -28,7 +28,7 @@ import { restockDecisionId } from "../api/runtime";
 import { module as catalogModule } from "@chase-sets/catalog";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import { demoIdentitySeedIds } from "@chase-sets/identity-seed";
-import { inventorySeedIds } from "../../../support/seed-support/ids";
+import { inventorySeedIds } from "../integrations/seed/ids";
 import { buildInventoryCatalogItemProjectionHandlers } from "../../inventory-items/integrations/catalog/projection";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 
