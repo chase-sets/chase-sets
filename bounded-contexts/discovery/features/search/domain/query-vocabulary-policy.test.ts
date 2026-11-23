@@ -32,9 +32,37 @@ describe("Query Vocabulary policy", () => {
       },
     });
     expect(queryVocabularyPolicy.schemaSummary).toBe(
-      "{ expansions: { [key: one lowercase search word, at most 32 characters]: expansion of 1-6 words }, at most 200 entries }",
+      "{ expansions: { [key: one lowercase search word, at most 32 characters and no digits]: expansion of 1-6 words, each at most 32 characters, at most 200 characters in all }, at most 200 entries }",
     );
-    expect(queryVocabularyPolicy.decodeValue).toBe(decodeQueryVocabulary);
+  });
+
+  // The resolver decodes on every resolution and search resolves on every request.
+  it("decodes a stored value once, however many resolutions read it", () => {
+    const { decodeValue } = queryVocabularyPolicy;
+    const stored = { expansions: { sq: "squirtle" } };
+
+    const first = decodeValue(stored);
+
+    expect(first).toEqual(decodeQueryVocabulary(stored));
+    expect(decodeValue(stored)).toBe(first);
+    // The next read of the document is a new stored value, so a revision is decoded afresh.
+    const reread = { expansions: { sq: "squirtle" } };
+    expect(decodeValue(reread)).not.toBe(first);
+    expect(decodeValue({ expansions: { sq: "wartortle" } })).toEqual({ expansions: { sq: "wartortle" } });
+    expect(() => decodeValue(null)).toThrow("Query Vocabulary must be an object.");
+    const invalid = { expansions: { ETB: "elite trainer box" } };
+    expect(() => decodeValue(invalid)).toThrow(QueryVocabularyPolicyError);
+    expect(() => decodeValue(invalid)).toThrow(QueryVocabularyPolicyError);
+  });
+
+  // Every request in a process is handed the same vocabulary object.
+  it.each([
+    ["the default", queryVocabularyPolicy.defaultValue],
+    ["the empty vocabulary", EMPTY_QUERY_VOCABULARY],
+    ["a decoded vocabulary", queryVocabularyPolicy.decodeValue({ expansions: { sq: "squirtle" } })],
+  ])("hands out %s frozen", (_name, vocabulary) => {
+    expect(Object.isFrozen(vocabulary)).toBe(true);
+    expect(Object.isFrozen(vocabulary.expansions)).toBe(true);
   });
 
   it("decodes its own default after a storage round trip", () => {
@@ -52,6 +80,9 @@ describe("Query Vocabulary policy", () => {
       expansions: { [longestKey]: "one two three four five six" },
     });
     expect(Object.keys(decodeQueryVocabulary({ expansions: expansionsOf(200) }).expansions)).toHaveLength(200);
+    const longestExpansion = `${Array.from({ length: 6 }, () => "a".repeat(32)).join(" ")}!!!`;
+    expect(longestExpansion).toHaveLength(200);
+    expect(decodeQueryVocabulary({ expansions: { sq: longestExpansion } }).expansions.sq).toBe(longestExpansion);
   });
 
   const keyRule = "must be one lowercase search word as search normalizes it: letters only, Latin accents removed.";
@@ -143,6 +174,11 @@ describe("Query Vocabulary policy", () => {
       name: "an expansion word over 32 characters",
       value: { expansions: { etb: `elite ${"a".repeat(33)}` } },
       message: "Each word in the expansion of 'etb' must be at most 32 characters.",
+    },
+    {
+      name: "an expansion over 200 characters as written, however few words it normalizes to",
+      value: { expansions: { etb: `elite${"!".repeat(190)}trainer` } },
+      message: "The expansion of 'etb' must be at most 200 characters.",
     },
     {
       name: "more than 200 entries",

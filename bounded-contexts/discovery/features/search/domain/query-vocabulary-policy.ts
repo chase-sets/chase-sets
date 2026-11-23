@@ -15,23 +15,27 @@ export type QueryVocabulary = Readonly<{
 }>;
 
 /** For a read that sends no search text, so it has no word to expand. */
-export const EMPTY_QUERY_VOCABULARY: QueryVocabulary = { expansions: {} };
+export const EMPTY_QUERY_VOCABULARY: QueryVocabulary = frozenQueryVocabulary({});
 
 // Reviewed buyer vocabulary: sealed-product abbreviations, franchise shorthand,
 // and the Charizard nickname.
-const defaultQueryVocabulary: QueryVocabulary = {
-  expansions: {
-    etb: "elite trainer box",
-    bb: "booster box",
-    pkmn: "pokemon",
-    zard: "charizard",
-    ygo: "yu-gi-oh",
-  },
-};
+const defaultQueryVocabulary: QueryVocabulary = frozenQueryVocabulary({
+  etb: "elite trainer box",
+  bb: "booster box",
+  pkmn: "pokemon",
+  zard: "charizard",
+  ygo: "yu-gi-oh",
+});
 
 const MAX_QUERY_VOCABULARY_ENTRIES = 200;
 const MAX_QUERY_VOCABULARY_WORD_LENGTH = 32;
 const MAX_QUERY_VOCABULARY_EXPANSION_WORDS = 6;
+const MAX_QUERY_VOCABULARY_EXPANSION_LENGTH = 200;
+
+// Every search request in a process reads the same vocabulary object, so none may change it.
+function frozenQueryVocabulary(expansions: Record<string, string>): QueryVocabulary {
+  return Object.freeze({ expansions: Object.freeze(expansions) });
+}
 
 export class QueryVocabularyPolicyError extends Error {
   public constructor(message: string) {
@@ -62,6 +66,12 @@ function isQueryVocabularyKey(key: string): boolean {
 function decodeExpansion(key: string, value: unknown): string {
   if (typeof value !== "string") {
     throw new QueryVocabularyPolicyError(`The expansion of '${key}' must be text.`);
+  }
+  // Checked as written, before any normalizing: the stored text is what every request reads.
+  if (value.length > MAX_QUERY_VOCABULARY_EXPANSION_LENGTH) {
+    throw new QueryVocabularyPolicyError(
+      `The expansion of '${key}' must be at most ${MAX_QUERY_VOCABULARY_EXPANSION_LENGTH} characters.`,
+    );
   }
   const words = normalizeSimpleSearchText(value).toLowerCase().split(" ").filter(Boolean);
   if (words.length === 0) {
@@ -115,13 +125,29 @@ export function decodeQueryVocabulary(raw: JsonValue): QueryVocabulary {
     }
     expansions[key] = decodeExpansion(key, value);
   }
-  return { expansions };
+  return frozenQueryVocabulary(expansions);
+}
+
+const decodedByStoredValue = new WeakMap<object, QueryVocabulary>();
+
+/**
+ * The policy resolver decodes on every resolution, and search resolves on every
+ * request. It hands out the same stored value until it reads the document
+ * again, so remembering the decode by that value leaves one decode per read.
+ */
+function decodeStoredQueryVocabulary(raw: JsonValue): QueryVocabulary {
+  if (!isRecord(raw)) return decodeQueryVocabulary(raw);
+  const remembered = decodedByStoredValue.get(raw);
+  if (remembered) return remembered;
+  const decoded = decodeQueryVocabulary(raw);
+  decodedByStoredValue.set(raw, decoded);
+  return decoded;
 }
 
 export const queryVocabularyPolicy: PolicyDefinition<QueryVocabulary> = definePolicy({
   policyKey: "discovery.query-vocabulary",
   contextName: "discovery",
-  schemaSummary: `{ expansions: { [key: one lowercase search word, at most ${MAX_QUERY_VOCABULARY_WORD_LENGTH} characters]: expansion of 1-${MAX_QUERY_VOCABULARY_EXPANSION_WORDS} words }, at most ${MAX_QUERY_VOCABULARY_ENTRIES} entries }`,
+  schemaSummary: `{ expansions: { [key: one lowercase search word, at most ${MAX_QUERY_VOCABULARY_WORD_LENGTH} characters and no digits]: expansion of 1-${MAX_QUERY_VOCABULARY_EXPANSION_WORDS} words, each at most ${MAX_QUERY_VOCABULARY_WORD_LENGTH} characters, at most ${MAX_QUERY_VOCABULARY_EXPANSION_LENGTH} characters in all }, at most ${MAX_QUERY_VOCABULARY_ENTRIES} entries }`,
   defaultValue: defaultQueryVocabulary,
-  decodeValue: decodeQueryVocabulary,
+  decodeValue: decodeStoredQueryVocabulary,
 });

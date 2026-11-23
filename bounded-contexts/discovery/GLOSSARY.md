@@ -139,8 +139,8 @@ review, rollout, or retraction behavior changes.
 Notes:
 
 - With no active policy document, the Query Vocabulary is ETB (elite trainer box), BB (booster box), pkmn (Pokemon), zard (Charizard), and ygo (Yu-Gi-Oh).
-- An operator revises the Query Vocabulary through the Policy Console. Each search request reads it once, so a revision applies from the next request once the process has refreshed its copy, within one second. Nothing reindexes when it is revised.
-- A key is one lowercase search word as search normalizes it, of at most 32 characters and without digits, because a digit-bearing token is never expanded. An expansion is one to six words and differs from its key. The Query Vocabulary holds at most 200 expansions.
+- An operator revises the Query Vocabulary through the Policy Console. Each search request reads it once, so a revision applies from the next request after the platform worker has projected it and the process has refreshed its copy, which it does within one second of the projection. Nothing reindexes when it is revised.
+- A key is one lowercase search word as search normalizes it, of at most 32 characters and without digits, because a digit-bearing token is never expanded. An expansion is one to six words of at most 32 characters each, at most 200 characters as written, and differs from its key. The Query Vocabulary holds at most 200 expansions.
 - Search results are not records, so the Query Vocabulary in force is not stored with a query.
 
 ### Search Text Tokenization
