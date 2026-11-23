@@ -3,10 +3,13 @@ import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { useEffect, useState } from "react";
 import type { MetaFunction } from "react-router";
 import { useActionData, useLoaderData, useNavigation, useParams, useRevalidator } from "react-router";
-import { contextManifest } from "../../../../index";
+import {
+  contextManifest,
+  type ChannelPublicationConnectionDetail,
+  type ChannelPublicationSettings,
+} from "../../../../index";
 import { ChannelsPublicationApiError, createChannelsPublicationRequestApiClient } from "../../api/request-client";
 import { parseChannelPublicationSettingsForm } from "../../api/route-actions";
-import type { ChannelPublicationConnectionDetail, ChannelPublicationSettings } from "../../domain/contracts";
 import { t } from "../localization/translator";
 import { ChannelPublicationDetailPage } from "../publication-pages";
 

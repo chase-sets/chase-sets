@@ -179,7 +179,7 @@ function copyRealTree() {
     const files = ["package.json", "context.json", "context.source.mjs"];
     // The guard composes authored manifests from the copied source, not the generated JSON.
     if (existsSync(path.join(contextDir, "context.source.mjs"))) {
-      files.push(...globSync(["features/*/metadata.json", "features/*/api/metadata.json"], { cwd: contextDir }));
+      files.push(...globSync("features/*/metadata.json", { cwd: contextDir }));
     }
     for (const file of files) {
       const source = path.join(contextDir, file);
