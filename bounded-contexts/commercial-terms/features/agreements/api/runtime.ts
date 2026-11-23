@@ -2,11 +2,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { CommercialTermsPolicyRuntime } from "../../../support/runtime-support/policy-runtime";
 import { commercialTermsAgreementPolicy } from "../../../support/runtime-support/terms-policy";
-import {
-  CommercialTermsDomainError,
-  DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS,
-  type CommercialTermsStatus,
-} from "../../../support/runtime-support/common";
+import { CommercialTermsDomainError, type CommercialTermsStatus } from "../../../support/runtime-support/common";
 import {
   getAgreement,
   getCommercialTermsAccountReference,
@@ -23,6 +19,10 @@ import { normalizeAgreementAccountIdText } from "./account-id";
  * agreement-specific: account-existence validation and translating the
  * admin-facing create/revise shape into a
  * `commercial-terms.agreement.<accountId>` policy document.
+ *
+ * A Shipping Allowance is optional on an agreement. When none is given the
+ * stored document carries no `shippingAllowancePercentageBps` key, and the
+ * agreement follows the schedule in force at resolution.
  */
 
 type AgreementRuntimeDeps = Readonly<{
@@ -47,12 +47,18 @@ export type ReviseAgreementParams = Readonly<{
   label: string;
   marketplaceSalesFeePercentageBps: number;
   marketplaceSalesFeeFixedAmount: string;
-  shippingAllowancePercentageBps: number;
+  shippingAllowancePercentageBps?: number;
   status: CommercialTermsStatus;
   effectiveFrom: string;
   effectiveUntil: string | null;
   revisedByUserId: string;
 }>;
+
+function statedShippingAllowance(params: Readonly<{ shippingAllowancePercentageBps?: number }>) {
+  return params.shippingAllowancePercentageBps === undefined
+    ? {}
+    : { shippingAllowancePercentageBps: params.shippingAllowancePercentageBps };
+}
 
 export type AgreementServices = Readonly<{
   createAgreement: (
@@ -91,8 +97,7 @@ export function createAgreementRuntime(deps: AgreementRuntimeDeps): AgreementSer
             accountId,
             marketplaceSalesFeePercentageBps: params.marketplaceSalesFeePercentageBps,
             marketplaceSalesFeeFixedAmount: params.marketplaceSalesFeeFixedAmount,
-            shippingAllowancePercentageBps:
-              params.shippingAllowancePercentageBps ?? DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS,
+            ...statedShippingAllowance(params),
           },
           status: params.status,
           effectiveFrom: params.effectiveFrom,
@@ -118,7 +123,7 @@ export function createAgreementRuntime(deps: AgreementRuntimeDeps): AgreementSer
             accountId: current.account_id,
             marketplaceSalesFeePercentageBps: params.marketplaceSalesFeePercentageBps,
             marketplaceSalesFeeFixedAmount: params.marketplaceSalesFeeFixedAmount,
-            shippingAllowancePercentageBps: params.shippingAllowancePercentageBps,
+            ...statedShippingAllowance(params),
           },
           status: params.status,
           effectiveFrom: params.effectiveFrom,

@@ -41,6 +41,8 @@ A **Shipping Allowance** is the Commercial Terms-owned percentage used to calcul
 Notes:
 
 - Commercial Terms owns the configurable Shipping Allowance percentage on default schedules and account-specific agreements.
+- A schedule always states a Shipping Allowance. A Commercial Agreement may omit it; the agreement then follows the Shipping Allowance of the schedule in force at resolution, so a schedule revision reaches that Account's new resolutions. A Commercial Agreement that states one overrides the schedule.
+- A Founders Window Agreement omits the Shipping Allowance: it changes only the Marketplace Sales Fee.
 - Marketplace, Ordering, Payments, and Settlement consume immutable snapshots of the resolved Shipping Allowance; they do not recalculate historical commitments when Commercial Terms are revised.
 - Settlement posts the resulting shipping allowance credit as a Rebate ledger entry.
 - Ordering applies the resolved allowance to Order Protection first and shipping second; Commercial Terms owns the percentage, not the allocation calculation.

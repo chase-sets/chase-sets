@@ -190,4 +190,69 @@ describe("commercial terms agreement routes", () => {
     expect(response.status).toBe(400);
     expect(reviseAgreement).not.toHaveBeenCalled();
   });
+
+  describe("optional Shipping Allowance", () => {
+    const bodyWithoutAllowance = {
+      label: "Preferred",
+      marketplaceSalesFeePercentageBps: 550,
+      marketplaceSalesFeeFixedAmount: "0.00",
+      status: "active",
+      effectiveFrom: "2026-05-01T00:00:00.000Z",
+    };
+
+    function requestWith(method: "POST" | "PUT", body: Record<string, unknown>) {
+      const createAgreement = vi.fn(async () => ({ agreementId: "cag_created", version: 1 }));
+      const reviseAgreement = vi.fn(async () => ({ agreementId: "cag_1", version: 2 }));
+      const app = createApp({ createAgreement, reviseAgreement }, ["commercial-terms.agreements.manage"]);
+      const response = app.request(method === "POST" ? "/" : "/cag_1", {
+        method,
+        body: JSON.stringify({ ...body, accountId: "acc_seller" }),
+        headers: { "Content-Type": "application/json" },
+      });
+      const commandParams = () =>
+        (method === "POST" ? createAgreement.mock.calls[0]?.[0] : reviseAgreement.mock.calls[0]?.[1]) as
+          | Record<string, unknown>
+          | undefined;
+      return { response, createAgreement, reviseAgreement, commandParams };
+    }
+
+    it.each([
+      { method: "POST", allowance: "an absent", body: bodyWithoutAllowance },
+      { method: "PUT", allowance: "an absent", body: bodyWithoutAllowance },
+      { method: "POST", allowance: "a null", body: { ...bodyWithoutAllowance, shippingAllowancePercentageBps: null } },
+      { method: "PUT", allowance: "a null", body: { ...bodyWithoutAllowance, shippingAllowancePercentageBps: null } },
+    ] as const)("$method accepts $allowance Shipping Allowance and passes none on", async ({ method, body }) => {
+      const { response, commandParams } = requestWith(method, body);
+
+      expect((await response).status).toBe(method === "POST" ? 201 : 200);
+      expect(commandParams()).toMatchObject({ label: "Preferred", marketplaceSalesFeePercentageBps: 550 });
+      expect(Object.keys(commandParams()!)).not.toContain("shippingAllowancePercentageBps");
+    });
+
+    it.each(["POST", "PUT"] as const)("%s passes a stated Shipping Allowance of zero on", async (method) => {
+      const { response, commandParams } = requestWith(method, {
+        ...bodyWithoutAllowance,
+        shippingAllowancePercentageBps: 0,
+      });
+
+      expect((await response).status).toBe(method === "POST" ? 201 : 200);
+      expect(commandParams()).toMatchObject({ shippingAllowancePercentageBps: 0 });
+    });
+
+    it.each(
+      (["POST", "PUT"] as const).flatMap((method) =>
+        [-1, 10001, 12.5, "", "  ", "five", true, {}, []].map((value) => ({ method, value })),
+      ),
+    )("$method rejects the present Shipping Allowance $value", async ({ method, value }) => {
+      const { response, createAgreement, reviseAgreement } = requestWith(method, {
+        ...bodyWithoutAllowance,
+        shippingAllowancePercentageBps: value,
+      });
+
+      expect((await response).status).toBe(400);
+      await expect((await response).json()).resolves.toMatchObject({ error: { code: "validation_failed" } });
+      expect(createAgreement).not.toHaveBeenCalled();
+      expect(reviseAgreement).not.toHaveBeenCalled();
+    });
+  });
 });

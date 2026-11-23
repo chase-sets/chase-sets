@@ -158,21 +158,30 @@ function RevisionHistory({ history }: Readonly<{ history?: readonly CommercialTe
   );
 }
 
-function TermsFields({
-  item,
-  submitLabel,
-}: Readonly<{
-  item: Readonly<{
-    label: string;
-    marketplace_sales_fee_percentage_bps: number;
-    marketplace_sales_fee_fixed_amount: string;
-    shipping_allowance_percentage_bps: number;
-    status: string;
-    effective_from: string;
-    effective_until: string | null;
-  }>;
-  submitLabel: string;
-}>) {
+type TermsFieldsItem = Readonly<{
+  label: string;
+  marketplace_sales_fee_percentage_bps: number;
+  marketplace_sales_fee_fixed_amount: string;
+  status: string;
+  effective_from: string;
+  effective_until: string | null;
+}>;
+
+/** A schedule always states a Shipping Allowance; an account override may leave it blank and follow the schedule. */
+type TermsFieldsProps = Readonly<{ submitLabel: string }> &
+  (
+    | Readonly<{
+        kind: "schedule";
+        item: TermsFieldsItem & Readonly<{ shipping_allowance_percentage_bps: number }>;
+      }>
+    | Readonly<{
+        kind: "agreement";
+        item: TermsFieldsItem & Readonly<{ shipping_allowance_percentage_bps: number | null }>;
+      }>
+  );
+
+function TermsFields({ kind, item, submitLabel }: TermsFieldsProps) {
+  const followsScheduleWhenBlank = kind === "agreement";
   return (
     <Stack gap={3}>
       <TextInput label={t("commercialTerms.features.home.label")} name="label" defaultValue={item.label} required />
@@ -194,10 +203,13 @@ function TermsFields({
       <NumberField
         label={t("commercialTerms.features.home.shippingAllowanceBps")}
         name="shippingAllowancePercentageBps"
+        description={
+          followsScheduleWhenBlank ? t("commercialTerms.features.home.shippingAllowanceFollowsScheduleHint") : undefined
+        }
         min={0}
         max={10000}
-        defaultValue={item.shipping_allowance_percentage_bps}
-        required
+        defaultValue={item.shipping_allowance_percentage_bps ?? undefined}
+        required={!followsScheduleWhenBlank}
       />
       <NativeSelect
         label={t("commercialTerms.features.home.status")}
@@ -322,7 +334,11 @@ function ScheduleSheet({
           <RouterForm method="post" spacing="none">
             <HiddenInput name="intent" value="revise-schedule" readOnly />
             <HiddenInput name="id" value={schedule.schedule_id} readOnly />
-            <TermsFields item={schedule} submitLabel={t("commercialTerms.features.home.saveScheduleRevision")} />
+            <TermsFields
+              kind="schedule"
+              item={schedule}
+              submitLabel={t("commercialTerms.features.home.saveScheduleRevision")}
+            />
           </RouterForm>
         </Stack>
       </Stack>
@@ -394,7 +410,9 @@ function AgreementSheet({
                 label: t("commercialTerms.features.home.shippingAllowance"),
                 values: [
                   formatBpsPercent(publishedSchedule.value.shippingAllowancePercentageBps),
-                  formatBpsPercent(agreement.shipping_allowance_percentage_bps),
+                  agreement.shipping_allowance_percentage_bps === null
+                    ? t("commercialTerms.features.home.followsSchedule")
+                    : formatBpsPercent(agreement.shipping_allowance_percentage_bps),
                 ],
               },
               {
@@ -422,7 +440,11 @@ function AgreementSheet({
           <RouterForm method="post" spacing="none">
             <HiddenInput name="intent" value="revise-agreement" readOnly />
             <HiddenInput name="id" value={agreement.agreement_id} readOnly />
-            <TermsFields item={agreement} submitLabel={t("commercialTerms.features.home.saveAccountOverride")} />
+            <TermsFields
+              kind="agreement"
+              item={agreement}
+              submitLabel={t("commercialTerms.features.home.saveAccountOverride")}
+            />
           </RouterForm>
         </Stack>
       </Stack>
@@ -456,7 +478,7 @@ function CreateScheduleSheet({
             ]}
             required
           />
-          <TermsFields item={seed} submitLabel={t("commercialTerms.features.home.saveSchedule")} />
+          <TermsFields kind="schedule" item={seed} submitLabel={t("commercialTerms.features.home.saveSchedule")} />
         </Stack>
       </RouterForm>
     </ResponsiveEditSheet>
@@ -521,7 +543,11 @@ function CreateAgreementSheet({
             required
           />
           <Stack key={accountId} gap={3}>
-            <TermsFields item={seed} submitLabel={t("commercialTerms.features.home.saveAccountOverride")} />
+            <TermsFields
+              kind="agreement"
+              item={seed}
+              submitLabel={t("commercialTerms.features.home.saveAccountOverride")}
+            />
           </Stack>
         </Stack>
       </RouterForm>

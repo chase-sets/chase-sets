@@ -228,6 +228,70 @@ describe("commercial terms admin home route", () => {
     expect(readFreshWriteToken(`https://admin.chasesets.com${location}`)?.commitPosition).toBe(position);
   });
 
+  describe("Shipping Allowance in the form action", () => {
+    /** Submits the terms form with the given allowance field; null leaves the field out of the form. */
+    async function submit(intent: string, shippingAllowance: string | null) {
+      const form: Record<string, string> = { ...termsForm(intent), id: "term_1", accountId: "acc_seller" };
+      if (shippingAllowance === null) {
+        delete form.shippingAllowancePercentageBps;
+      } else {
+        form.shippingAllowancePercentageBps = shippingAllowance;
+      }
+      return (await homeAction({ request: formRequest(form), params: {}, context: undefined } as never)) as Response;
+    }
+
+    it.each([
+      { intent: "create-agreement", method: "createAgreement", bodyAt: 0, allowance: "", sent: "a blank" },
+      { intent: "create-agreement", method: "createAgreement", bodyAt: 0, allowance: "  ", sent: "a whitespace" },
+      { intent: "create-agreement", method: "createAgreement", bodyAt: 0, allowance: null, sent: "no" },
+      { intent: "revise-agreement", method: "updateAgreement", bodyAt: 1, allowance: "", sent: "a blank" },
+      { intent: "revise-agreement", method: "updateAgreement", bodyAt: 1, allowance: null, sent: "no" },
+    ] as const)(
+      "$intent sends no Shipping Allowance for $sent field",
+      async ({ intent, method, bodyAt, allowance }) => {
+        mockApi[method].mockResolvedValue(commercialTermsCommit("61", "cag_1"));
+
+        expect((await submit(intent, allowance)).status).toBe(302);
+
+        const body = mockApi[method].mock.calls[0]?.[bodyAt] as Record<string, unknown>;
+        expect(body).toMatchObject({ label: "Business", marketplaceSalesFeePercentageBps: 650 });
+        expect(Object.keys(body)).not.toContain("shippingAllowancePercentageBps");
+        expect(JSON.parse(JSON.stringify(body))).not.toHaveProperty("shippingAllowancePercentageBps");
+      },
+    );
+
+    it.each([
+      { intent: "create-agreement", method: "createAgreement", bodyAt: 0, allowance: "750", bps: 750 },
+      { intent: "create-agreement", method: "createAgreement", bodyAt: 0, allowance: "0", bps: 0 },
+      { intent: "revise-agreement", method: "updateAgreement", bodyAt: 1, allowance: "0", bps: 0 },
+    ] as const)(
+      "$intent sends a stated Shipping Allowance of $allowance",
+      async ({ intent, method, bodyAt, allowance, bps }) => {
+        mockApi[method].mockResolvedValue(commercialTermsCommit("62", "cag_1"));
+
+        await submit(intent, allowance);
+
+        expect(mockApi[method].mock.calls[0]?.[bodyAt]).toMatchObject({ shippingAllowancePercentageBps: bps });
+      },
+    );
+
+    it.each([
+      { intent: "create-schedule", method: "createSchedule", bodyAt: 0, allowance: "750", bps: 750 },
+      { intent: "revise-schedule", method: "updateSchedule", bodyAt: 1, allowance: "750", bps: 750 },
+      { intent: "create-schedule", method: "createSchedule", bodyAt: 0, allowance: null, bps: 500 },
+      { intent: "revise-schedule", method: "updateSchedule", bodyAt: 1, allowance: null, bps: 500 },
+    ] as const)(
+      "$intent always sends a Shipping Allowance ($allowance becomes $bps)",
+      async ({ intent, method, bodyAt, allowance, bps }) => {
+        mockApi[method].mockResolvedValue(commercialTermsCommit("63", "cts_1"));
+
+        await submit(intent, allowance);
+
+        expect(mockApi[method].mock.calls[0]?.[bodyAt]).toMatchObject({ shippingAllowancePercentageBps: bps });
+      },
+    );
+  });
+
   it("keeps API lag inside the home-owned unavailable state", async () => {
     mockApi.getHome.mockRejectedValue(new Error("Commercial Terms projection is catching up."));
     await expect(

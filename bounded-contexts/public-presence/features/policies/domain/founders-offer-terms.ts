@@ -240,7 +240,7 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
             assertion:
               "The founders seller-fee agreement retains shipping allowance; separate checkout charges and Order Protection remain described by their existing terms.",
             evidenceRef:
-              "bounded-contexts/commercial-terms/features/agreements/integrations/identity/founders-window-reaction.ts:22-35; bounded-contexts/public-presence/features/policies/domain/seller-agreement.ts:151-175",
+              "bounded-contexts/commercial-terms/features/resolutions/read-model/resolve.ts:349-352; bounded-contexts/public-presence/features/policies/domain/seller-agreement.ts:151-175",
           },
         ],
       },
