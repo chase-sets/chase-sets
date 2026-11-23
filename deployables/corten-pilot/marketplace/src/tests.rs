@@ -15612,7 +15612,7 @@ async fn the_checkout_lets_stripe_load_for_its_card_step() {
     let pilot = Pilot::new().await;
     let (status, headers, html) = pilot.send(get(CHECKOUT_SCREEN, Some("payer"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    // The payment step mounts Stripe's Payment Element and iews/stripe.js makes the page's
+    // The payment step mounts Stripe's Payment Element and `views/stripe.js` makes the page's
     // default policy, so the page allows both, as the payment pages do; without them the page's
     // script is refused before Pay now can tokenize a card.
     let csp = headers[header::CONTENT_SECURITY_POLICY].to_str().unwrap();
