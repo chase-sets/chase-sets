@@ -169,7 +169,10 @@ describe("policy console registration guard", () => {
     it("runs inside check:structure", () => {
       const runSource = readFileSync(path.join(repoRoot, "scripts/check-structure/run.mjs"), "utf8");
       expect(runSource).toContain('from "./policy-console-registration.mjs"');
-      expect(runSource).toContain("validatePolicyConsoleRegistration({ repoRoot })");
+      expect(runSource).toContain(
+        "const policyConsoleRegistrationResult = validatePolicyConsoleRegistration({ repoRoot });",
+      );
+      expect(runSource).toContain("violations.push(...policyConsoleRegistrationResult.violations);");
     });
   });
 
@@ -345,6 +348,35 @@ export type Declared = ReturnType<typeof definePolicy>;
       expect(result.violations).toEqual([expect.stringContaining("type-argument list that never closes")]);
     });
 
+    it.each([
+      ["an alias", "const declare = definePolicy;\nexport const aliasedProbePolicy = declare({});\n"],
+      ["a renamed import", 'import { definePolicy as declare } from "@chase-sets/platform-policy/define-policy";\n'],
+      ["an optional call", "export const optionalProbePolicy = definePolicy?.({});\n"],
+      ["a comment before the call", "export const commentedProbePolicy = definePolicy/* why */({});\n"],
+      [
+        "a quoted bracket that ends the type-argument list early",
+        'export const quotedProbePolicy = definePolicy<{ op: ">" }>({});\n',
+      ],
+    ])("fails closed on %s, which it cannot read as a direct call", (_shape, source) => {
+      const { declarations, violations } = findPolicyDeclarations({ relativeFile: probeFile, content: source });
+
+      expect(declarations).toEqual([]);
+      expect(violations).toEqual([
+        expect.stringContaining(`${probeFile}:1: definePolicy is used here without being called directly`),
+      ]);
+    });
+
+    it("passes a plain export specifier unread", () => {
+      const { declarations, violations } = findPolicyDeclarations({
+        relativeFile: "infrastructure/platform-policy/index.ts",
+        content:
+          'export {\n  createPolicyCache,\n  definePolicy,\n  type PolicyDefinition,\n} from "./define-policy";\n',
+      });
+
+      expect(declarations).toEqual([]);
+      expect(violations).toEqual([]);
+    });
+
     it("names two declarations in one file separately", () => {
       const { declarations } = findPolicyDeclarations({
         relativeFile: probeFile,
@@ -433,6 +465,24 @@ export const secondProbePolicy: PolicyDefinition<ProbeValue> = definePolicy({ po
         "rateLimitPolicy",
       ]);
       expect(registration.crossContextArrayCount).toBe(2);
+      expect(registration.ownArrayCount).toBe(1);
+    });
+
+    it("does not count a commented-out registration list", () => {
+      const registration = findRegisteredPolicyNames({
+        crossContextSource: `
+          sources.push({ definitions: [walletFundingLimitsPolicy] });
+          // sources.push({ definitions: [lineCommentedPolicy] });
+          /* sources.push({ definitions: [blockCommentedPolicy] }); */
+          /**
+           * sources.push({ definitions: [docCommentedPolicy] });
+           */
+        `,
+        ownSource: "// const ownPolicyDefinitions = [retiredPolicy];\nconst ownPolicyDefinitions = [rateLimitPolicy];",
+      });
+
+      expect([...registration.fileByName.keys()]).toEqual(["walletFundingLimitsPolicy", "rateLimitPolicy"]);
+      expect(registration.crossContextArrayCount).toBe(1);
       expect(registration.ownArrayCount).toBe(1);
     });
 

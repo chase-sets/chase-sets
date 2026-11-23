@@ -60,7 +60,7 @@ The guard is deliberately cheap -- name-pattern and SQL-literal regex checks, no
 1. A `definePolicy` declaration is neither registered in the platform policy console nor on the exception list. The violation names the file and the declared symbol.
 2. An exception's declaration no longer exists or is now registered, so the list cannot keep a stale entry.
 3. An exception has an empty reason.
-4. A `definePolicy` call is in a shape the scanner cannot name. Declare a policy as a constant initialized by the call, or return it from a named factory function.
+4. A `definePolicy` call is in a shape the scanner cannot name, or the name is used without being called directly (an alias, a renamed import, an optional call). Declare a policy as a constant initialized by a direct call, or return it from a named factory function.
 
 The guard is textual. A registered name is one inside a `definitions: [...]` array in `deployables/platform-api/src/app.ts` or inside `ownPolicyDefinitions`; a mention anywhere else, such as a public policy source, does not count. Registration is matched by name, so each declaration needs its own name and is registered under it. A context with no console source yet (Channels, Customer Feedback) keeps its policies on the exception list until a slice adds the source.
 

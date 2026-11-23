@@ -11,8 +11,11 @@
 //   - A declaration is `definePolicy`, then an optional type-argument list
 //     read with balanced angle brackets across lines, then `(`. Its symbol is
 //     the constant the call initializes (annotated or not) or the enclosing
-//     factory function. A call in any other shape fails closed, so the scanner
-//     cannot silently miss one.
+//     factory function. A call in any other shape fails closed, and so does
+//     any use of the name that is not a direct call (an alias, a renamed
+//     import, an optional call): only prose in a comment, a plain
+//     import/export specifier, `typeof definePolicy` and the function's own
+//     definition pass unread.
 //   - A registered name is one inside a `definitions: [...]` array of the
 //     cross-context sources in the platform API composition root, or inside
 //     Platform Operations' `ownPolicyDefinitions`. A mention anywhere else
@@ -137,9 +140,22 @@ function factorySymbolAt(content, callIndex) {
   return null;
 }
 
+// `definePolicy` as one name in an `import { ... }` or `export { ... }` list,
+// not renamed: followed by `,` or `}` inside braces opened by the keyword.
+function isModuleSpecifierMention(content, nameIndex, afterIndex) {
+  if (content[afterIndex] !== "," && content[afterIndex] !== "}") return false;
+  const open = content.lastIndexOf("{", nameIndex);
+  if (open === -1 || content.slice(open, nameIndex).includes("}")) return false;
+  return /\b(?:import|export)(?:\s+type)?\s*$/.test(content.slice(0, open));
+}
+
+function notACallViolation(relativeFile, line) {
+  return `${relativeFile}:${line}: definePolicy is used here without being called directly (an alias, a renamed import, an optional call, or a type-argument list the guard cannot read to its call); call definePolicy directly so the policy console registration guard can see the declaration`;
+}
+
 /**
  * Every `definePolicy` call in one source file, as `{ file, symbol, line }`,
- * plus a violation for each call whose shape the scanner cannot name.
+ * plus a violation for each use the scanner cannot read as a nameable call.
  */
 export function findPolicyDeclarations({ relativeFile, content }) {
   const declarations = [];
@@ -149,10 +165,18 @@ export function findPolicyDeclarations({ relativeFile, content }) {
     const nameIndex = match.index;
     const line = lineAt(content, nameIndex);
     let cursor = skipWhitespace(content, nameIndex + match[0].length);
-    if (content[cursor] !== "<" && content[cursor] !== "(") continue;
     if (isCommentMention(content, nameIndex)) continue;
+    const before = content.slice(0, nameIndex);
     // The shared machinery's own `function definePolicy<Value>(...)`.
-    if (/\bfunction\s+$/.test(content.slice(0, nameIndex))) continue;
+    if (/\bfunction\s+$/.test(before)) continue;
+    // `typeof definePolicy` names the function's type and declares nothing.
+    if (/\btypeof\s+$/.test(before)) continue;
+
+    if (content[cursor] !== "<" && content[cursor] !== "(") {
+      if (isModuleSpecifierMention(content, nameIndex, cursor)) continue;
+      violations.push(notACallViolation(relativeFile, line));
+      continue;
+    }
 
     if (content[cursor] === "<") {
       const afterTypeArguments = readTypeArguments(content, cursor);
@@ -163,7 +187,10 @@ export function findPolicyDeclarations({ relativeFile, content }) {
         continue;
       }
       cursor = skipWhitespace(content, afterTypeArguments);
-      if (content[cursor] !== "(") continue;
+      if (content[cursor] !== "(") {
+        violations.push(notACallViolation(relativeFile, line));
+        continue;
+      }
     }
 
     const symbol = constantSymbolAt(content, nameIndex) ?? factorySymbolAt(content, nameIndex);
@@ -184,7 +211,8 @@ function stripComments(source) {
 }
 
 function namesInArrays(source, arrayPattern) {
-  const arrays = [...source.matchAll(arrayPattern)];
+  // A commented-out list registers nothing.
+  const arrays = [...source.matchAll(arrayPattern)].filter((array) => !isCommentMention(source, array.index));
   return {
     arrayCount: arrays.length,
     names: arrays.flatMap((array) => stripComments(array[1]).match(new RegExp(identifierPattern, "g")) ?? []),
