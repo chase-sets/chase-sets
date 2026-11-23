@@ -15605,6 +15605,24 @@ fn checkout_writes(pilot: &Pilot) -> Vec<(String, Value)> {
 }
 
 #[tokio::test]
+async fn the_checkout_lets_stripe_load_for_its_card_step() {
+    let pilot = Pilot::new().await;
+    let (status, headers, html) = pilot.send(get(CHECKOUT_SCREEN, Some("payer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    // The payment step mounts Stripe's Payment Element and iews/stripe.js makes the page's
+    // default policy, so the page allows both, as the payment pages do; without them the page's
+    // script is refused before Pay now can tokenize a card.
+    let csp = headers[header::CONTENT_SECURITY_POLICY].to_str().unwrap();
+    assert!(csp.contains("https://js.stripe.com;") || csp.contains("https://js.stripe.com "), "Stripe.js may load: {csp}");
+    assert!(csp.contains("frame-src https://js.stripe.com https://hooks.stripe.com;"), "{csp}");
+    assert!(csp.contains("https://api.stripe.com"), "{csp}");
+    assert!(csp.contains("trusted-types corten default"), "{csp}");
+    assert!(!html.contains(r#"trustedTypes.createPolicy("default""#), "{html}");
+    let features = headers["permissions-policy"].to_str().unwrap();
+    assert!(!features.contains("payment=()"), "the Payment Element's wallets: {features}");
+}
+
+#[tokio::test]
 async fn the_checkout_shows_the_session_payments_quote_the_wallet_and_the_saved_address() {
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(get(CHECKOUT_SCREEN, Some("payer"))).await;
