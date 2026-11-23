@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { AppendToStreamInput, EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
@@ -73,11 +73,11 @@ function queryStub(
     inventory?: readonly unknown[];
     recommendations?: readonly AccountRecommendationListItem[];
   }>,
-  queries?: string[],
+  beforeRows?: () => void,
 ): PgQueryable {
   return {
     query: async <T>(sql: string) => {
-      queries?.push(sql);
+      beforeRows?.();
       if (sql.includes("FROM pricing_inventory_item_inputs AS item")) {
         return { rows: (rowsByKind.inventory ?? []) as T[] };
       }
@@ -156,6 +156,8 @@ async function seedRecommendation(
 }
 
 describe("pricing recommendation runtime", () => {
+  afterEach(() => vi.useRealTimers());
+
   const recommendationCandidate = (overrides: Partial<RefreshCandidate> = {}): RefreshCandidate => ({
     actionType: "active-listing-price-update",
     sellerAccountId: "acc_1",
@@ -206,15 +208,130 @@ describe("pricing recommendation runtime", () => {
     ).toMatchObject({ kind: "recommendation", currencyCode: "EUR", recommendedListAmount: 19 });
   });
 
-  it("treats an estimate fresh through its exact fresh-until boundary", async () => {
-    const queries: string[] = [];
-    const { services } = createRuntime(queryStub({}, queries));
+  const estimateFreshUntil = new Date("2026-07-14T10:00:00.000Z");
+  const estimatedListing = {
+    action_type: "active-listing-price-update",
+    seller_account_id: "acc_1",
+    catalog_catalog_item_id: "cat_1",
+    product_id: "prod_1",
+    listing_id: "lst_1",
+    inventory_item_id: "inv_1",
+    current_price_amount: "20.00",
+    current_price_currency_code: "USD",
+    current_price_source_version: 3,
+    quantity_cap: 1,
+    market_estimate_amount: "19.50",
+    market_estimate_currency_code: "USD",
+    market_estimate_fresh_until: estimateFreshUntil,
+    competitor_price_amount: "18.00",
+    competitor_price_currency_code: "USD",
+    offer_price_amount: null,
+    offer_price_currency_code: null,
+  };
+  const estimatedInventory = {
+    seller_account_id: "acc_1",
+    catalog_catalog_item_id: "cat_2",
+    product_id: "prod_2",
+    inventory_item_id: "inv_2",
+    available_quantity: 3,
+    market_estimate_amount: "9.00",
+    market_estimate_currency_code: "USD",
+    market_estimate_fresh_until: estimateFreshUntil,
+    competitor_price_amount: null,
+    competitor_price_currency_code: null,
+    offer_price_amount: "7.00",
+    offer_price_currency_code: "USD",
+  };
+
+  it("anchors listing and inventory candidates on an estimate at its exact fresh-until instant", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(estimateFreshUntil);
+    const { services, events } = createRuntime(
+      queryStub({ listings: [estimatedListing], inventory: [estimatedInventory] }),
+    );
 
     await services.refreshRecommendations({ accountId: "acc_1" }, context);
 
-    const estimateQueries = queries.filter((sql) => sql.includes("pricing_market_price_estimates AS estimate"));
-    expect(estimateQueries).toHaveLength(2);
-    expect(estimateQueries.every((sql) => sql.includes("estimate.fresh_until >= CURRENT_TIMESTAMP"))).toBe(true);
+    expect(events.map((event) => event.payload)).toMatchObject([
+      {
+        actionType: "active-listing-price-update",
+        marketSignalType: "market-estimate",
+        marketPriceAmount: 19.5,
+        recommendedListAmount: 19.49,
+      },
+      {
+        actionType: "draft-listing-create",
+        marketSignalType: "market-estimate",
+        marketPriceAmount: 9,
+        recommendedListAmount: 8.99,
+      },
+    ]);
+  });
+
+  it("falls back to each candidate's next anchor one millisecond past the estimate's fresh-until", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(estimateFreshUntil.getTime() + 1);
+    const { services, events } = createRuntime(
+      queryStub({ listings: [estimatedListing], inventory: [estimatedInventory] }),
+    );
+
+    await services.refreshRecommendations({ accountId: "acc_1" }, context);
+
+    expect(events.map((event) => event.payload)).toMatchObject([
+      {
+        actionType: "active-listing-price-update",
+        marketSignalType: "competition",
+        marketPriceAmount: 18,
+        recommendedListAmount: 17.99,
+      },
+      {
+        actionType: "draft-listing-create",
+        marketSignalType: "offer",
+        marketPriceAmount: 7,
+        recommendedListAmount: 7,
+      },
+    ]);
+  });
+
+  it("withholds a stale estimate's currency so an anchor in another currency still recommends", async () => {
+    const eurOfferInventory = { ...estimatedInventory, offer_price_currency_code: "EUR" };
+    vi.useFakeTimers({ toFake: ["Date"] });
+
+    vi.setSystemTime(estimateFreshUntil);
+    const current = createRuntime(queryStub({ inventory: [eurOfferInventory] }));
+    expect(await current.services.refreshRecommendations({ accountId: "acc_1" }, context)).toEqual({
+      proposedCount: 0,
+      noRecommendationCount: 1,
+    });
+
+    vi.setSystemTime(estimateFreshUntil.getTime() + 1);
+    const stale = createRuntime(queryStub({ inventory: [eurOfferInventory] }));
+    expect(await stale.services.refreshRecommendations({ accountId: "acc_1" }, context)).toEqual({
+      proposedCount: 1,
+      noRecommendationCount: 0,
+    });
+    expect(stale.events[0]?.payload).toMatchObject({
+      marketSignalType: "offer",
+      marketCurrency: "EUR",
+      recommendedListAmount: 7,
+    });
+  });
+
+  it("judges estimate freshness at the instant recorded on the proposal", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(estimateFreshUntil);
+    // The candidate read returns only after the estimate's fresh-until instant has passed.
+    const { services, events } = createRuntime(
+      queryStub({ listings: [estimatedListing] }, () => vi.setSystemTime(estimateFreshUntil.getTime() + 60_000)),
+    );
+
+    await services.refreshRecommendations({ accountId: "acc_1" }, context);
+
+    expect(events[0]?.payload).toMatchObject({
+      marketSignalType: "market-estimate",
+      recommendedListAmount: 19.49,
+      observedAt: estimateFreshUntil.toISOString(),
+    });
   });
 
   it("returns exact EUR and legacy null current-price currencies from the paginated production SELECT", async () => {
@@ -268,6 +385,7 @@ describe("pricing recommendation runtime", () => {
             quantity_cap: 1,
             market_estimate_amount: "19.50",
             market_estimate_currency_code: "EUR",
+            market_estimate_fresh_until: new Date("2100-01-01T00:00:00.000Z"),
             competitor_price_amount: "18.00",
             competitor_price_currency_code: "EUR",
             offer_price_amount: null,
@@ -286,6 +404,7 @@ describe("pricing recommendation runtime", () => {
             quantity_cap: 1,
             market_estimate_amount: null,
             market_estimate_currency_code: null,
+            market_estimate_fresh_until: null,
             competitor_price_amount: "12.00",
             competitor_price_currency_code: "USD",
             offer_price_amount: null,
@@ -301,6 +420,7 @@ describe("pricing recommendation runtime", () => {
             available_quantity: 3,
             market_estimate_amount: null,
             market_estimate_currency_code: null,
+            market_estimate_fresh_until: null,
             competitor_price_amount: null,
             competitor_price_currency_code: null,
             offer_price_amount: "5.00",
@@ -314,6 +434,7 @@ describe("pricing recommendation runtime", () => {
             available_quantity: 2,
             market_estimate_amount: null,
             market_estimate_currency_code: null,
+            market_estimate_fresh_until: null,
             competitor_price_amount: null,
             competitor_price_currency_code: null,
             offer_price_amount: null,
@@ -346,7 +467,7 @@ describe("pricing recommendation runtime", () => {
     });
   });
 
-  it("degrades to the lowest competing ask when the Market Price estimate is absent or stale", async () => {
+  it("degrades to the lowest competing ask when no Market Price estimate exists", async () => {
     const { services, events } = createRuntime(
       queryStub({
         listings: [
@@ -361,9 +482,10 @@ describe("pricing recommendation runtime", () => {
             current_price_currency_code: "USD",
             current_price_source_version: 3,
             quantity_cap: 1,
-            // The query returns null for both no row and a row past fresh_until.
+            // The LEFT JOIN returns nulls when the product has no estimate row.
             market_estimate_amount: null,
             market_estimate_currency_code: null,
+            market_estimate_fresh_until: null,
             competitor_price_amount: "18.00",
             competitor_price_currency_code: "USD",
             offer_price_amount: "25.00",

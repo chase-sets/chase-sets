@@ -685,7 +685,7 @@ describe("founders clause-level source authority", () => {
         /marketplaceGatewayForAccount\(accountId\).applyBulkListingPriceUpdates\(\{ updates \}\)/,
       ],
       [
-        "bounded-contexts/pricing/features/recommendations/api/runtime.ts:733-750",
+        "bounded-contexts/pricing/features/recommendations/api/runtime.ts:748-765",
         /marketplaceListings.applyBulkListingPriceUpdates/,
         /updates: bulkUpdates.map/,
       ],
