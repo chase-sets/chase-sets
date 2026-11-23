@@ -448,6 +448,13 @@ function failedRollbackCaptureCompletions() {
   ];
 }
 
+// What every production deploy says about the admin app while PRODUCTION_ADMIN_APP is unset.
+const productionAdminWebLines = [
+  "admin.chasesets.com is served by admin-web (PRODUCTION_ADMIN_APP is unset, so the default applies).",
+  "admin-corten is not deployed while admin-web serves admin.chasesets.com.",
+  "Warning: admin-corten is not deployed because admin-web serves admin.chasesets.com (PRODUCTION_ADMIN_APP=admin-web).",
+];
+
 function successfulSpawn(calls) {
   return (command, args, options) => {
     calls.push({ command, args, options });
@@ -6684,7 +6691,9 @@ describe("attempts record", () => {
           expect(output).not.toContain(planted);
         }
         expect(output).not.toContain("--set-string");
-        if (exitCode) expect(error.mock.calls.flat()).toEqual(["helm upgrade exited with code 1."]);
+        if (exitCode) {
+          expect(error.mock.calls.flat()).toEqual([...productionAdminWebLines, "helm upgrade exited with code 1."]);
+        }
       } finally {
         log.mockRestore();
         error.mockRestore();
@@ -6979,7 +6988,7 @@ describe("admission webhook root cause", () => {
     const { exitCode, calls, record, rootCause, errors } = await classifiedDeploy(scenario, options);
     expect(exitCode).toBe(1);
     expect(upgradeCalls(calls)).toHaveLength(1);
-    expect(errors).toEqual(["helm upgrade exited with code 1."]);
+    expect(errors).toEqual([...productionAdminWebLines, "helm upgrade exited with code 1."]);
     expect(record).toMatchObject({ result: "failure", retry: "refused", refusal, attempts: [recognized(1)] });
     expect(rootCause).toMatchObject({ rootCauseCode: "doks-admission-webhook-unreachable", providerReason: longLine });
   });
@@ -7764,7 +7773,7 @@ describe("advisory Corten pilots without an image", () => {
     for (const DEPLOYMENT_ENVIRONMENT of ["production", "preview"]) {
       const envOverrides = { DEPLOYMENT_ENVIRONMENT, PREVIEW_IDENTIFIER: "pr-123" };
       expect(platformKubernetesDeployment.droppedAdvisoryCortenPilots({ envOverrides })).toEqual([]);
-      const env = { STAGING_ADMIN_APP: "admin-web" };
+      const env = { STAGING_ADMIN_APP: "admin-web", PRODUCTION_ADMIN_APP: "admin-corten" };
       expect(platformKubernetesDeployment.withheldCortenPilots({ envOverrides, env })).toEqual([]);
     }
   });
