@@ -53,6 +53,7 @@ function classifyListingError(error: unknown): ListingErrorCode | null {
     switch (error.code) {
       case "listing-not-found":
       case "inventory-item-not-found":
+      case "shipping-measure-missing":
       case "command-rejected":
         return error.code;
       default:

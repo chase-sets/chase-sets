@@ -111,6 +111,14 @@ After a durable checkpoint advances, the runtime compacts `applied` ledger rows 
 - Retry replays the blocked stream from its first blocked version.
 - Rebuild truncates the projection group's owned tables, clears checkpoints and application rows, and replays from origin.
 
+### Reactions
+
+An event reaction declares which facts it consumes and which handler set runs. It carries no retry or idempotency setting, and its only failure setting is the optional `errorPolicy` it shares with projections:
+
+- A reaction follows the subscription `errorPolicy`, which defaults to `strict-per-stream` in `infrastructure/bounded-context-runtime/subscriptions.ts`. The first poison (non-transient) event blocks its stream, later events on that stream are deferred, other streams keep draining, and a retry replays the blocked stream from its first blocked version. A transient failure halts the reaction at that event, which is retried on the next pass.
+- The applied ledger described under [Idempotency](#idempotency) skips already-applied events on redelivery.
+- The handler author owns idempotency of the dispatched command.
+
 ## Ownership and Reset Strategies
 
 Projections are consumer-owned bounded-context subscriptions: a context declares the facts it consumes, the projection group that owns the resulting read model, and the source contexts that feed it. Each owned table must appear in only one projection group per context. Shared outbox tables must either have one combined projection group owner or be explicitly partitioned by source/generation. Projection groups that own tables must declare a reset strategy: `replay-only`, `append-only-no-reset`, `truncate-owned-tables`, or `generation-cutover`. Event subscription groups that intentionally own no read-model table must be marked `sideEffectOnly: true`, keep `ownedTables: []`, and use `replay-only` so rebuild/replay behavior is explicit.

@@ -160,7 +160,7 @@ type ActiveAgreement = Readonly<{
   agreement_id: string;
   marketplace_sales_fee_percentage_bps: number;
   marketplace_sales_fee_fixed_amount: string;
-  shipping_allowance_percentage_bps: number;
+  shipping_allowance_percentage_bps: number | null;
 }>;
 
 function failOnActivePolicyOverlap(kind: "agreements" | "schedules", accountId?: string): never {

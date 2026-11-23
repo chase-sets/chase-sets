@@ -889,9 +889,6 @@
         "catalog.catalog-item.category-assigned": "<function>",
         "catalog.catalog-item.category-removed": "<function>"
       },
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure",
       "eventTypes": [
         "catalog.catalog-item.published",
         "catalog.catalog-item.category-assigned",

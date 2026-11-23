@@ -370,10 +370,7 @@
       "sourceContextMount": "when-mounted",
       "eventTypes": ["inventory.reservation.released"],
       "order": 75,
-      "reactionHandlerSetNames": ["support-inventory-hold-collision"],
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure"
+      "reactionHandlerSetNames": ["support-inventory-hold-collision"]
     }
   ],
   "projectionGroups": [

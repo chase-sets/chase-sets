@@ -257,10 +257,15 @@ const listingRuntime = "bounded-contexts/marketplace/features/listings/api/runti
 const runtimeTests = "bounded-contexts/marketplace/features/listings/api/runtime.test.ts";
 const feeLock = "bounded-contexts/marketplace/features/listings/domain/fee-lock.ts";
 const feeQuotes = "bounded-contexts/marketplace/support/runtime-support/fee-quotes.ts";
+const foundersReaction =
+  "bounded-contexts/commercial-terms/features/agreements/integrations/identity/founders-window-reaction.ts";
+const foundersReactionCall = `${foundersReaction}:22-35`;
+const commercialTermsResolver = "bounded-contexts/commercial-terms/features/resolutions/read-model/resolve.ts";
+const resolverAllowanceFallback = `${commercialTermsResolver}:349-352`;
 type Citation = readonly [ref: string, ...patterns: RegExp[]];
 const quoteChain: Citation[] = [
   [
-    `${listingRuntime}:1369-1388`,
+    `${listingRuntime}:1370-1389`,
     /async function quoteListingTerms\(accountId: string, priceAmount: string\)\s*\{\s*return quoteMarketplaceTerms\(deps.commercialTermsResolver,/,
     /providedFingerprint !== currentQuote.fee_quote_fingerprint/,
   ],
@@ -281,15 +286,15 @@ const quoteChain: Citation[] = [
 ];
 const creationChain: Citation[] = [
   [`${listingDomain}:446-471`, /type: "CreateListing"/, /feeLock: MarketplaceListingFeeLock/, /quantityCap: number/],
-  [`${listingDomain}:618-657`, /"marketplace.listing.created"/, /feeLocks: MarketplaceListingFeeLock\[\]/],
+  [`${listingDomain}:630-669`, /"marketplace.listing.created"/, /feeLocks: MarketplaceListingFeeLock\[\]/],
   [
-    `${listingDomain}:1202-1243`,
+    `${listingDomain}:1215-1256`,
     /catalogItemId: event.data.catalogItemId/,
     /selectedOptions: event.data.selectedOptions/,
     /feeLocks: event.data.feeLocks/,
   ],
   [
-    `${listingRuntime}:1900-1955`,
+    `${listingRuntime}:1901-1957`,
     /params.publicationScope === "channel-only" \? null : await quoteListingTerms\(params.accountId, params.priceAmount\)/,
     /type: "CreateListing"/,
     /feeLock: quote \? feeLockFromMarketplaceTermsQuote\(params.quantityCap, quote\) : null/,
@@ -297,7 +302,7 @@ const creationChain: Citation[] = [
   ...quoteChain,
 ];
 const changedSchedule: Citation = [
-  `${runtimeTests}:1023-1159`,
+  `${runtimeTests}:947-1083`,
   /keeps existing listing fee locks when management changes future terms/,
   /scheduleId: "cts_launch"/,
   /scheduleId: "cts_after_launch"/,
@@ -356,8 +361,9 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
     "The founders agreement",
     [
       [
-        "bounded-contexts/commercial-terms/features/agreements/integrations/identity/founders-window-reaction.ts:22-35",
-        /agreements.createAgreement/,
+        foundersReactionCall,
+        /^await agreements\.createAgreement\(/,
+        /\);$/,
         /marketplaceSalesFeePercentageBps: 0/,
         /marketplaceSalesFeeFixedAmount: "0.00"/,
         /effectiveFrom: data.betaAccessStartedAt/,
@@ -375,23 +381,40 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
       ],
     ],
   ],
+  [
+    "The founders seller-fee agreement retains shipping allowance",
+    [
+      [
+        resolverAllowanceFallback,
+        /^shippingAllowancePercentageBps:/,
+        /agreement\?\.shipping_allowance_percentage_bps \?\?\s+schedule\?\.shipping_allowance_percentage_bps \?\?/,
+        /DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS,$/,
+      ],
+      [
+        "bounded-contexts/public-presence/features/policies/domain/seller-agreement.ts:151-175",
+        /id: "fees-and-deductions"/,
+        /seller-funded fulfillment allowance under the Marketplace Sales Fee Schedule/,
+        /funds the order's Order Protection contribution first and your shipping cost second/,
+      ],
+    ],
+  ],
   ["Creation locks", creationChain],
   [
     "Single and bulk",
     [
       [
-        `${listingRuntime}:2509-2542`,
+        `${listingRuntime}:2511-2544`,
         /updateListingPrice: async/,
         /listing.feeLocks.map\(\(lock\) => requoteMarketplaceListingFeeLock\(lock, params.priceAmount\)\)/,
         /type: "UpdateListingPrice"/,
       ],
       [
-        `${listingRuntime}:2543-2633`,
+        `${listingRuntime}:2545-2635`,
         /applyBulkListingPriceUpdates: async/,
         /driveBulkPriceUpdates\(params.accountId, /,
       ],
       [
-        `${listingRuntime}:2004-2110`,
+        `${listingRuntime}:2006-2112`,
         /async function driveBulkPriceUpdates\(/,
         /assertConfirmedFeeQuote\(update.feeQuoteFingerprint, quote\)/,
         /listing.feeLocks.map\(\(lock\) => requoteMarketplaceListingFeeLock\(lock, update.priceAmount\)\)/,
@@ -403,7 +426,7 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
         /return \{\s*\.\.\.feeLock,/,
       ],
       [
-        `${listingDomain}:955-985`,
+        `${listingDomain}:968-998`,
         /case "UpdateListingPrice"/,
         /assertFeeLockTranchesPreserved\(state.feeLocks, feeLocks\)/,
       ],
@@ -440,12 +463,12 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
     "Purchase-limit edits",
     [
       [
-        `${listingDomain}:1008-1017`,
+        `${listingDomain}:1021-1030`,
         /case "UpdateListingPurchaseLimits"/,
         /return \[\{ type: "marketplace.listing.purchase-limits-updated", data: \{ purchaseLimits \} \}\]/,
       ],
       [
-        `${listingDomain}:1284-1288`,
+        `${listingDomain}:1297-1301`,
         /case "marketplace.listing.purchase-limits-updated":\s*return \{\s*\.\.\.state,\s*purchaseLimits: event.data.purchaseLimits,/,
       ],
     ],
@@ -454,7 +477,7 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
     "Added units",
     [
       [
-        `${listingDomain}:990-1010`,
+        `${listingDomain}:1003-1023`,
         /resizeMarketplaceListingFeeLocks\(state.feeLocks, quantityCap, command.addedUnitsFeeLock\)/,
       ],
       [
@@ -465,7 +488,7 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
         /const latest = resized.pop\(\)/,
       ],
       [
-        `${listingRuntime}:2662-2702`,
+        `${listingRuntime}:2664-2704`,
         /addedUnitCount = Math.max\(0, params.quantityCap - listing.quantityCap\)/,
         /addedUnitCount > 0 \? await quoteListingTerms\(params.accountId, listing.priceAmount\) : null/,
         /assertConfirmedFeeQuote\(params.feeQuoteFingerprint, quote\)/,
@@ -477,7 +500,7 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
   [
     "Withdrawal is terminal",
     [
-      [`${listingDomain}:1193-1196`, /case "WithdrawListing"/, /"marketplace.listing.withdrawn"/],
+      [`${listingDomain}:1206-1209`, /case "WithdrawListing"/, /"marketplace.listing.withdrawn"/],
       [
         `${listingTests}:476-496`,
         /Withdrawn listings cannot be published/,
@@ -607,6 +630,41 @@ describe("founders clause-level source authority", () => {
     expect(mutant).not.toBe(real);
     expect(() => assertCitations(artifact, { [listingRuntime]: mutant })).toThrow("Creation locks:");
   });
+  it("pins every reaction citation to the whole createAgreement call, which states no Shipping Allowance", () => {
+    const refs = artifact.sections.flatMap(({ reviewManifest }) => [
+      ...reviewManifest.productTruthRefs,
+      ...reviewManifest.assumptions.flatMap(({ evidenceRef }) => evidenceRef.split("; ")),
+    ]);
+    const reactionRefs = refs.filter((ref) => ref.startsWith(foundersReaction));
+    expect(reactionRefs).toEqual([foundersReactionCall, foundersReactionCall]);
+
+    const [, , from, to] = /^(.+):(\d+)-(\d+)$/.exec(foundersReactionCall)!;
+    const call = readSource(foundersReaction)
+      .split(/\r?\n/)
+      .slice(Number(from) - 1, Number(to))
+      .join("\n")
+      .trim();
+    expect(call).toMatch(/^await agreements\.createAgreement\(/);
+    expect(call).toMatch(/\);$/);
+    expect(call.match(/createAgreement\(/g)).toHaveLength(1);
+    expect(call).not.toMatch(/shippingAllowance/i);
+    expect(readSource(foundersReaction)).not.toMatch(/SHIPPING_ALLOWANCE|shippingAllowance/i);
+  });
+  it("cites the resolver fallback, not the reaction, for the retained Shipping Allowance", () => {
+    const allowance = artifact.sections
+      .flatMap(({ reviewManifest }) => reviewManifest.assumptions)
+      .filter(({ assertion }) => assertion.startsWith("The founders seller-fee agreement retains shipping allowance"));
+    expect(allowance).toHaveLength(1);
+    expect(allowance[0]!.evidenceRef.split("; ")).toContain(resolverAllowanceFallback);
+    expect(allowance[0]!.evidenceRef).not.toContain(foundersReaction);
+
+    const real = readSource(commercialTermsResolver);
+    const withoutScheduleFallback = real.replace("schedule?.shipping_allowance_percentage_bps ??", "undefined ??");
+    expect(withoutScheduleFallback).not.toBe(real);
+    expect(() => assertCitations(artifact, { [commercialTermsResolver]: withoutScheduleFallback })).toThrow(
+      "The founders seller-fee agreement retains shipping allowance:",
+    );
+  });
   it("rejects each changed canonical schedule value without copying those values into public text", () => {
     const path = "bounded-contexts/commercial-terms/features/marketplace-sales-fee/domain/policy.ts";
     for (const [before, after] of [
@@ -627,7 +685,7 @@ describe("founders clause-level source authority", () => {
         /marketplaceGatewayForAccount\(accountId\).applyBulkListingPriceUpdates\(\{ updates \}\)/,
       ],
       [
-        "bounded-contexts/pricing/features/recommendations/api/runtime.ts:733-750",
+        "bounded-contexts/pricing/features/recommendations/api/runtime.ts:748-765",
         /marketplaceListings.applyBulkListingPriceUpdates/,
         /updates: bulkUpdates.map/,
       ],
@@ -651,7 +709,7 @@ describe("founders clause-level source authority", () => {
         /method: "POST"/,
       ],
       [
-        "bounded-contexts/marketplace/features/listings/api/route.ts:1600-1632",
+        "bounded-contexts/marketplace/features/listings/api/route.ts:1601-1633",
         /"\/listings\/prices\/bulk"/,
         /const batch = parseBulkListingPriceUpdates\(body, c\.req\.header\("Idempotency-Key"\)\)/,
         /services.applyBulkListingPriceUpdates/,

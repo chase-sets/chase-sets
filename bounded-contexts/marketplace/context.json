@@ -422,10 +422,7 @@
       "filterToEventTypes": true,
       "eventTypes": ["platform-operations.reported-content.listing-removal-directed"],
       "order": 95,
-      "reactionHandlerSetNames": ["marketplace-listing-moderation-reaction"],
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure"
+      "reactionHandlerSetNames": ["marketplace-listing-moderation-reaction"]
     },
     {
       "sourceContextName": "pricing",
@@ -434,10 +431,7 @@
       "filterToEventTypes": true,
       "eventTypes": ["pricing.market-price.estimated"],
       "order": 94,
-      "reactionHandlerSetNames": ["marketplace-managed-offer-reaction"],
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure"
+      "reactionHandlerSetNames": ["marketplace-managed-offer-reaction"]
     },
     {
       "sourceContextName": "platform-operations",
@@ -450,10 +444,7 @@
         "support.support-request.cancelled"
       ],
       "order": 91,
-      "reactionHandlerSetNames": ["marketplace-review-hold-reaction"],
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure"
+      "reactionHandlerSetNames": ["marketplace-review-hold-reaction"]
     },
     {
       "sourceContextName": "platform-operations",
@@ -462,10 +453,7 @@
       "filterToEventTypes": true,
       "eventTypes": ["platform-operations.reported-content.action-recorded"],
       "order": 92,
-      "reactionHandlerSetNames": ["marketplace-review-moderation-reaction"],
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure"
+      "reactionHandlerSetNames": ["marketplace-review-moderation-reaction"]
     },
     {
       "sourceContextName": "platform-operations",
@@ -478,10 +466,7 @@
         "support.support-request.cancelled"
       ],
       "order": 93,
-      "reactionHandlerSetNames": ["marketplace-review-scoring-reaction"],
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure"
+      "reactionHandlerSetNames": ["marketplace-review-scoring-reaction"]
     }
   ],
   "projectionGroups": [

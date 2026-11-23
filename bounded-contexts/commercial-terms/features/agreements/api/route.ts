@@ -58,6 +58,25 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("commercialTerms.features.agreements.api.route.request.failed");
 }
 
+/**
+ * An agreement may leave its Shipping Allowance out and follow the schedule.
+ * An absent or null field states none; anything else must be valid basis
+ * points. Only a number or non-blank text is read as one, so a blank string
+ * or another JSON value is rejected instead of being coerced to 0 or 1.
+ */
+function statedShippingAllowance(raw: unknown) {
+  if (raw === undefined || raw === null) {
+    return {};
+  }
+  const isNumberOrText = typeof raw === "number" || (typeof raw === "string" && raw.trim().length > 0);
+  return {
+    shippingAllowancePercentageBps: normalizePercentageBps(
+      isNumberOrText ? Number(raw) : Number.NaN,
+      "Shipping allowance percentage",
+    ),
+  };
+}
+
 function agreementCommandBody(body: Record<string, unknown>) {
   const effectiveWindow = normalizeEffectiveWindow(
     typeof body.effectiveFrom === "string" ? body.effectiveFrom : "",
@@ -74,10 +93,7 @@ function agreementCommandBody(body: Record<string, unknown>) {
       fieldName: "Marketplace sales fee fixed amount",
       allowZero: true,
     }),
-    shippingAllowancePercentageBps: normalizePercentageBps(
-      Number(body.shippingAllowancePercentageBps),
-      "Shipping allowance percentage",
-    ),
+    ...statedShippingAllowance(body.shippingAllowancePercentageBps),
     status: normalizeCommercialTermsStatus(String(body.status ?? "")),
     ...effectiveWindow,
   };

@@ -1256,6 +1256,9 @@ importers:
       '@chase-sets/localization':
         specifier: workspace:*
         version: link:../../contracts/localization
+      '@chase-sets/market-estimate-display':
+        specifier: workspace:*
+        version: link:../../contracts/market-estimate-display
       '@chase-sets/marketplace':
         specifier: workspace:*
         version: link:../marketplace

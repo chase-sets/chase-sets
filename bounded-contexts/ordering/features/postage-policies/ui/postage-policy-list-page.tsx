@@ -15,7 +15,7 @@ import {
   Text,
   TextInput,
 } from "@chase-sets/design-system";
-import { t } from "@chase-sets/localization";
+import { t } from "./localization/translator";
 import type { PackagePlan } from "@chase-sets/product-measures";
 import { defaultPostagePolicy } from "@chase-sets/product-measures";
 import type { PostagePolicyAdminViewModel } from "./contracts";

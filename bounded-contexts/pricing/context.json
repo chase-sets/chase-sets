@@ -333,10 +333,7 @@
         "marketplace.listing.withdrawn"
       ],
       "order": 31,
-      "reactionHandlerSetNames": ["pricing-repricing-evaluation-reaction"],
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure"
+      "reactionHandlerSetNames": ["pricing-repricing-evaluation-reaction"]
     },
     {
       "sourceContextName": "pricing",
@@ -345,10 +342,7 @@
       "filterToEventTypes": true,
       "eventTypes": ["pricing.market-price.estimated"],
       "order": 32,
-      "reactionHandlerSetNames": ["pricing-repricing-evaluation-reaction"],
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure"
+      "reactionHandlerSetNames": ["pricing-repricing-evaluation-reaction"]
     }
   ],
   "projectionGroups": [

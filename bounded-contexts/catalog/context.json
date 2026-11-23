@@ -212,10 +212,7 @@
         "catalog.catalog-item.category-removed"
       ],
       "order": 100,
-      "reactionHandlerSetNames": ["catalog-product-measure-resolution"],
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure"
+      "reactionHandlerSetNames": ["catalog-product-measure-resolution"]
     }
   ],
   "projectionGroups": [

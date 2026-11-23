@@ -132,6 +132,44 @@ describeDb("Listing attempts on PostgreSQL", () => {
     );
   });
 
+  it("refuses a native create while the Product has no mirrored measure, then creates it on the same attempt", async () => {
+    const f = await fixture(pools.marketplace);
+    const setMeasures = (measures: readonly unknown[]) =>
+      pools.marketplace.query(
+        "UPDATE marketplace_catalog_items SET product_measure_snapshots = $1 WHERE catalog_item_id = 'cat_test'",
+        [JSON.stringify(measures)],
+      );
+    const create = listingTestCommand("listing.create", {
+      accountId: "acc_seller" as never,
+      inventoryItemId: "inv_one",
+      priceAmount: "10.00",
+      priceCurrencyCode: "USD",
+      quantityCap: 1,
+      idempotencyKey: key("create-unmeasured"),
+    });
+    await setMeasures([]);
+    await f.expectNoAppend(() =>
+      expect(f.listings.createListing(create, context)).rejects.toMatchObject({
+        code: "shipping-measure-missing",
+        message: "Listings require a resolved shipping measure before creation.",
+      }),
+    );
+    expect(await f.listingCount()).toBe(0);
+
+    await setMeasures([measure]);
+    const created = await f.restart().createListing(create, context);
+    expect(created.listingId).toBe(attemptListingId("acc_seller", key("create-unmeasured")));
+    expect(created.state).toMatchObject({ status: "draft", productMeasureSnapshot: measure });
+    const stored = await createPostgresEventStore({ pool: pools.marketplace }).readStream({
+      streamId: `marketplace.listing-${created.listingId}`,
+    });
+    expect(stored[0]).toMatchObject({
+      eventType: "marketplace.listing.created",
+      payload: { productMeasureSnapshot: measure },
+    });
+    expect(await f.listingCount()).toBe(1);
+  });
+
   it("coalesces concurrent identical Listing edits into one terminal event", async () => {
     const f = await fixture(pools.marketplace);
     const listingId = await f.activeListing("lst_concurrent");

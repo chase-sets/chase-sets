@@ -221,6 +221,33 @@ describeDb("own predicate writer enrollment with Pricing projection delivery hel
       });
       return app.route("/", child);
     }
+    /** The supply mirror row a native Listing needs: the Product's Resolved Product Measure. */
+    async function mirrorProductMeasure() {
+      await pools.marketplace.query(
+        `INSERT INTO marketplace_catalog_items (catalog_item_id, title, status, product_measure_snapshots)
+         VALUES ($1, 'Synthetic item', 'published', $2)
+         ON CONFLICT (catalog_item_id) DO UPDATE SET product_measure_snapshots = EXCLUDED.product_measure_snapshots`,
+        [
+          catalogItemId,
+          JSON.stringify([
+            {
+              catalogItemId,
+              productId,
+              selectedOptions: [],
+              measureVersion: "pm_synthetic",
+              unitLengthInches: 3.5,
+              unitWidthInches: 2.5,
+              unitHeightInches: 0.01,
+              unitWeightOunces: 0.1,
+              physicalFlags: ["bendable"],
+              stackBehavior: "stackable-thickness",
+              source: "profile",
+              confidence: "measured",
+            },
+          ]),
+        ],
+      );
+    }
     return {
       accountId,
       context,
@@ -230,6 +257,7 @@ describeDb("own predicate writer enrollment with Pricing projection delivery hel
       productId,
       catalogServices,
       marketplaceServices,
+      mirrorProductMeasure,
       catalogKey: ownerPredicateKey("repricing-catalog-category", catalogItemId, categoryId),
       async createCatalogItem() {
         await catalogServices().items.commandHandler({
@@ -251,6 +279,7 @@ describeDb("own predicate writer enrollment with Pricing projection delivery hel
         db = pools.marketplace,
         listingIdOverride?: ListingId,
       ) {
+        if (publicationScope === "native") await mirrorProductMeasure();
         return marketplaceServices(db).listings.createListingFromInventorySnapshot(
           {
             accountId,
@@ -584,6 +613,7 @@ describeDb("own predicate writer enrollment with Pricing projection delivery hel
       case "Marketplace transaction alias": {
         const importRowId = `imr_synthetic_${createId("evt").slice(4)}`;
         const listingId = importRowId.replace(/^imr_/, "lst_");
+        await f.mirrorProductMeasure();
         return {
           owner: pools.marketplace,
           key: ownerPredicateKey("repricing-listing", listingId),

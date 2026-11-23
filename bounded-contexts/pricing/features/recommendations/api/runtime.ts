@@ -11,6 +11,7 @@ import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-se
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { isMarketEstimateCurrentAt } from "@chase-sets/market-estimate-display";
 import { createInternalId } from "@chase-sets/primitives/typed-ids";
 import {
   createDurableJobExecutionContext,
@@ -268,7 +269,25 @@ export function recommendedAmount(candidate: RefreshCandidate):
   return { kind: "no-recommendation", reason: "no-anchor" };
 }
 
-async function listRefreshCandidates(db: PgQueryable, accountId: string): Promise<RefreshCandidate[]> {
+/** A stale estimate is withheld whole, so the candidate falls back to its next anchor. */
+function currentMarketEstimate(
+  row: Readonly<{
+    market_estimate_amount: string | null;
+    market_estimate_currency_code: string | null;
+    market_estimate_fresh_until: Date | null;
+  }>,
+  asOf: string,
+): Pick<RefreshCandidate, "marketEstimateAmount" | "marketEstimateCurrencyCode"> {
+  const current =
+    row.market_estimate_fresh_until !== null &&
+    isMarketEstimateCurrentAt(new Date(row.market_estimate_fresh_until).toISOString(), asOf);
+  return {
+    marketEstimateAmount: current ? row.market_estimate_amount : null,
+    marketEstimateCurrencyCode: current ? row.market_estimate_currency_code : null,
+  };
+}
+
+async function listRefreshCandidates(db: PgQueryable, accountId: string, asOf: string): Promise<RefreshCandidate[]> {
   const listingResult = await db.query<{
     action_type: RefreshCandidate["actionType"];
     seller_account_id: string;
@@ -282,6 +301,7 @@ async function listRefreshCandidates(db: PgQueryable, accountId: string): Promis
     quantity_cap: number;
     market_estimate_amount: string | null;
     market_estimate_currency_code: string | null;
+    market_estimate_fresh_until: Date | null;
     competitor_price_amount: string | null;
     competitor_price_currency_code: string | null;
     offer_price_amount: string | null;
@@ -303,6 +323,7 @@ async function listRefreshCandidates(db: PgQueryable, accountId: string): Promis
        listing.quantity_cap,
        estimate.amount::text AS market_estimate_amount,
        UPPER(estimate.currency_code) AS market_estimate_currency_code,
+       estimate.fresh_until AS market_estimate_fresh_until,
        competitor.amount AS competitor_price_amount,
        CASE WHEN competitor.amount IS NULL THEN NULL ELSE listing.price_currency_code END AS competitor_price_currency_code,
        offer.amount AS offer_price_amount,
@@ -312,9 +333,6 @@ async function listRefreshCandidates(db: PgQueryable, accountId: string): Promis
        ON estimate.catalog_catalog_item_id = listing.catalog_catalog_item_id
       AND estimate.product_id = listing.product_id
       AND UPPER(estimate.currency_code) = listing.price_currency_code
-      -- Mirror contracts/market-estimate-display classifyMarketEstimateForDisplay:
-      -- fresh_until >= asOf is current.
-      AND estimate.fresh_until >= CURRENT_TIMESTAMP
      LEFT JOIN LATERAL (
          SELECT MIN(other.price_amount)::text AS amount
          FROM pricing_market_listing_inputs AS other
@@ -347,6 +365,7 @@ async function listRefreshCandidates(db: PgQueryable, accountId: string): Promis
     available_quantity: number;
     market_estimate_amount: string | null;
     market_estimate_currency_code: string | null;
+    market_estimate_fresh_until: Date | null;
     competitor_price_amount: string | null;
     competitor_price_currency_code: string | null;
     offer_price_amount: string | null;
@@ -365,6 +384,7 @@ async function listRefreshCandidates(db: PgQueryable, accountId: string): Promis
        )::integer AS available_quantity,
        estimate.amount::text AS market_estimate_amount,
        UPPER(estimate.currency_code) AS market_estimate_currency_code,
+       estimate.fresh_until AS market_estimate_fresh_until,
        competitor.amount AS competitor_price_amount,
        competitor.currency_code AS competitor_price_currency_code,
        offer.amount AS offer_price_amount,
@@ -373,9 +393,6 @@ async function listRefreshCandidates(db: PgQueryable, accountId: string): Promis
      LEFT JOIN pricing_market_price_estimates AS estimate
        ON estimate.catalog_catalog_item_id = item.catalog_catalog_item_id
       AND estimate.product_id = item.product_id
-      -- Mirror contracts/market-estimate-display classifyMarketEstimateForDisplay:
-      -- fresh_until >= asOf is current.
-      AND estimate.fresh_until >= CURRENT_TIMESTAMP
      LEFT JOIN LATERAL (
          SELECT MIN(other.price_amount)::text AS amount,
                 MIN(other.price_currency_code) AS currency_code
@@ -428,8 +445,7 @@ async function listRefreshCandidates(db: PgQueryable, accountId: string): Promis
       currentPriceCurrencyCode: row.current_price_currency_code,
       currentPriceSourceVersion: row.current_price_source_version,
       quantityCap: row.quantity_cap,
-      marketEstimateAmount: row.market_estimate_amount,
-      marketEstimateCurrencyCode: row.market_estimate_currency_code,
+      ...currentMarketEstimate(row, asOf),
       competitorPriceAmount: row.competitor_price_amount,
       competitorPriceCurrencyCode: row.competitor_price_currency_code,
       offerPriceAmount: row.offer_price_amount,
@@ -448,8 +464,7 @@ async function listRefreshCandidates(db: PgQueryable, accountId: string): Promis
         currentPriceCurrencyCode: null,
         currentPriceSourceVersion: null,
         quantityCap: row.available_quantity,
-        marketEstimateAmount: row.market_estimate_amount,
-        marketEstimateCurrencyCode: row.market_estimate_currency_code,
+        ...currentMarketEstimate(row, asOf),
         competitorPriceAmount: row.competitor_price_amount,
         competitorPriceCurrencyCode: row.competitor_price_currency_code,
         offerPriceAmount: row.offer_price_amount,
@@ -593,9 +608,9 @@ export function createPricingRecommendationRuntime(
     context,
     jobContext,
   ) => {
-    const candidates = await listRefreshCandidates(deps.db, params.accountId);
-    const progressCheckpoint = jobContext ? createPricingJobProgressCheckpoint(jobContext) : null;
     const observedAt = new Date().toISOString();
+    const candidates = await listRefreshCandidates(deps.db, params.accountId, observedAt);
+    const progressCheckpoint = jobContext ? createPricingJobProgressCheckpoint(jobContext) : null;
     let proposedCount = 0;
     let noRecommendationCount = 0;
     let completed = 0;
