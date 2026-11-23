@@ -362,7 +362,7 @@ describe("commercial terms home", () => {
     const submittedAllowance = (field: HTMLInputElement) =>
       new FormData(field.closest("form")!).get("shippingAllowancePercentageBps");
 
-    it("shows Follows schedule, not 0%, for an override that states no Shipping Allowance", () => {
+    it("shows Follows published schedule, not 0%, for an override that states no Shipping Allowance", () => {
       const agreement = { ...expiringAgreement, shipping_allowance_percentage_bps: null };
       renderHome({
         publishedSchedule: revisedSchedule,
@@ -371,7 +371,7 @@ describe("commercial terms home", () => {
       });
 
       const sheet = within(screen.getByRole("dialog", { name: agreement.label }));
-      expect(sheet.getByText("Follows schedule")).toBeTruthy();
+      expect(sheet.getByText("Follows published schedule")).toBeTruthy();
       expect(sheet.getByText("7.25%")).toBeTruthy();
       expect(sheet.queryByText("0%")).toBeNull();
       expect(allowanceField(sheet).value).toBe("");
@@ -392,7 +392,7 @@ describe("commercial terms home", () => {
 
       const sheet = within(screen.getByRole("dialog", { name: agreement.label }));
       expect(sheet.getByText(text)).toBeTruthy();
-      expect(sheet.queryByText("Follows schedule")).toBeNull();
+      expect(sheet.queryByText("Follows published schedule")).toBeNull();
       expect(allowanceField(sheet).value).toBe(value);
       expect(submittedAllowance(allowanceField(sheet))).toBe(value);
     });
@@ -406,7 +406,7 @@ describe("commercial terms home", () => {
       );
       expect(allowanceField(sheet).value).toBe("");
       expect(allowanceField(sheet).required).toBe(false);
-      expect(sheet.getByText("Leave blank to follow the schedule.")).toBeTruthy();
+      expect(sheet.getByText("Leave blank to follow the published schedule.")).toBeTruthy();
       // Untouched, the form carries no allowance value for the route action to send.
       expect(submittedAllowance(allowanceField(sheet)) ?? "").toBe("");
     });
@@ -420,7 +420,7 @@ describe("commercial terms home", () => {
       const sheet = within(screen.getByRole("dialog", { name: dialogName }));
       expect(allowanceField(sheet).value).toBe(value);
       expect(allowanceField(sheet).required).toBe(true);
-      expect(sheet.queryByText("Leave blank to follow the schedule.")).toBeNull();
+      expect(sheet.queryByText("Leave blank to follow the published schedule.")).toBeNull();
     });
   });
 });

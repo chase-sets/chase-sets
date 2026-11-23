@@ -271,6 +271,21 @@ describe("commercial terms admin home route", () => {
     );
 
     it.each([
+      { intent: "create-agreement", method: "createAgreement", bodyAt: 0 },
+      { intent: "revise-agreement", method: "updateAgreement", bodyAt: 1 },
+    ] as const)(
+      "$intent sends text that is not a number as typed, so the API rejects it",
+      async ({ intent, method, bodyAt }) => {
+        mockApi[method].mockResolvedValue(commercialTermsCommit("64", "cag_1"));
+
+        await submit(intent, "five");
+
+        const body = mockApi[method].mock.calls[0]?.[bodyAt] as Record<string, unknown>;
+        expect(JSON.parse(JSON.stringify(body))).toMatchObject({ shippingAllowancePercentageBps: "five" });
+      },
+    );
+
+    it.each([
       { intent: "create-schedule", method: "createSchedule", bodyAt: 0, allowance: "750", bps: 750 },
       { intent: "revise-schedule", method: "updateSchedule", bodyAt: 1, allowance: "750", bps: 750 },
       { intent: "create-schedule", method: "createSchedule", bodyAt: 0, allowance: null, bps: 500 },

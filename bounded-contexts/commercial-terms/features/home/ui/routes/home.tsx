@@ -35,13 +35,15 @@ function scheduleTermsBody(formData: FormData) {
   };
 }
 
-// A blank Shipping Allowance is left out of the body, so the agreement follows the schedule.
+// A blank Shipping Allowance is left out of the body, so the agreement follows the schedule. Text that is
+// not a number is sent as typed: JSON would write NaN as null, which the API reads as "none", not as an error.
 function agreementTermsBody(formData: FormData) {
   const shippingAllowance = formData.get("shippingAllowancePercentageBps");
   const isStated = typeof shippingAllowance === "string" && shippingAllowance.trim().length > 0;
+  const stated = Number(shippingAllowance);
   return {
     ...sharedTermsBody(formData),
-    ...(isStated ? { shippingAllowancePercentageBps: Number(shippingAllowance) } : {}),
+    ...(isStated ? { shippingAllowancePercentageBps: Number.isFinite(stated) ? stated : shippingAllowance } : {}),
   };
 }
 
