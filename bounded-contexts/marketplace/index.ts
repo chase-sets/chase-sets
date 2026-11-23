@@ -81,12 +81,12 @@ const baseModule = defineBoundedContextModule<MarketplaceServices, PgTransaction
   manifest: marketplaceContextManifest,
   schemaSql: marketplaceSchemaSql,
   schemaMigrations: [
+    ...inventoryDraftReceiptMigrations,
     {
       migrationId: "20261123_marketplace_request_terminal_witness",
       description: "Record actual first inserts and fence never-opened terminal recovery.",
       statements: [requestTerminalWitnessSchemaSql],
     },
-    ...inventoryDraftReceiptMigrations,
     ...marketplaceUnloggedProjectionSchemaMigrations,
     ...marketplaceSupplyProjectionSchemaMigrations,
     ...marketplaceListingSchemaMigrations,
