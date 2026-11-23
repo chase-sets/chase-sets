@@ -37,6 +37,8 @@ export const marketplaceWakeRegistryEntry = registryEntry({
     "marketplace:marketplace-review-hold-projection",
     "marketplace:marketplace-review-projection",
     "marketplace:marketplace-review-notification-projection",
+    "marketplace:marketplace.offer-payment-authorization-projection",
+    "marketplace:marketplace.offer-payment-authorization-reconcile",
     "marketplace:platform-policy-document-projection",
     "notifications:notifications-source-facts-outbox-projection",
     "ordering:ordering-marketplace-offer-acceptance",

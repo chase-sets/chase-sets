@@ -13,6 +13,9 @@ describe("registered managed Offer entrypoints", () => {
     };
     const services = {
       managedOfferWork: work,
+      offerPaymentAuthorization: {
+        reconcile: vi.fn<MarketplaceServices["offerPaymentAuthorization"]["reconcile"]>(),
+      },
       db: { query: vi.fn() },
       policies: {},
       listings: {},

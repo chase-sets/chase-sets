@@ -1,5 +1,9 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { createSubscriptionRunner } from "@chase-sets/bounded-context-runtime";
+import {
+  bootstrapContextDatabase,
+  composeModuleSchemaSql,
+  createSubscriptionRunner,
+} from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -9,11 +13,7 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import {
-  createPostgresEventStore,
-  eventCorePostgresSchemaSql,
-  type PgTransactionalPool,
-} from "@chase-sets/event-core-postgres";
+import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createPolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { buildMarketplaceApi } from "../../../api";
@@ -72,8 +72,8 @@ describeDb("Offer Payment Authorization with PostgreSQL workers and streams", ()
   });
   beforeEach(async () => {
     await resetMultiContextTestSchemas(pools);
-    await pools.marketplace.query(module.schemaSql);
-    await pools.payments.query(eventCorePostgresSchemaSql);
+    await bootstrapContextDatabase(module, pools.marketplace);
+    await pools.payments.query(composeModuleSchemaSql({ schemaSql: "" }));
     store = createPostgresEventStore({ pool: pools.marketplace });
     paymentsStore = createPostgresEventStore({ pool: pools.payments });
     services = createMarketplaceServices(pools.marketplace, { deploymentEnvironment: "test" });

@@ -232,6 +232,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     /^bounded-contexts\/catalog\/features\/completion-report\//,
     /^bounded-contexts\/catalog\/features\/catalog-items\/read-model\/display-identity-recompute\.ts$/,
     // Reconciliation processes over long-lived money and operations state.
+    /^bounded-contexts\/marketplace\/features\/offer-payment-authorization\/integrations\/payments\/reconcile\.ts$/,
     /^bounded-contexts\/settlement\/features\/liability-reconciliation\//,
     /^bounded-contexts\/settlement\/features\/wallets\/read-model\/wallet-adjustment-reconciliation\.ts$/,
     /^bounded-contexts\/settlement\/features\/liability-allocation\/read-model\/reconciliation-signals\.ts$/,
