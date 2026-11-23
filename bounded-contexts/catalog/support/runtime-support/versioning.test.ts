@@ -111,6 +111,54 @@ describe("catalog product resolution", () => {
     ).toThrowError("Selections cannot include inactive dimensions.");
   });
 
+  describe("option applicability", () => {
+    const gradedSelection = [
+      { dimensionId: formDimensionId, optionId: gradedOptionId },
+      { dimensionId: gradingCompanyDimensionId, optionId: psaOptionId },
+      { dimensionId: gradeDimensionId, optionId: gemMintOptionId },
+    ];
+    const gradeAppliesTo = (companyOptionIds: OptionId[], optionId = gemMintOptionId) => [
+      {
+        dimensionId: gradeDimensionId,
+        optionId,
+        appliesWhen: [{ dimensionId: gradingCompanyDimensionId, optionIds: companyOptionIds }],
+      },
+    ];
+
+    it("resolves a selected option whose applicability the selection satisfies", () => {
+      const scoped = resolveProduct({
+        catalogItemId,
+        blueprint,
+        selectedOptions: gradedSelection,
+        optionApplicability: gradeAppliesTo([psaOptionId]),
+      });
+
+      expect(scoped).toEqual(resolveProduct({ catalogItemId, blueprint, selectedOptions: gradedSelection }));
+    });
+
+    it("rejects a selected option that does not apply to the other selected options", () => {
+      expect(() =>
+        resolveProduct({
+          catalogItemId,
+          blueprint,
+          selectedOptions: gradedSelection,
+          optionApplicability: gradeAppliesTo(["chc_company_bgs" as OptionId]),
+        }),
+      ).toThrowError("Selections must use only options that apply to the other selected options.");
+    });
+
+    it("ignores the applicability of an option that is not selected", () => {
+      expect(() =>
+        resolveProduct({
+          catalogItemId,
+          blueprint,
+          selectedOptions: gradedSelection,
+          optionApplicability: gradeAppliesTo(["chc_company_bgs" as OptionId], "chc_grade_black_label" as OptionId),
+        }),
+      ).not.toThrow();
+    });
+  });
+
   it("includes appliesWhen in the exported schema", () => {
     const schema = toProductSchema(blueprint);
     expect(schema.dimensions.find((dimension) => dimension.dimensionId === String(conditionDimensionId))).toMatchObject(

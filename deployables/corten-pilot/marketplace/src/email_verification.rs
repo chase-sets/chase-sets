@@ -86,6 +86,21 @@ mod tests {
         assert!(!awaits(&actor(&[]), "orders.manage"));
         assert!(!awaits(&actor(&[("orders.manage", REASON)]), "listings.manage"));
         assert!(!awaits(&actor(&[("orders.manage", "another_reason")]), "orders.manage"));
+        // An actor that holds the permission is never asked to verify for it.
+        let mut holder = actor(&[("orders.manage", REASON)]);
+        holder.permissions.push("orders.manage".into());
+        assert!(!awaits(&holder, "orders.manage"));
+    }
+
+    #[test]
+    fn a_session_whose_withheld_permissions_are_null_or_absent_withholds_nothing() {
+        let base = r#""userId":"usr_1","accountId":"acc_1","roleKey":"owner","permissions":["orders.view"]"#;
+        for json in [format!("{{{base}}}"), format!(r#"{{{base},"withheldPermissions":null}}"#)] {
+            let actor: Actor = serde_json::from_str(&json).unwrap();
+            assert!(actor.withheld_permissions.is_empty(), "{json}");
+        }
+        let json = format!(r#"{{{base},"withheldPermissions":[{{"permission":"orders.manage","reason":"{REASON}"}}]}}"#);
+        assert!(awaits(&serde_json::from_str(&json).unwrap(), "orders.manage"));
     }
 
     #[test]

@@ -30,8 +30,15 @@ pub struct Dimension {
     #[serde(default)]
     pub description: Option<String>,
     pub value_kind: String,
+    /// `exact` or `or-better`; a dimension recorded before the choice is `exact`.
+    #[serde(default = "exact")]
+    pub option_matching: String,
     pub status: String,
     pub updated_at: String,
+}
+
+fn exact() -> String {
+    "exact".into()
 }
 
 /// `CatalogScopeRecordDetail` (features/scope-registry/ui/contracts.ts), the fields the scopes list
@@ -1494,6 +1501,7 @@ mod tests {
                 name: "Grade".into(),
                 description: None,
                 value_kind: "numeric".into(),
+                option_matching: "or-better".into(),
                 status: "active".into(),
                 updated_at: "2026-10-25T00:00:00Z".into(),
             },

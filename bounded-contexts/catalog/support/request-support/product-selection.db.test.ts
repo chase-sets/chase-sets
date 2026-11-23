@@ -14,6 +14,7 @@ import { refreshCatalogAdminBlueprintDetailPage } from "../../features/blueprint
 import { catalogBlueprintSchemaSql } from "../../features/blueprints/read-model/schema";
 import { catalogCatalogItemSchemaSql } from "../../features/catalog-items/read-model/schema";
 import { catalogComponentSchemaSql } from "../../features/components/read-model/schema";
+import { buildDimensionProjectionHandlers } from "../../features/dimensions/read-model/projection";
 import { catalogDimensionSchemaSql } from "../../features/dimensions/read-model/schema";
 import { catalogFieldSchemaSql } from "../../features/fields/read-model/schema";
 import { resolveCatalogProductSelection } from "./product-selection";
@@ -127,6 +128,63 @@ describeDb("Catalog Product selection against domain Blueprints", () => {
     ],
   ])("rejects %s as an invalid selection", async (_label, selection) => {
     expect(await resolve(selection)).toEqual({ availability: "active", product: null });
+  });
+
+  describe("Option applicability", () => {
+    async function projectOption(type: "option-added" | "option-revised", appliesWhen?: unknown) {
+      const handlers = buildDimensionProjectionHandlers(pools!.catalog);
+      if (type === "option-added") {
+        await handlers["catalog.dimension.created"]!({
+          type: "catalog.dimension.created",
+          streamId: "catalog.dimension-d2",
+          data: { dimensionId: "d2", key: "d2", name: "D2", description: "" },
+          timing: { recordedAt: "2026-11-22T00:00:00.000Z" },
+        } as never);
+      }
+      await handlers[`catalog.dimension.${type}`]!({
+        type: `catalog.dimension.${type}`,
+        streamId: "catalog.dimension-d2",
+        data: {
+          optionId: "o2",
+          code: "o2",
+          label: "O2",
+          displayOrder: 0,
+          numericValue: null,
+          status: "active",
+          appliesWhen,
+        },
+        timing: { recordedAt: "2026-11-22T00:00:00.000Z" },
+      } as never);
+    }
+    const resolved = { availability: "active", product: expect.objectContaining({ productId: "item::d1:o1|d2:o2" }) };
+    const rejected = { availability: "active", product: null };
+
+    it("resolves a selection that satisfies the selected Option's applicability", async () => {
+      await projectOption("option-added", [{ dimensionId: "d1", optionIds: ["o1"] }]);
+
+      expect(await resolve(fullSelection)).toEqual(resolved);
+    });
+
+    it("rejects a selected Option that does not apply to the other selected Options", async () => {
+      await projectOption("option-added", [{ dimensionId: "d1", optionIds: ["another"] }]);
+
+      expect(await resolve(fullSelection)).toEqual(rejected);
+    });
+
+    it("keeps applicability across a revision recorded without it and replaces it when one is recorded", async () => {
+      await projectOption("option-added", [{ dimensionId: "d1", optionIds: ["another"] }]);
+      await projectOption("option-revised");
+      expect(await resolve(fullSelection)).toEqual(rejected);
+
+      await projectOption("option-revised", []);
+      expect(await resolve(fullSelection)).toEqual(resolved);
+    });
+
+    it("returns unavailable for applicability it cannot read", async () => {
+      await projectOption("option-added", [{ dimensionId: "d1" }]);
+
+      expect(await resolve(fullSelection)).toEqual({ availability: "unavailable", product: null });
+    });
   });
 
   it("returns unavailable for admin-shaped JSON stored in the domain row", async () => {

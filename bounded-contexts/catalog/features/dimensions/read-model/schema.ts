@@ -10,6 +10,15 @@ export const catalogDimensionSchemaMigrations: readonly BcSchemaMigration[] = [
   ADD COLUMN IF NOT EXISTS option_matching text NOT NULL DEFAULT 'exact'`,
     ],
   },
+  {
+    migrationId: "20261122_catalog_dimension_option_applies_when",
+    description: "Store each Option's applicability; existing rows take none, which means the Option always applies.",
+    statements: [
+      "SET LOCAL lock_timeout = '5s';",
+      `ALTER TABLE catalog_dimension_options
+  ADD COLUMN IF NOT EXISTS applies_when jsonb NOT NULL DEFAULT '[]'::jsonb`,
+    ],
+  },
 ];
 
 export const catalogDimensionSchemaSql = `CREATE TABLE IF NOT EXISTS catalog_dimensions (
@@ -40,9 +49,11 @@ CREATE TABLE IF NOT EXISTS catalog_dimension_options (
   display_order integer NOT NULL DEFAULT 0,
   numeric_value numeric NULL,
   status text NOT NULL DEFAULT 'active',
+  applies_when jsonb NOT NULL DEFAULT '[]'::jsonb,
   PRIMARY KEY (dimension_id, option_id)
 );
 
 ALTER TABLE catalog_dimension_options
+  ADD COLUMN IF NOT EXISTS applies_when jsonb NOT NULL DEFAULT '[]'::jsonb,
   ADD COLUMN IF NOT EXISTS label_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
   ADD COLUMN IF NOT EXISTS label text NOT NULL DEFAULT '';`;

@@ -1,12 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
-import { defaultPostagePolicy, type PostagePolicy } from "@chase-sets/product-measures";
+import { defaultPostagePolicy, type PackagePlan, type PostagePolicy } from "@chase-sets/product-measures";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import { defaultShippingQuotePolicy } from "../domain/policies";
+import { defaultShippingRates, type ShippingRates } from "../domain/shipping-rates";
 import {
   context,
   createCheckpointStore,
   createOrderingOrderRuntimeForTest,
   createSupplyDb,
+  productMeasureForCandidate,
   shippingAddress,
+  type SupplyCandidate,
 } from "./runtime-test-harness";
 
 describe("ordering order runtime: checkout supply and grouping", () => {
@@ -797,5 +801,214 @@ describe("ordering order runtime: checkout supply and grouping", () => {
       shippingChargeAmount: "4.94",
       totalAmount: "6.34",
     });
+  });
+});
+
+describe("ordering order runtime: Shipping Rates recorded under the default Shipping Quote Policy", () => {
+  type CreatedOrderPayload = Readonly<{
+    shippingOption: "standard" | "expedited" | "priority";
+    itemSubtotalAmount: string;
+    shippingBaseAmount: string;
+    shippingPlanSnapshot: PackagePlan;
+    commercialTermsSnapshot: Readonly<{ shippingRates?: ShippingRates }>;
+  }>;
+
+  const candidate: SupplyCandidate = {
+    listingId: "lst_1",
+    sellerAccountId: "acc_seller",
+    inventoryItemId: "inv_1",
+    catalogItemId: "cat_1",
+    productId: "cat_1::",
+    itemTitle: "Charizard",
+    itemSubtitle: null,
+    selectedOptions: [],
+    productSummary: null,
+    storageLocationName: "North shelf",
+    shipFromCode: "CHI",
+    priceAmount: "20.00",
+    availableQuantity: 1,
+    updatedAt: "2026-03-31T00:00:00.000Z",
+  };
+
+  // 4.3 ounces plus 2 ounces of parcel packaging bills as a 7 ounce parcel.
+  const sealedBoxCandidate: SupplyCandidate = {
+    ...candidate,
+    productMeasureSnapshot: {
+      ...productMeasureForCandidate(candidate),
+      measureVersion: "test-sealed-box-v1",
+      unitLengthInches: 7,
+      unitWidthInches: 5,
+      unitHeightInches: 2,
+      unitWeightOunces: 4.3,
+      physicalFlags: ["sealed"],
+      stackBehavior: "stackable-height",
+    },
+  };
+
+  function createRuntimeWithDefaultQuote(supply: SupplyCandidate) {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const quote = vi.fn(defaultShippingQuotePolicy.quote);
+    const services = createOrderingOrderRuntimeForTest({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: createSupplyDb(() => [supply]) as never,
+      shippingQuotePolicy: { quote },
+    });
+    const createdOrders = () =>
+      readAllEvents()
+        .filter((event) => event.eventType === "ordering.order.created")
+        .map((event) => event.payload as CreatedOrderPayload);
+    return { services, quote, createdOrders };
+  }
+
+  function expectRecordedRatesAreTheRatesQuoted(
+    order: CreatedOrderPayload,
+    quote: ReturnType<typeof createRuntimeWithDefaultQuote>["quote"],
+  ) {
+    const recorded = order.commercialTermsSnapshot.shippingRates;
+
+    expect(recorded).toEqual(defaultShippingRates);
+    expect(quote).toHaveBeenCalled();
+    for (const [quoted] of quote.mock.calls) {
+      expect(quoted.shippingRates).toEqual(recorded);
+    }
+    // The recorded rates and package plan reproduce the amount the order was charged.
+    expect(
+      defaultShippingQuotePolicy.quote({
+        sellerAccountId: "acc_seller",
+        shippingOption: order.shippingOption,
+        itemSubtotalAmount: order.itemSubtotalAmount,
+        quantity: 1,
+        listingCount: 1,
+        packagePlan: order.shippingPlanSnapshot,
+        shippingRates: recorded!,
+      }).baseAmount,
+    ).toBe(order.shippingBaseAmount);
+  }
+
+  it("records the rates a checkout order was quoted under, with unchanged amounts and preview", async () => {
+    const { services, quote, createdOrders } = createRuntimeWithDefaultQuote(sealedBoxCandidate);
+    const checkoutParams = {
+      buyerAccountId: "acc_buyer" as never,
+      checkoutSessionId: "chk_recorded_rates",
+      sourceType: "cart-checkout" as const,
+      shippingOption: "standard" as const,
+      shippingAddress,
+      lines: [
+        {
+          listingId: null,
+          cartLineId: "cli_1",
+          catalogItemId: "cat_1",
+          productId: "cat_1::",
+          itemTitle: "Charizard",
+          itemSubtitle: null,
+          selectedOptions: [],
+          productSummary: null,
+          quantity: 1,
+        },
+      ],
+    };
+
+    const preview = await services.previewCheckoutFulfillment(checkoutParams);
+
+    expect(preview.totals).toEqual({
+      itemSubtotalAmount: "20.00",
+      shippingAmount: "5.15",
+      salesTaxAmount: "0.00",
+      totalAmount: "25.15",
+      packageCount: 1,
+    });
+    expect(preview.sellerGroups).toEqual([
+      expect.objectContaining({ itemSubtotalAmount: "20.00", shippingChargeAmount: "5.15", totalAmount: "25.15" }),
+    ]);
+    expect(JSON.stringify(preview)).not.toContain("shippingRates");
+
+    await services.createOrdersFromCheckout(checkoutParams, context);
+
+    const [order, ...otherOrders] = createdOrders();
+    expect(otherOrders).toEqual([]);
+    // A 7 ounce standard parcel: 499 + 3 x 32 cents.
+    expect(order).toMatchObject({
+      itemSubtotalAmount: "20.00",
+      shippingBaseAmount: "5.95",
+      shippingDiscountAmount: "0.80",
+      shippingAllowanceAmount: "0.80",
+      shippingOverageAmount: "5.15",
+      protectionAmount: "0.20",
+      protectionAllowanceAmount: "0.20",
+      protectionOverageAmount: "0.00",
+      shippingChargeAmount: "5.15",
+      salesTaxAmount: "0.00",
+      totalAmount: "25.15",
+      shippingPlanSnapshot: {
+        packageCount: 1,
+        packages: [{ mailpieceClass: "parcel", billableWeightOunces: 7 }],
+      },
+    });
+    expectRecordedRatesAreTheRatesQuoted(order!, quote);
+  });
+
+  it("records the rates an accepted Offer order was quoted under, with unchanged amounts", async () => {
+    const { services, quote, createdOrders } = createRuntimeWithDefaultQuote(candidate);
+
+    await services.createOrdersFromAcceptedOffer(
+      {
+        offerId: "off_recorded_rates",
+        buyerAccountId: "acc_buyer" as never,
+        sellerAccountId: "acc_seller" as never,
+        listingId: "lst_1",
+        inventoryItemId: "inv_1",
+        listingVersion: 3,
+        feeQuoteFingerprint: "sha256:fee-quote",
+        listingEvidencePolicyId: "pol_listing_evidence",
+        listingEvidencePolicyVersion: 2,
+        listingEvidencePolicyHash: "sha256:policy",
+        listingEvidenceSnapshot: {
+          schemaVersion: 1 as const,
+          policyHash: "sha256:policy",
+          snapshotHash: "sha256:evidence:lst_1",
+          createdAt: "2026-03-31T00:00:00.000Z",
+          evidence: [],
+        },
+        catalogItemId: "cat_1",
+        productId: "cat_1::",
+        itemTitle: "Charizard",
+        itemSubtitle: null,
+        selectedOptions: [],
+        productSummary: null,
+        priceAmount: "10.00",
+        marketplaceSalesFeePercentageBps: 500,
+        marketplaceSalesFeeFixedAmount: "0.00",
+        marketplaceSalesFeeCapAmount: "25.00",
+        marketplaceSalesFeeUnitAmount: "0.50",
+        sellerNetUnitAmount: "9.50",
+        termsScheduleId: "cts_offer",
+        termsAgreementId: null,
+        termsResolvedAt: "2026-03-31T00:00:00.000Z",
+        quantityRequested: 1,
+        shippingDestinationSnapshot: shippingAddress,
+      },
+      context,
+    );
+
+    const [order, ...otherOrders] = createdOrders();
+    expect(otherOrders).toEqual([]);
+    // One raw card ships as a letter.
+    expect(order).toMatchObject({
+      sourceType: "offer-acceptance",
+      itemSubtotalAmount: "10.00",
+      shippingBaseAmount: "1.49",
+      shippingDiscountAmount: "0.40",
+      shippingAllowanceAmount: "0.40",
+      shippingOverageAmount: "1.09",
+      protectionAmount: "0.10",
+      protectionAllowanceAmount: "0.10",
+      protectionOverageAmount: "0.00",
+      shippingChargeAmount: "1.09",
+      salesTaxAmount: "0.00",
+      totalAmount: "11.09",
+      shippingPlanSnapshot: { packageCount: 1, packages: [{ mailpieceClass: "letter" }] },
+    });
+    expectRecordedRatesAreTheRatesQuoted(order!, quote);
   });
 });
