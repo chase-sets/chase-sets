@@ -1447,6 +1447,7 @@ const schedulerVocabularyLookalikePaths = [
 // Accepted inventory delta: #9919 adds @chase-sets/tcgplayer-market-observations.
 // Accepted inventory delta adds @chase-sets/inventory-draft-listing.
 // Accepted inventory delta adds @chase-sets/app-agent-apps.
+// Accepted inventory delta removes the unused Review Eligibility contract workspace.
 const baseCapturedSchedulerFanoutWorkspaces = [
   "@chase-sets/app-admin-web",
   "@chase-sets/app-agent-apps",
@@ -1514,7 +1515,6 @@ const baseCapturedSchedulerFanoutWorkspaces = [
   "@chase-sets/public-docs",
   "@chase-sets/public-presence",
   "@chase-sets/realtime",
-  "@chase-sets/review-eligibility",
   "@chase-sets/seller-attention-queue",
   "@chase-sets/seller-desk",
   "@chase-sets/ses-email",
