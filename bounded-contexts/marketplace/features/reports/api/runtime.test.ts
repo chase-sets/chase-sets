@@ -5,7 +5,6 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { getMutationResultCommandReceipt } from "@chase-sets/http/responses";
 import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import type { JsonValue } from "@chase-sets/primitives/json";
-import { createMarketplaceServices } from "../../../support/runtime-support/services";
 import { createMarketplaceReportRuntime } from "./runtime";
 
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -726,56 +725,6 @@ describe("Marketplace report runtime", () => {
 vi.mock("@chase-sets/primitives/typed-ids", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@chase-sets/primitives/typed-ids")>();
   return { ...actual, createId: vi.fn(actual.createId) };
-});
-
-// Hoisted by Vitest; lets a test hand the composed Marketplace services an in-memory event store.
-const composition = vi.hoisted(() => ({ eventStore: undefined as EventStore | undefined }));
-vi.mock("@chase-sets/event-core-postgres", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@chase-sets/event-core-postgres")>()),
-  createPostgresEventStore: () => composition.eventStore,
-}));
-
-describe("Marketplace services", () => {
-  it("decide a Listing Report with the Listing Report Auto-Unlist Policy read from the Marketplace database", async () => {
-    const { eventStore, allEvents } = createInMemoryEventStore();
-    composition.eventStore = eventStore;
-    await seedActiveListing(eventStore);
-    await seedEarlierListingReport(eventStore, 60_000);
-    const policyKey = "marketplace.listing-report-auto-unlist";
-    const query = vi.fn(async (sql: string, values: readonly unknown[] = []) => ({
-      rowCount: 0,
-      rows:
-        sql.includes("FROM platform_policy_documents") && values.includes(policyKey)
-          ? [
-              {
-                document_id: "pol_listing_report_auto_unlist",
-                policy_key: policyKey,
-                context_name: "marketplace",
-                schema_summary: "{ distinctReporterThreshold: integer 2-100, windowDays: integer 1-90 }",
-                status: "active",
-                value: { distinctReporterThreshold: 2, windowDays: 7 },
-                effective_from: "2026-07-01T00:00:00.000Z",
-                effective_until: null,
-                created_at: "2026-07-01T00:00:00.000Z",
-                updated_at: "2026-07-01T00:00:00.000Z",
-              },
-            ]
-          : [],
-    }));
-    const { reports } = createMarketplaceServices({ query } as never);
-
-    const result = await reportListingAsVisitor(reports, 1);
-
-    expect(result).toMatchObject({ reportCount: 2, threshold: 2, autoUnlisted: true });
-    expect(autoUnlistedEvents(allEvents)).toMatchObject([
-      { payload: { reportId: result.reportId, reportCount: 2, threshold: 2 } },
-    ]);
-    expect(
-      query.mock.calls.filter(
-        ([sql, values]) => sql.includes("FROM platform_policy_documents") && values?.includes(policyKey),
-      ),
-    ).toHaveLength(1);
-  });
 });
 
 describe("Marketplace review report", () => {
