@@ -594,6 +594,22 @@ export function renderPlatformHelmStagingValues() {
   );
 }
 
+// The app that serves admin.staging. STAGING_ADMIN_APP is a GitHub variable, so a rollback to admin-web
+// is a variable change and a deploy, with no pull request. Unset means the default; any other value fails.
+export const STAGING_ADMIN_APPS = Object.freeze(["admin-corten", "admin-web"]);
+export const defaultStagingAdminApp = "admin-corten";
+
+export function resolveStagingAdminApp(env = {}) {
+  const value = String(env.STAGING_ADMIN_APP ?? "").trim();
+  if (value === "") {
+    return { app: defaultStagingAdminApp, source: "default" };
+  }
+  if (!STAGING_ADMIN_APPS.includes(value)) {
+    throw new Error(`STAGING_ADMIN_APP must be one of ${STAGING_ADMIN_APPS.join(", ")}; got "${value}".`);
+  }
+  return { app: value, source: "variable" };
+}
+
 export function buildDoksIngressValues(options = {}) {
   const env = options.env ?? {};
   const environment = options.environment ?? "staging";
@@ -602,6 +618,7 @@ export function buildDoksIngressValues(options = {}) {
   }
 
   const production = environment === "production";
+  const stagingAdminApp = production ? null : resolveStagingAdminApp(env).app;
   const targetVariable = production ? "PRODUCTION_DOKS_INGRESS_TARGET" : "DOKS_INGRESS_TARGET";
   const target = String(env[targetVariable] ?? "").trim();
 
@@ -611,7 +628,10 @@ export function buildDoksIngressValues(options = {}) {
   const hosts = enabled
     ? production
       ? buildProductionDoksIngressHosts({ marketplaceServed })
-      : buildDoksIngressHosts(stagingEnvironmentZone, "live", { apexService: "marketplace" })
+      : buildDoksIngressHosts(stagingEnvironmentZone, "live", {
+          apexService: "marketplace",
+          adminService: stagingAdminApp,
+        })
     : [];
   if (enabled && !production) {
     hosts.push({
@@ -682,6 +702,7 @@ export function buildPreviewDoksIngressValues(options = {}) {
 
 function buildDoksIngressHosts(environmentZone, hostMode, options = {}) {
   const apexService = options.apexService ?? "public-web";
+  const adminService = options.adminService ?? "admin-web";
   const hosts =
     hostMode === "live"
       ? {
@@ -712,7 +733,7 @@ function buildDoksIngressHosts(environmentZone, hostMode, options = {}) {
     },
     {
       host: hosts.admin,
-      paths: doksIngressPaths("admin-web"),
+      paths: doksIngressPaths(adminService),
     },
   ];
 }
