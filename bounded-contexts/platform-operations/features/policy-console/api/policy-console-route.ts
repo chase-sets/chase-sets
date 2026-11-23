@@ -23,7 +23,7 @@ import type {
 
 /**
  * The registry-driven admin surface for the platform policy console: lists every policy
- * declared by the migration slices, grouped by owning context, with history
+ * registered with it, grouped by owning context, with history
  * and scheduled-revision support. See `contracts.ts` for the read/write
  * seam this route is built on.
  *
@@ -131,10 +131,10 @@ export function createPolicyConsoleRoutes(entries: readonly PolicyConsoleEntry[]
       ];
     });
 
-    // Policies declared but never revised have no document row yet -- the
+    // Policies registered but never revised have no document row yet -- the
     // registry read model is derived from documents, not a separate
     // catalog. Surface them with their compiled defaults so the console
-    // still lists every declared policy, matching AC 1.
+    // still lists every registered policy.
     const seenKeys = new Set(items.map((item) => item.policyKey));
     for (const entry of entries) {
       if (seenKeys.has(entry.policyKey)) {

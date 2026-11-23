@@ -670,8 +670,11 @@ const postCaptureOfferConsent = {
 };
 // Cases whose bodies changed after the frozen capture: each keeps the capture's measured duration under the
 // identity of its current body. The first two gained Catalog Product Measure reaction assertions; the seed-command
-// case's Measure Profile fixture stopped declaring a product kind as a Physical Flag.
+// case's Measure Profile fixture stopped declaring a product kind as a Physical Flag; the payout-fee console case
+// gained a Wallet Adjustment limits revision through the policy console.
 const postCaptureCaseIdentities: Readonly<Record<string, string>> = Object.freeze({
+  "payout-fee-console-and-resolve bootstraps every whitelisted value in the production landing profile":
+    "5fdb2c0f5f9da735",
   "serializes two concurrent full production-like API host bootstraps with a database advisory lock":
     "6d1a3765438bca21",
   "boots with context-owned pools and replays cross-context projections": "a8d0c5cb21c9870d",

@@ -29,6 +29,7 @@ import { createCohortEvaluationRuntime } from "../../features/seller-compliance-
 import { createPolicyHistoryReader } from "@chase-sets/platform-policy/policy-history-reader";
 import { createReportedContentRuntime } from "../../features/reported-content/api/runtime";
 import { createRiskAlertRuntime } from "../../features/risk-alerts/api/runtime";
+import { riskAlertThresholdPolicy } from "../../features/risk-alerts/domain/risk-alert-threshold-policy";
 import { supportDeadlinePolicy } from "../../features/support-requests/domain/support-deadline-policy";
 import { platformRemedyPolicy } from "../../features/support-requests/domain/platform-remedy-policy";
 import { createSupportRequestRuntime } from "../../features/support-requests/api/runtime";
@@ -117,9 +118,9 @@ export type PlatformOperationsServices = Readonly<{
   riskAlerts: ReturnType<typeof createRiskAlertRuntime>;
   supportRequests: ReturnType<typeof createSupportRequestRuntime>;
   supportEvidenceLegacy: ReturnType<typeof createLegacyReferenceReconstruction>;
-  /** The shared platform-policy runtime, mounted for this context's `definePolicy` documents (the rate-limit policy and the support-flow deadline policy). */
+  /** The shared platform-policy runtime, mounted for this context's `definePolicy` documents. */
   policies: PolicyRuntime;
-  /** The platform policy console's full registry: this context's own two policies plus any injected cross-context ones. */
+  /** The platform policy console's full registry: this context's own policies plus any injected cross-context ones. */
   policyConsoleEntries: readonly PolicyConsoleEntry[];
   /** The unified support-reference lookup, routing to whichever cross-context sources were injected. */
   supportReferenceLookup: ReturnType<typeof createSupportReferenceLookupRuntime>;
@@ -173,6 +174,7 @@ export function createPlatformOperationsServices(
     supportDeadlinePolicy,
     platformRemedyPolicy,
     sellerComplianceCohortPolicy,
+    riskAlertThresholdPolicy,
   ] as unknown as readonly PolicyDefinition<JsonValue>[];
   const policyConsoleEntries: readonly PolicyConsoleEntry[] = [
     ...ownPolicyDefinitions.map(
