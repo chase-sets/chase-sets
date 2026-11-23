@@ -78,6 +78,18 @@ describe("market estimate display semantics", () => {
     expect(() =>
       classifyMarketEstimateForDisplay(estimate, { audience: "account", currencyCode: "usd", asOf: "not-a-timestamp" }),
     ).toThrow("Valuation as-of time must be an ISO timestamp.");
+    expect(() =>
+      classifyMarketEstimateForDisplay(
+        { ...estimate, freshUntil: "not-a-timestamp" },
+        { audience: "account", currencyCode: "usd", asOf: "2026-07-14T10:00:00.000Z" },
+      ),
+    ).toThrow("Estimate fresh-until time must be an ISO timestamp.");
+  });
+
+  it("reports the as-of value first when neither value is an ISO timestamp", () => {
+    expect(() => isMarketEstimateCurrentAt("not-a-timestamp", "also-not-a-timestamp")).toThrow(
+      "Valuation as-of time must be an ISO timestamp.",
+    );
   });
 
   it("uses exact decimal arithmetic for quantities and totals", () => {
