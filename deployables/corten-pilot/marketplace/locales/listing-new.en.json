@@ -1,4 +1,5 @@
 {
+  "error.shipping_measure_missing": "This product has no shipping measure yet, so it cannot be listed. Try again later.",
   "guidance.description": "What you post here is public and must follow the community guidelines.",
   "guidance.community_guidelines": "Community guidelines",
   "guidance.contact_support": "Contact support",
@@ -51,7 +52,6 @@
   "page.advanced.inventory.selected": "Advanced inventory selected",
   "page.the.listing.will.use.this.inventory": "The listing will use this inventory item's product, location, and available quantity.",
   "page.shipping.measure.missing": "Shipping measure missing",
-  "page.publish.requires.shipping.measure": "Resolve the catalog shipping measure before creating an active listing from this inventory.",
   "page.search.catalog": "Search catalog",
   "page.search.or.paste.catalog.item": "Search or paste a catalog item ID",
   "page.search.by.title.or.paste.catalog": "Search by title or paste a catalog item ID, then select the matching item.",

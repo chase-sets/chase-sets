@@ -97,7 +97,7 @@ impl PolicyInput {
             preview_unit_width_inches: "2.5".into(),
             preview_unit_height_inches: "0.016".into(),
             preview_unit_weight_ounces: "0.05".into(),
-            preview_physical_flags: vec!["raw-card".into()],
+            preview_physical_flags: vec!["bendable".into()],
         }
     }
 
@@ -269,6 +269,15 @@ mod tests {
         let json = serde_json::to_value(&command).unwrap();
         assert_eq!(json["maxLetterUnits"], 8.0, "the rules sit beside the label, as the API reads them: {json}");
         assert_eq!(json["effectiveFrom"], "2026-01-01T00:00:00.000Z");
+    }
+
+    #[test]
+    fn a_preview_untouched_sends_a_physical_property() {
+        let payload = default_payload();
+        let input = PolicyInput::new("Default", "2026-01-01T00:00:00.000Z", "", &payload);
+        let (payload, numbers) = input.preview_payload(Pilot::default()).expect("the defaults are valid");
+        let json = serde_json::to_value(input.preview(&payload, &numbers)).unwrap();
+        assert_eq!(json["physicalFlags"], serde_json::json!(["bendable"]), "a product kind is refused by the API: {json}");
     }
 
     #[test]
