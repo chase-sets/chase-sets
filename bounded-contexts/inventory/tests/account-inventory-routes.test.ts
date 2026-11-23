@@ -1434,10 +1434,14 @@ describe("marketplace inventory routes", () => {
     expect(requestedUrls.some((url) => url.includes("/api/inventory/import-batches/imb_1/commit"))).toBe(true);
   });
 
-  it("carries storage location write receipts into the list redirect", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((input: string | URL | Request) => {
+  it.each([
+    { intent: "create-location", method: "POST", suffix: "", archived: undefined },
+    { intent: "update-location", method: "PATCH", suffix: "/loc_1", archived: false },
+    { intent: "archive-location", method: "PATCH", suffix: "/loc_1", archived: true },
+  ])(
+    "carries $intent through the Inventory API into the list redirect",
+    async ({ intent, method, suffix, archived }) => {
+      const fetch = vi.fn((input: string | URL | Request, _init?: RequestInit) => {
         const url = String(input);
 
         if (url.includes("/api/auth/session")) {
@@ -1456,35 +1460,68 @@ describe("marketplace inventory routes", () => {
           );
         }
 
-        return Promise.resolve(jsonResponse({ id: "loc_created", version: 3 }, 201, commitHeaders("63")));
-      }),
-    );
+        return Promise.resolve(
+          jsonResponse({ id: "loc_1", version: 3 }, method === "POST" ? 201 : 200, commitHeaders("63")),
+        );
+      });
+      vi.stubGlobal("fetch", fetch);
 
-    const form = new URLSearchParams();
-    form.set("intent", "create-location");
-    form.set("name", "North shelf");
-    form.set("shipFromCode", "CHI-WH-1");
-    form.set("shipFromName", "Inventory");
-    form.set("shipFromLine1", "100 Test Lane");
-    form.set("shipFromCity", "Chicago");
-    form.set("shipFromState", "IL");
-    form.set("shipFromPostalCode", "60601");
-    form.set("shipFromCountry", "US");
+      const attemptId = "e6bbd002-97fb-4502-9c9a-11f84f201ff0";
+      const form = new URLSearchParams();
+      form.set("intent", intent);
+      form.set("storageLocationId", "loc_1");
+      form.set("inventoryMutationAttemptId", attemptId);
+      form.set("name", "North shelf");
+      form.set("description", "  Seller stock  ");
+      form.set("shipFromCode", "CHI-WH-1");
+      form.set("shipFromName", "Inventory");
+      form.set("shipFromLine1", "100 Test Lane");
+      form.set("shipFromCity", "Chicago");
+      form.set("shipFromState", "IL");
+      form.set("shipFromPostalCode", "60601");
+      form.set("shipFromCountry", "US");
 
-    const response = (await inventoryLocationsAction({
-      request: new Request("http://localhost/account/inventory/locations", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: form.toString(),
-      }),
-      params: {},
-      context: undefined,
-    } as never)) as Response;
+      const response = (await inventoryLocationsAction({
+        request: new Request("http://localhost/account/inventory/locations", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded", Cookie: "fixture=session" },
+          body: form.toString(),
+        }),
+        params: {},
+        context: undefined,
+      } as never)) as Response;
 
-    const location = response.headers.get("Location") ?? "";
-    expect(location).toContain("/account/inventory/locations?afterWrite=");
-    expect(readFreshWriteToken(`http://localhost${location}`)?.commitPosition).toBe("63");
-  });
+      const location = response.headers.get("Location") ?? "";
+      expect(location).toContain("/account/inventory/locations?afterWrite=");
+      expect(readFreshWriteToken(`http://localhost${location}`)?.commitPosition).toBe("63");
+      const [, init] = fetch.mock.calls.find(
+        ([input]) => new URL(String(input)).pathname === `/api/inventory/storage-locations${suffix}`,
+      )!;
+      expect(init?.method).toBe(method);
+      expect(init?.credentials).toBe("include");
+      const headers = new Headers(init?.headers);
+      expect(headers.get("Cookie")).toBe("fixture=session");
+      expect(headers.get("Inventory-Mutation-Attempt")).toBe(attemptId);
+      expect(JSON.parse(String(init?.body))).toEqual({
+        name: "North shelf",
+        description: "Seller stock",
+        shipFromCode: "CHI-WH-1",
+        shipFromAddress: {
+          name: "Inventory",
+          company: null,
+          line1: "100 Test Lane",
+          line2: null,
+          city: "Chicago",
+          state: "IL",
+          postalCode: "60601",
+          country: "US",
+          phone: null,
+          email: null,
+        },
+        ...(archived === undefined ? {} : { isArchived: archived }),
+      });
+    },
+  );
 
   it("returns bounded recovery while fresh storage locations are catching up", async () => {
     vi.stubGlobal(

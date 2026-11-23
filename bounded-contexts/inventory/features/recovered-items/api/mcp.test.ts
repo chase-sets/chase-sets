@@ -227,7 +227,7 @@ describe("recovered item MCP handlers", () => {
     ).toEqual(expected);
     const complete = (names: readonly string[]) => expected.every((name) => names.includes(name));
     for (const omitted of expected) expect(complete(expected.filter((name) => name !== omitted))).toBe(false);
-    const source = readFileSync(new URL("../../../routes/admin/recovered-items.tsx", import.meta.url), "utf8");
+    const source = readFileSync(new URL("../ui/routes/recovered-items.tsx", import.meta.url), "utf8");
     expect([...source.matchAll(/handleAction\("([^"]+)"/g)].map((match) => match[1]).sort()).toEqual(
       actions.map((row) => row.intent).sort(),
     );

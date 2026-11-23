@@ -232,25 +232,6 @@ export const inventoryEnglishTranslations = {
   "inventory.features.storageLocations.readModel.queries.storage.location.id.1": "storage_location_id = $1",
   "inventory.features.storageLocations.readModel.schema.create.table.if.not.exists.inventory":
     "\nCREATE TABLE IF NOT EXISTS inventory_storage_locations (\n  storage_location_id text PRIMARY KEY,\n  account_id text NOT NULL,\n  name text NOT NULL,\n  description text NULL,\n  ship_from_code text NOT NULL,\n  is_archived boolean NOT NULL DEFAULT false,\n  updated_at timestamptz NOT NULL DEFAULT now()\n);\n\nCREATE INDEX IF NOT EXISTS inventory_storage_locations_account_idx\n  ON inventory_storage_locations (account_id, is_archived, name);\n",
-  "inventory.features.storageLocations.ui.storageLocationPage.active": "Active",
-  "inventory.features.storageLocations.ui.storageLocationPage.archive.location": "Archive location",
-  "inventory.features.storageLocations.ui.storageLocationPage.archived": "Archived",
-  "inventory.features.storageLocations.ui.storageLocationPage.back.to.inventory": "Back to inventory",
-  "inventory.features.storageLocations.ui.storageLocationPage.create.location": "Create Location",
-  "inventory.features.storageLocations.ui.storageLocationPage.create.location.2": "Create location",
-  "inventory.features.storageLocations.ui.storageLocationPage.current.locations": "Current Locations",
-  "inventory.features.storageLocations.ui.storageLocationPage.description": "Description",
-  "inventory.features.storageLocations.ui.storageLocationPage.description.2": "Description",
-  "inventory.features.storageLocations.ui.storageLocationPage.map.seller.defined.storage.areas.to":
-    "Map seller-defined storage areas to ship-from codes.",
-  "inventory.features.storageLocations.ui.storageLocationPage.name": "Name",
-  "inventory.features.storageLocations.ui.storageLocationPage.name.2": "Name",
-  "inventory.features.storageLocations.ui.storageLocationPage.no.description": "No description",
-  "inventory.features.storageLocations.ui.storageLocationPage.save.location": "Save location",
-  "inventory.features.storageLocations.ui.storageLocationPage.seller": "Seller",
-  "inventory.features.storageLocations.ui.storageLocationPage.ship.from.code": "Ship-from code",
-  "inventory.features.storageLocations.ui.storageLocationPage.ship.from.code.2": "Ship-from code",
-  "inventory.features.storageLocations.ui.storageLocationPage.storage.locations": "Storage Locations",
   "inventory.routes.marketplace.accountInventory.inventory.marketplace": "Inventory | Marketplace",
   "inventory.routes.marketplace.accountInventory.manage.inventory.items.stock.counts.and":
     "Manage inventory items, stock counts, and storage context for your marketplace account.",
@@ -261,10 +242,6 @@ export const inventoryEnglishTranslations = {
   "inventory.routes.marketplace.accountInventoryRestockDecisions.description":
     "Choose whether returned stock is restocked or written off.",
   "inventory.routes.marketplace.accountInventoryRestockDecisions.title": "Restock Decisions | Marketplace",
-  "inventory.routes.marketplace.accountInventoryLocations.inventory.locations.marketplace":
-    "Inventory Locations | Marketplace",
-  "inventory.routes.marketplace.accountInventoryLocations.manage.the.storage.locations.and.ship":
-    "Manage the storage locations and ship-from metadata used by inventory items.",
   "inventory.features.inventoryItems.ui.inventoryItemListPage.location.option": "{name} ({shipFromCode})",
   "inventory.routes.marketplace.accountInventory.feedback.description":
     "Tell us what worked or got in the way while adding inventory.",
@@ -377,16 +354,6 @@ export const inventoryEnglishTranslations = {
     "The import batch is still updating. Reload this page in a moment.",
   "inventory.routes.marketplace.accountInventoryImports.upload.review.and.commit.csv":
     "Upload, review, and commit CSV stock intake rows.",
-  "inventory.features.storageLocations.ui.storageLocationPage.ship.from.name": "Ship-from name",
-  "inventory.features.storageLocations.ui.storageLocationPage.ship.from.company": "Ship-from company",
-  "inventory.features.storageLocations.ui.storageLocationPage.ship.from.line1": "Ship-from line 1",
-  "inventory.features.storageLocations.ui.storageLocationPage.ship.from.line2": "Ship-from line 2",
-  "inventory.features.storageLocations.ui.storageLocationPage.ship.from.city": "Ship-from city",
-  "inventory.features.storageLocations.ui.storageLocationPage.ship.from.state": "Ship-from state",
-  "inventory.features.storageLocations.ui.storageLocationPage.ship.from.postal.code": "Ship-from postal code",
-  "inventory.features.storageLocations.ui.storageLocationPage.ship.from.country": "Ship-from country",
-  "inventory.features.storageLocations.ui.storageLocationPage.ship.from.phone": "Ship-from phone",
-  "inventory.features.storageLocations.ui.storageLocationPage.ship.from.email": "Ship-from email",
   "inventory.features.recoveredItems.ui.page.inventory": "Inventory operations",
   "inventory.features.recoveredItems.api.route.not.found": "Recovered item not found.",
   "inventory.features.recoveredItems.api.route.unsupported.value.type": "Unsupported recovered value type.",
