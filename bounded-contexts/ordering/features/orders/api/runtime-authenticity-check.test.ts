@@ -118,6 +118,38 @@ describe("ordering order runtime: authenticity check opt-in (m109 #4275)", () =>
     expect(preview.authenticityCheckOffer).toBeNull();
   });
 
+  it("rejects an authenticity check opt-in when the resolver host port is not wired, creating no order", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const services = createOrderingOrderRuntimeForTest({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: highValueSupplyDb() as never,
+      shippingQuotePolicy: {
+        quote: () => ({ shippingOption: "standard", baseAmount: "4.99", discountAmount: "0.00", chargeAmount: "4.99" }),
+      },
+    });
+
+    await expect(
+      services.createOrdersFromCheckout(
+        {
+          buyerAccountId: "acc_buyer" as never,
+          checkoutSessionId: "chk_no_resolver_optin",
+          sourceType: "cart-checkout",
+          shippingOption: "standard",
+          shippingAddress,
+          lines: checkoutLines(),
+          // The fingerprint a wired resolver would quote for this $150.00 order under $8.00 plus 2%.
+          authenticityCheckOptIn: {
+            selected: true,
+            quoteFingerprint: "authenticity-check-fee-v1|eligible|150.00|100.00|any|11.00",
+          },
+        },
+        context,
+      ),
+    ).rejects.toThrow("Authenticity check is no longer available for this order.");
+    expect(readAllEvents().filter((event) => event.eventType === "ordering.order.created")).toEqual([]);
+  });
+
   it("freezes the authenticity plan onto the order and adds the fee to the order total when the buyer opts in", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
     const services = createOrderingOrderRuntimeForTest({

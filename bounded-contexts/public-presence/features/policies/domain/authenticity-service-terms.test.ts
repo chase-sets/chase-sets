@@ -200,7 +200,7 @@ const shippedEvidenceChecks: readonly {
   },
   {
     subjectId: "opt-in-and-fee",
-    ref: "bounded-contexts/ordering/features/orders/domain/authenticity-check-fee.ts:92-118",
+    ref: "bounded-contexts/ordering/features/orders/domain/authenticity-check-fee.ts:79-105",
     keyword: "optInThresholdAmount",
   },
   {

@@ -17,6 +17,10 @@ import { module as paymentsModule } from "../../../index";
 import { createPaymentsServices } from "../../../support/runtime-support/services";
 import { createPaymentProcessorWebhookRoutes } from "../../payments/api/route";
 import { quoteMarketplaceCheckoutFee } from "../../payments/api/marketplace-checkout-fee-policy";
+import {
+  checkoutProcessingFeePolicyResolverFor,
+  quotedCheckoutProcessingFeePolicyValue,
+} from "../../../tests/test-support/checkout-processing-fee-policy";
 import type { WalletFundingId } from "../domain/domain";
 import { buildWalletFundingProjectionHandlers } from "../read-model/projection";
 import { walletFundingSchemaMigrations } from "../read-model/schema";
@@ -28,12 +32,15 @@ const context: EventStoreContext = {
   tenantId: "tnt_identity",
   audit: { performedByUserId: "usr_synthetic", forAccountId: "acc_synthetic" },
 };
-const quote = quoteMarketplaceCheckoutFee({
-  orderAmount: "10.00",
-  externalBasisAmount: "10.00",
-  balanceCreditAmount: "0.00",
-  paymentMethodCategory: "card",
-});
+const quote = quoteMarketplaceCheckoutFee(
+  {
+    orderAmount: "10.00",
+    externalBasisAmount: "10.00",
+    balanceCreditAmount: "0.00",
+    paymentMethodCategory: "card",
+  },
+  quotedCheckoutProcessingFeePolicyValue,
+);
 const secret = "whsec_synthetic_wallet_funding_db";
 
 describe("wallet-funding-capture-once", () => {
@@ -76,6 +83,9 @@ describe("wallet-funding-capture-once", () => {
         }),
       },
       walletFundingEligibilityResolver: { resolve: async () => ({ goodStanding: true, paymentsTerms: "not-active" }) },
+      checkoutProcessingFeePolicyResolver: checkoutProcessingFeePolicyResolverFor(
+        quotedCheckoutProcessingFeePolicyValue,
+      ),
     });
   }
   async function create(runtime: ReturnType<typeof services>, fundingId: WalletFundingId) {

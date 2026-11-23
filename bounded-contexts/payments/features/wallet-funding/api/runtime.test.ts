@@ -9,7 +9,15 @@ import { Hono } from "hono";
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import { buildPaymentsApi } from "../../../api";
 import { createPaymentsServices } from "../../../support/runtime-support/services";
-import { quoteMarketplaceCheckoutFee } from "../../payments/api/marketplace-checkout-fee-policy";
+import {
+  MarketplaceCheckoutFeePolicyUnavailableError,
+  quoteMarketplaceCheckoutFee,
+} from "../../payments/api/marketplace-checkout-fee-policy";
+import { PaymentsDomainError } from "../../../support/runtime-support/common";
+import {
+  checkoutProcessingFeePolicyResolverFor,
+  quotedCheckoutProcessingFeePolicyValue,
+} from "../../../tests/test-support/checkout-processing-fee-policy";
 import type { SavedCheckoutInstrumentRow } from "../../payments/read-model/queries";
 import { createWalletFundingRuntime, type WalletFundingRuntimeDeps } from "./runtime";
 import { defaultWalletFundingLimits, decodeWalletFundingLimits } from "./limits-policy";
@@ -116,14 +124,20 @@ function harness(options: Partial<WalletFundingRuntimeDeps> = {}) {
     now: () => new Date(at),
     environment: { DEPLOYMENT_ENVIRONMENT: "test" },
     walletFundingEligibilityResolver: { resolve: async () => ({ goodStanding: true, paymentsTerms: "not-active" }) },
+    // Funding quotes against the same stated value as `quote` below unless a test wires its own
+    // resolver; a test of the unwired case passes the resolver as `undefined`.
+    checkoutProcessingFeePolicyResolver: checkoutProcessingFeePolicyResolverFor(quotedCheckoutProcessingFeePolicyValue),
     ...options,
   });
-  const quote = quoteMarketplaceCheckoutFee({
-    orderAmount: "10.00",
-    externalBasisAmount: "10.00",
-    balanceCreditAmount: "0.00",
-    paymentMethodCategory: "card",
-  });
+  const quote = quoteMarketplaceCheckoutFee(
+    {
+      orderAmount: "10.00",
+      externalBasisAmount: "10.00",
+      balanceCreditAmount: "0.00",
+      paymentMethodCategory: "card",
+    },
+    quotedCheckoutProcessingFeePolicyValue,
+  );
   async function captured() {
     await runtime.command(
       fundingId,
@@ -169,6 +183,11 @@ describe("wallet-funding-fee-gross-up", () => {
     const h = harness();
     const quoted = await h.runtime.create(createInput, context);
     expect(quoted.quote.quote_fingerprint).toBe(h.quote.quote_fingerprint);
+    expect(quoted.quote).toMatchObject({
+      marketplace_checkout_fee_amount: "0.61",
+      processor_amount: "10.61",
+      quote_fingerprint: "marketplace-checkout-fee-v1|card|10.00|0.00|10.00|0.61|10.61|10.61",
+    });
     expect(h.gateway.createPaymentSession).not.toHaveBeenCalled();
     await h.runtime.create({ ...createInput, quoteFingerprint: h.quote.quote_fingerprint }, context);
     expect(h.gateway.createPaymentSession).toHaveBeenCalledWith(
@@ -190,6 +209,20 @@ describe("wallet-funding-fee-gross-up", () => {
       "fee_quote_stale",
     );
     expect(h.gateway.createPaymentSession).not.toHaveBeenCalled();
+  });
+  it("refuses to quote when no policy resolver is wired and creates no funding", async () => {
+    const h = harness({ checkoutProcessingFeePolicyResolver: undefined });
+    for (const input of [createInput, { ...createInput, quoteFingerprint: h.quote.quote_fingerprint }]) {
+      const error = await h.runtime.create(input, context).then(
+        () => null,
+        (reason: unknown) => reason,
+      );
+      expect(error).toBeInstanceOf(MarketplaceCheckoutFeePolicyUnavailableError);
+      expect(error).toBeInstanceOf(PaymentsDomainError);
+      expect(error).toMatchObject({ code: "marketplace_checkout_fee_policy_unavailable" });
+    }
+    expect(h.gateway.createPaymentSession).not.toHaveBeenCalled();
+    expect(await h.store.readStream({ streamId: `payments.wallet-funding-${fundingId}` })).toEqual([]);
   });
   it("rejects the no-fee gross mutant at the aggregate boundary", () => {
     expect(() =>
@@ -942,7 +975,15 @@ describe("wallet-funding-route-isolation", () => {
         ? [{ funding_id: fundingId, state }]
         : []) as Row[],
     }));
-    const services = { ...createPaymentsServices(h.pool, { processorGateway: h.gateway }), walletFunding: h.runtime };
+    const services = {
+      ...createPaymentsServices(h.pool, {
+        processorGateway: h.gateway,
+        checkoutProcessingFeePolicyResolver: checkoutProcessingFeePolicyResolverFor(
+          quotedCheckoutProcessingFeePolicyValue,
+        ),
+      }),
+      walletFunding: h.runtime,
+    };
     const app = new Hono<AuthenticatedApiEnv>();
     app.use("*", async (c, next) => {
       c.set("actor", {
