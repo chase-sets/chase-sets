@@ -1056,7 +1056,7 @@
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by pricing-owned features and composition seams.",
-      "expectedConsumers": ["economics", "pricing-health", "recommendations"]
+      "expectedConsumers": ["economics", "pricing-health", "recommendations", "repricing-engine"]
     },
     "realtime-support": {
       "classification": "support",

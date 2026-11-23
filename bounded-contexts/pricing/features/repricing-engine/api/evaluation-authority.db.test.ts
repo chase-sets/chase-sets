@@ -52,6 +52,14 @@ const stopped = new Error("synthetic process stop");
 type Owner = (typeof names)[number];
 type Hook = (run: () => Promise<unknown>, sql: string, values?: readonly unknown[]) => Promise<unknown>;
 
+function handoffSignal() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((ready) => {
+    resolve = ready;
+  });
+  return { promise, resolve };
+}
+
 function instrument(pool: PgTransactionalPool, hook: () => Hook): PgTransactionalPool {
   const wrap =
     (db: PgQueryable, intercept: Hook): PgQueryable["query"] =>
@@ -445,8 +453,8 @@ describeDb("Pricing Evaluated Decision with separate owner stores", () => {
       await pools.marketplace.query("DELETE FROM event_request_terminal_witnesses WHERE request_id = $1", [
         original.requestId,
       ]);
-      const entered = Promise.withResolvers<PgQueryable>();
-      const proceed = Promise.withResolvers<void>();
+      const entered = handoffSignal();
+      const proceed = handoffSignal();
       let registration: Promise<string | undefined>;
       let raw: Promise<unknown>;
       const holder = await pools.marketplace.connect();
@@ -463,7 +471,7 @@ describeDb("Pricing Evaluated Decision with separate owner stores", () => {
             query: pools.marketplace.query.bind(pools.marketplace),
             connect: async () => ({
               query: async <Row = Record<string, unknown>>(sql: string, values?: readonly unknown[]) => {
-                if (sql === "COMMIT") entered.resolve(holder);
+                if (sql === "COMMIT") entered.resolve();
                 if (sql === "COMMIT") await proceed.promise;
                 return holder.query<Row>(sql, values);
               },
@@ -688,8 +696,8 @@ describeDb("Pricing Evaluated Decision with separate owner stores", () => {
       ownerStreamId.includes("repricing-catalog-category"),
     )!;
     const catalog = await pools.catalog.connect();
-    const published = Promise.withResolvers<void>();
-    const proceed = Promise.withResolvers<void>();
+    const published = handoffSignal();
+    const proceed = handoffSignal();
     const fault = atHandoff(
       "publish",
       async () => {
