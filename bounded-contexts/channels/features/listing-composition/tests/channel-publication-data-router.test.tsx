@@ -29,7 +29,14 @@ describe("channel-publication-settings-route", () => {
     const harness = routeHarness([]);
     const listingComposition = services({});
     harness.mountApi(listingComposition);
-    const args = loaderArgs("/account/channels/publication");
+    const url = new URL("http://localhost/account/channels/publication");
+    const args = {
+      request: new Request(url),
+      url,
+      pattern: url.pathname,
+      params: {},
+      context: {},
+    } satisfies Parameters<typeof listLoader>[0];
 
     await expect(listLoader(args)).rejects.toMatchObject({ status: 403 });
     expect(harness.apiRequests).toEqual([]);
