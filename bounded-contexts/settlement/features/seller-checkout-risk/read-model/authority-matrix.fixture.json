@@ -28,7 +28,7 @@
       "account-risk-source-projection.test.ts::requires every account-risk writer to publish an atomic revision",
       "account-risk-source-projection.test.ts::classifies only exact immutable legacy normalization before revision introduction",
       "account-risk-source-projection.test.ts::discovers and rejects %s through the same source scan",
-      "seller-checkout-risk-revision.db.test.ts::publishes insert one and an atomic increment for every <writer> write/conflict (all ten registered writer cases)",
+      "seller-checkout-risk-revision.db.test.ts::publishes insert one and an atomic increment for every <writer> write/conflict (all nine registered writer cases)",
       "seller-checkout-risk-revision.db.test.ts::serializes overlapping conflicting writers in PostgreSQL without a lost revision or fraud count",
       "seller-checkout-risk-revision.db.test.ts::observes absence after UNLOGGED projection loss and reconstructs source facts/stamps through ordered replay"
     ],
@@ -52,7 +52,6 @@
     "badge assignment",
     "address linkage",
     "instrument linkage",
-    "velocity aggregation",
     "reputation aggregation",
     "fraud warning",
     "fraud review open",

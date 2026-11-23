@@ -72,7 +72,10 @@ export function productContentRoutes(services: ProductContentServices) {
   return app;
 }
 
-function toReplaceProductContentsInput(containerCatalogItemId: string, value: unknown): ReplaceProductContentsInput {
+export function toReplaceProductContentsInput(
+  containerCatalogItemId: string,
+  value: unknown,
+): ReplaceProductContentsInput {
   const body = isRecord(value) ? value : {};
 
   return {
