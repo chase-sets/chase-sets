@@ -3,7 +3,11 @@ import { Hono } from "hono";
 import type { CommercialTermsPolicyRuntime } from "../../../support/runtime-support/policy-runtime";
 import type { CommercialTermsApiEnv } from "../../../api";
 import { normalizeCommercialTermsStatus, normalizeEffectiveWindow } from "../../../support/runtime-support/common";
-import { authenticityFeePolicy, decodeAuthenticityFeePolicyValue } from "../domain/policy";
+import {
+  authenticityFeePolicy,
+  decodeAuthenticityFeePolicyValue,
+  normalizeAuthenticityFeeBandCategory,
+} from "../domain/policy";
 
 function requireAccess(
   c: { get(key: "actor"): CommercialTermsApiEnv["Variables"]["actor"] },
@@ -55,7 +59,8 @@ function policyValueFromBody(body: Record<string, unknown>) {
     bands: Array.isArray(body.bands)
       ? (body.bands as Record<string, unknown>[]).map((band) => ({
           minOrderValueAmount: String(band.minOrderValueAmount ?? ""),
-          category: String(band.category ?? ""),
+          // The decoder drops a band stored with a retired category; a write here is refused instead.
+          category: normalizeAuthenticityFeeBandCategory(band.category),
           flatAmount: String(band.flatAmount ?? ""),
           percentageBps: Number(band.percentageBps),
           capAmount: String(band.capAmount ?? ""),

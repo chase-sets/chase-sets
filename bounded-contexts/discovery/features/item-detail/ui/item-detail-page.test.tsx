@@ -56,3 +56,38 @@ it("prefers the Catalog fallback when the Magic card has one", () => {
 
   expect(screen.getByRole("img", { name: "Magic: The Gathering card back" }).getAttribute("src")).toBe(url);
 });
+
+it("shows an item's one picture alone when it has no fallback, with no placeholder or thumbnails", () => {
+  render(<ItemDetailPage data={{ ...magicItem, image_urls: ["/fake-cdn/items/black-lotus.jpg"] }} />);
+
+  expect(screen.getByRole("img", { name: "Black Lotus image 1" }).getAttribute("src")).toContain(
+    "/fake-cdn/items/black-lotus.jpg",
+  );
+  expect(screen.queryByRole("img", { name: "Default product image" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Black Lotus image 1" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Default product image" })).toBeNull();
+  // While the picture loads the placeholder may cover it, hidden from assistive technology; it is never a picture.
+  for (const cover of document.querySelectorAll('img[src="/fake-cdn/assets/product-image-placeholder.svg"]')) {
+    expect(cover.getAttribute("aria-hidden")).toBe("true");
+  }
+});
+
+it("keeps an item's own permanent fallback as its last gallery picture", () => {
+  const url = "/fake-cdn/assets/magic-card-back.svg";
+  render(
+    <ItemDetailPage
+      data={{
+        ...magicItem,
+        image_urls: ["/fake-cdn/items/black-lotus.jpg"],
+        image_fallback: { url, alt: "Magic: The Gathering card back", usage: "permanent", variants: {} },
+      }}
+    />,
+  );
+
+  const thumbnails = screen.getAllByRole("button", { name: /Black Lotus image 1|Magic: The Gathering card back/ });
+  expect(thumbnails.map((button) => button.getAttribute("aria-label"))).toEqual([
+    "Black Lotus image 1",
+    "Magic: The Gathering card back",
+  ]);
+  expect(screen.queryByRole("img", { name: "Default product image" })).toBeNull();
+});

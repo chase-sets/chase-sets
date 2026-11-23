@@ -7,15 +7,15 @@ import {
   type FreshWriteReceipt,
   type SourceCommitPosition,
 } from "@chase-sets/http/responses";
-export { createPaymentsApiClient, PaymentsApiError, paymentsApi } from "../../client";
+export { createPaymentsApiClient, PaymentsApiError, paymentsApi } from "../../../client";
 export type {
   PaymentsAccountOrderInput,
   PaymentsApiClientOptions,
   PaymentsPaymentDetail,
   PaymentsSavedCheckoutInstrument,
-} from "../../client";
-export { normalizeRequestedBalanceCreditAmount } from "../../features/payments/api/balance-credit-request";
-import { createPaymentsApiClient } from "../../client";
+} from "../../../client";
+export { normalizeRequestedBalanceCreditAmount } from "./balance-credit-request";
+import { createPaymentsApiClient } from "../../../client";
 
 export type PaymentsRequestApiClientOptions = Readonly<{
   headers?: HeadersInit;

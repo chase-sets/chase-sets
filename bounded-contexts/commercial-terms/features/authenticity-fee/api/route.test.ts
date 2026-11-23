@@ -106,7 +106,7 @@ describe("commercial terms authenticity fee routes", () => {
     expect(createPolicyDocument).toHaveBeenCalledWith(
       expect.objectContaining({ policyKey: "commercial-terms.authenticity-fee" }),
       expect.objectContaining({
-        value: expect.objectContaining({ optInThresholdAmount: "100.00" }),
+        value: samplePolicyValue,
         status: "active",
         actorUserId: "usr_admin",
       }),
@@ -150,7 +150,7 @@ describe("commercial terms authenticity fee routes", () => {
       expect.objectContaining({ policyKey: "commercial-terms.authenticity-fee" }),
       "pol_1",
       expect.objectContaining({
-        value: expect.objectContaining({ optInThresholdAmount: "150.00" }),
+        value: { ...samplePolicyValue, optInThresholdAmount: "150.00" },
         actorUserId: "usr_admin",
       }),
       context,
@@ -172,6 +172,37 @@ describe("commercial terms authenticity fee routes", () => {
     });
 
     expect(response.status).toBe(400);
+    expect(revisePolicyDocument).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["raw", { ...samplePolicyValue.bands[0], category: "raw" }],
+    ["graded", { ...samplePolicyValue.bands[0], category: "graded" }],
+    ["missing", { minOrderValueAmount: "0.00", flatAmount: "8.00", percentageBps: 200, capAmount: "50.00" }],
+  ])("rejects a %s band category when creating or revising the policy", async (_label, band) => {
+    const createPolicyDocument = vi.fn();
+    const revisePolicyDocument = vi.fn();
+    const app = createApp({ createPolicyDocument, revisePolicyDocument }, ["commercial-terms.manage"]);
+    const request = {
+      body: JSON.stringify({
+        optInThresholdAmount: "100.00",
+        bands: [samplePolicyValue.bands[0], { ...band, minOrderValueAmount: "500.00" }],
+        status: "active",
+        effectiveFrom: "2026-08-01T00:00:00.000Z",
+      }),
+      headers: { "Content-Type": "application/json" },
+    };
+
+    const created = await app.request("/", { method: "POST", ...request });
+    const revised = await app.request("/pol_1", { method: "PUT", ...request });
+
+    for (const response of [created, revised]) {
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({
+        error: { code: "validation_failed", message: 'Authenticity fee band category must be "any".' },
+      });
+    }
+    expect(createPolicyDocument).not.toHaveBeenCalled();
     expect(revisePolicyDocument).not.toHaveBeenCalled();
   });
 

@@ -10,8 +10,11 @@ import {
   resolvePlatformPostWriteRequest,
 } from "@chase-sets/platform-runtime/post-write-tokens";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
-import { createPaymentsRequestApiClient, PaymentsApiError } from "../../../../support/request-support/api-client";
-import type { PaymentsAccountOrderInput } from "../../../../support/request-support/api-client";
+import {
+  createPaymentsRequestApiClient,
+  PaymentsApiError,
+  type PaymentsAccountOrderInput,
+} from "../../api/request-client";
 import type {
   AccountPaymentOrderView,
   PaymentElementDefaultValues,

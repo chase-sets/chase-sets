@@ -33,6 +33,7 @@ import {
   recordCheckoutObservabilityEvent,
   recordEventStoreAppendAdvisoryLockHold,
   recordMcpAuditRecord,
+  recordPlatformPolicyStaleServed,
   recordPostWriteConsistencyEvent,
   recordProjectionFreshnessWakeEnqueue,
   recordProviderWebhookIngestion,
@@ -1654,6 +1655,67 @@ describe("event-store append lock observability", () => {
           projection: "ordering-marketplace-offer-acceptance",
           subscription: "ordering.marketplace-offer-acceptance",
         },
+      },
+    ]);
+  });
+});
+
+describe("platform policy stale-served observability", () => {
+  function captureHistogram() {
+    const histogramRecords: unknown[] = [];
+    const createHistogram = vi.fn((name: string) => ({
+      record: (value: number, attributes?: unknown) => histogramRecords.push({ name, value, attributes }),
+    }));
+    const getMeter = vi.spyOn(metrics, "getMeter").mockReturnValue({
+      createCounter: vi.fn(),
+      createHistogram,
+      createUpDownCounter: vi.fn(),
+    } as never);
+    return { histogramRecords, createHistogram, getMeter };
+  }
+
+  it("records the served set's age with bounded policy key and context labels", () => {
+    const { histogramRecords, createHistogram, getMeter } = captureHistogram();
+
+    try {
+      recordPlatformPolicyStaleServed({
+        policyKey: "settlement.payout bounds",
+        contextName: "settlement",
+        ageMs: 1_499.6,
+      });
+    } finally {
+      getMeter.mockRestore();
+    }
+
+    expect(createHistogram).toHaveBeenCalledWith("chase_sets_platform_policy_stale_served_age_ms", { unit: "ms" });
+    expect(histogramRecords).toEqual([
+      {
+        name: "chase_sets_platform_policy_stale_served_age_ms",
+        value: 1_500,
+        attributes: { policy_key: "settlement.payout_bounds", context: "settlement" },
+      },
+    ]);
+  });
+
+  it("clamps a negative age to zero and drops a non-finite one", () => {
+    const { histogramRecords, getMeter } = captureHistogram();
+
+    try {
+      recordPlatformPolicyStaleServed({ policyKey: "settlement.payout-fee", contextName: "settlement", ageMs: -5 });
+      recordPlatformPolicyStaleServed({
+        policyKey: "settlement.payout-fee",
+        contextName: "settlement",
+        ageMs: Number.NaN,
+      });
+    } finally {
+      getMeter.mockRestore();
+    }
+
+    expect(histogramRecords).toEqual([
+      {
+        name: "chase_sets_platform_policy_stale_served_age_ms",
+        value: 0,
+        attributes: { policy_key: "settlement.payout-fee", context: "settlement" },
       },
     ]);
   });

@@ -5,9 +5,12 @@ export type PolicyProjectionOptions = Readonly<{
   /**
    * Invoked synchronously, in the same transaction-scoped handler call, right
    * after a policy document's created/revised event is applied to the read
-   * model. This is the push-based cache-invalidation hook: it rides the same
-   * event flow that already drives the projection (no separate polling loop
-   * and no TTL). Callers wire this to a `PolicyCache`'s `invalidate`.
+   * model. Callers wire this to a `PolicyCache`'s `invalidate`, so the process
+   * that applies the projection reads again on its next resolution. It fires
+   * before the handler's transaction commits, so a concurrent read can cache
+   * the earlier rows again, and it never fires in a process that does not
+   * apply the projection. Both cases are bounded by the cache's
+   * `POLICY_CACHE_MAX_AGE_MS`.
    */
   onPolicyRevised?: (policyKey: string) => void;
 }>;

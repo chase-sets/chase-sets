@@ -48,6 +48,9 @@ const adminPassword = getSmokeEnv("PLATFORM_ADMIN_PASSWORD");
 const writeWaitlist = (getSmokeEnv("SMOKE_WRITE_WAITLIST") || "true").toLowerCase() !== "false";
 const requireLanding = readBooleanEnv("SMOKE_REQUIRE_LANDING", true);
 const requireAdmin = readBooleanEnv("SMOKE_REQUIRE_ADMIN", false);
+// The admin home and the platform API through it are checked unless a caller that smokes only another origin
+// turns them off, so an admin outage does not fail that smoke.
+const checkAdminSurface = readBooleanEnv("SMOKE_CHECK_ADMIN_SURFACE", true);
 const requireAdminGoogleWorkspaceSso = readBooleanEnv("SMOKE_REQUIRE_ADMIN_GOOGLE_WORKSPACE_SSO", false);
 const requireMarketplace = readBooleanEnv("SMOKE_REQUIRE_MARKETPLACE", false);
 const requireMarketplaceRoot = readBooleanEnv("SMOKE_REQUIRE_MARKETPLACE_ROOT", false);
@@ -575,6 +578,11 @@ async function main() {
   if (requireAdmin && (!adminEmail || !adminPassword)) {
     throw new Error("PLATFORM_ADMIN_EMAIL and PLATFORM_ADMIN_PASSWORD are required when SMOKE_REQUIRE_ADMIN=true.");
   }
+  if (!checkAdminSurface && (requireAdmin || requireAdminGoogleWorkspaceSso || adminEmail || adminPassword)) {
+    throw new Error(
+      "SMOKE_CHECK_ADMIN_SURFACE=false cannot be combined with an admin sign-in, SMOKE_REQUIRE_ADMIN or admin SSO.",
+    );
+  }
 
   if (requireLanding) {
     await expectOk("landing home", `${landingUrl}/`);
@@ -593,8 +601,12 @@ async function main() {
   } else {
     console.warn("Skipping native MCP smoke; SMOKE_REQUIRE_NATIVE_MCP is not true.");
   }
-  await expectOk("admin home", `${adminUrl}/`);
-  await expectOk("platform API health through admin", `${adminUrl}/api/health/ready`);
+  if (checkAdminSurface) {
+    await expectOk("admin home", `${adminUrl}/`);
+    await expectOk("platform API health through admin", `${adminUrl}/api/health/ready`);
+  } else {
+    console.warn("Skipping the admin home and API health; SMOKE_CHECK_ADMIN_SURFACE is false.");
+  }
   if (requireAdminGoogleWorkspaceSso) {
     await expectAdminGoogleWorkspaceSsoStart(adminUrl);
   }

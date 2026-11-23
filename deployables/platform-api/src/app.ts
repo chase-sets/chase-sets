@@ -903,7 +903,9 @@ function createPlatformApiChannelSaleRecorder(
  * populated (host ports are needed before that point). Reusing the owning
  * context's own already-running `PolicyRuntime` -- rather than building a
  * second one bound to the same pool -- keeps the console's writes and that
- * context's own resolvers sharing one push-invalidated cache.
+ * context's own resolvers on one cache. This process does not apply the
+ * policy projection, so that cache follows a revision within its one-second
+ * age bound and keeps serving the set it last loaded while a refresh fails.
  */
 function lazyPolicyConsoleWritePort(
   getServices: () => { policies?: PolicyConsoleWritePort } | undefined,

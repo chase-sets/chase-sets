@@ -29,7 +29,7 @@ export const contextManifest = {
   ],
   contextName: "payments",
   packageName: "@chase-sets/payments",
-  localeCatalogs: ["contracts/localization/locales/en/payments.ts"],
+  localeCatalogs: ["contracts/localization/locales/en/payments.ts", ...payments.localeCatalogs],
   ownedNouns: ["payment", "refund", "wallet-funding"],
   streamPrefix: "payments.",
   apiBasePath: "/api/marketplace",
@@ -365,7 +365,7 @@ export const contextManifest = {
         },
       },
       proof: {
-        tests: ["bounded-contexts/payments/tests/account-payment-new-wallet-status.test.tsx"],
+        tests: ["bounded-contexts/payments/features/payments/ui/routes/account-payment-new-wallet-status.test.tsx"],
       },
     },
     {
@@ -522,58 +522,8 @@ export const contextManifest = {
       deployable: "marketplace-web",
       routes: [
         payments.accountPaymentRoute,
-        {
-          routeId: "account-payment-new",
-          routePath: "account/payments/new",
-          fileExport: "./routes/marketplace/account-payment-new",
-          routeType: "route",
-          sourceContext: "payments",
-          delivery: "server-only",
-          authorization: {
-            kind: "authenticated",
-            requiredPermissions: [],
-          },
-          canonicalLink: {
-            kind: "not-applicable",
-            reason: "Canonical-link publication is deferred with mobile route extraction.",
-          },
-          availability: {
-            web: true,
-            mobile: false,
-          },
-          pageComponentExport: "default",
-          unsupportedMobile: {
-            owner: "payments",
-            followUp: "#5238",
-            reason: "Portable data operations have not been extracted for this route.",
-          },
-        },
-        {
-          routeId: "account-payment-methods",
-          routePath: "account/payment-methods",
-          fileExport: "./routes/marketplace/account-payment-methods",
-          routeType: "route",
-          sourceContext: "payments",
-          delivery: "server-only",
-          authorization: {
-            kind: "authenticated",
-            requiredPermissions: [],
-          },
-          canonicalLink: {
-            kind: "not-applicable",
-            reason: "Canonical-link publication is deferred with mobile route extraction.",
-          },
-          availability: {
-            web: true,
-            mobile: false,
-          },
-          pageComponentExport: "default",
-          unsupportedMobile: {
-            owner: "payments",
-            followUp: "#5238",
-            reason: "Portable data operations have not been extracted for this route.",
-          },
-        },
+        payments.accountPaymentNewRoute,
+        payments.accountPaymentMethodsRoute,
         payments.checkoutPaymentRoute,
       ],
     },

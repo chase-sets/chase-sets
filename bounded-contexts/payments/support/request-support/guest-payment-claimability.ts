@@ -1,4 +1,4 @@
-import { createPaymentsRequestApiClient } from "./api-client";
+import { createPaymentsRequestApiClient } from "../../features/payments/api/request-client";
 import { isClaimablePayment } from "../../features/payments/ui/account-payment/account-payment-display";
 
 export async function readGuestPaymentClaimability(

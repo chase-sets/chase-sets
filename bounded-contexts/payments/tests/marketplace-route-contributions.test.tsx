@@ -5,6 +5,10 @@ import { describe, expect, it } from "vitest";
 
 import * as accountPaymentRoute from "../routes/marketplace/account-payment";
 import * as checkoutPaymentRoute from "../routes/marketplace/checkout-payment";
+import * as accountPaymentMethodsRoute from "../routes/marketplace/account-payment-methods";
+import * as accountPaymentNewRoute from "../routes/marketplace/account-payment-new";
+import * as featureAccountPaymentMethodsRoute from "../features/payments/ui/routes/account-payment-methods";
+import * as featureAccountPaymentNewRoute from "../features/payments/ui/routes/account-payment-new";
 
 const paymentsRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -67,5 +71,21 @@ describe("Payments marketplace route contributions", () => {
     expect(checkoutPaymentRoute.loader).toBe(accountPaymentRoute.loader);
     expect(checkoutPaymentRoute.meta).toBe(accountPaymentRoute.meta);
     expect(checkoutPaymentRoute.ErrorBoundary).toBe(accountPaymentRoute.ErrorBoundary);
+  });
+
+  it.each([
+    { adapter: accountPaymentNewRoute, feature: featureAccountPaymentNewRoute, routeId: "account-payment-new" },
+    {
+      adapter: accountPaymentMethodsRoute,
+      feature: featureAccountPaymentMethodsRoute,
+      routeId: "account-payment-methods",
+    },
+  ])("re-exports the exact $routeId bindings from the feature", ({ adapter, feature }) => {
+    expect(Object.keys(adapter).sort()).toEqual(["action", "default", "loader", "meta"]);
+    expect(Object.keys(feature).sort()).toEqual(Object.keys(adapter).sort());
+    expect(adapter.action).toBe(feature.action);
+    expect(adapter.default).toBe(feature.default);
+    expect(adapter.loader).toBe(feature.loader);
+    expect(adapter.meta).toBe(feature.meta);
   });
 });
