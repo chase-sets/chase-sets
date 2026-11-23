@@ -201,6 +201,23 @@
       "requiresAuth": false
     }
   ],
+  "eventReactions": [
+    {
+      "sourceContextName": "catalog",
+      "reactionName": "catalog-product-measure-resolution",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "catalog.catalog-item.published",
+        "catalog.catalog-item.category-assigned",
+        "catalog.catalog-item.category-removed"
+      ],
+      "order": 100,
+      "reactionHandlerSetNames": ["catalog-product-measure-resolution"],
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure"
+    }
+  ],
   "projectionGroups": [
     {
       "projectionName": "catalog-item-projection",
@@ -287,6 +304,14 @@
       "projectionName": "catalog-blueprint-projection",
       "sourceContextNames": ["catalog"],
       "ownedTables": ["catalog_blueprints"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "catalog-product-measure-resolution",
+      "handlerKind": "reaction",
+      "sourceContextNames": ["catalog"],
+      "ownedTables": [],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
     }
@@ -1119,7 +1144,6 @@
         "display-templates",
         "fields",
         "product-contents",
-        "product-measures",
         "reference-data",
         "source-observations"
       ],

@@ -668,6 +668,13 @@ const postCaptureOfferConsent = {
     identity: "d02abcddabdae4d0",
   },
 };
+// Cases whose assertions changed after the frozen capture: each keeps the capture's measured duration under the
+// identity of its current body. Both gained Catalog Product Measure reaction assertions.
+const postCaptureCaseIdentities: Readonly<Record<string, string>> = Object.freeze({
+  "serializes two concurrent full production-like API host bootstraps with a database advisory lock":
+    "6d1a3765438bca21",
+  "boots with context-owned pools and replays cross-context projections": "a8d0c5cb21c9870d",
+});
 const derivedShippedAssignment: Readonly<Record<string, BootstrapDbEnrollmentPartition["executionUnit"]>> =
   Object.freeze({
     "bootstrap-production-reconciliation.db.test.ts": "test:db:1",
@@ -3017,7 +3024,7 @@ describe("Platform API bootstrap DB enrollment", () => {
           ...(file.fileName === postCaptureOfferConsent.fileName ? [postCaptureOfferConsent.testCase] : []),
           ...file.cases.map(({ name, identity, referenceDurationMs }) => ({
             name,
-            identity,
+            identity: postCaptureCaseIdentities[name] ?? identity,
             referenceDurationMs,
           })),
         ]);
