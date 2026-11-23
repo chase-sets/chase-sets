@@ -143,9 +143,6 @@ export const contextManifest = {
       eventTypes: ["payments.payment-disputed"],
       order: 32,
       reactionHandlerSetNames: ["payments-dispute-evidence-submission"],
-      idempotencyPolicy: "idempotent-command-dispatch",
-      retryPolicy: "retry-from-last-checkpoint",
-      failurePolicy: "surface-as-reaction-failure",
     },
   ],
   projectionGroups: [

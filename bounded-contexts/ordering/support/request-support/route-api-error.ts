@@ -1,5 +1,5 @@
 import { defineApiErrorAdapter } from "@chase-sets/platform-runtime/http";
-import { OrderingApiError } from "../../client";
+import { OrderingApiError } from "./client";
 
 export const orderingApiErrorAdapter = defineApiErrorAdapter({
   isError: (error): error is OrderingApiError =>

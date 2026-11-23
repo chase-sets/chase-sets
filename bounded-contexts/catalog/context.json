@@ -201,6 +201,20 @@
       "requiresAuth": false
     }
   ],
+  "eventReactions": [
+    {
+      "sourceContextName": "catalog",
+      "reactionName": "catalog-product-measure-resolution",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "catalog.catalog-item.published",
+        "catalog.catalog-item.category-assigned",
+        "catalog.catalog-item.category-removed"
+      ],
+      "order": 100,
+      "reactionHandlerSetNames": ["catalog-product-measure-resolution"]
+    }
+  ],
   "projectionGroups": [
     {
       "projectionName": "catalog-item-projection",
@@ -289,6 +303,14 @@
       "ownedTables": ["catalog_blueprints"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "catalog-product-measure-resolution",
+      "handlerKind": "reaction",
+      "sourceContextNames": ["catalog"],
+      "ownedTables": [],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
     }
   ],
   "mcpCapabilities": {
@@ -337,7 +359,40 @@
       { "name": "catalog.cancel-scope-sync-batch", "ownerSlice": "scope-sync-batches" },
       { "name": "catalog.resume-scope-sync-batch", "ownerSlice": "scope-sync-batches" },
       { "name": "catalog.retry-scope-sync-unit", "ownerSlice": "scope-sync-batches" },
-      { "name": "catalog.list-source-observations", "ownerSlice": "source-observations" }
+      { "name": "catalog.list-source-observations", "ownerSlice": "source-observations" },
+      { "name": "catalog.archive-item", "ownerSlice": "catalog-items" },
+      { "name": "catalog.assign-blueprint", "ownerSlice": "catalog-items" },
+      { "name": "catalog.assign-category", "ownerSlice": "catalog-items" },
+      { "name": "catalog.clear-field-value", "ownerSlice": "catalog-items" },
+      { "name": "catalog.clear-image-fallback", "ownerSlice": "catalog-items" },
+      { "name": "catalog.confirm-bulk-catalog-item-edit", "ownerSlice": "catalog-items" },
+      { "name": "catalog.confirm-bulk-catalog-item-lifecycle", "ownerSlice": "catalog-items" },
+      { "name": "catalog.confirm-bulk-publish-catalog-items", "ownerSlice": "catalog-items" },
+      { "name": "catalog.create-item", "ownerSlice": "catalog-items" },
+      { "name": "catalog.get-item", "ownerSlice": "catalog-items" },
+      { "name": "catalog.link-external-catalog-item-reference", "ownerSlice": "catalog-items" },
+      { "name": "catalog.link-external-product-reference", "ownerSlice": "catalog-items" },
+      { "name": "catalog.list-fields", "ownerSlice": "fields" },
+      { "name": "catalog.list-product-containers-for-contained", "ownerSlice": "product-contents" },
+      { "name": "catalog.list-product-content-inclusion-policies", "ownerSlice": "product-contents" },
+      { "name": "catalog.list-product-content-types", "ownerSlice": "product-contents" },
+      { "name": "catalog.list-product-contents-for-container", "ownerSlice": "product-contents" },
+      { "name": "catalog.list-reference-records", "ownerSlice": "reference-data" },
+      { "name": "catalog.preview-bulk-catalog-item-edit", "ownerSlice": "catalog-items" },
+      { "name": "catalog.preview-bulk-catalog-item-lifecycle", "ownerSlice": "catalog-items" },
+      { "name": "catalog.preview-bulk-publish-catalog-items", "ownerSlice": "catalog-items" },
+      { "name": "catalog.publish-item", "ownerSlice": "catalog-items" },
+      { "name": "catalog.remove-category", "ownerSlice": "catalog-items" },
+      { "name": "catalog.remove-draft-item", "ownerSlice": "catalog-items" },
+      { "name": "catalog.replace-product-contents", "ownerSlice": "product-contents" },
+      { "name": "catalog.revise-item-metadata", "ownerSlice": "catalog-items" },
+      { "name": "catalog.search-items", "ownerSlice": "catalog-items" },
+      { "name": "catalog.set-field-value", "ownerSlice": "catalog-items" },
+      { "name": "catalog.set-image-fallback", "ownerSlice": "catalog-items" },
+      { "name": "catalog.set-image-urls", "ownerSlice": "catalog-items" },
+      { "name": "catalog.set-tags", "ownerSlice": "catalog-items" },
+      { "name": "catalog.unlink-external-catalog-item-reference", "ownerSlice": "catalog-items" },
+      { "name": "catalog.unlink-external-product-reference", "ownerSlice": "catalog-items" }
     ],
     "resources": []
   },
@@ -348,8 +403,49 @@
     "blueprints-detail": {
       "tools": ["catalog.get-blueprint", "catalog.publish-blueprint", "catalog.deprecate-blueprint", "catalog.archive-blueprint", "catalog.revise-blueprint", "catalog.attach-component", "catalog.detach-component", "catalog.set-blueprint-product-resolution-rules", "catalog.set-blueprint-fields", "catalog.set-blueprint-dimensions"]
     },
-    "catalog-items": { "pending": "#9238" },
-    "catalog-items-detail": { "pending": "#9238" },
+    "catalog-items": {
+      "tools": [
+        "catalog.search-items",
+        "catalog.create-item",
+        "catalog.preview-bulk-publish-catalog-items",
+        "catalog.confirm-bulk-publish-catalog-items",
+        "catalog.remove-draft-item",
+        "catalog.preview-bulk-catalog-item-edit",
+        "catalog.confirm-bulk-catalog-item-edit",
+        "catalog.preview-bulk-catalog-item-lifecycle",
+        "catalog.confirm-bulk-catalog-item-lifecycle",
+        "catalog.get-authoring-job"
+      ]
+    },
+    "catalog-items-detail": {
+      "tools": [
+        "catalog.get-item",
+        "catalog.list-fields",
+        "catalog.list-reference-records",
+        "catalog.list-product-content-types",
+        "catalog.list-product-content-inclusion-policies",
+        "catalog.search-items",
+        "catalog.list-product-contents-for-container",
+        "catalog.list-product-containers-for-contained",
+        "catalog.archive-item",
+        "catalog.publish-item",
+        "catalog.assign-blueprint",
+        "catalog.set-field-value",
+        "catalog.clear-field-value",
+        "catalog.assign-category",
+        "catalog.remove-category",
+        "catalog.revise-item-metadata",
+        "catalog.set-tags",
+        "catalog.set-image-urls",
+        "catalog.set-image-fallback",
+        "catalog.clear-image-fallback",
+        "catalog.link-external-product-reference",
+        "catalog.link-external-catalog-item-reference",
+        "catalog.unlink-external-product-reference",
+        "catalog.unlink-external-catalog-item-reference",
+        "catalog.replace-product-contents"
+      ]
+    },
     "categories": {
       "tools": ["catalog.list-categories", "catalog.create-category", "catalog.preview-bulk-category-lifecycle", "catalog.confirm-bulk-category-lifecycle", "catalog.get-authoring-job"]
     },
@@ -1045,7 +1141,6 @@
         "display-templates",
         "fields",
         "product-contents",
-        "product-measures",
         "reference-data",
         "source-observations"
       ],

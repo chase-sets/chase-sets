@@ -19,7 +19,7 @@ const rawProductMeasureSnapshot = {
   unitWidthInches: 2.5,
   unitHeightInches: 0.02,
   unitWeightOunces: 0.08,
-  physicalFlags: ["raw-card"],
+  physicalFlags: ["bendable"],
   stackBehavior: "stackable-thickness",
   source: "profile",
   confidence: "measured",
@@ -180,8 +180,8 @@ describe("cart readiness snapshots", () => {
       ],
     });
     expect(snapshot.snapshotId).toMatch(/^cr_/);
-    expect(snapshot.sourceRevision).toBe("cr_1hluq9i");
-    expect(snapshot.snapshotId).toBe("cr_17ujccm");
+    expect(snapshot.sourceRevision).toBe("cr_3jy5xy");
+    expect(snapshot.snapshotId).toBe("cr_ojw5z1");
     expect(snapshot.fulfillmentGroups[0]?.groupId).toMatch(/^cfg_/);
     expect(snapshot.fulfillmentGroups[0]?.supportReference).toMatch(/^CSG-/);
     expect(cartReadinessLineHasFulfillment(readyLine)).toBe(true);

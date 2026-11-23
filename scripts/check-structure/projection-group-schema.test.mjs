@@ -80,38 +80,41 @@ describe("projection group ownership/reset schema", () => {
 });
 
 describe("event reaction schema", () => {
-  it("accepts reactions with explicit idempotency, retry, and failure policies", () => {
-    expect(
-      validateEventReactionDeclaration(
-        {
-          sourceContextName: "inventory",
-          reactionName: "ordering-inventory-reservation-outcomes",
-          subscriptionVersion: 1,
-          reactionHandlerSetNames: ["ordering-inventory-reservation-outcomes"],
-          idempotencyPolicy: "idempotent-command-dispatch",
-          retryPolicy: "retry-from-last-checkpoint",
-          failurePolicy: "surface-as-reaction-failure",
-        },
-        "bounded-contexts/ordering/context.json eventReactions[0]",
-      ),
-    ).toEqual([]);
+  const reactionLabel = "bounded-contexts/ordering/context.json eventReactions[0]";
+  const reaction = {
+    sourceContextName: "inventory",
+    reactionName: "ordering-inventory-reservation-outcomes",
+    subscriptionVersion: 1,
+    reactionHandlerSetNames: ["ordering-inventory-reservation-outcomes"],
+  };
+  const retiredDiagnostic = (retiredKey) =>
+    `${reactionLabel}: ${retiredKey} is retired and must be removed; the shared runtime fixes reaction semantics`;
+
+  it("accepts reactions that declare none of the retired policy keys", () => {
+    expect(validateEventReactionDeclaration(reaction, reactionLabel)).toEqual([]);
   });
 
-  it("rejects command-dispatch reactions declared without reaction semantics", () => {
+  it("returns one diagnostic per retired policy key present on a declaration", () => {
     expect(
       validateEventReactionDeclaration(
-        {
-          sourceContextName: "inventory",
-          reactionName: "ordering-inventory-reservation-outcomes",
-          subscriptionVersion: 1,
-          reactionHandlerSetNames: ["ordering-inventory-reservation-outcomes"],
-        },
-        "bounded-contexts/ordering/context.json eventReactions[0]",
+        { ...reaction, idempotencyPolicy: "any", retryPolicy: "any", failurePolicy: "any" },
+        reactionLabel,
       ),
     ).toEqual([
-      "bounded-contexts/ordering/context.json eventReactions[0]: idempotencyPolicy must be idempotent-command-dispatch",
-      "bounded-contexts/ordering/context.json eventReactions[0]: retryPolicy must be retry-from-last-checkpoint",
-      "bounded-contexts/ordering/context.json eventReactions[0]: failurePolicy must be surface-as-reaction-failure",
+      retiredDiagnostic("idempotencyPolicy"),
+      retiredDiagnostic("retryPolicy"),
+      retiredDiagnostic("failurePolicy"),
     ]);
   });
+
+  it.each(["idempotencyPolicy", "retryPolicy", "failurePolicy"])(
+    "rejects %s on key presence, whatever its value",
+    (retiredKey) => {
+      for (const value of ["any", null, undefined]) {
+        expect(validateEventReactionDeclaration({ ...reaction, [retiredKey]: value }, reactionLabel)).toEqual([
+          retiredDiagnostic(retiredKey),
+        ]);
+      }
+    },
+  );
 });

@@ -1,4 +1,10 @@
-import { compareMoney, addMoney, normalizeMoneyAmount, subtractMoney } from "../../../support/runtime-support/common";
+import {
+  PaymentsDomainError,
+  compareMoney,
+  addMoney,
+  normalizeMoneyAmount,
+  subtractMoney,
+} from "../../../support/runtime-support/common";
 import { addSignedMoneyAmounts, grossUpMoneyAmountByBasisPoints } from "@chase-sets/primitives/money";
 
 export const marketplaceCheckoutFeePaymentMethodCategories = ["card", "bank-account", "platform-credit"] as const;
@@ -29,7 +35,7 @@ export type MarketplaceCheckoutFeeQuote = Readonly<{
  */
 export const MARKETPLACE_CHECKOUT_FEE_QUOTE_FORMAT_VERSION = "marketplace-checkout-fee-v1";
 
-/** The launch policy's effective-at, used only when no policy document resolver is wired (compiled fallback). */
+/** The launch policy's effective-at, published when the resolved policy carries no effective-from (no policy document is active). */
 export const DEFAULT_MARKETPLACE_CHECKOUT_FEE_EFFECTIVE_AT = "2026-05-03T00:00:00.000Z";
 
 export type MarketplaceCheckoutFeeMethodAdjustment = Readonly<{
@@ -45,8 +51,9 @@ export type MarketplaceCheckoutFeeMethodAdjustment = Readonly<{
  * Commercial Terms declares via `definePolicy` (see
  * `@chase-sets/commercial-terms/server`'s `checkoutProcessingFeePolicy`);
  * Payments only depends on this plain-data shape, never on Commercial
- * Terms' storage, so the migration invariant (compiled struct becomes the
- * fallback default only) holds without a compile-time context dependency.
+ * Terms' storage. Payments holds no compiled copy of the values: the only
+ * default is the policy's own `defaultValue` in Commercial Terms, which its
+ * resolver returns when no policy document is active.
  */
 export type MarketplaceCheckoutFeePolicyValue = Readonly<{
   enabledJurisdictions: readonly string[];
@@ -57,31 +64,19 @@ export type MarketplaceCheckoutFeePolicyValue = Readonly<{
   methodAdjustments: readonly MarketplaceCheckoutFeeMethodAdjustment[];
 }>;
 
-/** The compiled launch values (290bps + $0.30 card, 50bps bank, 0bps credit) -- the migration's byte-identical fallback default. */
-export const defaultMarketplaceCheckoutFeePolicyValue: MarketplaceCheckoutFeePolicyValue = {
-  enabledJurisdictions: ["US"],
-  base: {
-    percentageBps: 290,
-    fixedAmount: "0.30",
-  },
-  methodAdjustments: [
-    {
-      paymentMethodCategory: "card",
-      percentageBpsDelta: 0,
-      fixedAmountDelta: "0.00",
-    },
-    {
-      paymentMethodCategory: "bank-account",
-      percentageBpsDelta: -240,
-      fixedAmountDelta: "-0.30",
-    },
-    {
-      paymentMethodCategory: "platform-credit",
-      percentageBpsDelta: -290,
-      fixedAmountDelta: "-0.30",
-    },
-  ],
-};
+/**
+ * Raised when a Marketplace Checkout Fee has to be quoted and no checkout
+ * processing-fee policy resolver is wired. Payments refuses rather than quote
+ * a value Commercial Terms did not supply. A missing resolver is a deployment
+ * fault; an empty policy table never reaches this, because the resolver then
+ * answers with the policy's own default.
+ */
+export class MarketplaceCheckoutFeePolicyUnavailableError extends PaymentsDomainError {
+  public constructor() {
+    super("The Marketplace Checkout Fee policy is unavailable.", "marketplace_checkout_fee_policy_unavailable");
+    this.name = "MarketplaceCheckoutFeePolicyUnavailableError";
+  }
+}
 
 export type MarketplaceCheckoutFeePolicy = Readonly<{
   policy_version: string;
@@ -153,7 +148,7 @@ export function quoteMarketplaceCheckoutFee(
     paymentMethodCategory: MarketplaceCheckoutFeePaymentMethodCategory;
     quotedAt?: string;
   }>,
-  policy: MarketplaceCheckoutFeePolicyValue = defaultMarketplaceCheckoutFeePolicyValue,
+  policy: MarketplaceCheckoutFeePolicyValue,
 ): MarketplaceCheckoutFeeQuote {
   const orderAmount = normalizeMoneyAmount(params.orderAmount, {
     fieldName: "Checkout amount",
@@ -219,12 +214,10 @@ export function quoteMarketplaceCheckoutFee(
 
 /**
  * Builds the publishable policy struct (the `/marketplace-checkout-fee-policy`
- * endpoint payload) from a resolved policy value. Defaults to the compiled
- * fallback so existing callers that don't pass a resolved policy keep
- * publishing the launch values unchanged.
+ * endpoint payload) from a resolved policy value.
  */
 export function marketplaceCheckoutFeePolicy(
-  policy: MarketplaceCheckoutFeePolicyValue = defaultMarketplaceCheckoutFeePolicyValue,
+  policy: MarketplaceCheckoutFeePolicyValue,
   meta: Readonly<{ effectiveAt?: string | null }> = {},
 ): MarketplaceCheckoutFeePolicy {
   return {

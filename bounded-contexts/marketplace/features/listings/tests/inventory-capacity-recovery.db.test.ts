@@ -43,7 +43,7 @@ const measure = {
   unitWidthInches: 2.5,
   unitHeightInches: 0.01,
   unitWeightOunces: 0.1,
-  physicalFlags: ["raw-card"],
+  physicalFlags: ["bendable"],
   stackBehavior: "stackable-thickness",
   source: "profile",
   confidence: "measured",

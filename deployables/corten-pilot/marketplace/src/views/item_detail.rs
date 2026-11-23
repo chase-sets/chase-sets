@@ -15,7 +15,7 @@ use platform::{
 use serde_json::{Value, json};
 
 use super::{
-    on_marketplace,
+    DEFAULT_PRODUCT_IMAGE, on_marketplace,
     save_dialog::{SaveDialog, SaveToListId},
 };
 use crate::{
@@ -84,10 +84,12 @@ pub struct Shot {
 
 /// The gallery's pictures (`buildItemDetailImages`, then `ImageGallery`'s): the catalog-detail
 /// rendition, else every image URL, then the fallback when it stays (`permanent`), which
-/// marketplace shows as one more picture.
+/// marketplace shows as one more picture. Marketplace also adds the default picture as one more to
+/// an item with pictures and no fallback; the pilot shows it only for an item with no picture
+/// ([chase-sets/chase-sets#11830](https://github.com/chase-sets/chase-sets/issues/11830)).
 pub fn item_shots(t: ItemMsg, item: &Item) -> Vec<Shot> {
     let mut shots = Vec::new();
-    let detail = item_image(item)
+    let detail = item_picture(item)
         .filter(|_| item.product_asset_sets.iter().any(|s| s.variants.iter().any(|v| v.role == "catalog-detail")));
     if let Some(image) = detail {
         let thumb = item
@@ -123,9 +125,21 @@ pub fn item_shots(t: ItemMsg, item: &Item) -> Vec<Shot> {
     shots
 }
 
-/// The item's main picture (`selectItemImage`): its catalog-detail rendition, else its first
+/// The default picture, on marketplace's origin.
+fn default_image() -> Image {
+    Image { src: on_marketplace(DEFAULT_PRODUCT_IMAGE), srcset: None, width: None, height: None }
+}
+
+/// What the page shows as the item's picture: its own ([`item_picture`]), else the default
+/// picture (`discoveryAssetUrls.defaultProductImage`) when the item has no fallback of its own. An
+/// item whose fallback is only for loading shows none.
+fn item_image(item: &Item) -> Option<Image> {
+    item_picture(item).or_else(|| item.image_fallback.is_none().then(default_image))
+}
+
+/// The item's own picture (`selectItemImage`): its catalog-detail rendition, else its first
 /// image, else the fallback when it stays (`permanent`).
-pub fn item_image(item: &Item) -> Option<Image> {
+pub fn item_picture(item: &Item) -> Option<Image> {
     for set in &item.product_asset_sets {
         let mut variants: Vec<_> = set.variants.iter().filter(|v| v.role == "catalog-detail").collect();
         variants.sort_by_key(|v| v.width);
@@ -159,7 +173,7 @@ pub(super) fn production(canonical: &str) -> bool {
 /// description, a picture and a price, on the production marketplace.
 pub fn product_json_ld(item: &Item, canonical: &str) -> Option<Value> {
     let description = item.description.as_deref().map(str::trim).filter(|d| !d.is_empty())?;
-    let image = item_image(item)?;
+    let image = item_picture(item)?;
     let summary = item.market_summary.as_ref()?;
     let lowest = summary.lowest_price_amount.as_deref()?;
     if item.status != "active" || !production(canonical) || summary.active_listing_count == 0 {
@@ -360,7 +374,7 @@ pub fn ItemDetail<'a>(
     let image = item_image(item);
     let shots = item_shots(t, item);
     let fallback_alt = item.image_fallback.as_ref().map_or(t.page_default_product_image(), |f| f.alt.as_str());
-    let alt = if item.image_fallback.is_some() && item.product_asset_sets.is_empty() && item.image_urls.is_empty() {
+    let alt = if item.product_asset_sets.is_empty() && item.image_urls.is_empty() {
         fallback_alt.to_owned()
     } else {
         t.page_image_alt(crate::text::item_msg::PageImageAlt { title: &item.title, index: 1 }).to_string()

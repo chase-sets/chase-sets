@@ -50,6 +50,12 @@ function integer(value: unknown, minimum: number): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= minimum;
 }
 
+const physicalFlags: readonly unknown[] = ["rigid", "bendable", "metal", "jumbo", "irregular"];
+
+// Publications stored while product kinds were Physical Flags still carry them.
+// They stay readable; nothing authors them any more.
+const storedProductKindFlags: readonly unknown[] = ["raw-card", "slab", "sealed"];
+
 function validateSnapshot(value: unknown, catalogItemId: string): asserts value is ProductMeasureSnapshot {
   const product = record(value);
   if (product.catalogItemId !== catalogItemId || !nonempty(product.productId)) fail("Product identity mismatch");
@@ -66,9 +72,7 @@ function validateSnapshot(value: unknown, catalogItemId: string): asserts value 
   }
   if (
     !Array.isArray(product.physicalFlags) ||
-    !product.physicalFlags.every((flag) =>
-      ["raw-card", "slab", "sealed", "rigid", "bendable", "metal", "jumbo", "irregular"].includes(flag),
-    )
+    !product.physicalFlags.every((flag) => physicalFlags.includes(flag) || storedProductKindFlags.includes(flag))
   )
     fail("invalid physical flags");
   if (

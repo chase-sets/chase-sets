@@ -7687,7 +7687,8 @@ fn terms_schedule(id: &str, kind: &str, label: &str, bps: i64, from: &str, until
 }
 
 /// Commercial Terms: a business schedule in effect, one scheduled for 2099, and an override for
-/// `acc_1` that expires in 2099. The home read answers them as the
+/// `acc_1` that expires in 2099 and states no Shipping Allowance (null: it follows the schedule).
+/// Every override's starting terms state none either, as the API answers them. The home read answers them as the
 /// API works them out (the active terms in order with their phase, the comparison for `cts_next`,
 /// the starting terms); the list reads are not served, since the page does not use them. Writes
 /// answer the new ID; a label of "Refused" is refused, "Down" fails, and the viewer's writes are
@@ -7698,7 +7699,7 @@ fn commercial_terms(method: &Method, rest: &str, query: &str, body: &str) -> Res
     let agreement = json!({
         "agreement_id": "cag_1", "account_id": "acc_1", "account_name": "Card Vault", "account_display_name": "Vault",
         "account_type": "business", "label": "Vault override", "marketplace_sales_fee_percentage_bps": 425,
-        "marketplace_sales_fee_fixed_amount": "0.05", "shipping_allowance_percentage_bps": 500, "status": "active",
+        "marketplace_sales_fee_fixed_amount": "0.05", "shipping_allowance_percentage_bps": null, "status": "active",
         "effective_from": "2026-03-01T00:00:00.000Z", "effective_until": "2099-06-01T00:00:00.000Z",
         "created_at": "2026-03-01T00:00:00.000Z", "updated_at": "2026-03-01T00:00:00.000Z",
         "history": [{ "history_id": "h1", "event_id": "e1", "event_type": "agreement.created", "actor_user_id": "usr_ops",
@@ -7721,11 +7722,13 @@ fn commercial_terms(method: &Method, rest: &str, query: &str, body: &str) -> Res
     };
     let launch = |label: Value| {
         json!({ "label": label, "marketplace_sales_fee_percentage_bps": 850, "marketplace_sales_fee_fixed_amount": "0.10",
-            "shipping_allowance_percentage_bps": 500, "status": "active", "effective_from": "2026-10-30T12:00:00.000Z", "effective_until": null })
+            "shipping_allowance_percentage_bps": null, "status": "active", "effective_from": "2026-10-30T12:00:00.000Z", "effective_until": null })
     };
     let from_business = json!({ "label": "Business 2026", "marketplace_sales_fee_percentage_bps": 650,
         "marketplace_sales_fee_fixed_amount": "0.30", "shipping_allowance_percentage_bps": 400, "status": "active",
         "effective_from": "2026-01-01T00:00:00.000Z", "effective_until": null });
+    let mut override_from_business = from_business.clone();
+    override_from_business["shipping_allowance_percentage_bps"] = Value::Null;
     match (method.clone(), rest) {
         (Method::GET, "/home") => Json(json!({
             "resolvedAt": "2026-10-30T12:00:00.000Z",
@@ -7737,7 +7740,7 @@ fn commercial_terms(method: &Method, rest: &str, query: &str, body: &str) -> Res
             ],
             "startingTerms": {
                 "schedule": from_business,
-                "override": { "personal": launch(Value::Null), "business": from_business, "enterprise": launch(Value::Null), "default": launch(Value::Null) },
+                "override": { "personal": launch(Value::Null), "business": override_from_business, "enterprise": launch(Value::Null), "default": launch(Value::Null) },
             },
             "scheduleComparison": if query == "schedule=cts_next" { in_effect.clone() } else { Value::Null },
         }))
@@ -7888,7 +7891,10 @@ async fn the_create_sheets_start_from_the_schedule_in_effect_and_write_what_admi
     let sent: Value = serde_json::from_str(&call.body).unwrap();
     assert_eq!(sent["accountId"], "acc_1");
     assert_eq!(sent["marketplaceSalesFeePercentageBps"], 725.0);
-    assert_eq!(sent["shippingAllowancePercentageBps"], 0, "an empty number is 0, as admin-web's Number('')");
+    assert!(
+        sent.get("shippingAllowancePercentageBps").is_none(),
+        "a blank allowance is left out, so it follows the schedule: {sent}"
+    );
     assert_eq!(sent["effectiveUntil"], "");
 
     // The new override is not readable yet: the page says so and leaves its sheet closed.
@@ -7910,7 +7916,48 @@ async fn the_create_sheets_start_from_the_schedule_in_effect_and_write_what_admi
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/commerce/terms?schedule=cts_new&after_write="));
     let call = pilot.calls_to(TERMS_API).into_iter().filter(|c| c.method == Method::POST).nth(1).expect("the schedule");
-    assert_eq!(serde_json::from_str::<Value>(&call.body).unwrap()["accountType"], "enterprise");
+    let sent: Value = serde_json::from_str(&call.body).unwrap();
+    assert_eq!(sent["accountType"], "enterprise");
+    assert_eq!(sent["shippingAllowancePercentageBps"], 0, "a schedule always states one: blank is 0, as admin-web's Number('')");
+}
+
+#[tokio::test]
+async fn an_override_with_no_shipping_allowance_follows_the_schedule() {
+    let pilot = Pilot::new().await;
+    // The home read answers null for the override cag_1's allowance and for every override's
+    // starting terms: the page still draws.
+    let (status, _, html) = pilot.send(get(TERMS, Some("terms-viewer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Vault override") && html.contains("4.25% + $0.05"), "{html}");
+
+    // The override's sheet says it follows the schedule, and its revision field is blank and optional.
+    let (status, _, html) = pilot.send(get("/commerce/terms?agreement=cag_1", Some("terms-viewer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Follows published schedule"), "{html}");
+    assert!(html.contains("Leave blank to follow the published schedule."), "{html}");
+    assert!(html.contains(r#"name="shippingAllowancePercentageBps" value="""#), "the revision starts blank: {html}");
+
+    // A new override starts blank too; a new schedule's field stays required.
+    let (status, _, html) = pilot.send(get("/commerce/terms?create=agreement&account=acc_1", Some("terms-viewer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"name="shippingAllowancePercentageBps" value="""#), "{html}");
+    assert!(html.contains("Leave blank to follow the published schedule."), "{html}");
+    let (_, _, html) = pilot.send(get("/commerce/terms?create=schedule", Some("terms-viewer"))).await;
+    assert!(html.contains(r#"value="400""#) && !html.contains("Leave blank to follow"), "{html}");
+
+    // Revising it with an allowance states it; text that is not a number goes as typed, for the API to refuse.
+    for (typed, expected) in [("250", json!(250.0)), (" 12 ", json!(12.0)), ("abc", json!("abc"))] {
+        let before = pilot.calls_to(TERMS_API).into_iter().filter(|c| c.method == Method::PUT).count();
+        let body =
+            terms_body("revise-agreement", &[("id", "cag_1"), ("shippingAllowancePercentageBps", typed)], "Vault override");
+        let body = body.replacen("shippingAllowancePercentageBps=&", "", 1);
+        let (status, _, html) = pilot.send(post_as("terms-viewer", "/commerce/terms?agreement=cag_1", &body, false)).await;
+        assert_eq!(status, StatusCode::SEE_OTHER, "{typed}: {html}");
+        let calls: Vec<_> = pilot.calls_to(TERMS_API).into_iter().filter(|c| c.method == Method::PUT).collect();
+        assert_eq!(calls.len(), before + 1, "{typed}");
+        let sent: Value = serde_json::from_str(&calls[before].body).unwrap();
+        assert_eq!(sent["shippingAllowancePercentageBps"], expected, "{typed}");
+    }
 }
 
 #[tokio::test]

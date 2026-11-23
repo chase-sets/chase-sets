@@ -716,6 +716,20 @@ describe("marketplace search", () => {
     await bootstrapContextDatabase(marketplaceModule, pools.marketplace);
     await bootstrapContextDatabase(orderingModule, pools.ordering);
     await bootstrapContextDatabase(discoveryModule, pools.discovery);
+    // Catalog's Product Measure reaction waits while no profile exists. No item here uses this Blueprint.
+    await catalogServices.productMeasures.upsertProfile({
+      profileId: "pmp_harness_unmatched",
+      key: "harness-unmatched",
+      name: "Harness unmatched",
+      matchBlueprintId: "bpr_harness_unmatched",
+      unitLengthInches: 1,
+      unitWidthInches: 1,
+      unitHeightInches: 1,
+      unitWeightOunces: 1,
+      physicalFlags: [],
+      stackBehavior: "stackable-height",
+      confidence: "conservative-estimate",
+    });
     await sendCommand(catalogServices.displayTemplates.commandHandler, "catalog.display-template-dtp_search_default", {
       type: "CreateDisplayTemplate",
       displayTemplateId: "dtp_search_default" as never,

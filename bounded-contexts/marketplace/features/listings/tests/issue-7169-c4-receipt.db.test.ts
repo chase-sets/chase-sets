@@ -11,7 +11,7 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { CommercialTermsResolver } from "../../../api";
 import { module as marketplaceModule } from "../../../index";
 import { createMarketplaceServices } from "../../../support/runtime-support/services";
-import { directPortInput, draftContext, draftMessage } from "./issue-7169-c4-fixture";
+import { directPortInput, draftContext, draftMessage, draftProductMeasure } from "./issue-7169-c4-fixture";
 
 const adminUrl = process.env.TEST_DATABASE_URL;
 if (!adminUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for database-backed tests in CI.");
@@ -54,8 +54,15 @@ describeDb("issue-7169-c4-draft-receipt PostgreSQL", () => {
   beforeEach(async () => {
     await resetMultiContextTestSchemas(pools);
     await bootstrapContextDatabase(marketplaceModule, pool);
+    await mirrorDraftProductMeasure();
   });
   afterAll(async () => closeMultiContextTestPools(pools));
+  /** The supply mirror row every native draft in this file needs: the Product's Resolved Product Measure. */
+  const mirrorDraftProductMeasure = () =>
+    pool.query(
+      "INSERT INTO marketplace_catalog_items (catalog_item_id, title, status, product_measure_snapshots) VALUES ('cat_c4', 'Draft card', 'published', $1)",
+      [JSON.stringify([draftProductMeasure()])],
+    );
   const services = (db: PgTransactionalPool) => createMarketplaceServices(db, { commercialTermsResolver: terms });
 
   async function counts() {
@@ -353,6 +360,7 @@ describeDb("issue-7169-c4-draft-receipt PostgreSQL", () => {
     ).toBeNull();
     await bootstrapContextDatabase(marketplaceModule, pool);
     await bootstrapContextDatabase(marketplaceModule, pool);
+    await mirrorDraftProductMeasure();
     const receipt = await services(pool).inventoryDraftListingConsumer.accept(draftMessage(), draftContext);
     expect(receipt.listingId).toBe("lst_c4_1");
   });

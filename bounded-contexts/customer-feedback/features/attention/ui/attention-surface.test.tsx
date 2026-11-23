@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { formatDateTime, t } from "@chase-sets/localization";
+import { formatDateTime } from "@chase-sets/localization/core";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { listFeedbackAttention, type FeedbackAttentionQueueItem } from "../read-model/queries";
-import { FeedbackAttentionSurface, type FeedbackAttentionMetrics } from "./attention-surface";
+import type { FeedbackAttentionMetrics } from "../api/attention-contract";
+import { t } from "./localization/translator";
+import { FeedbackAttentionSurface } from "./attention-surface";
 
 const readNow = "2026-07-14T12:00:00.250Z";
 

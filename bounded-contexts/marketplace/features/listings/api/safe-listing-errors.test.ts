@@ -143,6 +143,14 @@ const table = [
     "inventoryItemNotFound",
   ],
   [
+    "shipping-measure-missing",
+    "/account/listings",
+    "createListing",
+    409,
+    "listing_shipping_measure_missing",
+    "shippingMeasureMissing",
+  ],
+  [
     "command-rejected",
     "/account/listings/lst_1/pause",
     "pauseListing",
@@ -189,6 +197,7 @@ function tableError(code: (typeof table)[number][0]): Error {
   switch (code) {
     case "listing-not-found":
     case "inventory-item-not-found":
+    case "shipping-measure-missing":
     case "command-rejected":
       return new MarketplaceListingDomainError(code, "postgres password=secret");
     case "bulk-price-update-invalid":

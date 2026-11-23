@@ -594,9 +594,6 @@
         "channels.channel-listing.desired-state-changed": "<function>",
         "channels.channel-publication-configuration.mapping-review-decided": "<function>"
       },
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure",
       "eventTypes": [
         "channels.channel-listing.desired-state-changed",
         "channels.channel-publication-configuration.mapping-review-decided"
@@ -615,9 +612,6 @@
       "handlers": {
         "inventory.external-channel-sale.recorded": "<function>"
       },
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure",
       "eventTypes": ["inventory.external-channel-sale.recorded"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
@@ -676,9 +670,6 @@
         "catalog.catalog-item.external-catalog-item-reference-linked": "<function>",
         "catalog.catalog-item.external-catalog-item-reference-unlinked": "<function>"
       },
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure",
       "eventTypes": [
         "catalog.catalog-item.category-assigned",
         "catalog.catalog-item.category-removed",
@@ -712,9 +703,6 @@
         "channels.channel-listing-reconciliation.chunk-drained": "<function>",
         "channels.channel-listing-reconciliation.run-settled": "<function>"
       },
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure",
       "eventTypes": [
         "channels.connection.connected",
         "channels.connection.activated",
@@ -751,9 +739,6 @@
         "inventory.hold.consumed": "<function>",
         "inventory.channel-stock-allocation.set": "<function>"
       },
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure",
       "eventTypes": [
         "inventory.item.created",
         "inventory.item.adjusted",
@@ -787,9 +772,6 @@
         "marketplace.seller-listing-availability.enabled": "<function>",
         "marketplace.seller-listing-availability.disabled": "<function>"
       },
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure",
       "eventTypes": [
         "marketplace.listing.created",
         "marketplace.listing.price-updated",

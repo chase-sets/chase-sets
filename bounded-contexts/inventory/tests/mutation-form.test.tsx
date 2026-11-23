@@ -2,7 +2,7 @@
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Button, HiddenInput } from "@chase-sets/design-system";
-import { InventoryMutationForm, InventoryMutationProvider } from "../support/request-support/mutation-form";
+import { InventoryMutationForm, InventoryMutationProvider } from "../support/ui-support/mutation-recovery";
 import { createInventoryMutationRecovery } from "../support/request-support/mutation-recovery";
 import { inventoryApi } from "../client";
 

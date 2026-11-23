@@ -40,7 +40,6 @@
     "@chase-sets/platform-runtime": "workspace:*",
     "@chase-sets/product-measures": "workspace:*",
     "@chase-sets/primitives": "workspace:*",
-    "@chase-sets/review-eligibility": "workspace:*",
     "hono": "^4.13.13"
   },
   "devDependencies": {

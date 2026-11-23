@@ -15,7 +15,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { inventoryAdjustmentReasons } from "@chase-sets/event-core/public-event-payloads";
 import { hasTranslation } from "@chase-sets/localization";
 import { createInventoryApiClient, inventoryApi, type InventoryOfflineSaleResult } from "../../../client";
-import { InventoryMutationProvider } from "../../../support/request-support/mutation-form";
+import { InventoryMutationProvider } from "../../../support/ui-support/mutation-recovery";
 import type { InventoryCatalogItemSnapshot } from "../integrations/catalog/queries";
 import { InventoryItemDetailPage } from "./inventory-item-detail-page";
 import { InventoryItemListPage } from "./inventory-item-list-page";

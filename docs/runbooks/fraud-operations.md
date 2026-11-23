@@ -49,7 +49,7 @@ Operator response:
 Fulfillment owns shipment truth used by Payments and Settlement.
 
 - Package plans carry the committed Shipping Evidence Tier: `letter-untracked`, `tracked-parcel`, `signature-confirmed`, or `carrier-insured`.
-- Current postage policy uses untracked letter mail only for eligible low-risk raw-card orders, requires parcel service above the letter declared-value cap, requires signature confirmation for priority shipping or declared value at `250.00 USD` or more, and requires carrier insurance at `500.00 USD` or more.
+- Current postage policy uses untracked letter mail only for low-risk orders whose every line is flagged bendable and stays within the letter limits, requires parcel service above the letter declared-value cap, requires signature confirmation for priority shipping or declared value at `250.00 USD` or more, and requires carrier insurance at `500.00 USD` or more.
 - Fulfillment records label purchase, carrier, tracking identifier, delivery, return-to-sender, carrier exceptions, label refunds, signature, and insurance facts.
 - Returned shipments, fulfillment exceptions, active support holds, manual payout review, untrusted account state, and high-dollar seller exposure can extend or prevent payout release.
 

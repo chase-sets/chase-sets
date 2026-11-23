@@ -7,7 +7,10 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import type { PaymentProcessorGateway, PaymentProcessorWebhookEvent } from "@chase-sets/payment-processing";
 import type { CheckoutProcessingFeePolicyResolver } from "../../payments/api/checkout-processing-fee-policy-resolver";
-import { quoteMarketplaceCheckoutFee } from "../../payments/api/marketplace-checkout-fee-policy";
+import {
+  MarketplaceCheckoutFeePolicyUnavailableError,
+  quoteMarketplaceCheckoutFee,
+} from "../../payments/api/marketplace-checkout-fee-policy";
 import { getSavedCheckoutInstrument } from "../../payments/read-model/queries";
 import { compareMoney, normalizeMoneyAmount } from "../../../support/runtime-support/common";
 import { buildWalletFundingProjectionHandlers } from "../read-model/projection";
@@ -285,7 +288,8 @@ export function createWalletFundingRuntime(deps: WalletFundingRuntimeDeps) {
     async create(input: CreateWalletFundingInput, context: EventStoreContext) {
       const requestedAmount = normalizeMoneyAmount(input.requestedAmount, { fieldName: "Requested amount" });
       const limits = await eligible({ ...input, requestedAmount });
-      const policy = await deps.checkoutProcessingFeePolicyResolver?.resolveCheckoutProcessingFeePolicy();
+      if (!deps.checkoutProcessingFeePolicyResolver) throw new MarketplaceCheckoutFeePolicyUnavailableError();
+      const policy = await deps.checkoutProcessingFeePolicyResolver.resolveCheckoutProcessingFeePolicy();
       const quote = quoteMarketplaceCheckoutFee(
         {
           orderAmount: requestedAmount,
@@ -294,7 +298,7 @@ export function createWalletFundingRuntime(deps: WalletFundingRuntimeDeps) {
           paymentMethodCategory: "card",
           quotedAt: now(),
         },
-        policy?.value,
+        policy.value,
       );
       if (!input.quoteFingerprint) return { outcome: "quoted" as const, quote };
       if (input.quoteFingerprint !== quote.quote_fingerprint) return { outcome: "fee_quote_stale" as const, quote };

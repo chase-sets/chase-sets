@@ -11,7 +11,7 @@ use platform::{
     },
 };
 
-use super::{marketplace, on_marketplace, srcset_on_marketplace};
+use super::{DEFAULT_PRODUCT_IMAGE, marketplace, on_marketplace, srcset_on_marketplace};
 use crate::{
     api::{Snapshot, segment},
     app::url,
@@ -31,8 +31,6 @@ pub struct LineQuantityFormId<'a>(pub &'a str);
 #[derive(Id, Clone, Copy)]
 pub struct LineQuantityId<'a>(pub &'a str);
 
-/// What a line without an image shows (marketplace's `CART_ITEM_FALLBACK_IMAGE_URL`, on its origin).
-const FALLBACK_IMAGE: &str = "/fake-cdn/assets/pokemon-card-back.png";
 /// A marketplace page's address, or none when the origin is not a URL.
 pub fn link(path: &str) -> String {
     marketplace(path).map(|u| u.to_string()).unwrap_or_default()
@@ -126,7 +124,7 @@ pub fn CartItem<'a>(t: CartMsg, p: Pilot, line: &'a Line, paused: bool) -> impl 
         ..Number::new(quantity_id, f.quantity, QUANTITY, t.page_decrease(), t.page_increase())
     };
     // The line keeps the picture as the add sent it, a card back's site-relative to marketplace.
-    let image = on_marketplace(l.item_image_url.as_deref().unwrap_or(FALLBACK_IMAGE));
+    let image = on_marketplace(l.item_image_url.as_deref().unwrap_or(DEFAULT_PRODUCT_IMAGE));
     let srcset = l.item_image_srcset.as_deref().map(srcset_on_marketplace);
     let options = options(l.product_summary.as_deref());
     // Ready in the success color only for a line the API presented as ready with a way to be

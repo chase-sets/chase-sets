@@ -1,6 +1,6 @@
 import type { AccountId, OrderId, ShipmentId } from "@chase-sets/primitives/typed-ids";
 import { deriveDisplayReferenceOrRaw } from "@chase-sets/primitives/display-reference";
-import { t } from "@chase-sets/localization";
+import { t } from "../../ui/localization/translator";
 import { links as fulfillmentLinks } from "@chase-sets/fulfillment/integration/link-intents";
 import { links as inventoryLinks } from "@chase-sets/inventory/integration/link-intents";
 import { links as marketplaceLinks } from "@chase-sets/marketplace/integration/link-intents";

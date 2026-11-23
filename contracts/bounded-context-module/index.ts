@@ -518,10 +518,21 @@ export const BC_SOURCE_CONTEXT_MOUNTS = ["required", "when-mounted", "when-all-s
 export type BcSourceContextMount = (typeof BC_SOURCE_CONTEXT_MOUNTS)[number];
 
 export type BcSubscriptionHandlerKind = "projection" | "reaction";
-export type BcReactionIdempotencyPolicy = "idempotent-command-dispatch";
-export type BcReactionRetryPolicy = "retry-from-last-checkpoint";
-export type BcReactionFailurePolicy = "surface-as-reaction-failure";
 
+/**
+ * A reaction declares which facts it consumes and which handler set runs. It
+ * carries no retry or idempotency setting; its only failure setting is the
+ * optional `errorPolicy` it shares with projections.
+ *
+ * - Failure follows the subscription `errorPolicy`, which defaults to
+ *   `strict-per-stream`: the first poison (non-transient) event blocks its
+ *   stream, later events on that stream are deferred, other streams keep
+ *   draining, and a retry replays the blocked stream from its first blocked
+ *   version. A transient failure halts the reaction at that event, which is
+ *   retried on the next pass.
+ * - The applied ledger skips already-applied events on redelivery.
+ * - The handler author owns idempotency of the dispatched command.
+ */
 export type BcEventReactionDeclaration = Readonly<{
   readonly sourceContextName: string;
   readonly reactionName: string;
@@ -530,9 +541,6 @@ export type BcEventReactionDeclaration = Readonly<{
   readonly filterToEventTypes?: boolean;
   readonly reactionHandlerSetNames: readonly string[];
   readonly sourceContextMount?: BcSourceContextMount;
-  readonly idempotencyPolicy: BcReactionIdempotencyPolicy;
-  readonly retryPolicy: BcReactionRetryPolicy;
-  readonly failurePolicy: BcReactionFailurePolicy;
   readonly eventTypes?: readonly string[];
   readonly streamPrefixes?: readonly string[];
   readonly errorPolicy?: ProjectionErrorPolicy;
@@ -592,9 +600,6 @@ export type BcEventSubscription = Readonly<{
   readonly handlers: ProjectorHandlerMap;
   /** Runtime-derived from the matching local projection handler set. */
   readonly inlineApply?: boolean;
-  readonly idempotencyPolicy?: BcReactionIdempotencyPolicy | undefined;
-  readonly retryPolicy?: BcReactionRetryPolicy | undefined;
-  readonly failurePolicy?: BcReactionFailurePolicy | undefined;
   readonly eventTypes?: readonly string[] | undefined;
   readonly streamPrefixes?: readonly string[] | undefined;
   readonly errorPolicy?: ProjectionErrorPolicy | undefined;
@@ -772,9 +777,6 @@ export function buildEventReactionsFromManifest<TEventPayloads extends EventPayl
         (normalizedDeclaration.filterToEventTypes ?? false)
           ? selectEventSubscriptionHandlers(handlerMap, normalizedDeclaration.eventTypes)
           : handlerMap,
-      idempotencyPolicy: normalizedDeclaration.idempotencyPolicy,
-      retryPolicy: normalizedDeclaration.retryPolicy,
-      failurePolicy: normalizedDeclaration.failurePolicy,
       eventTypes: normalizedDeclaration.eventTypes,
       streamPrefixes: normalizedDeclaration.streamPrefixes,
       errorPolicy: normalizedDeclaration.errorPolicy,

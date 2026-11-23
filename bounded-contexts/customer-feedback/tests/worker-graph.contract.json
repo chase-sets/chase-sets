@@ -531,9 +531,6 @@
         "customer-feedback.survey.submitted": "<function>",
         "customer-feedback.response.redacted": "<function>"
       },
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure",
       "eventTypes": ["customer-feedback.survey.submitted", "customer-feedback.response.redacted"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
@@ -549,9 +546,6 @@
       "handlers": {
         "notifications.customer-feedback.delivery-reported": "<function>"
       },
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure",
       "eventTypes": ["notifications.customer-feedback.delivery-reported"],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",

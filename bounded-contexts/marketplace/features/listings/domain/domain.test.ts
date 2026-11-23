@@ -101,7 +101,7 @@ const createListingCommand = {
     unitWidthInches: 2.5,
     unitHeightInches: 0.01,
     unitWeightOunces: 0.1,
-    physicalFlags: ["raw-card"],
+    physicalFlags: ["bendable"],
     stackBehavior: "stackable-thickness",
     source: "profile",
     confidence: "measured",
@@ -685,13 +685,50 @@ describe("marketplace listing photos", () => {
     ).toThrow("Listing evidence requirements changed.");
   });
 
-  it("requires a resolved shipping measure before publishing", () => {
-    const draft = decideMarketplaceListing(initialMarketplaceListingState, {
+  it("refuses a native Listing without a resolved shipping measure and emits nothing", () => {
+    const { productMeasureSnapshot: _omittedMeasure, ...commandWithoutMeasure } = createListingCommand;
+    for (const command of [commandWithoutMeasure, { ...createListingCommand, productMeasureSnapshot: null }]) {
+      const emitted: MarketplaceListingEvent[] = [];
+      let rejection: unknown;
+      try {
+        emitted.push(...decideMarketplaceListing(initialMarketplaceListingState, command));
+      } catch (error) {
+        rejection = error;
+      }
+      expect(rejection).toBeInstanceOf(MarketplaceListingDomainError);
+      expect(rejection).toMatchObject({
+        code: "shipping-measure-missing",
+        message: "Listings require a resolved shipping measure before creation.",
+      });
+      expect(emitted).toEqual([]);
+    }
+  });
+
+  it("records the resolved shipping measure on the created native Listing", () => {
+    const events = decideMarketplaceListing(initialMarketplaceListingState, createListingCommand);
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: "marketplace.listing.created",
+      data: { productMeasureSnapshot: createListingCommand.productMeasureSnapshot },
+    });
+  });
+
+  it("still folds a stored creation without a shipping measure and refuses to publish it", () => {
+    const [created] = decideMarketplaceListing(initialMarketplaceListingState, {
       ...createListingCommand,
       listingId: "lst_missing_measure" as never,
-      productMeasureSnapshot: null,
-    }).reduce(evolveMarketplaceListing, initialMarketplaceListingState);
+    });
+    if (created?.type !== "marketplace.listing.created") {
+      throw new Error("Expected a listing-created event.");
+    }
 
+    const draft = evolveMarketplaceListing(initialMarketplaceListingState, {
+      ...created,
+      data: { ...created.data, productMeasureSnapshot: null },
+    });
+
+    expect(draft).toMatchObject({ listingId: "lst_missing_measure", status: "draft", productMeasureSnapshot: null });
     expect(() => decideMarketplaceListing(draft, publishListingCommand)).toThrow(
       "Listings require a resolved shipping measure before publication.",
     );

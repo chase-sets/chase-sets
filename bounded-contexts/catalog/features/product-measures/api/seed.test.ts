@@ -1,12 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import type { CatalogServices } from "../../../support/authoring-support/services";
-import { seedProductMeasures } from "./seed";
+import { seedProductMeasureProfiles } from "./seed";
 
 function createSeedServices() {
   const productMeasures = {
     upsertProfile: vi.fn<CatalogServices["productMeasures"]["upsertProfile"]>(),
-    resolveAllCatalogItemMeasures: vi.fn(async () => undefined),
   };
 
   return {
@@ -18,12 +17,10 @@ function createSeedServices() {
 }
 
 describe("product measure seed", () => {
-  it("can seed reusable profiles without resolving every existing Catalog Item", async () => {
+  it("seeds the reusable profiles", async () => {
     const { services, productMeasures } = createSeedServices();
 
-    await seedProductMeasures(services, {
-      resolveExistingCatalogItems: false,
-    });
+    await seedProductMeasureProfiles(services);
 
     expect(productMeasures.upsertProfile).toHaveBeenCalledTimes(13);
     const profiles = productMeasures.upsertProfile.mock.calls.map(([profile]) => profile);
@@ -54,17 +51,30 @@ describe("product measure seed", () => {
         precedence: 25,
       }),
     );
-    expect(productMeasures.resolveAllCatalogItemMeasures).not.toHaveBeenCalled();
   });
 
-  it("keeps full existing-item resolution available for scenario bootstrap", async () => {
+  it("flags seeded profiles with physical properties only", async () => {
     const { services, productMeasures } = createSeedServices();
 
-    await seedProductMeasures(services, {
-      resolveExistingCatalogItems: true,
-    });
+    await seedProductMeasureProfiles(services);
 
-    expect(productMeasures.upsertProfile).toHaveBeenCalledTimes(13);
-    expect(productMeasures.resolveAllCatalogItemMeasures).toHaveBeenCalledTimes(1);
+    const flagsByProfileKey = Object.fromEntries(
+      productMeasures.upsertProfile.mock.calls.map(([profile]) => [profile.key, profile.physicalFlags]),
+    );
+    expect(flagsByProfileKey).toEqual({
+      "pokemon-raw-single": ["bendable"],
+      "pokemon-psa-slab": ["rigid"],
+      "pokemon-graded-slab": ["rigid"],
+      "pokemon-booster-pack": [],
+      "pokemon-booster-box": ["rigid"],
+      "pokemon-elite-trainer-box": ["rigid"],
+      "magic-raw-single": ["bendable"],
+      "magic-psa-slab": ["rigid"],
+      "magic-graded-slab": ["rigid"],
+      "magic-booster-pack": [],
+      "magic-booster-box": ["rigid"],
+      "one-piece-raw-single": ["bendable"],
+      "one-piece-booster-box": ["rigid"],
+    });
   });
 });

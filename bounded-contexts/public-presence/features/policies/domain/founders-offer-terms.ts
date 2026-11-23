@@ -27,8 +27,8 @@ const listingRuntime = "bounded-contexts/marketplace/features/listings/api/runti
 const runtimeTests = "bounded-contexts/marketplace/features/listings/api/runtime.test.ts";
 const feeLock = "bounded-contexts/marketplace/features/listings/domain/fee-lock.ts";
 const feeQuotes = "bounded-contexts/marketplace/support/runtime-support/fee-quotes.ts";
-const currentQuoteEvidence = `${listingRuntime}:1369-1388; ${feeQuotes}:53-78; ${feeQuotes}:133-152`;
-const creationEvidence = `${listingDomain}:446-471; ${listingDomain}:618-657; ${listingDomain}:1202-1243; ${listingRuntime}:1900-1955; ${currentQuoteEvidence}`;
+const currentQuoteEvidence = `${listingRuntime}:1370-1389; ${feeQuotes}:53-78; ${feeQuotes}:133-152`;
+const creationEvidence = `${listingDomain}:446-471; ${listingDomain}:630-669; ${listingDomain}:1215-1256; ${listingRuntime}:1901-1957; ${currentQuoteEvidence}`;
 
 export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
   "founders-offer-terms",
@@ -92,7 +92,7 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
         productTruthRefs: [
           "docs/campaigns/offer-economics-claims-substantiation.md:30-46",
           "bounded-contexts/identity/api.ts:875-887",
-          `${listingRuntime}:2509-2702`,
+          `${listingRuntime}:2511-2704`,
           `${feeLock}:106-180`,
         ],
         openQuestions: [
@@ -113,7 +113,7 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
           {
             assertion:
               "Single and bulk price edits preserve all seven stored term fields, tranche count and unit counts.",
-            evidenceRef: `${listingRuntime}:2509-2542; ${listingRuntime}:2543-2633; ${listingRuntime}:2004-2110; ${feeQuotes}:154-176; ${listingDomain}:955-985; ${feeLock}:106-135`,
+            evidenceRef: `${listingRuntime}:2511-2544; ${listingRuntime}:2545-2635; ${listingRuntime}:2006-2112; ${feeQuotes}:154-176; ${listingDomain}:968-998; ${feeLock}:106-135`,
           },
           {
             assertion: "Photos, pause and resume preserve existing fee locks.",
@@ -122,27 +122,27 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
           {
             assertion:
               "Purchase-limit edits change only purchase limits; this is structural evidence, not a dedicated behavioral test.",
-            evidenceRef: `${listingDomain}:1008-1017; ${listingDomain}:1284-1288`,
+            evidenceRef: `${listingDomain}:1021-1030; ${listingDomain}:1297-1301`,
           },
           {
             assertion:
               "Added units use a fresh current quote; reductions retire newest units and re-added units need current terms.",
-            evidenceRef: `${listingDomain}:990-1010; ${feeLock}:143-180; ${listingRuntime}:2662-2702; ${currentQuoteEvidence}`,
+            evidenceRef: `${listingDomain}:1003-1023; ${feeLock}:143-180; ${listingRuntime}:2664-2704; ${currentQuoteEvidence}`,
           },
           {
             assertion: "Withdrawal is terminal; relisting creates a new identity with current quoted terms.",
-            evidenceRef: `${listingDomain}:1193-1196; ${listingTests}:476-496; ${creationEvidence}; ${runtimeTests}:1023-1159`,
+            evidenceRef: `${listingDomain}:1206-1209; ${listingTests}:476-496; ${creationEvidence}; ${runtimeTests}:947-1083`,
           },
           {
             assertion:
               "Item or condition substitution requires recreation; the closed command union is structural evidence, and new listings use current quoted terms.",
-            evidenceRef: `${listingDomain}:575-592; ${creationEvidence}; ${runtimeTests}:1023-1159`,
+            evidenceRef: `${listingDomain}:575-592; ${creationEvidence}; ${runtimeTests}:947-1083`,
           },
           {
             assertion:
               "Current standard schedule values belong to Commercial Terms policy, seed and public route, not historical campaign schedule prose.",
             evidenceRef:
-              "bounded-contexts/commercial-terms/features/marketplace-sales-fee/domain/policy.ts:24-29; bounded-contexts/commercial-terms/support/runtime-support/seed.ts:109-110; bounded-contexts/commercial-terms/support/runtime-support/seed.ts:168-186; bounded-contexts/commercial-terms/routes/public/sales-fees.test.tsx:20-22; bounded-contexts/commercial-terms/routes/public/sales-fees.test.tsx:67-97",
+              "bounded-contexts/commercial-terms/features/marketplace-sales-fee/domain/policy.ts:24-29; bounded-contexts/commercial-terms/support/runtime-support/seed.ts:109-110; bounded-contexts/commercial-terms/support/runtime-support/seed.ts:168-186; bounded-contexts/commercial-terms/features/marketplace-sales-fee/ui/routes/sales-fees.test.tsx:20-22; bounded-contexts/commercial-terms/features/marketplace-sales-fee/ui/routes/sales-fees.test.tsx:67-97",
           },
         ],
       },
@@ -240,7 +240,7 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
             assertion:
               "The founders seller-fee agreement retains shipping allowance; separate checkout charges and Order Protection remain described by their existing terms.",
             evidenceRef:
-              "bounded-contexts/commercial-terms/features/agreements/integrations/identity/founders-window-reaction.ts:22-35; bounded-contexts/public-presence/features/policies/domain/seller-agreement.ts:151-175",
+              "bounded-contexts/commercial-terms/features/resolutions/read-model/resolve.ts:349-352; bounded-contexts/public-presence/features/policies/domain/seller-agreement.ts:151-175",
           },
         ],
       },

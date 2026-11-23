@@ -56,10 +56,7 @@
       "filterToEventTypes": true,
       "eventTypes": ["marketplace.listing.created", "marketplace.offer.submitted"],
       "order": 10,
-      "reactionHandlerSetNames": ["identity-founder-claim-reaction"],
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure"
+      "reactionHandlerSetNames": ["identity-founder-claim-reaction"]
     },
     {
       "sourceContextName": "platform-operations",
@@ -68,10 +65,7 @@
       "filterToEventTypes": true,
       "eventTypes": ["platform-operations.reported-content.action-recorded"],
       "order": 20,
-      "reactionHandlerSetNames": ["identity-profile-redaction-reaction"],
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure"
+      "reactionHandlerSetNames": ["identity-profile-redaction-reaction"]
     }
   ],
   "projectionGroups": [

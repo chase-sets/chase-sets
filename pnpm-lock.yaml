@@ -870,9 +870,6 @@ importers:
       '@chase-sets/product-selection':
         specifier: workspace:*
         version: link:../../contracts/product-selection
-      '@chase-sets/review-eligibility':
-        specifier: workspace:*
-        version: link:../../contracts/review-eligibility
       '@chase-sets/seller-attention-queue':
         specifier: workspace:*
         version: link:../../contracts/seller-attention-queue
@@ -1034,9 +1031,6 @@ importers:
       '@chase-sets/product-measures':
         specifier: workspace:*
         version: link:../../contracts/product-measures
-      '@chase-sets/review-eligibility':
-        specifier: workspace:*
-        version: link:../../contracts/review-eligibility
       hono:
         specifier: ^4.13.13
         version: 4.13.13
@@ -1262,6 +1256,9 @@ importers:
       '@chase-sets/localization':
         specifier: workspace:*
         version: link:../../contracts/localization
+      '@chase-sets/market-estimate-display':
+        specifier: workspace:*
+        version: link:../../contracts/market-estimate-display
       '@chase-sets/marketplace':
         specifier: workspace:*
         version: link:../marketplace
@@ -1647,12 +1644,6 @@ importers:
   contracts/public-docs: {}
 
   contracts/realtime:
-    devDependencies:
-      vitest:
-        specifier: ^4.1.4
-        version: 4.1.12(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.12)(jsdom@29.1.1)(vite@8.3.4(@types/node@25.6.2)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.8.4))
-
-  contracts/review-eligibility:
     devDependencies:
       vitest:
         specifier: ^4.1.4

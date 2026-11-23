@@ -173,6 +173,20 @@ export type CsatAdminQueuePage = Readonly<{
   limit: number;
 }>;
 
+export type CsatAdminDashboardResponse = {
+  analytics: CsatAnalyticsSnapshot;
+  queue: CsatAdminQueuePage;
+  filters: CsatAdminQueueFilters;
+};
+
+export type CsatAdminExportMetadata = {
+  exportId: string;
+  rowCount: number;
+  artifactExpiresAt: string;
+  status: "completed";
+  downloadHref: string;
+};
+
 export type CsatAdminExportAudit = Readonly<{
   exportId?: string;
   actorId: string;

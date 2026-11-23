@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { t } from "../../ui/localization/translator";
 import { links } from "@chase-sets/customer-feedback/integration/link-intents";
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
