@@ -20,6 +20,7 @@ import {
 } from "../domain/domain";
 import {
   getCategoryDetail,
+  getCategoryItemCounts,
   listCategories,
   listCategoryBulkRows,
   listCategoryIds,
@@ -32,6 +33,7 @@ export type CategoryServices = Readonly<{
   commandHandler: CommandHandler<CategoryCommand, CategoryState, CategoryEvent>;
   listCategories: (params?: Parameters<typeof listCategories>[1]) => ReturnType<typeof listCategories>;
   getCategoryDetail: (categoryId: string) => ReturnType<typeof getCategoryDetail>;
+  getCategoryItemCounts: (categoryIds: readonly string[]) => ReturnType<typeof getCategoryItemCounts>;
   bulkLifecycle: BulkLifecycleOperations<CategoryListParams, CategoryCommand, CategoryState, CategoryEvent>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
@@ -98,6 +100,7 @@ export function createCategoryRuntime(deps: CatalogRuntimeDeps): CategoryService
     commandHandler,
     listCategories: (params) => listCategories(deps.db, params),
     getCategoryDetail: (categoryId) => getCategoryDetail(deps.db, categoryId),
+    getCategoryItemCounts: (categoryIds) => getCategoryItemCounts(deps.db, categoryIds),
     bulkLifecycle,
     projectors,
   };

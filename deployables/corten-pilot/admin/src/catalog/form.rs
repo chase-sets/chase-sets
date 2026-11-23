@@ -38,11 +38,18 @@ pub struct DimensionInput {
     pub name: String,
     pub description: String,
     pub value_kind: String,
+    /// `exact` or `or-better`.
+    pub option_matching: String,
 }
 
 impl DimensionInput {
     pub fn blank() -> Self {
-        DimensionInput { dimension_id: new_id("dim"), value_kind: "unordered".into(), ..Default::default() }
+        DimensionInput {
+            dimension_id: new_id("dim"),
+            value_kind: "unordered".into(),
+            option_matching: "exact".into(),
+            ..Default::default()
+        }
     }
 
     pub fn of(d: &Dimension) -> Self {
@@ -52,6 +59,16 @@ impl DimensionInput {
             name: d.name.clone(),
             description: d.description.clone().unwrap_or_default(),
             value_kind: d.value_kind.clone(),
+            option_matching: d.option_matching.clone(),
+        }
+    }
+
+    /// The Option Matching sent: an unordered dimension matches exactly, as admin-web's dialogs
+    /// set it when Unordered is chosen (a script does the same as the value kind changes).
+    pub fn option_matching(&self) -> &str {
+        match (self.value_kind.as_str(), self.option_matching.as_str()) {
+            ("unordered", _) | (_, "") => "exact",
+            (_, matching) => matching,
         }
     }
 
@@ -62,6 +79,7 @@ impl DimensionInput {
             "name": english(&self.name),
             "description": english(&self.description),
             "valueKind": self.value_kind,
+            "optionMatching": self.option_matching(),
         });
         if create {
             body["dimensionId"] = json!(self.dimension_id);
@@ -1381,9 +1399,19 @@ mod tests {
         assert_eq!(
             d.body(true),
             json!({ "dimensionId": "dim_1", "key": "k", "name": { "defaultLocale": "en", "values": { "en": "Size" } },
-                    "description": { "defaultLocale": "en", "values": {} }, "valueKind": "" })
+                    "description": { "defaultLocale": "en", "values": {} }, "valueKind": "",
+                    "optionMatching": "exact" })
         );
         assert!(d.body(false).get("dimensionId").is_none());
+        // Or better is sent for an ordered or numeric dimension, never for an unordered one.
+        let matching = |kind: &str, matching: &str| {
+            let d = DimensionInput { value_kind: kind.into(), option_matching: matching.into(), ..Default::default() };
+            d.body(false)["optionMatching"].clone()
+        };
+        assert_eq!(matching("ordered", "or-better"), json!("or-better"));
+        assert_eq!(matching("numeric", "or-better"), json!("or-better"));
+        assert_eq!(matching("unordered", "or-better"), json!("exact"));
+        assert_eq!(matching("ordered", "exact"), json!("exact"));
 
         let o = OptionInput {
             code: "nm".into(),

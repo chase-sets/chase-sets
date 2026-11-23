@@ -19,6 +19,7 @@ import {
   listCatalogProviderProfileVersionReviews,
   retireCatalogProviderProfileVersionForReview,
 } from "./provider-profile-review";
+import { catalogProviderProfileSectionFields } from "./provider-profile-section-edit";
 import {
   CatalogProviderProfileEditableSectionChangedError,
   catalogProviderProfileEditableSectionFingerprint,
@@ -314,6 +315,14 @@ describe("Catalog provider profile review", () => {
     expect(model.editableSections.map((section) => section.section)).toEqual(
       expect.arrayContaining(["basics", "provider-options", "promotion-plan", "migration-evidence"]),
     );
+    // Each section carries its form's fields, so a client draws the form from Catalog.
+    for (const section of model.editableSections) {
+      expect(section.fields, section.section).toBe(catalogProviderProfileSectionFields[section.section]);
+    }
+    expect(model.editableSections.find((section) => section.section === "promotion-plan")?.fields).toEqual([
+      expect.objectContaining({ key: "promotionPlanKind", defaultValue: "catalog-item-promotion", fixedValue: null }),
+      expect.objectContaining({ key: "promotionRequiresReview", control: "checkbox", fixedValue: "true" }),
+    ]);
     expect(model.fixtureCases.map((fixtureCase) => fixtureCase.flow)).toEqual(
       expect.arrayContaining(["normal", "ambiguous", "unknown-option"]),
     );

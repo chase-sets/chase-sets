@@ -308,6 +308,15 @@
       { "name": "catalog.set-blueprint-dimensions", "ownerSlice": "blueprints" },
       { "name": "catalog.set-blueprint-fields", "ownerSlice": "blueprints" },
       { "name": "catalog.set-blueprint-product-resolution-rules", "ownerSlice": "blueprints" },
+      { "name": "catalog.archive-category", "ownerSlice": "categories" },
+      { "name": "catalog.confirm-bulk-category-lifecycle", "ownerSlice": "categories" },
+      { "name": "catalog.create-category", "ownerSlice": "categories" },
+      { "name": "catalog.deprecate-category", "ownerSlice": "categories" },
+      { "name": "catalog.get-category", "ownerSlice": "categories" },
+      { "name": "catalog.list-categories", "ownerSlice": "categories" },
+      { "name": "catalog.preview-bulk-category-lifecycle", "ownerSlice": "categories" },
+      { "name": "catalog.publish-category", "ownerSlice": "categories" },
+      { "name": "catalog.revise-category", "ownerSlice": "categories" },
       { "name": "catalog.list-provider-refresh-schedules", "ownerSlice": "provider-scope-discovery" },
       { "name": "catalog.run-provider-refresh", "ownerSlice": "provider-scope-discovery" },
       { "name": "catalog.pause-provider-refresh", "ownerSlice": "provider-scope-discovery" },
@@ -341,8 +350,12 @@
     },
     "catalog-items": { "pending": "#9238" },
     "catalog-items-detail": { "pending": "#9238" },
-    "categories": { "pending": "#9238" },
-    "categories-detail": { "pending": "#9238" },
+    "categories": {
+      "tools": ["catalog.list-categories", "catalog.create-category", "catalog.preview-bulk-category-lifecycle", "catalog.confirm-bulk-category-lifecycle", "catalog.get-authoring-job"]
+    },
+    "categories-detail": {
+      "tools": ["catalog.get-category", "catalog.publish-category", "catalog.deprecate-category", "catalog.archive-category", "catalog.revise-category"]
+    },
     "components": { "pending": "#9238" },
     "components-detail": { "pending": "#9238" },
     "dimensions": { "pending": "#9238" },

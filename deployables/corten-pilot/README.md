@@ -256,7 +256,7 @@ registered files.
 
 ## Corten pin
 
-`Cargo.toml` pins Corten to `153be911` (Corten `main` on 2026-11-22), whose framework package is
+`Cargo.toml` pins Corten to `63e7c331` (Corten `main` on 2026-11-22), whose framework package is
 `corten-run` (the library is still `corten`). Corten 0.2.0 is released (tag `v0.2.0`, `a833b4e3`), and the pin is a git revision past it. The
 pin follows Corten's latest `main` (Todd, 2026-11-02), and each move is its own commit that says
 what changed; the workarounds a move lets go follow it in commits of their own. The history of every move is in the
@@ -300,45 +300,18 @@ but keep their own bordered choice rows, which are the design system's `Checkbox
 
 ## Open workarounds
 
-### Corten
+Each workaround is one file in [workarounds/](workarounds/), named for its issue
+(`chase-sets-<n>.md` or `corten-<n>.md`), so adding or retiring one never touches another's lines:
 
-No Corten issue the pilot works around is open.
+1. [workarounds/open/](workarounds/open/): an issue that is open and cited in the pilot's code,
+   where the comment says what the pilot does instead. When the issue closes, remove the
+   workaround and delete its file.
+2. [workarounds/cited/](workarounds/cited/): an issue that is closed and still cited in the
+   pilot's code as the change or decision the code relies on, with nothing left to remove.
+   Delete its file when the code stops citing it.
 
-These are closed and still cited here as the change the pilot relies on, or the decision that left a
-part of the workaround to the app:
+A file's heading links the issue with its title; the rest says where the pilot cites it and what
+it does. Its links are relative to the file, and the repository's docs path check fails on one
+that does not resolve.
 
-| Issue | What the pilot does now |
-| --- | --- |
-| [corten-run/corten#1370 A write that answers its own result with JavaScript (a patch, or its page) cannot bring a layout read up to date: only a redirect redraws the shell, so a partial result must choose between its detail and the shell's count](https://github.com/corten-run/corten/issues/1370) | closed by Corten's whole-page write answer (pinned since `229b1e92`): with JavaScript a write's own page is drawn whole, its layout reads included. A bulk add from a search that adds only some lines answers the search's page with its sheet open and gives the cart count it read after the write, with JavaScript as without ([marketplace/src/bulk_cart.rs](marketplace/src/bulk_cart.rs), `commit`) |
-| [corten-run/corten#1065 Kit Stack and Cluster always print a literal gap, so an app on its own token spacing scale cannot use them with its gap utility](https://github.com/corten-run/corten/issues/1065) | closed by Corten's `Gap::App` (pinned since `f4f37f95`). Every page column is the kit's `Stack { gap: Gap::App }` with the theme's `gap_N()`: the five whose children keep their own width (support requests, command center, order, packing, shipment) are `StackStart { gap: Gap::App }` in its place. A page's own `.stack` keeps only what the kit's does not set (`min-width: 0` in a grid track, a padding or margin) |
-| [corten-run/corten#1366 A patch answered by another area's handler draws that area's components unstyled: the runtime's patch loads no section stylesheet and check_rendered reads the handler's path](https://github.com/corten-run/corten/issues/1366) | closed by Corten's patch stylesheets (pinned since `de46e974`): a patch from an area's handler brings that area's stylesheet. Add to List's dialog (`SaveDialog`) stays in `views::SEARCH`, since the search page draws it empty for the patch to fill ([marketplace/src/views.rs](marketplace/src/views.rs)) |
-| [corten-run/corten#1449 A Corten app writes no line per request, and an app's middleware cannot write a faithful one: it never sees a 421 or a cross-site refusal and logs a 200 where the client got a 304](https://github.com/corten-run/corten/issues/1449) | closed by Corten's `App::access_log` (pinned since `39ac3e96`): each app sets `access_log(true)`, which logs after every stage and layer, so a `421`, a cross-site refusal and a `304` are logged as the client got them; the pilot's tower layer is gone |
-| [corten-run/corten#1462 A patches route's handler whose part needs its own read cannot answer its page without building a patch it will not send: only patch_or turns a page into HtmlResult<Patches>, and it takes the patch already built](https://github.com/corten-run/corten/issues/1462) | closed by Corten's `Req::patch_or_with` (pinned since `27c29d7d`): the notification center's address answers the runtime's read of the alerts section and its page from one handler, each side lazy, and no unsent patch is built ([marketplace/src/notifications.rs](marketplace/src/notifications.rs)) |
-| [corten-run/corten#1488 Stripe.js's Payment Element throws an uncaught TypeError on every mount under the default policy <Corten /> makes: it parses an SVG string with DOMParser, and the policy passes only script URLs](https://github.com/corten-run/corten/issues/1488) | closed as an app concern. The Stripe payment areas allow `trusted_types_policy("default")` and make the policy in [marketplace/src/views/stripe.js](marketplace/src/views/stripe.js): Corten's script-URL rule, plus Stripe's loader SVG filter, compared whole, at `DOMParser parseFromString` only. When Stripe changes that filter, the mount logs its TypeError again until the string is updated. Payout setup keeps `<Corten />`'s policy |
-| [corten-run/corten#1492 patch() is typed to take a string, which Trusted Types always refuses on a Corten page, so corten check passes a call that throws in every browser; a script has no one-call way to have the runtime read a part of its page](https://github.com/corten-run/corten/issues/1492) | closed (pinned since `7d9bbbf1`): `patch()` takes `TrustedHTML`, so `corten check` refuses a string, and Corten declined a second read export because a hidden `GET` `data-patch` form sent with `requestSubmit()` is its one way to read a part from a script. After Stripe confirms, the payment step sends a hidden `GET` form of the status part (`data-patch`) with `requestSubmit()` to have the runtime read it ([marketplace/src/views/payment_page.rs](marketplace/src/views/payment_page.rs), `PaymentEntry`; [payment_entry.js](marketplace/src/views/payment_entry.js)) |
-
-Every Corten gap the pilot found and how it closed is in the [README before it was cut](https://github.com/chase-sets/chase-sets/blob/5a683c4eb5/deployables/corten-pilot/README.md) ("Corten gaps").
-
-### Chase Sets
-
-Each issue below is open and cited in the pilot's code, where the comment says what the pilot does
-instead. Remove the workaround when the issue closes.
-
-| Issue | Cited in |
-|---|---|
-| [chase-sets/chase-sets#8830 Complete Sell List Offer lines from inventory when the seller has no Listing](https://github.com/chase-sets/chase-sets/issues/8830) | [scripts/smoke-market-item-sell.mjs](scripts/smoke-market-item-sell.mjs), [marketplace/src/selling.rs](marketplace/src/selling.rs) |
-| [chase-sets/chase-sets#3494 [deployables] P2: Web route behavior leaks — analytics endpoint to discovery, cart/theme policy to contexts, catalog permission middleware to catalog](https://github.com/chase-sets/chase-sets/issues/3494) | [marketplace/src/site.rs](marketplace/src/site.rs) |
-| [chase-sets/chase-sets#10572 Let the seed seller record the seeded restock decision instead of Restock decision not found](https://github.com/chase-sets/chase-sets/issues/10572) | [scripts/smoke-restock.mjs](scripts/smoke-restock.mjs) |
-| [chase-sets/chase-sets#10581 Start a cart's payment when the buyer presses Pay, not when the checkout page loads](https://github.com/chase-sets/chase-sets/issues/10581) | [marketplace/src/checkout.rs](marketplace/src/checkout.rs) |
-| [chase-sets/chase-sets#10245 [auth] Make registration non-committal: create accounts on a verified email link](https://github.com/chase-sets/chase-sets/issues/10245) | [marketplace/src/register.rs](marketplace/src/register.rs) |
-| [chase-sets/chase-sets#5736 [checkout] P1: Capture and bind guest contact in the session contact section with sign-in collision handling](https://github.com/chase-sets/chase-sets/issues/5736) | [marketplace/src/checkout.rs](marketplace/src/checkout.rs), [marketplace/src/guest_claim.rs](marketplace/src/guest_claim.rs) |
-| [chase-sets/chase-sets#10820 [payments] Start payment offers wallet balance that Payments withholds, and never says why](https://github.com/chase-sets/chase-sets/issues/10820) | [marketplace/src/views/payment_start_page.rs](marketplace/src/views/payment_start_page.rs) |
-
-These are closed and still cited in the pilot's code as the decision or fix the code relies on.
-None of them leaves a workaround behind:
-
-| Issue | Cited in |
-|---|---|
-| [chase-sets/chase-sets#10592 [checkout] Take a sell-list line's title and product summary from the catalog, not the request](https://github.com/chase-sets/chase-sets/issues/10592) (the pilot still builds a sell line from its own read of the item; the API now takes the words and an Offer's terms from its reads too) | [marketplace/src/selling.rs](marketplace/src/selling.rs) |
-| [chase-sets/chase-sets#10871 [public-presence] Promo Bar's start and end times are read in the API server's time zone and shown in UTC, not the operator's](https://github.com/chase-sets/chase-sets/issues/10871) (the pilot reads and fills them in the operator's zone and sends the instant) | [admin/src/growth/promo.rs](admin/src/growth/promo.rs) |
-| [chase-sets/chase-sets#10880 [marketplace] Listing Evidence Policy activation takes its effective times in the admin-web server's time zone, not the operator's](https://github.com/chase-sets/chase-sets/issues/10880) (the pilot reads them in the operator's zone and sends the instant; nothing to remove) | [admin/src/evidence/mod.rs](admin/src/evidence/mod.rs) |
+No Corten issue the pilot works around is open. Every Corten gap the pilot found and how it closed is in the [README before it was cut](https://github.com/chase-sets/chase-sets/blob/5a683c4eb5/deployables/corten-pilot/README.md) ("Corten gaps").

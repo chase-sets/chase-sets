@@ -52,7 +52,7 @@ export async function listCategories(
     "catalog_admin_category_list_pages",
     params,
     ["key", "name"],
-    "display_order ASC, key ASC",
+    "display_order ASC, key ASC, category_id ASC",
     extraConditions,
     extraValues,
   );
@@ -94,11 +94,25 @@ export async function listCategoryBulkRows(
   }));
 }
 
-export async function getCategoryDetail(db: PgQueryable, categoryId: string) {
+export async function getCategoryDetail(db: PgQueryable, categoryId: string): Promise<CategoryDetailRow | null> {
   const result = await db.query<CategoryDetailRow>(
     catalogIsoUtcListSql(`SELECT * FROM catalog_admin_category_detail_pages WHERE category_id = $1`, "updated_at"),
     [categoryId],
   );
 
   return result.rows[0] ?? null;
+}
+
+export async function getCategoryItemCounts(db: PgQueryable, categoryIds: readonly string[]) {
+  if (categoryIds.length === 0) return new Map<string, number>();
+
+  const result = await db.query<{ category_id: string; item_count: number }>(
+    `SELECT membership.category_id, COUNT(*)::integer AS item_count
+     FROM catalog_items AS item
+     CROSS JOIN LATERAL jsonb_array_elements_text(item.category_ids) AS membership(category_id)
+     WHERE item.category_ids ?| $1::text[] AND membership.category_id = ANY($1::text[])
+     GROUP BY membership.category_id`,
+    [categoryIds],
+  );
+  return new Map(result.rows.map((row) => [row.category_id, row.item_count]));
 }

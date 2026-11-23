@@ -65,6 +65,10 @@ const catalogExclusions = new Map([
   ["catalog_resolved_product_measures", "FK-coupled to logged table catalog_items"],
   ["catalog_product_content_types", "FK-coupled to logged table catalog_resolved_product_contents"],
   ["catalog_product_content_inclusion_policies", "FK-coupled to logged table catalog_resolved_product_contents"],
+  [
+    "catalog_product_measure_profiles",
+    "Seed-written Product Measure Profiles; no event stream or projection replays them",
+  ],
 ]);
 
 function readMigration(contextName) {

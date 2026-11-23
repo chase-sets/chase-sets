@@ -18,31 +18,25 @@ export type CatalogProviderProfileSectionEdit = Readonly<{
   fields: Readonly<Record<string, string>>;
 }>;
 
-/** The fields each section's edit takes, by the names its form gives them. */
-export const catalogProviderProfileSectionFieldKeys = {
-  basics: ["displayName", "lifecycle", "status", "capabilities", "supportedScopes", "languageOptions"],
-  "provider-options": ["optionQueryIndex", "optionQueryDisplayName", "optionQueryScope", "optionQueryOperation"],
-  connector: ["connectorKind", "connectorBaseUrl", "connectorTransportOwns", "connectorMappingOwns"],
-  "catalog-field-mapping": ["blueprintKey", "categoryKey"],
-  "source-contract": ["sourceOwner", "sourceRepository", "sourceCommit", "sourceDocumentPath", "fixtureSetVersion"],
-  fixtures: ["fixtureRoot", "coveredFlows"],
-  "source-observation": ["observationIdPath", "externalKeyPath", "sourceUrlPath", "sourceUpdatedAtPath"],
-  "normalized-observation": ["normalizedOutputKind", "normalizedLanguagePath"],
-  "external-references": ["externalReferenceProviderKey", "externalReferenceTarget", "externalKeyPrefix"],
-  "selected-options": ["selectedOptionDimensionKey"],
-  "reference-hierarchy": ["referenceHierarchyType", "referenceHierarchyProviderAttribute"],
-  "duplicate-prevention": ["exactExternalCatalogItemReferencesFirst", "ambiguousCandidatePolicy", "replayPolicy"],
-  "promotion-plan": ["promotionPlanKind"],
-  "retirement-plan": ["retirementTrackingIssue", "retirementReason"],
-  "migration-evidence": ["migrationEvidenceText", "migrationFixtureRunId"],
-} as const satisfies Record<CatalogProviderProfileEditableSectionKey, readonly string[]>;
+export type CatalogProviderProfileSectionFieldControl = "text" | "textarea" | "select" | "checkbox" | "tags";
 
-// Values a section always has. A form shows them read-only and does not send them; an edit that
-// does must send the fixed value.
-const fixedFields: Partial<Record<CatalogProviderProfileEditableSectionKey, Readonly<Record<string, string>>>> = {
-  fixtures: { liveProviderCallsAllowed: "false" },
-  "promotion-plan": { promotionRequiresReview: "true" },
-};
+/**
+ * One field of a section's form, as Catalog defines it. `defaultValue` is what Catalog stores when
+ * neither the edit nor the stored section has a value. A field with a `fixedValue` always has that
+ * value: a form shows it read-only and does not send it, and an edit that does must send that value.
+ * `options` lists a select's fixed choices; a select whose choices come from the stored version (the
+ * option query index) lists none here.
+ */
+export type CatalogProviderProfileSectionField = Readonly<{
+  key: string;
+  label: string;
+  control: CatalogProviderProfileSectionFieldControl;
+  required: boolean;
+  options: readonly Readonly<{ value: string; label: string }>[];
+  defaultValue: string | null;
+  fixedValue: string | null;
+  helpText: string | null;
+}>;
 
 // Catalog's defaults for a value neither the edit nor the stored section has.
 const defaultPromotionPlanKind = "catalog-item-promotion";
@@ -51,6 +45,146 @@ const defaultAmbiguousCandidatePolicy = "review-only";
 const defaultReplayPolicy = "same-profile-version";
 const defaultRetirementRemoveAfter = "executable-mapping-contract-activated";
 const defaultRetirementDiagnosticText = "Remove retired profile completely before launch.";
+
+/** Each section's form fields, in form order: what an operator edits and what Catalog fixes. */
+export const catalogProviderProfileSectionFields: Readonly<
+  Record<CatalogProviderProfileEditableSectionKey, readonly CatalogProviderProfileSectionField[]>
+> = {
+  basics: [
+    sectionField("displayName", "Display name", "text", { required: true }),
+    sectionField("lifecycle", "Lifecycle", "select", {
+      required: true,
+      options: [choice("draft", "Draft"), choice("test", "Test")],
+    }),
+    sectionField("status", "Status", "select", {
+      required: true,
+      options: [choice("active", "Active"), choice("planned", "Planned")],
+    }),
+    sectionField("capabilities", "Capabilities", "tags"),
+    sectionField("supportedScopes", "Supported scopes", "tags"),
+    sectionField("languageOptions", "Languages", "tags"),
+  ],
+  "provider-options": [
+    sectionField("optionQueryIndex", "Option query", "select", { required: true }),
+    sectionField("optionQueryDisplayName", "Option label", "text"),
+    sectionField("optionQueryScope", "Scope", "text"),
+    sectionField("optionQueryOperation", "Operation", "text"),
+  ],
+  connector: [
+    sectionField("connectorKind", "Connector kind", "text", { required: true }),
+    sectionField("connectorBaseUrl", "Base URL", "text"),
+    sectionField("connectorTransportOwns", "Transport responsibilities", "tags"),
+    sectionField("connectorMappingOwns", "Mapping responsibilities", "tags"),
+  ],
+  "catalog-field-mapping": [
+    sectionField("blueprintKey", "Blueprint key", "text"),
+    sectionField("categoryKey", "Category key", "text"),
+  ],
+  "source-contract": [
+    sectionField("sourceOwner", "Owner", "text", { required: true }),
+    sectionField("sourceRepository", "Repository", "text"),
+    sectionField("sourceCommit", "Commit", "text"),
+    sectionField("sourceDocumentPath", "Document path", "text", { required: true }),
+    sectionField("fixtureSetVersion", "Fixture set version", "text", { required: true }),
+  ],
+  fixtures: [
+    sectionField("fixtureRoot", "Fixture root", "text", { required: true }),
+    sectionField("coveredFlows", "Covered flows", "tags"),
+    sectionField("liveProviderCallsAllowed", "Live provider calls", "checkbox", {
+      fixedValue: "false",
+      helpText: "Offline fixture validation is required for launch.",
+    }),
+  ],
+  "source-observation": [
+    sectionField("observationIdPath", "Observation id source", "text"),
+    sectionField("externalKeyPath", "External key source", "text"),
+    sectionField("sourceUrlPath", "Source URL source", "text"),
+    sectionField("sourceUpdatedAtPath", "Source updated source", "text"),
+  ],
+  "normalized-observation": [
+    sectionField("normalizedOutputKind", "Output kind", "text", { required: true }),
+    sectionField("normalizedLanguagePath", "Language source", "text"),
+  ],
+  "external-references": [
+    sectionField("externalReferenceProviderKey", "Reference provider", "text"),
+    sectionField("externalReferenceTarget", "Reference target", "text", {
+      defaultValue: defaultExternalReferenceTarget,
+    }),
+    sectionField("externalKeyPrefix", "External key prefix", "text"),
+  ],
+  "selected-options": [sectionField("selectedOptionDimensionKey", "Dimension key", "text")],
+  "reference-hierarchy": [
+    sectionField("referenceHierarchyType", "Reference type", "text"),
+    sectionField("referenceHierarchyProviderAttribute", "Provider attribute", "text"),
+  ],
+  "duplicate-prevention": [
+    sectionField("exactExternalCatalogItemReferencesFirst", "Check external references first", "checkbox"),
+    sectionField("ambiguousCandidatePolicy", "Ambiguous candidate policy", "select", {
+      required: true,
+      options: [choice("block-promotion", "Block promotion"), choice("review-only", "Review only")],
+      defaultValue: defaultAmbiguousCandidatePolicy,
+    }),
+    sectionField("replayPolicy", "Replay policy", "select", {
+      required: true,
+      options: [
+        choice("same-profile-version", "Same profile version"),
+        choice("operator-reapply-active-version", "Operator reapply active version"),
+      ],
+      defaultValue: defaultReplayPolicy,
+    }),
+  ],
+  "promotion-plan": [
+    sectionField("promotionPlanKind", "Plan kind", "text", { required: true, defaultValue: defaultPromotionPlanKind }),
+    sectionField("promotionRequiresReview", "Requires review", "checkbox", { fixedValue: "true" }),
+  ],
+  "retirement-plan": [
+    sectionField("retirementTrackingIssue", "Tracking issue", "text"),
+    sectionField("retirementReason", "Removal reason", "textarea", { defaultValue: defaultRetirementDiagnosticText }),
+  ],
+  "migration-evidence": [
+    sectionField("migrationEvidenceText", "Evidence", "textarea"),
+    sectionField("migrationFixtureRunId", "Fixture run", "text"),
+  ],
+};
+
+/** The fields each section's edit takes, by the names its form gives them. */
+export const catalogProviderProfileSectionFieldKeys: Readonly<
+  Record<CatalogProviderProfileEditableSectionKey, readonly string[]>
+> = editableFieldKeys();
+
+function editableFieldKeys(): Record<CatalogProviderProfileEditableSectionKey, readonly string[]> {
+  const keys = {} as Record<CatalogProviderProfileEditableSectionKey, readonly string[]>;
+  for (const section of Object.keys(
+    catalogProviderProfileSectionFields,
+  ) as CatalogProviderProfileEditableSectionKey[]) {
+    keys[section] = catalogProviderProfileSectionFields[section]
+      .filter((field) => field.fixedValue === null)
+      .map((field) => field.key);
+  }
+  return keys;
+}
+
+function sectionField(
+  key: string,
+  label: string,
+  control: CatalogProviderProfileSectionFieldControl,
+  rest: Partial<Omit<CatalogProviderProfileSectionField, "key" | "label" | "control">> = {},
+): CatalogProviderProfileSectionField {
+  return {
+    key,
+    label,
+    control,
+    required: rest.required ?? false,
+    options: rest.options ?? [],
+    defaultValue: rest.defaultValue ?? null,
+    fixedValue: rest.fixedValue ?? null,
+    helpText: rest.helpText ?? null,
+  };
+}
+
+function choice(value: string, label: string): Readonly<{ value: string; label: string }> {
+  return { value, label };
+}
 const defaultPathExpression = { owner: "catalog-truth", uses: ["source-payload"], redaction: "none" } as const;
 const defaultPathSelector = { kind: "path", required: true, nullPolicy: "diagnostic" } as const;
 
@@ -67,7 +201,11 @@ export function parseCatalogProviderProfileSectionEdit(
     throw new CatalogProviderProfileSectionValidationError("fields must be a JSON object of the section's fields.");
   }
   const allowed: readonly string[] = catalogProviderProfileSectionFieldKeys[definition.section];
-  const fixed = fixedFields[definition.section] ?? {};
+  const fixed = Object.fromEntries(
+    catalogProviderProfileSectionFields[definition.section].flatMap((field) =>
+      field.fixedValue === null ? [] : [[field.key, field.fixedValue] as const],
+    ),
+  );
   const fields: Record<string, string> = {};
   for (const [key, entry] of Object.entries(value)) {
     if (typeof entry !== "string") {
