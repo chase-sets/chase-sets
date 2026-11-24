@@ -9,7 +9,7 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as paymentsModule } from "../../../index";
-import { getCapturedPaymentByOrderId } from "./queries";
+import { getCapturedPaymentByOrderId, listActivePaymentIdsForOrder } from "./queries";
 
 const adminDatabaseUrl = process.env.TEST_DATABASE_URL;
 if (!adminDatabaseUrl && process.env.CI) {
@@ -62,6 +62,24 @@ describeDb("payment order lookup plan", () => {
 
     expect(payment?.payment_id).toBe("pay_4242");
     expect(JSON.stringify(plans)).toContain("payments_payment_orders_order_idx");
+  });
+
+  it("finds the buyer's linked Payment and active creation reservation for a deadline", async () => {
+    await pools.payments.query(`
+      INSERT INTO payments_payment_creation_reservations (
+        payment_id, buyer_account_id, order_set_key, order_ids, status, created_at, updated_at
+      ) VALUES
+        ('pay_4242', 'acc_2', 'ord_4242', '["ord_4242"]', 'active', now(), now()),
+        ('pay_unprojected', 'acc_2', 'ord_4242,ord_other', '["ord_4242","ord_other"]', 'active', now(), now()),
+        ('pay_other_order', 'acc_2', 'ord_other', '["ord_other"]', 'active', now(), now()),
+        ('pay_failed', 'acc_2', 'ord_4242', '["ord_4242"]', 'failed', now(), now())
+    `);
+
+    expect((await listActivePaymentIdsForOrder(pools.payments, "ord_4242", "acc_2")).sort()).toEqual([
+      "pay_4242",
+      "pay_unprojected",
+    ]);
+    await expect(listActivePaymentIdsForOrder(pools.payments, "ord_4242", "acc_other")).resolves.toEqual([]);
   });
 });
 
