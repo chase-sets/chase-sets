@@ -17,7 +17,7 @@ import {
   type ProviderWebhookTelemetry,
   type ProviderWebhookTelemetryEvent,
 } from "@chase-sets/http/provider-errors";
-import { decideWebhookPayment, paymentWebhookErrorFromUnknown } from "./webhook-errors";
+import { decideWebhookPayment, paymentWebhookErrorFromUnknown, paymentWebhookFailureCause } from "./webhook-errors";
 import type { PaymentTransactionRunner, PaymentWebhookRunner, PaymentWebhookResult } from "./webhook-transaction";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, OrderId, PaymentId } from "@chase-sets/primitives/typed-ids";
@@ -2944,6 +2944,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
           retryable: classified.retryable,
           providerEventId: classified.providerEventId,
           eventKind: classified.eventKind,
+          causeCode: paymentWebhookFailureCause(classified),
         });
         throw classified;
       }
@@ -3082,7 +3083,8 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
             }
             return { received: true, ignored: !instrument };
           }
-          if (deps.walletFunding && (await deps.walletFunding.processWebhook(webhookEvent, context))) {
+          // The inbox holds the transaction's backend; a pool lookup can wait on that same backend.
+          if (deps.walletFunding && (await deps.walletFunding.processWebhook(webhookEvent, context, transaction.db))) {
             return { received: true, ignored: false };
           }
 
@@ -3096,6 +3098,13 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
               );
 
           if (!payment) {
+            if (
+              !webhookEvent.internalPaymentId &&
+              webhookEvent.kind === "payment-captured" &&
+              webhookEvent.processorPaymentKind === "payment-intent"
+            ) {
+              return { received: true, ignored: true, failure_class: "unknown-event" };
+            }
             throw new PaymentsDomainError("Payment webhook target was not found.", "payment_webhook_target_not_ready");
           }
 
@@ -3358,6 +3367,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
           retryable: classified.retryable,
           providerEventId: webhookEvent.eventId,
           eventKind: webhookEvent.kind,
+          causeCode: paymentWebhookFailureCause(classified),
         });
         throw classified;
       }

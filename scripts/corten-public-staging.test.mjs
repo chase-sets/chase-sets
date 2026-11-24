@@ -29,8 +29,10 @@ const image = `registry.digitalocean.com/chase-sets/chase-sets-corten-public@${d
 const options = {
   image: `registry.digitalocean.com/chase-sets/chase-sets-platform:release@${digest}`,
   cortenPublicImage: image,
-  // admin-corten serves admin.staging, so a staging deploy needs its image too.
+  // admin-corten and marketplace-corten serve admin.staging and marketplace.staging, so a staging deploy needs
+  // their images too.
   cortenAdminImage: `registry.digitalocean.com/chase-sets/chase-sets-corten-admin@${digest}`,
+  cortenMarketplaceImage: `registry.digitalocean.com/chase-sets/chase-sets-corten-marketplace@${digest}`,
   envOverrides: { DEPLOYMENT_ENVIRONMENT: "staging", OBSERVABILITY_ENABLED: "false" },
   env: { GITHUB_RUN_ID: "123", GITHUB_RUN_ATTEMPT: "1" },
   managedPostgresCaSha256: "b".repeat(64),
@@ -200,6 +202,7 @@ describe("Corten public staging, first slice", () => {
       const elsewhere = {
         ...options,
         cortenAdminImage: undefined,
+        cortenMarketplaceImage: undefined,
         envOverrides: { DEPLOYMENT_ENVIRONMENT: environment },
       };
       expect(() => buildHelmUpgradeArgs(elsewhere)).toThrow("corten-public-image is staging-only.");
@@ -311,7 +314,7 @@ describe("Corten public staging, first slice", () => {
     // Each pilot answers only to its own variable.
     expect(withheldCortenPilots(withPilot(options, "withheld"))).not.toContain("marketplace-corten");
     expect(
-      withheldCortenPilots({ ...options, env: { ...options.env, STAGING_MARKETPLACE_PILOT: "withheld" } }),
+      withheldCortenPilots({ ...options, env: { ...options.env, STAGING_MARKETPLACE_APP: "marketplace" } }),
     ).not.toContain("public-corten");
     expect(
       withheldCortenPilots({

@@ -280,15 +280,16 @@ Tracking:
 | Provider | Production role | Catalog authority | Explicitly not Catalog truth |
 | --- | --- | --- | --- |
 | YGOPRODeck | Preferred free card-level baseline source for cards, printings, sets, image URI evidence, archetypes, and banlist/format reference facts where approved | Card-print identifiers, set/printing identifiers, printed names, collector/set codes, language facts, rarity, archetype and banlist/format reference facts, image URI evidence when approved, and freshness diagnostics | Prices, low-confidence vendor price hints as Catalog truth, seller or account facts, raw provider bodies, and unapproved provider imagery copies |
-| YGOJSON | Free structured Yu-Gi-Oh! set, product, sealed-product, and pack-metadata reference source, and normalization cross-check | Set/product identifiers, sealed-product identifiers and packaging labels, pack-content and pack structure reference facts, cross-provider disagreement evidence, and bulk metadata/freshness evidence | Prices, gameplay analysis beyond reference facts, seller/account facts, raw provider bodies, and unapproved imagery copies |
+| YGOJSON | Free structured Yu-Gi-Oh! set, product, sealed-product, and pack-metadata reference source, and normalization cross-check | Set/product identifiers, sealed-product identifiers and packaging labels, approved sealed-product image URIs for rehosting, pack-content and pack structure reference facts, cross-provider disagreement evidence, and bulk metadata/freshness evidence | Prices, gameplay analysis beyond reference facts, seller/account facts, raw provider bodies, and unapproved imagery copies |
+| Scrydex | Fallback image evidence for Yu-Gi-Oh! sealed products only | Approved sealed-product image URIs for rehosting only where YGOJSON has no approved picture | Item identity or a replacement for an available YGOJSON picture |
 | TCGplayer | Yu-Gi-Oh! marketplace product, SKU, group/set, and price-reference identity source through the existing Chase Sets automation path | Product id external-reference candidates, SKU external-product-reference candidates after selected Options validate, group/set-name matching evidence, condition/language/printing/edition evidence, marketplace product image URI evidence when approved | Prices as Catalog identity, market prices as Catalog truth, latest sales, seller/account facts, inventory, listings, orders, messages, cookies, and session material |
 
 TCGplayer Product ids map to External Catalog Item Reference candidates;
 TCGplayer SKU ids map to External Product Reference candidates only after the
 selected Options validate against the active Catalog Product schema. YGOPRODeck
-and TCGplayer are the sources approved for retained image URI evidence in the
-production sync path. Official Konami Yu-Gi-Oh! database pages remain a
-validation-only reference cited as redacted validation labels and
+and TCGplayer have existing card image URI evidence approval; that approval does
+not authorize Chase Sets to contact TCGplayer. Official Konami Yu-Gi-Oh! database
+pages remain a validation-only reference cited as redacted validation labels and
 source-disagreement diagnostics only, never raw official text, imagery copies,
 or scraped payload bodies.
 
@@ -322,18 +323,24 @@ TCGplayer, including unit-scoped stops that block Yu-Gi-Oh! TCGplayer units
 without blocking Magic, Pokemon, One Piece, or Lorcana TCGplayer units; conflict
 policy explains YGOPRODeck, YGOJSON, and TCGplayer field authority, losing
 evidence retention, duplicate-prevention order, and manual-review blockers;
-asset policy evidence proves approved YGOPRODeck/TCGplayer images are rehosted
-into Catalog-owned Product Asset Sets without leaking provider image URLs; and
+asset policy evidence proves approved images are rehosted into Catalog-owned
+Product Asset Sets without leaking provider image URLs; and
 `CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE` names the accepted
 provider-data approval and #2126 UAT evidence before production-like YGOPRODeck,
 YGOJSON, or TCGplayer Yu-Gi-Oh! imports, promotions, reapply, or activation are
 opened.
 
-Approved YGOPRODeck or TCGplayer image evidence is shown as normalized image URI
-evidence only; promotion downloads approved images into Catalog-owned Product
-Asset Sets following `catalog-product-image-retention-v1` and publishes only
-Chase Sets asset URLs as compatibility `imageUrls`. Takedown or
-source-revocation requests use the Catalog asset takedown path in
+YGOJSON is approved for retained, rehosted Yu-Gi-Oh! sealed-product images.
+Scrydex is the fallback only when YGOJSON has no approved picture; a failure to
+download a YGOJSON picture does not trigger fallback. TCGplayer sealed-product
+pictures are excluded under the no-contact rule. See [Todd's decision on #11775
+Carry Catalog-owned pictures for Magic, One Piece and Yu-Gi-Oh! Card Prints through Catalog Merge Candidate promotion](https://github.com/chase-sets/chase-sets/issues/11775#issuecomment-7108307115).
+
+Under [#2119 [Yu-Gi-Oh Catalog Sync] Add Yu-Gi-Oh asset ingestion, image rehosting, and retention policy](https://github.com/chase-sets/chase-sets/issues/2119),
+promotion rehosts approved pictures as Catalog-owned Product Asset Sets following
+`catalog-product-image-retention-v1`, records the selected provider in the asset's
+source policy, and publishes only Chase Sets asset URLs as compatibility `imageUrls`.
+Takedown or source-revocation requests use the Catalog asset takedown path in
 [Catalog Asset Storage](../../../docs/runbooks/catalog-asset-storage.md).
 
 ### Milestone / UAT

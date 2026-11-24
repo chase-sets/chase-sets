@@ -3,7 +3,7 @@ import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec"
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createProjectionHandlerSet } from "@chase-sets/event-core/projector";
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import type { PaymentProcessorGateway, PaymentProcessorWebhookEvent } from "@chase-sets/payment-processing";
 import type { CheckoutProcessingFeePolicyResolver } from "../../payments/api/checkout-processing-fee-policy-resolver";
@@ -407,10 +407,14 @@ export function createWalletFundingRuntime(deps: WalletFundingRuntimeDeps) {
       );
       return executeRefund(input.fundingId, input.refundId, context);
     },
-    async processWebhook(event: PaymentProcessorWebhookEvent, context: EventStoreContext): Promise<boolean> {
+    async processWebhook(
+      event: PaymentProcessorWebhookEvent,
+      context: EventStoreContext,
+      lookupDb: PgQueryable = deps.pool,
+    ): Promise<boolean> {
       const fundingId = event.internalPaymentId?.startsWith("wfp_")
         ? (event.internalPaymentId as WalletFundingId)
-        : await fundingIdForProcessorReference(deps.pool, event.processorPaymentReference);
+        : await fundingIdForProcessorReference(lookupDb, event.processorPaymentReference);
       if (!fundingId) return false;
       let state = await stateFor(fundingId);
       fundingRule(state.quote, "funding_webhook_target_not_ready");

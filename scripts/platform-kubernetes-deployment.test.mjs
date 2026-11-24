@@ -90,6 +90,7 @@ const managedPostgresCaSha256 = "a".repeat(64);
 const rollbackImageRef = `registry.digitalocean.com/chase-sets/chase-sets-platform@${rollbackDigest}`;
 // admin-corten serves admin.staging, so every staging deploy carries its pinned image.
 const stagingCortenAdminImage = `registry.digitalocean.com/chase-sets/chase-sets-corten-admin@sha256:${"c".repeat(64)}`;
+const stagingCortenMarketplaceImage = `registry.digitalocean.com/chase-sets/chase-sets-corten-marketplace@sha256:${"e".repeat(64)}`;
 const productionIndex = {
   schemaVersion: 2,
   mediaType: "application/vnd.oci.image.index.v1+json",
@@ -496,6 +497,8 @@ describe("platform Kubernetes deployment", () => {
         rollbackImageRef,
         "--corten-admin-image",
         stagingCortenAdminImage,
+        "--corten-marketplace-image",
+        stagingCortenMarketplaceImage,
         "--runtime-env",
         "DEPLOYMENT_ENVIRONMENT=staging",
       ];
@@ -1234,6 +1237,7 @@ describe("platform Kubernetes deployment", () => {
         timeout: "12m",
         image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
         cortenAdminImage: stagingCortenAdminImage,
+        cortenMarketplaceImage: stagingCortenMarketplaceImage,
         envOverrides: {
           DEPLOYMENT_ENVIRONMENT: "staging",
         },
@@ -1301,6 +1305,7 @@ describe("platform Kubernetes deployment", () => {
       namespace: "chase-sets-platform",
       image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
       cortenAdminImage: stagingCortenAdminImage,
+      cortenMarketplaceImage: stagingCortenMarketplaceImage,
       envOverrides: { DEPLOYMENT_ENVIRONMENT: "staging", OBSERVABILITY_ENABLED: "true" },
     });
     expect(stagingArgs).toEqual(
@@ -1414,6 +1419,8 @@ describe("platform Kubernetes deployment", () => {
       "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha@sha256:4db059aed0e208b2ab1ebe0e8cbb562070d3962fc21d0f088af85a9942e76d86",
       "--corten-admin-image",
       stagingCortenAdminImage,
+      "--corten-marketplace-image",
+      stagingCortenMarketplaceImage,
       "--image-pull-secret",
       "chase-sets",
       "--runtime-env",
@@ -1506,6 +1513,7 @@ describe("platform Kubernetes deployment", () => {
       timeout: "12m",
       image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
       cortenAdminImage: stagingCortenAdminImage,
+      cortenMarketplaceImage: stagingCortenMarketplaceImage,
       envOverrides: {
         DEPLOYMENT_ENVIRONMENT: "staging",
         CHASE_SETS_RUNTIME_PROFILE: "public",
@@ -1561,6 +1569,7 @@ describe("platform Kubernetes deployment", () => {
       timeout: "12m",
       image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
       cortenAdminImage: stagingCortenAdminImage,
+      cortenMarketplaceImage: stagingCortenMarketplaceImage,
       envOverrides: {
         DEPLOYMENT_ENVIRONMENT: "staging",
       },
@@ -1798,6 +1807,7 @@ describe("platform Kubernetes deployment", () => {
         timeout: "12m",
         image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
         cortenAdminImage: stagingCortenAdminImage,
+        cortenMarketplaceImage: stagingCortenMarketplaceImage,
         envOverrides: { DEPLOYMENT_ENVIRONMENT: "staging" },
         spawn: successfulSpawn(stagingCalls),
       });
@@ -1842,7 +1852,9 @@ describe("platform Kubernetes deployment", () => {
         namespace: environment,
         timeout: "12m",
         image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
-        ...(environment === "staging" ? { cortenAdminImage: stagingCortenAdminImage } : {}),
+        ...(environment === "staging"
+          ? { cortenAdminImage: stagingCortenAdminImage, cortenMarketplaceImage: stagingCortenMarketplaceImage }
+          : {}),
         envOverrides: {
           DEPLOYMENT_ENVIRONMENT: environment,
         },
@@ -7136,7 +7148,10 @@ describe("preview Postgres connection ceiling and diagnostics (#10022)", () => {
       timeout: "15m",
       image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
       ...(environment === "staging"
-        ? { cortenAdminImage: `registry.digitalocean.com/chase-sets/chase-sets-corten-admin@sha256:${"a".repeat(64)}` }
+        ? {
+            cortenAdminImage: `registry.digitalocean.com/chase-sets/chase-sets-corten-admin@sha256:${"a".repeat(64)}`,
+            cortenMarketplaceImage: stagingCortenMarketplaceImage,
+          }
         : {}),
       envOverrides: {
         DEPLOYMENT_ENVIRONMENT: environment,
@@ -7724,8 +7739,8 @@ describe("advisory Corten pilots without an image", () => {
   const adminImage = `registry.digitalocean.com/chase-sets/chase-sets-corten-admin@sha256:${"a".repeat(64)}`;
   const marketplaceImage = `registry.digitalocean.com/chase-sets/chase-sets-corten-marketplace@sha256:${"c".repeat(64)}`;
   const publicImage = `registry.digitalocean.com/chase-sets/chase-sets-corten-public@sha256:${"d".repeat(64)}`;
-  // admin-corten serves admin.staging here (STAGING_ADMIN_APP unset), so marketplace-corten and public-corten are
-  // the advisory pilots.
+  // admin-corten serves admin.staging and marketplace-corten serves marketplace.staging here (STAGING_ADMIN_APP and
+  // STAGING_MARKETPLACE_APP unset), so public-corten is the one advisory pilot.
   const staging = {
     release: "proof",
     namespace: "staging",
@@ -7735,9 +7750,11 @@ describe("advisory Corten pilots without an image", () => {
     envOverrides: { DEPLOYMENT_ENVIRONMENT: "staging", OBSERVABILITY_ENABLED: "false" },
     env: {},
     cortenAdminImage: adminImage,
+    cortenMarketplaceImage: marketplaceImage,
   };
   const adminWorkload = "proof-chase-sets-platform-admin-corten";
-  const pilotWorkload = "proof-chase-sets-platform-marketplace-corten";
+  const marketplaceWorkload = "proof-chase-sets-platform-marketplace-corten";
+  const publicWorkload = "proof-chase-sets-platform-public-corten";
   const deployStaging = async (options) => {
     const calls = [];
     const warn = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -7755,10 +7772,7 @@ describe("advisory Corten pilots without an image", () => {
   };
 
   it("names the advisory pilots explicitly", () => {
-    expect(platformKubernetesDeployment.ADVISORY_CORTEN_PILOT_COMPONENTS).toEqual([
-      "marketplace-corten",
-      "public-corten",
-    ]);
+    expect(platformKubernetesDeployment.ADVISORY_CORTEN_PILOT_COMPONENTS).toEqual(["public-corten"]);
   });
 
   it("refuses a staging deploy with no admin image while the pilot serves admin.staging", async () => {
@@ -7767,28 +7781,29 @@ describe("advisory Corten pilots without an image", () => {
     );
   });
 
+  it("refuses a staging deploy with no marketplace image while the pilot serves marketplace.staging", async () => {
+    await expect(deployStaging({ cortenMarketplaceImage: undefined })).rejects.toThrow(
+      "corten-marketplace-image is required on staging: marketplace-corten is not an advisory pilot.",
+    );
+  });
+
   it("deploys an advisory pilot that has no image disabled, warns, and does not wait for it", async () => {
     const { result, warnings, helm, waited } = await deployStaging({});
-    const disabled = helm.indexOf("components.marketplace-corten.enabled=false");
+    const disabled = helm.indexOf("components.public-corten.enabled=false");
     expect(helm[disabled - 1]).toBe("--set");
-    expect(helm.filter((arg) => String(arg).startsWith("components.marketplace-corten.image="))).toEqual([]);
-    expect(warnings).toContain(
-      "Warning: no image was given for the advisory Corten pilot marketplace-corten; deploying it disabled.",
-    );
-    expect(helm[helm.indexOf("components.public-corten.enabled=false") - 1]).toBe("--set");
+    expect(helm.filter((arg) => String(arg).startsWith("components.public-corten.image="))).toEqual([]);
     expect(warnings).toContain(
       "Warning: no image was given for the advisory Corten pilot public-corten; deploying it disabled.",
     );
+    expect(helm).toContain(`components.marketplace-corten.image=${marketplaceImage}`);
+    expect(helm).not.toContain("components.marketplace-corten.enabled=false");
     expect(waited.some((args) => args.includes("proof-chase-sets-platform-platform-api"))).toBe(true);
-    expect(waited.filter((args) => args.includes(pilotWorkload))).toEqual([]);
-    expect(JSON.stringify(result)).not.toContain(pilotWorkload);
+    expect(waited.filter((args) => args.includes(publicWorkload))).toEqual([]);
+    expect(JSON.stringify(result)).not.toContain(publicWorkload);
   });
 
-  it("pins an advisory pilot's built image and waits for the admin pilot that serves admin.staging", async () => {
-    const { result, warnings, helm, waited } = await deployStaging({
-      cortenMarketplaceImage: marketplaceImage,
-      cortenPublicImage: publicImage,
-    });
+  it("pins an advisory pilot's built image and waits for the pilots that serve admin and marketplace", async () => {
+    const { result, warnings, helm, waited } = await deployStaging({ cortenPublicImage: publicImage });
     expect(helm).toContain(`components.marketplace-corten.image=${marketplaceImage}`);
     expect(helm).toContain(`components.public-corten.image=${publicImage}`);
     expect(helm).not.toContain("components.public-corten.enabled=false");
@@ -7796,29 +7811,19 @@ describe("advisory Corten pilots without an image", () => {
     expect(helm).toContain(`components.admin-corten.image=${adminImage}`);
     expect(helm).not.toContain("components.admin-corten.enabled=false");
     expect(warnings.filter((message) => message.includes("corten"))).toEqual([]);
-    // The marketplace workload stays declared disabled in the staging values until its Deploy Staging wiring
-    // enables it, so only the serving admin pilot is waited for here.
     expect(waited.filter((args) => args.includes(adminWorkload))).toHaveLength(1);
+    expect(waited.filter((args) => args.includes(marketplaceWorkload))).toHaveLength(1);
     expect(JSON.stringify(result)).toContain(adminWorkload);
+    expect(JSON.stringify(result)).toContain(marketplaceWorkload);
   });
 
   it("refuses a staging deploy with no image for a pilot that is no longer advisory", async () => {
     const serving = { advisoryCortenPilotComponents: [] };
     expect(() => buildHelmUpgradeArgs({ ...staging, ...serving })).toThrow(
-      "corten-marketplace-image is required on staging: marketplace-corten is not an advisory pilot.",
-    );
-    await expect(deployStaging(serving)).rejects.toThrow("marketplace-corten is not an advisory pilot");
-    expect(() => buildHelmUpgradeArgs({ ...staging, ...serving, cortenMarketplaceImage: marketplaceImage })).toThrow(
       "corten-public-image is required on staging: public-corten is not an advisory pilot.",
     );
-    expect(
-      buildHelmUpgradeArgs({
-        ...staging,
-        ...serving,
-        cortenMarketplaceImage: marketplaceImage,
-        cortenPublicImage: publicImage,
-      }),
-    ).toEqual(
+    await expect(deployStaging(serving)).rejects.toThrow("public-corten is not an advisory pilot");
+    expect(buildHelmUpgradeArgs({ ...staging, ...serving, cortenPublicImage: publicImage })).toEqual(
       expect.arrayContaining([
         `components.marketplace-corten.image=${marketplaceImage}`,
         `components.public-corten.image=${publicImage}`,
@@ -7843,6 +7848,24 @@ describe("advisory Corten pilots without an image", () => {
       expect(waited.some((args) => args.includes("proof-chase-sets-platform-platform-api"))).toBe(true);
       expect(waited.filter((args) => args.includes(adminWorkload))).toEqual([]);
       expect(JSON.stringify(result)).not.toContain(adminWorkload);
+    }
+  });
+
+  it("does not deploy marketplace-corten while marketplace-web serves marketplace.staging, whether or not its image was built", async () => {
+    for (const cortenMarketplaceImage of [marketplaceImage, undefined]) {
+      const { result, warnings, helm, waited } = await deployStaging({
+        env: { STAGING_MARKETPLACE_APP: "marketplace" },
+        cortenMarketplaceImage,
+      });
+      expect(helm.filter((arg) => String(arg).startsWith("components.marketplace-corten."))).toEqual([
+        "components.marketplace-corten.enabled=false",
+      ]);
+      expect(warnings).toContain(
+        "Warning: marketplace-corten is not deployed because marketplace-web serves marketplace.staging (STAGING_MARKETPLACE_APP=marketplace).",
+      );
+      expect(waited.some((args) => args.includes("proof-chase-sets-platform-platform-api"))).toBe(true);
+      expect(waited.filter((args) => args.includes(marketplaceWorkload))).toEqual([]);
+      expect(JSON.stringify(result)).not.toContain(marketplaceWorkload);
     }
   });
 
