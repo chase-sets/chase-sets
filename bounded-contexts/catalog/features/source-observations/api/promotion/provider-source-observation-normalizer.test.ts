@@ -174,6 +174,61 @@ describe("provider Source Observation normalizer", () => {
     );
   });
 
+  it.each([
+    {
+      field: "externalCatalogItemReferences",
+      value: [{ providerKey: "tcgplayer" }],
+      path: "externalCatalogItemReferences.0.externalKey",
+      diagnosticText: "External reference externalKey must be a string.",
+    },
+    {
+      field: "mergeIdentity",
+      value: { languageCode: "English" },
+      path: "mergeIdentity.languageCode",
+      diagnosticText: "Locale codes must be valid BCP 47 language tags.",
+    },
+  ] as const)("identifies the failing natural key within $field", ({ field, value, path, diagnosticText }) => {
+    const contract = providerProductContract();
+    const result = normalizeCatalogProviderSourceObservation({
+      contract: {
+        ...contract,
+        normalizedObservation: {
+          ...contract.normalizedObservation,
+          fields: {
+            ...contract.normalizedObservation.fields,
+            [field]: constantExpr(value, "catalog-truth", ["normalized-observation"]),
+          },
+        },
+      },
+      payload: providerProductPayload(),
+      observedAt: "2026-06-03T00:00:00.000Z",
+    });
+
+    const fieldPath = `normalizedObservation.fields.${path}`;
+    expect(result.observation).toBeNull();
+    expect(result.diagnostics).toEqual([
+      { code: "transform-type-mismatch", path: fieldPath, redaction: "none", diagnosticText },
+    ]);
+    expect(formatCatalogProviderNormalizationDiagnostics("tcgplayer", result.diagnostics)).toBe(
+      `Catalog provider 'tcgplayer' source observation normalization failed at ${fieldPath}: ${diagnosticText}`,
+    );
+  });
+
+  it("withholds the text of a redacted normalization diagnostic from the job reason", () => {
+    expect(
+      formatCatalogProviderNormalizationDiagnostics("tcgplayer", [
+        {
+          code: "transform-type-mismatch",
+          path: "normalizedObservation.fields.name",
+          redaction: "secret",
+          diagnosticText: "Synthetic redacted diagnostic text.",
+        },
+      ]),
+    ).toBe(
+      "Catalog provider 'tcgplayer' source observation normalization failed at normalizedObservation.fields.name.",
+    );
+  });
+
   it("builds a Scrydex magic-card-print observation with Scryfall card print identity", () => {
     const result = normalizeCatalogProviderSourceObservation({
       contract: scrydexScryfallCardSourceObservationMappingContract,

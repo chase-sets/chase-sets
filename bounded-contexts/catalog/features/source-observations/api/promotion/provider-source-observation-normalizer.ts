@@ -5,6 +5,7 @@ import {
   normalizeSourceObservationExternalKey,
   normalizeSourceObservationNaturalKeyJson,
   normalizeSourceObservationNaturalKeys,
+  SourceObservationNaturalKeyError,
   type SourceObservationNormalized,
 } from "../../domain/domain";
 import type {
@@ -114,11 +115,13 @@ export function normalizeCatalogProviderSourceObservation(input: {
   try {
     normalized = normalizeSourceObservationNaturalKeys(mappedNormalized);
   } catch (error) {
+    if (!(error instanceof SourceObservationNaturalKeyError)) throw error;
+    const path = error.fieldPath === "languageCode" ? error.fieldPath : `fields.${error.fieldPath}`;
     diagnostics.push({
       code: "transform-type-mismatch",
-      path: "normalizedObservation.languageCode",
+      path: `normalizedObservation.${path}`,
       redaction: "none",
-      diagnosticText: error instanceof Error ? error.message : "Natural-key normalization failed.",
+      diagnosticText: error.message,
     });
     return { observation: null, diagnostics };
   }
@@ -333,7 +336,11 @@ export function formatCatalogProviderNormalizationDiagnostics(
   diagnostics: readonly CatalogProviderMappingInterpreterDiagnostic[],
 ): string {
   const summary = diagnostics.length > 0 ? diagnostics.map((diagnostic) => diagnostic.path).join(", ") : "unknown";
-  return `Catalog provider '${providerKey}' source observation normalization failed at ${summary}.`;
+  const details = diagnostics
+    .filter((diagnostic) => diagnostic.redaction === "none")
+    .map((diagnostic) => diagnostic.diagnosticText);
+  const suffix = details.length > 0 ? `: ${details.join(" ")}` : ".";
+  return `Catalog provider '${providerKey}' source observation normalization failed at ${summary}${suffix}`;
 }
 
 function asRequiredString(

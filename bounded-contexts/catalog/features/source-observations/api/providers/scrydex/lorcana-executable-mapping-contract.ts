@@ -518,12 +518,19 @@ function externalCatalogItemReferencesExpression(): CatalogProviderMappingValueE
       objectExpression(
         {
           providerKey: constantExpression("tcgplayer", "external-reference", ["external-reference"]),
-          externalKey: templateExpression("product:{tcgplayerProductId}", {
-            tcgplayerProductId: pathExpression("card.tcgplayer_id", "external-reference", ["external-reference"]),
-          }),
+          externalKey: templateExpression(
+            "product:{tcgplayerProductId}",
+            {
+              tcgplayerProductId: optionalPathExpression("card.tcgplayer_id", "external-reference", [
+                "external-reference",
+              ]),
+            },
+            false,
+          ),
         },
         "external-reference",
         ["external-reference"],
+        ["externalKey"],
       ),
     ],
     "external-reference",
@@ -591,9 +598,10 @@ function coalesceExpression(
 function templateExpression(
   template: string,
   values: Readonly<Record<string, CatalogProviderMappingValueExpression>>,
+  required = true,
 ): CatalogProviderMappingValueExpression {
   return {
-    selector: { kind: "template", template, values, required: true },
+    selector: { kind: "template", template, values, required },
     owner: "external-reference",
     uses: ["external-reference"],
     redaction: "none",
@@ -604,8 +612,14 @@ function objectExpression(
   fields: Readonly<Record<string, CatalogProviderMappingValueExpression>>,
   owner: CatalogProviderMappingEvidenceOwner,
   uses: readonly CatalogProviderMappingEvidenceUse[],
+  omitIfMissing?: readonly string[],
 ): CatalogProviderMappingValueExpression {
-  return { selector: { kind: "object", fields }, owner, uses, redaction: "none" };
+  return {
+    selector: { kind: "object", fields, ...(omitIfMissing ? { omitIfMissing } : {}) },
+    owner,
+    uses,
+    redaction: "none",
+  };
 }
 
 function arrayExpression(

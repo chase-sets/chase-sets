@@ -9453,6 +9453,9 @@ test.describe("catalog whole-game rehearsal journeys", () => {
       }
       return undefined;
     });
+    // The journey reaches Promote all ready already on admin.staging; it reads the scope's jobs
+    // before it loads the scope page, so the page starts there rather than on about:blank.
+    await page.goto(`${wholeGameStagingOrigin}/catalog/scopes/scope-1`);
     await expect(submitPromoteAllReady(page, "scope-1", [], fixtureRuntime())).resolves.toBe("job-new");
     expect(calls.filter((call) => call.startsWith("POST "))).toEqual([
       "POST /catalog/integrations/candidates?home=scope-1 intent=promote&scopeRecordId=scope-1",
