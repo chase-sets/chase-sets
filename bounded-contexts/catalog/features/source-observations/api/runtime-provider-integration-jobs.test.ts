@@ -28,6 +28,7 @@ import { YGOJSON_YUGIOH_SET_REFERENCE_DATA_UNIT_KEY } from "./provider-adapters/
 import { evolveSourceObservation, initialSourceObservationState, type SourceObservationEvent } from "../domain/domain";
 import { createSourceObservationRuntime } from "./runtime";
 import { createSourceObservationProviderImportRuntime } from "./source-observation-provider-import-runtime";
+import { sourceObservationImportFailureDiagnostic } from "./source-observation-import-failure-diagnostic";
 import { createSourceObservationMergeCandidateRuntime } from "./source-observation-merge-candidate-runtime";
 import { listCatalogProviderIntegrationOptionsFromProfiles } from "./providers/provider-option-query-resolver";
 import * as providerOptionQueries from "./providers/provider-option-queries";
@@ -2179,6 +2180,56 @@ describe("source observation runtime: provider integration jobs", () => {
     });
   });
 
+  it("records one English observation per Scrydex Lorcana set card with a language label but no code", async () => {
+    const { harness } = await runQueuedScrydexLorcanaCardImport("English", [
+      { id: "synthetic-card-1", name: "Synthetic Lorcana Card 1", number: "1" },
+      { id: "synthetic-card-2", name: "Synthetic Lorcana Card 2", number: "2" },
+    ]);
+
+    expect(harness.job.result).toMatchObject({
+      imported: 1,
+      observed: 2,
+      failed: 0,
+      outcomes: [{ status: "imported", observed: 2, reason: null }],
+    });
+    expect(harness.appendedSourceEvents).toMatchObject(
+      [1, 2].map((index) => ({
+        payload: {
+          observationId: `scrydex_lorcana_card_en_synthetic-card-${index}`,
+          externalKey: `card:synthetic-card-${index}`,
+          normalized: {
+            kind: "lorcana-card-print",
+            languageCode: "en",
+            name: `Synthetic Lorcana Card ${index}`,
+            cardNumber: String(index),
+            setId: "synthetic-set",
+            setName: "Synthetic Lorcana Set",
+            mergeIdentity: { languageCode: "en" },
+          },
+        },
+      })),
+    );
+  });
+
+  it("reports a support-safe language diagnostic for an unsupported Scrydex Lorcana card language", async () => {
+    const { harness } = await runQueuedScrydexLorcanaCardImport("unsupported-language-label", [
+      { id: "synthetic-card-1", name: "Synthetic Lorcana Card 1", number: "1" },
+    ]);
+
+    const reason =
+      "Catalog provider 'scrydex' source observation normalization failed at normalizedObservation.languageCode.";
+    expect(harness.job.result).toMatchObject({
+      observed: 0,
+      failed: 1,
+      outcomes: [{ status: "failed", reason }],
+    });
+    expect(sourceObservationImportFailureDiagnostic("scrydex", reason)).toEqual({
+      code: "source-observation-normalization-failed",
+      fieldPath: "normalizedObservation.languageCode",
+    });
+    expect(harness.appendedSourceEvents).toEqual([]);
+  });
+
   it("processes queued imports with the snapshotted profile version after a newer version is activated", async () => {
     const harness = createIntegrationJobClaimHandoffHarness({
       profileSnapshot: tcgdexProfileSnapshot("2026.06.03"),
@@ -3047,6 +3098,7 @@ async function resolvedScrydexUnitKey(profileKey: string): Promise<string> {
 async function runQueuedScrydexImport(input: {
   policy: CatalogIntegrationRolloutControlPolicy;
   scope: Record<string, unknown>;
+  fetch?: typeof globalThis.fetch;
   profileSnapshot?: Record<string, unknown> | null;
   profileVersions?: ReturnType<typeof sharedScrydexProfileVersions>;
 }) {
@@ -3055,7 +3107,7 @@ async function runQueuedScrydexImport(input: {
   const originalTeamId = process.env.SCRYDEX_TEAM_ID;
   process.env.SCRYDEX_API_KEY = "test-key";
   process.env.SCRYDEX_TEAM_ID = "main";
-  const fetch = vi.fn(scrydexOnePieceFetch());
+  const fetch = vi.fn(input.fetch ?? scrydexOnePieceFetch());
   globalThis.fetch = fetch as typeof globalThis.fetch;
   const harness = createIntegrationJobClaimHandoffHarness({
     scope: input.scope,
@@ -3079,6 +3131,32 @@ async function runQueuedScrydexImport(input: {
     globalThis.fetch = originalFetch;
   }
   return { harness, transportCalls: fetch.mock.calls };
+}
+
+function runQueuedScrydexLorcanaCardImport(
+  language: string,
+  cards: readonly { id: string; name: string; number: string }[],
+) {
+  const fixtureFetch = scrydexOnePieceFetch();
+  return runQueuedScrydexImport({
+    scope: { ...SCRYDEX_LORCANA_SCOPE, setId: "synthetic-set" },
+    policy: createCatalogIntegrationRolloutControlPolicy(),
+    fetch: async (input) => {
+      const url = new URL(input instanceof Request ? input.url : input);
+      if (url.pathname === "/lorcana/v1/cards" && url.searchParams.get("q") === "expansion.id:synthetic-set") {
+        return jsonResponse({
+          data: cards.map((card) => ({
+            ...card,
+            language,
+            tcgplayer_id: Number(card.number),
+            expansion: { id: "synthetic-set", name: "Synthetic Lorcana Set" },
+          })),
+          total_pages: 1,
+        });
+      }
+      return fixtureFetch(input);
+    },
+  });
 }
 
 describe("source observation runtime: resolved-unit import rollout enforcement", () => {
