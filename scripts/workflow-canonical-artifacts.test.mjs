@@ -351,9 +351,13 @@ jobs:
       newOrRegressed: [expect.objectContaining({ outPath: "artifacts/unbaselined/new-debt.json" })],
     });
 
+    const warning = current.findings.find(
+      (finding) => finding.kind === "missing-file-behavior" && finding.observed === "warn",
+    );
+    expect(warning).toBeDefined();
     const worsenedFinding = {
       ...current,
-      findings: current.findings.map((finding, index) => (index === 0 ? { ...finding, observed: "ignore" } : finding)),
+      findings: current.findings.map((finding) => (finding === warning ? { ...finding, observed: "ignore" } : finding)),
     };
     expect(evaluateWorkflowCanonicalArtifactRatchet(worsenedFinding, baseline)).toMatchObject({
       passed: false,
