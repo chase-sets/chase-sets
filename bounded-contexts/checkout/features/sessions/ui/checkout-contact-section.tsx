@@ -96,7 +96,10 @@ export function CheckoutContactSection({
           </LinkButton>
         ) : null}
         {guestEntry?.problem === "retry-later" ? (
-          <CheckoutStateNotice tone="warning" title={t("checkout.features.sessions.ui.checkoutPage.contact.retry.later")} />
+          <CheckoutStateNotice
+            tone="warning"
+            title={t("checkout.features.sessions.ui.checkoutPage.contact.retry.later")}
+          />
         ) : null}
         {!isOfferIntent ? (
           <Checkbox

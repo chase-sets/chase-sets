@@ -541,9 +541,7 @@ describe("checkout session page", () => {
       />,
     );
 
-    expect(
-      screen.getByText(t("checkout.features.sessions.ui.checkoutPage.contact.unavailable.title")),
-    ).toBeTruthy();
+    expect(screen.getByText(t("checkout.features.sessions.ui.checkoutPage.contact.unavailable.title"))).toBeTruthy();
     expect(document.querySelector('input[name="contactName"]')).toBeNull();
     expect(document.querySelector('input[name="shippingEmail"]')).toBeNull();
     expect(screen.queryByText("Checkout details")).toBeNull();

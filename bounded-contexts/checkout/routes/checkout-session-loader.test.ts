@@ -1539,7 +1539,8 @@ describe("checkout web routes: checkout session loader", () => {
   it.each([
     [
       "loads bound guest contact through the internal Auth client",
-      () => mockGetGuestCheckoutContact.mockResolvedValue({ contactName: "Jane Smith", contactEmail: "jane@example.com" }),
+      () =>
+        mockGetGuestCheckoutContact.mockResolvedValue({ contactName: "Jane Smith", contactEmail: "jane@example.com" }),
       { state: "bound", contactName: "Jane Smith", contactEmail: "jane@example.com" },
     ],
     [

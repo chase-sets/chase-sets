@@ -53,6 +53,12 @@ const quotedCheckoutProcessingFeePolicyValue: Parameters<typeof quoteMarketplace
     { paymentMethodCategory: "platform-credit", percentageBpsDelta: -290, fixedAmountDelta: "-0.30" },
   ],
 };
+// Confirm reads a guest's contact from Auth first; these synthetic guests have saved one unless a case says otherwise.
+const guestContact = vi.hoisted(() => ({ read: vi.fn() }));
+vi.mock("@chase-sets/auth/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@chase-sets/auth/server")>()),
+  createInternalAuthRequestApiClient: () => ({ getGuestCheckoutContact: guestContact.read }),
+}));
 const memoryStores = vi.hoisted(() => new WeakMap<object, ReturnType<typeof createInMemoryEventStore>>());
 vi.mock("@chase-sets/event-core-postgres", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@chase-sets/event-core-postgres")>();
@@ -184,6 +190,9 @@ function fixture(checkoutServices?: ReturnType<typeof checkoutModule.createServi
     throw new Error("Synthetic fixture forbids database access");
   });
   const pool: PgTransactionalPool = { query: outside, connect: outside };
+  guestContact.read
+    .mockReset()
+    .mockResolvedValue({ contactEmail: "guest@example.com", contactName: "Synthetic Guest" });
   const payments = {
     ...paymentsModule.createServices(pool, {}),
     ...(paymentRuntime ? { payments: paymentRuntime } : {}),
@@ -1532,6 +1541,14 @@ describe("checkout-closed-route-matrix: composition attachment", () => {
     },
     {
       path: "/checkout-sessions/chk_synthetic/confirm",
+      body: { savedCheckoutInstrumentId: "sci_synthetic" },
+      role: "guest-buyer",
+      contact: {},
+      status: 409,
+      code: "guest_contact_required",
+    },
+    {
+      path: "/checkout-sessions/chk_synthetic/confirm",
       body: { promoCode: "synthetic" },
       role: "owner",
       status: 409,
@@ -1547,21 +1564,25 @@ describe("checkout-closed-route-matrix: composition attachment", () => {
       status: 409,
       code: "payment_quote_required",
     },
-  ])("precedes body-derived $code without changing the open route", async ({ path, body, role, status, code }) => {
-    const f = fixture();
-    const open = await post(f.open, path, `body-${code}`, role, code, body);
-    expect(open.status).toBe(status);
-    expect(await open.json()).toMatchObject({ error: { code } });
-    expect(f.recordCheckoutEvent).toHaveBeenCalledTimes(
-      ["saved_checkout_instrument_unavailable", "checkout_economics_unsupported"].includes(code) ? 1 : 0,
-    );
-    const telemetry = [...f.recordCheckoutEvent.mock.calls];
-    const closed = await post(f.closed, path, `body-${code}`, role, code, body);
-    expect(closed.status).toBe(503);
-    expect(await closed.json()).toMatchObject({ error: { code: "checkout_closed" } });
-    expect(f.recordCheckoutEvent.mock.calls).toEqual(telemetry);
-    expect(f.outside).not.toHaveBeenCalled();
-  });
+  ])(
+    "precedes body-derived $code without changing the open route",
+    async ({ path, body, role, contact, status, code }) => {
+      const f = fixture();
+      if (contact) guestContact.read.mockResolvedValue(contact);
+      const open = await post(f.open, path, `body-${code}`, role, code, body);
+      expect(open.status).toBe(status);
+      expect(await open.json()).toMatchObject({ error: { code } });
+      expect(f.recordCheckoutEvent).toHaveBeenCalledTimes(
+        ["saved_checkout_instrument_unavailable", "checkout_economics_unsupported"].includes(code) ? 1 : 0,
+      );
+      const telemetry = [...f.recordCheckoutEvent.mock.calls];
+      const closed = await post(f.closed, path, `body-${code}`, role, code, body);
+      expect(closed.status).toBe(503);
+      expect(await closed.json()).toMatchObject({ error: { code: "checkout_closed" } });
+      expect(f.recordCheckoutEvent.mock.calls).toEqual(telemetry);
+      expect(f.outside).not.toHaveBeenCalled();
+    },
+  );
 
   it.each(preservedRoutes)("retains the owner response for sibling %s", async (route) => {
     const f = fixture();

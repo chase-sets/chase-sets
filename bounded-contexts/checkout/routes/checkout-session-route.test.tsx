@@ -159,7 +159,13 @@ describe("checkout session route: guest contact", () => {
   it("renders the collision state with editable fields, an invalid email marker, and the exact return-path sign-in href", () => {
     renderRoute(
       { state: "unbound" },
-      { guestContactAttempt: { contactName: "Jane Smith", contactEmail: "member@example.com", problem: "sign-in-required" } },
+      {
+        guestContactAttempt: {
+          contactName: "Jane Smith",
+          contactEmail: "member@example.com",
+          problem: "sign-in-required",
+        },
+      },
     );
 
     expect(input("contactName")?.value).toBe("Jane Smith");
@@ -193,7 +199,9 @@ describe("checkout session route: guest contact", () => {
     expect(screen.getByText("jane@example.com")).toBeTruthy();
     expect(input("contactName")).toBeNull();
     expect(input("shippingEmail")).toBeNull();
-    expect(screen.queryByRole("button", { name: t("checkout.features.sessions.ui.checkoutPage.edit.contact") })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: t("checkout.features.sessions.ui.checkoutPage.edit.contact") }),
+    ).toBeNull();
   });
 
   it("shows the locked guidance beside the retained bound contact", () => {
@@ -233,8 +241,14 @@ describe("checkout session route: guest contact", () => {
 
   it("renders every contact state without a missing-translation marker", () => {
     const states: ReadonlyArray<readonly [GuestContact, unknown]> = [
-      [{ state: "unbound" }, { guestContactAttempt: { contactName: "J", contactEmail: "m@example.com", problem: "sign-in-required" } }],
-      [{ state: "unbound" }, { guestContactAttempt: { contactName: "J", contactEmail: "m@example.com", problem: "retry-later" } }],
+      [
+        { state: "unbound" },
+        { guestContactAttempt: { contactName: "J", contactEmail: "m@example.com", problem: "sign-in-required" } },
+      ],
+      [
+        { state: "unbound" },
+        { guestContactAttempt: { contactName: "J", contactEmail: "m@example.com", problem: "retry-later" } },
+      ],
       [{ state: "unbound" }, { guestContactAttempt: { contactName: "", contactEmail: "", problem: "invalid" } }],
       [{ state: "unbound" }, { guestContact: BOUND, guestContactLocked: true }],
       [BOUND, undefined],

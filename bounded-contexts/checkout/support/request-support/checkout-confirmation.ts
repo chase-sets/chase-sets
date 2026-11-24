@@ -98,9 +98,9 @@ export async function bindGuestContactThroughAuth(
     return { outcome: "invalid" };
   }
   try {
-    const bound = await createInternalAuthRequestApiClient(request).bindGuestCheckoutContact<
-      GuestCheckoutClaimContextBody
-    >({ email, displayName });
+    const bound = await createInternalAuthRequestApiClient(
+      request,
+    ).bindGuestCheckoutContact<GuestCheckoutClaimContextBody>({ email, displayName });
     const authority = guestContactAuthorityFromClaimContext(bound ?? {});
     return authority.state === "bound" ? { outcome: "bound", authority } : { outcome: "retry-later" };
   } catch (error) {

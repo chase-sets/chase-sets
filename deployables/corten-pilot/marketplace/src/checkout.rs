@@ -1304,7 +1304,8 @@ pub(crate) async fn write(
                 None => (error.refusal().unwrap_or(t.route_request_failed()).to_owned(), place),
             };
             tracing::warn!("a checkout write was refused: {error}");
-            render(req, viewer, &config, headers, client, id, place, Answer::Refused(StatusCode::UNPROCESSABLE_ENTITY, message)).await
+            render(req, viewer, &config, headers, client, id, place, Answer::Refused(StatusCode::UNPROCESSABLE_ENTITY, message))
+                .await
         }
     };
     let here = Place { payment_method_category: Some(visible.clone()), ..Place::default() };
@@ -1355,7 +1356,17 @@ pub(crate) async fn write(
             };
             if expired(&session, SystemTime::now()) {
                 let message = t.recovery_checkout_handoff_expired_description().to_owned();
-                return render(&req, &viewer, &config, &headers, client, &id, here, Answer::Refused(StatusCode::CONFLICT, message)).await;
+                return render(
+                    &req,
+                    &viewer,
+                    &config,
+                    &headers,
+                    client,
+                    &id,
+                    here,
+                    Answer::Refused(StatusCode::CONFLICT, message),
+                )
+                .await;
             }
             // A cancelled session is final: a confirm sent again sends nothing and shows it as it is.
             if session.cancelled_at.is_some() {
@@ -1499,13 +1510,12 @@ pub(crate) async fn write(
                         && matches!(error.code(), Some("email_verification_required" | "authorization_forbidden")) =>
                 {
                     let message = error.refusal().unwrap_or(t.route_request_failed()).to_owned();
-                    render(&req, &viewer, &config, &headers, client, &id, here, Answer::Refused(StatusCode::FORBIDDEN, message)).await
+                    render(&req, &viewer, &config, &headers, client, &id, here, Answer::Refused(StatusCode::FORBIDDEN, message))
+                        .await
                 }
                 // Checkout orders and pays for a guest only once Auth holds its contact: the page
                 // again, which reads the contact and asks for it.
-                Err(error)
-                    if error.status() == Some(StatusCode::CONFLICT) && error.code() == Some("guest_contact_required") =>
-                {
+                Err(error) if error.status() == Some(StatusCode::CONFLICT) && error.code() == Some("guest_contact_required") => {
                     let refused = Answer::Refused(StatusCode::CONFLICT, t.guest_contact_required().to_owned());
                     render(&req, &viewer, &config, &headers, client, &id, here, refused).await
                 }

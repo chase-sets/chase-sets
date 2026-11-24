@@ -94,7 +94,6 @@ const GUEST_SAVED_PAYMENT_UNAVAILABLE =
 const PAYMENT_START_FRESHNESS_SOURCE_CONTEXT_NAMES = new Set(["ordering"]);
 const PAYMENT_START_RETRY_SOURCE_CONTEXT_NAMES = new Set(["checkout", "ordering"]);
 
-
 type WalletRead =
   | Readonly<{ status: "available"; balance: { available_balance_amount: string; currency_code: string } }>
   | Readonly<{ status: "unavailable" }>;

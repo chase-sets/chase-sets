@@ -953,7 +953,9 @@ describe("guest checkout own-contact read", () => {
     const app = buildApp(services, createGuestActor("acc_read_capped"));
     const statuses: number[] = [];
     for (let attempt = 0; attempt < 61; attempt += 1) {
-      statuses.push((await read(app, "read_capped_token", `198.18.${Math.floor(attempt / 200)}.${attempt % 200}`)).status);
+      statuses.push(
+        (await read(app, "read_capped_token", `198.18.${Math.floor(attempt / 200)}.${attempt % 200}`)).status,
+      );
     }
     expect(statuses.slice(0, 60).every((status) => status === 200)).toBe(true);
     expect(statuses[60]).toBe(429);

@@ -2796,11 +2796,9 @@ fn guest_contacts(method: &Method, path: &str, headers: &HeaderMap, body: &str) 
         return Some(refusal(StatusCode::UNAUTHORIZED, "internal_capability_required", "Internal capability required."));
     }
     let cookie = headers.get(header::COOKIE).and_then(|v| v.to_str().ok()).unwrap_or_default();
-    let guest =
-        cookie.split(';').find_map(|pair| pair.trim().strip_prefix("chase_sets_guest_checkout=")).unwrap_or_default();
-    let contact = |email: Option<&str>, name: Option<&str>| {
-        Json(json!({ "contactEmail": email, "contactName": name })).into_response()
-    };
+    let guest = cookie.split(';').find_map(|pair| pair.trim().strip_prefix("chase_sets_guest_checkout=")).unwrap_or_default();
+    let contact =
+        |email: Option<&str>, name: Option<&str>| Json(json!({ "contactEmail": email, "contactName": name })).into_response();
     if *method == Method::GET {
         return Some(match guest {
             "gst_bound" => contact(Some("guest@example.test"), Some("Guest Buyer")),

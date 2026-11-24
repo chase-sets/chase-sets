@@ -196,7 +196,11 @@ pub async fn call_internal<T: DeserializeOwned>(
 /// An auth read only a host may make (a guest checkout's own contact,
 /// `createInternalAuthRequestApiClient`'s `GET`): the read with the platform's internal capability
 /// and the browser's address, which Auth's per-address limiter counts.
-pub async fn read_internal<T: DeserializeOwned>(caller: &Caller<'_>, client: Option<ClientIp>, path: &str) -> Result<T, ApiError> {
+pub async fn read_internal<T: DeserializeOwned>(
+    caller: &Caller<'_>,
+    client: Option<ClientIp>,
+    path: &str,
+) -> Result<T, ApiError> {
     let mut req = caller.request_internal(Http::GET, path, AUTH);
     if let Some(ClientIp(ip)) = client {
         req = req.header("x-forwarded-for", ip.to_string());

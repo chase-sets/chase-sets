@@ -3136,7 +3136,9 @@ describe("guest contact save in the checkout session action", () => {
   });
 
   it("reconciles a raced guest_contact_locked with exactly one claim-context read and renders the returned authority", async () => {
-    mockGetGuestCheckoutContact.mockResolvedValueOnce({ contactName: null, contactEmail: null }).mockResolvedValue(JANE);
+    mockGetGuestCheckoutContact
+      .mockResolvedValueOnce({ contactName: null, contactEmail: null })
+      .mockResolvedValue(JANE);
     mockBindGuestCheckoutContact.mockRejectedValue(authError(409, "guest_contact_locked"));
 
     const result = await submit(
@@ -3150,7 +3152,10 @@ describe("guest contact save in the checkout session action", () => {
 
   it.each([
     ["unreadable", () => mockGetGuestCheckoutContact.mockRejectedValueOnce(authError(503))],
-    ["reads as unbound", () => mockGetGuestCheckoutContact.mockResolvedValueOnce({ contactName: null, contactEmail: null })],
+    [
+      "reads as unbound",
+      () => mockGetGuestCheckoutContact.mockResolvedValueOnce({ contactName: null, contactEmail: null }),
+    ],
   ])("falls closed to the unavailable state when locked reconciliation is %s", async (_name, reconcile) => {
     mockGetGuestCheckoutContact.mockResolvedValueOnce({ contactName: null, contactEmail: null });
     reconcile();
@@ -3173,7 +3178,11 @@ describe("guest contact save in the checkout session action", () => {
     );
 
     expect(refused).toEqual({
-      guestContactAttempt: { contactName: "Jane Smith", contactEmail: "member@example.com", problem: "sign-in-required" },
+      guestContactAttempt: {
+        contactName: "Jane Smith",
+        contactEmail: "member@example.com",
+        problem: "sign-in-required",
+      },
     });
     expectNoCheckoutWrite();
 
