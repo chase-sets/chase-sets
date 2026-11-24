@@ -105,7 +105,10 @@ export function createTcgplayerSetNameObservationPost(deps: TcgplayerSetNameObse
 
     let text: string;
     try {
-      text = await readBody(request, tcgplayerSetNameObservationLimits.maxPostBytes);
+      // A correlated answer must not lose bytes before its receipt digest is computed.
+      text = await readBody(request, tcgplayerSetNameObservationLimits.maxPostBytes, {
+        preserveByteOrderMark: requestId !== null,
+      });
     } catch (error) {
       if (error instanceof OperatorSessionRequestError && error.code === "request-too-large")
         return refusal("body-too-large", 413);

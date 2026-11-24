@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { Hono } from "hono";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import type { ResolvedActor } from "@chase-sets/auth-context";
 import { createActorEventStoreContext } from "@chase-sets/platform-runtime/auth";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
@@ -12,8 +12,10 @@ import type { CatalogSyncRun } from "../../source-observations/api/runtime";
 import type { ScopeSyncBatchPreview } from "../../scope-sync-batches/domain/batch";
 import type { ScopeSyncBatchSnapshot } from "../../scope-sync-batches/read-model/store";
 import { operatorSessionPublicRoutes } from "../api/route";
+import { createOperatorBackground } from "../domain/extension/background";
 import { operatorOrigins } from "../domain/extension/protocol";
-import { setNameRequestHeader } from "../domain/extension/set-names/request";
+import { emptyOperatorRecord, operatorRecordKey } from "../domain/extension/record";
+import { createSetNamesObservationDispatcher, setNameRequestHeader } from "../domain/extension/set-names/request";
 import { describeDb, useOperatorSessionDatabase } from "./db-fixture";
 import { routePath, setNameEntry, setNamePost } from "./set-name-observation-fixture";
 
@@ -93,6 +95,7 @@ describeDb("durable Scope Sync set-name requests", () => {
       );
     }
     const operatorApp = operatorSessionPublicRoutes(services.operatorSession);
+    const extensionApp = new Hono().route("/api/public/catalog/operator-session", operatorApp);
     const admin = new Hono<CatalogAuthoringEnv>();
     admin.use("*", async (c, next) => {
       c.set("actor", operator);
@@ -146,6 +149,38 @@ describeDb("durable Scope Sync set-name requests", () => {
       snapshot,
       count,
       turn: () => services.sourceObservations.processNextIntegrationJob(workerTurn),
+      async pollFromWorker() {
+        const collect = vi.fn(async (line: string) => {
+          expect(line).toBe("3");
+          return {
+            ok: true,
+            status: 200,
+            contentClass: "json" as const,
+            bytes: 256,
+            body: { errors: [], results: [setNameEntry(3, 15)] },
+          };
+        });
+        const dispatch = createSetNamesObservationDispatcher(collect);
+        const worker = createOperatorBackground({
+          storage: {
+            trust: async () => {},
+            read: async (key) =>
+              key === operatorRecordKey("staging")
+                ? { ...emptyOperatorRecord("staging"), grant: secret, state: "idle" }
+                : undefined,
+            write: async () => {},
+          },
+          badge: async () => {},
+          fetch: async (input, init) => {
+            const request = new Request(input, init);
+            expect(new URL(request.url).origin).toBe(operatorOrigins.staging);
+            return extensionApp.fetch(request);
+          },
+          dispatchObservationRequest: (_environment, request, post) => dispatch(request, post),
+        });
+        await worker.pollObservations();
+        expect(collect).toHaveBeenCalledExactlyOnceWith("3");
+      },
     };
   }
 
@@ -248,9 +283,7 @@ describeDb("durable Scope Sync set-name requests", () => {
       childJobs: [{ job: { errorMessage: "extension-unavailable" } }],
     });
     await h.pair();
-    const request = await h.poll();
-    expect(request).toMatchObject({ productLineId: 3 });
-    expect((await h.answer(request!.requestId, setNamePost(3, [setNameEntry(3, 15)]))).status).toBe(200);
+    await h.pollFromWorker();
     for (let turn = 0; turn < 4; turn += 1) await h.turn();
     expect(await snapshot()).toMatchObject({
       status: "partial",
