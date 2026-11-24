@@ -1710,16 +1710,19 @@ describe("Stripe payment processor gateway", () => {
     });
   });
 
-  it("checks card eligibility then creates and confirms one deferred PaymentIntent with matched options", async () => {
+  it.each(["requires_action", "succeeded"])("confirms one deferred PaymentIntent (%s)", async (status) => {
+    const authenticationUrl = status === "requires_action" ? "https://hooks.stripe.test/auth" : null;
     const fetchMock = vi
       .fn<(url: string, init?: RequestInit) => Promise<Response>>()
-      .mockResolvedValueOnce(stripeResponse({ payment_method_preview: { type: "card" } }))
+      .mockResolvedValueOnce(stripeResponse({ payment_method_preview: { type: "card" }, use_stripe_sdk: true }))
       .mockResolvedValueOnce(
         stripeResponse({
           id: "pi_deferred_fixture",
           client_secret: "pi_deferred_fixture_secret_not_for_browser",
-          status: "requires_action",
-          next_action: { type: "redirect_to_url", redirect_to_url: { url: "https://hooks.stripe.test/auth" } },
+          status,
+          next_action: authenticationUrl
+            ? { type: "redirect_to_url", redirect_to_url: { url: authenticationUrl } }
+            : null,
         }),
       );
     vi.stubGlobal("fetch", fetchMock);
@@ -1752,6 +1755,7 @@ describe("Stripe payment processor gateway", () => {
       capture_method: "automatic",
       confirm: "true",
       confirmation_token: "ctoken_fixture",
+      use_stripe_sdk: "false",
       return_url: "http://localhost/account/payments/pay_deferred_fixture",
       customer: "cus_fixture",
       setup_future_usage: "off_session",
@@ -1764,8 +1768,8 @@ describe("Stripe payment processor gateway", () => {
     expect(payment).toMatchObject({
       processorPaymentKind: "payment-intent",
       processorPaymentReference: "pi_deferred_fixture",
-      processorStatus: "requires_action",
-      processorRedirectUrl: "https://hooks.stripe.test/auth",
+      processorStatus: status,
+      processorRedirectUrl: authenticationUrl,
       processorClientSecret: null,
     });
   });

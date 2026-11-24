@@ -1803,6 +1803,8 @@ export function createStripePaymentProcessorGateway(
               capture_method: "automatic",
               confirm: "true",
               confirmation_token: input.confirmationTokenId,
+              // Override the token's SDK default so Checkout can follow a hosted 3DS challenge.
+              use_stripe_sdk: "false",
               return_url: returnUrl,
               description: input.description,
               statement_descriptor_suffix: statementDescriptorSuffix,
