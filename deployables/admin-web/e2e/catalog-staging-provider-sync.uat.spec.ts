@@ -7598,12 +7598,15 @@ async function chooseDesignSystemSelect(
   name: string,
   value: string,
 ): Promise<void> {
-  const native = form.locator(`select[name=${cssString(name)}]`);
+  const selectSelector = `select[name=${cssString(name)}]`;
+  const native = form.locator(selectSelector);
   if (
     (await form.locator(`input[type="hidden"][name=${cssString(name)}]`).count()) === 0 &&
     (await native.count()) === 1
   ) {
-    await expect(form.locator("label").filter({ has: native })).toContainText(label);
+    // A filter's `has` locator is matched from inside each label, so it names only the select;
+    // rooting it at the form would ask for the form below the label and match nothing.
+    await expect(form.locator("label").filter({ has: page.locator(selectSelector) })).toContainText(label);
     await native.selectOption(value);
     await expect(native).toHaveValue(value);
     return;
@@ -8183,6 +8186,7 @@ type WholeGameFixtureRequest = Readonly<{ method: string; path: string; search: 
 type WholeGameFixtureReply =
   | Readonly<{ html: string; corten?: true }>
   | Readonly<{ json: unknown }>
+  | Readonly<{ redirect: string }>
   | Readonly<{ abort: true }>;
 
 async function serveWholeGameFixture(
@@ -8203,6 +8207,7 @@ async function serveWholeGameFixture(
     const reply = handle(fixtureRequest);
     if (!reply) return route.fulfill({ status: 404, contentType: "application/json", body: "{}" });
     if ("abort" in reply) return route.abort("failed");
+    if ("redirect" in reply) return route.fulfill({ status: 303, headers: { location: reply.redirect } });
     if ("html" in reply) {
       return route.fulfill({
         status: 200,
@@ -9246,20 +9251,26 @@ test.describe("catalog whole-game rehearsal journeys", () => {
           ? { json: fixtureBatch({ planFingerprint: cortenFingerprint }) }
           : undefined;
       }
-      if (request.method === "GET") return { html: cortenFixtureNewBatchForm(), corten: true };
+      if (request.method === "GET") {
+        return request.search.get("batchId") === "batch-requested"
+          ? { html: fixtureBatchSection(fixtureBatch({})), corten: true }
+          : { html: cortenFixtureNewBatchForm(), corten: true };
+      }
       const sent = new URLSearchParams(request.body);
       if (sent.get("intent") === "preview") {
         return { html: cortenFixturePreview(cortenFingerprint, [["scrydex", 2, 40]], sent), corten: true };
       }
-      if (sent.get("intent") === "confirm") {
-        return {
-          html: `${fixtureBatchSection(fixtureBatch({}))}<script>history.replaceState(null, "", "/catalog/scopes/sync-batches?batchId=batch-requested")</script>`,
-          corten: true,
-        };
-      }
+      // The Corten admin answers a confirm with 303 See Other to the batch's address.
+      if (sent.get("intent") === "confirm") return { redirect: "/catalog/scopes/sync-batches?batchId=batch-requested" };
       return undefined;
     });
   }
+
+  // Each POST's intent, in order; a count quote or acquire would show up here.
+  const postIntents = (calls: readonly string[]) =>
+    calls
+      .filter((call) => call.startsWith("POST "))
+      .map((call) => new URLSearchParams(call.slice(call.indexOf(" ", 5) + 1)).get("intent"));
 
   test("Corten admin: a paid preview reads the native New batch form and never confirms", async ({ page }) => {
     const calls = await serveCortenStartFixture(page);
@@ -9287,6 +9298,7 @@ test.describe("catalog whole-game rehearsal journeys", () => {
       expect(previews[0]).toContain(field);
     }
     expect(calls.filter((call) => call.includes("intent=confirm"))).toEqual([]);
+    expect(postIntents(calls)).toEqual(["preview"]);
 
     await expect(
       wholeGameStart(page, parseWholeGameStartInput({ CATALOG_WHOLE_GAME_PRODUCT_DOMAIN: "pokemon" }), fixtureRun),
@@ -9314,6 +9326,10 @@ test.describe("catalog whole-game rehearsal journeys", () => {
     expect(confirms).toHaveLength(1);
     expect(confirms[0]).toContain(`planFingerprint=${cortenFingerprint}`);
     expect(confirms[0]).toContain("scrydexRequestLimit=50");
+    expect(postIntents(calls)).toEqual(["preview", "confirm"]);
+    expect(
+      calls.filter((call) => call.startsWith("GET /catalog/scopes/sync-batches?batchId=batch-requested")),
+    ).toHaveLength(1);
   });
 
   test("Corten admin: settle refuses before Promote all ready, with no write", async ({ page }) => {
