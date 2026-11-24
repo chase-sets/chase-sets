@@ -17,7 +17,7 @@ import type { ProviderWebhookInvariantCode } from "@chase-sets/http/provider-err
 export type PaymentWebhookResult = Readonly<{
   received: boolean;
   ignored: boolean;
-  failure_class?: "inbox-conflict" | "handler-failure";
+  failure_class?: "inbox-conflict" | "handler-failure" | "unknown-event";
 }>;
 
 export type PaymentTransaction = Readonly<{

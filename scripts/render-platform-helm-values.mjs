@@ -635,32 +635,43 @@ function resolveAdminAppVariable(env, variable, defaultApp) {
   return { app: value, source: "variable" };
 }
 
-// Whether staging deploys an advisory Corten pilot. STAGING_MARKETPLACE_PILOT and STAGING_PUBLIC_PILOT are GitHub
-// variables, so a pilot that never becomes ready (which would fail the atomic staging release) is dropped with a
-// variable change and a re-run, with no pull request. Unset means deployed; any other value fails.
-export const STAGING_MARKETPLACE_PILOT_STATES = Object.freeze(["deployed", "withheld"]);
-export const STAGING_PILOT_STATES = STAGING_MARKETPLACE_PILOT_STATES;
-export const defaultStagingMarketplacePilot = "deployed";
+// The app that serves marketplace.staging and the staging root. STAGING_MARKETPLACE_APP is a GitHub variable, so a
+// rollback to marketplace-web (the "marketplace" component) is a variable change and a deploy, with no pull
+// request. Unset means the default; any other value fails.
+export const STAGING_MARKETPLACE_APPS = Object.freeze(["marketplace-corten", "marketplace"]);
+export const defaultStagingMarketplaceApp = "marketplace-corten";
+
+export function resolveStagingMarketplaceApp(env = {}) {
+  const value = String(env.STAGING_MARKETPLACE_APP ?? "").trim();
+  if (value === "") {
+    return { app: defaultStagingMarketplaceApp, source: "default" };
+  }
+  if (!STAGING_MARKETPLACE_APPS.includes(value)) {
+    throw new Error(`STAGING_MARKETPLACE_APP must be one of ${STAGING_MARKETPLACE_APPS.join(", ")}; got "${value}".`);
+  }
+  return { app: value, source: "variable" };
+}
+
+// Whether staging deploys an advisory Corten pilot. STAGING_PUBLIC_PILOT is a GitHub variable, so a pilot that
+// never becomes ready (which would fail the atomic staging release) is dropped with a variable change and a
+// re-run, with no pull request. Unset means deployed; any other value fails.
+export const STAGING_PILOT_STATES = Object.freeze(["deployed", "withheld"]);
+export const defaultStagingPilot = "deployed";
 
 // The variable that withholds each advisory pilot on staging.
 export const STAGING_PILOT_VARIABLES = Object.freeze({
-  "marketplace-corten": "STAGING_MARKETPLACE_PILOT",
   "public-corten": "STAGING_PUBLIC_PILOT",
 });
 
 export function resolveStagingPilot(env = {}, variable) {
   const value = String(env[variable] ?? "").trim();
   if (value === "") {
-    return { state: defaultStagingMarketplacePilot, source: "default" };
+    return { state: defaultStagingPilot, source: "default" };
   }
   if (!STAGING_PILOT_STATES.includes(value)) {
     throw new Error(`${variable} must be one of ${STAGING_PILOT_STATES.join(", ")}; got "${value}".`);
   }
   return { state: value, source: "variable" };
-}
-
-export function resolveStagingMarketplacePilot(env = {}) {
-  return resolveStagingPilot(env, "STAGING_MARKETPLACE_PILOT");
 }
 
 export function resolveStagingPublicPilot(env = {}) {
@@ -676,6 +687,7 @@ export function buildDoksIngressValues(options = {}) {
 
   const production = environment === "production";
   const adminApp = production ? resolveProductionAdminApp(env).app : resolveStagingAdminApp(env).app;
+  const marketplaceApp = production ? null : resolveStagingMarketplaceApp(env).app;
   const targetVariable = production ? "PRODUCTION_DOKS_INGRESS_TARGET" : "DOKS_INGRESS_TARGET";
   const target = String(env[targetVariable] ?? "").trim();
 
@@ -686,7 +698,8 @@ export function buildDoksIngressValues(options = {}) {
     ? production
       ? buildProductionDoksIngressHosts({ marketplaceServed, adminService: adminApp })
       : buildDoksIngressHosts(stagingEnvironmentZone, "live", {
-          apexService: "marketplace",
+          apexService: marketplaceApp,
+          marketplaceService: marketplaceApp,
           adminService: adminApp,
         })
     : [];
@@ -695,7 +708,7 @@ export function buildDoksIngressValues(options = {}) {
       host: `admin-corten.${stagingEnvironmentZone}`,
       paths: doksIngressPaths("admin-corten"),
     });
-    // The marketplace pilot, beside marketplace-web until marketplace.staging switches to it.
+    // The marketplace pilot's own host, whichever app serves marketplace.staging.
     hosts.push({
       host: `marketplace-corten.${stagingEnvironmentZone}`,
       paths: doksIngressPaths("marketplace-corten"),
@@ -769,6 +782,7 @@ export function buildPreviewDoksIngressValues(options = {}) {
 
 function buildDoksIngressHosts(environmentZone, hostMode, options = {}) {
   const apexService = options.apexService ?? "public-web";
+  const marketplaceService = options.marketplaceService ?? "marketplace";
   const adminService = options.adminService ?? "admin-web";
   const hosts =
     hostMode === "live"
@@ -796,7 +810,7 @@ function buildDoksIngressHosts(environmentZone, hostMode, options = {}) {
     },
     {
       host: hosts.marketplace,
-      paths: doksIngressPaths("marketplace"),
+      paths: doksIngressPaths(marketplaceService),
     },
     {
       host: hosts.admin,

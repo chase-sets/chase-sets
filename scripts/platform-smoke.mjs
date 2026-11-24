@@ -54,6 +54,7 @@ const checkAdminSurface = readBooleanEnv("SMOKE_CHECK_ADMIN_SURFACE", true);
 const requireAdminGoogleWorkspaceSso = readBooleanEnv("SMOKE_REQUIRE_ADMIN_GOOGLE_WORKSPACE_SSO", false);
 const requireMarketplace = readBooleanEnv("SMOKE_REQUIRE_MARKETPLACE", false);
 const requireMarketplaceRoot = readBooleanEnv("SMOKE_REQUIRE_MARKETPLACE_ROOT", false);
+const requireMarketplaceSignedIn = readBooleanEnv("SMOKE_REQUIRE_MARKETPLACE_SIGNED_IN", false);
 const requireLegacyRedirect = readBooleanEnv("SMOKE_REQUIRE_LEGACY_REDIRECT", false);
 const requireSocialLogin = readBooleanEnv("SMOKE_REQUIRE_SOCIAL_LOGIN", false);
 const requireNativeMcp = readBooleanEnv("SMOKE_REQUIRE_NATIVE_MCP", true);
@@ -505,6 +506,35 @@ async function expectMarketplaceSurface(label, origin) {
   await expectUcpEndpoints(origin);
 }
 
+// Signs in on the marketplace host and opens the account page with that session, so a signed-in marketplace
+// page is smoked on whichever app serves the host.
+async function expectMarketplaceSignedInPage(marketplaceOrigin, email, password) {
+  const authResponse = await expectOk(
+    "marketplace password sign-in",
+    `${marketplaceOrigin}/api/auth/password-sign-in`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    },
+  );
+  const authBody = await authResponse.json();
+  if (authBody.type !== "session-started" || !authBody.sessionToken) {
+    throw new Error("Marketplace sign-in did not return a session token.");
+  }
+  const response = await expectOk("marketplace signed-in page /account", `${marketplaceOrigin}/account`, {
+    headers: { Authorization: `Bearer ${authBody.sessionToken}` },
+  });
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.includes("text/html")) {
+    throw new Error(`Marketplace signed-in page /account returned '${contentType}' instead of HTML.`);
+  }
+  const text = await response.text();
+  if (!text.includes("Account | Marketplace")) {
+    throw new Error("Marketplace signed-in page /account did not include expected text: Account | Marketplace.");
+  }
+}
+
 async function expectAdminCommercialTermsPages(adminOrigin, sessionToken) {
   for (const { path, expectedText } of [
     { path: "/commerce/terms/schedules", expectedText: ["Commercial Terms", "Active and scheduled terms"] },
@@ -569,6 +599,11 @@ async function main() {
   if (requireMarketplace && !marketplaceUrl) {
     throw new Error("Marketplace URL is required when SMOKE_REQUIRE_MARKETPLACE=true.");
   }
+  if (requireMarketplaceSignedIn && (!marketplaceUrl || !adminEmail || !adminPassword)) {
+    throw new Error(
+      "A marketplace URL, PLATFORM_ADMIN_EMAIL and PLATFORM_ADMIN_PASSWORD are required when SMOKE_REQUIRE_MARKETPLACE_SIGNED_IN=true.",
+    );
+  }
   if (requireMarketplaceRoot && !marketplaceRootUrl) {
     throw new Error("Marketplace root URL is required when SMOKE_REQUIRE_MARKETPLACE_ROOT=true.");
   }
@@ -626,6 +661,9 @@ async function main() {
       ]);
     } else {
       console.warn("Skipping social login smoke; SMOKE_REQUIRE_SOCIAL_LOGIN is not true.");
+    }
+    if (requireMarketplaceSignedIn) {
+      await expectMarketplaceSignedInPage(marketplaceUrl, adminEmail, adminPassword);
     }
   }
 

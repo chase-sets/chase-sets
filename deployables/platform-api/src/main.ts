@@ -201,7 +201,7 @@ await runPlatformApiStartup(runtimePools, async () => {
   const webhookTelemetry = {
     record(
       event: Parameters<typeof recordProviderWebhookIngestion>[0] &
-        Pick<ProviderWebhookTelemetryEvent, "tokenMint" | "keyFetch">,
+        Pick<ProviderWebhookTelemetryEvent, "tokenMint" | "keyFetch" | "causeCode">,
     ) {
       recordProviderWebhookIngestion(event);
       const fields = {
@@ -213,6 +213,8 @@ await runPlatformApiStartup(runtimePools, async () => {
         retryable: event.retryable,
         provider_event_id: event.providerEventId ?? null,
         event_kind: event.eventKind ?? null,
+        invariant_code: event.invariantCode ?? null,
+        cause_code: event.causeCode ?? null,
         token_mint: event.tokenMint ?? "not-attempted",
         key_fetch: event.keyFetch ?? "not-attempted",
       };

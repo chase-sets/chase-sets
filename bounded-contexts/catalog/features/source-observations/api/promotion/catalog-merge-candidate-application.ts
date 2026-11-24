@@ -1089,9 +1089,9 @@ function candidateCatalogMapping(
 }
 
 /**
- * Product images come from exactly one image evidence; disagreeing member
- * evidence is an ambiguous plan, never a first-member choice. Storage writes
- * are idempotent preparation, and a failure inside this boundary is classified.
+ * Product images use YGOJSON before Scrydex for Yu-Gi-Oh! sealed products.
+ * Disagreeing eligible evidence is an ambiguous plan, never a first-member
+ * choice. Storage preparation is idempotent and asset failures are classified.
  */
 type CandidateAssetPlan = CatalogMergeCandidatePromotionAssetPlan & {
   diagnosticCode?: CatalogMergeCandidateApplicationDiagnosticCode;
@@ -1107,9 +1107,19 @@ async function prepareCandidateAssets(
     const evidence = imageEvidence(member);
     return evidence ? [{ member, evidence }] : [];
   });
-  const source = withImages[0];
+  const hasYgojsonSealedImage = withImages.some(
+    ({ member }) =>
+      member.normalized.kind === "yugioh-sealed-product" && sameKey(member.revision.providerKey, "ygojson"),
+  );
+  const eligible = hasYgojsonSealedImage
+    ? withImages.filter(
+        ({ member }) =>
+          member.normalized.kind !== "yugioh-sealed-product" || !sameKey(member.revision.providerKey, "scrydex"),
+      )
+    : withImages;
+  const source = eligible[0];
   if (!source) return null;
-  if (withImages.some((entry) => !isDeepStrictEqual(entry.evidence, source.evidence)))
+  if (eligible.some((entry) => !isDeepStrictEqual(entry.evidence, source.evidence)))
     throw blocked("asset-provenance-ambiguous", "approved members carry different product image evidence");
   const { revision, normalized, version } = source.member;
   const catalogOwned = isCatalogOwnedPromotionImageKind(normalized.kind);
