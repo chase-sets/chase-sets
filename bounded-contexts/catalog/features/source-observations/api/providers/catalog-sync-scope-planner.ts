@@ -395,7 +395,7 @@ async function planProviderUnit(input: {
     blockers.push({
       code: "provider-plan-unavailable",
       severity: "error",
-      message: "The accepted mapping does not match the qualified TCGplayer product line.",
+      message: t("catalog.features.sourceObservations.api.catalogSyncScopePlanner.setNamesProductLineMismatch"),
       action: "Review the accepted Provider Scope Mapping before refreshing set names.",
     });
   }
@@ -480,7 +480,10 @@ async function planProviderUnit(input: {
     unitKey: input.unitKey,
     profileKey: input.version.profileKey,
     profileVersion: input.version.profileVersion,
-    displayName: input.version.profile.displayName,
+    displayName:
+      productLineId === null
+        ? input.version.profile.displayName
+        : t("catalog.features.sourceObservations.api.catalogSyncScopePlanner.setNamesDisplayName"),
     role: productLineId === null ? providerParticipationRole(input.version) : "reference-data",
     requirement: input.required ? "required" : "optional",
     eligibility,
