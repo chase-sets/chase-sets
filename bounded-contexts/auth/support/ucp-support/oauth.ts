@@ -317,6 +317,19 @@ export function createUcpOAuthMetadataRoutes() {
 
 export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
   const app = new Hono();
+  const marketplaceUrl = URL.parse(process.env.CHASE_SETS_MARKETPLACE_ORIGIN?.trim() ?? "");
+  const marketplaceOrigin =
+    marketplaceUrl &&
+    (marketplaceUrl.protocol === "https:" ||
+      (marketplaceUrl.protocol === "http:" && isLocalHost(marketplaceUrl.hostname)))
+      ? marketplaceUrl.origin
+      : undefined;
+
+  function signInLocation(request: Request, authorizeUrl: URL) {
+    const origin = marketplaceOrigin && marketplaceOrigin !== requestOrigin(request) ? marketplaceOrigin : "";
+    const returnTo = `${origin}${authorizeUrl.pathname}${authorizeUrl.search}`;
+    return `${origin}/sign-in?${new URLSearchParams({ returnTo })}`;
+  }
 
   app.post("/register", async (c) => {
     const contentType = c.req.raw.headers.get("content-type") ?? "";
@@ -478,7 +491,7 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
     c.header("Cache-Control", "no-store");
     c.header("Referrer-Policy", "no-referrer");
     if (!isInteractiveSessionActor(actor)) {
-      return c.redirect(`/sign-in?${new URLSearchParams({ returnTo: `${url.pathname}${url.search}` })}`, 302);
+      return c.redirect(signInLocation(c.req.raw, url), 302);
     }
     if (scopesContainOperatorScope(scopes)) {
       const authority = await resolveOperatorAuthority(options, actor);
@@ -486,7 +499,7 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
         return c.json({ error: "invalid_scope", error_description: "Requested scopes cannot be authorized." }, 400);
       }
       if (!resolveRecentAuthenticationStatus(actor, { maxAgeMinutes: 10 }).recentlyAuthenticated) {
-        return c.redirect(`/sign-in?${new URLSearchParams({ returnTo: `${url.pathname}${url.search}` })}`, 302);
+        return c.redirect(signInLocation(c.req.raw, url), 302);
       }
     }
 

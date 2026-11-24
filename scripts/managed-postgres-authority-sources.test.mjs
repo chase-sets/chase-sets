@@ -125,6 +125,9 @@ const cortenMarketplaceSmokeDelta = [
   secretName,
   purpose: "terraform-infra",
 }));
+// The advisory Corten public smoke at deploy-staging position 45, after the marketplace one, shifts later anchors by
+// one. It reads no secret, so it adds no grant.
+const cortenPublicSmokeStepInsertion = [{ file: workflowPath, jobId: "deploy-staging", position: 45 }];
 const fragmentPath = `${AUTHORITY_ROOT}/platform-production/deploy.json`;
 const boundaryTarget = "./.github/actions/export-managed-postgres-authority";
 // Rule for later grant changes: `migrationBase` and its 1609-grant assertion never move. A slice that adds grants
@@ -1198,7 +1201,8 @@ describe("managed Postgres authority source generator", () => {
         )
         .concat(cortenPilotImagesJobDelta)
         .map((record) => applyStepInsertions(record, cortenMarketplaceSmokeStepInsertion))
-        .concat(cortenMarketplaceSmokeDelta),
+        .concat(cortenMarketplaceSmokeDelta)
+        .map((record) => applyStepInsertions(record, cortenPublicSmokeStepInsertion)),
     };
     // Exact stable-record multiset parity below is the authority; a whole-corpus total would only re-conflict.
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";

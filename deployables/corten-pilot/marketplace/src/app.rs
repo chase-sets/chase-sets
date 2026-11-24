@@ -1977,7 +1977,9 @@ pub fn app(config: Config) -> App<platform::telemetry::Traced> {
         .area(|area| url::account_home::area(area, shared.clone()))
         .area(|area| url::inventory::area(area, shared.clone()).components(views::INVENTORY))
         .area(|area| url::cart::area(area, shared.clone()).components(views::CART))
-        .area(|area| url::checkout::area(area, shared.clone()).components(views::CHECKOUT))
+        // The checkout page takes a new card in its payment step and confirms it on Pay now, so it
+        // loads Stripe.js as the payment pages do.
+        .area(|area| url::checkout::area(area, shared.clone()).components(views::CHECKOUT).policy(stripe))
         .area(|area| url::checkout_start::area(area, shared.clone()).components(views::CHECKOUT_START))
         .area(|area| url::items::area(area, shared.clone()).components(views::ITEM))
         .area(|area| url::search::area(area, shared.clone()))
@@ -2036,8 +2038,8 @@ pub fn app(config: Config) -> App<platform::telemetry::Traced> {
                 .components(views::PAYOUT_SETUP)
                 .policy(|p| stripe_connect(p).allow_cross_origin_opener())
         })
-        // Stripe.js and its fields are allowed on the payment pages and the saved payment methods
-        // only (todd-skelton/corten#275).
+        // Stripe.js and its fields are allowed on the checkout page (above), the payment pages and the
+        // saved payment methods only (todd-skelton/corten#275).
         .area(|area| url::payments::area(area, shared.clone()).components(views::PAYMENT).policy(stripe))
         .area(|area| url::guest_payments::area(area, shared.clone()).components(views::GUEST_PAYMENT).policy(stripe))
         .area(|area| url::guest_claims::area(area, shared.clone()).components(views::GUEST_CLAIM))
