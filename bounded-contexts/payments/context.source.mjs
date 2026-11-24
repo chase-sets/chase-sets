@@ -158,7 +158,7 @@ export const contextManifest = {
       sourceContextNames: ["payments"],
       ownedTables: ["platform_policy_documents", "platform_policy_document_history"],
       requiredDuringBootstrap: false,
-      resetStrategy: "truncate-owned-tables",
+      resetStrategy: "replay-only",
     },
     {
       projectionName: "payments-order-input-projection",

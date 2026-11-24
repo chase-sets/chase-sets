@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -42,6 +42,8 @@ const durableTables = [
   "payments_provider_operations",
   "payments_wallet_funding_creation_reservations",
   "payments_provider_webhook_events",
+  "platform_policy_documents",
+  "platform_policy_document_history",
   "settlement_provider_idempotency_keys",
   "settlement_provider_operations",
   "settlement_money_movement_webhook_events",
@@ -109,6 +111,49 @@ function collectSchemaFiles(directory) {
     }
 
     return entry.name.endsWith("schema.ts") && !entry.name.endsWith(".test.ts") ? [path] : [];
+  });
+}
+
+const policyProjectionName = "platform-policy-document-projection";
+const policyTables = ["platform_policy_documents", "platform_policy_document_history"];
+const policyTableSetUnloggedPattern = new RegExp(
+  `(?:ALTER\\s+TABLE\\s+(?:IF\\s+EXISTS\\s+)?(?:${policyTables.join("|")})\\s+SET\\s+UNLOGGED` +
+    `|CREATE\\s+UNLOGGED\\s+TABLE\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?(?:${policyTables.join("|")}))\\b`,
+  "i",
+);
+
+function listContextNames() {
+  return readdirSync(resolve("bounded-contexts"), { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort();
+}
+
+// Every file a context can declare boot SQL or a migration ledger in, not only
+// the unlogged-projection ledgers of the contexts listed above.
+function collectMigrationSourceFiles(directory) {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(directory, entry.name);
+
+    if (entry.isDirectory()) {
+      return entry.name === "node_modules" ? [] : collectMigrationSourceFiles(path);
+    }
+
+    return /(?:schema|migrations)\.ts$/.test(entry.name) && !entry.name.endsWith(".test.ts") ? [path] : [];
+  });
+}
+
+function readPolicyProjectionGroups() {
+  return listContextNames().flatMap((contextName) => {
+    const manifestPath = resolve("bounded-contexts", contextName, "context.json");
+
+    if (!existsSync(manifestPath)) {
+      return [];
+    }
+
+    return (JSON.parse(readFileSync(manifestPath, "utf8")).projectionGroups ?? [])
+      .filter((group) => group.projectionName === policyProjectionName)
+      .map((group) => ({ contextName, resetStrategy: group.resetStrategy, ownedTables: group.ownedTables }));
   });
 }
 
@@ -340,6 +385,69 @@ describe("unlogged projection migration ledgers", () => {
     for (const tableName of durableTables) {
       expect(migrations).not.toContain(`ALTER TABLE ${tableName} SET UNLOGGED`);
       expect(nativelyUnloggedTables.has(tableName)).toBe(false);
+    }
+  });
+});
+
+describe("policy document tables", () => {
+  it("are kept through a rebuild by every context that declares the policy projection group", () => {
+    const groups = readPolicyProjectionGroups();
+
+    expect(groups.map((group) => group.contextName)).toEqual(expect.arrayContaining(["ordering", "payments"]));
+    expect(groups.filter((group) => group.resetStrategy !== "replay-only")).toEqual([]);
+    expect(groups.filter((group) => JSON.stringify(group.ownedTables) !== JSON.stringify(policyTables))).toEqual([]);
+  });
+
+  it("are set unlogged by no schema or migration source", () => {
+    const sharedSchemaFile = resolve("infrastructure", "platform-policy", "schema.ts");
+    const sourceFiles = [
+      sharedSchemaFile,
+      ...listContextNames().flatMap((contextName) =>
+        collectMigrationSourceFiles(resolve("bounded-contexts", contextName)),
+      ),
+    ];
+
+    expect(readFileSync(sharedSchemaFile, "utf8")).toContain("CREATE TABLE IF NOT EXISTS platform_policy_documents (");
+    expect(sourceFiles).toContain(
+      resolve("bounded-contexts", "payments", "support", "runtime-support", "unlogged-projection-migrations.ts"),
+    );
+    expect(sourceFiles.filter((file) => policyTableSetUnloggedPattern.test(readFileSync(file, "utf8")))).toEqual([]);
+  });
+
+  it("get the stream version ledger in every context that folds the policy schema", () => {
+    const folding = listContextNames().filter((contextName) => {
+      const contextDirectory = resolve("bounded-contexts", contextName);
+
+      return [join(contextDirectory, "index.ts"), ...collectMigrationSourceFiles(contextDirectory)].some(
+        (file) => existsSync(file) && /\bplatformPolicySchemaSql\b/.test(readFileSync(file, "utf8")),
+      );
+    });
+
+    expect(folding).toEqual(expect.arrayContaining(readPolicyProjectionGroups().map((group) => group.contextName)));
+    expect(
+      folding.filter(
+        (contextName) =>
+          !/\.\.\.platformPolicySchemaMigrations\b/.test(
+            readFileSync(resolve("bounded-contexts", contextName, "index.ts"), "utf8"),
+          ),
+      ),
+    ).toEqual([]);
+  });
+
+  it("recognizes each statement that would make a policy table unlogged", () => {
+    for (const statement of [
+      "ALTER TABLE platform_policy_documents SET UNLOGGED;",
+      "ALTER TABLE IF EXISTS platform_policy_document_history SET UNLOGGED;",
+      "CREATE UNLOGGED TABLE IF NOT EXISTS platform_policy_documents (",
+    ]) {
+      expect(policyTableSetUnloggedPattern.test(statement), statement).toBe(true);
+    }
+    for (const statement of [
+      "ALTER TABLE platform_policy_documents SET LOGGED;",
+      "ALTER TABLE payments_wallet_funding_pages SET UNLOGGED;",
+      "CREATE TABLE IF NOT EXISTS platform_policy_document_history (",
+    ]) {
+      expect(policyTableSetUnloggedPattern.test(statement), statement).toBe(false);
     }
   });
 });

@@ -28,7 +28,7 @@ export const contextManifest = {
       sourceContextNames: ["customer-feedback"],
       ownedTables: ["platform_policy_documents", "platform_policy_document_history"],
       requiredDuringBootstrap: false,
-      resetStrategy: "truncate-owned-tables",
+      resetStrategy: "replay-only",
     },
   ],
   hostPorts: [],
