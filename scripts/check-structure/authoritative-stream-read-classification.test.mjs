@@ -62,8 +62,8 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
     expect(production.totals).toMatchObject({
       roots: production.roots.length,
       loadedRoots: production.roots.length,
-      discoveredCallCandidates: 29,
-      authoritativeSites: 27,
+      discoveredCallCandidates: 30,
+      authoritativeSites: 28,
       helperSites: 1,
       ambiguousOriginSites: 0,
       outOfLocationHelperSites: 0,
@@ -105,6 +105,7 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
       ["bounded-contexts/identity/features/account-capabilities/api/assignment-contract.test-support.ts", "CANONICAL"],
       ["bounded-contexts/identity/features/account-management/api/fences.ts", "CANONICAL"],
       ["bounded-contexts/identity/features/account-management/api/fences.ts", "CANONICAL"],
+      ["bounded-contexts/inventory/features/inventory-items/api/graded-card-authority.ts", "CANONICAL"],
       ["bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts", "CANONICAL"],
       ["bounded-contexts/inventory/support/runtime-support/mutation-attempt.ts", "CANONICAL"],
       ["bounded-contexts/marketplace/features/listings/api/listing-attempt.ts", "INSUFFICIENT_RECEIVER_CONTRACT"],

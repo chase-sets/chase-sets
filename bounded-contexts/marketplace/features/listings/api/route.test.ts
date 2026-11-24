@@ -1894,11 +1894,22 @@ describe("marketplace listing routes", () => {
     expect(allEvents).toHaveLength(committed);
     expect(itemWrites).toEqual([null, null]);
 
+    // The attempt never covered the snapshot's details, so a retry that sends others is the same attempt.
+    const changed = await send("graded_snapshot_attempt_00000001", {
+      ...gradedCard,
+      gradingCompany: "BGS",
+      grade: "9",
+    });
+    expect(changed.status).toBe(201);
+    expect(await changed.json()).toEqual(created);
+    expect(allEvents).toHaveLength(committed);
+    expect(itemWrites).toEqual([null, null, null]);
+
     const { grade: _grade, ...malformed } = gradedCard;
     const refused = await send("graded_snapshot_attempt_00000002", malformed);
     expect(refused.status).toBe(400);
     expect(await refused.json()).toMatchObject({ error: { code: "listing_inventory_snapshot_invalid" } });
-    expect(resolve).toHaveBeenCalledTimes(2);
+    expect(resolve).toHaveBeenCalledTimes(3);
     expect(allEvents).toHaveLength(committed);
   });
 

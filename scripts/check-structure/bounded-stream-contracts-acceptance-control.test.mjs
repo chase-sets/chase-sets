@@ -76,6 +76,8 @@ const expectedInventory = [
   // Channels' enrolled writer adapter forwards the caller's complete history request unchanged.
   ["bounded-contexts/channels/features/connections/api/owner-epochs.ts#readStream#1", null],
   ["bounded-contexts/inventory/features/inventory-items/api/stock-reservations.ts#readStream#1", null],
+  // The Graded Item Details authority reads the creation event, which alone holds the answer.
+  ["bounded-contexts/inventory/features/inventory-items/api/graded-card-authority.ts#readStream#1", "1"],
   // The authority-tracking decorator forwards the caller's complete read request.
   [
     "bounded-contexts/catalog/features/source-observations/api/promotion/promotion-material-guards.ts#readStream#1",
@@ -256,6 +258,18 @@ describe("bounded-stream-contracts-acceptance-control", () => {
     expect(site).toBeDefined();
     expect(site.call.arguments[0].getText(site.source)).toBe("input");
     expect(site.limit).toBeNull();
+  });
+
+  it("limits the Inventory Graded Item Details read to exactly the creation event", () => {
+    const file = "bounded-contexts/inventory/features/inventory-items/api/graded-card-authority.ts";
+    const site = candidateInventory.find((candidate) => candidate.file === file);
+    expect(site).toBeDefined();
+    expect(site.limit).toBe("1");
+    const source = readSource(file);
+    expect(source).toMatch(/fromVersion: 1,\s+limit: 1,/);
+    expect(
+      errorCodes(mutatedInventory(file, source.replace(/(fromVersion: 1,\s+)limit: 1,/, "$1limit: 2,"))),
+    ).toContain("inventory-mismatch");
   });
 
   it("limits the Identity enrollment read to exactly the creation event", () => {
