@@ -8,7 +8,7 @@ import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-se
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type { ReconcileOrderPaymentBeforeDeadline } from "@chase-sets/ordering/server";
+import type { OrderPaymentDeadlineReconciler } from "./order-payment-deadline";
 import { createNoopNotificationOutbox, type NotificationOutbox } from "@chase-sets/outbound-messaging";
 import { t } from "@chase-sets/localization";
 import { recordRateLimitExceeded } from "@chase-sets/http/rate-limit";
@@ -1272,7 +1272,7 @@ export type PaymentServices = Readonly<{
         }>)
     | null
   >;
-  reconcileOrderPaymentBeforeDeadline: ReconcileOrderPaymentBeforeDeadline;
+  reconcileOrderPaymentBeforeDeadline: OrderPaymentDeadlineReconciler;
   getCheckoutPaymentStart: (
     sessionId: string,
     accountId: AccountId,
