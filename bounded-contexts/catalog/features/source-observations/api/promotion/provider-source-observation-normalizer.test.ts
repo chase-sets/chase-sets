@@ -31,8 +31,30 @@ import { scrydexOnePieceCardPrintSourceObservationMappingContract } from "../scr
 import { tcgplayerOnePieceSingleCardProviderProductSourceObservationMappingContract } from "../tcgplayer-executable-mapping-contract";
 import scrydexOnePieceCardFixture from "../__fixtures__/scrydex-one-piece-card-print/normal.json";
 import tcgplayerOnePieceFixture from "../__fixtures__/tcgplayer-one-piece-single-card/normal.json";
+import ygojsonSealedProductFixture from "../__fixtures__/ygojson-yugioh-sealed-product-reference-data/normal.json";
+import { ygojsonYugiohSealedProductReferenceSourceObservationMappingContract } from "../ygojson-executable-mapping-contract";
 
 describe("provider Source Observation normalizer", () => {
+  it.each([true, false])("maps optional YGOJSON sealed-product image evidence (has image: %s)", (hasImage) => {
+    const payload = structuredClone(ygojsonSealedProductFixture);
+    if (!hasImage) Reflect.deleteProperty(payload.sealedProduct.locales.en, "image");
+
+    const { observation, diagnostics } = normalizeCatalogProviderSourceObservation({
+      contract: ygojsonYugiohSealedProductReferenceSourceObservationMappingContract,
+      payload,
+      observedAt: "2026-11-23T00:00:00.000Z",
+    });
+
+    expect(diagnostics).toEqual([]);
+    expect(observation).toMatchObject({
+      providerKey: "ygojson",
+      normalized: {
+        kind: "yugioh-sealed-product",
+        imageUrls: hasImage ? [ygojsonSealedProductFixture.sealedProduct.locales.en.image] : [],
+      },
+    });
+  });
+
   it("builds a provider-product Source Observation from mapping config", () => {
     const contract = providerProductContract();
 

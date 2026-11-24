@@ -830,8 +830,10 @@ describe("Catalog Merge Candidate Catalog-owned pictures", () => {
     scryfall: "https://cards.scryfall.io/normal/front/synthetic.jpg?1790000000",
     scrydex: "https://images.scrydex.com/onepiece/synthetic/large",
     tcgplayer: "https://tcgplayer-cdn.tcgplayer.com/product/123_200w.jpg",
+    ygojson: "https://ms.yugipedia.com//placeholder/LOB-EN-box.png",
     ygoprodeck: "https://images.ygoprodeck.com/images/cards/123.jpg",
   };
+  const scrydexYugiohImage = "https://images.scrydex.com/yugioh/synthetic/large";
   type ImageKind =
     | "magic-card-print"
     | "one-piece-card-print"
@@ -1096,7 +1098,7 @@ describe("Catalog Merge Candidate Catalog-owned pictures", () => {
     ["scrydex", "one-piece-card-print"],
     ["scrydex", "one-piece-sealed-product"],
     ["ygoprodeck", "yugioh-card-print"],
-    ["ygoprodeck", "yugioh-sealed-product"],
+    ["ygojson", "yugioh-sealed-product"],
   ])("rehosts %s %s evidence into a created Catalog Item", async (providerKey, kind) => {
     const fixture = await arrange([member(providerKey, kind)]);
     await expect(fixture.apply()).resolves.toMatchObject({ status: "promoted", appliedMode: "create" });
@@ -1118,26 +1120,64 @@ describe("Catalog Merge Candidate Catalog-owned pictures", () => {
     expect(fixture.putObject).not.toHaveBeenCalled();
   });
 
-  it("ignores unapproved image evidence from an item-producing provider", async () => {
-    const fixture = await arrange([member("ygojson", "yugioh-sealed-product")]);
-    await expect(fixture.apply()).resolves.toMatchObject({ status: "promoted" });
-    expect(fixture.item().productAssetSets).toEqual([]);
-    expect(fixture.item().imageUrls).toEqual([]);
-    expect(fixture.fetcher).not.toHaveBeenCalled();
-    expect(fixture.putObject).not.toHaveBeenCalled();
+  it.each<string>(["ygojson", "ygoprodeck"])(
+    "ignores unapproved %s sealed-product image evidence",
+    async (provider) => {
+      const fixture = await arrange([member(provider, "yugioh-sealed-product", imageUrls.ygoprodeck)]);
+      await expect(fixture.apply()).resolves.toMatchObject({ status: "promoted" });
+      expect(fixture.item().productAssetSets).toEqual([]);
+      expect(fixture.item().imageUrls).toEqual([]);
+      expect(fixture.fetcher).not.toHaveBeenCalled();
+      expect(fixture.putObject).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["", "https://images.example/unapproved.jpg"])(
+    "uses Scrydex when YGOJSON has no approved picture (%s)",
+    async (url) => {
+      const fixture = await arrange([
+        member("ygojson", "yugioh-sealed-product", url),
+        member("scrydex", "yugioh-sealed-product", scrydexYugiohImage),
+      ]);
+      await expect(fixture.apply()).resolves.toMatchObject({ status: "promoted" });
+      expectCatalogPicture(fixture, "scrydex");
+      expect(fixture.fetcher).toHaveBeenCalledExactlyOnceWith(
+        scrydexYugiohImage,
+        expect.objectContaining({ redirect: "error" }),
+      );
+    },
+  );
+
+  it("uses only YGOJSON when both members have pictures, regardless of member order", async () => {
+    const scrydex = member("scrydex", "yugioh-sealed-product", scrydexYugiohImage);
+    const ygojson = member("ygojson", "yugioh-sealed-product");
+    for (const members of [
+      [scrydex, ygojson],
+      [ygojson, scrydex],
+    ]) {
+      const fixture = await arrange(members);
+      await expect(fixture.apply()).resolves.toMatchObject({ status: "promoted" });
+      expectCatalogPicture(fixture, "ygojson");
+      expect(fixture.fetcher).toHaveBeenCalledExactlyOnceWith(
+        imageUrls.ygojson,
+        expect.objectContaining({ redirect: "error" }),
+      );
+    }
   });
 
-  it("does not let an unapproved provider block or supply the picture for an approved member", async () => {
+  it("does not use Scrydex when the YGOJSON picture cannot be downloaded", async () => {
     const fixture = await arrange([
-      member("ygojson", "yugioh-sealed-product", "https://images.example/unapproved.jpg"),
-      member("ygoprodeck", "yugioh-sealed-product"),
+      member("scrydex", "yugioh-sealed-product", scrydexYugiohImage),
+      member("ygojson", "yugioh-sealed-product"),
     ]);
-    await expect(fixture.apply()).resolves.toMatchObject({ status: "promoted" });
-    expectCatalogPicture(fixture, "ygoprodeck");
-    expect(fixture.fetcher).toHaveBeenCalledExactlyOnceWith(
-      imageUrls.ygoprodeck,
-      expect.objectContaining({ redirect: "error" }),
-    );
+    fixture.fetcher.mockResolvedValueOnce(new Response(null, { status: 404 }));
+    await expect(fixture.apply()).resolves.toMatchObject({
+      status: "promoted",
+      diagnosticCode: "asset-processing-failed",
+    });
+    expect(fixture.item().productAssetSets).toEqual([]);
+    expect(fixture.fetcher).toHaveBeenCalledExactlyOnceWith(imageUrls.ygojson, expect.anything());
+    expect(fixture.putObject).not.toHaveBeenCalled();
   });
 
   it("never fetches an approved provider's non-image host", async () => {
@@ -1196,14 +1236,14 @@ describe("Catalog Merge Candidate Catalog-owned pictures", () => {
     expectCatalogPicture(fixture, "scryfall");
   });
 
-  it("leaves a stored source hash unchanged even when the evidence URL changes", async () => {
-    const first = await arrange([member("scryfall", "magic-card-print")], itemWithoutPicture());
+  it.each<[string, ImageKind, string]>([
+    ["scryfall", "magic-card-print", "https://cards.scryfall.io/normal/front/renamed.jpg"],
+    ["ygojson", "yugioh-sealed-product", "https://ms.yugipedia.com//placeholder/renamed.png"],
+  ])("leaves a stored %s source hash unchanged even when the evidence URL changes", async (provider, kind, newUrl) => {
+    const first = await arrange([member(provider, kind)], itemWithoutPicture());
     await first.apply();
-    expectCatalogPicture(first, "scryfall");
-    const second = await arrange(
-      [member("scryfall", "magic-card-print", "https://cards.scryfall.io/normal/front/renamed.jpg")],
-      first.itemEvents(),
-    );
+    expectCatalogPicture(first, provider);
+    const second = await arrange([member(provider, kind, newUrl)], first.itemEvents());
     await expect(second.apply()).resolves.toMatchObject({ status: "promoted", appliedMode: "refresh" });
     expect(second.item().productAssetSets).toEqual(first.item().productAssetSets);
     expect(second.item().imageUrls).toEqual(first.item().imageUrls);
