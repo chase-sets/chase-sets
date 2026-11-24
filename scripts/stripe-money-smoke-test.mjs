@@ -441,8 +441,9 @@ function resolveMarketplaceWebBaseUrl(apiBaseUrl, env = process.env) {
 export async function runEdgeCheck(baseUrl, options = {}) {
   const fetchImpl = options.fetchImpl ?? fetch;
   const env = options.env ?? process.env;
-  const health = await requestJson(`${baseUrl}/health`, {}, fetchImpl);
-  assert(health.response.status === 200, `Expected /health to return 200, got ${health.response.status}.`);
+  // The API's own health, under /api so every host routes it to the API whichever web app serves "/".
+  const health = await requestJson(`${baseUrl}/api/health`, {}, fetchImpl);
+  assert(health.response.status === 200, `Expected /api/health to return 200, got ${health.response.status}.`);
 
   const paymentWebhookBody =
     '{"id":"evt_payment_smoke","type":"checkout.session.completed","data":{"object":{"id":"cs_smoke"}}}';

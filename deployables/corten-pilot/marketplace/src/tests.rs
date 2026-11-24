@@ -4636,6 +4636,9 @@ async fn the_rail_buys_the_listing_shown_or_the_product_chosen() {
     // The listing form: posted to the cart, Buy now to its own path, with the listing it shows.
     assert!(html.contains(r#"action="/items/charizard/cart""#), "{html}");
     assert!(html.contains(r#"formaction="/items/charizard/buy""#), "{html}");
+    // Buy now names its intent, so a browser check that finds the Buy now button by it (the Buy Now
+    // freshness probe looks for `name="intent"` with `value="buy-now"`) finds this one.
+    assert!(html.contains(r#"formaction="/items/charizard/buy" name="intent" value="buy-now""#), "{html}");
     assert!(html.contains(r#"<input type="hidden" name="lock" value="lst_vault">"#), "{html}");
     assert!(html.contains(r#"<input type="hidden" name="product" value="cat_charizard::lst_vault">"#), "{html}");
     assert!(html.contains(r#"name="quantity" min="1" step="1" inputmode="numeric" required value="1""#), "{html}");
@@ -15634,7 +15637,7 @@ async fn the_checkout_lets_stripe_load_for_its_card_step() {
     let pilot = Pilot::new().await;
     let (status, headers, html) = pilot.send(get(CHECKOUT_SCREEN, Some("payer"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    // The payment step mounts Stripe's Payment Element and iews/stripe.js makes the page's
+    // The payment step mounts Stripe's Payment Element and `views/stripe.js` makes the page's
     // default policy, so the page allows both, as the payment pages do; without them the page's
     // script is refused before Pay now can tokenize a card.
     let csp = headers[header::CONTENT_SECURITY_POLICY].to_str().unwrap();

@@ -24,11 +24,13 @@ const LORCANA_APPROVED_IMAGE_PROVIDER_PRECEDENCE = ["lorcanajson", "scrydex", "l
 const PROMOTION_IMAGE_PROVIDERS = {
   magic: ["scryfall"],
   onePiece: ["scrydex"],
-  yugioh: ["ygoprodeck"],
+  yugiohCardPrint: ["ygoprodeck"],
+  yugiohSealedProduct: ["ygojson", "scrydex"],
 };
 const PROMOTION_IMAGE_HOSTS: Readonly<Record<string, readonly string[]>> = {
   scryfall: ["cards.scryfall.io"],
   scrydex: ["images.scrydex.com", "cdn.scrydex.com"],
+  ygojson: ["ms.yugipedia.com"],
   ygoprodeck: ["images.ygoprodeck.com"],
 };
 
@@ -415,8 +417,11 @@ export function approvedPromotionImageUrls(input: PromotionImageEvidenceInput): 
       return evidence.status === "current" ? safeImageUrls(providerKey, evidence.imageUrls) : [];
     }
     case "yugioh-card-print":
+      return PROMOTION_IMAGE_PROVIDERS.yugiohCardPrint.includes(providerKey)
+        ? safeImageUrls(providerKey, normalized.imageUrls)
+        : [];
     case "yugioh-sealed-product":
-      return PROMOTION_IMAGE_PROVIDERS.yugioh.includes(providerKey)
+      return PROMOTION_IMAGE_PROVIDERS.yugiohSealedProduct.includes(providerKey)
         ? safeImageUrls(providerKey, normalized.imageUrls)
         : [];
     default:

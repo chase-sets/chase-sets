@@ -1,5 +1,7 @@
 import {
+  ProviderAdapterError,
   ProviderWebhookError,
+  type ProviderWebhookCauseCode,
   type ProviderWebhookInvariantCode,
   type ProviderWebhookInvariantCommand,
 } from "@chase-sets/http/provider-errors";
@@ -48,4 +50,18 @@ export function paymentWebhookErrorFromUnknown(
     true,
     error,
   );
+}
+
+export function paymentWebhookFailureCause(error: ProviderWebhookError): ProviderWebhookCauseCode | undefined {
+  if (error.failureClass !== "handler-failure") return undefined;
+  const cause = error.causeError;
+  if (cause instanceof PaymentsDomainError) {
+    return cause.code === "payment_webhook_target_not_ready"
+      ? "payment_webhook_target_not_ready"
+      : "PaymentsDomainError";
+  }
+  if (cause instanceof ProviderAdapterError) return "ProviderAdapterError";
+  if (cause instanceof Error && "code" in cause && cause.code === "25P03") return "postgres_idle_transaction_timeout";
+  if (cause instanceof TypeError) return "TypeError";
+  return cause instanceof Error ? "Error" : "unknown";
 }
