@@ -1022,9 +1022,14 @@ fn latest(receipts: impl IntoIterator<Item = Option<Receipt>>) -> Option<Receipt
     receipts.into_iter().flatten().reduce(Receipt::later)
 }
 
-/// The issuer's authentication page Payments handed back, when it is an `https` address.
+/// The issuer's authentication page Payments handed back, when it is Stripe's hosted check: the
+/// one origin besides marketplace's that the checkout page's `form-action` allows, so a browser
+/// would stop Pay now's redirect anywhere else.
 fn authentication(url: &str) -> Option<corten::http::Uri> {
-    url.parse::<corten::http::Uri>().ok().filter(|uri| uri.scheme_str() == Some("https") && uri.host().is_some())
+    let hooks = crate::app::STRIPE_HOOKS.strip_prefix("https://").unwrap_or_default();
+    url.parse::<corten::http::Uri>()
+        .ok()
+        .filter(|uri| uri.scheme_str() == Some("https") && uri.authority().is_some_and(|at| at.as_str() == hooks))
 }
 
 /// The payment's page, an account's or a guest checkout's, read after `after_write`.
@@ -1206,7 +1211,7 @@ pub(crate) async fn write(
                             let followed = asked.and_then(authentication);
                             if asked.is_some() && followed.is_none() {
                                 tracing::warn!(
-                                    "Pay now's payment asked for authentication at an address that is not an https URL with a host; showing the payment's page instead"
+                                    "Pay now's payment asked for authentication at an address other than Stripe's hosted check; showing the payment's page instead"
                                 );
                             }
                             match followed {
@@ -1337,6 +1342,22 @@ async fn record_preview(
 mod tests {
     use super::*;
     use crate::api::{AuthenticityOffer, FeeQuote, PreviewLine, PreviewTotals};
+
+    #[test]
+    fn pay_now_follows_only_stripes_hosted_check() {
+        let hosted = "https://hooks.stripe.com/3d_secure_2/hosted?merchant=acct_1&payment_intent=pi_1";
+        assert_eq!(authentication(hosted).map(|uri| uri.to_string()).as_deref(), Some(hosted));
+        for refused in [
+            "http://hooks.stripe.com/3d_secure_2/hosted",
+            "https://hooks.stripe.com.example/3d_secure_2/hosted",
+            "https://acs.issuer.example/challenge",
+            "https://user@hooks.stripe.com/3d_secure_2/hosted",
+            "https://hooks.stripe.com:8443/3d_secure_2/hosted",
+            "/checkout/payments/pay_1",
+        ] {
+            assert!(authentication(refused).is_none(), "{refused}");
+        }
+    }
 
     fn session() -> CheckoutSession {
         CheckoutSession {
