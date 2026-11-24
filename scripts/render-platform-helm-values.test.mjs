@@ -968,9 +968,9 @@ spec:
       "public-corten.staging.chasesets.com",
     ]);
     expect(Object.fromEntries(doksIngress.hosts.map((host) => [host.host, host.paths.at(-1)]))).toEqual({
-      "staging.chasesets.com": { path: "/", service: "marketplace" },
+      "staging.chasesets.com": { path: "/", service: "marketplace-corten" },
       "www.staging.chasesets.com": { path: "/", service: "public-web" },
-      "marketplace.staging.chasesets.com": { path: "/", service: "marketplace" },
+      "marketplace.staging.chasesets.com": { path: "/", service: "marketplace-corten" },
       "admin.staging.chasesets.com": { path: "/", service: "admin-corten" },
       "admin-corten.staging.chasesets.com": { path: "/", service: "admin-corten" },
       "marketplace-corten.staging.chasesets.com": { path: "/", service: "marketplace-corten" },
@@ -1104,9 +1104,11 @@ spec:
     // The staging pilots add a fifth, sixth and seventh host, none of them the legacy landing-/marketplace-/admin-staging
     // redirect hostnames (those were retired outright, not rewired to DOKS;
     // see #5568). The deploy-blocking ingress-wait gate in
-    // .github/workflows/platform-production.yml probes exactly this host set
-    // (guarded in digitalocean-platform-config.test.mjs) and must never
-    // regress to including a legacy hostname.
+    // .github/workflows/platform-production.yml probes this host set
+    // (guarded in digitalocean-platform-config.test.mjs), except the
+    // public-corten pilot host, which it never probes, and admin-corten and
+    // marketplace-corten, which it probes only while each serves its host.
+    // It must never regress to including a legacy hostname.
     for (const host of stagingValues.doksIngress.hosts.map((entry) => entry.host)) {
       expect(host).not.toMatch(/^(landing|marketplace|admin)-staging\./);
     }
