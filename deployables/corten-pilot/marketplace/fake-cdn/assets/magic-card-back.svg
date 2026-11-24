@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 250 350">
+  <rect width="250" height="350" rx="14" fill="#262437"/>
+  <rect x="14" y="14" width="222" height="322" rx="10" fill="none" stroke="#bab3d1" stroke-width="2"/>
+  <g fill="#f6f4fb" font-family="sans-serif" text-anchor="middle">
+    <text x="125" y="166" font-size="26" font-weight="bold">Magic</text>
+    <text x="125" y="192" font-size="16">The Gathering</text>
+  </g>
+</svg>

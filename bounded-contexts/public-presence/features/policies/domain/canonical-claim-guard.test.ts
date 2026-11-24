@@ -116,7 +116,7 @@ const chargeSourceRoles = [
   },
   {
     role: "new session request",
-    ref: "infrastructure/stripe-payments/index.ts:1839-1927",
+    ref: "infrastructure/stripe-payments/index.ts:1841-1929",
     markers: [
       'mode: "payment"',
       '"/v1/checkout/sessions"',
@@ -126,7 +126,7 @@ const chargeSourceRoles = [
   },
   {
     role: "new card confirmation request",
-    ref: "infrastructure/stripe-payments/index.ts:1796-1837",
+    ref: "infrastructure/stripe-payments/index.ts:1796-1839",
     markers: [
       '"/v1/payment_intents"',
       'confirm: "true"',
@@ -1118,8 +1118,8 @@ const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
   // definition to 138-145 and Ordering's quote function to 70-94.
   // Repinned when the order runtime's planning functions gained their Shipping Rates parameter: Ordering's
   // Authenticity Check opt-in resolution, which the citation named when it was written at 1290-1307, is
-  // byte-identical at 1374-1391. Those lines had since drifted onto the checkout preview revision.
-  [citationFencePaths.authenticityTerms]: "ac57269ff3ee81fb5f4d48685d05d3d8bb4a4cd3c46cf9a1661a4fa022f586db",
+  // byte-identical at 1379-1396. Those lines had since drifted onto the checkout preview revision.
+  [citationFencePaths.authenticityTerms]: "87870d09924bd28ed8b11e2f79c672efb1c9a115d98e042989d75d469af6aba1",
   // Includes #7422 revocation, #9499 Inventory recovery storage, #10610 truthful search failure citations, the #9106 Search Interpretation marker in
   // stored search restoration, #9721 byte-identical citation relocations, and the #9034 rollout, notice-email,
   // and Connector Pairing manifest reconciliation; only C1-C7 digits remain normalized.

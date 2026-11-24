@@ -2,9 +2,10 @@
 //! (`sitemap.ts`, `sitemap-entity.ts`: the static pages, then Discovery's public pages of each kind
 //! in pages of 5,000), the favicon at both addresses (`favicon-svg.ts`, `favicon.ts`, the design
 //! system's `chaseSetsLogoSvg`, compiled in from `favicon.svg`, which scripts/export.mjs writes),
-//! Chrome's devtools probe, and the offline page the service worker keeps (`offline.tsx`). The web
-//! app manifest and the service worker are Corten's (`App::pwa`, see `app::pwa`); `/health/live`
-//! and `/health/ready` are Corten's own.
+//! marketplace-web's fallback pictures under `/fake-cdn/assets/` (`public/fake-cdn/assets`, which
+//! scripts/export.mjs copies), Chrome's devtools probe, and the offline page the service worker
+//! keeps (`offline.tsx`). The web app manifest and the service worker are Corten's (`App::pwa`,
+//! see `app::pwa`); `/health/live` and `/health/ready` are Corten's own.
 //!
 //! Each is the same for everyone (`Public`): the handlers read no session, and call the API with
 //! none, for marketplace's own host.
@@ -141,6 +142,32 @@ fn failed(error: crate::api::ApiError) -> corten::Error {
 /// `/favicon.svg` and `/favicon.ico`: the same SVG at both, as marketplace-web serves it.
 pub(crate) async fn favicon() -> Public<Media> {
     Public::new(FAVICON_LIFE, Media::new("image/svg+xml; charset=utf-8", FAVICON))
+}
+
+/// How long a browser or cache keeps a fallback picture (a day, as the favicon).
+const FAKE_CDN_LIFE: Duration = Duration::from_secs(86_400);
+
+/// marketplace-web's `public/fake-cdn/assets/` (scripts/export.mjs copies them into
+/// `fake-cdn/assets/`): the card backs Catalog stores as an item's fallback picture
+/// (`contracts/catalog-seed/fallback-assets.ts`) and the product placeholder (`views::DEFAULT_PRODUCT_IMAGE`).
+/// Catalog's paths are relative, so the pilot builds them on marketplace's origin, which is the
+/// pilot's own once it serves marketplace.
+static FAKE_CDN: [(&str, &str, &[u8]); 7] = [
+    ("lorcana-card-back.png", "image/png", include_bytes!("../fake-cdn/assets/lorcana-card-back.png")),
+    ("magic-card-back.svg", "image/svg+xml", include_bytes!("../fake-cdn/assets/magic-card-back.svg")),
+    ("one-piece-card-back.png", "image/png", include_bytes!("../fake-cdn/assets/one-piece-card-back.png")),
+    ("pokemon-card-back.png", "image/png", include_bytes!("../fake-cdn/assets/pokemon-card-back.png")),
+    ("pokemon_tcg_back.png", "image/png", include_bytes!("../fake-cdn/assets/pokemon_tcg_back.png")),
+    ("product-image-placeholder.svg", "image/svg+xml", include_bytes!("../fake-cdn/assets/product-image-placeholder.svg")),
+    ("yugioh-card-back.svg", "image/svg+xml", include_bytes!("../fake-cdn/assets/yugioh-card-back.svg")),
+];
+
+/// `/fake-cdn/assets/{name}`: one of marketplace-web's fallback pictures, the same for everyone; any
+/// other name is a 404.
+pub(crate) async fn fake_cdn(Params(route): Params<url::FakeCdnAsset<'_>>) -> Result<Public<Media>, corten::Error> {
+    let &(_, media_type, bytes) =
+        FAKE_CDN.iter().find(|(name, _, _)| *name == route.name).ok_or_else(|| corten::Error::status(StatusCode::NOT_FOUND))?;
+    Ok(Public::new(FAKE_CDN_LIFE, Media::new(media_type, bytes)))
 }
 
 /// `/.well-known/appspecific/com.chrome.devtools.json`: nothing, so Chrome stops asking and the

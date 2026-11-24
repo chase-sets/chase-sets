@@ -78,6 +78,43 @@ async function census(input: ReturnType<typeof censusInput>, entries: Registry =
 }
 
 describe("static worker job registry", () => {
+  it("wires the Payments reconciler to the Ordering deadline runner and refuses to sweep without it", async () => {
+    const input = censusInput("proof");
+    vi.mocked(input.controlPlane.claimScheduledRunner).mockResolvedValue(true);
+    const reconcileOrderPaymentBeforeDeadline = vi.fn();
+    const result = {
+      checked: 3,
+      progressed: 1,
+      cancelled: 0,
+      deferred: 2,
+      deferredByReason: { "payment-unverified": 1, "capture-not-recorded": 1 },
+      failed: 0,
+    };
+    const sweepBreachedPaymentDeadlines = vi.fn(async () => result);
+    const runnerFor = (payments: unknown) =>
+      createPlatformWorkerJobComposition(
+        {
+          ...input,
+          services: { ...input.services, ordering: { orders: { sweepBreachedPaymentDeadlines } }, payments },
+        },
+        censusRetention,
+      ).scheduled.find((runner) => runner.name === "ordering.payment-deadline-sweep")!;
+
+    await expect(runnerFor({ payments: { reconcileOrderPaymentBeforeDeadline } }).runOnce()).resolves.toMatchObject({
+      processed: 1,
+    });
+    expect(sweepBreachedPaymentDeadlines).toHaveBeenCalledExactlyOnceWith(
+      { limit: 100, reconcilePayment: reconcileOrderPaymentBeforeDeadline },
+      expect.objectContaining({ tenantId: "tnt_identity" }),
+    );
+    expect(input.logger.info).toHaveBeenCalledWith("Ordering payment deadline sweep completed.", {
+      type: "ordering.payment-deadline-sweep",
+      result,
+    });
+    await expect(runnerFor(undefined).runOnce()).rejects.toThrow("requires Payments reconciliation");
+    expect(sweepBreachedPaymentDeadlines).toHaveBeenCalledTimes(1);
+  });
+
   it("registry preserves the historical runner census plus the deletion consumer and Pricing recovery", async () => {
     expect(baseline.head).toBe("7102e3d56ac12516cde7ee3ef8638c4afd38bfa5");
     for (const profile of ["landing", "proof", "public"] as const)

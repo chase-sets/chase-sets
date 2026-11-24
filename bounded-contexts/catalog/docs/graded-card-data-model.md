@@ -8,10 +8,8 @@ Sellable card form is modeled as catalog product resolution:
 - `Form = Graded` requires `Grading Company` and `Grade`.
 - Sealed products do not use card condition or grading dimensions.
 
-Inventory owns copy-specific slab details because certification number and population snapshots belong to a specific graded copy, not to the printed card:
+Inventory attaches [Graded Item Details](../../inventory/GLOSSARY.md#graded-item-details), the `gradedCard` snapshot, to graded stock; that glossary entry holds the rule for reading it. Catalog owns the `Grading Company` and `Grade` Options, and the snapshot's `gradingCompany` and `grade` are display copies of the selected Options' labels, written only by Inventory from the selection. Inventory owns the evidence about one graded copy, because certification number and population snapshots belong to a specific copy, not to the printed card:
 
-- `gradingCompany`
-- `grade`
 - `certificationNumber`
 - `population.populationAtGrade` when available
 - `population.populationHigher` when available

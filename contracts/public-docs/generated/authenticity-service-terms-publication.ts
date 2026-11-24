@@ -12,6 +12,6 @@ export const publicAuthenticityServiceTermsPublicationRecord = {
   counselApprovalReference: null,
   rolloutJurisdictionsOrProductLimits: [],
   launchRequired: false,
-  contentFingerprint: "sha256:7e98661f0864e10b3334659411c51be009b49f61f40aa4b059148ac4983ae4eb",
+  contentFingerprint: "sha256:d86f65c40b8b0ea26780d73c81d7aefa9fadb5cf981c5eae503905b20700b5df",
   consentActivatable: false,
 } as const satisfies PublicPolicyPublicationRecord<"authenticity-service-terms">;
