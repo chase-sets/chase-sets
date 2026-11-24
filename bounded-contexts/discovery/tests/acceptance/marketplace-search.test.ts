@@ -55,6 +55,9 @@ import { refreshAllSearchIndexMarketSignals } from "../../features/search/read-m
 import { suggestDiscoveryItems } from "../../features/search/read-model/suggestions";
 import { classifyProtectedSearchTokens } from "../../features/search/domain/protected-search-tokens";
 import { lookupServedSearchSetCodes } from "../../features/search/read-model/queries";
+import { queryVocabularyPolicy } from "../../features/search/domain/query-vocabulary-policy";
+
+const queryVocabulary = queryVocabularyPolicy.defaultValue;
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 const discoveryContextNames = [
@@ -235,7 +238,11 @@ describe("marketplace search", () => {
   }
 
   async function variantSearch(params: DiscoverySearchParams = {}) {
-    return searchDiscoveryItems(pools.discovery, { search: "variant", includeTotal: true, ...params });
+    return searchDiscoveryItems(
+      pools.discovery,
+      { search: "variant", includeTotal: true, ...params },
+      { queryVocabulary },
+    );
   }
 
   it("same-listing variant commerce", async () => {
@@ -458,6 +465,7 @@ describe("marketplace search", () => {
     const actual = await retrieveDiscoveryItems(
       {
         db: pools.discovery,
+        queryVocabulary,
         rescueEnabled: true,
         provider: {
           model: "synthetic",
@@ -564,10 +572,10 @@ describe("marketplace search", () => {
       includeTotal: true,
     };
     const coldStart = performance.now();
-    const cold = await searchDiscoveryItems(capturing, params);
+    const cold = await searchDiscoveryItems(capturing, params, { queryVocabulary });
     const coldMs = performance.now() - coldStart;
     const warmStart = performance.now();
-    const warm = await searchDiscoveryItems(pools.discovery, params);
+    const warm = await searchDiscoveryItems(pools.discovery, params, { queryVocabulary });
     const warmMs = performance.now() - warmStart;
     expect(cold.total).toBe(1200);
     expect(warm.items).toEqual(cold.items);
@@ -2374,6 +2382,7 @@ describe("marketplace search", () => {
       const searchSemantic = vi.fn(searchDiscoverySemanticItems);
       const dependencies = {
         db: pools.discovery,
+        queryVocabulary,
         rescueEnabled: true,
         provider: enabled ? { model: "synthetic-wrong-printing", dimensions: 1024, embed } : undefined,
         cache: createQueryEmbeddingCache(),
@@ -2399,11 +2408,14 @@ describe("marketplace search", () => {
       expect(searchSemantic).not.toHaveBeenCalled();
     }
     for (const search of ["blastois agumon", "chraizard digimon", "charzard unrelatedword"]) {
-      const page = await retrieveDiscoveryItems({ db: pools.discovery, rescueEnabled: false }, { search });
+      const page = await retrieveDiscoveryItems(
+        { db: pools.discovery, queryVocabulary, rescueEnabled: false },
+        { search },
+      );
       expect(page.items, search).toEqual([]);
       expect(page.retrievalMode).toBe("lexical");
     }
-    const lexicalOnly = { db: pools.discovery, rescueEnabled: false };
+    const lexicalOnly = { db: pools.discovery, queryVocabulary, rescueEnabled: false };
     const synonymTypo = await retrieveDiscoveryItems(lexicalOnly, { search: "pkmn boostre box" });
     expect(synonymTypo.items.map((item) => item.catalog_item_id)).toEqual(["corr_box"]);
     expect(synonymTypo.retrievalMode).toBe("corrected");
@@ -2420,15 +2432,21 @@ describe("marketplace search", () => {
       expect((await retrieveDiscoveryItems(lexicalOnly, { search })).retrievalMode).toBe("lexical");
     }
     expect(
-      (await retrieveDiscoveryItems({ db: pools.discovery, rescueEnabled: false }, { search: "char" })).items.length,
+      (await retrieveDiscoveryItems({ db: pools.discovery, queryVocabulary, rescueEnabled: false }, { search: "char" }))
+        .items.length,
     ).toBeGreaterThan(0);
     expect(
-      (await retrieveDiscoveryItems({ db: pools.discovery, rescueEnabled: false }, { search: "chra 4/102" })).items,
+      (
+        await retrieveDiscoveryItems(
+          { db: pools.discovery, queryVocabulary, rescueEnabled: false },
+          { search: "chra 4/102" },
+        )
+      ).items,
     ).toEqual([]);
     await variantListing("corr_listing", "10.00", [], "USD", "corr_char_a");
     await refreshAllSearchIndexMarketSignals(pools.discovery);
     const filtered = await retrieveDiscoveryItems(
-      { db: pools.discovery, rescueEnabled: false },
+      { db: pools.discovery, queryVocabulary, rescueEnabled: false },
       {
         search: "charzard 4/102",
         priceMin: "5",
@@ -2557,7 +2575,11 @@ describe("marketplace search", () => {
       );
       await variantListing("syn_listing", "10.00", [], "USD", "syn_print_a");
       const search = (query: string) =>
-        searchDiscoveryItems(pools.discovery, { search: query, includeTotal: true }, { loadFacets: false });
+        searchDiscoveryItems(
+          pools.discovery,
+          { search: query, includeTotal: true },
+          { queryVocabulary, loadFacets: false },
+        );
       const ids = async (query: string) => (await search(query)).items.map((item) => item.catalog_item_id).sort();
       expect(await ids("zard 4/102")).toEqual(["syn_print_a", "syn_print_b"]);
       expect(await ids("zard 102/4")).toEqual(["syn_reverse"]);
@@ -2612,7 +2634,7 @@ describe("marketplace search", () => {
     }
     await rebuildSearchIndex();
     const ids = async (query: string) =>
-      (await suggestDiscoveryItems(pools.discovery, query)).map((item) => item.catalogItemId).sort();
+      (await suggestDiscoveryItems(pools.discovery, query, queryVocabulary)).map((item) => item.catalogItemId).sort();
     expect(await ids("pkmn ETB")).toEqual(["suggest_etb"]);
     expect(await ids("ETB リザード")).toEqual(["suggest_etb"]);
     expect(await ids("Pokémon ETB")).toEqual(["suggest_etb"]);
@@ -2621,9 +2643,13 @@ describe("marketplace search", () => {
     expect(await ids("zard")).toEqual(["suggest_literal", "suggest_zard"]);
     expect(await ids("pkmn ETB missing")).toEqual([]);
     expect(
-      (await searchDiscoveryItems(pools.discovery, { search: "pkmn ETB リザード" }, { loadFacets: false })).items.map(
-        (item) => item.catalog_item_id,
-      ),
+      (
+        await searchDiscoveryItems(
+          pools.discovery,
+          { search: "pkmn ETB リザード" },
+          { queryVocabulary, loadFacets: false },
+        )
+      ).items.map((item) => item.catalog_item_id),
     ).toEqual(["suggest_etb"]);
     // Isolate each config so one successful OR branch cannot mask a broken other branch.
     const snapshot = await pools.discovery.query<{

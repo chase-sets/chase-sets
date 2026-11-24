@@ -39,6 +39,7 @@ import {
   createDiscoveryUcpHandlers,
   discoveryRealtimeManifest,
   discoveryRealtimeTopicPolicyManifest,
+  queryVocabularyPolicy,
 } from "@chase-sets/discovery/server";
 import {
   catalogApiPermissionMiddleware,
@@ -97,6 +98,7 @@ import {
   getLockedFeeListingCohortSummary,
   marketplaceListingBulkPriceUpdatePolicy,
   marketplaceListingGatePolicy,
+  marketplaceListingReportAutoUnlistPolicy,
   marketplaceOfferPaymentConsentPolicy,
   marketplaceRealtimeManifest,
   marketplaceRealtimeTopicPolicyManifest,
@@ -373,6 +375,7 @@ export function createPlatformApiHost(
   const pricingPool = getPlatformApiPool(options.pools.pricing);
   const publicPresencePool = getPlatformApiPool(options.pools["public-presence"]);
   const channelsPool = getPlatformApiPool(options.pools.channels);
+  const discoveryPool = getPlatformApiPool(options.pools.discovery);
   const listingTargets =
     runtimeProfile !== "landing" &&
     marketplacePool &&
@@ -590,6 +593,7 @@ export function createPlatformApiHost(
         marketplaceOfferPaymentConsentPolicy,
         marketplaceSellerBehavioralMetricsPolicy,
         marketplaceListingBulkPriceUpdatePolicy,
+        marketplaceListingReportAutoUnlistPolicy,
       ] as unknown as readonly PolicyDefinition<JsonValue>[],
       write: lazyPolicyConsoleWritePort(
         () => runtime?.services.marketplace as { policies?: PolicyConsoleWritePort } | undefined,
@@ -625,6 +629,16 @@ export function createPlatformApiHost(
       definitions: [betaWavePolicy] as unknown as readonly PolicyDefinition<JsonValue>[],
       write: lazyPolicyConsoleWritePort(
         () => runtime?.services["public-presence"] as { policies?: PolicyConsoleWritePort } | undefined,
+      ),
+    });
+  }
+  if (discoveryPool) {
+    policyConsoleCrossContextSources.push({
+      contextName: "discovery",
+      db: discoveryPool,
+      definitions: [queryVocabularyPolicy] as unknown as readonly PolicyDefinition<JsonValue>[],
+      write: lazyPolicyConsoleWritePort(
+        () => runtime?.services.discovery as { policies?: PolicyConsoleWritePort } | undefined,
       ),
     });
   }

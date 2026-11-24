@@ -128,12 +128,20 @@ Notes:
 
 ### Query-Vocabulary Expansion
 
-**Query-vocabulary expansion** adds reviewed Discovery alternatives to a Discovery Query: ETB (elite trainer box),
-BB (booster box), pkmn (Pokemon), zard (Charizard), and ygo (Yu-Gi-Oh). Each original token or complete expansion
-phrase remains required alongside all other tokens, in both full search and suggestions. Expansion is always on
-and non-recursive; its keys are in-vocabulary. Raw digit-bearing tokens and served set codes before collector
-numbers stay literal. Original query text, display identity, and URLs do not change. This is not **Catalog Alias**
-truth: no alias storage, event, review, rollout, or retraction behavior changes.
+**Query-vocabulary expansion** adds the alternatives of the **Query Vocabulary** to a Discovery Query. The Query
+Vocabulary is the Discovery platform policy (`discovery.query-vocabulary`) that maps a search word to the phrase
+it also stands for. Each original token or complete expansion phrase remains required alongside all other tokens,
+in full search, suggestions, and bulk-add preview. Expansion is always on and non-recursive; its keys are
+in-vocabulary. Raw digit-bearing tokens and served set codes before collector numbers stay literal. Original query
+text, display identity, and URLs do not change. This is not **Catalog Alias** truth: no alias storage, event,
+review, rollout, or retraction behavior changes.
+
+Notes:
+
+- With no active policy document, the Query Vocabulary is ETB (elite trainer box), BB (booster box), pkmn (Pokemon), zard (Charizard), and ygo (Yu-Gi-Oh).
+- An operator revises the Query Vocabulary through the Policy Console. Each search request reads it once, so a revision applies from the next request after the platform worker has projected it and the process has refreshed its copy, which it does within one second of the projection. Nothing reindexes when it is revised.
+- A key is one lowercase search word as search normalizes it, of at most 32 characters and without digits, because a digit-bearing token is never expanded. An expansion is one to six words of at most 32 characters each, at most 200 characters as written, and differs from its key. The Query Vocabulary holds at most 200 expansions.
+- Search results are not records, so the Query Vocabulary in force is not stored with a query.
 
 ### Search Text Tokenization
 

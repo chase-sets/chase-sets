@@ -5,6 +5,9 @@ import { discoveryItemSearchRoutes } from "./route";
 import { DISCOVERY_SEARCH_QUERY_MAX_CODE_POINTS } from "../domain/normalization";
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import { Hono } from "hono";
+import { queryVocabularyPolicy } from "../domain/query-vocabulary-policy";
+
+const resolveQueryVocabulary = async () => queryVocabularyPolicy.defaultValue;
 
 // Plays the Search Index for one relevance Result Set: an exact first row and one other,
 // applying the emitted keyset and LIMIT/OFFSET bindings.
@@ -109,7 +112,7 @@ describe("discovery item search routes", () => {
     const recordSearchQuery = vi.fn();
     const runtime = createDiscoveryItemSearchRuntime(
       { db, eventStore: {} as never, checkpointStore: {} as never },
-      { recordSearchQuery },
+      { resolveQueryVocabulary, recordSearchQuery },
     );
     const response = await discoveryItemSearchRoutes(runtime).request("/?search=chraizard&limit=1");
     expect(response.status).toBe(200);
@@ -152,7 +155,10 @@ describe("discovery item search routes", () => {
         },
       };
       const app = discoveryItemSearchRoutes(
-        createDiscoveryItemSearchRuntime({ db, eventStore: {} as never, checkpointStore: {} as never }),
+        createDiscoveryItemSearchRuntime(
+          { db, eventStore: {} as never, checkpointStore: {} as never },
+          { resolveQueryVocabulary },
+        ),
       );
       const query = `sort=${sort}&dimension.finish=foil&limit=1`;
       const legacy = Buffer.from(JSON.stringify({ id: "old", lowestPriceAmount: "2" })).toString("base64url");
@@ -249,7 +255,10 @@ describe("discovery item search routes", () => {
         },
       };
       const app = discoveryItemSearchRoutes(
-        createDiscoveryItemSearchRuntime({ db, eventStore: {} as never, checkpointStore: {} as never }),
+        createDiscoveryItemSearchRuntime(
+          { db, eventStore: {} as never, checkpointStore: {} as never },
+          { resolveQueryVocabulary },
+        ),
       );
 
       const direct = await (await app.request(`/?${new URLSearchParams({ search, limit: "24" })}`)).json();
@@ -339,7 +348,7 @@ describe("discovery item search routes", () => {
     const app = discoveryItemSearchRoutes(
       createDiscoveryItemSearchRuntime(
         { db, eventStore: {} as never, checkpointStore: {} as never },
-        { recordSearchQuery },
+        { resolveQueryVocabulary, recordSearchQuery },
       ),
     );
     const response = await app.request("/?search=Charizard%20ex&includeTotal=true");
@@ -530,7 +539,7 @@ describe("discovery item search routes", () => {
     const app = discoveryItemSearchRoutes(
       createDiscoveryItemSearchRuntime(
         { db, eventStore: {} as never, checkpointStore: {} as never },
-        { recordSearchQuery },
+        { resolveQueryVocabulary, recordSearchQuery },
       ),
     );
 
@@ -576,7 +585,10 @@ describe("discovery item search routes", () => {
   it("keeps an intentional offset page without a cursor or restart marker", async () => {
     const { db, listCalls } = scriptedSearchDb();
     const app = discoveryItemSearchRoutes(
-      createDiscoveryItemSearchRuntime({ db, eventStore: {} as never, checkpointStore: {} as never }),
+      createDiscoveryItemSearchRuntime(
+        { db, eventStore: {} as never, checkpointStore: {} as never },
+        { resolveQueryVocabulary },
+      ),
     );
 
     const page = await (await app.request("/?search=Charizard%20ex&limit=1&offset=1")).json();
@@ -590,7 +602,10 @@ describe("discovery item search routes", () => {
   it("omits cursorRestarted from fresh first pages", async () => {
     const { db } = scriptedSearchDb();
     const app = discoveryItemSearchRoutes(
-      createDiscoveryItemSearchRuntime({ db, eventStore: {} as never, checkpointStore: {} as never }),
+      createDiscoveryItemSearchRuntime(
+        { db, eventStore: {} as never, checkpointStore: {} as never },
+        { resolveQueryVocabulary },
+      ),
     );
 
     const fresh = await (await app.request("/?search=Charizard%20ex&limit=1&includeTotal=true")).json();

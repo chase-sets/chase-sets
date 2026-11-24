@@ -1,5 +1,6 @@
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
 import { notificationOutboxSchemaSql } from "@chase-sets/notification-outbox";
+import { platformPolicySchemaSql } from "@chase-sets/platform-policy/schema";
 import { realtimeOutboxSchemaSql } from "@chase-sets/platform-runtime/realtime";
 import { discoveryCategorySchemaSql } from "../../features/categories/read-model/schema";
 import {
@@ -31,6 +32,9 @@ export const discoverySchemaSql = [
   discoveryItemDetailSchemaSql,
   discoveryCategorySchemaSql,
   realtimeOutboxSchemaSql,
+  // Adopts the shared platform-policy machinery (see infrastructure/platform-policy)
+  // for the Query Vocabulary -- see ../../features/search/domain/query-vocabulary-policy.
+  platformPolicySchemaSql,
 ].join("\n\n");
 
 export const discoverySchemaMigrations = [

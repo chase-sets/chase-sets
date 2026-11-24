@@ -149,6 +149,7 @@ export function createMarketplaceServices(
   const reports = createMarketplaceReportRuntime({
     eventStore,
     db,
+    policies,
   });
   const reviews = createReviewRuntime({
     eventStore,

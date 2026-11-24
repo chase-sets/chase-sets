@@ -1,9 +1,12 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createDiscoveryItemSearchRuntime } from "./runtime";
+import { createDiscoveryItemSearchRuntime, type DiscoveryItemSearchServices } from "./runtime";
 import { createQueryEmbeddingCache } from "../domain/query-embedding-cache";
 import { createDiscoveryServices } from "../../../support/runtime-support/services";
 import { createVoyageEmbeddingProvider } from "../integrations/voyage-embedding-provider";
+import { EMPTY_QUERY_VOCABULARY, queryVocabularyPolicy, type QueryVocabulary } from "../domain/query-vocabulary-policy";
+
+const resolveQueryVocabulary = async () => queryVocabularyPolicy.defaultValue;
 
 describe("Discovery search runtime telemetry", () => {
   afterEach(() => {
@@ -30,6 +33,7 @@ describe("Discovery search runtime telemetry", () => {
     const runtime = createDiscoveryItemSearchRuntime(
       { ...deps(), db },
       {
+        resolveQueryVocabulary,
         provider: {
           model: "synthetic-zero-matrix",
           dimensions: 1_024,
@@ -68,7 +72,7 @@ describe("Discovery search runtime telemetry", () => {
       sql.startsWith("SELECT EXISTS")
         ? { rows: [{ literal: false, prefix: false, candidates: ["charizard"] }] as never[], rowCount: 1 }
         : query(sql, values);
-    const runtime = createDiscoveryItemSearchRuntime({ ...deps(), db }, { recordSearchQuery });
+    const runtime = createDiscoveryItemSearchRuntime({ ...deps(), db }, { resolveQueryVocabulary, recordSearchQuery });
     const result = await runtime.searchItems({ search: interpreted ? "chraizard psa 10" : "chraizard" });
     expect(result).toMatchObject({ retrievalMode: "corrected", lexicalCount: 0, total: 1 });
     expect(Boolean(result.interpretation)).toBe(interpreted);
@@ -89,7 +93,7 @@ describe("Discovery search runtime telemetry", () => {
         ? [{ catalog_item_id: "synthetic-structured" }]
         : [],
     );
-    const runtime = createDiscoveryItemSearchRuntime({ ...deps(), db }, { recordSearchQuery });
+    const runtime = createDiscoveryItemSearchRuntime({ ...deps(), db }, { resolveQueryVocabulary, recordSearchQuery });
     const result = await runtime.searchItems({ search: "TSP 136" });
     expect(result.retrievalMode).toBe("structured");
     expect(recordSearchQuery).toHaveBeenCalledExactlyOnceWith(
@@ -108,7 +112,7 @@ describe("Discovery search runtime telemetry", () => {
       if (sql.startsWith("SELECT COUNT(*)")) return [{ count: "1" }];
       return [];
     });
-    const runtime = createDiscoveryItemSearchRuntime({ ...deps(), db }, { recordSearchQuery });
+    const runtime = createDiscoveryItemSearchRuntime({ ...deps(), db }, { resolveQueryVocabulary, recordSearchQuery });
     await runtime.searchItems({ search: "pikachu", cursor: "rejected", offset: 100, includeTotal: false });
     expect(recordSearchQuery).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ cursorState: "restarted", lexicalZero: false, zeroResults: false, total: 1 }),
@@ -124,7 +128,7 @@ describe("Discovery search runtime telemetry", () => {
     });
     const runtime = createDiscoveryItemSearchRuntime(
       { ...deps(), db: { query: vi.fn().mockRejectedValue(failure) } },
-      { recordSearchRetrievalFailure: observer },
+      { resolveQueryVocabulary, recordSearchRetrievalFailure: observer },
     );
 
     await expect(runtime.searchItems({ search: "query" })).rejects.toBe(failure);
@@ -133,7 +137,10 @@ describe("Discovery search runtime telemetry", () => {
 
   it("does not invoke the failure observer after a successful retrieval", async () => {
     const observer = vi.fn();
-    const runtime = createDiscoveryItemSearchRuntime(deps(), { recordSearchRetrievalFailure: observer });
+    const runtime = createDiscoveryItemSearchRuntime(deps(), {
+      resolveQueryVocabulary,
+      recordSearchRetrievalFailure: observer,
+    });
 
     await expect(runtime.searchItems({ search: "" })).resolves.toMatchObject({ retrievalMode: "lexical" });
     expect(observer).not.toHaveBeenCalled();
@@ -150,7 +157,10 @@ describe("Discovery search runtime telemetry", () => {
           ? [{ catalog_item_id: "PRIVATE_ITEM_SENTINEL", title: "PRIVATE_TITLE_SENTINEL" }]
           : [],
       );
-      const runtime = createDiscoveryItemSearchRuntime({ ...deps(), db }, { recordSearchQuery });
+      const runtime = createDiscoveryItemSearchRuntime(
+        { ...deps(), db },
+        { resolveQueryVocabulary, recordSearchQuery },
+      );
       await runtime.searchItems({
         search: "privatequerysentinel",
         language: "PRIVATE_LANGUAGE_SENTINEL",
@@ -203,6 +213,7 @@ describe("Discovery search runtime telemetry", () => {
       const runtime = createDiscoveryItemSearchRuntime(
         { ...deps(), db },
         {
+          resolveQueryVocabulary,
           provider: { model: "synthetic-correction-fault", dimensions: 1, embed },
           cache: createQueryEmbeddingCache(),
           rescueEnabled: true,
@@ -238,6 +249,7 @@ describe("Discovery search runtime telemetry", () => {
       throw new Error("SYNTHETIC_PROVIDER_FAILURE");
     });
     const runtime = createDiscoveryItemSearchRuntime(deps(), {
+      resolveQueryVocabulary,
       provider: { model: "synthetic-provider-fault", dimensions: 1, embed },
       cache: createQueryEmbeddingCache(),
       rescueEnabled: true,
@@ -270,6 +282,7 @@ describe("Discovery search runtime telemetry", () => {
     const runtime = createDiscoveryItemSearchRuntime(
       { ...deps(), db },
       {
+        resolveQueryVocabulary,
         provider: { model: "synthetic-interpretation", dimensions: 1, embed },
         cache: createQueryEmbeddingCache(),
         rescueEnabled: true,
@@ -311,6 +324,7 @@ describe("Discovery search runtime telemetry", () => {
     const runtime = createDiscoveryItemSearchRuntime(
       { ...deps(), db },
       {
+        resolveQueryVocabulary,
         provider: { model: "synthetic-interpretation-miss", dimensions: 1, embed },
         cache: createQueryEmbeddingCache(),
         rescueEnabled: true,
@@ -334,7 +348,7 @@ describe("Discovery search runtime telemetry", () => {
   });
 
   it("keys a marked request as its own Result Set", async () => {
-    const runtime = createDiscoveryItemSearchRuntime(deps(), {});
+    const runtime = createDiscoveryItemSearchRuntime(deps(), { resolveQueryVocabulary });
     const request = { search: "zard", dimensionFilters: [{ dimensionId: "dim_seed_grade", optionId: "gm10" }] };
     const unmarked = await runtime.searchItems(request);
     const absentMarker = await runtime.searchItems({ ...request, interpreted: undefined });
@@ -346,7 +360,7 @@ describe("Discovery search runtime telemetry", () => {
 
   it("Result Set identity tracks the effective category set and price currency", async () => {
     const recordSearchQuery = vi.fn();
-    const runtime = createDiscoveryItemSearchRuntime(deps(), { recordSearchQuery });
+    const runtime = createDiscoveryItemSearchRuntime(deps(), { resolveQueryVocabulary, recordSearchQuery });
     const a = await runtime.searchItems({ categories: ["B", "A", "A", " "] });
     const b = await runtime.searchItems({ categories: ["A", "B"] });
     const emptyCategories = await runtime.searchItems({ search: "zard", categories: [] });
@@ -376,6 +390,7 @@ describe("Discovery search runtime telemetry", () => {
         ),
     );
     const runtime = createDiscoveryItemSearchRuntime(deps(), {
+      resolveQueryVocabulary,
       provider: { model: "fake", dimensions: 1, embed },
       cache: createQueryEmbeddingCache(),
       rescueEnabled: true,
@@ -417,6 +432,7 @@ describe("Discovery search runtime telemetry", () => {
         ),
     );
     const runtime = createDiscoveryItemSearchRuntime(deps(), {
+      resolveQueryVocabulary,
       provider: { model: "fake", dimensions: 1, embed },
       cache: createQueryEmbeddingCache(),
       rescueEnabled: true,
@@ -453,6 +469,7 @@ describe("Discovery search runtime telemetry", () => {
           }),
       );
       const runtime = createDiscoveryItemSearchRuntime(deps(), {
+        resolveQueryVocabulary,
         provider: { model: "fake", dimensions: 1, embed },
         cache: createQueryEmbeddingCache(),
         rescueEnabled: true,
@@ -471,7 +488,10 @@ describe("Discovery search runtime telemetry", () => {
       });
 
       const failedDeps = { ...deps(), db: { query: vi.fn().mockRejectedValue(new Error("SQL failed")) } };
-      const failingRuntime = createDiscoveryItemSearchRuntime(failedDeps, { recordSearchQuery });
+      const failingRuntime = createDiscoveryItemSearchRuntime(failedDeps, {
+        resolveQueryVocabulary,
+        recordSearchQuery,
+      });
       await expect(failingRuntime.searchItems({ search: "query" })).rejects.toThrow("SQL failed");
       expect(recordSearchQuery).toHaveBeenLastCalledWith(
         expect.objectContaining({
@@ -490,6 +510,7 @@ describe("Discovery search runtime telemetry", () => {
       const recordQueryEmbeddingLoad = vi.fn();
       const embed = vi.fn();
       const runtime = createDiscoveryItemSearchRuntime(deps(), {
+        resolveQueryVocabulary,
         provider: { model: "fake", dimensions: 1, embed },
         cache: createQueryEmbeddingCache(),
         rescueEnabled: kind !== "disabled",
@@ -510,6 +531,7 @@ describe("Discovery search runtime telemetry", () => {
 
   it("both telemetry exporters may throw without failing search or cache warming", async () => {
     const runtime = createDiscoveryItemSearchRuntime(deps(), {
+      resolveQueryVocabulary,
       provider: { model: "fake", dimensions: 1, embed: async () => ({ vectors: [[1]], totalTokens: 0 }) },
       cache: createQueryEmbeddingCache(),
       rescueEnabled: true,
@@ -572,7 +594,7 @@ describe("Discovery search runtime telemetry", () => {
     ["malformed cursor", "not-a-cursor", "restarted"],
   ] as const)("reports the effective %s cursor state, not raw cursor presence", async (_label, cursor, expected) => {
     const recordSearchQuery = vi.fn();
-    const runtime = createDiscoveryItemSearchRuntime(deps(), { recordSearchQuery });
+    const runtime = createDiscoveryItemSearchRuntime(deps(), { resolveQueryVocabulary, recordSearchQuery });
 
     const result = await runtime.searchItems({ search: "pikachu", cursor });
 
@@ -587,7 +609,7 @@ describe("Discovery search runtime telemetry", () => {
       throw new Error("synthetic exporter failure");
     });
     const failingDeps = { ...deps(), db: { query: vi.fn().mockRejectedValue(new Error("SQL failed")) } };
-    const runtime = createDiscoveryItemSearchRuntime(failingDeps, { recordSearchQuery });
+    const runtime = createDiscoveryItemSearchRuntime(failingDeps, { resolveQueryVocabulary, recordSearchQuery });
 
     await expect(runtime.searchItems({ search: "pikachu", cursor: "not-a-cursor" })).rejects.toThrow("SQL failed");
     expect(recordSearchQuery).toHaveBeenCalledExactlyOnceWith(
@@ -603,7 +625,7 @@ describe("Discovery search runtime telemetry", () => {
 
   it("one signal and fail-open telemetry: lexical and final zero states stay private", async () => {
     const recordSearchQuery = vi.fn();
-    const runtime = createDiscoveryItemSearchRuntime(deps(), { recordSearchQuery });
+    const runtime = createDiscoveryItemSearchRuntime(deps(), { resolveQueryVocabulary, recordSearchQuery });
     await expect(runtime.searchItems({ search: "pikachu", limit: 1 })).resolves.toMatchObject({
       retrievalMode: "lexical",
     });
@@ -629,11 +651,122 @@ describe("Discovery search runtime telemetry", () => {
     const throwingExporter = vi.fn(() => {
       throw new Error("exporter unavailable");
     });
-    const telemetryFailure = createDiscoveryItemSearchRuntime(deps(), { recordSearchQuery: throwingExporter });
+    const telemetryFailure = createDiscoveryItemSearchRuntime(deps(), {
+      resolveQueryVocabulary,
+      recordSearchQuery: throwingExporter,
+    });
     await expect(telemetryFailure.searchItems({ search: "pikachu", limit: 1 })).resolves.toMatchObject({
       retrievalMode: "lexical",
     });
     expect(throwingExporter).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Discovery search runtime Query Vocabulary", () => {
+  // Each entry point, and the prefix its query puts on the final word.
+  const entryPoints = [
+    ["full search", (runtime: DiscoveryItemSearchServices, search: string) => runtime.searchItems({ search }), ""],
+    ["suggestions", (runtime: DiscoveryItemSearchServices, search: string) => runtime.suggestItems(search), ":*"],
+    [
+      "bulk-add preview",
+      (runtime: DiscoveryItemSearchServices, search: string) => runtime.previewBulkAdd({ search }),
+      "",
+    ],
+  ] as const;
+  // Records every bound value; one lexical row keeps full search off its recovery paths.
+  const bindingDb = (rows: (sql: string) => unknown[] = () => [{ catalog_item_id: "synthetic-found" }]) => {
+    const bindings: unknown[] = [];
+    const db: PgQueryable = {
+      query: async <Row>(sql: string, values: readonly unknown[] = []) => {
+        bindings.push(...values);
+        const page = sql.startsWith("SELECT * FROM (") ? rows(sql) : [];
+        return { rows: page as Row[], rowCount: page.length };
+      },
+    };
+    return { db, bindings };
+  };
+
+  it.each(entryPoints)(
+    "%s resolves the Query Vocabulary once per request and searches with what it returns",
+    async (_name, run, finalPrefix) => {
+      let inForce: QueryVocabulary = { expansions: { sq: "squirtle" } };
+      const resolveInForce = vi.fn(async () => inForce);
+      const { db, bindings } = bindingDb();
+      const runtime = createDiscoveryItemSearchRuntime({ ...deps(), db }, { resolveQueryVocabulary: resolveInForce });
+
+      await run(runtime, "sq etb missing");
+      expect(resolveInForce).toHaveBeenCalledTimes(1);
+      // The key the policy holds expands; a key only the compiled default holds does not.
+      expect(bindings).toContain(`(sq | (squirtle)) & etb & missing${finalPrefix}`);
+      expect(bindings.filter((value) => typeof value === "string" && value.includes("elite"))).toEqual([]);
+
+      // A revision applies from the next request, which reads the policy again.
+      inForce = queryVocabularyPolicy.defaultValue;
+      bindings.length = 0;
+      await run(runtime, "sq etb missing");
+      expect(resolveInForce).toHaveBeenCalledTimes(2);
+      expect(bindings).toContain(`sq & (etb | (elite <-> trainer <-> box)) & missing${finalPrefix}`);
+      expect(bindings.filter((value) => typeof value === "string" && value.includes("squirtle"))).toEqual([]);
+    },
+  );
+
+  it.each(entryPoints)(
+    "%s builds the compiled table's queries for its five keys under the default vocabulary",
+    async (_name, run, finalPrefix) => {
+      const { db, bindings } = bindingDb();
+      const runtime = createDiscoveryItemSearchRuntime({ ...deps(), db }, { resolveQueryVocabulary });
+      await run(runtime, "etb bb pkmn zard ygo");
+      const finalKey = finalPrefix ? "(ygo:* | (yu <-> gi <-> oh:*))" : "(ygo | (yu <-> gi <-> oh))";
+      expect(bindings).toContain(
+        `(etb | (elite <-> trainer <-> box)) & (bb | (booster <-> box)) & (pkmn | (pokemon)) & (zard | (charizard)) & ${finalKey}`,
+      );
+    },
+  );
+
+  it("corrected search uses the vocabulary the request resolved, without resolving again", async () => {
+    const correctionLookups: unknown[] = [];
+    const corrected = async (inForce: QueryVocabulary) => {
+      const resolveInForce = vi.fn(async () => inForce);
+      const bindings: unknown[] = [];
+      correctionLookups.length = 0;
+      const db: PgQueryable = {
+        query: async <Row>(sql: string, values: readonly unknown[] = []) => {
+          bindings.push(...values);
+          if (!sql.startsWith("SELECT EXISTS")) return { rows: [] as Row[], rowCount: 0 };
+          correctionLookups.push(values[0]);
+          const candidates = values[0] === "jungel" ? ["jungle"] : values[0] === "squrtle" ? ["squirtle"] : [];
+          return { rows: [{ literal: false, prefix: false, candidates }] as Row[], rowCount: 1 };
+        },
+      };
+      const runtime = createDiscoveryItemSearchRuntime({ ...deps(), db }, { resolveQueryVocabulary: resolveInForce });
+      await runtime.searchItems({ search: "squrtle jungel" });
+      expect(resolveInForce).toHaveBeenCalledTimes(1);
+      return bindings;
+    };
+
+    // A key of the resolved vocabulary is never spell-corrected; its expansion is kept.
+    const withKey = await corrected({ expansions: { squrtle: "squirtle bottle" } });
+    expect(correctionLookups).toEqual(["jungel"]);
+    expect(withKey).toContain("(squrtle | (squirtle <-> bottle)) & jungel");
+    expect(withKey).toContain("(squrtle | (squirtle <-> bottle)) & (jungel | jungle)");
+
+    const withoutKey = await corrected(EMPTY_QUERY_VOCABULARY);
+    expect(correctionLookups).toEqual(["squrtle", "jungel"]);
+    expect(withoutKey).toContain("(squrtle | squirtle) & (jungel | jungle)");
+  });
+
+  it.each(entryPoints)("%s fails when the Query Vocabulary cannot be resolved", async (_name, run) => {
+    const failure = new Error("synthetic policy read failure");
+    const query = vi.fn();
+    const recordSearchQuery = vi.fn();
+    const runtime = createDiscoveryItemSearchRuntime(
+      { ...deps(), db: { query } },
+      { resolveQueryVocabulary: () => Promise.reject(failure), recordSearchQuery },
+    );
+
+    await expect(run(runtime, "sq etb")).rejects.toBe(failure);
+    expect(query).not.toHaveBeenCalled();
+    for (const [signal] of recordSearchQuery.mock.calls) expect(signal).toMatchObject({ outcome: "failure" });
   });
 });
 

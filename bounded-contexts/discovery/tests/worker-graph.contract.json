@@ -662,6 +662,28 @@
       ],
       "streamPrefixes": "<undefined>",
       "order": 10
+    },
+    {
+      "subscriptionName": "discovery.platform-policy-document-projection",
+      "handlerKind": "projection",
+      "projectionName": "platform-policy-document-projection",
+      "sourceContextName": "discovery",
+      "targetContextName": "discovery",
+      "subscriptionVersion": 1,
+      "checkpointKey": "platform-policy-document-projection:discovery:v1",
+      "handlers": {
+        "platform-policy.document.created": "<function>",
+        "platform-policy.document.revised": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": ["platform-policy.document.created", "platform-policy.document.revised"],
+      "streamPrefixes": ["platform-policy.document-"],
+      "order": 7
     }
   ],
   "subscriptions": [

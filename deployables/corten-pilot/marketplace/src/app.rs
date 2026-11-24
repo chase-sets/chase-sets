@@ -152,7 +152,7 @@ impl Config {
                 .ok()
                 .map(|key| key.trim().to_owned())
                 .filter(|key| !key.is_empty()),
-            indexing: indexing(std::env::var("CHASE_SETS_MARKETPLACE_INDEXING").ok().as_deref()),
+            indexing: site_indexing(),
             claim_token_entry: claim_token_entry(
                 std::env::var("GUEST_PAYMENT_CLAIM_LOCAL_RECOVERY_TOKEN_ENABLED").ok().as_deref(),
                 [std::env::var("NODE_ENV").ok(), std::env::var("DEPLOYMENT_ENVIRONMENT").ok()],
@@ -167,6 +167,15 @@ impl Config {
         let host = origin.split_once("://").map_or(origin, |(_, host)| host);
         self.platform.anonymous(host, self.proto)
     }
+}
+
+/// Whether this process may be indexed (`CHASE_SETS_MARKETPLACE_INDEXING`), read once. Every page's
+/// head says `noindex,nofollow` when it may not, as marketplace's root layout does; `Config::indexing`
+/// is the same answer for the crawler files.
+pub fn site_indexing() -> bool {
+    static INDEXING: std::sync::LazyLock<bool> =
+        std::sync::LazyLock::new(|| indexing(std::env::var("CHASE_SETS_MARKETPLACE_INDEXING").ok().as_deref()));
+    *INDEXING
 }
 
 /// `shouldIndexFromEnv`: on unless the variable says off.
@@ -1875,19 +1884,26 @@ pub fn sign_in_back_to(page: &str) -> Option<Uri> {
 /// Where Stripe.js loads from, and the origin of the payment fields' frames.
 pub const STRIPE_JS: &str = "https://js.stripe.com";
 
+/// Stripe's own pages: the card issuer's 3-D Secure check in a frame, and the hosted check Pay
+/// now redirects to when a new card needs one (`next_action.redirect_to_url`).
+pub const STRIPE_HOOKS: &str = "https://hooks.stripe.com";
+
 /// What Stripe.js and its fields need: its script, its frames and the APIs they call. These
 /// pages make their own `default` Trusted Types policy (`views/stripe.js`), so `<Corten />` makes
 /// none: like Corten's, it lets `views/stripe.js` and Stripe.js itself load Stripe's scripts, and
 /// it also passes the one SVG filter the Payment Element parses as it mounts, which Corten leaves
 /// to the app (corten-run/corten#1488). The Payment Element's wallets (Apple Pay and Google Pay,
 /// `wallets: auto`) run the Payment Request API in Stripe's frames, which ask for
-/// `allow="payment *"`, so these pages allow the feature Corten denies elsewhere.
+/// `allow="payment *"`, so these pages allow the feature Corten denies elsewhere. Pay now with a
+/// card that needs 3-D Secure redirects to Stripe's hosted check, and Chromium and WebKit hold a
+/// form's redirects to `form-action`, so these pages allow that origin as a form's destination.
 fn stripe(p: corten::security::Sources) -> corten::security::Sources {
     p.script_src(STRIPE_JS)
         .trusted_types_policy("default")
         .allow_feature(corten::security::Feature::Payment)
         .frame_src(STRIPE_JS)
-        .frame_src("https://hooks.stripe.com")
+        .frame_src(STRIPE_HOOKS)
+        .form_action(STRIPE_HOOKS)
         .connect_src("https://api.stripe.com")
         .connect_src("https://merchant-ui-api.stripe.com")
 }

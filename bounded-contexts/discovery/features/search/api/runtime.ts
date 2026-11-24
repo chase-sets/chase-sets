@@ -9,6 +9,7 @@ import type {
 import type { DiscoveryEmbeddingProvider } from "../integrations/voyage-embedding-provider";
 import { createHash } from "node:crypto";
 import { normalizeSimpleSearchText } from "../domain/normalization";
+import type { QueryVocabulary } from "../domain/query-vocabulary-policy";
 import {
   retrieveDiscoveryItems,
   type DiscoveryRetrievalDependencies,
@@ -70,6 +71,8 @@ export type DiscoveryItemSearchServices = Readonly<{
 }>;
 
 export type DiscoverySearchRetrievalOptions = Readonly<{
+  /** The Query Vocabulary in force, read once by each search, suggestion and bulk-add preview request. */
+  resolveQueryVocabulary: () => Promise<QueryVocabulary>;
   provider?: DiscoveryEmbeddingProvider;
   cache?: QueryEmbeddingCache;
   rescueEnabled?: boolean;
@@ -80,10 +83,11 @@ export type DiscoverySearchRetrievalOptions = Readonly<{
 
 export function createDiscoveryItemSearchRuntime(
   deps: DiscoveryRuntimeDeps,
-  retrieval: DiscoverySearchRetrievalOptions = {},
+  retrieval: DiscoverySearchRetrievalOptions,
 ): DiscoveryItemSearchServices {
   return {
-    suggestItems: (query, limit) => suggestDiscoveryItems(deps.db, query, limit),
+    suggestItems: async (query, limit) =>
+      suggestDiscoveryItems(deps.db, query, await retrieval.resolveQueryVocabulary(), limit),
     searchItems: async (params = {}, options = {}) => {
       const startedAt = performance.now();
       const normalizedSearch = normalizeSimpleSearchText(params.search ?? "")
@@ -96,7 +100,7 @@ export function createDiscoveryItemSearchRuntime(
       let result: DiscoverySearchResult | undefined;
       let lexicalZero: boolean | null = null;
       let embeddingWait: QueryEmbeddingWaitObservation = { outcome: "not-attempted", waiterDurationMs: 0 };
-      const retrievalDependencies: DiscoveryRetrievalDependencies = {
+      const retrievalDependencies: Omit<DiscoveryRetrievalDependencies, "queryVocabulary"> = {
         db: deps.db,
         provider: retrieval.provider,
         cache: retrieval.cache,
@@ -112,7 +116,8 @@ export function createDiscoveryItemSearchRuntime(
       };
 
       try {
-        result = await retrieveDiscoveryItems(retrievalDependencies, params);
+        const queryVocabulary = await retrieval.resolveQueryVocabulary();
+        result = await retrieveDiscoveryItems({ ...retrievalDependencies, queryVocabulary }, params);
         return { ...result, queryHash, resultSetKey };
       } catch (error) {
         try {
@@ -151,7 +156,8 @@ export function createDiscoveryItemSearchRuntime(
         }
       }
     },
-    previewBulkAdd: (params = {}) => previewBulkAddSearchResults(deps.db, params),
+    previewBulkAdd: async (params = {}) =>
+      previewBulkAddSearchResults(deps.db, params, await retrieval.resolveQueryVocabulary()),
     rebuildSearchIndex: (db) => rebuildDiscoverySearchIndex(db),
     publishSearchOutcome: async ({ accountId, sessionId, context }) => {
       await appendSearchSessionStarted(deps.eventStore, context, {

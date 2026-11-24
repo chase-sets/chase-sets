@@ -12,6 +12,9 @@ import { module as discoveryModule } from "../../../index";
 import { buildSimpleSearchQuery, foldSearchDiacritics } from "../domain/normalization";
 import { refreshAllSearchIndexMarketSignals } from "./market-signals";
 import { discoverySearchCursorState, searchDiscoveryItems, type DiscoverySearchParams } from "./queries";
+import { queryVocabularyPolicy } from "../domain/query-vocabulary-policy";
+
+const queryVocabulary = queryVocabularyPolicy.defaultValue;
 
 // Rank ties are the failure mode from issue #3397: identical weight-class matches
 // produce identical `ts_rank`, so the relevance sort's `title ASC, id ASC`
@@ -69,7 +72,7 @@ async function walkAllPages(
     const result = await searchDiscoveryItems(
       db,
       { ...params, limit: pageSize, cursor },
-      { loadFacets: false, loadMarketSummaries: false },
+      { queryVocabulary, loadFacets: false, loadMarketSummaries: false },
     );
     collected.push(...result.items.map((item) => item.catalog_item_id));
     if (!result.nextCursor) {
@@ -127,7 +130,7 @@ describe("searchDiscoveryItems keyset pagination continuity across rank/tiebreak
     const result = await searchDiscoveryItems(
       pool,
       { sort: "relevance", search: "charizard", limit: 100 },
-      { loadFacets: false, loadMarketSummaries: false },
+      { queryVocabulary, loadFacets: false, loadMarketSummaries: false },
     );
     expect(result.items.map((item) => item.catalog_item_id)).toEqual(EXPECTED_ORDER.relevance);
     expect(result.nextCursor).toBeNull();
@@ -161,14 +164,18 @@ describe("searchDiscoveryItems keyset pagination continuity across rank/tiebreak
         expect(discoverySearchCursorState({ sort, dimensionFilters, cursor })).toBe("cursor");
       }
       const legacy = Buffer.from(JSON.stringify({ id: "cat_d", lowestPriceAmount: "2" })).toString("base64url");
-      const restarted = await searchDiscoveryItems(pool, {
-        sort,
-        dimensionFilters,
-        cursor: legacy,
-        offset: 40,
-        includeTotal: true,
-        limit: 1,
-      });
+      const restarted = await searchDiscoveryItems(
+        pool,
+        {
+          sort,
+          dimensionFilters,
+          cursor: legacy,
+          offset: 40,
+          includeTotal: true,
+          limit: 1,
+        },
+        { queryVocabulary },
+      );
       expect(restarted.total).toBe(5);
       expect(restarted.category_counts).toEqual([]);
       expect(restarted.items[0]?.catalog_item_id).toBe(EXPECTED_ORDER[sort][0]);
@@ -193,7 +200,7 @@ describe("searchDiscoveryItems keyset pagination continuity across rank/tiebreak
       [],
     );
 
-    const result = await searchDiscoveryItems(pool, { search: "charizard", category: "singles" });
+    const result = await searchDiscoveryItems(pool, { search: "charizard", category: "singles" }, { queryVocabulary });
 
     expect(result.category_counts).toEqual([
       { slug: "sealed", count: 3 },
@@ -209,7 +216,7 @@ describe("searchDiscoveryItems keyset pagination continuity across rank/tiebreak
       [],
     );
 
-    const result = await searchDiscoveryItems(pool, { search: "mewtwo" });
+    const result = await searchDiscoveryItems(pool, { search: "mewtwo" }, { queryVocabulary });
 
     expect(result.category_counts).toEqual([{ slug: "singles", count: 2 }]);
     expect(result.category_counts.find((category) => category.slug === "sealed")?.count ?? 0).toBe(0);
@@ -287,7 +294,7 @@ describe("searchDiscoveryItems category sets and native-currency bounds", () => 
     const result = await searchDiscoveryItems(
       categoryPool,
       { categories: ["A", "B"], limit: 100 },
-      { loadMarketSummaries: false },
+      { queryVocabulary, loadMarketSummaries: false },
     );
     const ids = result.items.map((item) => item.catalog_item_id);
     expect(ids).toContain("set_a");
@@ -300,7 +307,7 @@ describe("searchDiscoveryItems category sets and native-currency bounds", () => 
     const unconstrained = await searchDiscoveryItems(
       categoryPool,
       { categories: [], limit: 100 },
-      { loadFacets: false, loadMarketSummaries: false },
+      { queryVocabulary, loadFacets: false, loadMarketSummaries: false },
     );
     expect(unconstrained.items.map((item) => item.catalog_item_id)).toEqual(
       expect.arrayContaining(["set_neither", "set_unknown"]),
@@ -311,7 +318,7 @@ describe("searchDiscoveryItems category sets and native-currency bounds", () => 
     const firstPage = await searchDiscoveryItems(
       categoryPool,
       { categories: ["A", "B"], sort: "title_asc", limit: 20 },
-      { loadFacets: false, loadMarketSummaries: false },
+      { queryVocabulary, loadFacets: false, loadMarketSummaries: false },
     );
     expect(firstPage.items.map((item) => item.catalog_item_id)).toEqual(expected.slice(0, 20));
     expect(firstPage.nextCursor).not.toBeNull();
@@ -325,7 +332,7 @@ describe("searchDiscoveryItems category sets and native-currency bounds", () => 
     const all = await searchDiscoveryItems(
       categoryPool,
       { categories: ["A", "B"], priceCurrency: "EUR", priceMin: "10.00", limit: 100 },
-      { loadFacets: false, loadMarketSummaries: false },
+      { queryVocabulary, loadFacets: false, loadMarketSummaries: false },
     );
     const expected = [
       "set_a",
@@ -338,7 +345,7 @@ describe("searchDiscoveryItems category sets and native-currency bounds", () => 
     const bounded = await searchDiscoveryItems(
       categoryPool,
       { categories: ["A", "B"], priceCurrency: "EUR", priceMin: "13.00", limit: 100 },
-      { loadFacets: false, loadMarketSummaries: false },
+      { queryVocabulary, loadFacets: false, loadMarketSummaries: false },
     );
     expect(bounded.items.map((item) => item.catalog_item_id).sort()).toEqual(expected.filter((id) => id !== "set_b"));
   });
@@ -347,7 +354,7 @@ describe("searchDiscoveryItems category sets and native-currency bounds", () => 
     const result = await searchDiscoveryItems(
       categoryPool,
       { categories: ["A", "B"], limit: 100 },
-      { loadMarketSummaries: false },
+      { queryVocabulary, loadMarketSummaries: false },
     );
     const finish = result.facets.find((facet) => facet.kind === "dimension" && facet.id === "finish");
     expect(finish?.values).toEqual([{ id: "foil", label: "Foil", count: 3, selected: false }]);
@@ -366,7 +373,7 @@ describe("searchDiscoveryItems category sets and native-currency bounds", () => 
     const result = await searchDiscoveryItems(
       categoryPool,
       { categories: ["A", "B"], priceCurrency: "EUR", priceMin: expected.priceMin, limit: 100 },
-      { loadMarketSummaries: false },
+      { queryVocabulary, loadMarketSummaries: false },
     );
     const finish = result.facets.find((facet) => facet.kind === "dimension" && facet.id === "finish");
     expect(finish?.values).toEqual([{ id: "foil", label: "Foil", count: expected.foilCount, selected: false }]);
@@ -428,7 +435,11 @@ describe("searchDiscoveryItems exact identity tier", () => {
     await insertSearchRow({ id: "control", title: "Zz control row", subtitle: null, weight: "A" }, lexemes);
     await insertSearchRow({ id: "candidate", title, subtitle, weight: "D" }, lexemes);
 
-    const result = await searchDiscoveryItems(exactPool, { search }, { loadFacets: false, loadMarketSummaries: false });
+    const result = await searchDiscoveryItems(
+      exactPool,
+      { search },
+      { queryVocabulary, loadFacets: false, loadMarketSummaries: false },
+    );
     const order = result.items.map((item) => item.catalog_item_id);
     expect([...order].sort()).toEqual(["candidate", "control"]);
     return order[0] === "candidate" ? 1 : 0;
@@ -458,7 +469,7 @@ describe("searchDiscoveryItems exact identity tier", () => {
     const result = await searchDiscoveryItems(
       exactPool,
       { search: EXACT_QUERY, includeTotal: true },
-      { loadFacets: false, loadMarketSummaries: false },
+      { queryVocabulary, loadFacets: false, loadMarketSummaries: false },
     );
 
     expect(result.items.map((item) => item.catalog_item_id)).toEqual(EXACT_TIER_ORDER);
@@ -487,7 +498,7 @@ describe("searchDiscoveryItems exact identity tier", () => {
   it("encodes the boundary row's tier into each v2 cursor and ends with a null cursor", async () => {
     await seedExactTierItems();
     const params = { search: EXACT_QUERY };
-    const options = { loadFacets: false, loadMarketSummaries: false } as const;
+    const options = { queryVocabulary, loadFacets: false, loadMarketSummaries: false } as const;
 
     const lastExact = await searchDiscoveryItems(exactPool, { ...params, limit: 4 }, options);
     const firstNonExact = await searchDiscoveryItems(exactPool, { ...params, limit: 5 }, options);
@@ -535,7 +546,7 @@ describe("searchDiscoveryItems exact identity tier", () => {
       { english: "!?", simple: "!?" },
     );
 
-    const result = await searchDiscoveryItems(exactPool, { search: "!?・。", includeTotal: true });
+    const result = await searchDiscoveryItems(exactPool, { search: "!?・。", includeTotal: true }, { queryVocabulary });
 
     expect(result.items).toEqual([]);
     expect(result.total).toBe(0);
@@ -551,7 +562,11 @@ describe("searchDiscoveryItems exact identity tier", () => {
       },
     );
 
-    const result = await searchDiscoveryItems(exactPool, { search: EXACT_QUERY, includeTotal: true });
+    const result = await searchDiscoveryItems(
+      exactPool,
+      { search: EXACT_QUERY, includeTotal: true },
+      { queryVocabulary },
+    );
 
     expect(result.items.map((item) => item.catalog_item_id)).toEqual(EXACT_TIER_ORDER);
     expect(result.total).toBe(EXACT_TIER_ITEMS.length);
@@ -572,12 +587,16 @@ describe("searchDiscoveryItems exact identity tier", () => {
     ).toString("base64url");
 
     for (const cursor of [legacyCursor, "not-a-cursor"]) {
-      const restarted = await searchDiscoveryItems(exactPool, {
-        search: EXACT_QUERY,
-        cursor,
-        includeTotal: true,
-        limit: 3,
-      });
+      const restarted = await searchDiscoveryItems(
+        exactPool,
+        {
+          search: EXACT_QUERY,
+          cursor,
+          includeTotal: true,
+          limit: 3,
+        },
+        { queryVocabulary },
+      );
 
       expect(restarted.items.map((item) => item.catalog_item_id)).toEqual(EXACT_TIER_ORDER.slice(0, 3));
       expect(restarted.total).toBe(EXACT_TIER_ITEMS.length);
@@ -585,12 +604,16 @@ describe("searchDiscoveryItems exact identity tier", () => {
       expect(decodedCursor(restarted.nextCursor)).toMatchObject({ v: 2, id: "t1_dup_b", tier: 1 });
 
       // A valid v2 continuation pages on from the restarted first page without first-page metadata.
-      const next = await searchDiscoveryItems(exactPool, {
-        search: EXACT_QUERY,
-        cursor: restarted.nextCursor ?? undefined,
-        includeTotal: true,
-        limit: 3,
-      });
+      const next = await searchDiscoveryItems(
+        exactPool,
+        {
+          search: EXACT_QUERY,
+          cursor: restarted.nextCursor ?? undefined,
+          includeTotal: true,
+          limit: 3,
+        },
+        { queryVocabulary },
+      );
       expect(next.items.map((item) => item.catalog_item_id)).toEqual(EXACT_TIER_ORDER.slice(3, 6));
       expect(next.total).toBeNull();
       expect(next.category_counts).toEqual([]);
@@ -604,7 +627,7 @@ describe("searchDiscoveryItems exact identity tier", () => {
     const offsetPage = await searchDiscoveryItems(
       exactPool,
       { search: EXACT_QUERY, category: "cards", offset: 2, limit: 2 },
-      { loadFacets: false, loadMarketSummaries: false },
+      { queryVocabulary, loadFacets: false, loadMarketSummaries: false },
     );
 
     expect(offsetPage.items.map((item) => item.catalog_item_id)).toEqual(EXACT_TIER_ORDER.slice(2, 4));

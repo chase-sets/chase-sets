@@ -1,4 +1,7 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { repoRoot } from "../lib/repo.mjs";
 import {
   findBusinessConstantNameViolations,
   findBusinessLiteralGuardViolations,
@@ -171,6 +174,25 @@ describe("business literal guard", () => {
       });
       expect(violations).toEqual([]);
     }
+  });
+
+  // The guard does not detect a stale allowlist entry, so this pins the removal:
+  // the Listing Report auto-unlist terms are the Listing Report Auto-Unlist
+  // Policy's, and the runtime compiles no copy of them.
+  it("keeps no compiled auto-unlist constant in, and no allowlist entry for, the Listing Report runtime", () => {
+    const relativeFile = "bounded-contexts/marketplace/features/reports/api/runtime.ts";
+    const content = readFileSync(path.join(repoRoot, relativeFile), "utf8");
+
+    expect(content).not.toContain("LISTING_REPORT_AUTO_UNLIST_THRESHOLD");
+    expect(content).not.toContain("LISTING_REPORT_AUTO_UNLIST_WINDOW_MS");
+    expect(businessLiteralAllowlist.filter((entry) => entry.file === relativeFile)).toEqual([]);
+    expect(findBusinessLiteralGuardViolations({ relativeFile, content })).toEqual([]);
+    expect(
+      findBusinessConstantNameViolations({
+        relativeFile,
+        content: `${content}\nexport const LISTING_REPORT_AUTO_UNLIST_THRESHOLD = 3;\n`,
+      }).map((violation) => violation.snippet),
+    ).toEqual(["LISTING_REPORT_AUTO_UNLIST_THRESHOLD"]);
   });
 
   it("still catches a new violation in an otherwise snippet-allowlisted file", () => {

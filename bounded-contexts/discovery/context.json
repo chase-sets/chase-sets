@@ -495,6 +495,13 @@
       "ownedTables": ["discovery_product_alert_market_activity", "discovery_product_alert_match_notifications", "discovery_product_alert_offer_suppression"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "platform-policy-document-projection",
+      "sourceContextNames": ["discovery"],
+      "ownedTables": ["platform_policy_documents", "platform_policy_document_history"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
     }
   ],
   "hostPorts": [

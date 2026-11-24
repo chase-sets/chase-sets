@@ -68,7 +68,7 @@ describe("production admin app switch", () => {
         expect(pilotArgs(args)).toEqual(["components.admin-corten.enabled=false"]);
         expect(args[args.indexOf("components.admin-corten.enabled=false") - 1]).toBe("--set");
         expect(adminRoot(args)).toBe("admin-web");
-        expect(withheldCortenPilots(production(env))).toEqual(["admin-corten"]);
+        expect(withheldCortenPilots(production(env))).toEqual(["admin-corten", "marketplace-corten"]);
       }
     }
     const withoutProxies = production(
@@ -86,7 +86,7 @@ describe("production admin app switch", () => {
     expect(args[args.indexOf(`components.admin-corten.image=${image}`) - 1]).toBe("--set-string");
     expect(adminRoot(args)).toBe("admin-corten");
     expect(args).toContain(`global.envOverrides.PROXIES=${proxies.replace(",", "\\,")}`);
-    expect(withheldCortenPilots(production(adminCorten))).toEqual([]);
+    expect(withheldCortenPilots(production(adminCorten))).toEqual(["marketplace-corten"]);
     expect(platformKubernetesWorkloads(production(adminCorten)).deployments).toContain(pilotWorkload);
     // The certificate covers the same names either way: no new host or DNS record.
     const names = (env) =>
@@ -120,12 +120,14 @@ describe("production admin app switch", () => {
     }
   });
 
-  it("keeps the marketplace pilot staging-only", () => {
+  it("leaves the marketplace pilot withheld while marketplace-web serves marketplace.chasesets.com", () => {
     const marketplace = image.replace("corten-admin", "corten-marketplace");
-    expect(() => buildHelmUpgradeArgs(production({}, { cortenMarketplaceImage: marketplace }))).toThrow(
-      "corten-marketplace-image is staging-only.",
-    );
-    expect(buildHelmUpgradeArgs(production(adminCorten)).join(" ")).not.toContain("marketplace-corten");
+    for (const overrides of [{}, { cortenMarketplaceImage: marketplace }]) {
+      const args = buildHelmUpgradeArgs(production(adminCorten, overrides));
+      expect(args.filter((arg) => String(arg).startsWith("components.marketplace-corten."))).toEqual([
+        "components.marketplace-corten.enabled=false",
+      ]);
+    }
   });
 
   it("does not wait for admin-corten under admin-web and waits for it under admin-corten", async () => {
