@@ -30,6 +30,7 @@ import { buildPaymentsSupportRefundEffectHandlers } from "./features/refunds/int
 import { createPaymentProcessorWebhookRoutes } from "./features/payments/api/route";
 import { createPaymentsServices } from "./support/runtime-support/services";
 import { paymentsSchemaMigrations, paymentsSchemaSql } from "./support/runtime-support/schema";
+import { platformPolicySchemaMigrations } from "@chase-sets/platform-policy/schema";
 import { paymentsUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import { inspectPaymentsSeedState, seedPaymentsDatabase } from "./support/runtime-support/seed";
 
@@ -63,6 +64,7 @@ const contextModule = defineBoundedContextModule<PaymentsServices, PgTransaction
     ...paymentsUnloggedProjectionSchemaMigrations,
     ...paymentsSchemaMigrations,
     ...paymentsRetentionSchemaMigrations,
+    ...platformPolicySchemaMigrations,
   ],
   createServices: (pool, options) => createPaymentsServices(pool, options),
   buildApis: (services) => [

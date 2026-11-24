@@ -42,6 +42,7 @@ import {
 } from "./features/orders/integrations/supply/supply-queries";
 import { createOrderingServices } from "./support/runtime-support/services";
 import { orderingSchemaMigrations, orderingSchemaSql } from "./support/runtime-support/schema";
+import { platformPolicySchemaMigrations } from "@chase-sets/platform-policy/schema";
 import { orderingUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import { inspectOrderingSeedState, seedOrderingDatabase } from "./support/runtime-support/seed";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
@@ -129,6 +130,7 @@ const baseModule = defineBoundedContextModule<OrderingServices, PgTransactionalP
     ...orderingUnloggedProjectionSchemaMigrations,
     ...orderingSchemaMigrations,
     ...orderingRetentionSchemaMigrations,
+    ...platformPolicySchemaMigrations,
   ],
   createServices: (pool, options) => createOrderingServices(pool, options),
   buildApis: (services) => [

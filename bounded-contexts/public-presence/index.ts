@@ -11,6 +11,7 @@ import { waitlistSchemaMigrations } from "./features/waitlist/read-model/schema"
 import type { PublicPresenceServices } from "./support/runtime-support/services";
 import { createPublicPresenceServices } from "./support/runtime-support/services";
 import { publicPresenceSchemaSql } from "./support/runtime-support/schema";
+import { platformPolicySchemaMigrations } from "@chase-sets/platform-policy/schema";
 import { publicPresenceUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import { seedBetaWavePolicyIfMissing } from "./features/waitlist/api/seed";
 
@@ -21,7 +22,11 @@ export const module = defineBoundedContextModule<
 >({
   manifest: contextManifest,
   schemaSql: publicPresenceSchemaSql,
-  schemaMigrations: [...publicPresenceUnloggedProjectionSchemaMigrations, ...waitlistSchemaMigrations],
+  schemaMigrations: [
+    ...publicPresenceUnloggedProjectionSchemaMigrations,
+    ...waitlistSchemaMigrations,
+    ...platformPolicySchemaMigrations,
+  ],
   createServices: (pool, ports) => createPublicPresenceServices(pool, ports),
   buildApis: (services) => [
     {
