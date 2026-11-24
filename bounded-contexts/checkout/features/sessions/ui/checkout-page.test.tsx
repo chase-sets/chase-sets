@@ -482,14 +482,12 @@ describe("checkout session page", () => {
         session={readySession}
         fulfillmentPreview={readyFulfillmentPreview}
         paymentPreview={paymentPreview}
-        guestCheckoutContact={{
-          contactName: "Jane Smith",
-          contactEmail: "jane@example.com",
-        }}
+        guestContact={{ state: "bound", contactName: "Jane Smith", contactEmail: "jane@example.com" }}
       />,
     );
 
     expect(markup).toContain("Checkout details");
+    expect(markup).not.toContain('name="contactName"');
     expect(markup).toContain("jane@example.com");
     expect(markup).toContain('name="shippingEmail"');
     expect(markup).toContain('value="jane@example.com"');
@@ -498,6 +496,135 @@ describe("checkout session page", () => {
     expect(markup).not.toContain('type="email"');
     expect(markup).not.toContain("Email me with news");
     expect(markup).not.toContain("Edit contact");
+  });
+
+  it("requires guest contact name and email before first bind", () => {
+    render(
+      <CheckoutSessionPage
+        session={{ ...readySession, shipping_address: null }}
+        fulfillmentPreview={readyFulfillmentPreview}
+        paymentPreview={paymentPreview}
+        guestContact={{ state: "unbound" }}
+      />,
+    );
+
+    const name = screen.getByLabelText(new RegExp(t("checkout.features.sessions.ui.checkoutPage.contact.name")));
+    const email = document.querySelector('input[name="shippingEmail"]');
+    expect(name.getAttribute("name")).toBe("contactName");
+    expect(name.hasAttribute("required")).toBe(true);
+    expect(email?.getAttribute("type")).toBe("email");
+    expect(email?.hasAttribute("required")).toBe(true);
+    expect(screen.queryByText("Checkout details")).toBeNull();
+  });
+
+  it("asks an unbound guest for contact even when the shipping address carries an email", () => {
+    render(
+      <CheckoutSessionPage
+        session={readySession}
+        fulfillmentPreview={readyFulfillmentPreview}
+        paymentPreview={paymentPreview}
+        guestContact={{ state: "unbound" }}
+      />,
+    );
+
+    expect(document.querySelector('input[name="contactName"]')).not.toBeNull();
+    expect(document.querySelector('input[name="shippingEmail"][type="email"]')).not.toBeNull();
+  });
+
+  it("renders the unavailable contact state with no contact inputs and no confirmation", () => {
+    render(
+      <CheckoutSessionPage
+        session={readySession}
+        fulfillmentPreview={readyFulfillmentPreview}
+        paymentPreview={paymentPreview}
+        guestContact={{ state: "indeterminate", reason: "rate-limited" }}
+      />,
+    );
+
+    expect(screen.getByText(t("checkout.features.sessions.ui.checkoutPage.contact.unavailable.title"))).toBeTruthy();
+    expect(document.querySelector('input[name="contactName"]')).toBeNull();
+    expect(document.querySelector('input[name="shippingEmail"]')).toBeNull();
+    expect(screen.queryByText("Checkout details")).toBeNull();
+    const payButtons = screen.getAllByRole("button", {
+      name: new RegExp(t("checkout.features.sessions.ui.checkoutPage.pay.now")),
+    });
+    expect(payButtons.length).toBeGreaterThan(0);
+    for (const button of payButtons) {
+      expect((button as HTMLButtonElement).disabled).toBe(true);
+    }
+  });
+
+  it("withholds an existing payment's entry while a guest's contact is unavailable, and offers it once bound", () => {
+    const pendingSession = { ...readySession, payment_id: "pay_pending", order_ids: ["ord_1"] };
+    const { rerender } = render(
+      <CheckoutSessionPage
+        session={pendingSession}
+        fulfillmentPreview={readyFulfillmentPreview}
+        paymentPreview={paymentPreview}
+        guestContact={{ state: "indeterminate", reason: "unreadable" }}
+        preparedPaymentEntry={<div data-testid="pending-payment-entry">pay_pending</div>}
+      />,
+    );
+
+    expect(screen.getByText(t("checkout.features.sessions.ui.checkoutPage.contact.unavailable.title"))).toBeTruthy();
+    expect(screen.queryByTestId("pending-payment-entry")).toBeNull();
+    expect(
+      screen.queryByRole("link", { name: t("checkout.features.sessions.ui.checkoutPage.continue.to.payment") }),
+    ).toBeNull();
+    expect(screen.getByText(t("checkout.features.sessions.ui.checkoutPage.order.reference"))).toBeTruthy();
+
+    rerender(
+      <CheckoutSessionPage
+        session={pendingSession}
+        fulfillmentPreview={readyFulfillmentPreview}
+        paymentPreview={paymentPreview}
+        guestContact={{ state: "bound", contactEmail: "jane@example.com", contactName: "Jane Smith" }}
+        preparedPaymentEntry={<div data-testid="pending-payment-entry">pay_pending</div>}
+      />,
+    );
+    expect(screen.getByTestId("pending-payment-entry")).toBeTruthy();
+    expect(screen.queryByText(t("checkout.features.sessions.ui.checkoutPage.contact.unavailable.title"))).toBeNull();
+  });
+
+  it("offers no Continue to payment while a guest's contact is unavailable", () => {
+    render(
+      <CheckoutSessionPage
+        session={{ ...readySession, payment_id: "pay_pending", order_ids: ["ord_1"] }}
+        fulfillmentPreview={readyFulfillmentPreview}
+        paymentPreview={paymentPreview}
+        guestContact={{ state: "indeterminate", reason: "rate-limited" }}
+      />,
+    );
+    expect(
+      screen.queryAllByRole("link", { name: t("checkout.features.sessions.ui.checkoutPage.continue.to.payment") }),
+    ).toEqual([]);
+  });
+
+  it("keeps a signed-in buyer's existing payment entry", () => {
+    render(
+      <CheckoutSessionPage
+        session={{ ...readySession, payment_id: "pay_signed_in", order_ids: ["ord_1"] }}
+        fulfillmentPreview={readyFulfillmentPreview}
+        paymentPreview={paymentPreview}
+        isSignedInBuyer
+        preparedPaymentEntry={<div data-testid="signed-in-payment-entry">pay_signed_in</div>}
+      />,
+    );
+    expect(screen.getByTestId("signed-in-payment-entry")).toBeTruthy();
+  });
+
+  it("omits the guest contact name input for a signed-in buyer", () => {
+    render(
+      <CheckoutSessionPage
+        session={{ ...readySession, shipping_address: null }}
+        fulfillmentPreview={readyFulfillmentPreview}
+        paymentPreview={paymentPreview}
+        isSignedInBuyer
+      />,
+    );
+
+    expect(document.querySelector('input[name="shippingEmail"]')).not.toBeNull();
+    expect(document.querySelector('input[name="contactName"]')).toBeNull();
   });
 
   it("shows only payment methods supported by the current quote", () => {

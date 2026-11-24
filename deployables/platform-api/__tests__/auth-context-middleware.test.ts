@@ -32,6 +32,7 @@ function buildApp(resolveActor: PlatformActorResolver) {
   for (const path of guestCapabilityPaths) {
     app.post(path, (context) => context.json({ accountId: context.var.actor?.accountId }));
   }
+  app.get("/api/auth/guest-checkout/contact", (context) => context.json({ accountId: context.var.actor?.accountId }));
   return app;
 }
 
@@ -76,6 +77,30 @@ describe("platform Auth capability middleware", () => {
     );
     expect(missingGuestTokenResponse.status).toBe(401);
     expect(missingGuestTokenResolver).toHaveBeenCalledTimes(1);
+  });
+
+  it("gates the guest's own-contact read the same way as the contact save", async () => {
+    const guestActor = createAccountUserTestActor({
+      accountId: "acc_guest",
+      roleKey: "guest-buyer",
+      permissions: ["guest-checkout.manage"],
+    });
+    const resolveActor = vi.fn(async () => guestActor);
+    const app = buildApp(resolveActor);
+
+    for (const internalHeader of [undefined, "wrong-secret"]) {
+      const response = await app.request("/api/auth/guest-checkout/contact", {
+        headers: internalHeader ? { [PLATFORM_INTERNAL_AUTH_HEADER]: internalHeader } : undefined,
+      });
+      expect(response.status).toBe(401);
+    }
+    expect(resolveActor).not.toHaveBeenCalled();
+
+    const admitted = await app.request("/api/auth/guest-checkout/contact", {
+      headers: { [PLATFORM_INTERNAL_AUTH_HEADER]: "server-secret" },
+    });
+    expect(admitted.status).toBe(200);
+    await expect(admitted.json()).resolves.toEqual({ accountId: "acc_guest" });
   });
 });
 

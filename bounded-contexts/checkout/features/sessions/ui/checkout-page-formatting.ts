@@ -155,9 +155,9 @@ export function buildCheckoutAddressDefaults(input: {
     email: string | null;
   } | null;
   guestBuyCheckout: boolean;
-  guestCheckoutContact: Readonly<{ contactEmail: string; contactName: string | null }> | null;
+  boundGuestContact: Readonly<{ contactEmail: string; contactName: string }> | null;
 }): CheckoutAddressDefaults {
-  const { session, defaultSavedAddress, guestBuyCheckout, guestCheckoutContact } = input;
+  const { session, defaultSavedAddress, guestBuyCheckout, boundGuestContact } = input;
 
   if (session.shipping_address) {
     return {
@@ -193,7 +193,7 @@ export function buildCheckoutAddressDefaults(input: {
 
   return {
     shippingAddressId: "__manual",
-    name: guestBuyCheckout ? (guestCheckoutContact?.contactName ?? "") : "",
+    name: guestBuyCheckout ? (boundGuestContact?.contactName ?? "") : "",
     company: "",
     line1: "",
     line2: "",
@@ -202,6 +202,6 @@ export function buildCheckoutAddressDefaults(input: {
     postalCode: "",
     country: "US",
     phone: "",
-    email: guestBuyCheckout ? (guestCheckoutContact?.contactEmail ?? "") : "",
+    email: guestBuyCheckout ? (boundGuestContact?.contactEmail ?? "") : "",
   };
 }

@@ -29,8 +29,7 @@
 //! The prompt is drawn only for a contact Auth reports bound. An unbound one, or a read Auth refuses
 //! (it allows five an hour for each guest), says the order cannot be saved now instead of failing
 //! the page or drawing a prompt with no email, and a sent link says so, as marketplace's page does.
-//! Until a checkout binds a guest's contact
-//! (chase-sets/chase-sets#5736), no guest is offered it.
+//! The checkout page binds the contact before the guest can pay (`checkout`'s contact step).
 use corten::{
     ClientIp,
     http::{HeaderMap, StatusCode, header},

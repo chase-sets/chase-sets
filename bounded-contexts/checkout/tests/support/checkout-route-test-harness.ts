@@ -34,6 +34,11 @@ export const mockCreatePaymentsRequestApiClient = vi.fn();
 export const mockGetAccountPayment = vi.fn();
 export const mockCreateAuthRequestApiClient = vi.fn();
 export const mockGetGuestCheckoutClaimContext = vi.fn();
+export const mockCreateInternalAuthRequestApiClient = vi.fn();
+export const mockGetGuestCheckoutContact = vi.fn();
+export const mockBindGuestCheckoutContact = vi.fn();
+/** The contact Auth reports for a guest checkout that has already saved one. */
+export const BOUND_GUEST_CONTACT_BODY = { contactEmail: "guest@example.com", contactName: "Guest Buyer" } as const;
 export const mockCreateIdentityRequestApiClient = vi.fn();
 export const mockCreateCheckoutSession = vi.fn();
 export const mockCreateCartReadiness = vi.fn();
@@ -169,6 +174,12 @@ export async function paymentsCheckoutPreviewStatusResponse(input: RequestInfo |
 }
 
 export function applyCheckoutRouteMockDefaults() {
+  mockGetGuestCheckoutContact.mockResolvedValue(BOUND_GUEST_CONTACT_BODY);
+  mockBindGuestCheckoutContact.mockResolvedValue({ accountId: "acc_guest", ...BOUND_GUEST_CONTACT_BODY });
+  mockCreateInternalAuthRequestApiClient.mockReturnValue({
+    getGuestCheckoutContact: mockGetGuestCheckoutContact,
+    bindGuestCheckoutContact: mockBindGuestCheckoutContact,
+  });
   mockPreviewCheckoutStatus.mockImplementation(paymentsCheckoutPreviewStatus);
   mockCreatePaymentsRequestApiClient.mockReturnValue({ previewCheckoutStatus: mockPreviewCheckoutStatus });
   mockGetSellListConfirmation.mockRejectedValue(new MockCheckoutApiError(404, { error: { code: "not_found" } }));

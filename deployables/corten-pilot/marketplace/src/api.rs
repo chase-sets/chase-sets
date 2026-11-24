@@ -2203,6 +2203,21 @@ pub struct ConfirmBody {
     pub fulfillment_preview_revision: Option<String>,
     pub acknowledged_material_changes: bool,
     pub shipping_address: SessionAddress,
+    /// A guest's last shipping choice. Confirm writes it only past its contact guard, so a refused
+    /// guest confirm has written nothing; a signed-in buyer's is written before confirm instead.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shipping_option: Option<String>,
+    /// A guest's last authenticity check choice, written by Confirm as `shipping_option` is.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub authenticity_check_opt_in: Option<AuthenticityChoice>,
+}
+
+/// An authenticity check choice as the opt-in write takes it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthenticityChoice {
+    pub selected: bool,
+    pub quote_fingerprint: Option<String>,
 }
 
 /// Pay now's answer: the payment started, or the offer a purchase intent became.
@@ -2258,8 +2273,15 @@ pub trait CheckoutSessions {
         option: &str,
         address: &SessionAddress,
     ) -> Result<Option<Receipt>, ApiError>;
-    /// Pay now (`POST ../confirm`): what it started and the receipt the next read waits for.
-    async fn confirm_checkout(&self, id: &str, body: &ConfirmBody) -> Result<(Confirmed, Option<Receipt>), ConfirmRefusal>;
+    /// Pay now (`POST ../confirm`): what it started and the receipt the next read waits for. The
+    /// buyer's address goes with it, as with the page's contact read, so Auth's per-address limit on
+    /// a guest's own contact counts each buyer apart.
+    async fn confirm_checkout(
+        &self,
+        id: &str,
+        body: &ConfirmBody,
+        client: Option<corten::ClientIp>,
+    ) -> Result<(Confirmed, Option<Receipt>), ConfirmRefusal>;
     /// A started payment's amount and status (`GET /account/checkout-payment-summaries/{id}`).
     async fn checkout_payment_summary(&self, payment: &str) -> Result<PaymentSummary, ApiError>;
     /// Whether Payments recorded a payment for the session (`getCheckoutPaymentStart`).
@@ -2356,17 +2378,23 @@ impl CheckoutSessions for Caller<'_> {
         session_write(self, id, "fulfillment-preview", body).await
     }
 
-    async fn confirm_checkout(&self, id: &str, body: &ConfirmBody) -> Result<(Confirmed, Option<Receipt>), ConfirmRefusal> {
+    async fn confirm_checkout(
+        &self,
+        id: &str,
+        body: &ConfirmBody,
+        client: Option<corten::ClientIp>,
+    ) -> Result<(Confirmed, Option<Receipt>), ConfirmRefusal> {
         // Confirm creates the orders and starts the payment with the provider, which can take longer
         // than the client's 10 s; cutting it off leaves orders without a payment. marketplace's
         // action sets no timeout on this write.
-        let res = self
+        let mut req = self
             .request(Method::POST, &format!("{CHECKOUT_SESSIONS}/{}/confirm", segment(id)), CHECKOUT)
             .timeout(CONFIRM_TIMEOUT)
-            .json(body)
-            .send()
-            .await
-            .map_err(ApiError::from)?;
+            .json(body);
+        if let Some(corten::ClientIp(ip)) = client {
+            req = req.header("x-forwarded-for", ip.to_string());
+        }
+        let res = req.send().await.map_err(ApiError::from)?;
         let status = StatusCode::from_u16(res.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
         if status.is_success() {
             let receipt = Receipt::from_response(res.headers());
@@ -2376,15 +2404,17 @@ impl CheckoutSessions for Caller<'_> {
         let error = &body["error"];
         let message = error["message"].as_str().unwrap_or_default().to_owned();
         let code = error["code"].as_str().filter(|c| !c.is_empty()).map(str::to_owned);
-        let started = (status == StatusCode::CONFLICT && code.as_deref() == Some("payment_start_pending"))
-            .then(|| payment_start_receipt(&body))
-            .flatten();
+        let started = match (status, code.as_deref()) {
+            (StatusCode::CONFLICT, Some("payment_start_pending")) => payment_start_receipt(&body),
+            (StatusCode::CONFLICT, Some("payment_quote_required" | "fee_quote_stale")) => quote_refresh_receipt(&body),
+            _ => None,
+        };
         Err(ConfirmRefusal { error: ApiError::Status { status, code, message }, started })
     }
 }
 
-/// Why Pay now started nothing: the API's refusal, and for `payment_start_pending` the receipt of
-/// the Checkout and Ordering writes Confirm made before Payments could see the order.
+/// Why Pay now started nothing: the API's refusal, and for `payment_start_pending` or a quote
+/// refresh the receipt of the writes Confirm made before it stopped (a guest's choices among them).
 #[derive(Debug)]
 pub struct ConfirmRefusal {
     pub error: ApiError,
@@ -2411,6 +2441,19 @@ fn payment_start_receipt(body: &serde_json::Value) -> Option<Receipt> {
     }
     let sources = serde_json::value::RawValue::from_string(serde_json::to_string(&sources).ok()?).ok()?;
     Receipt::of_metadata(None, &sources)
+}
+
+/// The receipt a quote-refresh refusal (`payment_quote_required`, `fee_quote_stale`) carries in its
+/// body (`commitPosition`, `commitPositions`), read whole as marketplace's action reads it
+/// (`visibleFreshWriteSource`): a guest's choices are written by Confirm itself, so the refreshed
+/// page waits for them.
+fn quote_refresh_receipt(body: &serde_json::Value) -> Option<Receipt> {
+    let sources = match body["commitPositions"].as_array() {
+        Some(sources) => serde_json::to_string(sources).ok()?,
+        None => "[]".to_owned(),
+    };
+    let sources = serde_json::value::RawValue::from_string(sources).ok()?;
+    Receipt::of_metadata(body["commitPosition"].as_str(), &sources)
 }
 
 /// How long Pay now waits for Confirm (`confirm_checkout`).

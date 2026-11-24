@@ -40,6 +40,16 @@ const guestCheckoutClaimAccountRateLimiter = createConfiguredInMemoryRateLimiter
   max: 5,
   windowMs: 60 * 60 * 1000,
 });
+// A checkout reads its own contact on every render and once more as it confirms, so the read has
+// limiters of its own, sized for a real checkout and apart from the claim flow's.
+const guestCheckoutContactReadSessionRateLimiter = createConfiguredInMemoryRateLimiter(
+  "auth.guest-checkout.contact-read.session",
+  { max: 60, windowMs: 60 * 60 * 1000 },
+);
+const guestCheckoutContactReadIpRateLimiter = createConfiguredInMemoryRateLimiter(
+  "auth.guest-checkout.contact-read.ip",
+  { max: 300, windowMs: 60 * 60 * 1000 },
+);
 
 function parseCookieHeader(cookieHeader: string | null) {
   if (!cookieHeader) {
@@ -127,6 +137,16 @@ function enforceGuestCheckoutClaimIpLimit(request: Request) {
 function enforceGuestCheckoutClaimAccountLimit(accountId: string, qualifier = "account") {
   const decision = guestCheckoutClaimAccountRateLimiter.check(`${qualifier}:${accountId || "unknown"}`);
   return decision.limited ? rateLimitExceededJsonResponse("auth.guest-checkout.claim.account", decision) : null;
+}
+
+function enforceGuestCheckoutContactReadIpLimit(request: Request) {
+  const decision = guestCheckoutContactReadIpRateLimiter.check(publicClientRequestKey(request));
+  return decision.limited ? rateLimitExceededJsonResponse("auth.guest-checkout.contact-read.ip", decision) : null;
+}
+
+function enforceGuestCheckoutContactReadSessionLimit(tokenHash: string) {
+  const decision = guestCheckoutContactReadSessionRateLimiter.check(tokenHash);
+  return decision.limited ? rateLimitExceededJsonResponse("auth.guest-checkout.contact-read.session", decision) : null;
 }
 
 async function requireGuestCheckoutContext(services: AuthServices, request: Request, actor: ResolvedActor | null) {
@@ -305,6 +325,30 @@ export function registerGuestCheckoutRoutes(app: AuthApiApp, services: AuthServi
     }
 
     return c.json(guestContactError("guest_contact_locked"), 409);
+  });
+
+  // The checkout's own read of its Guest Contact. It answers only from the caller's own guest
+  // checkout token record: the bound email and name, or nulls. It never looks up an email or
+  // another account, so it reveals nothing the caller did not bind itself.
+  app.get("/guest-checkout/contact", async (c) => {
+    const ipLimited = enforceGuestCheckoutContactReadIpLimit(c.req.raw);
+    if (ipLimited) {
+      return ipLimited;
+    }
+    const context = await requireGuestCheckoutContext(services, c.req.raw, c.var.actor);
+    if (!context) {
+      return c.json({ error: t("auth.support.apiSupport.guestCheckoutRoutes.guest.checkout.token.required") }, 401);
+    }
+    const sessionLimited = enforceGuestCheckoutContactReadSessionLimit(services.auth.hashSecret(context.guestToken));
+    if (sessionLimited) {
+      return sessionLimited;
+    }
+
+    const contact = readBoundGuestContact(services, context.tokenRecord);
+    return c.json({
+      contactEmail: contact?.contactEmail ?? null,
+      contactName: contact?.contactName ?? null,
+    });
   });
 
   app.post("/guest-checkout/exit", async (c) => {

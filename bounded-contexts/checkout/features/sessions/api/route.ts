@@ -28,6 +28,8 @@ import {
   isPaymentConfirmationTokenId,
   normalizeRequestedBalanceCreditAmount,
   previewCheckoutFulfillmentThroughOrdering,
+  readGuestContactAuthorityThroughAuth,
+  requiresBoundGuestContact,
   submitPurchaseIntentThroughMarketplace,
 } from "../../../support/request-support/checkout-confirmation";
 import { readCheckoutFulfillmentPreview } from "../domain/fulfillment-preview";
@@ -429,6 +431,19 @@ function sessionHasCommittedCheckoutSideEffects(session: CheckoutSessionRow) {
     session.submitted_offer_id ||
     (Array.isArray(session.order_ids) && session.order_ids.length > 0),
   );
+}
+
+/** A confirm's authenticity choice, read as the authenticity-check-opt-in route reads its body. */
+function parseFinalAuthenticityCheckOptIn(value: unknown) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const choice = value as { selected?: unknown; quoteFingerprint?: unknown };
+  return {
+    selected: choice.selected === true,
+    quoteFingerprint:
+      typeof choice.quoteFingerprint === "string" && choice.quoteFingerprint.trim() ? choice.quoteFingerprint : null,
+  };
 }
 
 function fulfillmentPreviewRevisionRequired() {
@@ -1181,6 +1196,22 @@ export function createAccountCheckoutSessionRoutes(
       );
     }
 
+    // A guest orders and pays only once Auth holds its contact, checked before anything is read or written.
+    if (requiresBoundGuestContact(access.actor)) {
+      const authority = await readGuestContactAuthorityThroughAuth(c.req.raw);
+      if (authority.state !== "bound") {
+        return c.json(
+          {
+            error: {
+              code: "guest_contact_required",
+              message: t("checkout.features.sessions.api.route.guest.contact.required"),
+            },
+          },
+          409,
+        );
+      }
+    }
+
     const sessionId = c.req.param("sessionId");
     const body = await c.req.json().catch(() => ({}));
     const requestedBalanceCreditAmount = normalizeRequestedBalanceCreditAmount(body.requestedBalanceCreditAmount);
@@ -1196,6 +1227,10 @@ export function createAccountCheckoutSessionRoutes(
     const savePaymentMethodForFuture =
       body.savePaymentMethodForFuture === true && access.actor.roleKey !== "guest-buyer" && !savedCheckoutInstrumentId;
     const requestedSavePaymentMethodForFuture = body.savePaymentMethodForFuture === true;
+    // Shipping and authenticity choices sent with confirm are written here rather than before it,
+    // so a confirm the guard above refuses has written nothing.
+    const finalShippingOption = typeof body.shippingOption === "string" ? body.shippingOption : null;
+    const finalAuthenticityCheckOptIn = parseFinalAuthenticityCheckOptIn(body.authenticityCheckOptIn);
     const confirmationInput = {
       shippingAddress:
         body.shippingAddress === null || body.shippingAddress === undefined
@@ -1315,6 +1350,23 @@ export function createAccountCheckoutSessionRoutes(
           status: "purchase-intent-submitted",
           session,
         });
+      }
+
+      if (session.order_ids.length === 0 && finalShippingOption !== null) {
+        const shippingOptionResult = await services.selectShippingOption(
+          { sessionId, accountId: access.actor.accountId as AccountId, shippingOption: finalShippingOption },
+          context,
+        );
+        writeSources.push(shippingOptionResult);
+        session = shippingOptionResult.session;
+      }
+      if (session.order_ids.length === 0 && finalAuthenticityCheckOptIn && session.source_type !== "offer-intent") {
+        const authenticityCheckOptInResult = await services.selectAuthenticityCheckOptIn(
+          { sessionId, accountId: access.actor.accountId as AccountId, ...finalAuthenticityCheckOptIn },
+          context,
+        );
+        writeSources.push(authenticityCheckOptInResult);
+        session = authenticityCheckOptInResult.session;
       }
 
       if (

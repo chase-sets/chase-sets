@@ -29,6 +29,8 @@ function editRowAction(
 export type CheckoutSavedInfoSectionProps = Readonly<{
   showSavedCheckoutRows: boolean;
   contactReady: boolean;
+  /** A guest's contact as Auth holds it; shown as it is, with no way to edit it. */
+  boundGuestContact?: Readonly<{ contactEmail: string; contactName: string }> | null;
   deliveryReady: boolean;
   shippingMethodReady: boolean;
   paymentMethodReady: boolean;
@@ -48,6 +50,7 @@ export type CheckoutSavedInfoSectionProps = Readonly<{
 export function CheckoutSavedInfoSection({
   showSavedCheckoutRows,
   contactReady,
+  boundGuestContact = null,
   deliveryReady,
   shippingMethodReady,
   paymentMethodReady,
@@ -70,12 +73,12 @@ export function CheckoutSavedInfoSection({
         <CheckoutSavedInfoRow
           icon="user"
           label={t("checkout.features.sessions.ui.checkoutPage.contact")}
-          value={addressDefaults.email}
-          supportingText={contactSupportingText(addressDefaults.phone)}
+          value={boundGuestContact?.contactName ?? addressDefaults.email}
+          supportingText={boundGuestContact?.contactEmail ?? contactSupportingText(addressDefaults.phone)}
           status={t("checkout.features.sessions.ui.checkoutPage.ready")}
           statusTone="success"
           action={
-            canEditCollapsedContact
+            canEditCollapsedContact && !boundGuestContact
               ? editRowAction("contact", t("checkout.features.sessions.ui.checkoutPage.edit.contact"), onEditSection)
               : undefined
           }
