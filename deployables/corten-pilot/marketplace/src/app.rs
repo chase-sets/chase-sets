@@ -152,7 +152,7 @@ impl Config {
                 .ok()
                 .map(|key| key.trim().to_owned())
                 .filter(|key| !key.is_empty()),
-            indexing: indexing(std::env::var("CHASE_SETS_MARKETPLACE_INDEXING").ok().as_deref()),
+            indexing: site_indexing(),
             claim_token_entry: claim_token_entry(
                 std::env::var("GUEST_PAYMENT_CLAIM_LOCAL_RECOVERY_TOKEN_ENABLED").ok().as_deref(),
                 [std::env::var("NODE_ENV").ok(), std::env::var("DEPLOYMENT_ENVIRONMENT").ok()],
@@ -167,6 +167,15 @@ impl Config {
         let host = origin.split_once("://").map_or(origin, |(_, host)| host);
         self.platform.anonymous(host, self.proto)
     }
+}
+
+/// Whether this process may be indexed (`CHASE_SETS_MARKETPLACE_INDEXING`), read once. Every page's
+/// head says `noindex,nofollow` when it may not, as marketplace's root layout does; `Config::indexing`
+/// is the same answer for the crawler files.
+pub fn site_indexing() -> bool {
+    static INDEXING: std::sync::LazyLock<bool> =
+        std::sync::LazyLock::new(|| indexing(std::env::var("CHASE_SETS_MARKETPLACE_INDEXING").ok().as_deref()));
+    *INDEXING
 }
 
 /// `shouldIndexFromEnv`: on unless the variable says off.
