@@ -91,7 +91,7 @@ type GuestContact =
 
 const BOUND: GuestContact = { state: "bound", contactName: "Jane Smith", contactEmail: "jane@example.com" };
 
-function loaderData(guestContact: GuestContact) {
+function loaderData(guestContact: GuestContact, overrides: Record<string, unknown> = {}) {
   return {
     session,
     wallet: null,
@@ -116,25 +116,31 @@ function loaderData(guestContact: GuestContact) {
     paymentStartAmbiguous: false,
     expiredCheckout: false,
     paymentVerifyEmailHref: null,
+    ...overrides,
   };
 }
 
 /** Renders the real route component with loader data and action data as the router holds them. */
-function renderRoute(guestContact: GuestContact, actionData?: unknown, load?: () => GuestContact) {
+function renderRoute(
+  guestContact: GuestContact,
+  actionData?: unknown,
+  load?: () => GuestContact,
+  overrides: Record<string, unknown> = {},
+) {
   const router = createMemoryRouter(
     [
       {
         id: "checkout-session",
         path: "/checkout/buy/session/:sessionId",
         Component: CheckoutSessionRoute,
-        loader: () => loaderData(load ? load() : guestContact),
+        loader: () => loaderData(load ? load() : guestContact, overrides),
         action: () => actionData ?? null,
       },
     ],
     {
       initialEntries: [SESSION_PATH],
       hydrationData: {
-        loaderData: { "checkout-session": loaderData(guestContact) },
+        loaderData: { "checkout-session": loaderData(guestContact, overrides) },
         ...(actionData ? { actionData: { "checkout-session": actionData } } : {}),
       },
     },
@@ -205,7 +211,7 @@ describe("checkout session route: guest contact", () => {
   });
 
   it("shows the locked guidance beside the retained bound contact", () => {
-    renderRoute({ state: "unbound" }, { guestContact: BOUND, guestContactLocked: true });
+    renderRoute(BOUND, { guestContact: BOUND, guestContactLocked: true });
 
     expect(screen.getByText(t("checkout.features.sessions.ui.checkoutPage.contact.locked"))).toBeTruthy();
     expect(screen.getByText("jane@example.com")).toBeTruthy();
@@ -239,6 +245,75 @@ describe("checkout session route: guest contact", () => {
     }
   });
 
+  it("follows the loader's read after an action that found the contact unavailable", () => {
+    // The action's read was refused; the loader's read after it, in the same submission, answered.
+    renderRoute(BOUND, { guestContact: { state: "indeterminate", reason: "unreadable" } });
+
+    expect(screen.getByText("jane@example.com")).toBeTruthy();
+    expect(screen.queryByText(t("checkout.features.sessions.ui.checkoutPage.contact.unavailable.title"))).toBeNull();
+    for (const button of payButtons()) {
+      expect((button as HTMLButtonElement).disabled).toBe(false);
+    }
+  });
+
+  it("keeps a locked save unavailable when the loader's later read says unbound", () => {
+    // Auth refused the save as locked and its reconciling read said unbound; a later unbound read
+    // contradicts the lock just the same, so the inputs stay withheld.
+    renderRoute(
+      { state: "unbound" },
+      { guestContact: { state: "indeterminate", reason: "unreadable" }, guestContactLocked: true },
+    );
+
+    expect(screen.getByText(t("checkout.features.sessions.ui.checkoutPage.contact.unavailable.title"))).toBeTruthy();
+    expect(input("contactName")).toBeNull();
+    for (const button of payButtons()) {
+      expect((button as HTMLButtonElement).disabled).toBe(true);
+    }
+  });
+
+  it("shows an unavailable contact an action answered with when the loader's read is unavailable too", () => {
+    const unavailable: GuestContact = { state: "indeterminate", reason: "unreadable" };
+    renderRoute(unavailable, { guestContact: unavailable });
+
+    expect(screen.getByText(t("checkout.features.sessions.ui.checkoutPage.contact.unavailable.title"))).toBeTruthy();
+    for (const button of payButtons()) {
+      expect((button as HTMLButtonElement).disabled).toBe(true);
+    }
+  });
+
+  it("withholds an existing payment's handoff while the contact is unavailable and offers it once bound", async () => {
+    const paid = { session: { ...session, payment_id: "pay_pending", order_ids: ["ord_1"] } };
+    const continueToPayment = () =>
+      screen.queryAllByRole("link", { name: t("checkout.features.sessions.ui.checkoutPage.continue.to.payment") });
+    let current: GuestContact = { state: "indeterminate", reason: "rate-limited" };
+    const router = renderRoute(current, undefined, () => current, paid);
+    expect(screen.getByText(t("checkout.features.sessions.ui.checkoutPage.contact.unavailable.title"))).toBeTruthy();
+    expect(continueToPayment()).toEqual([]);
+
+    current = BOUND;
+    await router.revalidate();
+
+    await waitFor(() => expect(continueToPayment().length).toBeGreaterThan(0), { timeout: 5_000 });
+    for (const link of continueToPayment()) {
+      expect(link.getAttribute("href")).toBe("/account/payments/pay_pending");
+    }
+    expect(screen.queryByText(t("checkout.features.sessions.ui.checkoutPage.contact.unavailable.title"))).toBeNull();
+  });
+
+  it("keeps a signed-in buyer's existing payment handoff", () => {
+    renderRoute({ state: "unbound" }, undefined, undefined, {
+      session: { ...session, payment_id: "pay_signed_in", order_ids: ["ord_1"] },
+      guestContact: null,
+      isSignedInBuyer: true,
+    });
+    const links = screen.getAllByRole("link", {
+      name: t("checkout.features.sessions.ui.checkoutPage.continue.to.payment"),
+    });
+    for (const link of links) {
+      expect(link.getAttribute("href")).toBe("/account/payments/pay_signed_in");
+    }
+  });
+
   it("renders every contact state without a missing-translation marker", () => {
     const states: ReadonlyArray<readonly [GuestContact, unknown]> = [
       [
@@ -250,7 +325,7 @@ describe("checkout session route: guest contact", () => {
         { guestContactAttempt: { contactName: "J", contactEmail: "m@example.com", problem: "retry-later" } },
       ],
       [{ state: "unbound" }, { guestContactAttempt: { contactName: "", contactEmail: "", problem: "invalid" } }],
-      [{ state: "unbound" }, { guestContact: BOUND, guestContactLocked: true }],
+      [BOUND, { guestContact: BOUND, guestContactLocked: true }],
       [BOUND, undefined],
       [{ state: "unbound" }, undefined],
       [{ state: "indeterminate", reason: "rate-limited" }, undefined],

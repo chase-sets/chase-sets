@@ -51,6 +51,15 @@ export function checkoutCommitButton({
   primaryCtaLabel,
   form,
 }: CheckoutCommitButtonProps) {
+  // A guest whose contact Auth could not read goes on to no payment, a started one included.
+  if (contactUnavailable && !isOfferIntent && hasPayment && paymentId) {
+    return (
+      <Button type="button" disabled block>
+        {t("checkout.features.sessions.ui.checkoutPage.continue.to.payment")}
+      </Button>
+    );
+  }
+
   if (hasPayment && paymentId) {
     return (
       <LinkButton href={`/account/payments/${paymentId}`} block>

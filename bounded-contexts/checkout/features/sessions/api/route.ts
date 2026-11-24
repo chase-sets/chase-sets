@@ -433,6 +433,19 @@ function sessionHasCommittedCheckoutSideEffects(session: CheckoutSessionRow) {
   );
 }
 
+/** A confirm's authenticity choice, read as the authenticity-check-opt-in route reads its body. */
+function parseFinalAuthenticityCheckOptIn(value: unknown) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const choice = value as { selected?: unknown; quoteFingerprint?: unknown };
+  return {
+    selected: choice.selected === true,
+    quoteFingerprint:
+      typeof choice.quoteFingerprint === "string" && choice.quoteFingerprint.trim() ? choice.quoteFingerprint : null,
+  };
+}
+
 function fulfillmentPreviewRevisionRequired() {
   return new CheckoutDomainError("Fulfillment preview must include a revision.", "fulfillment_preview_required");
 }
@@ -1214,6 +1227,10 @@ export function createAccountCheckoutSessionRoutes(
     const savePaymentMethodForFuture =
       body.savePaymentMethodForFuture === true && access.actor.roleKey !== "guest-buyer" && !savedCheckoutInstrumentId;
     const requestedSavePaymentMethodForFuture = body.savePaymentMethodForFuture === true;
+    // Shipping and authenticity choices sent with confirm are written here rather than before it,
+    // so a confirm the guard above refuses has written nothing.
+    const finalShippingOption = typeof body.shippingOption === "string" ? body.shippingOption : null;
+    const finalAuthenticityCheckOptIn = parseFinalAuthenticityCheckOptIn(body.authenticityCheckOptIn);
     const confirmationInput = {
       shippingAddress:
         body.shippingAddress === null || body.shippingAddress === undefined
@@ -1333,6 +1350,23 @@ export function createAccountCheckoutSessionRoutes(
           status: "purchase-intent-submitted",
           session,
         });
+      }
+
+      if (session.order_ids.length === 0 && finalShippingOption !== null) {
+        const shippingOptionResult = await services.selectShippingOption(
+          { sessionId, accountId: access.actor.accountId as AccountId, shippingOption: finalShippingOption },
+          context,
+        );
+        writeSources.push(shippingOptionResult);
+        session = shippingOptionResult.session;
+      }
+      if (session.order_ids.length === 0 && finalAuthenticityCheckOptIn && session.source_type !== "offer-intent") {
+        const authenticityCheckOptInResult = await services.selectAuthenticityCheckOptIn(
+          { sessionId, accountId: access.actor.accountId as AccountId, ...finalAuthenticityCheckOptIn },
+          context,
+        );
+        writeSources.push(authenticityCheckOptInResult);
+        session = authenticityCheckOptInResult.session;
       }
 
       if (

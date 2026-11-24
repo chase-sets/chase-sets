@@ -1549,6 +1549,14 @@ describe("checkout-closed-route-matrix: composition attachment", () => {
     },
     {
       path: "/checkout-sessions/chk_synthetic/confirm",
+      body: { paymentMethodCategory: "card" },
+      role: "guest-buyer",
+      contact: { contactEmail: {}, contactName: true },
+      status: 409,
+      code: "guest_contact_required",
+    },
+    {
+      path: "/checkout-sessions/chk_synthetic/confirm",
       body: { promoCode: "synthetic" },
       role: "owner",
       status: 409,

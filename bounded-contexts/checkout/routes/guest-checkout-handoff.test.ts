@@ -349,10 +349,11 @@ describe("checkout web routes: guest checkout handoff", () => {
     expect(confirmationResponse.status).toBe(302);
     expect(confirmationResponse.headers.get("Location")).toBe("/checkout/buy/session/chk_guest");
     expect(confirmationResponse.headers.get("Location")).not.toContain("/account/payments");
-    expect(mockSelectShippingOption).toHaveBeenCalledWith("chk_guest", {
-      shippingOption: "standard",
-    });
+    // A guest's choices go with confirm, which writes them only past its contact guard.
+    expect(mockSelectShippingOption).not.toHaveBeenCalled();
     expect(mockConfirmCheckoutSession).toHaveBeenCalledWith("chk_guest", {
+      shippingOption: "standard",
+      authenticityCheckOptIn: { selected: false, quoteFingerprint: null },
       requestedBalanceCreditAmount: null,
       paymentMethodCategory: "card",
       marketplaceCheckoutFeeQuoteFingerprint: "quote_card_1",

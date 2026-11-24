@@ -3135,7 +3135,7 @@ describe("guest contact save in the checkout session action", () => {
     expectNoCheckoutWrite();
   });
 
-  it("reconciles a raced guest_contact_locked with exactly one claim-context read and renders the returned authority", async () => {
+  it("reconciles a raced guest_contact_locked with exactly one own-contact read and renders the returned authority", async () => {
     mockGetGuestCheckoutContact
       .mockResolvedValueOnce({ contactName: null, contactEmail: null })
       .mockResolvedValue(JANE);
@@ -3165,7 +3165,10 @@ describe("guest contact save in the checkout session action", () => {
       guestForm("confirm-checkout", { contactName: "Jane Smith", shippingEmail: "jane@example.com" }),
     );
 
-    expect(result).toEqual({ guestContact: { state: "indeterminate", reason: "unreadable" } });
+    expect(result).toEqual({
+      guestContact: { state: "indeterminate", reason: "unreadable" },
+      guestContactLocked: true,
+    });
     expect(mockGetGuestCheckoutContact).toHaveBeenCalledTimes(2);
     expectNoCheckoutWrite();
   });
@@ -3225,6 +3228,54 @@ describe("guest contact save in the checkout session action", () => {
     expect(result).toEqual({ guestContact: { state: "indeterminate", reason: "rate-limited" } });
     expect(mockBindGuestCheckoutContact).not.toHaveBeenCalled();
     expectNoCheckoutWrite();
+  });
+
+  it("writes nothing when confirm refuses a guest's contact after a bound save, and sends the choices with confirm", async () => {
+    mockGetGuestCheckoutContact.mockResolvedValue(JANE);
+    mockConfirmCheckoutSession.mockRejectedValue(
+      new MockCheckoutApiError(409, {
+        error: {
+          code: "guest_contact_required",
+          message: "Add your name and email for this checkout before you pay. Nothing was reserved or ordered.",
+        },
+      }),
+    );
+    const form = guestForm("confirm-checkout", { contactName: "Jane Smith", shippingEmail: "jane@example.com" });
+    form.set("marketplaceCheckoutFeeQuoteFingerprint", "quote_1");
+    form.set("authenticityCheckOptIn", "true");
+    form.set("authenticityCheckOptInQuoteFingerprint", "authenticity_quote_1");
+
+    const result = await submit(form);
+
+    expect(mockBindGuestCheckoutContact).not.toHaveBeenCalled();
+    expect(mockSelectShippingOption).not.toHaveBeenCalled();
+    expect(mockSelectShippingAddress).not.toHaveBeenCalled();
+    expect(mockSelectAuthenticityCheckOptIn).not.toHaveBeenCalled();
+    expect(mockRecordFulfillmentPreview).not.toHaveBeenCalled();
+    expect(mockConfirmCheckoutSession).toHaveBeenCalledExactlyOnceWith(
+      "chk_1",
+      expect.objectContaining({
+        shippingOption: "standard",
+        authenticityCheckOptIn: { selected: true, quoteFingerprint: "authenticity_quote_1" },
+      }),
+    );
+    expect(result).toEqual({
+      error: "Add your name and email for this checkout before you pay. Nothing was reserved or ordered.",
+    });
+  });
+
+  it("still writes a guest's choices when Pay now refreshes the review instead of confirming", async () => {
+    mockGetGuestCheckoutContact.mockResolvedValue(JANE);
+    const form = guestForm("confirm-checkout", { contactName: "Jane Smith", shippingEmail: "jane@example.com" });
+    form.set("sourceType", "cart");
+
+    const response = (await submit(form)) as Response;
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toContain("review=updated");
+    expect(mockSelectShippingOption).toHaveBeenCalledExactlyOnceWith("chk_1", { shippingOption: "standard" });
+    expect(mockSelectAuthenticityCheckOptIn).toHaveBeenCalledTimes(1);
+    expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
   });
 
   it("never reads or saves a guest contact for a signed-in buyer", async () => {

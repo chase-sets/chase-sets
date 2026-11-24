@@ -285,6 +285,7 @@ async function settleGuestContactBeforeWrite(
     }
     return {
       guestContact: reconciled.state === "unbound" ? { state: "indeterminate", reason: "unreadable" } : reconciled,
+      guestContactLocked: true,
     };
   }
   return { guestContactAttempt: { contactEmail, contactName, problem: result.outcome } };
@@ -1148,19 +1149,25 @@ async function handleAction(intent: string, { request, params, formData }: FormA
           };
         }
       }
-      const shippingOptionResult = hasCommittedSideEffects
-        ? null
-        : await writeApi.selectShippingOption(params.sessionId, {
-            shippingOption,
-          });
       const sourceType = session?.source_type ?? String(formData.get("sourceType") ?? "");
-      const authenticityCheckOptInResult =
-        hasCommittedSideEffects || sourceType === "offer-intent"
-          ? null
-          : await writeApi.selectAuthenticityCheckOptIn(params.sessionId, {
-              selected: String(formData.get("authenticityCheckOptIn") ?? "") === "true",
-              quoteFingerprint: String(formData.get("authenticityCheckOptInQuoteFingerprint") ?? "") || null,
-            });
+      const authenticityCheckOptIn = {
+        selected: String(formData.get("authenticityCheckOptIn") ?? "") === "true",
+        quoteFingerprint: String(formData.get("authenticityCheckOptInQuoteFingerprint") ?? "") || null,
+      };
+      const sessionId = params.sessionId;
+      const writeSelections = async () =>
+        [
+          hasCommittedSideEffects ? null : await writeApi.selectShippingOption(sessionId, { shippingOption }),
+          hasCommittedSideEffects || sourceType === "offer-intent"
+            ? null
+            : await writeApi.selectAuthenticityCheckOptIn(sessionId, authenticityCheckOptIn),
+        ] as const;
+      // A guest's confirm can still be refused for its contact after the save above, so a guest's
+      // last choices go with confirm, which writes them only past its contact guard.
+      const selectionsGoWithConfirm = requiresBoundGuestContact(actor);
+      const [shippingOptionResult, authenticityCheckOptInResult] = selectionsGoWithConfirm
+        ? [null, null]
+        : await writeSelections();
       const visibleReviewChanged =
         visiblePaymentMethodCategory !== quotedPaymentMethodCategory ||
         (reviewedShippingOption !== null && reviewedShippingOption !== shippingOption) ||
@@ -1176,6 +1183,9 @@ async function handleAction(intent: string, { request, params, formData }: FormA
       const shouldRefreshReviewBeforeConfirm =
         sourceType !== "offer-intent" && visibleReviewChanged && !hasCommittedSideEffects;
       if (shouldRefreshReviewBeforeConfirm || needsPaymentQuote) {
+        const [reviewShippingOptionResult, reviewAuthenticityCheckOptInResult] = selectionsGoWithConfirm
+          ? await writeSelections()
+          : [shippingOptionResult, authenticityCheckOptInResult];
         const shippingAddressResult = await writeApi.selectShippingAddress(params.sessionId, {
           shippingAddress: resolvedShippingAddress,
         });
@@ -1187,9 +1197,9 @@ async function handleAction(intent: string, { request, params, formData }: FormA
         return redirect(
           await navigateAfterWriteFromSourcesWithPlatformPostWriteToken(
             reviewedPreviewWriteSources([
-              shippingOptionResult,
+              reviewShippingOptionResult,
               shippingAddressResult,
-              authenticityCheckOptInResult,
+              reviewAuthenticityCheckOptInResult,
               fulfillmentPreviewResult,
             ]),
             `/checkout/buy/session/${params.sessionId}?paymentMethodCategory=${encodeURIComponent(visiblePaymentMethodCategory)}&review=updated${quoteReason}`,
@@ -1223,6 +1233,9 @@ async function handleAction(intent: string, { request, params, formData }: FormA
           fulfillmentPreviewRevision: String(formData.get("fulfillmentPreviewRevision") ?? "") || null,
           acknowledgedMaterialChanges: String(formData.get("acknowledgedMaterialChanges") ?? "") === "true",
           shippingAddress: resolvedShippingAddress,
+          ...(selectionsGoWithConfirm && !hasCommittedSideEffects
+            ? { shippingOption, ...(sourceType === "offer-intent" ? {} : { authenticityCheckOptIn }) }
+            : {}),
         });
       } catch (error) {
         const refreshPaymentQuote = shouldRefreshPaymentQuote(error);
@@ -1256,6 +1269,17 @@ async function handleAction(intent: string, { request, params, formData }: FormA
               error.body,
               t("checkout.features.sessions.api.route.payment.authority.required"),
             ),
+          };
+        }
+
+        if (
+          error instanceof CheckoutApiError &&
+          error.status === 409 &&
+          readApiErrorCode(error.body) === "guest_contact_required"
+        ) {
+          // Confirm refused before any write; the loader's fresh contact read shows the section again.
+          return {
+            error: readApiErrorMessage(error.body, t("checkout.features.sessions.api.route.guest.contact.required")),
           };
         }
 
@@ -1367,6 +1391,16 @@ export default function CheckoutSessionRoute() {
   const actionEditSection = actionData && "editSection" in actionData ? actionData.editSection : null;
   const location = useLocation();
   const actionGuestContact = actionData && "guestContact" in actionData ? actionData.guestContact : null;
+  const actionGuestContactLocked = Boolean(
+    actionData && "guestContactLocked" in actionData && actionData.guestContactLocked,
+  );
+  // The loader reads Auth again after every action, so its answer is the newer one and the action's
+  // stands only where the loader has none. A locked save outranks a later unbound read, which
+  // contradicts the lock, so that page stays unavailable rather than offering the inputs again.
+  const guestContact =
+    actionGuestContactLocked && data.guestContact?.state === "unbound"
+      ? actionGuestContact
+      : (data.guestContact ?? actionGuestContact);
 
   useEffect(() => {
     const subscription = subscribeRealtimePatches({
@@ -1391,9 +1425,9 @@ export default function CheckoutSessionRoute() {
       reservationUnavailableLines={data.reservationUnavailableLines}
       savedShippingAddresses={data.savedShippingAddresses}
       savedCheckoutInstruments={data.savedCheckoutInstruments}
-      guestContact={actionGuestContact ?? data.guestContact}
+      guestContact={guestContact}
       guestContactAttempt={actionData && "guestContactAttempt" in actionData ? actionData.guestContactAttempt : null}
-      guestContactLocked={Boolean(actionData && "guestContactLocked" in actionData && actionData.guestContactLocked)}
+      guestContactLocked={actionGuestContactLocked}
       guestContactSignInHref={`/sign-in?returnTo=${encodeURIComponent(`${location.pathname}${location.search}`)}`}
       canManageShippingAddresses={data.canManageShippingAddresses}
       canSavePaymentMethods={data.canSavePaymentMethods}

@@ -1,5 +1,6 @@
 import type { CheckoutFulfillmentPreview, CheckoutSessionRow } from "../../../support/request-support/api-client";
 import type { ReactNode } from "react";
+import type { GuestContactAuthority } from "../../../support/request-support/guest-contact-authority";
 
 export type DeferredCheckoutCard = Readonly<{
   entry: ReactNode;
@@ -64,14 +65,7 @@ export type CheckoutSavedPaymentInstrument = Readonly<{
 
 export type CheckoutEditSection = "contact" | "delivery" | "shipping" | "payment";
 
-/**
- * A guest's contact as Auth reported it to the server. Only `bound` carries values; `indeterminate`
- * means Auth could not be read and says nothing either way.
- */
-export type GuestContactAuthority =
-  | Readonly<{ state: "bound"; contactEmail: string; contactName: string }>
-  | Readonly<{ state: "unbound" }>
-  | Readonly<{ state: "indeterminate"; reason: "rate-limited" | "unreadable" }>;
+export type { GuestContactAuthority } from "../../../support/request-support/guest-contact-authority";
 
 /** What a guest last entered as contact, kept editable, and why it was not saved. */
 export type GuestContactAttempt = Readonly<{

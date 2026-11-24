@@ -23095,7 +23095,89 @@ async fn a_guests_saved_contact_is_shown_and_not_saved_again() {
         "{html}"
     );
     assert!(contact_calls(&pilot).iter().all(|(method, _)| *method == Method::GET), "an unchanged contact is not saved again");
-    assert!(checkout_writes(&pilot).iter().any(|(write, _)| write == "confirm"), "Pay now went on to Checkout");
+    // Confirm refused the guest, so nothing was written before it: the choices went with it.
+    let writes = checkout_writes(&pilot);
+    let names: Vec<&str> = writes.iter().map(|(write, _)| write.as_str()).collect();
+    assert_eq!(names, ["confirm"], "a refused guest confirm writes nothing before it: {writes:?}");
+    let sent = &writes[0].1;
+    assert_eq!(sent["shippingOption"], "standard", "{sent}");
+    assert_eq!(
+        sent["authenticityCheckOptIn"],
+        json!({ "selected": false, "quoteFingerprint": "authenticity-check-fee-v1|eligible|620.00|100.00|any|20.40" }),
+        "{sent}"
+    );
+}
+
+/// A signed-in buyer's choices are still written before confirm, which sends none of them.
+#[tokio::test]
+async fn a_signed_in_pay_now_writes_the_choices_before_confirm() {
+    let pilot = Pilot::new().await;
+    let body = checkout_body(&format!("intent=confirm-checkout&{CARD_TOKEN}"));
+    let (status, _, html) = pilot.send(post(CHECKOUT_SCREEN, "payer", &body, false)).await;
+    assert!(status.is_redirection(), "{status} {html}");
+    let writes = checkout_writes(&pilot);
+    let names: Vec<&str> = writes.iter().map(|(write, _)| write.as_str()).collect();
+    assert_eq!(names, ["shipping-option", "authenticity-check-opt-in", "confirm"], "{writes:?}");
+    let sent = &writes[2].1;
+    assert!(sent.get("shippingOption").is_none() && sent.get("authenticityCheckOptIn").is_none(), "{sent}");
+}
+
+/// Pay now that refreshes a guest's review first writes the guest's choices then, since it starts
+/// no payment.
+#[tokio::test]
+async fn a_guests_pay_now_that_refreshes_the_review_writes_the_choices_then() {
+    let pilot = Pilot::new().await;
+    let pay = format!("intent=confirm-checkout&{CARD_TOKEN}&marketplaceCheckoutFeeQuoteFingerprint=");
+    let body = guest_body("guest@example.test", "", &pay);
+    let (status, headers, html) = pilot.send(as_guest_with("gst_bound", Method::POST, CHECKOUT_SCREEN, &body)).await;
+    assert!(status.is_redirection(), "{status} {html}");
+    assert!(headers["location"].to_str().unwrap().contains("review=updated"), "{headers:?}");
+    let writes = checkout_writes(&pilot);
+    let names: Vec<&str> = writes.iter().map(|(write, _)| write.as_str()).collect();
+    assert!(
+        names.contains(&"shipping-option") && names.contains(&"authenticity-check-opt-in") && !names.contains(&"confirm"),
+        "{writes:?}"
+    );
+}
+
+/// Pay now sends Checkout the buyer's address as the page's contact read does, so Auth's
+/// per-address limit on a guest's own contact counts each buyer apart.
+#[tokio::test]
+async fn a_guests_pay_now_sends_the_buyers_address_as_the_contact_read_does() {
+    let pilot = Pilot::new().await;
+    let body = guest_body("guest@example.test", "", &format!("intent=confirm-checkout&{CARD_TOKEN}"));
+    for peer in ["203.0.113.21", "198.51.100.34"] {
+        pilot.stand.calls.lock().unwrap().clear();
+        let mut req = as_guest_with("gst_bound", Method::POST, "/checkout/buy/session/chk_guestcontact", &body);
+        let at: std::net::SocketAddr = format!("{peer}:50000").parse().unwrap();
+        req.extensions_mut().insert(corten::PeerAddr(at));
+        let (status, _, html) = pilot.send(req).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{html}");
+        let calls = pilot.stand.calls.lock().unwrap().clone();
+        let read = calls
+            .iter()
+            .find(|c| c.method == Method::GET && c.path == "/api/auth/guest-checkout/contact")
+            .expect("the contact read");
+        let confirm = calls.iter().find(|c| c.method == Method::POST && c.path.ends_with("/confirm")).expect("Pay now");
+        assert_eq!(read.headers["x-forwarded-for"], peer, "the page's contact read");
+        assert_eq!(confirm.headers["x-forwarded-for"], peer, "Pay now carries the same address");
+    }
+}
+
+/// Sign in, offered for an email that already has an account, comes back to the page as it was,
+/// its query kept; the form posts there too.
+#[tokio::test]
+async fn a_guests_sign_in_for_a_taken_email_comes_back_to_the_page_as_it_was() {
+    let pilot = Pilot::new().await;
+    let shown = "/checkout/buy/session/chk_1?paymentMethodCategory=card&review=updated";
+    let body = guest_body("taken@example.test", "Guest Buyer", &format!("intent=confirm-checkout&{CARD_TOKEN}"));
+    let (status, _, html) = pilot.send(as_guest_with("gst_account", Method::POST, shown, &body)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    let start = html.find(r#"href="/sign-in?"#).expect("Sign in") + r#"href=""#.len();
+    let href = html[start..start + html[start..].find('"').unwrap()].replace("&amp;", "&");
+    let back = href.split(['?', '&']).find_map(|pair| pair.strip_prefix("returnTo=")).expect("returnTo");
+    assert_eq!(percent_encoding::percent_decode_str(back).decode_utf8().unwrap(), shown, "{href}");
+    assert!(html.contains(r#"action="/checkout/buy/session/chk_1?paymentMethodCategory=card&amp;review=updated""#), "{html}");
 }
 
 #[tokio::test]
@@ -23457,6 +23539,24 @@ async fn a_guests_started_payment_continues_on_the_guest_payment_page() {
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains(r#"href="/checkout/payments/pay_1""#), "{html}");
     assert!(!html.contains(r#"href="/account/payments/pay_1""#), "{html}");
+}
+
+/// While Auth cannot read a guest's contact, a started payment is not handed off: the page says
+/// why, and offers Continue to payment again once the contact reads.
+#[tokio::test]
+async fn a_guests_started_payment_waits_while_the_contact_cannot_be_read() {
+    let pilot = Pilot::new().await;
+    let screen = "/checkout/buy/session/chk_paid";
+    let (status, _, html) = pilot.send(as_guest_with("gst_busy", Method::GET, screen, "")).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"data-payment="pay_1""#), "the confirmation still shows: {html}");
+    assert!(html.contains("data-checkout-contact-unavailable"), "{html}");
+    assert!(!html.contains(r#"href="/checkout/payments/pay_1""#), "no handoff while the contact cannot be read: {html}");
+
+    let (status, _, html) = pilot.send(as_guest_with("gst_bound", Method::GET, screen, "")).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(!html.contains("data-checkout-contact-unavailable"), "{html}");
+    assert!(html.contains(r#"href="/checkout/payments/pay_1""#), "{html}");
 }
 
 /// Discovery's sitemap reads, as the stand-in answers them: 5,001 items (two pages), one set, none

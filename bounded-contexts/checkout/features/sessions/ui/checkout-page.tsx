@@ -162,7 +162,24 @@ function CheckoutSessionPageContent({
           title={t("checkout.features.sessions.ui.checkoutPage.checkout.cancelled")}
           description={t("checkout.features.sessions.ui.checkoutPage.checkout.cancelled.description")}
         />
-      ) : props.expiredCheckout ? null : model.preparedPaymentEntry ? (
+      ) : props.expiredCheckout ? null : model.guestContactUnavailable && model.session.payment_id ? (
+        // Auth could not say whose contact this is: the payment's references show, but nothing
+        // goes on to pay until a later read answers.
+        <Stack gap={4}>
+          <CheckoutStateNotice
+            tone="warning"
+            title={t("checkout.features.sessions.ui.checkoutPage.contact.unavailable.title")}
+            description={t("checkout.features.sessions.ui.checkoutPage.contact.unavailable.description")}
+          />
+          <CheckoutConfirmationSection
+            paymentId={model.session.payment_id}
+            orderReferenceValue={model.orderReferenceValue}
+            buySupportReferenceValue={model.buySupportReferenceValue}
+            totalsPayableTotal={model.totalsTotal}
+            paymentHandoffAvailable={false}
+          />
+        </Stack>
+      ) : model.preparedPaymentEntry ? (
         model.preparedPaymentEntry
       ) : model.session.payment_id ? (
         <CheckoutConfirmationSection

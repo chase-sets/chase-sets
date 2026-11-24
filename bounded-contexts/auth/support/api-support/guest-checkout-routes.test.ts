@@ -966,4 +966,31 @@ describe("guest checkout own-contact read", () => {
     const otherApp = buildApp(otherServices, createGuestActor("acc_read_other"));
     expect((await read(otherApp, "read_other_capped_token", "198.18.9.1")).status).toBe(200);
   });
+
+  it("refuses own-contact reads from one address past three hundred an hour, across guest checkouts", async () => {
+    const services = createServices({ existingUser: null });
+    useGuestTokenState(services, guestTokenRecord({ account_id: "acc_read_one_ip" }));
+    const app = buildApp(services, createGuestActor("acc_read_one_ip"));
+    const statuses: number[] = [];
+    // Each token is read twice, well under its own sixty, so only the address's count can refuse.
+    for (let attempt = 0; attempt < 301; attempt += 1) {
+      statuses.push((await read(app, `read_one_ip_token_${Math.floor(attempt / 2)}`, "203.0.113.50")).status);
+    }
+    expect(statuses.slice(0, 300).every((status) => status === 200)).toBe(true);
+    expect(statuses[300]).toBe(429);
+    // Another address is counted apart.
+    expect((await read(app, "read_one_ip_token_other", "203.0.113.51")).status).toBe(200);
+  });
+
+  it("keeps the claim flow's twenty an hour per address across accounts", async () => {
+    const statuses: number[] = [];
+    for (let account = 0; account < 21; account += 1) {
+      const services = createServices({ existingUser: null });
+      useGuestTokenState(services, guestTokenRecord({ account_id: `acc_claim_ip_${account}` }));
+      const app = buildApp(services, createGuestActor(`acc_claim_ip_${account}`));
+      statuses.push((await claimContext(app, `claim_ip_token_${account}`, "203.0.113.60")).status);
+    }
+    expect(statuses.slice(0, 20).every((status) => status === 200)).toBe(true);
+    expect(statuses[20]).toBe(429);
+  });
 });

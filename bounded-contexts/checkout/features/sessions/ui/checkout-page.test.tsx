@@ -554,6 +554,65 @@ describe("checkout session page", () => {
     }
   });
 
+  it("withholds an existing payment's entry while a guest's contact is unavailable, and offers it once bound", () => {
+    const pendingSession = { ...readySession, payment_id: "pay_pending", order_ids: ["ord_1"] };
+    const { rerender } = render(
+      <CheckoutSessionPage
+        session={pendingSession}
+        fulfillmentPreview={readyFulfillmentPreview}
+        paymentPreview={paymentPreview}
+        guestContact={{ state: "indeterminate", reason: "unreadable" }}
+        preparedPaymentEntry={<div data-testid="pending-payment-entry">pay_pending</div>}
+      />,
+    );
+
+    expect(screen.getByText(t("checkout.features.sessions.ui.checkoutPage.contact.unavailable.title"))).toBeTruthy();
+    expect(screen.queryByTestId("pending-payment-entry")).toBeNull();
+    expect(
+      screen.queryByRole("link", { name: t("checkout.features.sessions.ui.checkoutPage.continue.to.payment") }),
+    ).toBeNull();
+    expect(screen.getByText(t("checkout.features.sessions.ui.checkoutPage.order.reference"))).toBeTruthy();
+
+    rerender(
+      <CheckoutSessionPage
+        session={pendingSession}
+        fulfillmentPreview={readyFulfillmentPreview}
+        paymentPreview={paymentPreview}
+        guestContact={{ state: "bound", contactEmail: "jane@example.com", contactName: "Jane Smith" }}
+        preparedPaymentEntry={<div data-testid="pending-payment-entry">pay_pending</div>}
+      />,
+    );
+    expect(screen.getByTestId("pending-payment-entry")).toBeTruthy();
+    expect(screen.queryByText(t("checkout.features.sessions.ui.checkoutPage.contact.unavailable.title"))).toBeNull();
+  });
+
+  it("offers no Continue to payment while a guest's contact is unavailable", () => {
+    render(
+      <CheckoutSessionPage
+        session={{ ...readySession, payment_id: "pay_pending", order_ids: ["ord_1"] }}
+        fulfillmentPreview={readyFulfillmentPreview}
+        paymentPreview={paymentPreview}
+        guestContact={{ state: "indeterminate", reason: "rate-limited" }}
+      />,
+    );
+    expect(
+      screen.queryAllByRole("link", { name: t("checkout.features.sessions.ui.checkoutPage.continue.to.payment") }),
+    ).toEqual([]);
+  });
+
+  it("keeps a signed-in buyer's existing payment entry", () => {
+    render(
+      <CheckoutSessionPage
+        session={{ ...readySession, payment_id: "pay_signed_in", order_ids: ["ord_1"] }}
+        fulfillmentPreview={readyFulfillmentPreview}
+        paymentPreview={paymentPreview}
+        isSignedInBuyer
+        preparedPaymentEntry={<div data-testid="signed-in-payment-entry">pay_signed_in</div>}
+      />,
+    );
+    expect(screen.getByTestId("signed-in-payment-entry")).toBeTruthy();
+  });
+
   it("omits the guest contact name input for a signed-in buyer", () => {
     render(
       <CheckoutSessionPage

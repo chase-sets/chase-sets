@@ -393,7 +393,7 @@ fn CheckoutFormPart<'a>(t: CheckoutMsg, pm: PaymentMsg, screen: &'a Screen) -> i
             id={CheckoutFormId}
             class={Form}
             method="post"
-            action={url::BuyCheckout { id, place: Place::default() }}
+            action={url::BuyCheckout { id, place: screen.shown.clone() }}
             on:change={js::stale(event)}
             on:input={js::stale(event)}
             on:submit={js::pay(event, f.confirmation_token_id)}
@@ -993,7 +993,10 @@ fn StickyBar<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
                     {if screen.offer { t.page_shipping_saved_for_seller_acceptance() } else { t.page_secure_checkout_context() }}
                 </p>
             </div>
-            if let Some(payment) = &screen.session.payment_id {
+            if screen.session.payment_id.is_some() && screen.contact_unavailable() {
+                // A guest's payment is handed off only once Auth's contact can be read again.
+                <button type="button" class={(Button, Wide)} disabled>{t.page_continue_to_payment()}</button>
+            } else if let Some(payment) = &screen.session.payment_id {
                 <a class={(Button, Wide)} href={crate::checkout::payment_href(screen.guest, payment, None)}>
                     {t.page_continue_to_payment()}
                 </a>
@@ -1046,11 +1049,20 @@ fn Confirmation<'a>(t: CheckoutMsg, screen: &'a Screen, payment: &'a str) -> imp
                     </li>
                 }
             </ul>
-            <p>
-                <a class={Button} href={crate::checkout::payment_href(screen.guest, payment, None)}>
-                    {t.page_continue_to_payment()}
-                </a>
-            </p>
+            if screen.contact_unavailable() {
+                // As marketplace's page withholds the handoff (`paymentHandoffAvailable`): the payment
+                // stays where it is until the guest's contact can be read again.
+                <div class={Banner} data-tone="warning" role="status" data-checkout-contact-unavailable>
+                    <p class={Strong}>{t.page_contact_unavailable_title()}</p>
+                    <p>{t.page_contact_unavailable_description()}</p>
+                </div>
+            } else {
+                <p>
+                    <a class={Button} href={crate::checkout::payment_href(screen.guest, payment, None)}>
+                        {t.page_continue_to_payment()}
+                    </a>
+                </p>
+            }
         </section>
     }
 }

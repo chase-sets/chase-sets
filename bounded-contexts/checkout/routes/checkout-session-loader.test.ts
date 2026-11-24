@@ -1544,17 +1544,27 @@ describe("checkout web routes: checkout session loader", () => {
       { state: "bound", contactName: "Jane Smith", contactEmail: "jane@example.com" },
     ],
     [
-      "maps a null claim-context contact to unbound",
+      "maps a null own contact to unbound",
       () => mockGetGuestCheckoutContact.mockResolvedValue({ contactName: null, contactEmail: null }),
       { state: "unbound" },
     ],
     [
-      "maps a claim-context 429 to indeterminate rate-limited",
+      "maps a malformed own contact to indeterminate unreadable instead of bound",
+      () => mockGetGuestCheckoutContact.mockResolvedValue({ contactEmail: {}, contactName: true }),
+      { state: "indeterminate", reason: "unreadable" },
+    ],
+    [
+      "maps a non-object own contact to indeterminate unreadable",
+      () => mockGetGuestCheckoutContact.mockResolvedValue("guest@example.com"),
+      { state: "indeterminate", reason: "unreadable" },
+    ],
+    [
+      "maps an own-contact 429 to indeterminate rate-limited",
       () => mockGetGuestCheckoutContact.mockRejectedValue(Object.assign(new Error("limited"), { status: 429 })),
       { state: "indeterminate", reason: "rate-limited" },
     ],
     [
-      "maps an unreadable claim context to indeterminate unreadable",
+      "maps an unreadable own contact to indeterminate unreadable",
       () => mockGetGuestCheckoutContact.mockRejectedValue(Object.assign(new Error("refused"), { status: 401 })),
       { state: "indeterminate", reason: "unreadable" },
     ],

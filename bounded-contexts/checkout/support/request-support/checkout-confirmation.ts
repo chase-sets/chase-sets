@@ -17,29 +17,43 @@ import {
 } from "@chase-sets/checkout-order-source";
 import type { CheckoutSessionRow } from "../../features/sessions/read-model/queries";
 import { CheckoutDomainError } from "../runtime-support/common";
+import type { GuestContactAuthority } from "./guest-contact-authority";
 export { normalizeRequestedBalanceCreditAmount } from "./balance-credit";
 export { isPaymentConfirmationTokenId } from "@chase-sets/payments/server";
 
-/**
- * A guest's contact as Auth reports it. Only Auth's answer makes it `bound`; `unbound` means Auth
- * answered and nothing is bound; `indeterminate` means Auth did not answer (its claim limiter, or
- * any other failure), which is neither.
- */
-export type GuestContactAuthority =
-  | Readonly<{ state: "bound"; contactEmail: string; contactName: string }>
-  | Readonly<{ state: "unbound" }>
-  | Readonly<{ state: "indeterminate"; reason: "rate-limited" | "unreadable" }>;
+export type { GuestContactAuthority } from "./guest-contact-authority";
 
-type GuestCheckoutClaimContextBody = Readonly<{ contactEmail?: string | null; contactName?: string | null }>;
+const UNREADABLE_GUEST_CONTACT: GuestContactAuthority = { state: "indeterminate", reason: "unreadable" };
 
 /** A guest checkout can order and pay only once Auth holds its contact. */
 export function requiresBoundGuestContact(actor: Readonly<{ roleKey?: string | null }> | null | undefined) {
   return actor?.roleKey === "guest-buyer";
 }
 
-export function guestContactAuthorityFromClaimContext(context: GuestCheckoutClaimContextBody): GuestContactAuthority {
-  const contactEmail = String(context.contactEmail ?? "").trim();
-  const contactName = String(context.contactName ?? "").trim();
+function ownContactField(body: object, key: "contactEmail" | "contactName"): string | null | undefined {
+  const value: unknown = key in body ? (body as Record<string, unknown>)[key] : null;
+  if (value === null || value === undefined) {
+    return null;
+  }
+  return typeof value === "string" ? value.trim() : undefined;
+}
+
+/**
+ * Reads Auth's answer for the guest's own contact. Each field must be a string or null; any other
+ * shape is unreadable, so a malformed answer can never pass as bound.
+ */
+export function guestContactAuthorityFromOwnContact(body: unknown): GuestContactAuthority {
+  if (body === null || body === undefined) {
+    return { state: "unbound" };
+  }
+  if (typeof body !== "object" || Array.isArray(body)) {
+    return UNREADABLE_GUEST_CONTACT;
+  }
+  const contactEmail = ownContactField(body, "contactEmail");
+  const contactName = ownContactField(body, "contactName");
+  if (contactEmail === undefined || contactName === undefined) {
+    return UNREADABLE_GUEST_CONTACT;
+  }
   return contactEmail && contactName ? { state: "bound", contactEmail, contactName } : { state: "unbound" };
 }
 
@@ -53,9 +67,9 @@ export function guestContactAuthorityFromReadError(error: unknown): GuestContact
  */
 export async function readGuestContactAuthorityThroughAuth(request: Request): Promise<GuestContactAuthority> {
   try {
-    const context =
-      await createInternalAuthRequestApiClient(request).getGuestCheckoutContact<GuestCheckoutClaimContextBody>();
-    return guestContactAuthorityFromClaimContext(context ?? {});
+    return guestContactAuthorityFromOwnContact(
+      await createInternalAuthRequestApiClient(request).getGuestCheckoutContact<unknown>(),
+    );
   } catch (error) {
     return guestContactAuthorityFromReadError(error);
   }
@@ -98,10 +112,11 @@ export async function bindGuestContactThroughAuth(
     return { outcome: "invalid" };
   }
   try {
-    const bound = await createInternalAuthRequestApiClient(
-      request,
-    ).bindGuestCheckoutContact<GuestCheckoutClaimContextBody>({ email, displayName });
-    const authority = guestContactAuthorityFromClaimContext(bound ?? {});
+    const bound = await createInternalAuthRequestApiClient(request).bindGuestCheckoutContact<unknown>({
+      email,
+      displayName,
+    });
+    const authority = guestContactAuthorityFromOwnContact(bound);
     return authority.state === "bound" ? { outcome: "bound", authority } : { outcome: "retry-later" };
   } catch (error) {
     const status = authErrorStatus(error);

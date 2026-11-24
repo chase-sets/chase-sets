@@ -49,8 +49,8 @@ use serde_json::json;
 
 use crate::{
     api::{
-        ApiError, CheckoutSession, CheckoutSessions as _, ConfirmBody, ConfirmRefusal, FulfillmentPreview, PaymentPreview,
-        PaymentStart, PaymentSummary, SavedAddress, SavedInstrument, SellerGroup, SessionAddress, Wallet,
+        ApiError, AuthenticityChoice, CheckoutSession, CheckoutSessions as _, ConfirmBody, ConfirmRefusal, FulfillmentPreview,
+        PaymentPreview, PaymentStart, PaymentSummary, SavedAddress, SavedInstrument, SellerGroup, SessionAddress, Wallet,
     },
     app::{ACCOUNTS_VIEW, GUEST_CHECKOUT, ORDERS_MANAGE, PAYOUTS_VIEW, Shared, sign_in, url},
     auth::{CheckoutBuyer, Viewer},
@@ -489,6 +489,9 @@ pub struct Screen {
     pub contact_locked: bool,
     /// Sign in, back to this checkout, for a guest whose email already has an account.
     pub contact_sign_in: Option<String>,
+    /// This page's query without its one-shot receipt: the form posts to it, so a write's answer
+    /// and its sign-in return keep what the buyer was looking at, as marketplace's page does.
+    pub shown: Place,
     pub accelerated: bool,
     pub steps: Steps,
     pub can_confirm: bool,
@@ -819,6 +822,7 @@ impl Screen {
             contact_attempt: None,
             contact_locked: false,
             contact_sign_in: None,
+            shown: Place::default(),
             accelerated,
             steps,
             can_confirm,
@@ -1077,6 +1081,7 @@ async fn render(
         Answer::Contact(ContactStop::Shown { .. }) => (StatusCode::SERVICE_UNAVAILABLE, None),
         Answer::Nothing | Answer::Ambiguous => (StatusCode::OK, None),
     };
+    let shown = Place { after_write: None, ..place.clone() };
     let mut screen = Screen::new(reads, place, error);
     screen.ambiguous = matches!(answer, Answer::Ambiguous) || start_ambiguous;
     if let Answer::Contact(stop) = answer {
@@ -1085,9 +1090,9 @@ async fn render(
             ContactStop::Shown { locked, .. } => screen.contact_locked = locked && screen.bound_contact().is_some(),
         }
     }
-    screen.contact_sign_in = (screen.guest && !screen.offer).then(|| {
-        url::SignIn { ask: crate::sign_in::Ask::back_to(&url::BuyCheckout { id, place: Place::default() }.href()) }.href()
-    });
+    screen.contact_sign_in = (screen.guest && !screen.offer)
+        .then(|| url::SignIn { ask: crate::sign_in::Ask::back_to(&url::BuyCheckout { id, place: shown.clone() }.href()) }.href());
+    screen.shown = shown;
     // Auth withholds payment until the buyer verifies their email; Pay now would be refused.
     screen.verify_email = (!screen.offer && email_verification::awaits(actor, ORDERS_MANAGE)).then(|| {
         email_verification::sign_in_href(&url::BuyCheckout { id, place: Place::default() }.href(), Purpose::PayCheckout)
@@ -1308,7 +1313,8 @@ pub(crate) async fn write(
                 .await
         }
     };
-    let here = Place { payment_method_category: Some(visible.clone()), ..Place::default() };
+    // The page the form was posted from, without its receipt and with the method it showed.
+    let here = Place { after_write: None, payment_method_category: Some(visible.clone()), ..route.place.clone() };
     match form.intent.as_str() {
         "refresh-checkout-preview" => {
             // A guest's contact is saved to Auth before Update totals or Pay now writes anything.
@@ -1386,8 +1392,11 @@ pub(crate) async fn write(
                 return render(&req, &viewer, &config, &headers, client, &id, here, refused).await;
             }
             let committed = committed(&session);
+            // A guest's confirm can still be refused for its contact after the save above, so a
+            // guest's last choices go with confirm, which writes them only past its contact guard.
+            let choices_go_with_confirm = viewer.guest();
             let mut receipts = Vec::new();
-            if !committed {
+            if !committed && !choices_go_with_confirm {
                 let writes = async {
                     let a = caller.select_shipping_option(&id, &option).await?;
                     let b = select_authenticity_check(&caller, &session, &form).await?;
@@ -1408,6 +1417,18 @@ pub(crate) async fn write(
             let needs_quote =
                 !session.source_type.is_empty() && !offer && fingerprint.is_none() && session.payment_id.is_none() && !committed;
             if (review_changed && !committed) || needs_quote {
+                // Refreshing the review starts no payment, so a guest's choices are written here.
+                if choices_go_with_confirm {
+                    let writes = async {
+                        let a = caller.select_shipping_option(&id, &option).await?;
+                        let b = select_authenticity_check(&caller, &session, &form).await?;
+                        Ok::<_, ApiError>([a, b])
+                    };
+                    match writes.await {
+                        Ok(written) => receipts.extend(written),
+                        Err(error) => return refused(error, here).await,
+                    }
+                }
                 match caller.select_shipping_address(&id, &address).await {
                     Ok(receipt) => receipts.push(receipt),
                     Err(error) => return refused(error, here).await,
@@ -1440,8 +1461,13 @@ pub(crate) async fn write(
                 fulfillment_preview_revision: reviewed(&form.fulfillment_preview_revision).map(str::to_owned),
                 acknowledged_material_changes: form.acknowledged_material_changes == "true",
                 shipping_address: address,
+                shipping_option: (choices_go_with_confirm && !committed).then(|| option.clone()),
+                authenticity_check_opt_in: (choices_go_with_confirm && !committed && !offer).then(|| AuthenticityChoice {
+                    selected: form.opted_in(),
+                    quote_fingerprint: form.quote().map(str::to_owned),
+                }),
             };
-            let (confirmed, started) = match caller.confirm_checkout(&id, &body).await {
+            let (confirmed, started) = match caller.confirm_checkout(&id, &body, client).await {
                 Ok(confirmed) => (Ok(confirmed), None),
                 Err(ConfirmRefusal { error, started }) => (Err(error), started),
             };
