@@ -2258,7 +2258,8 @@ pub trait CheckoutSessions {
         option: &str,
         address: &SessionAddress,
     ) -> Result<Option<Receipt>, ApiError>;
-    async fn confirm_checkout(&self, id: &str, body: &ConfirmBody) -> Result<(Confirmed, Option<Receipt>), ApiError>;
+    /// Pay now (`POST ../confirm`): what it started and the receipt the next read waits for.
+    async fn confirm_checkout(&self, id: &str, body: &ConfirmBody) -> Result<(Confirmed, Option<Receipt>), ConfirmRefusal>;
     /// A started payment's amount and status (`GET /account/checkout-payment-summaries/{id}`).
     async fn checkout_payment_summary(&self, payment: &str) -> Result<PaymentSummary, ApiError>;
     /// Whether Payments recorded a payment for the session (`getCheckoutPaymentStart`).
@@ -2355,16 +2356,61 @@ impl CheckoutSessions for Caller<'_> {
         session_write(self, id, "fulfillment-preview", body).await
     }
 
-    async fn confirm_checkout(&self, id: &str, body: &ConfirmBody) -> Result<(Confirmed, Option<Receipt>), ApiError> {
+    async fn confirm_checkout(&self, id: &str, body: &ConfirmBody) -> Result<(Confirmed, Option<Receipt>), ConfirmRefusal> {
         // Confirm creates the orders and starts the payment with the provider, which can take longer
         // than the client's 10 s; cutting it off leaves orders without a payment. marketplace's
         // action sets no timeout on this write.
-        let req = self
+        let res = self
             .request(Method::POST, &format!("{CHECKOUT_SESSIONS}/{}/confirm", segment(id)), CHECKOUT)
             .timeout(CONFIRM_TIMEOUT)
-            .json(body);
-        self.write(req).await
+            .json(body)
+            .send()
+            .await
+            .map_err(ApiError::from)?;
+        let status = StatusCode::from_u16(res.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+        if status.is_success() {
+            let receipt = Receipt::from_response(res.headers());
+            return Ok((res.json().await.map_err(ApiError::from)?, receipt));
+        }
+        let body: serde_json::Value = res.json().await.unwrap_or_default();
+        let error = &body["error"];
+        let message = error["message"].as_str().unwrap_or_default().to_owned();
+        let code = error["code"].as_str().filter(|c| !c.is_empty()).map(str::to_owned);
+        let started = (status == StatusCode::CONFLICT && code.as_deref() == Some("payment_start_pending"))
+            .then(|| payment_start_receipt(&body))
+            .flatten();
+        Err(ConfirmRefusal { error: ApiError::Status { status, code, message }, started })
     }
+}
+
+/// Why Pay now started nothing: the API's refusal, and for `payment_start_pending` the receipt of
+/// the Checkout and Ordering writes Confirm made before Payments could see the order.
+#[derive(Debug)]
+pub struct ConfirmRefusal {
+    pub error: ApiError,
+    pub started: Option<Receipt>,
+}
+
+impl From<ApiError> for ConfirmRefusal {
+    fn from(error: ApiError) -> Self {
+        ConfirmRefusal { error, started: None }
+    }
+}
+
+/// The receipt a `payment_start_pending` refusal carries in its body (`commitPositions`), kept to
+/// its Checkout and Ordering sources and without its `commitPosition`, as marketplace's action reads
+/// it (`paymentStartRetryFreshWriteSource`), so the page waits for the order before it is read.
+fn payment_start_receipt(body: &serde_json::Value) -> Option<Receipt> {
+    let sources: Vec<&serde_json::Value> = body["commitPositions"]
+        .as_array()?
+        .iter()
+        .filter(|source| matches!(source["sourceContextName"].as_str(), Some("checkout" | "ordering")))
+        .collect();
+    if sources.is_empty() {
+        return None;
+    }
+    let sources = serde_json::value::RawValue::from_string(serde_json::to_string(&sources).ok()?).ok()?;
+    Receipt::of_metadata(None, &sources)
 }
 
 /// How long Pay now waits for Confirm (`confirm_checkout`).
