@@ -9,6 +9,7 @@ import {
   type StoredEvent,
 } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { createId, type AccountId } from "@chase-sets/primitives/typed-ids";
 import {
   decideMarketplaceListing,
@@ -40,14 +41,17 @@ import {
   type MarketplaceReporterKind,
 } from "../domain/domain";
 import {
+  marketplaceListingReportAutoUnlistPolicy,
+  type MarketplaceListingReportAutoUnlistPolicyValue,
+} from "../domain/listing-report-auto-unlist-policy";
+import {
   listingReportAttemptResultSchema,
   reviewReportAttemptResultSchema,
   reportAttemptFactSchema,
 } from "./attempt-result";
 import { marketplaceReporterFingerprint } from "./reporter";
 
-export const LISTING_REPORT_AUTO_UNLIST_THRESHOLD = 3;
-export const LISTING_REPORT_AUTO_UNLIST_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
 
 type ListingReportInput = Readonly<{
   attemptId: string;
@@ -86,7 +90,12 @@ function stableReportStreamId(targetType: "listing" | "review", targetId: string
 }
 
 export function createMarketplaceReportRuntime(
-  deps: Readonly<{ eventStore: EventStore; db: PgQueryable }>,
+  deps: Readonly<{
+    eventStore: EventStore;
+    db: PgQueryable;
+    /** The Marketplace platform-policy runtime; absent decides with the compiled policy defaults. */
+    policies?: Pick<PolicyRuntime, "resolvePolicy">;
+  }>,
 ): MarketplaceReportServices {
   const reportCodec = createPassthroughDomainEventCodec<MarketplaceReportEvent>();
   const { commandHandler } = createAggregateCommandHandler({
@@ -183,12 +192,27 @@ export function createMarketplaceReportRuntime(
     }
   }
 
+  /**
+   * The Listing Report Auto-Unlist Policy in force now. A rejected resolution
+   * propagates: the Report is already stored, and the retried attempt
+   * evaluates it under the terms in force at the retry.
+   */
+  async function resolveListingReportAutoUnlistPolicy(): Promise<MarketplaceListingReportAutoUnlistPolicyValue> {
+    if (!deps.policies) {
+      return marketplaceListingReportAutoUnlistPolicy.defaultValue;
+    }
+    const resolved = await deps.policies.resolvePolicy(marketplaceListingReportAutoUnlistPolicy);
+    return resolved.value;
+  }
+
   async function repairListingThreshold(
     listingId: string,
     reportId: string,
     countedAt: string,
     context: EventStoreContext,
   ) {
+    // One resolution decides both the window and the threshold of this evaluation.
+    const { distinctReporterThreshold, windowDays } = await resolveListingReportAutoUnlistPolicy();
     const events: StoredEvent[] = [];
     let afterGlobalPosition = ZERO_GLOBAL_POSITION;
     for (;;) {
@@ -202,7 +226,7 @@ export function createMarketplaceReportRuntime(
       afterGlobalPosition = page.at(-1)!.globalPosition;
     }
     const reporterKeys = new Set<string>();
-    const windowStartsAt = Date.parse(countedAt) - LISTING_REPORT_AUTO_UNLIST_WINDOW_MS;
+    const windowStartsAt = Date.parse(countedAt) - windowDays * MILLISECONDS_PER_DAY;
     const eligibleReports: { reportId: string; submittedAt: string }[] = [];
     for (const event of events) {
       if (event.eventType !== "marketplace.report.submitted") continue;
@@ -224,7 +248,7 @@ export function createMarketplaceReportRuntime(
             payload.reporterKey.replace(/^(account|visitor):/, ""),
           );
       reporterKeys.add(key);
-      if (reporterKeys.size >= LISTING_REPORT_AUTO_UNLIST_THRESHOLD)
+      if (reporterKeys.size >= distinctReporterThreshold)
         eligibleReports.push({ reportId: payload.reportId, submittedAt: payload.submittedAt });
     }
     let autoUnlisted = false;
@@ -263,7 +287,7 @@ export function createMarketplaceReportRuntime(
               type: "AutoUnlistListing",
               reportId: source.reportId,
               reportCount: reporterKeys.size,
-              threshold: LISTING_REPORT_AUTO_UNLIST_THRESHOLD,
+              threshold: distinctReporterThreshold,
               autoUnlistedAt: Date.parse(source.submittedAt) < activatedAtMs ? activatedAt : source.submittedAt,
               listingEnforcementActionId: createId("lea"),
             },
@@ -280,7 +304,7 @@ export function createMarketplaceReportRuntime(
     }
     return {
       reportCount: reporterKeys.size,
-      threshold: LISTING_REPORT_AUTO_UNLIST_THRESHOLD,
+      threshold: distinctReporterThreshold,
       autoUnlisted,
     };
   }

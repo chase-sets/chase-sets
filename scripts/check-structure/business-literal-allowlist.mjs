@@ -69,12 +69,4 @@ export const businessLiteralAllowlist = [
     owner: "discovery",
     ref: "#4293",
   },
-  {
-    file: "bounded-contexts/marketplace/features/reports/api/runtime.ts",
-    pattern: "LISTING_REPORT_AUTO_UNLIST_THRESHOLD",
-    reason:
-      "Report-count auto-unlist threshold predates and is outside the m110 audit's Tier 1-3 findings ledger (epic #4294 only tiered the $250 listing-gate + 3-review minimum). Named here as a future migration candidate rather than silently ignored.",
-    owner: "marketplace",
-    ref: "#4293",
-  },
 ];

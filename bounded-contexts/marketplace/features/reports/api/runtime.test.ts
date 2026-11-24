@@ -3,11 +3,14 @@ import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { getMutationResultCommandReceipt } from "@chase-sets/http/responses";
-import {
-  createMarketplaceReportRuntime,
-  LISTING_REPORT_AUTO_UNLIST_THRESHOLD,
-  LISTING_REPORT_AUTO_UNLIST_WINDOW_MS,
-} from "./runtime";
+import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
+import type { JsonValue } from "@chase-sets/primitives/json";
+import { createMarketplaceReportRuntime } from "./runtime";
+
+const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
+// The terms in force when no Listing Report Auto-Unlist Policy document is active.
+const DEFAULT_DISTINCT_REPORTER_THRESHOLD = 3;
+const DEFAULT_WINDOW_DAYS = 7;
 
 function createReviewModerationTargetDbStub(
   reviews: Readonly<
@@ -113,21 +116,22 @@ function reportListingAsVisitor(reports: ReturnType<typeof createMarketplaceRepo
   );
 }
 
-async function seedOldListingReport(eventStore: EventStore, listingId = "lst_reported") {
-  const submittedAt = new Date(Date.now() - LISTING_REPORT_AUTO_UNLIST_WINDOW_MS - 60_000).toISOString();
+/** Stores one earlier visitor Report against the Listing, submitted `ageMs` before now. */
+async function seedEarlierListingReport(eventStore: EventStore, ageMs: number, listingId = "lst_reported") {
+  const submittedAt = new Date(Date.now() - ageMs).toISOString();
   await eventStore.appendToStream({
-    streamId: `marketplace.report-listing-${listingId}-anon_old` as never,
+    streamId: `marketplace.report-listing-${listingId}-anon_earlier` as never,
     expectedVersion: 0,
     events: [
       {
         eventType: "marketplace.report.submitted",
         payload: {
-          reportId: "rpt_old",
+          reportId: "rpt_earlier",
           targetType: "listing",
           targetId: listingId,
           targetOwnerAccountId: "acc_seller",
           reporterKind: "visitor",
-          reporterKey: "anon_old",
+          reporterKey: "anon_earlier",
           reporterAccountId: null,
           reporterUserId: null,
           reason: "counterfeit-concern",
@@ -139,6 +143,47 @@ async function seedOldListingReport(eventStore: EventStore, listingId = "lst_rep
     ],
     context,
   });
+}
+
+/**
+ * A Marketplace policy runtime holding one Listing Report Auto-Unlist Policy
+ * document. It decodes the stored value through the policy's own decoder, as
+ * the platform resolver does, and records what each resolution asked for.
+ */
+function createListingReportPolicies(document: JsonValue) {
+  let stored: JsonValue | Error = document;
+  const resolutions: { policyKey: string; at: string | undefined }[] = [];
+  const policies: Pick<PolicyRuntime, "resolvePolicy"> = {
+    resolvePolicy(definition, params) {
+      resolutions.push({ policyKey: definition.policyKey, at: params?.at });
+      if (stored instanceof Error) return Promise.reject(stored);
+      return Promise.resolve({
+        policyKey: definition.policyKey,
+        value: definition.decodeValue(stored),
+        source: "policy",
+        documentId: "pol_listing_report_auto_unlist",
+        effectiveFrom: "2026-07-01T00:00:00.000Z",
+        effectiveUntil: null,
+        resolvedAt: new Date().toISOString(),
+      });
+    },
+  };
+  return {
+    policies,
+    resolutions,
+    revise(next: JsonValue) {
+      stored = next;
+    },
+    failWith(error: Error) {
+      stored = error;
+    },
+  };
+}
+
+const currentTimeResolution = { policyKey: "marketplace.listing-report-auto-unlist", at: undefined };
+
+function autoUnlistedEvents(allEvents: readonly { eventType: string; payload: unknown }[]) {
+  return allEvents.filter((event) => event.eventType === "marketplace.listing.auto-unlisted");
 }
 
 describe("Marketplace report runtime", () => {
@@ -197,10 +242,10 @@ describe("Marketplace report runtime", () => {
   it("auto-unlists an active listing only when the distinct reporter window threshold is reached", async () => {
     const { eventStore, allEvents } = createInMemoryEventStore();
     await seedActiveListing(eventStore);
-    await seedOldListingReport(eventStore);
+    await seedEarlierListingReport(eventStore, DEFAULT_WINDOW_DAYS * MILLISECONDS_PER_DAY + 60_000);
     const reports = createMarketplaceReportRuntime({ eventStore, db: createReviewModerationTargetDbStub({}) });
 
-    for (let index = 1; index < LISTING_REPORT_AUTO_UNLIST_THRESHOLD; index += 1) {
+    for (let index = 1; index < DEFAULT_DISTINCT_REPORTER_THRESHOLD; index += 1) {
       const result = await reports.reportListing(
         {
           attemptId: `listing_report_attempt_${index.toString().padStart(4, "0")}`,
@@ -236,13 +281,13 @@ describe("Marketplace report runtime", () => {
     );
 
     expect(thresholdResult).toMatchObject({
-      reportCount: LISTING_REPORT_AUTO_UNLIST_THRESHOLD,
-      threshold: LISTING_REPORT_AUTO_UNLIST_THRESHOLD,
+      reportCount: DEFAULT_DISTINCT_REPORTER_THRESHOLD,
+      threshold: DEFAULT_DISTINCT_REPORTER_THRESHOLD,
       autoUnlisted: true,
     });
     expect(allEvents.map((event) => event.eventType)).toContain("marketplace.listing.auto-unlisted");
     expect(allEvents.filter((event) => event.eventType === "marketplace.mutation-attempt.completed")).toHaveLength(
-      LISTING_REPORT_AUTO_UNLIST_THRESHOLD,
+      DEFAULT_DISTINCT_REPORTER_THRESHOLD,
     );
     expect(getMutationResultCommandReceipt(thresholdResult)?.commitEventIds).toEqual([allEvents.at(-1)!.eventId]);
   });
@@ -291,7 +336,7 @@ describe("Marketplace report runtime", () => {
       vi.mocked(createId).mockClear();
 
       const results = [];
-      for (let index = 1; index <= LISTING_REPORT_AUTO_UNLIST_THRESHOLD + 1; index += 1) {
+      for (let index = 1; index <= DEFAULT_DISTINCT_REPORTER_THRESHOLD + 1; index += 1) {
         results.push(await report(index));
       }
 
@@ -300,15 +345,15 @@ describe("Marketplace report runtime", () => {
       const leaMints = calls.flatMap(([prefix], index) => (prefix === "lea" ? [minted[index]!.value] : []));
       const removals = allEvents.filter((event) => event.eventType === "marketplace.listing.auto-unlisted");
       expect(removals).toHaveLength(1);
-      const thresholdReport = results[LISTING_REPORT_AUTO_UNLIST_THRESHOLD - 1]!;
+      const thresholdReport = results[DEFAULT_DISTINCT_REPORTER_THRESHOLD - 1]!;
       const payload = removals[0]!.payload as Readonly<Record<string, unknown>> & {
         autoUnlistedAt: string;
         listingEnforcement: Readonly<{ listingEnforcementActionId: string }>;
       };
       expect(payload).toEqual({
         reportId: thresholdReport.reportId,
-        reportCount: LISTING_REPORT_AUTO_UNLIST_THRESHOLD,
-        threshold: LISTING_REPORT_AUTO_UNLIST_THRESHOLD,
+        reportCount: DEFAULT_DISTINCT_REPORTER_THRESHOLD,
+        threshold: DEFAULT_DISTINCT_REPORTER_THRESHOLD,
         autoUnlistedAt: payload.autoUnlistedAt,
         listingEnforcement: {
           version: 1,
@@ -463,6 +508,190 @@ describe("Marketplace report runtime", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  describe("Listing Report Auto-Unlist Policy", () => {
+    const reportedAt = new Date("2026-07-08T12:00:00.000Z");
+
+    async function activeListingAt(time: Date) {
+      vi.setSystemTime(time);
+      const store = createInMemoryEventStore();
+      await seedActiveListing(store.eventStore);
+      return store;
+    }
+
+    it.each([
+      { age: "exactly 7 days", beyondWindowMs: 0, counted: true },
+      { age: "one millisecond more than 7 days", beyondWindowMs: 1, counted: false },
+    ])(
+      "with no policy document, counts a Report submitted $age before the evaluated Report: $counted",
+      async ({ beyondWindowMs, counted }) => {
+        vi.useFakeTimers({ toFake: ["Date"] });
+        try {
+          const { eventStore, allEvents } = await activeListingAt(reportedAt);
+          await seedEarlierListingReport(eventStore, 7 * MILLISECONDS_PER_DAY + beyondWindowMs);
+          const reports = createMarketplaceReportRuntime({ eventStore, db: createReviewModerationTargetDbStub({}) });
+
+          expect(await reportListingAsVisitor(reports, 1)).toMatchObject({
+            reportCount: counted ? 2 : 1,
+            threshold: 3,
+            autoUnlisted: false,
+          });
+          const second = await reportListingAsVisitor(reports, 2);
+          expect(second).toMatchObject({ reportCount: counted ? 3 : 2, threshold: 3, autoUnlisted: counted });
+          if (!counted) {
+            expect(autoUnlistedEvents(allEvents)).toEqual([]);
+            expect(await reportListingAsVisitor(reports, 3)).toMatchObject({
+              reportCount: 3,
+              threshold: 3,
+              autoUnlisted: true,
+            });
+          }
+          expect(autoUnlistedEvents(allEvents)).toMatchObject([{ payload: { reportCount: 3, threshold: 3 } }]);
+        } finally {
+          vi.useRealTimers();
+        }
+      },
+    );
+
+    it("unlists at the second distinct reporter inside one day when the active document says 2 reporters in 1 day", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        const { eventStore, allEvents } = await activeListingAt(reportedAt);
+        // Inside the default 7 days, outside this document's 1 day.
+        await seedEarlierListingReport(eventStore, MILLISECONDS_PER_DAY + 1);
+        const { policies, resolutions } = createListingReportPolicies({ distinctReporterThreshold: 2, windowDays: 1 });
+        const reports = createMarketplaceReportRuntime({
+          eventStore,
+          db: createReviewModerationTargetDbStub({}),
+          policies,
+        });
+
+        expect(await reportListingAsVisitor(reports, 1)).toMatchObject({
+          reportCount: 1,
+          threshold: 2,
+          autoUnlisted: false,
+        });
+        expect(autoUnlistedEvents(allEvents)).toEqual([]);
+        vi.setSystemTime(new Date(reportedAt.getTime() + 60_000));
+        const second = await reportListingAsVisitor(reports, 2);
+
+        expect(second).toMatchObject({ reportCount: 2, threshold: 2, autoUnlisted: true });
+        expect(autoUnlistedEvents(allEvents)).toMatchObject([
+          { payload: { reportId: second.reportId, reportCount: 2, threshold: 2 } },
+        ]);
+        // One resolution per evaluation, at the current time, decides both numbers.
+        expect(resolutions).toEqual([currentTimeResolution, currentTimeResolution]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("counts a Report submitted exactly one day earlier under a 1-day document", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        const { eventStore, allEvents } = await activeListingAt(reportedAt);
+        await seedEarlierListingReport(eventStore, MILLISECONDS_PER_DAY);
+        const { policies } = createListingReportPolicies({ distinctReporterThreshold: 2, windowDays: 1 });
+        const reports = createMarketplaceReportRuntime({
+          eventStore,
+          db: createReviewModerationTargetDbStub({}),
+          policies,
+        });
+
+        const first = await reportListingAsVisitor(reports, 1);
+
+        expect(first).toMatchObject({ reportCount: 2, threshold: 2, autoUnlisted: true });
+        expect(autoUnlistedEvents(allEvents)).toMatchObject([
+          { payload: { reportId: first.reportId, reportCount: 2, threshold: 2 } },
+        ]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("evaluates the retry of a stored Report under the terms revised since it was stored", async () => {
+      const { eventStore, allEvents } = createInMemoryEventStore();
+      await seedActiveListing(eventStore);
+      const { policies, resolutions, revise } = createListingReportPolicies({
+        distinctReporterThreshold: 3,
+        windowDays: 7,
+      });
+      const db = createReviewModerationTargetDbStub({});
+      const reports = createMarketplaceReportRuntime({ eventStore, db, policies });
+      const interruptedBeforeCompletion = createMarketplaceReportRuntime({
+        eventStore: {
+          ...eventStore,
+          appendToStreams: () => {
+            throw new Error("Effect interrupted");
+          },
+        },
+        db,
+        policies,
+      });
+
+      await reportListingAsVisitor(reports, 1);
+      await expect(reportListingAsVisitor(interruptedBeforeCompletion, 2)).rejects.toThrow("Effect interrupted");
+      const stored = allEvents.filter(({ eventType }) => eventType === "marketplace.report.submitted");
+      expect(stored).toHaveLength(2);
+      expect(autoUnlistedEvents(allEvents)).toEqual([]);
+
+      revise({ distinctReporterThreshold: 2, windowDays: 7 });
+      const retry = await reportListingAsVisitor(reports, 2);
+
+      expect(retry).toMatchObject({
+        reportId: stored[1]!.payload.reportId,
+        reportCount: 2,
+        threshold: 2,
+        autoUnlisted: true,
+      });
+      expect(allEvents.filter(({ eventType }) => eventType === "marketplace.report.submitted")).toHaveLength(2);
+      expect(autoUnlistedEvents(allEvents)).toMatchObject([
+        { payload: { reportId: retry.reportId, reportCount: 2, threshold: retry.threshold } },
+      ]);
+      // The first Report, the interrupted evaluation and its retry each resolved once.
+      expect(resolutions).toEqual([currentTimeResolution, currentTimeResolution, currentTimeResolution]);
+    });
+
+    it("fails the attempt on a rejected resolution, keeps the Report and unlists nothing until the retry", async () => {
+      const { eventStore, allEvents } = createInMemoryEventStore();
+      await seedActiveListing(eventStore);
+      const { policies, resolutions, revise, failWith } = createListingReportPolicies({
+        distinctReporterThreshold: 3,
+        windowDays: 7,
+      });
+      const reports = createMarketplaceReportRuntime({
+        eventStore,
+        db: createReviewModerationTargetDbStub({}),
+        policies,
+      });
+      await reportListingAsVisitor(reports, 1);
+      await reportListingAsVisitor(reports, 2);
+
+      failWith(new Error("platform policy documents are unavailable"));
+      await expect(reportListingAsVisitor(reports, 3)).rejects.toThrow("platform policy documents are unavailable");
+
+      const stored = allEvents.filter(({ eventType }) => eventType === "marketplace.report.submitted");
+      expect(stored).toHaveLength(3);
+      expect(autoUnlistedEvents(allEvents)).toEqual([]);
+      expect(allEvents.filter(({ eventType }) => eventType === "marketplace.mutation-attempt.completed")).toHaveLength(
+        2,
+      );
+      expect(allEvents.at(-1)).toBe(stored[2]);
+
+      revise({ distinctReporterThreshold: 3, windowDays: 7 });
+      const retry = await reportListingAsVisitor(reports, 3);
+
+      expect(retry).toMatchObject({
+        reportId: stored[2]!.payload.reportId,
+        reportCount: 3,
+        threshold: 3,
+        autoUnlisted: true,
+      });
+      expect(allEvents.filter(({ eventType }) => eventType === "marketplace.report.submitted")).toHaveLength(3);
+      expect(autoUnlistedEvents(allEvents)).toMatchObject([{ payload: { reportId: retry.reportId, threshold: 3 } }]);
+      expect(resolutions).toHaveLength(4);
+    });
   });
 
   it("replays the first report and rejects duplicate reports using a different attempt", async () => {

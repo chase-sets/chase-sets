@@ -97,6 +97,7 @@ import {
   getLockedFeeListingCohortSummary,
   marketplaceListingBulkPriceUpdatePolicy,
   marketplaceListingGatePolicy,
+  marketplaceListingReportAutoUnlistPolicy,
   marketplaceOfferPaymentConsentPolicy,
   marketplaceRealtimeManifest,
   marketplaceRealtimeTopicPolicyManifest,
@@ -590,6 +591,7 @@ export function createPlatformApiHost(
         marketplaceOfferPaymentConsentPolicy,
         marketplaceSellerBehavioralMetricsPolicy,
         marketplaceListingBulkPriceUpdatePolicy,
+        marketplaceListingReportAutoUnlistPolicy,
       ] as unknown as readonly PolicyDefinition<JsonValue>[],
       write: lazyPolicyConsoleWritePort(
         () => runtime?.services.marketplace as { policies?: PolicyConsoleWritePort } | undefined,
