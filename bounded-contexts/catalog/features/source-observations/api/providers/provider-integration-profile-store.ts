@@ -122,13 +122,6 @@ export async function seedCatalogProviderIntegrationProfileVersions(
   return createCatalogProviderIntegrationProfileVersionStore(db).seedProfileVersions();
 }
 
-export async function seedCatalogProviderIntegrationProfileVersionsInTransaction(
-  db: PgQueryable,
-  versions: readonly CatalogProviderIntegrationProfileVersionRecord[] = catalogProviderIntegrationProfileVersions,
-): Promise<readonly CatalogProviderIntegrationProfileVersionRecord[]> {
-  return seedProfileVersionsInTransaction(db, versions);
-}
-
 async function seedProfileVersionsInTransaction(
   db: PgQueryable,
   versions: readonly CatalogProviderIntegrationProfileVersionRecord[],

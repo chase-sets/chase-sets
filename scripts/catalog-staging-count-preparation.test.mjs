@@ -145,9 +145,6 @@ describe("catalog staging count preparation workflow (#9591)", () => {
   it("keeps UAT and capture unchanged and enrolls only shared staging registrations", () => {
     const uat = readFileSync(resolve(".github/workflows/catalog-staging-provider-uat.yml"), "utf8");
     expect(uat).not.toMatch(/count-preparation|counts\/(quote|acquire)/);
-    expect(readFileSync(resolve("scripts/catalog-integration-reset.test.mjs"), "utf8")).toContain(
-      `  "${workflowFile}",`,
-    );
     expect(stagingRefreshOverlapWorkflowFiles).toContain(workflowFile);
     const fence = scanPlaywrightArtifactUploads();
     expect(fence.status).toBe("pass");

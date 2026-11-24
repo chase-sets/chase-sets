@@ -2082,9 +2082,6 @@ jobs:
     it("lists the catalog-only pooled consumers as explicit exclusions", () => {
       expect(exclusionIds(real.fields).filter((id) => id.startsWith("workflow:"))).toEqual([
         expect.stringMatching(
-          /^workflow:\.github\/workflows\/catalog-integration-staging-reset\.yml#[a-z0-9-]+\/\d+ contexts-exclude-collections$/,
-        ),
-        expect.stringMatching(
           /^workflow:\.github\/workflows\/catalog-provider-refresh-watch\.yml#[a-z0-9-]+\/\d+ contexts-exclude-collections$/,
         ),
       ]);

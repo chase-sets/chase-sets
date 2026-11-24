@@ -247,7 +247,6 @@ export const releaseQualificationScopeRegistry = Object.freeze({
   // additionally detected dynamically at classification time.
   operationalScriptPaths: Object.freeze([
     "scripts/apply-digitalocean-database-grant.mjs",
-    "scripts/catalog-integration-reset.ts",
     "scripts/catalog-production-completion-report.ts",
     "scripts/discovery-search-embedding-backfill.mjs",
     "scripts/production-readiness-gate.mjs",
@@ -258,7 +257,6 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "scripts/merge-qualification-policy.json",
     "scripts/merge-qualification.mjs",
     "scripts/release-qualification-scope.mjs",
-    "scripts/run-catalog-integration-reset.mjs",
     "scripts/staging-bootstrap-hook-drill.mjs",
     "scripts/staging-projection-operations.mjs",
     "scripts/staging-refresh-preflight-config.mjs",
@@ -276,7 +274,6 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "browser-boundary-timeout-verifier.yml": "ci",
     "catalog-completion-manifest.yml": "ci",
     "catalog-completion-report.yml": "ci",
-    "catalog-integration-staging-reset.yml": "release",
     "catalog-provider-refresh-watch.yml": "release",
     "catalog-staging-count-preparation.yml": "release",
     "catalog-staging-provider-uat.yml": "release",
