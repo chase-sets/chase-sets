@@ -7,6 +7,7 @@ import {
   guestCheckoutActor,
   MockCheckoutApiError,
   mockCreateAuthRequestApiClient,
+  mockCreateInternalAuthRequestApiClient,
   mockCreateCheckoutRequestApiClient,
   mockCreateIdentityRequestApiClient,
   mockCreateMarketplaceRequestApiClient,
@@ -17,6 +18,7 @@ import {
   mockGetCheckoutStatus,
   mockGetCheckoutSession,
   mockGetGuestCheckoutClaimContext,
+  mockGetGuestCheckoutContact,
   mockListSellListShipFromAddresses,
   MockMarketplaceApiError,
   mockPreviewCheckoutFulfillment,
@@ -47,6 +49,7 @@ vi.mock("@chase-sets/auth/server", async () => {
   return {
     ...actual,
     createAuthRequestApiClient: mockCreateAuthRequestApiClient,
+    createInternalAuthRequestApiClient: mockCreateInternalAuthRequestApiClient,
   };
 });
 
@@ -1533,8 +1536,30 @@ describe("checkout web routes: checkout session loader", () => {
     );
   });
 
-  it("loads Auth-owned guest checkout contact as checkout defaults", async () => {
+  it.each([
+    [
+      "loads bound guest contact through the internal Auth client",
+      () => mockGetGuestCheckoutContact.mockResolvedValue({ contactName: "Jane Smith", contactEmail: "jane@example.com" }),
+      { state: "bound", contactName: "Jane Smith", contactEmail: "jane@example.com" },
+    ],
+    [
+      "maps a null claim-context contact to unbound",
+      () => mockGetGuestCheckoutContact.mockResolvedValue({ contactName: null, contactEmail: null }),
+      { state: "unbound" },
+    ],
+    [
+      "maps a claim-context 429 to indeterminate rate-limited",
+      () => mockGetGuestCheckoutContact.mockRejectedValue(Object.assign(new Error("limited"), { status: 429 })),
+      { state: "indeterminate", reason: "rate-limited" },
+    ],
+    [
+      "maps an unreadable claim context to indeterminate unreadable",
+      () => mockGetGuestCheckoutContact.mockRejectedValue(Object.assign(new Error("refused"), { status: 401 })),
+      { state: "indeterminate", reason: "unreadable" },
+    ],
+  ] as const)("%s", async (_name, readGuestContact, expectedGuestContact) => {
     mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
+    readGuestContact();
     mockGetCheckoutSession.mockResolvedValue({
       session_id: "chk_1",
       source_type: "buy-now",
@@ -1579,10 +1604,6 @@ describe("checkout web routes: checkout session loader", () => {
       marketplace_checkout_fee: { total_amount: "27.10" },
       wallet_credit: { applied_amount: "0.00" },
     });
-    mockGetGuestCheckoutClaimContext.mockResolvedValue({
-      contactName: "Jane Smith",
-      contactEmail: " Jane@Example.com ",
-    });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getCheckoutSession: mockGetCheckoutSession,
     });
@@ -1592,10 +1613,6 @@ describe("checkout web routes: checkout session loader", () => {
     mockCreatePaymentsRequestApiClient.mockReturnValue({
       previewCheckoutStatus: mockPreviewCheckoutStatus,
     });
-    mockCreateAuthRequestApiClient.mockReturnValue({
-      getGuestCheckoutClaimContext: mockGetGuestCheckoutClaimContext,
-    });
-
     const result = await checkoutSessionLoader({
       request: new Request("http://localhost/checkout/buy/session/chk_1", {
         headers: { cookie: "chase_sets_guest_checkout=guest_token" },
@@ -1604,11 +1621,16 @@ describe("checkout web routes: checkout session loader", () => {
       context: undefined,
     } as never);
 
-    expect(mockGetGuestCheckoutClaimContext).toHaveBeenCalledWith({});
-    expect(result.guestCheckoutContact).toEqual({
-      contactName: "Jane Smith",
-      contactEmail: "jane@example.com",
-    });
+    expect(mockGetGuestCheckoutContact).toHaveBeenCalledTimes(1);
+    expect(mockGetGuestCheckoutClaimContext).not.toHaveBeenCalled();
+    expect(mockCreateAuthRequestApiClient).not.toHaveBeenCalled();
+    expect(result.guestContact).toEqual(expectedGuestContact);
+    // Billing defaults come from a bound contact only, never from a guess.
+    expect(result.paymentElementDefaultValues).toEqual(
+      expectedGuestContact.state === "bound"
+        ? { billingDetails: { email: "jane@example.com", name: "Jane Smith" } }
+        : null,
+    );
   });
 
   it("returns checkout-owned recovery when checkout access is missing", async () => {

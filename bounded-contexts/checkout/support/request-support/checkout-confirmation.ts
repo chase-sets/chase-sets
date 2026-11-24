@@ -1,3 +1,4 @@
+import { createInternalAuthRequestApiClient } from "@chase-sets/auth/server";
 import { createOrderingRequestApiClient } from "@chase-sets/ordering/server";
 import { createPaymentsRequestApiClient, hasPaymentsFreshReadAfterWriteSource } from "@chase-sets/payments/server";
 import { createMarketplaceRequestApiClient, MarketplaceApiError } from "@chase-sets/marketplace/server";
@@ -18,6 +19,107 @@ import type { CheckoutSessionRow } from "../../features/sessions/read-model/quer
 import { CheckoutDomainError } from "../runtime-support/common";
 export { normalizeRequestedBalanceCreditAmount } from "./balance-credit";
 export { isPaymentConfirmationTokenId } from "@chase-sets/payments/server";
+
+/**
+ * A guest's contact as Auth reports it. Only Auth's answer makes it `bound`; `unbound` means Auth
+ * answered and nothing is bound; `indeterminate` means Auth did not answer (its claim limiter, or
+ * any other failure), which is neither.
+ */
+export type GuestContactAuthority =
+  | Readonly<{ state: "bound"; contactEmail: string; contactName: string }>
+  | Readonly<{ state: "unbound" }>
+  | Readonly<{ state: "indeterminate"; reason: "rate-limited" | "unreadable" }>;
+
+type GuestCheckoutClaimContextBody = Readonly<{ contactEmail?: string | null; contactName?: string | null }>;
+
+/** A guest checkout can order and pay only once Auth holds its contact. */
+export function requiresBoundGuestContact(actor: Readonly<{ roleKey?: string | null }> | null | undefined) {
+  return actor?.roleKey === "guest-buyer";
+}
+
+export function guestContactAuthorityFromClaimContext(context: GuestCheckoutClaimContextBody): GuestContactAuthority {
+  const contactEmail = String(context.contactEmail ?? "").trim();
+  const contactName = String(context.contactName ?? "").trim();
+  return contactEmail && contactName ? { state: "bound", contactEmail, contactName } : { state: "unbound" };
+}
+
+export function guestContactAuthorityFromReadError(error: unknown): GuestContactAuthority {
+  return { state: "indeterminate", reason: authErrorStatus(error) === 429 ? "rate-limited" : "unreadable" };
+}
+
+/**
+ * Reads the guest's own contact from Auth (`GET /guest-checkout/contact`), which only the internal
+ * client may call. It has limiters of its own, so a checkout's renders spend none of the claim flow's.
+ */
+export async function readGuestContactAuthorityThroughAuth(request: Request): Promise<GuestContactAuthority> {
+  try {
+    const context =
+      await createInternalAuthRequestApiClient(request).getGuestCheckoutContact<GuestCheckoutClaimContextBody>();
+    return guestContactAuthorityFromClaimContext(context ?? {});
+  } catch (error) {
+    return guestContactAuthorityFromReadError(error);
+  }
+}
+
+/** How a guest's contact save ended. Only `bound` lets the checkout continue. */
+export type GuestContactBindResult =
+  | Readonly<{ outcome: "bound"; authority: Extract<GuestContactAuthority, { state: "bound" }> }>
+  | Readonly<{ outcome: "sign-in-required" | "invalid" | "retry-later" | "locked" }>;
+
+function authErrorStatus(error: unknown) {
+  return error instanceof Error && "status" in error && typeof error.status === "number" ? error.status : null;
+}
+
+function authErrorCode(error: unknown) {
+  if (!(error instanceof Error) || !("body" in error)) {
+    return null;
+  }
+  const body = error.body;
+  if (!body || typeof body !== "object" || !("error" in body)) {
+    return null;
+  }
+  const detail = body.error;
+  return detail && typeof detail === "object" && "code" in detail && typeof detail.code === "string"
+    ? detail.code
+    : null;
+}
+
+/**
+ * Binds a guest's contact through Auth's internal route. Auth spends its contact limiter before it
+ * validates the body, so an empty name or email is refused here without a call.
+ */
+export async function bindGuestContactThroughAuth(
+  request: Request,
+  input: Readonly<{ email: string; displayName: string }>,
+): Promise<GuestContactBindResult> {
+  const email = input.email.trim().toLowerCase();
+  const displayName = input.displayName.trim();
+  if (!email || !displayName || !email.includes("@")) {
+    return { outcome: "invalid" };
+  }
+  try {
+    const bound = await createInternalAuthRequestApiClient(request).bindGuestCheckoutContact<
+      GuestCheckoutClaimContextBody
+    >({ email, displayName });
+    const authority = guestContactAuthorityFromClaimContext(bound ?? {});
+    return authority.state === "bound" ? { outcome: "bound", authority } : { outcome: "retry-later" };
+  } catch (error) {
+    const status = authErrorStatus(error);
+    const code = authErrorCode(error);
+    if (status === 409 && code === "account_sign_in_required") {
+      return { outcome: "sign-in-required" };
+    }
+    if (status === 409 && code === "guest_contact_locked") {
+      return { outcome: "locked" };
+    }
+    if (status === 400) {
+      return { outcome: "invalid" };
+    }
+    // A limiter refusal, or a save whose outcome is unknown: the guest keeps the values and tries
+    // again; an identical retry is idempotent in Auth.
+    return { outcome: "retry-later" };
+  }
+}
 
 export async function readCheckoutPaymentStartThroughPayments(request: Request, sessionId: string) {
   try {

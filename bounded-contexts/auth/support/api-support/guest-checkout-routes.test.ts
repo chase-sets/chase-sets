@@ -877,3 +877,91 @@ describe("guest checkout auth routes", () => {
     ]);
   });
 });
+
+describe("guest checkout own-contact read", () => {
+  function read(app: ReturnType<typeof buildApp>, token: string, ip: string) {
+    return app.request("/guest-checkout/contact", {
+      method: "GET",
+      headers: { cookie: `chase_sets_guest_checkout=${token}`, "x-forwarded-for": ip },
+    });
+  }
+  function claimContext(app: ReturnType<typeof buildApp>, token: string, ip: string) {
+    return app.request("/guest-checkout/claim-context", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        cookie: `chase_sets_guest_checkout=${token}`,
+        "x-forwarded-for": ip,
+      },
+      body: JSON.stringify({ paymentId: "pay_1" }),
+    });
+  }
+
+  it("answers only the caller's own bound contact or nulls, and looks up no email", async () => {
+    const services = createServices({ existingUser: { user_id: "usr_other" } });
+    useGuestTokenState(services, guestTokenRecord({ account_id: "acc_read_bound" }));
+    const app = buildApp(services, createGuestActor("acc_read_bound"));
+    const bound = await read(app, "read_bound_token", "192.0.2.1");
+    expect(bound.status).toBe(200);
+    await expect(bound.json()).resolves.toEqual({ contactEmail: "buyer@example.com", contactName: "Buyer Example" });
+
+    const unboundServices = createServices({ existingUser: { user_id: "usr_other" } });
+    useGuestTokenState(
+      unboundServices,
+      guestTokenRecord({ account_id: "acc_read_unbound", contact_email: null, contact_name: null }),
+    );
+    const unboundApp = buildApp(unboundServices, createGuestActor("acc_read_unbound"));
+    const unbound = await read(unboundApp, "read_unbound_token", "192.0.2.2");
+    expect(unbound.status).toBe(200);
+    await expect(unbound.json()).resolves.toEqual({ contactEmail: null, contactName: null });
+
+    expect(services.identity.getUserByEmail).not.toHaveBeenCalled();
+    expect(unboundServices.identity.getUserByEmail).not.toHaveBeenCalled();
+  });
+
+  it("refuses a caller that is not this guest checkout", async () => {
+    const services = createServices({ existingUser: null });
+    useGuestTokenState(services, guestTokenRecord({ account_id: "acc_read_owner" }));
+    const app = buildApp(services, createGuestActor("acc_read_someone_else"));
+    const response = await read(app, "read_other_token", "192.0.2.3");
+    expect(response.status).toBe(401);
+    expect(await response.text()).not.toContain("buyer@example.com");
+  });
+
+  it("serves an ordinary checkout's renders and confirm without spending the claim limiters", async () => {
+    const services = createServices({ existingUser: null });
+    useGuestTokenState(services, guestTokenRecord({ account_id: "acc_read_checkout" }));
+    const app = buildApp(services, createGuestActor("acc_read_checkout"));
+    const statuses: number[] = [];
+    // Eight renders (first load, each step's save, Update totals, a card error, Pay) and the confirm read.
+    for (let render = 0; render < 9; render += 1) {
+      statuses.push((await read(app, "read_checkout_token", "192.0.2.10")).status);
+    }
+    expect(statuses).toEqual(Array.from({ length: 9 }, () => 200));
+
+    // The claim flow still has its whole per-account budget of five, and still spends it.
+    const claimStatuses: number[] = [];
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      claimStatuses.push((await claimContext(app, "read_checkout_token", `192.0.2.${20 + attempt}`)).status);
+    }
+    expect(claimStatuses).toEqual([200, 200, 200, 200, 200, 429]);
+  });
+
+  it("refuses a guest checkout's own-contact reads past sixty an hour", async () => {
+    const services = createServices({ existingUser: null });
+    useGuestTokenState(services, guestTokenRecord({ account_id: "acc_read_capped" }));
+    const app = buildApp(services, createGuestActor("acc_read_capped"));
+    const statuses: number[] = [];
+    for (let attempt = 0; attempt < 61; attempt += 1) {
+      statuses.push((await read(app, "read_capped_token", `198.18.${Math.floor(attempt / 200)}.${attempt % 200}`)).status);
+    }
+    expect(statuses.slice(0, 60).every((status) => status === 200)).toBe(true);
+    expect(statuses[60]).toBe(429);
+
+    // Another guest checkout's reads are counted apart.
+    const otherServices = createServices({ existingUser: null });
+    useGuestTokenState(otherServices, guestTokenRecord({ account_id: "acc_read_other" }));
+    const otherApp = buildApp(otherServices, createGuestActor("acc_read_other"));
+    expect((await read(otherApp, "read_other_capped_token", "198.18.9.1")).status).toBe(200);
+  });
+});

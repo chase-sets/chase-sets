@@ -51,6 +51,30 @@ vi.mock("@chase-sets/payments/server", async () => {
   };
 });
 
+const {
+  mockBindGuestCheckoutContact,
+  mockCreateAuthRequestApiClient,
+  mockCreateInternalAuthRequestApiClient,
+  mockGetGuestCheckoutContact,
+} = vi.hoisted(() => {
+  const mockBindGuestCheckoutContact = vi.fn();
+  const mockGetGuestCheckoutContact = vi.fn();
+  return {
+    mockBindGuestCheckoutContact,
+    mockGetGuestCheckoutContact,
+    mockCreateAuthRequestApiClient: vi.fn(),
+    mockCreateInternalAuthRequestApiClient: vi.fn((_request: Request) => ({
+      bindGuestCheckoutContact: mockBindGuestCheckoutContact,
+      getGuestCheckoutContact: mockGetGuestCheckoutContact,
+    })),
+  };
+});
+
+vi.mock("@chase-sets/auth/server", () => ({
+  createAuthRequestApiClient: mockCreateAuthRequestApiClient,
+  createInternalAuthRequestApiClient: mockCreateInternalAuthRequestApiClient,
+}));
+
 vi.mock("@chase-sets/ordering/server", () => ({
   createOrderingRequestApiClient: vi.fn(),
 }));
@@ -69,9 +93,12 @@ vi.mock("@chase-sets/marketplace/server", () => ({
 }));
 
 import {
+  bindGuestContactThroughAuth,
   createCheckoutInventoryReservations,
   createCheckoutPaymentThroughPayments,
+  readGuestContactAuthorityThroughAuth,
   releaseCheckoutInventoryReservations,
+  requiresBoundGuestContact,
 } from "./checkout-confirmation";
 import type { CheckoutSessionRow } from "../../features/sessions/read-model/queries";
 
@@ -827,3 +854,118 @@ function checkoutReservationPreview(
     materialChangeReasons: [],
   };
 }
+
+describe("guest contact authority through Auth", () => {
+  function authError(status: number, code?: string) {
+    return Object.assign(new Error(`Auth API error ${status}`), {
+      status,
+      body: code ? { error: { code, message: code } } : { error: "refused" },
+    });
+  }
+
+  afterEach(() => {
+    mockBindGuestCheckoutContact.mockReset();
+    mockGetGuestCheckoutContact.mockReset();
+    mockCreateInternalAuthRequestApiClient.mockClear();
+  });
+
+  it("asks only guest buyers for a bound contact", () => {
+    expect(requiresBoundGuestContact({ roleKey: "guest-buyer" })).toBe(true);
+    expect(requiresBoundGuestContact({ roleKey: "owner" })).toBe(false);
+    expect(requiresBoundGuestContact(null)).toBe(false);
+  });
+
+  it("reads a bound contact through the internal Auth client and never the generic one", async () => {
+    mockGetGuestCheckoutContact.mockResolvedValue({ contactEmail: "guest@example.com", contactName: "Guest Buyer" });
+    const request = new Request("https://checkout.test");
+
+    await expect(readGuestContactAuthorityThroughAuth(request)).resolves.toEqual({
+      state: "bound",
+      contactEmail: "guest@example.com",
+      contactName: "Guest Buyer",
+    });
+    expect(mockCreateInternalAuthRequestApiClient).toHaveBeenCalledWith(request);
+    expect(mockCreateAuthRequestApiClient).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [{ contactEmail: null, contactName: null }],
+    [{ contactEmail: "guest@example.com", contactName: null }],
+    [{ contactEmail: "", contactName: "Guest Buyer" }],
+  ])("maps a 200 with a missing value to unbound (%o)", async (body) => {
+    mockGetGuestCheckoutContact.mockResolvedValue(body);
+
+    await expect(readGuestContactAuthorityThroughAuth(new Request("https://checkout.test"))).resolves.toEqual({
+      state: "unbound",
+    });
+  });
+
+  it("maps a 429 to indeterminate rate-limited and anything else to indeterminate unreadable", async () => {
+    mockGetGuestCheckoutContact.mockRejectedValueOnce(authError(429));
+    await expect(readGuestContactAuthorityThroughAuth(new Request("https://checkout.test"))).resolves.toEqual({
+      state: "indeterminate",
+      reason: "rate-limited",
+    });
+
+    for (const failure of [authError(401), authError(503), new TypeError("fetch failed")]) {
+      mockGetGuestCheckoutContact.mockRejectedValueOnce(failure);
+      await expect(readGuestContactAuthorityThroughAuth(new Request("https://checkout.test"))).resolves.toEqual({
+        state: "indeterminate",
+        reason: "unreadable",
+      });
+    }
+  });
+
+  it("binds the lowercased trimmed email and the trimmed name through the internal client", async () => {
+    mockBindGuestCheckoutContact.mockResolvedValue({
+      accountId: "acc_guest",
+      contactEmail: "guest@example.com",
+      contactName: "Guest Buyer",
+    });
+
+    await expect(
+      bindGuestContactThroughAuth(new Request("https://checkout.test"), {
+        email: "  Guest@Example.COM ",
+        displayName: "  Guest Buyer ",
+      }),
+    ).resolves.toEqual({
+      outcome: "bound",
+      authority: { state: "bound", contactEmail: "guest@example.com", contactName: "Guest Buyer" },
+    });
+    expect(mockBindGuestCheckoutContact).toHaveBeenCalledWith({
+      email: "guest@example.com",
+      displayName: "Guest Buyer",
+    });
+    expect(mockCreateAuthRequestApiClient).not.toHaveBeenCalled();
+  });
+
+  it("refuses an empty name or email without spending Auth's contact limiter", async () => {
+    for (const input of [
+      { email: "guest@example.com", displayName: " " },
+      { email: "", displayName: "Guest Buyer" },
+      { email: "not-an-email", displayName: "Guest Buyer" },
+    ]) {
+      await expect(bindGuestContactThroughAuth(new Request("https://checkout.test"), input)).resolves.toEqual({
+        outcome: "invalid",
+      });
+    }
+    expect(mockBindGuestCheckoutContact).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [authError(409, "account_sign_in_required"), "sign-in-required"],
+    [authError(409, "guest_contact_locked"), "locked"],
+    [authError(400, "guest_contact_required"), "invalid"],
+    [authError(429), "retry-later"],
+    [authError(503), "retry-later"],
+  ] as const)("maps a bind refusal to its outcome (%#)", async (failure, outcome) => {
+    mockBindGuestCheckoutContact.mockRejectedValue(failure);
+
+    await expect(
+      bindGuestContactThroughAuth(new Request("https://checkout.test"), {
+        email: "guest@example.com",
+        displayName: "Guest Buyer",
+      }),
+    ).resolves.toEqual({ outcome });
+  });
+});

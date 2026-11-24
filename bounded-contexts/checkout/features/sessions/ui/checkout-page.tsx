@@ -46,7 +46,8 @@ export type {
   CheckoutSavedPaymentInstrument,
   CheckoutSavedShippingAddress,
   CheckoutSessionPageProps,
-  GuestCheckoutContact,
+  GuestContactAttempt,
+  GuestContactAuthority,
 } from "./checkout-page-types";
 
 export function CheckoutSessionPage(props: CheckoutSessionPageProps) {
@@ -104,6 +105,7 @@ function CheckoutSessionPageContent({
     paymentEntryPending: Boolean(card && !card.ready && model.commitIntent === "confirm-checkout"),
     confirmationAmbiguous: props.confirmationAmbiguous ?? false,
     verifyEmailHref: props.paymentVerifyEmailHref ?? null,
+    contactUnavailable: model.guestContactUnavailable,
     submittingCtaLabel: model.submittingCtaLabel,
     primaryCtaLabel: model.primaryCtaLabel,
   };
@@ -230,6 +232,7 @@ function CheckoutSessionPageContent({
             <CheckoutSavedInfoSection
               showSavedCheckoutRows={model.showSavedCheckoutRows}
               contactReady={model.contactReady}
+              boundGuestContact={model.boundGuestContact}
               deliveryReady={model.deliveryReady}
               shippingMethodReady={model.shippingMethodReady}
               paymentMethodReady={model.paymentMethodReady}
@@ -246,7 +249,10 @@ function CheckoutSessionPageContent({
             <CheckoutContactSection
               showContactForm={model.showContactForm}
               isOfferIntent={model.isOfferIntent}
-              email={model.addressDefaults.email}
+              email={model.contactEmail}
+              guestEntry={model.guestContactEntry}
+              guestContactUnavailable={model.guestContactUnavailable}
+              guestContactLocked={model.guestContactLocked}
             />
 
             <CheckoutDeliverySection

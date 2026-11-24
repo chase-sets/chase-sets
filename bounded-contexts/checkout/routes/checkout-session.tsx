@@ -27,7 +27,7 @@ import {
 } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { createAuthRequestApiClient } from "@chase-sets/auth/server";
+
 import { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
 import {
   createForwardedAuthFetch,
@@ -63,12 +63,19 @@ import {
 import { DeferredStripePayment, StripeConfirmationCard } from "@chase-sets/payments/web";
 import { checkoutSessionSourceCreatesOrders } from "@chase-sets/checkout-order-source";
 import { normalizeRequestedBalanceCreditAmount } from "../support/request-support/balance-credit";
-import { readCheckoutPaymentStartThroughPayments } from "../support/request-support/checkout-confirmation";
+import {
+  bindGuestContactThroughAuth,
+  readCheckoutPaymentStartThroughPayments,
+  readGuestContactAuthorityThroughAuth,
+  requiresBoundGuestContact,
+  type GuestContactAuthority,
+} from "../support/request-support/checkout-confirmation";
 import {
   checkoutConfirmationNeedsPaymentStart,
   checkoutPaymentStartRefusalCode,
 } from "../features/sessions/api/payment-start-eligibility";
 import { CheckoutSessionPage, type CheckoutEditSection } from "../features/sessions/ui/checkout-page";
+import type { GuestContactAttempt } from "../features/sessions/ui/checkout-page-types";
 import { CheckoutSessionRecoveryPage } from "../features/sessions/ui/checkout-recovery-page";
 import {
   readCheckoutPaymentPreviewStatus,
@@ -87,10 +94,6 @@ const GUEST_SAVED_PAYMENT_UNAVAILABLE =
 const PAYMENT_START_FRESHNESS_SOURCE_CONTEXT_NAMES = new Set(["ordering"]);
 const PAYMENT_START_RETRY_SOURCE_CONTEXT_NAMES = new Set(["checkout", "ordering"]);
 
-type GuestCheckoutContact = Readonly<{
-  contactEmail: string;
-  contactName: string | null;
-}>;
 
 type WalletRead =
   | Readonly<{ status: "available"; balance: { available_balance_amount: string; currency_code: string } }>
@@ -230,34 +233,62 @@ async function loadSavedShippingAddresses(
   return response.items;
 }
 
-async function loadGuestCheckoutContact(
+async function loadGuestContact(
   request: Request,
   actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>,
-): Promise<GuestCheckoutContact | null> {
-  if (!actor || actor.roleKey !== "guest-buyer") {
+): Promise<GuestContactAuthority | null> {
+  return requiresBoundGuestContact(actor) ? readGuestContactAuthorityThroughAuth(request) : null;
+}
+
+type GuestContactStop =
+  | Readonly<{ guestContactAttempt: GuestContactAttempt }>
+  | Readonly<{ guestContact: GuestContactAuthority; guestContactLocked?: boolean }>;
+
+/**
+ * Saves a guest's contact before an intent writes anything. Returns the action data to show when the
+ * intent has to stop there, or null when Auth holds the contact and the intent can go on.
+ */
+async function settleGuestContactBeforeWrite(
+  request: Request,
+  actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>,
+  formData: FormData,
+): Promise<GuestContactStop | null> {
+  if (!requiresBoundGuestContact(actor)) {
     return null;
   }
-
-  try {
-    const context = await createAuthRequestApiClient(request).getGuestCheckoutClaimContext<{
-      contactEmail?: string | null;
-      contactName?: string | null;
-    }>({});
-    const contactEmail = String(context.contactEmail ?? "")
-      .trim()
-      .toLowerCase();
-    if (!contactEmail) {
+  const known = await readGuestContactAuthorityThroughAuth(request);
+  if (known.state === "indeterminate") {
+    return { guestContact: known };
+  }
+  const contactEmail = String(formData.get("shippingEmail") ?? "").trim();
+  const contactName = String(formData.get("contactName") ?? "").trim();
+  if (known.state === "bound") {
+    const changed =
+      (contactName.length > 0 && contactName !== known.contactName) ||
+      (contactEmail.length > 0 && contactEmail.toLowerCase() !== known.contactEmail);
+    if (!changed) {
       return null;
     }
+    const result = await bindGuestContactThroughAuth(request, { email: contactEmail, displayName: contactName });
+    return result.outcome === "bound" ? null : { guestContact: known, guestContactLocked: true };
+  }
 
-    const contactName = String(context.contactName ?? "").trim();
-    return {
-      contactEmail,
-      contactName: contactName || null,
-    };
-  } catch {
+  const result = await bindGuestContactThroughAuth(request, { email: contactEmail, displayName: contactName });
+  if (result.outcome === "bound") {
     return null;
   }
+  if (result.outcome === "locked") {
+    // Another save bound this contact first. One read shows what Auth holds; a locked contact that
+    // reads as unbound contradicts itself, so it is shown as unavailable.
+    const reconciled = await readGuestContactAuthorityThroughAuth(request);
+    if (reconciled.state === "bound") {
+      return { guestContact: reconciled, guestContactLocked: true };
+    }
+    return {
+      guestContact: reconciled.state === "unbound" ? { state: "indeterminate", reason: "unreadable" } : reconciled,
+    };
+  }
+  return { guestContactAttempt: { contactEmail, contactName, problem: result.outcome } };
 }
 
 async function resolveCheckoutShippingAddress(
@@ -858,7 +889,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       : null;
   const savedShippingAddresses = await loadSavedShippingAddresses(ancillaryRequest, actor);
   const savedCheckoutInstruments = await loadSavedCheckoutInstruments(ancillaryRequest, actor);
-  const guestCheckoutContact = await loadGuestCheckoutContact(ancillaryRequest, actor);
+  const guestContact = await loadGuestContact(ancillaryRequest, actor);
   const preparedPayment =
     !expiredCheckout && session.payment_id ? await api.getCheckoutPaymentConfirmation(session.session_id) : null;
   const paymentElementDefaultValues: PaymentElementDefaultValues | null = session.shipping_address?.email?.trim()
@@ -876,8 +907,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
           },
         },
       }
-    : guestCheckoutContact?.contactEmail
-      ? { billingDetails: { email: guestCheckoutContact.contactEmail } }
+    : guestContact?.state === "bound"
+      ? { billingDetails: { email: guestContact.contactEmail, name: guestContact.contactName } }
       : null;
   const loadedFulfillmentPreview = expiredCheckout
     ? { fulfillmentPreview: null, previewError: null }
@@ -916,7 +947,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     selectedPaymentMethodCategory,
     savedShippingAddresses,
     savedCheckoutInstruments,
-    guestCheckoutContact,
+    guestContact,
     canManageShippingAddresses: Boolean(
       actor &&
       actor.roleKey !== "guest-buyer" &&
@@ -984,6 +1015,10 @@ async function handleAction(intent: string, { request, params, formData }: FormA
     }
 
     if (intent === "refresh-checkout-preview") {
+      const guestContactStop = await settleGuestContactBeforeWrite(internalApiRequest, actor, formData);
+      if (guestContactStop) {
+        return guestContactStop;
+      }
       const shippingAddressResolution = await resolveCheckoutShippingAddress(resolvedRequest, actor, formData, {
         persistAddressBook: false,
       });
@@ -1027,6 +1062,10 @@ async function handleAction(intent: string, { request, params, formData }: FormA
         (selectedSavedPaymentInstrumentId || requestedSavePaymentMethodForFuture)
       ) {
         return { error: GUEST_SAVED_PAYMENT_UNAVAILABLE };
+      }
+      const guestContactStop = await settleGuestContactBeforeWrite(internalApiRequest, actor, formData);
+      if (guestContactStop) {
+        return guestContactStop;
       }
 
       const shippingAddressResolution = await resolveCheckoutShippingAddress(resolvedRequest, actor, formData, {
@@ -1327,6 +1366,8 @@ export default function CheckoutSessionRoute() {
   const realtimeTopics = checkoutPreviewRealtimeTopics(data.session.lines);
   const realtimeSubscriptionKey = realtimeTopics.join("\n");
   const actionEditSection = actionData && "editSection" in actionData ? actionData.editSection : null;
+  const location = useLocation();
+  const actionGuestContact = actionData && "guestContact" in actionData ? actionData.guestContact : null;
 
   useEffect(() => {
     const subscription = subscribeRealtimePatches({
@@ -1351,7 +1392,10 @@ export default function CheckoutSessionRoute() {
       reservationUnavailableLines={data.reservationUnavailableLines}
       savedShippingAddresses={data.savedShippingAddresses}
       savedCheckoutInstruments={data.savedCheckoutInstruments}
-      guestCheckoutContact={data.guestCheckoutContact}
+      guestContact={actionGuestContact ?? data.guestContact}
+      guestContactAttempt={actionData && "guestContactAttempt" in actionData ? actionData.guestContactAttempt : null}
+      guestContactLocked={Boolean(actionData && "guestContactLocked" in actionData && actionData.guestContactLocked)}
+      guestContactSignInHref={`/sign-in?returnTo=${encodeURIComponent(`${location.pathname}${location.search}`)}`}
       canManageShippingAddresses={data.canManageShippingAddresses}
       canSavePaymentMethods={data.canSavePaymentMethods}
       isSignedInBuyer={data.isSignedInBuyer}

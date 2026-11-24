@@ -1357,6 +1357,8 @@ const outputs = [
         // Checkout's refusal of Pay now for a buyer who cannot start a payment, which the page
         // gives before it writes anything.
         ["checkout.features.sessions.api.route.payment.", "payment"],
+        // Checkout's refusal of Pay now for a guest whose contact Auth does not hold yet.
+        ["checkout.features.sessions.api.route.guest.contact.", "guest_contact"],
       ]),
     ),
   ],

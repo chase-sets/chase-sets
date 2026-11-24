@@ -14,9 +14,12 @@
 //! The wallet, saved addresses, saved methods and Payments' quote are not read for it, as
 //! marketplace's page shows none of them.
 //!
-//! A guest's contact is not read: marketplace's loader asks Auth for it without the internal
-//! capability the call needs, so it is always empty there too, and no host binds one yet
-//! (chase-sets/chase-sets#5736).
+//! A guest's contact is what Auth holds for the checkout (`GET /api/auth/guest-checkout/contact`,
+//! with the internal capability): a guest enters a name and an email, and Update totals or Pay now
+//! saves them to Auth (`POST .../contact`) before the checkout writes anything. A saved contact
+//! shows as a row nobody can edit; an email that already has an account asks the guest to sign
+//! in; and while Auth cannot be read the contact is neither shown nor asked for and Pay now is
+//! off, as on marketplace's page (`settleGuestContactBeforeWrite`).
 //!
 //! Every step is a form field of one POST form, so the page works without a script; a step that
 //! is ready shows as a row whose Edit is a link (`?edit=delivery`, marketplace's `edit`). The
@@ -32,12 +35,17 @@
 use std::time::SystemTime;
 
 use corten::{
+    ClientIp,
     http::{HeaderMap, StatusCode},
     i18n::parse_timestamp,
     prelude::*,
 };
-use platform::receipt::Receipt;
-use serde::Serialize;
+use platform::{
+    auth::{call_internal, read_internal},
+    receipt::Receipt,
+};
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 
 use crate::{
     api::{
@@ -144,6 +152,8 @@ pub struct CheckoutForm {
     pub shipping_country: String,
     pub shipping_phone: String,
     pub shipping_email: String,
+    /// A guest's name for its contact, entered beside the email until Auth holds both.
+    pub contact_name: String,
     pub shipping_option: String,
     pub authenticity_check_opt_in: String,
     pub authenticity_check_opt_in_quote_fingerprint: String,
@@ -313,6 +323,144 @@ impl Steps {
     }
 }
 
+/// A guest's contact as Auth reported it (`GuestContactAuthority`). Only Auth's answer makes it
+/// bound; `Unavailable` is a read Auth refused or never answered, which says nothing either way.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GuestContact {
+    Bound { email: String, name: String },
+    Unbound,
+    Unavailable,
+}
+
+/// Why a guest's contact was not saved (`GuestContactAttempt.problem`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ContactProblem {
+    /// The email already has an account: sign in, or enter another email.
+    SignInRequired,
+    /// No name, or no valid email.
+    Invalid,
+    /// Auth's limiter refused the save, or its outcome is unknown; the values are kept.
+    RetryLater,
+}
+
+/// What a guest last entered as contact, kept in the form, and why it was not saved.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ContactAttempt {
+    pub email: String,
+    pub name: String,
+    pub problem: ContactProblem,
+}
+
+/// Where saving a guest's contact stopped a write before it wrote anything.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum ContactStop {
+    /// The save failed; the form shows what was entered and why.
+    Attempt(ContactAttempt),
+    /// The contact as Auth holds it; `locked` when the write tried to change a saved one.
+    Shown { contact: GuestContact, locked: bool },
+}
+
+/// Auth's guest contact (the read and the save answer alike): both parts null until bound.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+struct ContactBody {
+    contact_email: Option<String>,
+    contact_name: Option<String>,
+}
+
+impl ContactBody {
+    fn contact(self) -> GuestContact {
+        let part = |p: Option<String>| p.map(|p| p.trim().to_owned()).filter(|p| !p.is_empty());
+        match (part(self.contact_email), part(self.contact_name)) {
+            (Some(email), Some(name)) => GuestContact::Bound { email, name },
+            _ => GuestContact::Unbound,
+        }
+    }
+}
+
+/// How a guest's contact save ended (`GuestContactBindResult`); only `Bound` lets the write go on.
+#[derive(Debug, PartialEq, Eq)]
+enum Bind {
+    Bound,
+    Locked,
+    Problem(ContactProblem),
+}
+
+/// The guest checkout's own contact, read from Auth (`readGuestContactAuthorityThroughAuth`). The
+/// read has limiters of its own, so the page's renders spend none of the claim flow's.
+async fn guest_contact(caller: &platform::api::Caller<'_>, client: Option<ClientIp>) -> GuestContact {
+    match read_internal::<ContactBody>(caller, client, "/api/auth/guest-checkout/contact").await {
+        Ok(body) => body.contact(),
+        Err(error) => {
+            tracing::warn!("a guest checkout's contact could not be read: {error}");
+            GuestContact::Unavailable
+        }
+    }
+}
+
+/// Saves a guest's contact through Auth (`bindGuestContactThroughAuth`). Auth spends its contact
+/// limiter before it checks the body, so a missing name or email is refused here without a call.
+async fn bind_contact(caller: &platform::api::Caller<'_>, client: Option<ClientIp>, email: &str, name: &str) -> Bind {
+    let (email, name) = (email.trim().to_lowercase(), name.trim());
+    if email.is_empty() || name.is_empty() || !email.contains('@') {
+        return Bind::Problem(ContactProblem::Invalid);
+    }
+    let body = json!({ "email": email, "displayName": name });
+    match call_internal::<ContactBody>(caller, client, "/api/auth/guest-checkout/contact", body).await {
+        Ok((body, _)) => match body.contact() {
+            GuestContact::Bound { .. } => Bind::Bound,
+            _ => Bind::Problem(ContactProblem::RetryLater),
+        },
+        Err(error) => match (error.status(), error.code()) {
+            (Some(StatusCode::CONFLICT), Some("account_sign_in_required")) => Bind::Problem(ContactProblem::SignInRequired),
+            (Some(StatusCode::CONFLICT), Some("guest_contact_locked")) => Bind::Locked,
+            (Some(StatusCode::BAD_REQUEST), _) => Bind::Problem(ContactProblem::Invalid),
+            // A limiter refusal, or a save whose outcome is unknown: the guest keeps the values
+            // and tries again; an identical retry is idempotent in Auth.
+            _ => {
+                tracing::warn!("a guest checkout's contact could not be saved: {error}");
+                Bind::Problem(ContactProblem::RetryLater)
+            }
+        },
+    }
+}
+
+/// Saves a guest's contact before a write (`settleGuestContactBeforeWrite`): `None` when Auth holds
+/// it and the write can go on, else what the page shows instead.
+async fn settle_contact(
+    caller: &platform::api::Caller<'_>,
+    client: Option<ClientIp>,
+    form: &CheckoutForm,
+) -> Option<ContactStop> {
+    let known = guest_contact(caller, client).await;
+    let (email, name) = (form.shipping_email.trim(), form.contact_name.trim());
+    match &known {
+        GuestContact::Unavailable => Some(ContactStop::Shown { contact: known, locked: false }),
+        GuestContact::Bound { email: bound_email, name: bound_name } => {
+            let changed = (!name.is_empty() && name != bound_name) || (!email.is_empty() && email.to_lowercase() != *bound_email);
+            if !changed {
+                return None;
+            }
+            match bind_contact(caller, client, email, name).await {
+                Bind::Bound => None,
+                _ => Some(ContactStop::Shown { contact: known, locked: true }),
+            }
+        }
+        GuestContact::Unbound => match bind_contact(caller, client, email, name).await {
+            Bind::Bound => None,
+            // Another save bound this contact first. One read shows what Auth holds; a locked
+            // contact that reads as unbound contradicts itself, so it is shown as unavailable.
+            Bind::Locked => Some(match guest_contact(caller, client).await {
+                bound @ GuestContact::Bound { .. } => ContactStop::Shown { contact: bound, locked: true },
+                _ => ContactStop::Shown { contact: GuestContact::Unavailable, locked: false },
+            }),
+            Bind::Problem(problem) => {
+                Some(ContactStop::Attempt(ContactAttempt { email: email.to_owned(), name: name.to_owned(), problem }))
+            }
+        },
+    }
+}
+
 /// The page, worked out from the reads (`useCheckoutSessionModel` for a signed-in buyer).
 pub struct Screen {
     pub session: CheckoutSession,
@@ -333,6 +481,14 @@ pub struct Screen {
     pub can_save_payment: bool,
     /// A guest checkout, not an account.
     pub guest: bool,
+    /// A guest buy checkout's contact as Auth holds it; `None` for an account or an offer.
+    pub guest_contact: Option<GuestContact>,
+    /// What a guest last entered as contact and why it was not saved.
+    pub contact_attempt: Option<ContactAttempt>,
+    /// A write tried to change the guest's saved contact.
+    pub contact_locked: bool,
+    /// Sign in, back to this checkout, for a guest whose email already has an account.
+    pub contact_sign_in: Option<String>,
     pub accelerated: bool,
     pub steps: Steps,
     pub can_confirm: bool,
@@ -402,7 +558,7 @@ fn deferred_card(screen: &Screen, key: &str) -> Option<DeferredCard> {
         amount,
         currency,
         quote: format!("{}:{}", screen.session.session_id, quote.quote_fingerprint),
-        defaults: card_defaults(&screen.session),
+        defaults: card_defaults(&screen.session).or_else(|| screen.bound_contact().map(contact_defaults)),
     })
 }
 
@@ -428,6 +584,12 @@ fn card_defaults(session: &CheckoutSession) -> Option<crate::payment::Defaults> 
     })
 }
 
+/// What Stripe's fields start with for a guest whose session has no email yet: Auth's contact.
+fn contact_defaults((email, name): (&str, &str)) -> crate::payment::Defaults {
+    use crate::payment::{BillingDetails, Defaults};
+    Defaults { billing_details: BillingDetails { email: email.to_owned(), name: Some(name.to_owned()), address: None } }
+}
+
 /// What the reads found, before the page is worked out.
 pub struct Reads {
     pub session: CheckoutSession,
@@ -437,6 +599,8 @@ pub struct Reads {
     pub payment: Option<PaymentPreview>,
     pub can_save_payment: bool,
     pub guest: bool,
+    /// A guest's contact as Auth holds it; read only for a guest's buy checkout.
+    pub contact: Option<GuestContact>,
     pub expired: bool,
 }
 
@@ -505,8 +669,10 @@ fn asked_method(place: &Place, instruments: &[SavedInstrument]) -> String {
 
 impl Screen {
     pub fn new(reads: Reads, place: Place, error: Option<String>) -> Screen {
-        let Reads { session, wallet, addresses, instruments, payment, can_save_payment, guest, expired } = reads;
+        let Reads { session, wallet, addresses, instruments, payment, can_save_payment, guest, contact: guest_contact, expired } =
+            reads;
         let offer = session.source_type == "offer-intent";
+        let guest_contact = guest_contact.filter(|_| guest && !offer);
         let creates_orders = !offer;
         let preview = if expired || !creates_orders { None } else { session.fulfillment_preview_snapshot.clone() };
         let preview_missing = !expired && creates_orders && preview.is_none() && committed_quote(&session).is_none();
@@ -562,7 +728,11 @@ impl Screen {
         // contact cannot be opened again (`canEditCollapsedContact`). A purchase intent's steps are
         // all forms, and it has no payment step.
         let rows = !guest && !offer;
-        let contact = !offer && address.email.as_deref().is_some_and(|e| !e.trim().is_empty());
+        // Only Auth's answer, never a shipping value, makes a guest's contact ready.
+        let contact = match &guest_contact {
+            Some(held) => matches!(held, GuestContact::Bound { .. }),
+            None => rows && address.email.as_deref().is_some_and(|e| !e.trim().is_empty()),
+        };
         let delivery = rows && complete(&address);
         let first_group = rows && first_group;
         let payment_ready = rows && instrument.is_some();
@@ -645,6 +815,10 @@ impl Screen {
             instruments,
             can_save_payment,
             guest,
+            guest_contact,
+            contact_attempt: None,
+            contact_locked: false,
+            contact_sign_in: None,
             accelerated,
             steps,
             can_confirm,
@@ -659,6 +833,29 @@ impl Screen {
             card: None,
             place,
         }
+    }
+
+    /// A guest's saved contact: its email and name.
+    pub fn bound_contact(&self) -> Option<(&str, &str)> {
+        match &self.guest_contact {
+            Some(GuestContact::Bound { email, name }) => Some((email, name)),
+            _ => None,
+        }
+    }
+
+    /// Auth could not be read: the guest's contact is neither shown nor asked for, and nothing
+    /// can be confirmed until it can (`guestContactUnavailable`).
+    pub fn contact_unavailable(&self) -> bool {
+        self.guest_contact == Some(GuestContact::Unavailable)
+    }
+
+    /// The email the contact step shows: Auth's, else what the guest last entered, else the
+    /// session's.
+    pub fn contact_email(&self) -> &str {
+        self.bound_contact()
+            .map(|(email, _)| email)
+            .or_else(|| self.contact_attempt.as_ref().map(|a| a.email.as_str()))
+            .unwrap_or_else(|| self.address.email.as_deref().unwrap_or(""))
     }
 
     pub fn first_group(&self) -> Option<&SellerGroup> {
@@ -738,6 +935,8 @@ enum Answer {
     Refused(StatusCode, String),
     /// Pay now may have reached Checkout and one read could not tell.
     Ambiguous,
+    /// A guest's contact was not saved, so the write wrote nothing.
+    Contact(ContactStop),
 }
 
 /// Reads the session and what the page shows with it, then draws it with `answer`.
@@ -747,6 +946,7 @@ async fn render(
     viewer: &Viewer,
     config: &Shared,
     headers: &HeaderMap,
+    client: Option<ClientIp>,
     id: &str,
     place: Place,
     answer: Answer,
@@ -835,7 +1035,17 @@ async fn render(
             Vec::new()
         })
     };
-    let (wallet, addresses, instruments) = tokio::join!(wallet, addresses, instruments);
+    // A guest's contact as Auth holds it, unless the write just read it.
+    let contact = async {
+        if offer || !guest {
+            return None;
+        }
+        Some(match &answer {
+            Answer::Contact(ContactStop::Shown { contact, .. }) => contact.clone(),
+            _ => guest_contact(&caller, client).await,
+        })
+    };
+    let (wallet, addresses, instruments, contact) = tokio::join!(wallet, addresses, instruments, contact);
     // Payments' quote for the preview's total, the wallet's balance applied (`loadPaymentPreview`),
     // or once the orders exist for the quote they were bound to.
     let total = session
@@ -859,13 +1069,25 @@ async fn render(
         }
     };
     let can_save_payment = !offer && !guest && actor.can(ORDERS_MANAGE);
-    let reads = Reads { session, wallet, addresses, instruments, payment, can_save_payment, guest, expired };
+    let reads = Reads { session, wallet, addresses, instruments, payment, can_save_payment, guest, contact, expired };
     let (status, error) = match &answer {
         Answer::Refused(status, error) => (*status, Some(error.clone())),
+        Answer::Contact(ContactStop::Attempt(_)) => (StatusCode::UNPROCESSABLE_ENTITY, None),
+        Answer::Contact(ContactStop::Shown { locked: true, .. }) => (StatusCode::CONFLICT, None),
+        Answer::Contact(ContactStop::Shown { .. }) => (StatusCode::SERVICE_UNAVAILABLE, None),
         Answer::Nothing | Answer::Ambiguous => (StatusCode::OK, None),
     };
     let mut screen = Screen::new(reads, place, error);
     screen.ambiguous = matches!(answer, Answer::Ambiguous) || start_ambiguous;
+    if let Answer::Contact(stop) = answer {
+        match stop {
+            ContactStop::Attempt(attempt) => screen.contact_attempt = Some(attempt),
+            ContactStop::Shown { locked, .. } => screen.contact_locked = locked && screen.bound_contact().is_some(),
+        }
+    }
+    screen.contact_sign_in = (screen.guest && !screen.offer).then(|| {
+        url::SignIn { ask: crate::sign_in::Ask::back_to(&url::BuyCheckout { id, place: Place::default() }.href()) }.href()
+    });
     // Auth withholds payment until the buyer verifies their email; Pay now would be refused.
     screen.verify_email = (!screen.offer && email_verification::awaits(actor, ORDERS_MANAGE)).then(|| {
         email_verification::sign_in_href(&url::BuyCheckout { id, place: Place::default() }.href(), Purpose::PayCheckout)
@@ -993,10 +1215,11 @@ pub(crate) async fn page(
     Caller(CheckoutBuyer(viewer)): Caller<CheckoutBuyer>,
     State(config): State<Shared>,
     headers: HeaderMap,
+    client: Option<ClientIp>,
     Params(route): Params<crate::app::url::checkout::BuyCheckout<'_>>,
 ) -> HtmlResult {
     let (id, place) = (route.id, route.place);
-    render(&req, &viewer, &config, &headers, &id, place, Answer::Nothing).await
+    render(&req, &viewer, &config, &headers, client, &id, place, Answer::Nothing).await
 }
 
 /// What a review write was refused for, in the page's words: an address or shipping option the
@@ -1043,6 +1266,7 @@ pub(crate) async fn write(
     Caller(CheckoutBuyer(viewer)): Caller<CheckoutBuyer>,
     State(config): State<Shared>,
     headers: HeaderMap,
+    client: Option<ClientIp>,
     Params(route): Params<crate::app::url::checkout::BuyCheckout<'_>>,
     Form(form): Form<CheckoutForm>,
 ) -> HtmlResult {
@@ -1075,12 +1299,18 @@ pub(crate) async fn write(
                 None => (error.refusal().unwrap_or(t.route_request_failed()).to_owned(), place),
             };
             tracing::warn!("a checkout write was refused: {error}");
-            render(req, viewer, &config, headers, id, place, Answer::Refused(StatusCode::UNPROCESSABLE_ENTITY, message)).await
+            render(req, viewer, &config, headers, client, id, place, Answer::Refused(StatusCode::UNPROCESSABLE_ENTITY, message)).await
         }
     };
     let here = Place { payment_method_category: Some(visible.clone()), ..Place::default() };
     match form.intent.as_str() {
         "refresh-checkout-preview" => {
+            // A guest's contact is saved to Auth before Update totals or Pay now writes anything.
+            if viewer.guest()
+                && let Some(stop) = settle_contact(&caller, client, &form).await
+            {
+                return render(&req, &viewer, &config, &headers, client, &id, here, Answer::Contact(stop)).await;
+            }
             let session = match caller.checkout_session(&id).await {
                 Ok(session) => session,
                 Err(error) => return refused(error, here).await,
@@ -1106,16 +1336,21 @@ pub(crate) async fn write(
         {
             let p: Pilot = req.t();
             let refused = Answer::Refused(StatusCode::UNPROCESSABLE_ENTITY, p.guest_saved_payment_unavailable().to_owned());
-            render(&req, &viewer, &config, &headers, &id, here, refused).await
+            render(&req, &viewer, &config, &headers, client, &id, here, refused).await
         }
         "confirm-checkout" => {
+            if viewer.guest()
+                && let Some(stop) = settle_contact(&caller, client, &form).await
+            {
+                return render(&req, &viewer, &config, &headers, client, &id, here, Answer::Contact(stop)).await;
+            }
             let session = match caller.checkout_session(&id).await {
                 Ok(session) => session,
                 Err(error) => return refused(error, here).await,
             };
             if expired(&session, SystemTime::now()) {
                 let message = t.recovery_checkout_handoff_expired_description().to_owned();
-                return render(&req, &viewer, &config, &headers, &id, here, Answer::Refused(StatusCode::CONFLICT, message)).await;
+                return render(&req, &viewer, &config, &headers, client, &id, here, Answer::Refused(StatusCode::CONFLICT, message)).await;
             }
             // A cancelled session is final: a confirm sent again sends nothing and shows it as it is.
             if session.cancelled_at.is_some() {
@@ -1132,7 +1367,7 @@ pub(crate) async fn write(
                     PaymentStartRefusal::Authority => t.payment_authority_required(),
                 };
                 let refused = Answer::Refused(StatusCode::FORBIDDEN, message.to_owned());
-                return render(&req, &viewer, &config, &headers, &id, here, refused).await;
+                return render(&req, &viewer, &config, &headers, client, &id, here, refused).await;
             }
             let committed = committed(&session);
             let mut receipts = Vec::new();
@@ -1177,7 +1412,7 @@ pub(crate) async fn write(
                 && !fingerprint.as_deref().is_some_and(|f| f.ends_with("|0.00"));
             if (new_card || reviewed(&form.confirmation_token_id).is_some()) && token.is_none() {
                 let refused = Answer::Refused(StatusCode::UNPROCESSABLE_ENTITY, t.route_payment_details_required().to_owned());
-                return render(&req, &viewer, &config, &headers, &id, here, refused).await;
+                return render(&req, &viewer, &config, &headers, client, &id, here, refused).await;
             }
             let body = ConfirmBody {
                 requested_balance_credit_amount: reviewed(&form.requested_balance_credit_amount).map(str::to_owned),
@@ -1226,6 +1461,7 @@ pub(crate) async fn write(
                                 &viewer,
                                 &config,
                                 &headers,
+                                client,
                                 &id,
                                 here,
                                 Answer::Refused(StatusCode::BAD_GATEWAY, t.route_request_failed().to_owned()),
@@ -1258,7 +1494,15 @@ pub(crate) async fn write(
                         && matches!(error.code(), Some("email_verification_required" | "authorization_forbidden")) =>
                 {
                     let message = error.refusal().unwrap_or(t.route_request_failed()).to_owned();
-                    render(&req, &viewer, &config, &headers, &id, here, Answer::Refused(StatusCode::FORBIDDEN, message)).await
+                    render(&req, &viewer, &config, &headers, client, &id, here, Answer::Refused(StatusCode::FORBIDDEN, message)).await
+                }
+                // Checkout orders and pays for a guest only once Auth holds its contact: the page
+                // again, which reads the contact and asks for it.
+                Err(error)
+                    if error.status() == Some(StatusCode::CONFLICT) && error.code() == Some("guest_contact_required") =>
+                {
+                    let refused = Answer::Refused(StatusCode::CONFLICT, t.guest_contact_required().to_owned());
+                    render(&req, &viewer, &config, &headers, client, &id, here, refused).await
                 }
                 // The session already started with other order or payment details: nothing new was
                 // sent, and the page shows it as it is now.
@@ -1266,7 +1510,7 @@ pub(crate) async fn write(
                     if error.status() == Some(StatusCode::CONFLICT) && error.code() == Some("checkout_confirmation_changed") =>
                 {
                     let changed = Answer::Refused(StatusCode::CONFLICT, t.route_confirmation_changed().to_owned());
-                    render(&req, &viewer, &config, &headers, &id, here, changed).await
+                    render(&req, &viewer, &config, &headers, client, &id, here, changed).await
                 }
                 // A card the page took may have been charged though the answer was lost or Payments
                 // could not tell: Payments' record of the session's payment decides, and anything
@@ -1279,7 +1523,7 @@ pub(crate) async fn write(
                     tracing::warn!("Pay now with a new card may have started a payment, so Payments is asked: {error}");
                     match caller.checkout_payment_start(&id).await {
                         Ok(PaymentStart::Recorded { payment_id }) => to_payment(&req, viewer.guest(), &payment_id, None),
-                        _ => render(&req, &viewer, &config, &headers, &id, here, Answer::Ambiguous).await,
+                        _ => render(&req, &viewer, &config, &headers, client, &id, here, Answer::Ambiguous).await,
                     }
                 }
                 // Pay now may have reached Checkout: it is never sent again. One read decides; a
@@ -1293,7 +1537,7 @@ pub(crate) async fn write(
                             req.redirect(&submitted_offer(&offer, latest(receipts).as_ref()))
                         }
                         Ok(read) if read.payment_id.is_some() => back(Place::after(latest(receipts).as_ref(), &visible)),
-                        _ => render(&req, &viewer, &config, &headers, &id, here, Answer::Ambiguous).await,
+                        _ => render(&req, &viewer, &config, &headers, client, &id, here, Answer::Ambiguous).await,
                     }
                 }
                 Err(error) => refused(error, here).await,
@@ -1402,8 +1646,39 @@ mod tests {
             }),
             can_save_payment: true,
             guest: false,
+            contact: None,
             expired: false,
         }
+    }
+
+    /// A guest's reads with the contact Auth answered, the session carrying a typed email.
+    fn guest(contact: GuestContact) -> Screen {
+        let mut reads = reads(vec![home()], true);
+        reads.session.shipping_address = Some(from_saved(&home()));
+        reads.guest = true;
+        reads.contact = Some(contact);
+        Screen::new(reads, Place::default(), None)
+    }
+
+    #[test]
+    fn only_auths_answer_makes_a_guests_contact_ready() {
+        let unbound = guest(GuestContact::Unbound);
+        assert!(!unbound.steps.contact && unbound.steps.show_contact, "a shipping email alone is not a saved contact");
+        assert!(!unbound.contact_unavailable());
+
+        let bound = guest(GuestContact::Bound { email: "guest@example.test".into(), name: "Guest Buyer".into() });
+        assert!(bound.steps.contact && !bound.steps.show_contact);
+        assert_eq!(bound.bound_contact(), Some(("guest@example.test", "Guest Buyer")));
+        assert_eq!(bound.contact_email(), "guest@example.test");
+
+        let unavailable = guest(GuestContact::Unavailable);
+        assert!(!unavailable.steps.contact && unavailable.contact_unavailable());
+
+        let mut offer = reads(Vec::new(), false);
+        offer.session.source_type = "offer-intent".into();
+        offer.guest = true;
+        offer.contact = Some(GuestContact::Unavailable);
+        assert_eq!(Screen::new(offer, Place::default(), None).guest_contact, None, "an offer has no guest contact");
     }
 
     #[test]

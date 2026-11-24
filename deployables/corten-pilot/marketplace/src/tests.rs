@@ -644,6 +644,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = social_login(&method, &uri, &headers) {
         return answer;
     }
+    if let Some(answer) = guest_contacts(&method, uri.path(), &headers, &body) {
+        return answer;
+    }
     if let Some(answer) = guest_claims(&method, uri.path(), &headers, &body) {
         return answer;
     }
@@ -1126,6 +1129,10 @@ fn checkout_sessions(stand: &Stand, method: &Method, uri: &Uri, headers: &Header
         "authenticity-check-opt-in" => committed(StatusCode::OK, "checkout", "13", json!({})),
         "fulfillment-preview" => committed(StatusCode::OK, "checkout", "14", json!({})),
         "confirm" if id == "chk_stale" => refusal(StatusCode::CONFLICT, "fee_quote_stale", "The checkout fee changed."),
+        // As Checkout refuses Pay now for a guest whose contact Auth does not hold.
+        "confirm" if id == "chk_guestcontact" => {
+            refusal(StatusCode::CONFLICT, "guest_contact_required", "Add a contact before payment.")
+        }
         // As Checkout refuses Pay now for a buyer whose orders.manage Auth withheld (chase-sets/chase-sets#10785).
         "confirm" if id == "chk_verify" => refusal(
             StatusCode::FORBIDDEN,
@@ -2773,6 +2780,42 @@ fn guest_claims(method: &Method, path: &str, headers: &HeaderMap, body: &str) ->
         "claim-with-passkey" if paid && text("challengeId") == "cmd_1" && text("webauthnResponse") == "created" => signed_in(),
         "claim-with-passkey" => refused("Passkey challenge is invalid or expired."),
         _ => refused("Claim link is invalid or expired."),
+    })
+}
+
+/// Auth's guest checkout contact (`GET` and `POST /api/auth/guest-checkout/contact`), refused
+/// without the platform's internal capability. The guest cookie picks the case: `gst_bound`'s
+/// contact is `guest@example.test` (Guest Buyer) and any other is refused as locked; `gst_busy`'s
+/// read is rate limited; `gst_account`'s email already has an account; `gst_retry`'s save is rate
+/// limited; any other guest's contact is unsaved, and a save answers what was sent.
+fn guest_contacts(method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
+    if path != "/api/auth/guest-checkout/contact" || !(*method == Method::GET || *method == Method::POST) {
+        return None;
+    }
+    if headers.get("x-chase-sets-internal-auth").and_then(|v| v.to_str().ok()) != Some(INTERNAL) {
+        return Some(refusal(StatusCode::UNAUTHORIZED, "internal_capability_required", "Internal capability required."));
+    }
+    let cookie = headers.get(header::COOKIE).and_then(|v| v.to_str().ok()).unwrap_or_default();
+    let guest =
+        cookie.split(';').find_map(|pair| pair.trim().strip_prefix("chase_sets_guest_checkout=")).unwrap_or_default();
+    let contact = |email: Option<&str>, name: Option<&str>| {
+        Json(json!({ "contactEmail": email, "contactName": name })).into_response()
+    };
+    if *method == Method::GET {
+        return Some(match guest {
+            "gst_bound" => contact(Some("guest@example.test"), Some("Guest Buyer")),
+            "gst_busy" => refusal(StatusCode::TOO_MANY_REQUESTS, "rate_limited", "Slow down."),
+            _ => contact(None, None),
+        });
+    }
+    let sent: Value = serde_json::from_str(body).unwrap_or_default();
+    let (email, name) = (sent["email"].as_str().unwrap_or_default(), sent["displayName"].as_str().unwrap_or_default());
+    Some(match guest {
+        "gst_bound" if email == "guest@example.test" && name == "Guest Buyer" => contact(Some(email), Some(name)),
+        "gst_bound" => refusal(StatusCode::CONFLICT, "guest_contact_locked", "This guest checkout's contact is already saved."),
+        "gst_account" => refusal(StatusCode::CONFLICT, "account_sign_in_required", "Sign in to use this email."),
+        "gst_retry" => refusal(StatusCode::TOO_MANY_REQUESTS, "rate_limited", "Slow down."),
+        _ => contact(Some(email), Some(name)),
     })
 }
 
@@ -22888,14 +22931,157 @@ async fn checkout_start_for_a_visitor_whose_entry_is_ambiguous_keeps_the_one_gue
 
 /// A request as a guest checkout's browser sends it: the guest checkout's cookie and no session.
 fn as_guest(method: Method, uri: &str, body: &str) -> Request<Body> {
+    as_guest_with("gst_1", method, uri, body)
+}
+
+/// A request as guest checkout `token`'s browser sends it.
+fn as_guest_with(token: &str, method: Method, uri: &str, body: &str) -> Request<Body> {
     Request::builder()
         .method(method)
         .uri(uri)
         .header(header::HOST, "localhost:7791")
-        .header(header::COOKIE, "chase_sets_guest_checkout=gst_1")
+        .header(header::COOKIE, format!("chase_sets_guest_checkout={token}"))
         .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
         .body(Body::from(body.to_owned()))
         .unwrap()
+}
+
+/// Auth's guest contact calls the stand-in received, in order: the method and the sent JSON.
+fn contact_calls(pilot: &Pilot) -> Vec<(Method, Value)> {
+    pilot
+        .stand
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|c| c.path == "/api/auth/guest-checkout/contact")
+        .map(|c| (c.method.clone(), serde_json::from_str(&c.body).unwrap_or_default()))
+        .collect()
+}
+
+/// A guest's checkout form: `checkout_body` with a typed address, the contact's `email` and
+/// `name` (the reviewed address carries the email, as the page draws it), and `extra` after them.
+fn guest_body(email: &str, name: &str, extra: &str) -> String {
+    let reviewed = format!(r#"["Demo Collector","","42 Binder Lane","","Evanston","IL","60201","US","","{email}"]"#);
+    checkout_body(&format!(
+        "shippingAddressId=__manual&shippingEmail={email}&contactName={name}&reviewedShippingAddressSignature={reviewed}&{extra}"
+    ))
+}
+
+/// Every Pay now button's opening tag.
+fn pay_buttons(html: &str) -> Vec<&str> {
+    html.match_indices(r#"value="confirm-checkout""#)
+        .map(|(at, _)| {
+            let start = html[..at].rfind('<').unwrap();
+            &html[start..at + html[at..].find('>').unwrap()]
+        })
+        .collect()
+}
+
+/// A guest's contact is Auth's. An unsaved one is asked for with a name, read and saved through
+/// Auth with the platform's internal capability, and saved before Update totals writes anything.
+#[tokio::test]
+async fn a_guests_contact_is_saved_to_auth_before_any_checkout_write() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(as_guest(Method::GET, CHECKOUT_SCREEN, "")).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"name="contactName""#), "an unsaved contact asks for a name: {html}");
+    let methods: Vec<Method> = contact_calls(&pilot).into_iter().map(|(method, _)| method).collect();
+    assert_eq!(methods, [Method::GET], "the page reads the contact once");
+
+    // Update totals saves the contact first (its email lowercased, as Auth keeps it), then
+    // writes the review.
+    let body = guest_body("Guest@Example.test", "Guest Buyer", "intent=refresh-checkout-preview");
+    let (status, _, html) = pilot.send(as_guest(Method::POST, CHECKOUT_SCREEN, &body)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    let saved = calls.iter().position(|c| c.method == Method::POST && c.path == "/api/auth/guest-checkout/contact").unwrap();
+    let written = calls.iter().position(|c| c.method == Method::POST && c.path.starts_with(CHECKOUT_SESSIONS)).unwrap();
+    assert!(saved < written, "the contact is saved before the review is written");
+    let sent: Value = serde_json::from_str(&calls[saved].body).unwrap();
+    assert_eq!(sent, json!({ "email": "guest@example.test", "displayName": "Guest Buyer" }));
+    for call in calls.iter().filter(|c| c.path == "/api/auth/guest-checkout/contact") {
+        assert_eq!(call.headers["x-chase-sets-internal-auth"], INTERNAL, "{} carries the capability", call.method);
+    }
+}
+
+/// A contact Auth refuses, or cannot read, writes nothing to Checkout and says why, keeping what
+/// the guest entered.
+#[tokio::test]
+async fn a_guests_contact_auth_refuses_writes_nothing_and_says_why() {
+    let pilot = Pilot::new().await;
+    let pay = format!("intent=confirm-checkout&{CARD_TOKEN}");
+    // An email that already has an account: the field says so, with Sign in back to the checkout.
+    let body = guest_body("taken@example.test", "Guest Buyer", &pay);
+    let (status, _, html) = pilot.send(as_guest_with("gst_account", Method::POST, CHECKOUT_SCREEN, &body)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    let page = text(&html);
+    assert!(
+        page.contains("This email already has a Chase Sets account. Sign in to use it, or enter a different email."),
+        "{page}"
+    );
+    assert!(html.contains(r#"aria-invalid="true""#), "{html}");
+    assert!(html.contains(r#"value="taken@example.test""#) && html.contains(r#"value="Guest Buyer""#), "kept: {html}");
+    assert!(html.contains(r#"href="/sign-in?"#) && page.contains("Sign in"), "{html}");
+
+    // No name is refused here, without asking Auth.
+    let saves = |pilot: &Pilot| contact_calls(pilot).into_iter().filter(|(m, _)| *m == Method::POST).count();
+    let before = saves(&pilot);
+    let body = guest_body("guest@example.test", "", &pay);
+    let (status, _, html) = pilot.send(as_guest(Method::POST, CHECKOUT_SCREEN, &body)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Enter your name and a valid email."), "{html}");
+    assert_eq!(saves(&pilot), before, "Auth is not asked");
+
+    // Auth's limiter refused the save: the values are kept to try again.
+    let body = guest_body("guest@example.test", "Guest Buyer", &pay);
+    let (status, _, html) = pilot.send(as_guest_with("gst_retry", Method::POST, CHECKOUT_SCREEN, &body)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Too many contact attempts. Your details are kept; try again in a few minutes."), "{html}");
+    assert!(html.contains(r#"value="Guest Buyer""#), "{html}");
+
+    // A saved contact cannot be changed: the saved one is shown instead.
+    let body = guest_body("other@example.test", "Guest Buyer", &pay);
+    let (status, _, html) = pilot.send(as_guest_with("gst_bound", Method::POST, CHECKOUT_SCREEN, &body)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    let page = text(&html);
+    assert!(page.contains("This checkout&#39;s contact is already saved and can&#39;t be changed."), "{page}");
+    assert!(page.contains("guest@example.test") && !page.contains("other@example.test"), "{page}");
+
+    // Auth's contact cannot be read: no contact form, and Pay now is disabled; a write is refused.
+    let (status, _, html) = pilot.send(as_guest_with("gst_busy", Method::GET, CHECKOUT_SCREEN, "")).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Contact temporarily unavailable"), "{html}");
+    assert!(!html.contains(r#"name="contactName""#), "{html}");
+    let pays = pay_buttons(&html);
+    assert!(!pays.is_empty() && pays.iter().all(|tag| tag.contains("disabled")), "{pays:?}");
+    let (status, _, html) = pilot.send(as_guest_with("gst_busy", Method::POST, CHECKOUT_SCREEN, &body)).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{html}");
+
+    assert!(checkout_writes(&pilot).is_empty(), "nothing is written: {:?}", checkout_writes(&pilot));
+}
+
+/// A contact Auth holds is shown, not asked for; Pay now does not save it again, and Checkout's
+/// refusal of a guest without a contact is the page again with its words.
+#[tokio::test]
+async fn a_guests_saved_contact_is_shown_and_not_saved_again() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(as_guest_with("gst_bound", Method::GET, CHECKOUT_SCREEN, "")).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("guest@example.test") && page.contains("Guest Buyer"), "{page}");
+    assert!(!html.contains(r#"name="contactName""#) && !html.contains("?edit=contact"), "{html}");
+
+    let body = guest_body("guest@example.test", "", &format!("intent=confirm-checkout&{CARD_TOKEN}"));
+    let (status, _, html) =
+        pilot.send(as_guest_with("gst_bound", Method::POST, "/checkout/buy/session/chk_guestcontact", &body)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(
+        text(&html).contains("Add your name and email for this checkout before you pay. Nothing was reserved or ordered."),
+        "{html}"
+    );
+    assert!(contact_calls(&pilot).iter().all(|(method, _)| *method == Method::GET), "an unchanged contact is not saved again");
+    assert!(checkout_writes(&pilot).iter().any(|(write, _)| write == "confirm"), "Pay now went on to Checkout");
 }
 
 #[tokio::test]

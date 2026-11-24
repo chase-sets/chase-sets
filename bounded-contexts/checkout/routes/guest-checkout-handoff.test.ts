@@ -7,6 +7,7 @@ import {
   MockCheckoutApiError,
   mockConfirmCheckoutSession,
   mockCreateAuthRequestApiClient,
+  mockCreateInternalAuthRequestApiClient,
   mockCreateCartReadiness,
   mockCreateCheckoutRequestApiClient,
   mockCreateCheckoutSession,
@@ -16,6 +17,7 @@ import {
   mockCreatePaymentsRequestApiClient,
   mockGetCheckoutSession,
   mockGetGuestCheckoutClaimContext,
+  mockGetGuestCheckoutContact,
   mockGetGuestCart,
   MockMarketplaceApiError,
   mockMergeGuestCartToAccount,
@@ -58,6 +60,7 @@ vi.mock("@chase-sets/auth/server", async () => {
   return {
     ...actual,
     createAuthRequestApiClient: mockCreateAuthRequestApiClient,
+    createInternalAuthRequestApiClient: mockCreateInternalAuthRequestApiClient,
   };
 });
 
@@ -265,12 +268,9 @@ describe("checkout web routes: guest checkout handoff", () => {
     mockCreatePaymentsRequestApiClient.mockReturnValue({
       previewCheckoutStatus: mockPreviewCheckoutStatus,
     });
-    mockGetGuestCheckoutClaimContext.mockResolvedValue({
+    mockGetGuestCheckoutContact.mockResolvedValue({
       contactName: "Jane Smith",
       contactEmail: "jane@example.com",
-    });
-    mockCreateAuthRequestApiClient.mockReturnValue({
-      getGuestCheckoutClaimContext: mockGetGuestCheckoutClaimContext,
     });
 
     const checkoutSessionResult = await checkoutSessionLoader({
@@ -293,13 +293,15 @@ describe("checkout web routes: guest checkout handoff", () => {
         paymentPreview: expect.objectContaining({
           amount: "26.00",
         }),
-        guestCheckoutContact: {
+        guestContact: {
+          state: "bound",
           contactName: "Jane Smith",
           contactEmail: "jane@example.com",
         },
       }),
     );
-    expect(mockGetGuestCheckoutClaimContext).toHaveBeenCalledWith({});
+    expect(mockGetGuestCheckoutContact).toHaveBeenCalledTimes(1);
+    expect(mockGetGuestCheckoutClaimContext).not.toHaveBeenCalled();
 
     mockSelectShippingOption.mockResolvedValue({});
     mockConfirmCheckoutSession.mockResolvedValue({
@@ -326,7 +328,10 @@ describe("checkout web routes: guest checkout handoff", () => {
     confirmationForm.set("shippingState", "IL");
     confirmationForm.set("shippingPostalCode", "60601");
     confirmationForm.set("shippingCountry", "US");
-    confirmationForm.set("shippingEmail", checkoutSessionResult.guestCheckoutContact?.contactEmail ?? "");
+    confirmationForm.set(
+      "shippingEmail",
+      checkoutSessionResult.guestContact?.state === "bound" ? checkoutSessionResult.guestContact.contactEmail : "",
+    );
 
     const confirmationResponse = (await checkoutSessionAction({
       request: new Request("http://localhost/checkout/buy/session/chk_guest", {

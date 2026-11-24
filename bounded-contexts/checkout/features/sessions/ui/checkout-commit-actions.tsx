@@ -23,6 +23,8 @@ export type CheckoutCommitButtonProps = Readonly<{
   confirmationAmbiguous?: boolean;
   /** Pay now becomes this verification link while Auth withholds payment. */
   verifyEmailHref?: string | null;
+  /** A guest's contact could not be read, so nothing can be confirmed until it can. */
+  contactUnavailable?: boolean;
   submittingCtaLabel: string;
   primaryCtaLabel: string;
   form?: string;
@@ -44,6 +46,7 @@ export function checkoutCommitButton({
   paymentEntryPending,
   confirmationAmbiguous = false,
   verifyEmailHref = null,
+  contactUnavailable = false,
   submittingCtaLabel,
   primaryCtaLabel,
   form,
@@ -65,12 +68,20 @@ export function checkoutCommitButton({
         value={reReserveIntent}
         leadingIcon="refreshCcw"
         loading={isSubmitting}
-        disabled={isSubmitting || confirmationAmbiguous || paymentEntryPending}
+        disabled={isSubmitting || confirmationAmbiguous || paymentEntryPending || contactUnavailable}
         block
       >
         {isSubmitting
           ? t("checkout.features.sessions.ui.checkoutPage.processing.payment")
           : t("checkout.features.sessions.ui.checkoutPage.reserve.again")}
+      </Button>
+    );
+  }
+
+  if (contactUnavailable && !isOfferIntent) {
+    return (
+      <Button type="submit" form={form} name="intent" value={commitIntent} leadingIcon={commitIcon} disabled block>
+        {primaryCtaLabel}
       </Button>
     );
   }

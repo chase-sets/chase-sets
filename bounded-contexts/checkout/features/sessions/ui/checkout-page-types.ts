@@ -64,9 +64,20 @@ export type CheckoutSavedPaymentInstrument = Readonly<{
 
 export type CheckoutEditSection = "contact" | "delivery" | "shipping" | "payment";
 
-export type GuestCheckoutContact = Readonly<{
+/**
+ * A guest's contact as Auth reported it to the server. Only `bound` carries values; `indeterminate`
+ * means Auth could not be read and says nothing either way.
+ */
+export type GuestContactAuthority =
+  | Readonly<{ state: "bound"; contactEmail: string; contactName: string }>
+  | Readonly<{ state: "unbound" }>
+  | Readonly<{ state: "indeterminate"; reason: "rate-limited" | "unreadable" }>;
+
+/** What a guest last entered as contact, kept editable, and why it was not saved. */
+export type GuestContactAttempt = Readonly<{
   contactEmail: string;
-  contactName: string | null;
+  contactName: string;
+  problem: "sign-in-required" | "invalid" | "retry-later";
 }>;
 
 export type CheckoutReservationUnavailableLine = Pick<
@@ -108,7 +119,13 @@ export type CheckoutSessionPageProps = {
   confirmationAmbiguous?: boolean;
   savedShippingAddresses?: readonly CheckoutSavedShippingAddress[];
   savedCheckoutInstruments?: readonly CheckoutSavedPaymentInstrument[];
-  guestCheckoutContact?: GuestCheckoutContact | null;
+  /** Set for a guest: the contact Auth holds for this checkout. */
+  guestContact?: GuestContactAuthority | null;
+  guestContactAttempt?: GuestContactAttempt | null;
+  /** A save tried to change a contact that is already saved. */
+  guestContactLocked?: boolean;
+  /** Sign-in link that returns to this checkout, offered when the email already has an account. */
+  guestContactSignInHref?: string | null;
   canManageShippingAddresses?: boolean;
   canSavePaymentMethods?: boolean;
   isSignedInBuyer?: boolean;

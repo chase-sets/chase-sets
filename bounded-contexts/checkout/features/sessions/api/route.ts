@@ -28,6 +28,8 @@ import {
   isPaymentConfirmationTokenId,
   normalizeRequestedBalanceCreditAmount,
   previewCheckoutFulfillmentThroughOrdering,
+  readGuestContactAuthorityThroughAuth,
+  requiresBoundGuestContact,
   submitPurchaseIntentThroughMarketplace,
 } from "../../../support/request-support/checkout-confirmation";
 import { readCheckoutFulfillmentPreview } from "../domain/fulfillment-preview";
@@ -1179,6 +1181,22 @@ export function createAccountCheckoutSessionRoutes(
         },
         401,
       );
+    }
+
+    // A guest orders and pays only once Auth holds its contact, checked before anything is read or written.
+    if (requiresBoundGuestContact(access.actor)) {
+      const authority = await readGuestContactAuthorityThroughAuth(c.req.raw);
+      if (authority.state !== "bound") {
+        return c.json(
+          {
+            error: {
+              code: "guest_contact_required",
+              message: t("checkout.features.sessions.api.route.guest.contact.required"),
+            },
+          },
+          409,
+        );
+      }
     }
 
     const sessionId = c.req.param("sessionId");
