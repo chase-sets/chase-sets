@@ -4741,6 +4741,17 @@ const workflowStageNames: Record<WorkflowStageKey, RegExp> = {
 };
 
 async function expandWorkflowStage(page: Page, stage: WorkflowStageKey, timeoutMs?: number): Promise<void> {
+  // The Corten admin draws each stage as a <details>; it is open when its summary has been pressed.
+  if (await isCortenAdminPage(page)) {
+    const timeout = timeoutMs ?? pageReadyTimeoutMs;
+    const details = page.locator(`details[data-catalog-import-workflow-stage="${stage}"]`);
+    await expect(details).toHaveCount(1, { timeout });
+    if ((await details.getAttribute("open", { timeout })) === null) {
+      await details.locator(":scope > summary").click({ timeout });
+    }
+    await expect(details).toHaveAttribute("open", /.*/, { timeout });
+    return;
+  }
   const trigger = page
     .locator(`[data-catalog-import-workflow-stage="${stage}"]`)
     .or(page.getByRole("heading", { name: workflowStageNames[stage] }).getByRole("button"))
@@ -8085,8 +8096,6 @@ async function submitPromoteAllReady(
     );
   const known = new Set([...active, ...(await readCompleted())].map((job) => job.jobId));
   await gotoWholeGamePage(page, `/catalog/scopes/${encodeURIComponent(scopeRecordId)}`, runtime);
-  // The Corten admin's Promote all ready is not yet driven here; refuse before any write.
-  if (await isCortenAdminPage(page)) throw new WholeGameRehearsalRefusal("corten-admin-promote-unported");
   const form = page
     .locator('form[data-catalog-merge-candidate-bulk-promote="true"]')
     .filter({ has: page.locator(`input[name="scopeRecordId"][value=${cssString(scopeRecordId)}]`) });
@@ -8131,9 +8140,7 @@ async function publishThroughCatalogItems(
   runtime?: WholeGameRuntime,
 ): Promise<void> {
   await gotoWholeGamePage(page, `/catalog/catalog-items?${wholeGameQuery(filter)}`, runtime);
-  // The guard reads admin-web's browser-side preview answer, which the Corten admin's server-drawn
-  // preview does not expose; refuse before any write.
-  if (await isCortenAdminPage(page)) throw new WholeGameRehearsalRefusal("corten-admin-publish-unported");
+  if (await isCortenAdminPage(page)) return await publishThroughCortenItems(page, filter, blueprintIds, runtime);
   await clickWholeGameControl(page, page.getByRole("button", { name: "Actions", exact: true }).first(), runtime);
   const [response] = await Promise.all([
     page.waitForResponse(
@@ -8180,13 +8187,93 @@ async function publishThroughCatalogItems(
   });
 }
 
+// The Corten admin draws the publish preview on the server (20 rows, no Blueprint), so the guard
+// reads the API's complete preview for the same filter, then the pilot's confirm form must carry
+// exactly the guarded items before it is pressed.
+async function publishThroughCortenItems(
+  page: Page,
+  filter: WholeGamePublishFilter,
+  blueprintIds: ReadonlySet<string>,
+  runtime?: WholeGameRuntime,
+): Promise<void> {
+  const preview = await readWholeGamePublishPreview(page, filter, runtime);
+  assertPublishPreviewGuard(preview, filter, blueprintIds);
+  await gotoWholeGamePage(
+    page,
+    `/catalog/catalog-items/bulk?${wholeGameQuery({ ...filter, action: "publish", mode: "filter" })}`,
+    runtime,
+  );
+  const form = page.locator('form[method="post"][action^="/catalog/catalog-items/bulk/confirm"]');
+  await expect(form).toHaveCount(1, { timeout: wholeGameRemainingMs(runtime, pageReadyTimeoutMs) });
+  const carried = await form
+    .locator('input[type="hidden"][name="ids"]')
+    .evaluateAll((inputs) => inputs.map((input) => (input as HTMLInputElement).value));
+  const guarded = [...preview.item_ids].sort();
+  if (carried.length !== guarded.length || [...carried].sort().some((id, index) => id !== guarded[index])) {
+    throw new WholeGameRehearsalRefusal("publish-confirm-selection-mismatch");
+  }
+  wholeGameRemainingMs(runtime);
+  assertWholeGameOrigin(page.url());
+  await clickWholeGameControl(
+    page,
+    form.getByRole("button", { name: "Publish or recheck items", exact: true }),
+    runtime,
+  );
+  // The pilot answers a started publish with the list following its job.
+  await page.waitForURL((url) => url.pathname === "/catalog/catalog-items" && url.searchParams.has("job"), {
+    timeout: wholeGameRemainingMs(runtime, terminalSyncTimeoutMs),
+  });
+}
+
+// The publish preview is the API's read of what a publish would do; it writes nothing. Only this
+// path is posted, with admin-web's filter selection.
+async function readWholeGamePublishPreview(
+  page: Page,
+  filter: WholeGamePublishFilter,
+  runtime?: WholeGameRuntime,
+): Promise<WholeGamePublishPreview> {
+  assertWholeGameOrigin(page.url());
+  const remaining = wholeGameRemainingMs(runtime);
+  const result = await readBeforeWholeGameDeadline(Date.now() + remaining, () =>
+    page.evaluate(
+      async ({ body, remaining }) => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), remaining);
+        try {
+          const response = await fetch("/api/catalog/items/bulk-publish/preview", {
+            method: "POST",
+            credentials: "same-origin",
+            redirect: "error",
+            signal: controller.signal,
+            headers: { accept: "application/json", "content-type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          return {
+            ok: response.ok,
+            status: response.status,
+            body: response.ok ? ((await response.json()) as unknown) : null,
+          };
+        } catch (error) {
+          if (controller.signal.aborted) return { ok: false, status: 0, body: null };
+          throw error;
+        } finally {
+          clearTimeout(timer);
+        }
+      },
+      { body: { selection: { mode: "filter", query: filter } }, remaining },
+    ),
+  );
+  if (result.status === 0) throw new WholeGameDeadlineReached();
+  if (!result.ok) throw new WholeGameRehearsalRefusal(`publish-preview-${result.status}`);
+  return result.body as WholeGamePublishPreview;
+}
+
 // Fixture Admin: the whole-game journeys run against fulfilled Admin pages and
 // admin API reads, so every decision path is exercised without staging.
 type WholeGameFixtureRequest = Readonly<{ method: string; path: string; search: URLSearchParams; body: string }>;
 type WholeGameFixtureReply =
   | Readonly<{ html: string; corten?: true }>
   | Readonly<{ json: unknown }>
-  | Readonly<{ redirect: string }>
   | Readonly<{ abort: true }>;
 
 async function serveWholeGameFixture(
@@ -8207,7 +8294,6 @@ async function serveWholeGameFixture(
     const reply = handle(fixtureRequest);
     if (!reply) return route.fulfill({ status: 404, contentType: "application/json", body: "{}" });
     if ("abort" in reply) return route.abort("failed");
-    if ("redirect" in reply) return route.fulfill({ status: 303, headers: { location: reply.redirect } });
     if ("html" in reply) {
       return route.fulfill({
         status: 200,
@@ -9251,17 +9337,19 @@ test.describe("catalog whole-game rehearsal journeys", () => {
           ? { json: fixtureBatch({ planFingerprint: cortenFingerprint }) }
           : undefined;
       }
-      if (request.method === "GET") {
-        return request.search.get("batchId") === "batch-requested"
-          ? { html: fixtureBatchSection(fixtureBatch({})), corten: true }
-          : { html: cortenFixtureNewBatchForm(), corten: true };
-      }
+      if (request.method === "GET") return { html: cortenFixtureNewBatchForm(), corten: true };
       const sent = new URLSearchParams(request.body);
       if (sent.get("intent") === "preview") {
         return { html: cortenFixturePreview(cortenFingerprint, [["scrydex", 2, 40]], sent), corten: true };
       }
-      // The Corten admin answers a confirm with 303 See Other to the batch's address.
-      if (sent.get("intent") === "confirm") return { redirect: "/catalog/scopes/sync-batches?batchId=batch-requested" };
+      // The Corten admin answers a confirm with 303 See Other to the batch's address. A route only
+      // handles a redirect's first request, so the fixture draws the batch and moves the address.
+      if (sent.get("intent") === "confirm") {
+        return {
+          html: `${fixtureBatchSection(fixtureBatch({}))}<script>history.replaceState(null, "", "/catalog/scopes/sync-batches?batchId=batch-requested")</script>`,
+          corten: true,
+        };
+      }
       return undefined;
     });
   }
@@ -9306,7 +9394,7 @@ test.describe("catalog whole-game rehearsal journeys", () => {
     const pokemon = calls.filter((call) => call.includes("intent=preview")).at(-1) ?? "";
     expect(pokemon).toContain("productDomain=pokemon");
     expect(pokemon).toContain("scopeKind=expansion");
-    expect(calls.filter((call) => call.includes("intent=confirm"))).toEqual([]);
+    expect(postIntents(calls)).toEqual(["preview", "preview"]);
   });
 
   test("Corten admin: a paid confirm checks the confirmation form and follows the batchId address", async ({
@@ -9327,35 +9415,133 @@ test.describe("catalog whole-game rehearsal journeys", () => {
     expect(confirms[0]).toContain(`planFingerprint=${cortenFingerprint}`);
     expect(confirms[0]).toContain("scrydexRequestLimit=50");
     expect(postIntents(calls)).toEqual(["preview", "confirm"]);
-    expect(
-      calls.filter((call) => call.startsWith("GET /catalog/scopes/sync-batches?batchId=batch-requested")),
-    ).toHaveLength(1);
+    const at = new URL(page.url());
+    expect(`${at.pathname}${at.search}`).toBe("/catalog/scopes/sync-batches?batchId=batch-requested");
+    expect(calls).toContain("GET /api/catalog/scope-sync-batches/batch-requested");
   });
 
-  test("Corten admin: settle refuses before Promote all ready, with no write", async ({ page }) => {
+  // The Corten admin's scope page: Review changes is a closed <details> holding the scope's form.
+  const cortenScopeReview =
+    '<details data-catalog-import-workflow-stage="review-changes"><summary>Review changes</summary><form method="post" action="/catalog/integrations/candidates?home=scope-1" data-catalog-merge-candidate-bulk-promote="true"><input type="hidden" name="intent" value="promote"><input type="hidden" name="scopeRecordId" value="scope-1"><button type="submit">Promote all ready</button></form></details>';
+
+  test("Corten admin: Promote all ready opens Review changes and posts the scope's form once", async ({ page }) => {
+    let posted = false;
     const calls = await serveWholeGameFixture(page, (request) => {
-      if (request.path === "/catalog/scopes/sync-batches")
-        return { html: fixtureBatchSection(fixtureBatch({})), corten: true };
-      if (request.path === "/api/catalog/scope-sync-batches/batch-requested") return { json: fixtureBatch({}) };
-      if (request.path === "/api/catalog/source-observations/bulk-jobs/active") return { json: { items: [] } };
-      if (request.path === "/catalog/scopes/scope-1") {
+      if (request.path === "/catalog/scopes/scope-1") return { html: cortenScopeReview, corten: true };
+      if (request.method === "POST" && request.path === "/catalog/integrations/candidates") {
+        posted = true;
+        return { html: cortenScopeReview, corten: true };
+      }
+      if (request.path === "/api/catalog/source-observations/bulk-jobs/active") {
+        const active = posted && request.search.get("status") !== "completed";
         return {
-          html: `<form method="post" data-catalog-merge-candidate-bulk-promote="true"><input type="hidden" name="scopeRecordId" value="scope-1"><button type="submit">Promote all ready</button></form>`,
+          json: {
+            items: active
+              ? [
+                  {
+                    jobId: "job-new",
+                    kind: "merge-candidate-promote",
+                    scopeRecordId: "scope-1",
+                    status: "running",
+                    result: null,
+                  },
+                ]
+              : [],
+            nextCursor: null,
+          },
+        };
+      }
+      return undefined;
+    });
+    await expect(submitPromoteAllReady(page, "scope-1", [], fixtureRuntime())).resolves.toBe("job-new");
+    expect(calls.filter((call) => call.startsWith("POST "))).toEqual([
+      "POST /catalog/integrations/candidates?home=scope-1 intent=promote&scopeRecordId=scope-1",
+    ]);
+  });
+
+  const cortenPublishFilter: WholeGamePublishFilter = {
+    blueprintId: "blueprint-1",
+    source: "scrydex",
+    language: "en",
+    status: "draft",
+  };
+
+  async function serveCortenPublishFixture(
+    page: Page,
+    preview: WholeGamePublishPreview,
+    carried: readonly string[],
+  ): Promise<string[]> {
+    return await serveWholeGameFixture(page, (request) => {
+      if (request.path === "/catalog/catalog-items") return { html: "<h1>Catalog Items</h1>", corten: true };
+      if (request.path === "/api/catalog/items/bulk-publish/preview") return { json: preview };
+      if (request.path === "/catalog/catalog-items/bulk") {
+        const ids = carried.map((id) => '<input type="hidden" name="ids" value="' + id + '">').join("");
+        return {
+          html:
+            '<h2>Bulk Publish Preview</h2><form method="post" action="/catalog/catalog-items/bulk/confirm?blueprintId=blueprint-1"><input type="hidden" name="action" value="publish"><input type="hidden" name="mode" value="ids">' +
+            ids +
+            '<button type="submit">Publish or recheck items</button></form>',
+          corten: true,
+        };
+      }
+      if (request.path === "/catalog/catalog-items/bulk/confirm") {
+        // The pilot answers with 303 to the list following the job; a route only handles a
+        // redirect's first request, so the fixture moves the address itself.
+        return {
+          html: '<script>history.replaceState(null, "", "/catalog/catalog-items?blueprintId=blueprint-1&job=job-publish")</script>',
           corten: true,
         };
       }
       return undefined;
     });
-    await expect(
-      wholeGameSettle(
-        page,
-        { batchId: "batch-requested", retryFailed: false, resumeCancelled: false },
-        fixtureRun,
-        fixtureRuntime(),
-        fixtureReceiptSink,
-      ),
-    ).rejects.toMatchObject({ code: "corten-admin-promote-unported" });
-    expect(calls.filter((call) => call.startsWith("POST "))).toEqual([]);
+  }
+
+  test("Corten admin: publish guards the API's whole preview, then confirms exactly its items", async ({ page }) => {
+    const preview = fixturePublishPreview(25);
+    const calls = await serveCortenPublishFixture(page, preview, preview.item_ids);
+    await publishThroughCatalogItems(page, cortenPublishFilter, new Set(["blueprint-1"]), fixtureRuntime());
+
+    const previews = calls.filter((call) => call.startsWith("POST /api/catalog/items/bulk-publish/preview "));
+    expect(previews).toHaveLength(1);
+    expect(JSON.parse(previews[0]!.slice(previews[0]!.indexOf("{")))).toEqual({
+      selection: { mode: "filter", query: cortenPublishFilter },
+    });
+    expect(calls).toContain(
+      "GET /catalog/catalog-items/bulk?blueprintId=blueprint-1&source=scrydex&language=en&status=draft&action=publish&mode=filter",
+    );
+    const confirms = calls.filter((call) => call.startsWith("POST /catalog/catalog-items/bulk/confirm"));
+    expect(confirms).toHaveLength(1);
+    const sent = new URLSearchParams(confirms[0]!.slice(confirms[0]!.lastIndexOf(" ") + 1));
+    expect(sent.getAll("ids")).toEqual(preview.item_ids);
+    expect(sent.get("action")).toBe("publish");
+    const at = new URL(page.url());
+    expect(at.pathname).toBe("/catalog/catalog-items");
+    expect(at.searchParams.get("job")).toBe("job-publish");
+  });
+
+  test("Corten admin: publish refuses before confirm when the guard or the pilot's selection disagrees", async ({
+    page,
+  }) => {
+    const preview = fixturePublishPreview(25);
+    const cases: readonly (readonly [WholeGamePublishPreview, readonly string[], string, boolean])[] = [
+      [preview, preview.item_ids.slice(1), "publish-confirm-selection-mismatch", true],
+      [preview, [...preview.item_ids.slice(1), "item-other"], "publish-confirm-selection-mismatch", true],
+      [
+        fixturePublishPreview(25, (index) => (index === 21 ? { blueprint_id: "blueprint-other-game" } : {})),
+        preview.item_ids,
+        "publish-preview-row-22-foreign-blueprint",
+        false,
+      ],
+    ];
+    for (const [answer, carried, code, opened] of cases) {
+      await page.unrouteAll();
+      const calls = await serveCortenPublishFixture(page, answer, carried);
+      await expect(
+        publishThroughCatalogItems(page, cortenPublishFilter, new Set(["blueprint-1"]), fixtureRuntime()),
+      ).rejects.toMatchObject({ code });
+      expect(calls.some((call) => call.startsWith("GET /catalog/catalog-items/bulk?"))).toBe(opened);
+      expect(calls.filter((call) => call.startsWith("POST /catalog/catalog-items/bulk/confirm"))).toEqual([]);
+    }
   });
 
   test("AC2 settle retries only the requested batch's failed unit and refuses a different batch_id", async ({

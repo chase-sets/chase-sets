@@ -3786,10 +3786,7 @@ fn sent_json(call: &Call) -> Value {
 async fn the_items_list_asks_the_api_with_admin_webs_filters_and_draws_its_columns() {
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot
-        .send(get(
-            "/catalog/catalog-items?status=draft&language=ja&blueprint_state=missing&has_images=false&page=2",
-            Some("staff"),
-        ))
+        .send(get("/catalog/catalog-items?status=draft&language=ja&blueprintState=missing&hasImages=false&page=2", Some("staff")))
         .await;
     assert_eq!(status, StatusCode::OK, "{html}");
     let read = pilot.catalog_calls().remove(0);
@@ -3809,10 +3806,10 @@ async fn the_items_list_asks_the_api_with_admin_webs_filters_and_draws_its_colum
     assert!(html.contains(r#"href="/catalog/catalog-items/cat_a""#), "the item's page is the pilot's: {html}");
     assert!(html.contains(r#"<details class="list-page__more" open>"#), "a folded filter that is set opens them: {html}");
     assert!(html.contains(r#"value="missing" selected"#), "{html}");
-    assert!(html.contains(r#"formaction="/catalog/catalog-items/drafts?status=draft&amp;language=ja&amp;blueprint_state=missing&amp;has_images=false&amp;page=2" data-checked"#), "{html}");
+    assert!(html.contains(r#"formaction="/catalog/catalog-items/drafts?status=draft&amp;language=ja&amp;blueprintState=missing&amp;hasImages=false&amp;page=2" data-checked"#), "{html}");
     assert!(html.contains(r#"<option value="mergeTags">Merge Tags</option>"#) && html.contains(r#"name="tags""#), "{html}");
     assert!(
-        html.contains(r#"<corten-live data-scope="live-status" id="catalog-live" src="/catalog/catalog-items/live?status=draft&amp;language=ja&amp;blueprint_state=missing&amp;has_images=false&amp;page=2" data-on='"#),
+        html.contains(r#"<corten-live data-scope="live-status" id="catalog-live" src="/catalog/catalog-items/live?status=draft&amp;language=ja&amp;blueprintState=missing&amp;hasImages=false&amp;page=2" data-on='"#),
         "{html}"
     );
     assert!(html.contains(r#"href="/catalog/catalog-items""#), "the nav serves the list: {html}");
@@ -9287,6 +9284,8 @@ fn daily_command(method: &Method, path: &str, body: &str) -> Option<Response> {
             }
         }
         "/bulk-defer/jobs" => written(StatusCode::ACCEPTED, "bulk_1"),
+        // A scope's merge candidate review job (Promote all ready, Defer remainder).
+        "/merge-candidate-bulk-jobs" => written(StatusCode::ACCEPTED, "mcj_1"),
         // A promotion's preview answers a token bound to the draft choice; its commit admits only
         // that token with the same choice (the API's `stale_promotion_preview` otherwise).
         "/bulk-promote/preview" if sent["confirmation"].is_object() => {
@@ -11208,6 +11207,78 @@ async fn a_merge_candidate_is_ignored_or_deferred_with_admin_webs_reason() {
     let (status, _, _) = pilot.send(post("/catalog/integrations/candidates/cand_1", "command=promote", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "a command the form does not offer");
     assert_eq!(daily_writes(&pilot).len(), before, "it does not reach the API");
+}
+
+#[tokio::test]
+async fn a_scopes_review_actions_queue_one_job_over_the_scope_to_promote_or_defer() {
+    let pilot = Pilot::new().await;
+    let module = |html: &str| {
+        let start = html.find(r#"id="wb-scope-review""#).expect("the scope review actions");
+        let end = start + html[start..].find("</section>").expect("its end");
+        html[start..end].to_owned()
+    };
+    let (status, _, html) = pilot.send(get("/catalog/scopes/scp_paf", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let part = module(&html);
+    assert!(part.contains("Scope review actions") && part.contains("Promote all ready"), "{part}");
+    assert!(part.contains(r#"data-catalog-merge-candidate-bulk-promote="true""#), "{part}");
+    assert!(part.contains(r#"data-catalog-merge-candidate-bulk-defer="true""#), "{part}");
+    assert!(part.contains(r#"action="/catalog/integrations/candidates?home=scp_paf""#), "{part}");
+    assert!(part.contains(r#"name="scopeRecordId" value="scp_paf""#), "{part}");
+    assert!(part.contains(r#"name="reason""#) && part.contains("required"), "{part}");
+
+    // Promote all ready queues one job over the scope and lands back on it.
+    let (status, headers, _) =
+        pilot.send(post("/catalog/integrations/candidates?home=scp_paf", "intent=promote&scopeRecordId=scp_paf", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(to.starts_with("/catalog/scopes/scp_paf?") && to.contains("done=queued"), "{to}");
+    assert_eq!(
+        last_write(&pilot, "/merge-candidate-bulk-jobs"),
+        json!({ "kind": "merge-candidate-promote", "scopeRecordId": "scp_paf", "reason": null })
+    );
+
+    // Defer remainder carries its reason.
+    let (status, _, _) = pilot
+        .send(post(
+            "/catalog/integrations/candidates?home=scp_paf",
+            "intent=defer&scopeRecordId=scp_paf&reason=Conflicts+need+a+source+check",
+            false,
+        ))
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        last_write(&pilot, "/merge-candidate-bulk-jobs"),
+        json!({ "kind": "merge-candidate-defer", "scopeRecordId": "scp_paf", "reason": "Conflicts need a source check" })
+    );
+
+    // A defer without its reason, an intent the form does not offer and a missing scope never reach
+    // the API.
+    let before = daily_writes(&pilot).len();
+    let (status, _, html) = pilot
+        .send(post("/catalog/integrations/candidates?home=scp_paf", "intent=defer&scopeRecordId=scp_paf&reason=+", false))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    for body in ["intent=reject&scopeRecordId=scp_paf", "intent=promote&scopeRecordId="] {
+        let (status, _, _) = pilot.send(post("/catalog/integrations/candidates?home=scp_paf", body, false)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    }
+    assert_eq!(daily_writes(&pilot).len(), before, "nothing was sent");
+
+    // A Catalog viewer sees the actions disabled, as admin-web draws them, and cannot send one.
+    let (_, _, html) = pilot.send(get("/catalog/scopes/scp_paf", Some("catalog-viewer"))).await;
+    let part = module(&html);
+    let promote = part.find("Promote all ready").expect("the promote button");
+    assert!(part[part[..promote].rfind("<button").unwrap()..promote].contains("disabled"), "{part}");
+    let (status, _, _) = pilot
+        .send(post_as("catalog-viewer", "/catalog/integrations/candidates", "intent=promote&scopeRecordId=scp_paf", false))
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(daily_writes(&pilot).len(), before, "nothing was sent");
+
+    // Off a scope's own page there is no scope to act on, so the actions are not drawn.
+    let (_, _, html) = pilot.send(get("/catalog/integrations?providerKey=tcgplayer&unitKey=pokemon", Some("staff"))).await;
+    assert!(!html.contains(r#"id="wb-scope-review""#), "{html}");
 }
 
 #[tokio::test]

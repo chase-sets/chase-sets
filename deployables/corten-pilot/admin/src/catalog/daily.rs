@@ -139,6 +139,10 @@ pub mod url {
         pub id: &'a str,
     }
 
+    /// Queues one job over a scope's merge candidates: Promote all ready, or Defer remainder.
+    #[route("/catalog/integrations/candidates", post = crate::catalog::daily::scope_candidates)]
+    pub struct ScopeCandidates;
+
     /// Reloads or refreshes the provider's source options, then lands on the working set.
     #[route("/catalog/integrations/source-options", post = crate::catalog::daily::source_options_refresh)]
     pub struct SourceOptions;
@@ -2352,6 +2356,61 @@ pub(crate) async fn candidate(
                 errors.add(f.reason, message);
             }
             errors.add_form(message);
+            Sent::Refused(errors)
+        }
+        None => Sent::Refused(super::not_offered(req.t())),
+    };
+    answer(&req, &staff, &config, &headers, &context, sent, Ran::Queued).await
+}
+
+/// A scope's merge candidate review job (admin-web's `CatalogScopeBulkReviewActions`, sent as
+/// `candidateSelection=scope`): `promote` (Promote all ready) or `defer` (Defer remainder, which
+/// needs its reason), and the Scope Record. The API selects the candidates when the job starts, so
+/// the page's rows never decide what it acts on.
+#[derive(Clone, Debug, Default, Fields)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ScopeCandidatesInput {
+    pub intent: String,
+    pub scope_record_id: String,
+    pub reason: String,
+}
+
+impl ScopeCandidatesInput {
+    /// The job's body (`enqueueCatalogMergeCandidateBulkJob`): its kind, the scope and the reason
+    /// (none for a promote, as admin-web sends it). `None` for an intent the form does not offer,
+    /// no scope, or a defer without its reason.
+    pub fn body(&self) -> Option<Value> {
+        let scope = self.scope_record_id.trim();
+        let reason = Some(self.reason.trim()).filter(|r| !r.is_empty());
+        let kind = match self.intent.as_str() {
+            "promote" => "merge-candidate-promote",
+            "defer" if reason.is_some() => "merge-candidate-defer",
+            _ => return None,
+        };
+        (!scope.is_empty()).then(|| json!({ "kind": kind, "scopeRecordId": scope, "reason": reason }))
+    }
+}
+
+pub(crate) async fn scope_candidates(
+    req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    uri: Uri,
+    Form(input): Form<ScopeCandidatesInput>,
+) -> HtmlResult {
+    let context = context_of(&uri);
+    let t: Cat = req.t();
+    let sent = match input.body() {
+        Some(body) => {
+            let caller = config.platform.caller(&headers, config.proto, None);
+            command(&caller, Method::POST, Kind::SourceObservations, "/merge-candidate-bulk-jobs", Some(&body)).await
+        }
+        // A defer without its reason is the reason's own message, as admin-web's required field.
+        None if input.intent == "defer" && input.reason.trim().is_empty() => {
+            let mut errors = Errors::new();
+            errors.add(ScopeCandidatesInput::FIELDS.reason, t.coverage_reason_required());
+            errors.add_form(t.coverage_reason_required());
             Sent::Refused(errors)
         }
         None => Sent::Refused(super::not_offered(req.t())),
