@@ -92,6 +92,27 @@ function createItemGradedCard(
   };
 }
 
+/**
+ * Listing stock's graded card names the selected Grading Company and Grade, with or without a supplied
+ * card. A supplied card adds evidence about the item (certification number, population, condition
+ * descriptors), so one that names another company or grade is refused rather than stored.
+ */
+function createListingStockGradedCard(
+  graded: InventoryGradedClassification,
+  supplied: GradedCardDetails | null | undefined,
+): GradedCardDetails | null {
+  const selected = createItemGradedCard(graded, null);
+  if (!selected || !supplied) {
+    return selected;
+  }
+
+  if (supplied.gradingCompany.trim() !== selected.gradingCompany || supplied.grade.trim() !== selected.grade) {
+    throw new InventoryDomainError("Graded card details must name the selected grading company and grade.");
+  }
+
+  return { ...supplied, gradingCompany: selected.gradingCompany, grade: selected.grade };
+}
+
 function createListingStockInventoryItemId(
   input: Readonly<{
     accountId: string;
@@ -437,7 +458,7 @@ export function createInventoryItemRuntime(
       }
 
       // The selection already names the grading company and grade; the certificate is optional, as for an item.
-      const gradedCard = graded.kind === "raw" ? null : (params.gradedCard ?? createItemGradedCard(graded, null));
+      const gradedCard = createListingStockGradedCard(graded, params.gradedCard);
 
       let location = await findDefaultListingStockLocation(params.accountId);
       let createdStorageLocation = false;
