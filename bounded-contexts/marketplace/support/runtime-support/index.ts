@@ -5,6 +5,7 @@ import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import type { ObjectStorage } from "@chase-sets/object-storage";
 import type { CommercialTermsResolver } from "../../api";
 import type { ListingEvidencePolicyEvaluator } from "../../features/listings/api/evidence-requirement-resolver";
+import type { MarketplaceGradedCardDetails } from "../../features/listings/domain/domain";
 import type { ManagedOfferPricing } from "../../features/offers/api/managed-authority";
 import type { MarketplaceOfferLifecycleAdmission } from "../../features/offers/api/lifecycle-admission";
 import type { ListingTargetAuthority } from "../../features/listings/api/target-contracts";
@@ -23,8 +24,17 @@ export type ListingPhotoStorage = Readonly<{
   deleteObjects?: (keys: readonly string[]) => Promise<void>;
 }>;
 
+/** Inventory's answer for one item its account owns: the Graded Item Details recorded at creation. */
+export type InventoryItemGradedCardAuthority = Readonly<{
+  resolve(
+    input: Readonly<{ accountId: string; inventoryItemId: string }>,
+  ): Promise<Readonly<{ gradedCard: MarketplaceGradedCardDetails | null }> | null>;
+}>;
+
 export type MarketplaceRuntimeDeps = Readonly<{
   listingTargetAuthority?: ListingTargetAuthority;
+  /** Absent keeps Listing creation from an Inventory snapshot closed. */
+  inventoryItemGradedCardAuthority?: InventoryItemGradedCardAuthority;
   eventStore: EventStore;
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;

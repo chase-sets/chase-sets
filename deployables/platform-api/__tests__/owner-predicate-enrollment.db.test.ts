@@ -201,7 +201,11 @@ describeDb("own predicate writer enrollment with Pricing projection delivery hel
     const catalogServices = (consumerPool = pools.marketplace, db = pools.catalog) =>
       catalogModule.createServices(db, { pricingPredicateConsumerPool: consumerPool });
     const marketplaceServices = (db = pools.marketplace) =>
-      marketplaceModule.createServices(db, { commercialTermsResolver: terms });
+      marketplaceModule.createServices(db, {
+        commercialTermsResolver: terms,
+        // Fixture Listings are created for a raw item; most cases never create it in Inventory.
+        inventoryItemGradedCardAuthority: { resolve: async () => ({ gradedCard: null }) },
+      });
     const actor = {
       accountId,
       tenantId: context.tenantId,

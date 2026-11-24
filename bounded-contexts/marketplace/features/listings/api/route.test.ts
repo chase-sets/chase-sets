@@ -1783,6 +1783,125 @@ describe("marketplace listing routes", () => {
     expect(services.createListing).not.toHaveBeenCalled();
   });
 
+  it("accepts a five-key snapshot gradedCard, creates from the details Inventory holds, and answers a retry with the first result", async () => {
+    const { eventStore, allEvents } = createInMemoryEventStore();
+    const itemWrites: unknown[] = [];
+    const db = {
+      query: vi.fn(async (sql: string, values: readonly unknown[] = []) => {
+        if (sql.includes("INSERT INTO marketplace_supply_locations")) {
+          return { rows: [{ storage_location_id: validInventorySnapshot.storageLocationId }] };
+        }
+        if (sql.includes("INSERT INTO marketplace_supply_items")) {
+          itemWrites.push(values[5]);
+          return { rows: [{ item_id: validInventorySnapshot.inventoryItemId }] };
+        }
+        if (sql.includes("FROM marketplace_supply_items AS item")) {
+          const stored = itemWrites.at(-1);
+          return {
+            rows: [
+              {
+                item_id: validInventorySnapshot.inventoryItemId,
+                account_id: "acc_seller",
+                catalog_catalog_item_id: validInventorySnapshot.catalogItemId,
+                product_id: validInventorySnapshot.productId,
+                item_title: "Charizard",
+                item_subtitle: null,
+                selected_options: validInventorySnapshot.selectedOptions,
+                product_summary: null,
+                product_measure_snapshot: {
+                  catalogItemId: validInventorySnapshot.catalogItemId,
+                  productId: validInventorySnapshot.productId,
+                  selectedOptions: validInventorySnapshot.selectedOptions,
+                  measureVersion: "pm_test_v1",
+                  unitLengthInches: 3.5,
+                  unitWidthInches: 2.5,
+                  unitHeightInches: 0.01,
+                  unitWeightOunces: 0.1,
+                  physicalFlags: ["bendable"],
+                  stackBehavior: "stackable-thickness",
+                  source: "profile",
+                  confidence: "measured",
+                },
+                graded_card: typeof stored === "string" ? JSON.parse(stored) : null,
+                storage_location_name: validInventorySnapshot.storageLocationName,
+                ship_from_code: validInventorySnapshot.shipFromCode,
+                ship_from_address: validShipFromAddress,
+                available_quantity: validInventorySnapshot.totalQuantity,
+              },
+            ],
+          };
+        }
+        if (sql.includes("COALESCE(SUM(quantity_cap), 0)::text AS quantity_cap")) {
+          return { rows: [{ quantity_cap: "0" }] };
+        }
+        throw new Error(`Unexpected query in test: ${sql}`);
+      }),
+    };
+    // Inventory holds the item as raw, whatever the request says.
+    const resolve = vi.fn(async () => ({ gradedCard: null }));
+    const unused = () => {
+      throw new Error("This in-memory test does not use projection checkpoints.");
+    };
+    const services = createMarketplaceListingRuntime({
+      eventStore,
+      db,
+      checkpointStore: { loadCheckpoint: unused, saveCheckpoint: unused },
+      commercialTermsResolver: {
+        resolveListingTerms: async ({ amount, accountId }: { amount: string; accountId: string }) => ({
+          accountId,
+          accountType: "business",
+          basisAmount: amount,
+          marketplaceSalesFeeUnitAmount: "0.60",
+          sellerNetUnitAmount: "11.40",
+          scheduleId: "cts_default",
+          agreementId: null,
+          resolvedAt: "2026-04-17T00:00:00.000Z",
+        }),
+      } as never,
+      inventoryItemGradedCardAuthority: { resolve },
+    });
+    const app = buildApp({ actor: sellerActor, services });
+    const gradedCard = {
+      gradingCompany: "PSA",
+      grade: "10",
+      certificationNumber: "12345678",
+      population: { populationAtGrade: 12, populationHigher: 0, source: "PSA population report", asOf: "2026-04-01" },
+      conditionDescriptors: ["Gem Mint"],
+    };
+    const send = (idempotencyKey: string, requested: unknown) =>
+      app.request("/account/listings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          idempotencyKey,
+          priceAmount: "12.00",
+          priceCurrencyCode: "USD",
+          quantityCap: 1,
+          inventorySnapshot: { ...validInventorySnapshot, gradedCard: requested },
+        }),
+      });
+
+    const first = await send("graded_snapshot_attempt_00000001", gradedCard);
+    expect(first.status).toBe(201);
+    const created = await first.json();
+    expect(created).toMatchObject({ version: 1, status: "draft", state: { gradedCard: null } });
+    const committed = allEvents.length;
+    expect(allEvents.filter((event) => event.eventType === "marketplace.listing.created")).toHaveLength(1);
+
+    const retry = await send("graded_snapshot_attempt_00000001", gradedCard);
+    expect(retry.status).toBe(201);
+    expect(await retry.json()).toEqual(created);
+    expect(allEvents).toHaveLength(committed);
+    expect(itemWrites).toEqual([null, null]);
+
+    const { grade: _grade, ...malformed } = gradedCard;
+    const refused = await send("graded_snapshot_attempt_00000002", malformed);
+    expect(refused.status).toBe(400);
+    expect(await refused.json()).toMatchObject({ error: { code: "listing_inventory_snapshot_invalid" } });
+    expect(resolve).toHaveBeenCalledTimes(2);
+    expect(allEvents).toHaveLength(committed);
+  });
+
   it("publishes a seller listing through the documented API action", async () => {
     const services = createServices();
     const app = buildApp({

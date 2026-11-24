@@ -3265,6 +3265,9 @@ describe("inventory capacity recovery revision races", () => {
   });
 });
 
+/** Inventory's answer for a raw item the account owns, for fixtures whose subject is not Graded Item Details. */
+const rawInventoryItem = { resolve: async () => ({ gradedCard: null }) };
+
 describe("native Listing creation requires a resolved shipping measure", () => {
   function createFixture(memory = createInMemoryEventStore()) {
     let measure: typeof productMeasureSnapshot | null = null;
@@ -3316,6 +3319,7 @@ describe("native Listing creation requires a resolved shipping measure", () => {
       checkpointStore: createCheckpointStore(),
       db: db as never,
       commercialTermsResolver: { resolveListingTerms } as never,
+      inventoryItemGradedCardAuthority: rawInventoryItem,
       listingPhotoStorage: { getObject: vi.fn(), putObject },
     });
     return {
@@ -3521,6 +3525,7 @@ describe("an inventory snapshot changes only supply mirror rows its account owns
       checkpointStore: createCheckpointStore(),
       db: db as never,
       commercialTermsResolver: { resolveListingTerms } as never,
+      inventoryItemGradedCardAuthority: rawInventoryItem,
     });
     return { ...memory, services, resolveListingTerms, statements };
   }
@@ -3608,5 +3613,233 @@ describe("an inventory snapshot changes only supply mirror rows its account owns
     );
     // The snapshot leaves the stream version alone, so the first Inventory event still replaces the row.
     expect(item).not.toMatch(/DO UPDATE SET[\s\S]*last_stream_version/);
+  });
+});
+
+describe("a snapshot create takes Graded Item Details from Inventory, not from the request", () => {
+  const LOCATION_WRITE = "INSERT INTO marketplace_supply_locations";
+  const ITEM_WRITE = "INSERT INTO marketplace_supply_items";
+  const psa = {
+    gradingCompany: "PSA",
+    grade: "10",
+    certificationNumber: "12345678",
+    population: null,
+    conditionDescriptors: ["Gem Mint"],
+  };
+  const bgs = {
+    gradingCompany: "BGS",
+    grade: "9.5",
+    certificationNumber: "87654321",
+    population: null,
+    conditionDescriptors: [],
+  };
+  type InventoryAnswer = Readonly<{ gradedCard: typeof psa | null }> | null;
+
+  /** `inventory` is what the host port answers; the fake mirror row reads back what the item write stored. */
+  function createFixture(inventory: "absent" | (() => Promise<InventoryAnswer>)) {
+    const memory = createInMemoryEventStore();
+    const order: string[] = [];
+    const itemWrites: unknown[] = [];
+    const resolveListingTerms = vi.fn(async ({ amount, accountId }) => ({
+      accountId,
+      accountType: "business" as const,
+      basisAmount: amount,
+      marketplaceSalesFeeUnitAmount: "1.00",
+      sellerNetUnitAmount: "19.00",
+      scheduleId: "cts_default",
+      agreementId: null,
+      resolvedAt: "2026-04-17T00:00:00.000Z",
+    }));
+    const evaluate = vi.fn(async (facts: Parameters<typeof evaluateListingEvidencePolicy>[1]) =>
+      evaluateListingEvidencePolicy(LISTING_EVIDENCE_LAUNCH_POLICY_VALUE, facts, {
+        policyId: null,
+        policyVersion: null,
+        effectiveFrom: null,
+        effectiveUntil: null,
+      }),
+    );
+    const query = vi.fn(async (sql: string, values: readonly unknown[] = []) => {
+      if (sql.includes(LOCATION_WRITE)) {
+        order.push("location write");
+        return { rows: [{ storage_location_id: "loc_1" }] };
+      }
+      if (sql.includes(ITEM_WRITE)) {
+        order.push("item write");
+        itemWrites.push(values[5]);
+        return { rows: [{ item_id: "inv_1" }] };
+      }
+      if (sql.includes("FROM marketplace_supply_items AS item")) {
+        const stored = itemWrites.at(-1);
+        return {
+          rows: [
+            {
+              item_id: "inv_1",
+              account_id: "acc_seller",
+              catalog_catalog_item_id: "cat_1",
+              product_id: "cat_1::",
+              item_title: "Charizard",
+              item_subtitle: null,
+              selected_options: [],
+              product_summary: null,
+              product_measure_snapshot: productMeasureSnapshot,
+              graded_card: typeof stored === "string" ? JSON.parse(stored) : null,
+              storage_location_name: "North shelf",
+              ship_from_code: "CHI",
+              ship_from_address: shipFromAddress,
+              available_quantity: 2,
+            },
+          ],
+        };
+      }
+      if (sql.includes("COALESCE(SUM(quantity_cap), 0)::text AS quantity_cap")) {
+        return { rows: [{ quantity_cap: "0" }] };
+      }
+      if (sql.includes("FROM marketplace_catalog_items") || sql.includes("FROM marketplace_account_pages")) {
+        return { rows: [] };
+      }
+      throw new Error(`Unexpected query in test: ${sql}`);
+    });
+    const resolve = vi.fn(async (_input: Readonly<{ accountId: string; inventoryItemId: string }>) => {
+      order.push("inventory read");
+      if (inventory === "absent") throw new Error("The absent port cannot be asked.");
+      return inventory();
+    });
+    const services = createMarketplaceListingRuntime({
+      eventStore: memory.eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query } as never,
+      commercialTermsResolver: { resolveListingTerms } as never,
+      listingEvidencePolicyEvaluator: { evaluate },
+      ...(inventory === "absent" ? {} : { inventoryItemGradedCardAuthority: { resolve } }),
+    });
+    return { ...memory, services, resolveListingTerms, evaluate, query, resolve, order, itemWrites };
+  }
+
+  const snapshot = {
+    accountId: "acc_seller" as never,
+    inventoryItemId: "inv_1",
+    priceAmount: "20.00",
+    priceCurrencyCode: "USD",
+    quantityCap: 1,
+    catalogItemId: "cat_1",
+    productId: "cat_1::",
+    selectedOptions: [],
+    storageLocationId: "loc_1",
+    storageLocationName: "North shelf",
+    shipFromCode: "CHI",
+    shipFromAddress,
+    totalQuantity: 2,
+    acquisitionCostAmount: null,
+  };
+  const notFound = {
+    name: "MarketplaceListingDomainError",
+    code: "inventory-item-not-found",
+    message: "Inventory item not found.",
+  };
+  const unavailable = { name: "Error", code: undefined, message: "Inventory graded item details are unavailable." };
+
+  it.each([
+    { label: "graded for an item Inventory holds as raw", requested: psa, recorded: null },
+    { label: "raw for an item Inventory holds as graded", requested: null, recorded: psa },
+    { label: "nothing for an item Inventory holds as graded", requested: undefined, recorded: psa },
+    { label: "another company, grade and certificate", requested: bgs, recorded: psa },
+  ])(
+    "writes the details Inventory holds to the supply mirror and the Listing when the request says $label",
+    async ({ requested, recorded }) => {
+      const f = createFixture(async () => ({ gradedCard: recorded }));
+
+      const created = await f.services.createListingFromInventorySnapshot(
+        listingTestCommand("listing.create", {
+          ...snapshot,
+          ...(requested === undefined ? {} : { gradedCard: requested }),
+        }),
+        context,
+      );
+
+      expect(f.resolve).toHaveBeenCalledTimes(1);
+      expect(f.resolve).toHaveBeenCalledWith({ accountId: "acc_seller", inventoryItemId: "inv_1" });
+      // Inventory is asked before either mirror write.
+      expect(f.order).toEqual(["inventory read", "location write", "item write"]);
+      expect(f.itemWrites).toEqual([recorded === null ? null : JSON.stringify(recorded)]);
+      const listingCreated = f.allEvents.filter((event) => event.eventType === "marketplace.listing.created");
+      expect(listingCreated.map((event) => event.payload.gradedCard)).toEqual([recorded]);
+      expect(created.state.gradedCard).toEqual(recorded);
+      expect(f.evaluate.mock.calls.map(([facts]) => facts.gradedItem)).toEqual([recorded !== null]);
+    },
+  );
+
+  it.each([
+    {
+      label: "Inventory does not hold the item for the account",
+      inventory: async () => null,
+      refusal: notFound,
+      asked: 1,
+    },
+    { label: "no Inventory authority is wired", inventory: "absent" as const, refusal: unavailable, asked: 0 },
+    {
+      label: "the Inventory read fails",
+      inventory: async () => {
+        throw new Error("inventory database password=secret");
+      },
+      refusal: unavailable,
+      asked: 1,
+    },
+  ])("refuses when $label, before any supply write, fee quote or append", async ({ inventory, refusal, asked }) => {
+    const f = createFixture(inventory);
+
+    const failure: unknown = await f.services
+      .createListingFromInventorySnapshot(
+        listingTestCommand("listing.create", { ...snapshot, gradedCard: psa }),
+        context,
+      )
+      .catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(Error);
+    const { name, message, code } = failure as Error & { code?: string };
+    expect({ name, message, code }).toEqual(refusal);
+    expect(f.resolve).toHaveBeenCalledTimes(asked);
+    expect(f.query).not.toHaveBeenCalled();
+    expect(f.resolveListingTerms).not.toHaveBeenCalled();
+    expect(f.evaluate).not.toHaveBeenCalled();
+    expect(f.allEvents).toHaveLength(0);
+  });
+
+  it("asks the authority the Marketplace services were given", async () => {
+    const { createMarketplaceServices } = await import("../../../support/runtime-support/services");
+    const resolve = vi.fn(async (_input: Readonly<{ accountId: string; inventoryItemId: string }>) => null);
+    const query = vi.fn(async () => ({ rows: [], rowCount: 0 }));
+    const connect = vi.fn(async (): Promise<never> => {
+      throw new Error("Unexpected transaction");
+    });
+    const { listings } = createMarketplaceServices(
+      { query, connect },
+      { inventoryItemGradedCardAuthority: { resolve } },
+    );
+
+    const failure: unknown = await listings
+      .createListingFromInventorySnapshot(listingTestCommand("listing.create", snapshot), context)
+      .catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(Error);
+    const { name, message, code } = failure as Error & { code?: string };
+    expect({ name, message, code }).toEqual(notFound);
+    expect(resolve).toHaveBeenCalledTimes(1);
+    expect(resolve).toHaveBeenCalledWith({ accountId: "acc_seller", inventoryItemId: "inv_1" });
+    expect(query).not.toHaveBeenCalled();
+    expect(connect).not.toHaveBeenCalled();
+  });
+
+  it("leaves batch draft creation on the snapshot it is given, without asking Inventory", async () => {
+    const f = createFixture("absent");
+
+    await expect(
+      f.services.createBatchDraftListingFromInventorySnapshot(
+        { ...snapshot, importBatchId: "imb_1", importRowId: "imr_1", listingIdOverride: "lst_batch_graded" as never },
+        context,
+      ),
+    ).resolves.toMatchObject({ version: 1 });
+
+    expect(f.resolve).not.toHaveBeenCalled();
+    expect(f.itemWrites).toEqual([null]);
   });
 });

@@ -9,12 +9,15 @@ import {
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
+import { createPostgresEventStore } from "@chase-sets/event-core-postgres";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
+import { module as inventoryModule } from "@chase-sets/inventory";
+import { createInventoryItemGradedCardAuthority } from "@chase-sets/inventory/server";
 import { normalizeAddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { MarketplaceApiEnv, CommercialTermsResolver } from "../../../api";
 import { module as marketplaceModule } from "../../../index";
-import { createMarketplaceServices } from "../../../support/runtime-support/services";
+import { createMarketplaceServices, type MarketplaceServiceOptions } from "../../../support/runtime-support/services";
 import { createAccountListingRoutes } from "../api/route";
 import { buildMarketplaceInventoryProjectionHandlers } from "../integrations/supply/supply-projection";
 import { getInventoryItemSupply, listSellerInventoryItemSupply } from "../read-model/queries";
@@ -23,6 +26,7 @@ import { directPortInput, draftContext, draftMessage, draftProductMeasure } from
 const adminUrl = process.env.TEST_DATABASE_URL;
 if (!adminUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for database-backed tests in CI.");
 const describeDb = adminUrl ? describe : describe.skip;
+type InventoryGradedCardPort = NonNullable<MarketplaceServiceOptions["inventoryItemGradedCardAuthority"]>;
 const syntheticAddress: AddressSnapshot = {
   name: "Synthetic Seller",
   line1: "1 Test Way",
@@ -73,9 +77,13 @@ const terms: CommercialTermsResolver = {
 };
 
 describeDb("Inventory snapshot PostgreSQL compatibility", () => {
-  let pools: ReturnType<typeof createMultiContextTestPools<"marketplace">>;
+  let pools: ReturnType<typeof createMultiContextTestPools<"marketplace" | "inventory">>;
   beforeAll(async () => {
-    const urls = createMultiContextTestDatabaseUrls(adminUrl!, ["marketplace"], "marketplace_snapshot_10599");
+    const urls = createMultiContextTestDatabaseUrls(
+      adminUrl!,
+      ["marketplace", "inventory"],
+      "marketplace_snapshot_10599",
+    );
     await ensureMultiContextTestDatabases(adminUrl!, urls);
     pools = createMultiContextTestPools(urls);
   });
@@ -88,7 +96,10 @@ describeDb("Inventory snapshot PostgreSQL compatibility", () => {
     );
   });
   afterAll(async () => closeMultiContextTestPools(pools));
-  const owner = () => createMarketplaceServices(pools.marketplace, { commercialTermsResolver: terms });
+  /** Inventory's answer for a raw item the account owns; the cases that read Inventory's database pass its authority. */
+  const rawInventoryItem: InventoryGradedCardPort = { resolve: async () => ({ gradedCard: null }) };
+  const owner = (inventoryItemGradedCardAuthority = rawInventoryItem) =>
+    createMarketplaceServices(pools.marketplace, { commercialTermsResolver: terms, inventoryItemGradedCardAuthority });
   const snapshot = () => ({
     ...directPortInput(),
     shipFromAddress: syntheticAddress,
@@ -103,8 +114,7 @@ describeDb("Inventory snapshot PostgreSQL compatibility", () => {
       (SELECT count(*)::int FROM event_store_events) AS events`)
     ).rows[0];
   }
-  function app() {
-    const services = owner();
+  function app(services = owner()) {
     const routes = new Hono<MarketplaceApiEnv>();
     routes.use("*", async (c, next) => {
       c.set("actor", {
@@ -122,8 +132,8 @@ describeDb("Inventory snapshot PostgreSQL compatibility", () => {
     routes.route("/account", createAccountListingRoutes(services.listings));
     return { routes, services };
   }
-  async function post(inventorySnapshot: unknown) {
-    const { routes, services } = app();
+  async function post(inventorySnapshot: unknown, services = owner()) {
+    const { routes } = app(services);
     const response = await routes.request("/account/listings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -440,6 +450,109 @@ describeDb("Inventory snapshot PostgreSQL compatibility", () => {
       expect(await rows("marketplace_supply_items")).toMatchObject([
         { account_id: "acc_other", total_quantity: 9, last_stream_version: 1 },
       ]);
+    });
+  });
+
+  describe("Graded Item Details held in the Inventory database", () => {
+    const graded = {
+      gradingCompany: "PSA",
+      grade: "10",
+      certificationNumber: "12345678",
+      population: null,
+      conditionDescriptors: ["Gem Mint"],
+    };
+    beforeEach(async () => {
+      await bootstrapContextDatabase(inventoryModule, pools.inventory);
+    });
+    /** Marketplace reading the item's first event from the Inventory database, as the platform API wires it. */
+    const inventoryBacked = () =>
+      owner({ resolve: createInventoryItemGradedCardAuthority(pools.inventory).resolveInventoryItemGradedCard });
+    /** The creation event Inventory holds for the snapshot's item. */
+    async function recordInventoryItem(accountId: string, gradedCard: typeof graded | null) {
+      const data = snapshot();
+      await createPostgresEventStore({ pool: pools.inventory }).appendToStream({
+        streamId: `inventory.item-${data.inventoryItemId}`,
+        expectedVersion: "no_stream",
+        context: draftContext,
+        events: [
+          {
+            eventType: "inventory.item.created",
+            payload: {
+              itemId: data.inventoryItemId,
+              accountId,
+              catalogItemId: data.catalogItemId,
+              productId: data.productId,
+              selectedOptions: data.selectedOptions,
+              gradedCard,
+              storageLocationId: data.storageLocationId,
+              totalQuantity: data.totalQuantity,
+              acquisitionCostAmount: data.acquisitionCostAmount,
+              acquisitionCostCurrencyCode: data.acquisitionCostCurrencyCode,
+            },
+          },
+        ],
+      });
+    }
+    const supplyRows = async () =>
+      (await pools.marketplace.query("SELECT item_id, account_id, graded_card FROM marketplace_supply_items")).rows;
+    const createdListingGradedCards = async () =>
+      (
+        await pools.marketplace.query<{ graded_card: unknown }>(
+          `SELECT payload -> 'gradedCard' AS graded_card
+             FROM event_store_events
+            WHERE event_type = 'marketplace.listing.created'`,
+        )
+      ).rows.map((row) => row.graded_card);
+    const inventoryEventCount = async () =>
+      (await pools.inventory.query<{ events: number }>("SELECT count(*)::int AS events FROM event_store_events"))
+        .rows[0]?.events;
+
+    it("creates a raw supply row and Listing when the request claims graded details for an item Inventory holds as raw", async () => {
+      await recordInventoryItem("acc_c4", null);
+
+      const { response, services } = await post({ ...routeSnapshot(), gradedCard: graded }, inventoryBacked());
+
+      expect(response.status).toBe(201);
+      const { id } = (await response.json()) as { id: string };
+      expect(await supplyRows()).toEqual([
+        { item_id: snapshot().inventoryItemId, account_id: "acc_c4", graded_card: null },
+      ]);
+      expect(await createdListingGradedCards()).toEqual([null]);
+      await expect(services.listings.loadListingState(id)).resolves.toMatchObject({
+        status: "draft",
+        gradedCard: null,
+      });
+      expect(await inventoryEventCount()).toBe(1);
+    });
+
+    it("creates a graded supply row and Listing from the details Inventory holds when the request sends none", async () => {
+      await recordInventoryItem("acc_c4", graded);
+
+      const { response, services } = await post(routeSnapshot(), inventoryBacked());
+
+      expect(response.status).toBe(201);
+      const { id } = (await response.json()) as { id: string };
+      expect(await supplyRows()).toEqual([
+        { item_id: snapshot().inventoryItemId, account_id: "acc_c4", graded_card: graded },
+      ]);
+      expect(await createdListingGradedCards()).toEqual([graded]);
+      await expect(services.listings.loadListingState(id)).resolves.toMatchObject({ gradedCard: graded });
+      expect(await inventoryEventCount()).toBe(1);
+    });
+
+    it.each([
+      { label: "no such item", holder: null },
+      { label: "the item under another account", holder: "acc_other" },
+    ])("answers inventory_item_not_found and writes nothing when Inventory holds $label", async ({ holder }) => {
+      if (holder) await recordInventoryItem(holder, graded);
+      const before = await counts();
+
+      const { response } = await post({ ...routeSnapshot(), gradedCard: graded }, inventoryBacked());
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({ error: { code: "inventory_item_not_found" } });
+      expect(await counts()).toEqual(before);
+      expect(before).toEqual({ items: 0, locations: 0, events: 0 });
     });
   });
 });
