@@ -29,6 +29,8 @@ const image = `registry.digitalocean.com/chase-sets/chase-sets-corten-marketplac
 const options = {
   image: `registry.digitalocean.com/chase-sets/chase-sets-platform:release@${digest}`,
   cortenMarketplaceImage: image,
+  // public-corten serves www.staging, so a staging deploy needs its image too.
+  cortenPublicImage: `registry.digitalocean.com/chase-sets/chase-sets-corten-public@${digest}`,
   envOverrides: { DEPLOYMENT_ENVIRONMENT: "staging", OBSERVABILITY_ENABLED: "false" },
   // admin-web serving admin.staging withholds the admin pilot, so these marketplace cases may omit its image.
   env: { GITHUB_RUN_ID: "123", GITHUB_RUN_ATTEMPT: "1", STAGING_ADMIN_APP: "admin-web" },

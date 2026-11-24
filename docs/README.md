@@ -130,7 +130,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 
 - [Staging Admin App](./runbooks/staging-admin-app.md): which app serves admin.staging, the STAGING_ADMIN_APP switch, and the rollback to admin-web.
 - [Staging Marketplace App](./runbooks/staging-marketplace-app.md): the STAGING_MARKETPLACE_APP switch between the Corten marketplace and marketplace-web on marketplace.staging, and its rollback.
-- [Staging Public Pilot](./runbooks/staging-public-pilot.md): the STAGING_PUBLIC_PILOT switch that withholds the Corten public pilot from a staging deploy.
+- [Staging Public App](./runbooks/staging-public-app.md): the STAGING_PUBLIC_APP switch between the Corten public app and public-web on www.staging, and its rollback.
 - [Production Admin App](./runbooks/production-admin-app.md): which app serves admin.chasesets.com, the PRODUCTION_ADMIN_APP switch, its rollback, and recovering from a refused deploy.
 - [Production Marketplace App](./runbooks/production-marketplace-app.md): which app serves marketplace.chasesets.com, the gates before the PRODUCTION_MARKETPLACE_APP switch, its rollback, and recovering from a refused deploy.
 - [Beta Wave Exposure](./runbooks/beta-wave-exposure.md): policy-gated waitlist admission, proportional Argo exposure, monitoring, halt, and rollback procedure.

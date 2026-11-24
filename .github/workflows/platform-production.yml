@@ -1413,9 +1413,10 @@ jobs:
       # (marketplace-web) to roll back (docs/runbooks/staging-marketplace-app.md). Unset means marketplace-corten;
       # the deploy script refuses any other value and records which one served.
       STAGING_MARKETPLACE_APP: ${{ vars.STAGING_MARKETPLACE_APP || '' }}
-      # Whether staging deploys the Corten public pilot: deployed, or withheld to drop a pilot that never
-      # becomes ready (docs/runbooks/staging-public-pilot.md). Unset means deployed; any other value fails.
-      STAGING_PUBLIC_PILOT: ${{ vars.STAGING_PUBLIC_PILOT || '' }}
+      # The app that serves www.staging: public-corten, or public-web to roll back
+      # (docs/runbooks/staging-public-app.md). Unset means public-corten; the deploy script refuses any other
+      # value and records which one served.
+      STAGING_PUBLIC_APP: ${{ vars.STAGING_PUBLIC_APP || '' }}
     steps:
       - name: Record staging start
         env:
@@ -2215,10 +2216,12 @@ jobs:
           else
             echo "::warning title=Corten marketplace pilot::No Corten marketplace image was built for this release."
           fi
-          # public-corten is an advisory pilot (ADVISORY_CORTEN_PILOT_COMPONENTS): with no image the deploy
-          # script deploys it disabled and warns, and staging deploys without it.
+          # The same for the public app: with no image the deploy script fails while public-corten serves
+          # www.staging, and under STAGING_PUBLIC_APP=public-web it does not deploy the pilot at all.
           if [ -n "${CORTEN_PUBLIC_IMAGE:-}" ]; then
             corten_image_args+=(--corten-public-image "$CORTEN_PUBLIC_IMAGE")
+          else
+            echo "::warning title=Corten public pilot::No Corten public image was built for this release."
           fi
 
           # Keep the deploy-critical pre-upgrade hook aligned with production:
@@ -2286,6 +2289,7 @@ jobs:
         env:
           ADMIN_APP: ${{ steps.staging_kubernetes_deploy.outputs.admin_app }}
           MARKETPLACE_APP: ${{ steps.staging_kubernetes_deploy.outputs.marketplace_app }}
+          PUBLIC_APP: ${{ steps.staging_kubernetes_deploy.outputs.public_app }}
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
@@ -2319,6 +2323,10 @@ jobs:
           # marketplace-corten runs only while it serves marketplace.staging; under STAGING_MARKETPLACE_APP=marketplace it is not deployed (withheldCortenPilots).
           if [ "$MARKETPLACE_APP" != "marketplace" ]; then
             ingress_urls+=("https://marketplace-corten.staging.chasesets.com/health/ready")
+          fi
+          # public-corten runs only while it serves www.staging; under STAGING_PUBLIC_APP=public-web it is not deployed (withheldCortenPilots).
+          if [ "$PUBLIC_APP" != "public-web" ]; then
+            ingress_urls+=("https://public-corten.staging.chasesets.com/health/ready")
           fi
           for hostname in "${marketplace_domains[@]}" "${staging_root_marketplace_domains[@]}"; do
             ingress_urls+=("https://${hostname}/health/ready")
@@ -2390,6 +2398,7 @@ jobs:
           SMOKE_UTM_CAMPAIGN: staging-main
           ADMIN_APP: ${{ steps.staging_kubernetes_deploy.outputs.admin_app }}
           MARKETPLACE_APP: ${{ steps.staging_kubernetes_deploy.outputs.marketplace_app }}
+          PUBLIC_APP: ${{ steps.staging_kubernetes_deploy.outputs.public_app }}
           # Signs in and opens a marketplace account page on marketplace.staging, whichever app serves it.
           SMOKE_REQUIRE_MARKETPLACE_SIGNED_IN: "true"
           SMOKE_FETCH_ATTEMPTS: "24"
@@ -2397,7 +2406,7 @@ jobs:
           SMOKE_FETCH_TIMEOUT_MS: "15000"
         run: |
           set -euo pipefail
-          echo "Smoking the live staging hosts served by DOKS; ${ADMIN_APP} serves admin and ${MARKETPLACE_APP} serves marketplace."
+          echo "Smoking the live staging hosts served by DOKS; ${ADMIN_APP} serves admin, ${MARKETPLACE_APP} serves marketplace and ${PUBLIC_APP} serves www."
           landing_domain="$(terraform output -raw landing_domain)"
           admin_domain="$(terraform output -raw admin_domain)"
           catalog_asset_public_base_url="$(terraform output -raw catalog_asset_public_base_url)"
@@ -2432,6 +2441,13 @@ jobs:
               --attempts 1 \
               --expect-status 200 \
               --url "https://marketplace-corten.staging.chasesets.com/health/ready"
+          fi
+          # public-corten runs only while it serves www.staging; under STAGING_PUBLIC_APP=public-web it is not deployed (withheldCortenPilots).
+          if [ "$PUBLIC_APP" != "public-web" ]; then
+            node ./scripts/platform-ingress-wait.mjs \
+              --attempts 1 \
+              --expect-status 200 \
+              --url "https://public-corten.staging.chasesets.com/health/ready"
           fi
           pnpm run smoke:platform -- \
             "https://${landing_domain}" \
@@ -2518,36 +2534,23 @@ jobs:
           fi
           echo "marketplace-web serves marketplace.staging (STAGING_MARKETPLACE_APP=marketplace), so marketplace-corten is not deployed and is not smoked."
 
-      # Advisory until www.staging switches to the Corten public app: the derived public route walk
-      # the Smoke check runs against public-web, with the pilot as the origin. It never fails Deploy
-      # Staging and adds no secret. Advisory while public-corten is in
-      # ADVISORY_CORTEN_PILOT_COMPONENTS (scripts/platform-kubernetes-deployment.mjs).
+      # While public-corten serves www.staging, the Smoke check above already runs the derived public
+      # route walk against it (the landing smoke), so this step only says so. Under STAGING_PUBLIC_APP=public-web
+      # the pilot is not deployed, and the step says that instead. It never fails Deploy Staging.
       - name: Advisory Corten public smoke
         timeout-minutes: 15
         if: env.SHOULD_DEPLOY != 'false'
         continue-on-error: true
         env:
-          CORTEN_PUBLIC_IMAGE: ${{ needs.build-corten-pilot-images.outputs.corten_public_image }}
-          PUBLIC_PILOT: ${{ steps.staging_kubernetes_deploy.outputs.public_pilot }}
+          PUBLIC_APP: ${{ steps.staging_kubernetes_deploy.outputs.public_app }}
         run: |
           set -euo pipefail
-          if [ -z "${CORTEN_PUBLIC_IMAGE:-}" ]; then
-            echo "No Corten public image was built for this release, so the pilot was not deployed and is not smoked."
+          # public-corten runs only while it serves www.staging; under STAGING_PUBLIC_APP=public-web it is not deployed (withheldCortenPilots).
+          if [ "$PUBLIC_APP" != "public-web" ]; then
+            echo "public-corten serves www.staging, so the Smoke check above walked its public routes."
             exit 0
           fi
-          if [ "$PUBLIC_PILOT" = "withheld" ]; then
-            echo "STAGING_PUBLIC_PILOT=withheld, so the pilot was not deployed and is not smoked."
-            exit 0
-          fi
-          echo "Smoking the Corten public pilot at public-corten.staging.chasesets.com (advisory)."
-          node ./scripts/platform-ingress-wait.mjs \
-            --attempts 20 \
-            --delay-ms 15000 \
-            --expect-status 200 \
-            --url "https://public-corten.staging.chasesets.com/health/ready"
-          pnpm run smoke:public-web-routes -- \
-            --base-url "https://public-corten.staging.chasesets.com" \
-            --mode healthy
+          echo "public-web serves www.staging (STAGING_PUBLIC_APP=public-web), so public-corten is not deployed and is not smoked."
       - name: Resolve Playwright Chromium version
         env:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}

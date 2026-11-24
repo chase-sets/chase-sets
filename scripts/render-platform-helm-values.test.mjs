@@ -969,7 +969,7 @@ spec:
     ]);
     expect(Object.fromEntries(doksIngress.hosts.map((host) => [host.host, host.paths.at(-1)]))).toEqual({
       "staging.chasesets.com": { path: "/", service: "marketplace-corten" },
-      "www.staging.chasesets.com": { path: "/", service: "public-web" },
+      "www.staging.chasesets.com": { path: "/", service: "public-corten" },
       "marketplace.staging.chasesets.com": { path: "/", service: "marketplace-corten" },
       "admin.staging.chasesets.com": { path: "/", service: "admin-corten" },
       "admin-corten.staging.chasesets.com": { path: "/", service: "admin-corten" },
@@ -1106,8 +1106,8 @@ spec:
     // see #5568). The deploy-blocking ingress-wait gate in
     // .github/workflows/platform-production.yml probes this host set
     // (guarded in digitalocean-platform-config.test.mjs), except the
-    // public-corten pilot host, which it never probes, and admin-corten and
-    // marketplace-corten, which it probes only while each serves its host.
+    // admin-corten, marketplace-corten and public-corten pilot hosts, which it
+    // probes only while each pilot serves its host.
     // It must never regress to including a legacy hostname.
     for (const host of stagingValues.doksIngress.hosts.map((entry) => entry.host)) {
       expect(host).not.toMatch(/^(landing|marketplace|admin)-staging\./);

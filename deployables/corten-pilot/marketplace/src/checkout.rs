@@ -41,8 +41,8 @@ use serde::Serialize;
 
 use crate::{
     api::{
-        ApiError, CheckoutSession, CheckoutSessions as _, ConfirmBody, FulfillmentPreview, PaymentPreview, PaymentStart,
-        PaymentSummary, SavedAddress, SavedInstrument, SellerGroup, SessionAddress, Wallet,
+        ApiError, CheckoutSession, CheckoutSessions as _, ConfirmBody, ConfirmRefusal, FulfillmentPreview, PaymentPreview,
+        PaymentStart, PaymentSummary, SavedAddress, SavedInstrument, SellerGroup, SessionAddress, Wallet,
     },
     app::{ACCOUNTS_VIEW, GUEST_CHECKOUT, ORDERS_MANAGE, PAYOUTS_VIEW, Shared, sign_in, url},
     auth::{CheckoutBuyer, Viewer},
@@ -1190,7 +1190,11 @@ pub(crate) async fn write(
                 acknowledged_material_changes: form.acknowledged_material_changes == "true",
                 shipping_address: address,
             };
-            match caller.confirm_checkout(&id, &body).await {
+            let (confirmed, started) = match caller.confirm_checkout(&id, &body).await {
+                Ok(confirmed) => (Ok(confirmed), None),
+                Err(ConfirmRefusal { error, started }) => (Err(error), started),
+            };
+            match confirmed {
                 Ok((confirmed, receipt)) => {
                     receipts.push(receipt);
                     match (confirmed.offer_id, confirmed.payment_id) {
@@ -1231,7 +1235,9 @@ pub(crate) async fn write(
                     }
                 }
                 // Payments asked for a new quote, or the payment is still starting: the page again,
-                // read after what was written (marketplace's refresh paths).
+                // read after what was written (marketplace's refresh paths). A payment still
+                // starting is read after the Checkout and Ordering writes Confirm made, when its
+                // refusal names them, so the page waits for the order (`paymentStartRefreshPath`).
                 Err(error)
                     if error.status() == Some(StatusCode::CONFLICT)
                         && matches!(error.code(), Some("payment_quote_required" | "fee_quote_stale")) =>
@@ -1242,7 +1248,7 @@ pub(crate) async fn write(
                     if error.status() == Some(StatusCode::CONFLICT)
                         && matches!(error.code(), Some("payment_start_pending" | "checkout_reservation_unavailable")) =>
                 {
-                    back(Place::reviewed(latest(receipts).as_ref(), &visible, false))
+                    back(Place::reviewed(started.or_else(|| latest(receipts)).as_ref(), &visible, false))
                 }
                 // Checkout refuses Pay now before any order for a buyer who cannot start a payment:
                 // the page again with its words, and Verify your email where Auth withheld it

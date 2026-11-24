@@ -92,7 +92,7 @@
         },
         {
           "name": "HOSTS",
-          "value": "public-corten.staging.chasesets.com"
+          "value": "public-corten.staging.chasesets.com,www.staging.chasesets.com"
         },
         {
           "name": "PROXIES",
