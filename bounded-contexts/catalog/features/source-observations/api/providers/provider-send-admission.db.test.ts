@@ -27,10 +27,6 @@ import {
   sendCatalogProviderRequest,
   type ProviderSendRequest,
 } from "./provider-send-admission";
-import {
-  catalogIntegrationDataResetTargetTables,
-  resetCatalogIntegrationPreLaunchData,
-} from "../governance/catalog-integration-data-migration-reset";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI)
@@ -332,16 +328,6 @@ describeDb("Catalog provider-send durable window", () => {
       await ledger.debit({ ...request, binding: next, category: "payload", coordinate: "synthetic-forged" }),
     ).toEqual({ state: "refused", code: "unknown-request" });
     expect(await ledger.read()).toMatchObject({ state: "terminal", used: 0 });
-  });
-
-  it("governance reset retains the ledger and cannot refill used permits", async () => {
-    const { ledger, request } = await armed();
-    await ledger.debit(request);
-    expect(catalogIntegrationDataResetTargetTables().some((table) => table.startsWith("catalog_provider_send_"))).toBe(
-      false,
-    );
-    await resetCatalogIntegrationPreLaunchData(pools.catalog, { rebuildSeedProfiles: false });
-    expect(await ledger.read()).toMatchObject({ used: 1, inFlight: 1, reserved: 245_999 });
   });
 
   it("installed policy, coordinates, quota sizes and debits cannot be rewritten or deleted", async () => {

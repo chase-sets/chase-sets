@@ -134,7 +134,7 @@ Source Observations should record the profile version that produced their normal
 
 - default replay uses the same profile version that produced the observation
 - operator-initiated reapply may use the currently active profile version
-- deprecated and retired profile versions remain readable for referenced observations; missing or retired `legacy` markers fail closed and are reset/drop evidence, not a fallback to the current active profile
+- deprecated and retired profile versions remain readable for referenced observations; missing or retired `legacy` markers fail closed and are cleanup verification evidence, not a fallback to the current active profile
 - rollback means reactivating a prior validated profile version, not editing history in place
 
 ## Provider Coverage

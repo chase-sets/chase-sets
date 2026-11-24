@@ -829,7 +829,6 @@ describe("Terraform state database URL export", () => {
     const expectedConsumers = [
       "catalog-completion-manifest.yml",
       "catalog-completion-report.yml",
-      "catalog-integration-staging-reset.yml",
       "catalog-provider-refresh-watch.yml",
       "checkout-order-readiness-trace.yml",
       "collections-anonymous-owner-redaction.yml",
@@ -864,7 +863,7 @@ describe("Terraform state database URL export", () => {
         count + (source.match(/uses: \.\/\.github\/actions\/export-managed-postgres-authority/g) ?? []).length,
       0,
     );
-    expect(invocationCount).toBe(20);
+    expect(invocationCount).toBe(19);
     const expectedAuthorityCalls = [
       [
         "catalog-completion-manifest.yml",
@@ -880,14 +879,6 @@ describe("Terraform state database URL export", () => {
         "Export catalog database URL and TLS trust",
         "url-export",
         "direct",
-        undefined,
-      ],
-      [
-        "catalog-integration-staging-reset.yml",
-        "catalog-integration-reset",
-        "Export Catalog database URL and TLS trust",
-        "url-export",
-        "pooled",
         undefined,
       ],
       [
@@ -1035,7 +1026,7 @@ describe("Terraform state database URL export", () => {
           .map((step) => ({ name, jobName, step, key: [name, jobName, step.name ?? step.id].join("|") })),
       );
     });
-    expect(authorityCalls).toHaveLength(20);
+    expect(authorityCalls).toHaveLength(19);
     expect(authorityCalls.map(({ key }) => key).sort()).toEqual(
       expectedAuthorityCalls.map(([name, jobName, stepName]) => [name, jobName, stepName].join("|")).sort(),
     );

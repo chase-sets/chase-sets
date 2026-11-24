@@ -71,7 +71,7 @@
     "bounded-contexts/catalog/features/scope-sync-batches/read-model/store.ts",
     "bounded-contexts/catalog/features/scope-sync-state/read-model/queries.ts",
     "bounded-contexts/catalog/features/source-observations/api/governance/catalog-integration-control-plane-readiness.ts",
-    "bounded-contexts/catalog/features/source-observations/api/governance/catalog-integration-data-migration-reset.ts",
+    "bounded-contexts/catalog/features/source-observations/api/governance/catalog-integration-data-verification.ts",
     "bounded-contexts/catalog/features/source-observations/api/promotion/catalog-scope-merge-candidate-reset.ts",
     "bounded-contexts/catalog/features/source-observations/api/promotion/promotion-display-identity.ts",
     "bounded-contexts/catalog/features/source-observations/api/promotion/promotion-reference-locator.ts",
@@ -560,7 +560,6 @@
     "infrastructure/platform-runtime/work-signal-store.ts",
     "infrastructure/provider-webhook-inbox/index.ts",
     "infrastructure/web-notifications/index.ts",
-    "scripts/catalog-integration-reset.ts",
     "scripts/catalog-provider-send-window.ts"
   ],
   "unprovableForm": [

@@ -347,7 +347,6 @@ describe("staging refresh overlap and CLI posture", () => {
       "Platform Database Restore Drill",
       "Catalog Staging Count Preparation",
       "Catalog Staging Provider UAT",
-      "Catalog Integration Staging Reset",
       "Platform Staging Representative Commerce State",
       "Platform Staging Cluster Add-ons",
     ]);
@@ -412,7 +411,7 @@ describe("staging refresh overlap and CLI posture", () => {
     const calls = [];
     const identity = await resolveAuthenticatedGitHubActionsIdentity(
       {
-        workflowFile: ".github/workflows/catalog-integration-staging-reset.yml",
+        workflowFile: ".github/workflows/platform-staging-reset.yml",
         runIdHint: "5718",
       },
       async (command, args) => {
@@ -422,7 +421,7 @@ describe("staging refresh overlap and CLI posture", () => {
           stdout: JSON.stringify({
             databaseId: 5718,
             repository: "chase-sets/chase-sets",
-            path: ".github/workflows/catalog-integration-staging-reset.yml",
+            path: ".github/workflows/platform-staging-reset.yml",
             event: "workflow_dispatch",
             status: "in_progress",
           }),
@@ -437,11 +436,11 @@ describe("staging refresh overlap and CLI posture", () => {
     expect(calls[1].args).toContain("repos/chase-sets/chase-sets/actions/runs/5718");
   });
 
-  it("rejects a supplied run id when authenticated gh says it is not this reset workflow", async () => {
+  it("rejects a supplied run id when authenticated gh says it is not the requested reset workflow", async () => {
     await expect(
       resolveAuthenticatedGitHubActionsIdentity(
         {
-          workflowFile: ".github/workflows/catalog-integration-staging-reset.yml",
+          workflowFile: ".github/workflows/platform-staging-reset.yml",
           runIdHint: "99",
         },
         async (_command, args) =>

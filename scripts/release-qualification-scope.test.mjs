@@ -1026,8 +1026,8 @@ describe("caller inventory (seed/bootstrap/import/reconciliation) — issue #583
       "bounded-contexts/marketplace/features/offer-payment-authorization/integrations/payments/reconcile.ts",
     );
     expect({ discovered: discovered.length, persistentCount, ruledCount }).toEqual({
-      discovered: 175,
-      persistentCount: 169,
+      discovered: 173,
+      persistentCount: 167,
       ruledCount: 6,
     });
   });

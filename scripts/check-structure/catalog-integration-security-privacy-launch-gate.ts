@@ -1,3 +1,6 @@
+import { lstatSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   catalogIntegrationControlPlaneActionPolicies,
   type CatalogIntegrationControlPlaneActionPolicy,
@@ -8,10 +11,6 @@ import {
   getCatalogIntegrationDataGovernancePolicy,
   type CatalogIntegrationGovernedDataClassKey,
 } from "../../bounded-contexts/catalog/features/source-observations/api/governance/catalog-integration-data-governance";
-import {
-  catalogIntegrationDataResetEnvironmentPlans,
-  catalogIntegrationDataResetTargetTables,
-} from "../../bounded-contexts/catalog/features/source-observations/api/governance/catalog-integration-data-migration-reset";
 import { catalogRealProviderProofSchemaVersion } from "../../bounded-contexts/catalog/features/source-observations/tests/catalog-integration-real-provider-proof";
 import {
   catalogPrimaryWorkbenchActions,
@@ -21,9 +20,9 @@ import {
   type CatalogPrimaryWorkbenchRetirementPolicy,
 } from "../../bounded-contexts/catalog/features/source-observations/api/admin/primary-workbench-admin-contracts";
 
-export const catalogSecurityPrivacyLaunchGateSchemaVersion = "catalog-security-privacy-launch-gate/v1" as const;
+export const catalogSecurityPrivacyLaunchGateSchemaVersion = "catalog-security-privacy-launch-gate/v2" as const;
 export const catalogSecurityPrivacyLaunchGateChecklistVersion =
-  "catalog-security-privacy-checklist/2026-06-11" as const;
+  "catalog-security-privacy-checklist/2026-11-24" as const;
 
 export type CatalogSecurityPrivacyLaunchGateChecklistKey =
   | "admin-route-protection"
@@ -34,7 +33,7 @@ export type CatalogSecurityPrivacyLaunchGateChecklistKey =
   | "telemetry-log-artifact-redaction"
   | "audit-evidence-integrity"
   | "real-provider-proof-privacy"
-  | "reset-drop-safeguards"
+  | "integration-reset-retirement"
   | "complete-retirement";
 
 export type CatalogSecurityPrivacyLaunchGateChecklistItem = Readonly<{
@@ -112,16 +111,13 @@ export type CatalogSecurityPrivacyLaunchGateRealProviderProofEvidence = Readonly
   writeExecutedDuringProof: false;
 }>;
 
-export type CatalogSecurityPrivacyLaunchGateResetDropEvidence = Readonly<{
-  productionPrelaunchRequiresApproval: true;
-  productionPrelaunchRequiresBackupDecisionOrAcceptedDataLoss: true;
-  productionPrelaunchRequiresDryRunCounts: true;
-  productionPrelaunchRequiresBeforeAfterVerification: true;
-  targetTables: readonly string[];
-  unrelatedDataExcluded: true;
-  activeJobsRequireForcedDecision: true;
-  resetUnsafeDataRetained: false;
-  postResetLegacyReferencesBlockRelease: true;
+type CatalogIntegrationResetDisposition = Readonly<{
+  productionApply: "NOT RUN";
+  decidedAt: string;
+  decision: string;
+  productionReadOnlyDryRun: string;
+  stagingRehearsal: string;
+  stagingSmoke: string;
 }>;
 
 export type CatalogSecurityPrivacyLaunchGateRetirementEvidence = Readonly<{
@@ -148,7 +144,7 @@ export type CatalogSecurityPrivacyLaunchGatePacket = Readonly<{
   governance: CatalogSecurityPrivacyLaunchGateGovernanceEvidence;
   auditEvidence: CatalogSecurityPrivacyLaunchGateAuditEvidence;
   realProviderProof: CatalogSecurityPrivacyLaunchGateRealProviderProofEvidence;
-  resetDrop: CatalogSecurityPrivacyLaunchGateResetDropEvidence;
+  integrationResetDisposition: CatalogIntegrationResetDisposition;
   retirement: CatalogSecurityPrivacyLaunchGateRetirementEvidence;
 }>;
 
@@ -192,9 +188,8 @@ export const catalogSecurityPrivacyLaunchGateChecklist = [
       "#1062 real-provider proof links #1064 and retains no raw payloads, full URLs, credentials, or provider labels.",
   },
   {
-    key: "reset-drop-safeguards",
-    requirement:
-      "Prelaunch reset/drop is approval-gated, bounded to Catalog integration tables, and accepts data loss explicitly.",
+    key: "integration-reset-retirement",
+    requirement: "The one-time Catalog Integration reset is retired and production apply is recorded as NOT RUN.",
   },
   {
     key: "complete-retirement",
@@ -278,7 +273,9 @@ export function buildCatalogSecurityPrivacyLaunchGatePacket(
     signoff: Omit<CatalogSecurityPrivacyLaunchGateSignoff, "checklistVersion"> &
       Partial<Pick<CatalogSecurityPrivacyLaunchGateSignoff, "checklistVersion">>;
   }>,
+  repositoryRoot = defaultRepositoryRoot,
 ): CatalogSecurityPrivacyLaunchGatePacket {
+  const integrationResetDisposition = readCatalogIntegrationResetDisposition(repositoryRoot);
   const packet: CatalogSecurityPrivacyLaunchGatePacket = {
     schemaVersion: catalogSecurityPrivacyLaunchGateSchemaVersion,
     checklistVersion: catalogSecurityPrivacyLaunchGateChecklistVersion,
@@ -344,17 +341,7 @@ export function buildCatalogSecurityPrivacyLaunchGatePacket(
       providerControlledLabelsRetained: false,
       writeExecutedDuringProof: false,
     },
-    resetDrop: {
-      productionPrelaunchRequiresApproval: true,
-      productionPrelaunchRequiresBackupDecisionOrAcceptedDataLoss: true,
-      productionPrelaunchRequiresDryRunCounts: true,
-      productionPrelaunchRequiresBeforeAfterVerification: true,
-      targetTables: catalogIntegrationDataResetTargetTables(),
-      unrelatedDataExcluded: true,
-      activeJobsRequireForcedDecision: true,
-      resetUnsafeDataRetained: false,
-      postResetLegacyReferencesBlockRelease: true,
-    },
+    integrationResetDisposition,
     retirement: {
       policy: catalogPrimaryWorkbenchRetirementPolicy,
       retainedOldTwoPageMigration: false,
@@ -368,12 +355,13 @@ export function buildCatalogSecurityPrivacyLaunchGatePacket(
     },
   };
 
-  assertCatalogSecurityPrivacyLaunchGatePacketIsLaunchSafe(packet);
+  assertCatalogSecurityPrivacyLaunchGatePacketIsLaunchSafe(packet, repositoryRoot);
   return packet;
 }
 
 export function assertCatalogSecurityPrivacyLaunchGatePacketIsLaunchSafe(
   packet: CatalogSecurityPrivacyLaunchGatePacket,
+  repositoryRoot = defaultRepositoryRoot,
 ): void {
   assertSignoff(packet);
   assertChecklist(packet);
@@ -382,7 +370,7 @@ export function assertCatalogSecurityPrivacyLaunchGatePacketIsLaunchSafe(
   assertGovernance(packet);
   assertAuditEvidence(packet);
   assertRealProviderProof(packet);
-  assertResetDrop(packet);
+  assertIntegrationResetRetirement(packet.integrationResetDisposition, repositoryRoot);
   assertRetirement(packet);
 }
 
@@ -579,46 +567,65 @@ function assertRealProviderProof(packet: CatalogSecurityPrivacyLaunchGatePacket)
   }
 }
 
-function assertResetDrop(packet: CatalogSecurityPrivacyLaunchGatePacket): void {
-  const productionPlan = catalogIntegrationDataResetEnvironmentPlans.find(
-    (plan) => plan.environment === "production-prelaunch",
+const defaultRepositoryRoot = fileURLToPath(new URL("../..", import.meta.url));
+const dispositionPath = "bounded-contexts/catalog/docs/catalog-integration-production-reset-disposition.json";
+const archivedDisposition = {
+  productionApply: "NOT RUN",
+  decidedAt: "2026-11-22",
+  decision: "https://github.com/chase-sets/chase-sets/issues/1900#issuecomment-7074059802",
+  productionReadOnlyDryRun: "https://github.com/chase-sets/chase-sets/actions/runs/44984051710",
+  stagingRehearsal: "https://github.com/chase-sets/chase-sets/actions/runs/29661390006",
+  stagingSmoke: "https://github.com/chase-sets/chase-sets/actions/runs/29675148716",
+} as const satisfies CatalogIntegrationResetDisposition;
+
+const retiredResetPaths = [
+  ".github/workflows/catalog-integration-staging-reset.yml",
+  ".github/authority/catalog-integration-staging-reset/catalog-integration-reset.json",
+  "scripts/catalog-integration-reset.ts",
+  "scripts/run-catalog-integration-reset.mjs",
+  "bounded-contexts/catalog/features/source-observations/api/catalog-integration-data-migration-reset.ts",
+  "bounded-contexts/catalog/features/source-observations/api/governance/catalog-integration-data-migration-reset.ts",
+] as const;
+
+function matchesArchivedDisposition(value: unknown): value is CatalogIntegrationResetDisposition {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    Object.keys(value).length === Object.keys(archivedDisposition).length &&
+    Object.entries(archivedDisposition).every(([key, expected]) => Reflect.get(value, key) === expected)
   );
-  if (!productionPlan) {
-    throw new Error("Catalog security/privacy launch gate requires a production-prelaunch reset/drop plan.");
+}
+
+function readCatalogIntegrationResetDisposition(repositoryRoot: string): CatalogIntegrationResetDisposition {
+  let record: unknown;
+  try {
+    record = JSON.parse(readFileSync(join(repositoryRoot, dispositionPath), "utf8"));
+  } catch {
+    throw new Error(`Catalog Integration reset disposition is missing or unreadable: ${dispositionPath}`);
   }
-  if (
-    !productionPlan.requiresApprovalReference ||
-    !productionPlan.requiresBackupDecision ||
-    !productionPlan.requiresDryRunCounts ||
-    !productionPlan.requiresBeforeAfterVerification
-  ) {
+  if (!matchesArchivedDisposition(record)) {
+    throw new Error("Catalog Integration reset disposition must match the archived NOT RUN decision and evidence.");
+  }
+  return record;
+}
+
+function assertIntegrationResetRetirement(
+  packetDisposition: CatalogIntegrationResetDisposition,
+  repositoryRoot: string,
+): void {
+  readCatalogIntegrationResetDisposition(repositoryRoot);
+  if (!matchesArchivedDisposition(packetDisposition)) {
     throw new Error(
-      "Catalog production-prelaunch reset/drop plan must require approval, backup/data-loss, dry-run, and verification.",
+      "Catalog security/privacy launch packet must record production Catalog Integration reset as NOT RUN.",
     );
   }
-  assertSameStringSet(
-    packet.resetDrop.targetTables,
-    catalogIntegrationDataResetTargetTables(),
-    "Catalog security/privacy launch gate reset/drop target table coverage",
-  );
-  if (
-    packet.resetDrop.targetTables.some((table) =>
-      /orders|payments|settlement|marketplace|inventory|identity/i.test(table),
-    )
-  ) {
-    throw new Error("Catalog reset/drop target tables must exclude unrelated launched context data.");
+  for (const path of retiredResetPaths) {
+    if (lstatSync(join(repositoryRoot, path), { throwIfNoEntry: false })) {
+      throw new Error(`Retired Catalog Integration reset path is present: ${path}`);
+    }
   }
-  if (
-    !packet.resetDrop.productionPrelaunchRequiresApproval ||
-    !packet.resetDrop.productionPrelaunchRequiresBackupDecisionOrAcceptedDataLoss ||
-    !packet.resetDrop.productionPrelaunchRequiresDryRunCounts ||
-    !packet.resetDrop.productionPrelaunchRequiresBeforeAfterVerification ||
-    !packet.resetDrop.unrelatedDataExcluded ||
-    !packet.resetDrop.activeJobsRequireForcedDecision ||
-    packet.resetDrop.resetUnsafeDataRetained ||
-    !packet.resetDrop.postResetLegacyReferencesBlockRelease
-  ) {
-    throw new Error("Catalog security/privacy launch gate reset/drop evidence is incomplete.");
+  if (readFileSync(join(repositoryRoot, "scripts/ops.mjs"), "utf8").includes("catalog:integration-reset")) {
+    throw new Error("Retired Catalog Integration reset command is present in scripts/ops.mjs.");
   }
 }
 
