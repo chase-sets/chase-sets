@@ -10958,6 +10958,31 @@ async fn create_listing_reads_the_sellers_inventory_and_only_a_listing_manager_w
 }
 
 #[tokio::test]
+async fn inventory_without_a_shipping_measure_says_it_cannot_be_listed_and_neither_create_is_on() {
+    // A button's opening tag, found by an attribute only it has.
+    fn button<'a>(html: &'a str, attribute: &str) -> &'a str {
+        let at = html.find(attribute).unwrap_or_else(|| panic!("no {attribute}: {html}"));
+        let tag = &html[html[..at].rfind("<button").unwrap()..at + html[at..].find('>').unwrap()];
+        assert!(!tag.contains('>'), "{attribute} is a button's: {tag}");
+        tag
+    }
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(&format!("{LISTING_NEW}?inventoryItemId=inv_bare"), Some("lister"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    // The notice is the create's own refusal, as marketplace's page words it.
+    assert!(page.contains("This product has no shipping measure yet, so it cannot be listed. Try again later."), "{page}");
+    assert!(!page.contains("before creating an active listing"), "a draft is refused too: {page}");
+    assert!(button(&html, r#"value="create-and-publish-listing""#).contains(" disabled"), "{html}");
+    assert!(button(&html, r#"value="create-listing""#).contains(" disabled"), "{html}");
+    assert!(!button(&html, r#"name="preview""#).contains(" disabled"), "the fees can still be previewed: {html}");
+    // Inventory with a measure: a draft can be saved.
+    let (_, _, html) = pilot.send(get(&format!("{LISTING_NEW}?inventoryItemId=inv_etb"), Some("lister"))).await;
+    assert!(!text(&html).contains("so it cannot be listed"), "{html}");
+    assert!(!button(&html, r#"value="create-listing""#).contains(" disabled"), "{html}");
+}
+
+#[tokio::test]
 async fn the_catalog_search_finds_chooses_and_asks_for_each_option_that_applies() {
     let pilot = Pilot::new().await;
     let (_, _, html) = pilot.send(get(&format!("{LISTING_NEW}?q=twilight"), Some("lister"))).await;
@@ -15602,6 +15627,24 @@ fn checkout_writes(pilot: &Pilot) -> Vec<(String, Value)> {
         .filter(|c| c.method == Method::POST && c.path.starts_with(CHECKOUT_SESSIONS))
         .map(|c| (c.path.rsplit('/').next().unwrap().to_owned(), serde_json::from_str(&c.body).unwrap_or_default()))
         .collect()
+}
+
+#[tokio::test]
+async fn the_checkout_lets_stripe_load_for_its_card_step() {
+    let pilot = Pilot::new().await;
+    let (status, headers, html) = pilot.send(get(CHECKOUT_SCREEN, Some("payer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    // The payment step mounts Stripe's Payment Element and iews/stripe.js makes the page's
+    // default policy, so the page allows both, as the payment pages do; without them the page's
+    // script is refused before Pay now can tokenize a card.
+    let csp = headers[header::CONTENT_SECURITY_POLICY].to_str().unwrap();
+    assert!(csp.contains("https://js.stripe.com;") || csp.contains("https://js.stripe.com "), "Stripe.js may load: {csp}");
+    assert!(csp.contains("frame-src https://js.stripe.com https://hooks.stripe.com;"), "{csp}");
+    assert!(csp.contains("https://api.stripe.com"), "{csp}");
+    assert!(csp.contains("trusted-types corten default"), "{csp}");
+    assert!(!html.contains(r#"trustedTypes.createPolicy("default""#), "{html}");
+    let features = headers["permissions-policy"].to_str().unwrap();
+    assert!(!features.contains("payment=()"), "the Payment Element's wallets: {features}");
 }
 
 #[tokio::test]

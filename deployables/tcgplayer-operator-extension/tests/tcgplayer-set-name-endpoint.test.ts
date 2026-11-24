@@ -81,6 +81,22 @@ describe("sealed search and detail endpoints", () => {
     from: 24,
     includeProductLine: true,
   };
+  it("returns only a fixed code when the search fetch rejects, without retrying", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockRejectedValue(new Error("private diagnostic"));
+    await expect(createTcgplayerSealedFetch(fetcher)(search)).resolves.toEqual({
+      ok: false,
+      status: null,
+      contentClass: "unknown",
+      bytes: 0,
+      body: null,
+      code: "network-error",
+    });
+    expect(fetcher).toHaveBeenCalledExactlyOnceWith(
+      "https://mp-search-api.tcgplayer.com/v1/search/request",
+      expect.anything(),
+    );
+  });
+
   it("pins exact search body and detail URL, serializes calls and spaces them by at least 1,000 ms", async () => {
     vi.useFakeTimers();
     try {

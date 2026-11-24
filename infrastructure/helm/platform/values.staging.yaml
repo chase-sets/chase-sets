@@ -122,7 +122,7 @@ components:
     podAnnotations: {}
     podLabels: {}
   public-corten:
-    enabled: false
+    enabled: true
     kind: "service"
     replicas: 1
     image: ""
@@ -280,6 +280,8 @@ components:
       - name: "CHASE_SETS_DEPLOYMENT_INSTANCE"
         value: ""
       - name: "CHASE_SETS_IMPLEMENTATION_SHA"
+        value: ""
+      - name: "CHASE_SETS_MARKETPLACE_ORIGIN"
         value: ""
       - name: "SUPPORT_EVIDENCE_CAPABILITY_ADMIN_AUTHORITY_JSON"
         value: ""

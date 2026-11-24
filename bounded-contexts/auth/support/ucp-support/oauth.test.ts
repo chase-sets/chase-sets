@@ -15,6 +15,7 @@ import {
   resolveUcpScopedPermissions,
 } from "./oauth";
 import { authRetentionSweeps } from "../runtime-support/retention-policy";
+import { getSafeReturnTo } from "../auth-support/http";
 import type { AgentGrantRevocations, RevocationState } from "@chase-sets/identity/server";
 
 const actor = {
@@ -584,6 +585,59 @@ describe("UCP OAuth routes", () => {
     expect((await fixture.decide(second)).status).toBe(302);
     expect([...fixture.db.codes.values()][0]).toMatchObject({ account_id: "other-account" });
   });
+
+  it.each([
+    ["public issuer", "https://www.example", true],
+    ["marketplace", "https://marketplace.example", false],
+  ])("sends signed-out users on the %s to marketplace sign-in", async (_host, origin, crossOrigin) => {
+    const marketplaceOrigin = "https://marketplace.example";
+    vi.stubEnv("CHASE_SETS_MARKETPLACE_ORIGIN", marketplaceOrigin);
+    try {
+      const fixture = await consentFixture();
+      fixture.setActor(null);
+      const response = await fixture.app.request(`${origin}${fixture.authorizePath}`);
+      expect(response.status).toBe(302);
+      const returnTo = crossOrigin ? `${marketplaceOrigin}${fixture.authorizePath}` : fixture.authorizePath;
+      const signInPath = `/sign-in?${new URLSearchParams({ returnTo })}`;
+      const location = response.headers.get("location");
+      expect(location).toBe(crossOrigin ? `${marketplaceOrigin}${signInPath}` : signInPath);
+      const signInRequest = new Request(new URL(location!, origin));
+      const continuation = getSafeReturnTo(signInRequest, "/account");
+      expect(continuation).toBe(fixture.authorizePath);
+      expect(fixture.db.consents.size).toBe(0);
+      fixture.setActor(actor);
+      const resumed = await fixture.app.request(new URL(continuation, signInRequest.url));
+      expect(resumed.status).toBe(302);
+      expect(resumed.headers.get("location")).toMatch(/^\/account\/agents\/consent\?/);
+
+      const metadataApp = new Hono().route("/.well-known", createUcpOAuthMetadataRoutes());
+      const metadata = await metadataApp.request(`${origin}/.well-known/oauth-authorization-server`);
+      await expect(metadata.json()).resolves.toMatchObject({
+        issuer: origin,
+        token_endpoint: `${origin}/ucp/oauth/token`,
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it.each(["not a URL", "http://marketplace.example"])(
+    "falls back to relative sign-in with an unusable marketplace origin: %s",
+    async (marketplaceOrigin) => {
+      vi.stubEnv("CHASE_SETS_MARKETPLACE_ORIGIN", marketplaceOrigin);
+      try {
+        const fixture = await consentFixture();
+        fixture.setActor(null);
+        const response = await fixture.app.request(`https://www.example${fixture.authorizePath}`);
+        expect(response.status).toBe(302);
+        expect(response.headers.get("location")).toBe(
+          `/sign-in?${new URLSearchParams({ returnTo: fixture.authorizePath })}`,
+        );
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    },
+  );
 
   it.each(["bearer", "guest"])(
     "consent refuses %s actors on GET, read and otherwise valid approve (F7)",
@@ -2123,27 +2177,43 @@ describe("operator scopes refused until the sign-in gate", () => {
     expect(authority).toHaveBeenCalledOnce();
   });
 
-  it("requires recent interactive authentication for configured operator authority", async () => {
-    const staleActor = {
-      ...actor,
-      roleKey: "platform-admin",
-      authenticatedAt: new Date(Date.now() - 11 * 60 * 1_000).toISOString(),
-    };
-    const authority = vi.fn(async () => ({
-      kind: "granted" as const,
-      membershipId: "member_1",
-      roleKey: "platform-admin" as const,
-      rolePermissions: [],
-    }));
-    const { app, db } = operatorFixture(staleActor, authority);
-    const registration = await registerClient(app, { redirect_uris: [redirectUri], scope: "operations:write" });
-    const { client_id: clientId } = (await registration.json()) as { client_id: string };
-    const response = await app.request(authorizeUrl({ clientId, redirectUri, scope: "operations:write", challenge }));
-    expect(response.status).toBe(302);
-    expect(new URL(response.headers.get("location")!, "http://localhost").pathname).toBe("/sign-in");
-    expect(db.consents.size).toBe(0);
-    expect(authority).toHaveBeenCalledOnce();
-  });
+  it.each([
+    ["http://localhost", undefined],
+    ["https://www.example", "https://marketplace.example"],
+  ])(
+    "requires recent interactive authentication for configured operator authority on %s",
+    async (origin, marketplaceOrigin) => {
+      vi.stubEnv("CHASE_SETS_MARKETPLACE_ORIGIN", marketplaceOrigin);
+      try {
+        const staleActor = {
+          ...actor,
+          roleKey: "platform-admin",
+          authenticatedAt: new Date(Date.now() - 11 * 60 * 1_000).toISOString(),
+        };
+        const authority = vi.fn(async () => ({
+          kind: "granted" as const,
+          membershipId: "member_1",
+          roleKey: "platform-admin" as const,
+          rolePermissions: [],
+        }));
+        const { app, db } = operatorFixture(staleActor, authority);
+        const registration = await registerClient(app, { redirect_uris: [redirectUri], scope: "operations:write" });
+        const { client_id: clientId } = (await registration.json()) as { client_id: string };
+        const path = authorizeUrl({ clientId, redirectUri, scope: "operations:write", challenge });
+        const response = await app.request(`${origin}${path}`);
+        expect(response.status).toBe(302);
+        const location = response.headers.get("location")!;
+        const signIn = new URL(location, origin);
+        expect(signIn.origin).toBe(marketplaceOrigin ?? origin);
+        expect(signIn.pathname).toBe("/sign-in");
+        expect(signIn.searchParams.get("returnTo")).toBe(marketplaceOrigin ? `${marketplaceOrigin}${path}` : path);
+        expect(db.consents.size).toBe(0);
+        expect(authority).toHaveBeenCalledOnce();
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    },
+  );
 
   it("caps mixed-scope refresh lifetime and rejects rotation and bearer use at the seven-day boundary", async () => {
     vi.useFakeTimers();

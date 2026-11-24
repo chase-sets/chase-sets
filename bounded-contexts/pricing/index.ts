@@ -1,4 +1,5 @@
 import {
+  createPricingEvaluatedDecisionRecoveryRunners,
   createPricingMarketRollupsCloserRunners,
   createPricingJobRunners,
   createBulkRepriceIngestionJobRunners,
@@ -112,6 +113,7 @@ export const module = {
   ...contextModule,
   workerJobFactories: {
     createPricingMarketRollupsCloserRunners,
+    createPricingEvaluatedDecisionRecoveryRunners,
     createPricingJobRunners,
     createBulkRepriceIngestionJobRunners,
   },

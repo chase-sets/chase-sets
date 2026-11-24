@@ -745,8 +745,8 @@ const citationAuthorityRows: readonly CitationAuthorityRow[] = [
 ];
 
 const registrationSourcePath = "bounded-contexts/auth/features/registration/ui/register-page.tsx";
-const registrationFieldsRef = `${registrationSourcePath}:67-73,137-195,417-582`;
-const registrationEsignRef = `${registrationSourcePath}:137-195,283-324,417-582`;
+const registrationFieldsRef = `${registrationSourcePath}:67-73,137-195,419-584`;
+const registrationEsignRef = `${registrationSourcePath}:137-195,283-324,419-584`;
 const registrationFieldFragments = ['name="displayName"', 'name="email"', 'name="phone"', 'name="password"'];
 const registrationFieldNames = [
   "code",
@@ -1125,7 +1125,8 @@ const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
   // Repinned for the whole-construct registration refs without changing the C1-C7 normalization.
   // Repinned for the byte-identical relocation of the Settlement account risk source projection's cluster block
   // from 14-59 to 8-53 after its velocity-only imports were removed; the C1-C7 normalization is unchanged.
-  [citationFencePaths.privacyPolicy]: "fca2afca202dd342f1edb44a8098828cd1f4a7dbc8799388f20aeb22376b3aa1",
+  // Repinned for the byte-identical registration form move to 419-584; C1-C7 normalization is unchanged.
+  [citationFencePaths.privacyPolicy]: "dc2789188ada0474fb0bb45ccc5c768bb7905bd3f8ac28130e795b852c51898e",
   // Repinned for #11849: the quote function ref follows the same move to 79-105.
   // Repinned after the fee band category lists were deleted: the policy definition ref moved to 138-145 and
   // the quote function ref to 70-94.
@@ -1139,7 +1140,7 @@ const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
 const citationFenceOccurrences: Readonly<Record<string, readonly RegExp[]>> = {
   [citationFencePaths.privacyPolicy]: [
     /("bounded-contexts\/public-presence\/features\/policies\/domain\/terms-of-service\.ts:)\d+("\s*,)/g,
-    /("bounded-contexts\/public-presence\/features\/policies\/domain\/terms-of-service\.ts:)\d+(; bounded-contexts\/auth\/features\/registration\/ui\/register-page\.tsx:67-73,137-195,417-582")/g,
+    /("bounded-contexts\/public-presence\/features\/policies\/domain\/terms-of-service\.ts:)\d+(; bounded-contexts\/auth\/features\/registration\/ui\/register-page\.tsx:67-73,137-195,419-584")/g,
   ],
   [citationFencePaths.authenticityTerms]: [
     /("bounded-contexts\/public-presence\/features\/policies\/domain\/terms-of-service\.ts:)\d+-\d+("\s*,)/g,

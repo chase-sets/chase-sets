@@ -51,6 +51,15 @@ fn policy(id: &str, label: &str, status: &str) -> Value {
     })
 }
 
+/// A policy stored before product kinds stopped being Physical Flags: each rule still carries one.
+fn policy_with_kinds() -> Value {
+    let mut policy = policy("opp_kinds", "Stored with kinds", "draft");
+    policy["payload"]["parcelRequiredPhysicalFlags"] = json!(["slab", "sealed", "rigid"]);
+    policy["payload"]["letterRequiredPhysicalFlags"] = json!(["raw-card"]);
+    policy["payload"]["signatureRequiredPhysicalFlags"] = json!(["slab"]);
+    policy
+}
+
 fn refusal(status: StatusCode, code: &str, message: &str) -> Response {
     (status, Json(json!({ "error": { "code": code, "message": message } }))).into_response()
 }
@@ -518,6 +527,7 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
             "projection_freshness_timeout",
             "Projection read model did not catch up to the requested write receipt before the freshness timeout.",
         ),
+        (Method::GET, "/opp_kinds") => Json(policy_with_kinds()).into_response(),
         (Method::GET, id) => Json(policy(&id[1..], "Smoke draft", "draft")).into_response(),
         (Method::POST, "") if body.contains(r#""label":"Refused""#) => {
             refusal(StatusCode::UNPROCESSABLE_ENTITY, "validation_failed", "Effective until must be after effective from.")
@@ -1672,6 +1682,96 @@ async fn activation_sends_the_reason_or_asks_for_one() {
     assert!(html.starts_with(r#"<form class="lifecycle__card" id="activate-form""#), "{html}");
     assert!(html.contains(r#"id="activate-form-activation_reason-error""#), "{html}");
     assert!(!pilot.policy_calls().iter().any(|c| c.method == Method::POST));
+}
+
+/// The form with `id` in `html`, from its tag to its end.
+fn form_of<'a>(html: &'a str, id: &str) -> &'a str {
+    let at = html.find(&format!(r#"id="{id}""#)).unwrap_or_else(|| panic!("no {id}: {html}"));
+    let start = html[..at].rfind("<form").unwrap();
+    &html[start..at + html[at..].find("</form>").unwrap()]
+}
+
+/// The checkboxes named `name` in `form`, each its value and whether it is checked.
+fn boxes<'a>(form: &'a str, name: &str) -> Vec<(&'a str, bool)> {
+    form.split(&format!(r#"<input type="checkbox" name="{name}" value=""#))
+        .skip(1)
+        .map(|rest| {
+            let (value, tag) = rest.split_once('>').unwrap().0.split_once('"').unwrap();
+            (value, tag.contains("checked"))
+        })
+        .collect()
+}
+
+/// The values `form` offers for `name`.
+fn offered<'a>(form: &'a str, name: &str) -> Vec<&'a str> {
+    boxes(form, name).into_iter().map(|(value, _)| value).collect()
+}
+
+/// The values `form` has checked for `name`.
+fn checked<'a>(form: &'a str, name: &str) -> Vec<&'a str> {
+    boxes(form, name).into_iter().filter_map(|(value, checked)| checked.then_some(value)).collect()
+}
+
+const PHYSICAL_PROPERTIES: [&str; 5] = ["rigid", "bendable", "metal", "jumbo", "irregular"];
+const RULE_FLAGS: [&str; 3] =
+    ["parcel_required_physical_flags", "letter_required_physical_flags", "signature_required_physical_flags"];
+const FLAGS_NO_LONGER_OFFERED: &str = "This policy stores physical flags that are no longer offered";
+
+#[tokio::test]
+async fn the_forms_offer_the_physical_properties_and_the_preview_starts_bendable() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/commerce/postage-policies?policy=opp_seed", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let (create, revise) = (form_of(&html, "create-form"), form_of(&html, "revise-form"));
+    for name in RULE_FLAGS {
+        assert_eq!(offered(create, name), PHYSICAL_PROPERTIES, "{name}: {create}");
+        assert_eq!(offered(revise, name), PHYSICAL_PROPERTIES, "{name}: {revise}");
+    }
+    // The default policy: a letter needs bendable, and every other property makes a parcel.
+    assert_eq!(checked(create, "letter_required_physical_flags"), ["bendable"]);
+    assert_eq!(checked(create, "parcel_required_physical_flags"), ["rigid", "metal", "jumbo", "irregular"]);
+    assert!(checked(create, "signature_required_physical_flags").is_empty(), "{create}");
+    // The preview offers the same five and starts with one the API accepts.
+    assert_eq!(offered(revise, "preview_physical_flags"), PHYSICAL_PROPERTIES, "{revise}");
+    assert_eq!(checked(revise, "preview_physical_flags"), ["bendable"], "{revise}");
+    for kind in ["raw-card", "slab", "sealed"] {
+        assert!(!html.contains(&format!(r#"value="{kind}""#)), "no product kind is offered: {html}");
+    }
+    assert!(!html.contains(FLAGS_NO_LONGER_OFFERED), "a policy of properties has no warning: {html}");
+}
+
+#[tokio::test]
+async fn a_stored_policy_with_product_kinds_is_warned_about_and_checks_nothing_in_their_place() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/commerce/postage-policies?policy=opp_kinds", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    // Each rule's stored values the form does not offer, by its section, in form order.
+    let warning = "Stored values: Parcel Requirements: slab, sealed; Letter Eligibility: raw-card; Signature \
+                   Requirements: slab. Nothing is checked in their place, and saving removes them.";
+    let title = format!(r#" role="alert"><p class="policy-fields__warning-title">{FLAGS_NO_LONGER_OFFERED}</p>"#);
+    assert!(html.contains(&title) && html.contains(warning), "{html}");
+    let revise = form_of(&html, "revise-form");
+    for name in RULE_FLAGS {
+        assert_eq!(offered(revise, name), PHYSICAL_PROPERTIES, "{name}: {revise}");
+    }
+    assert_eq!(checked(revise, "parcel_required_physical_flags"), ["rigid"], "the stored property stays: {revise}");
+    assert!(checked(revise, "letter_required_physical_flags").is_empty(), "{revise}");
+    assert!(checked(revise, "signature_required_physical_flags").is_empty(), "{revise}");
+    for kind in ["raw-card", "slab", "sealed"] {
+        assert!(!html.contains(&format!(r#"value="{kind}""#)), "no checkbox for a kind: {html}");
+    }
+    // The warning is the stored policy's, outside the form: a refused revision's patch is the form
+    // alone, so the page keeps it, and the page drawn again without JavaScript has it.
+    assert!(!revise.contains(FLAGS_NO_LONGER_OFFERED), "{revise}");
+    let revision = create_body("Stored", "");
+    let (status, _, patch) = pilot.send(post("/commerce/postage-policies/opp_kinds/revise", &revision, true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(patch.starts_with(r#"<form class="policy-fields__form" id="revise-form""#), "{patch}");
+    assert!(!patch.contains(FLAGS_NO_LONGER_OFFERED), "{patch}");
+    let (status, _, page) = pilot.send(post("/commerce/postage-policies/opp_kinds/revise", &revision, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(page.starts_with("<!DOCTYPE html>") && page.contains(warning), "{page}");
+    assert!(!pilot.policy_calls().iter().any(|c| c.method != Method::GET), "the pilot's own check sends nothing");
 }
 
 // The catalog area.

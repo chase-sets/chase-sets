@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { tcgplayerSetNameUnits } from "../set-names/contract";
-import type { SetNamesRequestResult } from "../set-names/probe";
+import { isSealedRequestResult, sealedRequestFailure, type SealedRequestResult } from "./request-result";
 
 export const sealedProductLines = () =>
   tcgplayerSetNameUnits.flatMap((unit) => {
@@ -13,13 +13,14 @@ export type SealedSelection = { productLineId: number; setId: number; setName: s
 export type SealedRequest =
   | { endpoint: "search"; productLineId: number; setName: string; from: number; includeProductLine: boolean }
   | { endpoint: "detail"; productId: number };
-export type SealedFetch = (request: SealedRequest) => Promise<SetNamesRequestResult>;
+export type SealedFetch = (request: SealedRequest) => Promise<SealedRequestResult>;
 export type SealedReceipt = {
   requests: {
     endpoint: "search" | "detail";
     status: number | null;
     contentClass: "json" | "non-json" | "unknown";
     bytes: number;
+    code?: SealedRequestResult["code"];
   }[];
   totalResults: number | null;
   pages: number;
@@ -98,26 +99,34 @@ export async function collectSealedProducts(input: {
     return { receipt, details };
   }
   async function request(request: SealedRequest) {
-    let result: SetNamesRequestResult;
+    let result: SealedRequestResult;
     try {
-      result = await input.request(request);
+      const response = await input.request(request);
+      result = isSealedRequestResult(response) ? response : sealedRequestFailure("invalid-response");
     } catch {
-      result = { ok: false, status: null, contentClass: "unknown", bytes: 0, body: null };
+      result = sealedRequestFailure("unavailable");
     }
+    const httpSuccess = result.status !== null && result.status >= 200 && result.status < 300;
+    const success = result.ok && httpSuccess && result.contentClass === "json";
+    const code = success
+      ? undefined
+      : (result.code ??
+        (result.status === null
+          ? "unavailable"
+          : !httpSuccess
+            ? "http-not-success"
+            : result.contentClass === "non-json"
+              ? "non-json"
+              : "invalid-response"));
     receipt.requests.push({
       endpoint: request.endpoint,
       status: result.status,
       contentClass: result.contentClass,
       bytes: result.bytes,
+      ...(code === undefined ? {} : { code }),
     });
     publish();
-    return result.ok &&
-      result.status !== null &&
-      result.status >= 200 &&
-      result.status < 300 &&
-      result.contentClass === "json"
-      ? result
-      : null;
+    return success ? result : null;
   }
   for (const includeProductLine of [true, false]) {
     const unique = new Set<number>();
@@ -142,6 +151,7 @@ export async function collectSealedProducts(input: {
       }
       const parsed = search.safeParse(result.body);
       if (!parsed.success) {
+        receipt.requests.at(-1)!.code = "invalid-response";
         receipt.verdict = "unqualified";
         publish();
         return { receipt, details };

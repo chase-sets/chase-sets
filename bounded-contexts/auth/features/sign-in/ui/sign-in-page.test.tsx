@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { ChaseRoot } from "@chase-sets/design-system";
+import { RouterLinkAdapter } from "@chase-sets/design-system/react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SignInPage } from "./sign-in-page";
 import { defineAuthHost } from "../../../support/route-support/auth-host";
@@ -9,6 +11,7 @@ import { getPasskeyCredential } from "../../../support/ui-support/passkey-browse
 import MarketplaceSignInRoute, { loader } from "../../../routes/marketplace/sign-in";
 import {
   renderAuthRoute,
+  expectDocumentNavigation,
   missingPhoneFailure,
   safeFailure,
   mockNativeRequestSubmit,
@@ -16,7 +19,7 @@ import {
   pendingPasskey,
 } from "../../../tests/auth-form-route-test-support";
 import AccessAdminSignInRoute from "../../../routes/access-admin/sign-in";
-import { redirect } from "react-router";
+import { MemoryRouter, redirect } from "react-router";
 
 vi.mock("../../../support/route-support/auth-host.server", async () => {
   const { defineAuthHost } = await import("../../../support/route-support/auth-host");
@@ -213,24 +216,44 @@ describe("sign-in page two-step journey", () => {
     expect(new FormData(form).get("signInMethod")).toBe("password");
   });
 
-  it("can render an admin Google Workspace SSO entry point", () => {
+  it.each(["Google", "Facebook"])("opens marketplace %s sign-in as a document", (provider) => {
     render(
-      <SignInPage
-        socialLoginDescription="Use your Chase Sets Google Workspace account."
-        socialLoginLinks={[
-          {
-            href: "/api/auth/social/google/start?journey=admin&returnTo=%2Faccess%2Faccounts",
-            label: "Continue with Google Workspace",
-            icon: "badgeCheck",
-          },
-        ]}
-      />,
+      <MemoryRouter>
+        <ChaseRoot linkComponent={RouterLinkAdapter}>
+          <SignInPage returnTo="/account/orders" />
+        </ChaseRoot>
+      </MemoryRouter>,
+    );
+
+    const link = screen.getByRole("link", { name: `Continue with ${provider}` });
+    expect(link.getAttribute("href")).toBe(
+      `/api/auth/social/${provider.toLowerCase()}/start?journey=sign-in&returnTo=%2Faccount%2Forders`,
+    );
+    expectDocumentNavigation(link);
+  });
+
+  it("opens the admin Google Workspace SSO entry point as a document", () => {
+    render(
+      <MemoryRouter>
+        <ChaseRoot linkComponent={RouterLinkAdapter}>
+          <SignInPage
+            socialLoginDescription="Use your Chase Sets Google Workspace account."
+            socialLoginLinks={[
+              {
+                href: "/api/auth/social/google/start?journey=admin&returnTo=%2Faccess%2Faccounts",
+                label: "Continue with Google Workspace",
+                icon: "badgeCheck",
+              },
+            ]}
+          />
+        </ChaseRoot>
+      </MemoryRouter>,
     );
 
     expect(screen.getByText("Use your Chase Sets Google Workspace account.")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Continue with Google Workspace" }).getAttribute("href")).toBe(
-      "/api/auth/social/google/start?journey=admin&returnTo=%2Faccess%2Faccounts",
-    );
+    const link = screen.getByRole("link", { name: "Continue with Google Workspace" });
+    expect(link.getAttribute("href")).toBe("/api/auth/social/google/start?journey=admin&returnTo=%2Faccess%2Faccounts");
+    expectDocumentNavigation(link);
     expect(screen.queryByRole("link", { name: "Continue with Facebook" })).toBeNull();
   });
 

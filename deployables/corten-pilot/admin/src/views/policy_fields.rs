@@ -1,7 +1,7 @@
 use corten::{form::Within, prelude::*, view::Id};
 
 use super::Draft;
-use crate::{app::url, form::PolicyInput, text::Msg};
+use crate::{api::Payload, app::url, form::PolicyInput, text::Msg};
 
 /// The create form's id: a submit that fails replaces it.
 #[derive(Id, Clone, Copy)]
@@ -22,17 +22,52 @@ fn shipping_options(t: Msg) -> [(&'static str, &'static str); 3] {
     [("standard", t.form_standard()), ("expedited", t.form_expedited()), ("priority", t.form_priority())]
 }
 
-fn physical_flags(t: Msg) -> [(&'static str, &'static str); 8] {
+/// The physical properties a rule may name (`postagePolicyPhysicalFlags`).
+fn physical_flags(t: Msg) -> [(&'static str, &'static str); 5] {
     [
-        ("raw-card", t.form_raw_card()),
-        ("slab", t.form_slab()),
-        ("sealed", t.form_sealed()),
         ("rigid", t.form_rigid()),
         ("bendable", t.form_bendable()),
         ("metal", t.form_metal()),
         ("jumbo", t.form_jumbo()),
         ("irregular", t.form_irregular()),
     ]
+}
+
+/// The stored values the form does not offer, each entry the form section whose rule holds them,
+/// in form order (`storedFlagsNoLongerOffered`): a policy stored before product kinds stopped
+/// being Physical Flags can still carry them.
+fn stored_flags_no_longer_offered(t: Msg, policy: &Payload) -> Vec<String> {
+    let offered = physical_flags(t);
+    let sections = [
+        (t.form_parcel_requirements(), &policy.parcel_required_physical_flags),
+        (t.form_letter_eligibility(), &policy.letter_required_physical_flags),
+        (t.form_signature_requirements(), &policy.signature_required_physical_flags),
+    ];
+    sections
+        .into_iter()
+        .filter_map(|(section, stored)| {
+            let not_offered: Vec<&str> =
+                stored.iter().map(String::as_str).filter(|flag| !offered.iter().any(|(value, _)| value == flag)).collect();
+            (!not_offered.is_empty()).then(|| format!("{section}: {}", not_offered.join(", ")))
+        })
+        .collect()
+}
+
+/// The warning that the stored policy carries values the form does not offer (the design
+/// system's `Banner tone="warning"`). The form checks nothing in their place, so saving removes
+/// them. It reads the stored policy and sits outside the form, so a form drawn again with what
+/// was posted keeps it.
+#[component(css = PolicyFields)]
+pub fn FlagsNoLongerOffered<'a>(t: Msg, policy: &'a Payload) -> impl Render {
+    let values = stored_flags_no_longer_offered(t, policy);
+    (!values.is_empty()).then(|| {
+        html! {
+            <div class={Warning} role="alert">
+                <p class={WarningTitle}>{t.form_flags_no_longer_offered_title()}</p>
+                <p>{t.form_flags_no_longer_offered_description(values.join("; "))}</p>
+            </div>
+        }
+    })
 }
 
 /// A labelled input, its error next to it. The error is outside the label, so it is not part of
@@ -239,7 +274,7 @@ pub fn ReviseForm<'a>(t: Msg, id: &'a str, form: &'a Draft<PolicyInput>) -> impl
     let (i, e) = (&form.input, form.errors.within(ReviseFormId));
     let num = |min, step| Kind::Number { min, step };
     let shipping = shipping_options(t);
-    let flags: Vec<(&str, &str)> = physical_flags(t).into_iter().filter(|(value, _)| *value != "bendable").collect();
+    let flags = physical_flags(t);
     html! {
         <form class={Form} id={ReviseFormId} method="post" action={url::Revise { id }} data-patch>
             {form.errors.form_message()}
