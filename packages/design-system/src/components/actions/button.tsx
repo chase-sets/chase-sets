@@ -3,7 +3,7 @@ import { forwardRef, useCallback, useMemo, useRef } from "react";
 import { motion } from "motion/react";
 import type { IconName } from "../../icons";
 import { Icon } from "../../icons";
-import { useLinkComponent } from "../../theme/link-adapter";
+import { AnchorLink, useLinkComponent } from "../../theme/link-adapter";
 import { useChaseMotion } from "../../theme/provider";
 import { cx } from "../../utils/cx";
 import { toMotionDomProps } from "../../utils/motion-props";
@@ -144,14 +144,16 @@ export interface LinkButtonProps extends Omit<AnchorHTMLAttributes<HTMLAnchorEle
   leadingIcon?: IconName;
   trailingIcon?: IconName;
   block?: boolean;
+  reloadDocument?: boolean;
 }
 
 export const LinkButton = forwardRef<HTMLAnchorElement, LinkButtonProps>(function LinkButton(
-  { children, tone = "secondary", size = "md", leadingIcon, trailingIcon, block = false, ...rest },
+  { children, tone = "secondary", size = "md", leadingIcon, trailingIcon, block = false, reloadDocument, ...rest },
   ref,
 ) {
   const motionSettings = useChaseMotion();
-  const Link = useLinkComponent();
+  const HostLink = useLinkComponent();
+  const Link = reloadDocument ? AnchorLink : HostLink;
   // Motion-enable whatever link component ChaseRoot registered (a plain `<a>` by
   // default, a router `Link` when the host app opted in) instead of hardcoding
   // `motion.a`, so LinkButton gets SPA transitions for free. Memoized on `Link` so

@@ -13,6 +13,11 @@ import { createOperatorTransport } from "./transport";
 import { isSetNamesRequestResult, type SetNamesRequestResult } from "./set-names/probe";
 import { isSetNamesPostMessage, type SetNamesPostResult } from "./set-names/transport";
 import { isSealedRequestMessage } from "./sealed-products/bridge";
+import {
+  isSealedRequestResult,
+  sealedRequestFailure,
+  type SealedRequestResult,
+} from "./sealed-products/request-result";
 import { isSealedPostMessage, type SealedPostResult } from "./sealed-products/transport";
 import type { SealedFetch } from "./sealed-products/collector";
 
@@ -121,7 +126,7 @@ export function createOperatorBackground(adapters: OperatorAdapters) {
       value: unknown,
       sender: { id?: string; url?: string; origin?: string; hasTab: boolean },
       extensionId: string,
-    ): Promise<SetNamesRequestResult | SealedPostResult | null> {
+    ): Promise<SealedRequestResult | SealedPostResult | null> {
       const origin = `chrome-extension://${extensionId}`;
       if (
         sender.id !== extensionId ||
@@ -132,10 +137,11 @@ export function createOperatorBackground(adapters: OperatorAdapters) {
         return null;
       if (isSealedRequestMessage(value)) {
         try {
-          const result = await adapters.sealedProducts?.(value.request);
-          return isSetNamesRequestResult(result) ? result : null;
+          if (!adapters.sealedProducts) return sealedRequestFailure("unavailable");
+          const result = await adapters.sealedProducts(value.request);
+          return isSealedRequestResult(result) ? result : sealedRequestFailure("invalid-response");
         } catch {
-          return null;
+          return sealedRequestFailure("unavailable");
         }
       }
       if (!isSealedPostMessage(value)) return null;

@@ -12,6 +12,6 @@ export const publicPrivacyPolicyPublicationRecord = {
   counselApprovalReference: null,
   rolloutJurisdictionsOrProductLimits: [],
   launchRequired: true,
-  contentFingerprint: "sha256:59de3035481df995c14bb0f88dde6eae5436418a421d4ec5a576d4b6a12eaa68",
+  contentFingerprint: "sha256:36c8cd76b1dfcaa7f8e6b9e2830b9a63e6bbd20a9b1c1595ae3886a321723e95",
   consentActivatable: false,
 } as const satisfies PublicPolicyPublicationRecord<"privacy-policy">;

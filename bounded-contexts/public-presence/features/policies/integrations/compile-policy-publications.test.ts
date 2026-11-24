@@ -519,9 +519,10 @@ describe("public policy corpus compiler", () => {
     // Re-derived with the inline card confirmation, Account Profile, and reservation-sweep citation changes.
     // Re-derived for the Ordering order-domain citation re-pin: one line fewer above the cited events with the
     // authenticity plan category removed, and two lines more that the recorded shipping rates had added unpinned.
+    // Re-derived for the byte-identical registration form move to 419-584.
     expect(
       fingerprint(baseline.find(({ relativePath }) => relativePath === "terms-of-service-publication.ts")?.content),
-    ).toBe("sha256:b833aebc40f3cc88b06228f5b312ca40268288173c261130f7e5f29c83fd4544");
+    ).toBe("sha256:7137e302f8ae79408983f84785024914394f6698bc0912471c678e09dcc2e051");
 
     for (const module of changed) {
       const before = baseline.find((candidate) => candidate.relativePath === module.relativePath)?.content;
@@ -560,9 +561,9 @@ describe("public policy corpus compiler", () => {
         sectionId: "children",
         carrier: "assumptionEvidenceRef",
         before:
-          "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:370; bounded-contexts/auth/features/registration/ui/register-page.tsx:67-73,137-195,417-582",
+          "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:370; bounded-contexts/auth/features/registration/ui/register-page.tsx:67-73,137-195,419-584",
         after:
-          "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:345; bounded-contexts/auth/features/registration/ui/register-page.tsx:67-73,137-195,417-582",
+          "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:345; bounded-contexts/auth/features/registration/ui/register-page.tsx:67-73,137-195,419-584",
         module: "privacy-policy-publication.ts",
       },
       {

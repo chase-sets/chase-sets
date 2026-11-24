@@ -76,6 +76,10 @@ describe("sealed products popup", () => {
     expect((screen.getByRole("button", { name: "Run sealed products" }) as HTMLButtonElement).disabled).toBe(false);
     fireEvent.change(screen.getByLabelText("Sealed product line"), { target: { value: "3" } });
     expect((screen.getByLabelText("Set") as HTMLSelectElement).options.length).toBe(1);
+    expect((screen.getByLabelText("Set") as HTMLSelectElement).disabled).toBe(true);
+    expect(
+      screen.getByText("Run TCGplayer set names for this product line first. Keep this popup open to use the results."),
+    ).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Environment"), { target: { value: "production" } });
     await waitFor(() => expect((screen.getByLabelText("Sealed product line") as HTMLSelectElement).value).toBe(""));
   });
@@ -130,6 +134,9 @@ describe("sealed products popup", () => {
     await select();
     fireEvent.click(screen.getByRole("button", { name: "Run sealed products" }));
     await screen.findByText("Sealed products stopped: unqualified");
+    expect(JSON.parse((screen.getByLabelText("Sealed product receipt") as HTMLTextAreaElement).value)).toMatchObject({
+      requests: [{ status: 200, code: "invalid-response" }],
+    });
     expect(catalog).not.toHaveBeenCalled();
     expect(document.body.textContent).not.toMatch(/Cookie:|Bearer|private/);
   });

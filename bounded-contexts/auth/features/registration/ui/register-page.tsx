@@ -386,6 +386,7 @@ export function RegisterPage(props: RegistrationPageProps) {
           <Inline>
             <LinkButton
               href={`/api/auth/social/google/start?journey=registration&returnTo=${encodeURIComponent(props.returnTo ?? "/account")}`}
+              reloadDocument
               leadingIcon="badgeCheck"
               block
             >
@@ -393,6 +394,7 @@ export function RegisterPage(props: RegistrationPageProps) {
             </LinkButton>
             <LinkButton
               href={`/api/auth/social/facebook/start?journey=registration&returnTo=${encodeURIComponent(props.returnTo ?? "/account")}`}
+              reloadDocument
               leadingIcon="users"
               block
             >
