@@ -1,7 +1,7 @@
 use corten::prelude::*;
 use platform::ui::table::{CellLabel, Table as KitTable, TableLayout};
 
-use super::{Draft, Lifecycle, ReviseForm, StatusBadge};
+use super::{Draft, FlagsNoLongerOffered, Lifecycle, ReviseForm, StatusBadge};
 use crate::{
     api::{PackagePlan, Policy},
     app::url,
@@ -108,6 +108,7 @@ pub fn PolicySheet<'a>(
             </section>
             <section class={Part}>
                 <h3>{t.detail_revise_policy()}</h3>
+                <FlagsNoLongerOffered t={t} policy={&policy.payload} />
                 <div class={Card}><ReviseForm t={t} id={&policy.policy_id} form={revise} /></div>
                 <PreviewResult t={t} plan={preview} />
             </section>

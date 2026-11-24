@@ -375,8 +375,9 @@ impl NewListingScreen {
         self.supply.iter().find(|i| !self.draft.inventory_item_id.is_empty() && i.item_id == self.draft.inventory_item_id)
     }
 
-    /// A selected inventory item without a shipping measure cannot be published.
-    pub fn blocks_publication(&self) -> bool {
+    /// A selected inventory item without a shipping measure cannot be listed, as a draft either
+    /// (`selectedInventoryBlocksCreation`): the API refuses the create.
+    pub fn blocks_creation(&self) -> bool {
         self.selected().is_some_and(|i| i.product_measure_snapshot.is_none())
     }
 
@@ -387,7 +388,7 @@ impl NewListingScreen {
 
     /// Create and publish is on once the evidence is complete (`!evidenceReadiness?.coverage.complete`).
     pub fn can_publish(&self) -> bool {
-        !self.blocks_writes() && !self.blocks_publication() && self.readiness.as_ref().is_some_and(|r| r.coverage.complete)
+        !self.blocks_writes() && !self.blocks_creation() && self.readiness.as_ref().is_some_and(|r| r.coverage.complete)
     }
 }
 

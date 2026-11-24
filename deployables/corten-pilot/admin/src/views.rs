@@ -35,7 +35,7 @@ pub use lifecycle::{ActivateForm, CloneForm, Lifecycle, RetireForm};
 pub use live_status::{LiveStatus, LiveWords};
 pub use offline_page::OfflinePage;
 pub use platform::section::{Banner, PageHeader, Section};
-pub use policy_fields::{CreateForm, PolicyFields, ReviseForm};
+pub use policy_fields::{CreateForm, FlagsNoLongerOffered, PolicyFields, ReviseForm};
 pub use policy_sheet::{PolicySheet, PreviewResult};
 pub use policy_table::{Pagination, PolicyTable};
 pub use sign_in_page::{AccountSelectPage, MagicLinkFailed, SignInPage};

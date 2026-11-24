@@ -9,6 +9,7 @@ import {
 import type { TcgplayerSetNameObservationPost } from "./set-names/contract";
 import type { OperatorEnvironment } from "./protocol";
 import { isSealedRequestMessage, type SealedRequestMessage } from "./sealed-products/bridge";
+import { isSealedRequestResult, sealedRequestFailure } from "./sealed-products/request-result";
 import { isSealedPostMessage, isSealedPostResult, type SealedPostMessage } from "./sealed-products/transport";
 
 export type OperatorBridgeMessage =
@@ -72,14 +73,7 @@ export function installOperatorBridge(
       (isSealedRequestMessage(event.data.message) || isSealedPostMessage(event.data.message))
     ) {
       const { sealedId, message } = event.data;
-      void send(message)
-        .then((result) => {
-          if (isSealedRequestMessage(message) ? isSetNamesRequestResult(result) : isSealedPostResult(result))
-            frame.contentWindow?.postMessage({ sealedId, result }, "*");
-        })
-        .catch(() => {
-          /* The sandbox deadline supplies a fixed error. */
-        });
+      void relaySealed(sealedId, message);
       return;
     }
     if (
@@ -111,6 +105,23 @@ export function installOperatorBridge(
   };
   host.addEventListener("message", receive);
   return () => host.removeEventListener("message", receive);
+
+  async function relaySealed(sealedId: number, message: SealedRequestMessage | SealedPostMessage) {
+    const reply = (result: unknown) => frame.contentWindow?.postMessage({ sealedId, result }, "*");
+    const request = message.action === "fetch-sealed-products";
+    let result: unknown;
+    try {
+      result = await send(message);
+    } catch {
+      reply(request ? sealedRequestFailure("unavailable") : { outcome: "unavailable" });
+      return;
+    }
+    if (request)
+      reply(
+        isSealedRequestResult(result) ? result : sealedRequestFailure(result === null ? "refused" : "invalid-response"),
+      );
+    else reply(isSealedPostResult(result) ? result : { outcome: result === null ? "refused" : "invalid-response" });
+  }
 }
 
 export function createOperatorSandboxSetNamesRequest(host: Window, bridgeOrigin: string): SetNamesRequest {

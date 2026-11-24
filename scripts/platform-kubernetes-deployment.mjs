@@ -22,6 +22,10 @@ import {
   previewWildcardTlsSecretName,
   previewWildcardTlsSecretNamespace,
   resolveAdminApp,
+  resolveStagingMarketplacePilot,
+  resolveStagingPilot,
+  resolveStagingPublicPilot,
+  STAGING_PILOT_VARIABLES,
 } from "./render-platform-helm-values.mjs";
 import { writeJsonRecord } from "./lib/output-file.mjs";
 import { MERGE_GATE_NAMESPACE_PATTERN, VERIFICATION_NAMESPACE_PATTERN } from "./ephemeral-verification-namespace.mjs";
@@ -139,12 +143,27 @@ export function droppedAdvisoryCortenPilots(options = {}) {
 }
 
 // The pilots a staging or production deploy renders disabled whatever image it was given. While
-// STAGING_ADMIN_APP or PRODUCTION_ADMIN_APP has admin-web serve the admin host, admin-corten is not deployed:
-// the release waits for every enabled pod (helm --wait --atomic), so a pilot that never becomes ready would
-// otherwise fail the deploy, including the one that rolls admin back to admin-web.
+// STAGING_ADMIN_APP or PRODUCTION_ADMIN_APP has admin-web serve the admin host, admin-corten is not deployed,
+// and while STAGING_MARKETPLACE_PILOT or STAGING_PUBLIC_PILOT is withheld, that pilot is not deployed on staging. The release
+// waits for every enabled pod (helm --wait --atomic), so a pilot that never becomes ready would otherwise fail
+// the deploy, including the one that rolls admin back to admin-web.
 export function withheldCortenPilots(options = {}) {
-  const adminApp = resolveAdminApp(options.env ?? {}, options.envOverrides?.DEPLOYMENT_ENVIRONMENT);
-  return adminApp?.app === "admin-web" ? ["admin-corten"] : [];
+  const environment = options.envOverrides?.DEPLOYMENT_ENVIRONMENT;
+  const adminApp = resolveAdminApp(options.env ?? {}, environment);
+  const withheld = adminApp?.app === "admin-web" ? ["admin-corten"] : [];
+  if (environment === "staging") {
+    for (const [component, variable] of Object.entries(STAGING_PILOT_VARIABLES)) {
+      if (resolveStagingPilot(options.env ?? {}, variable).state === "withheld") withheld.push(component);
+    }
+  }
+  return withheld;
+}
+
+// Why a withheld pilot is not deployed, for the deploy's warning.
+function withheldPilotReason(component, options) {
+  const environment = options.envOverrides.DEPLOYMENT_ENVIRONMENT;
+  if (STAGING_PILOT_VARIABLES[component]) return `${STAGING_PILOT_VARIABLES[component]}=withheld`;
+  return `admin-web serves ${adminHosts[environment]} (${resolveAdminApp(options.env ?? {}, environment).variable}=admin-web)`;
 }
 
 const adminHosts = { staging: "admin.staging", production: "admin.chasesets.com" };
@@ -843,7 +862,11 @@ export function buildDeploymentEvidence(options = {}) {
     result: options.result ?? "unknown",
     ...(options.reason ? { reason: options.reason } : {}),
     ...(options.envOverrides?.DEPLOYMENT_ENVIRONMENT === "staging"
-      ? { stagingAdminApp: stagingAdminAppRecord(options.env ?? {}) }
+      ? {
+          stagingAdminApp: stagingAdminAppRecord(options.env ?? {}),
+          stagingMarketplacePilot: resolveStagingMarketplacePilot(options.env ?? {}),
+          stagingPublicPilot: resolveStagingPublicPilot(options.env ?? {}),
+        }
       : {}),
     ...(options.envOverrides?.DEPLOYMENT_ENVIRONMENT === "production"
       ? { productionAdminApp: adminAppRecord(options.env ?? {}, "production") }
@@ -2745,9 +2768,7 @@ export async function deployPlatformToKubernetes(options = {}) {
   }
   const withheldPilots = withheldCortenPilots(options);
   for (const component of withheldPilots) {
-    console.error(
-      `Warning: ${component} is not deployed because admin-web serves ${adminHosts[options.envOverrides.DEPLOYMENT_ENVIRONMENT]} (${resolveAdminApp(options.env ?? {}, options.envOverrides.DEPLOYMENT_ENVIRONMENT).variable}=admin-web).`,
-    );
+    console.error(`Warning: ${component} is not deployed because ${withheldPilotReason(component, options)}.`);
   }
   const release = options.release ?? defaultRelease;
   const droppedWorkloads = new Set(
@@ -4492,6 +4513,10 @@ async function main(argv, env = process.env, overrides = {}) {
       deploymentEnvironment === "staging" || deploymentEnvironment === "production"
         ? recordAdminApp(options, deploymentEnvironment)
         : null;
+    if (deploymentEnvironment === "staging") {
+      recordStagingMarketplacePilot(options);
+      recordStagingPublicPilot(options);
+    }
     const admissionRetryRollbackTarget = options.admissionRetryRollbackTargetPath
       ? parseJsonCommandOutput(readFileSync(options.admissionRetryRollbackTargetPath, "utf8"), "rollback target file")
       : undefined;
@@ -4699,6 +4724,33 @@ export function recordAdminApp(options = {}, environment = "staging") {
 
 export function recordStagingAdminApp(options = {}) {
   return recordAdminApp(options, "staging");
+}
+
+// Says whether staging deploys an advisory Corten pilot and what chose it, before the deploy starts, in the
+// step summary and as the step's <name>_pilot output, which that pilot's advisory smoke reads.
+function recordStagingPilot(options, component, heading, output) {
+  const variable = STAGING_PILOT_VARIABLES[component];
+  const record = resolveStagingPilot(options.env ?? {}, variable);
+  const why =
+    record.source === "default" ? `${variable} is unset, so the default applies` : `${variable}=${record.state}`;
+  const line =
+    record.state === "withheld"
+      ? `${component} is not deployed on staging (${why}).`
+      : `${component} is deployed on staging when its image was built (${why}).`;
+  console.error(line);
+  if (options.githubSummaryPath) {
+    appendFileSync(options.githubSummaryPath, `### ${heading}\n\n${line}\n\n`);
+  }
+  writeGithubOutput(options.githubOutputPath, { [output]: record.state });
+  return record;
+}
+
+export function recordStagingMarketplacePilot(options = {}) {
+  return recordStagingPilot(options, "marketplace-corten", "Staging marketplace pilot", "marketplace_pilot");
+}
+
+export function recordStagingPublicPilot(options = {}) {
+  return recordStagingPilot(options, "public-corten", "Staging public pilot", "public_pilot");
 }
 
 // After a successful staging deploy, names the Corten admin image it deployed as the step's corten_admin_image

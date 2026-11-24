@@ -144,6 +144,17 @@ same CAS, never owner-side expiry. The recovery driver requests abort outside
 owner locks, reconciles exact original terminals, then generation-fences the
 writer's effective change and APPLIED status in one owner transaction.
 
+Marketplace installs a first-insert witness for recovery of enrolled Pricing
+decisions. The witness and every terminal insert (including raw SQL) share
+the request-key lock. An actual ordinary insert permanently records SEEN,
+even if it is later deleted. Only an expired, exact VIRGIN witness can be
+claimed. A claim excludes ordinary first inserts until Pricing acknowledges
+it durably. Publication inserts the exact original ABORTED terminal and
+seals the witness atomically; it cannot be reissued after deletion. Owner
+drain still requires that original terminal and the complete owner-local
+reservation inputs. Absence alone is not authority, and older decisions are
+not enrolled retroactively.
+
 The PostgreSQL adapter's `applyInvalidation` and `applyInboundEvidence` ports
 write through the supplied owner transaction. Inbound payloads are durably
 recorded as PENDING before settlement. A pending resource refuses new grants;

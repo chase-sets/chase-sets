@@ -147,6 +147,7 @@ export {
 export type { ProductMarketStatsSnapshotResponse } from "./features/market-rollups/api/runtime";
 
 export {
+  createPricingEvaluatedDecisionRecoveryRunners,
   createPricingMarketRollupsCloserRunners,
   createPricingJobRunners,
   createBulkRepriceIngestionJobRunners,

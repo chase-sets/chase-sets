@@ -27,7 +27,9 @@ export const catalogOperatorExtensionEnglishTranslations = {
   "catalog.operatorExtension.sealed.title": "TCGplayer sealed products",
   "catalog.operatorExtension.sealed.productLine": "Sealed product line",
   "catalog.operatorExtension.sealed.set": "Set",
-  "catalog.operatorExtension.sealed.empty": "Select a set from the last set-name fetch for this line.",
+  "catalog.operatorExtension.sealed.empty": "Select a set.",
+  "catalog.operatorExtension.sealed.needsSetNames":
+    "Run TCGplayer set names for this product line first. Keep this popup open to use the results.",
   "catalog.operatorExtension.sealed.run": "Run sealed products",
   "catalog.operatorExtension.sealed.loading": "Searching, fetching sealed details and posting to Catalog",
   "catalog.operatorExtension.sealed.receipt": "Sealed product receipt",
