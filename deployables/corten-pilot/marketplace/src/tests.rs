@@ -23745,8 +23745,8 @@ async fn robots_and_the_sitemaps_follow_indexing() {
 }
 
 /// Every fallback picture Catalog stores (`contracts/catalog-seed/fallback-assets.ts`) and the
-/// product placeholder is served at its own path with marketplace-web's bytes, and another name is a
-/// 404, as marketplace-web's `public/` answers.
+/// product placeholder is served at its own path with the committed file's bytes, and another name
+/// is a 404, as marketplace-web's `public/` answers.
 #[tokio::test]
 async fn the_fake_cdn_pictures_catalog_names_are_served() {
     let pilot = Pilot::new().await;
@@ -23759,7 +23759,7 @@ async fn the_fake_cdn_pictures_catalog_names_are_served() {
         assert_eq!(res.status(), StatusCode::OK, "{path}");
         let headers = res.headers().clone();
         let body = res.into_body().collect().await.unwrap().to_bytes();
-        let source = std::fs::read(format!("{}/../../marketplace/public{path}", env!("CARGO_MANIFEST_DIR"))).unwrap();
+        let source = std::fs::read(format!("{}{path}", env!("CARGO_MANIFEST_DIR"))).unwrap();
         assert_eq!(body.as_ref(), source.as_slice(), "{path}");
         let media_type = if path.ends_with(".svg") { "image/svg+xml" } else { "image/png" };
         assert_eq!(headers[header::CONTENT_TYPE], media_type, "{path}");
