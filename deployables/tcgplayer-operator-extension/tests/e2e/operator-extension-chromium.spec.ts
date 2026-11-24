@@ -292,6 +292,38 @@ test(operatorExtensionChromiumTestTitle, async () => {
     });
     const compatible = await compatibleWorker;
     stage("compatible-reloaded");
+    await expect
+      .poll(() =>
+        compatible.evaluate(async () => (await chrome.alarms.get("catalog-observation-poll"))?.periodInMinutes),
+      )
+      .toBe(5);
+    await compatible.evaluate(async () => {
+      const scope = globalThis as typeof globalThis & { syntheticPolls: string[] };
+      scope.syntheticPolls = [];
+      globalThis.fetch = async (input, init) => {
+        const url = new URL(String(input));
+        const pairs = ["https://admin.staging.chasesets.com", "https://admin.chasesets.com"];
+        if (
+          !pairs.includes(url.origin) ||
+          url.pathname !== "/api/public/catalog/operator-session/observation-requests/current" ||
+          url.search !== "?version=2" ||
+          init?.method !== "GET" ||
+          init.credentials !== "omit" ||
+          new Headers(init.headers).get("Authorization") !== `Bearer ${"A".repeat(43)}`
+        )
+          throw new Error("Unexpected synthetic worker request");
+        scope.syntheticPolls.push(url.origin);
+        return Response.json({ contractVersion: 2, request: null });
+      };
+      await chrome.alarms.create("catalog-observation-poll", { when: Date.now() + 100, periodInMinutes: 5 });
+    });
+    await expect
+      .poll(() =>
+        compatible.evaluate(() =>
+          [...(globalThis as typeof globalThis & { syntheticPolls: string[] }).syntheticPolls].sort(),
+        ),
+      )
+      .toEqual([productionOrigin, stagingOrigin]);
     const retainedPopup = await openPopup(compatible);
     await expect
       .poll(() => retainedPopup.evaluate('document.querySelector("[role=status]")?.textContent'))

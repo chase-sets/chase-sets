@@ -1,6 +1,7 @@
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { StoredEvent } from "@chase-sets/event-core/storage";
 import { redactProviderCredentialReadinessEvidence } from "@chase-sets/provider-credentials";
+import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import {
   PART_TEXT_MAX_BYTES,
   assembleAdmittedTcgplayerMarketObservationBatch,
@@ -17,6 +18,15 @@ import {
   type TcgplayerMarketObservationRequest,
   type TcgplayerMarketObservationRequestSource,
 } from "@chase-sets/tcgplayer-market-observations";
+import {
+  observationPollVersion,
+  operatorEnvironments,
+  operatorOrigins,
+  parseObservationPoll,
+  type CatalogObservationRequest,
+  type OperatorEnvironment,
+  type OperatorObservationRequest,
+} from "../domain/extension/protocol";
 import { OperatorSessionRequestError, readBody } from "./request";
 import { operatorExtensionContext, type ObservationGrant } from "./set-name-observations";
 
@@ -66,9 +76,45 @@ export type MarketObservationDeps = Readonly<{
   store: EventStore;
   databaseNow: () => Promise<string>;
 }>;
+export type CatalogObservationRequestSource = (
+  input: Readonly<{
+    grant: ObservationGrant;
+    environment: OperatorEnvironment;
+  }>,
+) => Promise<CatalogObservationRequest | null>;
 
 // Issue: https://github.com/chase-sets/chase-sets/issues/9920
-export function createMarketObservationRoutes(deps: MarketObservationDeps) {
+export function createMarketObservationRoutes(
+  deps: MarketObservationDeps,
+  catalogSource?: CatalogObservationRequestSource,
+) {
+  let catalogFirst = true;
+  async function currentObservation(input: Request, grant: ObservationGrant) {
+    const versions = new URL(input.url).searchParams.getAll("version");
+    if (versions.length === 0 || (versions.length === 1 && versions[0] === "1"))
+      return json({ request: await currentRequest() });
+    if (versions.length !== 1 || versions[0] !== observationPollVersion) return refuse("invalid-route");
+
+    const origin = resolvePublicRequestOrigin(input);
+    const environment = operatorEnvironments.find((candidate) => operatorOrigins[candidate] === origin);
+    if (!environment) return refuse("environment-refused", 403);
+    const catalog = () => catalogSource?.({ grant, environment });
+    const market = async (): Promise<OperatorObservationRequest | null> => {
+      const marketRequest = await deps.requestSource?.currentRequest();
+      if (!marketRequest) return null;
+      return {
+        kind: "market-observations",
+        requestId: marketRequest.requestId,
+        // This is the lifetime of the v2 offer, not the Pricing request or its v1 upload contract.
+        expiresAt: new Date(Date.parse(await deps.databaseNow()) + 5 * 60_000).toISOString(),
+        marketRequest,
+      };
+    };
+    const [first, second] = catalogFirst ? [catalog, market] : [market, catalog];
+    catalogFirst = !catalogFirst;
+    const request = (await first()) ?? (await second()) ?? null;
+    return json({ contractVersion: 2, request: parseObservationPoll({ contractVersion: 2, request }) });
+  }
   async function currentRequest() {
     const source = deps.requestSource;
     if (!source) return refuse("request-source-unavailable", 503);
@@ -133,7 +179,7 @@ export function createMarketObservationRoutes(deps: MarketObservationDeps) {
       )
         refuse("invalid-route");
       const grant = await deps.authorizeObservationGrant(input);
-      if (kind === "current") return json({ request: await currentRequest() });
+      if (kind === "current") return await currentObservation(input, grant);
       let body: unknown;
       try {
         body = JSON.parse(await readBody(input, kind === "part" ? MARKET_OBSERVATION_BODY_MAX_BYTES : 1024));
