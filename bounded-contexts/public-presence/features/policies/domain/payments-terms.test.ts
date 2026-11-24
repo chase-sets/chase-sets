@@ -219,8 +219,8 @@ describe("payments terms artifact", () => {
       (candidate) => candidate.id === "charge-timing-and-statement-descriptor",
     );
     const refs = section?.reviewManifest.productTruthRefs.join(" ") ?? "";
-    expect(refs).not.toContain("runtime.ts:493-511");
-    expect(refs).toContain("runtime.ts:2462-2483");
+    expect(refs).not.toContain("runtime.ts:495-513");
+    expect(refs).toContain("runtime.ts:2465-2486");
   });
 
   it("distinguishes Order creation, payment requests and recorded capture without promising statement display", () => {
