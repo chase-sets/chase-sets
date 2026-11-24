@@ -8,7 +8,7 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as orderingModule } from "../../../index";
-import { getPurchase, getSale, listPurchases, listSales } from "./queries";
+import { getPurchase, getSale, listPendingPaymentOrdersPastDeadline, listPurchases, listSales } from "./queries";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) {
@@ -85,6 +85,40 @@ describeDb("ordering order read-model queries against live Postgres", () => {
 
   afterAll(async () => {
     await closeMultiContextTestPools(pools);
+  });
+
+  it("excludes recorded captures before the deadline limit and pages past tied effective deadlines", async () => {
+    const db = pools.ordering;
+    const capturedOrderIds = Array.from({ length: 105 }, (_, index) => `ord_captured_${index}`);
+    for (const orderId of [...capturedOrderIds, "ord_unpaid_1", "ord_unpaid_2", "ord_unpaid_3"]) {
+      await insertOrderPage(db, { orderId, buyerAccountId: "acc_buyer", sellerAccountId: "acc_seller" });
+    }
+    await db.query(`UPDATE ordering_order_pages SET payment_deadline_at = '2026-03-31T01:00:00.000001Z'`);
+    await db.query(
+      `INSERT INTO ordering_payment_capture_inputs (
+         payment_id, buyer_account_id, order_ids, amount, currency_code, processor_name,
+         processor_payment_reference, processor_status, captured_at, updated_at
+       ) VALUES
+         ('pay_captured', 'acc_buyer', to_jsonb($1::text[]), '24.99', 'USD', 'stripe', 'pi_captured', 'succeeded', now(), now()),
+         ('pay_wrong_buyer', 'acc_other', '["ord_unpaid_1"]', '24.99', 'USD', 'stripe', 'pi_other', 'succeeded', now(), now())`,
+      [capturedOrderIds],
+    );
+    await db.query(
+      `INSERT INTO ordering_payment_deadline_inputs (order_id, payment_id, payment_deadline_at, payment_deadline_policy, updated_at)
+       VALUES ('ord_unpaid_3', 'pay_pending', '2026-03-31T01:30:00.000Z', 'test', now())`,
+    );
+
+    const now = "2026-03-31T02:00:00.000Z";
+    const first = await listPendingPaymentOrdersPastDeadline(db, { now, limit: 1 });
+    expect(first.candidates.map(({ order_id }) => order_id)).toEqual(["ord_unpaid_1"]);
+    expect(first.nextCursor).not.toBeNull();
+
+    const rest = await listPendingPaymentOrdersPastDeadline(db, { now, limit: 2, after: first.nextCursor });
+    expect(rest.candidates.map(({ order_id, payment_id }) => [order_id, payment_id])).toEqual([
+      ["ord_unpaid_2", null],
+      ["ord_unpaid_3", "pay_pending"],
+    ]);
+    expect(rest.nextCursor).toBeNull();
   });
 
   it("orders item_titles by line_index for a multi-line purchase", async () => {

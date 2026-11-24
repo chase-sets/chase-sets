@@ -3504,9 +3504,12 @@ describe("payment runtime", () => {
     ["no webhook or projected Payment", "never"],
     ["webhook after reconciliation", "after"],
     ["webhook before reconciliation", "before"],
+    ["a recorded capture after an unverifiable reservation", "before-with-unverifiable-attempt"],
+    ["a recorded linked capture while reservation lookup is unavailable", "before-with-unavailable-lookup"],
     ["webhook during lookup despite a stale unpaid response", "during-pending"],
     ["webhook during lookup with a captured response", "during-captured"],
     ["webhook winning the concurrent capture append", "during-append"],
+    ["a confirmed capture whose first append fails", "failed-append"],
   ] as const)("records one deadline capture with %s", async (_, delivery) => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
     const processorGateway = createProcessorGateway();
@@ -3515,7 +3518,10 @@ describe("payment runtime", () => {
     let activePaymentIds: string[] = [];
     const { db } = createReconciliationDb({
       paymentById: () => projectedPayment,
-      activePaymentIdsForOrder: () => activePaymentIds,
+      activePaymentIdsForOrder: () => {
+        if (delivery === "before-with-unavailable-lookup") throw new Error("payment lookup unavailable");
+        return activePaymentIds;
+      },
     });
     const services = createPaymentRuntime({
       eventStore: {
@@ -3572,7 +3578,9 @@ describe("payment runtime", () => {
         ignored: false,
       });
     };
-    if (delivery === "before") await deliverCapture();
+    const captureAlreadyRecorded = delivery.startsWith("before");
+    if (delivery === "before-with-unverifiable-attempt") activePaymentIds = ["pay_missing"];
+    if (captureAlreadyRecorded) await deliverCapture();
     if (delivery === "during-append") beforeCaptureAppend = deliverCapture;
     processorGateway.retrievePaymentResult.mockImplementation(async () => {
       if (delivery === "during-pending" || delivery === "during-captured") await deliverCapture();
@@ -3599,6 +3607,14 @@ describe("payment runtime", () => {
       expect(readAllEvents().map((event) => event.eventType)).toEqual(["payments.payment-created"]);
       processorGateway.retrievePaymentResult.mockClear();
     }
+    if (delivery === "failed-append") {
+      beforeCaptureAppend = async () => {
+        throw new Error("capture append unavailable");
+      };
+      await expect(services.reconcileOrderPaymentBeforeDeadline(order, context)).resolves.toBe("capture-not-recorded");
+      expect(readAllEvents().map((event) => event.eventType)).toEqual(["payments.payment-created"]);
+      processorGateway.retrievePaymentResult.mockClear();
+    }
     await expect(services.reconcileOrderPaymentBeforeDeadline(order, context)).resolves.toBe("captured");
     if (delivery === "after") await deliverCapture();
     await expect(services.reconcileOrderPaymentBeforeDeadline(order, context)).resolves.toBe("captured");
@@ -3608,7 +3624,7 @@ describe("payment runtime", () => {
       "payments.payment-captured",
     ]);
     expect(readAllEvents()[1]?.payload).toMatchObject({ paymentId: payment.payment_id, orderIds });
-    if (delivery === "before") expect(processorGateway.retrievePaymentResult).not.toHaveBeenCalled();
+    if (captureAlreadyRecorded) expect(processorGateway.retrievePaymentResult).not.toHaveBeenCalled();
     else
       expect(processorGateway.retrievePaymentResult).toHaveBeenCalledExactlyOnceWith(
         payment.processor_payment_reference,

@@ -3357,49 +3357,71 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
     },
     async reconcileOrderPaymentBeforeDeadline({ orderId, buyerAccountId, paymentId }, context) {
       // The reservation can precede both the Payment page and Ordering's payment-created reaction.
-      const paymentIds = new Set(await listActivePaymentIdsForOrder(deps.db, orderId, buyerAccountId));
+      let paymentIds: Set<string>;
+      let unverified = false;
+      try {
+        paymentIds = new Set(await listActivePaymentIdsForOrder(deps.db, orderId, buyerAccountId));
+      } catch {
+        paymentIds = new Set();
+        unverified = true;
+      }
       if (paymentId) paymentIds.add(paymentId);
 
+      // Check durable captures before an unverifiable attempt can influence the deadline decision.
+      const payments: PaymentDetailRow[] = [];
       for (const id of paymentIds) {
-        const streamId = `payments.payment-${id}`;
-        const { state } = await repository.load(streamId);
-        if (
-          !state.paymentId ||
-          state.buyerAccountId !== buyerAccountId ||
-          !state.orderIds.includes(orderId as OrderId)
-        ) {
-          throw new Error("Payment for the order deadline is not yet verifiable.");
-        }
-        if (state.capturedAt) return "captured";
-
-        const payment = paymentStateToDetailRow(state);
-        if (payment.processor_payment_kind === "balance-credit") {
-          if (payment.status === "pending-confirmation") {
-            throw new Error("Balance-credit capture is not yet recorded.");
+        try {
+          const { state } = await repository.load(`payments.payment-${id}`);
+          if (
+            !state.paymentId ||
+            state.buyerAccountId !== buyerAccountId ||
+            !state.orderIds.includes(orderId as OrderId)
+          ) {
+            unverified = true;
+            continue;
           }
+          if (state.capturedAt) return "captured";
+          payments.push(paymentStateToDetailRow(state));
+        } catch {
+          unverified = true;
+        }
+      }
+
+      for (const payment of payments) {
+        if (payment.processor_payment_kind === "balance-credit") {
+          if (payment.status === "pending-confirmation") unverified = true;
           continue;
         }
 
-        const current = await deps.processorGateway.retrievePaymentResult(payment.processor_payment_reference);
-        if (
-          !current ||
-          current.outcome === "unknown" ||
-          providerResultMismatch(payment, current) ||
-          current.processorPaymentKind !== payment.processor_payment_kind
-        ) {
-          throw new Error("Processor status for the order deadline is not yet verifiable.");
-        }
-        if (current.outcome === "captured") {
-          const outcome = await applyProviderPaymentResult(payment, current, context);
-          if (!outcome.attention) return "captured";
+        let confirmedCapture = false;
+        try {
+          const current = await deps.processorGateway.retrievePaymentResult(payment.processor_payment_reference);
+          if (
+            !current ||
+            current.outcome === "unknown" ||
+            providerResultMismatch(payment, current) ||
+            current.processorPaymentKind !== payment.processor_payment_kind
+          ) {
+            unverified = true;
+          } else if (current.outcome === "captured") {
+            confirmedCapture = true;
+            const outcome = await applyProviderPaymentResult(payment, current, context);
+            if (!outcome.attention) return "captured";
+          }
+        } catch {
+          unverified = true;
         }
 
         // A webhook or the background reconciler can append a capture during the lookup or command.
-        if ((await repository.load(streamId)).state.capturedAt) return "captured";
-        if (current.outcome === "captured") {
-          throw new Error("Processor capture for the order deadline could not be recorded.");
+        try {
+          if ((await repository.load(`payments.payment-${payment.payment_id}`)).state.capturedAt) return "captured";
+        } catch {
+          unverified = true;
         }
+        if (confirmedCapture) return "capture-not-recorded";
       }
+
+      if (unverified) throw new Error("Payment for the order deadline is not yet verifiable.");
       return "not-captured";
     },
     submitDisputeEvidence: (dispute, context) =>
@@ -3437,4 +3459,4 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
 type ReconcileOrderPaymentBeforeDeadline = (
   order: Readonly<{ orderId: string; buyerAccountId: string; paymentId?: string }>,
   context: EventStoreContext,
-) => Promise<"captured" | "not-captured">;
+) => Promise<"captured" | "not-captured" | "capture-not-recorded">;

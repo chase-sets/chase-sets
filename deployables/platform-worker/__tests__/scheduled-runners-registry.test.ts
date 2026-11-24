@@ -82,7 +82,15 @@ describe("static worker job registry", () => {
     const input = censusInput("proof");
     vi.mocked(input.controlPlane.claimScheduledRunner).mockResolvedValue(true);
     const reconcileOrderPaymentBeforeDeadline = vi.fn();
-    const sweepBreachedPaymentDeadlines = vi.fn(async () => ({ checked: 1, progressed: 1, cancelled: 0, failed: 0 }));
+    const result = {
+      checked: 3,
+      progressed: 1,
+      cancelled: 0,
+      deferred: 2,
+      deferredByReason: { "payment-unverified": 1, "capture-not-recorded": 1 },
+      failed: 0,
+    };
+    const sweepBreachedPaymentDeadlines = vi.fn(async () => result);
     const runnerFor = (payments: unknown) =>
       createPlatformWorkerJobComposition(
         {
@@ -99,6 +107,10 @@ describe("static worker job registry", () => {
       { limit: 100, reconcilePayment: reconcileOrderPaymentBeforeDeadline },
       expect.objectContaining({ tenantId: "tnt_identity" }),
     );
+    expect(input.logger.info).toHaveBeenCalledWith("Ordering payment deadline sweep completed.", {
+      type: "ordering.payment-deadline-sweep",
+      result,
+    });
     await expect(runnerFor(undefined).runOnce()).rejects.toThrow("requires Payments reconciliation");
     expect(sweepBreachedPaymentDeadlines).toHaveBeenCalledTimes(1);
   });
