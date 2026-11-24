@@ -312,8 +312,13 @@ describeDb("payments schema upgrades", () => {
     const { documentId } = await runtime.createPolicyDocument(cardAuthenticationPolicy, params("200.00"), context);
     await runtime.revisePolicyDocument(cardAuthenticationPolicy, documentId, params("100.00"), context);
     const readStream = () => eventStore.readStream({ streamId: `platform-policy.document-${documentId}` });
+    const project = async (event: Awaited<ReturnType<typeof readStream>>[number]) => {
+      const handler = handlers[event.eventType];
+      if (!handler) throw new Error(`No policy projection handler for '${event.eventType}'.`);
+      await handler(toTransportEvent(event));
+    };
     for (const event of await readStream()) {
-      await handlers[event.eventType]?.(toTransportEvent(event));
+      await project(event);
     }
     // A revision the projection has not reached: the row holds version 2 while the stream is at 3.
     await runtime.revisePolicyDocument(cardAuthenticationPolicy, documentId, params("50.00"), context);
@@ -353,7 +358,7 @@ describeDb("payments schema upgrades", () => {
     // The backfilled version holds the row through a replay and still admits the revision it has not seen.
     const stream = await readStream();
     for (const event of stream.slice(0, 2)) {
-      await handlers[event.eventType]?.(toTransportEvent(event));
+      await project(event);
       expect(await documentRows()).toEqual(upgradedRows);
     }
     await handlers[stream[2]!.eventType]?.(toTransportEvent(stream[2]!));

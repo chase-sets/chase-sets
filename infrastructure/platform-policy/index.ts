@@ -29,7 +29,6 @@ export {
 export {
   PLATFORM_POLICY_DOCUMENTS_TABLE_NAME,
   PLATFORM_POLICY_DOCUMENT_HISTORY_TABLE_NAME,
-  platformPolicySchemaMigrations,
   platformPolicySchemaSql,
 } from "./schema";
 export { buildPolicyDocumentProjectionHandlers, type PolicyProjectionOptions } from "./projection";

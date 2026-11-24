@@ -48,6 +48,8 @@ describeDb("policy document projection over kept rows", () => {
     schema ??= await createIsolatedPostgresTestSchema(adminDatabaseUrl!, "policy_projection");
     await schema.reset();
     await schema.pool.query(platformPolicySchemaSql);
+    // The schema reset empties the event tables only; a document kept from an earlier case would overlap the next one.
+    await schema.pool.query("TRUNCATE TABLE platform_policy_documents, platform_policy_document_history");
     recordedAt = "2026-03-01T00:00:00.000Z";
     eventStore = createPostgresEventStore({ pool: schema.pool, now: () => recordedAt as never });
     runtime = createPolicyRuntime({ eventStore, db: schema.pool });
