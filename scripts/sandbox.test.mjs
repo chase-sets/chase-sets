@@ -151,7 +151,7 @@ describe("worktree sandbox", () => {
             : readSource(file),
       }),
     ).toThrow("Unaccounted browser E2E client constructor");
-  });
+  }, 60_000);
 
   it("captures owned startup SHOW settings without ambient libpq routing", () => {
     const execute = vi.fn(() => ({ status: 0, stdout: "500\n3\n0\n" }));

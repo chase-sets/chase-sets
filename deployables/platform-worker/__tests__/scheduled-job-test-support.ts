@@ -6,6 +6,7 @@ import {
   type RegisteredScheduledRunnerConfig,
 } from "../src/scheduled-runners";
 import type { PlatformWorkerConfig } from "../src/config";
+import { createOrderPaymentDeadlineWorkerPorts } from "../src/worker-job-composition";
 
 export function createRegisteredScheduledRunners(
   input: Parameters<typeof createInfrastructureScheduledRunners>[0] &
@@ -25,6 +26,7 @@ export function createRegisteredScheduledRunners(
       ...input,
       config: input.config as PlatformWorkerConfig,
       logger: { ...input.logger, error: input.logger.warn },
+      ports: createOrderPaymentDeadlineWorkerPorts(input.services),
       runtime: { services: input.services, mountedContexts: [], projectionGroups: [], subscriptionRunners: [] },
     },
     "proof",
