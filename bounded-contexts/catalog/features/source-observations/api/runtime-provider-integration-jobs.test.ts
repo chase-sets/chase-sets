@@ -2205,10 +2205,57 @@ describe("source observation runtime: provider integration jobs", () => {
             setId: "synthetic-set",
             setName: "Synthetic Lorcana Set",
             mergeIdentity: { languageCode: "en" },
+            externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: `product:${index}` }],
           },
         },
       })),
     );
+  });
+
+  it.each([
+    { setId: "TFC", setName: "The First Chapter", number: 41, printedNumber: "41/204" },
+    { setId: "D23C24", setName: "D23 Collection", number: 1, printedNumber: "1/D23" },
+  ])("imports a Scrydex Lorcana $setId card without a TCGplayer ID", async (fixture) => {
+    const { harness } = await runQueuedScrydexLorcanaCardPage(fixture.setId, [
+      {
+        id: "synthetic-card-1",
+        name: "Synthetic Lorcana Card",
+        number: fixture.number,
+        printed_number: fixture.printedNumber,
+        language: "English",
+        language_code: "EN",
+        ...(fixture.setId === "D23C24" ? { tcgplayer_id: null } : {}),
+        expansion: {
+          id: fixture.setId,
+          code: fixture.setId,
+          name: fixture.setName,
+          language: "English",
+          language_code: "EN",
+        },
+      },
+    ]);
+
+    expect(harness.job.result).toMatchObject({
+      observed: 1,
+      failed: 0,
+      outcomes: [{ status: "imported", reason: null }],
+    });
+    expect(harness.appendedSourceEvents).toMatchObject([
+      {
+        payload: {
+          normalized: {
+            kind: "lorcana-card-print",
+            languageCode: "en",
+            name: "Synthetic Lorcana Card",
+            cardNumber: fixture.printedNumber,
+            setId: fixture.setId,
+            setCode: fixture.setId.toLowerCase(),
+            setName: fixture.setName,
+            externalCatalogItemReferences: [],
+          },
+        },
+      },
+    ]);
   });
 
   it("reports a support-safe language diagnostic for an unsupported Scrydex Lorcana card language", async () => {
@@ -2217,7 +2264,7 @@ describe("source observation runtime: provider integration jobs", () => {
     ]);
 
     const reason =
-      "Catalog provider 'scrydex' source observation normalization failed at normalizedObservation.languageCode.";
+      "Catalog provider 'scrydex' source observation normalization failed at normalizedObservation.languageCode: Locale codes must be valid BCP 47 language tags.";
     expect(harness.job.result).toMatchObject({
       observed: 0,
       failed: 1,
@@ -3137,22 +3184,26 @@ function runQueuedScrydexLorcanaCardImport(
   language: string,
   cards: readonly { id: string; name: string; number: string }[],
 ) {
+  return runQueuedScrydexLorcanaCardPage(
+    "synthetic-set",
+    cards.map((card) => ({
+      ...card,
+      language,
+      tcgplayer_id: Number(card.number),
+      expansion: { id: "synthetic-set", name: "Synthetic Lorcana Set" },
+    })),
+  );
+}
+
+function runQueuedScrydexLorcanaCardPage(setId: string, cards: readonly object[]) {
   const fixtureFetch = scrydexOnePieceFetch();
   return runQueuedScrydexImport({
-    scope: { ...SCRYDEX_LORCANA_SCOPE, setId: "synthetic-set" },
+    scope: { ...SCRYDEX_LORCANA_SCOPE, setId },
     policy: createCatalogIntegrationRolloutControlPolicy(),
     fetch: async (input) => {
       const url = new URL(input instanceof Request ? input.url : input);
-      if (url.pathname === "/lorcana/v1/cards" && url.searchParams.get("q") === "expansion.id:synthetic-set") {
-        return jsonResponse({
-          data: cards.map((card) => ({
-            ...card,
-            language,
-            tcgplayer_id: Number(card.number),
-            expansion: { id: "synthetic-set", name: "Synthetic Lorcana Set" },
-          })),
-          total_pages: 1,
-        });
+      if (url.pathname === "/lorcana/v1/cards" && url.searchParams.get("q") === `expansion.id:${setId}`) {
+        return jsonResponse({ data: cards, total_pages: 1 });
       }
       return fixtureFetch(input);
     },

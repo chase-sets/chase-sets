@@ -152,6 +152,12 @@ describe("Scope Sync Batch worker", () => {
       expected: "source-observation-normalization-failed: normalizedObservation.fields.cardNumber",
     },
     {
+      diagnostic: "a Scrydex external-reference failure",
+      providerKey: "scrydex",
+      transportReason: `Catalog provider 'scrydex' source observation normalization failed at normalizedObservation.fields.externalCatalogItemReferences.0.externalKey: ${syntheticResponseMarker}`,
+      expected: "source-observation-normalization-failed: normalizedObservation.fields.externalCatalogItemReferences",
+    },
+    {
       diagnostic: "a Scrydex failure with an unclassified provider-valued path",
       providerKey: "scrydex",
       transportReason: `Catalog provider 'scrydex' source observation normalization failed at normalizedObservation.fields.${syntheticResponseMarker}.`,

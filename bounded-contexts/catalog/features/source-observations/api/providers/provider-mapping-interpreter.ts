@@ -163,7 +163,7 @@ function evaluateSelector(
     case "array":
       return evaluateArraySelector(selector.items, context);
     case "object":
-      return evaluateObjectSelector(selector.fields, context);
+      return evaluateObjectSelector(selector.fields, selector.omitIfMissing, context);
     case "array-map":
       return evaluateArrayMapSelector(selector.path, selector.item, selector.emptyPolicy, context);
     case "named-runtime-selector":
@@ -369,6 +369,7 @@ function evaluateTemplateSelector(
 
 function evaluateObjectSelector(
   fields: Readonly<Record<string, CatalogProviderMappingValueExpression>>,
+  omitIfMissing: readonly string[] | undefined,
   context: SelectorEvaluationContext,
 ): SelectorEvaluationResult {
   const diagnostics: CatalogProviderMappingInterpreterDiagnostic[] = [];
@@ -387,7 +388,9 @@ function evaluateObjectSelector(
     }
   }
 
-  return { value, omitted: false, diagnostics };
+  return omitIfMissing?.some((fieldKey) => !Object.hasOwn(value, fieldKey))
+    ? { value: null, omitted: true, diagnostics }
+    : { value, omitted: false, diagnostics };
 }
 
 function evaluateArrayMapSelector(
