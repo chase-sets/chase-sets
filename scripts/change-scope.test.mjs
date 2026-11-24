@@ -4317,6 +4317,46 @@ describe("change-scope", () => {
     },
   );
 
+  it.each([
+    "deployables/corten-pilot/admin/src/app.rs",
+    "deployables/corten-pilot/marketplace/src/checkout.rs",
+    "deployables/corten-pilot/marketplace/src/views/search_page.css",
+    "deployables/corten-pilot/marketplace/locales/checkout.en.json",
+    "deployables/corten-pilot/public/src/app.rs",
+    "deployables/corten-pilot/platform/src/api.rs",
+    "deployables/corten-pilot/Cargo.toml",
+    "deployables/corten-pilot/Cargo.lock",
+    "deployables/corten-pilot/scripts/export.mjs",
+    "Dockerfile.corten-marketplace",
+    "Dockerfile.corten-public.dockerignore",
+  ])("deploys a Corten pilot change that ships in a pilot image: %s", (file) => {
+    const scope = classifyChanges({ changedFiles: [file], workspaces: [] });
+
+    expect(scope.docsOnly).toBe(false);
+    expect(scope.deployRequired).toBe(true);
+  });
+
+  it.each([
+    "deployables/corten-pilot/README.md",
+    "deployables/corten-pilot/AGENTS.md",
+    "deployables/corten-pilot/workarounds/open/chase-sets-5736.md",
+    "deployables/corten-pilot/marketplace/README.md",
+  ])("keeps Corten pilot Markdown off the deploy: %s", (file) => {
+    const scope = classifyChanges({ changedFiles: [file], workspaces: [] });
+
+    expect(scope.docsOnly).toBe(true);
+    expect(scope.deployRequired).toBe(false);
+  });
+
+  it("does not deploy a Corten pilot smoke script, which no image or deploy step reads", () => {
+    const scope = classifyChanges({
+      changedFiles: ["deployables/corten-pilot/scripts/smoke-marketplace.mjs"],
+      workspaces: [],
+    });
+
+    expect(scope.deployRequired).toBe(false);
+  });
+
   it("routes Helm chart changes through ordinary staged deployment without a docker image", () => {
     const baseDir = path.join(process.cwd(), "repo");
     const scope = classifyChanges({
