@@ -900,6 +900,23 @@ describe("guest contact authority through Auth", () => {
     });
   });
 
+  it.each([
+    [null],
+    [{}],
+    [{ contactEmail: "guest@example.com" }],
+    [{ contactName: "Guest Buyer" }],
+    [{ contactEmail: {}, contactName: true }],
+    [["guest@example.com", "Guest Buyer"]],
+    ["guest@example.com"],
+  ])("maps a 200 without both string-or-null fields to indeterminate unreadable (%o)", async (body) => {
+    mockGetGuestCheckoutContact.mockResolvedValue(body);
+
+    await expect(readGuestContactAuthorityThroughAuth(new Request("https://checkout.test"))).resolves.toEqual({
+      state: "indeterminate",
+      reason: "unreadable",
+    });
+  });
+
   it("maps a 429 to indeterminate rate-limited and anything else to indeterminate unreadable", async () => {
     mockGetGuestCheckoutContact.mockRejectedValueOnce(authError(429));
     await expect(readGuestContactAuthorityThroughAuth(new Request("https://checkout.test"))).resolves.toEqual({
@@ -951,6 +968,20 @@ describe("guest contact authority through Auth", () => {
     }
     expect(mockBindGuestCheckoutContact).not.toHaveBeenCalled();
   });
+
+  it.each([[null], [{}], [{ contactEmail: "guest@example.com" }], [{ contactEmail: {}, contactName: true }]])(
+    "never continues on a malformed bind success (%o)",
+    async (body) => {
+      mockBindGuestCheckoutContact.mockResolvedValue(body);
+
+      await expect(
+        bindGuestContactThroughAuth(new Request("https://checkout.test"), {
+          email: "guest@example.com",
+          displayName: "Guest Buyer",
+        }),
+      ).resolves.toEqual({ outcome: "retry-later" });
+    },
+  );
 
   it.each([
     [authError(409, "account_sign_in_required"), "sign-in-required"],

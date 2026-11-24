@@ -995,7 +995,8 @@ const CHECKOUT_SESSIONS: &str = "/api/marketplace/account/checkout-sessions/";
 /// any write; `chk_offer` is a purchase intent, `chk_paid`'s payment has started and
 /// `chk_blocked`'s one line can no longer be bought. Each review
 /// write applies with a receipt (an address in 00000 is one the API cannot deliver to); Pay now
-/// starts `pay_1`, but `chk_stale`'s quote is stale, and `chk_offer`'s Submit offer becomes the
+/// starts `pay_1`, but `chk_stale`'s quote is stale (`chk_stale_written`'s after a write the
+/// refusal names), and `chk_offer`'s Submit offer becomes the
 /// offer `ofr_1` (`chk_offered` already did). Payments quotes $620.00 as the sandbox
 /// does; the wallet holds $25.00. `pay_1`'s summary is $638.83 ready for payment; `pay_down`'s
 /// read fails (`chk_paydown` started it). `chk_lostpay`'s Pay now starts `pay_1` and its answer is
@@ -1129,6 +1130,17 @@ fn checkout_sessions(stand: &Stand, method: &Method, uri: &Uri, headers: &Header
         "authenticity-check-opt-in" => committed(StatusCode::OK, "checkout", "13", json!({})),
         "fulfillment-preview" => committed(StatusCode::OK, "checkout", "14", json!({})),
         "confirm" if id == "chk_stale" => refusal(StatusCode::CONFLICT, "fee_quote_stale", "The checkout fee changed."),
+        // As Checkout refuses a stale quote after Confirm wrote a guest's choices: the refusal
+        // names the write.
+        "confirm" if id == "chk_stale_written" => (
+            StatusCode::CONFLICT,
+            Json(json!({
+                "error": { "code": "payment_quote_required", "message": "Review the latest payable total." },
+                "commitPosition": "77",
+                "commitPositions": [{ "sourceContextName": "checkout", "maxGlobalPosition": "77", "eventIds": ["evt_guest_choice"] }],
+            })),
+        )
+            .into_response(),
         // As Checkout refuses Pay now for a guest whose contact Auth does not hold.
         "confirm" if id == "chk_guestcontact" => {
             refusal(StatusCode::CONFLICT, "guest_contact_required", "Add a contact before payment.")
@@ -2786,8 +2798,9 @@ fn guest_claims(method: &Method, path: &str, headers: &HeaderMap, body: &str) ->
 /// Auth's guest checkout contact (`GET` and `POST /api/auth/guest-checkout/contact`), refused
 /// without the platform's internal capability. The guest cookie picks the case: `gst_bound`'s
 /// contact is `guest@example.test` (Guest Buyer) and any other is refused as locked; `gst_busy`'s
-/// read is rate limited; `gst_account`'s email already has an account; `gst_retry`'s save is rate
-/// limited; any other guest's contact is unsaved, and a save answers what was sent.
+/// read is rate limited; `gst_partial`'s read answers the email alone and `gst_null`'s answers
+/// `null`; `gst_account`'s email already has an account; `gst_retry`'s save is rate limited;
+/// any other guest's contact is unsaved, and a save answers what was sent.
 fn guest_contacts(method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
     if path != "/api/auth/guest-checkout/contact" || !(*method == Method::GET || *method == Method::POST) {
         return None;
@@ -2803,6 +2816,8 @@ fn guest_contacts(method: &Method, path: &str, headers: &HeaderMap, body: &str) 
         return Some(match guest {
             "gst_bound" => contact(Some("guest@example.test"), Some("Guest Buyer")),
             "gst_busy" => refusal(StatusCode::TOO_MANY_REQUESTS, "rate_limited", "Slow down."),
+            "gst_partial" => Json(json!({ "contactEmail": "guest@example.test" })).into_response(),
+            "gst_null" => Json(Value::Null).into_response(),
             _ => contact(None, None),
         });
     }
@@ -23557,6 +23572,54 @@ async fn a_guests_started_payment_waits_while_the_contact_cannot_be_read() {
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(!html.contains("data-checkout-contact-unavailable"), "{html}");
     assert!(html.contains(r#"href="/checkout/payments/pay_1""#), "{html}");
+}
+
+/// Orders waiting for a payment Payments recorded: a guest whose contact Auth cannot read stays on
+/// the page, told why, with no way to pay; a bound guest goes on to the guest payment page.
+#[tokio::test]
+async fn a_guests_recorded_payment_is_not_followed_while_the_contact_cannot_be_read() {
+    let pilot = Pilot::new().await;
+    let screen = "/checkout/buy/session/chk_ordered_paid";
+    let (status, _, html) = pilot.send(as_guest_with("gst_busy", Method::GET, screen, "")).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("data-checkout-contact-unavailable"), "{html}");
+    assert!(html.contains(r#"value="confirm-checkout" disabled>"#), "{html}");
+    assert!(!html.contains(r#"value="confirm-checkout">"#), "no Pay now to press: {html}");
+    assert!(!html.contains(r#"href="/checkout/payments/pay_1""#), "{html}");
+
+    let (status, headers, html) = pilot.send(as_guest_with("gst_bound", Method::GET, screen, "")).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(headers[header::LOCATION], "/checkout/payments/pay_1");
+}
+
+/// A stale quote refused after Confirm wrote a guest's choices reads the page after that write.
+#[tokio::test]
+async fn a_guests_stale_quote_reads_the_page_after_the_write_confirm_made() {
+    let pilot = Pilot::new().await;
+    let body = guest_body("guest@example.test", "Guest Buyer", &format!("intent=confirm-checkout&{CARD_TOKEN}"));
+    let at = "/checkout/buy/session/chk_stale_written";
+    let (status, headers, html) = pilot.send(as_guest_with("gst_bound", Method::POST, at, &body)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.starts_with("/checkout/buy/session/chk_stale_written?afterWrite="), "{to}");
+    assert!(to.contains("quote=required"), "{to}");
+    let after = to.split("afterWrite=").nth(1).unwrap().split('&').next().unwrap();
+    let after = percent_encoding::percent_decode_str(after).decode_utf8().unwrap();
+    assert!(after.contains("evt_guest_choice") && after.contains("77"), "{after}");
+}
+
+/// An Auth answer without both contact parts, or no object at all, is not read as unbound: the
+/// page says the contact is unavailable and Pay now cannot be pressed.
+#[tokio::test]
+async fn a_guest_contact_answer_missing_a_part_reads_as_unavailable() {
+    let pilot = Pilot::new().await;
+    for guest in ["gst_partial", "gst_null"] {
+        let (status, _, html) = pilot.send(as_guest_with(guest, Method::GET, CHECKOUT_SCREEN, "")).await;
+        assert_eq!(status, StatusCode::OK, "{guest}: {html}");
+        assert!(html.contains("data-checkout-contact-unavailable"), "{guest}: {html}");
+        assert!(html.contains(r#"value="confirm-checkout" disabled>"#), "{guest}: {html}");
+        assert!(!html.contains(r#"value="confirm-checkout">"#), "{guest}: no Pay now to press: {html}");
+    }
 }
 
 /// Discovery's sitemap reads, as the stand-in answers them: 5,001 items (two pages), one set, none

@@ -1554,6 +1554,21 @@ describe("checkout web routes: checkout session loader", () => {
       { state: "indeterminate", reason: "unreadable" },
     ],
     [
+      "maps a JSON null own contact to indeterminate unreadable instead of unbound",
+      () => mockGetGuestCheckoutContact.mockResolvedValue(null),
+      { state: "indeterminate", reason: "unreadable" },
+    ],
+    [
+      "maps an own contact without its fields to indeterminate unreadable instead of unbound",
+      () => mockGetGuestCheckoutContact.mockResolvedValue({}),
+      { state: "indeterminate", reason: "unreadable" },
+    ],
+    [
+      "maps an own contact missing its name field to indeterminate unreadable",
+      () => mockGetGuestCheckoutContact.mockResolvedValue({ contactEmail: "jane@example.com" }),
+      { state: "indeterminate", reason: "unreadable" },
+    ],
+    [
       "maps a non-object own contact to indeterminate unreadable",
       () => mockGetGuestCheckoutContact.mockResolvedValue("guest@example.com"),
       { state: "indeterminate", reason: "unreadable" },
@@ -2221,6 +2236,70 @@ describe("checkout web routes: checkout session loader", () => {
 
     expect(redirectResponse?.status).toBe(302);
     expect(redirectResponse?.headers.get("Location")).toBe("/account/offers/submitted/off_chk_1");
+  });
+
+  describe("a recorded payment start with no payment attached to the session", () => {
+    const getCheckoutPaymentStart = vi.fn();
+    function arrangeRecordedPaymentStart(actor: unknown) {
+      vi.stubEnv("STRIPE_PUBLISHABLE_KEY", "pk_test_recorded");
+      mockResolveActorFromAuthApi.mockResolvedValue(actor);
+      mockGetCheckoutSession.mockResolvedValue({
+        ...walletCheckoutSession(null),
+        session_id: "chk_1",
+        order_ids: ["ord_1"],
+      });
+      mockCreateCheckoutRequestApiClient.mockReturnValue({ getCheckoutSession: mockGetCheckoutSession });
+      getCheckoutPaymentStart.mockResolvedValue({ state: "recorded", paymentId: "pay_x" });
+      mockCreatePaymentsRequestApiClient.mockReturnValue({
+        getCheckoutPaymentStart,
+        previewCheckoutStatus: mockPreviewCheckoutStatus,
+      });
+    }
+    const load = () =>
+      checkoutSessionLoader({
+        request: new Request("http://localhost/checkout/buy/session/chk_1"),
+        params: { sessionId: "chk_1" },
+        context: undefined,
+      } as never);
+
+    it("keeps a guest whose contact Auth refuses to read on checkout, without following the payment", async () => {
+      arrangeRecordedPaymentStart(guestCheckoutActor());
+      mockGetGuestCheckoutContact.mockRejectedValue(
+        Object.assign(new Error("Auth API error 429"), { status: 429, body: { error: "rate-limited" } }),
+      );
+
+      const result = await load();
+
+      expect(mockGetGuestCheckoutContact).toHaveBeenCalledTimes(1);
+      expect(result.guestContact).toEqual({ state: "indeterminate", reason: "rate-limited" });
+      expect(result.preparedPayment).toBeNull();
+    });
+
+    it("still sends a bound guest on to the guest payment page", async () => {
+      arrangeRecordedPaymentStart(guestCheckoutActor());
+      mockGetGuestCheckoutContact.mockResolvedValue({ contactEmail: "guest@example.com", contactName: "Guest Buyer" });
+
+      const response = await load().then(
+        () => null,
+        (thrown: unknown) => thrown,
+      );
+
+      expect(response).toBeInstanceOf(Response);
+      expect((response as Response).headers.get("location")).toBe("/checkout/payments/pay_x");
+    });
+
+    it("still sends a signed-in buyer on to the account payment page without reading guest contact", async () => {
+      arrangeRecordedPaymentStart({ accountId: "acc_buyer", roleKey: "owner", permissions: ["orders.view"] });
+
+      const response = await load().then(
+        () => null,
+        (thrown: unknown) => thrown,
+      );
+
+      expect(response).toBeInstanceOf(Response);
+      expect((response as Response).headers.get("location")).toBe("/account/payments/pay_x");
+      expect(mockGetGuestCheckoutContact).not.toHaveBeenCalled();
+    });
   });
 
   it("loads a prepared payment inline for guest checkout", async () => {

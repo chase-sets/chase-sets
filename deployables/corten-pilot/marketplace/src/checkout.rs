@@ -360,12 +360,22 @@ enum ContactStop {
     Shown { contact: GuestContact, locked: bool },
 }
 
-/// Auth's guest contact (the read and the save answer alike): both parts null until bound.
-#[derive(Debug, Default, Deserialize)]
-#[serde(rename_all = "camelCase", default)]
+/// Auth's guest contact (the read and the save answer alike): both parts null until bound. Both
+/// must be present, each a string or null, as Auth always sends them; an answer without one is not
+/// read as unbound but refused, so the page shows the contact as unavailable.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ContactBody {
+    #[serde(deserialize_with = "present")]
     contact_email: Option<String>,
+    #[serde(deserialize_with = "present")]
     contact_name: Option<String>,
+}
+
+/// A part of Auth's contact that must be present, though it may be null. `deserialize_with`
+/// without `default` makes serde refuse a missing field rather than read it as `None`.
+fn present<'de, D: serde::Deserializer<'de>>(part: D) -> Result<Option<String>, D::Error> {
+    Option::<String>::deserialize(part)
 }
 
 impl ContactBody {
@@ -986,9 +996,20 @@ async fn render(
     let expired = expired(&session, SystemTime::now());
     let actor = &viewer.actor;
     let guest = viewer.guest();
+    // A guest's contact as Auth holds it, unless the write just read it. It is read before the
+    // payment below is followed: a guest goes on to pay only once Auth says whose contact it is.
+    let contact = if offer || !guest {
+        None
+    } else {
+        Some(match &answer {
+            Answer::Contact(ContactStop::Shown { contact, .. }) => contact.clone(),
+            _ => guest_contact(&caller, client).await,
+        })
+    };
     // Pay now with a card the page took records the payment before the session names it: once
-    // orders wait for payment, Payments says whether one started. Its page when it did; Pay now
-    // held back while Payments cannot tell (marketplace's loader, `paymentStartAmbiguous`).
+    // orders wait for payment, Payments says whether one started. Its page when it did, unless a
+    // guest's contact cannot be read: the page then says so and offers no payment; Pay now held
+    // back while Payments cannot tell (marketplace's loader, `paymentStartAmbiguous`).
     let mut start_ambiguous = false;
     if card_key(config).is_some()
         && !expired
@@ -997,8 +1018,10 @@ async fn render(
         && !session.order_ids.is_empty()
     {
         match caller.checkout_payment_start(id).await {
-            Ok(PaymentStart::Recorded { payment_id }) => return to_payment(req, guest, &payment_id, None),
-            Ok(PaymentStart::NotStarted) => {}
+            Ok(PaymentStart::Recorded { payment_id }) if contact != Some(GuestContact::Unavailable) => {
+                return to_payment(req, guest, &payment_id, None);
+            }
+            Ok(PaymentStart::Recorded { .. }) | Ok(PaymentStart::NotStarted) => {}
             Ok(PaymentStart::Ambiguous) => start_ambiguous = true,
             Err(error) => {
                 tracing::warn!("Payments could not say whether the session's payment started: {error}");
@@ -1039,17 +1062,7 @@ async fn render(
             Vec::new()
         })
     };
-    // A guest's contact as Auth holds it, unless the write just read it.
-    let contact = async {
-        if offer || !guest {
-            return None;
-        }
-        Some(match &answer {
-            Answer::Contact(ContactStop::Shown { contact, .. }) => contact.clone(),
-            _ => guest_contact(&caller, client).await,
-        })
-    };
-    let (wallet, addresses, instruments, contact) = tokio::join!(wallet, addresses, instruments, contact);
+    let (wallet, addresses, instruments) = tokio::join!(wallet, addresses, instruments);
     // Payments' quote for the preview's total, the wallet's balance applied (`loadPaymentPreview`),
     // or once the orders exist for the quote they were bound to.
     let total = session
@@ -1513,14 +1526,15 @@ pub(crate) async fn write(
                     }
                 }
                 // Payments asked for a new quote, or the payment is still starting: the page again,
-                // read after what was written (marketplace's refresh paths). A payment still
-                // starting is read after the Checkout and Ordering writes Confirm made, when its
-                // refusal names them, so the page waits for the order (`paymentStartRefreshPath`).
+                // read after what was written (marketplace's refresh paths). Each is read after the
+                // writes Confirm made when its refusal names them (a guest's choices go with
+                // Confirm), else after the page's own writes; a payment still starting waits for
+                // the order (`paymentStartRefreshPath`).
                 Err(error)
                     if error.status() == Some(StatusCode::CONFLICT)
                         && matches!(error.code(), Some("payment_quote_required" | "fee_quote_stale")) =>
                 {
-                    back(Place::reviewed(latest(receipts).as_ref(), &visible, true))
+                    back(Place::reviewed(started.or_else(|| latest(receipts)).as_ref(), &visible, true))
                 }
                 Err(error)
                     if error.status() == Some(StatusCode::CONFLICT)

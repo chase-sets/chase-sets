@@ -31,22 +31,23 @@ export function requiresBoundGuestContact(actor: Readonly<{ roleKey?: string | n
 }
 
 function ownContactField(body: object, key: "contactEmail" | "contactName"): string | null | undefined {
-  const value: unknown = key in body ? (body as Record<string, unknown>)[key] : null;
-  if (value === null || value === undefined) {
+  if (!Object.hasOwn(body, key)) {
+    return undefined;
+  }
+  const value: unknown = (body as Record<string, unknown>)[key];
+  if (value === null) {
     return null;
   }
   return typeof value === "string" ? value.trim() : undefined;
 }
 
 /**
- * Reads Auth's answer for the guest's own contact. Each field must be a string or null; any other
- * shape is unreadable, so a malformed answer can never pass as bound.
+ * Reads Auth's answer for the guest's own contact (the read and the bind alike). Auth always sends
+ * both fields, each a string or null; a body without both, or of any other shape, is unreadable, so
+ * a malformed answer passes as neither bound nor unbound. Explicit nulls or blanks are unbound.
  */
 export function guestContactAuthorityFromOwnContact(body: unknown): GuestContactAuthority {
-  if (body === null || body === undefined) {
-    return { state: "unbound" };
-  }
-  if (typeof body !== "object" || Array.isArray(body)) {
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
     return UNREADABLE_GUEST_CONTACT;
   }
   const contactEmail = ownContactField(body, "contactEmail");

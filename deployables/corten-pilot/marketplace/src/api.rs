@@ -2404,15 +2404,17 @@ impl CheckoutSessions for Caller<'_> {
         let error = &body["error"];
         let message = error["message"].as_str().unwrap_or_default().to_owned();
         let code = error["code"].as_str().filter(|c| !c.is_empty()).map(str::to_owned);
-        let started = (status == StatusCode::CONFLICT && code.as_deref() == Some("payment_start_pending"))
-            .then(|| payment_start_receipt(&body))
-            .flatten();
+        let started = match (status, code.as_deref()) {
+            (StatusCode::CONFLICT, Some("payment_start_pending")) => payment_start_receipt(&body),
+            (StatusCode::CONFLICT, Some("payment_quote_required" | "fee_quote_stale")) => quote_refresh_receipt(&body),
+            _ => None,
+        };
         Err(ConfirmRefusal { error: ApiError::Status { status, code, message }, started })
     }
 }
 
-/// Why Pay now started nothing: the API's refusal, and for `payment_start_pending` the receipt of
-/// the Checkout and Ordering writes Confirm made before Payments could see the order.
+/// Why Pay now started nothing: the API's refusal, and for `payment_start_pending` or a quote
+/// refresh the receipt of the writes Confirm made before it stopped (a guest's choices among them).
 #[derive(Debug)]
 pub struct ConfirmRefusal {
     pub error: ApiError,
@@ -2439,6 +2441,19 @@ fn payment_start_receipt(body: &serde_json::Value) -> Option<Receipt> {
     }
     let sources = serde_json::value::RawValue::from_string(serde_json::to_string(&sources).ok()?).ok()?;
     Receipt::of_metadata(None, &sources)
+}
+
+/// The receipt a quote-refresh refusal (`payment_quote_required`, `fee_quote_stale`) carries in its
+/// body (`commitPosition`, `commitPositions`), read whole as marketplace's action reads it
+/// (`visibleFreshWriteSource`): a guest's choices are written by Confirm itself, so the refreshed
+/// page waits for them.
+fn quote_refresh_receipt(body: &serde_json::Value) -> Option<Receipt> {
+    let sources = match body["commitPositions"].as_array() {
+        Some(sources) => serde_json::to_string(sources).ok()?,
+        None => "[]".to_owned(),
+    };
+    let sources = serde_json::value::RawValue::from_string(sources).ok()?;
+    Receipt::of_metadata(body["commitPosition"].as_str(), &sources)
 }
 
 /// How long Pay now waits for Confirm (`confirm_checkout`).

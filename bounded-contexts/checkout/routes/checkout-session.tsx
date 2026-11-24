@@ -870,16 +870,19 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     throw redirect(`/account/offers/submitted/${session.submitted_offer_id}`);
   }
   const expiredCheckout = isExpiredCheckoutHandoff(session, Date.now());
+  const ancillaryRequest = requestWithoutReadAfterWrite(resolvedRequest);
+  // Read before a recorded payment is followed: a guest goes on to pay only once Auth says whose
+  // contact this is, so an unreadable contact keeps the guest here with the unavailable notice.
+  const guestContact = await loadGuestContact(ancillaryRequest, actor);
   const deferredCardKey = deferredCardPublishableKey();
   const paymentStart =
     !expiredCheckout && deferredCardKey && !session.payment_id && !session.cancelled_at && session.order_ids.length > 0
-      ? await readCheckoutPaymentStartThroughPayments(requestWithoutReadAfterWrite(resolvedRequest), session.session_id)
+      ? await readCheckoutPaymentStartThroughPayments(ancillaryRequest, session.session_id)
       : null;
-  if (paymentStart?.state === "recorded") {
+  if (paymentStart?.state === "recorded" && guestContact?.state !== "indeterminate") {
     throw redirect(checkoutPaymentStatusPath(paymentStart.paymentId, actor?.roleKey === "guest-buyer"));
   }
 
-  const ancillaryRequest = requestWithoutReadAfterWrite(resolvedRequest);
   const wallet =
     actor &&
     actor.roleKey !== "guest-buyer" &&
@@ -889,7 +892,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       : null;
   const savedShippingAddresses = await loadSavedShippingAddresses(ancillaryRequest, actor);
   const savedCheckoutInstruments = await loadSavedCheckoutInstruments(ancillaryRequest, actor);
-  const guestContact = await loadGuestContact(ancillaryRequest, actor);
   const preparedPayment =
     !expiredCheckout && session.payment_id ? await api.getCheckoutPaymentConfirmation(session.session_id) : null;
   const paymentElementDefaultValues: PaymentElementDefaultValues | null = session.shipping_address?.email?.trim()

@@ -5285,6 +5285,27 @@ describe("guest contact confirm guard", () => {
     },
   );
 
+  it.each([[null], [{}], [{ contactEmail: "guest@example.com" }], [{ contactName: "Guest Buyer" }]])(
+    "refuses guest confirm on an Auth 200 without both contact fields before every side effect (%o)",
+    async (ownContact) => {
+      const actual = await vi.importActual<typeof import("../../../support/request-support/checkout-confirmation")>(
+        "../../../support/request-support/checkout-confirmation",
+      );
+      mockReadGuestContactAuthority.mockImplementation(async () =>
+        actual.guestContactAuthorityFromOwnContact(ownContact),
+      );
+      const services = guestServices();
+
+      const response = await buildApp(services, createGuestBuyerActor()).fetch(confirmRequestWithChoices());
+
+      expect(response.status).toBe(409);
+      await expect(response.json()).resolves.toMatchObject({ error: { code: "guest_contact_required" } });
+      expectNoCheckoutEffect(services);
+      expect(services.selectShippingOption).toHaveBeenCalledTimes(0);
+      expect(services.selectAuthenticityCheckOptIn).toHaveBeenCalledTimes(0);
+    },
+  );
+
   it.each([
     ["unbound", { state: "unbound" }],
     ["rate-limited", { state: "indeterminate", reason: "rate-limited" }],
