@@ -137,6 +137,7 @@ export type CatalogProviderArraySelector = Readonly<{
 export type CatalogProviderObjectSelector = Readonly<{
   kind: "object";
   fields: Readonly<Record<string, CatalogProviderMappingValueExpression>>;
+  omitIfMissing?: readonly string[];
 }>;
 
 export type CatalogProviderArrayMapSelector = Readonly<{

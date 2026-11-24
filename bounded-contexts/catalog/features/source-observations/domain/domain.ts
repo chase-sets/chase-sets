@@ -1341,12 +1341,22 @@ function normalizeOptionalKey(value: string | null | undefined): string | null {
   return normalized ? normalized : null;
 }
 
+export class SourceObservationNaturalKeyError extends Error {
+  constructor(
+    readonly fieldPath: string,
+    message: string,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+  }
+}
+
 export function normalizeSourceObservationNaturalKeys(
   normalized: SourceObservationNormalized,
 ): SourceObservationNormalized {
   const record = { ...(normalized as unknown as Record<string, unknown>) };
 
-  record.languageCode = normalizeSourceObservationLanguageCode(String(record.languageCode ?? ""));
+  record.languageCode = normalizeNaturalKeyLanguageCode(String(record.languageCode ?? ""), "languageCode");
 
   if (typeof record.setCode === "string") {
     record.setCode = normalizeSetCode(record.setCode);
@@ -1356,16 +1366,23 @@ export function normalizeSourceObservationNaturalKeys(
   }
 
   if (normalized.mergeIdentity) {
-    record.mergeIdentity = normalizeSourceObservationNaturalKeyJson(
+    record.mergeIdentity = normalizeNaturalKeyJson(
       normalized.mergeIdentity as unknown as JsonObject,
+      "mergeIdentity.languageCode",
     ) as JsonObject;
   }
 
   if (normalized.externalCatalogItemReferences) {
-    record.externalCatalogItemReferences = normalizeExternalReferences(normalized.externalCatalogItemReferences);
+    record.externalCatalogItemReferences = normalizeExternalReferences(
+      normalized.externalCatalogItemReferences,
+      "externalCatalogItemReferences",
+    );
   }
   if (normalized.externalProductReferences) {
-    record.externalProductReferences = normalizeExternalReferences(normalized.externalProductReferences);
+    record.externalProductReferences = normalizeExternalReferences(
+      normalized.externalProductReferences,
+      "externalProductReferences",
+    );
   }
 
   return record as unknown as SourceObservationNormalized;
@@ -1373,6 +1390,15 @@ export function normalizeSourceObservationNaturalKeys(
 
 export function normalizeSourceObservationLanguageCode(languageCode: string): string {
   return normalizeLocaleCode(languageCode);
+}
+
+function normalizeNaturalKeyLanguageCode(value: string, fieldPath: string): string {
+  try {
+    return normalizeSourceObservationLanguageCode(value);
+  } catch (error) {
+    if (!(error instanceof Error)) throw error;
+    throw new SourceObservationNaturalKeyError(fieldPath, error.message, { cause: error });
+  }
 }
 
 export function normalizeSourceObservationProviderKey(providerKey: string): string {
@@ -1390,8 +1416,12 @@ export function sourceObservationLinkExternalKey(languageCode: string, externalK
 
 /** Apply the same natural-key rules to configured hash material without mutating source payload evidence. */
 export function normalizeSourceObservationNaturalKeyJson(value: JsonValue): JsonValue {
+  return normalizeNaturalKeyJson(value, "languageCode");
+}
+
+function normalizeNaturalKeyJson(value: JsonValue, languageCodePath: string): JsonValue {
   if (Array.isArray(value)) {
-    return value.map(normalizeSourceObservationNaturalKeyJson);
+    return value.map((child) => normalizeNaturalKeyJson(child, languageCodePath));
   }
   if (value === null || typeof value !== "object") {
     return value;
@@ -1399,13 +1429,13 @@ export function normalizeSourceObservationNaturalKeyJson(value: JsonValue): Json
 
   const object = value as JsonObject;
   return Object.fromEntries(
-    Object.entries(object).map(([key, child]) => [key, normalizeNaturalKeyJsonEntry(key, child)]),
+    Object.entries(object).map(([key, child]) => [key, normalizeNaturalKeyJsonEntry(key, child, languageCodePath)]),
   );
 }
 
-function normalizeNaturalKeyJsonEntry(key: string, value: JsonValue): JsonValue {
+function normalizeNaturalKeyJsonEntry(key: string, value: JsonValue, languageCodePath: string): JsonValue {
   if (typeof value !== "string") {
-    return normalizeSourceObservationNaturalKeyJson(value);
+    return normalizeNaturalKeyJson(value, languageCodePath);
   }
 
   switch (key) {
@@ -1415,7 +1445,7 @@ function normalizeNaturalKeyJsonEntry(key: string, value: JsonValue): JsonValue 
     case "collectorNumber":
       return normalizeCardNumber(value);
     case "languageCode":
-      return normalizeSourceObservationLanguageCode(value);
+      return normalizeNaturalKeyLanguageCode(value, languageCodePath);
     case "providerKey":
       return normalizeSourceObservationProviderKey(value);
     case "externalKey":
@@ -1436,10 +1466,28 @@ function normalizeCardNumber(value: string): string {
 
 function normalizeExternalReferences(
   references: readonly (SourceObservationExternalCatalogItemReference | SourceObservationExternalProductReference)[],
+  fieldPath: string,
 ): readonly (SourceObservationExternalCatalogItemReference | SourceObservationExternalProductReference)[] {
-  return references.map((reference) => ({
-    ...reference,
-    providerKey: normalizeSourceObservationProviderKey(reference.providerKey),
-    externalKey: normalizeSourceObservationExternalKey(reference.externalKey),
-  }));
+  if (!Array.isArray(references)) {
+    throw new SourceObservationNaturalKeyError(fieldPath, "External references must be an array.");
+  }
+  return references.map((reference, index) => {
+    if (typeof reference?.providerKey !== "string") {
+      throw new SourceObservationNaturalKeyError(
+        `${fieldPath}.${index}.providerKey`,
+        "External reference providerKey must be a string.",
+      );
+    }
+    if (typeof reference.externalKey !== "string") {
+      throw new SourceObservationNaturalKeyError(
+        `${fieldPath}.${index}.externalKey`,
+        "External reference externalKey must be a string.",
+      );
+    }
+    return {
+      ...reference,
+      providerKey: normalizeSourceObservationProviderKey(reference.providerKey),
+      externalKey: normalizeSourceObservationExternalKey(reference.externalKey),
+    };
+  });
 }
