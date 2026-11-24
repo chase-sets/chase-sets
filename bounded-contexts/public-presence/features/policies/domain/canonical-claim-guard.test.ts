@@ -101,7 +101,7 @@ describe("ordinary interest versus the ruled Prepaid Balance term", () => {
 const chargeSourceRoles = [
   {
     role: "request",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2465-2486",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2462-2483",
     markers: ["createPaymentSession", "amount: processorAmount"],
   },
   {
@@ -137,7 +137,7 @@ const chargeSourceRoles = [
   },
   {
     role: "nonzero pending",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2630-2635",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2627-2632",
     markers: ['compareMoney(processorAmount, "0.00")', '"pending-confirmation"', "captured_at:"],
   },
   {
@@ -165,7 +165,7 @@ const chargeSourceRoles = [
   },
   {
     role: "webhook capture recording",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:3108-3150",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:3105-3147",
     markers: [
       'case "payment-authorized"',
       'type: "RecordPaymentAuthorization"',
@@ -187,12 +187,12 @@ const chargeSourceRoles = [
   },
   {
     role: "reconciliation capture command",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:280-306",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:278-304",
     markers: ['case "captured"', 'type: "RecordPaymentCapture"', "capturedAt: result.occurredAt", 'case "authorized"'],
   },
   {
     role: "reconciliation recording",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:1576-1618",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:1573-1615",
     markers: [
       "providerResultMismatch(payment, result)",
       "paymentCommandFromProviderResult(result)",
@@ -1260,7 +1260,7 @@ describe("canonical claim consistency guard", () => {
         "reconciliation recording",
         "capture fact",
       ],
-      extra: ["bounded-contexts/payments/features/payments/api/runtime.ts:2585-2595"],
+      extra: ["bounded-contexts/payments/features/payments/api/runtime.ts:2582-2592"],
     },
     ...chargeSourceRoles.slice(3).map(({ role }) => ({ name: `missing ${role}`, omitted: [role], extra: [] })),
   ])(
@@ -1348,7 +1348,7 @@ describe("canonical claim consistency guard", () => {
     const registry = withPaymentsTermsCanonicalClaims("charge-timing-and-statement-descriptor", [
       {
         claimId: "payment-charge-timing-and-capture",
-        productTruthRefs: ["bounded-contexts/payments/features/payments/api/runtime.ts:495-513"],
+        productTruthRefs: ["bounded-contexts/payments/features/payments/api/runtime.ts:493-511"],
       },
     ]);
 

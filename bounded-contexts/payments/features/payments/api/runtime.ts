@@ -8,7 +8,6 @@ import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-se
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type { OrderPaymentDeadlineReconciler } from "./order-payment-deadline";
 import { createNoopNotificationOutbox, type NotificationOutbox } from "@chase-sets/outbound-messaging";
 import { t } from "@chase-sets/localization";
 import { recordRateLimitExceeded } from "@chase-sets/http/rate-limit";
@@ -20,8 +19,7 @@ import {
 } from "@chase-sets/http/provider-errors";
 import { decideWebhookPayment, paymentWebhookErrorFromUnknown } from "./webhook-errors";
 import type { PaymentTransactionRunner, PaymentWebhookRunner, PaymentWebhookResult } from "./webhook-transaction";
-import { createId } from "@chase-sets/primitives/typed-ids";
-import type { AccountId, OrderId, PaymentId } from "@chase-sets/primitives/typed-ids";
+import { createId, type AccountId, type OrderId, type PaymentId } from "@chase-sets/primitives/typed-ids";
 import { centsToMoneyAmount, moneyToCents, sumMoneyAmounts } from "@chase-sets/primitives/money";
 import {
   assert,
@@ -734,7 +732,6 @@ const CANONICAL_ATTEMPT_UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][
 const SHA256_HEX = /^[0-9a-f]{64}$/;
 
 export type SavedCheckoutInstrumentAttemptKind = "setup" | "default" | "remove";
-
 type SavedCheckoutInstrumentAttemptTarget = Readonly<{ setupReferenceId: string } | { instrumentId: string }>;
 type SavedCheckoutInstrumentAttemptStarted = Readonly<{
   version: 1;
@@ -1272,7 +1269,7 @@ export type PaymentServices = Readonly<{
         }>)
     | null
   >;
-  reconcileOrderPaymentBeforeDeadline: OrderPaymentDeadlineReconciler;
+  reconcileOrderPaymentBeforeDeadline: ReconcileOrderPaymentBeforeDeadline;
   getCheckoutPaymentStart: (
     sessionId: string,
     accountId: AccountId,
@@ -3436,3 +3433,8 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
     ],
   };
 }
+
+type ReconcileOrderPaymentBeforeDeadline = (
+  order: Readonly<{ orderId: string; buyerAccountId: string; paymentId?: string }>,
+  context: EventStoreContext,
+) => Promise<"captured" | "not-captured">;
