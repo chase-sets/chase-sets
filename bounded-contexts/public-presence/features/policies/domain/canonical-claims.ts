@@ -69,8 +69,8 @@ export const canonicalClaimRegistry: Readonly<Record<CanonicalClaimId, Canonical
     productTruthRefs: [
       "bounded-contexts/payments/features/payments/api/runtime.ts:2462-2483",
       "infrastructure/stripe-payments/index.ts:1723-1777",
-      "infrastructure/stripe-payments/index.ts:1839-1927",
-      "infrastructure/stripe-payments/index.ts:1796-1837",
+      "infrastructure/stripe-payments/index.ts:1841-1929",
+      "infrastructure/stripe-payments/index.ts:1796-1839",
       "bounded-contexts/payments/features/payments/api/runtime.ts:2627-2632",
       "infrastructure/stripe-payments/index.ts:979-1060",
       "infrastructure/stripe-payments/index.ts:1106-1133",

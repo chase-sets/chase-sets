@@ -116,7 +116,7 @@ const chargeSourceRoles = [
   },
   {
     role: "new session request",
-    ref: "infrastructure/stripe-payments/index.ts:1839-1927",
+    ref: "infrastructure/stripe-payments/index.ts:1841-1929",
     markers: [
       'mode: "payment"',
       '"/v1/checkout/sessions"',
@@ -126,7 +126,7 @@ const chargeSourceRoles = [
   },
   {
     role: "new card confirmation request",
-    ref: "infrastructure/stripe-payments/index.ts:1796-1837",
+    ref: "infrastructure/stripe-payments/index.ts:1796-1839",
     markers: [
       '"/v1/payment_intents"',
       'confirm: "true"',
