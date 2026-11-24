@@ -1,5 +1,6 @@
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
 import { notificationOutboxSchemaSql } from "@chase-sets/notification-outbox";
+import { platformPolicySchemaSql } from "@chase-sets/platform-policy/schema";
 import { orderingAccountSchemaSql } from "../account-support/schema";
 import { orderingOrderSchemaMigrations, orderingOrderSchemaSql } from "../../features/orders/read-model/schema";
 import { orderingFulfillmentSourceSchemaSql } from "../../features/orders/integrations/fulfillment/fulfillment-source-schema";
@@ -24,6 +25,9 @@ export const orderingSchemaSql = [
   orderingOpportunitySchemaSql,
   postagePolicySchemaSql,
   orderingOrderSchemaSql,
+  // Adopts the shared platform-policy machinery (see infrastructure/platform-policy)
+  // for the Shipping Rates Policy -- see ../../features/orders/domain/shipping-rates.
+  platformPolicySchemaSql,
 ].join("\n\n");
 
 export const orderingSchemaMigrations = [

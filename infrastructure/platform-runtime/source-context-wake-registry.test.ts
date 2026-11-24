@@ -238,6 +238,16 @@ describe("source-context wake registry", () => {
     expect(discovery.affectedProjectionNames.filter((projectionKey) => projectionKey === key)).toHaveLength(1);
   });
 
+  it("registers Ordering's policy projection only under its Ordering source, as its manifest declares", () => {
+    const key = "ordering:platform-policy-document-projection";
+    const ordering = requireSourceContextWakeRegistryEntry("ordering");
+    expect(inventory.projectionsBySource.get("ordering")).toContain(key);
+    expect(sourceContextWakeRegistry.filter((entry) => entry.affectedProjectionNames.includes(key))).toEqual([
+      ordering,
+    ]);
+    expect(ordering.affectedProjectionNames.filter((projectionKey) => projectionKey === key)).toHaveLength(1);
+  });
+
   it("creates write-side and relay configs from the same source-context entry", () => {
     delete process.env.PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED;
     delete process.env.PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS;

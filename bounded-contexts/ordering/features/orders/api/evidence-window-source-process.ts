@@ -10,6 +10,7 @@ import {
 } from "@chase-sets/event-core-postgres";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
+import { defaultShippingRates } from "../domain/shipping-rates";
 import { createOrderingOrderRuntime } from "./runtime";
 
 const databaseUrl = process.env.TEST_SOURCE_DB_URL;
@@ -106,6 +107,7 @@ try {
     shippingQuotePolicy: {
       quote: () => ({ shippingOption: "standard", baseAmount: "0.00", discountAmount: "0.00", chargeAmount: "0.00" }),
     },
+    shippingRatesResolver: async () => defaultShippingRates,
   });
   if (cut) {
     await pause("pre-source");

@@ -108,7 +108,7 @@ import {
   type OrderingOrderEvent,
   type OrderingOrderState,
 } from "../domain/domain";
-import { defaultShippingRates, type ShippingRates } from "../domain/shipping-rates";
+import type { ShippingRates } from "../domain/shipping-rates";
 import { createFulfillmentDeliveryPromise } from "../domain/fulfillment-delivery-promise";
 import { quoteAuthenticityCheckFee, type AuthenticityCheckFeeQuote } from "../domain/authenticity-check-fee";
 import type { AuthenticityFeePolicyResolver } from "./authenticity-fee-policy-resolver";
@@ -239,6 +239,7 @@ type OrderRuntimeDeps = Readonly<{
   db: PgTransactionalPool;
   shippingQuotePolicy: ShippingQuotePolicy;
   postagePolicyResolver?: PostagePolicyResolver;
+  shippingRatesResolver: () => Promise<ShippingRates>;
   taxQuoteResolver?: TaxQuoteResolver;
   notificationOutbox?: NotificationOutbox;
   authenticityFeePolicyResolver?: AuthenticityFeePolicyResolver;
@@ -855,6 +856,7 @@ function quotePlan(
   shippingOption: ShippingOption,
   shippingQuotePolicy: ShippingQuotePolicy,
   postagePolicy: PostagePolicy,
+  shippingRates: ShippingRates,
   priceOverrideAmount?: string,
   feeOverride?: Readonly<{
     marketplaceSalesFeePercentageBps: number;
@@ -981,7 +983,6 @@ function quotePlan(
   const orderDrafts: SellerOrderDraft[] = [];
   let totalAmount = 0n;
   let itemSubtotalAmount = 0n;
-  const shippingRates = defaultShippingRates;
 
   for (const draft of groupedBySellerAndOrigin.values()) {
     const shippingAllowancePercentageBps = planShippingAllowanceBps(draft.lines);
@@ -1108,6 +1109,7 @@ function chooseBestPlan(
   shippingOption: ShippingOption,
   shippingQuotePolicy: ShippingQuotePolicy,
   postagePolicy: PostagePolicy,
+  shippingRates: ShippingRates,
   priceOverrideAmount?: string,
   feeOverride?: Readonly<{
     marketplaceSalesFeePercentageBps: number;
@@ -1133,6 +1135,7 @@ function chooseBestPlan(
         shippingOption,
         shippingQuotePolicy,
         postagePolicy,
+        shippingRates,
         priceOverrideAmount,
         feeOverride,
         sourceType,
@@ -2010,6 +2013,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
       shippingDestinationSnapshot: AddressSnapshot;
       quantityRequested: number;
     }>,
+    shippingRates: ShippingRates,
   ) => {
     const demandGroups: MarketplaceDemand[] = [
       {
@@ -2066,6 +2070,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
       "standard",
       deps.shippingQuotePolicy,
       postagePolicy,
+      shippingRates,
       acceptedOfferPriceAmount,
       {
         marketplaceSalesFeePercentageBps: params.marketplaceSalesFeePercentageBps,
@@ -2148,7 +2153,8 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
     }>,
     context: EventStoreContext,
   ) => {
-    const taxAdjustedPlan = await buildAcceptedOfferPlan(params);
+    const shippingRates = await deps.shippingRatesResolver();
+    const taxAdjustedPlan = await buildAcceptedOfferPlan(params, shippingRates);
     const result = await createOrdersFromPlan(
       params.buyerAccountId,
       taxAdjustedPlan,
@@ -2170,6 +2176,8 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
     params,
     context,
   ) => {
+    // One resolution for the whole batch: every offer's plan and every merge quotes the same revision.
+    const shippingRates = await deps.shippingRatesResolver();
     const groupedByBuyerAndDestination = new Map<
       string,
       {
@@ -2184,10 +2192,13 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
         offer.shippingDestinationSnapshot,
         "Shipping destination",
       );
-      const plan = await buildAcceptedOfferPlan({
-        ...offer,
-        offerId: params.acceptanceBatchId,
-      });
+      const plan = await buildAcceptedOfferPlan(
+        {
+          ...offer,
+          offerId: params.acceptanceBatchId,
+        },
+        shippingRates,
+      );
       for (const draft of plan.orderDrafts) {
         const groupKey = [offer.buyerAccountId, JSON.stringify(shippingDestinationSnapshot)].join("|");
         const group = groupedByBuyerAndDestination.get(groupKey) ?? {
@@ -2238,7 +2249,6 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
         if (packagePlan.missingProductIds.length > 0) {
           throw new OrderingDomainError("Product measurements are required before checkout can be confirmed.");
         }
-        const shippingRates = defaultShippingRates;
         const quote = deps.shippingQuotePolicy.quote({
           sellerAccountId: draft.sellerAccountId,
           shippingOption: draft.shippingOption,
@@ -2453,11 +2463,13 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
         params.checkoutSessionId,
       );
       const postagePolicy = await postagePolicyResolver();
+      const shippingRates = await deps.shippingRatesResolver();
       const plan = chooseBestPlan(
         demandOptions,
         params.shippingOption,
         deps.shippingQuotePolicy,
         postagePolicy,
+        shippingRates,
         undefined,
         undefined,
         params.sourceType,
@@ -2544,7 +2556,12 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
         throw new OrderingDomainError("Checkout must contain at least one line.");
       }
 
-      const preview = await createOrderingOrderRuntime(deps).previewCheckoutFulfillment({
+      // Resolved once: the stale-revision check below and the plan the order records quote the same rates.
+      const shippingRates = await deps.shippingRatesResolver();
+      const preview = await createOrderingOrderRuntime({
+        ...deps,
+        shippingRatesResolver: async () => shippingRates,
+      }).previewCheckoutFulfillment({
         ...params,
         authenticityCheckOptIn: Boolean(params.authenticityCheckOptIn?.selected),
       });
@@ -2574,6 +2591,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
         params.shippingOption,
         deps.shippingQuotePolicy,
         postagePolicy,
+        shippingRates,
         undefined,
         undefined,
         params.sourceType,

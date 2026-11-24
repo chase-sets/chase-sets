@@ -8,11 +8,13 @@ import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-s
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
+import { createPolicyRuntime, type PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { createOrderingAccountRuntime } from "../account-support/runtime";
 import { createOrderingOrderRuntime } from "../../features/orders/api/runtime";
 import type { TaxQuoteResolver } from "../../features/orders/api/runtime";
 import { createPostagePolicyRuntime } from "../../features/postage-policies/api/runtime";
 import { defaultShippingQuotePolicy, type ShippingQuotePolicy } from "../../features/orders/domain/policies";
+import { shippingRatesPolicy } from "../../features/orders/domain/shipping-rates";
 import type { AuthenticityFeePolicyResolver } from "../../features/orders/api/authenticity-fee-policy-resolver";
 import {
   assertOrderingInventoryCleanupAuthorityCapability,
@@ -38,6 +40,7 @@ export type OrderingServiceOptions = Readonly<{
 export type OrderingServices = Readonly<{
   orders: ReturnType<typeof createOrderingOrderRuntime>;
   postagePolicies: ReturnType<typeof createPostagePolicyRuntime>;
+  policies: PolicyRuntime;
   projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
   db: PgQueryable;
@@ -56,12 +59,14 @@ export function createOrderingServices(pool: PgTransactionalPool, options: Order
   const notificationOutbox = options.notificationOutbox ?? createPostgresNotificationOutbox({ db });
   const accounts = createOrderingAccountRuntime({ eventStore, checkpointStore, db });
   const postagePolicies = createPostagePolicyRuntime({ eventStore, checkpointStore, db });
+  const policies = createPolicyRuntime({ eventStore, db, commitSourceContextName: "ordering" });
   const orders = createOrderingOrderRuntime({
     eventStore,
     checkpointStore,
     db: pool,
     shippingQuotePolicy: options.shippingQuotePolicy ?? defaultShippingQuotePolicy,
     postagePolicyResolver: postagePolicies.getActivePolicy,
+    shippingRatesResolver: async () => (await policies.resolvePolicy(shippingRatesPolicy)).value,
     taxQuoteResolver: options.taxQuoteResolver,
     notificationOutbox,
     authenticityFeePolicyResolver: options.authenticityFeePolicyResolver,
@@ -71,7 +76,8 @@ export function createOrderingServices(pool: PgTransactionalPool, options: Order
   return {
     orders,
     postagePolicies,
-    projectors: [...accounts.projectors, ...postagePolicies.projectors, ...orders.projectors],
+    policies,
+    projectors: [...accounts.projectors, ...postagePolicies.projectors, ...orders.projectors, ...policies.projectors],
     pool,
     db,
   };

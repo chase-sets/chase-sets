@@ -117,6 +117,7 @@ function createServices(): OrderingServices {
       reconcileSellerOrderCapacitySignal: async () => undefined,
     } as unknown as OrderingServices["orders"],
     postagePolicies: {} as OrderingServices["postagePolicies"],
+    policies: {} as OrderingServices["policies"],
     projectors: [],
     pool: {} as OrderingServices["pool"],
   };

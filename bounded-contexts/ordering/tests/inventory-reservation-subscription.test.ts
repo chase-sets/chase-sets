@@ -35,6 +35,7 @@ function createServices(commandHandler: OrderingServices["orders"]["commandHandl
     db: { query: async () => ({ rows: [], rowCount: 0 }) },
     orders: { commandHandler } as OrderingServices["orders"],
     postagePolicies: {} as OrderingServices["postagePolicies"],
+    policies: {} as OrderingServices["policies"],
     projectors: [],
     pool: {} as OrderingServices["pool"],
   };
