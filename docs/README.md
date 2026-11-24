@@ -133,6 +133,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [Staging Public App](./runbooks/staging-public-app.md): the STAGING_PUBLIC_APP switch between the Corten public app and public-web on www.staging, and its rollback.
 - [Production Admin App](./runbooks/production-admin-app.md): which app serves admin.chasesets.com, the PRODUCTION_ADMIN_APP switch, its rollback, and recovering from a refused deploy.
 - [Production Marketplace App](./runbooks/production-marketplace-app.md): which app serves marketplace.chasesets.com, the gates before the PRODUCTION_MARKETPLACE_APP switch, its rollback, and recovering from a refused deploy.
+- [Production Public App](./runbooks/production-public-app.md): which app serves chasesets.com and www.chasesets.com, the gates before the PRODUCTION_PUBLIC_APP switch, its rollback, and recovering from a refused deploy.
 - [Beta Wave Exposure](./runbooks/beta-wave-exposure.md): policy-gated waitlist admission, proportional Argo exposure, monitoring, halt, and rollback procedure.
 - [Platform Loop Rollback](./runbooks/platform-loop-rollback.md): procedure for releasing a milestone from the orchestration-platform loop back to the host orchestrator, Todd-only authorization and ownership-change boundary, and exact run/supervisor identity binding.
 - [Money Operations](./runbooks/money-operations.md): checkout, wallet, Stripe payments, Connect payouts, launch checks, and smoke tests.
