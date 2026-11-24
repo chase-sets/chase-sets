@@ -1342,12 +1342,11 @@ function normalizeOptionalKey(value: string | null | undefined): string | null {
 }
 
 export class SourceObservationNaturalKeyError extends Error {
-  constructor(
-    readonly fieldPath: string,
-    message: string,
-    options?: ErrorOptions,
-  ) {
+  readonly fieldPath: string;
+
+  constructor(fieldPath: string, message: string, options?: ErrorOptions) {
     super(message, options);
+    this.fieldPath = fieldPath;
   }
 }
 
