@@ -5,7 +5,7 @@
 //!
 //! | Route | Answers |
 //! |---|---|
-//! | `GET /catalog/scopes/sync-batches?batch_id&quote_id` | the page, with the batch and the count quote the address names |
+//! | `GET /catalog/scopes/sync-batches?batchId&quoteId` | the page, with the batch and the count quote the address names |
 //! | `POST /catalog/scopes/sync-batches` | the form's `intent`: Preview batch, Quote count acquisition and Approve count acquisition answer with the page; Confirm and enqueue, Cancel batch, Resume batch and Retry unit go to the batch |
 //! | `POST /catalog/scopes/sync-batches/held-sets` | Resolve held sets (`multipart/form-data`): the page with what resolved; its `GET` redirects to the page |
 //!
@@ -47,7 +47,9 @@ const FRAMING_BYTES: usize = 65_536;
 pub mod url {
 
     /// The batch and the count quote the page shows.
+    /// In admin-web's names, so an address admin-web made opens the same batch or quote.
     #[derive(Clone, Debug, Default, corten::Fields, corten::Route)]
+    #[serde(rename_all = "camelCase")]
     #[route(query)]
     pub struct BatchQuery {
         pub batch_id: Option<String>,
@@ -82,10 +84,10 @@ impl url::SyncBatches {
     }
 }
 
-/// The batch form, and every command's fields, in admin-web's names (snake case). Each is the text
+/// The batch form, and every command's fields, in admin-web's names (camel case). Each is the text
 /// sent; numbers are read as admin-web's `numberValue` reads them.
 #[derive(Clone, Debug, Default, Serialize, Fields, ToJson)]
-#[serde(default)]
+#[serde(default, rename_all = "camelCase")]
 pub struct BatchInput {
     pub intent: String,
     pub selection_mode: String,

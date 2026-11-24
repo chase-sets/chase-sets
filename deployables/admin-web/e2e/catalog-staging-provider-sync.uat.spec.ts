@@ -4205,7 +4205,7 @@ async function openCatalogImporter(page: Page, assertOrigin?: (url: string) => v
   while (Date.now() < deadline) {
     assertOrigin?.(page.url());
     if (await isImporterVisible(page, 2_000)) {
-      await expect(page.locator("html")).toHaveAttribute("data-admin-web-hydrated", "true", { timeout: 30_000 });
+      await expectAdminPageReady(page, 30_000);
       return;
     }
 
@@ -4227,7 +4227,7 @@ async function openCatalogImporter(page: Page, assertOrigin?: (url: string) => v
     await page.goto("/catalog/integrations", { waitUntil: "domcontentloaded", timeout: pageReadyTimeoutMs });
   }
   await expectImporterVisible(page);
-  await expect(page.locator("html")).toHaveAttribute("data-admin-web-hydrated", "true", { timeout: 30_000 });
+  await expectAdminPageReady(page, 30_000);
 }
 
 async function assertSharedImporterSurface(page: Page): Promise<void> {
@@ -7481,9 +7481,31 @@ async function gotoWholeGamePage(page: Page, path: string, runtime?: WholeGameRu
   const timeout = wholeGameRemainingMs(runtime, pageReadyTimeoutMs);
   await page.goto(`${wholeGameStagingOrigin}${path}`, { waitUntil: "domcontentloaded", timeout });
   assertWholeGameOrigin(page.url());
-  await expect(page.locator("html")).toHaveAttribute("data-admin-web-hydrated", "true", {
-    timeout: wholeGameRemainingMs(runtime, pageReadyTimeoutMs),
-  });
+  await expectAdminPageReady(page, wholeGameRemainingMs(runtime, pageReadyTimeoutMs));
+}
+
+// admin-web marks <html data-admin-web-hydrated="true"> once React has hydrated. The Corten admin
+// (a page carrying Corten's `corten-shell` meta) draws plain forms on the server, so its page is
+// ready once parsed: its module scripts run before DOMContentLoaded.
+async function expectAdminPageReady(page: Page, timeout: number): Promise<void> {
+  await page.waitForFunction(
+    () =>
+      document.documentElement.dataset.adminWebHydrated === "true" ||
+      (document.readyState !== "loading" && document.querySelector('meta[name="corten-shell"]') !== null),
+    undefined,
+    { timeout },
+  );
+}
+
+async function isCortenAdminPage(page: Page): Promise<boolean> {
+  return (await page.locator('meta[name="corten-shell"]').count()) > 0;
+}
+
+// admin-web's design-system Select keeps its value in a hidden input; the Corten admin draws a
+// native <select> under the same name.
+async function namedFormControl(form: Locator, name: string): Promise<Locator> {
+  const input = form.locator(`input[name=${cssString(name)}]`);
+  return (await input.count()) > 0 ? input : form.locator(`select[name=${cssString(name)}]`);
 }
 
 // Reads through the signed-in page so the admin-web proxy, session and any
@@ -7576,6 +7598,19 @@ async function chooseDesignSystemSelect(
   name: string,
   value: string,
 ): Promise<void> {
+  const selectSelector = `select[name=${cssString(name)}]`;
+  const native = form.locator(selectSelector);
+  if (
+    (await form.locator(`input[type="hidden"][name=${cssString(name)}]`).count()) === 0 &&
+    (await native.count()) === 1
+  ) {
+    // A filter's `has` locator is matched from inside each label, so it names only the select;
+    // rooting it at the form would ask for the form below the label and match nothing.
+    await expect(form.locator("label").filter({ has: page.locator(selectSelector) })).toContainText(label);
+    await native.selectOption(value);
+    await expect(native).toHaveValue(value);
+    return;
+  }
   await form.getByLabel(label, { exact: true }).click();
   await page.getByRole("option", { name: value, exact: true }).click();
   await expect(form.locator(`input[type="hidden"][name=${cssString(name)}]`)).toHaveValue(value);
@@ -7590,8 +7625,8 @@ async function wholeGameStart(
   await gotoWholeGamePage(page, "/catalog/scopes/sync-batches");
   const form = page.locator("form").filter({ has: page.getByRole("button", { name: "Preview batch", exact: true }) });
   await expect(form).toHaveCount(1, { timeout: pageReadyTimeoutMs });
-  await expect(form.locator('input[name="selectionMode"]')).toHaveValue("matching-scope");
-  await expect(form.locator('input[name="scopeKind"]')).toHaveValue("set");
+  await expect(await namedFormControl(form, "selectionMode")).toHaveValue("matching-scope");
+  await expect(await namedFormControl(form, "scopeKind")).toHaveValue("set");
   await chooseDesignSystemSelect(page, form, "Product domain", "productDomain", input.productDomain);
   if (input.productDomain === "pokemon") {
     await chooseDesignSystemSelect(page, form, "Scope kind", "scopeKind", "expansion");
@@ -8050,6 +8085,8 @@ async function submitPromoteAllReady(
     );
   const known = new Set([...active, ...(await readCompleted())].map((job) => job.jobId));
   await gotoWholeGamePage(page, `/catalog/scopes/${encodeURIComponent(scopeRecordId)}`, runtime);
+  // The Corten admin's Promote all ready is not yet driven here; refuse before any write.
+  if (await isCortenAdminPage(page)) throw new WholeGameRehearsalRefusal("corten-admin-promote-unported");
   const form = page
     .locator('form[data-catalog-merge-candidate-bulk-promote="true"]')
     .filter({ has: page.locator(`input[name="scopeRecordId"][value=${cssString(scopeRecordId)}]`) });
@@ -8094,6 +8131,9 @@ async function publishThroughCatalogItems(
   runtime?: WholeGameRuntime,
 ): Promise<void> {
   await gotoWholeGamePage(page, `/catalog/catalog-items?${wholeGameQuery(filter)}`, runtime);
+  // The guard reads admin-web's browser-side preview answer, which the Corten admin's server-drawn
+  // preview does not expose; refuse before any write.
+  if (await isCortenAdminPage(page)) throw new WholeGameRehearsalRefusal("corten-admin-publish-unported");
   await clickWholeGameControl(page, page.getByRole("button", { name: "Actions", exact: true }).first(), runtime);
   const [response] = await Promise.all([
     page.waitForResponse(
@@ -8143,7 +8183,10 @@ async function publishThroughCatalogItems(
 // Fixture Admin: the whole-game journeys run against fulfilled Admin pages and
 // admin API reads, so every decision path is exercised without staging.
 type WholeGameFixtureRequest = Readonly<{ method: string; path: string; search: URLSearchParams; body: string }>;
-type WholeGameFixtureReply = Readonly<{ html: string }> | Readonly<{ json: unknown }> | Readonly<{ abort: true }>;
+type WholeGameFixtureReply =
+  | Readonly<{ html: string; corten?: true }>
+  | Readonly<{ json: unknown }>
+  | Readonly<{ abort: true }>;
 
 async function serveWholeGameFixture(
   page: Page,
@@ -8167,7 +8210,9 @@ async function serveWholeGameFixture(
       return route.fulfill({
         status: 200,
         contentType: "text/html",
-        body: `<!doctype html><html data-admin-web-hydrated="true"><body><main>${reply.html}</main></body></html>`,
+        body: reply.corten
+          ? `<!doctype html><html lang="en"><head><meta name="corten-shell" content="fixture"></head><body><main>${reply.html}</main></body></html>`
+          : `<!doctype html><html data-admin-web-hydrated="true"><body><main>${reply.html}</main></body></html>`,
       });
     }
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(reply.json) });
@@ -8237,6 +8282,60 @@ function fixtureBatch(overrides: Partial<WholeGameBatchSnapshot>): WholeGameBatc
     units: [{ scopeRecordId: "scope-1", state: "completed", providerKeys: ["scrydex"] }],
     ...overrides,
   };
+}
+
+// The Corten admin's New batch form as it draws it: labels wrap native selects and inputs.
+function cortenFixtureField(label: string, name: string, value: string, kind = "number"): string {
+  return `<label><span>${label}</span><input type="${kind}" name="${name}" value="${value}"></label>`;
+}
+
+function cortenFixtureChoice(label: string, name: string, value: string, options: readonly string[]): string {
+  const choices = options
+    .map((option) => `<option value="${option}"${option === value ? " selected" : ""}>${option}</option>`)
+    .join("");
+  return `<label><span>${label}</span><select name="${name}">${choices}</select></label>`;
+}
+
+function cortenFixtureNewBatchForm(): string {
+  return `<section><h2>New batch</h2><form method="post" action="/catalog/scopes/sync-batches">
+    ${cortenFixtureChoice("Selection", "selectionMode", "matching-scope", ["matching-scope", "ids"])}
+    ${cortenFixtureChoice("Product domain", "productDomain", "pokemon", ["pokemon", "magic", "yugioh", "one-piece", "lorcana"])}
+    ${cortenFixtureChoice("Scope kind", "scopeKind", "set", ["product-line", "series", "expansion", "set"])}
+    ${cortenFixtureField("Language", "languageCode", "en", "text")}
+    <label><span>Scope record IDs</span><input type="text" name="scopeRecordIds" value=""><span>Comma-separated</span></label>
+    ${cortenFixtureField("Scopes per worker turn", "maxScopesPerTurn", "1")}
+    ${cortenFixtureField("TCGdex request limit", "tcgdexRequestLimit", "1000")}
+    ${cortenFixtureField("Scrydex rate request limit", "scrydexRateRequestLimit", "1000")}
+    ${cortenFixtureField("Scrydex credit limit", "scrydexRequestLimit", "0")}
+    ${cortenFixtureField("Circuit-breaker failures", "providerFailureThreshold", "3")}
+    <button type="submit" name="intent" value="preview">Preview batch</button>
+    ${cortenFixtureField("Count cap", "countCap", "0")}
+    <button type="submit" name="intent" value="count-quote">Quote count acquisition</button>
+  </form></section>`;
+}
+
+/** The page after Preview batch: the form again, the plan, and the confirm form carrying the batch. */
+function cortenFixturePreview(
+  fingerprint: string,
+  providers: readonly (readonly [string, number, number])[],
+  sent: URLSearchParams,
+): string {
+  const values = (rows: readonly (readonly [string, string])[]) =>
+    `<dl>${rows.map(([key, value]) => `<div><dt>${key}</dt><dd>${value}</dd></div>`).join("")}</dl>`;
+  const carried = ["selectionMode", "productDomain", "scopeKind", "languageCode", "scrydexRequestLimit"]
+    .map((name) => `<input type="hidden" name="${name}" value="${sent.get(name) ?? ""}">`)
+    .join("");
+  return `${cortenFixtureNewBatchForm()}<section><h2>Preview</h2>
+    ${values([
+      ["Plan fingerprint", fingerprint],
+      ["Resolved at", "2026-11-24T00:00:00Z"],
+      ["Scope count", "3"],
+    ])}
+    ${values(providers.map(([key, units, requests]) => [`${key} units / requests`, `${units} / ${requests}`] as const))}
+    <form method="post" action="/catalog/scopes/sync-batches">
+      <input type="hidden" name="intent" value="confirm"><input type="hidden" name="planFingerprint" value="${fingerprint}">
+      ${carried}<button type="submit">Confirm and enqueue</button>
+    </form></section>`;
 }
 
 const fixtureCatalogItemsPage = `<button type="button" onclick="document.getElementById('panel').hidden = false">Actions</button>
@@ -9140,6 +9239,123 @@ test.describe("catalog whole-game rehearsal journeys", () => {
     expect(previews[0]).toContain("productDomain=pokemon");
     expect(previews[0]).toContain("scopeKind=expansion");
     expect(calls.filter((call) => call.includes("intent=confirm"))).toEqual([]);
+  });
+
+  const cortenFingerprint = "c".repeat(64);
+  async function serveCortenStartFixture(page: Page): Promise<string[]> {
+    return await serveWholeGameFixture(page, (request) => {
+      if (request.path !== "/catalog/scopes/sync-batches") {
+        return request.path === "/api/catalog/scope-sync-batches/batch-requested"
+          ? { json: fixtureBatch({ planFingerprint: cortenFingerprint }) }
+          : undefined;
+      }
+      if (request.method === "GET") return { html: cortenFixtureNewBatchForm(), corten: true };
+      const sent = new URLSearchParams(request.body);
+      if (sent.get("intent") === "preview") {
+        return { html: cortenFixturePreview(cortenFingerprint, [["scrydex", 2, 40]], sent), corten: true };
+      }
+      // The Corten admin answers a confirm with 303 See Other to the batch's address. A route only
+      // handles a redirect's first request, so the fixture draws the batch and moves the address.
+      if (sent.get("intent") === "confirm") {
+        return {
+          html: `${fixtureBatchSection(fixtureBatch({}))}<script>history.replaceState(null, "", "/catalog/scopes/sync-batches?batchId=batch-requested")</script>`,
+          corten: true,
+        };
+      }
+      return undefined;
+    });
+  }
+
+  // Each POST's intent, in order; a count quote or acquire would show up here.
+  const postIntents = (calls: readonly string[]) =>
+    calls
+      .filter((call) => call.startsWith("POST "))
+      .map((call) => new URLSearchParams(call.slice(call.indexOf(" ", 5) + 1)).get("intent"));
+
+  test("Corten admin: a paid preview reads the native New batch form and never confirms", async ({ page }) => {
+    const calls = await serveCortenStartFixture(page);
+    const receipt = await wholeGameStart(
+      page,
+      parseWholeGameStartInput({ CATALOG_WHOLE_GAME_PRODUCT_DOMAIN: "one-piece" }),
+      fixtureRun,
+      { scope: "full-game-preview" },
+    );
+    expect(receipt).toMatchObject({
+      batchId: null,
+      state: "previewed",
+      preview: {
+        planFingerprint: cortenFingerprint,
+        scopeCount: 3,
+        providers: [{ providerKey: "scrydex", units: 2, plannedRequests: 40 }],
+        confirmAllowed: true,
+        scrydexRequestLimit: 0,
+      },
+    });
+    expect(validateWholeGameReceipt(receipt)).toEqual([]);
+    const previews = calls.filter((call) => call.includes("intent=preview"));
+    expect(previews).toHaveLength(1);
+    for (const field of ["productDomain=one-piece", "scopeKind=set", "languageCode=&", "scrydexRequestLimit=0"]) {
+      expect(previews[0]).toContain(field);
+    }
+    expect(calls.filter((call) => call.includes("intent=confirm"))).toEqual([]);
+    expect(postIntents(calls)).toEqual(["preview"]);
+
+    await expect(
+      wholeGameStart(page, parseWholeGameStartInput({ CATALOG_WHOLE_GAME_PRODUCT_DOMAIN: "pokemon" }), fixtureRun),
+    ).rejects.toMatchObject({ code: "scrydex-credit-limit-zero" });
+    const pokemon = calls.filter((call) => call.includes("intent=preview")).at(-1) ?? "";
+    expect(pokemon).toContain("productDomain=pokemon");
+    expect(pokemon).toContain("scopeKind=expansion");
+    expect(postIntents(calls)).toEqual(["preview", "preview"]);
+  });
+
+  test("Corten admin: a paid confirm checks the confirmation form and follows the batchId address", async ({
+    page,
+  }) => {
+    const calls = await serveCortenStartFixture(page);
+    const input = parseWholeGameStartInput({
+      CATALOG_WHOLE_GAME_PRODUCT_DOMAIN: "one-piece",
+      CATALOG_WHOLE_GAME_BUDGET: "scrydexRequestLimit=50",
+    });
+    const receipt = await wholeGameStart(page, input, fixtureRun, {
+      scope: "full-game-confirm",
+      approvedFingerprint: cortenFingerprint,
+    });
+    expect(receipt).toMatchObject({ batchId: "batch-requested", state: "confirmed" });
+    const confirms = calls.filter((call) => call.includes("intent=confirm"));
+    expect(confirms).toHaveLength(1);
+    expect(confirms[0]).toContain(`planFingerprint=${cortenFingerprint}`);
+    expect(confirms[0]).toContain("scrydexRequestLimit=50");
+    expect(postIntents(calls)).toEqual(["preview", "confirm"]);
+    const at = new URL(page.url());
+    expect(`${at.pathname}${at.search}`).toBe("/catalog/scopes/sync-batches?batchId=batch-requested");
+    expect(calls).toContain("GET /api/catalog/scope-sync-batches/batch-requested");
+  });
+
+  test("Corten admin: settle refuses before Promote all ready, with no write", async ({ page }) => {
+    const calls = await serveWholeGameFixture(page, (request) => {
+      if (request.path === "/catalog/scopes/sync-batches")
+        return { html: fixtureBatchSection(fixtureBatch({})), corten: true };
+      if (request.path === "/api/catalog/scope-sync-batches/batch-requested") return { json: fixtureBatch({}) };
+      if (request.path === "/api/catalog/source-observations/bulk-jobs/active") return { json: { items: [] } };
+      if (request.path === "/catalog/scopes/scope-1") {
+        return {
+          html: `<form method="post" data-catalog-merge-candidate-bulk-promote="true"><input type="hidden" name="scopeRecordId" value="scope-1"><button type="submit">Promote all ready</button></form>`,
+          corten: true,
+        };
+      }
+      return undefined;
+    });
+    await expect(
+      wholeGameSettle(
+        page,
+        { batchId: "batch-requested", retryFailed: false, resumeCancelled: false },
+        fixtureRun,
+        fixtureRuntime(),
+        fixtureReceiptSink,
+      ),
+    ).rejects.toMatchObject({ code: "corten-admin-promote-unported" });
+    expect(calls.filter((call) => call.startsWith("POST "))).toEqual([]);
   });
 
   test("AC2 settle retries only the requested batch's failed unit and refuses a different batch_id", async ({

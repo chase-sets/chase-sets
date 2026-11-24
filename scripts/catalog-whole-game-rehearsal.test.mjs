@@ -430,6 +430,7 @@ describe("whole-game repair regressions", () => {
       readAllCompletedPromoteJobs: async () => [],
       readWholeGameJson: async () => ({ items: [] }),
       gotoWholeGamePage: async () => {},
+      isCortenAdminPage: async () => false,
       wholeGameRemainingMs: () => 1_000,
       clickWholeGameControl: async (_page, control) => {
         if (control === promoteButton && !expanded) throw new Error("click timeout");
@@ -1199,6 +1200,7 @@ describe("paid whole-game preview and confirm dispatches", () => {
       pageReadyTimeoutMs: 1,
       syncTimeoutMs: 1,
       gotoWholeGamePage: async () => {},
+      namedFormControl: async (form, name) => form.locator(`input[name="${name}"]`),
       chooseDesignSystemSelect: async () => {},
       clickWholeGameControl: async (_page, control) => actions.push(control.name),
       readRenderedBatchPreview: async () => preview({ planFingerprint: fingerprint, providers: [scrydex], ...live }),
