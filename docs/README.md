@@ -129,7 +129,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [Facility Return Intake](./runbooks/facility-return-intake.md) — custody, discrepancy, unidentified-package, outage, wrong-facility, and correction procedures.
 
 - [Staging Admin App](./runbooks/staging-admin-app.md): which app serves admin.staging, the STAGING_ADMIN_APP switch, and the rollback to admin-web.
-- [Staging Marketplace Pilot](./runbooks/staging-marketplace-pilot.md): the STAGING_MARKETPLACE_PILOT switch that withholds the Corten marketplace pilot from a staging deploy.
+- [Staging Marketplace App](./runbooks/staging-marketplace-app.md): the STAGING_MARKETPLACE_APP switch between the Corten marketplace and marketplace-web on marketplace.staging, and its rollback.
 - [Staging Public Pilot](./runbooks/staging-public-pilot.md): the STAGING_PUBLIC_PILOT switch that withholds the Corten public pilot from a staging deploy.
 - [Production Admin App](./runbooks/production-admin-app.md): which app serves admin.chasesets.com, the PRODUCTION_ADMIN_APP switch, its rollback, and recovering from a refused deploy.
 - [Beta Wave Exposure](./runbooks/beta-wave-exposure.md): policy-gated waitlist admission, proportional Argo exposure, monitoring, halt, and rollback procedure.
