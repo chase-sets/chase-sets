@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
@@ -10,12 +10,14 @@ import {
 import { toTransportEvent } from "@chase-sets/event-core/transport";
 import { createPostgresEventStore, type PgQueryable, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { PaymentProcessorGateway } from "@chase-sets/payment-processing";
+import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
 import {
   createPaymentTransactionRunner,
   createPaymentWebhookRunner,
   paymentLockKey,
 } from "../features/payments/api/webhook-transaction";
 import { buildPaymentProjectionHandlers } from "../features/payments/read-model/projection";
+import { recordRevokedAgentGrant, recordSavedCheckoutSetupSession } from "../features/payments/read-model/queries";
 import { module as paymentsModule } from "../index";
 import { createPaymentsServices } from "../support/runtime-support/services";
 
@@ -276,5 +278,214 @@ describe("Payment reader roots and locks over Postgres", () => {
       authorized,
       "payments.payment-cancelled",
     ]);
+  });
+
+  it("early fraud refund commits with the inbox, releases the Payment lock, and retries the same reservation", async () => {
+    const writer = createPaymentsServices(pool).payments;
+    const created = await writer.commandHandler(createCommand(paymentId));
+    const capture = await writer.commandHandler({
+      streamId,
+      context,
+      command: { type: "RecordPaymentCapture", processorStatus: "succeeded", capturedAt: at },
+    });
+    const handlers = buildPaymentProjectionHandlers(pool);
+    for (const event of [...created.storedEvents, ...capture.storedEvents]) {
+      await handlers[event.eventType]?.(toTransportEvent(event));
+    }
+
+    const entered = deferred<void>();
+    const release = deferred<void>();
+    const fake = createFakePaymentProcessorGateway();
+    const createRefund = vi.fn<PaymentProcessorGateway["createRefund"]>(fake.createRefund);
+    const processorGateway: PaymentProcessorGateway = {
+      ...fake,
+      createRefund,
+      parseWebhook: async () => ({
+        eventId: "evt_synthetic_fraud",
+        kind: "payment-early-fraud-warning",
+        processorName: "stripe",
+        processorPaymentKind: "checkout-session",
+        processorPaymentReference: `pi_${paymentId}`,
+        providerObjectReference: "issfr_synthetic",
+        internalPaymentId: paymentId as never,
+        chargeDisputed: false,
+        processorStatus: "early_fraud_warning",
+        failureCode: null,
+        failureMessage: null,
+        occurredAt: at,
+      }),
+    };
+    const webhookInput = { rawBody: "{}", signatureHeader: "synthetic" };
+    const rollbackPool: PgTransactionalPool = {
+      query: pool.query.bind(pool),
+      async connect() {
+        const client = await pool.connect();
+        return {
+          release: client.release.bind(client),
+          async query<Row>(sql: string, args?: readonly unknown[]) {
+            const result = await client.query<Row>(sql, args);
+            if (sql.includes("INSERT INTO payments_provider_operations") && args?.[2] === "early-fraud-refund") {
+              throw new Error("Synthetic rollback after enqueue");
+            }
+            return result;
+          },
+        };
+      },
+    };
+    const operationKey = "payments:refund:rfd_fraud_issfr_synthetic";
+    const refundStream = "payments.refund-rfd_fraud_issfr_synthetic";
+    const broken = createPaymentsServices(rollbackPool, { processorGateway }).payments;
+    await expect(broken.processWebhook(webhookInput, context)).rejects.toMatchObject({
+      failureClass: "handler-failure",
+    });
+    expect(createRefund).not.toHaveBeenCalled();
+    expect(await store().readStream({ streamId: refundStream })).toEqual([]);
+    const effects = () =>
+      pool.query("SELECT status FROM payments_provider_operations WHERE operation_key = $1", [operationKey]);
+    expect((await effects()).rows).toEqual([]);
+
+    createRefund.mockImplementationOnce(async () => {
+      entered.resolve();
+      await release.promise;
+      throw new Error("Synthetic interrupted refund submission");
+    });
+    const payments = createPaymentsServices(pool, { processorGateway }).payments;
+    const delivery = payments.processWebhook(webhookInput, context);
+    try {
+      await expect(
+        Promise.race([entered.promise.then(() => "entered"), delivery.then(() => "returned")]),
+      ).resolves.toBe("entered");
+      expect((await effects()).rows).toEqual([{ status: "pending" }]);
+      expect((await store().readStream({ streamId: refundStream })).map((event) => event.eventType)).toEqual([
+        refundRequested,
+      ]);
+      expect(
+        (await store().readStream({ streamId })).filter(
+          (event) => event.eventType === "payments.payment-refund-requested",
+        ),
+      ).toHaveLength(1);
+      await expect(
+        writer.commandHandler({
+          streamId,
+          context,
+          command: { type: "RecordPaymentCapture", processorStatus: "succeeded", capturedAt: at },
+        }),
+      ).resolves.toMatchObject({ newEvents: [] });
+      await expect(payments.processWebhook(webhookInput, context)).resolves.toMatchObject({
+        failure_class: "inbox-conflict",
+      });
+    } finally {
+      release.resolve();
+      await Promise.allSettled([delivery]);
+    }
+    await expect(delivery).resolves.toEqual(accepted);
+    expect(createRefund).toHaveBeenCalledTimes(1);
+    await pool.query("UPDATE payments_work_claims SET claim_expires_at = now() WHERE entity_id = $1", [operationKey]);
+    await payments.scanPaymentsNeedingReconciliation({ claimOwnerId: "synthetic-worker" }, context);
+    expect(createRefund).toHaveBeenCalledTimes(2);
+    expect(createRefund.mock.calls[0]).toEqual(createRefund.mock.calls[1]);
+    expect(createRefund).toHaveBeenLastCalledWith(
+      expect.objectContaining({ refundId: "rfd_fraud_issfr_synthetic", amount: "10.00", idempotencyKey: operationKey }),
+    );
+    expect((await effects()).rows).toEqual([{ status: "succeeded" }]);
+  });
+
+  it("revoked setup commits removal and one detach obligation before the gateway and retries after failure", async () => {
+    const accountId = "acc_payment_lock";
+    const agentGrantId = "grant_synthetic_revoked";
+    const providerReference = "pm_synthetic_revoked";
+    const operationKey = `payments:revoked-grant-detach:${providerReference}`;
+    await recordRevokedAgentGrant(pool, { accountId, agentGrantId, revokedAt: at });
+    await recordSavedCheckoutSetupSession(pool, {
+      accountId,
+      agentGrantId,
+      provider: "stripe",
+      setupReferenceId: "setup_synthetic_revoked",
+      providerCustomerReference: "cus_synthetic_revoked",
+      processorSetupReference: "seti_synthetic_revoked",
+      processorStatus: "pending",
+      consentId: "synthetic-consent",
+      consentText: "Synthetic consent.",
+    });
+    const savedMethod = {
+      processorName: "stripe",
+      providerCustomerReference: "cus_synthetic_revoked",
+      providerReference,
+      paymentMethodCategory: "card",
+      displayLabel: "Synthetic card",
+      readiness: "ready",
+      allowRedisplay: "always",
+      removed: false,
+    } as const;
+    const entered = deferred<void>();
+    const release = deferred<void>();
+    const detachSavedPaymentMethod = vi
+      .fn<PaymentProcessorGateway["detachSavedPaymentMethod"]>(async () => ({ ...savedMethod, removed: true }))
+      .mockImplementationOnce(async () => {
+        entered.resolve();
+        await release.promise;
+        throw new Error("Synthetic interrupted detach");
+      });
+    const processorGateway: PaymentProcessorGateway = {
+      ...createFakePaymentProcessorGateway(),
+      detachSavedPaymentMethod,
+      retrieveSavedPaymentMethod: async () => savedMethod,
+      parseWebhook: async (input) => ({
+        eventId: input.rawBody,
+        kind: "saved-payment-setup-succeeded",
+        processorName: "stripe",
+        processorPaymentKind: "payment-intent",
+        processorPaymentReference: "seti_synthetic_revoked",
+        processorSetupReference: "seti_synthetic_revoked",
+        savedPaymentMethod: savedMethod,
+        processorStatus: "succeeded",
+        failureCode: null,
+        failureMessage: null,
+        occurredAt: at,
+      }),
+    };
+    const payments = createPaymentsServices(pool, { processorGateway }).payments;
+    const deliver = (rawBody: string) => payments.processWebhook({ rawBody, signatureHeader: "synthetic" }, context);
+    const effects = () =>
+      pool.query("SELECT status FROM payments_provider_operations WHERE operation_key = $1", [operationKey]);
+    const first = deliver("evt_synthetic_setup");
+    try {
+      await expect(Promise.race([entered.promise.then(() => "entered"), first.then(() => "returned")])).resolves.toBe(
+        "entered",
+      );
+      await createPaymentTransactionRunner(
+        pool,
+        store(),
+      )(async (tx) => {
+        const { rows } = await tx.db.query<{ acquired: boolean }>(
+          "SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0)) AS acquired",
+          [`payments:account:${accountId}`],
+        );
+        expect(rows[0]?.acquired).toBe(true);
+      });
+      expect(
+        (
+          await pool.query(
+            "SELECT readiness, is_default FROM payments_saved_checkout_instruments WHERE provider_reference = $1",
+            [providerReference],
+          )
+        ).rows,
+      ).toEqual([{ readiness: "removed", is_default: false }]);
+      await expect(deliver("evt_synthetic_setup")).resolves.toMatchObject({ failure_class: "inbox-conflict" });
+      await expect(deliver("evt_synthetic_setup_2")).resolves.toEqual(accepted);
+      expect((await effects()).rows).toEqual([{ status: "pending" }]);
+      expect(detachSavedPaymentMethod).toHaveBeenCalledTimes(1);
+    } finally {
+      release.resolve();
+      await Promise.allSettled([first]);
+    }
+    await expect(first).resolves.toEqual(accepted);
+    await pool.query("UPDATE payments_work_claims SET claim_expires_at = now() WHERE entity_id = $1", [operationKey]);
+    await payments.scanPaymentsNeedingReconciliation({ claimOwnerId: "synthetic-worker" }, context);
+    expect(detachSavedPaymentMethod.mock.calls).toEqual([
+      [providerReference, operationKey],
+      [providerReference, operationKey],
+    ]);
+    expect((await effects()).rows).toEqual([{ status: "succeeded" }]);
   });
 });

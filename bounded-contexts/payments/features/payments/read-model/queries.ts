@@ -415,12 +415,19 @@ export async function getPaymentBySource(
   return row ? mapPaymentRow(row) : null;
 }
 
-const activePaymentStatuses = ["pending-confirmation", "captured", "partially-refunded", "refunded", "disputed"];
+export const activePaymentStatuses: readonly string[] = [
+  "pending-confirmation",
+  "captured",
+  "partially-refunded",
+  "refunded",
+  "disputed",
+];
 
 export async function getActivePaymentByOrderSet(
   db: PgQueryable,
   orderIds: readonly string[],
   buyerAccountId: string,
+  excludedPaymentIds: readonly string[] = [],
 ): Promise<PaymentDetailRow | null> {
   const result = await db.query<PaymentPageRow>(
     `WITH requested_order_ids AS (
@@ -437,10 +444,11 @@ export async function getActivePaymentByOrderSet(
      ${paymentSelect}
      WHERE buyer_account_id = $2
        AND status = ANY($3::text[])
+       AND payment_id <> ALL($4::text[])
        AND payment_id IN (SELECT payment_id FROM exact_payment_order_sets)
      ORDER BY created_at ASC, payment_id ASC
      LIMIT 1`,
-    [JSON.stringify([...new Set(orderIds)]), buyerAccountId, activePaymentStatuses],
+    [JSON.stringify([...new Set(orderIds)]), buyerAccountId, activePaymentStatuses, excludedPaymentIds],
   );
 
   const row = result.rows[0];
@@ -1356,6 +1364,37 @@ export async function recordPaymentProviderOperationPending(
   );
 }
 
+export const webhookProviderOperationKinds = ["early-fraud-refund", "revoked-grant-detach"] as const;
+
+export async function enqueueWebhookProviderOperation(
+  db: PgQueryable,
+  operation: Readonly<{
+    key: string;
+    kind: (typeof webhookProviderOperationKinds)[number];
+    providerName: string;
+    accountId: string;
+    paymentId?: string;
+    targetReference: string;
+  }>,
+) {
+  await db.query(
+    `INSERT INTO payments_provider_operations (
+       operation_key, provider_name, operation_kind, account_id, payment_id, idempotency_key,
+       provider_object_reference, status, created_at, updated_at
+     ) VALUES ($1, $2, $3, $4, $5, $1, $6, 'pending', now(), now())
+     ON CONFLICT (operation_key) DO NOTHING`,
+    [
+      operation.key,
+      operation.providerName,
+      operation.kind,
+      operation.accountId,
+      operation.paymentId ?? null,
+      operation.targetReference,
+    ],
+  );
+  return operation.key;
+}
+
 export async function recordPaymentProviderOperationSucceeded(
   db: PgQueryable,
   operation: Readonly<{
@@ -1422,16 +1461,26 @@ export async function getPaymentProviderIdempotencyKey(
 
 export async function listPaymentProviderOperationsNeedingReconciliation(
   db: PgQueryable,
-  params: Readonly<{ limit?: number; claimOwnerId?: string; claimTtlMs?: number }> = {},
+  params: Readonly<{ limit?: number; claimOwnerId?: string; claimTtlMs?: number; webhookOperationKey?: string }> = {},
 ): Promise<PaymentProviderOperationRow[]> {
   const limit = Math.max(1, Math.min(params.limit ?? 100, 500));
   if (params.claimOwnerId) {
     const result = await db.query<PaymentProviderOperationRow>(
       `WITH candidates AS (
-         SELECT operation_key
-         FROM payments_provider_operations
+         SELECT operation_key,
+                CASE WHEN operation_kind = ANY($5::text[]) THEN 'payment-webhook-effect'
+                     ELSE 'payment-provider-operation-reconciliation' END AS work_kind
+         FROM payments_provider_operations AS operation
          WHERE status = 'pending'
-           AND updated_at < NOW() - INTERVAL '15 minutes'
+           AND ($4::text IS NULL OR (operation_key = $4 AND operation_kind = ANY($5::text[])))
+           AND (
+             (operation_kind <> ALL($5::text[]) AND updated_at < now() - INTERVAL '15 minutes')
+             OR (operation_kind = ANY($5::text[]) AND NOT EXISTS (
+               SELECT 1 FROM payments_work_claims AS claim
+               WHERE claim.work_kind = 'payment-webhook-effect' AND claim.entity_id = operation.operation_key
+                 AND claim.claim_expires_at > now()
+             ))
+           )
          ORDER BY updated_at ASC, operation_key ASC
          LIMIT $1
        ),
@@ -1445,7 +1494,7 @@ export async function listPaymentProviderOperationsNeedingReconciliation(
            updated_at
          )
          SELECT
-           'payment-provider-operation-reconciliation',
+           work_kind,
            operation_key,
            $2,
            now() + ($3::text || ' milliseconds')::interval,
@@ -1459,7 +1508,8 @@ export async function listPaymentProviderOperationsNeedingReconciliation(
            attempts = payments_work_claims.attempts + 1,
            updated_at = EXCLUDED.updated_at
          WHERE payments_work_claims.claim_expires_at <= now()
-            OR payments_work_claims.owner_id = EXCLUDED.owner_id
+            OR (payments_work_claims.work_kind <> 'payment-webhook-effect'
+                AND payments_work_claims.owner_id = EXCLUDED.owner_id)
          RETURNING entity_id
        )
        SELECT
@@ -1478,7 +1528,13 @@ export async function listPaymentProviderOperationsNeedingReconciliation(
        FROM payments_provider_operations
        WHERE operation_key IN (SELECT entity_id FROM claimed)
        ORDER BY updated_at ASC, operation_key ASC`,
-      [limit, params.claimOwnerId, params.claimTtlMs ?? 120_000],
+      [
+        limit,
+        params.claimOwnerId,
+        params.claimTtlMs ?? 120_000,
+        params.webhookOperationKey ?? null,
+        webhookProviderOperationKinds,
+      ],
     );
 
     return result.rows;
@@ -1500,10 +1556,11 @@ export async function listPaymentProviderOperationsNeedingReconciliation(
        completed_at
      FROM payments_provider_operations
      WHERE status = 'pending'
+       AND operation_kind <> ALL($2::text[])
        AND updated_at < NOW() - INTERVAL '15 minutes'
      ORDER BY updated_at ASC, operation_key ASC
      LIMIT $1`,
-    [limit],
+    [limit, webhookProviderOperationKinds],
   );
 
   return result.rows;

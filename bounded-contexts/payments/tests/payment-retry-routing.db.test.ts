@@ -108,8 +108,8 @@ describe("Payment retry routing over Postgres", () => {
       paymentId,
       noSend,
       resolveBalanceCredit,
-      post: (body: CreateAccountPaymentRequest) =>
-        app.request("/account/payments", {
+      post: (body: CreateAccountPaymentRequest, path = "/account/payments") =>
+        app.request(path, {
           method: "POST",
           headers: {
             "content-type": "application/json",
@@ -117,14 +117,14 @@ describe("Payment retry routing over Postgres", () => {
           },
           body: JSON.stringify(body),
         }),
-      async record(source?: { sourceContext: string; sourceReferenceId: string }, project = true) {
+      async record(source?: { sourceContext: string; sourceReferenceId: string }, project = true, id = paymentId) {
         const writer = createPaymentsServices(pool).payments;
         const created = await writer.commandHandler({
-          streamId: `payments.payment-${paymentId}`,
+          streamId: `payments.payment-${id}`,
           context,
           command: {
             type: "CreatePayment",
-            paymentId: paymentId as never,
+            paymentId: id as never,
             buyerAccountId: accountId as never,
             orderIds: [...request.orderIds] as never,
             currencyCode: "usd",
@@ -138,8 +138,8 @@ describe("Payment retry routing over Postgres", () => {
             sellerNetAmount: "23.50",
             processorName: "stripe",
             processorPaymentKind: "payment-intent",
-            processorPaymentReference: `pi_${paymentId}`,
-            processorClientSecret: null,
+            processorPaymentReference: `pi_${id}`,
+            processorClientSecret: "synthetic_confirmation",
             processorStatus: "requires_payment_method",
             createdAt: at,
             ...source,
@@ -180,6 +180,70 @@ describe("Payment retry routing over Postgres", () => {
       payment_id: test.paymentId,
       balance_credit_amount: "10.00",
     });
+    expect(test.noSend).not.toHaveBeenCalled();
+    expect(test.resolveBalanceCredit).not.toHaveBeenCalled();
+  });
+
+  it("source-less retry skips a failed stream hidden behind a stale active projection", async () => {
+    const test = fixture("stale");
+    const activeId = `${test.paymentId}_new`;
+    await test.record(source);
+    await test.record(undefined, true, activeId);
+    const writer = createPaymentsServices(pool).payments;
+    const context = {
+      tenantId: "tnt_payment_retry" as never,
+      audit: { performedByUserId: "usr_payment_retry" as never, forAccountId: test.accountId as never },
+    };
+    await writer.commandHandler({
+      streamId: `payments.payment-${test.paymentId}`,
+      context,
+      command: {
+        type: "RecordPaymentFailure",
+        processorStatus: "failed",
+        failureCode: null,
+        failureMessage: null,
+        failedAt: at,
+      },
+    });
+    await writer.commandHandler({
+      streamId: `payments.payment-${activeId}`,
+      context,
+      command: { type: "RecordPaymentCapture", processorStatus: "succeeded", capturedAt: at },
+    });
+
+    const response = await test.post(request);
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toMatchObject({
+      payment_id: activeId,
+      status: "captured",
+      processor_payment_reference: `pi_${activeId}`,
+      processor_client_secret: null,
+      processor_redirect_url: null,
+      processor_publishable_key: null,
+    });
+    expect(test.noSend).not.toHaveBeenCalled();
+    expect(test.resolveBalanceCredit).not.toHaveBeenCalled();
+  });
+
+  it("checkout recover compares currency before USD validation and preserves matching USD recovery", async () => {
+    const test = fixture("recovery");
+    const path = "/account/checkout/recover";
+    const cad = { ...request, currencyCode: " CAD " };
+    const fresh = await test.post(cad, path);
+    expect(fresh.status).toBe(400);
+    await expect(fresh.json()).resolves.toMatchObject({
+      error: { code: "validation_failed", message: "Only USD payments are supported." },
+    });
+    await test.record({
+      sourceContext: "checkout-recovery",
+      sourceReferenceId: `${test.accountId}:${request.orderIds.join(",")}:usd:20.00:card`,
+    });
+    const changed = await test.post(cad, path);
+    expect(changed.status).toBe(400);
+    await expect(changed.json()).resolves.toMatchObject({ error: { code: "active_payment_exists_for_order_set" } });
+    const matching = await test.post({ ...request, currencyCode: " USD " }, path);
+    expect(matching.status).toBe(201);
+    await expect(matching.json()).resolves.toMatchObject({ payment_id: test.paymentId });
     expect(test.noSend).not.toHaveBeenCalled();
     expect(test.resolveBalanceCredit).not.toHaveBeenCalled();
   });

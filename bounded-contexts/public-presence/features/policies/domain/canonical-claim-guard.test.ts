@@ -101,12 +101,12 @@ describe("ordinary interest versus the ruled Prepaid Balance term", () => {
 const chargeSourceRoles = [
   {
     role: "request",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2543-2564",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2607-2628",
     markers: ["createPaymentSession", "amount: processorAmount"],
   },
   {
     role: "saved request",
-    ref: "infrastructure/stripe-payments/index.ts:1723-1777",
+    ref: "infrastructure/stripe-payments/index.ts:1727-1781",
     markers: [
       'confirm: "true"',
       "paymentIntentAuthenticationUrl(body)",
@@ -116,7 +116,7 @@ const chargeSourceRoles = [
   },
   {
     role: "new session request",
-    ref: "infrastructure/stripe-payments/index.ts:1841-1929",
+    ref: "infrastructure/stripe-payments/index.ts:1845-1933",
     markers: [
       'mode: "payment"',
       '"/v1/checkout/sessions"',
@@ -126,7 +126,7 @@ const chargeSourceRoles = [
   },
   {
     role: "new card confirmation request",
-    ref: "infrastructure/stripe-payments/index.ts:1796-1839",
+    ref: "infrastructure/stripe-payments/index.ts:1800-1843",
     markers: [
       '"/v1/payment_intents"',
       'confirm: "true"',
@@ -137,7 +137,7 @@ const chargeSourceRoles = [
   },
   {
     role: "nonzero pending",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2709-2714",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2773-2778",
     markers: ['compareMoney(processorAmount, "0.00")', '"pending-confirmation"', "captured_at:"],
   },
   {
@@ -165,7 +165,7 @@ const chargeSourceRoles = [
   },
   {
     role: "webhook capture recording",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:3197-3241",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:3249-3293",
     markers: [
       'case "payment-authorized"',
       'type: "RecordPaymentAuthorization"',
@@ -187,12 +187,12 @@ const chargeSourceRoles = [
   },
   {
     role: "reconciliation capture command",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:289-315",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:296-322",
     markers: ['case "captured"', 'type: "RecordPaymentCapture"', "capturedAt: result.occurredAt", 'case "authorized"'],
   },
   {
     role: "reconciliation recording",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:1592-1643",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:1604-1655",
     markers: [
       "providerResultMismatch(payment, result)",
       "paymentCommandFromProviderResult(result)",
@@ -1261,7 +1261,7 @@ describe("canonical claim consistency guard", () => {
         "reconciliation recording",
         "capture fact",
       ],
-      extra: ["bounded-contexts/payments/features/payments/api/runtime.ts:2650-2660"],
+      extra: ["bounded-contexts/payments/features/payments/api/runtime.ts:2714-2724"],
     },
     ...chargeSourceRoles.slice(3).map(({ role }) => ({ name: `missing ${role}`, omitted: [role], extra: [] })),
   ])(
