@@ -22,6 +22,14 @@ const popup = {
   hasTab: false,
 };
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((settle) => {
+    resolve = settle;
+  });
+  return { promise, resolve };
+}
+
 function harness(initial: OperatorRecord = { ...emptyOperatorRecord("staging"), grant, state: "idle" }) {
   const stored = new Map<string, unknown>([[key, initial]]);
   const fetch = vi.fn<typeof globalThis.fetch>(async () => envelope());
@@ -44,8 +52,8 @@ afterEach(() => vi.useRealTimers());
 
 it("uses the restored grant with one flight per environment and shares the manual wake", async () => {
   const h = harness();
-  const entered = Promise.withResolvers<void>();
-  const reply = Promise.withResolvers<Response>();
+  const entered = deferred<void>();
+  const reply = deferred<Response>();
   h.fetch.mockImplementationOnce(() => {
     entered.resolve();
     return reply.promise;
@@ -98,8 +106,8 @@ it.each([
   ["retry", () => new Response(null, { status: 429, headers: { "Retry-After": "600" } })],
 ])("ignores a late %s response from the old pairing", async (_label, response) => {
   const h = harness();
-  const entered = Promise.withResolvers<void>();
-  const reply = Promise.withResolvers<Response>();
+  const entered = deferred<void>();
+  const reply = deferred<Response>();
   h.fetch.mockImplementationOnce(() => {
     entered.resolve();
     return reply.promise;
@@ -138,8 +146,8 @@ it.each([401, 403])(
 
 it("uses the revision fence even when a grant is paired again with identical bytes", async () => {
   const h = harness();
-  const entered = Promise.withResolvers<void>();
-  const reply = Promise.withResolvers<Response>();
+  const entered = deferred<void>();
+  const reply = deferred<Response>();
   h.fetch.mockImplementationOnce(() => {
     entered.resolve();
     return reply.promise;
