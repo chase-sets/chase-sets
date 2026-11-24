@@ -427,6 +427,15 @@ fn waits_for(headers: &HeaderMap) -> Option<String> {
     sent["commitPosition"].as_str().map(str::to_owned)
 }
 
+/// Whether a read waits for a write of `context` (a source of its read-after-write receipt).
+fn waits_for_source(headers: &HeaderMap, context: &str) -> bool {
+    let Some(sent) = headers.get("chase-sets-read-after-write").and_then(|v| v.to_str().ok()) else { return false };
+    let sent: Option<Value> =
+        percent_encoding::percent_decode_str(sent).decode_utf8().ok().and_then(|json| serde_json::from_str(&json).ok());
+    sent.and_then(|sent| sent["sources"].as_array().cloned())
+        .is_some_and(|sources| sources.iter().any(|s| s["sourceContextName"] == context))
+}
+
 /// The platform API, as far as the screen uses it. The session cookie's value says who is
 /// asking: `seller` may read and write, `reader` may only read, `other` reads nothing, `down`
 /// makes the lookup fail. A write named `Refused` is refused, `Broken` fails, and a write that
@@ -1074,6 +1083,17 @@ fn checkout_sessions(stand: &Stand, method: &Method, uri: &Uri, headers: &Header
             "chk_gone" => refusal(StatusCode::NOT_FOUND, "not_found", "Checkout session not found."),
             "chk_theirs" => refusal(StatusCode::FORBIDDEN, "forbidden", "This checkout belongs to another account."),
             "chk_down" => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+            // Its order is not readable yet the first time the page waits for it.
+            "chk_starting"
+                if waits_for_source(headers, "ordering")
+                    && stand.kept.lock().unwrap().insert("caught:chk_starting".into(), json!({})).is_none() =>
+            {
+                refusal(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "projection_freshness_timeout",
+                    "Projection read model did not catch up to the requested write receipt before the freshness timeout.",
+                )
+            }
             "chk_slow" if waits_for(headers).is_some() => refusal(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "projection_freshness_timeout",
@@ -1130,6 +1150,22 @@ fn checkout_sessions(stand: &Stand, method: &Method, uri: &Uri, headers: &Header
         ),
         "confirm" if id == "chk_declined" => refusal(StatusCode::BAD_REQUEST, "payment_declined", "Your card was declined."),
         "confirm" if id == "chk_startlost" => refusal(StatusCode::CONFLICT, "payment_start_ambiguous", "Payment is in progress."),
+        // Confirm made the order, but Payments could not see it yet (Checkout's 409 with the
+        // metadata of the writes it made, `paymentStartPendingFromMissingOrder`).
+        "confirm" if id == "chk_starting" => (
+            StatusCode::CONFLICT,
+            Json(json!({
+                "error": { "code": "payment_start_pending", "message": "Payment is starting. Try Pay now again in a moment." },
+                "commitPosition": "78",
+                "commitEventIds": ["evt_chk", "evt_ord", "evt_pay"],
+                "commitPositions": [
+                    { "sourceContextName": "checkout", "maxGlobalPosition": "76", "eventIds": ["evt_chk"] },
+                    { "sourceContextName": "ordering", "maxGlobalPosition": "77", "eventIds": ["evt_ord"] },
+                    { "sourceContextName": "payments", "maxGlobalPosition": "78", "eventIds": ["evt_pay"] },
+                ],
+            })),
+        )
+            .into_response(),
         "confirm" if id == "chk_offer" => {
             committed(StatusCode::OK, "checkout", "16", json!({ "offer_id": "ofr_1", "status": "purchase-intent-submitted" }))
         }
@@ -15891,6 +15927,37 @@ async fn pay_now_reviews_again_when_the_review_changed_or_payments_quote_went_st
     assert!(text(&html).contains("Review the latest payable total"), "{html}");
 }
 
+/// Pay now whose payment is still starting (409 `payment_start_pending`: Payments could not see the
+/// order Confirm made yet) reads the page after the Checkout and Ordering writes the refusal names,
+/// as marketplace's action does (`paymentStartRetryFreshWriteSource`): preparing while the order is
+/// not readable, then the page.
+#[tokio::test]
+async fn pay_now_whose_payment_is_still_starting_waits_for_the_order_it_made() {
+    let pilot = Pilot::new().await;
+    let body = checkout_body(&format!("intent=confirm-checkout&{CARD_TOKEN}"));
+    let (status, headers, _) = pilot.send(post("/checkout/buy/session/chk_starting", "payer", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(to.starts_with("/checkout/buy/session/chk_starting?"), "{to}");
+    let place = query(&to);
+    assert_eq!(place.get("review").map(String::as_str), Some("updated"), "{to}");
+    assert!(!place.contains_key("quote"), "{to}");
+    let receipt: Value = serde_json::from_str(&place["afterWrite"]).unwrap();
+    assert!(receipt.get("commitPosition").is_none(), "{receipt}");
+    let sources: Vec<&str> =
+        receipt["sources"].as_array().unwrap().iter().map(|s| s["sourceContextName"].as_str().unwrap()).collect();
+    assert_eq!(sources, ["checkout", "ordering"], "{receipt}");
+
+    // The order is not readable yet: preparing, and read again shortly.
+    let (status, _, html) = pilot.send(get(&to, Some("payer"))).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{html}");
+    assert!(text(&html).contains("Preparing checkout"), "{html}");
+    // Then it is: the page, reviewed again.
+    let (status, _, html) = pilot.send(get(&to, Some("payer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Review updated"), "{html}");
+}
+
 #[tokio::test]
 async fn pay_now_whose_answer_may_be_lost_is_read_once_and_never_sent_again() {
     // Without Stripe's key the page takes no card, so Pay now sends no token and the session's own
@@ -23216,6 +23283,27 @@ fn sitemaps(uri: &Uri) -> Option<Response> {
     }
 }
 
+/// Marketplace's root layout says `noindex,nofollow` on every page while the site may not be indexed
+/// (`CHASE_SETS_MARKETPLACE_INDEXING` off, as on staging and the served-not-public production), and
+/// production's served-marketplace smoke reads that tag from the home page.
+#[test]
+fn every_page_says_noindex_nofollow_while_the_site_may_not_be_indexed() {
+    use corten::prelude::*;
+    let closed = html! { <crate::views::SiteRobots indexed={false} /> }.to_html();
+    assert!(closed.starts_with(r#"<meta name="robots" content="noindex,nofollow""#), "{closed}");
+    assert_eq!(html! { <crate::views::SiteRobots indexed={true} /> }.to_html(), "");
+}
+
+#[tokio::test]
+async fn the_home_page_carries_the_site_crawler_rule() {
+    let pilot = Pilot::new().await;
+    let (status, _, page) = pilot.send(get("/", None)).await;
+    assert_eq!(status, StatusCode::OK, "{page}");
+    let tag = r#"<meta name="robots" content="noindex,nofollow""#;
+    // The process reads the variable once; the tests run with it unset, so the site may be indexed.
+    assert_eq!(page.contains(tag), !crate::app::site_indexing(), "{page}");
+}
+
 #[tokio::test]
 async fn robots_and_the_sitemaps_follow_indexing() {
     let pilot = Pilot::new().await;
@@ -23291,6 +23379,31 @@ async fn robots_and_the_sitemaps_follow_indexing() {
     assert_eq!(status, StatusCode::OK);
     assert!(!page.contains("<url>"), "{page}");
     assert!(closed.stand.calls.lock().unwrap().iter().all(|c| !c.path.contains("sitemap")));
+}
+
+/// Every fallback picture Catalog stores (`contracts/catalog-seed/fallback-assets.ts`) and the
+/// product placeholder is served at its own path with marketplace-web's bytes, and another name is a
+/// 404, as marketplace-web's `public/` answers.
+#[tokio::test]
+async fn the_fake_cdn_pictures_catalog_names_are_served() {
+    let pilot = Pilot::new().await;
+    let catalog = include_str!("../../../../contracts/catalog-seed/fallback-assets.ts");
+    let paths: Vec<&str> = catalog.split('"').filter(|s| s.starts_with("/fake-cdn/assets/")).collect();
+    assert_eq!(paths.len(), 7, "{paths:?}");
+    assert!(paths.contains(&crate::views::DEFAULT_PRODUCT_IMAGE));
+    for path in paths {
+        let res = pilot.router.clone().oneshot(get(path, None)).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK, "{path}");
+        let headers = res.headers().clone();
+        let body = res.into_body().collect().await.unwrap().to_bytes();
+        let source = std::fs::read(format!("{}/../../marketplace/public{path}", env!("CARGO_MANIFEST_DIR"))).unwrap();
+        assert_eq!(body.as_ref(), source.as_slice(), "{path}");
+        let media_type = if path.ends_with(".svg") { "image/svg+xml" } else { "image/png" };
+        assert_eq!(headers[header::CONTENT_TYPE], media_type, "{path}");
+        assert_eq!(headers[header::CACHE_CONTROL], "public, max-age=86400", "{path}");
+    }
+    let res = pilot.router.clone().oneshot(get("/fake-cdn/assets/missing.png", None)).await.unwrap();
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
