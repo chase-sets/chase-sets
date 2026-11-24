@@ -23283,6 +23283,27 @@ fn sitemaps(uri: &Uri) -> Option<Response> {
     }
 }
 
+/// Marketplace's root layout says `noindex,nofollow` on every page while the site may not be indexed
+/// (`CHASE_SETS_MARKETPLACE_INDEXING` off, as on staging and the served-not-public production), and
+/// production's served-marketplace smoke reads that tag from the home page.
+#[test]
+fn every_page_says_noindex_nofollow_while_the_site_may_not_be_indexed() {
+    use corten::prelude::*;
+    let closed = html! { <crate::views::SiteRobots indexed={false} /> }.to_html();
+    assert!(closed.starts_with(r#"<meta name="robots" content="noindex,nofollow""#), "{closed}");
+    assert_eq!(html! { <crate::views::SiteRobots indexed={true} /> }.to_html(), "");
+}
+
+#[tokio::test]
+async fn the_home_page_carries_the_site_crawler_rule() {
+    let pilot = Pilot::new().await;
+    let (status, _, page) = pilot.send(get("/", None)).await;
+    assert_eq!(status, StatusCode::OK, "{page}");
+    let tag = r#"<meta name="robots" content="noindex,nofollow""#;
+    // The process reads the variable once; the tests run with it unset, so the site may be indexed.
+    assert_eq!(page.contains(tag), !crate::app::site_indexing(), "{page}");
+}
+
 #[tokio::test]
 async fn robots_and_the_sitemaps_follow_indexing() {
     let pilot = Pilot::new().await;
