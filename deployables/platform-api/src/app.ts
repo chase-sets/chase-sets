@@ -66,7 +66,7 @@ import {
   identityTermsOfServicePolicy,
 } from "@chase-sets/identity/server";
 import type { WalletFundingEligibilityResolver } from "@chase-sets/payments/server";
-import { walletFundingLimitsPolicy } from "@chase-sets/payments/server";
+import { cardAuthenticationPolicy, walletFundingLimitsPolicy } from "@chase-sets/payments/server";
 import {
   createInventoryExternalChannelSaleRecorderForPool,
   createInventoryStockAuthorityForPool,
@@ -534,7 +534,10 @@ export function createPlatformApiHost(
     policyConsoleCrossContextSources.push({
       contextName: "payments",
       db: paymentsPool,
-      definitions: [walletFundingLimitsPolicy],
+      definitions: [
+        walletFundingLimitsPolicy,
+        cardAuthenticationPolicy,
+      ] as unknown as readonly PolicyDefinition<JsonValue>[],
       write: lazyPolicyConsoleWritePort(() => runtime?.services.payments as PaymentsServices | undefined),
     });
   }

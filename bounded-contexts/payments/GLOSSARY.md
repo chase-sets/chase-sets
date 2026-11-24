@@ -100,7 +100,7 @@ Notes:
 
 - Payments owns the 3DS request decision and the support-safe provider outcome.
 - Liability-shift facts are used for payment risk review and dispute posture; they do not change Settlement-owned payout-release decisions.
-- Risk-based 3DS should be requested only when card-payment risk warrants step-up, not for every checkout.
+- Risk-based 3DS should be requested only when card-payment risk warrants step-up, not for every checkout. The Card Authentication Policy holds the amounts that warrant it.
 
 ## Payment Processor Reference
 
@@ -123,6 +123,17 @@ Notes:
 - Payments owns buyer-paid share refund execution.
 - Ordering owns the order cancellation fact.
 - Allocation must be replay-safe so a cancellation cannot create duplicate refunds.
+
+## Card Authentication Policy
+
+The **Card Authentication Policy** is the Payments platform policy (`payments.card-authentication`) that holds the two amounts at or above which a card payment requests 3DS step-up.
+
+Notes:
+
+- `highPaymentAmount` is compared with the amount charged to the card. `highSellerExposureAmount` is compared with the largest single seller payout inside the Payment. They are separate rules, and an operator revises each on its own through the Policy Console.
+- With no active policy document, both amounts are the policy's compiled default.
+- Payment creation reads the policy once, so both rules see the same revision. The Payment records the 3DS request and its reason codes, not the amounts in force.
+- 3DS step-up for a fraud flag, an open fraud review or a manual payout review does not depend on this policy.
 
 ## Payment Handler
 

@@ -9,6 +9,7 @@ import {
 import { module as identityModule } from "@chase-sets/identity";
 import { resolveOfferPaymentEnforcement, type MarketplaceServices } from "@chase-sets/marketplace/server";
 import { module as paymentsModule } from "@chase-sets/payments";
+import { cardAuthenticationPolicy } from "@chase-sets/payments/server";
 import { getApiHostSeedOrder, nonProductionDataProfiles, seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
@@ -85,6 +86,46 @@ describe("platform api bootstrap scenario", () => {
     await expect(resolveOfferPaymentEnforcement(services.policies.consentActivation)).resolves.toMatchObject({
       version: null,
       snapshot: { status: "never-activated", authorityVersion: 0 },
+    });
+
+    // The Card Authentication Policy has no route of its own: the console is its only authoring path.
+    const paymentsContext = runtime.mountedContexts.find((context) => context.contextName === "payments");
+    if (!paymentsContext) throw new Error("Expected Payments to be mounted in the public profile.");
+    await bootstrapContextDatabase(paymentsContext.module, paymentsContext.pool);
+    const paymentsServices = runtime.services.payments as ReturnType<typeof paymentsModule.createServices>;
+    const cardAuthenticationPath = `/api/platform/policy-console/${cardAuthenticationPolicy.policyKey}`;
+    const initialCardAuthentication = await app.request(cardAuthenticationPath);
+    expect(initialCardAuthentication.status).toBe(200);
+    await expect(initialCardAuthentication.json()).resolves.toMatchObject({
+      current: { source: "fallback", value: cardAuthenticationPolicy.defaultValue },
+    });
+    await expect(paymentsServices.policies.resolvePolicy(cardAuthenticationPolicy)).resolves.toMatchObject({
+      source: "fallback",
+      value: cardAuthenticationPolicy.defaultValue,
+    });
+
+    const cardAuthenticationAmounts = { highPaymentAmount: "150.00", highSellerExposureAmount: "400.00" };
+    const cardAuthenticationRevision = await app.request(`${cardAuthenticationPath}/revisions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        value: cardAuthenticationAmounts,
+        status: "active",
+        effectiveFrom: "2026-01-01T00:00:00.000Z",
+      }),
+    });
+    expect(cardAuthenticationRevision.status).toBe(201);
+    await expect(cardAuthenticationRevision.json()).resolves.toMatchObject({ version: 1, scheduled: false });
+    await drainLocalProjectionHandlerSets("payments", pools.payments, paymentsServices.policies.projectors);
+
+    const revisedCardAuthentication = await app.request(cardAuthenticationPath);
+    expect(revisedCardAuthentication.status).toBe(200);
+    await expect(revisedCardAuthentication.json()).resolves.toMatchObject({
+      current: { source: "policy", value: cardAuthenticationAmounts },
+    });
+    await expect(paymentsServices.policies.resolvePolicy(cardAuthenticationPolicy)).resolves.toMatchObject({
+      source: "policy",
+      value: cardAuthenticationAmounts,
     });
   });
 

@@ -36,6 +36,7 @@ import {
 } from "../../../support/runtime-support/common";
 import { MarketplaceCheckoutFeePolicyUnavailableError } from "./marketplace-checkout-fee-policy";
 import { createWalletFundingRuntime } from "../../wallet-funding/api/runtime";
+import { cardAuthenticationPolicy, type CardAuthenticationPolicyValue } from "../domain/card-authentication-policy";
 import {
   checkoutProcessingFeePolicyResolverFor,
   quotedCheckoutProcessingFeePolicyValue,
@@ -2119,6 +2120,329 @@ describe("payment runtime", () => {
     expect(readAllEvents()[0]?.payload).toMatchObject({
       threeDSecureRequest: "automatic",
       threeDSecureReasonCodes: [],
+    });
+  });
+
+  describe("Card Authentication Policy amounts", () => {
+    type CardAuthenticationScenario = Readonly<{
+      cardCharge?: string;
+      largestSellerPayout?: string;
+      risk?: Readonly<Record<string, unknown>>;
+      paymentMethodCategory?: "card" | "bank-account";
+      resolveCardAuthenticationPolicy?: () => Promise<CardAuthenticationPolicyValue>;
+    }>;
+    type ExpectedAssessment = Readonly<{ reasonCodes: readonly string[]; highDollarOrder: boolean }>;
+    const allRiskFlags = { stripe_fraud_flag: true, stripe_review_open_count: 1, manual_payout_review: true };
+    const riskFlagReasonCodes = ["stripe-fraud-flag", "stripe-fraud-review-open", "manual-payout-review"];
+
+    // One $500.00 order with no checkout fee. Balance credit sets the amount
+    // charged to the card apart from the seller payout, so each amount rule
+    // can be moved across its boundary while the other stays below its own.
+    function prepareCardAuthenticationScenario(scenario: CardAuthenticationScenario) {
+      const orderTotal = "500.00";
+      const cardCharge = scenario.cardCharge ?? "25.00";
+      const largestSellerPayout = scenario.largestSellerPayout ?? "24.49";
+      const balance = money.subtractMoneyAmounts(orderTotal, cardCharge);
+      const { eventStore, readAllEvents } = createInMemoryEventStore();
+      const processorGateway = createProcessorGateway();
+      const db = createOrderInputDb({
+        orderInputOverrides: { total_amount: orderTotal, seller_payout_amount: largestSellerPayout },
+        accountRiskRows: [
+          {
+            account_id: "acc_buyer",
+            manual_payout_review: false,
+            stripe_fraud_flag: false,
+            stripe_review_open_count: 0,
+            ...scenario.risk,
+          },
+        ],
+      });
+      const placeSpendHold = vi.fn(async () => ({ heldAmount: balance }));
+      const services = createPaymentRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: db as never,
+        processorGateway,
+        checkoutProcessingFeePolicyResolver: checkoutProcessingFeePolicyResolverFor({
+          enabledJurisdictions: ["US"],
+          base: { percentageBps: 0, fixedAmount: "0.00" },
+          methodAdjustments: [],
+        }),
+        balanceCreditResolver: {
+          resolveBalanceCredit: async () => ({
+            requestedAmount: balance,
+            appliedAmount: balance,
+            remainingExternalAmount: cardCharge,
+          }),
+          placeSpendHold,
+          releaseSpendHold: async () => undefined,
+        },
+        ...(scenario.resolveCardAuthenticationPolicy
+          ? { resolveCardAuthenticationPolicy: scenario.resolveCardAuthenticationPolicy }
+          : {}),
+      });
+      const input = {
+        accountId: "acc_buyer" as never,
+        orderIds: ["ord_1" as never],
+        paymentMethodCategory: scenario.paymentMethodCategory ?? ("card" as const),
+        requestedBalanceCreditAmount: balance,
+      };
+      const createPayment = async () => {
+        const status = await services.getCheckoutStatus(input);
+        return services.createAccountPayment(
+          { ...input, marketplaceCheckoutFeeQuoteFingerprint: status.marketplace_checkout_fee.quote_fingerprint },
+          context,
+        );
+      };
+      return { cardCharge, largestSellerPayout, createPayment, db, processorGateway, placeSpendHold, readAllEvents };
+    }
+
+    async function expectCardAssessment(scenario: CardAuthenticationScenario, expected: ExpectedAssessment) {
+      const prepared = prepareCardAuthenticationScenario(scenario);
+      const payment = await prepared.createPayment();
+      const request = expected.reasonCodes.length > 0 ? "any" : "automatic";
+
+      expect(prepared.processorGateway.createPaymentSession).toHaveBeenCalledTimes(1);
+      expect(prepared.processorGateway.createPaymentSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          amount: prepared.cardCharge,
+          cardAuthentication: { requestThreeDSecure: request, reasonCodes: expected.reasonCodes },
+          marketplaceRiskMetadata: expect.objectContaining({
+            max_seller_order_amount: prepared.largestSellerPayout,
+            high_dollar_order: expected.highDollarOrder,
+          }),
+        }),
+      );
+      expect(payment).toMatchObject({
+        three_d_secure_request: request,
+        three_d_secure_reason_codes: expected.reasonCodes,
+      });
+      expect(prepared.readAllEvents()[0]?.payload).toMatchObject({
+        threeDSecureRequest: request,
+        threeDSecureReasonCodes: expected.reasonCodes,
+      });
+    }
+
+    function revisedTo(value: CardAuthenticationPolicyValue) {
+      return vi.fn(async () => value);
+    }
+
+    const paymentAmountOnly: ExpectedAssessment = { reasonCodes: ["high-payment-amount"], highDollarOrder: false };
+    const sellerExposureOnly: ExpectedAssessment = {
+      reasonCodes: ["high-dollar-seller-exposure"],
+      highDollarOrder: true,
+    };
+    const neither: ExpectedAssessment = { reasonCodes: [], highDollarOrder: false };
+
+    const defaultBoundaryCases: readonly (CardAuthenticationScenario & ExpectedAssessment & { name: string })[] = [
+      { name: "a $249.99 card charge", cardCharge: "249.99", ...neither },
+      { name: "a $250.00 card charge", cardCharge: "250.00", ...paymentAmountOnly },
+      { name: "a $250.01 card charge", cardCharge: "250.01", ...paymentAmountOnly },
+      { name: "a $249.99 largest seller payout", largestSellerPayout: "249.99", ...neither },
+      { name: "a $250.00 largest seller payout", largestSellerPayout: "250.00", ...sellerExposureOnly },
+      { name: "a $250.01 largest seller payout", largestSellerPayout: "250.01", ...sellerExposureOnly },
+      {
+        name: "a $250.00 card charge and a $250.00 largest seller payout",
+        cardCharge: "250.00",
+        largestSellerPayout: "250.00",
+        reasonCodes: ["high-payment-amount", "high-dollar-seller-exposure"],
+        highDollarOrder: true,
+      },
+    ];
+
+    it.each(defaultBoundaryCases)(
+      "decides $name as before when no resolver is wired",
+      async ({ name: _name, reasonCodes, highDollarOrder, ...scenario }) => {
+        await expectCardAssessment(scenario, { reasonCodes, highDollarOrder });
+      },
+    );
+
+    it.each(defaultBoundaryCases)(
+      "decides $name as before when the resolver answers with the policy default",
+      async ({ name: _name, reasonCodes, highDollarOrder, ...scenario }) => {
+        const resolveCardAuthenticationPolicy = revisedTo(cardAuthenticationPolicy.defaultValue);
+        await expectCardAssessment({ ...scenario, resolveCardAuthenticationPolicy }, { reasonCodes, highDollarOrder });
+        expect(resolveCardAuthenticationPolicy).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    it.each([
+      {
+        name: "lowered to $100.00",
+        policy: { highPaymentAmount: "100.00", highSellerExposureAmount: "250.00" },
+        cases: [
+          { cardCharge: "99.99", ...neither },
+          { cardCharge: "100.00", ...paymentAmountOnly },
+          { largestSellerPayout: "100.00", ...neither },
+          { largestSellerPayout: "249.99", ...neither },
+          { largestSellerPayout: "250.00", ...sellerExposureOnly },
+        ],
+      },
+      {
+        name: "raised to $400.00",
+        policy: { highPaymentAmount: "400.00", highSellerExposureAmount: "250.00" },
+        cases: [
+          { cardCharge: "250.00", ...neither },
+          { cardCharge: "399.99", ...neither },
+          { cardCharge: "400.00", ...paymentAmountOnly },
+          { largestSellerPayout: "249.99", ...neither },
+          { largestSellerPayout: "250.00", ...sellerExposureOnly },
+        ],
+      },
+    ])("moves only high-payment-amount when highPaymentAmount is $name", async ({ policy, cases }) => {
+      for (const { reasonCodes, highDollarOrder, ...scenario } of cases) {
+        const resolveCardAuthenticationPolicy = revisedTo(policy);
+        await expectCardAssessment({ ...scenario, resolveCardAuthenticationPolicy }, { reasonCodes, highDollarOrder });
+        expect(resolveCardAuthenticationPolicy).toHaveBeenCalledTimes(1);
+      }
+    });
+
+    it.each([
+      {
+        name: "lowered to $100.00",
+        policy: { highPaymentAmount: "250.00", highSellerExposureAmount: "100.00" },
+        cases: [
+          { largestSellerPayout: "99.99", ...neither },
+          { largestSellerPayout: "100.00", ...sellerExposureOnly },
+          { cardCharge: "100.00", ...neither },
+          { cardCharge: "249.99", ...neither },
+          { cardCharge: "250.00", ...paymentAmountOnly },
+        ],
+      },
+      {
+        name: "raised to $400.00",
+        policy: { highPaymentAmount: "250.00", highSellerExposureAmount: "400.00" },
+        cases: [
+          { largestSellerPayout: "250.00", ...neither },
+          { largestSellerPayout: "399.99", ...neither },
+          { largestSellerPayout: "400.00", ...sellerExposureOnly },
+          { cardCharge: "249.99", ...neither },
+          { cardCharge: "250.00", ...paymentAmountOnly },
+        ],
+      },
+    ])(
+      "moves only high_dollar_order and high-dollar-seller-exposure when highSellerExposureAmount is $name",
+      async ({ policy, cases }) => {
+        for (const { reasonCodes, highDollarOrder, ...scenario } of cases) {
+          const resolveCardAuthenticationPolicy = revisedTo(policy);
+          await expectCardAssessment(
+            { ...scenario, resolveCardAuthenticationPolicy },
+            { reasonCodes, highDollarOrder },
+          );
+          expect(resolveCardAuthenticationPolicy).toHaveBeenCalledTimes(1);
+        }
+      },
+    );
+
+    const riskFlagPolicies: readonly Readonly<{
+      name: string;
+      policy: CardAuthenticationPolicyValue;
+      amountReasonCodes: readonly string[];
+    }>[] = [
+      {
+        name: "both amounts at the lowest value",
+        policy: { highPaymentAmount: "0.01", highSellerExposureAmount: "0.01" },
+        amountReasonCodes: ["high-payment-amount", "high-dollar-seller-exposure"],
+      },
+      { name: "the policy default", policy: cardAuthenticationPolicy.defaultValue, amountReasonCodes: [] },
+      {
+        name: "both amounts at the highest value",
+        policy: { highPaymentAmount: "99999999.99", highSellerExposureAmount: "99999999.99" },
+        amountReasonCodes: [],
+      },
+    ];
+
+    it.each(riskFlagPolicies)(
+      "keeps the account risk reason codes under $name",
+      async ({ policy, amountReasonCodes }) => {
+        const highDollarOrder = amountReasonCodes.includes("high-dollar-seller-exposure");
+        const riskCases = [
+          { risk: {}, reasonCodes: [] },
+          { risk: { stripe_fraud_flag: true }, reasonCodes: ["stripe-fraud-flag"] },
+          { risk: { stripe_review_open_count: 1 }, reasonCodes: ["stripe-fraud-review-open"] },
+          { risk: { manual_payout_review: true }, reasonCodes: ["manual-payout-review"] },
+          { risk: allRiskFlags, reasonCodes: riskFlagReasonCodes },
+        ];
+        for (const { risk, reasonCodes } of riskCases) {
+          await expectCardAssessment(
+            { risk, resolveCardAuthenticationPolicy: revisedTo(policy) },
+            { reasonCodes: [...reasonCodes, ...amountReasonCodes], highDollarOrder },
+          );
+        }
+      },
+    );
+
+    it("gives a bank-account payment no assessment whatever the amounts and risk flags are", async () => {
+      const prepared = prepareCardAuthenticationScenario({
+        paymentMethodCategory: "bank-account",
+        cardCharge: "300.00",
+        largestSellerPayout: "300.00",
+        risk: allRiskFlags,
+        resolveCardAuthenticationPolicy: revisedTo({ highPaymentAmount: "0.01", highSellerExposureAmount: "0.01" }),
+      });
+
+      const payment = await prepared.createPayment();
+
+      expect(prepared.processorGateway.createPaymentSession).toHaveBeenCalledWith(
+        expect.objectContaining({ paymentMethodCategory: "bank-account", amount: "300.00", cardAuthentication: null }),
+      );
+      expect(payment).toMatchObject({ three_d_secure_request: null, three_d_secure_reason_codes: [] });
+    });
+
+    it("gives a card payment fully covered by balance credit no assessment", async () => {
+      const prepared = prepareCardAuthenticationScenario({
+        cardCharge: "0.00",
+        largestSellerPayout: "300.00",
+        risk: allRiskFlags,
+        resolveCardAuthenticationPolicy: revisedTo({ highPaymentAmount: "0.01", highSellerExposureAmount: "0.01" }),
+      });
+
+      const payment = await prepared.createPayment();
+
+      expect(prepared.processorGateway.createPaymentSession).not.toHaveBeenCalled();
+      expect(payment).toMatchObject({
+        processor_amount: "0.00",
+        three_d_secure_request: null,
+        three_d_secure_reason_codes: [],
+      });
+    });
+
+    it("rejects payment creation before any reservation, spend hold or processor call when the policy cannot be resolved", async () => {
+      const reservationInserts = (db: ReturnType<typeof createOrderInputDb>) =>
+        db.query.mock.calls.filter(([sql]) => sql.includes("INSERT INTO payments_payment_creation_reservations"));
+
+      const failure = new Error("synthetic policy read failure");
+      const rejecting = prepareCardAuthenticationScenario({
+        cardCharge: "250.00",
+        resolveCardAuthenticationPolicy: vi.fn(async (): Promise<CardAuthenticationPolicyValue> => {
+          throw failure;
+        }),
+      });
+
+      await expect(rejecting.createPayment()).rejects.toBe(failure);
+
+      expect(reservationInserts(rejecting.db)).toEqual([]);
+      expect(rejecting.placeSpendHold).not.toHaveBeenCalled();
+      expect(rejecting.processorGateway.createCustomer).not.toHaveBeenCalled();
+      expect(rejecting.processorGateway.createPaymentSession).not.toHaveBeenCalled();
+      expect(rejecting.readAllEvents()).toEqual([]);
+
+      // The same payment with a readable policy does reach each of those steps.
+      const resolving = prepareCardAuthenticationScenario({
+        cardCharge: "250.00",
+        resolveCardAuthenticationPolicy: revisedTo(cardAuthenticationPolicy.defaultValue),
+      });
+      await resolving.createPayment();
+      expect(reservationInserts(resolving.db)).toHaveLength(1);
+      expect(resolving.placeSpendHold).toHaveBeenCalledTimes(1);
+      expect(resolving.processorGateway.createCustomer).toHaveBeenCalledTimes(1);
+      expect(resolving.processorGateway.createPaymentSession).toHaveBeenCalledTimes(1);
+    });
+
+    it("leaves no compiled 3DS amount in the payment runtime", () => {
+      const source = readFileSync(new URL("./runtime.ts", import.meta.url), "utf8");
+      expect(source).not.toContain("250.00");
+      expect(source).not.toContain("THREE_D_SECURE_PAYMENT_AMOUNT_THRESHOLD");
     });
   });
 

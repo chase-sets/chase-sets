@@ -665,7 +665,7 @@ const postCaptureOfferConsent = {
   testCase: {
     name: "exposes the Offer payment consent policy in the console without enabling enforcement on revision",
     referenceDurationMs: 12_000,
-    identity: "d02abcddabdae4d0",
+    identity: "7c0a8c061ac47f5e",
   },
 };
 // Cases whose bodies changed after the frozen capture: each keeps the capture's measured duration under the
