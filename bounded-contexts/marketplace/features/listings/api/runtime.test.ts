@@ -3606,7 +3606,9 @@ describe("an inventory snapshot changes only supply mirror rows its account owns
     expect(item).toMatch(
       /ON CONFLICT \(item_id\) DO UPDATE SET[\s\S]+WHERE marketplace_supply_items\.account_id = EXCLUDED\.account_id\s+RETURNING item_id$/,
     );
-    // The snapshot leaves the stream version alone, so the first Inventory event still replaces the row.
+    // No update can move a row to another account, and the snapshot leaves the stream version alone, so the
+    // first Inventory event still replaces the row.
+    for (const write of [location, item]) expect(write).not.toMatch(/^\s*account_id = /m);
     expect(item).not.toMatch(/DO UPDATE SET[\s\S]*last_stream_version/);
   });
 });
