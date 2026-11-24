@@ -140,7 +140,7 @@ function assertPreservedSelection(planner = createCiGatePlan) {
       const inputs = { ...scenario, scope: entry.scope };
       const prior = priorCreateCiGatePlan(inputs);
       const candidate = planner(inputs);
-      const expected = structuredClone(prior);
+      const expected = withCatalogUatSyntheticGate(structuredClone(prior), entry.scope);
       const e2e = expected.gates.find(({ id }) => id === "e2e-tests");
       expect(e2e.e2eBatches).toEqual(entry.batches);
       e2e.e2eBatches = expectedRenderedCopyBatches(entry.batches);
@@ -155,6 +155,33 @@ function assertPreservedSelection(planner = createCiGatePlan) {
       );
     }
   }
+}
+
+// The one gate added after both parity bases: the Catalog UAT spec's synthetic tests, selected only
+// by the classifier's catalogUatSyntheticRequired flag and placed right after E2E Tests.
+function expectedCatalogUatSyntheticGate(scope) {
+  return {
+    id: "catalog-uat-synthetic",
+    name: "Catalog UAT Synthetic Tests",
+    category: "scope-gated",
+    selection: scope.catalogUatSyntheticRequired ? "REQUIRED" : "NOT_REQUIRED",
+    executability: "REPOSITORY_LOCAL",
+    reason: scope.catalogUatSyntheticRequired ? "scope" : "not-affected",
+    hostedOnlyReason: null,
+    affectedWorkspaces: [...scope.affectedWorkspaces],
+    e2eBatches: [],
+  };
+}
+
+function withCatalogUatSyntheticGate(plan, scope) {
+  const index = plan.gates.findIndex(({ id }) => id === "e2e-tests");
+  plan.gates.splice(index + 1, 0, expectedCatalogUatSyntheticGate(scope));
+  return plan;
+}
+
+function withCatalogUatSyntheticNeed(ids) {
+  const index = ids.indexOf("e2e-tests");
+  return [...ids.slice(0, index + 1), "catalog-uat-synthetic", ...ids.slice(index + 1)];
 }
 
 const IMPLEMENTATION_BASE_SHA = "0b4bf3adde0adda5bae2060dd898443cb4dcdb21";
@@ -434,11 +461,14 @@ describe("shared E2E setup regression and enforcement", () => {
             e2eSuiteIds: ["admin_auth"],
             e2eTestsRequired: true,
             unitTestsRequired: previous.affectedWorkspaces.length > 0,
+            catalogUatSyntheticRequired: false,
           });
           for (const mode of ["pull-request", "merge-group"]) {
             const inputs = { mode, labels: [], provenance: "same-repository" };
             expect(
-              createCiGatePlan({ ...inputs, scope: previous }).gates.find(({ id }) => id === "e2e-tests"),
+              createCiGatePlan({ ...inputs, scope: { ...previous, catalogUatSyntheticRequired: false } }).gates.find(
+                ({ id }) => id === "e2e-tests",
+              ),
             ).toMatchObject({ selection: "NOT_REQUIRED", e2eBatches: [] });
             const plan = createCiGatePlan({ ...inputs, scope });
             expect(plan.gates.find(({ id }) => id === "e2e-tests")).toMatchObject({
@@ -986,9 +1016,11 @@ describe("shared CI gate plan", () => {
       for (const scenario of scenarios) {
         const plan = createCiGatePlan({ ...scenario, scope });
         for (const gate of plan.gates) {
-          const expectedRequired = baseSelection(gate.id, { ...scenario, scope });
-          const category = gate.id === "e2e-tests" ? "scope-gated" : baseCategories.get(gate.id);
-          const required = gate.id === "e2e-tests" ? scope.e2eTestsRequired : expectedRequired;
+          // E2E Tests moved to scope-gated, and Catalog UAT Synthetic Tests is new; both follow the scope alone.
+          const scopeOnly = { "e2e-tests": "e2eTestsRequired", "catalog-uat-synthetic": "catalogUatSyntheticRequired" };
+          const category = gate.id in scopeOnly ? "scope-gated" : baseCategories.get(gate.id);
+          const required =
+            gate.id in scopeOnly ? scope[scopeOnly[gate.id]] : baseSelection(gate.id, { ...scenario, scope });
           const expected = required ? "REQUIRED" : "NOT_REQUIRED";
           const reason = expectedReason(gate.id, category, required, { ...scenario, scope });
           if (gate.selection !== expected || gate.reason !== reason) {
@@ -1063,20 +1095,30 @@ describe("shared CI gate plan", () => {
     ).toThrow("UNKNOWN_OR_MISSING_GATE_IDS");
   });
 
-  it("closes executability over exactly the same seventeen gates", () => {
-    const universe = [...requiredNeeds(baseWorkflow), "pr-required"];
+  it("closes executability over the base's seventeen gates plus Catalog UAT Synthetic Tests", () => {
+    const universe = [...withCatalogUatSyntheticNeed(requiredNeeds(baseWorkflow)), "pr-required"];
     expect(CI_GATE_DEFINITIONS.map(({ id }) => id)).toEqual(universe);
+    expect([...requiredNeeds(headWorkflow), "pr-required"].filter((id) => universe.includes(id))).toEqual(universe);
     expect(CI_GATE_DEFINITIONS.every(({ executability }) => CI_GATE_EXECUTABILITY.includes(executability))).toBe(true);
     expect(
       CI_GATE_DEFINITIONS.filter(({ executability }) => executability === "REPOSITORY_LOCAL").map(({ id }) => id),
-    ).toEqual(["change-scope", "static", "typecheck", "unit-tests", "db-tests", "e2e-tests", "build"]);
+    ).toEqual([
+      "change-scope",
+      "static",
+      "typecheck",
+      "unit-tests",
+      "db-tests",
+      "e2e-tests",
+      "catalog-uat-synthetic",
+      "build",
+    ]);
     expect(
       CI_GATE_DEFINITIONS.filter(({ executability, hostedOnlyReason }) =>
         executability === "HOSTED_ONLY"
           ? typeof hostedOnlyReason === "string" && hostedOnlyReason.length > 0
           : hostedOnlyReason === null,
       ),
-    ).toHaveLength(17);
+    ).toHaveLength(18);
 
     const scope = classifyChanges({ changedFiles: ["README.md"] });
     const plan = createCiGatePlan({ mode: "merge-group", scope });
@@ -1118,6 +1160,62 @@ describe("shared CI gate plan", () => {
     const bypassDbWithHeavyLane = fast.targetedHeavyRequired && scope.dbTestsRequired ? "REQUIRED" : "NOT_REQUIRED";
     expect(bypassDbWithHeavyLane).not.toBe(shippedDbSelection);
     expect(shippedDbSelection).toBe("REQUIRED");
+  });
+
+  it("selects Catalog UAT Synthetic Tests from the spec, its support modules, the Playwright config and the Corten admin catalog", () => {
+    const triggers = [
+      "deployables/admin-web/e2e/catalog-staging-provider-sync.uat.spec.ts",
+      "deployables/admin-web/e2e/support/whole-game-rehearsal.ts",
+      "deployables/admin-web/e2e/support/whole-game-credential-probe-test-support.ts",
+      "deployables/admin-web/e2e/support/representative-catalog-evidence.ts",
+      "playwright.config.ts",
+      "deployables/corten-pilot/admin/src/catalog/sync_batches.rs",
+    ];
+    const nearMisses = [
+      "README.md",
+      "deployables/admin-web/e2e/admin-auth.spec.ts",
+      "deployables/admin-web/e2e/support/other-support.ts",
+      "deployables/corten-pilot/admin/src/app.rs",
+      "deployables/corten-pilot/admin/src/catalog.rs",
+      ".github/workflows/catalog-staging-provider-uat.yml",
+    ];
+    for (const [changedFiles, required] of [
+      ...triggers.map((file) => [[file], true]),
+      ...nearMisses.map((file) => [[file], false]),
+    ]) {
+      const scope = classifyChanges({ changedFiles, workspaces });
+      expect(scope.catalogUatSyntheticRequired, changedFiles[0]).toBe(required);
+      for (const scenario of scenarios) {
+        const plan = createCiGatePlan({ ...scenario, scope });
+        expect(
+          plan.gates.find(({ id }) => id === "catalog-uat-synthetic"),
+          changedFiles[0],
+        ).toEqual(expectedCatalogUatSyntheticGate(scope));
+        expect(ciGatePlanOutputMap(plan).catalog_uat_synthetic_required).toBe(String(required));
+      }
+    }
+  });
+
+  it("runs Catalog UAT Synthetic Tests only on its scope output, with no secret and the live journey off", () => {
+    const job = workflowJob(headWorkflow, "catalog-uat-synthetic").text;
+    expect(job).toContain("    name: Catalog UAT Synthetic Tests\n");
+    expect(workflowCondition(headWorkflow, "catalog-uat-synthetic")).toBe(
+      "needs['change-scope'].outputs.catalog_uat_synthetic_required == 'true'",
+    );
+    expect(job).not.toMatch(/secrets\./);
+    expect(job).not.toMatch(/CATALOG_STAGING_PROVIDER_UAT:/);
+    expect(job).toContain("unset CATALOG_STAGING_PROVIDER_UAT CATALOG_STAGING_PROVIDER_UAT_SCOPE");
+    expect(job).toContain('PLAYWRIGHT_SKIP_WEB_SERVER: "true"');
+    expect(job).toContain(
+      "pnpm exec playwright test deployables/admin-web/e2e/catalog-staging-provider-sync.uat.spec.ts --project=admin-web-chromium",
+    );
+    expect(requiredNeeds(headWorkflow)).toContain("catalog-uat-synthetic");
+    expect(requiredCalls(headWorkflow)).toContainEqual({
+      helper: "require_job",
+      name: "Catalog UAT Synthetic Tests",
+      result: "${{ needs['catalog-uat-synthetic'].result }}",
+      required: "${{ needs['change-scope'].outputs.catalog_uat_synthetic_required }}",
+    });
   });
 
   it("keeps provenance explicit and affects only the preview complement", () => {

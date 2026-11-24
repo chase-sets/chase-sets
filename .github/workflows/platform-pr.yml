@@ -83,6 +83,7 @@ jobs:
       unit_tests_required: ${{ steps.gate-plan.outputs.unit_tests_required }}
       db_tests_required: ${{ steps.gate-plan.outputs.db_tests_required }}
       e2e_tests_required: ${{ steps.gate-plan.outputs.e2e_tests_required }}
+      catalog_uat_synthetic_required: ${{ steps.gate-plan.outputs.catalog_uat_synthetic_required }}
       build_required: ${{ steps.gate-plan.outputs.build_required }}
       docker_image_required: ${{ steps.gate-plan.outputs.docker_image_required }}
       workflow_lint_required: ${{ steps.gate-plan.outputs.workflow_lint_required }}
@@ -528,6 +529,46 @@ jobs:
           }
           console.log("AC4: qualified/canceled/expired passed; synthetic only");
           ' "$RUNNER_TEMP/ac4-chromium.json"
+
+  # The Catalog staging provider UAT spec's synthetic tests answer every request with page.route, so
+  # they need no staging, credentials or web server. The live journeys skip without
+  # CATALOG_STAGING_PROVIDER_UAT, which this job never sets.
+  catalog-uat-synthetic:
+    name: Catalog UAT Synthetic Tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    needs: change-scope
+    if: needs['change-scope'].outputs.catalog_uat_synthetic_required == 'true'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - name: Install Playwright Chromium
+        timeout-minutes: 11
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/catalog-uat-playwright
+          PLAYWRIGHT_INSTALL_SITE: platform-pr-catalog-uat-synthetic
+          PLAYWRIGHT_INSTALL_POLICY: single-attempt
+        run: node scripts/playwright-chromium-install.mjs
+
+      - name: Run the spec's synthetic tests
+        timeout-minutes: 15
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/catalog-uat-playwright
+          PLAYWRIGHT_SKIP_WEB_SERVER: "true"
+          # An unroutable origin: a synthetic test that escapes its page.route fails instead of reaching a host.
+          ADMIN_WEB_URL: http://127.0.0.1:9
+        run: |
+          set -euo pipefail
+          unset CATALOG_STAGING_PROVIDER_UAT CATALOG_STAGING_PROVIDER_UAT_SCOPE CATALOG_PREVIEW_PROBE_TRACE_CONTROL
+          pnpm exec playwright test deployables/admin-web/e2e/catalog-staging-provider-sync.uat.spec.ts --project=admin-web-chromium
 
   e2e-tests:
     name: E2E Tests (${{ matrix.suite_batch }})
@@ -1984,6 +2025,7 @@ jobs:
       - canonical-proof-sets
       - db-tests
       - e2e-tests
+      - catalog-uat-synthetic
       - capture-hermetic-chromium
       - build
       - docker-image
@@ -2038,6 +2080,7 @@ jobs:
           require_job "Unit Tests" "${{ needs['unit-tests'].result }}" "${{ needs['change-scope'].outputs.unit_tests_required }}"
           require_job "DB Profile Tests" "${{ needs['db-tests'].result }}" "${{ needs['change-scope'].outputs.db_tests_required }}"
           require_job "E2E Tests" "${{ needs['e2e-tests'].result }}" "${{ needs['change-scope'].outputs.e2e_tests_required }}"
+          require_job "Catalog UAT Synthetic Tests" "${{ needs['catalog-uat-synthetic'].result }}" "${{ needs['change-scope'].outputs.catalog_uat_synthetic_required }}"
           capture_required="$(node --input-type=module -e '
           const required = process.env.AC4_E2E_REQUIRED;
           const suites = JSON.parse(process.env.AC4_E2E_SUITES_JSON);
