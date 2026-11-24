@@ -652,30 +652,20 @@ export function resolveStagingMarketplaceApp(env = {}) {
   return { app: value, source: "variable" };
 }
 
-// Whether staging deploys an advisory Corten pilot. STAGING_PUBLIC_PILOT is a GitHub variable, so a pilot that
-// never becomes ready (which would fail the atomic staging release) is dropped with a variable change and a
-// re-run, with no pull request. Unset means deployed; any other value fails.
-export const STAGING_PILOT_STATES = Object.freeze(["deployed", "withheld"]);
-export const defaultStagingPilot = "deployed";
+// The app that serves www.staging. STAGING_PUBLIC_APP is a GitHub variable, so a rollback to public-web is a
+// variable change and a deploy, with no pull request. Unset means the default; any other value fails.
+export const STAGING_PUBLIC_APPS = Object.freeze(["public-corten", "public-web"]);
+export const defaultStagingPublicApp = "public-corten";
 
-// The variable that withholds each advisory pilot on staging.
-export const STAGING_PILOT_VARIABLES = Object.freeze({
-  "public-corten": "STAGING_PUBLIC_PILOT",
-});
-
-export function resolveStagingPilot(env = {}, variable) {
-  const value = String(env[variable] ?? "").trim();
+export function resolveStagingPublicApp(env = {}) {
+  const value = String(env.STAGING_PUBLIC_APP ?? "").trim();
   if (value === "") {
-    return { state: defaultStagingPilot, source: "default" };
+    return { app: defaultStagingPublicApp, source: "default" };
   }
-  if (!STAGING_PILOT_STATES.includes(value)) {
-    throw new Error(`${variable} must be one of ${STAGING_PILOT_STATES.join(", ")}; got "${value}".`);
+  if (!STAGING_PUBLIC_APPS.includes(value)) {
+    throw new Error(`STAGING_PUBLIC_APP must be one of ${STAGING_PUBLIC_APPS.join(", ")}; got "${value}".`);
   }
-  return { state: value, source: "variable" };
-}
-
-export function resolveStagingPublicPilot(env = {}) {
-  return resolveStagingPilot(env, "STAGING_PUBLIC_PILOT");
+  return { app: value, source: "variable" };
 }
 
 export function buildDoksIngressValues(options = {}) {
@@ -688,6 +678,7 @@ export function buildDoksIngressValues(options = {}) {
   const production = environment === "production";
   const adminApp = production ? resolveProductionAdminApp(env).app : resolveStagingAdminApp(env).app;
   const marketplaceApp = production ? null : resolveStagingMarketplaceApp(env).app;
+  const publicApp = production ? null : resolveStagingPublicApp(env).app;
   const targetVariable = production ? "PRODUCTION_DOKS_INGRESS_TARGET" : "DOKS_INGRESS_TARGET";
   const target = String(env[targetVariable] ?? "").trim();
 
@@ -699,6 +690,7 @@ export function buildDoksIngressValues(options = {}) {
       ? buildProductionDoksIngressHosts({ marketplaceServed, adminService: adminApp })
       : buildDoksIngressHosts(stagingEnvironmentZone, "live", {
           apexService: marketplaceApp,
+          wwwService: publicApp,
           marketplaceService: marketplaceApp,
           adminService: adminApp,
         })
@@ -713,7 +705,7 @@ export function buildDoksIngressValues(options = {}) {
       host: `marketplace-corten.${stagingEnvironmentZone}`,
       paths: doksIngressPaths("marketplace-corten"),
     });
-    // The public pilot, beside public-web until www.staging switches to it.
+    // The public pilot's own host, whichever app serves www.staging.
     hosts.push({
       host: `public-corten.${stagingEnvironmentZone}`,
       paths: doksIngressPaths("public-corten"),
@@ -782,6 +774,7 @@ export function buildPreviewDoksIngressValues(options = {}) {
 
 function buildDoksIngressHosts(environmentZone, hostMode, options = {}) {
   const apexService = options.apexService ?? "public-web";
+  const wwwService = options.wwwService ?? "public-web";
   const marketplaceService = options.marketplaceService ?? "marketplace";
   const adminService = options.adminService ?? "admin-web";
   const hosts =
@@ -806,7 +799,7 @@ function buildDoksIngressHosts(environmentZone, hostMode, options = {}) {
     },
     {
       host: hosts.www,
-      paths: doksIngressPaths("public-web"),
+      paths: doksIngressPaths(wwwService),
     },
     {
       host: hosts.marketplace,
