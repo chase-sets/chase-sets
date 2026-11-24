@@ -1,8 +1,22 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { getEventCommitMetadata, runWithEventCommitMetadata } from "@chase-sets/event-core/consistency";
+import type { EventStore } from "@chase-sets/event-core/event-store";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { queryVocabularyPolicy } from "../features/search/domain/query-vocabulary-policy";
 import { createDiscoveryServices } from "../support/runtime-support/services";
 
+// Hoisted by Vitest; hands the composed Discovery services an in-memory event store.
+const composition = vi.hoisted(() => ({ eventStore: undefined as EventStore | undefined }));
+vi.mock("@chase-sets/event-core-postgres", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@chase-sets/event-core-postgres")>()),
+  createPostgresEventStore: () => composition.eventStore,
+}));
+
 const policyKey = "discovery.query-vocabulary";
+const context = {
+  tenantId: "tnt_discovery" as never,
+  audit: { performedByUserId: "usr_operator" as never, forAccountId: "acc_operator" as never },
+};
 
 // Serves one active Query Vocabulary document from the Discovery database and one Search Index row.
 function discoveryDatabase() {
@@ -40,6 +54,7 @@ describe("Discovery services", () => {
   it("search with the Query Vocabulary read from the Discovery database through their own policy runtime", async () => {
     // The policy cache ages by the wall clock; a frozen clock keeps the three requests inside one read.
     vi.useFakeTimers({ toFake: ["Date"] });
+    composition.eventStore = createInMemoryEventStore().eventStore;
     const query = discoveryDatabase();
     const { items, policies, projectors } = createDiscoveryServices({ query } as never, {
       notificationOutbox: {} as never,
@@ -77,5 +92,33 @@ describe("Discovery services", () => {
     expect(policyReads).toBe(1);
     expect(projectors.map((projector) => projector.projectionName)).toContain("platform-policy-document-projection");
     expect(projectors).toEqual(expect.arrayContaining([...policies.projectors]));
+  });
+
+  // Without the name, a Policy Console write's commit receipt names a source no Discovery subscription answers to.
+  it("write a Query Vocabulary revision under the Discovery commit source", async () => {
+    composition.eventStore = createInMemoryEventStore().eventStore;
+    // A Discovery database holding no policy document yet.
+    const query = async () => ({ rows: [], rowCount: 0 });
+    const { policies } = createDiscoveryServices(
+      { connect: async () => ({ query, release: () => {} }), query } as never,
+      { notificationOutbox: {} as never },
+    );
+
+    const sources = await runWithEventCommitMetadata(async () => {
+      await policies.createPolicyDocument(
+        queryVocabularyPolicy,
+        {
+          status: "active",
+          value: { expansions: { sq: "squirtle" } },
+          effectiveFrom: "2026-01-01T00:00:00.000Z",
+          effectiveUntil: null,
+          actorUserId: context.audit.performedByUserId,
+        },
+        context,
+      );
+      return getEventCommitMetadata().sources.map((source) => source.sourceContextName);
+    });
+
+    expect(sources).toEqual(["discovery"]);
   });
 });
