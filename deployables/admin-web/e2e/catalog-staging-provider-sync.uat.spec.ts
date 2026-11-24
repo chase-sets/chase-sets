@@ -9724,3 +9724,4 @@ test.describe("catalog whole-game rehearsal journeys", () => {
     }
   });
 });
+// Temporary probe: selects the Catalog UAT Synthetic Tests gate on its own PR; reverted before merge.
