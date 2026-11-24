@@ -341,34 +341,66 @@ describe("inventory create runtime graded boundaries", () => {
     });
   });
 
-  it("keeps graded card details a caller sends for Graded listing stock", async () => {
-    const gradedCard = {
-      gradingCompany: "PSA",
-      grade: "10",
-      certificationNumber: "cert-123",
-      population: null,
-      conditionDescriptors: [],
-    };
+  const suppliedGradedCard = {
+    gradingCompany: "PSA",
+    grade: "10",
+    certificationNumber: "cert-123",
+    population: { populationAtGrade: 12, populationHigher: 0, source: "PSA", asOf: "2026-11-01" },
+    conditionDescriptors: ["Centered"],
+  };
+
+  it("keeps the certification number, population and descriptors of a supplied card that names the selection", async () => {
     const { harness, result } = ensureListingStock({
       catalogItemId: "cat_required",
       selectedOptions: gradedOptions,
-      gradedCard,
+      gradedCard: suppliedGradedCard,
     });
     const { inventoryItemId } = await result;
     const events = await harness.eventStore.readStream({ streamId: `inventory.item-${inventoryItemId}` });
-    expect(events[0]?.payload).toMatchObject({ gradedCard });
+    expect((events[0]?.payload as { gradedCard: unknown }).gradedCard).toEqual(suppliedGradedCard);
+  });
+
+  it("stores the selected labels when a supplied card pads them with spaces", async () => {
+    const { harness, result } = ensureListingStock({
+      catalogItemId: "cat_required",
+      selectedOptions: gradedOptions,
+      gradedCard: { ...suppliedGradedCard, gradingCompany: " PSA ", grade: "10 " },
+    });
+    const { inventoryItemId } = await result;
+    const events = await harness.eventStore.readStream({ streamId: `inventory.item-${inventoryItemId}` });
+    expect((events[0]?.payload as { gradedCard: unknown }).gradedCard).toEqual(suppliedGradedCard);
   });
 
   it.each([
-    ["the grade is not chosen", "cat_optional", ["form", "company"], MISSING_DETAILS],
-    ["the Form option is a legacy graded label", "cat_slab", ["form"], REQUIRES_DETAILS],
-  ])("refuses Graded listing stock without writes when %s", async (_case, catalogItemId, dimensionIds, message) => {
+    ["another grading company", { gradingCompany: "BGS" }],
+    ["another grade", { grade: "9" }],
+    ["the grading company in another case", { gradingCompany: "psa" }],
+  ])("refuses Graded listing stock without writes when a supplied card names %s", async (_case, difference) => {
     const { harness, result } = ensureListingStock({
-      catalogItemId,
-      selectedOptions: gradedOptions.filter((option) => dimensionIds.includes(option.dimensionId)),
+      catalogItemId: "cat_required",
+      selectedOptions: gradedOptions,
+      gradedCard: { ...suppliedGradedCard, ...difference },
     });
-    await expect(result).rejects.toThrow(message);
+    await expect(result).rejects.toThrow("Graded card details must name the selected grading company and grade.");
     expect(harness.streams.size).toBe(0);
+  });
+
+  describe.each([
+    ["without a supplied card", undefined],
+    ["with a supplied card", suppliedGradedCard],
+  ])("%s", (_supplied, gradedCard) => {
+    it.each([
+      ["the grade is not chosen", "cat_optional", ["form", "company"], MISSING_DETAILS],
+      ["the Form option is a legacy graded label", "cat_slab", ["form"], REQUIRES_DETAILS],
+    ])("refuses Graded listing stock without writes when %s", async (_case, catalogItemId, dimensionIds, message) => {
+      const { harness, result } = ensureListingStock({
+        catalogItemId,
+        selectedOptions: gradedOptions.filter((option) => dimensionIds.includes(option.dimensionId)),
+        gradedCard,
+      });
+      await expect(result).rejects.toThrow(message);
+      expect(harness.streams.size).toBe(0);
+    });
   });
 
   it("refuses graded card details on raw listing stock", async () => {
