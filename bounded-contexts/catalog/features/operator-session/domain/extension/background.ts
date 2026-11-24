@@ -6,6 +6,7 @@ import {
   operatorOrigins,
   type OperatorCommand,
   type OperatorEnvironment,
+  type OperatorObservationRequest,
   type OperatorStatus,
 } from "./protocol";
 import { emptyOperatorRecord, isOperatorRecord, operatorRecordKey, type OperatorRecord } from "./record";
@@ -29,18 +30,19 @@ export type OperatorAdapters = {
   };
   badge(required: boolean): Promise<void>;
   fetch: typeof fetch;
+  dispatchObservationRequest?: (environment: OperatorEnvironment, request: OperatorObservationRequest) => Promise<void>;
   setNames?: (productLineId: string) => Promise<SetNamesRequestResult>;
   sealedProducts?: SealedFetch;
 };
 
-type Slot = { record: OperatorRecord; blocked: boolean; queue: Promise<unknown> };
+type Slot = { record: OperatorRecord; blocked: boolean; polling: boolean; queue: Promise<unknown> };
 
 export function createOperatorBackground(adapters: OperatorAdapters) {
   const transport = createOperatorTransport(adapters.fetch);
   const slots = new Map<OperatorEnvironment, Slot>(
     operatorEnvironments.map((environment) => [
       environment,
-      { record: emptyOperatorRecord(environment), blocked: false, queue: Promise.resolve() },
+      { record: emptyOperatorRecord(environment), blocked: false, polling: false, queue: Promise.resolve() },
     ]),
   );
   const slot = (environment: OperatorEnvironment) => slots.get(environment)!;
@@ -91,8 +93,49 @@ export function createOperatorBackground(adapters: OperatorAdapters) {
   async function badge() {
     await adapters.badge([...slots.values()].some((current) => current.record.state === "re-pair-required"));
   }
+  async function poll(environment: OperatorEnvironment) {
+    const current = slot(environment);
+    if (current.polling) return;
+    current.polling = true;
+    try {
+      const pairing = await serial(environment, async ({ record, blocked }) =>
+        blocked || !record.grant || Date.now() < record.nextAttemptAt
+          ? null
+          : { grant: record.grant, profileRevision: record.profileRevision },
+      );
+      if (!pairing) return;
+      const result = await transport.poll(environment, pairing.grant);
+      const dispatch = await serial(environment, async (current) => {
+        const record = current.record;
+        if (current.blocked || record.profileRevision !== pairing.profileRevision || record.grant !== pairing.grant)
+          return;
+        if (result.outcome === "grant-invalid") {
+          await write(current, {
+            ...record,
+            grant: null,
+            state: "re-pair-required",
+            dirty: false,
+            nextAttemptAt: 0,
+            lastOutcome: "grant-invalid",
+          });
+          await badge();
+        } else if (result.outcome === "unavailable" && result.retryAt > Date.now()) {
+          await write(current, { ...record, nextAttemptAt: result.retryAt });
+        } else if (result.outcome === "polled" && result.request && Date.parse(result.request.expiresAt) > Date.now()) {
+          return { finished: adapters.dispatchObservationRequest?.(environment, result.request) };
+        }
+      });
+      await dispatch?.finished;
+    } finally {
+      current.polling = false;
+    }
+  }
   async function command(command: OperatorCommand): Promise<OperatorStatus> {
     const environment = command.environment;
+    if (command.action === "poll-now") {
+      await poll(environment);
+      return status(environment);
+    }
     if (command.action === "status" || command.action === "recover") {
       await serial(environment, async () => undefined);
       return status(environment);
@@ -122,6 +165,9 @@ export function createOperatorBackground(adapters: OperatorAdapters) {
     return status(environment);
   }
   return {
+    async pollObservations() {
+      await Promise.allSettled(operatorEnvironments.map(poll));
+    },
     async receiveSealedProducts(
       value: unknown,
       sender: { id?: string; url?: string; origin?: string; hasTab: boolean },

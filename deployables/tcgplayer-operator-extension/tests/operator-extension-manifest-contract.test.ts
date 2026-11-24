@@ -5,14 +5,14 @@ import { describe, expect, it } from "vitest";
 import { isOperatorManifest, operatorExtensionId, operatorManifest, operatorPublicKey } from "../src/manifest-contract";
 
 describe("operator-extension-manifest-contract", () => {
-  it("equals the shipped SetNames probe manifest exactly, with no cookies permission", () => {
+  it("adds alarms to the exact operator manifest without cookie or host expansion", () => {
     expect(operatorManifest).toEqual({
       manifest_version: 3,
       name: "Chase Sets TCGplayer Operator Extension",
       version: "0.1.0",
       key: operatorPublicKey,
       incognito: "not_allowed",
-      permissions: ["storage"],
+      permissions: ["storage", "alarms"],
       externally_connectable: { matches: ["https://admin.staging.chasesets.com/*", "https://admin.chasesets.com/*"] },
       host_permissions: [
         "https://admin.staging.chasesets.com/*",
@@ -35,7 +35,7 @@ describe("operator-extension-manifest-contract", () => {
     const id = [...digest].map((digit) => String.fromCharCode(97 + Number.parseInt(digit, 16))).join("");
     expect(id).toBe(operatorExtensionId);
     expect(id).not.toBe("ebnhngdhefamkdjajldafonajgkadfhh");
-    expect(operatorManifest.permissions).toEqual(["storage"]);
+    expect(operatorManifest.permissions).toEqual(["storage", "alarms"]);
     expect(operatorManifest.host_permissions).toEqual([
       "https://admin.staging.chasesets.com/*",
       "https://admin.chasesets.com/*",
@@ -87,7 +87,7 @@ describe("operator-extension-manifest-contract", () => {
   });
   it("uses only facade bootstraps and no provider-cookie capability", () => {
     const source = (name: string) => readFileSync(resolve(import.meta.dirname, `../src/${name}.ts`), "utf8");
-    expect(source("background")).not.toMatch(/chrome\.(cookies|alarms)/);
+    expect(source("background")).not.toMatch(/chrome\.cookies/);
     expect(source("background")).not.toMatch(/getAll|storage\.sync|console\./);
     expect(source("popup")).toContain("installOperatorBridge");
     expect(source("popup")).not.toMatch(/storage|cookies|fetch|innerHTML/);

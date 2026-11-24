@@ -940,7 +940,7 @@
     },
     "operator-session": {
       "classification": "slice",
-      "purpose": "Own Catalog encrypted TCGplayer Operator Session custody, Todd-only push grants, monotonic clearing fences, per-attempt credential resolution, and grant-authorized operator-extension observation posts.",
+      "purpose": "Own staff operator-extension pairing grants, live grant creator authorization, the shared observation request poll, and grant-authorized observation uploads without provider credential custody.",
       "expectedConsumers": [
         "source-observations",
         "Internal catalog module composition",

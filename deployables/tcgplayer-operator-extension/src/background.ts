@@ -1,6 +1,8 @@
 import { createOperatorBackground, type OperatorAdapters } from "@chase-sets/catalog/client";
 import { fetchTcgplayerSetNames, createTcgplayerSealedFetch } from "./tcgplayer-set-name-endpoint";
 
+const observationAlarm = "catalog-observation-poll";
+
 const adapters: OperatorAdapters = {
   storage: {
     trust: () => chrome.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" }),
@@ -14,11 +16,24 @@ const adapters: OperatorAdapters = {
   async badge(required) {
     await chrome.action.setBadgeText({ text: required ? "!" : "" });
   },
-  fetch: globalThis.fetch.bind(globalThis),
+  fetch: (input, init) => globalThis.fetch(input, init),
   setNames: fetchTcgplayerSetNames,
   sealedProducts: createTcgplayerSealedFetch(),
 };
 const background = createOperatorBackground(adapters);
+async function ensureObservationAlarm() {
+  if (!(await chrome.alarms.get(observationAlarm)))
+    await chrome.alarms.create(observationAlarm, { periodInMinutes: 5 });
+}
+const restoreObservationAlarm = () => {
+  void ensureObservationAlarm().catch(() => undefined);
+};
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === observationAlarm) void background.pollObservations();
+});
+chrome.runtime.onInstalled.addListener(restoreObservationAlarm);
+chrome.runtime.onStartup.addListener(restoreObservationAlarm);
+restoreObservationAlarm();
 chrome.runtime.onMessage.addListener((message: unknown, sender, respond) => {
   if (
     typeof message === "object" &&
