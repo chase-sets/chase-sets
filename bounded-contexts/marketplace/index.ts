@@ -9,7 +9,11 @@ import {
 import { assertSqlIdentifier } from "@chase-sets/event-core-postgres/sql-identifier";
 import { defineBcProjectionGroupReset, type BcProjectionGroup } from "@chase-sets/bounded-context-module";
 import { createCheckpointKey } from "@chase-sets/bounded-context-runtime";
-import { resetProductMeasurePublicationParts, type PgQueryable } from "@chase-sets/event-core-postgres";
+import {
+  requestTerminalWitnessSchemaSql,
+  resetProductMeasurePublicationParts,
+  type PgQueryable,
+} from "@chase-sets/event-core-postgres";
 export { default as contextManifest } from "./context.json" with { type: "json" };
 
 import {
@@ -88,6 +92,11 @@ const baseModule = defineBoundedContextModule<MarketplaceServices, PgTransaction
   schemaSql: marketplaceSchemaSql,
   schemaMigrations: [
     ...inventoryDraftReceiptMigrations,
+    {
+      migrationId: "20261123_marketplace_request_terminal_witness",
+      description: "Record actual first inserts and fence never-opened terminal recovery.",
+      statements: [requestTerminalWitnessSchemaSql],
+    },
     ...marketplaceUnloggedProjectionSchemaMigrations,
     ...marketplaceSupplyProjectionSchemaMigrations,
     ...marketplaceListingSchemaMigrations,

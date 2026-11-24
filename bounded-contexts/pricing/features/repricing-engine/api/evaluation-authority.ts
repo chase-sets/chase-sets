@@ -8,12 +8,15 @@ import {
   type ReserveOwnerStreamInput,
 } from "@chase-sets/event-core/owner-stream-reservation";
 import {
+  advanceRequestTerminalRecovery,
   assertExactPreparationTime,
   CONFIGURATION_EPOCH_LOCK_SQL,
   createPostgresOwnerStreamReservationStore,
+  drainAbortedOwnerReservationsInTransaction,
   lockOwnerStreamInvalidationsInTransaction,
   openRequestTerminalInTransaction,
   ownerPredicateKey,
+  registerRequestTerminalWitness,
   reserveOwnerPredicateInTransaction,
   withConfigurationEpochTransaction,
   type PgQueryable,
@@ -100,13 +103,15 @@ export type PricingEvaluationOwners = Readonly<{
   >;
 }>;
 type DecisionRecord = Readonly<{
+  evaluation_id: string;
   terminal_binding: RequestTerminalBinding;
   evidence: EvaluationEvidence;
   evidence_hash: string;
   command_fingerprint: string;
   seller_account_id: string;
   budget_day: string;
-  status: "PREPARED" | "COMMITTED" | "ABORTED";
+  terminal_witness_token: string | null;
+  status: "PREPARED" | "RECOVERING" | "COMMITTED" | "ABORTED";
 }>;
 type EvaluationEvidence = Readonly<{
   version: 1;
@@ -164,8 +169,8 @@ export function createPricingEvaluationAuthority(
   const find = async (db: PgQueryable, requestId: string) =>
     (
       await db.query<DecisionRecord>(
-        `SELECT terminal_binding, evidence, evidence_hash, command_fingerprint, seller_account_id,
-         budget_day::text, status FROM pricing_evaluated_decisions WHERE request_id = $1`,
+        `SELECT evaluation_id, terminal_binding, evidence, evidence_hash, command_fingerprint, seller_account_id,
+         budget_day::text, terminal_witness_token, status FROM pricing_evaluated_decisions WHERE request_id = $1`,
         [requestId],
       )
     ).rows[0];
@@ -485,7 +490,7 @@ export function createPricingEvaluationAuthority(
     return prior;
   }
 
-  async function retain(evidence: EvaluationEvidence, terminal: RequestTerminalBinding) {
+  async function retain(evidence: EvaluationEvidence, terminal: RequestTerminalBinding, witnessToken: string) {
     const binding = evidence.binding;
     const { epochs } = await deps.standing.source();
     return withConfigurationEpochTransaction(deps.pool, async (db) => {
@@ -524,8 +529,9 @@ export function createPricingEvaluationAuthority(
       const evidenceHash = evaluationDigest(evidence);
       await db.query(
         `INSERT INTO pricing_evaluated_decisions
-         (request_id, evaluation_id, command_fingerprint, seller_account_id, budget_day, terminal_binding, evidence, evidence_hash, status)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'PREPARED')`,
+         (request_id, evaluation_id, command_fingerprint, seller_account_id, budget_day, terminal_binding, evidence,
+          evidence_hash, terminal_witness_token, status)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'PREPARED')`,
         [
           binding.requestId,
           binding.decision.evaluationId,
@@ -535,6 +541,7 @@ export function createPricingEvaluationAuthority(
           terminal,
           evidence,
           evidenceHash,
+          witnessToken,
         ],
       );
       return (await find(db, binding.requestId))!;
@@ -628,7 +635,125 @@ export function createPricingEvaluationAuthority(
     return { terminal, grants: row.evidence.grants, evidenceHash: row.evidence_hash };
   }
 
+  function transitionRecovery(
+    db: PgQueryable,
+    row: DecisionRecord,
+    from: "PREPARED" | "RECOVERING",
+    to: "RECOVERING" | "ABORTED",
+  ) {
+    return db.query(
+      `UPDATE pricing_evaluated_decisions SET status = $10
+       WHERE request_id = $1 AND evaluation_id = $2 AND command_fingerprint = $3 AND seller_account_id = $4
+         AND budget_day = $5 AND terminal_binding = $6 AND evidence_hash = $7 AND terminal_witness_token = $8
+         AND status = $9 AND evidence = $11`,
+      [
+        row.terminal_binding.requestId,
+        row.evaluation_id,
+        row.command_fingerprint,
+        row.seller_account_id,
+        row.budget_day,
+        row.terminal_binding,
+        row.evidence_hash,
+        row.terminal_witness_token,
+        from,
+        to,
+        row.evidence,
+      ],
+    );
+  }
+
+  function recoveryMembers(row: DecisionRecord, owner: EvaluationOwner) {
+    return row.terminal_binding.reservations.filter((_, index) => row.evidence.members[index]?.owner === owner);
+  }
+
+  async function recover(requestId: string) {
+    // Claim, Pricing gate, publication and drain all have independent commit boundaries.
+    for (let handoff = 0; handoff < 4; handoff++) {
+      const row = await find(deps.pool, requestId);
+      if (!row?.terminal_witness_token || (row.status !== "PREPARED" && row.status !== "RECOVERING")) return false;
+      const { binding, challengeTime } = row.evidence;
+      check(row, binding);
+      if (
+        binding.requestId !== requestId ||
+        row.evaluation_id !== binding.decision.evaluationId ||
+        challengeTime.slice(0, 10) !== row.budget_day ||
+        !deps.hasConsumerRoute(binding.consumer)
+      )
+        return false;
+      const phase = await advanceRequestTerminalRecovery(
+        consumer,
+        row.terminal_binding,
+        row.terminal_witness_token,
+        row.status,
+      );
+      if (phase === "CLAIMED") {
+        await withConfigurationEpochTransaction(deps.pool, (db) =>
+          transitionRecovery(db, row, "PREPARED", "RECOVERING"),
+        );
+        continue;
+      }
+      if (phase === "PUBLISHED") continue;
+      if (phase !== "ISSUED") return false;
+
+      for (const owner of ["catalog", "inventory", "marketplace", "pricing"] as const) {
+        const drained = await withConfigurationEpochTransaction(owners[owner], (db) =>
+          drainAbortedOwnerReservationsInTransaction(db, owner, recoveryMembers(row, owner), owner !== "pricing"),
+        );
+        if (!drained) return false;
+      }
+      return withConfigurationEpochTransaction(deps.pool, async (db) => {
+        if (!(await drainAbortedOwnerReservationsInTransaction(db, "pricing", recoveryMembers(row, "pricing"), false)))
+          return false;
+        const updated = await transitionRecovery(db, row, "RECOVERING", "ABORTED");
+        if (updated.rowCount !== 1) return false;
+        const refunded = await db.query(
+          `UPDATE pricing_repricing_daily_change_budgets SET changes_reserved = changes_reserved - 1, updated_at = now()
+           WHERE seller_account_id = $1 AND budget_day = $2 AND changes_reserved > 0`,
+          [row.seller_account_id, row.budget_day],
+        );
+        if (refunded.rowCount !== 1) throw new Error("Exact recovery budget charge is unavailable.");
+        return true;
+      });
+    }
+    return false;
+  }
+
+  function selectRecoveryPage() {
+    return withConfigurationEpochTransaction(deps.pool, async (db) => {
+      await db.query(`INSERT INTO pricing_evaluated_decision_recovery_cursor (singleton)
+        VALUES (true) ON CONFLICT DO NOTHING`);
+      const cursor = await db.query<{ last_request_id: string | null }>(
+        "SELECT last_request_id FROM pricing_evaluated_decision_recovery_cursor WHERE singleton FOR UPDATE",
+      );
+      const select = (after: string | null) =>
+        db.query<{ request_id: string }>(
+          `SELECT request_id FROM pricing_evaluated_decisions WHERE status IN ('PREPARED', 'RECOVERING')
+         ${after === null ? "" : "AND request_id > $1"} ORDER BY request_id LIMIT 32`,
+          after === null ? [] : [after],
+        );
+      const after = cursor.rows[0]!.last_request_id;
+      let page = await select(after);
+      if (!page.rows.length && after !== null) page = await select(null);
+      const ids = page.rows.map(({ request_id }) => request_id);
+      await db.query("UPDATE pricing_evaluated_decision_recovery_cursor SET last_request_id = $1 WHERE singleton", [
+        ids.at(-1) ?? null,
+      ]);
+      return ids;
+    });
+  }
+
   return {
+    async recoverExpiredDecisions(reportFailure: (requestId: string, error: unknown) => void) {
+      let recovered = 0;
+      for (const id of await selectRecoveryPage()) {
+        try {
+          if (await recover(id)) recovered++;
+        } catch (error) {
+          reportFailure(id, error);
+        }
+      }
+      return recovered;
+    },
     async prepare(
       raw: EvaluationBinding,
       listing: PricingEvaluationListing,
@@ -651,7 +776,13 @@ export function createPricingEvaluationAuthority(
       validateEvidence(current);
       const terminal = manifest(current);
       await settlePriorForAccount(binding.accountId, current.challengeTime.slice(0, 10));
-      const retained = await retain(current, terminal);
+      const token = await registerRequestTerminalWitness(consumer, terminal);
+      if (!token) {
+        const raced = await find(deps.pool, binding.requestId);
+        if (raced) return assertPrepared(check(raced, binding), false);
+        throw new Error("Never-opened terminal witness is unavailable.");
+      }
+      const retained = await retain(current, terminal, token);
       if (!sameRequestTerminalBinding(retained.terminal_binding, terminal)) return assertPrepared(retained, false);
       try {
         for (const owner of ["catalog", "inventory", "marketplace"] as const) {

@@ -1,6 +1,6 @@
 import { closed, safeInteger, type OperatorEnvironment } from "../protocol";
-import { isSetNamesRequestResult, type SetNamesRequestResult } from "../set-names/probe";
 import { sealedProductLines, type SealedFetch, type SealedRequest } from "./collector";
+import { isSealedRequestResult, sealedRequestFailure } from "./request-result";
 import {
   isSealedPostMessage,
   isSealedPostResult,
@@ -39,10 +39,8 @@ export function createSealedPopupClient(
   bridgeOrigin: string,
 ): { request: SealedFetch; post: SealedPost; dispose: () => void } {
   let nextId = 0;
-  const pending = new Map<
-    number,
-    { resolve: (value: unknown) => void; reject: () => void; timer: ReturnType<typeof setTimeout> }
-  >();
+  type Reply = { kind: "reply"; result: unknown } | { kind: "timeout" | "unavailable" };
+  const pending = new Map<number, { resolve: (value: Reply) => void; timer: ReturnType<typeof setTimeout> }>();
   const receive = (event: MessageEvent<unknown>) => {
     if (
       event.source !== host.parent ||
@@ -55,31 +53,37 @@ export function createSealedPopupClient(
     if (!call) return;
     pending.delete(event.data.sealedId);
     clearTimeout(call.timer);
-    call.resolve(event.data.result);
+    call.resolve({ kind: "reply", result: event.data.result });
   };
   host.addEventListener("message", receive);
-  function call(message: SealedRequestMessage | SealedPostMessage): Promise<unknown> {
-    return new Promise((resolve, reject) => {
+  function call(message: SealedRequestMessage | SealedPostMessage): Promise<Reply> {
+    return new Promise((resolve) => {
       if (nextId === Number.MAX_SAFE_INTEGER) {
-        reject(new Error("unavailable"));
+        resolve({ kind: "unavailable" });
         return;
       }
       const sealedId = ++nextId;
       const timer = setTimeout(() => {
         pending.delete(sealedId);
-        reject(new Error("unavailable"));
+        resolve({ kind: "timeout" });
       }, 20_000);
-      pending.set(sealedId, { resolve, reject: () => reject(new Error("unavailable")), timer });
-      host.parent.postMessage({ sealedId, message }, bridgeOrigin);
+      pending.set(sealedId, { resolve, timer });
+      try {
+        host.parent.postMessage({ sealedId, message }, bridgeOrigin);
+      } catch {
+        pending.delete(sealedId);
+        clearTimeout(timer);
+        resolve({ kind: "unavailable" });
+      }
     });
   }
   return {
-    async request(request: SealedRequest): Promise<SetNamesRequestResult> {
+    async request(request: SealedRequest) {
       const message: SealedRequestMessage = { action: "fetch-sealed-products", request };
-      if (!isSealedRequestMessage(message)) throw new Error("refused");
-      const result = await call(message);
-      if (!isSetNamesRequestResult(result)) throw new Error("invalid-response");
-      return result;
+      if (!isSealedRequestMessage(message)) return sealedRequestFailure("refused");
+      const reply = await call(message);
+      if (reply.kind !== "reply") return sealedRequestFailure(reply.kind);
+      return isSealedRequestResult(reply.result) ? reply.result : sealedRequestFailure("invalid-response");
     },
     async post(
       environment: OperatorEnvironment,
@@ -87,14 +91,15 @@ export function createSealedPopupClient(
     ): Promise<SealedPostResult> {
       const message: SealedPostMessage = { action: "post-sealed-products", environment, post };
       if (!isSealedPostMessage(message)) return { outcome: "refused" };
-      const result = await call(message);
-      return isSealedPostResult(result) ? result : { outcome: "invalid-response" };
+      const reply = await call(message);
+      if (reply.kind !== "reply") return { outcome: "unavailable" };
+      return isSealedPostResult(reply.result) ? reply.result : { outcome: "invalid-response" };
     },
     dispose() {
       host.removeEventListener("message", receive);
       for (const call of pending.values()) {
         clearTimeout(call.timer);
-        call.reject();
+        call.resolve({ kind: "unavailable" });
       }
       pending.clear();
     },

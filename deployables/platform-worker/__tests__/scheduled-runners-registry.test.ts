@@ -13,6 +13,11 @@ afterEach(() => vi.unstubAllEnvs());
 type Input = WorkerJobInput<PlatformWorkerConfig>;
 type Registry = WorkerJobRegistry<Input>;
 const registry: Registry = workerContextRegistry;
+const recoveryRunner = {
+  name: "pricing.evaluated-decision-recovery",
+  lease: "job:pricing.evaluated-decision-recovery",
+  intervalMs: 60_000,
+};
 type RunnerCensus = Record<
   keyof (typeof baseline.profiles)["proof:enabled"],
   { name: string; lease: string; intervalMs: number | null }[]
@@ -25,6 +30,14 @@ function expectedCensus(profile: "landing" | "proof" | "public", enabled = true)
       lease: "job:channels.ebay-account-deletion-consumer",
       intervalMs: null,
     });
+  if (profile !== "landing") {
+    const afterRollups = expected.scheduled.findIndex(({ name }) => name === "pricing.market-rollups-closer") + 1;
+    if (afterRollups) expected.scheduled.splice(afterRollups, 0, recoveryRunner);
+    else {
+      const next = expected.scheduled.findIndex(({ name }) => name === "fulfillment.postage-operation-reconciliation");
+      expected.scheduled.splice(next, 0, recoveryRunner);
+    }
+  }
   return expected;
 }
 async function census(input: ReturnType<typeof censusInput>, entries: Registry = registry) {
@@ -34,6 +47,7 @@ async function census(input: ReturnType<typeof censusInput>, entries: Registry =
       .flatMap((profile) => profile.scheduled.filter((r) => r.intervalMs !== null).map((r) => r.name))
       .concat(Object.values(baseline.alternateCapabilities).map((branch) => branch.runner.name)),
   );
+  expectedIntervals.add(recoveryRunner.name);
   for (const runner of groups.scheduled) if (expectedIntervals.has(runner.name)) await runner.runOnce();
   const schedules = new Map(input.claims.map((claim) => [claim.runnerName, claim.intervalMs]));
   for (const entry of entries)
@@ -64,7 +78,7 @@ async function census(input: ReturnType<typeof censusInput>, entries: Registry =
 }
 
 describe("static worker job registry", () => {
-  it("registry preserves the historical runner census plus the deletion consumer", async () => {
+  it("registry preserves the historical runner census plus the deletion consumer and Pricing recovery", async () => {
     expect(baseline.head).toBe("7102e3d56ac12516cde7ee3ef8638c4afd38bfa5");
     for (const profile of ["landing", "proof", "public"] as const)
       for (const enabled of [false, true]) {
@@ -75,6 +89,14 @@ describe("static worker job registry", () => {
           expect.objectContaining({ runtimeProfile: profile, type: "worker.registry-jobs" }),
         );
       }
+  });
+  it("does not schedule Pricing recovery without the evaluation authority port", async () => {
+    for (const profile of ["proof", "public"] as const) {
+      const input = censusInput(profile, true, false);
+      const result = await census(input);
+      expect(result.scheduled?.some(({ name }) => name === recoveryRunner.name)).toBe(false);
+      expect(input.claims.some(({ runnerName }) => runnerName === recoveryRunner.name)).toBe(false);
+    }
   });
   it("detects removed, duplicate, schedule, lease, profile and missing-factory controls", async () => {
     const input = censusInput("proof");
