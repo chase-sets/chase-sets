@@ -53,6 +53,7 @@ Notes:
 - Listings are owned by Marketplace.
 - Listings reference one `CatalogItemId`, one `ProductId`, and one normalized selection snapshot.
 - Listings reference inventory availability but do not own stock truth.
+- A Listing of graded stock carries `gradedCard`. Inventory's glossary owns the term and the rule for reading it: see [Graded Item Details](../inventory/GLOSSARY.md#graded-item-details).
 
 ## Publication Scope
 

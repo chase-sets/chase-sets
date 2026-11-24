@@ -748,6 +748,7 @@ function createReconciliationDb(options: {
   paymentsNeedingReconciliation?: () => readonly Record<string, unknown>[];
   providerOperationsNeedingReconciliation?: () => readonly Record<string, unknown>[];
   paymentById?: (paymentId: string) => Record<string, unknown> | null;
+  activePaymentIdsForOrder?: () => readonly string[];
 }) {
   const reconciliationSummaries: unknown[] = [];
   const succeededProviderOperations: readonly unknown[][] = [];
@@ -761,6 +762,11 @@ function createReconciliationDb(options: {
     query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
       if (sql.includes("FROM payments_saved_checkout_instruments")) {
         return { rows: [] };
+      }
+
+      if (sql.includes("order_ids ? $1")) {
+        expect(params?.slice(0, 2)).toEqual(["ord_1", "acc_buyer"]);
+        return { rows: (options.activePaymentIdsForOrder?.() ?? []).map((payment_id) => ({ payment_id })) };
       }
 
       if (sql.includes("payments_payment_creation_reservations")) {
@@ -3963,6 +3969,138 @@ describe("payment runtime", () => {
     ]);
     expect(readAllEvents().filter((event) => event.eventType === "payments.csat-outcome-fact.v1")).toHaveLength(0);
     expect(webhookEvents).toHaveLength(1);
+  });
+
+  it.each([
+    ["no webhook or projected Payment", "never"],
+    ["webhook after reconciliation", "after"],
+    ["webhook before reconciliation", "before"],
+    ["a recorded capture after an unverifiable reservation", "before-with-unverifiable-attempt"],
+    ["a recorded linked capture while reservation lookup is unavailable", "before-with-unavailable-lookup"],
+    ["webhook during lookup despite a stale unpaid response", "during-pending"],
+    ["webhook during lookup with a captured response", "during-captured"],
+    ["webhook winning the concurrent capture append", "during-append"],
+    ["a confirmed capture whose first append fails", "failed-append"],
+  ] as const)("records one deadline capture with %s", async (_, delivery) => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const processorGateway = createProcessorGateway();
+    let beforeCaptureAppend: (() => Promise<void>) | undefined;
+    let projectedPayment: Record<string, unknown> | null = null;
+    let activePaymentIds: string[] = [];
+    const { db } = createReconciliationDb({
+      paymentById: () => projectedPayment,
+      activePaymentIdsForOrder: () => {
+        if (delivery === "before-with-unavailable-lookup") throw new Error("payment lookup unavailable");
+        return activePaymentIds;
+      },
+    });
+    const services = createPaymentRuntime({
+      eventStore: {
+        ...eventStore,
+        async appendToStream(input) {
+          if (input.events.some((event) => event.eventType === "payments.payment-captured")) {
+            const deliver = beforeCaptureAppend;
+            beforeCaptureAppend = undefined;
+            await deliver?.();
+          }
+          return eventStore.appendToStream(input);
+        },
+      },
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      processorGateway,
+    });
+    const orderIds = ["ord_1" as never];
+    const status = await services.getCheckoutStatus({
+      accountId: "acc_buyer" as never,
+      orderIds,
+      paymentMethodCategory: "card",
+    });
+    const payment = await services.createAccountPayment(
+      {
+        accountId: "acc_buyer" as never,
+        orderIds,
+        paymentMethodCategory: "card",
+        marketplaceCheckoutFeeQuoteFingerprint: status.marketplace_checkout_fee.quote_fingerprint,
+      },
+      context,
+    );
+    const result = {
+      processorName: "stripe",
+      processorPaymentKind: payment.processor_payment_kind,
+      processorPaymentReference: payment.processor_payment_reference,
+      processorStatus: "succeeded",
+      internalPaymentId: payment.payment_id,
+      occurredAt: "2026-04-29T01:00:00.000Z",
+    };
+    if (delivery === "never") activePaymentIds = [payment.payment_id];
+    else projectedPayment = payment;
+
+    const deliverCapture = async () => {
+      processorGateway.parseWebhook.mockResolvedValue({
+        ...result,
+        eventId: "evt_deadline_capture",
+        kind: "payment-captured",
+        failureCode: null,
+        failureMessage: null,
+      } as never);
+      await expect(services.processWebhook({ rawBody: "{}", signatureHeader: "sig" }, context)).resolves.toEqual({
+        received: true,
+        ignored: false,
+      });
+    };
+    const captureAlreadyRecorded = delivery.startsWith("before");
+    if (delivery === "before-with-unverifiable-attempt") activePaymentIds = ["pay_missing"];
+    if (captureAlreadyRecorded) await deliverCapture();
+    if (delivery === "during-append") beforeCaptureAppend = deliverCapture;
+    processorGateway.retrievePaymentResult.mockImplementation(async () => {
+      if (delivery === "during-pending" || delivery === "during-captured") await deliverCapture();
+      return (
+        delivery === "during-pending"
+          ? { ...result, processorStatus: "requires_confirmation", outcome: "pending" }
+          : { ...result, outcome: "captured" }
+      ) as never;
+    });
+
+    const order = {
+      orderId: "ord_1",
+      buyerAccountId: "acc_buyer",
+      ...(delivery === "never" ? {} : { paymentId: payment.payment_id }),
+    };
+    if (delivery === "never") {
+      processorGateway.retrievePaymentResult
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ ...result, internalPaymentId: "pay_unrelated", outcome: "captured" } as never)
+        .mockResolvedValueOnce({ ...result, processorStatus: "requires_confirmation", outcome: "pending" } as never);
+      await expect(services.reconcileOrderPaymentBeforeDeadline(order, context)).rejects.toThrow("not yet verifiable");
+      await expect(services.reconcileOrderPaymentBeforeDeadline(order, context)).rejects.toThrow("not yet verifiable");
+      await expect(services.reconcileOrderPaymentBeforeDeadline(order, context)).resolves.toBe("not-captured");
+      expect(readAllEvents().map((event) => event.eventType)).toEqual(["payments.payment-created"]);
+      processorGateway.retrievePaymentResult.mockClear();
+    }
+    if (delivery === "failed-append") {
+      beforeCaptureAppend = async () => {
+        throw new Error("capture append unavailable");
+      };
+      await expect(services.reconcileOrderPaymentBeforeDeadline(order, context)).resolves.toBe("capture-not-recorded");
+      expect(readAllEvents().map((event) => event.eventType)).toEqual(["payments.payment-created"]);
+      processorGateway.retrievePaymentResult.mockClear();
+    }
+    await expect(services.reconcileOrderPaymentBeforeDeadline(order, context)).resolves.toBe("captured");
+    if (delivery === "after") await deliverCapture();
+    await expect(services.reconcileOrderPaymentBeforeDeadline(order, context)).resolves.toBe("captured");
+
+    expect(readAllEvents().map((event) => event.eventType)).toEqual([
+      "payments.payment-created",
+      "payments.payment-captured",
+    ]);
+    expect(readAllEvents()[1]?.payload).toMatchObject({ paymentId: payment.payment_id, orderIds });
+    if (captureAlreadyRecorded) expect(processorGateway.retrievePaymentResult).not.toHaveBeenCalled();
+    else
+      expect(processorGateway.retrievePaymentResult).toHaveBeenCalledExactlyOnceWith(
+        payment.processor_payment_reference,
+      );
+    expect(processorGateway.createRefund).not.toHaveBeenCalled();
   });
 
   it("cancels direct PaymentIntent payments from Stripe webhooks and ignores session-owned intent cancellations", async () => {
