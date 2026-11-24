@@ -15679,6 +15679,10 @@ async fn the_checkout_lets_stripe_load_for_its_card_step() {
     let csp = headers[header::CONTENT_SECURITY_POLICY].to_str().unwrap();
     assert!(csp.contains("https://js.stripe.com;") || csp.contains("https://js.stripe.com "), "Stripe.js may load: {csp}");
     assert!(csp.contains("frame-src https://js.stripe.com https://hooks.stripe.com;"), "{csp}");
+    // Pay now with a card that needs 3-D Secure redirects to Stripe's hosted check.
+    let allowed = form_action(&headers);
+    assert!(allowed.split(' ').any(|s| s == "https://hooks.stripe.com"), "{allowed}");
+    assert!(!allowed.split(' ').any(|s| s == "https:"), "only Stripe's check besides marketplace: {allowed}");
     assert!(csp.contains("https://api.stripe.com"), "{csp}");
     assert!(csp.contains("trusted-types corten default"), "{csp}");
     assert!(!html.contains(r#"trustedTypes.createPolicy("default""#), "{html}");
@@ -16141,7 +16145,19 @@ async fn pay_now_with_a_new_card_needs_the_token_stripe_made() {
 async fn pay_now_with_a_new_card_goes_to_the_issuers_check_or_says_it_was_declined() {
     let pilot = Pilot::new().await;
     let body = checkout_body(&format!("intent=confirm-checkout&{CARD_TOKEN}"));
-    let (status, headers, html) = pilot.send(post("/checkout/buy/session/chk_3ds", "payer", &body, false)).await;
+    // Posted from the checkout page as a browser posts it, so a debug build holds the redirect to
+    // that page's `form-action`, as Chromium and WebKit do (a 500 where they would stop it).
+    let at = "/checkout/buy/session/chk_3ds";
+    let mut req = post(at, "payer", &body, false);
+    for (name, value) in [
+        ("origin", "http://localhost:7791".to_owned()),
+        ("referer", format!("http://localhost:7791{at}")),
+        ("sec-fetch-site", "same-origin".to_owned()),
+        ("sec-fetch-mode", "navigate".to_owned()),
+    ] {
+        req.headers_mut().insert(name, value.parse().unwrap());
+    }
+    let (status, headers, html) = pilot.send(req).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     assert_eq!(headers[header::LOCATION], "https://hooks.stripe.com/3d_secure_2/authenticate/pay_1");
 
