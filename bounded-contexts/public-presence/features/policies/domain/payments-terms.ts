@@ -85,7 +85,7 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
           "Connected Account Agreement, without naming the selected agreement type or its mechanics.",
         decisionRefs: [5685, 5924, 5923],
         productTruthRefs: [
-          "infrastructure/stripe-payments/index.ts:1669-1693",
+          "infrastructure/stripe-payments/index.ts:1681-1697",
           "infrastructure/stripe-connect/index.ts:1100-1160",
           "infrastructure/stripe-connect/index.ts:879-917 (embedded Account Session onboarding surface)",
           "infrastructure/stripe-connect/index.ts:991-1010 (hosted Account Link onboarding surface)",
@@ -143,7 +143,7 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
             assertion:
               "Checkout creates and records Orders before requesting Payment; neither Order creation nor Payment creation proves nonzero capture.",
             evidenceRef:
-              "bounded-contexts/checkout/features/sessions/api/route.ts:1431-1476; bounded-contexts/payments/features/payments/api/runtime.ts:2634-2639",
+              "bounded-contexts/checkout/features/sessions/api/route.ts:1431-1476; bounded-contexts/payments/features/payments/api/runtime.ts:2811-2816",
           },
         ],
         canonicalClaims: [

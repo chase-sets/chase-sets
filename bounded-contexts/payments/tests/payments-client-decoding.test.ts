@@ -174,6 +174,14 @@ function malformedBodies(body: Record<string, unknown>): readonly Readonly<{ lab
 }
 
 describe("payments client decoding", () => {
+  it.each([
+    { processor_payment_kind: null, processor_payment_reference: null },
+    { processor_payment_kind: "payment-intent", processor_payment_reference: "pi_attached" },
+  ])("preserves Payment detail processor fields: $processor_payment_kind", async (fields) => {
+    const client = clientReturning(200, JSON.stringify({ ...paymentDetail(), ...fields }));
+    await expect(client.getAccountPayment("pay_1")).resolves.toMatchObject(fields);
+  });
+
   it("payments client rejects malformed money responses without leaking values", async () => {
     for (const endpoint of decodedEndpoints) {
       for (const malformed of malformedBodies(endpoint.body())) {

@@ -299,10 +299,12 @@ export function AccountPaymentPage({
                         {t("payments.routes.marketplace.accountPayment.account")}
                         {payment.buyer_account_id}
                       </Text>
-                      <Text size="sm" tone="secondary">
-                        {t("payments.routes.marketplace.accountPayment.processor.reference")}
-                        {payment.processor_payment_reference}
-                      </Text>
+                      {payment.processor_payment_reference !== null && (
+                        <Text size="sm" tone="secondary">
+                          {t("payments.routes.marketplace.accountPayment.processor.reference")}
+                          {payment.processor_payment_reference}
+                        </Text>
+                      )}
                       <Text size="sm" tone="secondary">
                         {t("payments.routes.marketplace.accountPayment.processor.status")}
                         {payment.processor_status}

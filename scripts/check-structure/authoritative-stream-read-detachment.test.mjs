@@ -756,7 +756,7 @@ const memberDeclarationSelectors = [
   ],
   [
     "bounded-contexts/payments/features/payments/api/webhook-transaction.ts",
-    "createPaymentTransactionRunner.eventStore.readStream",
+    "createPaymentTransactionRunner.committed.result.eventStore.readStream",
   ],
   [
     "bounded-contexts/payments/features/payments/api/webhook-transaction.ts",
