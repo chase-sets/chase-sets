@@ -183,11 +183,12 @@ describe("Payment reader roots and locks over Postgres", () => {
       await release.promise;
       return accepted;
     });
+    const ownerPid = await held.promise;
     const commands = createPaymentsServices(observePaymentLock(attempt.resolve)).payments;
     const same = commands.commandHandler(createCommand(paymentId));
     const different = commands.commandHandler(createCommand("pay_different"));
     try {
-      await expectBlocked(await attempt.promise, await held.promise);
+      await expectBlocked(await attempt.promise, ownerPid);
       await expect(different).resolves.toMatchObject({ version: 1 });
     } finally {
       release.resolve();
@@ -260,9 +261,10 @@ describe("Payment reader roots and locks over Postgres", () => {
       }),
     };
     const { payments } = createPaymentsServices(observePaymentLock(attempt.resolve, true), { processorGateway });
+    const ownerPid = await hold.promise;
     const webhook = payments.processWebhook({ rawBody: "{}", signatureHeader: "synthetic" }, context);
     try {
-      await expectBlocked(await attempt.promise, await hold.promise);
+      await expectBlocked(await attempt.promise, ownerPid);
     } finally {
       release.resolve();
       await Promise.allSettled([owner, webhook]);
