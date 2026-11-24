@@ -23293,6 +23293,31 @@ async fn robots_and_the_sitemaps_follow_indexing() {
     assert!(closed.stand.calls.lock().unwrap().iter().all(|c| !c.path.contains("sitemap")));
 }
 
+/// Every fallback picture Catalog stores (`contracts/catalog-seed/fallback-assets.ts`) and the
+/// product placeholder is served at its own path with marketplace-web's bytes, and another name is a
+/// 404, as marketplace-web's `public/` answers.
+#[tokio::test]
+async fn the_fake_cdn_pictures_catalog_names_are_served() {
+    let pilot = Pilot::new().await;
+    let catalog = include_str!("../../../../contracts/catalog-seed/fallback-assets.ts");
+    let paths: Vec<&str> = catalog.split('"').filter(|s| s.starts_with("/fake-cdn/assets/")).collect();
+    assert_eq!(paths.len(), 7, "{paths:?}");
+    assert!(paths.contains(&crate::views::DEFAULT_PRODUCT_IMAGE));
+    for path in paths {
+        let res = pilot.router.clone().oneshot(get(path, None)).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK, "{path}");
+        let headers = res.headers().clone();
+        let body = res.into_body().collect().await.unwrap().to_bytes();
+        let source = std::fs::read(format!("{}/../../marketplace/public{path}", env!("CARGO_MANIFEST_DIR"))).unwrap();
+        assert_eq!(body.as_ref(), source.as_slice(), "{path}");
+        let media_type = if path.ends_with(".svg") { "image/svg+xml" } else { "image/png" };
+        assert_eq!(headers[header::CONTENT_TYPE], media_type, "{path}");
+        assert_eq!(headers[header::CACHE_CONTROL], "public, max-age=86400", "{path}");
+    }
+    let res = pilot.router.clone().oneshot(get("/fake-cdn/assets/missing.png", None)).await.unwrap();
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}
+
 #[tokio::test]
 async fn the_site_files_are_marketplaces() {
     let pilot = Pilot::new().await;
