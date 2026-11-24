@@ -64,7 +64,7 @@ const reviewedSites = {
   "scripts/next-work.mjs": 1,
   "scripts/platform-pr-scope.mjs": 1,
   "scripts/platform-risk-review.mjs": 1,
-  "scripts/platform-smoke.mjs": 9,
+  "scripts/platform-smoke.mjs": 10,
   "scripts/project-status-sync.mjs": 1,
   "scripts/provider-object-disposition/browser-boundary/bootstrap.mjs": 1,
   "scripts/provider-webhook-lifecycle.mjs": 3,
@@ -127,7 +127,7 @@ const reviewedSiteContexts = {
   "scripts/next-work.mjs": "0e5faa744dfcfe74d72930ca37f06a1842072c6cf7a9c234f54870f45b2b2174",
   "scripts/platform-pr-scope.mjs": "9d3522578401d01f7bbb9f98b07a33c82620665aaa2e2a21913e7502a85be3b1",
   "scripts/platform-risk-review.mjs": "629eb54a9b60db5d97b3c3026c494cd1a9483cf6601fa73289eef97fa55577c2",
-  "scripts/platform-smoke.mjs": "f309985c58b04ee3f02b545499a2dc243350fd9a85c5a2b0fe9960f147c30360",
+  "scripts/platform-smoke.mjs": "6b3df2433ab08490df247932264c12129ad8e61a1ddd936e2aba30eb2a47a28c",
   "scripts/project-status-sync.mjs": "df628a68ae1d87a4c1def0a0e4525cf4ca5a980d2f2d574bfd3bb4e0aebacf66",
   "scripts/provider-object-disposition/browser-boundary/bootstrap.mjs":
     "f80e3e9f0740b6ad3dd65abd4390807146f896f57abae2edb2bcaff8b146d349",
@@ -146,7 +146,7 @@ const reviewedSiteContexts = {
   "scripts/staging-projection-operations.mjs": "ab2d69296083f225b19579adce4156c0155bbd77d8959222321fb77cc6074d74",
   "scripts/staging-refresh-preflight.mjs": "8327da03d2d0ea8d486d3f456f9daf2fd5301ba15068a034ddf30f28b41267e3",
   "scripts/staging-wake-drills.mjs": "3c5544f6031c2473f2e69b9bf20f4c2c64f55afb08bb0be1e93a481a51c50937",
-  "scripts/stripe-money-smoke-test.mjs": "c10c83685c864434c2c32db22e343eb9720460f0221249e983c7d8f2c1dd8d4b",
+  "scripts/stripe-money-smoke-test.mjs": "cf6de8a707be5bf66f88681d59d2f63022856624776a0e6104aea96fccbe833a",
   "scripts/stripe-payment-create-uncertain-outcome-probe.mjs":
     "22daa7b7296f5934175d4e7033c6735a975c0eac67cf33efbc0676818d0b4a08",
   "scripts/stripe-webhook-endpoint.mjs": "d6e3f6d474afd012e8062e469b5253477dd04fa481a67ad011abd728c94a20cd",

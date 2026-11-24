@@ -4,7 +4,7 @@ The Corten public pilot (`public-corten`) runs on staging beside public-web and 
 
 ## The switch
 
-Staging deploys every enabled workload in one Helm release that waits for each pod and rolls back if one never becomes ready. A public pilot that crashes on start would therefore fail Deploy Staging and hold Deploy Production. The `staging` environment variable `STAGING_PUBLIC_PILOT` drops it without a revert, the same way `STAGING_MARKETPLACE_PILOT` drops the marketplace pilot ([Staging Marketplace Pilot](./staging-marketplace-pilot.md)):
+Staging deploys every enabled workload in one Helm release that waits for each pod and rolls back if one never becomes ready. A public pilot that crashes on start would therefore fail Deploy Staging and hold Deploy Production. The `staging` environment variable `STAGING_PUBLIC_PILOT` drops it without a revert:
 
 1. Unset or `deployed`: the pilot is deployed when the release built its image, and its routes are walked advisorily. With no image it is deployed disabled.
 2. `withheld`: the pilot is rendered disabled whether or not its image was built. The release neither runs nor waits for it, and the Advisory Corten public smoke only says that it was withheld.
