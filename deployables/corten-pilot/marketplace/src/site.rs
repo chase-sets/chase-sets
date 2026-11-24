@@ -2,8 +2,8 @@
 //! (`sitemap.ts`, `sitemap-entity.ts`: the static pages, then Discovery's public pages of each kind
 //! in pages of 5,000), the favicon at both addresses (`favicon-svg.ts`, `favicon.ts`, the design
 //! system's `chaseSetsLogoSvg`, compiled in from `favicon.svg`, which scripts/export.mjs writes),
-//! marketplace-web's fallback pictures under `/fake-cdn/assets/` (`public/fake-cdn/assets`, which
-//! scripts/export.mjs copies), Chrome's devtools probe, and the offline page the service worker
+//! marketplace's fallback pictures under `/fake-cdn/assets/` (committed in `fake-cdn/assets`, as
+//! marketplace-web's `public/fake-cdn/assets`), Chrome's devtools probe, and the offline page the service worker
 //! keeps (`offline.tsx`). The web app manifest and the service worker are Corten's (`App::pwa`,
 //! see `app::pwa`); `/health/live` and `/health/ready` are Corten's own.
 //!
@@ -147,8 +147,8 @@ pub(crate) async fn favicon() -> Public<Media> {
 /// How long a browser or cache keeps a fallback picture (a day, as the favicon).
 const FAKE_CDN_LIFE: Duration = Duration::from_secs(86_400);
 
-/// marketplace-web's `public/fake-cdn/assets/` (scripts/export.mjs copies them into
-/// `fake-cdn/assets/`): the card backs Catalog stores as an item's fallback picture
+/// The pictures committed in `fake-cdn/assets/` (marketplace-web's `public/fake-cdn/assets/`):
+/// the card backs Catalog stores as an item's fallback picture
 /// (`contracts/catalog-seed/fallback-assets.ts`) and the product placeholder (`views::DEFAULT_PRODUCT_IMAGE`).
 /// Catalog's paths are relative, so the pilot builds them on marketplace's origin, which is the
 /// pilot's own once it serves marketplace.
