@@ -16,6 +16,7 @@ import {
   createPaymentRuntime as createRuntime,
 } from "./runtime";
 import { createPaymentTransactionRunner, createPaymentWebhookRunner } from "./webhook-transaction";
+import { createPaymentProcessorWebhookRoutes } from "./route";
 import type { PgTransactionalPool, PostgresEventStore } from "@chase-sets/event-core-postgres";
 import {
   ProviderAdapterError,
@@ -34,6 +35,7 @@ import {
   normalizeMoneyAmount as normalizeDomainMoneyAmount,
 } from "../../../support/runtime-support/common";
 import { MarketplaceCheckoutFeePolicyUnavailableError } from "./marketplace-checkout-fee-policy";
+import { createWalletFundingRuntime } from "../../wallet-funding/api/runtime";
 import {
   checkoutProcessingFeePolicyResolverFor,
   quotedCheckoutProcessingFeePolicyValue,
@@ -244,11 +246,11 @@ function createPaymentRuntime(
     "runWebhookTransaction" | "runPaymentTransaction" | "cardDeclineStore"
   > &
     Partial<Pick<Parameters<typeof createRuntime>[0], "cardDeclineStore">>,
-) {
-  const pool: PgTransactionalPool = {
+  pool: PgTransactionalPool = {
     query: deps.db.query,
     connect: async () => ({ query: deps.db.query, release: () => undefined }),
-  };
+  },
+) {
   const store: PostgresEventStore = {
     ...deps.eventStore,
     readStreamInTransaction: (_client, input) => deps.eventStore.readStream(input),
@@ -851,6 +853,146 @@ const context = {
 };
 
 describe("payment runtime", () => {
+  it.each([
+    { name: "checkout PaymentIntent", internalId: "metadata", target: true, ignored: false },
+    { name: "reference-only checkout PaymentIntent", internalId: null, target: true, ignored: false },
+    { name: "unrelated PaymentIntent", internalId: null, target: false, ignored: true },
+  ])("handles a succeeded $name with one Payments database backend", async ({ internalId, target, ignored }) => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const processorGateway = createProcessorGateway();
+    let paymentRow: Record<string, unknown> | undefined;
+    const { db, webhookEvents } = createReconciliationDb({
+      paymentById: (id) => (paymentRow?.payment_id === id ? paymentRow : null),
+    });
+    const clientQuery = vi.fn(async (sql: string, params?: readonly unknown[]) => {
+      if (
+        paymentRow &&
+        sql.includes("AND processor_payment_reference = $2") &&
+        paymentRow.processor_payment_reference === params?.[1]
+      ) {
+        return { rows: [paymentRow] };
+      }
+      return db.query(sql, params);
+    });
+    let checkedOut = false;
+    const pool: PgTransactionalPool = {
+      query: (async (sql: string, params?: readonly unknown[]) => {
+        if (checkedOut) throw Object.assign(new Error("synthetic idle-in-transaction termination"), { code: "25P03" });
+        return db.query(sql, params);
+      }) as PgTransactionalPool["query"],
+      connect: async () => {
+        expect(checkedOut).toBe(false);
+        checkedOut = true;
+        return {
+          query: clientQuery as PgTransactionalPool["query"],
+          release: () => {
+            checkedOut = false;
+          },
+        };
+      },
+    };
+    const signals: ProviderWebhookTelemetryEvent[] = [];
+    const runtime = createPaymentRuntime(
+      {
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: pool,
+        processorGateway,
+        walletFunding: createWalletFundingRuntime({ pool, eventStore, processorGateway }),
+        webhookTelemetry: { record: (signal) => signals.push(signal) },
+      },
+      pool,
+    );
+    if (target) {
+      const status = await runtime.getCheckoutStatus({
+        accountId: "acc_buyer" as never,
+        orderIds: ["ord_1" as never],
+        paymentMethodCategory: "card",
+      });
+      paymentRow = await runtime.createAccountPayment(
+        {
+          accountId: "acc_buyer" as never,
+          orderIds: ["ord_1" as never],
+          paymentMethodCategory: "card",
+          marketplaceCheckoutFeeQuoteFingerprint: status.marketplace_checkout_fee.quote_fingerprint,
+        },
+        context,
+      );
+    }
+    processorGateway.parseWebhook.mockResolvedValue({
+      eventId: "evt_synthetic_succeeded",
+      kind: "payment-captured",
+      processorName: "stripe",
+      processorPaymentKind: "payment-intent",
+      processorPaymentReference: paymentRow?.processor_payment_reference ?? "pi_synthetic_unrelated",
+      internalPaymentId: internalId ? paymentRow?.payment_id : null,
+      processorStatus: "succeeded",
+      failureCode: null,
+      failureMessage: null,
+      occurredAt: "2026-04-29T00:10:00.000Z",
+    } as never);
+    const app = createPaymentProcessorWebhookRoutes(runtime);
+    const deliver = () =>
+      app.request("/webhooks", { method: "POST", body: "{}", headers: { "Stripe-Signature": "sig" } });
+    const response = await deliver();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      received: true,
+      ignored,
+      ...(ignored ? { failure_class: "unknown-event" } : {}),
+    });
+    const duplicate = await deliver();
+    expect(duplicate.status).toBe(200);
+    expect(await duplicate.json()).toEqual({
+      received: true,
+      ignored: true,
+      failure_class: "inbox-conflict",
+    });
+    expect(clientQuery.mock.calls.some(([sql]) => sql.includes("FROM payments_wallet_funding_pages"))).toBe(true);
+    expect(webhookEvents).toHaveLength(1);
+    expect(readAllEvents().map((item) => item.eventType)).toEqual(
+      target ? ["payments.payment-created", "payments.payment-captured"] : [],
+    );
+    expect(signals[0]).toMatchObject({ statusCode: 200, outcome: ignored ? "ignored" : "processed" });
+  });
+
+  it.each([
+    { code: "25P03", causeCode: "postgres_idle_transaction_timeout" },
+    { code: "57P05", causeCode: "Error" },
+    { code: "SYNTHETIC_UNSAFE_CODE", causeCode: "Error" },
+  ])("logs only the allowlisted handler cause $causeCode", async ({ code, causeCode }) => {
+    const processorGateway = createProcessorGateway();
+    const signals: ProviderWebhookTelemetryEvent[] = [];
+    const error = Object.assign(new Error("SYNTHETIC_UNSAFE_MESSAGE"), { name: "SYNTHETIC_UNSAFE_NAME", code });
+    const db = {
+      query: vi.fn(async () => {
+        throw error;
+      }),
+    };
+    processorGateway.parseWebhook.mockResolvedValue({
+      eventId: "evt_synthetic_failure",
+      kind: "payment-captured",
+      processorName: "stripe",
+      processorPaymentReference: "pi_synthetic_failure",
+    } as never);
+    const runtime = createPaymentRuntime({
+      eventStore: createUnusedEventStore(),
+      checkpointStore: createCheckpointStore(),
+      db,
+      processorGateway,
+      webhookTelemetry: { record: (signal) => signals.push(signal) },
+    });
+    const response = await createPaymentProcessorWebhookRoutes(runtime).request("/webhooks", {
+      method: "POST",
+      body: "{}",
+    });
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body).toMatchObject({ error: { failure_class: "handler-failure", retryable: true } });
+    expect(signals).toMatchObject([{ failureClass: "handler-failure", eventKind: "payment-captured", causeCode }]);
+    expect(JSON.stringify({ body, signals })).not.toContain("SYNTHETIC_UNSAFE");
+  });
+
   it("invariant violations are acknowledged as ignored", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
     const { db, webhookEvents } = createReconciliationDb({ paymentById: () => existingPaymentRow() });
@@ -1000,44 +1142,49 @@ describe("payment runtime", () => {
     ]);
   });
 
-  it("does not mark provider webhooks processed when the payment target is not ready", async () => {
-    const processorGateway = createProcessorGateway();
-    processorGateway.parseWebhook.mockResolvedValue({
-      eventId: "evt_refund_before_payment",
-      processorName: "stripe",
-      kind: "payment-refunded",
-      processorPaymentReference: "pi_missing",
-      processorRefundReference: "re_missing",
-      processorStatus: "succeeded",
-      amount: "12.50",
-      occurredAt: "2026-04-29T00:10:00.000Z",
-    } as never);
-    const db = {
-      query: vi.fn(async (sql: string) => {
-        if (sql.includes("FROM payments_provider_webhook_events")) {
+  it.each(["payment-refunded", "payment-captured"])(
+    "keeps a %s webhook retryable when its owned target is not ready",
+    async (kind) => {
+      const processorGateway = createProcessorGateway();
+      processorGateway.parseWebhook.mockResolvedValue({
+        eventId: "evt_refund_before_payment",
+        processorName: "stripe",
+        kind,
+        processorPaymentKind: "payment-intent",
+        processorPaymentReference: "pi_missing",
+        internalPaymentId: kind === "payment-captured" ? "pay_missing" : null,
+        processorRefundReference: "re_missing",
+        processorStatus: "succeeded",
+        amount: "12.50",
+        occurredAt: "2026-04-29T00:10:00.000Z",
+      } as never);
+      const db = {
+        query: vi.fn(async (sql: string) => {
+          if (sql.includes("FROM payments_provider_webhook_events")) {
+            return { rows: [], rowCount: 0 };
+          }
+          if (sql.includes("FROM payments_payment_pages")) {
+            return { rows: [], rowCount: 0 };
+          }
+          if (sql.includes("INSERT INTO payments_provider_webhook_events")) {
+            return { rows: [], rowCount: 1 };
+          }
           return { rows: [], rowCount: 0 };
-        }
-        if (sql.includes("FROM payments_payment_pages")) {
-          return { rows: [], rowCount: 0 };
-        }
-        if (sql.includes("INSERT INTO payments_provider_webhook_events")) {
-          return { rows: [], rowCount: 1 };
-        }
-        return { rows: [], rowCount: 0 };
-      }),
-    };
-    const services = createPaymentRuntime({
-      eventStore: createUnusedEventStore(),
-      checkpointStore: createCheckpointStore(),
-      db: db as never,
-      processorGateway,
-    });
+        }),
+      };
+      const services = createPaymentRuntime({
+        eventStore: createUnusedEventStore(),
+        checkpointStore: createCheckpointStore(),
+        db: db as never,
+        processorGateway,
+      });
 
-    await expect(services.processWebhook({ rawBody: "{}", signatureHeader: "sig" }, context)).rejects.toThrow(
-      "Provider webhook handler failed.",
-    );
-    expect(db.query.mock.calls.some(([sql]) => String(sql) === "ROLLBACK")).toBe(true);
-  });
+      await expect(services.processWebhook({ rawBody: "{}", signatureHeader: "sig" }, context)).rejects.toThrow(
+        "Provider webhook handler failed.",
+      );
+      expect(db.query.mock.calls.some(([sql]) => String(sql) === "ROLLBACK")).toBe(true);
+    },
+  );
 
   it("records Shared Payment Token provider events as acknowledged ignored inbox rows", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();

@@ -36,11 +36,21 @@ export type ProviderWebhookTelemetryEvent = Readonly<{
   providerEventId?: string | null;
   eventKind?: string | null;
   invariantCode?: ProviderWebhookInvariantCode;
+  causeCode?: ProviderWebhookCauseCode;
   tokenMint?: ProviderKeyAuthorityOutcome;
   keyFetch?: ProviderKeyAuthorityOutcome;
 }>;
 
 export type ProviderKeyAuthorityOutcome = "not-attempted" | "succeeded" | "refused" | "unavailable";
+
+export type ProviderWebhookCauseCode =
+  | "postgres_idle_transaction_timeout"
+  | "payment_webhook_target_not_ready"
+  | "PaymentsDomainError"
+  | "ProviderAdapterError"
+  | "TypeError"
+  | "Error"
+  | "unknown";
 
 export type ProviderWebhookInvariantCommand =
   | "RecordPaymentAuthorization"
