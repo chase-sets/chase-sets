@@ -60,6 +60,7 @@ import { buildReviewApi } from "./features/reviews/api/http";
 import { buildSellerMetricsApi } from "./features/seller-metrics/api/http";
 import { createMarketplaceServices } from "./support/runtime-support/services";
 import { marketplaceSchemaSql } from "./support/runtime-support/schema";
+import { platformPolicySchemaMigrations } from "@chase-sets/platform-policy/schema";
 import { marketplaceUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import { marketplaceSupplyProjectionSchemaMigrations } from "./features/listings/integrations/supply/supply-schema";
 import { marketplaceListingSchemaMigrations } from "./features/listings/read-model/schema";
@@ -110,6 +111,7 @@ const baseModule = defineBoundedContextModule<MarketplaceServices, PgTransaction
     ...marketplaceSellerMetricsSourceSchemaMigrations,
     ...marketplaceSellerMetricsSummarySchemaMigrations,
     ...marketplaceChannelInboundClampSchemaMigrations,
+    ...platformPolicySchemaMigrations,
   ],
   retentionSweeps: marketplaceRetentionSweeps,
   retentionExemptions: marketplaceRetentionExemptions,

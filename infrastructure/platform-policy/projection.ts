@@ -42,6 +42,12 @@ type PolicyDocumentRevisedPayload = Readonly<{
  * adopts the machinery registers this same handler map against its own event
  * stream -- the handlers are generic over policy shape because the read
  * model stores `value` as opaque jsonb.
+ *
+ * A document row is written only by an event whose stream version is higher
+ * than the one the row holds, so a replay over kept rows leaves each row at
+ * its latest revision. The comparison is on stream version, not `updated_at`:
+ * that is the appending process's clock, which can tie or run backwards
+ * across revisions. History rows and the invalidation hook are not guarded.
  */
 export function buildPolicyDocumentProjectionHandlers(
   db: PgQueryable,
@@ -62,9 +68,10 @@ export function buildPolicyDocumentProjectionHandlers(
            effective_from,
            effective_until,
            created_at,
-           updated_at
+           updated_at,
+           stream_version
          ) VALUES (
-           $1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $9
+           $1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $9, $10
          )
          ON CONFLICT (document_id) DO UPDATE
          SET policy_key = EXCLUDED.policy_key,
@@ -74,7 +81,9 @@ export function buildPolicyDocumentProjectionHandlers(
              value = EXCLUDED.value,
              effective_from = EXCLUDED.effective_from,
              effective_until = EXCLUDED.effective_until,
-             updated_at = EXCLUDED.updated_at`,
+             updated_at = EXCLUDED.updated_at,
+             stream_version = EXCLUDED.stream_version
+         WHERE platform_policy_documents.stream_version < EXCLUDED.stream_version`,
         [
           data.documentId,
           data.policyKey,
@@ -85,6 +94,7 @@ export function buildPolicyDocumentProjectionHandlers(
           data.effectiveFrom,
           data.effectiveUntil,
           event.timing.recordedAt,
+          event.streamVersion,
         ],
       );
       await insertPolicyDocumentHistory(db, {
@@ -110,8 +120,10 @@ export function buildPolicyDocumentProjectionHandlers(
              value = $3::jsonb,
              effective_from = $4,
              effective_until = $5,
-             updated_at = $6
-         WHERE document_id = $1`,
+             updated_at = $6,
+             stream_version = $7
+         WHERE document_id = $1
+           AND stream_version < $7`,
         [
           data.documentId,
           data.status,
@@ -119,6 +131,7 @@ export function buildPolicyDocumentProjectionHandlers(
           data.effectiveFrom,
           data.effectiveUntil,
           event.timing.recordedAt,
+          event.streamVersion,
         ],
       );
       await insertPolicyDocumentHistory(db, {

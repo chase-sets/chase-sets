@@ -14,6 +14,7 @@ import {
   customerFeedbackRetentionSweeps,
 } from "./support/runtime-support/retention-policy";
 import { customerFeedbackSchemaMigrations, customerFeedbackSchemaSql } from "./support/runtime-support/schema";
+import { platformPolicySchemaMigrations } from "@chase-sets/platform-policy/schema";
 import {
   createCustomerFeedbackServices,
   type CustomerFeedbackHostPorts,
@@ -50,7 +51,7 @@ const contextModule = defineBoundedContextModule<
 >({
   manifest: customerFeedbackContextManifest,
   schemaSql: customerFeedbackSchemaSql,
-  schemaMigrations: customerFeedbackSchemaMigrations,
+  schemaMigrations: [...customerFeedbackSchemaMigrations, ...platformPolicySchemaMigrations],
   retentionExemptions: customerFeedbackRetentionExemptions,
   retentionSweeps: customerFeedbackRetentionSweeps,
   createServices: (pool, ports) => createCustomerFeedbackServices(pool, ports),

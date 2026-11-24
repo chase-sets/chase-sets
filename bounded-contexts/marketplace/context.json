@@ -692,7 +692,7 @@
       "sourceContextNames": ["marketplace"],
       "ownedTables": ["platform_policy_documents", "platform_policy_document_history"],
       "requiredDuringBootstrap": false,
-      "resetStrategy": "truncate-owned-tables"
+      "resetStrategy": "replay-only"
     },
     {
       "projectionName": "marketplace-review-hold-reaction",

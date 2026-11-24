@@ -60,10 +60,11 @@ const migrationIds = [
 ];
 
 // Fixed Settlement lifecycle evidence at abb4857e, plus the Settlement hold projection wiring in index.ts and the
-// unlogged projection migration without the dropped velocity source table.
+// unlogged projection migration without the dropped velocity source table, and the policy document stream version
+// column with its ledger, which index.ts spreads last.
 // Full source pins include imports, exports, every executable member and opaque expressions.
 const composedSources = {
-  "bounded-contexts/settlement/index.ts": "e5d6a029b3040554b4f337a8b2abab019f1371370651abf37e1b9f7f5173c529",
+  "bounded-contexts/settlement/index.ts": "c5c8f0fec3c66f4c69372e88b89eb49af2f1eef54e6a046c63d07bd54b41fcf1",
   "bounded-contexts/settlement/support/runtime-support/schema.ts":
     "2274e4327827a68c647aa383821fe93b6157dadfceba961918ebbe3fe88ca7be",
   "bounded-contexts/settlement/support/runtime-support/unlogged-projection-migrations.ts":
@@ -93,7 +94,7 @@ const composedSources = {
   "infrastructure/event-core-postgres/index.ts": "f573ef2f50ac4717ea37bf8098b92a3e4ece6c8405a4c794af0592a2c9111924",
   "infrastructure/event-core-postgres/schema.ts": "8fb05cb27f304dc5c43b0992f3b3ad1e98e2891407d15abec8139c63048551dc",
   "infrastructure/notification-outbox/index.ts": "24ff5dd032a3c3fa6b2b91efb97ec06e4a73e28bb1e615de9a771a90c8b1e537",
-  "infrastructure/platform-policy/schema.ts": "dd1923a1b8ebd4d8e562e5f9198655f01569c5c145441f682a3edd0af92e46b2",
+  "infrastructure/platform-policy/schema.ts": "144796507d5469fb3a2fece7a539081cecd200a8708b509362f00d801cc95be7",
   "infrastructure/platform-runtime/durable-job-store.ts":
     "fcabac808d63a9b9fb7f6218a62eba3979a4e48808f20fb33cec1f63e442c8e4",
   "infrastructure/platform-runtime/durable-job-work-units.ts":

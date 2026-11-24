@@ -7,11 +7,15 @@ import {
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import { payoutReviewHoldFactTypes } from "@chase-sets/event-core/payout-review-hold-facts";
+import { toTransportEvent } from "@chase-sets/event-core/transport";
+import { buildPolicyDocumentProjectionHandlers } from "@chase-sets/platform-policy/projection";
+import { createPolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { module as paymentsModule } from "../index";
 import { paymentsCardDeclineSchemaMigrations } from "../features/payments/api/card-decline-schema";
+import { cardAuthenticationPolicy } from "../features/payments/domain/card-authentication-policy";
 import { buildPaymentsSettlementAccountRiskSourceProjectionHandlers } from "../features/payments/integrations/account-risk-source/account-risk-source-projection";
 import { getPaymentAccountRiskSource } from "../features/payments/read-model/queries";
 
@@ -259,5 +263,107 @@ describeDb("payments schema upgrades", () => {
          AND tablename = 'payments_refund_pages'`,
     );
     expect(indexes.rows.map((row) => row.indexname)).toContain("payments_refund_pages_remedy_idx");
+  });
+
+  it("returns the policy tables to logged storage and gives a kept row the stream version it was projected at", async () => {
+    const pool = pools.payments;
+    const policyTables = ["platform_policy_documents", "platform_policy_document_history"];
+    const migrationIds = [
+      "20261123_payments_policy_documents_logged",
+      "20261123_platform_policy_document_stream_version",
+    ];
+    const persistence = async () =>
+      Promise.all(
+        policyTables.map(async (tableName) => {
+          const result = await pool.query<{ relpersistence: string }>(
+            "SELECT relpersistence FROM pg_class WHERE oid = to_regclass($1)",
+            [tableName],
+          );
+          return result.rows[0]?.relpersistence;
+        }),
+      );
+    const documentRows = async () => (await pool.query("SELECT * FROM platform_policy_documents")).rows;
+    const historyRows = async () =>
+      (await pool.query("SELECT * FROM platform_policy_document_history ORDER BY history_id ASC")).rows;
+    const ledgerRows = async () =>
+      (
+        await pool.query(
+          `SELECT migration_id, applied_at FROM bounded_context_schema_migrations
+           WHERE migration_id = ANY($1::text[]) ORDER BY migration_id ASC`,
+          [migrationIds],
+        )
+      ).rows;
+
+    await bootstrapContextDatabase(paymentsModule, pool);
+    const eventStore = createPostgresEventStore({ pool });
+    const runtime = createPolicyRuntime({ eventStore, db: pool });
+    const handlers = buildPolicyDocumentProjectionHandlers(pool);
+    const context = {
+      tenantId: "tnt_policy_upgrade" as never,
+      audit: { performedByUserId: "usr_policy_upgrade" as never, forAccountId: "acc_policy_upgrade" as never },
+    };
+    const params = (highPaymentAmount: string) => ({
+      value: { highPaymentAmount, highSellerExposureAmount: "250.00" },
+      status: "active" as const,
+      effectiveFrom: "2026-01-01T00:00:00.000Z",
+      effectiveUntil: null,
+      actorUserId: "usr_policy_upgrade",
+    });
+    const { documentId } = await runtime.createPolicyDocument(cardAuthenticationPolicy, params("200.00"), context);
+    await runtime.revisePolicyDocument(cardAuthenticationPolicy, documentId, params("100.00"), context);
+    const readStream = () => eventStore.readStream({ streamId: `platform-policy.document-${documentId}` });
+    const project = async (event: Awaited<ReturnType<typeof readStream>>[number]) => {
+      const handler = handlers[event.eventType];
+      if (!handler) throw new Error(`No policy projection handler for '${event.eventType}'.`);
+      await handler(toTransportEvent(event));
+    };
+    for (const event of await readStream()) {
+      await project(event);
+    }
+    // A revision the projection has not reached: the row holds version 2 while the stream is at 3.
+    await runtime.revisePolicyDocument(cardAuthenticationPolicy, documentId, params("50.00"), context);
+
+    // The shape an earlier build left behind: both tables unlogged, no stream version, neither migration applied.
+    await pool.query("ALTER TABLE platform_policy_documents DROP COLUMN stream_version");
+    for (const tableName of policyTables) {
+      await pool.query(`ALTER TABLE ${tableName} SET UNLOGGED`);
+    }
+    await pool.query("DELETE FROM bounded_context_schema_migrations WHERE migration_id = ANY($1::text[])", [
+      migrationIds,
+    ]);
+    expect(await persistence()).toEqual(["u", "u"]);
+    expect(await readColumnNames(pool, "platform_policy_documents")).not.toContain("stream_version");
+    const earlierRows = await documentRows();
+    expect(earlierRows).toEqual([expect.objectContaining({ document_id: documentId })]);
+    expect(earlierRows[0]).toMatchObject({ value: { highPaymentAmount: "100.00" } });
+    const history = await historyRows();
+    expect(history).toHaveLength(2);
+
+    await bootstrapContextDatabase(paymentsModule, pool);
+
+    expect(await persistence()).toEqual(["p", "p"]);
+    const upgradedRows = await documentRows();
+    expect(upgradedRows).toEqual([{ ...earlierRows[0], stream_version: "2" }]);
+    expect(await historyRows()).toEqual(history);
+    const ledger = await ledgerRows();
+    expect(ledger.map((row) => row.migration_id)).toEqual(migrationIds);
+
+    await bootstrapContextDatabase(paymentsModule, pool);
+
+    expect(await persistence()).toEqual(["p", "p"]);
+    expect(await documentRows()).toEqual(upgradedRows);
+    expect(await historyRows()).toEqual(history);
+    expect(await ledgerRows()).toEqual(ledger);
+
+    // The backfilled version holds the row through a replay and still admits the revision it has not seen.
+    const stream = await readStream();
+    for (const event of stream.slice(0, 2)) {
+      await project(event);
+      expect(await documentRows()).toEqual(upgradedRows);
+    }
+    await handlers[stream[2]!.eventType]?.(toTransportEvent(stream[2]!));
+    expect(await documentRows()).toEqual([
+      expect.objectContaining({ value: expect.objectContaining({ highPaymentAmount: "50.00" }), stream_version: "3" }),
+    ]);
   });
 });

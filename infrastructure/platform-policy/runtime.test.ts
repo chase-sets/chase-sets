@@ -9,6 +9,7 @@ import type {
   StoredEvent,
 } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
+import { toTransportEvent } from "@chase-sets/event-core/transport";
 import { getEventCommitMetadata, runWithEventCommitMetadata } from "@chase-sets/event-core/consistency";
 import { createPolicyCache } from "./cache";
 import { gracePeriodPolicy } from "./examples/grace-period-policy";
@@ -179,6 +180,8 @@ describe("guarded consent document activation", () => {
  * shapes this package's own queries.ts and projection.ts emit. It lets the
  * runtime test exercise the real command handler, the real projection
  * handlers, and the real resolver/cache together without a live Postgres.
+ * A document write is skipped for a row at the same or a later stream
+ * version only when the statement itself carries that comparison.
  */
 function createFakePolicyDb(options: Readonly<{ overlappingDocumentId?: string }> = {}) {
   const documents = new Map<string, Record<string, unknown>>();
@@ -229,7 +232,13 @@ function createFakePolicyDb(options: Readonly<{ overlappingDocumentId?: string }
           effectiveFrom,
           effectiveUntil,
           recordedAt,
+          streamVersion,
         ] = params;
+        const existing = documents.get(documentId as string);
+        const newerOnly = sql.includes("WHERE platform_policy_documents.stream_version < EXCLUDED.stream_version");
+        if (existing && newerOnly && !(Number(existing.stream_version) < Number(streamVersion))) {
+          return { rows: [] };
+        }
         documents.set(documentId as string, {
           document_id: documentId,
           policy_key: policyKey,
@@ -239,16 +248,18 @@ function createFakePolicyDb(options: Readonly<{ overlappingDocumentId?: string }
           value: JSON.parse(value as string),
           effective_from: effectiveFrom,
           effective_until: effectiveUntil,
-          created_at: recordedAt,
+          created_at: existing?.created_at ?? recordedAt,
           updated_at: recordedAt,
+          stream_version: streamVersion,
         });
         return { rows: [] };
       }
 
       if (sql.includes("UPDATE platform_policy_documents")) {
-        const [documentId, status, value, effectiveFrom, effectiveUntil, recordedAt] = params;
+        const [documentId, status, value, effectiveFrom, effectiveUntil, recordedAt, streamVersion] = params;
         const existing = documents.get(documentId as string);
-        if (existing) {
+        const newerOnly = sql.includes("AND stream_version < $7");
+        if (existing && (!newerOnly || Number(existing.stream_version) < Number(streamVersion))) {
           documents.set(documentId as string, {
             ...existing,
             status,
@@ -256,6 +267,7 @@ function createFakePolicyDb(options: Readonly<{ overlappingDocumentId?: string }
             effective_from: effectiveFrom,
             effective_until: effectiveUntil,
             updated_at: recordedAt,
+            stream_version: streamVersion,
           });
         }
         return { rows: [] };
@@ -369,6 +381,7 @@ describe("platform policy runtime (define -> create -> revise -> resolve -> inva
     const [createdStoredEvent] = await eventStore.readStream({ streamId: `platform-policy.document-${documentId}` });
     await handlers[createdStoredEvent!.eventType]?.({
       id: createdStoredEvent!.eventId,
+      streamVersion: createdStoredEvent!.streamVersion,
       data: createdStoredEvent!.payload,
       timing: { recordedAt: createdStoredEvent!.recordedAt },
       audit: { performedByUserId: createdStoredEvent!.performedByUserId },
@@ -404,6 +417,7 @@ describe("platform policy runtime (define -> create -> revise -> resolve -> inva
     expect(cache.get(gracePeriodPolicy.policyKey)).toBeDefined();
     await handlers[revisedStoredEvent.eventType]?.({
       id: revisedStoredEvent.eventId,
+      streamVersion: revisedStoredEvent.streamVersion,
       data: revisedStoredEvent.payload,
       timing: { recordedAt: revisedStoredEvent.recordedAt },
       audit: { performedByUserId: revisedStoredEvent.performedByUserId },
@@ -419,6 +433,37 @@ describe("platform policy runtime (define -> create -> revise -> resolve -> inva
       documentId,
       value: { graceDays: 10 },
     });
+  });
+
+  it("leaves a document at its latest revision while its stream is replayed over the kept row", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const { db, documents } = createFakePolicyDb();
+    const runtime = createPolicyRuntime({ eventStore, db });
+    const handlers = runtime.projectors[0]!.handlers;
+    const { documentId } = await runtime.createPolicyDocument(gracePeriodPolicy, createParams, context);
+    await runtime.revisePolicyDocument(
+      gracePeriodPolicy,
+      documentId,
+      { ...createParams, value: { graceDays: 10 } },
+      context,
+    );
+    await runtime.revisePolicyDocument(
+      gracePeriodPolicy,
+      documentId,
+      { ...createParams, value: { graceDays: 20 } },
+      context,
+    );
+    const stream = await eventStore.readStream({ streamId: `platform-policy.document-${documentId}` });
+    for (const stored of stream) {
+      await handlers[stored.eventType]?.(toTransportEvent(stored));
+    }
+    const latest = { ...documents.get(documentId) };
+    expect(latest).toMatchObject({ value: { graceDays: 20 }, stream_version: 3 });
+
+    for (const stored of stream) {
+      await handlers[stored.eventType]?.(toTransportEvent(stored));
+      expect(documents.get(documentId)).toEqual(latest);
+    }
   });
 
   it("rejects a value that fails the policy's own decodeValue before any event is appended", async () => {
@@ -539,6 +584,7 @@ function createWorkerAndApi(startAt: string) {
       const stored = (await eventStore.readStream({ streamId: `platform-policy.document-${documentId}` })).at(-1)!;
       await worker.projectors[0]!.handlers[stored.eventType]?.({
         id: stored.eventId,
+        streamVersion: stored.streamVersion,
         data: stored.payload,
         timing: { recordedAt: stored.recordedAt },
         audit: { performedByUserId: stored.performedByUserId },
