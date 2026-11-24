@@ -67,17 +67,17 @@ export const canonicalClaimRegistry: Readonly<Record<CanonicalClaimId, Canonical
       "establish capture. The Stripe adapter distinguishes setup and authorization from capture outcomes, " +
       "and Payments records capture from mapped webhook or reconciliation results.",
     productTruthRefs: [
-      "bounded-contexts/payments/features/payments/api/runtime.ts:2469-2490",
+      "bounded-contexts/payments/features/payments/api/runtime.ts:2543-2564",
       "infrastructure/stripe-payments/index.ts:1723-1777",
       "infrastructure/stripe-payments/index.ts:1839-1927",
       "infrastructure/stripe-payments/index.ts:1796-1837",
-      "bounded-contexts/payments/features/payments/api/runtime.ts:2634-2639",
+      "bounded-contexts/payments/features/payments/api/runtime.ts:2709-2714",
       "infrastructure/stripe-payments/index.ts:979-1060",
       "infrastructure/stripe-payments/index.ts:1106-1133",
-      "bounded-contexts/payments/features/payments/api/runtime.ts:3121-3163",
+      "bounded-contexts/payments/features/payments/api/runtime.ts:3197-3241",
       "infrastructure/stripe-payments/index.ts:418-494",
-      "bounded-contexts/payments/features/payments/api/runtime.ts:280-306",
-      "bounded-contexts/payments/features/payments/api/runtime.ts:1573-1615",
+      "bounded-contexts/payments/features/payments/api/runtime.ts:289-315",
+      "bounded-contexts/payments/features/payments/api/runtime.ts:1592-1643",
       "bounded-contexts/payments/features/payments/domain/domain.ts:954-993",
     ],
     requiredEvidenceKeywords: [

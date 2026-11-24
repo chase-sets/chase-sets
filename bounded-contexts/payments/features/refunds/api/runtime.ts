@@ -21,6 +21,7 @@ import {
 } from "../../../support/runtime-support/common";
 import type { PaymentProcessorGateway } from "@chase-sets/payment-processing";
 import { getPaymentById } from "../../payments/read-model/queries";
+import { withPaymentLock, type PaymentTransactionRunner } from "../../payments/api/webhook-transaction";
 import {
   buildRefundTransactionalEmailProjectionHandlers,
   PAYMENTS_REFUND_TRANSACTIONAL_EMAIL_PROJECTION,
@@ -51,11 +52,17 @@ type RefundRuntimeDeps = Readonly<{
   db: PgQueryable;
   processorGateway: PaymentProcessorGateway;
   notificationOutbox?: NotificationOutbox;
-  handlers?: Readonly<{
-    payment: CommandHandler<PaymentCommand, PaymentState, PaymentEvent>;
-    refund: CommandHandler<RefundCommand, RefundState, RefundEvent>;
-  }>;
-}>;
+}> &
+  (
+    | Readonly<{ runPaymentTransaction: PaymentTransactionRunner; handlers?: never }>
+    | Readonly<{
+        runPaymentTransaction?: never;
+        handlers: Readonly<{
+          payment: CommandHandler<PaymentCommand, PaymentState, PaymentEvent>;
+          refund: CommandHandler<RefundCommand, RefundState, RefundEvent>;
+        }>;
+      }>
+  );
 
 function arraysEqual(left: readonly string[], right: readonly string[]) {
   return left.length === right.length && left.every((value, index) => value === right[index]);
@@ -106,152 +113,188 @@ export type RefundServices = Readonly<{
 
 export function createRefundRuntime(deps: RefundRuntimeDeps): RefundServices {
   const notificationOutbox = deps.notificationOutbox ?? createNoopNotificationOutbox();
-  const { commandHandler: defaultRefundCommandHandler, repository } = createAggregateCommandHandler({
-    eventStore: deps.eventStore,
-    codec: createPassthroughDomainEventCodec<RefundEvent>(),
-    initialState: () => initialRefundState,
-    evolve: evolveRefund,
-    decide: decideRefund,
-  });
-  const { commandHandler: defaultPaymentCommandHandler, repository: paymentRepository } = createAggregateCommandHandler(
-    {
-      eventStore: deps.eventStore,
+  const refundAggregate = (eventStore: EventStore) =>
+    createAggregateCommandHandler({
+      eventStore,
+      codec: createPassthroughDomainEventCodec<RefundEvent>(),
+      initialState: () => initialRefundState,
+      evolve: evolveRefund,
+      decide: decideRefund,
+    });
+  const paymentAggregate = (eventStore: EventStore) =>
+    createAggregateCommandHandler({
+      eventStore,
       codec: createPassthroughDomainEventCodec<PaymentEvent>(),
       initialState: () => initialPaymentState,
       evolve: evolvePayment,
       decide: decidePayment,
-    },
-  );
-  const refundCommandHandler = deps.handlers?.refund ?? defaultRefundCommandHandler;
-  const paymentCommandHandler = deps.handlers?.payment ?? defaultPaymentCommandHandler;
+    });
+  const refundCommandHandler = deps.handlers?.refund ?? refundAggregate(deps.eventStore).commandHandler;
 
   return {
     commandHandler: refundCommandHandler,
     async issueRefund(params, context) {
-      const payment = await getPaymentById(deps.db, params.paymentId);
-      if (!payment) {
-        throw new PaymentsDomainError("Payment not found.");
-      }
-      if (payment.status !== "captured" && payment.status !== "partially-refunded") {
-        throw new PaymentsDomainError("Only captured payments can be refunded.");
-      }
+      async function prepare({ db, eventStore }: { db: PgQueryable; eventStore: EventStore }) {
+        const payment = await getPaymentById(db, params.paymentId);
+        if (!payment) {
+          throw new PaymentsDomainError("Payment not found.");
+        }
+        if (payment.status !== "captured" && payment.status !== "partially-refunded") {
+          throw new PaymentsDomainError("Only captured payments can be refunded.");
+        }
+        if (payment.processor_payment_reference === null) {
+          throw new PaymentsDomainError("Payment has no processor reference.");
+        }
+        const { commandHandler: defaultPaymentCommandHandler, repository: paymentRepository } =
+          paymentAggregate(eventStore);
+        const paymentCommandHandler = deps.handlers?.payment ?? defaultPaymentCommandHandler;
 
-      const refundId = params.refundId ?? (createId("rfd") as RefundId);
-      const requestedAt = new Date().toISOString();
-      const requestedAmount = normalizeMoneyAmount(params.amount, {
-        fieldName: "Refund amount",
-      });
-      const orderIds = [...new Set(params.orderIds.map((orderId) => orderId.trim()).filter(Boolean))];
-      if (orderIds.length === 0) {
-        throw new PaymentsDomainError("Refund must reference at least one order.");
-      }
-      const invalidOrderId = orderIds.find((orderId) => !payment.order_ids.includes(orderId));
-      if (invalidOrderId) {
-        throw new PaymentsDomainError("Refund order must belong to the payment.");
-      }
-      const reason = normalizeRequiredText(params.reason, "Refund reason is required.");
-      const currencyCode = payment.currency_code as CurrencyCode;
-      const processorName = payment.processor_name as PaymentProcessorName;
-      const refundStreamId = `payments.refund-${refundId}`;
+        const refundId = params.refundId ?? (createId("rfd") as RefundId);
+        const requestedAt = new Date().toISOString();
+        const requestedAmount = normalizeMoneyAmount(params.amount, {
+          fieldName: "Refund amount",
+        });
+        const orderIds = [...new Set(params.orderIds.map((orderId) => orderId.trim()).filter(Boolean))];
+        if (orderIds.length === 0) {
+          throw new PaymentsDomainError("Refund must reference at least one order.");
+        }
+        const invalidOrderId = orderIds.find((orderId) => !payment.order_ids.includes(orderId));
+        if (invalidOrderId) {
+          throw new PaymentsDomainError("Refund order must belong to the payment.");
+        }
+        const reason = normalizeRequiredText(params.reason, "Refund reason is required.");
+        const currencyCode = payment.currency_code as CurrencyCode;
+        const processorName = payment.processor_name as PaymentProcessorName;
+        const refundStreamId = `payments.refund-${refundId}`;
 
-      // Resolve the amount to actually request. A refund that was already
-      // requested (including one that failed at the gateway and is now being
-      // retried) reuses its own reserved amount verbatim so the retry is a
-      // no-op reservation and the processor idempotency key dedupes it. A
-      // brand-new refund with capping enabled is clamped to the order's
-      // authoritative cumulative remaining refundable.
-      let amount: string = requestedAmount;
-      const existingRefund = params.refundId ? await repository.load(refundStreamId) : null;
-      if (existingRefund && existingRefund.state.refundId !== null) {
-        if (existingRefund.state.status === "issued") {
-          if (
-            existingRefund.state.paymentId !== params.paymentId ||
-            !arraysEqual(existingRefund.state.orderIds, orderIds) ||
-            existingRefund.state.currencyCode !== currencyCode ||
-            existingRefund.state.reason !== reason ||
-            existingRefund.state.processorName !== processorName
-          ) {
-            throw new PaymentsDomainError("Refund request does not match the existing refund.");
+        // Resolve the amount to actually request. A refund that was already
+        // requested (including one that failed at the gateway and is now being
+        // retried) reuses its own reserved amount verbatim so the retry is a
+        // no-op reservation and the processor idempotency key dedupes it. A
+        // brand-new refund with capping enabled is clamped to the order's
+        // authoritative cumulative remaining refundable.
+        let amount: string = requestedAmount;
+        const existingRefund = params.refundId
+          ? await refundAggregate(eventStore).repository.load(refundStreamId)
+          : null;
+        if (existingRefund && existingRefund.state.refundId !== null) {
+          if (existingRefund.state.status === "issued") {
+            if (
+              existingRefund.state.paymentId !== params.paymentId ||
+              !arraysEqual(existingRefund.state.orderIds, orderIds) ||
+              existingRefund.state.currencyCode !== currencyCode ||
+              existingRefund.state.reason !== reason ||
+              existingRefund.state.processorName !== processorName
+            ) {
+              throw new PaymentsDomainError("Refund request does not match the existing refund.");
+            }
+            return {
+              outcome: "requested",
+              refundId,
+              version: existingRefund.version,
+              amount: existingRefund.state.amount!,
+            } as const;
           }
-          return {
-            outcome: "requested",
-            refundId,
-            version: existingRefund.version,
-            amount: existingRefund.state.amount!,
-          };
+          // Reuse the already-reserved amount for a retry of a requested/failed refund.
+          amount = existingRefund.state.amount!;
+        } else if (params.capToRemainingRefundable) {
+          const { state: paymentState } = await paymentRepository.load(`payments.payment-${params.paymentId}`);
+          const remaining = remainingRefundableAmountForOrders(paymentState, orderIds as OrderId[], refundId);
+          if (compareMoney(remaining, "0.00") <= 0) {
+            return {
+              outcome: "not-refundable",
+              refundId,
+              reason: "Order has no remaining refundable amount.",
+            } as const;
+          }
+          if (compareMoney(amount, remaining) > 0) {
+            amount = remaining;
+          }
+        } else {
+          const remainingRefundableAmount = subtractMoney(payment.amount, payment.refunded_amount);
+          if (compareMoney(amount, remainingRefundableAmount) > 0) {
+            throw new PaymentsDomainError("Refund amount cannot exceed the remaining refundable payment amount.");
+          }
         }
-        // Reuse the already-reserved amount for a retry of a requested/failed refund.
-        amount = existingRefund.state.amount!;
-      } else if (params.capToRemainingRefundable) {
-        const { state: paymentState } = await paymentRepository.load(`payments.payment-${params.paymentId}`);
-        const remaining = remainingRefundableAmountForOrders(paymentState, orderIds as OrderId[], refundId);
-        if (compareMoney(remaining, "0.00") <= 0) {
-          return {
-            outcome: "not-refundable",
-            refundId,
-            reason: "Order has no remaining refundable amount.",
-          };
+
+        try {
+          await paymentCommandHandler({
+            streamId: `payments.payment-${params.paymentId}`,
+            command: {
+              type: "RequestPaymentRefund",
+              refundId,
+              orderIds: orderIds as OrderId[],
+              amount,
+              requestedAt,
+            },
+            context,
+          });
+        } catch (error) {
+          // A concurrent refund can consume the order's remaining refundable
+          // between the cap read and the reservation append. In capped mode this
+          // is not a fault — the order is simply already exhausted — so surface it
+          // as not-refundable (skip) rather than a failure to retry.
+          if (
+            params.capToRemainingRefundable &&
+            error instanceof PaymentsDomainError &&
+            /remaining refundable/i.test(error.message)
+          ) {
+            return { outcome: "not-refundable", refundId, reason: error.message } as const;
+          }
+          throw error;
         }
-        if (compareMoney(amount, remaining) > 0) {
-          amount = remaining;
-        }
-      } else {
-        const remainingRefundableAmount = subtractMoney(payment.amount, payment.refunded_amount);
-        if (compareMoney(amount, remainingRefundableAmount) > 0) {
-          throw new PaymentsDomainError("Refund amount cannot exceed the remaining refundable payment amount.");
-        }
+        return {
+          outcome: "prepared",
+          refundId,
+          refundStreamId,
+          orderIds,
+          amount,
+          currencyCode,
+          reason,
+          processorName,
+          requestedAt,
+          processorPaymentReference: payment.processor_payment_reference,
+        } as const;
       }
 
-      let requested: Awaited<ReturnType<typeof refundCommandHandler>>;
-      try {
-        await paymentCommandHandler({
-          streamId: `payments.payment-${params.paymentId}`,
-          command: {
-            type: "RequestPaymentRefund",
-            refundId,
-            orderIds: orderIds as OrderId[],
-            amount,
-            requestedAt,
-          },
-          context,
-        });
+      const prepared = deps.runPaymentTransaction
+        ? await withPaymentLock(deps.runPaymentTransaction, params.paymentId, prepare)
+        : await prepare(deps); // The webhook already owns the Payment lock and transaction.
+      if (prepared.outcome !== "prepared") return prepared;
 
-        requested = await refundCommandHandler({
-          streamId: refundStreamId,
-          command: {
-            type: "RequestRefund",
-            refundId,
-            paymentId: params.paymentId,
-            orderIds: orderIds as OrderId[],
-            amount,
-            currencyCode,
-            reason,
-            processorName,
-            causation: params.causation ?? null,
-            requestedAt,
-          },
-          context,
-        });
-      } catch (error) {
-        // A concurrent refund can consume the order's remaining refundable
-        // between the cap read and the reservation append. In capped mode this
-        // is not a fault — the order is simply already exhausted — so surface it
-        // as not-refundable (skip) rather than a failure to retry.
-        if (
-          params.capToRemainingRefundable &&
-          error instanceof PaymentsDomainError &&
-          /remaining refundable/i.test(error.message)
-        ) {
-          return { outcome: "not-refundable", refundId, reason: error.message };
-        }
-        throw error;
-      }
+      const {
+        refundId,
+        refundStreamId,
+        orderIds,
+        amount,
+        currencyCode,
+        reason,
+        processorName,
+        requestedAt,
+        processorPaymentReference,
+      } = prepared;
+      const requested = await refundCommandHandler({
+        streamId: refundStreamId,
+        command: {
+          type: "RequestRefund",
+          refundId,
+          paymentId: params.paymentId,
+          orderIds: orderIds as OrderId[],
+          amount,
+          currencyCode,
+          reason,
+          processorName,
+          causation: params.causation ?? null,
+          requestedAt,
+        },
+        context,
+      });
 
       try {
         await deps.processorGateway.createRefund({
           refundId,
           paymentId: params.paymentId,
-          processorPaymentReference: payment.processor_payment_reference,
+          processorPaymentReference,
           orderIds: orderIds as OrderId[],
           amount,
           currencyCode,

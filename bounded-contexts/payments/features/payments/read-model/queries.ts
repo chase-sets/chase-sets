@@ -29,8 +29,8 @@ export type PaymentDetailRow = Readonly<{
   }[];
   currency_code: string;
   processor_name: string;
-  processor_payment_kind: "checkout-session" | "payment-intent" | "balance-credit";
-  processor_payment_reference: string;
+  processor_payment_kind: "checkout-session" | "payment-intent" | "balance-credit" | null;
+  processor_payment_reference: string | null;
   processor_client_secret: string | null;
   processor_redirect_url: string | null;
   processor_status: string;
@@ -382,20 +382,19 @@ export async function getOrderPaymentInput(
   return result.rows[0] ?? null;
 }
 
-export async function getPaymentByProcessorReference(
+export async function findPaymentIdByProcessorReference(
   db: PgQueryable,
   processorName: string,
   processorPaymentReference: string,
-): Promise<PaymentDetailRow | null> {
-  const result = await db.query<PaymentPageRow>(
-    `${paymentSelect}
+): Promise<string | null> {
+  const result = await db.query<{ payment_id: string }>(
+    `SELECT payment_id FROM payments_payment_pages
      WHERE processor_name = $1
        AND processor_payment_reference = $2`,
     [processorName, processorPaymentReference],
   );
 
-  const row = result.rows[0];
-  return row ? mapPaymentRow(row) : null;
+  return result.rows[0]?.payment_id ?? null;
 }
 
 export async function getPaymentBySource(
@@ -477,7 +476,7 @@ export async function getActivePaymentCreationReservationBySource(
   return row ? mapPaymentCreationReservationRow(row) : null;
 }
 
-async function getActivePaymentCreationReservationByOrderSet(
+export async function getActivePaymentCreationReservationByOrderSet(
   db: PgQueryable,
   buyerAccountId: string,
   orderSetKey: string,
@@ -1241,7 +1240,7 @@ export async function listPaymentProviderEvents(
   db: PgQueryable,
   params: Readonly<{
     providerName: string;
-    providerObjectReference: string;
+    providerObjectReference: string | null;
     internalPaymentId?: string | null;
     limit?: number;
   }>,

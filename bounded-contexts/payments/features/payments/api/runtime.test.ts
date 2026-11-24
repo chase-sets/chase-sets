@@ -1480,8 +1480,9 @@ describe("payment runtime", () => {
     };
     const db = {
       query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
-        expect(sql).toContain("source_context = $1");
-        expect(params).toEqual(["checkout", "chk_1", "acc_buyer"]);
+        if (!sql.includes("payments_payment_pages")) return { rows: [] };
+        if (sql.includes("source_context = $1")) expect(params).toEqual(["checkout", "chk_1", "acc_buyer"]);
+        else expect(params).toEqual(["pay_existing"]);
         return { rows: [existingPaymentRow()] };
       }),
     };
@@ -1498,6 +1499,8 @@ describe("payment runtime", () => {
         orderIds: ["ord_1" as never],
         sourceContext: "checkout",
         sourceReferenceId: "chk_1",
+        paymentMethodCategory: "card",
+        marketplaceCheckoutFeeQuoteFingerprint: "quote_1",
       },
       {
         tenantId: "tnt_identity" as never,
@@ -1721,6 +1724,24 @@ describe("payment runtime", () => {
     },
   );
 
+  it("exposes a projected Payment with no processor reference or kind without a provider lookup", async () => {
+    const row = { ...existingPaymentRow(), processor_payment_kind: null, processor_payment_reference: null };
+    const processorGateway = createProcessorGateway();
+    const services = createPaymentRuntime({
+      eventStore: createUnusedEventStore(),
+      checkpointStore: createCheckpointStore(),
+      db: {
+        query: vi.fn(async (sql: string) => ({ rows: sql.includes("payments_payment_pages") ? [row] : [] })),
+      } as never,
+      processorGateway,
+    });
+    await expect(services.getAccountPayment("pay_existing", "acc_buyer", true)).resolves.toMatchObject({
+      processor_payment_kind: null,
+      processor_payment_reference: null,
+    });
+    expect(processorGateway.retrievePaymentResult).not.toHaveBeenCalled();
+  });
+
   it("reads a recorded deferred intent on the status surface without exposing its old authentication link", async () => {
     const recorded = {
       ...existingPaymentRow(),
@@ -1759,7 +1780,10 @@ describe("payment runtime", () => {
     expect(processorGateway.createPaymentSession).not.toHaveBeenCalled();
   });
 
-  it("single-flights concurrent checkout-sourced payment creation", async () => {
+  it.each([
+    ["checkout-sourced", { sourceContext: "checkout", sourceReferenceId: "chk_1" }],
+    ["source-less", {}],
+  ] as const)("single-flights concurrent %s payment creation", async (_label, source) => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
     const processorGateway = createProcessorGateway();
     const releaseProviderSession = createDeferred();
@@ -1794,8 +1818,7 @@ describe("payment runtime", () => {
       orderIds: ["ord_1" as never],
       paymentMethodCategory: "card",
       marketplaceCheckoutFeeQuoteFingerprint: status.marketplace_checkout_fee.quote_fingerprint,
-      sourceContext: "checkout",
-      sourceReferenceId: "chk_1",
+      ...source,
     };
 
     const first = services.createAccountPayment(input, context);
@@ -1810,10 +1833,7 @@ describe("payment runtime", () => {
     expect(readAllEvents().filter((event) => event.eventType === "payments.payment-created")).toHaveLength(1);
   });
 
-  it.each([
-    ["different source", { sourceContext: "checkout", sourceReferenceId: "chk_2" }],
-    ["null source", { sourceContext: null, sourceReferenceId: null }],
-  ])("rejects the same order set with a %s while a payment is active", async (_label, conflictingSource) => {
+  it("rejects the same order set with a different source while a payment is active", async () => {
     const { eventStore } = createInMemoryEventStore();
     const processorGateway = createProcessorGateway();
     const releaseProviderSession = createDeferred();
@@ -1863,7 +1883,8 @@ describe("payment runtime", () => {
           orderIds: ["ord_1" as never],
           paymentMethodCategory: "card",
           marketplaceCheckoutFeeQuoteFingerprint: status.marketplace_checkout_fee.quote_fingerprint,
-          ...conflictingSource,
+          sourceContext: "checkout",
+          sourceReferenceId: "chk_2",
         },
         context,
       ),
