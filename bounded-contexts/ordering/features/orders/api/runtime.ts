@@ -460,6 +460,11 @@ export type OrderingOrderCreationResult = Readonly<{
 }> &
   OrderingCommitMetadata;
 
+export type ReconcileOrderPaymentBeforeDeadline = (
+  order: Readonly<{ orderId: string; buyerAccountId: string; paymentId?: string }>,
+  context: EventStoreContext,
+) => Promise<"captured" | "not-captured">;
+
 export type OrderingOrderServices = Readonly<{
   commandHandler: CommandHandler<OrderingOrderCommand, OrderingOrderState, OrderingOrderEvent>;
   evidenceWindowSources: Readonly<{
@@ -615,7 +620,7 @@ export type OrderingOrderServices = Readonly<{
     }>,
   ) => Promise<number>;
   sweepBreachedPaymentDeadlines: (
-    params: Readonly<{ now?: string | Date; limit?: number }> | undefined,
+    params: Readonly<{ now?: string | Date; limit?: number; reconcilePayment: ReconcileOrderPaymentBeforeDeadline }>,
     context: EventStoreContext,
   ) => Promise<{ checked: number; cancelled: number; progressed: number; failed: number }>;
   listPurchases: (params: Parameters<typeof listPurchases>[1]) => ReturnType<typeof listPurchases>;
@@ -2846,13 +2851,34 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
       return result.rowCount ?? params.orderIds.length;
     },
     sweepBreachedPaymentDeadlines: async (params, context) => {
-      const now = normalizeSweepNow(params?.now);
-      const candidates = await listPendingPaymentOrdersPastDeadline(deps.db, { now, limit: params?.limit });
+      const now = normalizeSweepNow(params.now);
+      const candidates = await listPendingPaymentOrdersPastDeadline(deps.db, { now, limit: params.limit });
       let cancelled = 0;
       let progressed = 0;
       let failed = 0;
 
       for (const candidate of candidates) {
+        try {
+          const payment = await params.reconcilePayment(
+            {
+              orderId: candidate.order_id,
+              buyerAccountId: candidate.buyer_account_id,
+              ...(candidate.payment_id ? { paymentId: candidate.payment_id } : {}),
+            },
+            context,
+          );
+          if (payment === "captured") {
+            progressed += 1;
+            continue;
+          }
+          if (payment !== "not-captured") {
+            throw new Error("Payment reconciliation did not return a deadline decision.");
+          }
+        } catch {
+          failed += 1;
+          continue;
+        }
+
         try {
           const result = await commandHandler({
             streamId: `ordering.order-${candidate.order_id}`,

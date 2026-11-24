@@ -668,8 +668,8 @@ export async function resolveShipmentOrderId(db: PgQueryable, shipmentId: string
 
 export type PaymentDeadlineCancellationCandidate = Readonly<{
   order_id: string;
-  payment_deadline_at: string;
-  payment_deadline_policy: string;
+  buyer_account_id: string;
+  payment_id: string | null;
 }>;
 
 export async function listPendingPaymentOrdersPastDeadline(
@@ -680,8 +680,8 @@ export async function listPendingPaymentOrdersPastDeadline(
   const result = await db.query<PaymentDeadlineCancellationCandidate>(
     `SELECT
        page.order_id,
-       COALESCE(payment_deadline.payment_deadline_at, page.payment_deadline_at)::text AS payment_deadline_at,
-       COALESCE(payment_deadline.payment_deadline_policy, page.payment_deadline_policy) AS payment_deadline_policy
+       page.buyer_account_id,
+       payment_deadline.payment_id
      FROM ordering_order_pages AS page
      LEFT JOIN ordering_payment_deadline_inputs AS payment_deadline
        ON payment_deadline.order_id = page.order_id

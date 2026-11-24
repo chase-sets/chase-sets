@@ -93,7 +93,11 @@ async function createPendingPaymentOrder(
   });
 }
 
-function createDeadlineDb(candidateOrderIds: readonly string[], queryCalls: QueryCall[]) {
+function createDeadlineDb(
+  candidateOrderIds: readonly string[],
+  queryCalls: QueryCall[],
+  paymentId: string | null = null,
+) {
   return {
     query: vi.fn(async (text: string, values?: readonly unknown[]) => {
       queryCalls.push({ text, values });
@@ -101,8 +105,8 @@ function createDeadlineDb(candidateOrderIds: readonly string[], queryCalls: Quer
         return {
           rows: candidateOrderIds.map((orderId) => ({
             order_id: orderId,
-            payment_deadline_at: "2026-03-31T01:00:00.000Z",
-            payment_deadline_policy: "ordering-payment-deadline-card-v1",
+            buyer_account_id: "acc_buyer",
+            payment_id: paymentId,
           })),
           rowCount: candidateOrderIds.length,
         };
@@ -130,6 +134,9 @@ const shippingQuotePolicy = {
     chargeAmount: "4.99",
   }),
 };
+
+const deadline = { now: "2026-03-31T01:00:00.000Z", limit: 10 };
+const unpaid = async () => "not-captured" as const;
 
 describe("ordering order runtime: payment deadlines", () => {
   it.each([
@@ -227,7 +234,7 @@ describe("ordering order runtime: payment deadlines", () => {
     await createPendingPaymentOrder(services);
 
     await expect(
-      services.sweepBreachedPaymentDeadlines({ now: new Date("2026-03-31T01:00:00.000Z"), limit: 10 }, context),
+      services.sweepBreachedPaymentDeadlines({ ...deadline, reconcilePayment: unpaid }, context),
     ).resolves.toEqual({ checked: 1, cancelled: 1, progressed: 0, failed: 0 });
 
     expect(readAllEvents().find((event) => event.eventType === "ordering.order.cancelled")?.payload).toMatchObject({
@@ -243,6 +250,61 @@ describe("ordering order runtime: payment deadlines", () => {
       ],
     });
     expect(queryCalls[0]?.values).toEqual(["2026-03-31T01:00:00.000Z", 10]);
+  });
+
+  it("keeps an expired order whose processor charge succeeded without a webhook", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const reconcilePayment = vi.fn(async () => "captured" as const);
+    const services = createOrderingOrderRuntimeForTest({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: createDeadlineDb(["ord_deadline"], []) as never,
+      shippingQuotePolicy,
+    });
+    await createPendingPaymentOrder(services);
+
+    await expect(services.sweepBreachedPaymentDeadlines({ ...deadline, reconcilePayment }, context)).resolves.toEqual({
+      checked: 1,
+      cancelled: 0,
+      progressed: 1,
+      failed: 0,
+    });
+
+    expect(reconcilePayment).toHaveBeenCalledExactlyOnceWith(
+      { orderId: "ord_deadline", buyerAccountId: "acc_buyer" },
+      context,
+    );
+    expect(readAllEvents().some((event) => event.eventType === "ordering.order.cancelled")).toBe(false);
+  });
+
+  it("does not cancel on an inconclusive lookup and still processes the next candidate", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const reconcilePayment = vi.fn(unpaid).mockRejectedValueOnce(new Error("processor unavailable"));
+    const services = createOrderingOrderRuntimeForTest({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: createDeadlineDb(["ord_deadline", "ord_unpaid"], [], "pay_1") as never,
+      shippingQuotePolicy,
+    });
+    await createPendingPaymentOrder(services);
+    await createPendingPaymentOrder(services, "ord_unpaid");
+
+    await expect(services.sweepBreachedPaymentDeadlines({ ...deadline, reconcilePayment }, context)).resolves.toEqual({
+      checked: 2,
+      cancelled: 1,
+      progressed: 0,
+      failed: 1,
+    });
+    expect(reconcilePayment).toHaveBeenNthCalledWith(
+      1,
+      { orderId: "ord_deadline", buyerAccountId: "acc_buyer", paymentId: "pay_1" },
+      context,
+    );
+    expect(
+      readAllEvents()
+        .filter((event) => event.eventType === "ordering.order.cancelled")
+        .map((event) => event.payload),
+    ).toEqual([expect.objectContaining({ orderId: "ord_unpaid" })]);
   });
 
   it("treats capture winning the deadline race as progressed", async () => {
@@ -265,7 +327,7 @@ describe("ordering order runtime: payment deadlines", () => {
     });
 
     await expect(
-      services.sweepBreachedPaymentDeadlines({ now: new Date("2026-03-31T01:00:00.000Z"), limit: 10 }, context),
+      services.sweepBreachedPaymentDeadlines({ ...deadline, reconcilePayment: unpaid }, context),
     ).resolves.toEqual({ checked: 1, cancelled: 0, progressed: 1, failed: 0 });
 
     expect(readAllEvents().filter((event) => event.eventType === "ordering.order.cancelled")).toEqual([]);
