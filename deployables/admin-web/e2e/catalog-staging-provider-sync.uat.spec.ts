@@ -8186,7 +8186,6 @@ type WholeGameFixtureRequest = Readonly<{ method: string; path: string; search: 
 type WholeGameFixtureReply =
   | Readonly<{ html: string; corten?: true }>
   | Readonly<{ json: unknown }>
-  | Readonly<{ redirect: string }>
   | Readonly<{ abort: true }>;
 
 async function serveWholeGameFixture(
@@ -8207,7 +8206,6 @@ async function serveWholeGameFixture(
     const reply = handle(fixtureRequest);
     if (!reply) return route.fulfill({ status: 404, contentType: "application/json", body: "{}" });
     if ("abort" in reply) return route.abort("failed");
-    if ("redirect" in reply) return route.fulfill({ status: 303, headers: { location: reply.redirect } });
     if ("html" in reply) {
       return route.fulfill({
         status: 200,
@@ -9251,17 +9249,19 @@ test.describe("catalog whole-game rehearsal journeys", () => {
           ? { json: fixtureBatch({ planFingerprint: cortenFingerprint }) }
           : undefined;
       }
-      if (request.method === "GET") {
-        return request.search.get("batchId") === "batch-requested"
-          ? { html: fixtureBatchSection(fixtureBatch({})), corten: true }
-          : { html: cortenFixtureNewBatchForm(), corten: true };
-      }
+      if (request.method === "GET") return { html: cortenFixtureNewBatchForm(), corten: true };
       const sent = new URLSearchParams(request.body);
       if (sent.get("intent") === "preview") {
         return { html: cortenFixturePreview(cortenFingerprint, [["scrydex", 2, 40]], sent), corten: true };
       }
-      // The Corten admin answers a confirm with 303 See Other to the batch's address.
-      if (sent.get("intent") === "confirm") return { redirect: "/catalog/scopes/sync-batches?batchId=batch-requested" };
+      // The Corten admin answers a confirm with 303 See Other to the batch's address. A route only
+      // handles a redirect's first request, so the fixture draws the batch and moves the address.
+      if (sent.get("intent") === "confirm") {
+        return {
+          html: `${fixtureBatchSection(fixtureBatch({}))}<script>history.replaceState(null, "", "/catalog/scopes/sync-batches?batchId=batch-requested")</script>`,
+          corten: true,
+        };
+      }
       return undefined;
     });
   }
@@ -9306,7 +9306,7 @@ test.describe("catalog whole-game rehearsal journeys", () => {
     const pokemon = calls.filter((call) => call.includes("intent=preview")).at(-1) ?? "";
     expect(pokemon).toContain("productDomain=pokemon");
     expect(pokemon).toContain("scopeKind=expansion");
-    expect(calls.filter((call) => call.includes("intent=confirm"))).toEqual([]);
+    expect(postIntents(calls)).toEqual(["preview", "preview"]);
   });
 
   test("Corten admin: a paid confirm checks the confirmation form and follows the batchId address", async ({
@@ -9327,9 +9327,9 @@ test.describe("catalog whole-game rehearsal journeys", () => {
     expect(confirms[0]).toContain(`planFingerprint=${cortenFingerprint}`);
     expect(confirms[0]).toContain("scrydexRequestLimit=50");
     expect(postIntents(calls)).toEqual(["preview", "confirm"]);
-    expect(
-      calls.filter((call) => call.startsWith("GET /catalog/scopes/sync-batches?batchId=batch-requested")),
-    ).toHaveLength(1);
+    const at = new URL(page.url());
+    expect(`${at.pathname}${at.search}`).toBe("/catalog/scopes/sync-batches?batchId=batch-requested");
+    expect(calls).toContain("GET /api/catalog/scope-sync-batches/batch-requested");
   });
 
   test("Corten admin: settle refuses before Promote all ready, with no write", async ({ page }) => {
