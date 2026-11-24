@@ -18,7 +18,13 @@ import {
   type ProviderWebhookTelemetryEvent,
 } from "@chase-sets/http/provider-errors";
 import { decideWebhookPayment, paymentWebhookErrorFromUnknown, paymentWebhookFailureCause } from "./webhook-errors";
-import type { PaymentTransactionRunner, PaymentWebhookRunner, PaymentWebhookResult } from "./webhook-transaction";
+import {
+  paymentLockKey,
+  withPaymentLock,
+  type PaymentTransactionRunner,
+  type PaymentWebhookRunner,
+  type PaymentWebhookResult,
+} from "./webhook-transaction";
 import { createId, type AccountId, type OrderId, type PaymentId } from "@chase-sets/primitives/typed-ids";
 import { centsToMoneyAmount, moneyToCents, sumMoneyAmounts } from "@chase-sets/primitives/money";
 import {
@@ -62,7 +68,7 @@ import { buildPaymentProjectionHandlers } from "../read-model/projection";
 import {
   getAccountPayment,
   getPaymentById,
-  getPaymentByProcessorReference,
+  findPaymentIdByProcessorReference,
   getSavedCheckoutInstrument,
   getSavedCheckoutInstrumentByProviderReference,
   getProviderCustomer,
@@ -89,13 +95,18 @@ import {
   recordPaymentProviderOperationFailed,
   recordPaymentProviderOperationPending,
   recordPaymentProviderOperationSucceeded,
+  enqueueWebhookProviderOperation,
   reservePaymentCreation,
   setSavedCheckoutInstrumentDefault,
   upsertProviderCustomer,
   upsertSavedCheckoutInstrument,
   getActivePaymentByOrderSet,
+  activePaymentStatuses,
+  getActivePaymentCreationReservationByOrderSet,
   getActivePaymentCreationReservationBySource,
   getPaymentBySource,
+  paymentCreationOrderSetKey,
+  type PaymentCreationReservationRow,
   type PaymentDetailRow,
   type PaymentAccountRiskSourceRow,
   type PaymentProviderEventRow,
@@ -114,8 +125,13 @@ import {
   type PaymentState,
   type SellerPayoutComponent,
 } from "../domain/domain";
-import { decideRefund, evolveRefund, initialRefundState, type RefundEvent } from "../../refunds/domain/domain";
-import { createRefundRuntime } from "../../refunds/api/runtime";
+import { prepareRefund, refundAggregate } from "../../refunds/api/runtime";
+import {
+  fraudRefundOperationKey,
+  revokedGrantDetachOperationKey,
+  submitWebhookProviderOperation,
+  tryWebhookProviderOperation,
+} from "./webhook-effects";
 import {
   MarketplaceCheckoutFeePolicyUnavailableError,
   marketplaceCheckoutFeePaymentMethodCategories,
@@ -1051,7 +1067,7 @@ async function ensureProviderCustomer(
 }
 
 async function persistProcessorSavedPaymentMethod(
-  deps: Pick<PaymentRuntimeDeps, "db" | "processorGateway">,
+  deps: Pick<PaymentRuntimeDeps, "db">,
   params: Readonly<{
     accountId: AccountId;
     providerCustomerReference: string;
@@ -1072,17 +1088,16 @@ async function persistProcessorSavedPaymentMethod(
   const existingInstrument = existingInstruments.find(
     (instrument) => instrument.provider_reference === params.savedPaymentMethod.providerReference,
   );
-  const revokedGrant = params.agentGrantId
-    ? await getRevokedAgentGrant(deps.db, { accountId: params.accountId, agentGrantId: params.agentGrantId })
-    : null;
-  if (revokedGrant) {
-    await deps.processorGateway.detachSavedPaymentMethod(params.savedPaymentMethod.providerReference);
+  const agentGrantId = params.agentGrantId ?? existingInstrument?.agent_grant_id ?? null;
+  const revokedGrant =
+    agentGrantId && (await getRevokedAgentGrant(deps.db, { accountId: params.accountId, agentGrantId }));
+  if (revokedGrant && agentGrantId) {
     const instrument = await upsertSavedCheckoutInstrument(deps.db, {
       instrumentId:
         existingInstrument?.instrument_id ??
         savedInstrumentIdForProviderReference(params.savedPaymentMethod.providerReference),
       accountId: params.accountId,
-      agentGrantId: params.agentGrantId,
+      agentGrantId,
       paymentMethodCategory: params.savedPaymentMethod.paymentMethodCategory,
       provider: params.savedPaymentMethod.processorName,
       providerCustomerReference:
@@ -1100,15 +1115,22 @@ async function persistProcessorSavedPaymentMethod(
       timestamp: revokedGrant.revoked_at,
     });
     await recordSavedCheckoutInstrumentAudit(deps.db, {
-      auditId: `audit_agent_grant_revoked_${params.agentGrantId}_${instrument.instrument_id}`,
+      auditId: `audit_agent_grant_revoked_${agentGrantId}_${instrument.instrument_id}`,
       instrumentId: instrument.instrument_id,
       accountId: params.accountId,
       action: "agent-grant-revoked",
-      reason: params.agentGrantId,
+      reason: agentGrantId,
       performedByAccountId: params.accountId,
       createdAt: revokedGrant.revoked_at,
     });
-    return instrument;
+    const operationKey = await enqueueWebhookProviderOperation(deps.db, {
+      key: revokedGrantDetachOperationKey(params.savedPaymentMethod.providerReference),
+      kind: "revoked-grant-detach",
+      providerName: params.savedPaymentMethod.processorName,
+      accountId: params.accountId,
+      targetReference: params.savedPaymentMethod.providerReference,
+    });
+    return { instrument, operationKey };
   }
   const shouldBecomeDefault =
     params.isDefault === true && (existingInstrument?.is_default === true || activeExistingInstruments.length === 0);
@@ -1116,7 +1138,7 @@ async function persistProcessorSavedPaymentMethod(
   const instrument = await upsertSavedCheckoutInstrument(deps.db, {
     instrumentId: savedInstrumentIdForProviderReference(params.savedPaymentMethod.providerReference),
     accountId: params.accountId,
-    agentGrantId: params.agentGrantId ?? existingInstrument?.agent_grant_id ?? null,
+    agentGrantId,
     paymentMethodCategory: params.savedPaymentMethod.paymentMethodCategory,
     provider: params.savedPaymentMethod.processorName,
     providerCustomerReference: params.savedPaymentMethod.providerCustomerReference ?? params.providerCustomerReference,
@@ -1139,7 +1161,7 @@ async function persistProcessorSavedPaymentMethod(
     reason: params.consentId ?? null,
     performedByAccountId: params.accountId,
   });
-  return instrument;
+  return { instrument, operationKey: null };
 }
 
 export type PaymentServices = Readonly<{
@@ -1334,13 +1356,22 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       // Telemetry must never change webhook acknowledgement or retry behavior.
     }
   };
-  const { commandHandler, repository } = createAggregateCommandHandler({
-    eventStore: deps.eventStore,
-    codec: createPassthroughDomainEventCodec<PaymentEvent>(),
-    initialState: () => initialPaymentState,
-    evolve: evolvePayment,
-    decide: decidePayment,
-  });
+  const aggregate = (eventStore: PaymentRuntimeDeps["eventStore"]) =>
+    createAggregateCommandHandler({
+      eventStore,
+      codec: createPassthroughDomainEventCodec<PaymentEvent>(),
+      initialState: () => initialPaymentState,
+      evolve: evolvePayment,
+      decide: decidePayment,
+    });
+  const readPaymentState = (paymentId: string) =>
+    withPaymentLock(deps.runPaymentTransaction, paymentId, ({ eventStore }) =>
+      aggregate(eventStore).repository.load(`payments.payment-${paymentId}`),
+    );
+  const commandHandler: ReturnType<typeof aggregate>["commandHandler"] = (input) =>
+    withPaymentLock(deps.runPaymentTransaction, input.streamId.slice("payments.payment-".length), ({ eventStore }) =>
+      aggregate(eventStore).commandHandler(input),
+    );
 
   const publicConfig = deps.processorGateway.getPublicConfiguration();
 
@@ -1375,8 +1406,6 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
     assert(state.sellerPayoutAmount, "Payment creation is still in progress.");
     assert(state.currencyCode, "Payment creation is still in progress.");
     assert(state.processorName, "Payment creation is still in progress.");
-    assert(state.processorPaymentKind, "Payment creation is still in progress.");
-    assert(state.processorPaymentReference, "Payment creation is still in progress.");
     assert(state.processorStatus, "Payment creation is still in progress.");
     assert(state.status, "Payment creation is still in progress.");
     assert(state.createdAt, "Payment creation is still in progress.");
@@ -1440,6 +1469,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
   async function loadExistingPaymentSnapshot(
     paymentId: PaymentId,
     accountId: AccountId,
+    eligible: (payment: PaymentDetailRow) => boolean = () => true,
   ): Promise<
     | (PaymentDetailRow &
         Readonly<{
@@ -1447,24 +1477,24 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
           provider_events: readonly PaymentProviderEventRow[];
         }>)
     | null
+    | undefined
   > {
-    const projected = await getPaymentById(deps.db, paymentId);
-    if (projected) {
-      return projected.buyer_account_id === accountId ? exposePayment(projected) : null;
-    }
-
-    const loaded = await repository.load(`payments.payment-${paymentId}`);
-    if (!loaded.state.paymentId || loaded.state.buyerAccountId !== accountId) {
-      return null;
-    }
-
-    return exposePayment(paymentStateToDetailRow(loaded.state));
+    return withPaymentLock(deps.runPaymentTransaction, paymentId, async ({ eventStore }) => {
+      const { state } = await aggregate(eventStore).repository.load(`payments.payment-${paymentId}`);
+      if (!state.paymentId || state.buyerAccountId !== accountId) return undefined;
+      const payment = paymentStateToDetailRow(state);
+      return eligible(payment) ? exposePayment(payment) : null;
+    });
   }
 
-  async function waitForExistingPaymentSnapshot(paymentId: PaymentId, accountId: AccountId) {
+  async function waitForExistingPaymentSnapshot(
+    paymentId: PaymentId,
+    accountId: AccountId,
+    eligible: (payment: PaymentDetailRow) => boolean,
+  ) {
     for (let attempt = 0; attempt < 80; attempt += 1) {
-      const payment = await loadExistingPaymentSnapshot(paymentId, accountId);
-      if (payment) {
+      const payment = await loadExistingPaymentSnapshot(paymentId, accountId, eligible);
+      if (payment !== undefined) {
         return payment;
       }
       await delay(25);
@@ -1572,97 +1602,132 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
   }
 
   async function applyProviderPaymentResult(
-    payment: PaymentDetailRow,
+    candidate: PaymentDetailRow,
     result: ProcessorPaymentReconciliationResult,
     context: EventStoreContext,
   ): Promise<Readonly<{ repaired: boolean; attention: PaymentReconciliationAttentionItem | null }>> {
-    const mismatch = providerResultMismatch(payment, result);
-    if (mismatch) {
-      return {
-        repaired: false,
-        attention: {
-          kind: "payment",
-          payment_id: payment.payment_id,
-          processor_payment_reference: payment.processor_payment_reference,
-          provider_status: result.processorStatus,
-          reason: mismatch,
-        },
-      };
-    }
-
-    const command = paymentCommandFromProviderResult(result);
-    if (!command) {
-      return {
-        repaired: false,
-        attention:
-          payment.status === "pending-confirmation"
-            ? {
+    try {
+      return await withPaymentLock(
+        deps.runPaymentTransaction,
+        candidate.payment_id,
+        async ({ db, eventStore, lock }) => {
+          const { commandHandler, repository } = aggregate(eventStore);
+          const projected = await getPaymentById(db, candidate.payment_id);
+          const { state } = await repository.load(`payments.payment-${candidate.payment_id}`);
+          const payment = state.paymentId ? paymentStateToDetailRow(state) : projected;
+          if (!payment) throw new Error("Payment reconciliation target was not found.");
+          const mismatch = providerResultMismatch(payment, result);
+          if (mismatch) {
+            return {
+              repaired: false,
+              attention: {
                 kind: "payment",
                 payment_id: payment.payment_id,
                 processor_payment_reference: payment.processor_payment_reference,
                 provider_status: result.processorStatus,
-                reason: "Provider payment is still pending after the reconciliation stale threshold.",
-              }
-            : null,
-      };
-    }
+                reason: mismatch,
+              },
+            };
+          }
 
-    try {
-      const outcome = await commandHandler({
-        streamId: `payments.payment-${payment.payment_id}`,
-        command,
-        context,
-      });
-      let repaired = outcome.newEvents.length > 0;
-      if (result.liabilityShiftOutcome) {
-        const liabilityOutcome = await commandHandler({
-          streamId: `payments.payment-${payment.payment_id}`,
-          command: {
-            type: "RecordPaymentLiabilityShiftOutcome",
-            providerEventId: `${result.processorPaymentReference}:${result.processorStatus}:${result.occurredAt}`,
-            threeDSecureRequested: result.liabilityShiftOutcome.threeDSecureRequested,
-            status: result.liabilityShiftOutcome.status,
-            authenticationResult: result.liabilityShiftOutcome.authenticationResult,
-            radarRiskLevel: result.liabilityShiftOutcome.radarRiskLevel ?? null,
-            recordedAt: result.occurredAt,
-          },
-          context,
-        });
-        repaired = repaired || liabilityOutcome.newEvents.length > 0;
-      }
-      if (result.outcome === "captured" && result.savedPaymentMethod) {
-        const customer =
-          result.savedPaymentMethod.providerCustomerReference ??
-          (
-            await getProviderCustomer(deps.db, {
-              accountId: payment.buyer_account_id,
-              provider: result.savedPaymentMethod.processorName,
-            })
-          )?.provider_customer_reference;
-        if (customer) {
-          await persistProcessorSavedPaymentMethod(deps, {
-            accountId: payment.buyer_account_id as AccountId,
-            providerCustomerReference: customer,
-            savedPaymentMethod: result.savedPaymentMethod,
-            consentId: result.savedPaymentConsentId ?? null,
-            consentText: result.savedPaymentConsentText ?? SAVE_PAYMENT_CONSENT_TEXT,
-            isDefault: true,
-            auditAction: "payment-reconciliation-saved",
+          const command = paymentCommandFromProviderResult(result);
+          if (!command) {
+            return {
+              repaired: false,
+              attention:
+                payment.status === "pending-confirmation"
+                  ? {
+                      kind: "payment",
+                      payment_id: payment.payment_id,
+                      processor_payment_reference: payment.processor_payment_reference,
+                      provider_status: result.processorStatus,
+                      reason: "Provider payment is still pending after the reconciliation stale threshold.",
+                    }
+                  : null,
+            };
+          }
+
+          await lock(`account:${payment.buyer_account_id}`);
+          const outcome = await commandHandler({
+            streamId: `payments.payment-${payment.payment_id}`,
+            command,
+            context,
           });
-        }
-      }
-      return { repaired, attention: null };
+          if (result.outcome === "failed" || result.outcome === "cancelled") {
+            await markPaymentCreationReservationInactive(db, {
+              paymentId: payment.payment_id,
+              status: result.outcome === "failed" ? "failed" : "released",
+              updatedAt: result.occurredAt,
+            });
+          }
+          let repaired = outcome.newEvents.length > 0;
+          if (result.liabilityShiftOutcome) {
+            const liabilityOutcome = await commandHandler({
+              streamId: `payments.payment-${payment.payment_id}`,
+              command: {
+                type: "RecordPaymentLiabilityShiftOutcome",
+                providerEventId: `${result.processorPaymentReference}:${result.processorStatus}:${result.occurredAt}`,
+                threeDSecureRequested: result.liabilityShiftOutcome.threeDSecureRequested,
+                status: result.liabilityShiftOutcome.status,
+                authenticationResult: result.liabilityShiftOutcome.authenticationResult,
+                radarRiskLevel: result.liabilityShiftOutcome.radarRiskLevel ?? null,
+                recordedAt: result.occurredAt,
+              },
+              context,
+            });
+            repaired = repaired || liabilityOutcome.newEvents.length > 0;
+          }
+          if (result.outcome === "captured" && result.savedPaymentMethod) {
+            const customer =
+              result.savedPaymentMethod.providerCustomerReference ??
+              (
+                await getProviderCustomer(db, {
+                  accountId: payment.buyer_account_id,
+                  provider: result.savedPaymentMethod.processorName,
+                })
+              )?.provider_customer_reference;
+            if (customer) {
+              await persistProcessorSavedPaymentMethod(
+                { db },
+                {
+                  accountId: payment.buyer_account_id as AccountId,
+                  providerCustomerReference: customer,
+                  savedPaymentMethod: result.savedPaymentMethod,
+                  consentId: result.savedPaymentConsentId ?? null,
+                  consentText: result.savedPaymentConsentText ?? SAVE_PAYMENT_CONSENT_TEXT,
+                  isDefault: true,
+                  auditAction: "payment-reconciliation-saved",
+                },
+              );
+            }
+          }
+          return { repaired, attention: null };
+        },
+      );
     } catch (error) {
       return {
         repaired: false,
         attention: {
           kind: "payment",
-          payment_id: payment.payment_id,
-          processor_payment_reference: payment.processor_payment_reference,
+          payment_id: candidate.payment_id,
+          processor_payment_reference: candidate.processor_payment_reference,
           provider_status: result.processorStatus,
           reason: error instanceof Error ? error.message : "Payment reconciliation command failed.",
         },
       };
+    }
+  }
+
+  const paymentLookupFailed = "Provider payment lookup failed.";
+
+  async function lookupPaymentForReconciliation(
+    retrieve: () => Promise<ProcessorPaymentReconciliationResult | null>,
+  ): Promise<ProcessorPaymentReconciliationResult | null | undefined> {
+    try {
+      return await retrieve();
+    } catch {
+      // An unavailable lookup is not a completed lookup that found nothing.
+      return undefined;
     }
   }
 
@@ -1676,6 +1741,27 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       attention: PaymentReconciliationAttentionItem | null;
     }>
   > {
+    if (operation.operation_kind === "early-fraud-refund" || operation.operation_kind === "revoked-grant-detach") {
+      let reason: string | null;
+      try {
+        reason = await submitWebhookProviderOperation(deps, operation);
+      } catch {
+        return {
+          resolved: false,
+          repaired: false,
+          attention: {
+            kind: "provider-operation",
+            operation_key: operation.operation_key,
+            reason: "Webhook provider operation is still pending and will be retried.",
+          },
+        };
+      }
+      return {
+        resolved: true,
+        repaired: false,
+        attention: reason ? { kind: "provider-operation", operation_key: operation.operation_key, reason } : null,
+      };
+    }
     const paymentId = operation.payment_id?.trim();
     if (!paymentId) {
       await recordPaymentProviderOperationFailed(deps.db, {
@@ -1694,7 +1780,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
     }
 
     const payment = await getPaymentById(deps.db, paymentId);
-    if (payment) {
+    if (payment?.processor_payment_reference) {
       if (payment.processor_payment_kind === "balance-credit") {
         await recordPaymentProviderOperationSucceeded(deps.db, {
           operationKey: operation.operation_key,
@@ -1703,7 +1789,10 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         return { resolved: true, repaired: false, attention: null };
       }
 
-      const providerResult = await deps.processorGateway.retrievePaymentResult(payment.processor_payment_reference);
+      const reference = payment.processor_payment_reference;
+      const providerResult = await lookupPaymentForReconciliation(() =>
+        deps.processorGateway.retrievePaymentResult(reference),
+      );
       if (!providerResult) {
         return {
           resolved: false,
@@ -1712,8 +1801,11 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
             kind: "provider-operation",
             payment_id: payment.payment_id,
             operation_key: operation.operation_key,
-            processor_payment_reference: payment.processor_payment_reference,
-            reason: "Provider payment lookup returned no support-safe result for an existing local payment.",
+            processor_payment_reference: reference,
+            reason:
+              providerResult === undefined
+                ? paymentLookupFailed
+                : "Provider payment lookup returned no support-safe result for an existing local payment.",
           },
         };
       }
@@ -1733,10 +1825,23 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       const applied = await applyProviderPaymentResult(payment, providerResult, context);
       return { resolved: true, repaired: applied.repaired, attention: applied.attention };
     }
+    if (payment) return { resolved: false, repaired: false, attention: null };
 
-    const providerResult = deps.processorGateway.retrievePaymentResultByPaymentId
-      ? await deps.processorGateway.retrievePaymentResultByPaymentId(paymentId as PaymentId)
-      : null;
+    const providerResult = await lookupPaymentForReconciliation(
+      async () => (await deps.processorGateway.retrievePaymentResultByPaymentId?.(paymentId as PaymentId)) ?? null,
+    );
+    if (providerResult === undefined) {
+      return {
+        resolved: false,
+        repaired: false,
+        attention: {
+          kind: "provider-operation",
+          payment_id: paymentId,
+          operation_key: operation.operation_key,
+          reason: paymentLookupFailed,
+        },
+      };
+    }
     if (!providerResult) {
       await recordPaymentProviderOperationFailed(deps.db, {
         operationKey: operation.operation_key,
@@ -1915,26 +2020,28 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         return null;
       }
       const result = await deps.processorGateway.retrieveSetupSessionResult(setupSession.processor_setup_reference);
-      await completeSavedCheckoutSetupSession(deps.db, {
-        processorSetupReference: setupSession.processor_setup_reference,
-        processorStatus: result.processorStatus,
+      const committed = await deps.runPaymentTransaction(async (transaction) => {
+        await transaction.lock(`account:${accountId}`);
+        await completeSavedCheckoutSetupSession(transaction.db, {
+          processorSetupReference: setupSession.processor_setup_reference,
+          processorStatus: result.processorStatus,
+        });
+        if (!result.savedPaymentMethod) return null;
+        const saved = await persistProcessorSavedPaymentMethod(transaction, {
+          accountId,
+          providerCustomerReference: setupSession.provider_customer_reference,
+          savedPaymentMethod: result.savedPaymentMethod,
+          agentGrantId: setupSession.agent_grant_id,
+          consentId: setupSession.consent_id,
+          consentText: setupSession.consent_text,
+          isDefault: true,
+          auditAction: "setup-completed",
+        });
+        await publishCheckoutAffordances(accountId, context, transaction);
+        return saved;
       });
-      if (!result.savedPaymentMethod) {
-        return null;
-      }
-
-      const instrument = await persistProcessorSavedPaymentMethod(deps, {
-        accountId,
-        providerCustomerReference: setupSession.provider_customer_reference,
-        savedPaymentMethod: result.savedPaymentMethod,
-        agentGrantId: setupSession.agent_grant_id,
-        consentId: setupSession.consent_id,
-        consentText: setupSession.consent_text,
-        isDefault: true,
-        auditAction: "setup-completed",
-      });
-      await publishCheckoutAffordances(accountId, context);
-      return instrument;
+      if (committed?.operationKey) await tryWebhookProviderOperation(deps, committed.operationKey);
+      return committed?.instrument ?? null;
     },
     setSavedCheckoutInstrumentDefault: (params, context) =>
       closeSavedCheckoutInstrumentAttemptFailure(async () => {
@@ -2188,35 +2295,107 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       ) {
         throw new PaymentsDomainError("Invalid new-card confirmation.", "invalid_payment_confirmation");
       }
-      if (sourceContext && sourceReferenceId) {
-        const existing = await getPaymentBySource(deps.db, sourceContext, sourceReferenceId, accountId);
-        if (existing) {
-          return exposePayment(existing);
-        }
-      }
       const orderIds = normalizeOrderIds(params.orderIds);
-      const orders = await loadAccountOrders(deps.db, orderIds, accountId);
-      const activeOrderSetPayment = await getActivePaymentByOrderSet(deps.db, orderIds, accountId);
-      if (activeOrderSetPayment) {
-        if (
-          sourceContext &&
-          sourceReferenceId &&
-          activeOrderSetPayment.source_context === sourceContext &&
-          activeOrderSetPayment.source_reference_id === sourceReferenceId
-        ) {
-          return exposePayment(activeOrderSetPayment);
-        }
-        throw new PaymentsDomainError(
-          "An active payment already exists for this order set.",
-          "active_payment_exists_for_order_set",
-        );
-      }
-      const amount = sumOrderAmounts(orders);
-      const currencyCode = normalizeCurrencyCode(params.currencyCode ?? "usd");
+      const orderSetKey = paymentCreationOrderSetKey(orderIds);
+      const requestedCurrencyCode = (params.currencyCode ?? "usd").trim().toLowerCase();
       const requestedBalanceCreditAmount = normalizeMoneyAmount(params.requestedBalanceCreditAmount ?? "0.00", {
         fieldName: "Balance credit amount",
         allowZero: true,
       });
+      const paymentMethodCategory = normalizeMarketplaceCheckoutFeePaymentMethodCategory(params.paymentMethodCategory);
+      const savedCheckoutInstrumentId = params.savedCheckoutInstrumentId?.trim() || null;
+      const conflict = () =>
+        new PaymentsDomainError(
+          "An active payment already exists for this order set.",
+          "active_payment_exists_for_order_set",
+        );
+      function assertRetryTarget(
+        target: Pick<
+          PaymentCreationReservationRow,
+          "buyer_account_id" | "order_ids" | "source_context" | "source_reference_id"
+        >,
+      ) {
+        const sourceMatches =
+          (!sourceContext && !sourceReferenceId) ||
+          (sourceContext &&
+            sourceReferenceId &&
+            sourceContext === target.source_context &&
+            sourceReferenceId === target.source_reference_id);
+        if (
+          !sourceMatches ||
+          target.buyer_account_id !== accountId ||
+          paymentCreationOrderSetKey(target.order_ids) !== orderSetKey
+        )
+          throw conflict();
+      }
+      function checkRetryIntent<T extends PaymentDetailRow>(payment: T): T {
+        assertRetryTarget(payment);
+        if (
+          payment.currency_code !== requestedCurrencyCode ||
+          payment.payment_method_category !== paymentMethodCategory ||
+          payment.saved_checkout_instrument_id !== savedCheckoutInstrumentId ||
+          payment.marketplace_checkout_fee_quote_fingerprint !== params.marketplaceCheckoutFeeQuoteFingerprint ||
+          compareMoney(requestedBalanceCreditAmount, payment.balance_credit_amount) < 0
+        )
+          throw conflict();
+        return payment;
+      }
+      function eligibleRetry(payment: PaymentDetailRow) {
+        return (
+          activePaymentStatuses.includes(payment.status) ||
+          Boolean(
+            sourceContext &&
+            sourceReferenceId &&
+            payment.source_context === sourceContext &&
+            payment.source_reference_id === sourceReferenceId,
+          )
+        );
+      }
+      async function retryReservation(reservation: PaymentCreationReservationRow) {
+        assertRetryTarget(reservation);
+        const id = reservation.payment_id as PaymentId;
+        const payment = confirmationTokenId
+          ? await loadExistingPaymentSnapshot(id, accountId, eligibleRetry)
+          : await waitForExistingPaymentSnapshot(id, accountId, eligibleRetry);
+        if (payment === undefined)
+          throw new PaymentsDomainError("Payment status is not yet known.", "payment_start_ambiguous");
+        return payment && checkRetryIntent(payment);
+      }
+      async function findRetry() {
+        const bySource =
+          sourceContext && sourceReferenceId
+            ? await getPaymentBySource(deps.db, sourceContext, sourceReferenceId, accountId)
+            : null;
+        if (bySource) {
+          const payment = await loadExistingPaymentSnapshot(bySource.payment_id as PaymentId, accountId);
+          if (!payment) throw conflict();
+          return checkRetryIntent(payment);
+        }
+        const excluded: string[] = [];
+        for (;;) {
+          const candidate = await getActivePaymentByOrderSet(deps.db, orderIds, accountId, excluded);
+          if (!candidate) break;
+          const payment = await loadExistingPaymentSnapshot(
+            candidate.payment_id as PaymentId,
+            accountId,
+            eligibleRetry,
+          );
+          // Discovery may lag the locked stream. Don't let a stale candidate mask a newer one.
+          if (payment) return checkRetryIntent(payment);
+          excluded.push(candidate.payment_id);
+        }
+        const reservation =
+          (sourceContext && sourceReferenceId
+            ? await getActivePaymentCreationReservationBySource(deps.db, sourceContext, sourceReferenceId)
+            : null) ?? (await getActivePaymentCreationReservationByOrderSet(deps.db, accountId, orderSetKey));
+        return reservation ? retryReservation(reservation) : null;
+      }
+      const retry = await findRetry();
+      if (retry) return retry;
+
+      const currencyCode = normalizeCurrencyCode(requestedCurrencyCode);
+      const orders = await loadAccountOrders(deps.db, orderIds, accountId);
+      const amount = sumOrderAmounts(orders);
       const balanceCredit = deps.balanceCreditResolver
         ? await deps.balanceCreditResolver.resolveBalanceCredit({
             buyerAccountId: accountId,
@@ -2243,7 +2422,9 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       if (compareMoney(balanceCreditAmount, amount) > 0) {
         throw new PaymentsDomainError("Balance credit cannot exceed the payment amount.");
       }
-      const paymentMethodCategory = normalizeMarketplaceCheckoutFeePaymentMethodCategory(params.paymentMethodCategory);
+      // A concurrent creator can reserve its own hold after our first lookup.
+      const concurrentRetry = await findRetry();
+      if (concurrentRetry) return concurrentRetry;
       if (paymentMethodCategory === "platform-credit" && compareMoney(externalBasisAmount, "0.00") > 0) {
         throw new PaymentsDomainError(
           "Platform credit must cover the order balance before it can be used as the payment method.",
@@ -2320,18 +2501,12 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         sourceReferenceId,
         createdAt,
       });
-      if (reservation.outcome === "same-source") {
-        if (confirmationTokenId) {
-          const payment = await loadExistingPaymentSnapshot(reservation.reservation.payment_id as PaymentId, accountId);
-          if (!payment) throw new PaymentsDomainError("Payment status is not yet known.", "payment_start_ambiguous");
-          return payment;
-        }
-        return waitForExistingPaymentSnapshot(reservation.reservation.payment_id as PaymentId, accountId);
-      }
-      if (reservation.outcome === "source-conflict" || reservation.outcome === "same-order-set") {
+      if (reservation.outcome !== "reserved") {
+        const matching = await retryReservation(reservation.reservation);
+        if (matching) return matching;
         throw new PaymentsDomainError(
-          "An active payment already exists for this order set.",
-          "active_payment_exists_for_order_set",
+          "Payment creation is already in progress. Try again in a moment.",
+          "payment_creation_in_progress",
         );
       }
       // Reserve the applied wallet balance authoritatively before any processor
@@ -2536,41 +2711,55 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         }
       }
 
-      await commandHandler({
-        streamId: `payments.payment-${paymentId}`,
-        command: {
-          type: "CreatePayment",
-          paymentId,
-          buyerAccountId: accountId,
-          orderIds,
-          amount: paymentAmount,
-          balanceCreditAmount,
-          processorAmount,
-          marketplaceSalesFeeAmount,
-          authenticityFeeAmount,
-          marketplaceCheckoutFeeAmount,
-          marketplaceCheckoutFeePolicyVersion: marketplaceCheckoutFeeQuote.policy_version,
-          marketplaceCheckoutFeeQuoteFingerprint: marketplaceCheckoutFeeQuote.quote_fingerprint,
-          paymentMethodCategory,
-          savedCheckoutInstrumentId: savedCheckoutInstrument?.instrument_id ?? null,
-          sellerNetAmount,
-          sellerPayoutAmount,
-          sellerPayouts,
-          orderRefundCaps,
-          currencyCode,
-          processorName: processorPayment.processorName,
-          processorPaymentKind: processorPayment.processorPaymentKind,
-          processorPaymentReference: processorPayment.processorPaymentReference,
-          processorClientSecret: processorPayment.processorClientSecret,
-          processorRedirectUrl: processorPayment.processorRedirectUrl,
-          processorStatus: processorPayment.processorStatus,
-          sourceContext,
-          sourceReferenceId,
-          threeDSecureRequest: cardAuthentication?.requestThreeDSecure ?? null,
-          threeDSecureReasonCodes: cardAuthentication?.reasonCodes ?? [],
-          createdAt,
-        },
-        context,
+      await withPaymentLock(deps.runPaymentTransaction, paymentId, async ({ eventStore }) => {
+        const { commandHandler } = aggregate(eventStore);
+        await commandHandler({
+          streamId: `payments.payment-${paymentId}`,
+          command: {
+            type: "CreatePayment",
+            paymentId,
+            buyerAccountId: accountId,
+            orderIds,
+            amount: paymentAmount,
+            balanceCreditAmount,
+            processorAmount,
+            marketplaceSalesFeeAmount,
+            authenticityFeeAmount,
+            marketplaceCheckoutFeeAmount,
+            marketplaceCheckoutFeePolicyVersion: marketplaceCheckoutFeeQuote.policy_version,
+            marketplaceCheckoutFeeQuoteFingerprint: marketplaceCheckoutFeeQuote.quote_fingerprint,
+            paymentMethodCategory,
+            savedCheckoutInstrumentId: savedCheckoutInstrument?.instrument_id ?? null,
+            sellerNetAmount,
+            sellerPayoutAmount,
+            sellerPayouts,
+            orderRefundCaps,
+            currencyCode,
+            processorName: processorPayment.processorName,
+            processorPaymentKind: processorPayment.processorPaymentKind,
+            processorPaymentReference: processorPayment.processorPaymentReference,
+            processorClientSecret: processorPayment.processorClientSecret,
+            processorRedirectUrl: processorPayment.processorRedirectUrl,
+            processorStatus: processorPayment.processorStatus,
+            sourceContext,
+            sourceReferenceId,
+            threeDSecureRequest: cardAuthentication?.requestThreeDSecure ?? null,
+            threeDSecureReasonCodes: cardAuthentication?.reasonCodes ?? [],
+            createdAt,
+          },
+          context,
+        });
+        if (compareMoney(processorAmount, "0.00") === 0) {
+          await commandHandler({
+            streamId: `payments.payment-${paymentId}`,
+            command: {
+              type: "RecordPaymentCapture",
+              processorStatus: processorPayment.processorStatus,
+              capturedAt: createdAt,
+            },
+            context,
+          });
+        }
       });
       await recordPaymentProviderOperationSucceeded(deps.db, {
         operationKey: providerOperationKey,
@@ -2586,18 +2775,6 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         idempotencyKey: providerIdempotencyKey,
         createdAt,
       });
-
-      if (compareMoney(processorAmount, "0.00") === 0) {
-        await commandHandler({
-          streamId: `payments.payment-${paymentId}`,
-          command: {
-            type: "RecordPaymentCapture",
-            processorStatus: processorPayment.processorStatus,
-            capturedAt: createdAt,
-          },
-          context,
-        });
-      }
 
       return {
         payment_id: paymentId,
@@ -2649,7 +2826,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
     },
     recoverCheckoutPayment(params, context) {
       const orderIds = normalizeOrderIds(params.orderIds);
-      const currencyCode = normalizeCurrencyCode(params.currencyCode ?? "usd");
+      const currencyCode = (params.currencyCode ?? "usd").trim().toLowerCase();
       const requestedBalanceCreditAmount = normalizeMoneyAmount(params.requestedBalanceCreditAmount ?? "0.00", {
         fieldName: "Balance credit amount",
         allowZero: true,
@@ -2731,7 +2908,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         providerObjectReference: payment.processor_payment_reference,
         internalPaymentId: payment.payment_id,
       });
-      if (readProcessorStatus && isDeferredCheckoutPayment(payment)) {
+      if (readProcessorStatus && payment.processor_payment_reference && isDeferredCheckoutPayment(payment)) {
         const current = await deps.processorGateway
           .retrievePaymentResult(payment.processor_payment_reference)
           .catch(() => null);
@@ -2780,7 +2957,8 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         ...idempotencyKeys
           .filter(
             (entry) =>
-              entry.provider_object_reference === payment.processor_payment_reference ||
+              (payment.processor_payment_reference !== null &&
+                entry.provider_object_reference === payment.processor_payment_reference) ||
               entry.operation_key.includes(payment.payment_id),
           )
           .map((entry) => ({
@@ -2876,13 +3054,20 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       let providerOperationsResolved = 0;
 
       for (const payment of payments) {
-        const providerResult = await deps.processorGateway.retrievePaymentResult(payment.processor_payment_reference);
+        const reference = payment.processor_payment_reference;
+        if (reference === null) continue;
+        const providerResult = await lookupPaymentForReconciliation(() =>
+          deps.processorGateway.retrievePaymentResult(reference),
+        );
         if (!providerResult) {
           attentionItems.push({
             kind: "payment",
             payment_id: payment.payment_id,
-            processor_payment_reference: payment.processor_payment_reference,
-            reason: "Provider payment lookup returned no support-safe result.",
+            processor_payment_reference: reference,
+            reason:
+              providerResult === undefined
+                ? paymentLookupFailed
+                : "Provider payment lookup returned no support-safe result.",
           });
           continue;
         }
@@ -2976,6 +3161,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         };
         await deps.cardDeclineStore.record(webhookEvent);
         const outerDeps = deps;
+        let operationKey: string | null = null;
         const committed = await deps.runWebhookTransaction(inboxEntry, async (transaction) => {
           const deps = { ...outerDeps, db: transaction.db, eventStore: transaction.eventStore };
           const { commandHandler } = createAggregateCommandHandler({
@@ -2985,17 +3171,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
             evolve: evolvePayment,
             decide: decideWebhookPayment,
           });
-          const { commandHandler: refundCommandHandler } = createAggregateCommandHandler({
-            eventStore: deps.eventStore,
-            codec: createPassthroughDomainEventCodec<RefundEvent>(),
-            initialState: () => initialRefundState,
-            evolve: evolveRefund,
-            decide: decideRefund,
-          });
-          const refunds = createRefundRuntime({
-            ...deps,
-            handlers: { payment: commandHandler, refund: refundCommandHandler },
-          });
+          const { commandHandler: refundCommandHandler } = refundAggregate(deps.eventStore);
           const targetReference =
             webhookEvent.processorSetupReference ??
             (webhookEvent.kind === "saved-payment-method-detached"
@@ -3027,7 +3203,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
               completedAt: webhookEvent.occurredAt,
             });
             if (webhookEvent.savedPaymentMethod) {
-              await persistProcessorSavedPaymentMethod(deps, {
+              const saved = await persistProcessorSavedPaymentMethod(deps, {
                 accountId: setupSession.account_id as AccountId,
                 providerCustomerReference: setupSession.provider_customer_reference,
                 savedPaymentMethod: webhookEvent.savedPaymentMethod,
@@ -3037,6 +3213,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
                 isDefault: true,
                 auditAction: "setup-webhook-saved",
               });
+              operationKey = saved.operationKey;
             }
             return { received: true, ignored: false };
           }
@@ -3088,16 +3265,15 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
             return { received: true, ignored: false };
           }
 
-          if (webhookEvent.internalPaymentId) await transaction.lock(`payment:${webhookEvent.internalPaymentId}`);
-          let payment = webhookEvent.internalPaymentId
-            ? await getPaymentById(deps.db, webhookEvent.internalPaymentId)
-            : await getPaymentByProcessorReference(
-                deps.db,
-                webhookEvent.processorName,
-                webhookEvent.processorPaymentReference,
-              );
+          const paymentId =
+            webhookEvent.internalPaymentId ??
+            (await findPaymentIdByProcessorReference(
+              deps.db,
+              webhookEvent.processorName,
+              webhookEvent.processorPaymentReference,
+            ));
 
-          if (!payment) {
+          if (!paymentId) {
             if (
               !webhookEvent.internalPaymentId &&
               webhookEvent.kind === "payment-captured" &&
@@ -3108,14 +3284,10 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
             throw new PaymentsDomainError("Payment webhook target was not found.", "payment_webhook_target_not_ready");
           }
 
-          if (!webhookEvent.internalPaymentId) {
-            await transaction.lock(`payment:${payment.payment_id}`);
-            payment = await getPaymentById(deps.db, payment.payment_id);
-            if (!payment)
-              throw new PaymentsDomainError(
-                "Payment webhook target was not found.",
-                "payment_webhook_target_not_ready",
-              );
+          await transaction.lock(paymentLockKey(paymentId));
+          const payment = await getPaymentById(deps.db, paymentId);
+          if (!payment) {
+            throw new PaymentsDomainError("Payment webhook target was not found.", "payment_webhook_target_not_ready");
           }
           await transaction.lock(`account:${payment.buyer_account_id}`);
           const streamId = `payments.payment-${payment.payment_id}`;
@@ -3255,7 +3427,8 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
               ) {
                 const refundableAmount = subtractMoney(payment.amount, payment.refunded_amount);
                 if (compareMoney(refundableAmount, "0.00") > 0) {
-                  await refunds.issueRefund(
+                  const prepared = await prepareRefund(
+                    transaction,
                     {
                       refundId: fraudRefundId(webhookEvent.providerObjectReference ?? webhookEvent.eventId),
                       paymentId: payment.payment_id as PaymentId,
@@ -3264,7 +3437,18 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
                       reason: `Stripe early fraud warning ${webhookEvent.providerObjectReference ?? webhookEvent.eventId}.`,
                     },
                     context,
+                    { payment: commandHandler, refund: refundCommandHandler },
                   );
+                  if (prepared.outcome === "prepared" && prepared.newRequest) {
+                    operationKey = await enqueueWebhookProviderOperation(deps.db, {
+                      key: fraudRefundOperationKey(prepared.refundId),
+                      kind: "early-fraud-refund",
+                      providerName: webhookEvent.processorName,
+                      accountId: payment.buyer_account_id,
+                      paymentId: payment.payment_id,
+                      targetReference: prepared.processorPaymentReference,
+                    });
+                  }
                 }
               }
               break;
@@ -3343,6 +3527,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
 
           return { received: true, ignored: false };
         });
+        if (operationKey && !committed.result.ignored) await tryWebhookProviderOperation(deps, operationKey);
         recordWebhookTelemetry({
           endpoint: "payments",
           failureClass: committed.result.failure_class ?? null,
@@ -3388,7 +3573,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       const payments: PaymentDetailRow[] = [];
       for (const id of paymentIds) {
         try {
-          const { state } = await repository.load(`payments.payment-${id}`);
+          const { state } = await readPaymentState(id);
           if (
             !state.paymentId ||
             state.buyerAccountId !== buyerAccountId ||
@@ -3405,6 +3590,10 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       }
 
       for (const payment of payments) {
+        if (payment.processor_payment_reference === null) {
+          unverified = true;
+          continue;
+        }
         if (payment.processor_payment_kind === "balance-credit") {
           if (payment.status === "pending-confirmation") unverified = true;
           continue;
@@ -3431,7 +3620,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
 
         // A webhook or the background reconciler can append a capture during the lookup or command.
         try {
-          if ((await repository.load(`payments.payment-${payment.payment_id}`)).state.capturedAt) return "captured";
+          if ((await readPaymentState(payment.payment_id)).state.capturedAt) return "captured";
         } catch {
           unverified = true;
         }

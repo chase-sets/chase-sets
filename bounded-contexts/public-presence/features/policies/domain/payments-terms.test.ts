@@ -74,7 +74,7 @@ describe("payments terms artifact", () => {
       expect(section.draftText).not.toMatch(/does not itself hold|does not hold|does not.*custody, or transmit/);
       expect(section.reviewManifest.productTruthRefs).toEqual(
         expect.arrayContaining([
-          "infrastructure/stripe-payments/index.ts:1669-1693",
+          "infrastructure/stripe-payments/index.ts:1681-1697",
           "infrastructure/stripe-connect/index.ts:1100-1160",
         ]),
       );
@@ -220,7 +220,7 @@ describe("payments terms artifact", () => {
     );
     const refs = section?.reviewManifest.productTruthRefs.join(" ") ?? "";
     expect(refs).not.toContain("runtime.ts:495-513");
-    expect(refs).toContain("runtime.ts:2469-2490");
+    expect(refs).toContain("runtime.ts:2645-2666");
   });
 
   it("distinguishes Order creation, payment requests and recorded capture without promising statement display", () => {

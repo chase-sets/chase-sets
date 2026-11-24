@@ -372,7 +372,10 @@ export interface PaymentProcessorGateway {
     governance: ProviderCancelGovernance,
   ): Promise<ProcessorSetupSessionCancellationResult>;
   retrieveSavedPaymentMethod(providerReference: string): Promise<ProcessorSavedPaymentMethod | null>;
-  detachSavedPaymentMethod(providerReference: string): Promise<ProcessorSavedPaymentMethod | null>;
+  detachSavedPaymentMethod(
+    providerReference: string,
+    idempotencyKey?: string,
+  ): Promise<ProcessorSavedPaymentMethod | null>;
   /**
    * Creates the provider-managed payment confirmation surface.
    *
