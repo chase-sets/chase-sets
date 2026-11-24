@@ -217,6 +217,14 @@ export function integrationJobOperatorStatus(
   if (job.progress.phase === "failed") {
     return "failed";
   }
+  // The request deadline, not a provider worker lease, governs extension waits.
+  if (
+    job.status === "running" &&
+    job.payload.scope.execution === "extension-set-names" &&
+    job.progress.phase === "waiting-for-extension"
+  ) {
+    return "running";
+  }
   if (integrationJobHasActiveProgress(job)) {
     if (isDurableJobClaimExpired(job)) {
       return "stale";

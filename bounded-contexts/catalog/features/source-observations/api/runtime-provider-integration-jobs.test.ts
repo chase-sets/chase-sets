@@ -2503,7 +2503,7 @@ describe("source observation runtime: provider integration jobs", () => {
     ]);
   });
 
-  it("reports queued durable rows with active or terminal progress by their effective operator state", async () => {
+  it("reports durable rows by effective operator state, including lease-free extension waits", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-28T00:20:00.000Z"));
     try {
@@ -2538,6 +2538,17 @@ describe("source observation runtime: provider integration jobs", () => {
       };
       const harness = createIntegrationJobDedupeHarness({
         recentJobs: [
+          {
+            ...integrationJobRow({
+              ...base,
+              jobId: "job_waiting_for_extension",
+              scope: { execution: "extension-set-names", provider: "tcgplayer", productLineId: "1" },
+              progress: { ...runningProgress, phase: "waiting-for-extension", completed: 0, total: 1 },
+              profileSnapshot: null,
+            }),
+            job_kind: "extension-set-names",
+            status: "running",
+          },
           {
             ...integrationJobRow({
               ...base,
@@ -2584,6 +2595,7 @@ describe("source observation runtime: provider integration jobs", () => {
       const jobs = await services.listRecentIntegrationJobs({ context });
       const statusByJobId = new Map(jobs.map((job) => [job.jobId, job.operatorStatus]));
 
+      expect(statusByJobId.get("job_waiting_for_extension")).toBe("running");
       expect(statusByJobId.get("job_stale_progress")).toBe("stale");
       expect(statusByJobId.get("job_running_progress")).toBe("running");
       expect(statusByJobId.get("job_completed_progress")).toBe("completed");
