@@ -22,10 +22,8 @@ import {
   previewWildcardTlsSecretName,
   previewWildcardTlsSecretNamespace,
   resolveAdminApp,
-  resolveStagingMarketplaceApp,
-  resolveStagingPilot,
-  resolveStagingPublicPilot,
-  STAGING_PILOT_VARIABLES,
+  resolveMarketplaceApp,
+  resolveStagingPublicApp,
 } from "./render-platform-helm-values.mjs";
 import { writeJsonRecord } from "./lib/output-file.mjs";
 import { MERGE_GATE_NAMESPACE_PATTERN, VERIFICATION_NAMESPACE_PATTERN } from "./ephemeral-verification-namespace.mjs";
@@ -116,7 +114,7 @@ const cortenPilotImages = [
     flag: "corten-marketplace-image",
     component: "marketplace-corten",
     repository: "chase-sets-corten-marketplace",
-    environments: ["staging"],
+    environments: ["staging", "production"],
   },
   {
     option: "cortenPublicImage",
@@ -130,8 +128,9 @@ const cortenPilotImages = [
 // Corten pilots still served beside their React app. Staging deploys one of these disabled when its image
 // is missing. A pilot leaves this list when it becomes the app that serves its host; from then on a missing
 // image fails the deploy instead of removing what serves the host. admin-corten left it when it began
-// serving admin.staging, and marketplace-corten when it began serving marketplace.staging.
-export const ADVISORY_CORTEN_PILOT_COMPONENTS = Object.freeze(["public-corten"]);
+// serving admin.staging, marketplace-corten when it began serving marketplace.staging, and public-corten
+// when it began serving www.staging, so none is advisory now.
+export const ADVISORY_CORTEN_PILOT_COMPONENTS = Object.freeze([]);
 
 // The advisory pilots a staging deploy drops because no image was given for them.
 export function droppedAdvisoryCortenPilots(options = {}) {
@@ -144,19 +143,18 @@ export function droppedAdvisoryCortenPilots(options = {}) {
 
 // The pilots a staging or production deploy renders disabled whatever image it was given. While
 // STAGING_ADMIN_APP or PRODUCTION_ADMIN_APP has admin-web serve the admin host, admin-corten is not deployed; while
-// STAGING_MARKETPLACE_APP has marketplace-web serve marketplace.staging, marketplace-corten is not deployed; and
-// while STAGING_PUBLIC_PILOT is withheld, that pilot is not deployed on staging. The release
+// STAGING_MARKETPLACE_APP or PRODUCTION_MARKETPLACE_APP has marketplace-web serve the marketplace host,
+// marketplace-corten is not deployed; and while STAGING_PUBLIC_APP has public-web serve www.staging,
+// public-corten is not deployed. The release
 // waits for every enabled pod (helm --wait --atomic), so a pilot that never becomes ready would otherwise fail
 // the deploy, including the one that rolls admin back to admin-web.
 export function withheldCortenPilots(options = {}) {
   const environment = options.envOverrides?.DEPLOYMENT_ENVIRONMENT;
   const adminApp = resolveAdminApp(options.env ?? {}, environment);
   const withheld = adminApp?.app === "admin-web" ? ["admin-corten"] : [];
+  if (resolveMarketplaceApp(options.env ?? {}, environment)?.app === "marketplace") withheld.push("marketplace-corten");
   if (environment === "staging") {
-    if (resolveStagingMarketplaceApp(options.env ?? {}).app === "marketplace") withheld.push("marketplace-corten");
-    for (const [component, variable] of Object.entries(STAGING_PILOT_VARIABLES)) {
-      if (resolveStagingPilot(options.env ?? {}, variable).state === "withheld") withheld.push(component);
-    }
+    if (resolveStagingPublicApp(options.env ?? {}).app === "public-web") withheld.push("public-corten");
   }
   return withheld;
 }
@@ -164,14 +162,15 @@ export function withheldCortenPilots(options = {}) {
 // Why a withheld pilot is not deployed, for the deploy's warning.
 function withheldPilotReason(component, options) {
   const environment = options.envOverrides.DEPLOYMENT_ENVIRONMENT;
-  if (STAGING_PILOT_VARIABLES[component]) return `${STAGING_PILOT_VARIABLES[component]}=withheld`;
+  if (component === "public-corten") return "public-web serves www.staging (STAGING_PUBLIC_APP=public-web)";
   if (component === "marketplace-corten") {
-    return "marketplace-web serves marketplace.staging (STAGING_MARKETPLACE_APP=marketplace)";
+    return `marketplace-web serves ${marketplaceHosts[environment]} (${resolveMarketplaceApp(options.env ?? {}, environment).variable}=marketplace)`;
   }
   return `admin-web serves ${adminHosts[environment]} (${resolveAdminApp(options.env ?? {}, environment).variable}=admin-web)`;
 }
 
 const adminHosts = { staging: "admin.staging", production: "admin.chasesets.com" };
+const marketplaceHosts = { staging: "marketplace.staging", production: "marketplace.chasesets.com" };
 
 // A production deploy that refuses here changes nothing in production, but it holds every later production
 // release until someone acts, so each refusal says how to recover.
@@ -187,6 +186,23 @@ const productionAdminProxiesRequired = [
   "made. To recover, set PRODUCTION_ADMIN_APP=admin-web (or delete it) in the production environment and",
   "re-run, or fix the ingress pod CIDR discovery and deploy again.",
 ].join(" ");
+const productionMarketplaceImageRequired = [
+  "corten-marketplace-image is required on production while PRODUCTION_MARKETPLACE_APP=marketplace-corten, and",
+  "Deploy Staging deployed no Corten marketplace image for this release (STAGING_MARKETPLACE_APP=marketplace, or",
+  "the image was not built). No production change was made. To recover, set PRODUCTION_MARKETPLACE_APP=marketplace",
+  "(or delete it) in the production environment and re-run, or return staging to the Corten marketplace and",
+  "deploy again.",
+].join(" ");
+const productionMarketplaceProxiesRequired = [
+  "PROXIES is required on production while PRODUCTION_MARKETPLACE_APP=marketplace-corten: the ingress pod CIDRs",
+  "could not be read, and the Corten marketplace would take every request as coming from the ingress. No",
+  "production change was made. To recover, set PRODUCTION_MARKETPLACE_APP=marketplace (or delete it) in the",
+  "production environment and re-run, or fix the ingress pod CIDR discovery and deploy again.",
+].join(" ");
+const productionPilotRefusals = {
+  "admin-corten": { image: productionAdminImageRequired, proxies: productionAdminProxiesRequired },
+  "marketplace-corten": { image: productionMarketplaceImageRequired, proxies: productionMarketplaceProxiesRequired },
+};
 
 export function platformKubernetesWorkloads(options = {}) {
   const values = options.values ?? buildPlatformHelmValues({ repoRoot: options.repoRoot });
@@ -254,7 +270,7 @@ export function buildHelmUpgradeArgs(options = {}) {
     }
     if (!reference) {
       if (deploymentEnvironment === "production" && environments.includes("production")) {
-        throw new Error(productionAdminImageRequired);
+        throw new Error(productionPilotRefusals[component].image);
       }
       if (deploymentEnvironment !== "staging") continue;
       if (!droppedPilots.includes(component)) {
@@ -268,12 +284,8 @@ export function buildHelmUpgradeArgs(options = {}) {
         environments.length === 1 ? `${flag} is staging-only.` : `${flag} is staging and production only.`,
       );
     }
-    if (
-      deploymentEnvironment === "production" &&
-      component === "admin-corten" &&
-      !String(requestedEnvOverrides.PROXIES ?? "").trim()
-    ) {
-      throw new Error(productionAdminProxiesRequired);
+    if (deploymentEnvironment === "production" && !String(requestedEnvOverrides.PROXIES ?? "").trim()) {
+      throw new Error(productionPilotRefusals[component].proxies);
     }
     const cortenImage = parsePlatformImageRef(reference);
     requiredSha256Digest(cortenImage.digest, `${flag} digest`);
@@ -869,12 +881,15 @@ export function buildDeploymentEvidence(options = {}) {
     ...(options.envOverrides?.DEPLOYMENT_ENVIRONMENT === "staging"
       ? {
           stagingAdminApp: stagingAdminAppRecord(options.env ?? {}),
-          stagingMarketplaceApp: stagingMarketplaceAppRecord(options.env ?? {}),
-          stagingPublicPilot: resolveStagingPublicPilot(options.env ?? {}),
+          stagingMarketplaceApp: marketplaceAppRecord(options.env ?? {}, "staging"),
+          stagingPublicApp: stagingPublicAppRecord(options.env ?? {}),
         }
       : {}),
     ...(options.envOverrides?.DEPLOYMENT_ENVIRONMENT === "production"
-      ? { productionAdminApp: adminAppRecord(options.env ?? {}, "production") }
+      ? {
+          productionAdminApp: adminAppRecord(options.env ?? {}, "production"),
+          productionMarketplaceApp: marketplaceAppRecord(options.env ?? {}, "production"),
+        }
       : {}),
     workloads,
     ...(options.rollbackIdentity ? { rollbackIdentity: options.rollbackIdentity } : {}),
@@ -4514,13 +4529,11 @@ async function main(argv, env = process.env, overrides = {}) {
 
   if (options.command === "deploy") {
     const deploymentEnvironment = options.envOverrides?.DEPLOYMENT_ENVIRONMENT;
-    const adminApp =
-      deploymentEnvironment === "staging" || deploymentEnvironment === "production"
-        ? recordAdminApp(options, deploymentEnvironment)
-        : null;
+    const stagingOrProduction = deploymentEnvironment === "staging" || deploymentEnvironment === "production";
+    const adminApp = stagingOrProduction ? recordAdminApp(options, deploymentEnvironment) : null;
+    const marketplaceApp = stagingOrProduction ? recordMarketplaceApp(options, deploymentEnvironment) : null;
     if (deploymentEnvironment === "staging") {
-      recordStagingMarketplaceApp(options);
-      recordStagingPublicPilot(options);
+      recordStagingPublicApp(options);
     }
     const admissionRetryRollbackTarget = options.admissionRetryRollbackTargetPath
       ? parseJsonCommandOutput(readFileSync(options.admissionRetryRollbackTargetPath, "utf8"), "rollback target file")
@@ -4541,6 +4554,7 @@ async function main(argv, env = process.env, overrides = {}) {
       throw error;
     }
     recordDeployedCortenAdminImage(options, adminApp);
+    recordDeployedCortenMarketplaceImage(options, marketplaceApp);
     console.log(JSON.stringify(evidence, null, 2));
     return 0;
   }
@@ -4731,46 +4745,32 @@ export function recordStagingAdminApp(options = {}) {
   return recordAdminApp(options, "staging");
 }
 
-// Says whether staging deploys an advisory Corten pilot and what chose it, before the deploy starts, in the
-// step summary and as the step's <name>_pilot output, which that pilot's advisory smoke reads.
-function recordStagingPilot(options, component, heading, output) {
-  const variable = STAGING_PILOT_VARIABLES[component];
-  const record = resolveStagingPilot(options.env ?? {}, variable);
-  const why =
-    record.source === "default" ? `${variable} is unset, so the default applies` : `${variable}=${record.state}`;
-  const line =
-    record.state === "withheld"
-      ? `${component} is not deployed on staging (${why}).`
-      : `${component} is deployed on staging when its image was built (${why}).`;
-  console.error(line);
-  if (options.githubSummaryPath) {
-    appendFileSync(options.githubSummaryPath, `### ${heading}\n\n${line}\n\n`);
-  }
-  writeGithubOutput(options.githubOutputPath, { [output]: record.state });
-  return record;
-}
-
-// Which app serves marketplace.staging, what chose it, and whether marketplace-corten runs at all.
-export function stagingMarketplaceAppRecord(env = {}) {
-  const { app, source } = resolveStagingMarketplaceApp(env);
+// Which app serves the marketplace host, what chose it, and whether marketplace-corten runs at all.
+export function marketplaceAppRecord(env = {}, environment = "staging") {
+  const { app, source } = resolveMarketplaceApp(env, environment);
   return { app, source, marketplaceCorten: app === "marketplace" ? "not-deployed" : "deployed" };
 }
 
-// Says which app serves marketplace.staging before the deploy starts, in the step summary and as the step's
+export function stagingMarketplaceAppRecord(env = {}) {
+  return marketplaceAppRecord(env, "staging");
+}
+
+// Says which app serves the marketplace host before the deploy starts, in the step summary and as the step's
 // marketplace_app output, so every run's evidence names it even when the deploy then fails.
-export function recordStagingMarketplaceApp(options = {}) {
-  const record = stagingMarketplaceAppRecord(options.env ?? {});
+export function recordMarketplaceApp(options = {}, environment = "staging") {
+  const { variable } = resolveMarketplaceApp(options.env ?? {}, environment);
+  const record = marketplaceAppRecord(options.env ?? {}, environment);
+  const host = marketplaceHosts[environment];
   const why =
-    record.source === "default"
-      ? "STAGING_MARKETPLACE_APP is unset, so the default applies"
-      : `STAGING_MARKETPLACE_APP=${record.app}`;
-  const lines = [`marketplace.staging is served by ${record.app} (${why}).`];
+    record.source === "default" ? `${variable} is unset, so the default applies` : `${variable}=${record.app}`;
+  const lines = [`${host} is served by ${record.app} (${why}).`];
   if (record.marketplaceCorten === "not-deployed") {
-    lines.push("marketplace-corten is not deployed while marketplace-web serves marketplace.staging.");
+    lines.push(`marketplace-corten is not deployed while marketplace-web serves ${host}.`);
   }
   for (const line of lines) console.error(line);
   if (options.githubSummaryPath) {
-    appendFileSync(options.githubSummaryPath, `### Staging marketplace app\n\n${lines.join("\n\n")}\n\n`);
+    const heading = environment === "production" ? "Production marketplace app" : "Staging marketplace app";
+    appendFileSync(options.githubSummaryPath, `### ${heading}\n\n${lines.join("\n\n")}\n\n`);
   }
   writeGithubOutput(options.githubOutputPath, {
     marketplace_app: record.app,
@@ -4779,8 +4779,37 @@ export function recordStagingMarketplaceApp(options = {}) {
   return record;
 }
 
-export function recordStagingPublicPilot(options = {}) {
-  return recordStagingPilot(options, "public-corten", "Staging public pilot", "public_pilot");
+export function recordStagingMarketplaceApp(options = {}) {
+  return recordMarketplaceApp(options, "staging");
+}
+
+// Which app serves www.staging, what chose it, and whether public-corten runs at all.
+export function stagingPublicAppRecord(env = {}) {
+  const { app, source } = resolveStagingPublicApp(env);
+  return { app, source, publicCorten: app === "public-web" ? "not-deployed" : "deployed" };
+}
+
+// Says which app serves www.staging before the deploy starts, in the step summary and as the step's
+// public_app output, so every run's evidence names it even when the deploy then fails.
+export function recordStagingPublicApp(options = {}) {
+  const record = stagingPublicAppRecord(options.env ?? {});
+  const why =
+    record.source === "default"
+      ? "STAGING_PUBLIC_APP is unset, so the default applies"
+      : `STAGING_PUBLIC_APP=${record.app}`;
+  const lines = [`www.staging is served by ${record.app} (${why}).`];
+  if (record.publicCorten === "not-deployed") {
+    lines.push("public-corten is not deployed while public-web serves www.staging.");
+  }
+  for (const line of lines) console.error(line);
+  if (options.githubSummaryPath) {
+    appendFileSync(options.githubSummaryPath, `### Staging public app\n\n${lines.join("\n\n")}\n\n`);
+  }
+  writeGithubOutput(options.githubOutputPath, {
+    public_app: record.app,
+    public_app_source: record.source,
+  });
+  return record;
 }
 
 // After a successful staging deploy, names the Corten admin image it deployed as the step's corten_admin_image
@@ -4790,6 +4819,16 @@ export function recordDeployedCortenAdminImage(options = {}, adminApp = null) {
   if (options.envOverrides?.DEPLOYMENT_ENVIRONMENT !== "staging" || adminApp?.adminCorten !== "deployed") return null;
   writeGithubOutput(options.githubOutputPath, { corten_admin_image: options.cortenAdminImage });
   return options.cortenAdminImage;
+}
+
+// The same for the Corten marketplace: the step's corten_marketplace_image output, written only after a
+// successful staging deploy that deployed it, is the only image production's marketplace-corten takes.
+export function recordDeployedCortenMarketplaceImage(options = {}, marketplaceApp = null) {
+  if (options.envOverrides?.DEPLOYMENT_ENVIRONMENT !== "staging" || marketplaceApp?.marketplaceCorten !== "deployed") {
+    return null;
+  }
+  writeGithubOutput(options.githubOutputPath, { corten_marketplace_image: options.cortenMarketplaceImage });
+  return options.cortenMarketplaceImage;
 }
 
 function writeGithubOutput(filePath, values) {

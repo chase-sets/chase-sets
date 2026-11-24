@@ -969,7 +969,7 @@ spec:
     ]);
     expect(Object.fromEntries(doksIngress.hosts.map((host) => [host.host, host.paths.at(-1)]))).toEqual({
       "staging.chasesets.com": { path: "/", service: "marketplace-corten" },
-      "www.staging.chasesets.com": { path: "/", service: "public-web" },
+      "www.staging.chasesets.com": { path: "/", service: "public-corten" },
       "marketplace.staging.chasesets.com": { path: "/", service: "marketplace-corten" },
       "admin.staging.chasesets.com": { path: "/", service: "admin-corten" },
       "admin-corten.staging.chasesets.com": { path: "/", service: "admin-corten" },
@@ -1106,8 +1106,8 @@ spec:
     // see #5568). The deploy-blocking ingress-wait gate in
     // .github/workflows/platform-production.yml probes this host set
     // (guarded in digitalocean-platform-config.test.mjs), except the
-    // public-corten pilot host, which it never probes, and admin-corten and
-    // marketplace-corten, which it probes only while each serves its host.
+    // admin-corten, marketplace-corten and public-corten pilot hosts, which it
+    // probes only while each pilot serves its host.
     // It must never regress to including a legacy hostname.
     for (const host of stagingValues.doksIngress.hosts.map((entry) => entry.host)) {
       expect(host).not.toMatch(/^(landing|marketplace|admin)-staging\./);
@@ -1547,21 +1547,24 @@ spec:
     // short pre-rollout hook that finishes before the cutover it guards, so
     // reserving a node share for it would only shrink what the app pods can
     // land on.
-    // The Corten admin pilot is the only other component; it runs only while PRODUCTION_ADMIN_APP=admin-corten,
-    // beside admin-web (the rollback), and carries its own Burstable 100m / 128Mi request.
+    // The Corten admin and marketplace pilots are the only other components; each runs only while
+    // PRODUCTION_ADMIN_APP=admin-corten or PRODUCTION_MARKETPLACE_APP=marketplace-corten, beside its React app
+    // (the rollback), and carries its own Burstable 100m / 128Mi request.
     expect(Object.keys(production.components).sort()).toEqual(
-      [...Object.keys(expectedRequests), "admin-corten"].sort(),
+      [...Object.keys(expectedRequests), "admin-corten", "marketplace-corten"].sort(),
     );
-    expect(production.components["admin-corten"].resources).toEqual({
-      requests: { cpu: "100m", memory: "128Mi" },
-      limits: { cpu: "1", memory: "512Mi" },
-    });
+    for (const pilot of ["admin-corten", "marketplace-corten"]) {
+      expect(production.components[pilot].resources).toEqual({
+        requests: { cpu: "100m", memory: "128Mi" },
+        limits: { cpu: "1", memory: "512Mi" },
+      });
+    }
     const summed = Object.values(production.components).reduce(
       (total, { resources }) => total + millicores(resources.requests.cpu),
       0,
     );
-    // Every app pod and the pilot together still fit one 1900m-allocatable runtime node.
-    expect(summed).toBe(1050);
+    // Every app pod and both pilots together still fit one 1900m-allocatable runtime node.
+    expect(summed).toBe(1150);
     expect(summed).toBeLessThan(1900);
 
     for (const [name, requests] of Object.entries(expectedRequests)) {

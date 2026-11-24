@@ -21,6 +21,10 @@ import {
   isSoftwareDeliveryConceptGuardedFile,
 } from "./software-delivery-concepts.mjs";
 import { findBusinessLiteralGuardViolations, isBusinessLiteralGuardedFile } from "./business-literal-guard.mjs";
+import {
+  findGradedItemDetailsTextViolations,
+  isGradedItemDetailsTextGuardedFile,
+} from "./graded-item-details-text.mjs";
 import { validateCrossContextEventPayloadCasts } from "./cross-context-event-payload-casts.mjs";
 import { validateCrossContextFallbackInventory } from "./cross-context-fallback-inventory.mjs";
 import { validateLinkIntentActionProducers } from "./link-intent-action-producer-inventory.mjs";
@@ -3461,6 +3465,15 @@ export async function runStructureCheck(options = {}) {
           content,
         })) {
           addViolation(file, violation.message);
+        }
+      }
+
+      if (isGradedItemDetailsTextGuardedFile(normalizedFile, extension)) {
+        for (const message of findGradedItemDetailsTextViolations({
+          relativeFile: normalizedFile,
+          content,
+        })) {
+          addViolation(file, message);
         }
       }
 

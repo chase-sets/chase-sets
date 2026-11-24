@@ -330,6 +330,26 @@ export async function getPaymentById(db: PgQueryable, paymentId: string): Promis
   return row ? mapPaymentRow(row) : null;
 }
 
+export async function listActivePaymentIdsForOrder(
+  db: PgQueryable,
+  orderId: string,
+  buyerAccountId: string,
+): Promise<string[]> {
+  const result = await db.query<{ payment_id: string }>(
+    `SELECT payment_id
+     FROM payments_payment_creation_reservations
+     WHERE status = 'active' AND buyer_account_id = $2 AND order_ids ? $1
+     UNION
+     SELECT payment.payment_id
+     FROM payments_payment_orders AS link
+     JOIN payments_payment_pages AS payment ON payment.payment_id = link.payment_id
+     WHERE link.order_id = $1 AND payment.buyer_account_id = $2
+       AND payment.status = ANY($3::text[])`,
+    [orderId, buyerAccountId, activePaymentStatuses],
+  );
+  return result.rows.map((row) => row.payment_id);
+}
+
 export async function getCapturedPaymentByOrderId(db: PgQueryable, orderId: string): Promise<PaymentDetailRow | null> {
   const result = await db.query<PaymentPageRow>(
     `${paymentSelect}

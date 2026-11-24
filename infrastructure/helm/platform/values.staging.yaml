@@ -133,7 +133,7 @@ components:
       - name: "PORT"
         value: "8080"
       - name: "HOSTS"
-        value: "public-corten.staging.chasesets.com"
+        value: "public-corten.staging.chasesets.com,www.staging.chasesets.com"
       - name: "PROXIES"
         value: ""
       - name: "PUBLIC_PROTO"

@@ -51,6 +51,7 @@
 //! | `GET /robots.txt` | the crawler rules, and the sitemap index when the site may be indexed (see `site`) |
 //! | `GET /sitemap.xml`, `/sitemap/{kind}/{page}.xml` | the sitemap index and its pages: the home page and search, then Discovery's public pages |
 //! | `GET /favicon.svg`, `/favicon.ico` | the design system's logo (`Public`, a day) |
+//! | `GET /fake-cdn/assets/{name}` | marketplace-web's card backs and product placeholder (`Public`, a day; see `site`) |
 //! | `GET /.well-known/appspecific/com.chrome.devtools.json` | nothing (204, `no-store`), so Chrome stops asking |
 //! | `GET /manifest.webmanifest`, `/service-worker.js` | the web app manifest and the service worker (Corten's, `pwa`) |
 //! | `GET /offline` | the page the service worker shows for a navigation it cannot make |
@@ -151,7 +152,7 @@ impl Config {
                 .ok()
                 .map(|key| key.trim().to_owned())
                 .filter(|key| !key.is_empty()),
-            indexing: indexing(std::env::var("CHASE_SETS_MARKETPLACE_INDEXING").ok().as_deref()),
+            indexing: site_indexing(),
             claim_token_entry: claim_token_entry(
                 std::env::var("GUEST_PAYMENT_CLAIM_LOCAL_RECOVERY_TOKEN_ENABLED").ok().as_deref(),
                 [std::env::var("NODE_ENV").ok(), std::env::var("DEPLOYMENT_ENVIRONMENT").ok()],
@@ -166,6 +167,15 @@ impl Config {
         let host = origin.split_once("://").map_or(origin, |(_, host)| host);
         self.platform.anonymous(host, self.proto)
     }
+}
+
+/// Whether this process may be indexed (`CHASE_SETS_MARKETPLACE_INDEXING`), read once. Every page's
+/// head says `noindex,nofollow` when it may not, as marketplace's root layout does; `Config::indexing`
+/// is the same answer for the crawler files.
+pub fn site_indexing() -> bool {
+    static INDEXING: std::sync::LazyLock<bool> =
+        std::sync::LazyLock::new(|| indexing(std::env::var("CHASE_SETS_MARKETPLACE_INDEXING").ok().as_deref()));
+    *INDEXING
 }
 
 /// `shouldIndexFromEnv`: on unless the variable says off.
@@ -213,7 +223,7 @@ pub mod url {
     pub use ebay::EbayConnect;
     pub use guest_claims::GuestClaim;
     pub use guest_payments::{GuestPayment, GuestPaymentStatus};
-    pub use home::{Home, Sitemap, SitemapPage, SocialSignIn};
+    pub use home::{FakeCdnAsset, Home, Sitemap, SitemapPage, SocialSignIn};
     pub use inventory::{
         Archive, ImportBatch, ImportCommit, ImportExport, ImportResolve, ImportTemplate, Imports, Inventory, Location, Locations,
         OfflineSale, Restock, Restocked, StockHold, StockItem, StockRelease, StockSale, WrittenOff,
@@ -326,6 +336,12 @@ pub mod url {
 
         #[route("/favicon.ico", get = crate::site::favicon)]
         pub struct FaviconIco;
+
+        /// marketplace-web's fallback pictures, at the paths Catalog stores (`site::fake_cdn`).
+        #[route("/fake-cdn/assets/{name}", get = crate::site::fake_cdn)]
+        pub struct FakeCdnAsset<'a> {
+            pub name: &'a str,
+        }
 
         #[route("/.well-known/appspecific/com.chrome.devtools.json", get = crate::site::devtools, no_store)]
         pub struct Devtools;

@@ -21,6 +21,10 @@ vi.mock("@chase-sets/platform-runtime/auth", () => ({
 }));
 
 const reason = "Accept the current Terms of Service to use wallet balance as payment.";
+// Each Continue in the withheld-credit case is a full action-then-revalidate round trip
+// through the data router, which can exceed Testing Library's 1 s default on a loaded
+// runner.
+const ROUND_TRIP = { timeout: 5_000 };
 const secret = "SECRET_DO_NOT_EXPOSE_10820";
 const identityPosition = { sourceContextName: "identity", maxGlobalPosition: "42", eventIds: ["evt_terms"] };
 type State = "withheld" | "full" | "partial" | "zero";
@@ -257,16 +261,16 @@ describe("Start payment authoritative wallet status", () => {
       await act(async () => {
         await router.revalidate();
       });
-      await waitFor(() => expect(option("max").disabled).toBe(false));
+      await waitFor(() => expect(option("max").disabled).toBe(false), ROUND_TRIP);
       api.setState("withheld");
       fireEvent.click(screen.getAllByRole("button", { name: "Continue to payment" })[trigger]!);
-      await screen.findByText(reason);
-      await waitFor(() => expect(router.state.navigation.state).toBe("idle"));
+      await screen.findByText(reason, undefined, ROUND_TRIP);
+      await waitFor(() => expect(router.state.navigation.state).toBe("idle"), ROUND_TRIP);
       expect(api.creates()).toHaveLength(0);
       expect(api.accepts()).toHaveLength(0);
     }
     fireEvent.click(screen.getAllByRole("button", { name: "Continue to payment" })[1]!);
-    await screen.findByText("Payment destination");
+    await screen.findByText("Payment destination", undefined, ROUND_TRIP);
     expect(api.creates()).toHaveLength(1);
     expect(api.creates()[0]!.body).toMatchObject({
       requestedBalanceCreditAmount: null,

@@ -666,32 +666,52 @@ export async function resolveShipmentOrderId(db: PgQueryable, shipmentId: string
   return result.rows[0]?.order_id ?? null;
 }
 
-export type PaymentDeadlineCancellationCandidate = Readonly<{
+type PaymentDeadlineCursor = Readonly<{
   order_id: string;
   payment_deadline_at: string;
-  payment_deadline_policy: string;
 }>;
+
+export type PaymentDeadlineCancellationCandidate = PaymentDeadlineCursor &
+  Readonly<{
+    buyer_account_id: string;
+    payment_id: string | null;
+  }>;
 
 export async function listPendingPaymentOrdersPastDeadline(
   db: PgQueryable,
-  params: Readonly<{ now: string; limit?: number }>,
-): Promise<readonly PaymentDeadlineCancellationCandidate[]> {
+  params: Readonly<{ now: string; limit?: number; after?: PaymentDeadlineCursor | null }>,
+): Promise<
+  Readonly<{ candidates: readonly PaymentDeadlineCancellationCandidate[]; nextCursor: PaymentDeadlineCursor | null }>
+> {
   const limit = Math.max(1, Math.min(params.limit ?? 100, 500));
   const result = await db.query<PaymentDeadlineCancellationCandidate>(
     `SELECT
        page.order_id,
-       COALESCE(payment_deadline.payment_deadline_at, page.payment_deadline_at)::text AS payment_deadline_at,
-       COALESCE(payment_deadline.payment_deadline_policy, page.payment_deadline_policy) AS payment_deadline_policy
+       page.buyer_account_id,
+       payment_deadline.payment_id,
+       COALESCE(payment_deadline.payment_deadline_at, page.payment_deadline_at)::text AS payment_deadline_at
      FROM ordering_order_pages AS page
      LEFT JOIN ordering_payment_deadline_inputs AS payment_deadline
        ON payment_deadline.order_id = page.order_id
      WHERE page.status = 'pending-payment'
-       AND COALESCE(payment_deadline.payment_deadline_at, page.payment_deadline_at) IS NOT NULL
        AND COALESCE(payment_deadline.payment_deadline_at, page.payment_deadline_at) <= $1::timestamptz
+       AND ($3::timestamptz IS NULL OR
+            (COALESCE(payment_deadline.payment_deadline_at, page.payment_deadline_at), page.order_id)
+              > ($3::timestamptz, $4::text))
+       AND NOT EXISTS (
+         SELECT 1 FROM ordering_payment_capture_inputs AS capture
+         WHERE capture.buyer_account_id = page.buyer_account_id AND capture.order_ids ? page.order_id
+       )
      ORDER BY COALESCE(payment_deadline.payment_deadline_at, page.payment_deadline_at), page.order_id
      LIMIT $2`,
-    [params.now, limit],
+    [params.now, limit + 1, params.after?.payment_deadline_at ?? null, params.after?.order_id ?? null],
   );
 
-  return result.rows;
+  const candidates = result.rows.slice(0, limit);
+  const last = candidates.at(-1);
+  const nextCursor =
+    result.rows.length > limit && last
+      ? { order_id: last.order_id, payment_deadline_at: last.payment_deadline_at }
+      : null;
+  return { candidates, nextCursor };
 }
