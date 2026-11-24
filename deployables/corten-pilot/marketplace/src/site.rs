@@ -165,9 +165,9 @@ static FAKE_CDN: [(&str, &str, &[u8]); 7] = [
 /// `/fake-cdn/assets/{name}`: one of marketplace-web's fallback pictures, the same for everyone; any
 /// other name is a 404.
 pub(crate) async fn fake_cdn(Params(route): Params<url::FakeCdnAsset<'_>>) -> Result<Public<Media>, corten::Error> {
-    let (_, media_type, bytes) =
+    let &(_, media_type, bytes) =
         FAKE_CDN.iter().find(|(name, _, _)| *name == route.name).ok_or_else(|| corten::Error::status(StatusCode::NOT_FOUND))?;
-    Ok(Public::new(FAKE_CDN_LIFE, Media::new(*media_type, *bytes)))
+    Ok(Public::new(FAKE_CDN_LIFE, Media::new(media_type, bytes)))
 }
 
 /// `/.well-known/appspecific/com.chrome.devtools.json`: nothing, so Chrome stops asking and the
