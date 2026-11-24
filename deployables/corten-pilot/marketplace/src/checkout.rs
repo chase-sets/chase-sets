@@ -996,11 +996,13 @@ async fn render(
     let expired = expired(&session, SystemTime::now());
     let actor = &viewer.actor;
     let guest = viewer.guest();
-    // A guest's contact as Auth holds it, unless the write just read it. It is read before the
-    // payment below is followed: a guest goes on to pay only once Auth says whose contact it is.
-    let contact = if offer || !guest {
-        None
-    } else {
+    // A guest's contact as Auth holds it, unless the write just read it. The payment below is
+    // followed only once Auth says whose contact it is; both are read together, so the guest
+    // waits for the slower of the two rather than for both in turn.
+    let contact = async {
+        if offer || !guest {
+            return None;
+        }
         Some(match &answer {
             Answer::Contact(ContactStop::Shown { contact, .. }) => contact.clone(),
             _ => guest_contact(&caller, client).await,
@@ -1010,23 +1012,28 @@ async fn render(
     // orders wait for payment, Payments says whether one started. Its page when it did, unless a
     // guest's contact cannot be read: the page then says so and offers no payment; Pay now held
     // back while Payments cannot tell (marketplace's loader, `paymentStartAmbiguous`).
-    let mut start_ambiguous = false;
-    if card_key(config).is_some()
+    let asks_start = card_key(config).is_some()
         && !expired
         && session.payment_id.is_none()
         && session.cancelled_at.is_none()
-        && !session.order_ids.is_empty()
-    {
-        match caller.checkout_payment_start(id).await {
-            Ok(PaymentStart::Recorded { payment_id }) if contact != Some(GuestContact::Unavailable) => {
-                return to_payment(req, guest, &payment_id, None);
-            }
-            Ok(PaymentStart::Recorded { .. }) | Ok(PaymentStart::NotStarted) => {}
-            Ok(PaymentStart::Ambiguous) => start_ambiguous = true,
-            Err(error) => {
-                tracing::warn!("Payments could not say whether the session's payment started: {error}");
-                start_ambiguous = true;
-            }
+        && !session.order_ids.is_empty();
+    let start = async {
+        if !asks_start {
+            return None;
+        }
+        Some(caller.checkout_payment_start(id).await)
+    };
+    let (contact, start) = tokio::join!(contact, start);
+    let mut start_ambiguous = false;
+    match start {
+        Some(Ok(PaymentStart::Recorded { payment_id })) if contact != Some(GuestContact::Unavailable) => {
+            return to_payment(req, guest, &payment_id, None);
+        }
+        Some(Ok(PaymentStart::Recorded { .. })) | Some(Ok(PaymentStart::NotStarted)) | None => {}
+        Some(Ok(PaymentStart::Ambiguous)) => start_ambiguous = true,
+        Some(Err(error)) => {
+            tracing::warn!("Payments could not say whether the session's payment started: {error}");
+            start_ambiguous = true;
         }
     }
     let wallet = async {
