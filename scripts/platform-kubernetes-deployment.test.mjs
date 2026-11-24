@@ -453,7 +453,10 @@ function failedRollbackCaptureCompletions() {
 const productionAdminWebLines = [
   "admin.chasesets.com is served by admin-web (PRODUCTION_ADMIN_APP is unset, so the default applies).",
   "admin-corten is not deployed while admin-web serves admin.chasesets.com.",
+  "marketplace.chasesets.com is served by marketplace (PRODUCTION_MARKETPLACE_APP is unset, so the default applies).",
+  "marketplace-corten is not deployed while marketplace-web serves marketplace.chasesets.com.",
   "Warning: admin-corten is not deployed because admin-web serves admin.chasesets.com (PRODUCTION_ADMIN_APP=admin-web).",
+  "Warning: marketplace-corten is not deployed because marketplace-web serves marketplace.chasesets.com (PRODUCTION_MARKETPLACE_APP=marketplace).",
 ];
 
 function successfulSpawn(calls) {
@@ -7873,7 +7876,12 @@ describe("advisory Corten pilots without an image", () => {
     for (const DEPLOYMENT_ENVIRONMENT of ["production", "preview"]) {
       const envOverrides = { DEPLOYMENT_ENVIRONMENT, PREVIEW_IDENTIFIER: "pr-123" };
       expect(platformKubernetesDeployment.droppedAdvisoryCortenPilots({ envOverrides })).toEqual([]);
-      const env = { STAGING_ADMIN_APP: "admin-web", PRODUCTION_ADMIN_APP: "admin-corten" };
+      const env = {
+        STAGING_ADMIN_APP: "admin-web",
+        PRODUCTION_ADMIN_APP: "admin-corten",
+        STAGING_MARKETPLACE_APP: "marketplace",
+        PRODUCTION_MARKETPLACE_APP: "marketplace-corten",
+      };
       expect(platformKubernetesDeployment.withheldCortenPilots({ envOverrides, env })).toEqual([]);
     }
   });

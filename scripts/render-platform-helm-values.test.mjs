@@ -1547,21 +1547,24 @@ spec:
     // short pre-rollout hook that finishes before the cutover it guards, so
     // reserving a node share for it would only shrink what the app pods can
     // land on.
-    // The Corten admin pilot is the only other component; it runs only while PRODUCTION_ADMIN_APP=admin-corten,
-    // beside admin-web (the rollback), and carries its own Burstable 100m / 128Mi request.
+    // The Corten admin and marketplace pilots are the only other components; each runs only while
+    // PRODUCTION_ADMIN_APP=admin-corten or PRODUCTION_MARKETPLACE_APP=marketplace-corten, beside its React app
+    // (the rollback), and carries its own Burstable 100m / 128Mi request.
     expect(Object.keys(production.components).sort()).toEqual(
-      [...Object.keys(expectedRequests), "admin-corten"].sort(),
+      [...Object.keys(expectedRequests), "admin-corten", "marketplace-corten"].sort(),
     );
-    expect(production.components["admin-corten"].resources).toEqual({
-      requests: { cpu: "100m", memory: "128Mi" },
-      limits: { cpu: "1", memory: "512Mi" },
-    });
+    for (const pilot of ["admin-corten", "marketplace-corten"]) {
+      expect(production.components[pilot].resources).toEqual({
+        requests: { cpu: "100m", memory: "128Mi" },
+        limits: { cpu: "1", memory: "512Mi" },
+      });
+    }
     const summed = Object.values(production.components).reduce(
       (total, { resources }) => total + millicores(resources.requests.cpu),
       0,
     );
-    // Every app pod and the pilot together still fit one 1900m-allocatable runtime node.
-    expect(summed).toBe(1050);
+    // Every app pod and both pilots together still fit one 1900m-allocatable runtime node.
+    expect(summed).toBe(1150);
     expect(summed).toBeLessThan(1900);
 
     for (const [name, requests] of Object.entries(expectedRequests)) {

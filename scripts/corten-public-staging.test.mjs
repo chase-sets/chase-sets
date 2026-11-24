@@ -47,7 +47,7 @@ describe("Corten public staging, first slice", () => {
     const expected = {
       "reconcile-production-marker": "6e7171774b3d654c0dcd81d993140ebcfb0bf8436d05c7a5809c7137b5f2c317",
       "reconcile-managed-postgres-ca-production": "2a089333675961592792931dc522f4a8725e1f4b2f8688a0a7ecbb5a3246f389",
-      "deploy-production": "1839392f04347528f1c5cedc10be1258157b6340772cc35c7802c674d846f3a4",
+      "deploy-production": "df0d9ff6ac024bf0498e3bb269bada04c88fdb61fb4630ad40d272104ff9631d",
       "notify-production-deploy-incident": "45ba7ca357af41620cb066784a2ef94c80741725d98aa98a6520f3b049166262",
       "notify-production-rollback-incident": "6620994b81902ec45da29e5b3f049a1e49b2e9a2483d1b6acf6663584272710e",
     };
@@ -67,7 +67,7 @@ describe("Corten public staging, first slice", () => {
   it("preserves the production values", () => {
     for (const [file, sha] of Object.entries({
       "values.yaml": "deabfa12c21bfed16326e58432c13a4aecf3a1f1f852768320a311e3916baadc",
-      "values.production.yaml": "653442bfb787b2701df3afccdc816f912f3bb658f063ba9b1a24d2627d59f37c",
+      "values.production.yaml": "2f908317309dca398afb71c062bfe218dfd7d65d3b04bbe9c0bbdcfd62f5974c",
     })) {
       expect(
         createHash("sha256")

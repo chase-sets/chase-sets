@@ -474,6 +474,17 @@ pub fn Layout<'a, H: Render, C: Render>(
     }
 }
 
+/// The whole site's crawler rule, ahead of a page's own head: `noindex,nofollow` when the site may
+/// not be indexed (marketplace's root layout, whatever the page), nothing when it may.
+#[component]
+pub fn SiteRobots(indexed: bool) -> impl Render {
+    html! {
+        if !indexed {
+            <meta name="robots" content="noindex,nofollow">
+        }
+    }
+}
+
 /// `Layout`'s document, with the shell (`shell`) or without it: for a page that cannot say who is
 /// asking, the offline page (the same for everyone; marketplace serves it outside its layout) and
 /// a session the API could not read, where a visitor's Sign in would be wrong.
@@ -507,6 +518,7 @@ pub fn Frame<'a, H: Render, C: Render>(
                 >
                 <link rel="stylesheet" href={req.asset(crate::app::Static::STYLE_CSS)}>
                 <title>{title}</title>
+                <SiteRobots indexed={crate::app::site_indexing()} />
                 {head}
                 <Corten />
                 <script type="module" src={req.asset(crate::app::Static::APP_JS)}></script>
