@@ -289,10 +289,8 @@
 .choices {
   display: grid;
   gap: var(--space-1);
-  max-height: 20rem;
   margin: 0;
   padding: 0;
-  overflow-y: auto;
   border: 0;
   list-style: none;
 }
