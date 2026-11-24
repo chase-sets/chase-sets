@@ -1684,9 +1684,9 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     const address = parseShipFromAddressSnapshot(params.shipFromAddress);
     assert(address, "Ship-from address is required.");
     // A snapshot bridges projection lag for the account's own stock. Each statement changes an existing row
-    // only when that row already belongs to the snapshot's account; the condition is in the write, so a
-    // projection write that lands first is not overwritten. The location goes first because an item row
-    // must never point at a location row its account does not own.
+    // only when that row already belongs to the snapshot's account; the condition is in the write, so a row
+    // the projection puts under another account first is not overwritten. The location goes first because
+    // an item row must never point at a location row its account does not own.
     const location = await deps.db.query(
       `INSERT INTO marketplace_supply_locations (
          storage_location_id,
@@ -1698,7 +1698,6 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
          updated_at
        ) VALUES ($1, $2, $3, $4, $5, false, now())
        ON CONFLICT (storage_location_id) DO UPDATE SET
-         account_id = EXCLUDED.account_id,
          name = EXCLUDED.name,
          ship_from_code = EXCLUDED.ship_from_code,
          ship_from_address = EXCLUDED.ship_from_address,
@@ -1733,7 +1732,6 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
          updated_at
        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0, now())
        ON CONFLICT (item_id) DO UPDATE SET
-         account_id = EXCLUDED.account_id,
          catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
          product_id = EXCLUDED.product_id,
          selected_options = EXCLUDED.selected_options,

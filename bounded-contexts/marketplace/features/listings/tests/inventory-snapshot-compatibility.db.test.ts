@@ -391,6 +391,28 @@ describeDb("Inventory snapshot PostgreSQL compatibility", () => {
       },
     );
 
+    it.each(["item", "location"] as const)(
+      "the Inventory draft consumer writes nothing when its message names another account's %s row",
+      async (owned) => {
+        const services = owner();
+        if (owned === "item") await seedItem("acc_other");
+        else await seedLocation("acc_other", false);
+        const before = {
+          items: await rows("marketplace_supply_items"),
+          locations: await rows("marketplace_supply_locations"),
+        };
+
+        await expect(services.inventoryDraftListingConsumer.accept(draftMessage(), draftContext)).rejects.toMatchObject(
+          { code: "inventory-draft-unavailable", diagnostic: "unexpected-failure" },
+        );
+
+        // The consumer runs both writes in its own transaction, so a refusal leaves neither table changed.
+        expect(await rows("marketplace_supply_items")).toEqual(before.items);
+        expect(await rows("marketplace_supply_locations")).toEqual(before.locations);
+        expect(await eventCount()).toBe(0);
+      },
+    );
+
     it("still updates the account's own rows and creates the Listing", async () => {
       await seedLocation("acc_c4", true);
       await seedItem("acc_c4");
