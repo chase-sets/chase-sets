@@ -312,7 +312,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       {
         name: "exposes the Offer payment consent policy in the console without enabling enforcement on revision",
         referenceDurationMs: 12_000, // Enrollment estimate; hosted DB CI qualifies the case.
-        identity: "d02abcddabdae4d0",
+        identity: "7c0a8c061ac47f5e",
       },
       {
         name: "boots with context-owned pools and replays cross-context projections",

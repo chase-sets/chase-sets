@@ -7,6 +7,18 @@ import { workerContextRegistry } from "./context-registry";
 import { createGoogleShoppingJobRunners } from "./google-shopping-job-runners";
 import { createDeferredScheduledRunners, createInfrastructureScheduledRunners } from "./scheduled-runners";
 import type { PlatformWorkerConfig } from "./config";
+import type { ReconcileOrderPaymentBeforeDeadline } from "@chase-sets/ordering/server";
+import type { PaymentsServices } from "@chase-sets/payments/server";
+
+export function createOrderPaymentDeadlineWorkerPorts(services: WorkerJobInput<PlatformWorkerConfig>["services"]) {
+  const payments = services.payments as PaymentsServices | undefined;
+  return {
+    reconcileOrderPaymentBeforeDeadline: payments?.payments?.reconcileOrderPaymentBeforeDeadline satisfies
+      | ReconcileOrderPaymentBeforeDeadline
+      | undefined,
+  };
+}
+
 export function createPlatformWorkerJobComposition(
   input: WorkerJobInput<PlatformWorkerConfig>,
   retention: Pick<Parameters<typeof createInfrastructureScheduledRunners>[0], "workSignalCleanup" | "retentionSweep">,
@@ -15,7 +27,7 @@ export function createPlatformWorkerJobComposition(
   const active = input.config.runtimeProfile !== "landing";
   const jobs = composeWorkerJobs(
     registry,
-    input,
+    { ...input, ports: { ...input.ports, ...createOrderPaymentDeadlineWorkerPorts(input.services) } },
     input.config.runtimeProfile,
     active
       ? [

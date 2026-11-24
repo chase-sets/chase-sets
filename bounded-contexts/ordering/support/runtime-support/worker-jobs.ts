@@ -12,14 +12,16 @@ const SYSTEM_CONTEXT = {
 };
 
 type CreateOrderingPaymentDeadlineSweepRunnersConfig = Readonly<{ paymentDeadlineSweepIntervalMs: number | null }>;
+type PaymentDeadlineSweepInput = Parameters<OrderingServices["orders"]["sweepBreachedPaymentDeadlines"]>[0];
 export function createOrderingPaymentDeadlineSweepRunners({
   services,
   config: input,
   controlPlane,
   logger,
+  ports,
 }: Pick<
   WorkerJobInput<CreateOrderingPaymentDeadlineSweepRunnersConfig>,
-  "services" | "config" | "controlPlane" | "logger"
+  "services" | "config" | "controlPlane" | "logger" | "ports"
 >): readonly WorkerRunner[] {
   const ordering = services.ordering as OrderingServices | undefined;
   const sweepBreachedPaymentDeadlines = ordering?.orders?.sweepBreachedPaymentDeadlines;
@@ -31,7 +33,13 @@ export function createOrderingPaymentDeadlineSweepRunners({
         input.paymentDeadlineSweepIntervalMs,
         controlPlane,
         async () => {
-          const result = await sweepBreachedPaymentDeadlines({ limit: 100 }, SYSTEM_CONTEXT);
+          const reconcilePayment = ports?.reconcileOrderPaymentBeforeDeadline as
+            | PaymentDeadlineSweepInput["reconcilePayment"]
+            | undefined;
+          if (!reconcilePayment) {
+            throw new Error("Ordering payment deadline sweep requires Payments reconciliation.");
+          }
+          const result = await sweepBreachedPaymentDeadlines({ limit: 100, reconcilePayment }, SYSTEM_CONTEXT);
           logger.info("Ordering payment deadline sweep completed.", {
             type: "ordering.payment-deadline-sweep",
             result,

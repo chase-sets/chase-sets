@@ -5,6 +5,23 @@ const nullableTextSchema = z
   .nullish()
   .transform((value) => value ?? null);
 
+/**
+ * Graded Item Details: the `gradedCard` snapshot that Inventory attaches to
+ * graded stock. Listings carry it and order lines keep part of it. The term is
+ * owned by the Graded Item Details entry in `bounded-contexts/inventory/GLOSSARY.md`.
+ *
+ * - Presence of `gradedCard` is the published classification of graded stock, and readers may branch on presence.
+ * - `certificationNumber`, `population` and `conditionDescriptors` are evidence about one item.
+ * - `gradingCompany` and `grade` are display copies of the selected Options' labels, written only by Inventory from the selection.
+ * - No code validates `gradingCompany` or `grade` against a code table, and no new code branches on their text.
+ *
+ * Recorded exceptions:
+ *
+ * - The registry link `switch` in Discovery's `bounded-contexts/discovery/features/item-detail/ui/commerce/purchase-section.tsx`.
+ * - The company match of `sellerComplianceCohortPolicy` in Platform Operations' `bounded-contexts/platform-operations/features/seller-compliance-cohorts/domain/cohort-window.ts`.
+ *
+ * Channels' mapping keys stay because they match operator-reviewed mappings.
+ */
 export const gradedCardSnapshotSchema = z.object({
   gradingCompany: z.string(),
   grade: z.string(),

@@ -231,6 +231,8 @@
 //   description (marketplace.app.routes.offline.* as offline.*, and
 //   marketplace.app.routes.manifest.description as manifest_description).
 // - marketplace/static/icons/: marketplace-web's four app icons (public/icons), which its manifest names.
+// - marketplace/fake-cdn/assets/: marketplace-web's fallback pictures (public/fake-cdn/assets), the card
+//   backs Catalog stores and the product placeholder, which the pilot serves at /fake-cdn/assets/.
 // - admin/favicon.svg: the same logo, admin-web's favicon. Not committed (see GENERATED).
 // - admin/locales/site.en.json: admin-web's offline page, its home (the sections), and its web app
 //   manifest's description (adminWeb.app.routes.offline.* as offline.*, adminWeb.app.routes.index.*
@@ -712,6 +714,19 @@ const appIcons = [
     "marketplace",
     ["chase-sets-192.png", "chase-sets-512.png", "chase-sets-maskable-192.png", "chase-sets-maskable-512.png"],
   ],
+];
+
+// marketplace-web's fallback pictures (deployables/marketplace/public/fake-cdn/assets): the card
+// backs Catalog stores as fallbacks (contracts/catalog-seed/fallback-assets.ts) and the game-neutral
+// product placeholder, which the pilot marketplace serves at the same paths from fake-cdn/assets/.
+const fakeCdnAssets = [
+  "lorcana-card-back.png",
+  "magic-card-back.svg",
+  "one-piece-card-back.png",
+  "pokemon-card-back.png",
+  "pokemon_tcg_back.png",
+  "product-image-placeholder.svg",
+  "yugioh-card-back.svg",
 ];
 
 /** An article as the help center and the developer portal draw it. */
@@ -2103,6 +2118,19 @@ for (const [deployable, app, names] of appIcons) {
       copyFileSync(source, target);
       console.log(`wrote ${app}/static/icons/${name}`);
     }
+  }
+}
+mkdirSync(path.join(pilot, "marketplace/fake-cdn/assets"), { recursive: true });
+for (const name of fakeCdnAssets) {
+  const source = path.join(repo, "deployables/marketplace/public/fake-cdn/assets", name);
+  const target = path.join(pilot, "marketplace/fake-cdn/assets", name);
+  if (existsSync(target) && readFileSync(target).equals(readFileSync(source))) continue;
+  if (check) {
+    console.error(`marketplace/fake-cdn/assets/${name} is out of date`);
+    stale += 1;
+  } else {
+    copyFileSync(source, target);
+    console.log(`wrote marketplace/fake-cdn/assets/${name}`);
   }
 }
 process.exit(stale ? 1 : 0);

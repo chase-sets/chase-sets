@@ -28,6 +28,7 @@ import {
 import type { PrepaidRefundAuthority } from "../../features/wallet-funding/api/prepaid-refund-authority";
 import { createPolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { walletFundingLimitsPolicy } from "../../features/wallet-funding/api/limits-policy";
+import { cardAuthenticationPolicy } from "../../features/payments/domain/card-authentication-policy";
 import {
   createEvidenceWindowDisposition,
   type EvidenceWindowDispositionOptions,
@@ -135,6 +136,7 @@ export function createPaymentsServices(
     processorGateway,
     balanceCreditResolver: options.balanceCreditResolver,
     checkoutProcessingFeePolicyResolver: options.checkoutProcessingFeePolicyResolver,
+    resolveCardAuthenticationPolicy: async () => (await policies.resolvePolicy(cardAuthenticationPolicy)).value,
     notificationOutbox,
     webhookTelemetry: options.webhookTelemetry,
   });

@@ -460,6 +460,11 @@ export type OrderingOrderCreationResult = Readonly<{
 }> &
   OrderingCommitMetadata;
 
+export type ReconcileOrderPaymentBeforeDeadline = (
+  order: Readonly<{ orderId: string; buyerAccountId: string; paymentId?: string }>,
+  context: EventStoreContext,
+) => Promise<"captured" | "not-captured" | "capture-not-recorded">;
+
 export type OrderingOrderServices = Readonly<{
   commandHandler: CommandHandler<OrderingOrderCommand, OrderingOrderState, OrderingOrderEvent>;
   evidenceWindowSources: Readonly<{
@@ -615,9 +620,9 @@ export type OrderingOrderServices = Readonly<{
     }>,
   ) => Promise<number>;
   sweepBreachedPaymentDeadlines: (
-    params: Readonly<{ now?: string | Date; limit?: number }> | undefined,
+    params: Readonly<{ now?: string | Date; limit?: number; reconcilePayment: ReconcileOrderPaymentBeforeDeadline }>,
     context: EventStoreContext,
-  ) => Promise<{ checked: number; cancelled: number; progressed: number; failed: number }>;
+  ) => Promise<PaymentDeadlineSweepResult>;
   listPurchases: (params: Parameters<typeof listPurchases>[1]) => ReturnType<typeof listPurchases>;
   getPurchase: (orderId: string, buyerAccountId: string) => ReturnType<typeof getPurchaseWithDeliverySummary>;
   getPurchaseListSummary: (buyerAccountId: string) => ReturnType<typeof getPurchaseListSummary>;
@@ -1514,7 +1519,19 @@ async function getPurchaseWithDeliverySummary(
   return { ...purchase, delivery_summary: await getOrderingOrderDeliverySummary(db, orderId) };
 }
 
+const MAX_UNVERIFIED_PAYMENT_DEADLINE_DEFERRAL_MS = 5 * 60 * 1000;
+
+type PaymentDeadlineSweepResult = Readonly<{
+  checked: number;
+  cancelled: number;
+  progressed: number;
+  deferred: number;
+  deferredByReason: Readonly<Record<"payment-unverified" | "capture-not-recorded", number>>;
+  failed: number;
+}>;
+
 export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrderServices {
+  let paymentDeadlineCursor: Awaited<ReturnType<typeof listPendingPaymentOrdersPastDeadline>>["nextCursor"] = null;
   const taxQuoteResolver = deps.taxQuoteResolver ?? zeroTaxQuoteResolver;
   const postagePolicyResolver = deps.postagePolicyResolver ?? defaultPostagePolicyResolver;
   const notificationOutbox = deps.notificationOutbox ?? createNoopNotificationOutbox();
@@ -2846,13 +2863,48 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
       return result.rowCount ?? params.orderIds.length;
     },
     sweepBreachedPaymentDeadlines: async (params, context) => {
-      const now = normalizeSweepNow(params?.now);
-      const candidates = await listPendingPaymentOrdersPastDeadline(deps.db, { now, limit: params?.limit });
+      const now = normalizeSweepNow(params.now);
+      const { candidates, nextCursor } = await listPendingPaymentOrdersPastDeadline(deps.db, {
+        now,
+        limit: params.limit,
+        after: paymentDeadlineCursor,
+      });
+      // Rotate through overdue orders without letting a full page of deferred captures consume every tick.
+      paymentDeadlineCursor = nextCursor;
+      const deferralCutoff = Date.parse(now) - MAX_UNVERIFIED_PAYMENT_DEADLINE_DEFERRAL_MS;
       let cancelled = 0;
       let progressed = 0;
       let failed = 0;
+      const deferredByReason = { "payment-unverified": 0, "capture-not-recorded": 0 };
 
       for (const candidate of candidates) {
+        try {
+          const payment = await params.reconcilePayment(
+            {
+              orderId: candidate.order_id,
+              buyerAccountId: candidate.buyer_account_id,
+              ...(candidate.payment_id ? { paymentId: candidate.payment_id } : {}),
+            },
+            context,
+          );
+          if (payment === "captured") {
+            progressed += 1;
+            continue;
+          }
+          if (payment === "capture-not-recorded") {
+            deferredByReason["capture-not-recorded"] += 1;
+            continue;
+          }
+          if (payment !== "not-captured") {
+            throw new Error("Payment reconciliation did not return a deadline decision.");
+          }
+        } catch {
+          if (Date.parse(candidate.payment_deadline_at) > deferralCutoff) {
+            deferredByReason["payment-unverified"] += 1;
+            continue;
+          }
+        }
+
         try {
           const result = await commandHandler({
             streamId: `ordering.order-${candidate.order_id}`,
@@ -2881,7 +2933,8 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
         }
       }
 
-      return { checked: candidates.length, cancelled, progressed, failed };
+      const deferred = deferredByReason["payment-unverified"] + deferredByReason["capture-not-recorded"];
+      return { checked: candidates.length, cancelled, progressed, deferred, deferredByReason, failed };
     },
     listPurchases: (params) => listPurchases(deps.db, params),
     getPurchase: (orderId, buyerAccountId) => getPurchaseWithDeliverySummary(deps.db, orderId, buyerAccountId),

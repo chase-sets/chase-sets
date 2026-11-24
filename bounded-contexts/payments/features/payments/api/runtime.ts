@@ -19,8 +19,7 @@ import {
 } from "@chase-sets/http/provider-errors";
 import { decideWebhookPayment, paymentWebhookErrorFromUnknown, paymentWebhookFailureCause } from "./webhook-errors";
 import type { PaymentTransactionRunner, PaymentWebhookRunner, PaymentWebhookResult } from "./webhook-transaction";
-import { createId } from "@chase-sets/primitives/typed-ids";
-import type { AccountId, OrderId, PaymentId } from "@chase-sets/primitives/typed-ids";
+import { createId, type AccountId, type OrderId, type PaymentId } from "@chase-sets/primitives/typed-ids";
 import { centsToMoneyAmount, moneyToCents, sumMoneyAmounts } from "@chase-sets/primitives/money";
 import {
   assert,
@@ -34,6 +33,7 @@ import {
   type RefundId,
 } from "../../../support/runtime-support/common";
 import { checkoutUnavailableReasonLabel } from "./reason-codes";
+import { cardAuthenticationPolicy, type CardAuthenticationPolicyValue } from "../domain/card-authentication-policy";
 import { isDeferredCheckoutPayment } from "../domain/deferred-checkout-payment";
 import { DeferredPaymentNotSent, isPaymentConfirmationTokenId } from "@chase-sets/payment-processing";
 import type {
@@ -70,6 +70,7 @@ import {
   getSavedCheckoutSetupSessionByProcessorReference,
   getSavedCheckoutSetupSessionBySetupReference,
   listSavedCheckoutInstrumentsForAgentGrant,
+  listActivePaymentIdsForOrder,
   listPaymentProviderEvents,
   listPaymentProviderIdempotencyKeys,
   listPaymentProviderOperationsNeedingReconciliation,
@@ -149,6 +150,7 @@ type PaymentRuntimeDeps = Readonly<{
   processorGateway: PaymentProcessorGateway;
   balanceCreditResolver?: BalanceCreditResolver;
   checkoutProcessingFeePolicyResolver?: CheckoutProcessingFeePolicyResolver;
+  resolveCardAuthenticationPolicy?: () => Promise<CardAuthenticationPolicyValue>;
   notificationOutbox?: NotificationOutbox;
   webhookTelemetry?: ProviderWebhookTelemetry;
 }>;
@@ -522,6 +524,7 @@ function buildOrderRefundCaps(
 
 function buildMarketplaceRiskMetadata(
   sellerPayouts: readonly SellerPayoutComponent[],
+  highSellerExposureAmount: string,
 ): Record<string, string | number | boolean> {
   const sellerAccountIds = [...new Set(sellerPayouts.map((payout) => payout.sellerAccountId))].sort();
   const maxSellerOrderAmount = sellerPayouts.reduce(
@@ -533,7 +536,7 @@ function buildMarketplaceRiskMetadata(
     seller_account_ids: sellerAccountIds.join(","),
     seller_account_count: sellerAccountIds.length,
     max_seller_order_amount: maxSellerOrderAmount,
-    high_dollar_order: compareMoney(maxSellerOrderAmount, "250.00") >= 0,
+    high_dollar_order: compareMoney(maxSellerOrderAmount, highSellerExposureAmount) >= 0,
     fulfillment_required: sellerPayouts.length > 0,
   };
 }
@@ -543,12 +546,11 @@ type CardAuthenticationAssessment = Readonly<{
   reasonCodes: readonly string[];
 }>;
 
-const THREE_D_SECURE_PAYMENT_AMOUNT_THRESHOLD = "250.00";
-
 function buildCardAuthenticationAssessment(
   params: Readonly<{
     paymentMethodCategory: PaymentMethodCategory;
     processorAmount: string;
+    highPaymentAmount: string;
     marketplaceRiskMetadata: Readonly<Record<string, string | number | boolean>>;
     accountRisk: PaymentAccountRiskSourceRow | null;
   }>,
@@ -561,9 +563,7 @@ function buildCardAuthenticationAssessment(
     ...(params.accountRisk?.stripe_fraud_flag ? ["stripe-fraud-flag"] : []),
     ...(params.accountRisk && params.accountRisk.stripe_review_open_count > 0 ? ["stripe-fraud-review-open"] : []),
     ...(params.accountRisk?.manual_payout_review ? ["manual-payout-review"] : []),
-    ...(compareMoney(params.processorAmount, THREE_D_SECURE_PAYMENT_AMOUNT_THRESHOLD) >= 0
-      ? ["high-payment-amount"]
-      : []),
+    ...(compareMoney(params.processorAmount, params.highPaymentAmount) >= 0 ? ["high-payment-amount"] : []),
     ...(params.marketplaceRiskMetadata.high_dollar_order === true ? ["high-dollar-seller-exposure"] : []),
   ];
 
@@ -732,7 +732,6 @@ const CANONICAL_ATTEMPT_UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][
 const SHA256_HEX = /^[0-9a-f]{64}$/;
 
 export type SavedCheckoutInstrumentAttemptKind = "setup" | "default" | "remove";
-
 type SavedCheckoutInstrumentAttemptTarget = Readonly<{ setupReferenceId: string } | { instrumentId: string }>;
 type SavedCheckoutInstrumentAttemptStarted = Readonly<{
   version: 1;
@@ -1270,6 +1269,7 @@ export type PaymentServices = Readonly<{
         }>)
     | null
   >;
+  reconcileOrderPaymentBeforeDeadline: ReconcileOrderPaymentBeforeDeadline;
   getCheckoutPaymentStart: (
     sessionId: string,
     accountId: AccountId,
@@ -2283,11 +2283,18 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       const sellerPayoutAmount = sumFeeAmounts(orders, "seller_payout_amount");
       const sellerPayouts = buildSellerPayoutComponents(orders);
       const orderRefundCaps = buildOrderRefundCaps(orders, marketplaceCheckoutFeeAmount);
-      const marketplaceRiskMetadata = buildMarketplaceRiskMetadata(sellerPayouts);
+      const cardAuthenticationAmounts = deps.resolveCardAuthenticationPolicy
+        ? await deps.resolveCardAuthenticationPolicy()
+        : cardAuthenticationPolicy.defaultValue;
+      const marketplaceRiskMetadata = buildMarketplaceRiskMetadata(
+        sellerPayouts,
+        cardAuthenticationAmounts.highSellerExposureAmount,
+      );
       const accountRisk = await getPaymentAccountRiskSource(deps.db, accountId);
       const cardAuthentication = buildCardAuthenticationAssessment({
         paymentMethodCategory,
         processorAmount,
+        highPaymentAmount: cardAuthenticationAmounts.highPaymentAmount,
         marketplaceRiskMetadata,
         accountRisk,
       });
@@ -3365,6 +3372,75 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         throw classified;
       }
     },
+    async reconcileOrderPaymentBeforeDeadline({ orderId, buyerAccountId, paymentId }, context) {
+      // The reservation can precede both the Payment page and Ordering's payment-created reaction.
+      let paymentIds: Set<string>;
+      let unverified = false;
+      try {
+        paymentIds = new Set(await listActivePaymentIdsForOrder(deps.db, orderId, buyerAccountId));
+      } catch {
+        paymentIds = new Set();
+        unverified = true;
+      }
+      if (paymentId) paymentIds.add(paymentId);
+
+      // Check durable captures before an unverifiable attempt can influence the deadline decision.
+      const payments: PaymentDetailRow[] = [];
+      for (const id of paymentIds) {
+        try {
+          const { state } = await repository.load(`payments.payment-${id}`);
+          if (
+            !state.paymentId ||
+            state.buyerAccountId !== buyerAccountId ||
+            !state.orderIds.includes(orderId as OrderId)
+          ) {
+            unverified = true;
+            continue;
+          }
+          if (state.capturedAt) return "captured";
+          payments.push(paymentStateToDetailRow(state));
+        } catch {
+          unverified = true;
+        }
+      }
+
+      for (const payment of payments) {
+        if (payment.processor_payment_kind === "balance-credit") {
+          if (payment.status === "pending-confirmation") unverified = true;
+          continue;
+        }
+
+        let confirmedCapture = false;
+        try {
+          const current = await deps.processorGateway.retrievePaymentResult(payment.processor_payment_reference);
+          if (
+            !current ||
+            current.outcome === "unknown" ||
+            providerResultMismatch(payment, current) ||
+            current.processorPaymentKind !== payment.processor_payment_kind
+          ) {
+            unverified = true;
+          } else if (current.outcome === "captured") {
+            confirmedCapture = true;
+            const outcome = await applyProviderPaymentResult(payment, current, context);
+            if (!outcome.attention) return "captured";
+          }
+        } catch {
+          unverified = true;
+        }
+
+        // A webhook or the background reconciler can append a capture during the lookup or command.
+        try {
+          if ((await repository.load(`payments.payment-${payment.payment_id}`)).state.capturedAt) return "captured";
+        } catch {
+          unverified = true;
+        }
+        if (confirmedCapture) return "capture-not-recorded";
+      }
+
+      if (unverified) throw new Error("Payment for the order deadline is not yet verifiable.");
+      return "not-captured";
+    },
     submitDisputeEvidence: (dispute, context) =>
       submitPaymentDisputeEvidence(
         {
@@ -3396,3 +3472,8 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
     ],
   };
 }
+
+type ReconcileOrderPaymentBeforeDeadline = (
+  order: Readonly<{ orderId: string; buyerAccountId: string; paymentId?: string }>,
+  context: EventStoreContext,
+) => Promise<"captured" | "not-captured" | "capture-not-recorded">;
