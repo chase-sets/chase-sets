@@ -1653,6 +1653,13 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
             command,
             context,
           });
+          if (result.outcome === "failed" || result.outcome === "cancelled") {
+            await markPaymentCreationReservationInactive(db, {
+              paymentId: payment.payment_id,
+              status: result.outcome === "failed" ? "failed" : "released",
+              updatedAt: result.occurredAt,
+            });
+          }
           let repaired = outcome.newEvents.length > 0;
           if (result.liabilityShiftOutcome) {
             const liabilityOutcome = await commandHandler({
@@ -1708,6 +1715,19 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
           reason: error instanceof Error ? error.message : "Payment reconciliation command failed.",
         },
       };
+    }
+  }
+
+  const paymentLookupFailed = "Provider payment lookup failed.";
+
+  async function lookupPaymentForReconciliation(
+    retrieve: () => Promise<ProcessorPaymentReconciliationResult | null>,
+  ): Promise<ProcessorPaymentReconciliationResult | null | undefined> {
+    try {
+      return await retrieve();
+    } catch {
+      // An unavailable lookup is not a completed lookup that found nothing.
+      return undefined;
     }
   }
 
@@ -1769,7 +1789,10 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         return { resolved: true, repaired: false, attention: null };
       }
 
-      const providerResult = await deps.processorGateway.retrievePaymentResult(payment.processor_payment_reference);
+      const reference = payment.processor_payment_reference;
+      const providerResult = await lookupPaymentForReconciliation(() =>
+        deps.processorGateway.retrievePaymentResult(reference),
+      );
       if (!providerResult) {
         return {
           resolved: false,
@@ -1778,8 +1801,11 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
             kind: "provider-operation",
             payment_id: payment.payment_id,
             operation_key: operation.operation_key,
-            processor_payment_reference: payment.processor_payment_reference,
-            reason: "Provider payment lookup returned no support-safe result for an existing local payment.",
+            processor_payment_reference: reference,
+            reason:
+              providerResult === undefined
+                ? paymentLookupFailed
+                : "Provider payment lookup returned no support-safe result for an existing local payment.",
           },
         };
       }
@@ -1801,9 +1827,21 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
     }
     if (payment) return { resolved: false, repaired: false, attention: null };
 
-    const providerResult = deps.processorGateway.retrievePaymentResultByPaymentId
-      ? await deps.processorGateway.retrievePaymentResultByPaymentId(paymentId as PaymentId)
-      : null;
+    const providerResult = await lookupPaymentForReconciliation(
+      async () => (await deps.processorGateway.retrievePaymentResultByPaymentId?.(paymentId as PaymentId)) ?? null,
+    );
+    if (providerResult === undefined) {
+      return {
+        resolved: false,
+        repaired: false,
+        attention: {
+          kind: "provider-operation",
+          payment_id: paymentId,
+          operation_key: operation.operation_key,
+          reason: paymentLookupFailed,
+        },
+      };
+    }
     if (!providerResult) {
       await recordPaymentProviderOperationFailed(deps.db, {
         operationKey: operation.operation_key,
@@ -3016,14 +3054,20 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       let providerOperationsResolved = 0;
 
       for (const payment of payments) {
-        if (payment.processor_payment_reference === null) continue;
-        const providerResult = await deps.processorGateway.retrievePaymentResult(payment.processor_payment_reference);
+        const reference = payment.processor_payment_reference;
+        if (reference === null) continue;
+        const providerResult = await lookupPaymentForReconciliation(() =>
+          deps.processorGateway.retrievePaymentResult(reference),
+        );
         if (!providerResult) {
           attentionItems.push({
             kind: "payment",
             payment_id: payment.payment_id,
-            processor_payment_reference: payment.processor_payment_reference,
-            reason: "Provider payment lookup returned no support-safe result.",
+            processor_payment_reference: reference,
+            reason:
+              providerResult === undefined
+                ? paymentLookupFailed
+                : "Provider payment lookup returned no support-safe result.",
           });
           continue;
         }

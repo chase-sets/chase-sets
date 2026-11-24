@@ -101,7 +101,7 @@ describe("ordinary interest versus the ruled Prepaid Balance term", () => {
 const chargeSourceRoles = [
   {
     role: "request",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2607-2628",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2645-2666",
     markers: ["createPaymentSession", "amount: processorAmount"],
   },
   {
@@ -137,7 +137,7 @@ const chargeSourceRoles = [
   },
   {
     role: "nonzero pending",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2773-2778",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2811-2816",
     markers: ['compareMoney(processorAmount, "0.00")', '"pending-confirmation"', "captured_at:"],
   },
   {
@@ -165,7 +165,7 @@ const chargeSourceRoles = [
   },
   {
     role: "webhook capture recording",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:3249-3293",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:3293-3337",
     markers: [
       'case "payment-authorized"',
       'type: "RecordPaymentAuthorization"',
@@ -1261,7 +1261,7 @@ describe("canonical claim consistency guard", () => {
         "reconciliation recording",
         "capture fact",
       ],
-      extra: ["bounded-contexts/payments/features/payments/api/runtime.ts:2714-2724"],
+      extra: ["bounded-contexts/payments/features/payments/api/runtime.ts:2752-2762"],
     },
     ...chargeSourceRoles.slice(3).map(({ role }) => ({ name: `missing ${role}`, omitted: [role], extra: [] })),
   ])(
