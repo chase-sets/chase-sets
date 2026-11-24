@@ -360,6 +360,10 @@ export function createProviderScopeDiscoveryRuntime(
       if (existingTransaction) {
         const handler = ports.providerScopeMappingCommandHandlerInTransaction?.(existingTransaction);
         if (!handler) throw new ExtensionScopeObservationError("scope-observations-unavailable");
+        await reconcileProviderRefreshSchedules(
+          existingTransaction,
+          cadenceConfig.filter((cadence) => cadence.providerKey === providerKey),
+        );
         return write(existingTransaction, { ...ports, providerScopeMappingCommandHandler: handler });
       }
 
