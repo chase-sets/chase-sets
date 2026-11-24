@@ -141,7 +141,7 @@ Notes:
 
 ## Shipping Rates
 
-**Shipping Rates** are the values the Shipping Quote Policy applies: the amount for a letter, the amount for a parcel under each shipping option, the ounces a parcel amount includes, and the amount for each additional billable ounce.
+**Shipping Rates** are the values the Shipping Quote Policy applies: the amount for a letter, the amount for a parcel under each shipping option, the ounces a parcel amount includes, and the amount for each additional billable ounce. The Shipping Rates Policy holds the values in force.
 
 Notes:
 
@@ -197,6 +197,19 @@ Notes:
 - Tiers are `letter-untracked`, `tracked-parcel`, `signature-confirmed`, and `carrier-insured`.
 - Ordering derives the tier from the evaluated parcel, signature, and insurance requirements.
 - Fulfillment records the tier on label purchase operations so Trust & Safety and dispute evidence can cite the committed shipping evidence facts.
+
+## Shipping Rates Policy
+
+The **Shipping Rates Policy** is the Ordering platform policy (`ordering.shipping-rates`) that holds the Shipping Rates in force.
+
+Notes:
+
+- With no active policy document, the Shipping Rates are the policy's compiled default.
+- An operator revises the policy through the Policy Console. A revision replaces all six values together and applies from the next plan after the platform worker has projected it and the process has refreshed its copy, which it does within one second of the projection.
+- A checkout preview, a checkout order creation, an accepted Offer and an accepted Offer batch each read the policy once, so one plan never mixes two revisions and the order records the Shipping Rates it was charged.
+- A confirmation that carries a preview made under earlier rates is refused as changed fulfillment when the revision moved the buyer's Shipping amount. A confirmation that carries no preview is charged the rates in force. An open Offer has no Shipping amount quoted at submission and is charged the rates in force when it is accepted.
+- When the policy cannot be read and no revision was loaded before, planning fails and no order is created. The compiled default is never substituted for a failed read.
+- Nothing re-prices an order when the policy is revised.
 
 ## Tax Quote
 

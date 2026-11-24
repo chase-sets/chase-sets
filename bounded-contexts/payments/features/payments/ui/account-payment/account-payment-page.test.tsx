@@ -124,6 +124,20 @@ describe("AccountPaymentPage", () => {
     cleanup();
   });
 
+  it.each([null, "pi_8746"])("shows the support reference line only when attached (%s)", (reference) => {
+    renderPage({
+      showSupportDetails: true,
+      payment: buildPayment({
+        processor_payment_kind: reference ? "payment-intent" : null,
+        processor_payment_reference: reference,
+      }),
+    });
+    expect(screen.getByText(/Internal payment:/)).toBeTruthy();
+    const line = screen.queryByText(/Processor reference:/);
+    if (reference === null) expect(line).toBeNull();
+    else expect(line?.textContent).toContain(reference);
+  });
+
   it("shows no seller fee or payout label or amount anywhere on the buyer page", () => {
     const { container } = renderPage();
     const text = container.textContent ?? "";

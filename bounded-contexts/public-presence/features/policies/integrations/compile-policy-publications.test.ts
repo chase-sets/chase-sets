@@ -520,9 +520,10 @@ describe("public policy corpus compiler", () => {
     // Re-derived for the Ordering order-domain citation re-pin: one line fewer above the cited events with the
     // authenticity plan category removed, and two lines more that the recorded shipping rates had added unpinned.
     // Re-derived for the byte-identical registration form move to 419-584.
+    // Re-derived for the Stripe charge-path citation after adding durable detach idempotency.
     expect(
       fingerprint(baseline.find(({ relativePath }) => relativePath === "terms-of-service-publication.ts")?.content),
-    ).toBe("sha256:7137e302f8ae79408983f84785024914394f6698bc0912471c678e09dcc2e051");
+    ).toBe("sha256:70e5ac930cbe1380e2a8fe31f3c71711ba4f60f73c1a3859eb87a396aaaca199");
 
     for (const module of changed) {
       const before = baseline.find((candidate) => candidate.relativePath === module.relativePath)?.content;

@@ -192,11 +192,30 @@ describe("policy console registration guard", () => {
       const compositionRoot = readFileSync(path.join(repoRoot, policyConsoleCrossContextRegistrationFile), "utf8");
       const discoverySource = compositionRoot.slice(
         compositionRoot.indexOf('contextName: "discovery"'),
-        compositionRoot.indexOf("const policyConsoleCrossContext:"),
+        compositionRoot.indexOf('contextName: "ordering"'),
       );
       expect(discoverySource).toMatch(/db: discoveryPool,/);
       expect(discoverySource).toMatch(/definitions: \[[^\]]*\bqueryVocabularyPolicy\b[^\]]*\]/);
       expect(discoverySource).toMatch(/runtime\?\.services\.discovery\b/);
+    });
+
+    it("registers the Shipping Rates Policy in an Ordering source of its own, without excepting it", () => {
+      const symbol = "shippingRatesPolicy";
+      expect(result.registered).toContainEqual(
+        expect.objectContaining({
+          symbol,
+          file: "bounded-contexts/ordering/features/orders/domain/shipping-rates.ts",
+        }),
+      );
+      expect(policyConsoleRegistrationExceptions.map((exception) => exception.symbol)).not.toContain(symbol);
+      const compositionRoot = readFileSync(path.join(repoRoot, policyConsoleCrossContextRegistrationFile), "utf8");
+      const orderingSource = compositionRoot.slice(
+        compositionRoot.indexOf('contextName: "ordering"'),
+        compositionRoot.indexOf("const policyConsoleCrossContext:"),
+      );
+      expect(orderingSource).toMatch(/db: orderingPool,/);
+      expect(orderingSource).toMatch(/definitions: \[[^\]]*\bshippingRatesPolicy\b[^\]]*\]/);
+      expect(orderingSource).toMatch(/runtime\?\.services\.ordering\b/);
     });
 
     // The inventory is the omission check: a declaration the scanner misses
@@ -210,7 +229,7 @@ describe("policy console registration guard", () => {
         declarations: result.declarations.length,
         registered: result.registered.length,
         excepted: result.excepted.length,
-      }).toEqual({ declarations: 55, registered: 36, excepted: 19 });
+      }).toEqual({ declarations: 56, registered: 37, excepted: 19 });
       expect(result.excepted).toHaveLength(policyConsoleRegistrationExceptions.length);
     });
 

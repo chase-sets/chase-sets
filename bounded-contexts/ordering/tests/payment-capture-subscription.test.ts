@@ -38,6 +38,7 @@ function createServices(
     },
     orders: { commandHandler, ...orderServiceOverrides } as OrderingServices["orders"],
     postagePolicies: {} as OrderingServices["postagePolicies"],
+    policies: {} as OrderingServices["policies"],
     projectors: [],
     pool: {} as OrderingServices["pool"],
   };

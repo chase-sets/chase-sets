@@ -101,12 +101,12 @@ describe("ordinary interest versus the ruled Prepaid Balance term", () => {
 const chargeSourceRoles = [
   {
     role: "request",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2469-2490",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2645-2666",
     markers: ["createPaymentSession", "amount: processorAmount"],
   },
   {
     role: "saved request",
-    ref: "infrastructure/stripe-payments/index.ts:1723-1777",
+    ref: "infrastructure/stripe-payments/index.ts:1727-1781",
     markers: [
       'confirm: "true"',
       "paymentIntentAuthenticationUrl(body)",
@@ -116,7 +116,7 @@ const chargeSourceRoles = [
   },
   {
     role: "new session request",
-    ref: "infrastructure/stripe-payments/index.ts:1841-1929",
+    ref: "infrastructure/stripe-payments/index.ts:1845-1933",
     markers: [
       'mode: "payment"',
       '"/v1/checkout/sessions"',
@@ -126,7 +126,7 @@ const chargeSourceRoles = [
   },
   {
     role: "new card confirmation request",
-    ref: "infrastructure/stripe-payments/index.ts:1796-1839",
+    ref: "infrastructure/stripe-payments/index.ts:1800-1843",
     markers: [
       '"/v1/payment_intents"',
       'confirm: "true"',
@@ -137,7 +137,7 @@ const chargeSourceRoles = [
   },
   {
     role: "nonzero pending",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2634-2639",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2811-2816",
     markers: ['compareMoney(processorAmount, "0.00")', '"pending-confirmation"', "captured_at:"],
   },
   {
@@ -165,7 +165,7 @@ const chargeSourceRoles = [
   },
   {
     role: "webhook capture recording",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:3121-3163",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:3293-3337",
     markers: [
       'case "payment-authorized"',
       'type: "RecordPaymentAuthorization"',
@@ -187,12 +187,12 @@ const chargeSourceRoles = [
   },
   {
     role: "reconciliation capture command",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:280-306",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:296-322",
     markers: ['case "captured"', 'type: "RecordPaymentCapture"', "capturedAt: result.occurredAt", 'case "authorized"'],
   },
   {
     role: "reconciliation recording",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:1573-1615",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:1604-1655",
     markers: [
       "providerResultMismatch(payment, result)",
       "paymentCommandFromProviderResult(result)",
@@ -1116,7 +1116,10 @@ const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
   // its only definition in Commercial Terms (52-63) and Ordering's quote function is at 79-105.
   // Repinned after the fee band category lists were deleted: the launch value moved to 48-59, the policy
   // definition to 138-145 and Ordering's quote function to 70-94.
-  [citationFencePaths.authenticityTerms]: "c9779924b995539855c63c9027ee0a8d36f774d7178e9621acf58a644b9a3c66",
+  // Repinned when the order runtime's planning functions gained their Shipping Rates parameter: Ordering's
+  // Authenticity Check opt-in resolution, which the citation named when it was written at 1290-1307, is
+  // byte-identical at 1379-1396. Those lines had since drifted onto the checkout preview revision.
+  [citationFencePaths.authenticityTerms]: "87870d09924bd28ed8b11e2f79c672efb1c9a115d98e042989d75d469af6aba1",
   // Includes #7422 revocation, #9499 Inventory recovery storage, #10610 truthful search failure citations, the #9106 Search Interpretation marker in
   // stored search restoration, #9721 byte-identical citation relocations, and the #9034 rollout, notice-email,
   // and Connector Pairing manifest reconciliation; only C1-C7 digits remain normalized.
@@ -1261,7 +1264,7 @@ describe("canonical claim consistency guard", () => {
         "reconciliation recording",
         "capture fact",
       ],
-      extra: ["bounded-contexts/payments/features/payments/api/runtime.ts:2589-2599"],
+      extra: ["bounded-contexts/payments/features/payments/api/runtime.ts:2752-2762"],
     },
     ...chargeSourceRoles.slice(3).map(({ role }) => ({ name: `missing ${role}`, omitted: [role], extra: [] })),
   ])(

@@ -3,6 +3,7 @@ import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector
 import type { GlobalPosition } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { type ProductMeasureSnapshot } from "@chase-sets/product-measures";
+import { defaultShippingRates, type ShippingRates } from "../domain/shipping-rates";
 import { createOrderingOrderRuntime } from "./runtime";
 import type { OrderingInventoryCleanupAuthorityCapability } from "./cleanup-authority";
 import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
@@ -33,14 +34,23 @@ export const context = {
  * `not-mounted` variant explicitly for suites that never observe cleanup
  * authority, and cleanup-authority suites pass their own `available`
  * capability. No caller ever leaves the port undefined.
+ *
+ * The Shipping Rates resolver is required in production too. A suite that is
+ * not about the rates gets the policy's default; a suite about them passes
+ * its own resolver.
  */
 export function createOrderingOrderRuntimeForTest(
-  deps: Omit<Parameters<typeof createOrderingOrderRuntime>[0], "inventoryCleanupAuthority"> &
-    Readonly<{ carts?: unknown; inventoryCleanupAuthority?: OrderingInventoryCleanupAuthorityCapability }>,
+  deps: Omit<Parameters<typeof createOrderingOrderRuntime>[0], "inventoryCleanupAuthority" | "shippingRatesResolver"> &
+    Readonly<{
+      carts?: unknown;
+      inventoryCleanupAuthority?: OrderingInventoryCleanupAuthorityCapability;
+      shippingRatesResolver?: () => Promise<ShippingRates>;
+    }>,
 ) {
   return createOrderingOrderRuntime({
     ...deps,
     inventoryCleanupAuthority: deps.inventoryCleanupAuthority ?? { kind: "not-mounted" },
+    shippingRatesResolver: deps.shippingRatesResolver ?? (async () => defaultShippingRates),
   });
 }
 

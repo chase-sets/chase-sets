@@ -1,3 +1,4 @@
+import { definePolicy } from "@chase-sets/platform-policy/define-policy";
 import { isCanonicalMoneyAmount, moneyToCents } from "@chase-sets/primitives/money";
 import { assert } from "./common";
 
@@ -65,3 +66,11 @@ export function decodeShippingRates(value: unknown): ShippingRates {
     parcelAdditionalOunceAmount: amount("parcelAdditionalOunceAmount"),
   };
 }
+
+export const shippingRatesPolicy = definePolicy({
+  policyKey: "ordering.shipping-rates",
+  contextName: "ordering",
+  schemaSummary: `{ letterAmount, standardParcelAmount, expeditedParcelAmount, priorityParcelAmount, parcelAdditionalOunceAmount: two-decimal amount ${SHIPPING_RATE_MINIMUM_AMOUNT}-${SHIPPING_RATE_MAXIMUM_AMOUNT}, parcelIncludedOunces: integer ${PARCEL_INCLUDED_OUNCES_MINIMUM}-${PARCEL_INCLUDED_OUNCES_MAXIMUM} }`,
+  defaultValue: defaultShippingRates,
+  decodeValue: decodeShippingRates,
+});

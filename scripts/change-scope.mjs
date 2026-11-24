@@ -180,7 +180,9 @@ const schedulerOwnedArtifacts = new Set([
 ]);
 const deploymentScriptPatterns = [
   /^Dockerfile\.corten-(?:admin|marketplace|public)(?:\.dockerignore)?$/,
-  /^deployables\/corten-pilot\/(?:admin\/|platform\/|Cargo\.(?:toml|lock)$|scripts\/export\.mjs$)/,
+  // What the three Dockerfile.corten-* images build from: the pilot's crates, its Cargo files and the
+  // export they run. Markdown in the pilot (README, AGENTS.md, workarounds/) ships in no image.
+  /^deployables\/corten-pilot\/(?:(?:admin|marketplace|platform|public)\/(?!.*\.md$)|Cargo\.(?:toml|lock)$|scripts\/export\.mjs$)/,
   /^\.github\/workflows\/platform-production-stale-helm-recovery\.yml$/,
   /^scripts\/digitalocean-/,
   /^scripts\/platform-kubernetes-deployment\.mjs$/,

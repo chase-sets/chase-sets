@@ -1291,6 +1291,29 @@ describe("payments routes", () => {
     });
   });
 
+  it.each([
+    { processor_payment_kind: null, processor_payment_reference: null },
+    { processor_payment_kind: "checkout-session" as const, processor_payment_reference: "pi_1" },
+  ])("returns the Payment detail processor fields as stored: $processor_payment_kind", async (fields) => {
+    const services = createServices();
+    const payment = { ...(await services.createAccountPayment({} as never, {} as never)), ...fields };
+    const app = buildAccountApp({
+      services: { ...services, getAccountPayment: vi.fn(async () => payment) } as PaymentServices,
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_buyer",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["orders.view"],
+      },
+    });
+    const response = await app.request("/account/payments/pay_1");
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject(fields);
+  });
+
   it("returns checkout recovery options for the current account", async () => {
     const services = createServices();
     const app = buildAccountApp({

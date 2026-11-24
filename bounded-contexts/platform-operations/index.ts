@@ -48,6 +48,7 @@ import {
 import { buildSupportReturnLabelSourceProjectionHandlers } from "./features/support-requests/integrations/source/return-label-source-projection";
 import { buildInventoryCollisionSupportReactionHandlers } from "./features/support-requests/integrations/inventory-collision/inventory-collision-reaction";
 import { platformOperationsSchemaSql } from "./support/runtime-support/schema";
+import { platformPolicySchemaMigrations } from "@chase-sets/platform-policy/schema";
 import { publishOperationsAttentionSubscriptionChanges } from "./support/runtime-support/operations-attention-realtime";
 import { supportRequestSchemaMigrations } from "./features/support-requests/read-model/schema";
 import { riskAlertsSchemaMigrations } from "./features/risk-alerts/read-model/schema";
@@ -98,6 +99,7 @@ const contextModule = defineBoundedContextModule<
     ...sellerComplianceCohortSchemaMigrations,
     ...sellerComplianceRuntimeSchemaMigrations,
     ...accountAppealSchemaMigrations,
+    ...platformPolicySchemaMigrations,
   ],
   createServices: (pool, ports) => createPlatformOperationsServices(pool, ports),
   buildApis: (services) => [

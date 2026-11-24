@@ -238,9 +238,10 @@ describe("buildCommercialTermsPolicyProjectionHandlers (read-model rebuild of le
     return { db: db as never, calls };
   }
 
-  function transportEvent<TData>(id: string, data: TData) {
+  function transportEvent<TData>(id: string, data: TData, streamVersion = 1) {
     return {
       id,
+      streamVersion,
       data,
       timing: { recordedAt: "2026-05-01T00:00:01.000Z" },
       audit: { performedByUserId: "usr_replay", forAccountId: "acc_admin" },
@@ -257,6 +258,45 @@ describe("buildCommercialTermsPolicyProjectionHandlers (read-model rebuild of le
     expect(insert).toBeDefined();
     expect(insert?.params).toContain("commercial-terms.schedule.business");
     expect(insert?.params).toContain("cts_business");
+  });
+
+  it("passes a legacy event's stream version through to the shared handlers as the last parameter", async () => {
+    const schedule = createDbSpy({
+      policy_key: "commercial-terms.schedule.business",
+      value: { accountType: "business" },
+    });
+    const scheduleHandlers = buildCommercialTermsPolicyProjectionHandlers(schedule.db);
+    await scheduleHandlers["commercial-terms.schedule.created"]?.(
+      transportEvent("evt_schedule_created", legacyScheduleCreated.data, 1) as never,
+    );
+    await scheduleHandlers["commercial-terms.schedule.revised"]?.(
+      transportEvent("evt_schedule_revised", legacyScheduleRevised.data, 6) as never,
+    );
+    const agreement = createDbSpy({
+      policy_key: "commercial-terms.agreement.acc-seller",
+      value: { accountId: "acc_seller" },
+    });
+    const agreementHandlers = buildCommercialTermsPolicyProjectionHandlers(agreement.db);
+    await agreementHandlers["commercial-terms.agreement.created"]?.(
+      transportEvent("evt_agreement_created", legacyAgreementCreated.data, 1) as never,
+    );
+    await agreementHandlers["commercial-terms.agreement.revised"]?.(
+      transportEvent("evt_agreement_revised", legacyAgreementRevised.data, 4) as never,
+    );
+
+    for (const [calls, revisedVersion] of [
+      [schedule.calls, 6],
+      [agreement.calls, 4],
+    ] as const) {
+      const insert = calls.find((call) => call.sql.includes("INSERT INTO platform_policy_documents"));
+      const update = calls.find((call) => call.sql.includes("UPDATE platform_policy_documents"));
+      expect(insert?.sql).toContain("WHERE platform_policy_documents.stream_version < EXCLUDED.stream_version");
+      expect(insert?.params).toHaveLength(10);
+      expect(insert?.params.at(-1)).toBe(1);
+      expect(update?.sql).toContain("AND stream_version < $7");
+      expect(update?.params).toHaveLength(7);
+      expect(update?.params.at(-1)).toBe(revisedVersion);
+    }
   });
 
   it("merges the prior account type forward when projecting a legacy schedule revised event", async () => {

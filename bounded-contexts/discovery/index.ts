@@ -25,6 +25,7 @@ import { buildDiscoverySearchItemProjectionHandlers } from "./features/search/re
 import { buildDiscoverySavedListPickerProjectionHandlers } from "./features/saved-list-addition/integrations/collections/projection";
 import { createDiscoveryServices, type DiscoveryHostPorts } from "./support/runtime-support/services";
 import { discoverySchemaMigrations, discoverySchemaSql } from "./support/runtime-support/schema";
+import { platformPolicySchemaMigrations } from "@chase-sets/platform-policy/schema";
 import { discoveryUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import { createDiscoveryItemMcpHandlers } from "./support/item-support/mcp";
 import { createGoogleShoppingMcpHandlers } from "./features/google-shopping-operations/api/mcp";
@@ -33,7 +34,11 @@ const baseModule = defineBoundedContextModule<DiscoveryServices, PgTransactional
   manifest: contextManifest,
   schemaSql: discoverySchemaSql,
   retentionSweeps: discoveryRetentionSweeps,
-  schemaMigrations: [...discoveryUnloggedProjectionSchemaMigrations, ...discoverySchemaMigrations],
+  schemaMigrations: [
+    ...discoveryUnloggedProjectionSchemaMigrations,
+    ...discoverySchemaMigrations,
+    ...platformPolicySchemaMigrations,
+  ],
   createServices: (pool, ports) => createDiscoveryServices(pool, ports),
   buildApis: (services) => [
     { mountPath: "/api/marketplace", contextMountOrdinal: 1, router: buildDiscoveryApi(services) },

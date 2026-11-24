@@ -11,6 +11,7 @@ import contextManifest from "./context.json" with { type: "json" };
 import { buildCommercialTermsApi, buildCommercialTermsPublicApi } from "./api";
 import { buildCommercialTermsAccountProjectionHandlers } from "./features/resolutions/integrations/account-source/account-projection";
 import { commercialTermsSchemaSql } from "./support/runtime-support/schema";
+import { platformPolicySchemaMigrations } from "@chase-sets/platform-policy/schema";
 import { commercialTermsUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import { reconcileCommercialTermsBootstrapState, seedCommercialTermsDatabase } from "./support/runtime-support/seed";
 import type { CommercialTermsServices } from "./support/runtime-support/services";
@@ -22,7 +23,7 @@ const commercialTermsContextManifest = contextManifest as BcContextManifest;
 export const module = defineBoundedContextModule<CommercialTermsServices, PgTransactionalPool, void>({
   manifest: commercialTermsContextManifest,
   schemaSql: commercialTermsSchemaSql,
-  schemaMigrations: commercialTermsUnloggedProjectionSchemaMigrations,
+  schemaMigrations: [...commercialTermsUnloggedProjectionSchemaMigrations, ...platformPolicySchemaMigrations],
   createServices: (pool) => createCommercialTermsServices(pool),
   buildApis: (services) => [
     {

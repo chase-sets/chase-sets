@@ -170,7 +170,7 @@ import {
   channelStockAllocationBufferPolicy,
   resolveChannelStockAllocationBufferPolicy,
 } from "./features/listing-composition/domain/allocation";
-import { platformPolicySchemaSql } from "@chase-sets/platform-policy/schema";
+import { platformPolicySchemaMigrations, platformPolicySchemaSql } from "@chase-sets/platform-policy/schema";
 import {
   channelConnectionSchemaMigrations,
   channelConnectionSchemaSql,
@@ -304,6 +304,7 @@ const contextModule = defineBoundedContextModule<ChannelsServices, PgTransaction
     ...liveExportSnapshotSchemaMigrations,
     ...connectorLivenessSchemaMigrations,
     ...fulfillmentObservationSchemaMigrations,
+    ...platformPolicySchemaMigrations,
   ],
   retentionSweeps: [
     ...connectorInboundRetentionSweeps,

@@ -18,6 +18,7 @@ import { createMembershipMcpHandlers } from "./features/memberships/api/mcp";
 import { createApiKeyMcpHandlers } from "./features/api-keys/api/mcp";
 import { createIdentityServices } from "./support/runtime-support/services";
 import { identitySchemaSql } from "./support/runtime-support/schema";
+import { platformPolicySchemaMigrations } from "@chase-sets/platform-policy/schema";
 import { identityUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import { identityAccountSchemaMigrations } from "./features/accounts/read-model/schema";
 import { identityAgentGrantRevocationSchemaMigrations } from "./features/agent-grants/read-model/schema";
@@ -34,6 +35,7 @@ export const module = defineBoundedContextModule<IdentityServices, PgTransaction
     ...identityAccountSchemaMigrations,
     ...identityUnloggedProjectionSchemaMigrations,
     ...identityAgentGrantRevocationSchemaMigrations,
+    ...platformPolicySchemaMigrations,
   ],
   retentionExemptions: identityRetentionExemptions,
   createServices: (pool, options) => createIdentityServices(pool, options!),

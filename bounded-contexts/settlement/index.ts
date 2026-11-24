@@ -25,6 +25,7 @@ import type { SettlementHostPorts, SettlementServices } from "./support/runtime-
 import { buildSettlementApi, buildSettlementMoneyMovementWebhookApi } from "./api";
 import { createSettlementServices } from "./support/runtime-support/services";
 import { settlementSchemaMigrations, settlementSchemaSql } from "./support/runtime-support/schema";
+import { platformPolicySchemaMigrations } from "@chase-sets/platform-policy/schema";
 import { settlementUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import {
   inspectSettlementSeedState,
@@ -58,6 +59,7 @@ const contextModule = defineBoundedContextModule<SettlementServices, PgTransacti
     ...settlementUnloggedProjectionSchemaMigrations,
     ...settlementSchemaMigrations,
     ...settlementRetentionSchemaMigrations,
+    ...platformPolicySchemaMigrations,
   ],
   createServices: (pool, ports) => createSettlementServices(pool, ports),
   hasHostPort: (services, portName) => {

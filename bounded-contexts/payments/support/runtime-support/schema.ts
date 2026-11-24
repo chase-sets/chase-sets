@@ -76,4 +76,14 @@ export const paymentsSchemaMigrations = [
   ...paymentsRefundSchemaMigrations,
   ...paymentsOrderCancellationRefundEffectSchemaMigrations,
   ...paymentsSupportRefundEffectSchemaMigrations,
+  {
+    migrationId: "20261123_payments_policy_documents_logged",
+    description:
+      "Keep policy documents through a crash: an emptied table resolves every policy to its compiled default until a replay ends.",
+    statements: [
+      "SET lock_timeout = '5s';",
+      "ALTER TABLE platform_policy_documents SET LOGGED;",
+      "ALTER TABLE platform_policy_document_history SET LOGGED;",
+    ],
+  },
 ] as const;

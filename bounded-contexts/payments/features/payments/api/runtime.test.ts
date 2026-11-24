@@ -23,7 +23,11 @@ import {
   ProviderWebhookError,
   type ProviderWebhookTelemetryEvent,
 } from "@chase-sets/http/provider-errors";
-import type { CreateProcessorPaymentInput, ProcessorPaymentReconciliationResult } from "@chase-sets/payment-processing";
+import type {
+  CreateProcessorPaymentInput,
+  PaymentProcessorGateway,
+  ProcessorPaymentReconciliationResult,
+} from "@chase-sets/payment-processing";
 import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments";
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
@@ -36,6 +40,7 @@ import {
 } from "../../../support/runtime-support/common";
 import { MarketplaceCheckoutFeePolicyUnavailableError } from "./marketplace-checkout-fee-policy";
 import { createWalletFundingRuntime } from "../../wallet-funding/api/runtime";
+import { refundAggregate } from "../../refunds/api/runtime";
 import { cardAuthenticationPolicy, type CardAuthenticationPolicyValue } from "../domain/card-authentication-policy";
 import {
   checkoutProcessingFeePolicyResolverFor,
@@ -383,7 +388,7 @@ function createProcessorGateway() {
       outcome: "already-terminal" as const,
       processorStatus: "canceled" as const,
     })),
-    retrieveSavedPaymentMethod: vi.fn(async () => null),
+    retrieveSavedPaymentMethod: vi.fn<PaymentProcessorGateway["retrieveSavedPaymentMethod"]>(async () => null),
     detachSavedPaymentMethod: vi.fn(async () => null),
     cancelPayment: vi.fn(async (processorPaymentReference: string) => ({
       processorName: "stripe" as const,
@@ -395,10 +400,39 @@ function createProcessorGateway() {
     })),
     retrievePaymentResult: vi.fn(async () => null),
     retrievePaymentResultByPaymentId: vi.fn(async () => null),
-    createRefund: vi.fn(async () => {
+    createRefund: vi.fn<PaymentProcessorGateway["createRefund"]>(async () => {
       throw new Error("Refunds are not part of this test.");
     }),
     parseWebhook: vi.fn(async () => null),
+  };
+}
+
+function createWebhookOperationJournal() {
+  const operations = new Map<string, Record<string, unknown>>();
+  return (sql: string, params?: readonly unknown[]) => {
+    const key = String(params?.[0]);
+    if (sql.includes("INSERT INTO payments_provider_operations") && sql.includes("DO NOTHING")) {
+      if (!operations.has(key)) {
+        operations.set(key, {
+          operation_key: key,
+          provider_name: params?.[1],
+          operation_kind: params?.[2],
+          account_id: params?.[3],
+          payment_id: params?.[4],
+          idempotency_key: key,
+          provider_object_reference: params?.[5],
+          created_at: new Date().toISOString(),
+          status: "pending",
+        });
+      }
+      return { rows: [] };
+    }
+    if (sql.includes("payment-webhook-effect") && params?.[3]) {
+      const operation = operations.get(String(params[3]));
+      return { rows: operation?.status === "pending" ? [operation] : [] };
+    }
+    if (sql.includes("UPDATE payments_provider_operations") && operations.has(key)) operations.delete(key);
+    return null;
   };
 }
 
@@ -410,6 +444,7 @@ function createOrderInputDb(
   }> = {},
 ) {
   const reservations = new Map<string, Record<string, unknown>>();
+  const webhookOperationQuery = createWebhookOperationJournal();
   const savedCheckoutInstrumentRows = [...(options.savedCheckoutInstrumentRows ?? [])].map((row) => ({ ...row }));
   const accountRiskRows = [...(options.accountRiskRows ?? [])].map((row) => ({ ...row }));
   const savedCheckoutSetupSessions = new Map<string, Record<string, unknown>>();
@@ -478,6 +513,8 @@ function createOrderInputDb(
 
   return {
     query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
+      const effect = webhookOperationQuery(sql, params);
+      if (effect) return effect;
       if (sql.includes("INSERT INTO payments_provider_customers")) {
         const key = `${params?.[0]}:${params?.[1]}`;
         const existing = providerCustomers.get(key);
@@ -757,9 +794,12 @@ function createReconciliationDb(options: {
   const webhookEvents: readonly unknown[][] = [];
   const processedWebhookEventIds = new Set<string>();
   const orderInputDb = createOrderInputDb();
+  const webhookOperationQuery = createWebhookOperationJournal();
 
   const db = {
     query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
+      const effect = webhookOperationQuery(sql, params);
+      if (effect) return effect;
       if (sql.includes("FROM payments_saved_checkout_instruments")) {
         return { rows: [] };
       }
@@ -1238,12 +1278,17 @@ describe("payment runtime", () => {
     expect(readAllEvents()).toEqual([]);
   });
 
-  it("records early fraud warnings, refunds undisputed captured payments, and ignores redelivery", async () => {
+  it("commits the early fraud refund reservation before submitting and ignores redelivery", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
     const processorGateway = createProcessorGateway();
     const paymentsById = new Map<string, Record<string, unknown>>();
     const { db, webhookEvents } = createReconciliationDb({
       paymentById: (paymentId) => paymentsById.get(paymentId) ?? null,
+    });
+    let submittedAfterCommit = false;
+    processorGateway.createRefund.mockImplementation(async () => {
+      submittedAfterCommit = db.query.mock.calls.at(-2)?.[0] === "COMMIT";
+      return { processorName: "stripe", processorRefundReference: "re_synthetic_fraud", processorStatus: "pending" };
     });
     const services = createPaymentRuntime({
       eventStore,
@@ -1323,6 +1368,7 @@ describe("payment runtime", () => {
       readAllEvents().filter((event) => event.eventType === "payments.payment-fraud-warning-received"),
     ).toHaveLength(1);
     expect(processorGateway.createRefund).toHaveBeenCalledTimes(1);
+    expect(submittedAfterCommit).toBe(true);
     expect(processorGateway.createRefund).toHaveBeenCalledWith(
       expect.objectContaining({
         refundId: "rfd_fraud_issfr_123",
@@ -1432,90 +1478,149 @@ describe("payment runtime", () => {
     expect(webhookEvents).toHaveLength(1);
   });
 
-  it("reuses checkout-sourced payments by checkout session id", async () => {
-    const processorGateway = {
-      getPublicConfiguration: vi.fn(() => ({
-        processorName: "stripe" as const,
-        publishableKey: "pk_test_123",
-        confirmationExperience: "processor-managed-form" as const,
-        dynamicPaymentMethods: true,
-        sensitivePaymentDetailsHandledByProcessor: true,
-      })),
-      createPaymentSession: vi.fn(async () => {
-        throw new Error("Processor payment should not be recreated.");
-      }),
-      createCustomer: vi.fn(async () => ({
-        processorName: "stripe" as const,
-        providerCustomerReference: "cus_buyer",
-      })),
-      createSetupSession: vi.fn(async () => ({
-        processorName: "stripe" as const,
-        processorSetupKind: "checkout-setup-session" as const,
-        processorSetupReference: "cs_setup",
-        processorClientSecret: null,
-        processorRedirectUrl: "https://checkout.stripe.test/setup",
-        processorStatus: "open",
-      })),
-      retrieveSetupSessionResult: vi.fn(async () => ({
-        processorName: "stripe" as const,
-        processorSetupReference: "cs_setup",
-        processorStatus: "complete",
-        setupIntentReference: "seti_setup",
-        savedPaymentMethod: null,
-      })),
-      cancelSetupSession: vi.fn(async () => {
-        throw new Error("Setup-session cancellation is not part of this test.");
-      }),
-      retrieveSavedPaymentMethod: vi.fn(async () => null),
-      detachSavedPaymentMethod: vi.fn(async () => null),
-      cancelPayment: vi.fn(async () => {
-        throw new Error("Payment cancellation is not part of this test.");
-      }),
-      retrievePaymentResult: vi.fn(async () => null),
-      retrievePaymentResultByPaymentId: vi.fn(async () => null),
-      createRefund: vi.fn(async () => {
-        throw new Error("Refunds are not part of this test.");
-      }),
-      parseWebhook: vi.fn(async () => null),
-    };
-    const db = {
-      query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
-        expect(sql).toContain("source_context = $1");
-        expect(params).toEqual(["checkout", "chk_1", "acc_buyer"]);
-        return { rows: [existingPaymentRow()] };
-      }),
-    };
-    const services = createPaymentRuntime({
-      eventStore: createUnusedEventStore(),
-      checkpointStore: createCheckpointStore(),
-      db: db as never,
-      processorGateway,
-    });
+  it.each(["pending-confirmation", "captured", "failed"] as const)(
+    "same-source retry returns current %s stream state rather than the lagging projection",
+    async (status) => {
+      const processorGateway = {
+        getPublicConfiguration: vi.fn(() => ({
+          processorName: "stripe" as const,
+          publishableKey: "pk_test_123",
+          confirmationExperience: "processor-managed-form" as const,
+          dynamicPaymentMethods: true,
+          sensitivePaymentDetailsHandledByProcessor: true,
+        })),
+        createPaymentSession: vi.fn(async () => {
+          throw new Error("Processor payment should not be recreated.");
+        }),
+        createCustomer: vi.fn(async () => ({
+          processorName: "stripe" as const,
+          providerCustomerReference: "cus_buyer",
+        })),
+        createSetupSession: vi.fn(async () => ({
+          processorName: "stripe" as const,
+          processorSetupKind: "checkout-setup-session" as const,
+          processorSetupReference: "cs_setup",
+          processorClientSecret: null,
+          processorRedirectUrl: "https://checkout.stripe.test/setup",
+          processorStatus: "open",
+        })),
+        retrieveSetupSessionResult: vi.fn(async () => ({
+          processorName: "stripe" as const,
+          processorSetupReference: "cs_setup",
+          processorStatus: "complete",
+          setupIntentReference: "seti_setup",
+          savedPaymentMethod: null,
+        })),
+        cancelSetupSession: vi.fn(async () => {
+          throw new Error("Setup-session cancellation is not part of this test.");
+        }),
+        retrieveSavedPaymentMethod: vi.fn(async () => null),
+        detachSavedPaymentMethod: vi.fn(async () => null),
+        cancelPayment: vi.fn(async () => {
+          throw new Error("Payment cancellation is not part of this test.");
+        }),
+        retrievePaymentResult: vi.fn(async () => null),
+        retrievePaymentResultByPaymentId: vi.fn(async () => null),
+        createRefund: vi.fn(async () => {
+          throw new Error("Refunds are not part of this test.");
+        }),
+        parseWebhook: vi.fn(async () => null),
+      };
+      const db = {
+        query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
+          if (!sql.includes("payments_payment_pages")) return { rows: [] };
+          if (sql.includes("source_context = $1")) expect(params).toEqual(["checkout", "chk_1", "acc_buyer"]);
+          return { rows: [existingPaymentRow()] };
+        }),
+      };
+      const services = createPaymentRuntime({
+        eventStore: createInMemoryEventStore().eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: db as never,
+        processorGateway,
+      });
 
-    const result = await services.createAccountPayment(
-      {
-        accountId: "acc_buyer" as never,
-        orderIds: ["ord_1" as never],
-        sourceContext: "checkout",
-        sourceReferenceId: "chk_1",
-      },
-      {
-        tenantId: "tnt_identity" as never,
-        audit: {
-          performedByUserId: "usr_1" as never,
-          forAccountId: "acc_buyer" as never,
+      const streamId = "payments.payment-pay_existing";
+      await services.commandHandler({
+        streamId,
+        context,
+        command: {
+          type: "CreatePayment",
+          paymentId: "pay_existing" as never,
+          buyerAccountId: "acc_buyer" as never,
+          orderIds: ["ord_1" as never],
+          sourceContext: "checkout",
+          sourceReferenceId: "chk_1",
+          paymentMethodCategory: "card",
+          marketplaceCheckoutFeeQuoteFingerprint: "quote_1",
+          amount: "24.99",
+          marketplaceSalesFeeAmount: "1.00",
+          marketplaceCheckoutFeeAmount: "0.50",
+          sellerNetAmount: "23.49",
+          currencyCode: "usd",
+          processorName: "stripe",
+          processorPaymentKind: "payment-intent",
+          processorPaymentReference: "pi_existing",
+          processorClientSecret: "synthetic_confirmation",
+          processorRedirectUrl: "https://processor.test/confirm",
+          processorStatus: "requires_payment_method",
+          createdAt: "2026-04-29T00:00:00.000Z",
         },
-      },
-    );
+      });
+      if (status === "captured")
+        await services.commandHandler({
+          streamId,
+          context,
+          command: {
+            type: "RecordPaymentCapture",
+            processorStatus: "succeeded",
+            capturedAt: "2026-04-29T00:01:00.000Z",
+          },
+        });
+      if (status === "failed")
+        await services.commandHandler({
+          streamId,
+          context,
+          command: {
+            type: "RecordPaymentFailure",
+            processorStatus: "failed",
+            failureCode: null,
+            failureMessage: null,
+            failedAt: "2026-04-29T00:01:00.000Z",
+          },
+        });
 
-    expect(result).toMatchObject({
-      payment_id: "pay_existing",
-      source_context: "checkout",
-      source_reference_id: "chk_1",
-      processor_publishable_key: "pk_test_123",
-    });
-    expect(processorGateway.createPaymentSession).not.toHaveBeenCalled();
-  });
+      const result = await services.createAccountPayment(
+        {
+          accountId: "acc_buyer" as never,
+          orderIds: ["ord_1" as never],
+          sourceContext: "checkout",
+          sourceReferenceId: "chk_1",
+          paymentMethodCategory: "card",
+          marketplaceCheckoutFeeQuoteFingerprint: "quote_1",
+        },
+        {
+          tenantId: "tnt_identity" as never,
+          audit: {
+            performedByUserId: "usr_1" as never,
+            forAccountId: "acc_buyer" as never,
+          },
+        },
+      );
+
+      expect(result).toMatchObject({
+        payment_id: "pay_existing",
+        source_context: "checkout",
+        source_reference_id: "chk_1",
+        status,
+        processor_payment_reference: "pi_existing",
+        processor_client_secret: status === "pending-confirmation" ? "synthetic_confirmation" : null,
+        processor_redirect_url: status === "pending-confirmation" ? "https://processor.test/confirm" : null,
+        processor_publishable_key: status === "pending-confirmation" ? "pk_test_123" : null,
+      });
+      expect(processorGateway.createPaymentSession).not.toHaveBeenCalled();
+    },
+  );
 
   it("possible send does not resend after an empty provider search and an explicit replay", async () => {
     const { eventStore } = createInMemoryEventStore();
@@ -1721,6 +1826,24 @@ describe("payment runtime", () => {
     },
   );
 
+  it("exposes a projected Payment with no processor reference or kind without a provider lookup", async () => {
+    const row = { ...existingPaymentRow(), processor_payment_kind: null, processor_payment_reference: null };
+    const processorGateway = createProcessorGateway();
+    const services = createPaymentRuntime({
+      eventStore: createUnusedEventStore(),
+      checkpointStore: createCheckpointStore(),
+      db: {
+        query: vi.fn(async (sql: string) => ({ rows: sql.includes("payments_payment_pages") ? [row] : [] })),
+      } as never,
+      processorGateway,
+    });
+    await expect(services.getAccountPayment("pay_existing", "acc_buyer", true)).resolves.toMatchObject({
+      processor_payment_kind: null,
+      processor_payment_reference: null,
+    });
+    expect(processorGateway.retrievePaymentResult).not.toHaveBeenCalled();
+  });
+
   it("reads a recorded deferred intent on the status surface without exposing its old authentication link", async () => {
     const recorded = {
       ...existingPaymentRow(),
@@ -1759,7 +1882,12 @@ describe("payment runtime", () => {
     expect(processorGateway.createPaymentSession).not.toHaveBeenCalled();
   });
 
-  it("single-flights concurrent checkout-sourced payment creation", async () => {
+  const checkoutSource = { sourceContext: "checkout", sourceReferenceId: "chk_1" };
+  it.each([
+    ["checkout-sourced", checkoutSource, checkoutSource],
+    ["source-less", {}, {}],
+    ["mixed-source", checkoutSource, {}],
+  ] as const)("single-flights concurrent %s payment creation", async (_label, firstSource, retrySource) => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
     const processorGateway = createProcessorGateway();
     const releaseProviderSession = createDeferred();
@@ -1794,13 +1922,11 @@ describe("payment runtime", () => {
       orderIds: ["ord_1" as never],
       paymentMethodCategory: "card",
       marketplaceCheckoutFeeQuoteFingerprint: status.marketplace_checkout_fee.quote_fingerprint,
-      sourceContext: "checkout",
-      sourceReferenceId: "chk_1",
     };
 
-    const first = services.createAccountPayment(input, context);
+    const first = services.createAccountPayment({ ...input, ...firstSource }, context);
     await providerSessionEntered;
-    const second = services.createAccountPayment(input, context);
+    const second = services.createAccountPayment({ ...input, ...retrySource }, context);
     releaseProviderSession.resolve();
     const [firstPayment, secondPayment] = await Promise.all([first, second]);
 
@@ -1810,10 +1936,7 @@ describe("payment runtime", () => {
     expect(readAllEvents().filter((event) => event.eventType === "payments.payment-created")).toHaveLength(1);
   });
 
-  it.each([
-    ["different source", { sourceContext: "checkout", sourceReferenceId: "chk_2" }],
-    ["null source", { sourceContext: null, sourceReferenceId: null }],
-  ])("rejects the same order set with a %s while a payment is active", async (_label, conflictingSource) => {
+  it("rejects the same order set with a different source while a payment is active", async () => {
     const { eventStore } = createInMemoryEventStore();
     const processorGateway = createProcessorGateway();
     const releaseProviderSession = createDeferred();
@@ -1863,7 +1986,8 @@ describe("payment runtime", () => {
           orderIds: ["ord_1" as never],
           paymentMethodCategory: "card",
           marketplaceCheckoutFeeQuoteFingerprint: status.marketplace_checkout_fee.quote_fingerprint,
-          ...conflictingSource,
+          sourceContext: "checkout",
+          sourceReferenceId: "chk_2",
         },
         context,
       ),
@@ -3638,6 +3762,9 @@ describe("payment runtime", () => {
         removed: false,
       },
     } as never);
+    processorGateway.retrieveSavedPaymentMethod.mockImplementation(
+      async () => (await processorGateway.retrieveSetupSessionResult()).savedPaymentMethod,
+    );
     const db = createOrderInputDb();
     const services = createPaymentRuntime({
       eventStore,
@@ -3668,7 +3795,10 @@ describe("payment runtime", () => {
       context,
     );
 
-    expect(processorGateway.detachSavedPaymentMethod).toHaveBeenCalledWith("pm_late_agent_card");
+    expect(processorGateway.detachSavedPaymentMethod).toHaveBeenCalledWith(
+      "pm_late_agent_card",
+      "payments:revoked-grant-detach:pm_late_agent_card",
+    );
     expect(instrument).toMatchObject({
       provider_reference: "pm_late_agent_card",
       agent_grant_id: "lpa_1",
@@ -4179,57 +4309,229 @@ describe("payment runtime", () => {
     expect(webhookEvents).toHaveLength(2);
   });
 
-  it("reconciles a direct PaymentIntent already canceled at Stripe", async () => {
-    const { eventStore, readAllEvents } = createInMemoryEventStore();
-    const processorGateway = createProcessorGateway();
-    const paymentsById = new Map<string, Record<string, unknown>>();
-    let stalePayments: Record<string, unknown>[] = [];
-    const { db } = createReconciliationDb({
-      paymentsNeedingReconciliation: () => stalePayments,
-      paymentById: (paymentId) => paymentsById.get(paymentId) ?? null,
-    });
-    const services = createPaymentRuntime({
-      eventStore,
-      checkpointStore: createCheckpointStore(),
-      db: db as never,
-      processorGateway,
-    });
-    const status = await services.getCheckoutStatus({
-      accountId: "acc_buyer" as never,
-      orderIds: ["ord_1" as never],
-      paymentMethodCategory: "card",
-    });
-    const payment = await services.createAccountPayment(
-      {
+  it.each([
+    ["failed", false, "failed"],
+    ["cancelled", false, "released"],
+    ["failed", true, "failed"],
+    ["cancelled", true, "released"],
+  ] as const)(
+    "retires a reconciled %s Payment reservation (already terminal: %s) before a fresh source-less create",
+    async (outcome, alreadyTerminal, reservationStatus) => {
+      const { eventStore, readAllEvents } = createInMemoryEventStore();
+      const processorGateway = createProcessorGateway();
+      const paymentsById = new Map<string, Record<string, unknown>>();
+      let stalePayments: Record<string, unknown>[] = [];
+      const { db } = createReconciliationDb({
+        paymentsNeedingReconciliation: () => stalePayments,
+        paymentById: (paymentId) => paymentsById.get(paymentId) ?? null,
+      });
+      const clientQueries: Array<readonly [string, readonly unknown[] | undefined]> = [];
+      const query = db.query as PgTransactionalPool["query"];
+      const services = createPaymentRuntime(
+        { eventStore, checkpointStore: createCheckpointStore(), db: db as never, processorGateway },
+        {
+          query,
+          async connect() {
+            return {
+              query<Row>(sql: string, values?: readonly unknown[]) {
+                clientQueries.push([sql, values]);
+                return query<Row>(sql, values);
+              },
+              release: () => undefined,
+            };
+          },
+        },
+      );
+      const status = await services.getCheckoutStatus({
         accountId: "acc_buyer" as never,
         orderIds: ["ord_1" as never],
         paymentMethodCategory: "card",
+      });
+      const request = {
+        accountId: "acc_buyer" as never,
+        orderIds: ["ord_1" as never],
+        paymentMethodCategory: "card" as const,
         marketplaceCheckoutFeeQuoteFingerprint: status.marketplace_checkout_fee.quote_fingerprint,
-      },
-      context,
-    );
-    paymentsById.set(payment.payment_id, payment);
-    stalePayments = [payment];
-    processorGateway.retrievePaymentResult.mockResolvedValue({
-      processorName: "stripe",
-      processorPaymentKind: "payment-intent",
-      processorPaymentReference: payment.processor_payment_reference,
-      processorStatus: "canceled",
-      outcome: "cancelled",
-      occurredAt: "2026-07-12T00:02:00.000Z",
-      internalPaymentId: payment.payment_id,
-    } as never);
+      };
+      const payment = await services.createAccountPayment(request, context);
+      paymentsById.set(payment.payment_id, payment);
+      stalePayments = [payment];
+      const occurredAt = new Date().toISOString();
+      const processorStatus = outcome === "failed" ? "requires_payment_method" : "canceled";
+      if (alreadyTerminal) {
+        await services.commandHandler({
+          streamId: `payments.payment-${payment.payment_id}`,
+          command:
+            outcome === "failed"
+              ? {
+                  type: "RecordPaymentFailure",
+                  processorStatus,
+                  failureCode: null,
+                  failureMessage: null,
+                  failedAt: occurredAt,
+                }
+              : { type: "CancelPayment", cancelledAt: occurredAt },
+          context,
+        });
+      }
+      processorGateway.retrievePaymentResult.mockResolvedValue({
+        processorName: "stripe",
+        processorPaymentKind: "payment-intent",
+        processorPaymentReference: payment.processor_payment_reference,
+        processorStatus,
+        outcome,
+        occurredAt,
+        internalPaymentId: payment.payment_id,
+      } as never);
 
-    await expect(services.scanPaymentsNeedingReconciliation({ limit: 10 }, context)).resolves.toMatchObject({
-      checked: 1,
-      repaired: 1,
-      attention: 0,
-    });
-    expect(readAllEvents().map((event) => event.eventType)).toEqual([
-      "payments.payment-created",
-      "payments.payment-cancelled",
-    ]);
-  });
+      const firstScanQuery = clientQueries.length;
+      await expect(services.scanPaymentsNeedingReconciliation({ limit: 10 }, context)).resolves.toMatchObject({
+        checked: 1,
+        repaired: alreadyTerminal ? 0 : 1,
+        attention: 0,
+      });
+      expect(readAllEvents().map((event) => event.eventType)).toEqual([
+        "payments.payment-created",
+        `payments.payment-${outcome}`,
+      ]);
+      const scanQueries = clientQueries.slice(firstScanQuery);
+      const paymentLock = scanQueries.findIndex(
+        ([sql, values]) =>
+          sql.includes("pg_advisory_xact_lock") && values?.[0] === `payments:payment:${payment.payment_id}`,
+      );
+      const reservationWrite = scanQueries.findIndex(([sql]) =>
+        sql.includes("UPDATE payments_payment_creation_reservations"),
+      );
+      const accountLock = scanQueries.findIndex(
+        ([sql, values]) => sql.includes("pg_advisory_xact_lock") && values?.[0] === "payments:account:acc_buyer",
+      );
+      expect(scanQueries[0]?.[0]).toBe("BEGIN");
+      expect(paymentLock).toBeGreaterThan(0);
+      expect(accountLock).toBeGreaterThan(paymentLock);
+      expect(reservationWrite).toBeGreaterThan(accountLock);
+      expect(reservationWrite).toBeLessThan(scanQueries.findIndex(([sql]) => sql === "COMMIT"));
+      expect(scanQueries[reservationWrite]?.[1]).toEqual([payment.payment_id, reservationStatus, occurredAt]);
+
+      const fresh = await services.createAccountPayment(request, context);
+      expect(fresh.payment_id).not.toBe(payment.payment_id);
+      expect(processorGateway.createPaymentSession).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it.each(["stale Payment", "create operation with a Payment", "create operation without a Payment"] as const)(
+    "reports a throwing %s lookup without stranding claimed refund and detach effects",
+    async (lookup) => {
+      const { eventStore } = createInMemoryEventStore();
+      const processorGateway = createProcessorGateway();
+      const payment = {
+        ...existingPaymentRow(),
+        payment_id: "pay_synthetic_lookup",
+        processor_payment_reference: "pi_synthetic_lookup",
+      };
+      const otherPayment = {
+        ...existingPaymentRow(),
+        payment_id: "pay_synthetic_later",
+        processor_payment_reference: "pi_synthetic_later",
+      };
+      const refundId = "rfd_synthetic_pending";
+      const refundPaymentId = "pay_synthetic_refund";
+      const refundKey = `payments:refund:${refundId}`;
+      const detachReference = "pm_synthetic_revoked";
+      const detachKey = `payments:revoked-grant-detach:${detachReference}`;
+      const createKey = `payment:${payment.payment_id}:create`;
+      const occurredAt = new Date().toISOString();
+      const operation = (key: string, kind: string, paymentId: string | null, reference: string | null) => ({
+        operation_key: key,
+        provider_name: "stripe",
+        operation_kind: kind,
+        account_id: "acc_buyer",
+        payment_id: paymentId,
+        idempotency_key: key,
+        provider_object_reference: reference,
+        status: "pending",
+        created_at: occurredAt,
+      });
+      const { db, reconciliationSummaries, failedProviderOperations, succeededProviderOperations } =
+        createReconciliationDb({
+          paymentsNeedingReconciliation: () => (lookup === "stale Payment" ? [payment, otherPayment] : []),
+          paymentById: () => (lookup === "create operation with a Payment" ? payment : null),
+          providerOperationsNeedingReconciliation: () => [
+            ...(lookup === "stale Payment"
+              ? []
+              : [operation(createKey, "payment-session-create", payment.payment_id, null)]),
+            operation(refundKey, "early-fraud-refund", refundPaymentId, "pi_synthetic_refund"),
+            operation(detachKey, "revoked-grant-detach", null, detachReference),
+          ],
+        });
+      await refundAggregate(eventStore).commandHandler({
+        streamId: `payments.refund-${refundId}`,
+        command: {
+          type: "RequestRefund",
+          refundId: refundId as never,
+          paymentId: refundPaymentId as never,
+          orderIds: ["ord_1" as never],
+          amount: "24.99",
+          currencyCode: "usd" as never,
+          reason: "Early fraud warning",
+          processorName: "stripe",
+          requestedAt: occurredAt,
+        },
+        context,
+      });
+      const privateError = "synthetic provider exception body";
+      processorGateway.retrievePaymentResult.mockRejectedValueOnce(new Error(privateError));
+      processorGateway.retrievePaymentResultByPaymentId.mockRejectedValueOnce(new Error(privateError));
+      processorGateway.createRefund.mockResolvedValue({
+        processorName: "stripe",
+        processorRefundReference: "re_synthetic_pending",
+        processorStatus: "pending",
+      });
+      processorGateway.retrieveSavedPaymentMethod.mockResolvedValue({
+        processorName: "stripe",
+        providerCustomerReference: null,
+        providerReference: detachReference,
+        paymentMethodCategory: "card",
+        displayLabel: "Synthetic card",
+        readiness: "ready",
+        allowRedisplay: "unspecified",
+        removed: false,
+      });
+      const services = createPaymentRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: db as never,
+        processorGateway,
+      });
+
+      const result = await services.scanPaymentsNeedingReconciliation({ claimOwnerId: "synthetic_worker" }, context);
+
+      expect(result).toMatchObject({ provider_operations_resolved: 2 });
+      expect(result.attention_items).toContainEqual(
+        expect.objectContaining({
+          kind: lookup === "stale Payment" ? "payment" : "provider-operation",
+          payment_id: payment.payment_id,
+          reason: "Provider payment lookup failed.",
+        }),
+      );
+      expect(reconciliationSummaries).toEqual([result]);
+      expect(JSON.stringify(reconciliationSummaries)).not.toContain(privateError);
+      if (lookup === "stale Payment")
+        expect(processorGateway.retrievePaymentResult).toHaveBeenNthCalledWith(
+          2,
+          otherPayment.processor_payment_reference,
+        );
+      expect(failedProviderOperations).toEqual([]);
+      expect(succeededProviderOperations.map((values) => values[0])).toEqual([refundKey, detachKey]);
+      expect(processorGateway.createRefund).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({
+          paymentId: refundPaymentId,
+          amount: "24.99",
+          idempotencyKey: refundKey,
+        }),
+      );
+      expect(processorGateway.detachSavedPaymentMethod).toHaveBeenCalledExactlyOnceWith(detachReference, detachKey);
+    },
+  );
 
   it("marks an orphaned pending provider operation failed when support-safe provider lookup finds nothing", async () => {
     const processorGateway = createProcessorGateway();

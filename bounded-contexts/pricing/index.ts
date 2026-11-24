@@ -32,6 +32,7 @@ import {
   buildPricingMarketTradesSettlementIntegrityProjectionHandlers,
 } from "./features/market-trades/integrations/integrity/integrity-projection";
 import { pricingFeatureSchemaMigrations, pricingSchemaSql } from "./support/runtime-support/schema";
+import { platformPolicySchemaMigrations } from "@chase-sets/platform-policy/schema";
 import { pricingUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import { seedPricingDatabase } from "./support/runtime-support/seed";
 import type { PricingHostPorts, PricingServices } from "./support/runtime-support/services";
@@ -51,7 +52,11 @@ const contextModule = defineBoundedContextModule<PricingServices, PgTransactiona
   // Evolve feature tables before applying their physical replay posture. This
   // ordering matters on an upgrade where a newly introduced projection table
   // does not exist yet for its later SET UNLOGGED migration.
-  schemaMigrations: [...pricingFeatureSchemaMigrations, ...pricingUnloggedProjectionSchemaMigrations],
+  schemaMigrations: [
+    ...pricingFeatureSchemaMigrations,
+    ...pricingUnloggedProjectionSchemaMigrations,
+    ...platformPolicySchemaMigrations,
+  ],
   createServices: (pool, ports) => createPricingServices(pool, ports),
   buildApis: (services) => [
     { mountPath: "/api/marketplace", contextMountOrdinal: 1, router: buildPricingApi(services) },

@@ -982,6 +982,13 @@ describe("checkout-closed-session-lifecycle", () => {
     );
     orderIds = created.orderIds;
     expect(orderIds).toHaveLength(1);
+    // Ordering's own services pass the Shipping Rates Policy resolver to the order runtime.
+    expect(
+      orderQuery.mock.calls.filter(
+        ([sql, values]) =>
+          sql.includes("FROM platform_policy_documents") && values?.includes("ordering.shipping-rates"),
+      ),
+    ).toHaveLength(1);
     const createdEvent = orderStore.allEvents.find((event) => event.eventType === "ordering.order.created");
     const requests = createdEvent?.payload.reservationRequests;
     if (!Array.isArray(requests) || requests.length !== 1) throw new Error("Synthetic C reservation missing");

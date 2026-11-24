@@ -549,6 +549,28 @@
       "eventTypes": ["support.support-request.resolved"],
       "streamPrefixes": "<undefined>",
       "order": 65
+    },
+    {
+      "subscriptionName": "ordering.platform-policy-document-projection",
+      "handlerKind": "projection",
+      "projectionName": "platform-policy-document-projection",
+      "sourceContextName": "ordering",
+      "targetContextName": "ordering",
+      "subscriptionVersion": 1,
+      "checkpointKey": "platform-policy-document-projection:ordering:v1",
+      "handlers": {
+        "platform-policy.document.created": "<function>",
+        "platform-policy.document.revised": "<function>"
+      },
+      "inlineApply": false,
+      "errorPolicy": "strict-per-stream",
+      "checkpointBatchSize": 100,
+      "projectionCascadeChunkSize": "<undefined>",
+      "projectionTransactionTimeoutMs": "<undefined>",
+      "projectionStatementTimeoutMs": "<undefined>",
+      "eventTypes": ["platform-policy.document.created", "platform-policy.document.revised"],
+      "streamPrefixes": ["platform-policy.document-"],
+      "order": 5
     }
   ],
   "subscriptions": [

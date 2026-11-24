@@ -255,7 +255,9 @@ describe("ordering order runtime: order creation and cancellation", () => {
     expect((createdEvent?.payload as { lines?: unknown[] } | undefined)?.lines).toHaveLength(2);
   });
 
-  it("records the Shipping Rates the default policy quoted on merged and unmerged accepted offer batch orders", async () => {
+  // Three accepted offers for one buyer: two sealed boxes from one seller, which
+  // merge into one order, and one from another seller.
+  function createSealedBoxOfferBatch(shippingRatesResolver?: () => Promise<ShippingRates>) {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
     // 4.3 ounces each plus 2 ounces of parcel packaging: one box bills as a
     // 7 ounce parcel and two merged boxes as an 11 ounce parcel.
@@ -315,6 +317,7 @@ describe("ordering order runtime: order creation and cancellation", () => {
         checkout: async () => ({ version: 1 }),
       } as never,
       shippingQuotePolicy: { quote },
+      shippingRatesResolver,
     });
     const offer = (offerId: string, listingId: string) => {
       const supply = supplyByListingId[listingId]!;
@@ -343,27 +346,35 @@ describe("ordering order runtime: order creation and cancellation", () => {
         shippingDestinationSnapshot: shippingAddress,
       };
     };
+    const createdOrders = () =>
+      readAllEvents()
+        .filter((event) => event.eventType === "ordering.order.created")
+        .map(
+          (event) =>
+            event.payload as Readonly<{
+              sellerAccountId: string;
+              commercialTermsSnapshot: Readonly<{ shippingRates?: ShippingRates }>;
+            }>,
+        );
+    const createBatch = (acceptanceBatchId: string) =>
+      services.createOrdersFromAcceptedOfferBatch(
+        {
+          acceptanceBatchId,
+          offers: [offer("off_1", "lst_1"), offer("off_2", "lst_2"), offer("off_3", "lst_3")],
+        },
+        context,
+      );
+    return { quote, createdOrders, createBatch };
+  }
 
-    const result = await services.createOrdersFromAcceptedOfferBatch(
-      {
-        acceptanceBatchId: "ofb_recorded_rates",
-        offers: [offer("off_1", "lst_1"), offer("off_2", "lst_2"), offer("off_3", "lst_3")],
-      },
-      context,
-    );
+  it("records the Shipping Rates the default policy quoted on merged and unmerged accepted offer batch orders", async () => {
+    const { quote, createdOrders, createBatch } = createSealedBoxOfferBatch();
+
+    const result = await createBatch("ofb_recorded_rates");
 
     expect(result.orderIds).toHaveLength(2);
-    const createdOrders = readAllEvents()
-      .filter((event) => event.eventType === "ordering.order.created")
-      .map(
-        (event) =>
-          event.payload as Readonly<{
-            sellerAccountId: string;
-            commercialTermsSnapshot: Readonly<{ shippingRates?: ShippingRates }>;
-          }>,
-      );
-    const mergedOrder = createdOrders.find((order) => order.sellerAccountId === "acc_seller");
-    const unmergedOrder = createdOrders.find((order) => order.sellerAccountId === "acc_other_seller");
+    const mergedOrder = createdOrders().find((order) => order.sellerAccountId === "acc_seller");
+    const unmergedOrder = createdOrders().find((order) => order.sellerAccountId === "acc_other_seller");
 
     // The merged order is re-quoted as one 11 ounce parcel: 499 + 7 x 32 cents.
     expect(mergedOrder).toMatchObject({
@@ -412,6 +423,73 @@ describe("ordering order runtime: order creation and cancellation", () => {
     for (const [quoted] of quote.mock.calls) {
       expect(quoted.shippingRates).toEqual(defaultShippingRates);
     }
+  });
+
+  it("resolves the Shipping Rates once for an accepted offer batch and charges and records them on every order", async () => {
+    // An 11 ounce standard parcel is 600 + 8 x 50 cents under these rates, and a 7 ounce one 600 + 4 x 50.
+    const revisedRates: ShippingRates = {
+      letterAmount: "2.00",
+      standardParcelAmount: "6.00",
+      expeditedParcelAmount: "8.50",
+      priorityParcelAmount: "11.00",
+      parcelIncludedOunces: 3,
+      parcelAdditionalOunceAmount: "0.50",
+    };
+    // A second resolution, for another offer or for the merge, would reject.
+    const shippingRatesResolver = vi
+      .fn<() => Promise<ShippingRates>>()
+      .mockResolvedValueOnce(revisedRates)
+      .mockRejectedValue(new Error("The Shipping Rates were resolved more than once in one batch."));
+    const { quote, createdOrders, createBatch } = createSealedBoxOfferBatch(shippingRatesResolver);
+
+    const result = await createBatch("ofb_resolved_rates");
+
+    expect(shippingRatesResolver).toHaveBeenCalledTimes(1);
+    expect(result.orderIds).toHaveLength(2);
+    const mergedOrder = createdOrders().find((order) => order.sellerAccountId === "acc_seller");
+    const unmergedOrder = createdOrders().find((order) => order.sellerAccountId === "acc_other_seller");
+    expect(mergedOrder).toMatchObject({
+      itemSubtotalAmount: "20.00",
+      shippingBaseAmount: "10.00",
+      shippingDiscountAmount: "0.80",
+      shippingOverageAmount: "9.20",
+      shippingChargeAmount: "9.20",
+      totalAmount: "29.20",
+      shippingPlanSnapshot: { packageCount: 1, packages: [{ mailpieceClass: "parcel", billableWeightOunces: 11 }] },
+      commercialTermsSnapshot: { shippingRates: revisedRates },
+    });
+    expect(unmergedOrder).toMatchObject({
+      itemSubtotalAmount: "10.00",
+      shippingBaseAmount: "8.00",
+      shippingDiscountAmount: "0.40",
+      shippingOverageAmount: "7.60",
+      shippingChargeAmount: "7.60",
+      totalAmount: "17.60",
+      shippingPlanSnapshot: { packageCount: 1, packages: [{ mailpieceClass: "parcel", billableWeightOunces: 7 }] },
+      commercialTermsSnapshot: { shippingRates: revisedRates },
+    });
+    // Each offer's own plan and the merge re-quote all applied the one resolved revision.
+    expect(quote).toHaveBeenCalledTimes(4);
+    for (const [quoted] of quote.mock.calls) {
+      expect(quoted.shippingRates).toBe(revisedRates);
+    }
+  });
+
+  it("creates no order from an accepted offer batch while the Shipping Rates cannot be resolved", async () => {
+    const unavailable = new Error("Shipping Rates Policy is unavailable.");
+    const shippingRatesResolver = vi
+      .fn<() => Promise<ShippingRates>>()
+      .mockRejectedValueOnce(unavailable)
+      .mockResolvedValue(defaultShippingRates);
+    const { quote, createdOrders, createBatch } = createSealedBoxOfferBatch(shippingRatesResolver);
+
+    await expect(createBatch("ofb_rates_unavailable")).rejects.toBe(unavailable);
+
+    expect(createdOrders()).toEqual([]);
+    expect(quote).not.toHaveBeenCalled();
+
+    // The same batch creates its orders once the rates resolve.
+    expect((await createBatch("ofb_rates_unavailable")).orderIds).toHaveLength(2);
   });
 
   it("creates buy-now orders from the requested listing only", async () => {

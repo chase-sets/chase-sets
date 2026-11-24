@@ -28,6 +28,14 @@ export type PaymentTransaction = Readonly<{
 
 export type PaymentWebhookTransaction = PaymentTransaction;
 
+export const paymentLockKey = (paymentId: string) => `payment:${paymentId}`;
+
+function transactionLock(client: PgQueryable) {
+  return async (key: string) => {
+    await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [`payments:${key}`]);
+  };
+}
+
 /**
  * Runs `work` in one database transaction: its rows and event appends commit or roll back
  * together, and `lock` takes a transaction-scoped advisory lock, so it serializes across replicas
@@ -39,22 +47,37 @@ export function createPaymentTransactionRunner(
   pool: PgTransactionalPool,
   store: PostgresEventStore,
 ): PaymentTransactionRunner {
-  return (work) =>
-    withPgTransaction(pool, (client) =>
-      work({
-        db: client,
-        eventStore: {
-          readStream: (input) => store.readStreamInTransaction(client, input),
-          appendToStream: (input) => store.appendToStreamInTransaction(client, input),
-          readAll: async () => {
-            throw new Error("A payment transaction cannot read all streams.");
+  return async (work) => {
+    const committed = await withPgTransaction(pool, (client) =>
+      runWithEventCommitMetadata(async () => {
+        const result = await work({
+          db: client,
+          eventStore: {
+            readStream: (input) => store.readStreamInTransaction(client, input),
+            appendToStream: (input) => store.appendToStreamInTransaction(client, input),
+            readAll: async () => {
+              throw new Error("A payment transaction cannot read all streams.");
+            },
           },
-        },
-        lock: async (key) => {
-          await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [`payments-command:${key}`]);
-        },
+          lock: transactionLock(client),
+        });
+        return { result, events: getEventCommitMetadata().committedEvents };
       }),
     );
+    recordCommittedEvents(committed.events);
+    return committed.result;
+  };
+}
+
+export function withPaymentLock<T>(
+  run: PaymentTransactionRunner,
+  paymentId: string,
+  work: (transaction: PaymentTransaction) => Promise<T>,
+): Promise<T> {
+  return run(async (transaction) => {
+    await transaction.lock(paymentLockKey(paymentId));
+    return work(transaction);
+  });
 }
 
 export type PaymentWebhookRunner = (
@@ -77,13 +100,15 @@ export function createPaymentWebhookRunner(pool: PgTransactionalPool, store: Pos
               const events = await store.readStreamInTransaction(client, input);
               const payment = input.streamId.startsWith("payments.payment-");
               const prefix = payment ? "payments.payment-" : "payments.refund-";
-              const createdType = payment ? "payments.payment-created" : "payments.refund-requested";
               const idField = payment ? "paymentId" : "refundId";
               for (const event of events) {
+                const root = payment
+                  ? event.eventType === "payments.payment-created" ||
+                    event.eventType === "payments.payment.creation-recorded.v1"
+                  : event.eventType === "payments.refund-requested";
                 if (
-                  (event.streamVersion === 1 && event.eventType !== createdType) ||
-                  (event.streamVersion !== 1 && event.eventType === createdType) ||
-                  ((event.eventType === createdType || event.payload[idField] !== undefined) &&
+                  (event.streamVersion === 1) !== root ||
+                  ((root || event.payload[idField] !== undefined) &&
                     event.payload[idField] !== input.streamId.slice(prefix.length))
                 ) {
                   throw new Error("Payment webhook aggregate history is inconsistent.");
@@ -99,9 +124,7 @@ export function createPaymentWebhookRunner(pool: PgTransactionalPool, store: Pos
           const result = await process({
             db: client,
             eventStore,
-            lock: async (key) => {
-              await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [`payments-webhook:${key}`]);
-            },
+            lock: transactionLock(client),
           });
           return { result, events: getEventCommitMetadata().committedEvents };
         });
