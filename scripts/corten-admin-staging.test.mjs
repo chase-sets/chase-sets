@@ -31,6 +31,7 @@ const options = {
   cortenAdminImage: image,
   // marketplace-corten serves marketplace.staging, so a staging deploy needs its image too.
   cortenMarketplaceImage: `registry.digitalocean.com/chase-sets/chase-sets-corten-marketplace@${digest}`,
+  cortenPublicImage: `registry.digitalocean.com/chase-sets/chase-sets-corten-public@${digest}`,
   envOverrides: { DEPLOYMENT_ENVIRONMENT: "staging", OBSERVABILITY_ENABLED: "false" },
   env: { GITHUB_RUN_ID: "123", GITHUB_RUN_ATTEMPT: "1" },
   managedPostgresCaSha256: "b".repeat(64),
@@ -194,6 +195,7 @@ describe("Corten admin staging deployment", () => {
       ...options,
       cortenAdminImage: undefined,
       cortenMarketplaceImage: undefined,
+      cortenPublicImage: undefined,
       envOverrides: { DEPLOYMENT_ENVIRONMENT: "production", OBSERVABILITY_ENABLED: "false" },
       env: { ...options.env, PRODUCTION_DOKS_INGRESS_TARGET: "192.0.2.1" },
     });
@@ -218,6 +220,7 @@ describe("Corten admin staging deployment", () => {
     const production = buildHelmUpgradeArgs({
       ...options,
       cortenMarketplaceImage: undefined,
+      cortenPublicImage: undefined,
       envOverrides: { DEPLOYMENT_ENVIRONMENT: "production" },
     });
     expect(production.filter((arg) => String(arg).startsWith("components.admin-corten."))).toEqual([
@@ -590,7 +593,7 @@ describe("the staging admin app switch", () => {
   });
 
   it("keeps admin-corten off the advisory list and withholds it only while admin-web serves admin.staging", () => {
-    expect(ADVISORY_CORTEN_PILOT_COMPONENTS).toEqual(["public-corten"]);
+    expect(ADVISORY_CORTEN_PILOT_COMPONENTS).toEqual([]);
     const staging = (env) => withheldCortenPilots({ ...options, env });
     expect(staging({})).toEqual([]);
     expect(staging({ STAGING_ADMIN_APP: "admin-corten" })).toEqual([]);
