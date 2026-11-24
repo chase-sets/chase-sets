@@ -44,11 +44,11 @@ const production = (env = {}, overrides = {}) => ({
 const marketplaceCorten = { PRODUCTION_MARKETPLACE_APP: "marketplace-corten" };
 const pilotArgs = (args) => args.filter((arg) => String(arg).startsWith("components.marketplace-corten."));
 const hostRoot = (args, name) => {
-  const hostArg = args.find((arg) =>
-    new RegExp(`^doksIngress\\.hosts\\[\\d+\\]\\.host=${name.replaceAll(".", "\\.")}$`).test(arg),
+  const hostArg = args.find(
+    (arg) => String(arg).startsWith("doksIngress.hosts[") && String(arg).endsWith(`].host=${name}`),
   );
   if (!hostArg) return null;
-  const host = hostArg.match(/hosts\[(\d+)\]/)[1];
+  const host = hostArg.slice("doksIngress.hosts[".length, hostArg.indexOf("]"));
   return args
     .filter((arg) => arg.startsWith(`doksIngress.hosts[${host}].paths[`) && arg.includes(".service="))
     .at(-1)
