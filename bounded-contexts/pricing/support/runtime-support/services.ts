@@ -23,6 +23,7 @@ import {
   createRepricingConfigurationWriter,
   createRepricingStandingEpochStore,
   lockRepricingStanding,
+  restoreClosedRepricingStanding,
   type RepricingStanding,
 } from "../../features/repricing-policies/api/configuration";
 import { createPublicMarketPagesRuntime } from "../../features/public-market-pages/api/runtime";
@@ -79,13 +80,10 @@ export type PricingServices = Readonly<{
   db: PgQueryable;
 }>;
 
-export function createPricingServices(pool: PgTransactionalPool, ports: PricingHostPorts): PricingServices {
-  if (
-    typeof ports?.commercialTermsResolver?.resolveListingTerms !== "function" ||
-    typeof ports?.channelConnectionIdentityReader?.resolve !== "function"
-  ) {
-    throw new Error("Pricing requires Commercial Terms and Channel Connection Economics host ports.");
-  }
+export function createPricingPlatformPolicyStore(
+  pool: PgTransactionalPool,
+  ports: Pick<PricingHostPorts, "pricingPredicateConsumerPool" | "pricingEvaluationConsumers">,
+) {
   const affectsPlatformPolicy = (inputs: readonly AppendToStreamInput[]) =>
     inputs.some(({ events }) =>
       events.some(
@@ -122,7 +120,8 @@ export function createPricingServices(pool: PgTransactionalPool, ports: PricingH
   async function writePlatformPolicy<T>(
     write: (client: Parameters<typeof store.appendToStreamInTransaction>[0]) => Promise<T>,
   ) {
-    const { incarnation, epochs } = await standing.source();
+    const source = await standing.source();
+    const { incarnation, epochs } = source;
     const closing = await withConfigurationEpochTransaction(pool, async (db) => {
       await lockRepricingStanding(db, repricingPlatformSelector, incarnation);
       return epochs.beginClosureInTransaction(db, repricingPlatformSelector);
@@ -130,17 +129,22 @@ export function createPricingServices(pool: PgTransactionalPool, ports: PricingH
     const closed = await epochs.driveClosure(repricingPlatformSelector);
     if (closed.epoch !== closing.epoch || closed.pendingConsumers.length)
       throw new Error("Platform pricing policy installation is waiting for its consumers.");
-    return withOwnerPredicateWrite(pool, ports.pricingPredicateConsumerPool, async (db: PgQueryable) => {
-      if ((await lockRepricingStanding(db, repricingPlatformSelector, incarnation)) !== closing.epoch)
-        throw new Error("Platform pricing policy installation was superseded.");
-      const installed = await epochs.installClosureInTransaction(db, repricingPlatformSelector);
-      const result = await write(db);
-      await db.query("UPDATE pricing_repricing_standing SET epoch = $2 WHERE key = $1", [
-        repricingPlatformSelector,
-        installed.epoch,
-      ]);
-      return result;
-    });
+    try {
+      return await withOwnerPredicateWrite(pool, ports.pricingPredicateConsumerPool, async (db: PgQueryable) => {
+        if ((await lockRepricingStanding(db, repricingPlatformSelector, incarnation)) !== closing.epoch)
+          throw new Error("Platform pricing policy installation was superseded.");
+        const installed = await epochs.installClosureInTransaction(db, repricingPlatformSelector);
+        const result = await write(db);
+        await db.query("UPDATE pricing_repricing_standing SET epoch = $2 WHERE key = $1", [
+          repricingPlatformSelector,
+          installed.epoch,
+        ]);
+        return result;
+      });
+    } catch (error) {
+      await restoreClosedRepricingStanding(pool, repricingPlatformSelector, source, closing).catch(() => undefined);
+      throw error;
+    }
   }
   const eventStore = {
     ...store,
@@ -153,6 +157,17 @@ export function createPricingServices(pool: PgTransactionalPool, ports: PricingH
         ? writePlatformPolicy((db) => store.appendToStreamsInTransaction(db, inputs))
         : store.appendToStreams!(inputs),
   };
+  return { eventStore, standing };
+}
+
+export function createPricingServices(pool: PgTransactionalPool, ports: PricingHostPorts): PricingServices {
+  if (
+    typeof ports?.commercialTermsResolver?.resolveListingTerms !== "function" ||
+    typeof ports?.channelConnectionIdentityReader?.resolve !== "function"
+  ) {
+    throw new Error("Pricing requires Commercial Terms and Channel Connection Economics host ports.");
+  }
+  const { eventStore, standing } = createPricingPlatformPolicyStore(pool, ports);
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
   const policies = createPolicyRuntime({ eventStore, db });

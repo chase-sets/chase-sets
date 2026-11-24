@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import {
@@ -8,7 +10,15 @@ import {
   buildPlatformHelmStagingValues,
   buildPlatformHelmValues,
 } from "./render-platform-helm-values.mjs";
-import { buildHelmUpgradeArgs, parseArgs, platformKubernetesWorkloads } from "./platform-kubernetes-deployment.mjs";
+import {
+  buildDeploymentEvidence,
+  buildHelmUpgradeArgs,
+  droppedAdvisoryCortenPilots,
+  parseArgs,
+  platformKubernetesWorkloads,
+  recordStagingPublicPilot,
+  withheldCortenPilots,
+} from "./platform-kubernetes-deployment.mjs";
 import { classifyChanges } from "./change-scope.mjs";
 
 const read = (file) => readFileSync(file, "utf8").replaceAll("\r\n", "\n");
@@ -27,8 +37,9 @@ const options = {
 };
 const workload = "chase-sets-platform-chase-sets-platform-public-corten";
 
-// The first slice builds the public pilot's image and declares its staging workload disabled and its DNS name.
-// Deploy Staging does not pass the image yet, so nothing runs on staging until the workload is enabled with it.
+// The first slice built the public pilot's image and named its staging host. The second enables the staging
+// workload, has Deploy Staging pass the image, and walks the public routes on it advisorily. With no image the
+// deploy drops it.
 describe("Corten public staging, first slice", () => {
   it("preserves every production job byte-for-byte", () => {
     const expected = {
@@ -53,7 +64,7 @@ describe("Corten public staging, first slice", () => {
 
   it("preserves the production values", () => {
     for (const [file, sha] of Object.entries({
-      "values.yaml": "fc374d3d46b6998cf31a553f16edbdbfd10e1c194f5e0c9e8e3ba1871dccbf6c",
+      "values.yaml": "deabfa12c21bfed16326e58432c13a4aecf3a1f1f852768320a311e3916baadc",
       "values.production.yaml": "653442bfb787b2701df3afccdc816f912f3bb658f063ba9b1a24d2627d59f37c",
     })) {
       expect(
@@ -127,10 +138,10 @@ describe("Corten public staging, first slice", () => {
     ).toBe(false);
   });
 
-  it("declares the staging workload disabled, with existing secrets only, until the deploy passes its image", () => {
+  it("enables the staging workload with existing secrets only, and waits for it only when the deploy passes its image", () => {
     const component = buildPlatformHelmStagingValues().components["public-corten"];
     expect(component).toMatchObject({
-      enabled: false,
+      enabled: true,
       kind: "service",
       replicas: 1,
       image: "",
@@ -174,10 +185,12 @@ describe("Corten public staging, first slice", () => {
       expect(secretKey).toBe(name);
       expect(existing.has(secretKey), secretKey).toBe(true);
     }
-    expect(platformKubernetesWorkloads(options).deployments).not.toContain(workload);
-    expect(platformKubernetesWorkloads(options).deployments).toContain(
-      "chase-sets-platform-chase-sets-platform-admin-corten",
-    );
+    expect(platformKubernetesWorkloads(options).deployments).toContain(workload);
+    expect(droppedAdvisoryCortenPilots(options)).not.toContain("public-corten");
+    // With no image the advisory pilot is deployed disabled, so the release neither runs nor waits for it.
+    const withoutImage = { ...options, cortenPublicImage: undefined };
+    expect(droppedAdvisoryCortenPilots(withoutImage)).toContain("public-corten");
+    expect(buildHelmUpgradeArgs(withoutImage)).toContain("components.public-corten.enabled=false");
   });
 
   it("pins the pilot image only on staging and refuses mutable or wrong-repository references", () => {
@@ -228,7 +241,7 @@ describe("Corten public staging, first slice", () => {
     expect(read("Dockerfile.corten-public.dockerignore")).not.toContain("\ndeployables/corten-pilot\n");
   });
 
-  it("builds the image in the pilot images job with the same writer admission, and no deploy reads it yet", () => {
+  it("builds the image in the pilot images job with the same writer admission, and only Deploy Staging reads it", () => {
     const build = workflow.jobs["build-corten-pilot-images"];
     const gate = build.steps.find(({ id }) => id === "corten_pilot_gate");
     const push = build.steps.find(({ id }) => id === "corten_pilot_push");
@@ -243,7 +256,108 @@ describe("Corten public staging, first slice", () => {
     );
     expect(build.outputs.corten_public_image).toBe("${{ steps.corten_pilot_image.outputs.corten_public_image }}");
     expect(JSON.stringify(workflow.jobs["build-image"])).not.toContain("corten");
-    expect(JSON.stringify(workflow.jobs["deploy-staging"])).not.toContain("corten_public_image");
-    expect(JSON.stringify(workflow.jobs["deploy-staging"])).not.toContain("corten-public");
+    const deploy = workflow.jobs["deploy-staging"].steps.find(({ id }) => id === "staging_kubernetes_deploy");
+    expect(deploy.env.CORTEN_PUBLIC_IMAGE).toBe("${{ needs.build-corten-pilot-images.outputs.corten_public_image }}");
+    expect(deploy.run).toContain(
+      'if [ -n "${CORTEN_PUBLIC_IMAGE:-}" ]; then\n  corten_image_args+=(--corten-public-image "$CORTEN_PUBLIC_IMAGE")\nfi',
+    );
+    expect(JSON.stringify(workflow.jobs["deploy-production"])).not.toContain("corten_public_image");
+    expect(JSON.stringify(workflow.jobs["deploy-production"])).not.toContain("corten-public");
+  });
+
+  it("walks the public routes on the pilot after the other pilot smokes, never failing Deploy Staging", () => {
+    const steps = workflow.jobs["deploy-staging"].steps;
+    const index = steps.findIndex(({ name }) => name === "Advisory Corten public smoke");
+    const smoke = steps[index];
+    expect(steps[index - 1].name).toBe("Advisory Corten marketplace smoke");
+    expect(smoke["continue-on-error"]).toBe(true);
+    expect(smoke["timeout-minutes"]).toBe(15);
+    expect(smoke.if).toBe(steps.find(({ name }) => name === "Smoke check").if);
+    // It reads no secret at all.
+    expect(smoke.env).toEqual({
+      CORTEN_PUBLIC_IMAGE: "${{ needs.build-corten-pilot-images.outputs.corten_public_image }}",
+      PUBLIC_PILOT: "${{ steps.staging_kubernetes_deploy.outputs.public_pilot }}",
+    });
+    expect(JSON.stringify(smoke)).not.toContain("secrets.");
+    expect(smoke.run).not.toContain("set -x");
+    // With no image the pilot was dropped, so there is nothing to smoke.
+    expect(smoke.run).toMatch(/if \[ -z "\$\{CORTEN_PUBLIC_IMAGE:-\}" \]; then\n[^\n]*\n\s*exit 0\n\s*fi/);
+    expect(smoke.run).toContain('--url "https://public-corten.staging.chasesets.com/health/ready"');
+    // The same derived route walk and mode the Smoke check runs against public-web.
+    expect(smoke.run).toContain(
+      'pnpm run smoke:public-web-routes -- \\\n  --base-url "https://public-corten.staging.chasesets.com" \\\n  --mode healthy',
+    );
+  });
+
+  it("withholds the pilot with STAGING_PUBLIC_PILOT, whether or not its image was given", () => {
+    const withPilot = (base, STAGING_PUBLIC_PILOT) => ({ ...base, env: { ...base.env, STAGING_PUBLIC_PILOT } });
+    const withoutImage = { ...options, cortenPublicImage: undefined };
+    for (const value of [undefined, "", "deployed"]) {
+      expect(withheldCortenPilots(withPilot(options, value))).not.toContain("public-corten");
+      const args = buildHelmUpgradeArgs(withPilot(options, value));
+      expect(args).toContain(`components.public-corten.image=${image}`);
+      expect(args).not.toContain("components.public-corten.enabled=false");
+    }
+    for (const base of [options, withoutImage]) {
+      expect(withheldCortenPilots(withPilot(base, "withheld"))).toContain("public-corten");
+      const args = buildHelmUpgradeArgs(withPilot(base, "withheld"));
+      expect(args.filter((arg) => String(arg).startsWith("components.public-corten."))).toEqual([
+        "components.public-corten.enabled=false",
+      ]);
+    }
+    for (const value of ["withhold", "Withheld", "disabled", "deployed,withheld"]) {
+      expect(() => buildHelmUpgradeArgs(withPilot(options, value))).toThrow("STAGING_PUBLIC_PILOT must be one of");
+    }
+    // Each pilot answers only to its own variable.
+    expect(withheldCortenPilots(withPilot(options, "withheld"))).not.toContain("marketplace-corten");
+    expect(
+      withheldCortenPilots({ ...options, env: { ...options.env, STAGING_MARKETPLACE_PILOT: "withheld" } }),
+    ).not.toContain("public-corten");
+    expect(
+      withheldCortenPilots({
+        envOverrides: { DEPLOYMENT_ENVIRONMENT: "production" },
+        env: { STAGING_PUBLIC_PILOT: "withheld" },
+      }),
+    ).not.toContain("public-corten");
+  });
+
+  it("says whether the pilot was deployed, in the summary, the step output and the deploy record", () => {
+    const dir = mkdtempSync(join(tmpdir(), "staging-public-pilot-"));
+    try {
+      const record = (env) => {
+        const summary = join(dir, `summary-${env.STAGING_PUBLIC_PILOT ?? "unset"}.md`);
+        const output = join(dir, `output-${env.STAGING_PUBLIC_PILOT ?? "unset"}.txt`);
+        const result = recordStagingPublicPilot({ env, githubSummaryPath: summary, githubOutputPath: output });
+        return { result, summary: read(summary), output: read(output) };
+      };
+      const unset = record({});
+      expect(unset.result).toEqual({ state: "deployed", source: "default" });
+      expect(unset.output).toBe("public_pilot=deployed\n");
+      const withheld = record({ STAGING_PUBLIC_PILOT: "withheld" });
+      expect(withheld.result).toEqual({ state: "withheld", source: "variable" });
+      expect(withheld.summary).toBe(
+        "### Staging public pilot\n\n" +
+          "public-corten is not deployed on staging (STAGING_PUBLIC_PILOT=withheld).\n\n",
+      );
+      expect(withheld.output).toBe("public_pilot=withheld\n");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+    const evidence = (env) => buildDeploymentEvidence({ ...options, env, workloads: {} }).stagingPublicPilot;
+    expect(evidence({})).toEqual({ state: "deployed", source: "default" });
+    expect(evidence({ STAGING_PUBLIC_PILOT: "withheld" })).toEqual({ state: "withheld", source: "variable" });
+  });
+
+  it("reads the variable once, in Deploy Staging only, and skips the smoke while the pilot is withheld", () => {
+    const job = workflow.jobs["deploy-staging"];
+    expect(job.env.STAGING_PUBLIC_PILOT).toBe("${{ vars.STAGING_PUBLIC_PILOT || '' }}");
+    for (const step of job.steps) expect(String(step.run ?? "")).not.toMatch(/\$\{?STAGING_PUBLIC_PILOT/);
+    expect(JSON.stringify(workflow.jobs["deploy-production"])).not.toContain("STAGING_PUBLIC_PILOT");
+    const smoke = job.steps.find(({ name }) => name === "Advisory Corten public smoke");
+    expect(smoke.env.PUBLIC_PILOT).toBe("${{ steps.staging_kubernetes_deploy.outputs.public_pilot }}");
+    expect(smoke.run).toMatch(/if \[ "\$PUBLIC_PILOT" = "withheld" \]; then\n[^\n]*\n\s*exit 0\n\s*fi/);
+    expect(read("docs/runbooks/staging-public-pilot.md")).toContain(
+      "gh variable set STAGING_PUBLIC_PILOT --repo chase-sets/chase-sets --env staging --body withheld",
+    );
   });
 });

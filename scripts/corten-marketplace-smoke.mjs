@@ -1,8 +1,9 @@
 // Marketplace-only entry to the platform smoke, for the Corten marketplace pilot. It smokes one marketplace origin
 // as the Smoke check smokes marketplace-web: home, search, the platform API through it, UCP, and social login when
-// configured. No landing page, waitlist write, marketplace root, legacy redirect or admin sign-in. The platform smoke
-// still needs a landing and an admin URL: with SMOKE_REQUIRE_LANDING=false the landing is never fetched, and with no
-// admin credentials the admin is only reached unauthenticated (its home and API health).
+// configured. No landing page, waitlist write, marketplace root, legacy redirect or admin request. The platform smoke
+// still needs a landing and an admin URL: with SMOKE_REQUIRE_LANDING=false the landing is never fetched, and with
+// SMOKE_CHECK_ADMIN_SURFACE=false and no admin credentials the admin is never fetched either, so an admin outage
+// does not fail this smoke.
 import { spawnSync } from "node:child_process";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -26,6 +27,8 @@ export const clearedVariables = [
 export const forcedSmokeEnvironment = {
   SMOKE_REQUIRE_LANDING: "false",
   SMOKE_REQUIRE_ADMIN: "false",
+  SMOKE_CHECK_ADMIN_SURFACE: "false",
+  SMOKE_REQUIRE_ADMIN_GOOGLE_WORKSPACE_SSO: "false",
   SMOKE_REQUIRE_MARKETPLACE: "true",
   SMOKE_REQUIRE_MARKETPLACE_ROOT: "false",
   SMOKE_REQUIRE_LEGACY_REDIRECT: "false",

@@ -127,7 +127,7 @@ const reviewedSiteContexts = {
   "scripts/next-work.mjs": "0e5faa744dfcfe74d72930ca37f06a1842072c6cf7a9c234f54870f45b2b2174",
   "scripts/platform-pr-scope.mjs": "9d3522578401d01f7bbb9f98b07a33c82620665aaa2e2a21913e7502a85be3b1",
   "scripts/platform-risk-review.mjs": "629eb54a9b60db5d97b3c3026c494cd1a9483cf6601fa73289eef97fa55577c2",
-  "scripts/platform-smoke.mjs": "a4cb3bfbdc3f6c0d5625f913f145b44f5687ad992a06884db95d508c7c2ce659",
+  "scripts/platform-smoke.mjs": "f309985c58b04ee3f02b545499a2dc243350fd9a85c5a2b0fe9960f147c30360",
   "scripts/project-status-sync.mjs": "df628a68ae1d87a4c1def0a0e4525cf4ca5a980d2f2d574bfd3bb4e0aebacf66",
   "scripts/provider-object-disposition/browser-boundary/bootstrap.mjs":
     "f80e3e9f0740b6ad3dd65abd4390807146f896f57abae2edb2bcaff8b146d349",

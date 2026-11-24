@@ -149,6 +149,28 @@ export async function lockRepricingStanding(client: PgQueryable, key: string, in
   return row.epoch;
 }
 
+export async function restoreClosedRepricingStanding(
+  pool: PgTransactionalPool,
+  key: string,
+  source: Awaited<ReturnType<RepricingStanding["source"]>>,
+  closing: { epoch: number; topologyRevision: number },
+) {
+  await withConfigurationEpochTransaction(pool, async (db) => {
+    await db.query("SELECT pg_advisory_xact_lock(hashtextextended('configuration_epoch:' || $1::text, 0))", [key]);
+    const standing = await db.query<{ epoch: number }>(
+      "SELECT epoch FROM pricing_repricing_standing WHERE key = $1 AND incarnation = $2 FOR UPDATE",
+      [key, source.incarnation],
+    );
+    if (standing.rows[0]?.epoch !== closing.epoch) return;
+    const installed = await source.epochs.installClosureInTransaction(db, key, closing);
+    const updated = await db.query(
+      "UPDATE pricing_repricing_standing SET epoch = $4 WHERE key = $1 AND incarnation = $2 AND epoch = $3",
+      [key, source.incarnation, closing.epoch, installed.epoch],
+    );
+    if (updated.rowCount !== 1) throw new ConfigurationEpochError("Pricing standing repair lost its fence");
+  });
+}
+
 export function createRepricingConfigurationEpochStore(
   deps: Pick<Parameters<typeof createPostgresConfigurationEpochStore>[0], "pool" | "consumers">,
 ) {

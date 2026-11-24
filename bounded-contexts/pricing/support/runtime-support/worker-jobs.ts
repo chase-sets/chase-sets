@@ -18,6 +18,23 @@ const SYSTEM_CONTEXT = {
   },
 };
 
+export function createPricingEvaluatedDecisionRecoveryRunners({
+  services,
+  controlPlane,
+  logger,
+}: Pick<WorkerJobInput<unknown>, "services" | "controlPlane" | "logger">): readonly WorkerRunner[] {
+  const authority = isPricingServices(services.pricing) ? services.pricing.evaluationAuthority : undefined;
+  if (!authority) return [];
+  const name = "pricing.evaluated-decision-recovery";
+  return [
+    createScheduledJobRunner(name, 60_000, controlPlane, () =>
+      authority.recoverExpiredDecisions((requestId, error) => {
+        logger.error("Pricing Evaluated Decision recovery failed.", { type: name, requestId, error });
+      }),
+    ),
+  ];
+}
+
 type CreatePricingMarketRollupsCloserRunnersConfig = Readonly<{ marketRollupsCloserIntervalMs: number | null }>;
 export function createPricingMarketRollupsCloserRunners({
   services,

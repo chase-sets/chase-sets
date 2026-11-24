@@ -95,12 +95,9 @@ export const postagePoliciesEnglishTranslations = {
   "ordering.features.postagePolicies.ui.form.parcel.requirements": "Parcel Requirements",
   "ordering.features.postagePolicies.ui.form.policy.version": "Policy version",
   "ordering.features.postagePolicies.ui.form.priority": "Priority",
-  "ordering.features.postagePolicies.ui.form.raw.card": "Raw card",
   "ordering.features.postagePolicies.ui.form.rigid": "Rigid",
-  "ordering.features.postagePolicies.ui.form.sealed": "Sealed",
   "ordering.features.postagePolicies.ui.form.signature.declared.value": "Signature declared value",
   "ordering.features.postagePolicies.ui.form.signature.requirements": "Signature Requirements",
-  "ordering.features.postagePolicies.ui.form.slab": "Slab",
   "ordering.features.postagePolicies.ui.form.standard": "Standard",
   "ordering.features.postagePolicies.ui.list.actions": "Actions",
   "ordering.features.postagePolicies.ui.list.active.empty.description":

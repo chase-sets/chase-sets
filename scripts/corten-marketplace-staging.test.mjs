@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import {
@@ -9,10 +11,13 @@ import {
   buildPlatformHelmValues,
 } from "./render-platform-helm-values.mjs";
 import {
+  buildDeploymentEvidence,
   buildHelmUpgradeArgs,
   droppedAdvisoryCortenPilots,
   parseArgs,
   platformKubernetesWorkloads,
+  recordStagingMarketplacePilot,
+  withheldCortenPilots,
 } from "./platform-kubernetes-deployment.mjs";
 import { classifyChanges } from "./change-scope.mjs";
 
@@ -58,7 +63,7 @@ describe("Corten marketplace staging, first slice", () => {
 
   it("preserves the production values", () => {
     for (const [file, sha] of Object.entries({
-      "values.yaml": "fc374d3d46b6998cf31a553f16edbdbfd10e1c194f5e0c9e8e3ba1871dccbf6c",
+      "values.yaml": "deabfa12c21bfed16326e58432c13a4aecf3a1f1f852768320a311e3916baadc",
       "values.production.yaml": "653442bfb787b2701df3afccdc816f912f3bb658f063ba9b1a24d2627d59f37c",
     })) {
       expect(
@@ -287,5 +292,78 @@ describe("Corten marketplace staging, first slice", () => {
     expect(smoke.run).toContain('--url "https://marketplace-corten.staging.chasesets.com/health/ready"');
     expect(smoke.run).toContain("pnpm run smoke:corten-marketplace --");
     expect(smoke.run).toContain('"https://marketplace-corten.staging.chasesets.com"');
+  });
+
+  it("withholds the pilot with STAGING_MARKETPLACE_PILOT, whether or not its image was given", () => {
+    const withPilot = (base, STAGING_MARKETPLACE_PILOT) => ({
+      ...base,
+      env: { ...base.env, STAGING_MARKETPLACE_PILOT },
+    });
+    const withoutImage = { ...options, cortenMarketplaceImage: undefined };
+    // Deployed (unset or explicit) with an image: enabled with that image.
+    for (const value of [undefined, "", "deployed"]) {
+      expect(withheldCortenPilots(withPilot(options, value))).not.toContain("marketplace-corten");
+      const args = buildHelmUpgradeArgs(withPilot(options, value));
+      expect(args).toContain(`components.marketplace-corten.image=${image}`);
+      expect(args).not.toContain("components.marketplace-corten.enabled=false");
+    }
+    // Withheld: disabled, image or not, and its image is never set.
+    for (const base of [options, withoutImage]) {
+      expect(withheldCortenPilots(withPilot(base, "withheld"))).toContain("marketplace-corten");
+      const args = buildHelmUpgradeArgs(withPilot(base, "withheld"));
+      expect(args.filter((arg) => String(arg).startsWith("components.marketplace-corten."))).toEqual([
+        "components.marketplace-corten.enabled=false",
+      ]);
+    }
+    for (const value of ["withhold", "Withheld", "disabled", "deployed,withheld"]) {
+      expect(() => buildHelmUpgradeArgs(withPilot(options, value))).toThrow("STAGING_MARKETPLACE_PILOT must be one of");
+    }
+    // Production never reads it.
+    expect(
+      withheldCortenPilots({
+        envOverrides: { DEPLOYMENT_ENVIRONMENT: "production" },
+        env: { STAGING_MARKETPLACE_PILOT: "withheld" },
+      }),
+    ).not.toContain("marketplace-corten");
+  });
+
+  it("says whether the pilot was deployed, in the summary, the step output and the deploy record", () => {
+    const dir = mkdtempSync(join(tmpdir(), "staging-marketplace-pilot-"));
+    try {
+      const record = (env) => {
+        const summary = join(dir, `summary-${env.STAGING_MARKETPLACE_PILOT ?? "unset"}.md`);
+        const output = join(dir, `output-${env.STAGING_MARKETPLACE_PILOT ?? "unset"}.txt`);
+        const result = recordStagingMarketplacePilot({ env, githubSummaryPath: summary, githubOutputPath: output });
+        return { result, summary: read(summary), output: read(output) };
+      };
+      const unset = record({});
+      expect(unset.result).toEqual({ state: "deployed", source: "default" });
+      expect(unset.output).toBe("marketplace_pilot=deployed\n");
+      const withheld = record({ STAGING_MARKETPLACE_PILOT: "withheld" });
+      expect(withheld.result).toEqual({ state: "withheld", source: "variable" });
+      expect(withheld.summary).toBe(
+        "### Staging marketplace pilot\n\n" +
+          "marketplace-corten is not deployed on staging (STAGING_MARKETPLACE_PILOT=withheld).\n\n",
+      );
+      expect(withheld.output).toBe("marketplace_pilot=withheld\n");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+    const evidence = (env) => buildDeploymentEvidence({ ...options, env, workloads: {} }).stagingMarketplacePilot;
+    expect(evidence({})).toEqual({ state: "deployed", source: "default" });
+    expect(evidence({ STAGING_MARKETPLACE_PILOT: "withheld" })).toEqual({ state: "withheld", source: "variable" });
+  });
+
+  it("reads the variable once, in Deploy Staging only, and skips the smoke while the pilot is withheld", () => {
+    const job = workflow.jobs["deploy-staging"];
+    expect(job.env.STAGING_MARKETPLACE_PILOT).toBe("${{ vars.STAGING_MARKETPLACE_PILOT || '' }}");
+    for (const step of job.steps) expect(String(step.run ?? "")).not.toMatch(/\$\{?STAGING_MARKETPLACE_PILOT/);
+    expect(JSON.stringify(workflow.jobs["deploy-production"])).not.toContain("STAGING_MARKETPLACE_PILOT");
+    const smoke = job.steps.find(({ name }) => name === "Advisory Corten marketplace smoke");
+    expect(smoke.env.MARKETPLACE_PILOT).toBe("${{ steps.staging_kubernetes_deploy.outputs.marketplace_pilot }}");
+    expect(smoke.run).toMatch(/if \[ "\$MARKETPLACE_PILOT" = "withheld" \]; then\n[^\n]*\n\s*exit 0\n\s*fi/);
+    expect(read("docs/runbooks/staging-marketplace-pilot.md")).toContain(
+      "gh variable set STAGING_MARKETPLACE_PILOT --repo chase-sets/chase-sets --env staging --body withheld",
+    );
   });
 });

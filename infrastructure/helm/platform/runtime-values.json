@@ -73,7 +73,7 @@
       "podLabels": {}
     },
     "public-corten": {
-      "enabled": false,
+      "enabled": true,
       "kind": "service",
       "replicas": 1,
       "image": "",
@@ -617,6 +617,10 @@
         },
         {
           "name": "CHASE_SETS_IMPLEMENTATION_SHA",
+          "value": ""
+        },
+        {
+          "name": "CHASE_SETS_MARKETPLACE_ORIGIN",
           "value": ""
         },
         {

@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { t } from "@chase-sets/localization";
+import { hasTranslation, t } from "@chase-sets/localization";
 import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
 import { MarketplaceListingCreatePage } from "./listing-create-page";
 import { ListingEvidenceReadiness } from "./listing-evidence-readiness";
@@ -398,9 +398,9 @@ describe("marketplace listing create page", () => {
     expect(screen.getByRole("button", { name: "Preview fees" }).hasAttribute("disabled")).toBe(false);
     expect(screen.getByText(shippingMeasureMissingCopy)).toBeTruthy();
     expect(t("marketplace.features.listings.api.route.error.shippingMeasureMissing")).toBe(shippingMeasureMissingCopy);
-    expect(
-      screen.queryByText(t("marketplace.features.listings.ui.listingCreatePage.publish.requires.shipping.measure")),
-    ).toBeNull();
+    expect(hasTranslation("marketplace.features.listings.ui.listingCreatePage.publish.requires.shipping.measure")).toBe(
+      false,
+    );
   });
 
   it("keeps draft creation available for selected inventory with a shipping measure", () => {
