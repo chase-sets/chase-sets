@@ -10,6 +10,7 @@ import {
 } from "./protocol";
 import { isSetNamesPostMessage, isSetNamesPostResult, type SetNamesPostResult } from "./set-names/transport";
 import type { TcgplayerSetNameObservationPost } from "./set-names/contract";
+import { setNameRequestHeader } from "./set-names/request";
 import {
   isSealedPostMessage,
   isSealedPostResult,
@@ -131,6 +132,42 @@ export function createOperatorTransport(fetcher: typeof fetch) {
       return { outcome: "unavailable" };
     }
   }
+  async function postSetNameAnswer(
+    environment: OperatorEnvironment,
+    grant: string,
+    requestId: string,
+    body: string,
+  ): Promise<{ outcome: "recorded" | "grant-invalid" | "refused" } | { outcome: "unavailable"; retryAt: number }> {
+    try {
+      const response = await fetcher(
+        `${operatorOrigins[environment]}/api/public/catalog/operator-session/scope-observations/tcgplayer-set-names`,
+        {
+          method: "POST",
+          credentials: "omit",
+          redirect: "error",
+          cache: "no-store",
+          signal: AbortSignal.timeout(10_000),
+          headers: {
+            Authorization: `Bearer ${grant}`,
+            "Content-Type": "application/json",
+            [setNameRequestHeader]: requestId,
+          },
+          body,
+        },
+      );
+      if (response.status === 429 || response.status >= 500)
+        return { outcome: "unavailable", retryAt: retryAt(response.headers.get("Retry-After")) };
+      if (response.status === 200) return { outcome: "recorded" };
+      if (response.status === 401 || response.status === 403) {
+        const value = await readPollJson(response);
+        if (closed(value, ["code"]) && value.code === (response.status === 401 ? "grant-invalid" : "authority-lost"))
+          return { outcome: "grant-invalid" };
+      }
+      return { outcome: "refused" };
+    } catch {
+      return { outcome: "unavailable", retryAt: 0 };
+    }
+  }
   async function postSealedProducts(
     environment: Parameters<SealedPost>[0],
     grant: string,
@@ -162,5 +199,5 @@ export function createOperatorTransport(fetcher: typeof fetch) {
       return { outcome: "unavailable" };
     }
   }
-  return { poll, revoke, postSetNames, postSealedProducts };
+  return { poll, revoke, postSetNames, postSetNameAnswer, postSealedProducts };
 }

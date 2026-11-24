@@ -683,6 +683,7 @@ export function normalizeIntegrationJobScope(
     setName: scope.setName?.trim() || undefined,
     productId: scope.productId?.trim() || undefined,
     planningFingerprint: scope.planningFingerprint?.trim() || undefined,
+    execution: scope.execution,
   };
 }
 

@@ -1,6 +1,6 @@
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import { withPgTransaction, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { withPgTransaction, type PgQueryable, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { TcgplayerSetNameObservationRecorder } from "../../operator-session/api/set-name-observations";
 import { tcgplayerExtensionSealedProductUnitKeys } from "../../source-observations/api/providers/tcgplayer/adapter";
 import { createId } from "@chase-sets/primitives/typed-ids";
@@ -77,6 +77,9 @@ export type ProviderScopeRefreshSummary = Readonly<{
 }>;
 
 export type ProviderScopeDiscoveryPorts = Readonly<{
+  providerScopeMappingCommandHandlerInTransaction?: (
+    db: PgQueryable,
+  ) => ProviderScopeDiscoveryPorts["providerScopeMappingCommandHandler"];
   listProfileVersions: () => Promise<readonly CatalogProviderIntegrationProfileVersionRecord[]>;
   queryIntegrationOptions: (input: {
     providerKey: string;
@@ -275,7 +278,7 @@ export function createProviderScopeDiscoveryRuntime(
     // Operator-extension posts replace server discovery for TCGplayer set names: one complete
     // product-line list is one scan through the existing writer and proposal seam. Absent sets
     // are not deleted; inactive sets are not recorded.
-    async recordExtensionScopeObservations(input, backend = deps.extensionObservationPool) {
+    async recordExtensionScopeObservations(input, backend = deps.extensionObservationPool, existingTransaction) {
       const target = extensionSetNameTarget(input.unitKey);
       if (!target) {
         throw new ExtensionScopeObservationError("scope-observation-target-unavailable");
@@ -289,6 +292,7 @@ export function createProviderScopeDiscoveryRuntime(
       const now = new Date();
       const triggeredBy = `operator-extension-grant:${input.provenance.grantId}`;
       const parent = String(input.productLineId);
+      const providerKey = target.providerKey;
       const observations = targets.flatMap((target) =>
         input.sets
           .filter((set) => set.active)
@@ -321,40 +325,48 @@ export function createProviderScopeDiscoveryRuntime(
           ),
       );
 
+      async function write(transaction: PgQueryable, writePorts: ProviderScopeDiscoveryPorts) {
+        const written = await upsertProviderScopeObservations(transaction, {
+          scanId,
+          scannedAt: now,
+          observations,
+          preserveRawIdentity: true,
+        });
+        let mappingsProposed = 0;
+        for (const target of targets) {
+          mappingsProposed += await proposeMappingsForTarget({
+            db: transaction,
+            ports: writePorts,
+            target,
+            written: written.filter((observation) => observation.unitKey === target.ingestionUnitKey),
+            scanId,
+            context: input.context,
+            actor: triggeredBy,
+          });
+        }
+        await recordProviderRefreshRun(transaction, {
+          providerKey,
+          status: "succeeded",
+          observationCount: written.length,
+          triggeredBy,
+        });
+        return {
+          observationCount: written.length,
+          newObservationCount: written.filter((record) => record.newlyObserved).length,
+          mappingsProposed,
+        };
+      }
+
+      if (existingTransaction) {
+        const handler = ports.providerScopeMappingCommandHandlerInTransaction?.(existingTransaction);
+        if (!handler) throw new ExtensionScopeObservationError("scope-observations-unavailable");
+        return write(existingTransaction, { ...ports, providerScopeMappingCommandHandler: handler });
+      }
+
       try {
         if (!backend) throw new ExtensionScopeObservationError("scope-observations-unavailable");
         await reconcileProviderRefreshSchedules(db, cadenceConfig);
-        return await withPgTransaction(backend, async (transaction) => {
-          const written = await upsertProviderScopeObservations(transaction, {
-            scanId,
-            scannedAt: now,
-            observations,
-            preserveRawIdentity: true,
-          });
-          let mappingsProposed = 0;
-          for (const target of targets) {
-            mappingsProposed += await proposeMappingsForTarget({
-              db: transaction,
-              ports,
-              target,
-              written: written.filter((observation) => observation.unitKey === target.ingestionUnitKey),
-              scanId,
-              context: input.context,
-              actor: triggeredBy,
-            });
-          }
-          await recordProviderRefreshRun(transaction, {
-            providerKey: target.providerKey,
-            status: "succeeded",
-            observationCount: written.length,
-            triggeredBy,
-          });
-          return {
-            observationCount: written.length,
-            newObservationCount: written.filter((record) => record.newlyObserved).length,
-            mappingsProposed,
-          };
-        });
+        return await withPgTransaction(backend, (transaction) => write(transaction, ports));
       } catch {
         // The run record carries a fixed code, never a raw exception or provider text.
         await recordProviderRefreshRun(db, {

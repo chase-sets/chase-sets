@@ -22,6 +22,7 @@ import {
 import {
   createTcgplayerSetNameObservationPost,
   type TcgplayerSetNameObservationRecorder,
+  type TcgplayerSetNameRequestAnswer,
 } from "./set-name-observations";
 import {
   createTcgplayerSealedProductObservationPost,
@@ -50,6 +51,7 @@ function grantsCatalogManage(
 
 export type OperatorObservationRecorders = Readonly<{
   tcgplayerSetNames?: TcgplayerSetNameObservationRecorder;
+  answerTcgplayerSetNameRequest?: TcgplayerSetNameRequestAnswer;
   tcgplayerSealedProducts?: TcgplayerSealedProductObservationRecorder;
 }>;
 
@@ -164,6 +166,7 @@ export function createOperatorSessionGrants(
     recordTcgplayerSetNameObservations: createTcgplayerSetNameObservationPost({
       authorizeObservationGrant,
       record: observationRecorders.tcgplayerSetNames,
+      answer: observationRecorders.answerTcgplayerSetNameRequest,
       serializeWrites: (work) => withOperatorSessionBackend(pool, work, observationWriteLockId),
     }),
     async execute(action: Action, request: Request, actor?: ResolvedActor | null): Promise<Response> {

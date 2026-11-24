@@ -152,7 +152,7 @@ export type BulkSourceObservationReapplyResult = Readonly<{
 }>;
 
 export type BulkSourceObservationProgress = Readonly<{
-  phase: "queued" | "processing" | "completed" | "failed";
+  phase: "queued" | "processing" | "waiting-for-extension" | "completed" | "failed";
   completed: number;
   total: number;
   currentName: string | null;
@@ -346,6 +346,7 @@ export type SourceObservationIntegrationJobScope = Readonly<{
   setName?: string;
   productId?: string;
   planningFingerprint?: string;
+  execution?: "extension-set-names";
 }>;
 
 export type RepresentativeCatalogProductAssetSource = Readonly<{
@@ -1117,7 +1118,11 @@ export type IntegrationJobServices = Readonly<{
     includeOperationalGates?: boolean;
     acceptedScopeMappings?: readonly CatalogSyncAcceptedScopeMapping[];
   }) => Promise<CatalogSyncProviderParticipationPreview>;
-  enqueueCatalogSyncRun: (input: { scope: CatalogSyncScope; context: EventStoreContext }) => Promise<CatalogSyncRun>;
+  enqueueCatalogSyncRun: (input: {
+    scope: CatalogSyncScope;
+    context: EventStoreContext;
+    dispatchKey?: string;
+  }) => Promise<CatalogSyncRun>;
   getCatalogSyncRun: (input: { syncRunId: string; context: EventStoreContext }) => Promise<CatalogSyncRun | null>;
   getCatalogScopeSyncState: (input: {
     scope: CatalogSyncScope;

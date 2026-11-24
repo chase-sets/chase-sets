@@ -1,5 +1,6 @@
 export { createOperatorBackground } from "../../domain/extension/background";
 export type { OperatorAdapters } from "../../domain/extension/background";
+export { createSetNamesObservationDispatcher } from "../../domain/extension/set-names/request";
 export {
   createOperatorSandboxCopyReport,
   createOperatorSandboxSetNamesRequest,
