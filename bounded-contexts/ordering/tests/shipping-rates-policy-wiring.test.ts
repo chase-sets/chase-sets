@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { getEventCommitMetadata, runWithEventCommitMetadata } from "@chase-sets/event-core/consistency";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import {
@@ -165,5 +166,36 @@ describe("Ordering services", () => {
     ).toHaveLength(1);
     expect(projectors.map((projector) => projector.projectionName)).toContain("platform-policy-document-projection");
     expect(projectors).toEqual(expect.arrayContaining([...policies.projectors]));
+  });
+
+  // Without the name, a Policy Console write's commit receipt names a source no Ordering subscription answers to.
+  it("write a Shipping Rates revision under the Ordering commit source", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    composition.eventStore = eventStore;
+    // An Ordering database holding no policy document yet.
+    const query = async () => ({ rows: [], rowCount: 0 });
+    const { policies } = createOrderingServices(
+      { connect: async () => ({ query, release: () => {} }), query } as never,
+      {
+        inventoryCleanupAuthority: { kind: "not-mounted" },
+      },
+    );
+
+    const sources = await runWithEventCommitMetadata(async () => {
+      await policies.createPolicyDocument(
+        shippingRatesPolicy,
+        {
+          status: "active",
+          value: savedRates,
+          effectiveFrom: "2026-01-01T00:00:00.000Z",
+          effectiveUntil: null,
+          actorUserId: context.audit.performedByUserId,
+        },
+        context,
+      );
+      return getEventCommitMetadata().sources.map((source) => source.sourceContextName);
+    });
+
+    expect(sources).toEqual(["ordering"]);
   });
 });
