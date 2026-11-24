@@ -108,7 +108,7 @@ Triage:
 
 1. Review lifecycle impact and readiness diagnostics.
 2. Resolve active import/reapply/promotion jobs first.
-3. Confirm fixture coverage, dry-run status, credential readiness, rollout controls, and migration/reset evidence.
+3. Confirm fixture coverage, dry-run status, credential readiness, rollout controls, and migration evidence.
 4. Re-run readiness after remediation.
 5. Activate only when blocking diagnostics are cleared or an explicit release exception is documented.
 
@@ -209,84 +209,13 @@ For each Catalog integration incident or release hardening pass, record:
 - redaction check result;
 - remediation and verification date.
 
-For pre-launch data reset/drop runs, also record:
+### Retired Catalog Integration Reset
 
-- environment plan from `catalogIntegrationDataResetEnvironmentPlans`;
-- backup/snapshot/export decision or accepted data-loss approval;
-- approval reference for staging or production/prelaunch;
-- dry-run counts and before/after `collectCatalogIntegrationDataVerificationReport` output;
-- non-empty exact target tables from `catalogIntegrationDataResetTargetTables`;
-- forced active-job cleanup decision when queued/running jobs are intentionally wiped;
-- `evaluateCatalogIntegrationDataResetEvidence` result;
-- successful staging rehearsal reference for production/prelaunch resets;
-- staging or production smoke verification reference.
+Production apply was **NOT RUN** and will not be applied. See the [archived disposition and retained-data checks](../../bounded-contexts/catalog/docs/catalog-integration-verification-and-cleanup.md#production-disposition). The historical dry-run and staging rehearsal are not deployed-release signoff. After deploy, the release verifier records read-only retained-data and job status checks, staging and private production smoke, and the removal audit. A reset or backup/restore operation is not part of closeout.
 
-Use `pnpm run ops catalog:integration-reset -- --action dry-run` through the
-`Catalog Integration Staging Reset` workflow to collect staging counts without
-mutation. The workflow resolves the staging Catalog database from reviewed
-Terraform state, verifies the connected database is exactly
-`chase_sets_staging_catalog`, and emits the exact non-empty policy target scope.
+### Separate Merge Candidate Reset
 
-Destructive staging apply requires the exact confirmation phrase
-`reset staging catalog integration data`, a support-safe operator, an approval
-reference, and either complete backup evidence or a complete accepted-data-loss
-decision. The command runs the staging-refresh overlap-only gate immediately
-before mutation, derives repository/run identity from authenticated `gh`
-responses, and shares `platform-staging-mutating-operations` concurrency with
-every workflow in that overlap policy. The reset transaction takes a
-write-conflicting lock on both Catalog integration job tables before rechecking
-the zero-active-jobs condition, and always invokes the policy with active-job
-reset disabled. The wipe deletes both `catalog_source_observations` and the
-authoritative `catalog.source-observation-*` event streams; postconditions count
-both stream and event rows. Any P0 evidence finding produces `result: failed`,
-an exact remaining-row report, and a non-zero command exit.
-
-For the one-time production reset, use the same workflow
-(`catalog-integration-staging-reset.yml`) on `main` with
-`environment: production-prelaunch`. It uses the protected `production`
-environment and the existing managed Postgres Catalog URL and TLS authority.
-The command refuses a database other than `chase_sets_production_catalog`.
-
-1. Record the durable approval and successful staging rehearsal. Take and
-   record a managed Postgres backup or restore point before apply; accepted
-   data loss is not a substitute. Use only support-safe references as inputs,
-   never credentials.
-   Pause provider automation before dry-run and keep it paused through apply so provider traffic cannot change the counts and invalidate the fingerprint.
-2. Dispatch `dry-run` and inspect the JSON artifact. PostgreSQL enforces a
-   read-only, repeatable-read transaction. The report lists exact row counts
-   for the existing reset plan, including cascaded Source Observation
-   events/snapshots and rebuilt profile sections/diagnostics. Review active
-   integration and bulk-review jobs, promotion provenance, and retained
-   admin-authored/migration-evidenced profiles.
-3. Stop if either job count or any promotion provenance count is nonzero.
-   Source Observation promotion markers and authoritative promotion events
-   (including Reference Record promotion and Merge Candidate approval or
-   application) are treated as protected provenance. Resolve any explicit
-   retained-data exception before apply; the reset does not delete
-   admin-authored or migration-evidenced profile versions.
-4. Dispatch `apply` with `reset production catalog integration data` exactly,
-   the operator and approval reference, `create-backup-snapshot-export` and
-   its backup/restore fields, the staging rehearsal and smoke verification
-   references, and `dry_run_fingerprint` copied from `production.fingerprint`.
-   For smoke, name the durable record where post-reset verification will be
-   attached. The fingerprint must be at most 30 minutes old when checked.
-   Apply holds write-conflicting locks through commit, rechecks jobs and
-   provenance, and compares the fingerprint against the locked counts before
-   wiping. If a lock is unavailable, counts changed, or the fingerprint
-   expired, stop and collect a new dry run after resolving the cause.
-5. Retain the JSON artifact with `production.before` and `production.after`
-   and attach the post-reset smoke results. If postconditions fail, the
-   transaction rolls back; `production.after` describes the uncommitted
-   attempt and `production.rollbackReasons` explains why. The only mutation outside the
-   scoped wipe/rebuild is a Catalog audit receipt in the same event store.
-   PostgreSQL commits it together with the reset. Retry with the original
-   approval, backup reference, and fingerprint returns `already-applied`
-   and the original reports even after the fingerprint expires; it does
-   not wipe again. A different approval cannot repeat this one-time reset.
-   After any database restore, reconcile the receipt and external run
-   evidence before considering another apply.
-
-For the Catalog Scope Registry / Merge Candidate v2 destructive reset (`catalog-scope-merge-candidate-reset.ts`, #3807, required before #3794/#3799 deploy), also record:
+For the Catalog Scope Registry / Merge Candidate v2 destructive reset (`catalog-scope-merge-candidate-reset.ts`, #3807, required before #3794/#3799 deploy), record:
 
 - dry-run and before/after counts from `collectCatalogScopeMergeCandidateVerificationReport`, covering Merge Candidates, Merge Candidate observations, `catalog.merge-candidate-*` event streams/events, and unreviewed Provider Scope Mapping proposals;
 - after migration `20260713_catalog_merge_candidate_scope_identity_v2`, the unfiltered `POST /merge-candidates/generate` response's `observationCount`, `matchedObservationCount`, `excludedObservationCount`, and `candidateCount`; every exclusion must carry `unmapped-provider-scope` or `ambiguous-provider-scope` evidence and be routed to Provider Scope Mapping review before it can enter a candidate;

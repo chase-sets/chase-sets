@@ -220,6 +220,8 @@ export type CheckoutConfirmationSectionProps = Readonly<{
   orderReferenceValue: string;
   buySupportReferenceValue: string;
   totalsPayableTotal: string;
+  /** Whether the buyer may go on to the payment now; the references show either way. */
+  paymentHandoffAvailable?: boolean;
 }>;
 
 /** The Review step once payment has already been confirmed: a receipt-style
@@ -229,6 +231,7 @@ export function CheckoutConfirmationSection({
   orderReferenceValue,
   buySupportReferenceValue,
   totalsPayableTotal,
+  paymentHandoffAvailable = true,
 }: CheckoutConfirmationSectionProps) {
   return (
     <CheckoutConfirmationPanel
@@ -258,9 +261,11 @@ export function CheckoutConfirmationSection({
         },
       ]}
       actions={
-        <LinkButton href={`/account/payments/${paymentId}`}>
-          {t("checkout.features.sessions.ui.checkoutPage.continue.to.payment")}
-        </LinkButton>
+        paymentHandoffAvailable ? (
+          <LinkButton href={`/account/payments/${paymentId}`}>
+            {t("checkout.features.sessions.ui.checkoutPage.continue.to.payment")}
+          </LinkButton>
+        ) : undefined
       }
     />
   );

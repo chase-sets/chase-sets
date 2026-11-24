@@ -680,6 +680,8 @@ const reviewedRetiredVerifierRemovals = new Set([
 // supervisor-backed primitive has no provider boundary. Keep the immutable indices explicit so parity proves the
 // removal rather than silently accepting a generated count change.
 const reviewedStagingBrowserInstallRemovals = new Set([1026, 1027, 1028]);
+// The retired Catalog Integration workflow's three grants in the immutable migration input.
+const reviewedCatalogIntegrationResetRemovals = new Set([1, 2, 3]);
 // #9268 reviewed step insertions: positional `#N` anchors at or after each inserted step's final 1-based position
 // shift by one, applied in order. Reviewed record identity (file, job, step name, secret, purpose) never changes.
 // An inserted `uses` step also shifts that action's occurrence anchors at or after its occurrence; no suffix is #1.
@@ -1131,9 +1133,12 @@ describe("managed Postgres authority source generator", () => {
     const historicalGenerated = await generateManagedPostgresAuthority(historicalRoot);
     expectParity(original, historicalGenerated);
 
-    for (const index of reviewedRetiredVerifierRemovals) expect(original.grants[index]).toBeDefined();
-    for (const index of reviewedStagingBrowserInstallRemovals) expect(original.grants[index]).toBeDefined();
-    const reviewedRemovals = new Set([...reviewedRetiredVerifierRemovals, ...reviewedStagingBrowserInstallRemovals]);
+    const reviewedRemovals = new Set([
+      ...reviewedRetiredVerifierRemovals,
+      ...reviewedStagingBrowserInstallRemovals,
+      ...reviewedCatalogIntegrationResetRemovals,
+    ]);
+    for (const index of reviewedRemovals) expect(original.grants[index]).toBeDefined();
     const retainedOriginalGrants = original.grants.filter((_, index) => !reviewedRemovals.has(index));
     expect(retainedOriginalGrants).toHaveLength(original.grants.length - reviewedRemovals.size);
     const generated = await generateManagedPostgresAuthority(repositoryRoot);

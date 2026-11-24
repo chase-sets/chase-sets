@@ -1,6 +1,6 @@
 # Catalog Integration Job Consistency
 
-Catalog owns consistency for provider profile lifecycle work, integration jobs, Source Observation review jobs, promotion, reapply, rollback, and retirement. Platform durable-job storage provides leases, events, and work-unit checkpoints; Catalog defines what duplicate submissions, profile changes, retries, partial failures, and deploy skew mean to operators. The schema versioning and compatibility policy for job payloads, work units, profile snapshots, and retained data is documented in [Catalog Integration Schema Compatibility](./catalog-integration-schema-compatibility.md). The reset/backfill/rollback release plan is documented in [Catalog Integration Reset and Cleanup](./catalog-integration-reset-and-cleanup.md).
+Catalog owns consistency for provider profile lifecycle work, integration jobs, Source Observation review jobs, promotion, reapply, rollback, and retirement. Platform durable-job storage provides leases, events, and work-unit checkpoints; Catalog defines what duplicate submissions, profile changes, retries, partial failures, and deploy skew mean to operators. The schema versioning and compatibility policy for job payloads, work units, profile snapshots, and retained data is documented in [Catalog Integration Schema Compatibility](./catalog-integration-schema-compatibility.md). The retained-data verification and rollback guidance is documented in [Catalog Integration Verification and Cleanup](./catalog-integration-verification-and-cleanup.md).
 
 ## Submission And Lifecycle Rules
 
@@ -52,6 +52,6 @@ The job DTO also exposes consistency policy names: duplicate submissions reuse a
 
 Rollback activates a prior validated profile version and deprecates the current active version; it does not rewrite observations or running jobs. Retirement requires the profile to be inactive and unreferenced by Source Observations, and it is blocked while matching active jobs are present.
 
-Pre-launch reset is blocked while integration or bulk review jobs are queued or running. Forced active-job cleanup is only for explicit pre-launch wipe decisions; normal rollback cancels or drains active work, activates the prior profile version, and enqueues fresh import/reapply work when the rollback must affect new processing.
+When rollback must affect pending processing, cancel or drain active work, activate the prior profile version, and enqueue fresh import/reapply work.
 
 For the Catalog Control Plane rebuild, "retire", "remove", "deprecate", and "cleanup" mean complete deletion from runtime code, API routes, UI modules, product patterns, read-model contracts, clients, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, operator instructions, aliases, flags, fallback branches, redirects, support-only routes, compatibility aliases, compatibility shims, and migration shims.

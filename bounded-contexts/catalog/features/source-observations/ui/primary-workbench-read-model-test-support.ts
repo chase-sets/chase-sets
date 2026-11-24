@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { tcgdexPokemonCardSourceObservationMappingContract } from "../api/tcgdex-executable-mapping-contract";
 import type { CatalogAdminRollbackRetirementImpactSummaryReadModel } from "../api/admin-control-plane-read-model-contracts";
-import type { CatalogIntegrationDataVerificationReport } from "../api/catalog-integration-data-migration-reset";
+import type { CatalogIntegrationDataVerificationReport } from "../api/governance/catalog-integration-data-verification";
 import {
   validateCatalogPrimaryWorkbenchReadModelContract,
   type CatalogPrimaryWorkbenchReadModel,

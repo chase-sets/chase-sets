@@ -22,8 +22,12 @@ const {
   mockPreviewBuyNowCheckoutSupplyThroughOrdering,
   mockSubmitPurchaseIntentThroughMarketplace,
   mockReleaseCheckoutInventoryReservations,
+  mockReadGuestContactAuthority,
+  mockRequiresBoundGuestContact,
 } = vi.hoisted(() => ({
   mockReleaseCheckoutInventoryReservations: vi.fn(),
+  mockReadGuestContactAuthority: vi.fn(),
+  mockRequiresBoundGuestContact: vi.fn(),
   mockCreateCheckoutInventoryReservations: vi.fn(),
   mockCreateCheckoutOrdersThroughOrdering: vi.fn(),
   mockCreateCheckoutPaymentThroughPayments: vi.fn(),
@@ -41,11 +45,24 @@ vi.mock("../../../support/request-support/checkout-confirmation", async (importO
   previewBuyNowCheckoutSupplyThroughOrdering: mockPreviewBuyNowCheckoutSupplyThroughOrdering,
   submitPurchaseIntentThroughMarketplace: mockSubmitPurchaseIntentThroughMarketplace,
   releaseCheckoutInventoryReservations: mockReleaseCheckoutInventoryReservations,
+  readGuestContactAuthorityThroughAuth: mockReadGuestContactAuthority,
+  requiresBoundGuestContact: mockRequiresBoundGuestContact,
   normalizeRequestedBalanceCreditAmount: (value: unknown) =>
     value === null || value === undefined ? null : String(value),
 }));
 
 import { createAccountCheckoutSessionRoutes } from "./route";
+
+const BOUND_GUEST_CONTACT = { state: "bound", contactEmail: "guest@example.com", contactName: "Guest Buyer" } as const;
+
+// Every case runs with the real guest predicate and a bound guest contact unless it says otherwise.
+beforeEach(async () => {
+  const actual = await vi.importActual<typeof import("../../../support/request-support/checkout-confirmation")>(
+    "../../../support/request-support/checkout-confirmation",
+  );
+  mockRequiresBoundGuestContact.mockReset().mockImplementation(actual.requiresBoundGuestContact);
+  mockReadGuestContactAuthority.mockReset().mockResolvedValue(BOUND_GUEST_CONTACT);
+});
 import { createAccountCartRoutes } from "../../cart/api/route";
 import { action as checkoutStartAction } from "../../../support/route-support/buy-checkout-readiness/checkout-start-action";
 import { CheckoutDomainError } from "../../../support/runtime-support/common";
@@ -5172,5 +5189,217 @@ describe("a session's first preview is computed for the buyer's saved address", 
       expect.objectContaining({ session_id: "chk_cart" }),
       expect.objectContaining({ shippingAddress: own }),
     );
+  });
+});
+
+describe("guest contact confirm guard", () => {
+  const confirmBody = JSON.stringify({
+    paymentMethodCategory: "card",
+    shippingAddress,
+    marketplaceCheckoutFeeQuoteFingerprint: "marketplace-checkout-fee-v1|card|6.81|0.00|6.81|0.52|7.33|7.33",
+  });
+
+  const choices = {
+    shippingOption: "expedited",
+    authenticityCheckOptIn: { selected: true, quoteFingerprint: "authenticity_quote_1" },
+  };
+
+  function confirmRequest(body: string = confirmBody) {
+    return new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+    });
+  }
+
+  function confirmRequestWithChoices() {
+    return confirmRequest(JSON.stringify({ ...JSON.parse(confirmBody), ...choices }));
+  }
+
+  function guestServices() {
+    mockCreateCheckoutInventoryReservations.mockResolvedValue({ reservations: [], unavailableLines: [] });
+    mockPreviewBuyNowCheckoutSupplyThroughOrdering.mockResolvedValue(readyBuyNowSupplyPreview());
+    mockPreviewCheckoutFulfillmentThroughOrdering.mockResolvedValue(readyBuyNowSupplyPreview());
+    mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue({
+      orderIds: ["ord_1"],
+      readyLineKeys: ["cli_1"],
+      writeResult: orderingWriteResult,
+    });
+    return createServices({
+      getSession: vi.fn(async () => createSession({ buyer_account_id: "acc_guest" })),
+      recordOrdersCreated: vi.fn(async ({ sessionId }) => ({
+        sessionId,
+        session: createSession({ buyer_account_id: "acc_guest", order_ids: ["ord_1"] }),
+      })),
+    });
+  }
+
+  function expectNoCheckoutEffect(services: CheckoutSessionServices) {
+    expect(services.getSession).toHaveBeenCalledTimes(0);
+    expect(services.resumeOrderCartCleanup).toHaveBeenCalledTimes(0);
+    expect(services.setShippingAddress).toHaveBeenCalledTimes(0);
+    expect(services.recordCheckoutReservations).toHaveBeenCalledTimes(0);
+    expect(services.recordOrdersCreated).toHaveBeenCalledTimes(0);
+    expect(services.recordPaymentStarted).toHaveBeenCalledTimes(0);
+    expect(mockCreateCheckoutInventoryReservations).toHaveBeenCalledTimes(0);
+    expect(mockCreateCheckoutOrdersThroughOrdering).toHaveBeenCalledTimes(0);
+    expect(mockCreateCheckoutPaymentThroughPayments).toHaveBeenCalledTimes(0);
+  }
+
+  useMockReset(
+    mockCreateCheckoutInventoryReservations,
+    mockCreateCheckoutOrdersThroughOrdering,
+    mockCreateCheckoutPaymentThroughPayments,
+    mockPreviewBuyNowCheckoutSupplyThroughOrdering,
+    mockPreviewCheckoutFulfillmentThroughOrdering,
+  );
+
+  it("refuses guest confirm with unbound contact before every side effect", async () => {
+    mockReadGuestContactAuthority.mockResolvedValue({ state: "unbound" });
+    const services = guestServices();
+
+    const response = await buildApp(services, createGuestBuyerActor()).fetch(confirmRequest());
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "guest_contact_required",
+        message: "Add your name and email for this checkout before you pay. Nothing was reserved or ordered.",
+      },
+    });
+    expect(mockReadGuestContactAuthority).toHaveBeenCalledTimes(1);
+    expectNoCheckoutEffect(services);
+  });
+
+  it.each([["rate-limited"], ["unreadable"]] as const)(
+    "refuses guest confirm when the contact authority is indeterminate (%s)",
+    async (reason) => {
+      mockReadGuestContactAuthority.mockResolvedValue({ state: "indeterminate", reason });
+      const services = guestServices();
+
+      const response = await buildApp(services, createGuestBuyerActor()).fetch(confirmRequest());
+
+      expect(response.status).toBe(409);
+      await expect(response.json()).resolves.toMatchObject({ error: { code: "guest_contact_required" } });
+      expectNoCheckoutEffect(services);
+    },
+  );
+
+  it.each([[null], [{}], [{ contactEmail: "guest@example.com" }], [{ contactName: "Guest Buyer" }]])(
+    "refuses guest confirm on an Auth 200 without both contact fields before every side effect (%o)",
+    async (ownContact) => {
+      const actual = await vi.importActual<typeof import("../../../support/request-support/checkout-confirmation")>(
+        "../../../support/request-support/checkout-confirmation",
+      );
+      mockReadGuestContactAuthority.mockImplementation(async () =>
+        actual.guestContactAuthorityFromOwnContact(ownContact),
+      );
+      const services = guestServices();
+
+      const response = await buildApp(services, createGuestBuyerActor()).fetch(confirmRequestWithChoices());
+
+      expect(response.status).toBe(409);
+      await expect(response.json()).resolves.toMatchObject({ error: { code: "guest_contact_required" } });
+      expectNoCheckoutEffect(services);
+      expect(services.selectShippingOption).toHaveBeenCalledTimes(0);
+      expect(services.selectAuthenticityCheckOptIn).toHaveBeenCalledTimes(0);
+    },
+  );
+
+  it.each([
+    ["unbound", { state: "unbound" }],
+    ["rate-limited", { state: "indeterminate", reason: "rate-limited" }],
+    ["unreadable", { state: "indeterminate", reason: "unreadable" }],
+  ] as const)("writes none of the choices sent with a refused %s guest confirm", async (_name, authority) => {
+    mockReadGuestContactAuthority.mockResolvedValue(authority);
+    const services = guestServices();
+
+    const response = await buildApp(services, createGuestBuyerActor()).fetch(confirmRequestWithChoices());
+
+    expect(response.status).toBe(409);
+    expectNoCheckoutEffect(services);
+    expect(services.selectShippingOption).toHaveBeenCalledTimes(0);
+    expect(services.selectAuthenticityCheckOptIn).toHaveBeenCalledTimes(0);
+  });
+
+  it("writes the choices sent with a bound guest confirm past the guard, then reaches payment", async () => {
+    const services = guestServices();
+    const guestSession = () => ({ sessionId: "chk_1", session: createSession({ buyer_account_id: "acc_guest" }) });
+    vi.mocked(services.selectShippingOption).mockImplementation(async () => guestSession());
+    vi.mocked(services.selectAuthenticityCheckOptIn).mockImplementation(async () => guestSession());
+
+    const response = await buildApp(services, createGuestBuyerActor()).fetch(confirmRequestWithChoices());
+
+    expect(response.status).not.toBe(409);
+    expect(services.selectShippingOption).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ sessionId: "chk_1", accountId: "acc_guest", shippingOption: "expedited" }),
+      expect.anything(),
+    );
+    expect(services.selectAuthenticityCheckOptIn).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ sessionId: "chk_1", selected: true, quoteFingerprint: "authenticity_quote_1" }),
+      expect.anything(),
+    );
+    expect(mockReadGuestContactAuthority.mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(services.selectShippingOption).mock.invocationCallOrder[0]!,
+    );
+    expect(mockCreateCheckoutPaymentThroughPayments).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves the authenticity choice out of an offer-intent confirm", async () => {
+    const services = guestServices();
+    const offerSession = () => ({
+      sessionId: "chk_1",
+      session: createSession({ buyer_account_id: "acc_guest", source_type: "offer-intent" }),
+    });
+    vi.mocked(services.getSession).mockImplementation(async () => offerSession().session);
+    vi.mocked(services.selectShippingOption).mockImplementation(async () => offerSession());
+
+    await buildApp(services, createGuestBuyerActor()).fetch(confirmRequestWithChoices());
+
+    expect(services.selectShippingOption).toHaveBeenCalledTimes(1);
+    expect(services.selectAuthenticityCheckOptIn).toHaveBeenCalledTimes(0);
+  });
+
+  it("bound guest confirm still reaches payment", async () => {
+    const services = guestServices();
+
+    const response = await buildApp(services, createGuestBuyerActor()).fetch(confirmRequest());
+
+    expect(response.status).not.toBe(409);
+    expect(services.getSession).toHaveBeenCalled();
+    expect(mockCreateCheckoutPaymentThroughPayments).toHaveBeenCalledTimes(1);
+  });
+
+  it("signed-in confirm is not contact-guarded", async () => {
+    mockReadGuestContactAuthority.mockResolvedValue({ state: "unbound" });
+    const services = guestServices();
+
+    const response = await buildApp(services, createBuyerActor()).fetch(confirmRequest());
+
+    expect(response.status).not.toBe(409);
+    expect(mockReadGuestContactAuthority).toHaveBeenCalledTimes(0);
+    expect(services.getSession).toHaveBeenCalled();
+  });
+
+  it("mutant: a guard that admits guests reaches the effects the unbound case counts as zero", async () => {
+    mockRequiresBoundGuestContact.mockReturnValue(false);
+    mockReadGuestContactAuthority.mockResolvedValue({ state: "unbound" });
+    const services = guestServices();
+
+    await buildApp(services, createGuestBuyerActor()).fetch(confirmRequest());
+
+    expect(services.getSession).toHaveBeenCalled();
+    expect(mockCreateCheckoutPaymentThroughPayments).toHaveBeenCalledTimes(1);
+  });
+
+  it("mutant: a guard widened to every actor refuses a signed-in confirm", async () => {
+    mockRequiresBoundGuestContact.mockReturnValue(true);
+    mockReadGuestContactAuthority.mockResolvedValue({ state: "unbound" });
+    const services = guestServices();
+
+    const response = await buildApp(services, createBuyerActor()).fetch(confirmRequest());
+
+    expect(response.status).toBe(409);
+    expect(services.getSession).toHaveBeenCalledTimes(0);
   });
 });

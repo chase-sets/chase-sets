@@ -119,6 +119,8 @@ export const checkoutEnglishTranslations = {
     "Verify your email before you pay. Nothing was reserved or ordered.",
   "checkout.features.sessions.api.route.payment.authority.required":
     "This account cannot pay for purchases. Nothing was reserved or ordered.",
+  "checkout.features.sessions.api.route.guest.contact.required":
+    "Add your name and email for this checkout before you pay. Nothing was reserved or ordered.",
   "checkout.features.sessions.api.route.payment.start.pending":
     "Payment setup is still catching up. Review checkout again before payment starts.",
   "checkout.features.sessions.api.route.register.or.sign.in.before.placing.purchase.intent":
@@ -194,6 +196,18 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.continue.to.payment.2": "Continue to payment",
   "checkout.features.sessions.ui.checkoutPage.contact": "Contact",
   "checkout.features.sessions.ui.checkoutPage.email.me.with.news": "Email me with news and offers",
+  "checkout.features.sessions.ui.checkoutPage.contact.name": "Name",
+  "checkout.features.sessions.ui.checkoutPage.contact.sign.in.required":
+    "This email already has a Chase Sets account. Sign in to use it, or enter a different email.",
+  "checkout.features.sessions.ui.checkoutPage.contact.sign.in": "Sign in",
+  "checkout.features.sessions.ui.checkoutPage.contact.invalid": "Enter your name and a valid email.",
+  "checkout.features.sessions.ui.checkoutPage.contact.retry.later":
+    "Too many contact attempts. Your details are kept; try again in a few minutes.",
+  "checkout.features.sessions.ui.checkoutPage.contact.locked":
+    "This checkout's contact is already saved and can't be changed.",
+  "checkout.features.sessions.ui.checkoutPage.contact.unavailable.title": "Contact temporarily unavailable",
+  "checkout.features.sessions.ui.checkoutPage.contact.unavailable.description":
+    "We couldn't load this checkout's contact. Reload the page in a few minutes to continue. Nothing was reserved or ordered.",
   "checkout.features.sessions.ui.checkoutPage.delivery.estimate": "Delivery estimate",
   "checkout.features.sessions.ui.checkoutPage.delivery.estimate.summary":
     "{shippingOption}: {window}. {packageCount} package(s), {serviceLevel}.",

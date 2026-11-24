@@ -327,12 +327,16 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
     }
   });
 
-  it("classifies P1-P10 and P12-P18 as SQL-executing at their named anchors", () => {
+  it("classifies named SQL execution anchors, including retained Catalog verification", () => {
     const anchors = [
       ["bounded-contexts/ordering/features/orders/read-model/support-lookup.ts", 37, "db"],
       ["infrastructure/event-core-postgres/catalog-mirror.ts", 236, "db"],
       ["infrastructure/event-core-postgres/types.ts", 49, "client"],
-      ["scripts/catalog-integration-reset.ts", 239, "db"],
+      [
+        "bounded-contexts/catalog/features/source-observations/api/governance/catalog-integration-data-verification.ts",
+        190,
+        "db",
+      ],
       ["infrastructure/event-core-postgres/projection-store.ts", 358, "config.db"],
       ["bounded-contexts/catalog/features/product-measures/api/runtime.ts", 170, "deps.db"],
       ["bounded-contexts/auth/support/ucp-support/oauth.ts", 367, "options.auth.db"],

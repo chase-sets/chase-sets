@@ -662,6 +662,18 @@ describe("UCP state lifecycle AC2 and expiry AC6", () => {
       ]);
     noWrites(f);
   });
+  it("an unbound guest's complete creates no orders or payment and hands off to the web checkout", async () => {
+    const f = fixture();
+    const guest: ResolvedActor = { ...actor, roleKey: "guest-buyer", permissions: ["guest-checkout.manage"] };
+    for (const signed of [false, true]) {
+      const result = await f.restHandlers.complete_checkout({ ...input({}, false, signed), actor: guest });
+      expect(result).toMatchObject({
+        status: "requires_escalation",
+        continue_url: `https://marketplace.example/checkout/buy/session/${id}`,
+      });
+    }
+    noWrites(f);
+  });
   it("AC5 has one checkout URL builder and no legacy fallback", () => {
     const source = readFileSync(new URL("../support/ucp-support/checkout.ts", import.meta.url), "utf8");
     expect(source.match(/\/checkout\//g)).toHaveLength(1);

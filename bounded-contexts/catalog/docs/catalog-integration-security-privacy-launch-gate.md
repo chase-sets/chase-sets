@@ -10,7 +10,7 @@ scripts/check-structure/catalog-integration-security-privacy-launch-gate.ts
 
 ## Launch Packet
 
-The launch packet uses schema `catalog-security-privacy-launch-gate/v1` and checklist version `catalog-security-privacy-checklist/2026-06-11`. It must name:
+The launch packet uses schema `catalog-security-privacy-launch-gate/v2` and checklist version `catalog-security-privacy-checklist/2026-11-24`. It must name:
 
 - owner and reviewer;
 - approval timestamp;
@@ -34,7 +34,7 @@ The checklist covers:
 - telemetry, logs, metrics, traces, screenshots, CI artifacts, and launch evidence redaction;
 - audit evidence integrity for high-impact actions;
 - real-provider proof privacy;
-- reset/drop safeguards for prelaunch data loss;
+- retirement of the one-time Catalog Integration reset and archived production NOT RUN evidence;
 - complete retirement of old control-plane surfaces.
 
 ## Fail-Closed Rules
@@ -48,8 +48,8 @@ The gate blocks launch when:
 - raw provider payloads, credentials, cookies, seller/account facts, PII, provider commerce values, full provider URLs, provider-controlled labels, provider imagery, raw diagnostics, or unsafe evidence are retained;
 - audit evidence omits actor, action, target, timestamp, result, or redaction-safe context;
 - the real-provider proof retains raw payloads, full URLs, credentials/cookies, provider-controlled labels, or performs Catalog writes;
-- production-prelaunch reset/drop lacks approval, backup/data-loss decision, dry-run counts, before/after verification, staging rehearsal, smoke verification, or bounded target tables;
-- retained data is used as clean reset completion;
+- the archived production NOT RUN record is missing, unreadable, or does not bind the decision to the read-only production inventory and staging rehearsal;
+- a retired Catalog Integration reset workflow, CLI, governance module, authority grant, or ops alias reappears;
 - migration evidence is used as an exception to retirement.
 
 ## Retirement Meaning
@@ -63,6 +63,6 @@ Forbidden outcomes include soft deprecation, compatibility shims, legacy support
 - [Catalog Integration Admin Control Plane RBAC](./catalog-integration-admin-control-plane-rbac.md)
 - [Catalog Integration Data Governance](./catalog-integration-data-governance.md)
 - [Catalog Integration Audit Evidence](./catalog-integration-audit-evidence.md)
-- [Catalog Integration Reset and Cleanup](./catalog-integration-reset-and-cleanup.md)
+- [Catalog Integration Verification and Cleanup](./catalog-integration-verification-and-cleanup.md)
 - [Catalog Integration Real-Provider Proof](./catalog-integration-real-provider-proof.md)
 - [Catalog Primary Workbench Admin Contract](./primary-workbench-admin-contract.md)
