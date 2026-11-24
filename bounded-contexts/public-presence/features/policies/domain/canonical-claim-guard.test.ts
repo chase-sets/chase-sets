@@ -1116,7 +1116,10 @@ const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
   // its only definition in Commercial Terms (52-63) and Ordering's quote function is at 79-105.
   // Repinned after the fee band category lists were deleted: the launch value moved to 48-59, the policy
   // definition to 138-145 and Ordering's quote function to 70-94.
-  [citationFencePaths.authenticityTerms]: "c9779924b995539855c63c9027ee0a8d36f774d7178e9621acf58a644b9a3c66",
+  // Repinned when the order runtime's planning functions gained their Shipping Rates parameter: Ordering's
+  // Authenticity Check opt-in resolution, which the citation named when it was written at 1290-1307, is
+  // byte-identical at 1379-1396. Those lines had since drifted onto the checkout preview revision.
+  [citationFencePaths.authenticityTerms]: "87870d09924bd28ed8b11e2f79c672efb1c9a115d98e042989d75d469af6aba1",
   // Includes #7422 revocation, #9499 Inventory recovery storage, #10610 truthful search failure citations, the #9106 Search Interpretation marker in
   // stored search restoration, #9721 byte-identical citation relocations, and the #9034 rollout, notice-email,
   // and Connector Pairing manifest reconciliation; only C1-C7 digits remain normalized.

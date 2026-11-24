@@ -355,6 +355,13 @@
       "ownedTables": ["ordering_postage_policy_pages", "ordering_postage_policy_history"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "platform-policy-document-projection",
+      "sourceContextNames": ["ordering"],
+      "ownedTables": ["platform_policy_documents", "platform_policy_document_history"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
     }
   ],
   "hostPorts": [

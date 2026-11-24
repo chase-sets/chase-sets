@@ -743,6 +743,56 @@ describe("platform worker projection wake interest graph", () => {
     ).not.toContain(entry);
   });
 
+  it("runs Ordering's policy document projection over Ordering's own policy tables", () => {
+    const policyEventTypes = ["platform-policy.document.created", "platform-policy.document.revised"];
+    const runtime = createPlatformWorkerHost();
+    const runners = runtime.subscriptionRunners.filter(
+      (runner) =>
+        runner.targetContextName === "ordering" && runner.projectionName === "platform-policy-document-projection",
+    );
+    expect(runners).toHaveLength(1);
+    expect(runners[0]).toMatchObject({
+      sourceContextName: "ordering",
+      checkpointKey: "platform-policy-document-projection:ordering:v1",
+      subscriptionName: "ordering.platform-policy-document-projection",
+      subscriptionVersion: 1,
+      eventTypes: policyEventTypes,
+      streamPrefixes: ["platform-policy.document-"],
+    });
+    for (const eventType of policyEventTypes) {
+      expect(runners[0]?.handlers?.[eventType]).toBeTypeOf("function");
+    }
+
+    const index = buildPlatformWorkerProjectionWakeRelayInterestIndex();
+    const entries = index.entries.filter(
+      (entry) =>
+        entry.targetContextName === "ordering" && entry.projectionName === "platform-policy-document-projection",
+    );
+    expect(entries).toHaveLength(1);
+    const [entry] = entries;
+    expect(entry).toMatchObject({
+      sourceContextName: "ordering",
+      checkpointKey: "platform-policy-document-projection:ordering:v1",
+      subscriptionName: "ordering.platform-policy-document-projection",
+      owner: "Ordering",
+      ownedTables: ["platform_policy_document_history", "platform_policy_documents"],
+      eventTypes: policyEventTypes,
+      streamPrefixes: ["platform-policy.document-"],
+    });
+    for (const eventType of policyEventTypes) {
+      // A Shipping Rates revision written to Ordering's store wakes Ordering's projection and no other context's.
+      const interested = lookupProjectionInterests(index, { sourceContextName: "ordering", eventType });
+      expect(interested).toContain(entry);
+      expect(
+        interested.filter((candidate) => candidate.projectionName === "platform-policy-document-projection"),
+      ).toEqual([entry]);
+      expect(lookupProjectionInterests(index, { sourceContextName: "payments", eventType })).not.toContain(entry);
+    }
+    expect(
+      lookupProjectionInterests(index, { sourceContextName: "ordering", eventType: "ordering.order.created" }),
+    ).not.toContain(entry);
+  });
+
   it("assembles the conditional owner's runner only where its source is mounted", () => {
     const extensions = syntheticConditionalWorkerExtension();
     for (const profile of ["public", "proof", "landing"] as const) {

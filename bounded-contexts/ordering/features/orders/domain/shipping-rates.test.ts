@@ -7,6 +7,7 @@ import {
   SHIPPING_RATE_MINIMUM_AMOUNT,
   decodeShippingRates,
   defaultShippingRates,
+  shippingRatesPolicy,
 } from "./shipping-rates";
 
 describe("Shipping Rates", () => {
@@ -97,5 +98,29 @@ describe("Shipping Rates", () => {
     ["a number", 149],
   ])("rejects %s in place of the rates", (_label, value) => {
     expect(() => decodeShippingRates(value)).toThrow(OrderingDomainError);
+  });
+});
+
+describe("Shipping Rates Policy", () => {
+  it("declares the Ordering key with the compiled rates as its default and the Shipping Rates decoder", () => {
+    expect(shippingRatesPolicy.policyKey).toBe("ordering.shipping-rates");
+    expect(shippingRatesPolicy.contextName).toBe("ordering");
+    expect(shippingRatesPolicy.defaultValue).toBe(defaultShippingRates);
+    expect(shippingRatesPolicy.decodeValue).toBe(decodeShippingRates);
+  });
+
+  it("summarizes the six rates and the bounds the decoder enforces", () => {
+    for (const key of Object.keys(defaultShippingRates)) {
+      expect(shippingRatesPolicy.schemaSummary).toContain(key);
+    }
+    expect(shippingRatesPolicy.schemaSummary).toContain("0.00-100.00");
+    expect(shippingRatesPolicy.schemaSummary).toContain("0-1000");
+  });
+
+  it("decodes a stored revision through the policy and refuses one the decoder refuses", () => {
+    const revised = { ...defaultShippingRates, letterAmount: "1.59", parcelIncludedOunces: 3 };
+
+    expect(shippingRatesPolicy.decodeValue(JSON.parse(JSON.stringify(revised)))).toEqual(revised);
+    expect(() => shippingRatesPolicy.decodeValue({ ...revised, letterAmount: "100.01" })).toThrow(OrderingDomainError);
   });
 });

@@ -33,6 +33,7 @@ export type {
   OrderingInventoryReservationAuthority,
 } from "./features/orders/api/cleanup-authority";
 export type { OrderingOrderServices, ReconcileOrderPaymentBeforeDeadline } from "./features/orders/api/runtime";
+export { shippingRatesPolicy } from "./features/orders/domain/shipping-rates";
 export { createLocalTaxQuoteResolver, zeroTaxQuoteResolver } from "./features/tax-quotes/domain/tax-quote";
 export type {
   LocalTaxRule,

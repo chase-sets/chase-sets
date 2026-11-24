@@ -82,6 +82,7 @@ import {
   createOrderingUcpHandlers,
   lookupOrderBySupportId,
   lookupOrderBySupportReference,
+  shippingRatesPolicy,
   type OrderingInventoryCleanupAuthorityCapability,
   type OrderingSupportLookupRow,
 } from "@chase-sets/ordering/server";
@@ -639,6 +640,16 @@ export function createPlatformApiHost(
       definitions: [queryVocabularyPolicy] as unknown as readonly PolicyDefinition<JsonValue>[],
       write: lazyPolicyConsoleWritePort(
         () => runtime?.services.discovery as { policies?: PolicyConsoleWritePort } | undefined,
+      ),
+    });
+  }
+  if (orderingPool) {
+    policyConsoleCrossContextSources.push({
+      contextName: "ordering",
+      db: orderingPool,
+      definitions: [shippingRatesPolicy] as unknown as readonly PolicyDefinition<JsonValue>[],
+      write: lazyPolicyConsoleWritePort(
+        () => runtime?.services.ordering as { policies?: PolicyConsoleWritePort } | undefined,
       ),
     });
   }

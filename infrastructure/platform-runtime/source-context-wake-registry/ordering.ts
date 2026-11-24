@@ -29,6 +29,7 @@ export const orderingWakeRegistryEntry = registryEntry({
     "ordering:ordering-order-review-opportunity-projection",
     "ordering:ordering-order-projection",
     "ordering:ordering-postage-policy-projection",
+    "ordering:platform-policy-document-projection",
     "payments:payments-order-cancellation-refund-effect",
     "payments:payments-order-input-projection",
     "pricing:pricing-order-input-projection",
