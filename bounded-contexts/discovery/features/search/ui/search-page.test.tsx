@@ -13,6 +13,9 @@ import type { DiscoveryCategoryItem } from "../../categories/ui/contracts";
 import type { DiscoverySearchItem, DiscoverySearchResponse } from "../../../support/client-support/contracts";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { searchDiscoveryItems } from "../read-model/queries";
+import { queryVocabularyPolicy } from "../domain/query-vocabulary-policy";
+
+const queryVocabulary = queryVocabularyPolicy.defaultValue;
 
 const titleOverrides = vi.hoisted(() => new Map<string, string>());
 vi.mock("@chase-sets/localization", async (importOriginal) => {
@@ -477,7 +480,7 @@ describe("SearchPage", () => {
         return { rows: rows as Row[], rowCount: rows.length };
       },
     };
-    const result = await searchDiscoveryItems(db, { dimensionFilters }, { loadFacets: false });
+    const result = await searchDiscoveryItems(db, { dimensionFilters }, { queryVocabulary, loadFacets: false });
     renderSearchPage({
       dynamicFilters: [{ kind: "dimension", id: "finish", value: "foil" }],
       data: { ...searchResponse, items: [{ ...japaneseSearchResult, market_summary: result.items[0].market_summary }] },

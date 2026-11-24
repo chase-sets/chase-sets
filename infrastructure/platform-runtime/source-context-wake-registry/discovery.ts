@@ -11,6 +11,7 @@ export const discoveryWakeRegistryEntry = registryEntry({
   wakeStoreLoadEstimate: "low",
   affectedProjectionNames: [
     "discovery:discovery-product-alert-page-projection",
+    "discovery:platform-policy-document-projection",
     "customer-feedback:customer-feedback-csat-outcome-fact-projection",
   ],
   routeDependencyIds: [

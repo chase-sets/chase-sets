@@ -1,6 +1,9 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { describe, expect, it } from "vitest";
 import { DISCOVERY_SEARCH_SUGGESTION_LIMIT, suggestDiscoveryItems } from "./suggestions";
+import { queryVocabularyPolicy } from "../domain/query-vocabulary-policy";
+
+const queryVocabulary = queryVocabularyPolicy.defaultValue;
 
 function createCapturingDb(rows: readonly Record<string, unknown>[] = [], servedCodes: readonly string[] = []) {
   const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
@@ -23,7 +26,7 @@ describe("suggestDiscoveryItems", () => {
     ["ygo", "(ygo:* | (yu <-> gi <-> oh:*))"],
   ])("expands %s in English and simple with a prefix on each final alternative", async (query, expected) => {
     const { db, calls } = createCapturingDb();
-    await suggestDiscoveryItems(db, query);
+    await suggestDiscoveryItems(db, query, queryVocabulary);
     expect(calls[0]?.sql).toContain("search_text @@ to_tsquery('english', $2)");
     expect(calls[0]?.sql).toContain("search_text_simple @@ to_tsquery('simple', $3)");
     expect(calls[0]?.values).toEqual(["active", expected, expected, 8]);
@@ -32,13 +35,13 @@ describe("suggestDiscoveryItems", () => {
   it("returns no suggestions and skips the database for an empty query", async () => {
     const { db, calls } = createCapturingDb();
 
-    await expect(suggestDiscoveryItems(db, "   ")).resolves.toEqual([]);
+    await expect(suggestDiscoveryItems(db, "   ", queryVocabulary)).resolves.toEqual([]);
     expect(calls).toEqual([]);
   });
 
   it("uses the shared served-code lookup and protects literal collector tokens", async () => {
     const { db, calls } = createCapturingDb([], ["zard"]);
-    await suggestDiscoveryItems(db, "zard 4/102");
+    await suggestDiscoveryItems(db, "zard 4/102", queryVocabulary);
     expect(calls).toHaveLength(2);
     expect(calls[0]?.values).toEqual([["zard"]]);
     expect(calls[1]?.values).toEqual(["active", "zard & 4/102:*", "zard & (4 <-> 102:*)", 8]);
@@ -46,11 +49,11 @@ describe("suggestDiscoveryItems", () => {
 
   it("caps direct callers at 80 code points and strips raw tsquery syntax", async () => {
     const { db, calls } = createCapturingDb();
-    await suggestDiscoveryItems(db, "zard " + "a".repeat(75) + " BB");
+    await suggestDiscoveryItems(db, "zard " + "a".repeat(75) + " BB", queryVocabulary);
     expect(String(calls[0]?.values[1])).not.toContain("booster");
-    await suggestDiscoveryItems(db, "ETB' | ! :* missing");
+    await suggestDiscoveryItems(db, "ETB' | ! :* missing", queryVocabulary);
     expect(calls[1]?.values[1]).toBe("(ETB | (elite <-> trainer <-> box)) & missing:*");
-    await suggestDiscoveryItems(db, "' | ! :*");
+    await suggestDiscoveryItems(db, "' | ! :*", queryVocabulary);
     expect(calls).toHaveLength(2);
   });
 
@@ -65,7 +68,7 @@ describe("suggestDiscoveryItems", () => {
       },
     ]);
 
-    await expect(suggestDiscoveryItems(db, "Mega Char")).resolves.toEqual([
+    await expect(suggestDiscoveryItems(db, "Mega Char", queryVocabulary)).resolves.toEqual([
       {
         catalogItemId: "cat_1",
         title: "Charizard ex",
@@ -86,7 +89,7 @@ describe("suggestDiscoveryItems", () => {
   it("enforces the strict result cap", async () => {
     const { db, calls } = createCapturingDb();
 
-    await suggestDiscoveryItems(db, "char", 10_000);
+    await suggestDiscoveryItems(db, "char", queryVocabulary, 10_000);
 
     expect(calls[0]?.values.at(-1)).toBe(DISCOVERY_SEARCH_SUGGESTION_LIMIT);
   });

@@ -24,6 +24,9 @@ import { findSimilarDiscoveryItems } from "../features/search/read-model/similar
 import { createQueryEmbeddingCache, normalizeQueryForEmbedding } from "../features/search/domain/query-embedding-cache";
 import { retrieveDiscoveryItems } from "../features/search/read-model/hybrid-retrieval";
 import type { DiscoveryEmbeddingProvider } from "../features/search/integrations/voyage-embedding-provider";
+import { queryVocabularyPolicy } from "../features/search/domain/query-vocabulary-policy";
+
+const queryVocabulary = queryVocabularyPolicy.defaultValue;
 
 const root = fileURLToPath(new URL("../../../", import.meta.url));
 const fixtureDirectory = path.join(root, "bounded-contexts/discovery/tests/fixtures/search-relevance");
@@ -110,6 +113,7 @@ describe("Discovery search golden-query relevance gate", () => {
         const page = await retrieveDiscoveryItems(
           {
             db: pool,
+            queryVocabulary,
             provider,
             cache: createQueryEmbeddingCache(),
             rescueEnabled: mode !== "lexical-only",
@@ -208,6 +212,7 @@ describe("Discovery search golden-query relevance gate", () => {
       const page = await retrieveDiscoveryItems(
         {
           db: pool,
+          queryVocabulary,
           provider,
           cache: createQueryEmbeddingCache(),
           rescueEnabled: mode !== "lexical-only",
@@ -294,13 +299,13 @@ describe("Discovery search golden-query relevance gate", () => {
       ["Aurora", 2],
     ] as const) {
       const baseline = await retrieveDiscoveryItems(
-        { db: pool, provider, cache: createQueryEmbeddingCache(), rescueEnabled: false },
+        { db: pool, queryVocabulary, provider, cache: createQueryEmbeddingCache(), rescueEnabled: false },
         { search, includeTotal: true },
       );
       expect(baseline.items).toHaveLength(count);
       const before = calls;
       const rescue = await retrieveDiscoveryItems(
-        { db: pool, provider, cache: createQueryEmbeddingCache(), rescueEnabled: true },
+        { db: pool, queryVocabulary, provider, cache: createQueryEmbeddingCache(), rescueEnabled: true },
         { search, includeTotal: true },
       );
       expect(calls).toBe(before + 1);

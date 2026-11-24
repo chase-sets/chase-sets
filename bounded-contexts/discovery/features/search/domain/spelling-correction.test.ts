@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { classifyProtectedSearchTokens } from "./protected-search-tokens";
+import { EMPTY_QUERY_VOCABULARY, queryVocabularyPolicy, type QueryVocabulary } from "./query-vocabulary-policy";
 import {
   buildSpellingCorrectionQueries,
   optimalStringAlignment,
@@ -12,10 +13,11 @@ async function correction(
   value: string,
   vocabulary: Record<string, Partial<SearchCorrectionTerms>>,
   codes: string[] = [],
+  queryVocabulary: QueryVocabulary = queryVocabularyPolicy.defaultValue,
 ) {
   const tokens = await classifyProtectedSearchTokens(value, async () => new Set(codes));
   const lookup = vi.fn(async (key: string) => ({ ...absent, ...vocabulary[key] }));
-  return { queries: await buildSpellingCorrectionQueries(tokens, lookup), lookup };
+  return { queries: await buildSpellingCorrectionQueries(tokens, lookup, queryVocabulary), lookup };
 }
 
 describe("required-group spelling correction", () => {
@@ -42,6 +44,19 @@ describe("required-group spelling correction", () => {
     });
     expect(queries?.simple).toContain("(abcd) & (リザ <-> ザー <-> ード) & (pokemon) & (charzard | charizard)");
     expect(lookup.mock.calls.map(([key]) => key)).toEqual(["abcd", "pokemon", "charzard"]);
+  });
+  it("skips correction for a key of the given Query Vocabulary and corrects the same word without it", async () => {
+    const terms = { squrtle: { candidates: ["squirtle"] }, jungel: { candidates: ["jungle"] } };
+    const withKey = await correction("squrtle jungel", terms, [], { expansions: { squrtle: "squirtle bottle" } });
+    expect(withKey.lookup.mock.calls.map(([key]) => key)).toEqual(["jungel"]);
+    expect(withKey.queries?.simple).toBe("(squrtle | (squirtle <-> bottle)) & (jungel | jungle)");
+    const withoutKey = await correction("squrtle jungel", terms, [], EMPTY_QUERY_VOCABULARY);
+    expect(withoutKey.lookup.mock.calls.map(([key]) => key)).toEqual(["squrtle", "jungel"]);
+    expect(withoutKey.queries?.simple).toBe("(squrtle | squirtle) & (jungel | jungle)");
+    // A key of the compiled default is an ordinary word once the vocabulary lacks it.
+    const zard = { zard: { prefix: true } };
+    expect((await correction("zard", zard)).lookup).not.toHaveBeenCalled();
+    expect((await correction("zard", zard, [], EMPTY_QUERY_VOCABULARY)).queries?.simple).toBe("(zard | zard:*)");
   });
   it("allows a final vocabulary prefix without protected parts, retaining the original", async () => {
     expect(

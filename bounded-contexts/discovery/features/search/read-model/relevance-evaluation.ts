@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createQueryEmbeddingCache, normalizeQueryForEmbedding } from "../domain/query-embedding-cache";
+import { queryVocabularyPolicy } from "../domain/query-vocabulary-policy";
 import { retrieveDiscoveryItems } from "./hybrid-retrieval";
 import { rebuildDiscoverySearchIndex } from "./projection";
 import type { DiscoveryEmbeddingProvider } from "../integrations/voyage-embedding-provider";
@@ -114,6 +115,7 @@ export async function runDiscoveryRelevanceEvaluation(
           provider,
           cache: createQueryEmbeddingCache(),
           rescueEnabled,
+          queryVocabulary: queryVocabularyPolicy.defaultValue,
         },
         { ...goldenQuery.request, search: goldenQuery.query, limit: 50, includeTotal: true },
       );

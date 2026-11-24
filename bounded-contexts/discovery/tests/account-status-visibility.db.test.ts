@@ -18,6 +18,9 @@ import {
   getDiscoveryItemDetailSellerOverlay,
 } from "../features/item-detail/read-model/queries";
 import { searchDiscoveryItems } from "../features/search/read-model/queries";
+import { queryVocabularyPolicy } from "../features/search/domain/query-vocabulary-policy";
+
+const queryVocabulary = queryVocabularyPolicy.defaultValue;
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseUrl && process.env.CI)
@@ -118,7 +121,7 @@ describeDb("Discovery account status visibility on Postgres", () => {
         dimensionFilters: [{ dimensionId: "finish", optionId: "foil" }],
         includeTotal: true,
       },
-      { loadFacets: true },
+      { queryVocabulary, loadFacets: true },
     );
     return {
       detail: detail?.offer_demand_matches.map((row) => row.offer_id) ?? [],
@@ -130,7 +133,11 @@ describeDb("Discovery account status visibility on Postgres", () => {
   }
 
   async function listingReads() {
-    const search = await searchDiscoveryItems(pool, { marketActivity: "listings", includeTotal: true });
+    const search = await searchDiscoveryItems(
+      pool,
+      { marketActivity: "listings", includeTotal: true },
+      { queryVocabulary },
+    );
     return {
       searchTotal: search.total,
       accountListings:

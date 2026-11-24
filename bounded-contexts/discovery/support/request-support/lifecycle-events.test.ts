@@ -11,6 +11,9 @@ import {
   expectProjectionFailure,
   expectSourceEvent,
 } from "../../../customer-feedback/tests/outcome-fact-test-support";
+import { queryVocabularyPolicy } from "../../features/search/domain/query-vocabulary-policy";
+
+const resolveQueryVocabulary = async () => queryVocabularyPolicy.defaultValue;
 
 const context = {
   tenantId: "tnt_test",
@@ -26,14 +29,17 @@ async function searchApp(
 ) {
   const { eventStore } = createInMemoryEventStore();
   const services = {
-    ...createDiscoveryItemSearchRuntime({
-      eventStore,
-      db: { query: async () => ({ rows: [] }) },
-      checkpointStore: {
-        loadCheckpoint: async () => ZERO_GLOBAL_POSITION,
-        saveCheckpoint: async () => undefined,
+    ...createDiscoveryItemSearchRuntime(
+      {
+        eventStore,
+        db: { query: async () => ({ rows: [] }) },
+        checkpointStore: {
+          loadCheckpoint: async () => ZERO_GLOBAL_POSITION,
+          saveCheckpoint: async () => undefined,
+        },
       },
-    }),
+      { resolveQueryVocabulary },
+    ),
     searchItems: vi.fn(async () => ({
       items: [],
       facets: [],

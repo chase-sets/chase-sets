@@ -7,6 +7,7 @@ import {
   normalizeSimpleSearchText,
   truncateDiscoverySearchQuery,
 } from "../domain/normalization";
+import type { QueryVocabulary } from "../domain/query-vocabulary-policy";
 import { buildSearchSynonymQueries, type SearchSynonymQueries } from "../domain/search-synonyms";
 import type { ProtectedSearchToken } from "../domain/protected-search-tokens";
 import {
@@ -648,19 +649,22 @@ function normalizeFilterParamValue(value: string): string {
 
 export async function searchDiscoveryItems(
   db: PgQueryable,
-  params: DiscoverySearchParams = {},
+  params: DiscoverySearchParams,
   options: Readonly<{
+    queryVocabulary: QueryVocabulary;
     loadFacets?: boolean;
     loadMarketSummaries?: boolean;
     searchQueries?: SearchSynonymQueries;
     protectedQuery?: string;
-  }> = {},
+  }>,
 ): Promise<ListResult<DiscoverySearchItemRow>> {
   const searchQueries =
     options.searchQueries ??
     (params.search
-      ? await buildSearchSynonymQueries(truncateDiscoverySearchQuery(params.search), (codes) =>
-          lookupServedSearchSetCodes(db, codes),
+      ? await buildSearchSynonymQueries(
+          truncateDiscoverySearchQuery(params.search),
+          (codes) => lookupServedSearchSetCodes(db, codes),
+          options.queryVocabulary,
         )
       : undefined);
   const baseFilter = buildSearchFilter(params, { searchQueries, protectedQuery: options.protectedQuery });
@@ -869,11 +873,13 @@ export async function searchDiscoveryCorrectedItems(
   db: PgQueryable,
   params: DiscoverySearchParams,
   tokens: readonly ProtectedSearchToken[],
+  queryVocabulary: QueryVocabulary,
   budget?: SearchCorrectionBudget,
 ): Promise<ListResult<DiscoverySearchItemRow> | null> {
   const queries = await buildSpellingCorrectionQueries(
     tokens,
     (token) => lookupDiscoveryCorrectionTerms(db, token),
+    queryVocabulary,
     budget,
   );
   if (!queries) return null;
@@ -881,6 +887,7 @@ export async function searchDiscoveryCorrectedItems(
     db,
     { ...params, limit: Math.min(50, clampLimit(params.limit)), includeTotal: false },
     {
+      queryVocabulary,
       loadFacets: false,
       searchQueries: queries,
       protectedQuery: protectedSearchQuery(tokens),
@@ -1407,7 +1414,8 @@ function resolvePreviewLine(
 
 export async function previewBulkAddSearchResults(
   db: PgQueryable,
-  params: DiscoverySearchParams = {},
+  params: DiscoverySearchParams,
+  queryVocabulary: QueryVocabulary,
   limit = 250,
 ): Promise<DiscoveryBulkCartPreview> {
   const result = await searchDiscoveryItems(
@@ -1419,7 +1427,7 @@ export async function previewBulkAddSearchResults(
       cursor: undefined,
       includeTotal: true,
     },
-    { loadFacets: false },
+    { queryVocabulary, loadFacets: false },
   );
   const items = result.items.slice(0, limit);
   const schemas = await loadProductSchemasForBlueprints(

@@ -1,6 +1,7 @@
 import { buildSimpleSearchQuery, normalizeSimpleSearchText } from "./normalization";
 import type { ProtectedSearchToken } from "./protected-search-tokens";
-import { SEARCH_SYNONYMS, type SearchSynonymQueries } from "./search-synonyms";
+import type { QueryVocabulary } from "./query-vocabulary-policy";
+import type { SearchSynonymQueries } from "./search-synonyms";
 
 export type SearchCorrectionTerms = Readonly<{ literal: boolean; prefix: boolean; candidates: readonly string[] }>;
 export type SearchCorrectionTermLookup = (token: string) => Promise<SearchCorrectionTerms>;
@@ -31,6 +32,7 @@ export function protectedSearchQuery(tokens: readonly ProtectedSearchToken[]): s
 export async function buildSpellingCorrectionQueries(
   tokens: readonly ProtectedSearchToken[],
   lookup: SearchCorrectionTermLookup,
+  vocabulary: QueryVocabulary,
   budget: SearchCorrectionBudget = createSearchCorrectionBudget(),
 ): Promise<SearchSynonymQueries | null> {
   const hasProtected = tokens.some((token) => token.protected);
@@ -51,7 +53,7 @@ export async function buildSpellingCorrectionQueries(
       simple.push(query);
       continue;
     }
-    const synonym = Object.hasOwn(SEARCH_SYNONYMS, key) ? SEARCH_SYNONYMS[key] : null;
+    const synonym = Object.hasOwn(vocabulary.expansions, key) ? vocabulary.expansions[key] : null;
     let alternatives: string[] = [];
     let prefix = false;
     if (!synonym && /^\p{Script=Latin}{3,}$/u.test(key)) {

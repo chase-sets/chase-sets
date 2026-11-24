@@ -15,9 +15,11 @@ import {
 } from "./queries";
 import type { SearchInterpretationVocabulary } from "../domain/search-interpretation";
 import type { ProtectedSearchToken } from "../domain/protected-search-tokens";
+import { queryVocabularyPolicy, type QueryVocabulary } from "../domain/query-vocabulary-policy";
 import { buildSpellingCorrectionQueries, type SearchCorrectionBudget } from "../domain/spelling-correction";
 
 const vector = Array.from({ length: 1_024 }, (_, index) => (index === 0 ? 1 : 0));
+const queryVocabulary = queryVocabularyPolicy.defaultValue;
 const vocabulary: SearchInterpretationVocabulary = {
   gradingCompanyDimensionId: "dim_company",
   gradeDimensionId: "dim_grade",
@@ -64,6 +66,7 @@ describe("Discovery retrieval", () => {
       const page = await retrieveDiscoveryItems(
         {
           db: emptyDb(),
+          queryVocabulary,
           provider: fakeProvider(),
           cache: createQueryEmbeddingCache(),
           rescueEnabled: true,
@@ -92,6 +95,7 @@ describe("Discovery retrieval", () => {
         const request = retrieveDiscoveryItems(
           {
             db: emptyDb(),
+            queryVocabulary,
             provider,
             cache: createQueryEmbeddingCache(),
             rescueEnabled: scenario === "provider-failure",
@@ -133,6 +137,7 @@ describe("Discovery retrieval", () => {
         const actual = await retrieveDiscoveryItems(
           {
             db,
+            queryVocabulary,
             provider: enabled ? provider : undefined,
             cache: createQueryEmbeddingCache(),
             rescueEnabled: true,
@@ -156,6 +161,7 @@ describe("Discovery retrieval", () => {
     const actual = await retrieveDiscoveryItems(
       {
         db: { query: async () => ({ rows: [], rowCount: 0 }) },
+        queryVocabulary,
         provider,
         cache: createQueryEmbeddingCache(),
         rescueEnabled: true,
@@ -184,6 +190,7 @@ describe("Discovery retrieval", () => {
       const page = await retrieveDiscoveryItems(
         {
           db: { query: async () => ({ rows: [], rowCount: 0 }) },
+          queryVocabulary,
           provider,
           cache: createQueryEmbeddingCache(),
           rescueEnabled: true,
@@ -209,6 +216,7 @@ describe("Discovery retrieval", () => {
     await retrieveDiscoveryItems(
       {
         db: {} as never,
+        queryVocabulary,
         rescueEnabled: false,
         searchLexical: async () => result([]),
         searchCorrected,
@@ -224,6 +232,7 @@ describe("Discovery retrieval", () => {
     const page = await retrieveDiscoveryItems(
       {
         db: {} as never,
+        queryVocabulary,
         provider,
         cache: createQueryEmbeddingCache(),
         rescueEnabled: true,
@@ -244,6 +253,7 @@ describe("Discovery retrieval", () => {
     await retrieveDiscoveryItems(
       {
         db: {} as never,
+        queryVocabulary,
         provider: fakeProvider(),
         cache: createQueryEmbeddingCache(),
         rescueEnabled: true,
@@ -252,7 +262,9 @@ describe("Discovery retrieval", () => {
       },
       { search: "dragon", dimensionFilters },
     );
-    expect(searchLexical).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ dimensionFilters }));
+    expect(searchLexical).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ dimensionFilters }), {
+      queryVocabulary,
+    });
     expect(searchSemantic).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ dimensionFilters }),
@@ -285,6 +297,7 @@ describe("Discovery retrieval", () => {
     const pending = retrieveDiscoveryItems(
       {
         db: {} as never,
+        queryVocabulary,
         provider,
         cache: createQueryEmbeddingCache(),
         rescueEnabled: true,
@@ -325,6 +338,7 @@ describe("Discovery retrieval", () => {
       const actual = await retrieveDiscoveryItems(
         {
           db: {} as never,
+          queryVocabulary,
           provider,
           cache,
           rescueEnabled: true,
@@ -350,6 +364,7 @@ describe("Discovery retrieval", () => {
     const actual = await retrieveDiscoveryItems(
       {
         db: {} as never,
+        queryVocabulary,
         provider,
         cache: createQueryEmbeddingCache(),
         rescueEnabled: true,
@@ -381,6 +396,7 @@ describe("Discovery retrieval", () => {
     const searchLexical = vi.fn(async () => result([row("1"), row("2"), row("3")]));
     const dependencies = {
       db: {} as never,
+      queryVocabulary,
       provider,
       cache: createQueryEmbeddingCache(),
       rescueEnabled: true,
@@ -401,6 +417,7 @@ describe("Discovery retrieval", () => {
     const actual = await retrieveDiscoveryItems(
       {
         db: {} as never,
+        queryVocabulary,
         provider,
         cache: createQueryEmbeddingCache(),
         rescueEnabled: true,
@@ -420,6 +437,7 @@ describe("Discovery retrieval", () => {
     const actual = await retrieveDiscoveryItems(
       {
         db: {} as never,
+        queryVocabulary,
         provider: fakeProvider(),
         cache: createQueryEmbeddingCache(),
         rescueEnabled: true,
@@ -442,6 +460,7 @@ describe("Discovery retrieval", () => {
     const actual = await retrieveDiscoveryItems(
       {
         db: {} as never,
+        queryVocabulary,
         provider,
         cache: createQueryEmbeddingCache(),
         rescueEnabled: true,
@@ -474,6 +493,7 @@ describe("Discovery retrieval", () => {
     const actual = await retrieveDiscoveryItems(
       {
         db: {} as never,
+        queryVocabulary,
         rescueEnabled: false,
         searchNaturalKey,
         searchLexical,
@@ -494,6 +514,7 @@ describe("Discovery retrieval", () => {
     await retrieveDiscoveryItems(
       {
         db: {} as never,
+        queryVocabulary,
         rescueEnabled: false,
         searchNaturalKey,
         searchLexical,
@@ -514,6 +535,7 @@ describe("Discovery retrieval", () => {
     const actual = await retrieveDiscoveryItems(
       {
         db: {} as never,
+        queryVocabulary,
         provider,
         cache: createQueryEmbeddingCache(),
         rescueEnabled: true,
@@ -529,7 +551,7 @@ describe("Discovery retrieval", () => {
     expect(searchLexical).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ cursor }),
-      expect.objectContaining({ protectedQuery: "(sv04) & (123)" }),
+      expect.objectContaining({ queryVocabulary, protectedQuery: "(sv04) & (123)" }),
     );
     expect(actual).toMatchObject({ retrievalMode: "lexical", cursorState: "cursor" });
   });
@@ -541,6 +563,7 @@ describe("Discovery retrieval", () => {
     const actual = await retrieveDiscoveryItems(
       {
         db: {} as never,
+        queryVocabulary,
         rescueEnabled: false,
         searchNaturalKey,
         searchLexical,
@@ -570,6 +593,7 @@ describe("Discovery retrieval", () => {
     const actual = await retrieveDiscoveryItems(
       {
         db: {} as never,
+        queryVocabulary,
         provider,
         cache: createQueryEmbeddingCache(),
         rescueEnabled: true,
@@ -582,6 +606,7 @@ describe("Discovery retrieval", () => {
     expect(searchLexical).toHaveBeenCalledExactlyOnceWith(
       expect.anything(),
       expect.objectContaining({ cursor: undefined, includeTotal: true }),
+      { queryVocabulary },
     );
     expect(actual.items.map((item) => item.catalog_item_id)).toEqual(["lexical", "semantic"]);
     expect(actual).toMatchObject({
@@ -605,13 +630,14 @@ describe("Discovery retrieval", () => {
     const searchLexical = vi.fn(searchDiscoveryItems);
 
     const actual = await retrieveDiscoveryItems(
-      { db, rescueEnabled: false, searchLexical, searchSemantic: vi.fn() },
+      { db, queryVocabulary, rescueEnabled: false, searchLexical, searchSemantic: vi.fn() },
       { search: "Pikachu", cursor, offset: 1, limit: 1 },
     );
 
     expect(searchLexical).toHaveBeenCalledExactlyOnceWith(
       db,
       expect.objectContaining({ cursor: undefined, offset: undefined, includeTotal: true }),
+      { queryVocabulary },
     );
     expect(listValues).toEqual([["active", "Pikachu", "Pikachu", "Pikachu", 2]]);
     expect(actual.items.map((item) => item.catalog_item_id)).toEqual(["exact"]);
@@ -624,11 +650,13 @@ describe("Discovery retrieval", () => {
     const searchLexical = vi.fn(async () => result([row("page-2")]));
 
     const actual = await retrieveDiscoveryItems(
-      { db: {} as never, rescueEnabled: false, searchLexical, searchSemantic: vi.fn() },
+      { db: {} as never, queryVocabulary, rescueEnabled: false, searchLexical, searchSemantic: vi.fn() },
       { search: "pikachu", sort: "newest", cursor },
     );
 
-    expect(searchLexical).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ cursor }));
+    expect(searchLexical).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ cursor }), {
+      queryVocabulary,
+    });
     expect(actual.cursorState).toBe("cursor");
   });
 });
@@ -654,6 +682,7 @@ describe("Discovery search interpretation retrieval", () => {
     const actual = await retrieveDiscoveryItems(
       {
         db: emptyDb(),
+        queryVocabulary,
         provider,
         cache: createQueryEmbeddingCache(),
         rescueEnabled: true,
@@ -694,6 +723,7 @@ describe("Discovery search interpretation retrieval", () => {
     const actual = await retrieveDiscoveryItems(
       {
         db: emptyDb(),
+        queryVocabulary,
         provider,
         cache: createQueryEmbeddingCache(),
         rescueEnabled: true,
@@ -717,6 +747,7 @@ describe("Discovery search interpretation retrieval", () => {
     const actual = await retrieveDiscoveryItems(
       {
         db: emptyDb(),
+        queryVocabulary,
         rescueEnabled: false,
         searchLexical: async () => result([]),
         searchCorrected,
@@ -736,15 +767,22 @@ describe("Discovery search interpretation retrieval", () => {
     const lookup = vi.fn(async (_token: string) => ({ literal: false, prefix: false, candidates: [] as string[] }));
     const budgets: SearchCorrectionBudget[] = [];
     const searchCorrected = vi.fn(
-      async (_db: PgQueryable, _params: DiscoverySearchParams, tokens, budget?: SearchCorrectionBudget) => {
+      async (
+        _db: PgQueryable,
+        _params: DiscoverySearchParams,
+        tokens,
+        correctionVocabulary: QueryVocabulary,
+        budget?: SearchCorrectionBudget,
+      ) => {
         budgets.push(budget as SearchCorrectionBudget);
-        await buildSpellingCorrectionQueries(tokens, lookup, budget);
+        await buildSpellingCorrectionQueries(tokens, lookup, correctionVocabulary, budget);
         return null;
       },
     );
     await retrieveDiscoveryItems(
       {
         db: emptyDb(),
+        queryVocabulary,
         rescueEnabled: false,
         searchLexical: async () => result([]),
         searchCorrected,
@@ -768,6 +806,7 @@ describe("Discovery search interpretation retrieval", () => {
       const actual = await retrieveDiscoveryItems(
         {
           db: emptyDb(),
+          queryVocabulary,
           provider,
           cache: createQueryEmbeddingCache(),
           rescueEnabled: true,
@@ -797,6 +836,7 @@ describe("Discovery search interpretation retrieval", () => {
     const page = retrieveDiscoveryItems(
       {
         db: emptyDb(),
+        queryVocabulary,
         provider,
         cache: createQueryEmbeddingCache({ timeoutMs: 800 }),
         rescueEnabled: true,
@@ -820,6 +860,7 @@ describe("Discovery search interpretation retrieval", () => {
     await retrieveDiscoveryItems(
       {
         db: emptyDb(),
+        queryVocabulary,
         provider,
         cache: createQueryEmbeddingCache(),
         rescueEnabled: true,
@@ -844,6 +885,7 @@ describe("Discovery search interpretation retrieval", () => {
     await retrieveDiscoveryItems(
       {
         db: emptyDb(),
+        queryVocabulary,
         rescueEnabled: false,
         searchLexical: async () => result([...rows]),
         searchCorrected: async () => null,
@@ -859,6 +901,7 @@ describe("Discovery search interpretation retrieval", () => {
     const actual = await retrieveDiscoveryItems(
       {
         db: emptyDb(),
+        queryVocabulary,
         rescueEnabled: false,
         searchLexical,
         searchCorrected: async () => null,
@@ -868,6 +911,82 @@ describe("Discovery search interpretation retrieval", () => {
     );
     expect(searchLexical.mock.calls.map(([, params]) => params?.search)).toEqual(["psa 10"]);
     expect(actual).not.toHaveProperty("interpretation");
+  });
+
+  describe("Query Vocabulary", () => {
+    const squirtle: QueryVocabulary = { expansions: { sq: "squirtle" } };
+    const readers = () => ({
+      searchLexical: vi.fn<NonNullable<DiscoveryRetrievalDependencies["searchLexical"]>>(async () => result([])),
+      searchCorrected: vi.fn<NonNullable<DiscoveryRetrievalDependencies["searchCorrected"]>>(async () => null),
+    });
+
+    it("hands the lexical and corrected readers the vocabulary it was given", async () => {
+      const { searchLexical, searchCorrected } = readers();
+      await retrieveDiscoveryItems(
+        { db: emptyDb(), rescueEnabled: false, queryVocabulary: squirtle, searchLexical, searchCorrected },
+        { search: "sq chraizard" },
+      );
+      expect(searchLexical.mock.calls.map(([, , options]) => options.queryVocabulary)).toEqual([squirtle]);
+      expect(searchCorrected.mock.calls.map(([, , , correctionVocabulary]) => correctionVocabulary)).toEqual([
+        squirtle,
+      ]);
+    });
+
+    it("keeps that vocabulary through an interpreted read and both corrections", async () => {
+      const { searchLexical, searchCorrected } = readers();
+      await retrieveDiscoveryItems(
+        {
+          db: emptyDb(),
+          rescueEnabled: false,
+          queryVocabulary: squirtle,
+          searchLexical,
+          searchCorrected,
+          loadInterpretationVocabulary: async () => vocabulary,
+        },
+        { search: "sq psa 10" },
+      );
+      // "psa 10" is interpreted as filters, which leaves "sq" as the interpreted remainder.
+      expect(searchLexical.mock.calls.map(([, params]) => params.search)).toEqual(["sq psa 10", "sq"]);
+      expect(searchLexical.mock.calls.map(([, , options]) => options.queryVocabulary)).toEqual([squirtle, squirtle]);
+      expect(searchCorrected).toHaveBeenCalledTimes(2);
+      for (const [, , , correctionVocabulary] of searchCorrected.mock.calls) {
+        expect(correctionVocabulary).toBe(squirtle);
+      }
+    });
+
+    it("expands only that vocabulary's keys beside a protected token, and never the protected token", async () => {
+      const lexicalQuery = async (queryVocabulary: QueryVocabulary, search: string) => {
+        const { searchLexical, searchCorrected } = readers();
+        await retrieveDiscoveryItems(
+          { db: emptyDb(), rescueEnabled: false, queryVocabulary, searchLexical, searchCorrected },
+          { search },
+        );
+        return searchLexical.mock.calls[0]?.[2].searchQueries?.simple;
+      };
+      expect(await lexicalQuery(squirtle, "sq etb 4/102")).toBe("(sq | (squirtle)) & etb & (4 <-> 102)");
+      expect(await lexicalQuery(queryVocabulary, "sq etb 4/102")).toBe(
+        "sq & (etb | (elite <-> trainer <-> box)) & (4 <-> 102)",
+      );
+      expect(await lexicalQuery({ expansions: { sq: "squirtle", sv: "scarlet violet" } }, "sq sv04")).toBe(
+        "(sq | (squirtle)) & sv04",
+      );
+    });
+
+    it("reads the Search Index with that vocabulary when no reader is injected", async () => {
+      const bindings: unknown[] = [];
+      const db: PgQueryable = {
+        query: async (_sql: string, values: readonly unknown[] = []) => {
+          bindings.push(...values);
+          return { rows: [], rowCount: 0 };
+        },
+      };
+      await retrieveDiscoveryItems(
+        { db, rescueEnabled: false, queryVocabulary: squirtle },
+        { search: "sq etb", sort: "newest" },
+      );
+      expect(bindings).toContain("(sq | (squirtle)) & etb");
+      expect(bindings.filter((value) => typeof value === "string" && value.includes("elite"))).toEqual([]);
+    });
   });
 
   // A deterministic provider with a distinct semantic-only row, so any Rescue
@@ -880,6 +999,7 @@ describe("Discovery search interpretation retrieval", () => {
     ) => Promise<ListResult<DiscoverySearchItemRow> | null>,
   ) => ({
     db: emptyDb(),
+    queryVocabulary,
     provider: fakeProvider(),
     cache: createQueryEmbeddingCache(),
     rescueEnabled: true,

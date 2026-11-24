@@ -6,6 +6,7 @@ import type {
 } from "../domain/query-embedding-cache";
 import { truncateDiscoverySearchQuery } from "../domain/normalization";
 import { classifyProtectedSearchTokens, type ProtectedSearchToken } from "../domain/protected-search-tokens";
+import type { QueryVocabulary } from "../domain/query-vocabulary-policy";
 import { buildSearchSynonymQueries } from "../domain/search-synonyms";
 import { createSearchCorrectionBudget, protectedSearchQuery } from "../domain/spelling-correction";
 import { interpretSearchText } from "../domain/search-interpretation";
@@ -53,6 +54,7 @@ export type DiscoveryRetrievalDependencies = Readonly<{
   provider?: DiscoveryEmbeddingProvider;
   cache?: QueryEmbeddingCache;
   rescueEnabled: boolean;
+  queryVocabulary: QueryVocabulary;
   searchLexical?: SearchLexical;
   searchSemantic?: SearchSemantic;
   searchNaturalKey?: SearchNaturalKey;
@@ -130,8 +132,9 @@ async function retrieveDiscoveryPage(
     }
   }
 
+  const { queryVocabulary } = dependencies;
   const protectedQuery = protectedSearchQuery(tokens);
-  const searchLexical = await protectedLexicalReader(lexicalReader, query, tokens);
+  const searchLexical = await protectedLexicalReader(lexicalReader, query, tokens, queryVocabulary);
   const semanticEligible = !protectedQuery && isSemanticEligible(dependencies, params);
   const correctionEligible = fresh && query.length > 0 && (params.sort === undefined || params.sort === "relevance");
   // Every correction this invocation attempts, interpreted or original-text, spends one budget.
@@ -142,6 +145,7 @@ async function retrieveDiscoveryPage(
       dependencies.db,
       request,
       requestTokens,
+      queryVocabulary,
       correctionBudget,
     );
     if (!corrected?.items.length) return null;
@@ -154,7 +158,7 @@ async function retrieveDiscoveryPage(
     (correctionEligible && !params.interpreted && lexical.items.length === 0 && tokens.length > 1
       ? await retrieveInterpretedPage(dependencies, params, tokens, lexicalReader, correct)
       : null) ?? (await correct(lexical, params, tokens));
-  const lexical = await searchLexical(dependencies.db, params);
+  const lexical = await searchLexical(dependencies.db, params, { queryVocabulary });
   const recovered = await recover(lexical);
   if (recovered) return recovered;
   if (
@@ -219,9 +223,10 @@ async function retrieveInterpretedPage(
   const remainingTokens = await classifyProtectedSearchTokens(remainingQuery, (codes) =>
     lookupServedSearchSetCodes(dependencies.db, codes),
   );
+  const { queryVocabulary } = dependencies;
   const lexical = await (
-    await protectedLexicalReader(lexicalReader, remainingQuery, remainingTokens)
-  )(dependencies.db, request);
+    await protectedLexicalReader(lexicalReader, remainingQuery, remainingTokens, queryVocabulary)
+  )(dependencies.db, request, { queryVocabulary });
   // Interpreted rows answer the remaining query, so they never page: a cursor would continue
   // a different Result Set than the one the caller requested.
   const page =
@@ -235,10 +240,11 @@ async function protectedLexicalReader(
   lexicalReader: SearchLexical,
   query: string,
   tokens: readonly ProtectedSearchToken[],
+  queryVocabulary: QueryVocabulary,
 ): Promise<SearchLexical> {
   const protectedQuery = protectedSearchQuery(tokens);
   if (!protectedQuery) return lexicalReader;
-  const searchQueries = await buildSearchSynonymQueries(query, async () => new Set(), false, tokens);
+  const searchQueries = await buildSearchSynonymQueries(query, async () => new Set(), queryVocabulary, false, tokens);
   return (db, request, options) => lexicalReader(db, request, { ...options, searchQueries, protectedQuery });
 }
 

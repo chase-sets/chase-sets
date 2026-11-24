@@ -12,6 +12,9 @@ import {
 } from "./queries";
 import { buildSimpleSearchQuery } from "../domain/normalization";
 import { discoverySearchSchemaMigrations, discoverySearchSchemaSql } from "./schema";
+import { queryVocabularyPolicy } from "../domain/query-vocabulary-policy";
+
+const queryVocabulary = queryVocabularyPolicy.defaultValue;
 
 // Duplicates the production encoders in queries.ts; change both together.
 function encodeCursor(input: {
@@ -152,6 +155,7 @@ describe("searchDiscoveryItems cursor paging", () => {
         { raw: "charzard", protected: false },
         { raw: "004/102", protected: true },
       ],
+      queryVocabulary,
     );
     expect(page).toMatchObject({ total: 2, nextCursor: null, facets: [], category_counts: [] });
     expect(page?.items[0].market_summary).toMatchObject({ lowest_price_amount: "10.00", total_visible_quantity: 2 });
@@ -195,7 +199,7 @@ describe("searchDiscoveryItems cursor paging", () => {
     };
     expect(discoverySearchCursorState(params)).toBe("restarted");
     const { db, calls } = createCapturingDb();
-    await searchDiscoveryItems(db, params);
+    await searchDiscoveryItems(db, params, { queryVocabulary });
     expect(calls.some((call) => call.sql.includes("SELECT COUNT(*) AS count"))).toBe(true);
     expect(findListCall(calls)?.sql).not.toContain("OFFSET");
     expect(findListCall(calls)?.values).not.toContain("old");
@@ -209,7 +213,7 @@ describe("searchDiscoveryItems cursor paging", () => {
       { dimensionId: "condition", optionId: "mint" },
     ];
     const { db, calls } = createCapturingDb([listRow("card", "Card", { lowest_price_amount: "20" })]);
-    await searchDiscoveryItems(db, { dimensionFilters, priceMax: "3", inStock: true });
+    await searchDiscoveryItems(db, { dimensionFilters, priceMax: "3", inStock: true }, { queryVocabulary });
     const list = findListCall(calls)!;
     expect(list.sql).toContain("selected_market.lowest_price_amount <=");
     expect(list.sql).toContain("selected_market.total_visible_quantity > 0");
@@ -227,7 +231,7 @@ describe("searchDiscoveryItems cursor paging", () => {
       listRow("b", "B", { lowest_price_amount: "30" }),
     ]);
     const dimensionFilters = [{ dimensionId: "finish", optionId: "foil" }];
-    const page = await searchDiscoveryItems(db, { sort, dimensionFilters, limit: 1 });
+    const page = await searchDiscoveryItems(db, { sort, dimensionFilters, limit: 1 }, { queryVocabulary });
     expect(decodeCursorJson(page.nextCursor)).toMatchObject({ pv: 2, lowestPriceAmount: "20" });
     expect(discoverySearchCursorState({ sort, dimensionFilters, cursor: page.nextCursor! })).toBe("cursor");
   });
@@ -252,7 +256,7 @@ describe("searchDiscoveryItems cursor paging", () => {
     await searchDiscoveryItems(
       firstPage.db,
       { includeTotal: true, limit: 24 },
-      { loadFacets: false, loadMarketSummaries: false },
+      { queryVocabulary, loadFacets: false, loadMarketSummaries: false },
     );
 
     expect(firstPage.calls.some((call) => call.sql.includes("SELECT COUNT(*) AS count"))).toBe(true);
@@ -265,7 +269,7 @@ describe("searchDiscoveryItems cursor paging", () => {
         cursor: encodeCursor({ id: "cat_001", title: "Bulbasaur", updatedAt: "2026-05-16T00:00:00.000Z" }),
         limit: 24,
       },
-      { loadFacets: false, loadMarketSummaries: false },
+      { queryVocabulary, loadFacets: false, loadMarketSummaries: false },
     );
 
     expect(cursorPage.calls.some((call) => call.sql.includes("SELECT COUNT(*) AS count"))).toBe(false);
@@ -274,14 +278,18 @@ describe("searchDiscoveryItems cursor paging", () => {
   it("issues only the result query and no facet queries for load-more requests", async () => {
     const { db, calls } = createCapturingDb();
 
-    await searchDiscoveryItems(db, {
-      cursor: encodeCursor({
-        id: "cat_001",
-        title: "Bulbasaur",
-        updatedAt: "2026-05-16T00:00:00.000Z",
-      }),
-      limit: 24,
-    });
+    await searchDiscoveryItems(
+      db,
+      {
+        cursor: encodeCursor({
+          id: "cat_001",
+          title: "Bulbasaur",
+          updatedAt: "2026-05-16T00:00:00.000Z",
+        }),
+        limit: 24,
+      },
+      { queryVocabulary },
+    );
 
     expect(calls).toHaveLength(1);
     expect(calls[0]?.sql).toContain("SELECT catalog_item_id");
@@ -327,7 +335,11 @@ describe("searchDiscoveryItems cursor paging", () => {
       }),
     };
 
-    const result = await searchDiscoveryItems(db, { limit: 1 }, { loadMarketSummaries: false, loadFacets: false });
+    const result = await searchDiscoveryItems(
+      db,
+      { limit: 1 },
+      { queryVocabulary, loadMarketSummaries: false, loadFacets: false },
+    );
 
     expect(result.items[0]?.display_badges).toEqual(badges);
   });
@@ -339,15 +351,19 @@ describe("searchDiscoveryItems cursor paging", () => {
       )?.statements ?? [];
     const { db, calls } = createCapturingDb();
 
-    await searchDiscoveryItems(db, {
-      sort: "newest",
-      cursor: encodeCursor({
-        id: "cat_002",
-        title: "Bulbasaur",
-        updatedAt: "2026-05-16T00:00:00.000Z",
-      }),
-      limit: 24,
-    });
+    await searchDiscoveryItems(
+      db,
+      {
+        sort: "newest",
+        cursor: encodeCursor({
+          id: "cat_002",
+          title: "Bulbasaur",
+          updatedAt: "2026-05-16T00:00:00.000Z",
+        }),
+        limit: 24,
+      },
+      { queryVocabulary },
+    );
 
     const listCall = calls.find((call) => call.sql.includes("FROM discovery_search_items"));
     expect(listCall?.sql).toContain("display_badges");
@@ -385,7 +401,7 @@ describe("searchDiscoveryItems cursor paging", () => {
         }),
         limit: 24,
       },
-      { loadFacets: false, loadMarketSummaries: false },
+      { queryVocabulary, loadFacets: false, loadMarketSummaries: false },
     );
 
     const listCall = calls.find((call) => call.sql.includes("SELECT catalog_item_id"));
@@ -423,7 +439,7 @@ describe("searchDiscoveryItems cursor paging", () => {
           }),
           limit: 24,
         },
-        { loadFacets: false, loadMarketSummaries: false },
+        { queryVocabulary, loadFacets: false, loadMarketSummaries: false },
       );
 
       const listCall = calls.find((call) => call.sql.includes("SELECT catalog_item_id"));
@@ -438,12 +454,16 @@ describe("searchDiscoveryItems cursor paging", () => {
   it("applies price range and in-stock constraints to result and facet filters", async () => {
     const { db, calls } = createCapturingDb();
 
-    await searchDiscoveryItems(db, {
-      priceMin: "10.00",
-      priceMax: "25.50",
-      inStock: true,
-      limit: 24,
-    });
+    await searchDiscoveryItems(
+      db,
+      {
+        priceMin: "10.00",
+        priceMax: "25.50",
+        inStock: true,
+        limit: 24,
+      },
+      { queryVocabulary },
+    );
 
     const searchCalls = calls.filter((call) => call.sql.includes("discovery_search_items"));
     expect(searchCalls.length).toBeGreaterThan(1);
@@ -458,7 +478,7 @@ describe("searchDiscoveryItems cursor paging", () => {
   it("category set matches any category through one predicate", async () => {
     const { db, calls } = createCapturingDb();
 
-    await searchDiscoveryItems(db, { categories: ["B", "A", "A", " "] });
+    await searchDiscoveryItems(db, { categories: ["B", "A", "A", " "] }, { queryVocabulary });
 
     const list = calls.find((call) => call.sql.includes("FROM discovery_search_items"));
     expect(list?.sql).toContain("category_names ?| $2::text[] OR category_slugs ?| $2::text[]");
@@ -484,12 +504,16 @@ describe("searchDiscoveryItems cursor paging", () => {
       },
     };
 
-    await searchDiscoveryItems(db, {
-      priceMin: "10.00",
-      priceMax: "20.00",
-      priceCurrency: "EUR",
-      dimensionFilters: [{ dimensionId: "condition", optionId: "mint" }],
-    });
+    await searchDiscoveryItems(
+      db,
+      {
+        priceMin: "10.00",
+        priceMax: "20.00",
+        priceCurrency: "EUR",
+        dimensionFilters: [{ dimensionId: "condition", optionId: "mint" }],
+      },
+      { queryVocabulary },
+    );
 
     const searchCalls = calls.filter((call) => call.sql.includes("discovery_search_items"));
     expect(searchCalls[0]?.sql).toContain(
@@ -519,7 +543,11 @@ describe("searchDiscoveryItems cursor paging", () => {
     ]);
 
     const baseDb = createCapturingDb();
-    await searchDiscoveryItems(baseDb.db, { priceMin: "1.000", priceMax: "1000", priceCurrency: "EUR" });
+    await searchDiscoveryItems(
+      baseDb.db,
+      { priceMin: "1.000", priceMax: "1000", priceCurrency: "EUR" },
+      { queryVocabulary },
+    );
     const baseSearch = baseDb.calls.find((call) => call.sql.includes("FROM discovery_search_items"));
     expect(baseSearch?.sql).toContain(
       "(lowest_price_currency_code IS DISTINCT FROM $2 OR lowest_price_amount IS NULL OR lowest_price_amount >= $3::numeric)",
@@ -542,11 +570,15 @@ describe("searchDiscoveryItems cursor paging", () => {
         return noCurrency.db.query<Row>(sql, values);
       },
     };
-    await searchDiscoveryItems(noCurrencyDb, {
-      priceMin: "10.00",
-      priceMax: "20.00",
-      dimensionFilters: [{ dimensionId: "condition", optionId: "mint" }],
-    });
+    await searchDiscoveryItems(
+      noCurrencyDb,
+      {
+        priceMin: "10.00",
+        priceMax: "20.00",
+        dimensionFilters: [{ dimensionId: "condition", optionId: "mint" }],
+      },
+      { queryVocabulary },
+    );
     const noCurrencyFacet = noCurrency.calls.find((call) => call.sql.includes("option_market AS"));
     expect(noCurrencyFacet?.sql).not.toContain("lowest_price_currency_code");
     expect(noCurrencyFacet?.sql).toContain(
@@ -671,7 +703,7 @@ describe("searchDiscoveryItems cursor paging", () => {
     async ({ sort, cursor, expectedCondition, expectedOrder, expectedCursorValues }) => {
       const { db, calls } = createCapturingDb();
 
-      await searchDiscoveryItems(db, { sort, cursor, limit: 24 });
+      await searchDiscoveryItems(db, { sort, cursor, limit: 24 }, { queryVocabulary });
 
       const listCall = calls.find((call) => call.sql.includes("SELECT catalog_item_id"));
       expect(listCall?.sql).toContain(expectedCondition);
@@ -686,12 +718,16 @@ describe("searchDiscoveryItems cursor paging", () => {
     const { db, calls } = createCapturingDb();
     const cursor = encodeRelevanceCursor({ tier: 1, baseMatch: true, rank: 0.75, title: "Bulbasaur", id: "cat_002" });
 
-    await searchDiscoveryItems(db, {
-      search: "pokemon",
-      sort: "relevance",
-      cursor,
-      limit: 24,
-    });
+    await searchDiscoveryItems(
+      db,
+      {
+        search: "pokemon",
+        sort: "relevance",
+        cursor,
+        limit: 24,
+      },
+      { queryVocabulary },
+    );
 
     const listCall = findListCall(calls);
     expect(listCall?.sql).toContain("(ts_rank(search_text");
@@ -728,7 +764,11 @@ describe("searchDiscoveryItems cursor paging", () => {
   it("selects the exact identity tier once per qualifying row from one SQL normalization of both sides", async () => {
     const { db, calls } = createCapturingDb();
 
-    await searchDiscoveryItems(db, { search: "Pokémon", limit: 24 }, { loadFacets: false, loadMarketSummaries: false });
+    await searchDiscoveryItems(
+      db,
+      { search: "Pokémon", limit: 24 },
+      { queryVocabulary, loadFacets: false, loadMarketSummaries: false },
+    );
 
     const sql = findListCall(calls)?.sql ?? "";
     const normalized = (text: string) => `lower(btrim(regexp_replace(regexp_replace(normalize(${text}, NFD), '(?<=[`;
@@ -761,7 +801,11 @@ describe("searchDiscoveryItems cursor paging", () => {
   it("binds an empty exact query when the oracle normalizes the search to nothing", async () => {
     const { db, calls } = createCapturingDb();
 
-    await searchDiscoveryItems(db, { search: "¡¿…!!", limit: 24 }, { loadFacets: false, loadMarketSummaries: false });
+    await searchDiscoveryItems(
+      db,
+      { search: "¡¿…!!", limit: 24 },
+      { queryVocabulary, loadFacets: false, loadMarketSummaries: false },
+    );
 
     expect(findListCall(calls)?.values).toEqual(["active", "¡¿…!!", "", "", 25]);
   });
@@ -770,7 +814,11 @@ describe("searchDiscoveryItems cursor paging", () => {
     for (const params of [{ search: "pokemon", sort: "title_asc" }, { sort: "relevance" }] as const) {
       const { db, calls } = createCapturingDb();
 
-      await searchDiscoveryItems(db, { ...params, limit: 24 }, { loadFacets: false, loadMarketSummaries: false });
+      await searchDiscoveryItems(
+        db,
+        { ...params, limit: 24 },
+        { queryVocabulary, loadFacets: false, loadMarketSummaries: false },
+      );
 
       const listCall = findListCall(calls);
       expect(listCall?.sql).not.toContain("search_exact_tier");
@@ -791,7 +839,7 @@ describe("searchDiscoveryItems cursor paging", () => {
     const relevancePage = await searchDiscoveryItems(
       relevance.db,
       { search: "Charizard ex", limit: 1 },
-      { loadFacets: false, loadMarketSummaries: false },
+      { queryVocabulary, loadFacets: false, loadMarketSummaries: false },
     );
 
     expect(decodeCursorJson(relevancePage.nextCursor)).toEqual({
@@ -811,7 +859,7 @@ describe("searchDiscoveryItems cursor paging", () => {
     const titlePage = await searchDiscoveryItems(
       titleSort.db,
       { search: "Charizard ex", sort: "title_asc", limit: 1 },
-      { loadFacets: false, loadMarketSummaries: false },
+      { queryVocabulary, loadFacets: false, loadMarketSummaries: false },
     );
 
     expect(decodeCursorJson(titlePage.nextCursor)).toEqual({
@@ -834,7 +882,7 @@ describe("searchDiscoveryItems cursor paging", () => {
       await searchDiscoveryItems(
         db,
         { search: "pokemon", category: "cards", ...params },
-        { loadFacets: false, loadMarketSummaries: false },
+        { queryVocabulary, loadFacets: false, loadMarketSummaries: false },
       );
 
       const countCall = calls.find((call) => call.sql.startsWith("SELECT COUNT(*) AS count"));
@@ -869,7 +917,7 @@ describe("searchDiscoveryItems cursor paging", () => {
     const params = { search: "pokemon", category: "cards", cursor, includeTotal: true, limit: 24 };
 
     expect(discoverySearchCursorState(params)).toBe("restarted");
-    await searchDiscoveryItems(db, params);
+    await searchDiscoveryItems(db, params, { queryVocabulary });
 
     const listCall = findListCall(calls);
     expect(listCall?.sql).not.toContain("search_exact_tier, search_base_match::integer, search_rank) <");
@@ -898,7 +946,7 @@ describe("searchDiscoveryItems cursor paging", () => {
     const page = await searchDiscoveryItems(
       db,
       { search: "Charizard ex", cursor, offset: 48, limit: 1, includeTotal: true },
-      { loadFacets: false, loadMarketSummaries: false },
+      { queryVocabulary, loadFacets: false, loadMarketSummaries: false },
     );
 
     const listCall = findListCall(calls);
@@ -920,7 +968,7 @@ describe("searchDiscoveryItems cursor paging", () => {
     const page = await searchDiscoveryItems(
       db,
       { search: "Charizard ex", offset: 48, limit: 1 },
-      { loadFacets: false, loadMarketSummaries: false },
+      { queryVocabulary, loadFacets: false, loadMarketSummaries: false },
     );
 
     const listCall = findListCall(calls);
@@ -948,11 +996,15 @@ describe("searchDiscoveryItems cursor paging", () => {
   it("matches container contents through the folded item tsvector without a correlated subquery", async () => {
     const { db, calls } = createCapturingDb();
 
-    await searchDiscoveryItems(db, {
-      search: "Charizard",
-      sort: "relevance",
-      limit: 24,
-    });
+    await searchDiscoveryItems(
+      db,
+      {
+        search: "Charizard",
+        sort: "relevance",
+        limit: 24,
+      },
+      { queryVocabulary },
+    );
 
     const listCall = calls.find((call) => call.sql.includes("SELECT catalog_item_id"));
     // Product-contents text is folded into the item's tsvector at projection time,
@@ -974,14 +1026,18 @@ describe("searchDiscoveryItems cursor paging", () => {
   it("applies first-class reference filters by Reference Type", async () => {
     const { db, calls } = createCapturingDb();
 
-    await searchDiscoveryItems(db, {
-      referenceFilters: [
-        { typeKey: "series", referenceId: "ref_mega_evolution" },
-        { typeKey: "series", referenceId: "ref_scarlet_violet" },
-        { typeKey: "product-line", referenceId: "ref_pokemon_tcg" },
-      ],
-      limit: 24,
-    });
+    await searchDiscoveryItems(
+      db,
+      {
+        referenceFilters: [
+          { typeKey: "series", referenceId: "ref_mega_evolution" },
+          { typeKey: "series", referenceId: "ref_scarlet_violet" },
+          { typeKey: "product-line", referenceId: "ref_pokemon_tcg" },
+        ],
+        limit: 24,
+      },
+      { queryVocabulary },
+    );
 
     const listCall = calls.find((call) => call.sql.includes("SELECT catalog_item_id"));
     expect(listCall?.sql).toContain("jsonb_array_elements(reference_filter_values)");
@@ -1000,11 +1056,15 @@ describe("searchDiscoveryItems cursor paging", () => {
   it("filters listed items by selected product options when dimension filters are active", async () => {
     const { db, calls } = createCapturingDb();
 
-    await searchDiscoveryItems(db, {
-      marketActivity: "listings",
-      dimensionFilters: [{ dimensionId: "dim_condition", optionId: "opt_near_mint" }],
-      limit: 24,
-    });
+    await searchDiscoveryItems(
+      db,
+      {
+        marketActivity: "listings",
+        dimensionFilters: [{ dimensionId: "dim_condition", optionId: "opt_near_mint" }],
+        limit: 24,
+      },
+      { queryVocabulary },
+    );
 
     const listCall = calls.find((call) => call.sql.includes("SELECT catalog_item_id"));
     expect(listCall?.sql).toContain("FROM discovery_market_listings AS listing");
@@ -1022,10 +1082,14 @@ describe("searchDiscoveryItems cursor paging", () => {
   it("filters items with listings or submitted offers", async () => {
     const { db, calls } = createCapturingDb();
 
-    await searchDiscoveryItems(db, {
-      marketActivity: "any",
-      limit: 24,
-    });
+    await searchDiscoveryItems(
+      db,
+      {
+        marketActivity: "any",
+        limit: 24,
+      },
+      { queryVocabulary },
+    );
 
     const listCall = calls.find((call) => call.sql.includes("SELECT catalog_item_id"));
     expect(listCall?.sql).toContain("FROM discovery_market_listings AS listing");
@@ -1069,11 +1133,15 @@ describe("searchDiscoveryItems cursor paging", () => {
       },
     };
 
-    const result = await searchDiscoveryItems(db, {
-      marketActivity: "listings",
-      dimensionFilters: [{ dimensionId: "dim_condition", optionId: "opt_near_mint" }],
-      limit: 24,
-    });
+    const result = await searchDiscoveryItems(
+      db,
+      {
+        marketActivity: "listings",
+        dimensionFilters: [{ dimensionId: "dim_condition", optionId: "opt_near_mint" }],
+        limit: 24,
+      },
+      { queryVocabulary },
+    );
 
     const facetValueCall = calls.find((call) => call.sql.includes("market_counts AS"));
     expect(facetValueCall?.sql).toContain("FROM discovery_market_listings AS listing");
@@ -1122,10 +1190,14 @@ describe("searchDiscoveryItems cursor paging", () => {
       },
     };
 
-    await searchDiscoveryItems(db, {
-      marketActivity: "any",
-      limit: 24,
-    });
+    await searchDiscoveryItems(
+      db,
+      {
+        marketActivity: "any",
+        limit: 24,
+      },
+      { queryVocabulary },
+    );
 
     const facetValueCall = calls.find((call) => call.sql.includes("market_counts AS"));
     expect(facetValueCall?.sql).toContain("FROM discovery_market_listings AS listing");
@@ -1160,10 +1232,14 @@ describe("searchDiscoveryItems cursor paging", () => {
       },
     };
 
-    await searchDiscoveryItems(db, {
-      fieldFilters: [{ fieldId: "fld_seed_release_year", value: "2024" }],
-      limit: 24,
-    });
+    await searchDiscoveryItems(
+      db,
+      {
+        fieldFilters: [{ fieldId: "fld_seed_release_year", value: "2024" }],
+        limit: 24,
+      },
+      { queryVocabulary },
+    );
 
     const facetValueCall = calls.find((call) => call.sql.includes("facet.value->>'sortKind'"));
     expect(facetValueCall?.sql).toContain("CASE WHEN sort_kind = 'date-desc' THEN sort_value END DESC NULLS LAST");
@@ -1198,10 +1274,14 @@ describe("searchDiscoveryItems cursor paging", () => {
       },
     };
 
-    await searchDiscoveryItems(db, {
-      dimensionFilters: [{ dimensionId: "dim_seed_grade", optionId: "chc_seed_grade_poor_1" }],
-      limit: 24,
-    });
+    await searchDiscoveryItems(
+      db,
+      {
+        dimensionFilters: [{ dimensionId: "dim_seed_grade", optionId: "chc_seed_grade_poor_1" }],
+        limit: 24,
+      },
+      { queryVocabulary },
+    );
 
     const facetValueCall = calls.find((call) => call.sql.includes("facet.value->>'valueKind'"));
     expect(facetValueCall?.sql).toContain("CASE WHEN value_kind = 'numeric' THEN numeric_value END DESC NULLS LAST");
@@ -1232,16 +1312,20 @@ describe("searchDiscoveryItems facets", () => {
           return capturingDb.query<Row>(sql, values);
         },
       };
-      await searchDiscoveryItems(db, {
-        dimensionFilters: [
-          { dimensionId: "finish", optionId: "foil" },
-          { dimensionId: "condition", optionId: "mint" },
-        ],
-        priceMin: "10",
-        priceMax: "30",
-        inStock: true,
-        marketActivity,
-      });
+      await searchDiscoveryItems(
+        db,
+        {
+          dimensionFilters: [
+            { dimensionId: "finish", optionId: "foil" },
+            { dimensionId: "condition", optionId: "mint" },
+          ],
+          priceMin: "10",
+          priceMax: "30",
+          inStock: true,
+          marketActivity,
+        },
+        { queryVocabulary },
+      );
       const facet = calls.find(({ sql }) => sql.includes("option_market AS"))!;
       expect(facet.sql).toContain("market.visible_quantity > 0");
       expect(facet.sql).toContain("market.lowest_price_amount >=");
@@ -1293,7 +1377,7 @@ describe("searchDiscoveryItems facets", () => {
       },
     } as PgQueryable;
 
-    const search = searchDiscoveryItems(db);
+    const search = searchDiscoveryItems(db, {}, { queryVocabulary });
     await firstQueryStarted;
     const startedBeforeFirstCompleted = [...started];
     releaseFirst?.();
@@ -1341,9 +1425,13 @@ describe("searchDiscoveryItems facets", () => {
       },
     } as PgQueryable;
 
-    const result = await searchDiscoveryItems(db, {
-      fieldFilters: [{ fieldId: "field_rarity", value: "rare" }],
-    });
+    const result = await searchDiscoveryItems(
+      db,
+      {
+        fieldFilters: [{ fieldId: "field_rarity", value: "rare" }],
+      },
+      { queryVocabulary },
+    );
 
     const valueQuery = calls.find((call) => call.sql.includes("BOOL_OR(facet.value->>'value' = ANY"));
     expect(valueQuery?.sql).toContain("BOOL_OR(facet.value->>'value' = ANY($3::text[])) AS selected");
@@ -1424,7 +1512,7 @@ describe("searchDiscoveryItems facets", () => {
       },
     } as PgQueryable;
 
-    const result = await searchDiscoveryItems(db);
+    const result = await searchDiscoveryItems(db, {}, { queryVocabulary });
     const facetIds = result.facets.map((facet) => facet.id);
 
     expect(facetIds).toContain("expansion");
@@ -1438,7 +1526,11 @@ describe("previewBulkAddSearchResults", () => {
   it("preview retains selected dimensions and selected stock/price constraints", async () => {
     const { db, calls } = createCapturingDb();
     const dimensionFilters = [{ dimensionId: "finish", optionId: "foil" }];
-    await previewBulkAddSearchResults(db, { dimensionFilters, inStock: true, priceMin: "10", priceMax: "30" });
+    await previewBulkAddSearchResults(
+      db,
+      { dimensionFilters, inStock: true, priceMin: "10", priceMax: "30" },
+      queryVocabulary,
+    );
     const list = findListCall(calls)!;
     expect(list.sql).toContain("selected_market.lowest_price_amount >=");
     expect(list.sql).toContain("selected_market.lowest_price_amount <=");
@@ -1448,7 +1540,7 @@ describe("previewBulkAddSearchResults", () => {
   it("performs no facet work", async () => {
     const { db, calls } = createCapturingDb();
 
-    await previewBulkAddSearchResults(db, { search: "Charizard" });
+    await previewBulkAddSearchResults(db, { search: "Charizard" }, queryVocabulary);
 
     expect(calls).toHaveLength(2);
     expect(calls.some((call) => call.sql.includes("AS summaries"))).toBe(false);
@@ -1459,7 +1551,7 @@ describe("previewBulkAddSearchResults", () => {
 describe("searchDiscoveryItems input hardening", () => {
   it("expands reviewed vocabulary as original OR whole phrase, retaining required terms and original exact tier", async () => {
     const { db, calls } = createCapturingDb();
-    await searchDiscoveryItems(db, { search: "pkmn ETB zard missing" }, { loadFacets: false });
+    await searchDiscoveryItems(db, { search: "pkmn ETB zard missing" }, { queryVocabulary, loadFacets: false });
     const list = findListCall(calls)!;
     expect(list.sql).toContain("to_tsquery('english', $2)");
     expect(list.sql).toContain("to_tsquery('simple', $3)");
@@ -1482,7 +1574,7 @@ describe("searchDiscoveryItems input hardening", () => {
         return { rows: rows as Row[], rowCount: rows.length };
       },
     };
-    await searchDiscoveryItems(db, { search: "zard 4/102 zard 136a TSP 136a charzard 4/102" });
+    await searchDiscoveryItems(db, { search: "zard 4/102 zard 136a TSP 136a charzard 4/102" }, { queryVocabulary });
     const lookups = calls.filter(({ sql }) => sql.includes("unnest($1::text[])"));
     expect(lookups).toHaveLength(1);
     expect(lookups[0]?.values).toEqual([["zard", "tsp", "charzard"]]);
@@ -1493,7 +1585,7 @@ describe("searchDiscoveryItems input hardening", () => {
 
   it("does not protect an absent alphabetic nickname merely because it precedes a collector number", async () => {
     const { db, calls } = createCapturingDb();
-    await searchDiscoveryItems(db, { search: "zard 4/102" }, { loadFacets: false });
+    await searchDiscoveryItems(db, { search: "zard 4/102" }, { queryVocabulary, loadFacets: false });
     expect(findListCall(calls)?.values.slice(1, 3)).toEqual([
       "(zard | (charizard)) & 4/102",
       "(zard | (charizard)) & (4 <-> 102)",
@@ -1503,7 +1595,11 @@ describe("searchDiscoveryItems input hardening", () => {
   it("folds diacritics in both full-text query inputs", async () => {
     const { db, calls } = createCapturingDb();
 
-    await searchDiscoveryItems(db, { search: "Pokémon", limit: 24 }, { loadFacets: false, loadMarketSummaries: false });
+    await searchDiscoveryItems(
+      db,
+      { search: "Pokémon", limit: 24 },
+      { queryVocabulary, loadFacets: false, loadMarketSummaries: false },
+    );
 
     expect(calls[0]?.values).toEqual(["active", "Pokemon", "Pokemon", "Pokémon", 25]);
   });
@@ -1515,7 +1611,11 @@ describe("searchDiscoveryItems input hardening", () => {
   ])("keeps %s parameterized and well formed", async (_label, search) => {
     const { db, calls } = createCapturingDb();
 
-    await searchDiscoveryItems(db, { search, limit: 24 }, { loadFacets: false, loadMarketSummaries: false });
+    await searchDiscoveryItems(
+      db,
+      { search, limit: 24 },
+      { queryVocabulary, loadFacets: false, loadMarketSummaries: false },
+    );
 
     expect(calls).toHaveLength(1);
     expect(calls[0]?.sql).toContain("plainto_tsquery('english', $2)");

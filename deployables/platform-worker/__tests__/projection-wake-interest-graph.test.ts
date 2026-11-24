@@ -690,6 +690,59 @@ describe("platform worker projection wake interest graph", () => {
     }
   });
 
+  it("runs Discovery's policy document projection over Discovery's own policy tables", () => {
+    const policyEventTypes = ["platform-policy.document.created", "platform-policy.document.revised"];
+    const runtime = createPlatformWorkerHost();
+    const runners = runtime.subscriptionRunners.filter(
+      (runner) =>
+        runner.targetContextName === "discovery" && runner.projectionName === "platform-policy-document-projection",
+    );
+    expect(runners).toHaveLength(1);
+    expect(runners[0]).toMatchObject({
+      sourceContextName: "discovery",
+      checkpointKey: "platform-policy-document-projection:discovery:v1",
+      subscriptionName: "discovery.platform-policy-document-projection",
+      subscriptionVersion: 1,
+      eventTypes: policyEventTypes,
+      streamPrefixes: ["platform-policy.document-"],
+    });
+    for (const eventType of policyEventTypes) {
+      expect(runners[0]?.handlers?.[eventType]).toBeTypeOf("function");
+    }
+
+    const index = buildPlatformWorkerProjectionWakeRelayInterestIndex();
+    const entries = index.entries.filter(
+      (entry) =>
+        entry.targetContextName === "discovery" && entry.projectionName === "platform-policy-document-projection",
+    );
+    expect(entries).toHaveLength(1);
+    const [entry] = entries;
+    expect(entry).toMatchObject({
+      sourceContextName: "discovery",
+      checkpointKey: "platform-policy-document-projection:discovery:v1",
+      subscriptionName: "discovery.platform-policy-document-projection",
+      owner: "Discovery",
+      ownedTables: ["platform_policy_document_history", "platform_policy_documents"],
+      eventTypes: policyEventTypes,
+      streamPrefixes: ["platform-policy.document-"],
+    });
+    for (const eventType of policyEventTypes) {
+      // A policy revision written to Discovery's store wakes Discovery's projection and no other context's.
+      const interested = lookupProjectionInterests(index, { sourceContextName: "discovery", eventType });
+      expect(interested).toContain(entry);
+      expect(
+        interested.filter((candidate) => candidate.projectionName === "platform-policy-document-projection"),
+      ).toEqual([entry]);
+      expect(lookupProjectionInterests(index, { sourceContextName: "marketplace", eventType })).not.toContain(entry);
+    }
+    expect(
+      lookupProjectionInterests(index, {
+        sourceContextName: "discovery",
+        eventType: "discovery.product-alert.created",
+      }),
+    ).not.toContain(entry);
+  });
+
   it("assembles the conditional owner's runner only where its source is mounted", () => {
     const extensions = syntheticConditionalWorkerExtension();
     for (const profile of ["public", "proof", "landing"] as const) {

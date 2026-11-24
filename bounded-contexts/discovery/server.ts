@@ -24,4 +24,6 @@ export {
 
 export type { DiscoveryServices } from "./support/runtime-support/services";
 
+export { queryVocabularyPolicy } from "./features/search/domain/query-vocabulary-policy";
+
 export { createDiscoverySearchEmbeddingEnrichmentRunners } from "./support/runtime-support/worker-jobs";

@@ -4,33 +4,21 @@ import {
   type ProtectedSearchToken,
   type ServedSearchSetCodeLookup,
 } from "./protected-search-tokens";
-
-// Reviewed buyer vocabulary: sealed-product abbreviations, franchise shorthand,
-// and the Charizard nickname. These are query alternatives, not Catalog aliases.
-export const SEARCH_SYNONYMS: Readonly<Record<string, string>> = Object.freeze({
-  etb: "elite trainer box",
-  bb: "booster box",
-  pkmn: "pokemon",
-  zard: "charizard",
-  ygo: "yu-gi-oh",
-});
-
-export function isSearchSynonym(token: string): boolean {
-  return Object.hasOwn(SEARCH_SYNONYMS, normalizeSimpleSearchText(token).toLowerCase());
-}
+import type { QueryVocabulary } from "./query-vocabulary-policy";
 
 export type SearchSynonymQueries = Readonly<{ english: string; simple: string; expanded: boolean }>;
 
 export async function buildSearchSynonymQueries(
   value: string,
   lookup: ServedSearchSetCodeLookup,
+  vocabulary: QueryVocabulary,
   prefix = false,
   classified?: readonly ProtectedSearchToken[],
 ): Promise<SearchSynonymQueries> {
   const tokens = classified ?? (await classifyProtectedSearchTokens(value, lookup));
   const alternatives = tokens.map(({ raw, protected: protectedToken }) => {
     const key = normalizeSimpleSearchText(raw).toLowerCase();
-    return !protectedToken && Object.hasOwn(SEARCH_SYNONYMS, key) ? SEARCH_SYNONYMS[key] : null;
+    return !protectedToken && Object.hasOwn(vocabulary.expansions, key) ? vocabulary.expansions[key] : null;
   });
   // Keep the existing plain-query path when no alternatives or compound literal
   // numbers are needed, including its English punctuation/stop-word semantics.

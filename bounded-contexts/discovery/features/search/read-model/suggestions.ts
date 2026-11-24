@@ -1,6 +1,7 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { DiscoverySearchSuggestion } from "../../../support/client-support/contracts";
 import { truncateDiscoverySearchSuggestionQuery } from "../domain/normalization";
+import type { QueryVocabulary } from "../domain/query-vocabulary-policy";
 import { buildSearchSynonymQueries } from "../domain/search-synonyms";
 import { lookupServedSearchSetCodes } from "./queries";
 
@@ -17,11 +18,13 @@ type DiscoverySearchSuggestionRow = Readonly<{
 export async function suggestDiscoveryItems(
   db: PgQueryable,
   query: string,
+  queryVocabulary: QueryVocabulary,
   requestedLimit = DISCOVERY_SEARCH_SUGGESTION_LIMIT,
 ): Promise<DiscoverySearchSuggestion[]> {
   const queries = await buildSearchSynonymQueries(
     truncateDiscoverySearchSuggestionQuery(query),
     (codes) => lookupServedSearchSetCodes(db, codes),
+    queryVocabulary,
     true,
   );
   if (!queries.simple) {
