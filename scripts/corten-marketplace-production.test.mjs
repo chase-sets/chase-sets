@@ -137,11 +137,14 @@ describe("production marketplace app switch", () => {
     const args = buildHelmUpgradeArgs(production(both, { cortenAdminImage: admin }));
     expect(args).toContain(`components.admin-corten.image=${admin}`);
     expect(args).toContain(`components.marketplace-corten.image=${image}`);
-    expect(withheldCortenPilots(production(marketplaceCorten))).toEqual(["admin-corten"]);
-    // The public pilot stays staging-only.
-    expect(() =>
-      buildHelmUpgradeArgs(production({}, { cortenPublicImage: image.replace("corten-marketplace", "corten-public") })),
-    ).toThrow("corten-public-image is staging-only.");
+    expect(withheldCortenPilots(production(marketplaceCorten))).toEqual(["admin-corten", "public-corten"]);
+    // The public pilot stays withheld while public-web serves the apex and www, image or not.
+    const publicImage = image.replace("corten-marketplace", "corten-public");
+    expect(
+      buildHelmUpgradeArgs(production(marketplaceCorten, { cortenPublicImage: publicImage })).filter((arg) =>
+        String(arg).startsWith("components.public-corten."),
+      ),
+    ).toEqual(["components.public-corten.enabled=false"]);
   });
 
   it("does not wait for marketplace-corten under marketplace-web and waits for it under marketplace-corten", async () => {
