@@ -292,4 +292,154 @@ describeDb("Inventory snapshot PostgreSQL compatibility", () => {
     await pool.query("TRUNCATE marketplace_supply_items, marketplace_supply_locations");
     await project();
   });
+
+  describe("supply mirror rows the snapshot's account does not own", () => {
+    const otherAddress: AddressSnapshot = {
+      name: "Other Seller",
+      line1: "9 Other Rd",
+      city: "Albany",
+      state: "NY",
+      postalCode: "12207",
+      country: "US",
+    };
+    const seededAt = "2026-10-01T00:00:00.000Z";
+    async function seedLocation(accountId: string, isArchived: boolean) {
+      await pools.marketplace.query(
+        `INSERT INTO marketplace_supply_locations
+           (storage_location_id, account_id, name, ship_from_code, ship_from_address, is_archived, updated_at)
+         VALUES ($1, $2, 'Other shelf', 'US-NY', $3, $4, $5)`,
+        [snapshot().storageLocationId, accountId, JSON.stringify(otherAddress), isArchived, seededAt],
+      );
+    }
+    async function seedItem(accountId: string) {
+      await pools.marketplace.query(
+        `INSERT INTO marketplace_supply_items
+           (item_id, account_id, catalog_catalog_item_id, product_id, selected_options, graded_card,
+            storage_location_id, total_quantity, acquisition_cost_amount, acquisition_cost_currency_code,
+            last_stream_version, updated_at)
+         VALUES ($1, $2, 'cat_c4', 'cat_c4::', '[]'::jsonb, NULL, 'loc_other', 7, 3.00, 'USD', 4, $3)`,
+        [snapshot().inventoryItemId, accountId, seededAt],
+      );
+    }
+    const rows = async (table: "marketplace_supply_items" | "marketplace_supply_locations") =>
+      (await pools.marketplace.query(`SELECT * FROM ${table} ORDER BY 1`)).rows;
+    const eventCount = async () => (await counts()).events;
+    async function expectNotFound(response: Response) {
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({ error: { code: "inventory_item_not_found" } });
+    }
+
+    it("answers inventory_item_not_found and leaves another account's item row unchanged", async () => {
+      await seedItem("acc_other");
+      const before = await rows("marketplace_supply_items");
+
+      await expectNotFound((await post(routeSnapshot())).response);
+
+      expect(await rows("marketplace_supply_items")).toEqual(before);
+      expect(await eventCount()).toBe(0);
+    });
+
+    it("answers inventory_item_not_found and leaves another account's archived storage location row unchanged", async () => {
+      await seedLocation("acc_other", true);
+      const before = await rows("marketplace_supply_locations");
+      expect(before).toMatchObject([{ account_id: "acc_other", is_archived: true }]);
+
+      await expectNotFound((await post(routeSnapshot())).response);
+
+      expect(await rows("marketplace_supply_locations")).toEqual(before);
+      expect(await rows("marketplace_supply_items")).toEqual([]);
+      expect(await eventCount()).toBe(0);
+    });
+
+    it.each(["item", "location"] as const)(
+      "both snapshot creators refuse a snapshot that names another account's %s row",
+      async (owned) => {
+        const services = owner();
+        if (owned === "item") await seedItem("acc_other");
+        else await seedLocation("acc_other", false);
+        const guarded = owned === "item" ? "marketplace_supply_items" : "marketplace_supply_locations";
+        const before = await rows(guarded);
+
+        for (const create of [
+          () =>
+            services.listings.createListingFromInventorySnapshot(
+              listingTestCommand("listing.create", snapshot()),
+              draftContext,
+            ),
+          () => services.listings.createBatchDraftListingFromInventorySnapshot(snapshot(), draftContext),
+        ]) {
+          await expect(create()).rejects.toMatchObject({ code: "inventory-item-not-found" });
+          expect(await rows(guarded)).toEqual(before);
+          if (owned === "location") {
+            expect(await rows("marketplace_supply_items")).toEqual([]);
+          } else {
+            // The location write comes first and names no existing row, so the account's own row is written.
+            expect(await rows("marketplace_supply_locations")).toMatchObject([{ account_id: "acc_c4" }]);
+          }
+          expect(await eventCount()).toBe(0);
+        }
+      },
+    );
+
+    it("still updates the account's own rows and creates the Listing", async () => {
+      await seedLocation("acc_c4", true);
+      await seedItem("acc_c4");
+
+      const { response, services } = await post(routeSnapshot());
+
+      expect(response.status).toBe(201);
+      const { id } = (await response.json()) as { id: string };
+      await expect(services.listings.loadListingState(id)).resolves.toMatchObject({ status: "draft" });
+      expect(await rows("marketplace_supply_locations")).toMatchObject([
+        {
+          account_id: "acc_c4",
+          name: snapshot().storageLocationName,
+          ship_from_code: snapshot().shipFromCode,
+          is_archived: false,
+        },
+      ]);
+      expect(await rows("marketplace_supply_items")).toMatchObject([
+        {
+          account_id: "acc_c4",
+          storage_location_id: snapshot().storageLocationId,
+          total_quantity: snapshot().totalQuantity,
+          acquisition_cost_currency_code: "CAD",
+          // The snapshot leaves the stream version alone.
+          last_stream_version: 4,
+        },
+      ]);
+    });
+
+    it("lets the first Inventory events replace rows a snapshot inserted, under whichever account they name", async () => {
+      expect((await post(routeSnapshot())).response.status).toBe(201);
+      expect(await rows("marketplace_supply_items")).toMatchObject([{ account_id: "acc_c4", last_stream_version: 0 }]);
+      const handlers = buildMarketplaceInventoryProjectionHandlers(pools.marketplace);
+      const data = snapshot();
+
+      for (const event of [
+        buildTransportEvent("inventory.storage-location.created", {
+          storageLocationId: data.storageLocationId,
+          accountId: "acc_other",
+          name: "Other shelf",
+          shipFromCode: "US-NY",
+          shipFromAddress: otherAddress,
+        }),
+        buildTransportEvent("inventory.item.created", {
+          ...data,
+          itemId: data.inventoryItemId,
+          accountId: "acc_other",
+          totalQuantity: 9,
+        }),
+      ]) {
+        await handlers[event.type]!(event);
+      }
+
+      expect(await rows("marketplace_supply_locations")).toMatchObject([
+        { account_id: "acc_other", name: "Other shelf", ship_from_code: "US-NY", ship_from_address: otherAddress },
+      ]);
+      expect(await rows("marketplace_supply_items")).toMatchObject([
+        { account_id: "acc_other", total_quantity: 9, last_stream_version: 1 },
+      ]);
+    });
+  });
 });
