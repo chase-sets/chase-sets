@@ -210,7 +210,7 @@ describe("Payment retry routing over Postgres", () => {
       orderIds: request.orderIds,
       createdAt: at,
     });
-    const pending = test.post(request);
+    const pending = Promise.resolve(test.post(request));
     const first = await Promise.race([emptyStreamRead.then(() => "read"), pending.then(() => "returned")]);
     expect(first).toBe("read");
     await test.record(undefined, false);
