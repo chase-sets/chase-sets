@@ -279,6 +279,7 @@
     grid-area: 2 / 1 / auto / 3;
     justify-self: start;
     min-width: 0;
+    overflow-wrap: anywhere;
   }
   .promo-controls {
     grid-area: 2 / 3;

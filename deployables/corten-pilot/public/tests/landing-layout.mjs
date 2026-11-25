@@ -1,4 +1,4 @@
-// Run against the public pilot with two titled promo messages from its API:
+// Run against the public pilot with two titled promo messages, the first with a link:
 // node deployables/corten-pilot/public/tests/landing-layout.mjs http://localhost:7792
 import assert from "node:assert/strict";
 import { chromium } from "@playwright/test";
@@ -12,10 +12,36 @@ try {
   const phone = await browser.newPage({ viewport: { width: 375, height: 900 } });
   assert.ok((await phone.goto(new URL("/", base).href)).ok());
   const phonePromo = phone.getByRole("region", { name: "Marketplace announcements" });
-  await phonePromo.locator("[data-promo-step]").filter({ visible: true }).first().waitFor();
+  const previous = phonePromo.locator('[data-promo-step="-1"]');
+  await previous.waitFor();
+  await phonePromo.locator("[data-promo-pause]").click();
+  await phone.evaluate(() => document.fonts.ready.then(() => true));
   const phoneTitle = phonePromo.locator(".home-page__promo-title").filter({ visible: true });
   await requiredBox(phoneTitle);
   assert.ok(await phoneTitle.evaluate((node) => node.scrollWidth <= node.clientWidth), "phone promo title is readable");
+  for (const width of [320, 375]) {
+    await phone.setViewportSize({ width, height: 900 });
+    const previousBox = await requiredBox(previous);
+    const promoLink = phonePromo.getByRole("link");
+    await requiredBox(promoLink);
+    for (const label of ["Order protection", "CollectorShippingCredit"]) {
+      const { link, parts } = await promoLink.evaluate(measurePromoLink, label);
+      assert.ok(parts.length >= 2, "visible promo link text and its decorative glyph");
+      for (const part of parts) {
+        assert.ok(
+          part.right <= previousBox.x || part.bottom <= previousBox.y || part.top >= previousBox.y + previousBox.height,
+          `${width}px: ${label} text and glyph stay clear of the previous-message button`,
+        );
+        assert.ok(part.left >= link.left && part.right <= link.right, `${width}px: ${label} stays inside its link`);
+      }
+      if (label === "Order protection") {
+        assert.ok(
+          link.top < previousBox.y + previousBox.height && link.bottom > previousBox.y,
+          `${width}px: the ordinary link still shares the pager row`,
+        );
+      }
+    }
+  }
   await phone.close();
 
   const page = await browser.newPage({ javaScriptEnabled: false, colorScheme: "dark" });
@@ -106,6 +132,24 @@ async function requiredBox(locator) {
   const box = await locator.boundingBox();
   assert.ok(box && box.width > 0 && box.height > 0, `visible target: ${locator}`);
   return box;
+}
+
+function measurePromoLink(link, label) {
+  const text = Array.from(link.childNodes).find((node) => node.nodeType === Node.TEXT_NODE && node.data.trim());
+  const glyph = link.querySelector("svg");
+  if (!text || !glyph) throw new Error("expected a promo link with text and a decorative glyph");
+  const original = text.data;
+  try {
+    text.data = label;
+    const range = document.createRange();
+    range.selectNodeContents(text);
+    return {
+      link: link.getBoundingClientRect().toJSON(),
+      parts: [...range.getClientRects(), glyph.getBoundingClientRect()].map((rect) => rect.toJSON()),
+    };
+  } finally {
+    text.data = original;
+  }
 }
 
 async function edges(locator, left, right, name) {
