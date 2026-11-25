@@ -1350,9 +1350,10 @@ describe("shared CI gate plan", () => {
       expect(scope.cortenPilotCheckRequired, changedFiles[0]).toBe(required);
       for (const scenario of scenarios) {
         const plan = createCiGatePlan({ ...scenario, scope });
-        expect(plan.gates.find(({ id }) => id === "corten-pilot-check"), changedFiles[0]).toEqual(
-          expectedPostBaseGate("corten-pilot-check", scope),
-        );
+        expect(
+          plan.gates.find(({ id }) => id === "corten-pilot-check"),
+          changedFiles[0],
+        ).toEqual(expectedPostBaseGate("corten-pilot-check", scope));
         expect(ciGatePlanOutputMap(plan).corten_pilot_check_required).toBe(String(required));
       }
     }

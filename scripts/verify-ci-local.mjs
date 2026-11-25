@@ -97,11 +97,14 @@ function command(commandName, args, { env = {}, clearEnv = [], cwd } = {}) {
     !commandName ||
     !Array.isArray(args) ||
     args.some((arg) => typeof arg !== "string") ||
-    (cwd !== undefined && (typeof cwd !== "string" || !cwd || path.isAbsolute(cwd) || cwd.split(/[\\/]/).includes("..")))
+    (cwd !== undefined &&
+      (typeof cwd !== "string" || !cwd || path.isAbsolute(cwd) || cwd.split(/[\\/]/).includes("..")))
   ) {
     throw new Error("MISSING_LOCAL_COMMAND_SHAPE");
   }
-  return cwd === undefined ? { command: commandName, args, env, clearEnv } : { command: commandName, args, env, clearEnv, cwd };
+  return cwd === undefined
+    ? { command: commandName, args, env, clearEnv }
+    : { command: commandName, args, env, clearEnv, cwd };
 }
 
 export function createLocalCommandPlan({ plan, baseSha, headSha, scope }) {
