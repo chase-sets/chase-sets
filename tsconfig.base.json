@@ -90,6 +90,9 @@
       "@chase-sets/catalog/context": [
         "./bounded-contexts/catalog/context.json"
       ],
+      "@chase-sets/catalog/promotion-diagnostics": [
+        "./bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-promotion-diagnostics.ts"
+      ],
       "@chase-sets/catalog/routes/*": [
         "./bounded-contexts/catalog/routes/*.tsx"
       ],

@@ -327,7 +327,7 @@ describe("candidate promotion application versioning", () => {
     const job = { ...record(jobKind, payload, []), eventContext: context, status: "running" };
     const recordTerminal = vi
       .fn<SourceObservationMergeCandidateBulkJobRuntimeDeps["workUnitStore"]["recordTerminal"]>()
-      .mockResolvedValue(true);
+      .mockResolvedValue("recorded");
     const runtime = createSourceObservationMergeCandidateBulkJobRuntime({
       deps: { eventStore: { readStream: vi.fn().mockRejectedValue(failure) } },
       workUnitStore: {
