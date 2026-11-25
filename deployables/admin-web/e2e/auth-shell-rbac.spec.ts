@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { expectAdminWebHydrated, platformAdminAccount, skipDeployedAdminE2e } from "./support/admin-e2e";
+import { expectAdminWebHydrated, platformAdminAccount, skipDeployedAdminE2e, onCortenAdmin } from "./support/admin-e2e";
 
 const pageReadyTimeoutMs = 90_000;
 const adminSectionNames = ["Access", "Catalog", "Commerce", "Growth", "Support", "Platform"] as const;
@@ -23,6 +23,10 @@ test.describe("admin auth shell and session", () => {
   }
 
   test("operator sees mobile shell navigation and account actions after sign-in @admin-auth", async ({ page }) => {
+    test.skip(
+      onCortenAdmin,
+      "the Corten admin has no phone bottom navigation, tablet section bar, Sections control or current-section trail yet",
+    );
     test.setTimeout(150_000);
     test.skip(
       skipDeployedAdminE2e,

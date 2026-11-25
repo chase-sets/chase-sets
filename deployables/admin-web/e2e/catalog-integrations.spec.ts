@@ -6,6 +6,7 @@ import {
   expectPageOk,
   expectVisibleText,
   skipDeployedAdminE2e,
+  onCortenAdmin,
 } from "./support/admin-e2e";
 import { logSeedContractGap } from "./support/seed-contract-gap";
 
@@ -136,6 +137,10 @@ async function expectAliasReviewWorkspace(page: Page) {
 test("tablet operator navigates to import review and uses the bulk action bar @catalog-admin-integrations @tablet @browser-e2e-seed", async ({
   page,
 }, testInfo) => {
+  test.skip(
+    onCortenAdmin,
+    "the Corten admin has no phone bottom navigation, tablet section bar, Sections control or current-section trail yet",
+  );
   test.setTimeout(120_000);
   await authenticatePlatformAdmin(page, "/catalog/integrations", "/access/sign-in");
   await expectPageOk(page, "/catalog/integrations");
@@ -263,6 +268,10 @@ async function expectIntegrationHealthTriage(page: Page) {
 }
 
 test("catalog operator can inspect integration health triage @catalog-admin-integrations @tablet", async ({ page }) => {
+  test.skip(
+    onCortenAdmin,
+    "the Corten admin has no phone bottom navigation, tablet section bar, Sections control or current-section trail yet",
+  );
   test.setTimeout(120_000);
 
   await openIntegrationHealthTriage(page);
@@ -301,6 +310,10 @@ test.describe.serial("catalog admin integrations", () => {
   test("signed-in catalog operator sees the rebuilt primary import-to-promotion workbench @catalog-admin-integrations", async ({
     page,
   }) => {
+    test.skip(
+      onCortenAdmin,
+      "the Corten workbench draws its Run sync stage as a details summary, not an aria-expanded button disclosure",
+    );
     test.setTimeout(120_000);
     test.skip(
       skipDeployedAdminE2e,

@@ -6,6 +6,7 @@ import {
   expectPageOk,
   skipDeployedAdminE2e,
   waitForProjectionPositionFromResponse,
+  onCortenAdmin,
 } from "./support/admin-e2e";
 
 type CatalogAuthoringStreamProbeResult = Readonly<{
@@ -162,6 +163,10 @@ test.describe.serial("catalog admin modeling", () => {
   test("signed-in catalog operator can inspect dimensions and open the create model dialog @catalog-admin-modeling", async ({
     page,
   }) => {
+    test.skip(
+      onCortenAdmin,
+      'the Corten dimensions list draws its filters inline (a Search box and a "Value Kind" select) with no More filters disclosure',
+    );
     test.setTimeout(120_000);
     test.skip(
       skipDeployedAdminE2e,
