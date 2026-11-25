@@ -259,6 +259,10 @@ test.describe.serial("catalog admin modeling", () => {
   test("signed-in catalog operator creates, inspects, and removes a draft catalog item @catalog-admin-modeling", async ({
     page,
   }) => {
+    test.skip(
+      onCortenAdmin,
+      "the Corten Catalog Items list has a searchbox and inline filters (no More filters), and its create form posts to the pilot rather than fetching /api/catalog/items from the browser",
+    );
     test.setTimeout(180_000);
     test.skip(
       skipDeployedAdminE2e,

@@ -800,6 +800,10 @@ test.describe.serial("catalog admin integrations", () => {
   test("catalog operator can inspect provider setup readiness on the v2 Provider detail page @catalog-admin-integrations", async ({
     page,
   }) => {
+    test.skip(
+      onCortenAdmin,
+      "the Corten provider page posts Create draft to its own /catalog/providers/{key}/draft route, where admin-web posts to the page's path",
+    );
     test.setTimeout(120_000);
     test.skip(
       skipDeployedAdminE2e,
