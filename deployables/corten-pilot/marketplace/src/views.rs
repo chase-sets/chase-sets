@@ -170,6 +170,7 @@ pub const COMPONENTS: &[Component] = &[
     platform::ui::icon::Icon,
     platform::ui::input::Input,
     platform::ui::input_group::InputGroup,
+    platform::search::SearchBox,
     MarketNav,
     Section,
     Toasts,

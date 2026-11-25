@@ -10,11 +10,8 @@ use corten::{
     prelude::*,
 };
 use platform::{
-    search::SearchGlyph,
-    ui::{
-        input_group::InputGroup,
-        stats::{Stat, StatTone, Stats as KitStats, StatsSurface},
-    },
+    search::{SearchBox, SearchGlyph},
+    ui::stats::{Stat, StatTone, Stats as KitStats, StatsSurface},
 };
 
 use crate::{
@@ -253,7 +250,7 @@ pub fn IntakePage<'a>(t: Com, p: Pilot, zone: &'a DrawZone, screen: &'a StationS
                 <label class={Field}>
                     <span>{t.ri_scan_label()}</span>
                     <small class={Muted}>{t.ri_scan_description()}</small>
-                    <span class={InputGroup {}}>
+                    <span class={SearchBox {}}>
                         <SearchGlyph />
                         <input
                             type="search"

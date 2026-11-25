@@ -59,7 +59,6 @@ pub fn AdminNav<'a>(p: Pilot, req: &'a Req, viewer: &'a Viewer) -> impl Render {
         <header class={NavBar {}}>
             <a class={NavBrand {}} href={link_to(req, "/").unwrap_or_default()}>
                 {p.shell_admin()}
-                <span class={Tag}>{p.shell_pilot()}</span>
             </a>
             <nav class={NavSections {}} aria-label={p.shell_navigation()}>
                 for section in &sections {
