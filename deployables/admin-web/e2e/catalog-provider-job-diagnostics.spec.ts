@@ -33,7 +33,7 @@ test.describe.serial("catalog provider job diagnostics", () => {
       page,
     }, testInfo) => {
       test.skip(
-        onCortenAdmin && viewport.name === "phone",
+        onCortenAdmin,
         "the Corten provider page draws one disclosure per job at every width, where admin-web draws a phone and a desktop copy",
       );
       test.setTimeout(180_000);

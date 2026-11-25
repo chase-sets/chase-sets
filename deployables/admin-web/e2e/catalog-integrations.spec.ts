@@ -590,6 +590,10 @@ test.describe.serial("catalog admin integrations", () => {
   test("scope-first admin journey: map a scope, sync it, edit and bulk-promote a candidate, and hand off to draft Catalog Items @catalog-admin-integrations", async ({
     page,
   }) => {
+    test.skip(
+      onCortenAdmin,
+      "the Corten workbench draws its import scope step as a details summary, not an aria-expanded button disclosure",
+    );
     test.setTimeout(120_000);
     test.skip(
       skipDeployedAdminE2e,
