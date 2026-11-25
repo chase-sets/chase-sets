@@ -110,9 +110,11 @@ pub fn SectionNav<'a>(p: Pilot, req: &'a Req, viewer: &'a Viewer) -> impl Render
     let here = section_of(req.path());
     let home = req.path() == "/";
     let items = if home { Vec::new() } else { auth::section_items(viewer, here) };
+    // A child joins its parent's group, so the deepest entry holding the page is the current one.
     let side_entries: Vec<(Local, &str)> = items
         .iter()
-        .filter_map(|(item, _)| Some((own(req, &format!("/{here}{}", item.href.as_deref()?))?, item.key.as_str())))
+        .flat_map(|(item, children)| std::iter::once(*item).chain(children.iter().copied()))
+        .filter_map(|item| Some((own(req, &format!("/{here}{}", item.href.as_deref()?))?, item.key.as_str())))
         .collect();
     html! {
         let side_marks = req.nav_of(side_entries.iter().map(|(to, key)| (NavTo::section(to), *key)));
@@ -133,7 +135,9 @@ pub fn SectionNav<'a>(p: Pilot, req: &'a Req, viewer: &'a Viewer) -> impl Render
                             if !children.is_empty() {
                                 <ul>
                                     for child in children {
-                                        if let Some(href) = link(req, here, child) {
+                                        if let Some(marked) = side.get(child.key.as_str()) {
+                                            <li><a class={Item} {..marked}>{&child.label}</a></li>
+                                        } else if let Some(href) = link(req, here, child) {
                                             <li><a class={Item} href={&href}>{&child.label}</a></li>
                                         }
                                     }
