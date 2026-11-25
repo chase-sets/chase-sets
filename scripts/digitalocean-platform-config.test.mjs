@@ -4818,13 +4818,13 @@ describe("DigitalOcean platform configuration", () => {
     expect(verifyIndex).toBeGreaterThan(deployIndex);
     expect(verifyIndex).toBeLessThan(waitIndex);
 
-    // The app-host https /health/ready probes remain the final end-to-end gate,
-    // now against single-label hosts.
+    // The https probes remain the final end-to-end gate, against single-label hosts. No marketplace app runs in a
+    // preview, so its host, the preview's API origin, is probed through the platform API.
     const waitStep = workflowStep(deployJob, "Wait for preview ingress URLs");
     expect(waitStep).toContain('admin_domain="${PREVIEW_IDENTIFIER}-admin.preview.chasesets.com"');
     expect(waitStep).toContain('marketplace_domain="${PREVIEW_IDENTIFIER}-marketplace.preview.chasesets.com"');
     expect(waitStep).toContain('"https://${admin_domain}/health/ready"');
-    expect(waitStep).toContain('"https://${marketplace_domain}/health/ready"');
+    expect(waitStep).toContain('"https://${marketplace_domain}/api/health"');
 
     // Every preview namespace references the same shared secret name, not a
     // per-preview derived name.

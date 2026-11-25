@@ -77,10 +77,8 @@ describe("production marketplace app", () => {
   });
 
   it("no longer deploys marketplace-web in production", () => {
-    expect(buildPlatformHelmProductionValues().components.marketplace).toEqual({ enabled: false });
-    expect(read("infrastructure/helm/platform/values.production.yaml")).toMatch(
-      /\n {2}marketplace:\n {4}enabled: false\n/,
-    );
+    expect(buildPlatformHelmProductionValues().components).not.toHaveProperty("marketplace");
+    expect(read("infrastructure/helm/platform/values.production.yaml")).not.toMatch(/\n {2}marketplace:\n/);
     const routes = JSON.stringify(
       buildDoksIngressValues({ environment: "production", env: production().env }).hosts.flatMap(({ paths }) => paths),
     );

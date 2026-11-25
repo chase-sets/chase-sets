@@ -23,6 +23,7 @@ import {
   resolveStagingAdminApp,
   syncPlatformHelmValues,
 } from "./render-platform-helm-values.mjs";
+import { PROVIDER_WEBHOOK_PATHS } from "./provider-webhook-paths.mjs";
 
 const repoRoot = path.resolve(".");
 
@@ -291,7 +292,6 @@ describe("render platform Helm values", () => {
     const production = buildPlatformHelmProductionValues({ repoRoot });
     expect(componentEnvValue(values.components["platform-api"], "DEPLOYMENT_ENVIRONMENT")).toBe("preview");
     expect(componentEnvValue(values.components["platform-api"], "CHASE_SETS_CHECKOUT_CLOSED")).toBe("false");
-    expect(componentEnvKeys(values.components.marketplace)).not.toContain("CHASE_SETS_CHECKOUT_CLOSED");
     expect(values.global.envOverrides.CHASE_SETS_CHECKOUT_CLOSED).toBeUndefined();
     expect(
       staging.components["platform-api"].envOverrides?.CHASE_SETS_CHECKOUT_CLOSED ??
@@ -319,7 +319,7 @@ describe("render platform Helm values", () => {
     expect(() => syncPlatformHelmValues({ repoRoot, check: true })).not.toThrow();
   });
 
-  it("reserves the D5-R measured peaks with equal memory limits for all seven preview workloads", () => {
+  it("reserves the D5-R measured peaks with equal memory limits for all six preview workloads", () => {
     const values = buildPlatformHelmPreviewValues();
     const rendered = readFileSync(path.join(repoRoot, chartPreviewValuesRelativePath), "utf8");
     expect(values.global).toEqual({ previewStackIsolation: true });
@@ -327,17 +327,16 @@ describe("render platform Helm values", () => {
     expect(rendered).toContain("43338035023");
     const measuredBytes = {
       "public-web": 1063137280,
-      marketplace: 1142210560,
       "admin-web": 871866368,
       "platform-api": 1248432128,
       "platform-worker": 840187904,
       "platform-bootstrap": 793718784,
       previewPostgres: 407904256,
     };
-    const expectedMi = [1216, 1280, 960, 1408, 960, 896, 512];
+    const expectedMi = [1216, 960, 1408, 960, 896, 512];
     for (const [index, [name, bytes]] of Object.entries(measuredBytes).entries()) {
       const resources = (values.components[name] ?? values[name]).resources;
-      const floor = ["public-web", "marketplace", "admin-web"].includes(name) ? 256 : 512;
+      const floor = ["public-web", "admin-web"].includes(name) ? 256 : 512;
       const memoryMi = Math.max(floor, Math.ceil((1.15 * bytes) / (1024 * 1024 * 64)) * 64);
       expect(memoryMi).toBe(expectedMi[index]);
       expect(resources).toEqual({
@@ -347,11 +346,11 @@ describe("render platform Helm values", () => {
       expect(memoryMi % 64).toBe(0);
       expect(memoryMi).toBeGreaterThanOrEqual(floor);
     }
-    expect(Object.keys(values.components)).toEqual(Object.keys(measuredBytes).slice(0, 6));
+    expect(Object.keys(values.components)).toEqual(Object.keys(measuredBytes).slice(0, 5));
     const runtimeRequest = Object.entries(values.components)
       .filter(([name]) => name !== "platform-bootstrap")
       .reduce((sum, [, component]) => sum + mebibytes(component.resources.requests.memory), 512);
-    expect(runtimeRequest).toBe(6336);
+    expect(runtimeRequest).toBe(5056);
     expect(512 + mebibytes(values.components["platform-bootstrap"].resources.requests.memory)).toBe(1408);
   });
 
@@ -466,11 +465,10 @@ describe("render platform Helm values", () => {
     }
   });
 
-  it("scaffolds the six current DOKS runtime components", () => {
+  it("scaffolds the five current DOKS runtime components", () => {
     const values = buildPlatformHelmValues({ repoRoot });
     const expectedNames = [
       "admin-web",
-      "marketplace",
       "platform-api",
       "platform-bootstrap",
       "platform-worker",
@@ -478,7 +476,7 @@ describe("render platform Helm values", () => {
     ];
 
     expect(Object.keys(values.components).sort()).toEqual(expectedNames);
-    expect(Object.values(values.components).filter((component) => component.kind === "service")).toHaveLength(4);
+    expect(Object.values(values.components).filter((component) => component.kind === "service")).toHaveLength(3);
     expect(Object.values(values.components).filter((component) => component.kind === "worker")).toHaveLength(1);
     expect(Object.values(values.components).filter((component) => component.kind === "job")).toHaveLength(1);
     expect(values.doksIngress).toMatchObject({
@@ -509,7 +507,7 @@ describe("render platform Helm values", () => {
         .filter(([, component]) => component.managedPostgresCa)
         .map(([name]) => name)
         .sort(),
-    ).toEqual(["marketplace", "platform-api", "platform-bootstrap", "platform-worker"]);
+    ).toEqual(["platform-api", "platform-bootstrap", "platform-worker"]);
   });
 
   it("auto-enrolls database Secret consumers and rejects unknown composer shapes", () => {
@@ -534,11 +532,9 @@ describe("render platform Helm values", () => {
     const values = buildPlatformHelmValues({ repoRoot });
 
     expect(values.components["public-web"].command).toBe("pnpm --filter @chase-sets/app-public-web run start");
-    expect(values.components.marketplace.command).toBe("pnpm --filter @chase-sets/app-marketplace-web run start");
     expect(values.components["platform-api"].port).toBe(8080);
     expect(values.components["platform-worker"].port).toBe(8080);
     expect(values.components["public-web"].source.instanceCountExpression).toBe("local.public_web_instances");
-    expect(values.components.marketplace.source.instanceCountExpression).toBe("local.marketplace_web_instances");
     expect(values.components["platform-api"].source.instanceCountExpression).toBe("local.api_instances");
     expect(values.components["platform-worker"].source.instanceCountExpression).toBe("local.worker_instances");
     expect(values.components["platform-bootstrap"].source.instanceCountExpression).toBe("1");
@@ -553,9 +549,6 @@ describe("render platform Helm values", () => {
     expect(platformHelmFullname()).toBe("chase-sets-platform-chase-sets-platform");
     expect(platformHelmComponentName("platform-api")).toBe("chase-sets-platform-chase-sets-platform-platform-api");
     expect(componentEnvValue(values.components["admin-web"], "CHASE_SETS_INTERNAL_API_ORIGIN")).toBe(
-      "http://chase-sets-platform-chase-sets-platform-platform-api:8080",
-    );
-    expect(componentEnvValue(values.components.marketplace, "CHASE_SETS_INTERNAL_API_ORIGIN")).toBe(
       "http://chase-sets-platform-chase-sets-platform-platform-api:8080",
     );
     expect(componentEnvValue(values.components["public-web"], "CHASE_SETS_INTERNAL_API_ORIGIN")).toBe(
@@ -741,11 +734,12 @@ describe("render platform Helm values", () => {
     });
   });
 
-  it("keeps marketplace-web off staging, and keeps the chart's one-Ready-replica rollout support", () => {
-    // The Corten marketplace serves marketplace.staging, so marketplace-web, which this staging memory reservation
-    // and zero-unavailable rollout were for, is no longer deployed there.
-    const staging = buildPlatformHelmStagingValues();
-    expect(staging.components.marketplace).toEqual({ enabled: false });
+  it("has no marketplace-web component, and keeps the chart's one-Ready-replica rollout support", () => {
+    // The Corten marketplace serves the marketplace hosts and marketplace-web is gone, so no environment names it.
+    expect(buildPlatformHelmValues().components.marketplace).toBeUndefined();
+    expect(buildPlatformHelmStagingValues().components.marketplace).toBeUndefined();
+    expect(buildPlatformHelmProductionValues().components.marketplace).toBeUndefined();
+    expect(buildPlatformHelmPreviewValues().components.marketplace).toBeUndefined();
     const rolloutTemplate = readChartFiles(["templates/rollout.yaml"])[0];
     expect(rolloutTemplate).toContain('hasKey $component.rollout.canary "maxSurge"');
     expect(rolloutTemplate).toContain('hasKey $component.rollout.canary "maxUnavailable"');
@@ -784,8 +778,6 @@ spec:
       maxSurge: 1
       maxUnavailable: 0`;
     expect(stagingRolloutCapture).toContain("maxUnavailable: 0");
-    expect(buildPlatformHelmValues().components.marketplace.strategy).toBeUndefined();
-    expect(buildPlatformHelmProductionValues().components.marketplace.strategy).toBeUndefined();
   });
 
   it("merges base + staging platform-api values into the same tolerant-liveness/strict-readiness shape Helm would render", () => {
@@ -851,7 +843,7 @@ spec:
       failureThreshold: 6,
     };
 
-    for (const name of ["admin-web", "marketplace", "public-web"]) {
+    for (const name of ["admin-web", "public-web"]) {
       const component = values.components[name];
       expect(component.livenessPath, `${name} should get the tolerant /health/live livenessPath`).toBe("/health/live");
       expect(component.livenessProbe, `${name} should get the tolerant livenessProbe timings`).toEqual(
@@ -864,10 +856,9 @@ spec:
 
     // Readiness stays strict and unchanged: traffic gating and rollout
     // behavior are not touched by the liveness fix (public-web's DigitalOcean
-    // health_check http_path is "/" today, predating this change; the other
-    // two use their own `health/ready` route).
+    // health_check http_path is "/" today, predating this change; admin-web
+    // uses its own `health/ready` route).
     expect(values.components["public-web"].healthPath).toBe("/");
-    expect(values.components.marketplace.healthPath).toBe("/health/ready");
     expect(values.components["admin-web"].healthPath).toBe("/health/ready");
   });
 
@@ -1181,9 +1172,32 @@ spec:
     ]);
     expect(Object.fromEntries(previewIngress.hosts.map((host) => [host.host, host.paths.at(-1)]))).toEqual({
       "pr-123.preview.chasesets.com": { path: "/", service: "public-web" },
-      "pr-123-marketplace.preview.chasesets.com": { path: "/", service: "marketplace" },
+      "pr-123-marketplace.preview.chasesets.com": { path: "/", service: "platform-api" },
       "pr-123-admin.preview.chasesets.com": { path: "/", service: "admin-web" },
     });
+  });
+
+  it("keeps each preview's marketplace host as its API origin, so its provider webhook URLs do not change", () => {
+    // No marketplace app runs in a preview, but the provider webhooks, the Stripe and Auth base URLs and cleanup
+    // all name https://<preview>-marketplace.preview.chasesets.com. The host stays, and every path on it reaches
+    // platform-api.
+    for (const previewIdentifier of ["pr-123", "gate-123456-2"]) {
+      const host = buildPreviewDoksIngressValues({ previewIdentifier }).hosts.find(
+        (entry) => entry.host === `${previewIdentifier}-marketplace.preview.chasesets.com`,
+      );
+      expect(host, previewIdentifier).toBeDefined();
+      expect(new Set(host.paths.map((entry) => entry.service))).toEqual(new Set(["platform-api"]));
+    }
+    expect(
+      PROVIDER_WEBHOOK_PATHS.map((webhookPath) => `https://pr-123-marketplace.preview.chasesets.com${webhookPath}`),
+    ).toEqual([
+      "https://pr-123-marketplace.preview.chasesets.com/api/payments/provider/webhooks",
+      "https://pr-123-marketplace.preview.chasesets.com/api/settlement/provider/money-movement/webhooks",
+      "https://pr-123-marketplace.preview.chasesets.com/api/fulfillment/provider/postage/webhooks",
+      "https://pr-123-marketplace.preview.chasesets.com/api/notifications/provider/email/webhooks",
+      "https://pr-123-marketplace.preview.chasesets.com/api/notifications/provider/mobile-messaging/webhooks",
+      "https://pr-123-marketplace.preview.chasesets.com/api/channels-webhooks/ebay/account-deletion",
+    ]);
   });
 
   it("every preview namespace references the same shared wildcard TLS secret name (#4857)", () => {
@@ -1292,7 +1306,7 @@ spec:
     // Scoped to platform-api: the worker's readiness only gates its rollout,
     // and other components keep the Kubernetes default readiness timing.
     const values = buildPlatformHelmValues({ repoRoot });
-    for (const name of ["platform-worker", "admin-web", "marketplace", "public-web", "platform-bootstrap"]) {
+    for (const name of ["platform-worker", "admin-web", "public-web", "platform-bootstrap"]) {
       expect(
         values.components[name].readinessProbe,
         `${name} should not get a readinessProbe override`,
@@ -1328,7 +1342,6 @@ spec:
       },
       analysis: { enabled: false, path: "/health/ready", count: 5, failureLimit: 2 },
     });
-    expect(values.components.marketplace.rollout).toEqual(values.components["public-web"].rollout);
     expect(values.components["platform-api"].rollout).toEqual(values.components["public-web"].rollout);
 
     expect(values.components["admin-web"].rollout).toBeUndefined();
@@ -1343,7 +1356,6 @@ spec:
       Object.fromEntries(Object.entries(values.components).map(([name, component]) => [name, component.env.length])),
     ).toEqual({
       "admin-web": 5,
-      marketplace: 12,
       "platform-api": 133,
       "platform-bootstrap": 59,
       "platform-worker": 133,
@@ -1396,7 +1408,7 @@ spec:
     expect(chartText).toContain("kind: Certificate");
     expect(chartText).not.toContain("ExternalSecret");
     expect(chartText).not.toContain("SecretProviderClass");
-    expect(rolloutStates).toEqual([false, false, false]);
+    expect(rolloutStates).toEqual([false, false]);
     expect(chartText).toContain("helm.sh/hook");
     expect(chartText).toContain("activeDeadlineSeconds");
     expect(chartText).toContain("bootstrap-quiesce.mjs");
@@ -1429,7 +1441,6 @@ spec:
     expect(values.global.imagePullSecrets).toEqual([{ name: "chase-sets" }]);
     expect(privateComponents).toEqual([
       { name: "public-web", kind: "service" },
-      { name: "marketplace", kind: "service" },
       { name: "admin-web", kind: "service" },
       { name: "platform-api", kind: "service" },
       { name: "platform-worker", kind: "worker" },
@@ -1538,11 +1549,10 @@ spec:
     // The Corten admin, marketplace and public pilots are the only other components, each with its own Burstable
     // 100m / 128Mi request. The admin and public pilots run only while PRODUCTION_ADMIN_APP=admin-corten or
     // PRODUCTION_PUBLIC_APP=public-corten, beside their React apps (the rollback). The Corten marketplace always
-    // serves marketplace.chasesets.com, so marketplace-web is disabled and reserves nothing.
+    // serves marketplace.chasesets.com.
     expect(Object.keys(production.components).sort()).toEqual(
-      [...Object.keys(expectedRequests), "marketplace", "admin-corten", "marketplace-corten", "public-corten"].sort(),
+      [...Object.keys(expectedRequests), "admin-corten", "marketplace-corten", "public-corten"].sort(),
     );
-    expect(production.components.marketplace).toEqual({ enabled: false });
     for (const pilot of ["admin-corten", "marketplace-corten", "public-corten"]) {
       expect(production.components[pilot].resources).toEqual({
         requests: { cpu: "100m", memory: "128Mi" },

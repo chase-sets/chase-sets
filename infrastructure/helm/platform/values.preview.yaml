@@ -9,13 +9,6 @@ components:
         memory: "1216Mi"
       limits:
         memory: "1216Mi"
-  marketplace:
-    resources:
-      requests:
-        cpu: "100m"
-        memory: "1280Mi"
-      limits:
-        memory: "1280Mi"
   admin-web:
     resources:
       requests:

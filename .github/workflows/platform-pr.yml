@@ -2017,9 +2017,11 @@ jobs:
           marketplace_domain="${PREVIEW_IDENTIFIER}-marketplace.preview.chasesets.com"
           admin_domain="${PREVIEW_IDENTIFIER}-admin.preview.chasesets.com"
 
+          # No marketplace app runs in a preview; its host is the preview's API origin (webhooks, Stripe and
+          # Auth base URLs), so wait for the platform API through it.
           node ./scripts/platform-ingress-wait.mjs \
             --url "https://${admin_domain}/health/ready" \
-            --url "https://${marketplace_domain}/health/ready" \
+            --url "https://${marketplace_domain}/api/health" \
             --attempts 24 \
             --delay-ms 5000
 
@@ -2041,7 +2043,6 @@ jobs:
           PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
           SMOKE_REQUIRE_ADMIN: "true"
           SMOKE_REQUIRE_LANDING: ${{ steps.preview_domains.outputs.landing_domain_ready == 'true' && 'true' || 'false' }}
-          SMOKE_REQUIRE_MARKETPLACE: "true"
           SMOKE_WAITLIST_EMAIL: ops+preview-pr-${{ github.event.pull_request.number }}@chasesets.com
           SMOKE_SOURCE: preview-smoke
           SMOKE_UTM_CAMPAIGN: pr-${{ github.event.pull_request.number }}
@@ -2051,8 +2052,7 @@ jobs:
           set -euo pipefail
           pnpm run smoke:platform -- \
             "https://${{ steps.preview_domains.outputs.landing_domain }}" \
-            "https://${{ steps.preview_domains.outputs.admin_domain }}" \
-            "https://${{ steps.preview_domains.outputs.marketplace_domain }}"
+            "https://${{ steps.preview_domains.outputs.admin_domain }}"
 
       - name: Stripe money smoke
         env:

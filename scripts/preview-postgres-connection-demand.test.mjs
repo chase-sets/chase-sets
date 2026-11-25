@@ -43,7 +43,6 @@ describe("preview Postgres connection demand (#10022)", () => {
       inventory.filter((row) => row.process === process && (!reason || row.reason === reason));
 
     expect([...new Set(inventory.map((row) => row.process))].sort()).toEqual([
-      "marketplace",
       "platform-api",
       "platform-api exec representative-commerce-state:production",
       "platform-bootstrap",
@@ -67,9 +66,6 @@ describe("preview Postgres connection demand (#10022)", () => {
     expect(rows("platform-worker", "settlement schema bootstrap beside the worker pools")).toHaveLength(1);
     expect(rows("platform-api", "default post-write token store")).toEqual([
       expect.objectContaining({ max: renderedMaximum("platform-api"), phase: "runtime" }),
-    ]);
-    expect(rows("marketplace", "default post-write token store")).toEqual([
-      expect.objectContaining({ phase: "runtime" }),
     ]);
     expect(rows("platform-bootstrap").every((row) => row.phase === "bootstrap")).toBe(true);
     expect(inventory.filter((row) => row.reason === "projection wake relay listener")).toEqual([]);

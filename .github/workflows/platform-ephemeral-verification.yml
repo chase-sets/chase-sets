@@ -437,9 +437,10 @@ jobs:
         id: domains
         run: |
           set -euo pipefail
+          # No marketplace app runs in a preview; its host is the API origin, so wait for the platform API there.
           node ./scripts/platform-ingress-wait.mjs \
             --url "https://${VERIFICATION_SLUG}-admin.preview.chasesets.com/health/ready" \
-            --url "https://${VERIFICATION_SLUG}-marketplace.preview.chasesets.com/health/ready" \
+            --url "https://${VERIFICATION_SLUG}-marketplace.preview.chasesets.com/api/health" \
             --attempts 24 --delay-ms 5000
           node ./scripts/platform-ingress-wait.mjs \
             --url "https://${VERIFICATION_SLUG}.preview.chasesets.com/" \
@@ -468,13 +469,12 @@ jobs:
           PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
           SMOKE_REQUIRE_ADMIN: "true"
           SMOKE_REQUIRE_LANDING: "true"
-          SMOKE_REQUIRE_MARKETPLACE: "true"
           SMOKE_WAITLIST_EMAIL: ops+verification-${{ github.run_id }}-${{ github.run_attempt }}@chasesets.com
           SMOKE_SOURCE: ephemeral-verification
           SMOKE_UTM_CAMPAIGN: release-${{ steps.release.outputs.release_commit }}
           SMOKE_FETCH_ATTEMPTS: "24"
           SMOKE_FETCH_RETRY_DELAY_MS: "5000"
-        run: pnpm run smoke:platform -- "https://${VERIFICATION_SLUG}.preview.chasesets.com" "https://${VERIFICATION_SLUG}-admin.preview.chasesets.com" "https://${VERIFICATION_SLUG}-marketplace.preview.chasesets.com"
+        run: pnpm run smoke:platform -- "https://${VERIFICATION_SLUG}.preview.chasesets.com" "https://${VERIFICATION_SLUG}-admin.preview.chasesets.com"
 
       - name: Stripe money smoke
         id: stripe
