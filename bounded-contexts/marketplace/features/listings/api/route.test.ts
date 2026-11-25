@@ -2782,4 +2782,61 @@ describe("public product Listings route", () => {
       expect(text).not.toContain(privateValue);
     }
   });
+
+  it("serves a grade, an option and a gallery image key by key when the service returns them with other fields", async () => {
+    const gradedCard = {
+      gradingCompany: "PSA",
+      grade: "Gem Mint 10",
+      certificationNumber: "12345678",
+      population: { populationAtGrade: 10, populationHigher: 0, source: "census", asOf: "2026-01-01" },
+      conditionDescriptors: ["sharp corners"],
+    };
+    const asset = {
+      role: "catalog-detail",
+      publicUrl: "https://assets.test/photo_one/catalog-detail.webp",
+      width: 480,
+      height: 640,
+      density: 1,
+    };
+    const image = { photoId: "photo_one", slotId: "front", viewKind: "front", altText: "Front", sortOrder: 0 };
+    const { app } = appServing([
+      {
+        ...publicRow,
+        selected_options: [{ dimensionId: "form", optionId: "graded", internalRank: 7 }],
+        graded_card: {
+          ...gradedCard,
+          population: { ...gradedCard.population, fetchedBy: "usr_private" },
+          internalNote: "bought at a show",
+        },
+        public_gallery: [
+          {
+            ...image,
+            originalFilename: "secret-filename.png",
+            assets: [{ ...asset, storageKey: "private/key/photo_one", byteSize: 1234 }],
+          },
+        ],
+      },
+    ]);
+
+    const response = await app.fetch(new Request("http://marketplace.test/products/prod_1/listings"));
+
+    expect(response.status).toBe(200);
+    const text = await response.text();
+    expect((JSON.parse(text) as { items: unknown[] }).items[0]).toEqual({
+      ...publicRow,
+      selected_options: [{ dimensionId: "form", optionId: "graded" }],
+      graded_card: gradedCard,
+      public_gallery: [{ ...image, assets: [asset] }],
+    });
+    for (const privateText of [
+      "internalRank",
+      "internalNote",
+      "fetchedBy",
+      "secret-filename",
+      "private/key",
+      "byteSize",
+    ]) {
+      expect(text).not.toContain(privateText);
+    }
+  });
 });

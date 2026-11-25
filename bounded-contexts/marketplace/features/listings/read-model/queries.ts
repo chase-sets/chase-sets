@@ -11,7 +11,11 @@ import {
   type ListingPauseReason,
   type InventoryCapacityRecoveryBlock,
 } from "../domain/domain";
-import { toPublicListingGallery, type MarketplaceListingPublicGalleryImage } from "../domain/evidence-gallery";
+import {
+  copyPublicListingGallery,
+  toPublicListingGallery,
+  type MarketplaceListingPublicGalleryImage,
+} from "../domain/evidence-gallery";
 import type { ListingEvidenceRequirementSnapshot } from "../domain/evidence-requirement-snapshot";
 
 export type MarketplaceListingListRow = Readonly<{
@@ -79,11 +83,32 @@ export type MarketplaceItemListingRow = Readonly<{
   status: string;
   seller_display_name: string | null;
   visible_quantity: number;
-  /** Buyer-safe evidence gallery: active photos only, without storage keys, hashes, sizes or filenames. */
+  /** Buyer-facing evidence gallery: active photos only, each image and asset holding only its declared keys. */
   public_gallery: readonly MarketplaceListingPublicGalleryImage[];
 }>;
 
-/** Copies the public keys by name, so a wider row passed in cannot carry another field out. */
+function copyGradedCard(card: MarketplaceGradedCardDetails | null): MarketplaceGradedCardDetails | null {
+  if (!card) return null;
+  return {
+    gradingCompany: card.gradingCompany,
+    grade: card.grade,
+    certificationNumber: card.certificationNumber,
+    population: card.population
+      ? {
+          populationAtGrade: card.population.populationAtGrade,
+          populationHigher: card.population.populationHigher,
+          source: card.population.source,
+          asOf: card.population.asOf,
+        }
+      : null,
+    conditionDescriptors: Array.isArray(card.conditionDescriptors) ? [...card.conditionDescriptors] : [],
+  };
+}
+
+/**
+ * Copies the public keys by name, nested values included, so a wider row, grade, option or image
+ * passed in cannot carry another field out.
+ */
 export function toMarketplaceItemListingRow(row: MarketplaceItemListingRow): MarketplaceItemListingRow {
   return {
     listing_id: row.listing_id,
@@ -92,9 +117,9 @@ export function toMarketplaceItemListingRow(row: MarketplaceItemListingRow): Mar
     product_id: row.product_id,
     item_title: row.item_title,
     item_subtitle: row.item_subtitle,
-    selected_options: row.selected_options,
+    selected_options: row.selected_options.map(({ dimensionId, optionId }) => ({ dimensionId, optionId })),
     product_summary: row.product_summary,
-    graded_card: row.graded_card,
+    graded_card: copyGradedCard(row.graded_card),
     ship_from_code: row.ship_from_code,
     price_amount: row.price_amount,
     price_currency_code: row.price_currency_code,
@@ -106,7 +131,7 @@ export function toMarketplaceItemListingRow(row: MarketplaceItemListingRow): Mar
     status: row.status,
     seller_display_name: row.seller_display_name,
     visible_quantity: row.visible_quantity,
-    public_gallery: row.public_gallery,
+    public_gallery: copyPublicListingGallery(row.public_gallery),
   };
 }
 
@@ -1148,37 +1173,39 @@ export async function listItemListings(
     [productId, limit, offset],
   );
 
-  return result.rows.map((row) => ({
-    listing_id: row.listing_id,
-    account_id: row.account_id,
-    catalog_catalog_item_id: row.catalog_catalog_item_id,
-    product_id: row.product_id,
-    item_title: row.item_title,
-    item_subtitle: row.item_subtitle,
-    selected_options: Array.isArray(row.selected_options)
-      ? (row.selected_options as MarketplaceItemListingRow["selected_options"])
-      : [],
-    product_summary: row.product_summary,
-    graded_card:
-      typeof row.graded_card === "object" && row.graded_card !== null
-        ? (row.graded_card as MarketplaceGradedCardDetails)
-        : null,
-    ship_from_code: row.ship_from_code,
-    price_amount: row.price_amount,
-    price_currency_code: row.price_currency_code,
-    listing_stream_version: row.listing_stream_version,
-    shipping_allowance_percentage_bps: row.shipping_allowance_percentage_bps,
-    max_units_per_order: row.max_units_per_order,
-    max_units_per_day: row.max_units_per_day,
-    max_units_per_customer_account: row.max_units_per_customer_account,
-    status: row.status,
-    seller_display_name: row.seller_display_name,
-    visible_quantity: row.visible_quantity,
-    // The stored evidence is read only to build the gallery; it never leaves on the row.
-    public_gallery: toPublicListingGallery(
-      Array.isArray(row.evidence)
-        ? (row.evidence as MarketplaceListingPhotoDraft[]).map(hydrateStoredListingPhoto)
+  return result.rows.map((row) =>
+    toMarketplaceItemListingRow({
+      listing_id: row.listing_id,
+      account_id: row.account_id,
+      catalog_catalog_item_id: row.catalog_catalog_item_id,
+      product_id: row.product_id,
+      item_title: row.item_title,
+      item_subtitle: row.item_subtitle,
+      selected_options: Array.isArray(row.selected_options)
+        ? (row.selected_options as MarketplaceItemListingRow["selected_options"])
         : [],
-    ),
-  }));
+      product_summary: row.product_summary,
+      graded_card:
+        typeof row.graded_card === "object" && row.graded_card !== null
+          ? (row.graded_card as MarketplaceGradedCardDetails)
+          : null,
+      ship_from_code: row.ship_from_code,
+      price_amount: row.price_amount,
+      price_currency_code: row.price_currency_code,
+      listing_stream_version: row.listing_stream_version,
+      shipping_allowance_percentage_bps: row.shipping_allowance_percentage_bps,
+      max_units_per_order: row.max_units_per_order,
+      max_units_per_day: row.max_units_per_day,
+      max_units_per_customer_account: row.max_units_per_customer_account,
+      status: row.status,
+      seller_display_name: row.seller_display_name,
+      visible_quantity: row.visible_quantity,
+      // The stored evidence is read only to build the gallery; it never leaves on the row.
+      public_gallery: toPublicListingGallery(
+        Array.isArray(row.evidence)
+          ? (row.evidence as MarketplaceListingPhotoDraft[]).map(hydrateStoredListingPhoto)
+          : [],
+      ),
+    }),
+  );
 }

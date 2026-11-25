@@ -47,6 +47,20 @@ function publicAsset(variant: {
   };
 }
 
+/** Copies a public gallery key by key, so an image or asset passed in with other fields cannot carry them out. */
+export function copyPublicListingGallery(
+  gallery: readonly MarketplaceListingPublicGalleryImage[],
+): MarketplaceListingPublicGalleryImage[] {
+  return gallery.map((image) => ({
+    photoId: image.photoId,
+    slotId: image.slotId,
+    viewKind: image.viewKind,
+    altText: image.altText,
+    sortOrder: image.sortOrder,
+    assets: image.assets.map(publicAsset),
+  }));
+}
+
 export function toPublicListingGallery(
   evidence: readonly MarketplaceListingPhoto[],
 ): MarketplaceListingPublicGalleryImage[] {
