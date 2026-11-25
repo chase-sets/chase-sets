@@ -304,6 +304,16 @@ const listingEvidencePolicyOutcomeInputProperty: McpJsonSchemaProperty = {
       "none",
       "required",
     ]),
+    certificateNumber: {
+      type: "object",
+      description:
+        "Optional Certificate Number Format for a graded Listing: digits only, with a count in this range. The rule must select at least one Option.",
+      additionalProperties: false,
+      properties: {
+        minimumDigits: integerProperty("Whole-number minimum digit count from 1 through 32."),
+        maximumDigits: integerProperty("Whole-number maximum digit count from 1 through 32, not below the minimum."),
+      },
+    },
   },
 };
 

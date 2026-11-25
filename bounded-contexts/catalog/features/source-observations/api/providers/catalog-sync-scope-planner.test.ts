@@ -212,10 +212,18 @@ describe("server-unplannable provider units", () => {
                 childExecutionScope: null,
                 blockers: [expect.objectContaining({ code: "provider-plan-unavailable" })],
               }),
+              expect.objectContaining({
+                profileKey: "lorcana-sealed-product-sku",
+                eligibility: "ineligible",
+                childExecutionScope: null,
+                blockers: [expect.objectContaining({ code: "sealed-request-coordinates-unavailable" })],
+              }),
             ]
           : [],
       );
-      expect(preview.blockers).toEqual([]);
+      expect(preview.blockers).toEqual(
+        selected ? [expect.objectContaining({ code: "sealed-request-coordinates-unavailable" })] : [],
+      );
       expectNoAdapterCalls(tcgplayer.calls);
     },
   );
@@ -303,9 +311,19 @@ describe("server-unplannable provider units", () => {
       includeOperationalGates: true,
     });
 
-    expect(preview).toMatchObject({ status: "ready", startAllowed: true, blockers: [] });
+    expect(preview).toMatchObject(
+      providerParticipation
+        ? {
+            status: "blocked",
+            startAllowed: false,
+            blockers: [expect.objectContaining({ code: "sealed-request-coordinates-unavailable" })],
+          }
+        : { status: "ready", startAllowed: true, blockers: [] },
+    );
     expect(preview.units.map((unit) => unit.providerKey).sort()).toEqual(
-      providerParticipation ? ["mtgjson", "mtgjson", "scryfall", "tcgplayer"] : ["mtgjson", "mtgjson", "scryfall"],
+      providerParticipation
+        ? ["mtgjson", "mtgjson", "scryfall", "tcgplayer", "tcgplayer"]
+        : ["mtgjson", "mtgjson", "scryfall"],
     );
     if (providerParticipation) {
       expect(preview.units.find((unit) => unit.providerKey === "tcgplayer")).toMatchObject({
@@ -314,12 +332,14 @@ describe("server-unplannable provider units", () => {
       });
     }
     expect(
-      preview.units.every((unit) => unit.eligibility === "eligible" && unit.selected && unit.blockers.length === 0),
+      preview.units
+        .filter((unit) => unit.unitKey !== TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY)
+        .every((unit) => unit.eligibility === "eligible" && unit.selected && unit.blockers.length === 0),
     ).toBe(true);
     expectNoAdapterCalls(tcgplayer.calls);
   });
 
-  it("refuses an explicitly required import-unplannable unit as required-provider-unit-missing", async () => {
+  it("blocks an explicitly required sealed unit without qualified provider coordinates", async () => {
     const tcgplayer = realTcgplayerAdapter();
     const preview = await previewCatalogSyncProviderParticipation({
       scope: magicSetScope({ requiredUnitKeys: [TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY] }),
@@ -329,12 +349,12 @@ describe("server-unplannable provider units", () => {
       includeOperationalGates: true,
     });
 
-    expect(preview).toMatchObject({ status: "blocked", startAllowed: false, units: [] });
+    expect(preview).toMatchObject({ status: "blocked", startAllowed: false, units: [{ childExecutionScope: null }] });
     expect(preview.blockers).toEqual([
       expect.objectContaining({
-        code: "required-provider-unit-missing",
+        code: "sealed-request-coordinates-unavailable",
         severity: "error",
-        message: `${TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY} was required for this Catalog scope but no provider profile unit is available.`,
+        message: "The accepted sealed mapping does not resolve to one qualified TCGplayer set.",
       }),
     ]);
     expectNoAdapterCalls(tcgplayer.calls);
@@ -345,14 +365,12 @@ describe("server-unplannable provider units", () => {
       scope: magicSetScope(),
       acceptedScopeMappings: magicMappings,
       providerProfileVersions: magicProfiles,
-      providerAdapterRegistry: magicRegistry(),
+      providerAdapterRegistry: new ProviderAdapterRegistry([]),
       includeOperationalGates: true,
     });
 
     expect(preview).toMatchObject({ status: "blocked", startAllowed: false });
-    expect(
-      preview.units.find((unit) => unit.unitKey === TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY),
-    ).toMatchObject({
+    expect(preview.units.find((unit) => unit.providerKey === "scryfall")).toMatchObject({
       requirement: "required",
       eligibility: "ineligible",
       selected: true,
@@ -817,19 +835,32 @@ describe("Catalog sync scope planner", () => {
     ]);
   });
 
-  it("never enrols an explicitly selected, fully mapped sealed unit in SetNames", async () => {
+  it("requires qualified coordinates and dispatches a mapped sealed unit without calling the adapter", async () => {
     const tcgplayer = activeProfile("tcgplayer", "pokemon-sealed-product-sku");
     const tcgplayerUnitKey = unitKeyForCatalogProviderProfileVersion(tcgplayer);
     const adapter = realTcgplayerAdapter();
-    const preview = await previewCatalogSyncProviderParticipation({
-      scope: pokemonBaseSetScope({ selectedUnitKeys: [tcgplayerUnitKey] }),
-      acceptedScopeMappings: [tcgplayerBaseSetMapping(tcgplayerUnitKey, { setName: "Prismatic Evolutions" })],
-      providerProfileVersions: [tcgplayer],
-      providerAdapterRegistry: new ProviderAdapterRegistry([adapter.adapter]),
-    });
+    const mapping = tcgplayerBaseSetMapping(tcgplayerUnitKey, { setName: "provider-clean-id" });
+    const plan = (sealedCoordinates?: typeof mapping.sealedCoordinates) =>
+      previewCatalogSyncProviderParticipation({
+        scope: { ...pokemonBaseSetScope({ requiredUnitKeys: [tcgplayerUnitKey] }), productForm: "sealed-product" },
+        acceptedScopeMappings: [{ ...mapping, sealedCoordinates }],
+        providerProfileVersions: [tcgplayer],
+        providerAdapterRegistry: new ProviderAdapterRegistry([adapter.adapter]),
+      });
 
-    expect(preview.units).toEqual([]);
-    expect(preview.blockers).toEqual([]);
+    expect(await plan()).toMatchObject({
+      status: "blocked",
+      blockers: [{ code: "sealed-request-coordinates-unavailable" }],
+    });
+    const preview = await plan({ productLineId: 3, setNameId: 123, searchName: "Prismatic Evolutions" });
+    expect(preview.units).toHaveLength(1);
+    expect(preview.units[0]?.childExecutionScope).toMatchObject({
+      execution: "extension-sealed-products",
+      productLineId: "3",
+      setId: "123",
+      setName: "Prismatic Evolutions",
+    });
+    expect(preview.startAllowed).toBe(true);
     expectNoAdapterCalls(adapter.calls);
     // The scope reference carries no raw provider coordinates or names.
     expect(preview.scope.reference).toEqual({ kind: "expansion", scopeRecordId: BASE_SET_SCOPE_RECORD_ID });

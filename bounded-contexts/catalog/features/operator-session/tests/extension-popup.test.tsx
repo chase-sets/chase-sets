@@ -43,6 +43,20 @@ async function mount(setNameRequest = vi.fn(), copyProbeReport?: (text: string) 
 }
 
 describe("TCGplayer SetNames popup states", () => {
+  it("wakes the same poller while keeping only the distinct SetNames probe", async () => {
+    const request = vi.fn(async () => ({ ...status, paired: true, state: "idle" as const }));
+    render(
+      <ChaseRoot>
+        <OperatorExtensionPopup request={request} setNameRequest={vi.fn()} />
+      </ChaseRoot>,
+    );
+    const button = screen.getByRole<HTMLButtonElement>("button", { name: "Run now" });
+    await waitFor(() => expect(button.disabled).toBe(false));
+    fireEvent.click(button);
+    await waitFor(() => expect(request).toHaveBeenLastCalledWith({ action: "poll-now", environment: "staging" }));
+    expect(screen.getByRole("button", { name: "Run probe" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /collect|post|sealed/i })).toBeNull();
+  });
   it("starts empty only after all product-line inputs are cleared and disables Run", async () => {
     await mount();
     for (const input of screen

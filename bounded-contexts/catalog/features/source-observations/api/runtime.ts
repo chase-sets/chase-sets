@@ -92,7 +92,11 @@ import {
   integrationProfileSnapshotKey,
 } from "./source-observation-promotion-execution";
 import { createSetNameRequestRuntime } from "./source-observation-set-name-requests";
-import { createCatalogProviderIntegrationProfileVersionStore } from "./providers/provider-integration-profile-store";
+import { sealedRequestProductLine } from "./providers/tcgplayer/sealed-request-coordinates";
+import {
+  createCatalogProviderIntegrationProfileVersionStore,
+  lockActiveCatalogProviderProfileVersion,
+} from "./providers/provider-integration-profile-store";
 import { catalogSetNamesProductLineId } from "./providers/catalog-sync-scope-planner";
 import { createCatalogSetNameRequestRecheck } from "./source-observation-catalog-sync-run-runtime";
 import { createSourceObservationMergeCandidateRuntime } from "./source-observation-merge-candidate-runtime";
@@ -220,6 +224,7 @@ export function createSourceObservationRuntime(
 ): SourceObservationServices & {
   currentCatalogObservationRequest?: ReturnType<typeof createSetNameRequestRuntime>["current"];
   answerTcgplayerSetNameRequest?: ReturnType<typeof createSetNameRequestRuntime>["answer"];
+  answerTcgplayerSealedRequest?: ReturnType<typeof createSetNameRequestRuntime>["answerSealed"];
 } {
   const { commandHandler } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
@@ -478,13 +483,18 @@ export function createSourceObservationRuntime(
       storeIn: integrationJobStoreIn,
       recheck: createCatalogSetNameRequestRecheck(async (db, job) => {
         const unit = job.payload.scope.ingestionUnitKey;
-        if (!unit || String(catalogSetNamesProductLineId(unit)) !== job.payload.scope.productLineId) return false;
-        const profile = await createCatalogProviderIntegrationProfileVersionStore(db).getActiveProfileVersion(
-          "tcgplayer",
-          {
-            ingestionUnitKey: unit,
-          },
-        );
+        const sealed = job.payload.scope.execution === "extension-sealed-products";
+        if (
+          !unit ||
+          String(sealed ? sealedRequestProductLine(unit) : catalogSetNamesProductLineId(unit)) !==
+            job.payload.scope.productLineId
+        )
+          return false;
+        const profile = sealed
+          ? await lockActiveCatalogProviderProfileVersion(db, "tcgplayer", unit)
+          : await createCatalogProviderIntegrationProfileVersionStore(db).getActiveProfileVersion("tcgplayer", {
+              ingestionUnitKey: unit,
+            });
         if (!profile || profile.lifecycle !== "active" || !profile.active || profile.profile.status !== "active")
           return false;
         return (
@@ -634,6 +644,7 @@ export function createSourceObservationRuntime(
     ...services,
     currentCatalogObservationRequest: setNames?.current,
     answerTcgplayerSetNameRequest: setNames?.answer,
+    answerTcgplayerSealedRequest: setNames?.answerSealed,
   };
 }
 

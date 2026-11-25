@@ -507,3 +507,73 @@ describe("Listing Evidence Policy MCP boundaries", () => {
     expect(allEvents).toHaveLength(0);
   });
 });
+
+describe("a Certificate Number Format through the Listing Evidence Policy draft tool", () => {
+  const validateName = "marketplace.validate-listing-evidence-policy-draft";
+  const validateArgs = {
+    confirmed: true,
+    idempotencyKey: "validate-format",
+    confirmationText: "Validate Listing Evidence Policy Draft.",
+  };
+  const formatRule = (outcome: Record<string, unknown>, selector: Record<string, unknown>) => ({
+    ruleId: "certificate-format-psa",
+    explanationCode: "listing-evidence.certificate-format",
+    selector,
+    outcome,
+  });
+  const psaSelector = { options: [{ dimensionId: "dim_grading_company", optionId: "opt_psa" }] };
+  const psaFormat = { certificateNumber: { minimumDigits: 8, maximumDigits: 10 } };
+
+  it("creates, validates and activates a draft whose rule carries the format", async () => {
+    const { runtime, allEvents } = createStoredRuntime();
+    const harness = createProtocolHarness(runtime);
+    const created = await harness.call(createName, { ...createArgs, rules: [formatRule(psaFormat, psaSelector)] });
+    expect(created.result?.isError).not.toBe(true);
+    expect(allEvents).toHaveLength(1);
+    const stored = allEvents[0]!.payload.value as { rules: { outcome: Record<string, unknown> }[] };
+    expect(stored.rules[0]!.outcome.certificateNumber).toEqual({ minimumDigits: 8, maximumDigits: 10 });
+
+    const policyId = created.result!.structuredContent!.policyId;
+    const validated = await harness.call(validateName, { ...validateArgs, policyId });
+    expect(validated.result?.structuredContent?.valid).toBe(true);
+    const impact = validated.result!.structuredContent!.impactPreview as { previewHash: string };
+    const activated = await harness.call("marketplace.activate-listing-evidence-policy-draft", {
+      policyId,
+      effectiveFrom: "2026-08-01T00:00:00.000Z",
+      impactAcknowledgmentHash: impact.previewHash,
+      confirmed: true,
+      idempotencyKey: "activate-format",
+      confirmationText: impact.previewHash,
+    });
+    expect(activated.result?.isError).not.toBe(true);
+    expect(activated.result?.structuredContent).toMatchObject({ policyHash: expect.stringMatching(/^sha256:/) });
+    const latest = allEvents.at(-1)!.payload.value as { rules: { outcome: Record<string, unknown> }[] };
+    expect(latest.rules[0]!.outcome.certificateNumber).toEqual({ minimumDigits: 8, maximumDigits: 10 });
+  });
+
+  it.each([
+    ["an unknown outcome key beside the format", { ...psaFormat, certificateFormat: { digits: 8 } }],
+    ["an unknown key inside the format", { certificateNumber: { minimumDigits: 8, maximumDigits: 10, pattern: "x" } }],
+    ["a digit count that is not a whole number", { certificateNumber: { minimumDigits: "8", maximumDigits: 10 } }],
+    ["a digit count below the policy's range", { certificateNumber: { minimumDigits: 0, maximumDigits: 10 } }],
+    ["a digit count above the policy's range", { certificateNumber: { minimumDigits: 8, maximumDigits: 33 } }],
+    ["a minimum above its maximum", { certificateNumber: { minimumDigits: 9, maximumDigits: 8 } }],
+  ])("refuses %s before any effect", async (_label, outcome) => {
+    const { runtime, allEvents } = createStoredRuntime();
+    const harness = createProtocolHarness(runtime);
+    const refused = await harness.call(createName, { ...createArgs, rules: [formatRule(outcome, psaSelector)] });
+    expect(refused.result?.isError).toBe(true);
+    expect(allEvents).toHaveLength(0);
+  });
+
+  it("refuses a format on a rule that selects no Option when the draft is created, naming the rule", async () => {
+    const { runtime, allEvents } = createStoredRuntime();
+    const harness = createProtocolHarness(runtime);
+    const refused = await harness.call(createName, { ...createArgs, rules: [formatRule(psaFormat, {})] });
+    expect(refused.result?.isError).toBe(true);
+    expect(refused.result?.content?.[0]?.text).toBe(
+      "Rule 'certificate-format-psa' sets a Certificate Number Format and must select at least one Option.",
+    );
+    expect(allEvents).toHaveLength(0);
+  });
+});

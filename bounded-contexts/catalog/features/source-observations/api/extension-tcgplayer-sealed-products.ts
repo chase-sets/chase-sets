@@ -2,10 +2,17 @@ import { randomUUID } from "node:crypto";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
-import { createPostgresEventStore, withPgTransaction, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import {
+  createPostgresEventStore,
+  withPgTransaction,
+  type PgQueryable,
+  type PgTransactionalPool,
+} from "@chase-sets/event-core-postgres";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import type { TcgplayerSealedProductObservationRecorder } from "../../operator-session/api/sealed-product-observations";
+import { listAcceptedProviderScopeMappingsForProviders } from "../../provider-scope-mapping/read-model/queries";
+import { createCatalogProviderIntegrationProfileVersionStore } from "./providers/provider-integration-profile-store";
 import {
   decideSourceObservation,
   evolveSourceObservation,
@@ -28,8 +35,11 @@ export function createExtensionTcgplayerSealedProductRecorder(
     profileVersions: CatalogProviderIntegrationProfileVersionReader;
   }>,
 ): TcgplayerSealedProductObservationRecorder {
-  return async function recordExtensionTcgplayerSealedProducts(request, backend = input.pool) {
-    const profile = await input.profileVersions.getActiveProfileVersion("tcgplayer", {
+  return async function recordExtensionTcgplayerSealedProducts(request, backend = input.pool, existingTransaction) {
+    const profileVersions = existingTransaction
+      ? createCatalogProviderIntegrationProfileVersionStore(existingTransaction)
+      : input.profileVersions;
+    const profile = await profileVersions.getActiveProfileVersion("tcgplayer", {
       ingestionUnitKey: request.unitKey,
     });
     if (!profile || !profile.active || profile.lifecycle !== "active") throw new Error("profile-unavailable");
@@ -49,7 +59,7 @@ export function createExtensionTcgplayerSealedProductRecorder(
       }),
     );
     const store = createPostgresEventStore({ pool: backend });
-    return withPgTransaction(backend, async (transaction) => {
+    async function write(transaction: PgQueryable) {
       const eventStore: EventStore = {
         ...store,
         readStream: (read) => store.readStreamInTransaction(transaction, read),
@@ -66,7 +76,12 @@ export function createExtensionTcgplayerSealedProductRecorder(
       const mergeCandidates: ReturnType<typeof createSourceObservationMergeCandidateRuntime> =
         createSourceObservationMergeCandidateRuntime({
           deps: { ...input.deps, db: transaction, eventStore },
-          profileVersions: input.profileVersions,
+          profileVersions,
+          loadAcceptedScopeMappings: async (db, providers) => {
+            const rows = await listAcceptedProviderScopeMappingsForProviders(db, providers);
+            const mapping = request.scopeMapping;
+            return mapping ? rows.map((row) => (row.mapping_id === mapping.mapping_id ? mapping : row)) : rows;
+          },
           // A second post can arrive before projections catch up. Reconcile membership from
           // canonical streams on this transaction, never invent a projected row or drain a worker.
           loadObservationRows: async (ids) => {
@@ -153,6 +168,7 @@ export function createExtensionTcgplayerSealedProductRecorder(
           code: exclusion.code,
         })),
       };
-    });
+    }
+    return existingTransaction ? write(existingTransaction) : withPgTransaction(backend, write);
   };
 }

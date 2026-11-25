@@ -14,7 +14,10 @@ import {
   readCatalogScopeSyncUnitState,
   upsertCatalogScopeSyncUnitState,
 } from "../../scope-sync-state/read-model/queries";
-import { listAcceptedProviderScopeMappingsByScopeRecord } from "../../provider-scope-mapping/read-model/queries";
+import {
+  listAcceptedProviderScopeMappingsByScopeRecord,
+  lockCurrentAcceptedProviderScopeMapping,
+} from "../../provider-scope-mapping/read-model/queries";
 import { getCatalogScopeRecord } from "../../scope-registry/read-model/queries";
 import { normalizeCatalogScopeProductDomain } from "../../scope-registry/domain/contract";
 import { type CatalogIntegrationRolloutControlPolicy } from "./governance/catalog-integration-rollout-controls";
@@ -27,6 +30,10 @@ import {
   type CatalogSyncScope,
 } from "./providers/catalog-sync-scope-planner";
 import { ProviderAdapterRegistry } from "./provider-adapters/registry";
+import {
+  resolveSealedRequestCoordinates,
+  sealedRequestProductLine,
+} from "./providers/tcgplayer/sealed-request-coordinates";
 import type {
   CatalogProviderIntegrationProfileVersionReader,
   SourceObservationIntegrationJob,
@@ -88,8 +95,8 @@ export function recordCatalogScopeSyncFailureForLinkedJob(
   });
 }
 
-async function isActiveSetNameScope(db: PgQueryable, scope: CatalogSyncScope) {
-  const record = await getCatalogScopeRecord(db, scope.reference.scopeRecordId);
+async function isActiveExtensionScope(db: PgQueryable, scope: CatalogSyncScope, lock = false) {
+  const record = await getCatalogScopeRecord(db, scope.reference.scopeRecordId, lock);
   return (
     record?.lifecycle_status === "active" &&
     record.scope_kind === scope.reference.kind &&
@@ -109,8 +116,31 @@ export function createCatalogSetNameRequestRecheck(
         [job.payload.syncRunId],
       )
     ).rows[0]?.payload;
-    if (!parent || !(await isActiveSetNameScope(db, parent.scope))) return false;
-    const mappings = await listAcceptedProviderScopeMappingsByScopeRecord(db, parent.scope.reference.scopeRecordId);
+    const sealed = job.payload.scope.execution === "extension-sealed-products";
+    if (!parent || !(await isActiveExtensionScope(db, parent.scope, sealed))) return false;
+    const mappings = await listAcceptedProviderScopeMappingsByScopeRecord(
+      db,
+      parent.scope.reference.scopeRecordId,
+      sealed,
+    );
+    if (sealed) {
+      const scope = job.payload.scope;
+      const exact = mappings.filter(
+        (mapping) => mapping.provider_key === "tcgplayer" && mapping.unit_key === scope.ingestionUnitKey,
+      );
+      const mapping = exact.length === 1 ? exact[0] : undefined;
+      if (!mapping || !scope.planningFingerprint?.endsWith(`|mapping:${mapping.mapping_id}:${mapping.updated_at}`))
+        return false;
+      const coordinates = await resolveSealedRequestCoordinates(db, catalogSyncAcceptedScopeMappingFromRow(mapping));
+      return !!coordinates &&
+        String(coordinates.productLineId) === scope.productLineId &&
+        String(coordinates.setNameId) === scope.setId &&
+        coordinates.searchName === scope.setName &&
+        (await lockCurrentAcceptedProviderScopeMapping(db, mapping)) &&
+        (await profileIsCurrent(db, job))
+        ? { ...mapping, set_name: coordinates.searchName, set_id: String(coordinates.setNameId) }
+        : false;
+    }
     if (
       mappings.some(
         (mapping) =>
@@ -149,8 +179,18 @@ export function createCatalogScopeSyncStateRuntime({
     // Provider coordinates are resolved from the scope record's accepted
     // Provider Scope Mappings. The scope-sync batch planner has already loaded
     // them and passes them through; the interactive path resolves them here.
-    const acceptedScopeMappings =
-      input.acceptedScopeMappings ?? (await resolveAcceptedScopeMappingsForScope(input.scope));
+    const mappings = input.acceptedScopeMappings ?? (await resolveAcceptedScopeMappingsForScope(input.scope));
+    const isSet = input.scope.reference.kind === "set" || input.scope.reference.kind === "expansion";
+    const acceptedScopeMappings = isSet
+      ? await Promise.all(
+          mappings.map(async (mapping) =>
+            mapping.scopeRecordId === input.scope.reference.scopeRecordId &&
+            sealedRequestProductLine(mapping.unitKey) !== null
+              ? { ...mapping, sealedCoordinates: await resolveSealedRequestCoordinates(deps.db, mapping) }
+              : mapping,
+          ),
+        )
+      : mappings;
     return previewCatalogSyncProviderParticipation({
       scope: input.scope,
       acceptedScopeMappings,
@@ -530,6 +570,14 @@ export function createCatalogSyncRunFanoutRuntime({
     completeCatalogSyncRunFanout,
     toCatalogSyncRun,
   } = scopeSyncState;
+  function enqueueBrowserChild(
+    scope: CatalogSyncRunSelectedUnitSnapshot["childExecutionScope"],
+    syncRunId: string,
+    context: EventStoreContext,
+  ) {
+    if (!enqueueSetNames) throw new Error("Operator extension dispatch is unavailable.");
+    return enqueueSetNames({ scope, syncRunId, context });
+  }
 
   async function enqueueCatalogSyncRun(input: {
     scope: CatalogSyncScope;
@@ -550,13 +598,13 @@ export function createCatalogSyncRunFanoutRuntime({
       throw new Error("Catalog sync scope has no selected eligible provider units.");
     }
 
-    const browser = selectedUnits.some((unit) => unit.childExecutionScope.execution === "extension-set-names");
+    const browser = selectedUnits.some((unit) => unit.childExecutionScope.execution);
     const fingerprint = catalogSyncRunIdempotencyKey(input.context, preview.scope, selectedUnits);
     const idempotencyKey = browser && input.dispatchKey ? `${fingerprint}:${input.dispatchKey}` : fingerprint;
     if (browser && browserFanoutPool) {
       return withPgTransaction(browserFanoutPool, async (lock) => {
         await lock.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [`catalog-fanout:${idempotencyKey}`]);
-        if (!(await isActiveSetNameScope(lock, preview.scope)))
+        if (!(await isActiveExtensionScope(lock, preview.scope)))
           throw new Error("Set-name discovery requires an active Catalog scope.");
         return fanout(input, preview, selectedUnits, idempotencyKey, true);
       });
@@ -628,15 +676,14 @@ export function createCatalogSyncRunFanoutRuntime({
       }
 
       try {
-        const childJob =
-          unit.childExecutionScope.execution === "extension-set-names" && enqueueSetNames
-            ? await enqueueSetNames({ scope: unit.childExecutionScope, syncRunId, context: input.context })
-            : await enqueueIntegrationJob({
-                action: "import",
-                scope: unit.childExecutionScope,
-                syncRunId,
-                context: input.context,
-              });
+        const childJob = unit.childExecutionScope.execution
+          ? await enqueueBrowserChild(unit.childExecutionScope, syncRunId, input.context)
+          : await enqueueIntegrationJob({
+              action: "import",
+              scope: unit.childExecutionScope,
+              syncRunId,
+              context: input.context,
+            });
         childJobs.push({
           providerKey: unit.providerKey,
           unitKey: unit.unitKey,

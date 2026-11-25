@@ -3,7 +3,9 @@ import type { PgPoolClient, PgTransactionalPool } from "@chase-sets/event-core-p
 import { createOperatorSessionGrants } from "../api/grants";
 import { operatorSessionPublicRoutes } from "../api/route";
 import { grantBearer, provenance } from "./set-name-observation-fixture";
-import { sealedPost, sealedRoutePath } from "./sealed-product-observation-fixture";
+import { sealedPartHeaders, sealedPost, sealedRoutePath } from "./sealed-product-observation-fixture";
+import { operatorOrigins } from "../domain/extension/protocol";
+import type { ProviderScopeMappingRow } from "../../provider-scope-mapping/read-model/queries";
 
 afterEach(() => vi.restoreAllMocks());
 it("keeps hostile headers and raw exceptions out of recorder inputs, responses and logs", async () => {
@@ -54,13 +56,19 @@ it("keeps hostile headers and raw exceptions out of recorder inputs, responses a
         if (fail) throw new Error(`${marker} Bearer hostile-forwarded-token`);
         return { recorded: 1, changed: 0, unchanged: 0, candidateCount: 0, exclusions: [] };
       },
+      answerTcgplayerSealedRequest: async ({ answer, record }) => {
+        if (answer.kind !== "part") throw new Error("Expected synthetic part");
+        await record(client, answer.post, { unit_key: "synthetic" } as ProviderScopeMappingRow);
+        return { kind: "part", partIndex: answer.partIndex };
+      },
     },
   );
   const app = operatorSessionPublicRoutes(services);
   const post = (body = sealedPost()) =>
-    app.request(sealedRoutePath, {
+    app.request(`${operatorOrigins.staging}${sealedRoutePath}`, {
       method: "POST",
       headers: {
+        ...sealedPartHeaders,
         authorization: `Bearer ${grantBearer}`,
         cookie: marker,
         "x-forwarded-authorization": "Bearer hostile-forwarded-token",

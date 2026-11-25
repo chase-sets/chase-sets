@@ -81,7 +81,18 @@ The TCGplayer Operator Extension holds one Operator Session Push Grant per
 environment in Todd's operator browser. It never reads, stores or forwards a
 TCGplayer session, cookie or credential. It is separate from the seller
 connector. Pairing is per environment; unpairing revokes the grant, not the
-browser/provider session. The popup cannot read stored grants or cookies.
+browser/provider session. The popup cannot read stored grants or cookies. Its
+Run now control wakes the same service-worker poll as the scheduled alarm; it
+does not choose or approve the work. The separate SetNames probe is diagnostic.
+
+- `Catalog observation request` is a durable, grant-bound offer for one
+  browser-only Scope Sync child: either refresh SetNames for a product line or
+  collect sealed products for one mapped set. The child waits without a server
+  provider claim, and no Catalog server contacts TCGplayer.
+- `Sealed completion receipt` records the verified manifest for one sealed
+  request. Every numbered part must match its digest and set; even a zero-part
+  answer must explicitly confirm a verified empty collection. Replaying an
+  accepted receipt does not repeat observations, candidates or events.
 
 - `Admin pair handoff` is the primary pairing path: after a successful mint,
   the Admin TCGplayer provider page sends the grant once to the extension
