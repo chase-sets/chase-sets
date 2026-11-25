@@ -303,14 +303,17 @@ function promotionReferenceHierarchyPayload(normalized: ReferenceHierarchySource
   }
 
   if (normalized.kind === "lorcana-card-print") {
+    const set = {
+      id: normalized.setId,
+      code: normalized.setCode,
+      name: normalized.setName,
+      release_date: normalized.releaseDate,
+    };
     return toJsonValue({
       ...normalized,
-      set: {
-        id: normalized.setId,
-        code: normalized.setCode,
-        name: normalized.setName,
-        release_date: normalized.releaseDate,
-      },
+      set,
+      // Scrydex hierarchy rules use the provider's card.expansion paths.
+      card: { expansion: set },
       set_name: normalized.setName,
     });
   }

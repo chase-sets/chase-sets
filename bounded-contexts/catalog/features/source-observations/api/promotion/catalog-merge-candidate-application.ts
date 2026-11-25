@@ -28,6 +28,7 @@ import {
   type CatalogMergeCandidateCommand,
   type CatalogMergeCandidateConflictResolution,
   type CatalogMergeCandidateEvent,
+  type CatalogMergeCandidateFieldProvenance,
   type CatalogMergeCandidatePromotionApplication,
   type CatalogMergeCandidatePromotionAppliedEvent,
   type CatalogMergeCandidatePromotionPlan,
@@ -64,7 +65,6 @@ import {
   type CatalogItemPromotableSourceObservationNormalized,
 } from "../source-observation-promotion-reference-hierarchy";
 import type {
-  CatalogMergeCandidateApplicationDiagnosticCode,
   CatalogMergeCandidateBulkUnitResult,
   CatalogProviderIntegrationProfileVersionReader,
 } from "../source-observation-runtime-contracts";
@@ -74,6 +74,11 @@ import {
   sourceObservationStreamId,
 } from "../source-observation-stream-identity";
 import { extractMergeCandidateFieldValue, mergeCandidateFieldValuesEqual } from "./catalog-merge-candidate-matcher";
+import type {
+  CatalogMergeCandidateApplicationDiagnosticCode,
+  CatalogMergeCandidatePromotionApplicationRefusal,
+  CatalogMergeCandidatePromotionPlanBlock,
+} from "./catalog-merge-candidate-promotion-diagnostics";
 import {
   planCatalogMergeCandidatePromotionCommands,
   type CatalogMergeCandidatePromotionAssetPlan,
@@ -131,20 +136,18 @@ export type CatalogMergeCandidateApplicationPorts = Readonly<{
  * codes refuse a retained plan or target without retargeting or completing it.
  */
 export class CatalogMergeCandidateApplicationError extends Error {
-  readonly code: string;
-  readonly diagnosticCode?: CatalogMergeCandidateApplicationDiagnosticCode;
+  readonly code: CatalogMergeCandidateApplicationDiagnosticCode;
 
-  constructor(code: string, detail?: string, diagnosticCode?: CatalogMergeCandidateApplicationDiagnosticCode) {
+  constructor(code: CatalogMergeCandidateApplicationDiagnosticCode, detail?: string) {
     super(detail ? `${code}: ${detail}` : code);
     this.name = "CatalogMergeCandidateApplicationError";
     this.code = code;
-    this.diagnosticCode = diagnosticCode;
   }
 }
 
-const blocked = (code: string, detail?: string) =>
+const blocked = (code: CatalogMergeCandidatePromotionPlanBlock, detail?: string) =>
   new CatalogMergeCandidateApplicationError(`promotion-plan-blocked:${code}`, detail);
-const refused = (code: string, detail?: string) =>
+const refused = (code: CatalogMergeCandidatePromotionApplicationRefusal, detail?: string) =>
   new CatalogMergeCandidateApplicationError(`promotion-application-${code}`, detail);
 
 export function catalogMergeCandidateTargetId(candidateId: string): string {
@@ -457,6 +460,13 @@ const promotionFacts = [
   },
   { fieldPath: "catalogItem.rarity", fieldIdKey: "rarity", valueKind: "raw", factKey: "rarity", required: false },
   {
+    fieldPath: "catalogItem.inkColor",
+    fieldIdKey: "inkColor",
+    valueKind: "raw",
+    factKey: "inkColor",
+    required: false,
+  },
+  {
     fieldPath: "catalogItem.productForm",
     fieldIdKey: "cardVariant",
     valueKind: "raw",
@@ -507,7 +517,75 @@ export function snapshotWithAuthoredFacts(
     delete facts[fact.factKey];
     fieldProvenance = fieldProvenance.filter((entry) => entry.fieldPath !== fact.fieldPath);
   }
+  const ink = authoredInkColor(snapshot, authors, facts, fieldProvenance);
+  if (ink) {
+    facts.inkColor = ink.value;
+    fieldProvenance = [...fieldProvenance, ...ink.provenance];
+  }
   return { ...snapshot, proposedCatalogItemFacts: facts, fieldProvenance };
+}
+
+/**
+ * Ink color is required by the Lorcana display template, but the candidate
+ * matcher does not project it, so a reviewed snapshot carries none unless a
+ * reviewer set it. Promotion takes it from the item-producing members' own
+ * reviewed revisions, as direct provider promotion does. Only Scrydex Lorcana
+ * card-print authors supply it, so a candidate with no Scrydex member (such as
+ * one authored only by LorcanaJSON) is unchanged. A key already in the snapshot
+ * (including a reviewer's blank) or any ink provenance wins, and Scrydex authors
+ * whose nonblank values disagree supply nothing.
+ */
+function authoredInkColor(
+  snapshot: CatalogMergeCandidateReviewSnapshot,
+  authors: readonly ItemAuthor[],
+  facts: JsonObject,
+  fieldProvenance: readonly CatalogMergeCandidateFieldProvenance[],
+): Readonly<{ value: string; provenance: readonly CatalogMergeCandidateFieldProvenance[] }> | null {
+  const fieldPath = "catalogItem.inkColor";
+  if (Object.hasOwn(facts, "inkColor")) return null;
+  if (fieldProvenance.some((entry) => entry.fieldPath === fieldPath)) return null;
+  const carried = authors.flatMap((author) => {
+    const eligible = author.normalized.kind === "lorcana-card-print" && sameKey(author.version.providerKey, "scrydex");
+    const value = eligible ? author.normalized.inkColor?.trim() : undefined;
+    return value ? [{ author, value }] : [];
+  });
+  const first = carried[0];
+  if (!first || carried.some((entry) => entry.value !== first.value)) return null;
+  return {
+    value: first.value,
+    provenance: carried.map(({ author, value }) =>
+      authorProvenance(snapshot, author, fieldPath, value, carried.length),
+    ),
+  };
+}
+
+function authorProvenance(
+  snapshot: CatalogMergeCandidateReviewSnapshot,
+  author: ItemAuthor,
+  fieldPath: string,
+  value: JsonValue,
+  carriedCount: number,
+): CatalogMergeCandidateFieldProvenance {
+  const { revision } = author;
+  const member = snapshot.membership.find(
+    (entry) =>
+      entry.providerKey === revision.providerKey &&
+      entry.externalKey === revision.externalKey &&
+      entry.sourceRecordHash === revision.sourceRecordHash,
+  );
+  return {
+    fieldPath,
+    value,
+    observationId: member?.observationId ?? revision.id ?? "",
+    providerKey: revision.providerKey,
+    sourceProfileKey: revision.sourceProfileKey,
+    sourceProfileVersion: revision.sourceProfileVersion,
+    confidence: carriedCount === 1 ? "exact" : "high",
+    evidence: {
+      sourceField: fieldPath.replace(/^catalogItem\./, ""),
+      sourceMappingFingerprint: revision.sourceMappingFingerprint,
+    },
+  };
 }
 
 function approvedFact(facts: JsonObject, factKey: string): JsonValue | null {
@@ -641,10 +719,9 @@ async function prepareApplicationPlan(
     currentItem: mode === "create" ? null : promotionCurrentItem(target),
   });
   if (planned.status === "blocked") {
-    throw blocked(
-      planned.diagnostics[0]?.code ?? "unknown",
-      planned.diagnostics.map((diagnostic) => diagnostic.diagnosticText).join(" "),
-    );
+    const first = planned.diagnostics[0];
+    if (!first) throw new Error("Catalog Merge Candidate plan was blocked without a diagnostic.");
+    throw blocked(first.code, planned.diagnostics.map((diagnostic) => diagnostic.diagnosticText).join(" "));
   }
 
   const plan: CatalogMergeCandidatePromotionPlan = {
@@ -1064,13 +1141,11 @@ function candidateCatalogMapping(
   if (referenceField && !referenceFieldId) throw blocked("missing-reference-record-target", referenceField);
   const fields: CatalogMergeCandidatePromotionFieldMapping[] = promotionFacts
     .filter((fact) => fact.factKey !== "productForm" || "sealedProductForm" in primary.normalized)
-    .map(({ fieldPath, fieldIdKey, valueKind, factKey, required }) => ({
-      fieldPath,
-      fieldId: fieldIds[fieldIdKey],
-      valueKind,
-      factKey,
-      ...(required ? { required } : {}),
-    }));
+    .flatMap(({ fieldPath, fieldIdKey, valueKind, factKey, required }) => {
+      // Optional fields such as ink color exist only on the profiles that declare them.
+      const fieldId = fieldIds[fieldIdKey];
+      return fieldId ? [{ fieldPath, fieldId, valueKind, factKey, ...(required ? { required } : {}) }] : [];
+    });
   if (referenceFieldId) {
     fields.push({
       fieldPath: referenceField === "expansion" ? "catalogItem.expansionName" : "catalogItem.setName",
@@ -1094,7 +1169,7 @@ function candidateCatalogMapping(
  * choice. Storage preparation is idempotent and asset failures are classified.
  */
 type CandidateAssetPlan = CatalogMergeCandidatePromotionAssetPlan & {
-  diagnosticCode?: CatalogMergeCandidateApplicationDiagnosticCode;
+  diagnosticCode?: "asset-processing-failed";
 };
 
 async function prepareCandidateAssets(
@@ -1148,11 +1223,7 @@ async function prepareCandidateAssets(
       if (error instanceof CatalogAssetStorageError) return { diagnosticCode: "asset-processing-failed" };
       throw error;
     }
-    throw new CatalogMergeCandidateApplicationError(
-      "asset-processing-failed",
-      errorText(error),
-      "asset-processing-failed",
-    );
+    throw new CatalogMergeCandidateApplicationError("asset-processing-failed", errorText(error));
   }
 }
 
@@ -1287,7 +1358,7 @@ export function unappliedOutcome(
   candidateId: string,
   status: Exclude<CatalogMergeCandidateBulkUnitResult["status"], "promoted" | "deferred">,
   reason: string,
-  diagnosticCode?: CatalogMergeCandidateApplicationDiagnosticCode,
+  diagnosticCode?: "asset-processing-failed",
 ): CatalogMergeCandidateBulkUnitResult {
   return {
     candidateId,

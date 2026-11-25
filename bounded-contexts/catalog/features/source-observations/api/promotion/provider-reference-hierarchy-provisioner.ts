@@ -50,6 +50,10 @@ export type CatalogProviderReferenceHierarchyProvisioningResult = Readonly<{
   referenceRecordIdsByRuleKey: ReadonlyMap<string, ReferenceRecordId>;
 }>;
 
+export class CatalogPromotionReferenceTargetUnresolvedError extends Error {
+  readonly code = "promotion-reference-target-unresolved";
+}
+
 export async function provisionCatalogProviderReferenceHierarchy(input: {
   profile: CatalogProviderIntegrationProfile;
   payload: JsonValue;
@@ -84,7 +88,7 @@ export async function provisionCatalogProviderReferenceHierarchy(input: {
     input.profile.referenceHierarchyMapping.targetRecordRuleKey,
   );
   if (!targetReferenceRecordId) {
-    throw new Error(
+    throw new CatalogPromotionReferenceTargetUnresolvedError(
       `${input.profile.displayName} reference hierarchy did not resolve target record '${input.profile.referenceHierarchyMapping.targetRecordRuleKey}'.`,
     );
   }

@@ -48,6 +48,7 @@ async function readFacts(input: {
   outcomes?: readonly CatalogMergeCandidateBulkUnitResult[];
   legacy?: boolean;
   candidateCount?: number;
+  failedUnitCodes?: readonly (string | null)[];
 }) {
   const statements: string[] = [];
   const client = {
@@ -60,6 +61,13 @@ async function readFacts(input: {
         ];
       } else if (sql.includes("FROM catalog_scope_sync_batch_units")) {
         rows = [];
+      } else if (sql.includes(" AS diagnostic_code")) {
+        expect(sql).toContain("COALESCE(unit.result->>'diagnosticCode', unit.result->>'failureDiagnosticCode')");
+        rows = (input.failedUnitCodes ?? []).map((diagnostic_code, index) => ({
+          job_id: "synthetic_job",
+          unit_id: `synthetic_unit_${index}`,
+          diagnostic_code,
+        }));
       } else if (sql.includes("FROM catalog_source_observation_bulk_review_jobs") && !sql.includes("count(*)")) {
         const outcomes = input.outcomes ?? [];
         rows = [
@@ -123,6 +131,24 @@ async function readFacts(input: {
 }
 
 describe("completed candidate application counting (synthetic adapter)", () => {
+  it("counts asset failures without treating named reference failures as unknown", async () => {
+    const applied = applicationOutcome("synthetic_candidate_0", "create");
+    const facts = await readFacts({
+      outcomes: [applied],
+      failedUnitCodes: [
+        "asset-processing-failed",
+        "promotion-reference-target-unresolved",
+        null,
+        "unexpected-promotion-error",
+        "unrecognized-synthetic-code",
+      ],
+    });
+    expect(facts.manifest.assetProcessing).toEqual({ approvedFailures: 1, exclusions: 0 });
+    expect(facts.unknownFacts).toEqual(
+      [2, 3, 4].map((index) => `promotion-outcome-diagnostic-code:synthetic_job/synthetic_unit_${index}`),
+    );
+  });
+
   it("an approved but unapplied candidate does not count and cannot prove completion", async () => {
     const facts = await readFacts({});
     expect(facts.manifest.promotions).toEqual({ create: 0, update: 0, ignore: 0, defer: 0 });
