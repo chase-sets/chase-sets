@@ -45,7 +45,6 @@ type CandidateFieldKey =
   | "expansionName"
   | "collectorNumber"
   | "rarity"
-  | "inkColor"
   | "releaseDate"
   | "releaseYear"
   | "productLineName"
@@ -93,10 +92,6 @@ const CANDIDATE_FIELD_SPECS: readonly CandidateFieldSpec[] = [
     fieldPath: "catalogItem.rarity",
   },
   {
-    factKey: "inkColor",
-    fieldPath: "catalogItem.inkColor",
-  },
-  {
     factKey: "releaseDate",
     fieldPath: "catalogItem.releaseDate",
   },
@@ -139,8 +134,6 @@ export function extractMergeCandidateFieldValue(
             : null;
       case "rarity":
         return stringFact(valueAt(row.normalized, "rarity"));
-      case "inkColor":
-        return stringFact(valueAt(row.normalized, "inkColor"));
       case "releaseDate":
         return stringFact(valueAt(row.normalized, "releaseDate"));
       case "releaseYear":

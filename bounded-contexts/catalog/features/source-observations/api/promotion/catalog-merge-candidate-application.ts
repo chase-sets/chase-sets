@@ -517,32 +517,44 @@ export function snapshotWithAuthoredFacts(
     delete facts[fact.factKey];
     fieldProvenance = fieldProvenance.filter((entry) => entry.fieldPath !== fact.fieldPath);
   }
-  for (const fact of promotionFacts) {
-    if (!authorCarriedFactKeys.has(fact.factKey)) continue;
-    if (approvedFact(snapshot.proposedCatalogItemFacts, fact.factKey) !== null) continue;
-    const carried = authors.flatMap((author) => {
-      const extracted = extractMergeCandidateFieldValue(fact.factKey, author, snapshot.identity);
-      return extracted && !extracted.fromFallback ? [{ author, value: extracted.value }] : [];
-    });
-    const first = carried[0];
-    if (!first || carried.some((entry) => !mergeCandidateFieldValuesEqual(entry.value, first.value))) continue;
-    facts[fact.factKey] = first.value;
-    fieldProvenance = [
-      ...fieldProvenance.filter((entry) => entry.fieldPath !== fact.fieldPath),
-      ...carried.map(({ author, value }) => authorProvenance(snapshot, author, fact.fieldPath, value, carried.length)),
-    ];
+  const ink = authoredInkColor(snapshot, authors, facts, fieldProvenance);
+  if (ink) {
+    facts.inkColor = ink.value;
+    fieldProvenance = [...fieldProvenance, ...ink.provenance];
   }
   return { ...snapshot, proposedCatalogItemFacts: facts, fieldProvenance };
 }
 
 /**
- * Facts a reviewed snapshot may lack only because its candidate was proposed
- * before the matcher projected them. Ink color is required by the Lorcana
- * display template; when the snapshot has none, the item-producing members'
- * own reviewed revisions supply it if they agree, as direct provider promotion
- * does. Disagreement leaves it unset.
+ * Ink color is required by the Lorcana display template, but the candidate
+ * matcher does not project it, so a reviewed snapshot carries none unless a
+ * reviewer set it. Promotion takes it from the item-producing members' own
+ * reviewed revisions, as direct provider promotion does. A key already in the
+ * snapshot (including a reviewer's blank) or any manual provenance wins, and
+ * authors that disagree supply nothing.
  */
-const authorCarriedFactKeys: ReadonlySet<string> = new Set(["inkColor"]);
+function authoredInkColor(
+  snapshot: CatalogMergeCandidateReviewSnapshot,
+  authors: readonly ItemAuthor[],
+  facts: JsonObject,
+  fieldProvenance: readonly CatalogMergeCandidateFieldProvenance[],
+): Readonly<{ value: string; provenance: readonly CatalogMergeCandidateFieldProvenance[] }> | null {
+  const fieldPath = "catalogItem.inkColor";
+  if (Object.hasOwn(facts, "inkColor")) return null;
+  if (fieldProvenance.some((entry) => entry.fieldPath === fieldPath)) return null;
+  const carried = authors.flatMap((author) => {
+    const value = author.normalized.kind === "lorcana-card-print" ? author.normalized.inkColor?.trim() : undefined;
+    return value ? [{ author, value }] : [];
+  });
+  const first = carried[0];
+  if (!first || carried.some((entry) => entry.value !== first.value)) return null;
+  return {
+    value: first.value,
+    provenance: carried.map(({ author, value }) =>
+      authorProvenance(snapshot, author, fieldPath, value, carried.length),
+    ),
+  };
+}
 
 function authorProvenance(
   snapshot: CatalogMergeCandidateReviewSnapshot,

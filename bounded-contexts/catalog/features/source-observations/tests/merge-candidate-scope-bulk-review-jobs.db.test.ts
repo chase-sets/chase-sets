@@ -864,10 +864,13 @@ describeDb("Catalog Merge Candidate application through real Catalog services (d
         context,
       });
       await drainLocalProjectionHandlerSets("catalog", pool, services.sourceObservations.projectors);
-      // The first candidate stands in for one proposed before the matcher carried ink color.
+      // Candidates carry no ink color; promotion takes it from the Scrydex member's own revision.
       const candidateId = await candidateFrom(
         [observation.observationId],
-        number === 1 ? withoutInkColor : (snapshot) => snapshot,
+        (snapshot) => {
+          expect(snapshot.proposedCatalogItemFacts).not.toHaveProperty("inkColor");
+          return snapshot;
+        },
         version,
       );
       candidates.push({ candidateId, tcgplayerId });
@@ -893,18 +896,10 @@ describeDb("Catalog Merge Candidate application through real Catalog services (d
         tcgplayerId ? [expect.objectContaining({ externalKey: `product:${tcgplayerId}` })] : [],
       );
       expect(item.fieldValues).toContainEqual({ fieldId: catalogSeedIds.fields.inkColor, value: "Amber" });
+      expect(item.fieldValues).toContainEqual({ fieldId: catalogSeedIds.fields.rarity, value: "Common" });
+      expect(item.fieldValues).toContainEqual(expect.objectContaining({ fieldId: catalogSeedIds.fields.set }));
     }
   });
-
-  function withoutInkColor(snapshot: CatalogMergeCandidateReviewSnapshot): CatalogMergeCandidateReviewSnapshot {
-    expect(snapshot.proposedCatalogItemFacts.inkColor).toBe("Amber");
-    const { inkColor: _inkColor, ...facts } = snapshot.proposedCatalogItemFacts;
-    return {
-      ...snapshot,
-      proposedCatalogItemFacts: facts,
-      fieldProvenance: snapshot.fieldProvenance.filter((entry) => entry.fieldPath !== "catalogItem.inkColor"),
-    };
-  }
 
   async function completionFacts() {
     const candidates = await pool.query<{ candidate_id: string }>(

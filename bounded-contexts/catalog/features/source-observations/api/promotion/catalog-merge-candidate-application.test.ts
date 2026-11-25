@@ -819,6 +819,75 @@ async function stubCatalogPictureIO() {
   return { fetcher, putObject };
 }
 
+describe("Lorcana ink color from item-producing members", () => {
+  const inkPath = "catalogItem.inkColor";
+  const lorcanaRevision = (providerKey: string, externalKey: string, inkColor: string | null) => {
+    const normalized = { kind: "lorcana-card-print", tcg: "lorcana", name: "Card", inkColor };
+    return {
+      revision: {
+        id: `obs_${externalKey}`,
+        providerKey,
+        externalKey,
+        sourceRecordHash: `hash_${externalKey}`,
+        sourceProfileKey: `${providerKey}-lorcana`,
+        sourceProfileVersion: "1",
+        sourceMappingFingerprint: "fp",
+        normalized,
+      },
+      normalized,
+      version: { providerKey, profileKey: `${providerKey}-lorcana`, profileVersion: "1" },
+    };
+  };
+  const snapshot = (facts: Record<string, unknown> = {}, provenance: readonly Record<string, unknown>[] = []) =>
+    ({
+      identity: {},
+      membership: [
+        { observationId: "obs_a", providerKey: "scrydex", externalKey: "a", sourceRecordHash: "hash_a" },
+        { observationId: "obs_b", providerKey: "scrydex", externalKey: "b", sourceRecordHash: "hash_b" },
+      ],
+      proposedCatalogItemFacts: { name: "Card", ...facts },
+      fieldProvenance: [...provenance],
+    }) as never;
+
+  it("supplies the item-producing member's ink when the reviewed snapshot has none", () => {
+    const effective = snapshotWithAuthoredFacts(snapshot(), [lorcanaRevision("scrydex", "a", "Amber")] as never);
+
+    expect(effective.proposedCatalogItemFacts.inkColor).toBe("Amber");
+    expect(effective.fieldProvenance).toContainEqual(
+      expect.objectContaining({ fieldPath: inkPath, value: "Amber", observationId: "obs_a", confidence: "exact" }),
+    );
+  });
+
+  it("supplies nothing when item-producing members disagree", () => {
+    const effective = snapshotWithAuthoredFacts(snapshot(), [
+      lorcanaRevision("scrydex", "a", "Amber"),
+      lorcanaRevision("scrydex", "b", "Ruby"),
+    ] as never);
+
+    expect(effective.proposedCatalogItemFacts).not.toHaveProperty("inkColor");
+    expect(effective.fieldProvenance).not.toContainEqual(expect.objectContaining({ fieldPath: inkPath }));
+  });
+
+  it("keeps a reviewer's blank ink instead of restoring the source value", () => {
+    const manual = { fieldPath: inkPath, value: "", observationId: "obs_a", confidence: "manual" };
+    const effective = snapshotWithAuthoredFacts(snapshot({ inkColor: "" }, [manual]), [
+      lorcanaRevision("scrydex", "a", "Amber"),
+    ] as never);
+
+    expect(effective.proposedCatalogItemFacts.inkColor).toBe("");
+    expect(effective.fieldProvenance.filter((entry) => entry.fieldPath === inkPath)).toEqual([manual]);
+  });
+
+  it("keeps a reviewer's ink correction", () => {
+    const manual = { fieldPath: inkPath, value: "Ruby", observationId: "obs_a", confidence: "manual" };
+    const effective = snapshotWithAuthoredFacts(snapshot({ inkColor: "Ruby" }, [manual]), [
+      lorcanaRevision("scrydex", "a", "Amber"),
+    ] as never);
+
+    expect(effective.proposedCatalogItemFacts.inkColor).toBe("Ruby");
+  });
+});
+
 describe("Catalog Merge Candidate Catalog-owned pictures", () => {
   const scryfall = magicObservation("scryfall-card-print");
   const at = scryfall.observedAt;
