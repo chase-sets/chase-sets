@@ -109,9 +109,16 @@ export function createMarketplaceReportRoutes(services: MarketplaceReportService
     const context = c.get("context") ?? createVisitorReportContext(visitorKey ?? actor!.accountId);
 
     try {
+      const { attemptId, ...report } = reportRequestFields(
+        body,
+        "listing",
+        marketplaceListingReportReasons,
+        "Report reason is invalid.",
+      );
       const result = await services.reportListing(
         {
-          ...reportRequestFields(body, "listing", marketplaceListingReportReasons, "Report reason is invalid."),
+          attemptId,
+          ...report,
           listingId: c.req.param("id"),
           reporterKind: actor ? "account" : "visitor",
           reporterKey: actor?.accountId ?? visitorKey ?? "",
@@ -179,9 +186,16 @@ export function createMarketplaceReportRoutes(services: MarketplaceReportService
     }
 
     try {
+      const { attemptId, ...report } = reportRequestFields(
+        body,
+        "review",
+        marketplaceReviewReportReasons,
+        "Review report reason is invalid.",
+      );
       const result = await services.reportReview(
         {
-          ...reportRequestFields(body, "review", marketplaceReviewReportReasons, "Review report reason is invalid."),
+          attemptId,
+          ...report,
           reviewId: c.req.param("id"),
           reporterAccountId: actor.accountId,
           reporterUserId: actor.userId,
