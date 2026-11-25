@@ -30,6 +30,7 @@ const evaluation: ListingEvidencePolicyEvaluation = {
     sellerTrustRequirements: [],
     buyerAcknowledgment: "none",
   },
+  certificateNumberFormats: [],
   effectiveInterval: { from: "2026-07-13T00:00:00.000Z", until: null },
   explanationCodes: ["listing-evidence.graded-item"],
 };

@@ -858,131 +858,143 @@ describe("marketplace listing evidence lifecycle", () => {
   });
 });
 
-describe("marketplace graded-card validation", () => {
-  it.each([
-    ["PSA", "12345678", "10.0", "10"],
-    ["PSA", "12345678", "Gem Mint 10", "10"],
-    ["PSA", "12345678", "NM-MT 8", "8"],
-    ["BGS", "1234567890", "9.5", "9.5"],
-    ["BGS", "1234567890", "Mint 9.5", "9.5"],
-    ["CGC", "1234567", "Authentic", "Authentic"],
-    ["SGC", "123456", " authentic ", "Authentic"],
-  ])(
-    "accepts %s certification numbers and normalizes grades",
-    (gradingCompany, certificationNumber, grade, expected) => {
-      const events = decideMarketplaceListing(initialMarketplaceListingState, {
-        ...createListingCommand,
-        gradedCard: {
-          gradingCompany,
-          grade,
-          certificationNumber,
-          population: null,
-          conditionDescriptors: [" slabbed ", "slabbed"],
-        },
-      });
+describe("marketplace Graded Item Details on a created Listing", () => {
+  type GradedCard = NonNullable<CreateListingCommand["gradedCard"]>;
 
-      expect(events[0]?.type).toBe("marketplace.listing.created");
-      const [created] = events;
-      if (created?.type !== "marketplace.listing.created") {
-        throw new Error("Expected listing created event.");
-      }
-      expect(created.data.gradedCard).toMatchObject({
-        gradingCompany,
-        grade: expected,
-        certificationNumber,
-        conditionDescriptors: ["slabbed"],
-      });
-    },
-  );
+  function gradedCard(overrides: Partial<GradedCard> = {}): GradedCard {
+    return {
+      gradingCompany: "PSA",
+      grade: "Gem Mint 10",
+      certificationNumber: "12345678",
+      population: null,
+      conditionDescriptors: [],
+      ...overrides,
+    };
+  }
 
-  it("normalizes the BGS catalog seed label alias to the supported grading company code", () => {
-    const events = decideMarketplaceListing(initialMarketplaceListingState, {
-      ...createListingCommand,
-      gradedCard: {
-        gradingCompany: "BGS/Beckett",
-        grade: "Mint 9.5",
-        certificationNumber: "0012345678",
-        population: null,
-        conditionDescriptors: ["Encapsulated"],
-      },
-    });
-
-    expect(events[0]?.type).toBe("marketplace.listing.created");
-    const [created] = events;
+  function createdGradedCard(command: Partial<CreateListingCommand>) {
+    const [created] = decideMarketplaceListing(initialMarketplaceListingState, { ...createListingCommand, ...command });
     if (created?.type !== "marketplace.listing.created") {
       throw new Error("Expected listing created event.");
     }
-    expect(created.data.gradedCard).toMatchObject({
-      gradingCompany: "BGS",
-      grade: "9.5",
-      certificationNumber: "0012345678",
-      conditionDescriptors: ["Encapsulated"],
+    return created.data.gradedCard;
+  }
+
+  const psaFormat = { minimumDigits: 8, maximumDigits: 10 };
+
+  it.each([
+    ["ACE", "Pristine 10"],
+    ["TAG", "Gem Mint 10"],
+    ["PSA", "Gem Mint 10"],
+    ["PSA", "Pristine 10"],
+    ["BGS/Beckett", "Mint 9.5"],
+    ["PSA", "10.0"],
+    ["SGC", "authentic"],
+    ["A company Catalog added today", "A grade no table lists"],
+  ])("records grading company %j and grade %j exactly as given", (gradingCompany, grade) => {
+    expect(
+      createdGradedCard({
+        gradedCard: gradedCard({ gradingCompany, grade, conditionDescriptors: [" slabbed ", "slabbed"] }),
+      }),
+    ).toEqual({
+      gradingCompany,
+      grade,
+      certificationNumber: "12345678",
+      population: null,
+      conditionDescriptors: ["slabbed"],
     });
   });
 
+  it("no longer exports a grading company table", async () => {
+    expect(Object.keys(await import("./domain"))).not.toContain("marketplaceGradingCompanyPolicies");
+  });
+
   it.each([
-    ["PSA", "ABC12345", "PSA certification numbers must use 8 to 10 digits."],
-    ["BGS", "1234567", "BGS certification numbers must use 8 to 10 digits."],
-    ["CGC", "123456", "CGC certification numbers must use 7 to 10 digits."],
-    ["SGC", "12345", "SGC certification numbers must use 6 to 10 digits."],
-  ])("rejects malformed %s certification numbers", (gradingCompany, certificationNumber, message) => {
-    expect(() =>
-      decideMarketplaceListing(initialMarketplaceListingState, {
-        ...createListingCommand,
-        gradedCard: {
-          gradingCompany,
-          grade: "9",
-          certificationNumber,
-          population: null,
-          conditionDescriptors: [],
-        },
-      }),
-    ).toThrow(message);
+    ["no formats", undefined],
+    ["an empty format list", []],
+    ["a format", [psaFormat]],
+  ])("refuses a graded Listing without a certification number when the command carries %s", (_label, formats) => {
+    for (const certificationNumber of [null, "", " \t "]) {
+      for (const gradingCompany of ["PSA", "ACE"]) {
+        expect(() =>
+          createdGradedCard({
+            gradedCard: gradedCard({ gradingCompany, certificationNumber }),
+            certificateNumberFormats: formats,
+          }),
+        ).toThrow("Graded cards require a certification number.");
+      }
+    }
   });
 
-  it("requires certification numbers for graded cards", () => {
+  it.each([
+    ["letters", "ABC12345"],
+    ["too few digits", "1234567"],
+    ["too many digits", "12345678901"],
+    ["a separator between digits", "1234-5678"],
+  ])("refuses a certification number with %s under a format on the command", (_label, certificationNumber) => {
     expect(() =>
-      decideMarketplaceListing(initialMarketplaceListingState, {
-        ...createListingCommand,
-        gradedCard: {
-          gradingCompany: "PSA",
-          grade: "9",
-          certificationNumber: null,
-          population: null,
-          conditionDescriptors: [],
-        },
-      }),
-    ).toThrow("Graded cards require a certification number.");
+      createdGradedCard({ gradedCard: gradedCard({ certificationNumber }), certificateNumberFormats: [psaFormat] }),
+    ).toThrow("PSA certification numbers must use 8 to 10 digits.");
   });
 
-  it.each(["0.5", "10.5", "9.3", "Gem Mint"])("rejects unsupported grade value %s", (grade) => {
+  it("refuses a certification number that breaks any one of several formats", () => {
+    const nineDigits = { minimumDigits: 9, maximumDigits: 9 };
+    const eightDigits = gradedCard({ certificationNumber: "12345678" });
+
     expect(() =>
-      decideMarketplaceListing(initialMarketplaceListingState, {
-        ...createListingCommand,
-        gradedCard: {
-          gradingCompany: "PSA",
-          grade,
-          certificationNumber: "12345678",
-          population: null,
-          conditionDescriptors: [],
-        },
+      createdGradedCard({ gradedCard: eightDigits, certificateNumberFormats: [psaFormat, nineDigits] }),
+    ).toThrow("PSA certification numbers must use 9 to 9 digits.");
+    expect(() =>
+      createdGradedCard({ gradedCard: eightDigits, certificateNumberFormats: [nineDigits, psaFormat] }),
+    ).toThrow("PSA certification numbers must use 9 to 9 digits.");
+    expect(
+      createdGradedCard({
+        gradedCard: gradedCard({ certificationNumber: "123456789" }),
+        certificateNumberFormats: [psaFormat, nineDigits],
       }),
-    ).toThrow("PSA grades must be 1 through 10 in 0.5-point steps or an allowed label.");
+    ).toMatchObject({ certificationNumber: "123456789" });
   });
 
-  it("rejects unsupported grading companies", () => {
+  it("names the company in the refusal from the display copy", () => {
     expect(() =>
-      decideMarketplaceListing(initialMarketplaceListingState, {
-        ...createListingCommand,
-        gradedCard: {
-          gradingCompany: "ACE",
-          grade: "10",
-          certificationNumber: "12345678",
-          population: null,
-          conditionDescriptors: [],
-        },
+      createdGradedCard({
+        gradedCard: gradedCard({ gradingCompany: "BGS/Beckett", certificationNumber: "1234567" }),
+        certificateNumberFormats: [psaFormat],
       }),
-    ).toThrow("Grading company must be one of PSA, BGS, CGC, SGC.");
+    ).toThrow("BGS/Beckett certification numbers must use 8 to 10 digits.");
+  });
+
+  it.each(["12345678", "1234567890", " 1234 5678 "])(
+    "accepts %j under a format it holds and records it without whitespace",
+    (certificationNumber) => {
+      expect(
+        createdGradedCard({ gradedCard: gradedCard({ certificationNumber }), certificateNumberFormats: [psaFormat] }),
+      ).toMatchObject({ certificationNumber: certificationNumber.replaceAll(" ", "") });
+    },
+  );
+
+  it.each([
+    ["no formats", undefined],
+    ["an empty format list", []],
+  ])("accepts any non-empty certification number when the command carries %s", (_label, formats) => {
+    for (const [certificationNumber, recorded] of [
+      ["1", "1"],
+      ["ABC-123", "ABC-123"],
+      ["ACE 00 12", "ACE0012"],
+      ["12345678901234567890123456789012345", "12345678901234567890123456789012345"],
+    ] as const) {
+      expect(
+        createdGradedCard({
+          gradedCard: gradedCard({ gradingCompany: "ACE", certificationNumber }),
+          certificateNumberFormats: formats,
+        }),
+      ).toMatchObject({ gradingCompany: "ACE", certificationNumber: recorded });
+    }
+  });
+
+  it("ignores formats on a Listing that is not graded", () => {
+    expect(createdGradedCard({ certificateNumberFormats: [psaFormat] })).toBeNull();
+    expect(createdGradedCard({ gradedCard: null, certificateNumberFormats: [psaFormat] })).toBeNull();
   });
 });
 

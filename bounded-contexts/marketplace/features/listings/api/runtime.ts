@@ -69,7 +69,8 @@ import {
   type InventoryCapacityRecoveryBlock,
 } from "../domain/domain";
 import { evaluateListingEvidenceReadiness } from "../domain/listing-evidence-readiness";
-import { resolveListingEvidenceRequirements } from "./evidence-requirement-resolver";
+import { createListingEvidenceRequirementSnapshot } from "../domain/evidence-requirement-snapshot";
+import { resolveListingEvidenceEvaluation, resolveListingEvidenceRequirements } from "./evidence-requirement-resolver";
 import {
   assertEvidenceCountAndBytesWithinBudget,
   DEFAULT_LISTING_EVIDENCE_MAX_SOURCE_PIXELS,
@@ -1936,10 +1937,13 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       listingPhotoUploads: params.listingPhotoUploads ?? [],
     });
     const evaluatedAt = new Date().toISOString();
-    let evidenceRequirements = null;
-    if (params.publicationScope !== "channel-only") {
+    const native = params.publicationScope !== "channel-only";
+    // A channel-only Listing carries no requirement snapshot, but graded supply still takes its Certificate
+    // Number Formats from the policy.
+    let evaluation = null;
+    if (native || supply.graded_card !== null) {
       try {
-        evidenceRequirements = await resolveListingEvidenceRequirements(deps, {
+        evaluation = await resolveListingEvidenceEvaluation(deps, {
           accountId: params.accountId,
           catalogItemId: supply.catalog_catalog_item_id,
           productId: supply.product_id,
@@ -1952,6 +1956,8 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         throw new Error("Listing evidence requirements are unavailable.");
       }
     }
+    const evidenceRequirements =
+      native && evaluation ? createListingEvidenceRequirementSnapshot(evaluation, evaluatedAt) : null;
 
     const committed = await commitListingCreation(
       streamId,
@@ -1971,6 +1977,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         productSummary: supply.product_summary,
         productMeasureSnapshot: supply.product_measure_snapshot,
         gradedCard: supply.graded_card,
+        certificateNumberFormats: evaluation?.certificateNumberFormats ?? [],
         storageLocationName: supply.storage_location_name,
         shipFromCode: supply.ship_from_code,
         shipFromAddress: supply.ship_from_address,

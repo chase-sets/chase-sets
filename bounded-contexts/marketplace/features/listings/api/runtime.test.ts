@@ -3845,3 +3845,198 @@ describe("a snapshot create takes Graded Item Details from Inventory, not from t
     expect(f.itemWrites).toEqual([null]);
   });
 });
+
+describe("a created Listing takes its Certificate Number Format from the resolved Listing Evidence Policy", () => {
+  const launchPsaRule = LISTING_EVIDENCE_LAUNCH_POLICY_VALUE.rules.find(
+    (rule) => rule.ruleId === "certificate-format-psa",
+  )!;
+  const psaOption = launchPsaRule.selector.options[0]!;
+  const aceOption = { dimensionId: psaOption.dimensionId, optionId: "chc_seed_grading_company_ace" };
+  const tagOption = { dimensionId: psaOption.dimensionId, optionId: "chc_seed_grading_company_tag" };
+  /** A document an operator activated: the launch rules plus a format the launch value does not carry. */
+  const policyWithAceFormat = {
+    ...LISTING_EVIDENCE_LAUNCH_POLICY_VALUE,
+    rules: [
+      ...LISTING_EVIDENCE_LAUNCH_POLICY_VALUE.rules,
+      {
+        ...launchPsaRule,
+        ruleId: "certificate-format-ace",
+        selector: { ...launchPsaRule.selector, options: [aceOption] },
+        outcome: { ...launchPsaRule.outcome, certificateNumber: { minimumDigits: 5, maximumDigits: 5 } },
+      },
+    ],
+  };
+  type Evaluate = (
+    facts: Parameters<typeof evaluateListingEvidencePolicy>[1],
+  ) => Promise<ReturnType<typeof evaluateListingEvidencePolicy>>;
+  const evaluateWith =
+    (policy: typeof policyWithAceFormat): Evaluate =>
+    async (facts) =>
+      evaluateListingEvidencePolicy(policy, facts, {
+        policyId: "pol_active",
+        policyVersion: 2,
+        effectiveFrom: null,
+        effectiveUntil: null,
+      });
+  const unresolvable: Evaluate = async () => {
+    throw new Error("policy database password=secret");
+  };
+  type Supply = Readonly<{
+    selectedOptions: readonly Readonly<{ dimensionId: string; optionId: string }>[];
+    gradedCard: Readonly<{ gradingCompany: string; grade: string; certificationNumber: string | null }> | null;
+  }>;
+
+  /** `evaluator` is the wired policy read; `null` leaves it unwired, so the compiled launch value applies. */
+  function createFixture(supply: Supply, evaluator: Evaluate | null) {
+    const memory = createInMemoryEventStore();
+    const evaluate = vi.fn(evaluator ?? unresolvable);
+    const resolveListingTerms = vi.fn(async ({ amount, accountId }) => ({
+      accountId,
+      accountType: "business" as const,
+      basisAmount: amount,
+      marketplaceSalesFeeUnitAmount: "1.00",
+      sellerNetUnitAmount: "19.00",
+      scheduleId: "cts_default",
+      agreementId: null,
+      resolvedAt: "2026-04-17T00:00:00.000Z",
+    }));
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes("FROM marketplace_supply_items AS item")) {
+        return {
+          rows: [
+            {
+              item_id: "inv_1",
+              account_id: "acc_seller",
+              catalog_catalog_item_id: "cat_1",
+              product_id: "cat_1::",
+              item_title: "Charizard",
+              item_subtitle: null,
+              selected_options: supply.selectedOptions,
+              product_summary: null,
+              product_measure_snapshot: productMeasureSnapshot,
+              graded_card: supply.gradedCard && { ...supply.gradedCard, population: null, conditionDescriptors: [] },
+              storage_location_name: "North shelf",
+              ship_from_code: "CHI",
+              ship_from_address: shipFromAddress,
+              available_quantity: 2,
+            },
+          ],
+        };
+      }
+      if (sql.includes("COALESCE(SUM(quantity_cap), 0)::text AS quantity_cap")) {
+        return { rows: [{ quantity_cap: "0" }] };
+      }
+      if (sql.includes("FROM marketplace_catalog_items") || sql.includes("FROM marketplace_account_pages")) {
+        return { rows: [] };
+      }
+      throw new Error(`Unexpected query in test: ${sql}`);
+    });
+    const services = createMarketplaceListingRuntime({
+      eventStore: memory.eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query } as never,
+      commercialTermsResolver: { resolveListingTerms } as never,
+      inventoryItemGradedCardAuthority: rawInventoryItem,
+      ...(evaluator ? { listingEvidencePolicyEvaluator: { evaluate } } : {}),
+    });
+    const create = (publicationScope: "native" | "channel-only") =>
+      services.createListing(
+        listingTestCommand("listing.create", {
+          accountId: "acc_seller" as never,
+          inventoryItemId: "inv_1",
+          priceAmount: "20.00",
+          priceCurrencyCode: "USD",
+          quantityCap: 1,
+          publicationScope,
+        }),
+        context,
+      );
+    const created = () => memory.allEvents.filter((event) => event.eventType === "marketplace.listing.created");
+    return { create, created, evaluate };
+  }
+
+  const graded = (option: typeof psaOption, gradingCompany: string, certificationNumber: string | null): Supply => ({
+    selectedOptions: [option],
+    gradedCard: { gradingCompany, grade: "Gem Mint 10", certificationNumber },
+  });
+  const scopes = ["native", "channel-only"] as const;
+
+  it.each(scopes)("refuses a %s Listing whose certificate breaks the resolved policy's format", async (scope) => {
+    const f = createFixture(graded(aceOption, "ACE", "1234567"), evaluateWith(policyWithAceFormat));
+
+    await expect(f.create(scope)).rejects.toThrow("ACE certification numbers must use 5 to 5 digits.");
+
+    expect(f.evaluate).toHaveBeenCalledTimes(1);
+    expect(f.evaluate.mock.calls[0]![0]).toMatchObject({ gradedItem: true, selectedOptions: [aceOption] });
+    expect(f.created()).toHaveLength(0);
+  });
+
+  it.each(scopes)("creates a %s Listing whose certificate holds the resolved policy's format", async (scope) => {
+    const f = createFixture(graded(aceOption, "ACE", "12345"), evaluateWith(policyWithAceFormat));
+
+    const result = await f.create(scope);
+
+    expect(f.evaluate).toHaveBeenCalledTimes(1);
+    expect(f.created().map((event) => event.payload.gradedCard)).toEqual([
+      {
+        gradingCompany: "ACE",
+        grade: "Gem Mint 10",
+        certificationNumber: "12345",
+        population: null,
+        conditionDescriptors: [],
+      },
+    ]);
+    // The format reaches the command only: the requirement snapshot stays native-only and keeps its shape.
+    const [{ payload }] = f.created() as [StoredEvent];
+    expect(JSON.stringify(payload)).not.toMatch(/certificateNumberFormats|Digits/);
+    if (scope === "native") {
+      expect(result.state.evidenceRequirements).toMatchObject({
+        policyId: "pol_active",
+        matchedRuleIds: ["graded-item-views", "certificate-format-ace"],
+      });
+    } else {
+      expect(result.state.evidenceRequirements).toBeNull();
+    }
+  });
+
+  it.each(scopes)("applies the launch value's formats to a %s Listing where no policy read is wired", async (scope) => {
+    await expect(createFixture(graded(psaOption, "PSA", "1234567"), null).create(scope)).rejects.toThrow(
+      "PSA certification numbers must use 8 to 10 digits.",
+    );
+    await expect(createFixture(graded(psaOption, "PSA", "12345678"), null).create(scope)).resolves.toMatchObject({
+      state: { gradedCard: { gradingCompany: "PSA", certificationNumber: "12345678" } },
+    });
+  });
+
+  it.each(scopes)("accepts any non-empty certificate on a %s Listing no format rule matches", async (scope) => {
+    for (const evaluator of [null, evaluateWith(policyWithAceFormat)]) {
+      await expect(createFixture(graded(tagOption, "TAG", "TAG-1"), evaluator).create(scope)).resolves.toMatchObject({
+        state: { gradedCard: { gradingCompany: "TAG", grade: "Gem Mint 10", certificationNumber: "TAG-1" } },
+      });
+      await expect(createFixture(graded(tagOption, "TAG", null), evaluator).create(scope)).rejects.toThrow(
+        "Graded cards require a certification number.",
+      );
+    }
+  });
+
+  it.each(scopes)("rejects a %s Listing from graded supply when the policy cannot be resolved", async (scope) => {
+    const f = createFixture(graded(tagOption, "TAG", "TAG-1"), unresolvable);
+
+    const failure: unknown = await f.create(scope).catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toBe("Listing evidence requirements are unavailable.");
+    expect(f.evaluate).toHaveBeenCalledTimes(1);
+    expect(f.created()).toHaveLength(0);
+  });
+
+  it("creates a channel-only Listing from raw supply without reading the policy", async () => {
+    const f = createFixture({ selectedOptions: [], gradedCard: null }, unresolvable);
+
+    await expect(f.create("channel-only")).resolves.toMatchObject({
+      state: { publicationScope: "channel-only", gradedCard: null, evidenceRequirements: null },
+    });
+
+    expect(f.evaluate).not.toHaveBeenCalled();
+  });
+});

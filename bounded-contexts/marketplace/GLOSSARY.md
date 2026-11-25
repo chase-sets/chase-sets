@@ -102,7 +102,17 @@ Notes:
 
 ## Policy Rule
 
-A **Policy Rule** is one named selector-and-outcome clause in a Listing Evidence Policy. Selectors use stable Catalog item, Product, Blueprint, Category, Dimension and Option identities or typed Marketplace facts such as graded-item presence, price band, and seller trust or risk.
+A **Policy Rule** is one named selector-and-outcome clause in a Listing Evidence Policy. Selectors use stable Catalog item, Product, Blueprint, Category, Dimension and Option identities or typed Marketplace facts such as graded-item presence, price band, and seller trust or risk. An outcome adds to the Listing Evidence Requirement and may set a [Certificate Number Format](#certificate-number-format).
+
+## Certificate Number Format
+
+A **Certificate Number Format** is the minimum and maximum count of digits that a Policy Rule sets for the certification number of a graded Listing. Marketplace applies it once, when the Listing is created, for both Publication Scopes.
+
+Notes:
+
+- Only a Policy Rule that selects at least one Option can set one, so a format follows the selected Grading Company Option and never the `gradingCompany` text.
+- Every format set by a matching Policy Rule must hold. Where none matches, any non-empty certification number is accepted.
+- A format is not part of the Listing Evidence Requirement or its snapshot.
 
 ## Listing Evidence Requirement
 
