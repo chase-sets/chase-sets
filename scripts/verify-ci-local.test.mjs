@@ -65,6 +65,7 @@ const inertScope = Object.freeze({
   composeSmokeRequired: false,
   catalogUatSyntheticRequired: false,
   cortenMarketplaceBrowserRequired: false,
+  cortenAdminBrowserRequired: false,
   cortenPilotCheckRequired: false,
   affectedWorkspaces: [],
   changedFiles: [],
@@ -188,6 +189,7 @@ if (identity === 'static' && ${fail}) {
     "e2e-tests",
     "catalog-uat-synthetic",
     "corten-marketplace-browser",
+    "corten-admin-browser",
     "corten-pilot-check",
     "build",
   ]);

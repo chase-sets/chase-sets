@@ -1,6 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 import { createBrowserE2eRunEvidenceEnvironment } from "./scripts/browser-e2e-evidence.mjs";
-import { resolveBrowserE2eSystemTarget } from "./scripts/dev-system-config.mjs";
+import { browserE2eCortenAdminTarget, resolveBrowserE2eSystemTarget } from "./scripts/dev-system-config.mjs";
 import { acquireHeavySlot } from "./scripts/lib/heavy-slot.mjs";
 import { resolveWorktreeSandbox } from "./scripts/lib/sandbox.mjs";
 
@@ -28,6 +28,12 @@ const includeAdminWebProject = !skipWebServer || Boolean(process.env.ADMIN_WEB_U
 // never fall through to another deployable's host.
 const includePublicWebProject = Boolean(process.env.PUBLIC_WEB_URL);
 const browserE2eSystemTarget = resolveBrowserE2eSystemTarget();
+// The web host the dev system boots last and Playwright waits for: the Corten admin target boots admin
+// and no marketplace.
+const browserE2eSystemReadyUrl =
+  browserE2eSystemTarget === browserE2eCortenAdminTarget
+    ? `${adminWebBaseUrl}/health/ready`
+    : `${marketplaceBaseUrl}/health/ready`;
 const browserE2eEvidenceEnvironment = createBrowserE2eRunEvidenceEnvironment(sandbox);
 const marketplaceDesktop = {
   name: "marketplace-chromium",
@@ -125,7 +131,7 @@ export default defineConfig({
         {
           command: `node ./scripts/dev-system.mjs dev ${browserE2eSystemTarget}`,
           env: browserE2eEvidenceEnvironment,
-          url: `${marketplaceBaseUrl}/health/ready`,
+          url: browserE2eSystemReadyUrl,
           reuseExistingServer: !isCi,
           timeout: 600_000,
           stdout: isCi ? "pipe" : "ignore",

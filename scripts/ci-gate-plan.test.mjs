@@ -159,7 +159,8 @@ function assertPreservedSelection(planner = createCiGatePlan) {
 
 // The gates added after both parity bases, in order right after E2E Tests, each selected only by its
 // own classifier flag: the Catalog UAT spec's synthetic tests, marketplace-web's kept browser specs
-// against the Corten marketplace, and the Corten pilot check.
+// against the Corten marketplace, admin-web's kept browser specs against the Corten admin, and the
+// Corten pilot check.
 const postBaseGates = [
   { id: "catalog-uat-synthetic", name: "Catalog UAT Synthetic Tests", capability: "catalogUatSyntheticRequired" },
   {
@@ -167,6 +168,7 @@ const postBaseGates = [
     name: "Corten Marketplace Browser Tests",
     capability: "cortenMarketplaceBrowserRequired",
   },
+  { id: "corten-admin-browser", name: "Corten Admin Browser Tests", capability: "cortenAdminBrowserRequired" },
   { id: "corten-pilot-check", name: "Corten Pilot Check", capability: "cortenPilotCheckRequired" },
 ];
 
@@ -479,6 +481,7 @@ describe("shared E2E setup regression and enforcement", () => {
             unitTestsRequired: previous.affectedWorkspaces.length > 0,
             catalogUatSyntheticRequired: false,
             cortenMarketplaceBrowserRequired: false,
+            cortenAdminBrowserRequired: false,
             cortenPilotCheckRequired: false,
           });
           for (const mode of ["pull-request", "merge-group"]) {
@@ -490,6 +493,7 @@ describe("shared E2E setup regression and enforcement", () => {
                   ...previous,
                   catalogUatSyntheticRequired: false,
                   cortenMarketplaceBrowserRequired: false,
+                  cortenAdminBrowserRequired: false,
                   cortenPilotCheckRequired: false,
                 },
               }).gates.find(({ id }) => id === "e2e-tests"),
@@ -1138,6 +1142,7 @@ describe("shared CI gate plan", () => {
       "e2e-tests",
       "catalog-uat-synthetic",
       "corten-marketplace-browser",
+      "corten-admin-browser",
       "corten-pilot-check",
       "build",
     ]);
@@ -1147,7 +1152,7 @@ describe("shared CI gate plan", () => {
           ? typeof hostedOnlyReason === "string" && hostedOnlyReason.length > 0
           : hostedOnlyReason === null,
       ),
-    ).toHaveLength(20);
+    ).toHaveLength(21);
 
     const scope = classifyChanges({ changedFiles: ["README.md"] });
     const plan = createCiGatePlan({ mode: "merge-group", scope });
@@ -1323,6 +1328,81 @@ describe("shared CI gate plan", () => {
       name: "Corten Marketplace Browser Tests",
       result: "${{ needs['corten-marketplace-browser'].result }}",
       required: "${{ needs['change-scope'].outputs.corten_marketplace_browser_required }}",
+    });
+  });
+
+  it("selects Corten Admin Browser Tests from the pilot's admin and platform, its build inputs, admin-web's kept specs and the dev-system target", () => {
+    const triggers = [
+      "deployables/corten-pilot/admin/src/app.rs",
+      "deployables/corten-pilot/admin/static/admin.css",
+      "deployables/corten-pilot/platform/src/api.rs",
+      "deployables/corten-pilot/Cargo.toml",
+      "deployables/corten-pilot/Cargo.lock",
+      "deployables/corten-pilot/scripts/export.mjs",
+      "deployables/admin-web/e2e/access-api-keys.spec.ts",
+      "deployables/admin-web/e2e/auth-shell-rbac.spec.ts",
+      "deployables/admin-web/e2e/catalog-modeling.spec.ts",
+      "deployables/admin-web/e2e/support-requests.spec.ts",
+      "deployables/admin-web/e2e/support/admin-e2e.ts",
+      "deployables/admin-web/e2e/support/seed-contract-gap.ts",
+      "scripts/dev-system.mjs",
+      "scripts/dev-system-config.mjs",
+      "scripts/platform-compose-ingress.mjs",
+      "scripts/browser-e2e-readiness.mjs",
+    ];
+    const nearMisses = [
+      "README.md",
+      "deployables/corten-pilot/README.md",
+      "deployables/corten-pilot/admin/NOTES.md",
+      "deployables/corten-pilot/marketplace/src/checkout.rs",
+      "deployables/corten-pilot/public/src/home.rs",
+      "deployables/corten-pilot/e2e/critical-flows.spec.ts",
+      "deployables/admin-web/e2e/catalog-staging-provider-sync.uat.spec.ts",
+      "deployables/admin-web/e2e/rendered-copy-sweep.spec.ts",
+      "deployables/admin-web/e2e/ink-foil-visual-identity.evidence.spec.ts",
+      "deployables/admin-web/e2e/support/whole-game-rehearsal.ts",
+      "deployables/admin-web/app/root.tsx",
+      "scripts/dev-system-config.test.mjs",
+    ];
+    for (const [changedFiles, required] of [
+      ...triggers.map((file) => [[file], true]),
+      ...nearMisses.map((file) => [[file], false]),
+    ]) {
+      const scope = classifyChanges({ changedFiles, workspaces });
+      expect(scope.cortenAdminBrowserRequired, changedFiles[0]).toBe(required);
+      for (const scenario of scenarios) {
+        const plan = createCiGatePlan({ ...scenario, scope });
+        expect(
+          plan.gates.find(({ id }) => id === "corten-admin-browser"),
+          changedFiles[0],
+        ).toEqual(expectedPostBaseGate("corten-admin-browser", scope));
+        expect(ciGatePlanOutputMap(plan).corten_admin_browser_required).toBe(String(required));
+      }
+    }
+  });
+
+  it("runs Corten Admin Browser Tests only on its scope output, with no secret, on the pilot check's Rust cache", () => {
+    const job = workflowJob(headWorkflow, "corten-admin-browser").text;
+    expect(job).toContain("    name: Corten Admin Browser Tests (${{ matrix.shard }}/3)\n");
+    expect(workflowCondition(headWorkflow, "corten-admin-browser")).toBe(
+      "needs['change-scope'].outputs.corten_admin_browser_required == 'true'",
+    );
+    expect(job).not.toMatch(/secrets\./);
+    expect(job).toContain("    runs-on: ubuntu-24.04\n");
+    expect(job).toContain(
+      "key: corten-pilot-v3-${{ runner.os }}-${{ hashFiles('deployables/corten-pilot/Cargo.lock') }}",
+    );
+    expect(job).toContain("run: cargo build --locked -p corten-pilot-admin");
+    expect(job).toContain("CHASE_SETS_BROWSER_E2E_SYSTEM: corten-admin");
+    expect(job).not.toContain("PLAYWRIGHT_SKIP_WEB_SERVER");
+    expect(job).toContain("--project=admin-web-chromium --project=admin-web-tablet");
+    expect(job).toContain("--shard=${{ matrix.shard }}/3");
+    expect(requiredNeeds(headWorkflow)).toContain("corten-admin-browser");
+    expect(requiredCalls(headWorkflow)).toContainEqual({
+      helper: "require_job",
+      name: "Corten Admin Browser Tests",
+      result: "${{ needs['corten-admin-browser'].result }}",
+      required: "${{ needs['change-scope'].outputs.corten_admin_browser_required }}",
     });
   });
 

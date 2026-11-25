@@ -164,11 +164,13 @@ async function isAuthenticatedAdminShellVisible(page: Page) {
     return false;
   }
 
+  // admin-web marks <html data-admin-web-hydrated="true"> once React has hydrated; the Corten admin
+  // (a page carrying Corten's `corten-shell` meta) is ready once parsed.
   return page
-    .locator("html")
-    .getAttribute("data-admin-web-hydrated", { timeout: 1_000 })
-    .then(
-      (value) => value === "true",
-      () => false,
-    );
+    .evaluate(
+      () =>
+        document.documentElement.dataset.adminWebHydrated === "true" ||
+        (document.readyState !== "loading" && document.querySelector('meta[name="corten-shell"]') !== null),
+    )
+    .catch(() => false);
 }
