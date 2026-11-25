@@ -142,15 +142,17 @@ export type CatalogMergeCandidateApplicationPorts = Readonly<{
  */
 export class CatalogMergeCandidateApplicationError extends Error {
   readonly code: CatalogMergeCandidateApplicationDiagnosticCode;
+  readonly displayIdentity?: CatalogPromotionDisplayIdentityFailureEvidence;
 
   constructor(
     code: CatalogMergeCandidateApplicationDiagnosticCode,
     detail?: string,
-    readonly displayIdentity?: CatalogPromotionDisplayIdentityFailureEvidence,
+    displayIdentity?: CatalogPromotionDisplayIdentityFailureEvidence,
   ) {
     super(detail ? `${code}: ${detail}` : code);
     this.name = "CatalogMergeCandidateApplicationError";
     this.code = code;
+    if (displayIdentity !== undefined) this.displayIdentity = displayIdentity;
   }
 }
 
