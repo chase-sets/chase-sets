@@ -167,7 +167,7 @@ pub fn MarketPage<'a>(t: MarketMsg, p: Pilot, screen: &'a Screen) -> impl Render
                     data-currency={group.currency.as_deref()}
                 >
                     <h2 class={SectionTitle} id={format!("{}-stats", group.summary_id)}>{&group.stats}</h2>
-                    <dl class={KitStats { surface: StatsSurface::Plain }}>
+                    <dl class={(KitStats { surface: StatsSurface::Plain }, StatsGrid)}>
                         <Stat
                             label={t.page_last_sold()}
                             value={&group.last_sold}

@@ -1339,7 +1339,6 @@ fn Summary<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use corten::i18n::Messages as _;
 
     #[test]
     fn pending_and_unparseable_checkout_amounts_stay_plain() {

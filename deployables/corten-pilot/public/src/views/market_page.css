@@ -67,6 +67,20 @@
   margin: 0;
   font: 600 1.75rem/1.25 var(--font-display);
 }
+.section > .stats-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+@media (min-width: 40rem) {
+  .section > .stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (min-width: 64rem) {
+  .section > .stats-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
 /* The lowest asks, a list in the active listings' note (the kit's Stat). */
 .asks {
   margin: 0;
