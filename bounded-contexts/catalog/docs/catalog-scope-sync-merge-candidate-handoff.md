@@ -209,9 +209,10 @@ planner and the shared executor:
    (`promotion-facts-missing`, before planning; the planner's `missing-title` and
    `missing-field-value` are unchanged). The matcher does not propose ink color,
    which the Lorcana display template requires, so promotion takes it from the
-   item-producing Lorcana members' own reviewed revisions when they agree and
-   the snapshot has no ink color and no reviewer provenance for it. A
-   reviewer's value, even a blank, is kept. Then enforce the
+   item-producing Scrydex Lorcana members' own reviewed revisions when their
+   nonblank values agree and the snapshot has no ink color key and no ink color
+   provenance. A candidate with no Scrydex member gets none, and a reviewer's
+   value, even a blank, is kept. Then enforce the
    global/provider/unit promotion rollout controls, require every item-producing
    member to agree on blueprint, category, fields and hierarchy Reference Record,
    and nominate reuse targets from the duplicate resolver under each member's

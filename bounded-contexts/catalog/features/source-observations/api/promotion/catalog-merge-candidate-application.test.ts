@@ -858,6 +858,25 @@ describe("Lorcana ink color from item-producing members", () => {
     );
   });
 
+  it("supplies no ink to a candidate with no Scrydex member", () => {
+    const effective = snapshotWithAuthoredFacts(snapshot(), [lorcanaRevision("lorcanajson", "a", "Amethyst")] as never);
+
+    expect(effective.proposedCatalogItemFacts).not.toHaveProperty("inkColor");
+    expect(effective.fieldProvenance).not.toContainEqual(expect.objectContaining({ fieldPath: inkPath }));
+  });
+
+  it("takes ink only from the Scrydex member when another provider also authors the item", () => {
+    const effective = snapshotWithAuthoredFacts(snapshot(), [
+      lorcanaRevision("scrydex", "a", "Amber"),
+      lorcanaRevision("lorcanajson", "b", "Amethyst"),
+    ] as never);
+
+    expect(effective.proposedCatalogItemFacts.inkColor).toBe("Amber");
+    expect(effective.fieldProvenance.filter((entry) => entry.fieldPath === inkPath)).toEqual([
+      expect.objectContaining({ value: "Amber", observationId: "obs_a" }),
+    ]);
+  });
+
   it("supplies nothing when item-producing members disagree", () => {
     const effective = snapshotWithAuthoredFacts(snapshot(), [
       lorcanaRevision("scrydex", "a", "Amber"),

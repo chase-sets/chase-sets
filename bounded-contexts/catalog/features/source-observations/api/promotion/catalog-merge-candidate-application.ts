@@ -529,9 +529,11 @@ export function snapshotWithAuthoredFacts(
  * Ink color is required by the Lorcana display template, but the candidate
  * matcher does not project it, so a reviewed snapshot carries none unless a
  * reviewer set it. Promotion takes it from the item-producing members' own
- * reviewed revisions, as direct provider promotion does. A key already in the
- * snapshot (including a reviewer's blank) or any manual provenance wins, and
- * authors that disagree supply nothing.
+ * reviewed revisions, as direct provider promotion does. Only Scrydex Lorcana
+ * card-print authors supply it, so a candidate with no Scrydex member (such as
+ * one authored only by LorcanaJSON) is unchanged. A key already in the snapshot
+ * (including a reviewer's blank) or any ink provenance wins, and Scrydex authors
+ * whose nonblank values disagree supply nothing.
  */
 function authoredInkColor(
   snapshot: CatalogMergeCandidateReviewSnapshot,
@@ -543,7 +545,8 @@ function authoredInkColor(
   if (Object.hasOwn(facts, "inkColor")) return null;
   if (fieldProvenance.some((entry) => entry.fieldPath === fieldPath)) return null;
   const carried = authors.flatMap((author) => {
-    const value = author.normalized.kind === "lorcana-card-print" ? author.normalized.inkColor?.trim() : undefined;
+    const eligible = author.normalized.kind === "lorcana-card-print" && sameKey(author.version.providerKey, "scrydex");
+    const value = eligible ? author.normalized.inkColor?.trim() : undefined;
     return value ? [{ author, value }] : [];
   });
   const first = carried[0];
