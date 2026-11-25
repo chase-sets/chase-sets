@@ -636,6 +636,7 @@ jobs:
         run: node scripts/playwright-chromium-install.mjs
 
       - name: Run the kept marketplace specs against the Corten marketplace
+        id: specs
         timeout-minutes: 30
         env:
           PLAYWRIGHT_BROWSERS_PATH: ${{ steps.browser-cache.outputs.path }}
@@ -650,6 +651,21 @@ jobs:
             deployables/marketplace/e2e/responsive-evidence-contract.spec.ts \
             deployables/marketplace/e2e/search-scroll-restoration.spec.ts \
             --project=marketplace-chromium --project=marketplace-mobile
+
+      # The job uploads no Playwright artifacts (scripts/playwright-artifact-upload-fence.mjs), so a
+      # failed run prints each failed test's page snapshot instead: what the pilot drew, by role and text.
+      - name: Print the failed tests' page snapshots
+        if: failure() && steps.specs.outcome == 'failure'
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          find artifacts/playwright/test-results -name error-context.md -print0 2>/dev/null | sort -z | head -z -n 60 |
+            while IFS= read -r -d '' file; do
+              echo "::group::${file#artifacts/playwright/test-results/}"
+              head -c 16000 "$file"
+              echo
+              echo "::endgroup::"
+            done
 
   e2e-tests:
     name: E2E Tests (${{ matrix.suite_batch }})
