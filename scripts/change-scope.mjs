@@ -145,6 +145,16 @@ const catalogUatSyntheticPatterns = [
   /^playwright\.config\.ts$/,
   /^deployables\/corten-pilot\/admin\/src\/catalog\//,
 ];
+// The Corten marketplace browser tests run marketplace-web's kept browser specs against the Corten
+// pilot's marketplace, which serves production. A change to the pilot's marketplace or platform code,
+// its build inputs, those specs or the dev-system target that boots it can turn them red.
+const cortenMarketplaceBrowserPatterns = [
+  /^deployables\/corten-pilot\/(?:marketplace|platform)\/(?!.*\.md$)/,
+  /^deployables\/corten-pilot\/Cargo\.(?:toml|lock)$/,
+  /^deployables\/corten-pilot\/scripts\/export\.mjs$/,
+  /^deployables\/marketplace\/e2e\/(?:critical-flows|buyer-purchase-journey|marketplace-navigation|marketplace-shell-header|responsive-evidence-contract|search-scroll-restoration)\.spec\.ts$/,
+  /^scripts\/(?:dev-system|dev-system-config|platform-compose-ingress)\.mjs$/,
+];
 // The source-context wake registry is a static aggregate over per-context
 // shard modules plus a shared entry builder. Every member of that file
 // family must classify exactly like the pre-split single file did, including
@@ -393,6 +403,7 @@ export function classifyChanges({
   let clusterPreviewWorkflowChanged = false;
   let scriptOrConfigChanged = false;
   let catalogUatSyntheticChanged = false;
+  let cortenMarketplaceBrowserChanged = false;
   const selectedE2eSuiteIds = new Set();
   const exposurePostureCategories = new Set();
   const integrationRisk = classifyIntegrationRisk({ changedFiles: normalizedFiles });
@@ -406,6 +417,7 @@ export function classifyChanges({
 
   for (const filePath of normalizedFiles) {
     catalogUatSyntheticChanged ||= matchesAny(filePath, catalogUatSyntheticPatterns);
+    cortenMarketplaceBrowserChanged ||= matchesAny(filePath, cortenMarketplaceBrowserPatterns);
     for (const [category, patterns] of Object.entries(exposurePosturePatterns)) {
       if (matchesAny(filePath, patterns)) {
         exposurePostureCategories.add(category);
@@ -628,6 +640,7 @@ export function classifyChanges({
     exposurePostureCategories: [...exposurePostureCategories].sort(),
     requiredProofPaths: resolveRequiredProofPaths({ changedFiles: normalizedFiles, baseDir }),
     catalogUatSyntheticRequired: catalogUatSyntheticChanged,
+    cortenMarketplaceBrowserRequired: cortenMarketplaceBrowserChanged,
   };
 }
 
@@ -729,6 +742,7 @@ function fullScopeForUnavailableChangeSet(workspaces, reason, baseDir) {
     }),
     requiredProofSelectionMode: unavailableChangeSetSelectionMode,
     catalogUatSyntheticRequired: true,
+    cortenMarketplaceBrowserRequired: true,
   };
 }
 

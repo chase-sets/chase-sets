@@ -13,6 +13,7 @@ import { registerSyntheticAccount, signInWithPassword, syntheticAccountFor } fro
 import { marketplaceBrowserE2eSeedContract, marketplaceBrowserE2eSellerCredentials } from "./support/seed-contract";
 import { settleSearchResults } from "./support/search-settle";
 import { hasIdentifierSubmitHandler } from "./support/sign-in-readiness";
+import { onCortenMarketplace } from "./support/system";
 
 const configuredMarketplaceAccount = {
   email: process.env.MARKETPLACE_E2E_EMAIL?.trim() ?? "",
@@ -228,6 +229,10 @@ function expectFirstPaintChaseRoot(html: string, expected: Readonly<{ colorMode:
 
 test.describe("marketplace critical flows", () => {
   test("6110 populated browse passes exclusion-free axe @marketplace-browse", async ({ page }, testInfo) => {
+    test.skip(
+      onCortenMarketplace,
+      "reads marketplace-web's facet accordion (data-facet-list-presentation) and custom Sort listbox; the Corten search uses native disclosure and select controls",
+    );
     await page.setViewportSize({ width: 1280, height: 720 });
     await expectPageOk(page, "/search?q=pokemon");
     await expect(page.locator("html")).toHaveAttribute("lang", "en");
@@ -370,6 +375,10 @@ test.describe("marketplace critical flows", () => {
   });
 
   test("browse narrows the Result Set by a category Facet @marketplace-browse", async ({ page }) => {
+    test.skip(
+      onCortenMarketplace,
+      "reads marketplace-web's facet accordion (data-facet-list-presentation) and custom Sort listbox; the Corten search uses native disclosure and select controls",
+    );
     await expectPageOk(page, `/search?q=${encodeURIComponent(browseSearchQuery)}`);
 
     const resultLinks = page.getByRole("link", { name: /View details for/i });
@@ -407,6 +416,10 @@ test.describe("marketplace critical flows", () => {
   });
 
   test("browse Sort Order reverses the Result Set @marketplace-browse", async ({ page }) => {
+    test.skip(
+      onCortenMarketplace,
+      "reads marketplace-web's facet accordion (data-facet-list-presentation) and custom Sort listbox; the Corten search uses native disclosure and select controls",
+    );
     await expectPageOk(page, `/search?q=${encodeURIComponent(browseSearchQuery)}`);
 
     const resultLinks = page.getByRole("link", { name: /View details for/i });
@@ -437,6 +450,10 @@ test.describe("marketplace critical flows", () => {
   });
 
   test("browse recovers from a zero-result search @marketplace-browse", async ({ page }) => {
+    test.skip(
+      onCortenMarketplace,
+      "Clear search is a link on the Corten marketplace because it navigates; this spec asks for a button",
+    );
     const testInfo = test.info();
     await expectPageOk(page, `/search?q=${encodeURIComponent(browseSearchQuery)}`);
 
@@ -489,6 +506,10 @@ test.describe("marketplace critical flows", () => {
   });
 
   test("records sign-in method list and email option at 390x844 @marketplace-account", async ({ page }, testInfo) => {
+    test.skip(
+      onCortenMarketplace,
+      "the Corten sign-in identifier step is a script-free GET form with a plain method list, not marketplace-web's role=listitem list, Password radio and client submit handler",
+    );
     await page.setViewportSize({ width: 390, height: 844 });
     await expectPageOk(page, "/sign-in");
     await expect(page.getByLabel(/Email or phone/)).toHaveValue("");
@@ -508,6 +529,10 @@ test.describe("marketplace critical flows", () => {
   });
 
   test("records sign-in method list and email option at 1280x900 @marketplace-account", async ({ page }, testInfo) => {
+    test.skip(
+      onCortenMarketplace,
+      "the Corten sign-in identifier step is a script-free GET form with a plain method list, not marketplace-web's role=listitem list, Password radio and client submit handler",
+    );
     await page.setViewportSize({ width: 1280, height: 900 });
     await expectPageOk(page, "/sign-in");
     await expect(page.getByLabel(/Email or phone/)).toHaveValue("");
@@ -562,6 +587,10 @@ test.describe("marketplace critical flows", () => {
     });
 
     test(`identifier waits for delayed hydration at ${dimensions} @marketplace-account`, async ({ page }) => {
+      test.skip(
+        onCortenMarketplace,
+        "waits on marketplace-web's React hydration of the identifier form; the Corten sign-in form has no client submit handler",
+      );
       await page.setViewportSize(viewport);
       const hydration = await withholdSignInHydration(page);
       let result: Promise<unknown> | undefined;
@@ -634,6 +663,10 @@ test.describe("marketplace critical flows", () => {
   test("signed-out checkout session access shows checkout recovery instead of root error @marketplace-checkout", async ({
     page,
   }) => {
+    test.skip(
+      onCortenMarketplace,
+      "the Corten marketplace sends a signed-out checkout session to sign-in instead of answering the 401 Checkout access required recovery",
+    );
     const response = await page.goto("/checkout/buy/session/chk_e2e_missing_access", {
       waitUntil: "domcontentloaded",
     });
@@ -648,6 +681,10 @@ test.describe("marketplace critical flows", () => {
   test("checkout recovery reentry follows a safe action instead of root error @marketplace-checkout", async ({
     page,
   }) => {
+    test.skip(
+      onCortenMarketplace,
+      "the Corten marketplace sends a signed-out checkout session to sign-in instead of answering the 401 Checkout access required recovery",
+    );
     const recoveryResponse = await page.goto("/checkout/buy/session/chk_e2e_missing_access", {
       waitUntil: "domcontentloaded",
     });
@@ -682,6 +719,10 @@ test.describe("marketplace critical flows", () => {
   test("seller add/remove receipt redirects keep Sell List and Desk current @marketplace-checkout", async ({
     page,
   }, testInfo) => {
+    test.skip(
+      onCortenMarketplace,
+      "reads the item page's Sell List form by marketplace-web's field names (selectedOptions, productId); the Corten item page names them differently",
+    );
     await authenticateAccount(page, testInfo);
     await expectPageOk(page, "/account/sell-list");
     await expect(page.getByText("Your Sell List is empty", { exact: true })).toBeVisible();
@@ -809,6 +850,10 @@ test.describe("marketplace critical flows", () => {
   test("compact Sell List recovery revalidates through the browser data router @marketplace-checkout", async ({
     page,
   }) => {
+    test.skip(
+      onCortenMarketplace,
+      "drives React Router's browser data router, which the Corten marketplace does not have",
+    );
     await expectPageOk(page, "/account/sell-list");
     await expect(page.getByRole("heading", { name: "Sell List", exact: true })).toBeVisible();
     await page.waitForFunction(
@@ -862,6 +907,10 @@ test.describe("marketplace critical flows", () => {
     page,
     browser,
   }, testInfo) => {
+    test.skip(
+      onCortenMarketplace,
+      "opens the account menu as a button; the Corten marketplace's account menu is a summary disclosure",
+    );
     test.setTimeout(120_000);
 
     await page.goto("/sign-in?returnTo=%2Faccount%2Fcart");
