@@ -6567,7 +6567,7 @@ describe("DigitalOcean platform configuration", () => {
     // deployed run then asserts against another deployable's not-found shell.
     expect(playwrightConfig).toContain('name: "marketplace-chromium"');
     expect(playwrightConfig).toContain(
-      'testMatch: ["deployables/marketplace/e2e/**/*.spec.ts", "deployables/corten-pilot/e2e/**/*.spec.ts"]',
+      'testMatch: "deployables/corten-pilot/e2e/**/*.spec.ts"',
     );
     expect(playwrightConfig).toContain("baseURL: marketplaceBaseUrl");
     expect(playwrightConfig).toContain('name: "admin-web-chromium"');
@@ -6588,7 +6588,7 @@ describe("DigitalOcean platform configuration", () => {
       JSON.parse(pattern),
     );
     expect(projectTestMatches).toEqual([
-      ["deployables/marketplace/e2e/**/*.spec.ts", "deployables/corten-pilot/e2e/**/*.spec.ts"],
+      "deployables/corten-pilot/e2e/**/*.spec.ts",
       "deployables/admin-web/e2e/**/*.spec.ts",
       "deployables/public-web/e2e/**/*.spec.ts",
     ]);
