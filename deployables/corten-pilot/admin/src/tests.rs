@@ -5840,8 +5840,16 @@ async fn accesss_home_shows_each_attention_kind_and_searches_accounts() {
     assert!(html.contains("new@example.test · Manager · "), "{html}");
     assert!(html.contains("Inventory sync · Dana · "), "{html}");
     assert!(html.contains("dana@example.test · Unrecognized"), "an unknown role is named as one: {html}");
-    assert!(html.contains(r#"href="/access/accounts/acc_1?tab=team""#), "{html}");
-    assert!(html.contains(r#"href="/access/accounts/acc_1?tab=api-access""#), "{html}");
+    for href in [
+        "/access/accounts/acc_1?tab=team&amp;invitation=inv_1",
+        "/access/accounts/acc_1?tab=api-access&amp;apiKey=key_1",
+        "/access/accounts/acc_1?tab=team&amp;membership=mem_1",
+    ] {
+        assert!(
+            html.contains(&format!(r#"href="{href}""#)),
+            "each attention row opens its record, as admin-web does: {href}: {html}"
+        );
+    }
     assert!(html.contains(r#"href="/access/accounts/acc_2""#), "the overview is the plain address: {html}");
     assert!(!html.contains("localhost:7752/access/accounts"), "nothing opens admin-web's workspace: {html}");
     assert!(html.contains("39 accounts found") && html.contains(r#"value="acme""#), "{html}");
@@ -5876,7 +5884,7 @@ async fn an_access_list_asks_identity_as_admin_web_does_and_pages() {
     assert!(html.contains("Password, Passkey"), "{html}");
     let (_, _, html) = pilot.send(get("/access/memberships", Some("access-staff"))).await;
     assert!(html.contains("dana@example.test") && html.contains("Acme Cards LLC"), "{html}");
-    assert!(html.contains(r#"href="/access/accounts/acc_1?tab=team""#), "{html}");
+    assert!(html.contains(r#"href="/access/accounts/acc_1?tab=team&amp;membership=mem_1""#), "{html}");
     let (_, _, html) = pilot.send(get("/access/api-keys", Some("access-staff"))).await;
     assert!(html.contains("<code>csk_abc</code>") && html.contains(r#"href="/access/api-keys/key_1""#), "{html}");
 }
@@ -6029,14 +6037,14 @@ async fn a_sessions_switch_or_revoke_writes_to_auth_and_reads_the_page_after_it(
 }
 
 #[tokio::test]
-async fn a_users_or_keys_page_opens_its_accounts_workspace() {
+async fn a_users_or_keys_page_opens_its_accounts_workspace_for_that_record() {
     let pilot = Pilot::new().await;
     for (path, to) in [
-        ("/access/users/usr_2", "/access/accounts/acc_1?tab=team"),
+        ("/access/users/usr_2", "/access/accounts/acc_1?tab=team&user=usr_2"),
         ("/access/users/usr_9", "/access/users?search=usr_9"),
-        ("/access/api-keys/key_1", "/access/accounts/acc_1?tab=api-access"),
-        ("/access/memberships/mem_1", "/access/accounts/acc_1?tab=team"),
-        ("/access/invitations/inv_1", "/access/accounts/acc_1?tab=team"),
+        ("/access/api-keys/key_1", "/access/accounts/acc_1?tab=api-access&apiKey=key_1"),
+        ("/access/memberships/mem_1", "/access/accounts/acc_1?tab=team&membership=mem_1"),
+        ("/access/invitations/inv_1", "/access/accounts/acc_1?tab=team&invitation=inv_1"),
     ] {
         let (status, headers, html) = pilot.send(get(path, Some("access-staff"))).await;
         assert_eq!(status, StatusCode::SEE_OTHER, "{path}: {html}");

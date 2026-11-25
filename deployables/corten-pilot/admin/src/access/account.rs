@@ -61,7 +61,40 @@ impl Tab {
 /// Where an account's workspace opens on a tab; the overview is its plain address.
 pub fn hub(account: &str, tab: Tab) -> String {
     let tab = (tab != Tab::Overview).then_some(tab.key());
-    url::AccountHub { id: account, tab, after_write: None }.href()
+    at(account, tab, None, None).href()
+}
+
+/// The record an address into the workspace was opened for, as admin-web's links name it.
+#[derive(Clone, Copy, Debug)]
+pub enum Pick<'a> {
+    User(&'a str),
+    Membership(&'a str),
+    Invitation(&'a str),
+    ApiKey(&'a str),
+}
+
+/// Where an account's workspace opens on a tab for one of its records
+/// (`?tab=team&membership=..`, as admin-web's lists and redirects link it).
+pub fn picked(account: &str, tab: Tab, pick: Pick<'_>) -> String {
+    at(account, Some(tab.key()), Some(pick), None).href()
+}
+
+/// The workspace's address: its tab, the record it was opened for, and a write's receipt.
+pub fn at<'a>(
+    account: &'a str,
+    tab: Option<&'a str>,
+    pick: Option<Pick<'a>>,
+    after_write: Option<String>,
+) -> url::AccountHub<'a> {
+    let mut to = url::AccountHub { id: account, tab, user: None, membership: None, invitation: None, api_key: None, after_write };
+    match pick {
+        Some(Pick::User(id)) => to.user = Some(id),
+        Some(Pick::Membership(id)) => to.membership = Some(id),
+        Some(Pick::Invitation(id)) => to.invitation = Some(id),
+        Some(Pick::ApiKey(id)) => to.api_key = Some(id),
+        None => {}
+    }
+    to
 }
 
 /// The badges a platform admin assigns and removes here (`accountBadgeKeys` but the founding
@@ -333,7 +366,7 @@ pub(crate) async fn write(
         Call::Write { method, rest, body, tab } => match api::write(&caller, method, &rest, body.as_ref()).await {
             Ok(receipt) => {
                 let after_write = receipt.as_ref().map(Receipt::param);
-                return req.redirect(&url::AccountHub { id: &id, tab: Some(tab.key()), after_write });
+                return req.redirect(&at(&id, Some(tab.key()), None, after_write));
             }
             Err(error) => (tab, error),
         },
@@ -377,11 +410,12 @@ fn to_account(
     req: &Req,
     account: Option<String>,
     tab: Tab,
+    pick: Pick<'_>,
     search: &str,
     list: impl FnOnce(super::url::ListQuery) -> String,
 ) -> HtmlResult {
     let to = match account {
-        Some(account) => url::AccountHub { id: &account, tab: Some(tab.key()), after_write: None }.href(),
+        Some(account) => picked(&account, tab, pick),
         None => list(super::url::ListQuery { search: Some(search.to_owned()), ..Default::default() }),
     };
     req.redirect(&to.parse::<corten::http::Uri>().map_err(corten::Error::new)?)
@@ -396,7 +430,9 @@ pub(crate) async fn user(
 ) -> HtmlResult {
     let caller = config.platform.caller(&headers, config.proto, None);
     match api::user_account(&caller, &route.id).await {
-        Ok(account) => to_account(&req, account, Tab::Team, &route.id, |query| super::people::Users { query }.href()),
+        Ok(account) => {
+            to_account(&req, account, Tab::Team, Pick::User(&route.id), &route.id, |query| super::people::Users { query }.href())
+        }
         Err(error) => read_failed(&req, error, false),
     }
 }
@@ -414,7 +450,9 @@ pub(crate) async fn api_key(
         Err(error) => Err(error),
     };
     match account {
-        Ok(account) => to_account(&req, account, Tab::ApiAccess, &route.id, |query| super::people::ApiKeys { query }.href()),
+        Ok(account) => to_account(&req, account, Tab::ApiAccess, Pick::ApiKey(&route.id), &route.id, |query| {
+            super::people::ApiKeys { query }.href()
+        }),
         Err(error) => read_failed(&req, error, false),
     }
 }
@@ -429,7 +467,7 @@ pub(crate) async fn membership(
 ) -> HtmlResult {
     let caller = config.platform.caller(&headers, config.proto, None);
     match api::membership(&caller, &route.id).await {
-        Ok(m) => to_account(&req, Some(m.account_id), Tab::Team, &route.id, |_| String::new()),
+        Ok(m) => to_account(&req, Some(m.account_id), Tab::Team, Pick::Membership(&route.id), &route.id, |_| String::new()),
         Err(error) => read_failed(&req, error, false),
     }
 }
@@ -444,7 +482,7 @@ pub(crate) async fn invitation(
 ) -> HtmlResult {
     let caller = config.platform.caller(&headers, config.proto, None);
     match api::invitation(&caller, &route.id).await {
-        Ok(i) => to_account(&req, Some(i.account_id), Tab::Team, &route.id, |_| String::new()),
+        Ok(i) => to_account(&req, Some(i.account_id), Tab::Team, Pick::Invitation(&route.id), &route.id, |_| String::new()),
         Err(error) => read_failed(&req, error, false),
     }
 }
