@@ -7984,13 +7984,13 @@ async function readPromotedCatalogItem(page: Page, catalogItemId: string, runtim
 }
 
 // A completed publish job can finish before the item read reflects it, so a
-// draft gets a bounded number of re-reads; any other status answers at once.
-const publishReadbackAttempts = 24;
-
+// draft gets a bounded number of re-reads, each still held to the settle
+// deadline by readWholeGameJson; any other status answers at once.
 async function readPublishedCatalogItem(page: Page, catalogItemId: string, runtime: WholeGameRuntime) {
+  const attempts = 24;
   let item = await readPromotedCatalogItem(page, catalogItemId, runtime);
-  for (let attempt = 1; item.status === "draft" && attempt < publishReadbackAttempts; attempt += 1) {
-    await page.waitForTimeout(Math.min(runtime.pollMs, wholeGameRemainingMs(runtime)));
+  for (let attempt = 1; item.status === "draft" && attempt < attempts; attempt += 1) {
+    await page.waitForTimeout(runtime.pollMs);
     item = await readPromotedCatalogItem(page, catalogItemId, runtime);
   }
   return item;

@@ -699,6 +699,7 @@ describe("AC8 bounded complete reads", () => {
     itemCount = 10,
     initialDrafts = [],
     publishStalls = false,
+    lateReads = 0,
     failedJob,
     receiptPath,
   } = {}) {
@@ -712,13 +713,14 @@ describe("AC8 bounded complete reads", () => {
       "wholeGameQuery",
       "promoteJobsPath",
       "readPromotedCatalogItem",
+      "readPublishedCatalogItem",
       "readReadyCandidateCount",
       "runWholeGameJourney",
       "wholeGameRunIdentity",
       "writeWholeGameReceipt",
     ]);
     const functions = source.statements.filter((node) => ts.isFunctionDeclaration(node) && names.has(node.name?.text));
-    expect(functions).toHaveLength(8);
+    expect(functions).toHaveLength(9);
     const declarations = functions.map((node) => node.getText(source)).join("\n");
     const jobs = [
       promoteJob(
@@ -737,8 +739,13 @@ describe("AC8 bounded complete reads", () => {
     });
     const reads = [];
     const drafts = new Set(initialDrafts);
+    const staleReads = new Map();
     const publish = vi.fn(async (_page, items) => {
-      if (!publishStalls) for (const { catalogItemId } of items) drafts.delete(catalogItemId);
+      if (!publishStalls)
+        for (const { catalogItemId } of items) {
+          drafts.delete(catalogItemId);
+          if (lateReads) staleReads.set(catalogItemId, lateReads);
+        }
       return "job-publish";
     });
     const writeReceipt = vi.fn((receipt) => {
@@ -757,7 +764,10 @@ describe("AC8 bounded complete reads", () => {
         if (path.startsWith("/api/catalog/items/")) {
           if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
           const id = path.split("/").at(-1);
-          return { catalog_item_id: id, blueprint_id: "blueprint-1", status: drafts.has(id) ? "draft" : "active" };
+          const stale = staleReads.get(id) ?? 0;
+          if (stale) staleReads.set(id, stale - 1);
+          const status = drafts.has(id) || stale ? "draft" : "active";
+          return { catalog_item_id: id, blueprint_id: "blueprint-1", status };
         }
         throw new Error(`unexpected fixture read ${path}`);
       });
@@ -846,7 +856,7 @@ describe("AC8 bounded complete reads", () => {
       run: (budget) => {
         deadline = Date.now() + budget;
         return context.wholeGameSettle(
-          {},
+          { waitForTimeout: async () => {} },
           settleInput(),
           { sha: "a".repeat(40), runId: "123", runAttempt: "1" },
           { deadlineAt: deadline, pollMs: 1 },
@@ -1012,6 +1022,18 @@ describe("AC8 bounded complete reads", () => {
     const selections = probe.publish.mock.calls.map(([, items]) => items.map(({ catalogItemId }) => catalogItemId));
     expect(selections.map((selection) => selection.length)).toEqual([40, 40, 40, 40, 40, 32]);
     expect(selections.flat()).toEqual([...ids].sort());
+  });
+  it("actual settle re-reads a published item that still reads draft after its publish job completed", async () => {
+    const probe = settleProbe({ itemCount: 1, initialDrafts: ["item-0"], lateReads: 3 });
+    expect(await probe.run(1000)).toMatchObject({
+      state: "settled",
+      settle: { published: 1, draftsRemaining: 0 },
+    });
+    expect(probe.reads.filter((path) => path === "/api/catalog/items/item-0").length).toBeGreaterThanOrEqual(4);
+  });
+  it("actual settle refuses a published item that still reads draft after its bounded re-reads", async () => {
+    const probe = settleProbe({ itemCount: 1, initialDrafts: ["item-0"], lateReads: 24 });
+    await expect(probe.run(1000)).rejects.toThrow(/promoted-draft-not-published/);
   });
   it("actual settle retains its observed draft count when publication does not finish by the deadline", async () => {
     vi.useFakeTimers();
