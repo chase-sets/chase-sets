@@ -68,7 +68,6 @@ export function renderDeploymentContract(input) {
   const activeComponents = Object.keys(components).sort();
   const requiredComponents = [
     "admin-web",
-    "marketplace",
     "platform-api",
     "platform-bootstrap",
     "platform-worker",

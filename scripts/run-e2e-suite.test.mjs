@@ -550,7 +550,9 @@ describe("run e2e suite", () => {
     expect(mobile.testTitle.split(" ")).toContain("@mobile");
     expect(e2eSuiteIdsForChangedFile(mobile.file)).toEqual([]);
     expect(cortenMarketplaceBrowserSelectedByChangedFile(mobile.file)).toBe(true);
-    expect(manifest.claims.filter((claim) => claim.file.startsWith("deployables/marketplace/"))).toEqual([]);
+    // marketplace-web's own claims stay with its specs until the tree is deleted, and no suite runs them.
+    const marketplaceWebClaims = manifest.claims.filter((claim) => claim.file.startsWith("deployables/marketplace/"));
+    expect(marketplaceWebClaims.flatMap((claim) => e2eSuiteIdsForChangedFile(claim.file))).toEqual([]);
   });
 
   it("balances selected suites for CI by estimated duration", () => {
