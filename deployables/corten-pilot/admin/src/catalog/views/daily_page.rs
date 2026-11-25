@@ -34,10 +34,10 @@ use crate::{
     catalog::{
         api::AliasReview,
         daily::{
-            self, CANDIDATE_COMMANDS, Candidate, CandidateInput, ContentsLine, Daily, DailyScreen, EditForm, EvidenceDetail,
-            Governance, Health, ImportJob, ImportPreview, JobInput, ObservationEvidence, PROMOTION_INTENTS, PreflightPart,
-            PromotionInput, PromotionPreview, Ran, ReviewInput, ReviewRow, Said, ScopeCandidatesInput, Stage, StageState,
-            SyncInput, SyncRun, UnitInput, UnitState, WorksetUnit, at, with_query,
+            self, Action, CANDIDATE_COMMANDS, Candidate, CandidateInput, ContentsLine, Daily, DailyScreen, EditForm,
+            EvidenceDetail, Governance, Health, ImportJob, ImportPreview, JobInput, ObservationEvidence, PROMOTION_INTENTS,
+            PreflightPart, PromotionInput, PromotionPreview, Ran, ReviewInput, ReviewRow, Said, ScopeCandidatesInput, Stage,
+            StageState, SyncInput, SyncRun, UnitInput, UnitState, WorksetUnit, at, with_query,
         },
         integrations,
         views::AliasReviewPart,
@@ -1967,11 +1967,12 @@ fn ReviewModule<'a>(
                                     <th scope="col">{t.wb_review_table_status()}</th>
                                     <th scope="col">{t.wb_review_table_evidence()}</th>
                                     <th scope="col">{t.wb_review_table_readiness()}</th>
+                                    <th scope="col">{t.wb_table_action()}</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 for row in &review.rows {
-                                    <ReviewRowView t={t} p={p} req={req} row={row} manage={manage} />
+                                    <ReviewRowView t={t} p={p} req={req} row={row} actions={&model.actions} manage={manage} />
                                 }
                             </tbody>
                         </table>
@@ -2220,7 +2221,7 @@ fn contents_line(t: Cat, row: &ContentsLine) -> String {
 }
 
 #[component(css = DailyPage)]
-fn ReviewRowView<'a>(t: Cat, p: Pilot, req: &'a Req, row: &'a ReviewRow, manage: bool) -> impl Render {
+fn ReviewRowView<'a>(t: Cat, p: Pilot, req: &'a Req, row: &'a ReviewRow, actions: &'a [Action], manage: bool) -> impl Render {
     let external = t
         .wb_review_table_external(crate::text::cat::WbReviewTableExternal {
             provider: &row.provider_key,
@@ -2237,6 +2238,23 @@ fn ReviewRowView<'a>(t: Cat, p: Pilot, req: &'a Req, row: &'a ReviewRow, manage:
     );
     let choose = p.integrations_review_choose(&row.display_name).to_string();
     let evidence = daily::url::Evidence { id: &row.observation_id }.href().to_string();
+    // The row's Reapply and Replay (admin-web's `RowCommandAction`): each where the row offers it,
+    // runnable only when both the row's command and the working set's are open, as admin-web's
+    // `CommandFormButton` allows; its button names the observation it runs for.
+    let f = ReviewInput::FIELDS;
+    let recoveries: Vec<_> =
+        [("observation.reapply", f.reapply, t.wb_review_reapply()), ("observation.replay", f.replay, t.wb_review_replay())]
+            .into_iter()
+            .filter_map(|(key, field, word)| {
+                let offered = row.actions.iter().find(|a| a.key == key)?;
+                let open = offered.open() && actions.iter().any(|a| a.key == key && a.open());
+                let label = t
+                    .wb_review_action_aria(crate::text::cat::WbReviewActionAria { action: word, observation: &row.display_name })
+                    .to_string();
+                Some((field, word, label, open))
+            })
+            .collect();
+    let blockers: Vec<String> = recoveries_blockers(row);
     html! {
         <tr data-catalog-observation-row={&row.observation_id}>
             <td>
@@ -2277,15 +2295,6 @@ fn ReviewRowView<'a>(t: Cat, p: Pilot, req: &'a Req, row: &'a ReviewRow, manage:
                     if row.duplicate_count > 0 {
                         <Pill text={&duplicates} tone="warning" />
                     }
-                    <button
-                        type="submit"
-                        class={Button { variant: ButtonVariant::Secondary, size: ButtonSize::Sm }}
-                        form={EVIDENCE_OPEN}
-                        formaction={&evidence}
-                        data-catalog-observation-evidence-open={&row.observation_id}
-                    >
-                        {t.wb_evidence()}
-                    </button>
                 </span>
             </td>
             <td>
@@ -2300,8 +2309,55 @@ fn ReviewRowView<'a>(t: Cat, p: Pilot, req: &'a Req, row: &'a ReviewRow, manage:
                     }
                 </span>
             </td>
+            <td>
+                <CellLabel>{t.wb_table_action()}</CellLabel>
+                <span class={CellBlock}>
+                    <span class={Row}>
+                        <button
+                            type="submit"
+                            class={Button { variant: ButtonVariant::Secondary, size: ButtonSize::Sm }}
+                            form={EVIDENCE_OPEN}
+                            formaction={&evidence}
+                            data-catalog-observation-evidence-open={&row.observation_id}
+                        >
+                            {t.wb_evidence()}
+                        </button>
+                        if manage {
+                            for (field, word, label, open) in &recoveries {
+                                <button
+                                    type="submit"
+                                    class={Button { variant: ButtonVariant::Outline, size: ButtonSize::Sm }}
+                                    name={*field}
+                                    value={&row.observation_id}
+                                    disabled={!*open}
+                                    aria-label={label.as_str()}
+                                >
+                                    {*word}
+                                </button>
+                            }
+                        }
+                    </span>
+                    if manage && !blockers.is_empty() {
+                        <Blockers t={t} blockers={&blockers} />
+                    }
+                </span>
+            </td>
         </tr>
     }
+}
+
+/// The blockers of the row's Reapply and Replay, each once, as admin-web lists the row's under its
+/// buttons; `unsupported-command` is not one the operator can act on.
+fn recoveries_blockers(row: &ReviewRow) -> Vec<String> {
+    let mut blocked: Vec<String> = Vec::new();
+    for action in row.actions.iter().filter(|a| a.key == "observation.reapply" || a.key == "observation.replay") {
+        for blocker in &action.blockers {
+            if blocker != "unsupported-command" && !blocked.contains(blocker) {
+                blocked.push(blocker.clone());
+            }
+        }
+    }
+    blocked
 }
 
 /// Create / update items (`CatalogIntegrationCreateItemsStage`): the latest promotion outcome, then
