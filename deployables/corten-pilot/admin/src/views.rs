@@ -59,6 +59,7 @@ pub const COMPONENTS: &[Component] = &[
     platform::ui::visually_hidden::VisuallyHidden,
     platform::ui::icon::Icon,
     platform::ui::input_group::InputGroup,
+    platform::search::SearchBox,
     AdminNav,
     Section,
     IndexPage,

@@ -497,7 +497,11 @@
   border-radius: var(--radius-md);
 }
 .no-image {
+  display: grid;
+  place-items: center;
   background: var(--color-surface-2);
+  color: var(--color-text-muted);
+  font-size: 1.5rem;
 }
 .card-body {
   display: grid;

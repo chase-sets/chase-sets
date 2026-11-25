@@ -22,10 +22,9 @@ use crate::{
     text::{Pilot, ShipmentsMsg},
 };
 use platform::{
-    search::SearchGlyph,
+    search::{SearchBox, SearchGlyph},
     theme::gap_1,
     ui::{
-        input_group::InputGroup,
         progress::{Progress as KitProgress, ProgressSize, ProgressTone},
         stack::{Gap, StackStart},
         steps::{Step as KitStep, StepState, Steps as KitSteps, StepsLayout},
@@ -443,7 +442,7 @@ fn Scan<'a>(t: ShipmentsMsg, p: Pilot, viewer: &'a Viewer, id: &'a str, screen: 
                 <label class={Label} for="packing-scan-code">{t.packing_scan_label()}</label>
                 <p class={Muted} id="packing-scan-note">{t.packing_scan_description()}</p>
                 <div class={ScanRow}>
-                    <span class={(InputGroup {}, ScanBox)}>
+                    <span class={(SearchBox {}, ScanBox)}>
                         <SearchGlyph />
                         <input
                             class={Input}

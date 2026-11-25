@@ -284,7 +284,7 @@ but keep their own bordered choice rows, which are the design system's `Checkbox
 ## How the pilot works
 
 1. A write is its own typed route. One the API applies redirects (303) with the write's receipt
-   (`?after_write=`), and the read after it waits for that receipt; a read still catching up is a
+   (`?afterWrite=`), and the read after it waits for that receipt; a read still catching up is a
    short page that reads itself again. A refusal draws the form again with the API's words (422),
    an API failure is a 502, an unknown thing a 404, a missing permission a 403, and someone signed
    out goes to sign-in and back.
