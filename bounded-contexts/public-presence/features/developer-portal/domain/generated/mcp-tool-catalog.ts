@@ -177,6 +177,10 @@ export const mcpToolCatalog = [
           type: "boolean",
           description: "Validate without changing cart state.",
         },
+        confirmed: {
+          type: "boolean",
+          description: "Confirm this exact action.",
+        },
       },
     },
     outputSchema: {
@@ -272,6 +276,10 @@ export const mcpToolCatalog = [
         dryRun: {
           type: "boolean",
           description: "Validate without changing checkout state.",
+        },
+        confirmed: {
+          type: "boolean",
+          description: "Confirm this exact action.",
         },
       },
     },
@@ -499,6 +507,10 @@ export const mcpToolCatalog = [
           type: "boolean",
           description: "Validate without changing cart state.",
         },
+        confirmed: {
+          type: "boolean",
+          description: "Confirm this exact action.",
+        },
       },
     },
     outputSchema: {
@@ -593,6 +605,10 @@ export const mcpToolCatalog = [
         dryRun: {
           type: "boolean",
           description: "Validate without changing checkout state.",
+        },
+        confirmed: {
+          type: "boolean",
+          description: "Confirm this exact action.",
         },
       },
     },
@@ -781,6 +797,10 @@ export const mcpToolCatalog = [
         dryRun: {
           type: "boolean",
           description: "Validate without changing cart state.",
+        },
+        confirmed: {
+          type: "boolean",
+          description: "Confirm this exact action.",
         },
       },
     },
@@ -1507,6 +1527,10 @@ export const mcpToolCatalog = [
           type: "boolean",
           description: "Validate the action without committing it.",
         },
+        confirmed: {
+          type: "boolean",
+          description: "Confirm this exact action.",
+        },
       },
     },
     outputSchema: {
@@ -1605,6 +1629,10 @@ export const mcpToolCatalog = [
           type: "boolean",
           description: "Validate the action without committing it.",
         },
+        confirmed: {
+          type: "boolean",
+          description: "Confirm this exact action.",
+        },
       },
     },
     outputSchema: {
@@ -1702,6 +1730,10 @@ export const mcpToolCatalog = [
         dryRun: {
           type: "boolean",
           description: "Validate the action without committing it.",
+        },
+        confirmed: {
+          type: "boolean",
+          description: "Confirm this exact action.",
         },
       },
     },
@@ -2128,6 +2160,10 @@ export const mcpToolCatalog = [
           type: "boolean",
           description: "Validate the action without committing it.",
         },
+        confirmed: {
+          type: "boolean",
+          description: "Confirm this exact action.",
+        },
       },
     },
     permissionBoundary: {
@@ -2194,6 +2230,10 @@ export const mcpToolCatalog = [
         dryRun: {
           type: "boolean",
           description: "Validate the action without committing it.",
+        },
+        confirmed: {
+          type: "boolean",
+          description: "Confirm this exact action.",
         },
       },
     },
@@ -2292,6 +2332,10 @@ export const mcpToolCatalog = [
         dryRun: {
           type: "boolean",
           description: "Validate the action without committing it.",
+        },
+        confirmed: {
+          type: "boolean",
+          description: "Confirm this exact action.",
         },
       },
     },
@@ -2415,6 +2459,10 @@ export const mcpToolCatalog = [
           type: "boolean",
           description: "Validate the action without committing it.",
         },
+        confirmed: {
+          type: "boolean",
+          description: "Confirm this exact action.",
+        },
       },
     },
     permissionBoundary: {
@@ -2474,6 +2522,10 @@ export const mcpToolCatalog = [
         dryRun: {
           type: "boolean",
           description: "Validate the action without committing it.",
+        },
+        confirmed: {
+          type: "boolean",
+          description: "Confirm this exact action.",
         },
       },
     },
@@ -2598,6 +2650,10 @@ export const mcpToolCatalog = [
         dryRun: {
           type: "boolean",
           description: "Validate the action without committing it.",
+        },
+        confirmed: {
+          type: "boolean",
+          description: "Confirm this exact action.",
         },
       },
     },
@@ -3197,6 +3253,10 @@ export const mcpToolCatalog = [
           type: "boolean",
           description: "Validate the action without committing it.",
         },
+        confirmed: {
+          type: "boolean",
+          description: "Confirm this exact action.",
+        },
       },
     },
     outputSchema: {
@@ -3421,6 +3481,10 @@ export const mcpToolCatalog = [
           type: "string",
           description: "Offer being countered.",
         },
+        confirmed: {
+          type: "boolean",
+          description: "Confirm this exact action.",
+        },
       },
     },
     outputSchema: {
@@ -3567,6 +3631,10 @@ export const mcpToolCatalog = [
           type: "boolean",
           description: "Validate the action without committing it.",
         },
+        confirmed: {
+          type: "boolean",
+          description: "Confirm this exact action.",
+        },
       },
     },
     outputSchema: {
@@ -3672,6 +3740,10 @@ export const mcpToolCatalog = [
         requestHash: {
           type: "string",
           description: "SHA-256 of the canonical Marketplace decline command.",
+        },
+        confirmed: {
+          type: "boolean",
+          description: "Confirm this exact action.",
         },
       },
     },
@@ -4261,6 +4333,10 @@ export const mcpToolCatalog = [
           type: "boolean",
           description: "Validate the action without committing it.",
         },
+        confirmed: {
+          type: "boolean",
+          description: "Confirm this exact action.",
+        },
       },
     },
     outputSchema: {
@@ -4476,6 +4552,10 @@ export const mcpToolCatalog = [
           type: "boolean",
           description: "Validate the action without committing it.",
         },
+        confirmed: {
+          type: "boolean",
+          description: "Confirm this exact action.",
+        },
       },
     },
     outputSchema: {
@@ -4581,6 +4661,10 @@ export const mcpToolCatalog = [
         requestHash: {
           type: "string",
           description: "SHA-256 of the canonical Marketplace Listing command.",
+        },
+        confirmed: {
+          type: "boolean",
+          description: "Confirm this exact action.",
         },
       },
     },
@@ -4700,6 +4784,10 @@ export const mcpToolCatalog = [
           type: "boolean",
           description: "Validate the action without committing it.",
         },
+        confirmed: {
+          type: "boolean",
+          description: "Confirm this exact action.",
+        },
       },
     },
     outputSchema: {
@@ -4808,6 +4896,10 @@ export const mcpToolCatalog = [
         confirmationText: {
           type: "string",
           description: "Exact user or policy confirmation text.",
+        },
+        confirmed: {
+          type: "boolean",
+          description: "Confirm this exact action.",
         },
       },
     },
@@ -5386,6 +5478,10 @@ export const mcpToolCatalog = [
           type: "boolean",
           description: "Dry runs are not supported; omit or pass false. True is refused before any setup work.",
         },
+        confirmed: {
+          type: "boolean",
+          description: "Confirm this exact action.",
+        },
       },
     },
     outputSchema: {
@@ -5753,6 +5849,10 @@ export const mcpToolCatalog = [
         dryRun: {
           type: "boolean",
           description: "Validate without creating a hosted link.",
+        },
+        confirmed: {
+          type: "boolean",
+          description: "Confirm this exact action.",
         },
       },
     },
@@ -6393,6 +6493,10 @@ export const mcpToolCatalog = [
           type: "boolean",
           description: "Validate without refreshing readiness.",
         },
+        confirmed: {
+          type: "boolean",
+          description: "Confirm this exact action.",
+        },
       },
     },
     outputSchema: {
@@ -6514,6 +6618,10 @@ export const mcpToolCatalog = [
         dryRun: {
           type: "boolean",
           description: "Validate without requesting payout.",
+        },
+        confirmed: {
+          type: "boolean",
+          description: "Confirm this exact action.",
         },
       },
     },
@@ -6671,6 +6779,10 @@ export const mcpToolCatalog = [
           type: "boolean",
           description: "Validate the action without committing it.",
         },
+        confirmed: {
+          type: "boolean",
+          description: "Confirm this exact action.",
+        },
       },
     },
     permissionBoundary: {
@@ -6810,6 +6922,10 @@ export const mcpToolCatalog = [
           type: "boolean",
           description: "Validate the action without committing it.",
         },
+        confirmed: {
+          type: "boolean",
+          description: "Confirm this exact action.",
+        },
       },
     },
     permissionBoundary: {
@@ -6868,6 +6984,10 @@ export const mcpToolCatalog = [
         dryRun: {
           type: "boolean",
           description: "Validate the action without committing it.",
+        },
+        confirmed: {
+          type: "boolean",
+          description: "Confirm this exact action.",
         },
       },
     },
@@ -6931,6 +7051,10 @@ export const mcpToolCatalog = [
         dryRun: {
           type: "boolean",
           description: "Validate without requesting the refund.",
+        },
+        confirmed: {
+          type: "boolean",
+          description: "Confirm this exact action.",
         },
       },
     },
@@ -7030,6 +7154,10 @@ export const mcpToolCatalog = [
         dryRun: {
           type: "boolean",
           description: "Validate the action without committing it.",
+        },
+        confirmed: {
+          type: "boolean",
+          description: "Confirm this exact action.",
         },
       },
     },
