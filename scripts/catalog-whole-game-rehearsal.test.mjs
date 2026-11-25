@@ -19,7 +19,6 @@ import {
   planScopePromotion,
   planWholeGameSettle,
   promotedCatalogItems,
-  publishFilters,
   readAllCompletedPromoteJobs,
   startConfirmationRefusal,
   validateWholeGameReceipt,
@@ -232,7 +231,6 @@ describe("reference-only settle completeness", () => {
         const page = pages[offset] ?? { total: 1, items: [] };
         return { ...page, items: page.items.map((item) => ({ updated_at: "2026-11-11T12:00:00Z", ...item })) };
       },
-      readWholeGameTotal: async () => pages[0].total,
     });
     const declarations = ["readReadyCandidateCount", "wholeGameQuery"]
       .map((name) => journeyFunction(name).getText(journeySource))
@@ -368,8 +366,9 @@ describe("whole-game repair regressions", () => {
     const paths = [];
     for (const name of ["wholeGameSettle", "submitPromoteAllReady", "publishThroughCatalogItems"]) {
       const visit = (node) => {
-        if (ts.isTemplateExpression(node) && node.head.text.startsWith("/")) {
-          const path = node.head.text.split("?")[0];
+        const address = ts.isTemplateExpression(node) ? node.head.text : ts.isStringLiteralLike(node) ? node.text : "";
+        if (address.startsWith("/")) {
+          const path = address.split("?")[0];
           if (path.startsWith("/catalog")) paths.push(path.endsWith("/") ? `${path}:id` : path);
         }
         ts.forEachChild(node, visit);
@@ -378,9 +377,6 @@ describe("whole-game repair regressions", () => {
     }
     expect(paths).toEqual(["/catalog/scopes/sync-batches", "/catalog/scopes/:id", "/catalog/catalog-items"]);
     for (const path of paths) expect(routes.has(path), path).toBe(true);
-    expect(journeyFunction("publishThroughCatalogItems").getText(journeySource)).toContain(
-      'clickWholeGameControl(page, page.getByRole("button", { name: "Actions", exact: true }).first(), runtime)',
-    );
   });
 
   it("AC2 bounds a collapsed review-stage expansion before promotion", async () => {
@@ -548,11 +544,13 @@ describe("amended AC3 completed application history", () => {
     const current = promoteJob("current", [applied("candidate-1", "created-item")], { promotionApplicationVersion: 1 });
     expect(promotedCatalogItems([legacy, current, { ...current, jobId: "recovered-unit" }])).toEqual({
       catalogItemIds: ["created-item"],
+      createdCatalogItemIds: new Set(["created-item"]),
       promotedOutcomes: 1,
       promotedWithoutCatalogItem: 0,
     });
     expect(promotedCatalogItems([legacy])).toEqual({
       catalogItemIds: [],
+      createdCatalogItemIds: new Set(),
       promotedOutcomes: 0,
       promotedWithoutCatalogItem: 1,
     });
@@ -698,6 +696,9 @@ describe("AC8 bounded complete reads", () => {
     ready = [],
     zeroOutcomes = [],
     historicalOutcomes = [],
+    itemCount = 10,
+    initialDrafts = [],
+    publishStalls = false,
     failedJob,
     receiptPath,
   } = {}) {
@@ -710,7 +711,7 @@ describe("AC8 bounded complete reads", () => {
       "wholeGameSettle",
       "wholeGameQuery",
       "promoteJobsPath",
-      "draftItemsPath",
+      "readPromotedCatalogItem",
       "readReadyCandidateCount",
       "runWholeGameJourney",
       "wholeGameRunIdentity",
@@ -723,7 +724,7 @@ describe("AC8 bounded complete reads", () => {
       promoteJob(
         "history",
         [
-          ...Array.from({ length: 10 }, (_, index) => applied(`candidate-${index}`, `item-${index}`)),
+          ...Array.from({ length: itemCount }, (_, index) => applied(`candidate-${index}`, `item-${index}`)),
           ...historicalOutcomes,
         ],
         { promotionApplicationVersion: 1 },
@@ -735,7 +736,11 @@ describe("AC8 bounded complete reads", () => {
       result: { promoted: 0, failed: 0, outcomes: zeroOutcomes },
     });
     const reads = [];
-    const publish = vi.fn();
+    const drafts = new Set(initialDrafts);
+    const publish = vi.fn(async (_page, items) => {
+      if (!publishStalls) for (const { catalogItemId } of items) drafts.delete(catalogItemId);
+      return "job-publish";
+    });
     const writeReceipt = vi.fn((receipt) => {
       if (receiptPath) context.writeWholeGameReceipt(receipt);
     });
@@ -750,8 +755,9 @@ describe("AC8 bounded complete reads", () => {
           return { items: jobs };
         }
         if (path.startsWith("/api/catalog/items/")) {
-          await new Promise((resolve) => setTimeout(resolve, delay));
-          return { catalog_item_id: path.split("/").at(-1), blueprint_id: "blueprint-1", language_code: "en" };
+          if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+          const id = path.split("/").at(-1);
+          return { catalog_item_id: id, blueprint_id: "blueprint-1", status: drafts.has(id) ? "draft" : "active" };
         }
         throw new Error(`unexpected fixture read ${path}`);
       });
@@ -786,8 +792,10 @@ describe("AC8 bounded complete reads", () => {
       submitPromoteAllReady: async () => "zero",
       waitForPromoteJob: async () => failedJob ?? zeroJob,
       readWholeGameJson: read,
-      readWholeGameTotal: async () => 0,
       publishThroughCatalogItems: publish,
+      waitForWholeGamePublishJob: async () => {
+        if (publishStalls) await rehearsal.readBeforeWholeGameDeadline(deadline, () => new Promise(() => {}));
+      },
     });
     vm.runInContext(ts.transpile(declarations, { target: ts.ScriptTarget.ES2022 }), context);
     const fixtureSink = source.statements
@@ -971,7 +979,7 @@ describe("AC8 bounded complete reads", () => {
       const pending = probe.run(budget);
       await vi.advanceTimersByTimeAsync(budget);
       const result = await pending;
-      expect(result.state).toBe("running");
+      expect(result).toMatchObject({ state: "running", settle: { draftsRemaining: null } });
       expect(Date.now() - start).toBe(budget);
       expect(probe.reads.filter((path) => path.startsWith("/api/catalog/items/"))).toHaveLength(itemReads);
       expect(probe.publish).not.toHaveBeenCalled();
@@ -993,6 +1001,37 @@ describe("AC8 bounded complete reads", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+  it("actual settle checks and publishes 232 promoted drafts in bounded exact-ID selections", async () => {
+    const ids = Array.from({ length: 232 }, (_, index) => `item-${index}`);
+    const probe = settleProbe({ itemCount: ids.length, initialDrafts: ids });
+    expect(await probe.run(1000)).toMatchObject({
+      state: "settled",
+      settle: { published: 232, publishPreviewed: 6, draftsRemaining: 0 },
+    });
+    const selections = probe.publish.mock.calls.map(([, items]) => items.map(({ catalogItemId }) => catalogItemId));
+    expect(selections.map((selection) => selection.length)).toEqual([40, 40, 40, 40, 40, 32]);
+    expect(selections.flat()).toEqual([...ids].sort());
+  });
+  it("actual settle retains its observed draft count when publication does not finish by the deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const probe = settleProbe({ initialDrafts: ["item-0"], publishStalls: true });
+      const pending = probe.run(1000);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(await pending).toMatchObject({ state: "running", settle: { published: 0, draftsRemaining: 1 } });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("actual settle refuses a promoted draft it did not create without submitting publication", async () => {
+    const probe = settleProbe({
+      itemCount: 0,
+      historicalOutcomes: [{ ...applied("linked", "item-linked"), appliedMode: "link-existing" }],
+      initialDrafts: ["item-linked"],
+    });
+    await expect(probe.run(1000)).rejects.toMatchObject({ code: "preexisting-promoted-drafts-not-selected" });
+    expect(probe.publish).not.toHaveBeenCalled();
   });
   it.each([true, false])(
     "actual settle only exempts reference-only dispositions from its current pass (%s)",
@@ -1418,58 +1457,72 @@ describe("AC3 idempotent promotion and publication", () => {
           ],
           { promotionApplicationVersion: 1 },
         ),
-        promoteJob("job-2", [applied("candidate-1", "item-1")], { promotionApplicationVersion: 1 }),
+        promoteJob(
+          "job-2",
+          [
+            applied("candidate-1", "item-1"),
+            { ...applied("candidate-4", "linked-item"), appliedMode: "link-existing" },
+            { ...applied("candidate-5", "refreshed-item"), appliedMode: "refresh" },
+          ],
+          { promotionApplicationVersion: 1 },
+        ),
         promoteJob("legacy", [{ candidateId: "candidate-3", status: "promoted", catalogItemId: null }]),
       ]),
-    ).toEqual({ catalogItemIds: ["item-1", "item-2"], promotedOutcomes: 2, promotedWithoutCatalogItem: 1 });
-  });
-
-  it("plans one draft filter per blueprint x batch provider source x language", () => {
-    expect(
-      publishFilters(
-        [
-          { blueprintId: "bp-2", languageCode: "en" },
-          { blueprintId: "bp-1", languageCode: "ja" },
-          { blueprintId: "bp-1", languageCode: "ja" },
-          { blueprintId: null, languageCode: "en" },
-        ],
-        ["tcgdex", "scrydex", "tcgdex"],
-      ),
-    ).toEqual([
-      { blueprintId: "bp-1", source: "scrydex", language: "ja", status: "draft" },
-      { blueprintId: "bp-1", source: "tcgdex", language: "ja", status: "draft" },
-      { blueprintId: "bp-2", source: "scrydex", language: "en", status: "draft" },
-      { blueprintId: "bp-2", source: "tcgdex", language: "en", status: "draft" },
-    ]);
+    ).toEqual({
+      catalogItemIds: ["item-1", "item-2", "linked-item", "refreshed-item"],
+      createdCatalogItemIds: new Set(["item-1", "item-2"]),
+      promotedOutcomes: 4,
+      promotedWithoutCatalogItem: 1,
+    });
   });
 });
 
 describe("AC4 publish preview guard", () => {
-  const filter = { blueprintId: "bp-1", source: "scrydex", language: "en", status: "draft" };
   const previewOf = (count, mutate = () => ({})) => {
     const candidates = Array.from({ length: count }, (_, index) => ({
       catalog_item_id: `item-${index + 1}`,
       blueprint_id: "bp-1",
+      status: "draft",
       source_providers: ["scrydex", "tcgdex"],
       ...mutate(index),
     }));
     return { item_ids: candidates.map((candidate) => candidate.catalog_item_id), total: count, candidates };
   };
-  const guard = (value, blueprints = new Set(["bp-1"])) =>
+  const draftSelection = (count) =>
+    previewOf(count).item_ids.map((catalogItemId) => ({ catalogItemId, blueprintId: "bp-1" }));
+  const guard = (value, drafts = draftSelection(25)) =>
     refusalCode(() => {
-      assertPublishPreviewGuard(value, filter, blueprints);
+      assertPublishPreviewGuard(value, drafts);
       throw new WholeGameRehearsalRefusal("passed");
     });
 
+  it("accepts the promoted draft with a linked reference outside the batch providers", () => {
+    expect(
+      guard(
+        previewOf(1, () => ({ source_providers: ["tcgplayer"] })),
+        draftSelection(1),
+      ),
+    ).toBe("passed");
+  });
+
   it("reads every candidate beyond the 20 rendered rows", () => {
     expect(guard(previewOf(25))).toBe("passed");
-    expect(guard(previewOf(25, (index) => (index === 22 ? { source_providers: ["tcgdex"] } : {})))).toBe(
-      "publish-preview-row-23-missing-provider-source",
+    expect(guard(previewOf(25, (index) => (index === 22 ? { catalog_item_id: "item-other" } : {})))).toBe(
+      "publish-preview-row-23-foreign-item",
     );
     expect(guard(previewOf(25, (index) => (index === 21 ? { blueprint_id: "bp-other-game" } : {})))).toBe(
       "publish-preview-row-22-foreign-blueprint",
     );
-    expect(guard(previewOf(25), new Set(["bp-other-game"]))).toBe("publish-preview-row-1-foreign-blueprint");
+    expect(guard(previewOf(25, (index) => (index === 23 ? { status: "active" } : {})))).toBe(
+      "publish-preview-row-24-not-draft",
+    );
+  });
+
+  it("refuses a subset or duplicate even when the preview agrees with its own candidates", () => {
+    expect(guard(previewOf(24))).toBe("publish-preview-selection-mismatch");
+    expect(guard(previewOf(25, (index) => (index === 24 ? { catalog_item_id: "item-1" } : {})))).toBe(
+      "publish-preview-selection-mismatch",
+    );
   });
 
   it("refuses a preview response that is not complete", () => {
@@ -1641,6 +1694,9 @@ describe("AC5 support-safe receipt schema", () => {
     expect(validateWholeGameReceipt(receipt({ settle: { ...receipt().settle, draftsRemaining: 2 } }))).toContain(
       "settled-with-remaining-work",
     );
+    const unknown = { ...receipt().settle, draftsRemaining: null };
+    expect(validateWholeGameReceipt(receipt({ settle: unknown }))).toContain("settled-with-remaining-work");
+    expect(validateWholeGameReceipt(receipt({ state: "running", settle: unknown }))).toEqual([]);
     expect(
       validateWholeGameReceipt(receipt({ settle: { ...receipt().settle, promotedWithoutCatalogItem: 1 } })),
     ).toContain("settled-with-remaining-work");
