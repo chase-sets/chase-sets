@@ -70,6 +70,7 @@ const cortenMarketplaceBrowserPaths = [
   /^deployables\/corten-pilot\/Cargo\.(?:toml|lock)$/,
   /^deployables\/corten-pilot\/scripts\/export\.mjs$/,
   /^deployables\/marketplace\/e2e\/(?:critical-flows|buyer-purchase-journey|marketplace-navigation|marketplace-shell-header|responsive-evidence-contract|search-scroll-restoration)\.spec\.ts$/,
+  /^deployables\/marketplace\/e2e\/support\/(?:auth|search-settle|seed-contract|sign-in-readiness|system)\.ts$/,
   /^scripts\/(?:dev-system|dev-system-config|platform-compose-ingress)\.mjs$/,
 ];
 
