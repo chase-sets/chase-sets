@@ -30,7 +30,10 @@ use crate::{
     },
     text::{CheckoutMsg, PaymentMsg, Pilot},
 };
-use platform::ui::steps::{Step, StepState, Steps as KitSteps, StepsLayout};
+use platform::{
+    numeric_value::MoneyDisplay,
+    ui::steps::{Step, StepState, Steps as KitSteps, StepsLayout},
+};
 
 /// The checkout form, which the bar's Pay now also submits.
 #[derive(Id, Clone, Copy)]
@@ -41,16 +44,16 @@ pub struct CheckoutFormId;
 pub struct ContactEmailErrorId;
 
 /// An amount in dollars (`formatMoney(.., "USD")`), or the amount as sent when it is not money.
-fn money(t: CheckoutMsg, amount: &str) -> String {
+fn money(t: CheckoutMsg, amount: &str) -> MoneyDisplay {
     match (platform::money::decimal(amount), Currency::parse("USD")) {
-        (Some(value), Some(usd)) => t.money(value, usd).to_string(),
-        _ => amount.to_owned(),
+        (Some(value), Some(usd)) => MoneyDisplay::Formatted(t.money(value, usd).to_string()),
+        _ => MoneyDisplay::Fallback(amount.to_owned()),
     }
 }
 
 /// An amount, or Pending (`formatMoneyOrPending`).
-fn money_or_pending(t: CheckoutMsg, amount: Option<&str>) -> String {
-    amount.filter(|a| !a.trim().is_empty()).map_or_else(|| t.page_pending().to_owned(), |a| money(t, a))
+fn money_or_pending(t: CheckoutMsg, amount: Option<&str>) -> MoneyDisplay {
+    amount.filter(|a| !a.trim().is_empty()).map_or_else(|| MoneyDisplay::Fallback(t.page_pending().to_owned()), |a| money(t, a))
 }
 
 fn method_label(t: CheckoutMsg, method: &str) -> &'static str {
@@ -99,7 +102,7 @@ fn line_amount<'a>(line: &SessionLine, preview: Option<&'a FulfillmentPreview>) 
 
 /// A line's price on the summary: a purchase intent's offer (`offerPriceAmount`), else the
 /// preview's.
-fn line_price(t: CheckoutMsg, screen: &Screen, line: &SessionLine) -> String {
+fn line_price(t: CheckoutMsg, screen: &Screen, line: &SessionLine) -> MoneyDisplay {
     if screen.offer {
         money_or_pending(t, line.offer_price_amount.as_deref())
     } else {
@@ -279,13 +282,13 @@ fn lines(screen: &Screen) -> u64 {
     screen.session.lines.iter().map(|l| l.quantity).sum()
 }
 
-fn total(t: CheckoutMsg, screen: &Screen) -> String {
+fn total(t: CheckoutMsg, screen: &Screen) -> MoneyDisplay {
     money_or_pending(t, screen.total())
 }
 
 /// The total the summary and the bar show: No payment today for a purchase intent.
-fn shown_total(t: CheckoutMsg, screen: &Screen) -> String {
-    if screen.offer { t.page_no_payment_today().to_owned() } else { total(t, screen) }
+fn shown_total(t: CheckoutMsg, screen: &Screen) -> MoneyDisplay {
+    if screen.offer { MoneyDisplay::Fallback(t.page_no_payment_today().to_owned()) } else { total(t, screen) }
 }
 
 /// The total's label (`totalsTotalLabel`).
@@ -572,7 +575,7 @@ fn CheckoutFormPart<'a>(t: CheckoutMsg, pm: PaymentMsg, screen: &'a Screen) -> i
                         <label class={Check}>
                             <input type="checkbox" name={f.authenticity_check_opt_in} value="true" checked={selected}>
                             <span>
-                                <span class={Strong}>{t.page_authenticity_check_opt_in(&money(t, &offer.fee_amount))}</span>
+                                <span class={Strong}>{t.page_authenticity_check_opt_in(money(t, &offer.fee_amount).text())}</span>
                                 <span class={StepDescription}>{t.page_authenticity_check_opt_in_description()}</span>
                             </span>
                         </label>
@@ -1000,7 +1003,9 @@ fn StickyBar<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
         <section class={Bar} aria-label={t.page_checkout_summary()}>
             <div class={BarTotal}>
                 <p class={Label}>{total_label(t, screen)}</p>
-                <p class={Amount}>{if paid { t.page_payment_ready().to_owned() } else { shown_total(t, screen) }}</p>
+                <p class={Amount}>
+                    if paid { {t.page_payment_ready()} } else { {shown_total(t, screen)} }
+                </p>
                 <p class={StepDescription}>
                     {if screen.offer { t.page_shipping_saved_for_seller_acceptance() } else { t.page_secure_checkout_context() }}
                 </p>
@@ -1107,10 +1112,10 @@ pub fn BuyConfirmationPage<'a>(t: CheckoutMsg, screen: &'a ConfirmationScreen) -
     };
     let support = screen.support_reference.clone().unwrap_or_else(|| t.page_pending().to_owned());
     let total = screen.payment.as_ref().map_or_else(
-        || t.confirmation_payment_total_pending().to_owned(),
+        || MoneyDisplay::Fallback(t.confirmation_payment_total_pending().to_owned()),
         |p| match (platform::money::decimal(&p.amount), Currency::parse(p.currency_code.trim())) {
-            (Some(amount), Some(currency)) => t.money(amount, currency).to_string(),
-            _ => format!("{} {}", p.amount, p.currency_code.to_ascii_uppercase()),
+            (Some(amount), Some(currency)) => MoneyDisplay::Formatted(t.money(amount, currency).to_string()),
+            _ => MoneyDisplay::Fallback(format!("{} {}", p.amount, p.currency_code.to_ascii_uppercase())),
         },
     );
     let status = screen.payment.as_ref().map_or(t.confirmation_payment_status_preparing(), |p| payment_status(t, &p.status));
@@ -1239,21 +1244,21 @@ fn Summary<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
                 <div class={Quiet}>
                     <dt>{t.page_shipping_2()}</dt>
                     <dd>
-                        {if intent {
-                            t.page_no_payment_today().to_owned()
+                        if intent {
+                            {t.page_no_payment_today()}
                         } else {
-                            money_or_pending(t, totals.and_then(|x| x.shipping_amount.as_deref()))
-                        }}
+                            {money_or_pending(t, totals.and_then(|x| x.shipping_amount.as_deref()))}
+                        }
                     </dd>
                 </div>
                 <div class={Quiet}>
                     <dt>{t.page_estimated_tax()}</dt>
                     <dd>
-                        {if intent {
-                            t.page_not_applicable().to_owned()
+                        if intent {
+                            {t.page_not_applicable()}
                         } else {
-                            money_or_pending(t, totals.and_then(|x| x.sales_tax_amount.as_deref()))
-                        }}
+                            {money_or_pending(t, totals.and_then(|x| x.sales_tax_amount.as_deref()))}
+                        }
                     </dd>
                 </div>
                 if !intent {
@@ -1328,5 +1333,18 @@ fn Summary<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
                 }
             </ul>
         </section>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pending_and_unparseable_checkout_amounts_stay_plain() {
+        let t = CheckoutMsg::for_locale("en");
+        assert_eq!(money_or_pending(t, None).to_html(), "Pending");
+        assert_eq!(money_or_pending(t, Some(" \t")).to_html(), "Pending");
+        assert_eq!(money_or_pending(t, Some("Waiting <review>")).to_html(), "Waiting &lt;review&gt;");
     }
 }

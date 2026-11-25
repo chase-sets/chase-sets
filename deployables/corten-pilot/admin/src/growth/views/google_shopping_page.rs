@@ -8,9 +8,12 @@ use corten::{
     i18n::{DateStyle, TimeStyle, parse_timestamp},
     prelude::*,
 };
-use platform::ui::{
-    stats::{Stat, StatTone, Stats as KitStats, StatsSurface},
-    table::{CellLabel, Table as KitTable, TableLayout},
+use platform::{
+    surface::{Elevation, Surface},
+    ui::{
+        stats::{Stat, StatTone, Stats as KitStats, StatsSurface},
+        table::{CellLabel, Table as KitTable, TableLayout},
+    },
 };
 
 use crate::{
@@ -162,7 +165,12 @@ fn JobPart<'a>(t: Gro, id: &'a str, job: Option<&'a Job>) -> impl Render {
     let progress = job.map(|j| j.progress.clone()).unwrap_or_default();
     let n = |v: u64| t.number(v).to_string();
     html! {
-        <section id={ids::JOB} class={Card} aria-labelledby="gs-job">
+        <section
+            id={ids::JOB}
+            class={(Group, Panel, Surface { elevation: Elevation::Elevated })}
+            aria-labelledby="gs-job"
+            data-elevation-role="entity"
+        >
             <div class={Line}>
                 <div>
                     <h2 class={Heading} id="gs-job">{t.gs_latest_job()}</h2>
@@ -191,7 +199,7 @@ fn JobPart<'a>(t: Gro, id: &'a str, job: Option<&'a Job>) -> impl Render {
                     <dd>{when(t, job.and_then(|j| j.updated_at.as_deref()))}</dd>
                 </div>
             </dl>
-            <dl class={KitStats { surface: StatsSurface::Cards }}>
+            <dl class={KitStats { surface: StatsSurface::Plain }}>
                 <Figure
                     label={t.gs_job_processed()}
                     value={t.gs_job_processed_value(crate::text::gro::GsJobProcessedValue { completed: progress.completed, total: progress.total }).to_string()}
@@ -246,7 +254,11 @@ fn Detail<'a>(t: Gro, row: &'a Row, view: &'a url::View) -> impl Render {
         })
         .to_string();
     html! {
-        <section class={Card} aria-labelledby="gs-detail">
+        <section
+            class={(Group, Panel, Surface { elevation: Elevation::Tinted })}
+            aria-labelledby="gs-detail"
+            data-elevation-role="furniture"
+        >
             <div class={Line}>
                 <h2 class={(Heading, Words)} id="gs-detail">{title}</h2>
                 <div class={Actions}>
@@ -492,7 +504,7 @@ pub fn GoogleShoppingPage<'a>(t: Gro, o: Ops, screen: &'a ShoppingScreen) -> imp
                 }
                 {job_part(t, id, screen.job.as_ref())}
             }
-            <div class={(Card, Gate)}>
+            <div class={(Panel, Gate, Surface { elevation: Elevation::Tinted })} data-elevation-role="furniture">
                 <p>
                     <Badge words={t.gs_live_gate_badge()} tone="warning" />
                     <span class={Strong}>{t.gs_live_gate_message()}</span>
@@ -501,7 +513,11 @@ pub fn GoogleShoppingPage<'a>(t: Gro, o: Ops, screen: &'a ShoppingScreen) -> imp
                     {t.gs_live_gate_action()}
                 </a>
             </div>
-            <section class={Card} aria-labelledby="gs-readiness">
+            <section
+                class={(Group, Panel, Surface { elevation: Elevation::Tinted })}
+                aria-labelledby="gs-readiness"
+                data-elevation-role="furniture"
+            >
                 <h2 class={Heading} id="gs-readiness">{t.gs_title()}</h2>
                 <span class={Pills}>
                     <Badge
@@ -515,7 +531,7 @@ pub fn GoogleShoppingPage<'a>(t: Gro, o: Ops, screen: &'a ShoppingScreen) -> imp
                     <Badge words={&t.gs_generated_at(&when(t, Some(&screen.feed.generated_at))).to_string()} tone="info" />
                 </span>
                 <p class={Muted}>{t.gs_refresh_cutoff(&when(t, Some(&screen.feed.refresh_cutoff))).to_string()}</p>
-                <dl class={KitStats { surface: StatsSurface::Cards }}>
+                <dl class={KitStats { surface: StatsSurface::Plain }}>
                     <Figure label={t.gs_total_rows()} value={n(s.total_rows)} />
                     <Figure label={t.gs_eligible_rows()} value={n(s.eligible_rows)} />
                     <Figure label={t.gs_failed_rows()} value={n(s.failed_rows)} />
@@ -526,7 +542,11 @@ pub fn GoogleShoppingPage<'a>(t: Gro, o: Ops, screen: &'a ShoppingScreen) -> imp
                     <Figure label={t.gs_pending_diagnostics_rows()} value={n(s.pending_diagnostics_rows)} />
                 </dl>
             </section>
-            <section class={Card} aria-labelledby="gs-filters">
+            <section
+                class={(Group, Panel, Surface { elevation: Elevation::Outlined })}
+                aria-labelledby="gs-filters"
+                data-elevation-role="furniture"
+            >
                 <h2 class={Heading} id="gs-filters">{t.gs_filters()}</h2>
                 <form class={Filters} method="get" action={url::Shopping::default()}>
                     <label class={Field}>
@@ -589,13 +609,17 @@ pub fn GoogleShoppingPage<'a>(t: Gro, o: Ops, screen: &'a ShoppingScreen) -> imp
             if let Some(row) = screen.selected() {
                 <Detail t={t} row={row} view={view} />
             }
-            <section class={Card} aria-labelledby="gs-rows">
+            <section
+                class={(Group, Surface { elevation: Elevation::Flush })}
+                aria-labelledby="gs-rows"
+                data-elevation-role="furniture"
+            >
                 <div>
                     <h2 class={Heading} id="gs-rows">{t.gs_feed_rows()}</h2>
                     <p class={Muted}>{t.gs_feed_rows_description()}</p>
                 </div>
                 if screen.feed.rows.is_empty() {
-                    <div class={Nothing}>
+                    <div class={(Nothing, Surface { elevation: Elevation::Tinted })} data-elevation-role="furniture">
                         <p class={Strong}>{t.gs_no_rows()}</p>
                         <p class={Muted}>{t.gs_no_rows_description()}</p>
                     </div>

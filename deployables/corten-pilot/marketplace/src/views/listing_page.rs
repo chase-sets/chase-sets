@@ -3,6 +3,7 @@
 //! listing and Compare market; the seller (`AccountTrustCard`); and Report Listing. One column,
 //! two from 64rem. A seller away or at capacity shows a warning, and the page offers no Buy.
 use corten::prelude::*;
+use platform::numeric_value::MoneyDisplay;
 use serde_json::{Map, Value, json};
 
 use super::{item_detail::production, purchase_limit, set_page::long_date};
@@ -95,14 +96,18 @@ pub fn listing_json_ld(listing: &PublicListing, canonical: &str) -> Option<Value
 
 /// The listing's price (`formatMoney`), or "Market price unavailable" without a currency.
 pub fn listing_price(t: ListingMsg, listing: &PublicListing) -> String {
+    price_display(t, listing).into_text()
+}
+
+fn price_display(t: ListingMsg, listing: &PublicListing) -> MoneyDisplay {
     let l = &listing.listing;
     match (l.price_currency_code.as_deref(), platform::money::decimal(&l.price_amount)) {
         (Some(code), Some(amount)) => match corten::i18n::Currency::parse(code.trim()) {
-            Some(currency) => t.money(amount, currency).to_string(),
-            None => format!("{} {}", l.price_amount, code.trim().to_ascii_uppercase()),
+            Some(currency) => MoneyDisplay::Formatted(t.money(amount, currency).to_string()),
+            None => MoneyDisplay::Fallback(format!("{} {}", l.price_amount, code.trim().to_ascii_uppercase())),
         },
-        (Some(code), None) => format!("{} {}", l.price_amount, code.trim().to_ascii_uppercase()),
-        (None, _) => t.price_unavailable().to_owned(),
+        (Some(code), None) => MoneyDisplay::Fallback(format!("{} {}", l.price_amount, code.trim().to_ascii_uppercase())),
+        (None, _) => MoneyDisplay::Fallback(t.price_unavailable().to_owned()),
     }
 }
 
@@ -183,7 +188,7 @@ struct Shown<'a> {
     can: bool,
     active: bool,
     seller: &'a str,
-    price: String,
+    price: MoneyDisplay,
     unbuyable: Option<(String, String)>,
     availability: String,
     availability_copy: String,
@@ -207,7 +212,7 @@ impl<'a> Shown<'a> {
             can,
             active,
             seller: l.seller_display_name.as_deref().unwrap_or(t.page_seller()),
-            price: listing_price(t, listing),
+            price: price_display(t, listing),
             unbuyable,
             availability,
             availability_copy,

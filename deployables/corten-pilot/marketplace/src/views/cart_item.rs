@@ -4,6 +4,7 @@
 use corten::{prelude::*, view::AttrValue};
 use corten_ui::{Number, NumberField};
 use platform::{
+    numeric_value::MoneyDisplay,
     theme::gap_4,
     ui::{
         stack::{Gap, Stack as KitStack},
@@ -62,10 +63,10 @@ fn language(t: CartMsg, code: &str) -> &str {
 
 /// An amount the API sent, in the request's locale (`formatMoney`), or `<amount> <CODE>` when it
 /// is not money.
-pub fn money(t: CartMsg, amount: &str, currency: &str) -> String {
+pub fn money(t: CartMsg, amount: &str, currency: &str) -> MoneyDisplay {
     match (platform::money::decimal(amount), corten::i18n::Currency::parse(currency.trim())) {
-        (Some(amount), Some(currency)) => t.money(amount, currency).to_string(),
-        _ => format!("{amount} {}", currency.trim().to_ascii_uppercase()).trim().to_owned(),
+        (Some(amount), Some(currency)) => MoneyDisplay::Formatted(t.money(amount, currency).to_string()),
+        _ => MoneyDisplay::Fallback(format!("{amount} {}", currency.trim().to_ascii_uppercase()).trim().to_owned()),
     }
 }
 
@@ -342,7 +343,7 @@ pub fn CartIssue<'a>(title: &'a str, text: &'a str) -> impl Render {
 
 /// The items, shipping and the estimated total (`CheckoutTotals`).
 #[component(css = CartItem)]
-pub fn CartTotals<'a>(t: CartMsg, items: u64, total: &'a str, known: bool) -> impl Render {
+pub fn CartTotals<'a>(t: CartMsg, items: u64, total: &'a MoneyDisplay, known: bool) -> impl Render {
     html! {
         <dl class={Totals}>
             <div class={Row}>
@@ -366,7 +367,7 @@ pub fn CartTotals<'a>(t: CartMsg, items: u64, total: &'a str, known: bool) -> im
 #[component(css = CartItem)]
 pub fn CheckoutBar<'a, A: Render, B: Render>(
     t: CartMsg,
-    total: &'a str,
+    total: &'a MoneyDisplay,
     context: &'a str,
     primary: A,
     secondary: B,
@@ -442,7 +443,7 @@ mod tests {
     fn money_is_written_as_chase_sets_writes_it() {
         use corten::i18n::Messages as _;
         let t = crate::text::CartMsg::for_locale("en");
-        let money = |amount: &str, currency: &str| super::money(t, amount, currency);
+        let money = |amount: &str, currency: &str| super::money(t, amount, currency).into_text();
         assert_eq!(money("145.00", "USD"), "$145.00");
         assert_eq!(money("12.34", "usd"), "$12.34");
         assert_eq!(money("12.3", "USD"), "$12.30");
