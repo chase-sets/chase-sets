@@ -1970,7 +1970,7 @@ fn pwa() -> corten::pwa::Pwa {
 
 /// The pilot: each screen is an area whose routes module says who may use it (`caller = ..`):
 /// sellers on the inventory screens, buyers on the cart, anyone on an item or a search.
-pub fn app(config: Config) -> App<platform::telemetry::Traced> {
+pub fn app(config: Config) -> App<(platform::telemetry::Traced, crate::notifications::RetiredSheet)> {
     let shared: Shared = Arc::new(config);
     // The cart's fallback picture is on marketplace's origin and a listing's photos on the API's,
     // which are plain http locally (the default policy takes any https image), and Check out
@@ -1986,7 +1986,8 @@ pub fn app(config: Config) -> App<platform::telemetry::Traced> {
         .access_log(true)
         // A server span per request, named by its route (`platform::telemetry`).
         .layer(platform::telemetry::Spans)
-        .middleware(platform::telemetry::Traced)
+        // Then a link to the retired notification sheet goes to the notification center.
+        .middleware((platform::telemetry::Traced, crate::notifications::RetiredSheet))
         .client_zone()
         // The cart's count in the shell, read beside each whole page (`crate::chrome`).
         .layout_read(crate::chrome::CartCount(shared.clone()))
