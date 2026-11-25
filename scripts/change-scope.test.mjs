@@ -430,7 +430,9 @@ describe("canonical proof sets:", () => {
 
     const aggregate = workflow.jobs.static;
     expect(aggregate.needs).toContain("static-source");
-    expect(aggregate.if).toContain("always()");
+    // !cancelled(), not always(): it still reports a failed source, but a superseded run stops here.
+    expect(aggregate.if).toMatch(/^\$\{\{ !cancelled\(\) && /);
+    expect(aggregate.if).not.toContain("always()");
     expect(aggregate.steps).toContainEqual({
       name: "Require full source checks",
       if: "always()",
