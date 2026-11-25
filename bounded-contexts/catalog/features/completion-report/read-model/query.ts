@@ -1,4 +1,5 @@
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { isCatalogMergeCandidateApplicationDiagnosticCode } from "../../source-observations/api/promotion/catalog-merge-candidate-promotion-diagnostics";
 import {
   sourceObservationImportFailureDiagnostic,
   type SourceObservationImportFailureDiagnostic,
@@ -731,8 +732,8 @@ async function querySourceObservationCounts(
 // Failed promotion units since the batch started, in the batch's scope: a
 // scope candidate job for one of its scopes, or an observation promotion whose
 // observation came from one of its sync runs or belongs to one of its scopes'
-// candidates. `asset-processing-failed` units are counted; a failed unit with
-// no diagnostic code cannot be classified and is listed as unknown.
+// candidates. `asset-processing-failed` units are counted. Missing, unknown or
+// generic diagnostics cannot rule out an asset failure and stay unknown.
 async function queryAssetProcessing(
   tx: PgQueryable,
   input: Readonly<{
@@ -743,7 +744,8 @@ async function queryAssetProcessing(
   }>,
 ): Promise<ManifestAssetProcessing> {
   const result = await tx.query<{ job_id: string; unit_id: string; diagnostic_code: string | null }>(
-    `SELECT unit.job_id, unit.unit_id, unit.result->>'diagnosticCode' AS diagnostic_code
+    `SELECT unit.job_id, unit.unit_id,
+            COALESCE(unit.result->>'diagnosticCode', unit.result->>'failureDiagnosticCode') AS diagnostic_code
        FROM catalog_source_observation_bulk_review_work_units unit
        JOIN catalog_source_observation_bulk_review_jobs job ON job.job_id = unit.job_id
       WHERE unit.state = 'failed'
@@ -781,7 +783,10 @@ async function queryAssetProcessing(
   for (const row of result.rows) {
     if (row.diagnostic_code === "asset-processing-failed") {
       approvedFailures += 1;
-    } else if (!row.diagnostic_code) {
+    } else if (
+      !isCatalogMergeCandidateApplicationDiagnosticCode(row.diagnostic_code) ||
+      row.diagnostic_code === "unexpected-promotion-error"
+    ) {
       input.unknownFacts.push(`promotion-outcome-diagnostic-code:${row.job_id}/${row.unit_id}`);
     }
   }

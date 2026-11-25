@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import { bootstrapContextDatabase, drainLocalProjectionHandlerSets } from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
@@ -43,6 +44,8 @@ import {
   normalizeCatalogProviderSourceObservation,
   type CatalogProviderSourceObservationInput,
 } from "../api/promotion/provider-source-observation-normalizer";
+import type { CatalogProviderExecutableMappingContract } from "../api/providers/provider-integration-mapping-contract";
+import { scrydexLorcanaCardPrintSourceObservationMappingContract } from "../api/providers/scrydex/lorcana-executable-mapping-contract";
 import { createCatalogProviderIntegrationProfileVersionStore } from "../api/providers/provider-integration-profile-store";
 import {
   loadCatalogItemPromotionProfile,
@@ -727,8 +730,12 @@ describeDb("Catalog Merge Candidate application through real Catalog services (d
   });
   afterAll(async () => closeMultiContextTestPools({ catalog: pool }));
 
-  async function mappingContract() {
-    const identity = tcgdexPokemonCardSourceObservationMappingContract;
+  async function mappingContract(
+    identity: Pick<
+      CatalogProviderExecutableMappingContract,
+      "providerKey" | "profileVersion" | "profileKey"
+    > = tcgdexPokemonCardSourceObservationMappingContract,
+  ) {
     const version = await services.providerIntegrationProfiles.getProfileVersion(
       identity.providerKey,
       identity.profileVersion,
@@ -771,10 +778,11 @@ describeDb("Catalog Merge Candidate application through real Catalog services (d
   async function candidateFrom(
     observationIds: readonly string[],
     change: (snapshot: CatalogMergeCandidateReviewSnapshot) => CatalogMergeCandidateReviewSnapshot = (s) => s,
+    profile?: Awaited<ReturnType<typeof mappingContract>>["version"],
   ): Promise<string> {
     const rows = [];
     for (const id of observationIds) rows.push((await getSourceObservationDetail(pool, id))!);
-    const { version } = await mappingContract();
+    const version = profile ?? (await mappingContract()).version;
     const unitKey = unitKeyForCatalogProviderProfileVersion(version);
     const normalized = rows[0]!.normalized as unknown as Readonly<Record<string, unknown>>;
     const now = new Date().toISOString();
@@ -784,7 +792,7 @@ describeDb("Catalog Merge Candidate application through real Catalog services (d
         {
           mapping_id: "map_application",
           scope_record_id: applicationScopeId,
-          provider_key: "tcgdex",
+          provider_key: version.providerKey,
           unit_key: unitKey,
           product_line_id: null,
           series_id: null,
@@ -819,6 +827,79 @@ describeDb("Catalog Merge Candidate application through real Catalog services (d
       context,
     });
   }
+
+  it("applies imported Scrydex Lorcana cards in a scope with and without a TCGplayer ID", async () => {
+    const { contract, version } = await mappingContract(scrydexLorcanaCardPrintSourceObservationMappingContract);
+    const candidates = [];
+    for (const [number, tcgplayerId] of [
+      [1, null],
+      [2, 987654321],
+    ] as const) {
+      const observedAt = "2026-11-25T00:00:00.000Z";
+      const { observation, diagnostics } = normalizeCatalogProviderSourceObservation({
+        contract,
+        observedAt,
+        payload: {
+          sourceUrl: `https://example.invalid/lorcana/cards/synthetic-${number}`,
+          card: {
+            id: `synthetic-${number}`,
+            name: `Synthetic Lorcana Card ${number}`,
+            number,
+            printed_number: `${number}/SYN`,
+            language: "English",
+            language_code: "EN",
+            // The Lorcana display template requires ink and rarity, which Scrydex returns.
+            rarity: "Common",
+            ink: "Amber",
+            tcgplayer_id: tcgplayerId,
+            expansion: { id: "SYN24", code: "SYN24", name: "Synthetic Collection" },
+          },
+        },
+      });
+      expect(diagnostics).toEqual([]);
+      if (!observation) throw new Error("Synthetic Scrydex import did not produce an observation.");
+      await services.sourceObservations.commandHandler({
+        streamId: `catalog.source-observation-${observation.observationId}`,
+        command: { type: "RecordSourceObservation", ...observation },
+        context,
+      });
+      await drainLocalProjectionHandlerSets("catalog", pool, services.sourceObservations.projectors);
+      // Candidates carry no ink color; promotion takes it from the Scrydex member's own revision.
+      const candidateId = await candidateFrom(
+        [observation.observationId],
+        (snapshot) => {
+          expect(snapshot.proposedCatalogItemFacts).not.toHaveProperty("inkColor");
+          return snapshot;
+        },
+        version,
+      );
+      candidates.push({ candidateId, tcgplayerId });
+    }
+
+    const job = await submit();
+    await drainWorker(services.sourceObservations);
+    const settled = await requireJob(services.sourceObservations, job.jobId);
+    expect(settled.result).toMatchObject({ requested: 2, promoted: 2, failed: 0 });
+    for (const { candidateId, tcgplayerId } of candidates) {
+      const itemId = catalogMergeCandidateTargetId(candidateId);
+      expect(settled.result?.outcomes.find((outcome) => outcome.candidateId === candidateId)).toMatchObject({
+        status: "promoted",
+        appliedCatalogItemId: itemId,
+        appliedMode: "create",
+      });
+      const events = await readCompleteStream(store, { streamId: `catalog.item-${itemId}` });
+      const item = events
+        .map(createPassthroughDomainEventCodec<CatalogItemEvent>().decode)
+        .reduce(evolveCatalogItem, initialCatalogItemState);
+      expect(item.status).toBe("draft");
+      expect(item.externalCatalogItemReferences.filter((reference) => reference.providerKey === "tcgplayer")).toEqual(
+        tcgplayerId ? [expect.objectContaining({ externalKey: `product:${tcgplayerId}` })] : [],
+      );
+      expect(item.fieldValues).toContainEqual({ fieldId: catalogSeedIds.fields.inkColor, value: "Amber" });
+      expect(item.fieldValues).toContainEqual({ fieldId: catalogSeedIds.fields.rarity, value: "Common" });
+      expect(item.fieldValues).toContainEqual(expect.objectContaining({ fieldId: catalogSeedIds.fields.set }));
+    }
+  });
 
   async function completionFacts() {
     const candidates = await pool.query<{ candidate_id: string }>(

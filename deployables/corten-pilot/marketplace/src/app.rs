@@ -1724,8 +1724,10 @@ pub mod url {
     }
 
     /// The buy checkout page (marketplace's `checkout/buy/session/:sessionId`): the session, Update
-    /// totals and Pay now (see `checkout`). Every handler takes a `CheckoutBuyer`.
-    #[corten::routes(state = crate::app::Shared, area = BuyCheckoutArea, caller = crate::auth::CheckoutBuyer)]
+    /// totals and Pay now (see `checkout`). The writes and Checkout received take a
+    /// `CheckoutBuyer`; the page reads `Option<Caller<CheckoutBuyer>>`, since no one signed in is
+    /// answered marketplace's access-required recovery rather than sent to sign in.
+    #[corten::routes(state = crate::app::Shared, area = BuyCheckoutArea)]
     pub mod checkout {
         /// The area's prefix: only the start of its paths. No page is served at
         /// `/checkout/buy/session` (marketplace answers its not-found page), so it names no handler
@@ -1970,7 +1972,7 @@ fn pwa() -> corten::pwa::Pwa {
 
 /// The pilot: each screen is an area whose routes module says who may use it (`caller = ..`):
 /// sellers on the inventory screens, buyers on the cart, anyone on an item or a search.
-pub fn app(config: Config) -> App<platform::telemetry::Traced> {
+pub fn app(config: Config) -> App<(platform::telemetry::Traced, crate::notifications::RetiredSheet)> {
     let shared: Shared = Arc::new(config);
     // The cart's fallback picture is on marketplace's origin and a listing's photos on the API's,
     // which are plain http locally (the default policy takes any https image), and Check out
@@ -1986,7 +1988,8 @@ pub fn app(config: Config) -> App<platform::telemetry::Traced> {
         .access_log(true)
         // A server span per request, named by its route (`platform::telemetry`).
         .layer(platform::telemetry::Spans)
-        .middleware(platform::telemetry::Traced)
+        // Then a link to the retired notification sheet goes to the notification center.
+        .middleware((platform::telemetry::Traced, crate::notifications::RetiredSheet))
         .client_zone()
         // The cart's count in the shell, read beside each whole page (`crate::chrome`).
         .layout_read(crate::chrome::CartCount(shared.clone()))

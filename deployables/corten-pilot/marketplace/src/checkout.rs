@@ -52,7 +52,7 @@ use crate::{
         ApiError, AuthenticityChoice, CheckoutSession, CheckoutSessions as _, ConfirmBody, ConfirmRefusal, FulfillmentPreview,
         PaymentPreview, PaymentStart, PaymentSummary, SavedAddress, SavedInstrument, SellerGroup, SessionAddress, Wallet,
     },
-    app::{ACCOUNTS_VIEW, GUEST_CHECKOUT, ORDERS_MANAGE, PAYOUTS_VIEW, Shared, sign_in, url},
+    app::{ACCOUNTS_VIEW, GUEST_CHECKOUT, ORDERS_MANAGE, PAYOUTS_VIEW, Shared, sign_in, sign_in_back_to, url},
     auth::{CheckoutBuyer, Viewer},
     email_verification::{self, Purpose},
     text::{CheckoutMsg, Pilot},
@@ -910,24 +910,29 @@ fn ended(error: &ApiError) -> bool {
     error.status() == Some(StatusCode::UNAUTHORIZED)
 }
 
-/// A page that is not the checkout: a session that is not there, someone else's, or one whose
-/// write the API has not caught up to.
+/// A page that is not the checkout: a session that is not there, someone else's, one whose
+/// write the API has not caught up to, or one asked for by no one signed in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Recovery {
     NotFound,
     WrongAccount,
     Preparing,
     Unavailable,
+    /// No one is signed in and no guest checkout is running in this browser (marketplace's
+    /// `access-required`): it is answered 401 with a way to browse and a way to sign in.
+    AccessRequired,
 }
 
-async fn recovery(req: &Req, viewer: &Viewer, kind: Recovery) -> HtmlResult {
+async fn recovery(req: &Req, viewer: Option<&Viewer>, kind: Recovery) -> HtmlResult {
     let t: CheckoutMsg = req.t();
     let status = match kind {
         Recovery::NotFound => StatusCode::NOT_FOUND,
         Recovery::WrongAccount => StatusCode::FORBIDDEN,
         Recovery::Preparing => StatusCode::ACCEPTED,
         Recovery::Unavailable => StatusCode::BAD_GATEWAY,
+        Recovery::AccessRequired => StatusCode::UNAUTHORIZED,
     };
+    let sign_in = sign_in_back_to(req.path()).map_or_else(|| "/sign-in".to_owned(), |to| to.to_string());
     let head = html! {
         <meta name="robots" content="noindex">
         {(kind == Recovery::Preparing).then_some(ReadAgain { after: std::time::Duration::from_secs(2) })}
@@ -935,8 +940,8 @@ async fn recovery(req: &Req, viewer: &Viewer, kind: Recovery) -> HtmlResult {
     req.page_with_status(
         status,
         html! {
-            <Layout req={req} viewer={Some(viewer)} title={t.route_checkout_marketplace()} head={head}>
-                <views::CheckoutRecovery t={t} kind={kind} />
+            <Layout req={req} viewer={viewer} title={t.route_checkout_marketplace()} head={head}>
+                <views::CheckoutRecovery t={t} kind={kind} sign_in={&sign_in} />
             </Layout>
         },
     )
@@ -972,21 +977,21 @@ async fn render(
         Ok(session) => session,
         Err(error) if ended(&error) => return sign_in(req),
         Err(error) if receipt.is_some() && error.catching_up() => {
-            return recovery(req, viewer, Recovery::Preparing).await;
+            return recovery(req, Some(viewer), Recovery::Preparing).await;
         }
         Err(error) if error.status() == Some(StatusCode::NOT_FOUND) => {
-            return recovery(req, viewer, Recovery::NotFound).await;
+            return recovery(req, Some(viewer), Recovery::NotFound).await;
         }
         // A guest whose checkout is no longer its own starts again (the loader's 403 for a guest).
         Err(error) if error.status() == Some(StatusCode::FORBIDDEN) && viewer.guest() => {
             return req.redirect(&url::CheckoutStart);
         }
         Err(error) if error.status() == Some(StatusCode::FORBIDDEN) => {
-            return recovery(req, viewer, Recovery::WrongAccount).await;
+            return recovery(req, Some(viewer), Recovery::WrongAccount).await;
         }
         Err(error) => {
             tracing::warn!("the checkout session could not be read: {error}");
-            return recovery(req, viewer, Recovery::Unavailable).await;
+            return recovery(req, Some(viewer), Recovery::Unavailable).await;
         }
     };
     if let Some(offer) = &session.submitted_offer_id {
@@ -1174,17 +1179,17 @@ pub(crate) async fn confirmation(
         Ok(session) => session,
         Err(error) if ended(&error) => return sign_in(&req),
         Err(error) if receipt.is_some() && error.catching_up() => {
-            return recovery(&req, &viewer, Recovery::Preparing).await;
+            return recovery(&req, Some(&viewer), Recovery::Preparing).await;
         }
         Err(error) if error.status() == Some(StatusCode::NOT_FOUND) => {
-            return recovery(&req, &viewer, Recovery::NotFound).await;
+            return recovery(&req, Some(&viewer), Recovery::NotFound).await;
         }
         Err(error) if error.status() == Some(StatusCode::FORBIDDEN) => {
-            return recovery(&req, &viewer, Recovery::WrongAccount).await;
+            return recovery(&req, Some(&viewer), Recovery::WrongAccount).await;
         }
         Err(error) => {
             tracing::warn!("the checkout session could not be read: {error}");
-            return recovery(&req, &viewer, Recovery::Unavailable).await;
+            return recovery(&req, Some(&viewer), Recovery::Unavailable).await;
         }
     };
     if let Some(offer) = &session.submitted_offer_id {
@@ -1237,12 +1242,18 @@ fn submitted_offer<'a>(id: &'a str, receipt: Option<&Receipt>) -> url::Submitted
 
 pub(crate) async fn page(
     req: Req,
-    Caller(CheckoutBuyer(viewer)): Caller<CheckoutBuyer>,
+    buyer: Option<Caller<CheckoutBuyer>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     client: Option<ClientIp>,
     Params(route): Params<crate::app::url::checkout::BuyCheckout<'_>>,
 ) -> HtmlResult {
+    // No one signed in and no guest checkout here: marketplace's loader reads the session as no one,
+    // and the API's 401 is its access-required recovery, not a trip to the sign-in. An Auth that
+    // cannot say whose the session is still refuses (`Option<Caller<..>>` keeps that refusal).
+    let Some(Caller(CheckoutBuyer(viewer))) = buyer else {
+        return recovery(&req, None, Recovery::AccessRequired).await;
+    };
     let (id, place) = (route.id, route.place);
     render(&req, &viewer, &config, &headers, client, &id, place, Answer::Nothing).await
 }

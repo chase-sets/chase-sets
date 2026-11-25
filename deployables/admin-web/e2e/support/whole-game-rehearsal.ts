@@ -3,7 +3,73 @@
 // journeys make from what the UI and its admin API reads return, so the
 // decisions stay pure and are pinned by scripts/catalog-whole-game-rehearsal.test.mjs.
 // It must not import Playwright or any bounded-context runtime.
-import type { CatalogServices } from "@chase-sets/catalog/server";
+import type { CatalogMergeCandidateApplicationDiagnosticCode, CatalogServices } from "@chase-sets/catalog/server";
+
+// Catalog owns these promotion diagnostic codes. This module keeps its own closed copy
+// so it imports no bounded-context runtime; typecheck fails if the copy and Catalog's
+// union drift in either direction.
+const promotionDiagnosticCodes = [
+  "asset-processing-failed",
+  "promotion-reference-target-unresolved",
+  "unexpected-promotion-error",
+  "promotion-plan-blocked:ambiguous-conflict-resolution",
+  "promotion-plan-blocked:ambiguous-duplicate-candidates",
+  "promotion-plan-blocked:ambiguous-target",
+  "promotion-plan-blocked:asset-provenance-ambiguous",
+  "promotion-plan-blocked:candidate-has-blocking-conflicts",
+  "promotion-plan-blocked:candidate-not-ready",
+  "promotion-plan-blocked:conflicting-external-reference-level",
+  "promotion-plan-blocked:display-identity-unresolvable",
+  "promotion-plan-blocked:duplicate-external-catalog-item-reference",
+  "promotion-plan-blocked:duplicate-external-product-reference",
+  "promotion-plan-blocked:external-product-reference-duplicate-dimension",
+  "promotion-plan-blocked:external-product-reference-missing-selected-options",
+  "promotion-plan-blocked:inactive-target",
+  "promotion-plan-blocked:incompatible-target",
+  "promotion-plan-blocked:member-revision-missing",
+  "promotion-plan-blocked:missing-catalog-item-target",
+  "promotion-plan-blocked:missing-create-catalog-item-id",
+  "promotion-plan-blocked:missing-field-value",
+  "promotion-plan-blocked:missing-reference-record-target",
+  "promotion-plan-blocked:missing-title",
+  "promotion-plan-blocked:no-promotable-member",
+  "promotion-plan-blocked:profile-disagreement",
+  "promotion-plan-blocked:promotion-facts-missing",
+  "promotion-plan-blocked:promotion-profile-ambiguous",
+  "promotion-plan-blocked:promotion-profile-inactive",
+  "promotion-plan-blocked:promotion-profile-incompatible",
+  "promotion-plan-blocked:promotion-profile-unavailable",
+  "promotion-plan-blocked:reference-provenance-ambiguous",
+  "promotion-plan-blocked:unsupported-promotion-intent",
+  "promotion-application-bound-elsewhere",
+  "promotion-application-conflicting-history",
+  "promotion-application-invalid-plan-fingerprint",
+  "promotion-application-member-history-conflict",
+  "promotion-application-missing-reference-evidence",
+  "promotion-application-partial-target",
+  "promotion-application-profile-missing",
+  "promotion-application-profile-revoked",
+  "promotion-application-target-history-conflict",
+  "promotion-application-unplanned-target-history",
+] as const satisfies readonly CatalogMergeCandidateApplicationDiagnosticCode[];
+type PromotionDiagnosticCodeMissingFromCopy = Exclude<
+  CatalogMergeCandidateApplicationDiagnosticCode,
+  (typeof promotionDiagnosticCodes)[number]
+>;
+const promotionDiagnosticCopyIsComplete: [PromotionDiagnosticCodeMissingFromCopy] extends [never] ? true : false = true;
+const promotionDiagnosticCodeSet = new Set<unknown>(promotionDiagnosticCopyIsComplete ? promotionDiagnosticCodes : []);
+
+function isCatalogMergeCandidateApplicationDiagnosticCode(
+  value: unknown,
+): value is CatalogMergeCandidateApplicationDiagnosticCode {
+  return promotionDiagnosticCodeSet.has(value);
+}
+
+function isCatalogMergeCandidateFailureDiagnosticCode(
+  value: unknown,
+): value is Exclude<CatalogMergeCandidateApplicationDiagnosticCode, "asset-processing-failed"> {
+  return value !== "asset-processing-failed" && isCatalogMergeCandidateApplicationDiagnosticCode(value);
+}
 
 type CatalogMergeCandidateBulkJob = NonNullable<
   Awaited<ReturnType<CatalogServices["sourceObservations"]["getCatalogMergeCandidateBulkJob"]>>
@@ -295,6 +361,7 @@ export type WholeGamePromoteJob = Pick<CatalogMergeCandidateBulkJob, "jobId" | "
                   | "approvalVersion"
                   | "planFingerprint"
                   | "diagnosticCode"
+                  | "failureDiagnosticCode"
                 >
               >)[];
           }>)
@@ -508,7 +575,7 @@ export type WholeGamePromotionFailure = Readonly<{
   jobStatus: WholeGamePromoteJob["status"];
   failedOutcomes: readonly Readonly<{
     candidateId: string;
-    reasonCode: "asset-processing-failed" | "unclassified";
+    reasonCode: CatalogMergeCandidateApplicationDiagnosticCode | "unclassified";
   }>[];
 }>;
 
@@ -525,7 +592,11 @@ export function wholeGamePromotionFailure(job: WholeGamePromoteJob): WholeGamePr
             {
               candidateId: outcome.candidateId ?? "unavailable",
               reasonCode:
-                outcome.diagnosticCode === "asset-processing-failed" ? "asset-processing-failed" : "unclassified",
+                outcome.diagnosticCode === "asset-processing-failed"
+                  ? outcome.diagnosticCode
+                  : isCatalogMergeCandidateFailureDiagnosticCode(outcome.failureDiagnosticCode)
+                    ? outcome.failureDiagnosticCode
+                    : "unclassified",
             },
           ]
         : [],
@@ -685,7 +756,10 @@ export function validateWholeGameReceipt(value: unknown): readonly string[] {
           if (!outcome) return;
           if (typeof outcome.candidateId !== "string" || !batchIdPattern.test(outcome.candidateId))
             errors.push(`${path}.candidateId`);
-          if (!["asset-processing-failed", "unclassified"].includes(outcome.reasonCode as string))
+          if (
+            outcome.reasonCode !== "unclassified" &&
+            !isCatalogMergeCandidateApplicationDiagnosticCode(outcome.reasonCode)
+          )
             errors.push(`${path}.reasonCode`);
         });
     }

@@ -663,10 +663,6 @@ test.describe("marketplace critical flows", () => {
   test("signed-out checkout session access shows checkout recovery instead of root error @marketplace-checkout", async ({
     page,
   }) => {
-    test.skip(
-      onCortenMarketplace,
-      "the Corten marketplace sends a signed-out checkout session to sign-in instead of answering the 401 Checkout access required recovery",
-    );
     const response = await page.goto("/checkout/buy/session/chk_e2e_missing_access", {
       waitUntil: "domcontentloaded",
     });
@@ -681,10 +677,6 @@ test.describe("marketplace critical flows", () => {
   test("checkout recovery reentry follows a safe action instead of root error @marketplace-checkout", async ({
     page,
   }) => {
-    test.skip(
-      onCortenMarketplace,
-      "the Corten marketplace sends a signed-out checkout session to sign-in instead of answering the 401 Checkout access required recovery",
-    );
     const recoveryResponse = await page.goto("/checkout/buy/session/chk_e2e_missing_access", {
       waitUntil: "domcontentloaded",
     });
