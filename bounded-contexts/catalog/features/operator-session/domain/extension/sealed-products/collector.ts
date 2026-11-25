@@ -1,14 +1,8 @@
 import { z } from "zod";
-import { tcgplayerSetNameUnits } from "../set-names/contract";
+import { sealedProductLines, sealedRequestMaxProducts } from "./contract";
 import { isSealedRequestResult, sealedRequestFailure, type SealedRequestResult } from "./request-result";
 
-export const sealedProductLines = () =>
-  tcgplayerSetNameUnits.flatMap((unit) => {
-    const game = unit.unitKey.split(":")[1];
-    const name =
-      game === "mtg" ? "Magic" : game === "pokemon" ? "Pokemon" : game === "lorcana" ? "Disney Lorcana" : null;
-    return name === null || unit.productLineId === null ? [] : [{ id: unit.productLineId, name }];
-  });
+export { sealedProductLines } from "./contract";
 export type SealedSelection = { productLineId: number; setId: number; setName: string };
 export type SealedRequest =
   | { endpoint: "search"; productLineId: number; setName: string; from: number; includeProductLine: boolean }
@@ -73,7 +67,11 @@ const search = z.object({
     )
     .length(1),
 });
-export const sealedCollectionLimits = { maxPages: 500, maxProducts: 12_000, maxDetailBytes: 16 * 1024 * 1024 } as const;
+export const sealedCollectionLimits = {
+  maxPages: 500,
+  maxProducts: sealedRequestMaxProducts,
+  maxDetailBytes: 16 * 1024 * 1024,
+} as const;
 export function validSealedSelection(selection: SealedSelection): boolean {
   return (
     sealedProductLines().some((line) => line.id === selection.productLineId) &&
@@ -128,6 +126,8 @@ export async function collectSealedProducts(input: {
     publish();
     return success ? result : null;
   }
+  let sawSearchHits = false;
+  let sawExactSet = false;
   for (const includeProductLine of [true, false]) {
     const unique = new Set<number>();
     const candidates = new Set<number>();
@@ -168,15 +168,18 @@ export async function collectSealedProducts(input: {
       }
       const previous = unique.size;
       for (const product of page.results) {
+        sawSearchHits = true;
         unique.add(product.productId);
         if (
           product.productLineId === line.id &&
           product.productLineName === line.name &&
           product.setId === input.selection.setId &&
-          product.setName === input.selection.setName &&
-          (product.sealed || /sealed|booster|bundle|deck/i.test(product.productTypeName ?? ""))
-        )
-          candidates.add(product.productId);
+          product.setName === input.selection.setName
+        ) {
+          sawExactSet = true;
+          if (product.sealed || /sealed|booster|bundle|deck/i.test(product.productTypeName ?? ""))
+            candidates.add(product.productId);
+        }
       }
       receipt.summaries = unique.size;
       publish();
@@ -190,6 +193,11 @@ export async function collectSealedProducts(input: {
     }
     receipt.sealedCandidates = candidates.size;
     if (candidates.size === 0 && includeProductLine) continue;
+    if (sawSearchHits && !sawExactSet) {
+      receipt.verdict = "unqualified";
+      publish();
+      return { receipt, details };
+    }
     for (const productId of candidates) {
       const result = await request({ endpoint: "detail", productId });
       if (!result) {

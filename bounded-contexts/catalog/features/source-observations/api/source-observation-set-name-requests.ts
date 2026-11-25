@@ -1,11 +1,27 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import {
+  getEventCommitMetadata,
+  recordCommittedEvents,
+  runWithEventCommitMetadata,
+} from "@chase-sets/event-core/consistency";
 import { withPgTransaction, type PgQueryable, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { emitDurableJobWorkSignal } from "@chase-sets/platform-runtime/durable-job-store";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { CatalogObservationRequestSource } from "../../operator-session/api/market-observations";
 import { OperatorSessionRequestError } from "../../operator-session/api/request";
 import type { TcgplayerSetNameRequestAnswer } from "../../operator-session/api/set-name-observations";
+import type {
+  SealedAnswerReceipt,
+  TcgplayerSealedRequestAnswer,
+} from "../../operator-session/api/sealed-product-observations";
+import type { ProviderScopeMappingRow } from "../../provider-scope-mapping/read-model/queries";
+import {
+  admitSealedRequestAnswer,
+  discardSealedRequestPayloads,
+  hasSealedRequestParts,
+  replaySealedRequestPart,
+} from "./source-observation-sealed-request-answer";
 import { deriveCatalogScopeSyncUnitState } from "../../scope-sync-state/domain/state";
 import {
   bulkProgress,
@@ -24,11 +40,13 @@ import {
 } from "./source-observation-runtime-contracts";
 
 export const setNameRequestJobKind = "extension-set-names";
+export const sealedRequestJobKind = "extension-sealed-products";
 export const setNameRequestFailures = [
   "extension-unavailable",
   "provider-request-failed",
   "provider-response-unqualified",
   "extension-request-stale",
+  "provider-collection-incomplete",
 ] as const;
 type Failure = (typeof setNameRequestFailures)[number];
 const jobs = "catalog_source_observation_integration_durable_jobs";
@@ -36,6 +54,7 @@ const events = "catalog_source_observation_integration_job_events";
 const signals = "catalog_source_observation_durable_job_events";
 
 type RequestRow = {
+  request_id: string;
   job_id: string;
   generation: number;
   execution_key: string;
@@ -47,13 +66,16 @@ type RequestRow = {
   grant_id: string | null;
   closed_at: Date | null;
   answer_digest: string | null;
-  receipt: { observationCount: number; newObservationCount: number; mappingsProposed: number } | null;
+  receipt: Awaited<ReturnType<TcgplayerSetNameRequestAnswer>> | SealedAnswerReceipt;
 };
 
 export function createSetNameRequestRuntime(deps: {
   pool: PgTransactionalPool;
   storeIn: (db: PgQueryable) => SourceObservationIntegrationJobStore;
-  recheck: (db: PgQueryable, job: SourceObservationIntegrationDurableJobRecord) => Promise<boolean>;
+  recheck: (
+    db: PgQueryable,
+    job: SourceObservationIntegrationDurableJobRecord,
+  ) => Promise<boolean | ProviderScopeMappingRow>;
 }) {
   // pg clients also expose other methods at runtime. Supply a query-only adapter
   // so the durable job store participates in, rather than starts, this transaction.
@@ -114,7 +136,7 @@ export function createSetNameRequestRuntime(deps: {
           SET status = $2, progress = $3::jsonb, result = $4::jsonb, error_message = $5,
               started_at = COALESCE(started_at, now()),
               completed_at = CASE WHEN $2 <> 'running' THEN now() END, updated_at = now()
-        WHERE job_id = $1 AND job_kind = 'extension-set-names'`,
+        WHERE job_id = $1 AND job_kind IN ('extension-set-names', 'extension-sealed-products')`,
       [jobId, status, JSON.stringify(progress), JSON.stringify(result), reason],
     );
     const job = (await store(db).get(jobId))!;
@@ -159,6 +181,7 @@ export function createSetNameRequestRuntime(deps: {
     row: RequestRow,
     reason: Failure | typeof OPERATOR_CANCELLED_INTEGRATION_IMPORT_MESSAGE,
   ) {
+    if (await hasSealedRequestParts(db, row.request_id)) await discardSealedRequestPayloads(db, row.request_id);
     await db.query(
       `UPDATE catalog_set_name_requests SET closed_at = clock_timestamp() WHERE job_id = $1 AND generation = $2`,
       [row.job_id, row.generation],
@@ -187,7 +210,13 @@ export function createSetNameRequestRuntime(deps: {
       if (!row || (row.environment && row.environment !== environment) || row.attempts >= 2) return null;
       const time = await now(db);
       if (row.deadline! <= time || (row.attempt_until && row.attempt_until > time)) return null;
-      if (!(await deps.recheck(db, (await store(db).get(row.job_id))!))) {
+      const job = (await store(db).get(row.job_id))!;
+      const sealed = job.jobKind === sealedRequestJobKind;
+      if (sealed && (await hasSealedRequestParts(db, row.request_id))) {
+        await close(db, row, "extension-unavailable");
+        return null;
+      }
+      if (!(await deps.recheck(db, job))) {
         await close(db, row, "extension-request-stale");
         return null;
       }
@@ -203,7 +232,15 @@ export function createSetNameRequestRuntime(deps: {
           [row.job_id, row.generation, requestId, environment, grant.grantId, time],
         )
       ).rows[0]!.attempt_until;
-      return { kind: "set-names", requestId, productLineId: row.product_line_id, expiresAt: expires.toISOString() };
+      const identity = { requestId, productLineId: row.product_line_id, expiresAt: expires.toISOString() };
+      return sealed
+        ? {
+            kind: "sealed-products",
+            ...identity,
+            setNameId: Number(job.payload.scope.setId),
+            searchName: job.payload.scope.setName!,
+          }
+        : { kind: "set-names", ...identity };
     });
 
   const answer: TcgplayerSetNameRequestAnswer = (input) =>
@@ -216,16 +253,17 @@ export function createSetNameRequestRuntime(deps: {
       ).rows[0];
       const conflict = () => new OperatorSessionRequestError("observation-request-closed", 409);
       if (!row || row.grant_id !== input.grant.grantId || row.environment !== input.environment) throw conflict();
+      const job = (await store(db).get(row.job_id))!;
+      if (job.jobKind !== setNameRequestJobKind) throw conflict();
       const digest = createHash("sha256").update(input.text).digest("hex");
       if (row.closed_at) {
-        if (row.answer_digest !== digest || !row.receipt) throw conflict();
+        if (row.answer_digest !== digest || !row.receipt || !("observationCount" in row.receipt)) throw conflict();
         return row.receipt;
       }
       const time = await now(db);
       if (!row.attempt_until || row.attempt_until <= time) throw conflict();
       if (input.kind === "observations" && input.productLineId !== row.product_line_id)
         throw new OperatorSessionRequestError("observation-line-mismatch", 409);
-      const job = (await store(db).get(row.job_id))!;
       if (!(await deps.recheck(db, job))) {
         await close(db, row, "extension-request-stale");
         return null;
@@ -250,9 +288,68 @@ export function createSetNameRequestRuntime(deps: {
       return receipt;
     });
 
+  const answerSealed: TcgplayerSealedRequestAnswer = async (input) => {
+    const { receipt, committedEvents } = await runWithEventCommitMetadata(async () => {
+      const receipt = await withPgTransaction(input.backend ?? deps.pool, (db) => settleSealed(db, input));
+      return { receipt, committedEvents: getEventCommitMetadata().committedEvents };
+    });
+    recordCommittedEvents(committedEvents);
+    return receipt;
+  };
+
+  async function settleSealed(db: PgQueryable, input: Parameters<TcgplayerSealedRequestAnswer>[0]) {
+    await assertLiveGrant(db, input.grant.grantId);
+    const row = (
+      await db.query<RequestRow>("SELECT * FROM catalog_set_name_requests WHERE request_id = $1 FOR UPDATE", [
+        input.requestId,
+      ])
+    ).rows[0];
+    const conflict = () => new OperatorSessionRequestError("observation-request-closed", 409);
+    if (!row || row.grant_id !== input.grant.grantId || row.environment !== input.environment) throw conflict();
+    const job = (await store(db).get(row.job_id))!;
+    if (job.jobKind !== sealedRequestJobKind) throw conflict();
+    const digest = createHash("sha256").update(input.text).digest("hex");
+    const answer = input.answer;
+    if (row.closed_at) {
+      if (!row.receipt || !("kind" in row.receipt)) throw conflict();
+      if (answer.kind === "part" && row.receipt.kind === "complete") {
+        const replay = await replaySealedRequestPart(db, row.request_id, answer.partIndex, digest);
+        if (replay) return replay;
+      }
+      if (answer.kind !== "part" && digest === row.answer_digest) return row.receipt;
+      throw conflict();
+    }
+    if (!row.attempt_until || row.attempt_until <= (await now(db))) throw conflict();
+    const mapping = await deps.recheck(db, job);
+    if (!mapping || mapping === true) {
+      await close(db, row, "extension-request-stale");
+      return null;
+    }
+    if (answer.kind === "part") {
+      const replay = await replaySealedRequestPart(db, row.request_id, answer.partIndex, digest);
+      if (replay) return replay;
+    }
+    const receipt = await admitSealedRequestAnswer(db, input, digest, job.payload.scope, mapping);
+    if (receipt.kind === "part") return receipt;
+    await db.query(
+      `UPDATE catalog_set_name_requests SET closed_at = clock_timestamp(), answer_digest = $3, receipt = $4::jsonb
+           WHERE job_id = $1 AND generation = $2`,
+      [row.job_id, row.generation, digest, JSON.stringify(receipt)],
+    );
+    await transition(
+      db,
+      row.job_id,
+      receipt.kind === "complete" ? "completed" : "failed",
+      receipt.kind === "failure" ? receipt.code : null,
+      receipt.kind === "complete" ? receipt.productCount : 0,
+    );
+    return receipt;
+  }
+
   return {
     current,
     answer,
+    answerSealed,
     enqueue: (input: {
       scope: SourceObservationIntegrationJobScope;
       profileSnapshot: SourceObservationIntegrationProfileSnapshot;
@@ -274,11 +371,13 @@ export function createSetNameRequestRuntime(deps: {
           .digest("hex");
         await lockExecution(db, key);
         const jobStore = store(db);
+        const jobKind = input.scope.execution === sealedRequestJobKind ? sealedRequestJobKind : setNameRequestJobKind;
+        const links =
+          jobKind === sealedRequestJobKind ? "catalog_sealed_request_run_links" : "catalog_set_name_request_run_links";
         const linked = (
-          await db.query<{ child_job_id: string }>(
-            "SELECT child_job_id FROM catalog_set_name_request_run_links WHERE sync_run_id = $1",
-            [input.syncRunId],
-          )
+          await db.query<{ child_job_id: string }>(`SELECT child_job_id FROM ${links} WHERE sync_run_id = $1`, [
+            input.syncRunId,
+          ])
         ).rows[0];
         if (linked) return toSourceObservationIntegrationJob((await jobStore.get(linked.child_job_id))!);
         const existing = (
@@ -291,7 +390,7 @@ export function createSetNameRequestRuntime(deps: {
           ? (await jobStore.get(existing.job_id))!
           : await jobStore.enqueue({
               jobId: createId("job"),
-              jobKind: setNameRequestJobKind,
+              jobKind,
               payload: {
                 action: "import",
                 scope: input.scope,
@@ -302,7 +401,7 @@ export function createSetNameRequestRuntime(deps: {
               eventContext: input.context,
             });
         if (!existing) await addRequest(db, job.jobId, 1, key, input.productLineId);
-        await db.query("INSERT INTO catalog_set_name_request_run_links (sync_run_id, child_job_id) VALUES ($1, $2)", [
+        await db.query(`INSERT INTO ${links} (sync_run_id, child_job_id) VALUES ($1, $2)`, [
           input.syncRunId,
           job.jobId,
         ]);
@@ -322,7 +421,8 @@ export function createSetNameRequestRuntime(deps: {
             await db.query<RequestRow>(
               `SELECT * FROM catalog_set_name_requests WHERE job_id = $1 AND generation = $2
             AND closed_at IS NULL
-            AND (deadline <= clock_timestamp() OR (attempts = 2 AND attempt_until <= clock_timestamp()))
+            AND (deadline <= clock_timestamp() OR (attempt_until <= clock_timestamp() AND
+              (attempts = 2 OR EXISTS (SELECT 1 FROM catalog_sealed_request_parts WHERE request_id = catalog_set_name_requests.request_id))))
             FOR UPDATE SKIP LOCKED`,
               [active.job_id, active.generation],
             )
@@ -378,7 +478,7 @@ export function createSetNameRequestRuntime(deps: {
         if (active.rows.length)
           throw new SourceObservationIntegrationJobLifecycleCommandError(
             "unsupported_state",
-            "A refresh for this line is already active.",
+            "A matching extension request is already active.",
           );
         const requeued = (await jobStore.requeue({
           jobId,

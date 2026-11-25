@@ -218,11 +218,7 @@ export function integrationJobOperatorStatus(
     return "failed";
   }
   // The request deadline, not a provider worker lease, governs extension waits.
-  if (
-    job.status === "running" &&
-    job.payload.scope.execution === "extension-set-names" &&
-    job.progress.phase === "waiting-for-extension"
-  ) {
+  if (job.status === "running" && job.payload.scope.execution && job.progress.phase === "waiting-for-extension") {
     return "running";
   }
   if (integrationJobHasActiveProgress(job)) {
@@ -688,7 +684,7 @@ export function normalizeIntegrationJobScope(
     seriesId: scope.seriesId?.trim() || undefined,
     setId: scope.setId?.trim() || undefined,
     productLineId: scope.productLineId?.trim() || undefined,
-    setName: scope.setName?.trim() || undefined,
+    setName: (scope.execution === "extension-sealed-products" ? scope.setName : scope.setName?.trim()) || undefined,
     productId: scope.productId?.trim() || undefined,
     planningFingerprint: scope.planningFingerprint?.trim() || undefined,
     execution: scope.execution,

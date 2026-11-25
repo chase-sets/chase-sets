@@ -28,6 +28,23 @@ CREATE TABLE IF NOT EXISTS catalog_set_name_request_run_links (
 );
 CREATE INDEX IF NOT EXISTS catalog_set_name_request_run_links_child
   ON catalog_set_name_request_run_links (child_job_id);
+-- One parent may fan out a line refresh and a sealed child. The legacy link table
+-- retains its original refresh-only key; sealed links use a distinct slot.
+CREATE TABLE IF NOT EXISTS catalog_sealed_request_run_links (
+  sync_run_id text PRIMARY KEY REFERENCES catalog_source_observation_integration_durable_jobs(job_id) ON DELETE CASCADE,
+  child_job_id text NOT NULL REFERENCES catalog_source_observation_integration_durable_jobs(job_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS catalog_sealed_request_run_links_child
+  ON catalog_sealed_request_run_links (child_job_id);
+CREATE TABLE IF NOT EXISTS catalog_sealed_request_parts (
+  request_id uuid NOT NULL REFERENCES catalog_set_name_requests(request_id) ON DELETE CASCADE,
+  part_index integer NOT NULL CHECK (part_index BETWEEN 0 AND 499),
+  digest text NOT NULL,
+  byte_count integer NOT NULL,
+  product_ids integer[] NOT NULL,
+  post jsonb,
+  PRIMARY KEY (request_id, part_index)
+);
 CREATE INDEX IF NOT EXISTS catalog_set_name_batch_run_dispatch
   ON catalog_source_observation_integration_durable_jobs ((payload->>'idempotencyKey'))
   WHERE job_kind = 'catalog-sync-scope';

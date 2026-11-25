@@ -17,7 +17,14 @@ import { staticCatalogProviderIntegrationProfileVersions } from "../../source-ob
 import { requireSourceObservationMappingContract } from "../../source-observations/api/source-observation-promotion-execution";
 import { requireCatalogProviderSourceObservation } from "../../source-observations/api/promotion/provider-source-observation-normalizer";
 import { provenance } from "./set-name-observation-fixture";
-import { salvage, sealedDetail, sealedPost, sealedRequest } from "./sealed-product-observation-fixture";
+import {
+  salvage,
+  sealedDetail,
+  sealedPost,
+  sealedRequest,
+  sealedPartHeaders,
+} from "./sealed-product-observation-fixture";
+import { operatorOrigins } from "../domain/extension/protocol";
 
 afterEach(() => vi.useRealTimers());
 function harness() {
@@ -25,6 +32,7 @@ function harness() {
     .fn<TcgplayerSealedProductObservationRecorder>()
     .mockResolvedValue({ recorded: 1, changed: 0, unchanged: 0, candidateCount: 0, exclusions: [] });
   const authorize = vi.fn().mockResolvedValue(provenance);
+  const answer = vi.fn(async () => ({ kind: "part" as const, partIndex: 0 }));
   const serializeWrites = vi.fn();
   const serialize = async <T>(work: () => Promise<T>): Promise<T> => {
     serializeWrites();
@@ -33,10 +41,12 @@ function harness() {
   return {
     record,
     authorize,
+    answer,
     serializeWrites,
     post: createTcgplayerSealedProductObservationPost({
       authorizeObservationGrant: authorize,
       record,
+      answer,
       serializeWrites: serialize,
     }),
   };
@@ -247,17 +257,19 @@ describe("sealed product post fail-closed guards", () => {
     });
     expect((await unavailable(sealedRequest(sealedPost()))).status).toBe(401);
   });
-  it("accepts the closed post and refuses an unsupported line with a fixed code", async () => {
+  it("admits a correlated part and refuses uncorrelated writes without reading the body", async () => {
     const h = harness();
     const accepted = await h.post(sealedRequest(sealedPost()));
     expect(accepted.status).toBe(200);
     expect(accepted.headers.get("cache-control")).toBe("no-store");
-    const unsupported = sealedPost();
-    unsupported.products[0]!.productLineName = "One Piece";
     const refused = harness();
-    const response = await refused.post(sealedRequest(unsupported));
-    expect(response.status).toBe(422);
-    expect(await response.json()).toEqual({ code: "unit-unsupported" });
+    const request = new Request(operatorOrigins.staging, { method: "POST", body: JSON.stringify(sealedPost()) });
+    const read = vi.spyOn(request.body!, "getReader");
+    const response = await refused.post(request);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ code: "invalid-observation-request" });
+    expect(read).not.toHaveBeenCalled();
+    expect(refused.answer).not.toHaveBeenCalled();
     expect(refused.record).not.toHaveBeenCalled();
   });
   it("enforces cap+1 and a schema-valid maximum-shape post above 2 MiB", async () => {
@@ -297,7 +309,12 @@ describe("sealed product post fail-closed guards", () => {
         return new Promise(() => {});
       },
     });
-    const request = new Request("http://localhost", { method: "POST", body, duplex: "half" } as RequestInit);
+    const request = new Request(operatorOrigins.staging, {
+      method: "POST",
+      headers: sealedPartHeaders,
+      body,
+      duplex: "half",
+    } as RequestInit);
     const pending = h.post(request);
     await vi.advanceTimersByTimeAsync(5_000);
     const response = await pending;

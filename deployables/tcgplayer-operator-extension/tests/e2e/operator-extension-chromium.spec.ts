@@ -324,10 +324,150 @@ test(operatorExtensionChromiumTestTitle, async () => {
         ),
       )
       .toEqual([productionOrigin, stagingOrigin]);
+    await compatible.evaluate(async () => {
+      const scope = globalThis as typeof globalThis & { syntheticSealed: string[]; syntheticManualPolls: number };
+      scope.syntheticSealed = [];
+      scope.syntheticManualPolls = 0;
+      const requestId = "00000000-0000-4000-8000-000000000023";
+      const detail = {
+        productLineId: 1,
+        productLineName: "Magic",
+        setId: 321,
+        setName: "Synthetic Set",
+        setCode: "SYN",
+        productId: 654,
+        productName: "Synthetic Booster Box",
+        productStatusId: 1,
+        productTypeName: "Booster Box",
+        rarityName: "None",
+        sealed: true,
+        customAttributes: {},
+        skus: [{ sku: 987, condition: "Unopened", variant: "Normal", language: "English" }],
+      };
+      let served = false;
+      let part = "";
+      globalThis.fetch = async (input, init) => {
+        const url = new URL(String(input));
+        const headers = new Headers(init?.headers);
+        if (init?.credentials !== "omit" || init.redirect !== "error")
+          throw new Error("Unexpected synthetic credential or redirect posture");
+        if (url.origin === "https://mp-search-api.tcgplayer.com") {
+          if (headers.has("Authorization")) throw new Error("Unexpected synthetic provider authorization");
+          if (url.pathname === "/v1/search/request" && init.method === "POST" && scope.syntheticSealed.length === 0) {
+            const body = JSON.parse(String(init.body));
+            if (body.filters.term.setName[0] !== detail.setName || body.filters.term.productLineName[0] !== "Magic")
+              throw new Error("Unexpected synthetic search coordinates");
+            scope.syntheticSealed.push("search");
+            return Response.json({
+              errors: [],
+              results: [
+                {
+                  resultId: "synthetic",
+                  totalResults: 1,
+                  results: [{ ...detail, setUrlName: "synthetic-set" }],
+                },
+              ],
+            });
+          }
+          if (
+            url.pathname === "/v2/product/654/details" &&
+            init.method === "GET" &&
+            scope.syntheticSealed.at(-1) === "search"
+          ) {
+            scope.syntheticSealed.push("detail");
+            return Response.json(detail);
+          }
+          throw new Error("Unexpected synthetic provider request");
+        }
+        const staging = url.origin === "https://admin.staging.chasesets.com";
+        if (
+          (!staging && url.origin !== "https://admin.chasesets.com") ||
+          headers.get("Authorization") !== `Bearer ${"A".repeat(43)}`
+        )
+          throw new Error("Unexpected synthetic Catalog origin or grant");
+        if (
+          init.method === "GET" &&
+          url.pathname.endsWith("/observation-requests/current") &&
+          url.search === "?version=2"
+        ) {
+          const request =
+            staging && !served
+              ? {
+                  requestId,
+                  kind: "sealed-products",
+                  productLineId: 1,
+                  setNameId: 321,
+                  searchName: detail.setName,
+                  expiresAt: new Date(Date.now() + 240_000).toISOString(),
+                }
+              : null;
+          if (request) served = true;
+          else if (staging) scope.syntheticManualPolls++;
+          return Response.json({ contractVersion: 2, request });
+        }
+        if (
+          !staging ||
+          init.method !== "POST" ||
+          !url.pathname.endsWith("/catalog-observations/tcgplayer-sealed-products") ||
+          headers.get("X-Catalog-Observation-Request-V2") !== requestId
+        )
+          throw new Error("Unexpected synthetic Catalog request");
+        const body = JSON.parse(String(init.body));
+        if (headers.get("X-Catalog-Sealed-Part-Index") === "0" && scope.syntheticSealed.at(-1) === "detail") {
+          if (
+            body.contractVersion !== 1 ||
+            body.products.length !== 1 ||
+            body.products[0].productId !== detail.productId
+          )
+            throw new Error("Unexpected synthetic reduced part");
+          part = String(init.body);
+          scope.syntheticSealed.push("post");
+          return Response.json({ kind: "part", partIndex: 0 });
+        }
+        const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(part));
+        const digest = Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("");
+        if (
+          scope.syntheticSealed.at(-1) !== "post" ||
+          body.kind !== "complete" ||
+          body.verifiedEmpty ||
+          body.productCount !== 1 ||
+          body.partDigests.length !== 1 ||
+          body.partDigests[0] !== digest
+        )
+          throw new Error("Unexpected synthetic manifest");
+        scope.syntheticSealed.push("settle");
+        return Response.json({
+          kind: "complete",
+          productCount: 1,
+          verifiedEmpty: false,
+          recorded: 1,
+          changed: 0,
+          unchanged: 0,
+          candidateCount: 1,
+          exclusions: [],
+        });
+      };
+      await chrome.alarms.create("catalog-observation-poll", { when: Date.now() + 100, periodInMinutes: 5 });
+    });
+    await expect
+      .poll(() =>
+        compatible.evaluate(() => (globalThis as typeof globalThis & { syntheticSealed: string[] }).syntheticSealed),
+      )
+      .toEqual(["search", "detail", "post", "settle"]);
     const retainedPopup = await openPopup(compatible);
     await expect
       .poll(() => retainedPopup.evaluate('document.querySelector("[role=status]")?.textContent'))
       .toContain("Paired.");
+    await retainedPopup.evaluate(
+      "Array.from(document.querySelectorAll('button')).find(button => button.textContent === 'Run now').click()",
+    );
+    await expect
+      .poll(() =>
+        compatible.evaluate(
+          () => (globalThis as typeof globalThis & { syntheticManualPolls: number }).syntheticManualPolls,
+        ),
+      )
+      .toBe(1);
     await retainedPopup.close();
     // This record contains no secret and tests unknown-version byte preservation only.
     const unknownRecordBeforeReload = await compatible.evaluate(async (storageKey) => {

@@ -16,7 +16,7 @@ describe("Pokemon sealed-product integration", () => {
       },
     },
     { name: "default participation", providerParticipation: null },
-  ])("never enrols the server-unplannable TCGplayer sealed unit under $name", async ({ providerParticipation }) => {
+  ])("never dispatches an unqualified TCGplayer sealed set under $name", async ({ providerParticipation }) => {
     const profileVersion = catalogProviderIntegrationProfileVersions.find(
       (candidate) => candidate.providerKey === "tcgplayer" && candidate.profileKey === "pokemon-sealed-product-sku",
     );
@@ -61,8 +61,19 @@ describe("Pokemon sealed-product integration", () => {
       includeOperationalGates: true,
     });
 
-    expect(preview.units).toEqual([]);
-    expect(preview.blockers).toEqual([]);
+    if (providerParticipation) {
+      expect(preview.units).toMatchObject([
+        {
+          unitKey: TCGPLAYER_POKEMON_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+          childExecutionScope: null,
+          blockers: [{ code: "sealed-request-coordinates-unavailable" }],
+        },
+      ]);
+      expect(preview.blockers).toMatchObject([{ code: "sealed-request-coordinates-unavailable" }]);
+    } else {
+      expect(preview.units).toEqual([]);
+      expect(preview.blockers).toEqual([]);
+    }
     for (const [method, spy] of calls) {
       expect(spy, method).not.toHaveBeenCalled();
     }

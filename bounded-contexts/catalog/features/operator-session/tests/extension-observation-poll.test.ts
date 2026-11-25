@@ -157,7 +157,7 @@ it("uses the restored grant with one flight per environment and shares the manua
   expect(await worker.receive(wake, { ...popup, hasTab: true }, "test")).toBeNull();
   expect(h.fetch).toHaveBeenCalledTimes(1);
   await worker.receive(wake, popup, "test");
-  expect(h.fetch).toHaveBeenCalledTimes(2);
+  await vi.waitFor(() => expect(h.fetch).toHaveBeenCalledTimes(2));
 });
 
 it.each([

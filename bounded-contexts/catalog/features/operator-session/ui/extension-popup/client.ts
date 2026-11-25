@@ -25,18 +25,12 @@ export type {
 } from "../../domain/extension/set-names/probe";
 export { isSetNamesRequestResult } from "../../domain/extension/set-names/probe";
 import type { SetNamesRequest } from "../../domain/extension/set-names/probe";
-import type { SetNamesPost } from "../../domain/extension/set-names/transport";
-import type { SealedFetch } from "../../domain/extension/sealed-products/collector";
-import type { SealedPost } from "../../domain/extension/sealed-products/transport";
 export type { OperatorCommand, OperatorStatus, OperatorEnvironment } from "../../domain/extension/protocol";
 export async function renderOperatorExtensionPopup(
   element: HTMLElement,
   bridgeOrigin: string,
   options: Readonly<{
     setNameRequest?: SetNamesRequest;
-    postSetNames?: SetNamesPost;
-    sealedRequest?: SealedFetch;
-    postSealedProducts?: SealedPost;
     copyProbeReport?: (text: string) => Promise<void>;
     extensionVersion?: string;
     buildCommit?: string;

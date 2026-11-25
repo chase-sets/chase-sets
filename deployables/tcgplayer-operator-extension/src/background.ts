@@ -7,6 +7,7 @@ import { fetchTcgplayerSetNames, createTcgplayerSealedFetch } from "./tcgplayer-
 
 const observationAlarm = "catalog-observation-poll";
 const dispatchSetNames = createSetNamesObservationDispatcher(fetchTcgplayerSetNames);
+const fetcher: typeof fetch = (input, init) => globalThis.fetch(input, init);
 
 const adapters: OperatorAdapters = {
   storage: {
@@ -21,10 +22,10 @@ const adapters: OperatorAdapters = {
   async badge(required) {
     await chrome.action.setBadgeText({ text: required ? "!" : "" });
   },
-  fetch: (input, init) => globalThis.fetch(input, init),
+  fetch: fetcher,
   dispatchObservationRequest: (_environment, request, post) => dispatchSetNames(request, post),
   setNames: fetchTcgplayerSetNames,
-  sealedProducts: createTcgplayerSealedFetch(),
+  sealedProducts: createTcgplayerSealedFetch(fetcher),
 };
 const background = createOperatorBackground(adapters);
 async function ensureObservationAlarm() {
@@ -41,52 +42,11 @@ chrome.runtime.onInstalled.addListener(restoreObservationAlarm);
 chrome.runtime.onStartup.addListener(restoreObservationAlarm);
 restoreObservationAlarm();
 chrome.runtime.onMessage.addListener((message: unknown, sender, respond) => {
-  if (
-    typeof message === "object" &&
-    message !== null &&
-    "action" in message &&
-    (message.action === "fetch-sealed-products" || message.action === "post-sealed-products")
-  ) {
-    void background
-      .receiveSealedProducts(
-        message,
-        { id: sender.id, url: sender.url, origin: sender.origin, hasTab: sender.tab !== undefined },
-        chrome.runtime.id,
-      )
-      .then(respond);
-    return true;
-  }
+  const attribution = { id: sender.id, url: sender.url, origin: sender.origin, hasTab: sender.tab !== undefined };
   void background
-    .receiveSetNamePost(
-      message,
-      { id: sender.id, url: sender.url, origin: sender.origin, hasTab: sender.tab !== undefined },
-      chrome.runtime.id,
-    )
-    .then((result) => {
-      if (result !== null) {
-        respond(result);
-        return;
-      }
-      return background
-        .receiveSetNames(
-          message,
-          { id: sender.id, url: sender.url, origin: sender.origin, hasTab: sender.tab !== undefined },
-          chrome.runtime.id,
-        )
-        .then((probeResult) => {
-          if (probeResult !== null) {
-            respond(probeResult);
-            return;
-          }
-          return background
-            .receive(
-              message,
-              { id: sender.id, url: sender.url, origin: sender.origin, hasTab: sender.tab !== undefined },
-              chrome.runtime.id,
-            )
-            .then(respond);
-        });
-    });
+    .receiveSetNames(message, attribution, chrome.runtime.id)
+    .then(async (result) => result ?? background.receive(message, attribution, chrome.runtime.id))
+    .then(respond);
   return true;
 });
 chrome.runtime.onMessageExternal.addListener((message: unknown, sender, respond) => {

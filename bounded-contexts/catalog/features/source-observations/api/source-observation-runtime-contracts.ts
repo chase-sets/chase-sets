@@ -349,7 +349,7 @@ export type SourceObservationIntegrationJobScope = Readonly<{
   setName?: string;
   productId?: string;
   planningFingerprint?: string;
-  execution?: "extension-set-names";
+  execution?: "extension-set-names" | "extension-sealed-products";
 }>;
 
 export type RepresentativeCatalogProductAssetSource = Readonly<{

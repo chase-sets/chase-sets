@@ -103,6 +103,13 @@ describe("sealed product collector", () => {
       request.mock.calls.slice(0, 2).map(([request]) => request.endpoint === "search" && request.includeProductLine),
     ).toEqual([true, false]);
   });
+  it("does not verify an empty set when search results only identify another set", async () => {
+    const body = page(0, 1);
+    body.results[0]!.results[0]!.setId = selection().setId + 1;
+    const result = await collectSealedProducts({ selection: selection(), request: async () => response(body) });
+    expect(result.receipt.verdict).toBe("unqualified");
+    expect(result.details).toEqual([]);
+  });
   it("stops at the page cap even when fallback is needed", async () => {
     const request = vi.fn<SealedFetch>(async (request) =>
       response(request.endpoint === "search" ? page(request.from, 12_000, -1) : null),

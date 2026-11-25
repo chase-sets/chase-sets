@@ -1,4 +1,14 @@
 import { z } from "zod";
+import { tcgplayerSetNameUnits } from "../set-names/contract";
+
+export const sealedProductLines = () =>
+  tcgplayerSetNameUnits.flatMap((unit) => {
+    const game = unit.unitKey.split(":")[1];
+    const name =
+      game === "mtg" ? "Magic" : game === "pokemon" ? "Pokemon" : game === "lorcana" ? "Disney Lorcana" : null;
+    return name === null || unit.productLineId === null ? [] : [{ id: unit.productLineId, name }];
+  });
+export const sealedRequestMaxProducts = 12_000;
 
 // Shared browser/server grammar. No provider response, price, or credential fields cross it.
 // Issue: https://github.com/chase-sets/chase-sets/issues/10040

@@ -1,7 +1,11 @@
 import { createHash } from "node:crypto";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
-import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import {
+  createPostgresEventStore,
+  createPostgresProjectionStore,
+  type PgTransactionalPool,
+} from "@chase-sets/event-core-postgres";
 import { module as catalogModule } from "../../../index";
 import { seedCatalogDatabase } from "../../../support/authoring-support/seed";
 import {
@@ -10,9 +14,14 @@ import {
   initialSourceObservationState,
   type SourceObservationEvent,
 } from "../../source-observations/domain/domain";
-import { operatorSessionPublicRoutes } from "../api/route";
+import { operatorExtensionContext } from "../api/set-name-observations";
+import { createExtensionTcgplayerSealedProductRecorder } from "../../source-observations/api/extension-tcgplayer-sealed-products";
+import { createCatalogProviderIntegrationProfileVersionStore } from "../../source-observations/api/providers/provider-integration-profile-store";
+import { observationWriteLockId, withOperatorSessionBackend } from "../api/operation";
+import { parseTcgplayerSealedProductObservationPost } from "../domain/extension/sealed-products/contract";
+import { tcgplayerSealedProductUnitKeyForLine } from "../../source-observations/api/providers/tcgplayer/adapter";
 import { grantBearer, provenance } from "./set-name-observation-fixture";
-import { sealedPost, sealedRoutePath } from "./sealed-product-observation-fixture";
+import { sealedPost } from "./sealed-product-observation-fixture";
 
 export async function composeSealedProducts(pool: PgTransactionalPool) {
   await seedCatalogDatabase(pool, undefined, { enabledDataProfiles: ["catalog-integration-bootstrap"] });
@@ -43,18 +52,39 @@ export async function composeSealedProducts(pool: PgTransactionalPool) {
       }),
     },
   });
-  const app = operatorSessionPublicRoutes(services.operatorSession);
-  const post = (body: unknown = sealedPost()) =>
-    app.request(sealedRoutePath, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${grantBearer}`,
-        cookie: "TCGAuthTicket=hostile-cookie-value",
-        "x-forwarded-authorization": "Bearer hostile-forwarded-token",
-      },
-      body: JSON.stringify(body),
-    });
   const store = createPostgresEventStore({ pool });
+  // Keep the recorder's salvage and publication fixtures independent of request
+  // state. Correlation and rollback of settlement are tested through the public route.
+  const record = createExtensionTcgplayerSealedProductRecorder({
+    pool,
+    profileVersions: createCatalogProviderIntegrationProfileVersionStore(pool),
+    deps: { db: pool, eventStore: store, checkpointStore: createPostgresProjectionStore({ db: pool }) },
+  });
+  async function post(body: unknown = sealedPost()) {
+    const parsed = parseTcgplayerSealedProductObservationPost(body);
+    if (!parsed.ok) throw new Error("Invalid sealed recorder fixture");
+    const unitKey = tcgplayerSealedProductUnitKeyForLine(parsed.post.products[0]!.productLineName);
+    if (!unitKey) throw new Error("Unsupported sealed recorder fixture");
+    try {
+      const result = await withOperatorSessionBackend(
+        pool,
+        (backend) =>
+          record(
+            {
+              post: parsed.post,
+              unitKey,
+              provenance,
+              context: operatorExtensionContext(provenance),
+            },
+            backend,
+          ),
+        observationWriteLockId,
+      );
+      return Response.json(result);
+    } catch {
+      return Response.json({ code: "source-observations-unavailable" }, { status: 503 });
+    }
+  }
   const observations = createAggregateCommandHandler({
     eventStore: store,
     codec: createPassthroughDomainEventCodec<SourceObservationEvent>(),
