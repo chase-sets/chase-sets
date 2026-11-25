@@ -22,6 +22,8 @@ import {
   buildRepresentativeSnapshotCommandEnvironment,
   createBrowserE2eProductionIngressDefinitions,
   createMarketplaceDevProcessDefinition,
+  browserE2eCortenMarketplaceTarget,
+  cortenMarketplaceBinaryPath,
   isBrowserE2eTarget,
   resolveBrowserE2eSystemTarget,
 } from "./dev-system-config.mjs";
@@ -250,8 +252,77 @@ describe("dev system target env overrides", () => {
       browserE2eProductionTarget,
     );
     expect(() => resolveBrowserE2eSystemTarget({ CHASE_SETS_BROWSER_E2E_SYSTEM: "preview" })).toThrow(
-      /must be "development" or "production"/,
+      /must be "development", "production" or "corten-marketplace"/,
     );
+  });
+
+  it("serves the marketplace from the Corten pilot binary behind an ingress on the marketplace port, with the API's internal capability", () => {
+    expect(resolveBrowserE2eSystemTarget({ CHASE_SETS_BROWSER_E2E_SYSTEM: "corten-marketplace" })).toBe(
+      browserE2eCortenMarketplaceTarget,
+    );
+    expect(isBrowserE2eTarget(browserE2eCortenMarketplaceTarget)).toBe(true);
+    const processes = [
+      { name: "platform-api", env: { PORT: "6182" }, port: 6182 },
+      {
+        name: "marketplace",
+        workspace: "@chase-sets/app-marketplace-web",
+        env: { PORT: "6173", PLATFORM_API_URL: "http://localhost:6182", CHASE_SETS_INTERNAL_API_ORIGIN: "http://localhost:6182" },
+        port: 6173,
+      },
+    ];
+    const [api, marketplace] = applyDevTargetEnvOverrides(browserE2eCortenMarketplaceTarget, processes, {
+      ci: true,
+      environment: {},
+      platform: "linux",
+    });
+    expect(api.env.PLATFORM_INTERNAL_AUTH_SECRET).toBe(marketplace.env.PLATFORM_INTERNAL_AUTH_SECRET);
+    expect(api.env.PLATFORM_INTERNAL_AUTH_SECRET).toMatch(/\S/);
+    expect(api.env.CHASE_SETS_TRUST_FORWARDED_HEADERS).toBe("true");
+    expect(marketplace).toEqual({
+      name: "marketplace",
+      command: cortenMarketplaceBinaryPath({}, "linux"),
+      args: [],
+      env: expect.objectContaining({
+        CHASE_SETS_INTERNAL_API_ORIGIN: "http://localhost:6182",
+        MARKETPLACE_WEB_ORIGIN: "http://localhost:6173",
+        HOST: "127.0.0.1",
+        PORT: "6177",
+        CHASE_SETS_MARKETPLACE_INDEXING: "off",
+      }),
+      port: 6177,
+      publicPort: 6173,
+    });
+    expect(marketplace).not.toHaveProperty("workspace");
+    expect(
+      createBrowserE2eProductionIngressDefinitions([api, marketplace], {
+        apiUrl: "http://localhost:6182",
+        ingressScriptPath: "/repo/scripts/platform-compose-ingress.mjs",
+      }),
+    ).toEqual([
+      {
+        name: "marketplace-ingress",
+        command: "node",
+        args: [
+          "/repo/scripts/platform-compose-ingress.mjs",
+          "--port",
+          "6173",
+          "--label",
+          "marketplace",
+          "--web-target",
+          "http://127.0.0.1:6177",
+          "--api-target",
+          "http://localhost:6182",
+        ],
+        env: {},
+        port: 6173,
+      },
+    ]);
+    expect(cortenMarketplaceBinaryPath({}, "linux")).toMatch(/deployables[\\/]corten-pilot[\\/]target[\\/]debug[\\/]corten-pilot-marketplace$/);
+    expect(cortenMarketplaceBinaryPath({ CORTEN_MARKETPLACE_BINARY: "/opt/pilot" }, "linux")).toBe("/opt/pilot");
+    // The development target keeps the React marketplace and the API's own default capability.
+    const [devApi, devMarketplace] = applyDevTargetEnvOverrides("browser-e2e", processes, { ci: true });
+    expect(devApi.env).not.toHaveProperty("PLATFORM_INTERNAL_AUTH_SECRET");
+    expect(devMarketplace).toBe(processes[1]);
   });
 
   it("starts every production browser e2e component without a watch wrapper", () => {
@@ -325,9 +396,10 @@ describe("dev system target env overrides", () => {
     ]);
   });
 
-  it("recognizes both browser e2e boot targets", () => {
+  it("recognizes the browser e2e boot targets", () => {
     expect(isBrowserE2eTarget("browser-e2e")).toBe(true);
     expect(isBrowserE2eTarget(browserE2eProductionTarget)).toBe(true);
+    expect(isBrowserE2eTarget(browserE2eCortenMarketplaceTarget)).toBe(true);
     expect(isBrowserE2eTarget("marketplace-full")).toBe(false);
   });
 
