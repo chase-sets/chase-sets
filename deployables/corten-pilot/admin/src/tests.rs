@@ -10237,6 +10237,26 @@ async fn an_evidence_reference_with_no_association_says_so_instead_of_the_filter
     let (_, _, html) = pilot.send(get("/catalog/integrations/health", Some("catalog-reader"))).await;
     assert!(!html.contains("No associated evidence"), "without a reference, the timeline as before: {html}");
 }
+/// A section-nav entry nested under a group (Integrations' Import, Settings and Integration health)
+/// is current on its own pages, as admin-web marks it: the deepest entry holding the page wins, so
+/// Import is not current on Integration health.
+#[tokio::test]
+async fn a_nested_section_nav_entry_is_current_on_its_own_pages() {
+    let pilot = Pilot::new().await;
+    let cases = [
+        ("/catalog/integrations/health", "/catalog/integrations/health", "/catalog/integrations"),
+        ("/catalog/integrations/settings", "/catalog/integrations/settings", "/catalog/integrations"),
+        ("/catalog/integrations?providerKey=tcgplayer", "/catalog/integrations", "/catalog/integrations/health"),
+    ];
+    for (path, current, other) in cases {
+        let (status, _, html) = pilot.send(get(path, Some("catalog-reader"))).await;
+        assert_eq!(status, StatusCode::OK, "{path}: {html}");
+        let side = &html[html.find(r#"aria-label="Catalog pages""#).expect("the section's pages")..];
+        let side = &side[..side.find("</nav>").unwrap()];
+        assert!(marks_current(side, current), "{path}: {side}");
+        assert!(!marks_current(side, other), "{path}: {side}");
+    }
+}
 #[tokio::test]
 async fn settings_and_governance_draw_the_governance_controls_with_their_evidence() {
     let pilot = Pilot::new().await;
