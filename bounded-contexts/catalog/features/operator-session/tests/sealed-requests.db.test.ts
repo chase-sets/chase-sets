@@ -26,6 +26,10 @@ describeDb("durable Scope Sync sealed requests", () => {
   async function harness() {
     const pool = db();
     const { services, store } = await composeSealedProducts(pool);
+    await pool.query(
+      `UPDATE catalog_provider_integration_profile_versions SET active = false, lifecycle = 'deprecated'
+       WHERE provider_key = 'scryfall' AND profile_key = 'mtg-card-print-reference-data'`,
+    );
     const app = operatorSessionPublicRoutes(services.operatorSession);
     const headers = { Authorization: `Bearer ${grantBearer}`, "Content-Type": "application/json" };
     const scopeId = "scope-sealed-request";
@@ -87,10 +91,15 @@ describeDb("durable Scope Sync sealed requests", () => {
         },
       ],
     });
-    const batchInput = { context: testContext, selection: { mode: "ids" as const, scopeRecordIds: [scopeId] } };
+    const batchInput = {
+      context: testContext,
+      selection: { mode: "ids" as const, scopeRecordIds: [scopeId] },
+      budget: { maxScopesPerTurn: 1 },
+    };
     const plan = await services.scopeSyncBatches.preview(batchInput);
     expect(plan).toMatchObject({ status: "ready", providerUnitTotals: { tcgplayer: 1 } });
     const batch = await services.scopeSyncBatches.confirm({ ...batchInput, planFingerprint: plan.planFingerprint });
+    expect(await services.scopeSyncBatches.processNextScopeSyncBatch(turn)).toBe(1);
     await services.sourceObservations.processNextIntegrationJob(turn);
     await services.sourceObservations.processNextIntegrationJob(turn);
     const polled = await app.request(origin + "/observation-requests/current?version=2", { headers });
@@ -122,6 +131,7 @@ describeDb("durable Scope Sync sealed requests", () => {
       ).rows;
     async function settle() {
       for (let index = 0; index < 3; index++) await services.sourceObservations.processNextIntegrationJob(turn);
+      expect(await services.scopeSyncBatches.processNextScopeSyncBatch(turn)).toBe(1);
       return snapshot();
     }
     return { pool, send, snapshot, settle, events, mappingId, services, scope };
