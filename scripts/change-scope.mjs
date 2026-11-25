@@ -156,12 +156,13 @@ const cortenMarketplaceBrowserPatterns = [
   /^scripts\/(?:dev-system|dev-system-config|platform-compose-ingress)\.mjs$/,
 ];
 // The Corten pilot check (corten check) is required for the pilot's marketplace and platform code, its
-// Cargo files and its export: the Corten marketplace serves production. Every other change runs it
+// Cargo files, its export and the action that runs it: the Corten marketplace serves production. Every other change runs it
 // advisory in corten-pilot.yml, whose pull_request paths-ignore names these same paths.
 const cortenPilotCheckPatterns = [
   /^deployables\/corten-pilot\/(?:marketplace|platform)\/(?!.*\.md$)/,
   /^deployables\/corten-pilot\/Cargo\.(?:toml|lock)$/,
   /^deployables\/corten-pilot\/scripts\/export\.mjs$/,
+  /^\.github\/actions\/corten-pilot-check\//,
 ];
 // The source-context wake registry is a static aggregate over per-context
 // shard modules plus a shared entry builder. Every member of that file

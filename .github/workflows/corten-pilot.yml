@@ -24,6 +24,7 @@ on:
       - "deployables/corten-pilot/Cargo.toml"
       - "deployables/corten-pilot/Cargo.lock"
       - "deployables/corten-pilot/scripts/export.mjs"
+      - ".github/actions/corten-pilot-check/**"
   push:
     branches: ["main", "pilot/corten"]
     paths-ignore:

@@ -1323,7 +1323,7 @@ describe("shared CI gate plan", () => {
     });
   });
 
-  it("selects Corten Pilot Check from the pilot's marketplace and platform code, its Cargo files and its export", () => {
+  it("selects Corten Pilot Check from the pilot's marketplace and platform code, its Cargo files, its export and its action", () => {
     const triggers = [
       "deployables/corten-pilot/marketplace/src/checkout.rs",
       "deployables/corten-pilot/marketplace/static/app.css",
@@ -1331,6 +1331,7 @@ describe("shared CI gate plan", () => {
       "deployables/corten-pilot/Cargo.toml",
       "deployables/corten-pilot/Cargo.lock",
       "deployables/corten-pilot/scripts/export.mjs",
+      ".github/actions/corten-pilot-check/action.yml",
     ];
     const nearMisses = [
       "README.md",
@@ -1341,6 +1342,7 @@ describe("shared CI gate plan", () => {
       "deployables/corten-pilot/scripts/other.mjs",
       "deployables/marketplace/e2e/critical-flows.spec.ts",
       "scripts/dev-system.mjs",
+      ".github/actions/setup-pnpm-workspace/action.yml",
     ];
     for (const [changedFiles, required] of [
       ...triggers.map((file) => [[file], true]),
@@ -1387,6 +1389,7 @@ describe("shared CI gate plan", () => {
       "deployables/corten-pilot/Cargo.toml",
       "deployables/corten-pilot/Cargo.lock",
       "deployables/corten-pilot/scripts/export.mjs",
+      ".github/actions/corten-pilot-check/**",
     ]) {
       expect(pilot).toContain(`      - "${ignored}"\n`);
     }
