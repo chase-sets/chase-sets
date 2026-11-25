@@ -18,7 +18,7 @@ Counts are test declarations (`test(`) in each file and the tests skipped on the
 
 | Spec | Tests | Skipped on Corten |
 | --- | --- | --- |
-| `critical-flows.spec.ts` | 19 | 12 |
+| `critical-flows.spec.ts` | 19 | 10 |
 | `buyer-purchase-journey.spec.ts` | 3 | 3 |
 | `marketplace-navigation.spec.ts` | 3 | 3 |
 | `marketplace-shell-header.spec.ts` | 13 | 12 |
