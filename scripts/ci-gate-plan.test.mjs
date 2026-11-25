@@ -1292,9 +1292,17 @@ describe("shared CI gate plan", () => {
       "needs['change-scope'].outputs.corten_marketplace_browser_required == 'true'",
     );
     expect(job).not.toMatch(/secrets\./);
+    // Playwright has no Chromium build for a newer Ubuntu, and the installer refuses its fallback.
+    expect(job).toContain("    runs-on: ubuntu-24.04\n");
     expect(job).toContain(
-      "key: corten-pilot-v2-${{ runner.os }}-${{ hashFiles('deployables/corten-pilot/Cargo.lock') }}",
+      "key: corten-pilot-v3-${{ runner.os }}-${{ hashFiles('deployables/corten-pilot/Cargo.lock') }}",
     );
+    // The same key and image as the pilot check, which saves the cache from main.
+    const pilot = readFileSync(".github/workflows/corten-pilot.yml", "utf8");
+    expect(pilot).toContain(
+      "key: corten-pilot-v3-${{ runner.os }}-${{ hashFiles('deployables/corten-pilot/Cargo.lock') }}",
+    );
+    expect(pilot).toContain("    runs-on: ubuntu-24.04\n");
     expect(job).toContain("run: cargo build --locked -p corten-pilot-marketplace");
     expect(job).toContain("CHASE_SETS_BROWSER_E2E_SYSTEM: corten-marketplace");
     expect(job).not.toContain("PLAYWRIGHT_SKIP_WEB_SERVER");

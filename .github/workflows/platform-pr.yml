@@ -576,9 +576,11 @@ jobs:
   # port (CHASE_SETS_BROWSER_E2E_SYSTEM=corten-marketplace). It reads the pilot check's Rust cache under
   # the same key, so an unchanged Cargo.lock is a hit and nothing is saved; only a PR that changes
   # Cargo.lock misses, and that save stays in the PR's own cache scope.
+  # Ubuntu 24.04 like every Chromium job: Playwright has no build for a newer Ubuntu and the installer
+  # refuses its fallback. The pilot check runs on the same image so the cached target is reusable.
   corten-marketplace-browser:
     name: Corten Marketplace Browser Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 50
     permissions:
       contents: read
@@ -608,7 +610,7 @@ jobs:
             ~/.cargo/.crates.toml
             ~/.cargo/.crates2.json
             deployables/corten-pilot/target
-          key: corten-pilot-v2-${{ runner.os }}-${{ hashFiles('deployables/corten-pilot/Cargo.lock') }}
+          key: corten-pilot-v3-${{ runner.os }}-${{ hashFiles('deployables/corten-pilot/Cargo.lock') }}
 
       - name: Build the Corten marketplace
         timeout-minutes: 25
