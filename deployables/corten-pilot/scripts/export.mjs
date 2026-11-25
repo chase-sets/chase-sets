@@ -231,9 +231,10 @@
 //   description (marketplace.app.routes.offline.* as offline.*, and
 //   marketplace.app.routes.manifest.description as manifest_description).
 // - admin/favicon.svg: the same logo, admin-web's favicon. Not committed (see GENERATED).
-// - admin/locales/site.en.json: admin-web's offline page, its home (the sections), and its web app
-//   manifest's description (adminWeb.app.routes.offline.* as offline.*, adminWeb.app.routes.index.*
-//   as index.*, and adminWeb.app.routes.manifest.description as manifest_description).
+// - admin/locales/site.en.json: admin-web's offline page, its home (the sections), its web app
+//   manifest's description and its root error page (adminWeb.app.routes.offline.* as offline.*,
+//   adminWeb.app.routes.index.* as index.*, adminWeb.app.routes.manifest.description as
+//   manifest_description, and adminWeb.app.root.* as root.*).
 // - public/static/home/: public-web's home page's hero picture (three widths) and social cards.
 // - marketplace/nav.json: marketplace-web's top-nav contributions, each group with its children.
 // - marketplace/nav.bottom.json, marketplace/nav.account.json: its bottom-nav (the phone bar, with
@@ -2046,6 +2047,7 @@ const outputs = [
         ["adminWeb.app.routes.offline.", "offline"],
         ["adminWeb.app.routes.index.", "index"],
         ["adminWeb.app.routes.manifest.description", "manifest_description"],
+        ["adminWeb.app.root.", "root"],
       ]),
     ),
   ],

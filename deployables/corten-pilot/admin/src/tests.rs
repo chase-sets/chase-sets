@@ -1553,7 +1553,14 @@ async fn an_unknown_address_is_drawn_for_who_is_asking() {
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(get("/commerce/nowhere", Some("staff"))).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
-    assert!(html.contains("There is nothing at this address.") && html.contains("<header"), "with the staff nav: {html}");
+    assert!(
+        html.contains("<h1>Admin page not found</h1>") && html.contains("<header"),
+        "admin-web's heading, with the staff nav: {html}"
+    );
+    assert!(
+        html.contains("The admin surface could not finish loading.") && html.contains(r#"<a href="/">Go to admin home</a>"#),
+        "{html}"
+    );
     let (status, _, html) = pilot.send(get("/commerce/nowhere", None)).await;
     assert_eq!(status, StatusCode::NOT_FOUND, "an unknown address is not a sign-in");
     assert!(!html.contains("<header"), "no one, no nav: {html}");
