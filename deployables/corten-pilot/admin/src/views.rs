@@ -60,6 +60,7 @@ pub const COMPONENTS: &[Component] = &[
     platform::ui::icon::Icon,
     platform::ui::input_group::InputGroup,
     platform::search::SearchBox,
+    Frame,
     AdminNav,
     Section,
     IndexPage,
@@ -175,8 +176,13 @@ pub fn OwnToastLayout<'a, H: Render, C: Render>(
     }
 }
 
-/// The document `Layout` and `OwnToastLayout` draw, with the toaster (`toaster`) after `<main>`.
-#[component]
+/// The page's main content, where the skip link goes (admin-web's `#main-content`).
+#[derive(Id)]
+pub struct MainContentId;
+
+/// The document `Layout` and `OwnToastLayout` draw: admin-web's skip link to the main content first,
+/// then the navigation, the page and the toaster (`toaster`) after `<main>`.
+#[component(css)]
 fn Frame<'a, H: Render, T: Render, C: Render>(
     req: &'a Req,
     viewer: Option<&'a Viewer>,
@@ -208,6 +214,7 @@ fn Frame<'a, H: Render, T: Render, C: Render>(
                 <script type="module" src={req.asset(crate::app::Static::APP_JS)}></script>
             </head>
             <body class={theme::PageCanvas {}}>
+                <a class={Skip} href={MainContentId.fragment()}>{p.shell_skip()}</a>
                 if let Some(viewer) = viewer {
                     <AdminNav p={p} req={req} viewer={viewer} />
                 }
@@ -216,7 +223,7 @@ fn Frame<'a, H: Render, T: Render, C: Render>(
                         <SectionNav p={p} req={req} viewer={viewer} />
                     }
                 </div>
-                <main>{children}</main>
+                <main class={Main} id={MainContentId} tabindex="-1">{children}</main>
                 {toaster}
             </body>
         </html>

@@ -1499,7 +1499,7 @@ async fn a_bearer_session_token_signs_in_as_the_session_cookie_does() {
     };
     let (status, _, html) = pilot.send(request("Bearer staff")).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    let shell = html.split_once("<main>").unwrap().0;
+    let shell = html.split_once("<main ").unwrap().0;
     assert!(shell.contains(r#"aria-label="Account menu""#) && shell.contains("Commerce"), "{shell}");
     let calls = pilot.calls.lock().unwrap().clone();
     assert!(calls.iter().any(|c| c.path == "/api/auth/session"), "{calls:?}");
@@ -1519,7 +1519,7 @@ async fn a_bearer_session_token_signs_in_as_the_session_cookie_does() {
 async fn the_account_menu_signs_out_and_the_cookies_go() {
     let pilot = Pilot::new().await;
     let (_, _, html) = pilot.send(get("/commerce/postage-policies", Some("staff"))).await;
-    let shell = html.split_once("<main>").unwrap().0;
+    let shell = html.split_once("<main ").unwrap().0;
     assert!(shell.contains(r#"aria-label="Account menu""#) && shell.contains(r#"action="/access/sign-out""#), "{shell}");
     assert!(shell.contains("Switch account") && shell.contains("Sessions"), "{shell}");
     let (status, headers, _) = pilot.send(post_as("staff", "/access/sign-out", "", false)).await;
@@ -1564,6 +1564,30 @@ async fn an_unknown_address_is_drawn_for_who_is_asking() {
     let (status, _, html) = pilot.send(get("/commerce/nowhere", None)).await;
     assert_eq!(status, StatusCode::NOT_FOUND, "an unknown address is not a sign-in");
     assert!(!html.contains("<header"), "no one, no nav: {html}");
+}
+
+/// admin-web's skip link: every page in the layout, the error page and one for someone signed out
+/// included, starts with a link to the main content, before the navigation, and its `<main>` is
+/// that target and takes the focus the link moves to it.
+#[tokio::test]
+async fn every_page_starts_with_a_skip_link_to_its_main_content() {
+    let pilot = Pilot::new().await;
+    for (path, who, status) in [
+        ("/commerce/postage-policies", Some("staff"), StatusCode::OK),
+        ("/commerce/nowhere", Some("staff"), StatusCode::NOT_FOUND),
+        ("/commerce/nowhere", None, StatusCode::NOT_FOUND),
+    ] {
+        let (got, _, html) = pilot.send(get(path, who)).await;
+        assert_eq!(got, status, "{path}: {html}");
+        let body = &html[html.find("<body").expect("a body")..];
+        let skip = body.find(r##"href="#main-content">Skip to main content</a>"##).unwrap_or_else(|| panic!("{path}: {html}"));
+        if let Some(nav) = body.find("<header") {
+            assert!(skip < nav, "{path}: the skip link comes before the navigation: {html}");
+        }
+        let main = &body[body.find("<main").expect("a main")..];
+        let main = &main[..main.find('>').unwrap()];
+        assert!(main.contains(r#"id="main-content""#) && main.contains(r#"tabindex="-1""#), "{path}: {main}");
+    }
 }
 
 #[tokio::test]
@@ -2688,7 +2712,7 @@ async fn the_home_lists_the_sections_the_viewer_may_open_and_sends_one_with_one_
     let (status, _, html) = pilot.send(get("/", Some("staff"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("<h1>Admin sections</h1>"), "{html}");
-    let main = &html[html.find("<main>").unwrap()..];
+    let main = &html[html.find("<main ").unwrap()..];
     let (catalog, commerce) = (main.find(r#"href="/catalog""#).unwrap(), main.find(r#"href="/commerce""#).unwrap());
     assert!(catalog < commerce, "{main}");
     assert!(
@@ -2771,8 +2795,10 @@ async fn a_navigation_into_another_section_draws_that_sections_pages() {
     assert!(marks_current(side, "/commerce/postage-policies") && !side.contains(r#"href="/catalog/dimensions""#), "{side}");
     // A whole document draws them beside <main>, after the bar and before the page.
     let (_, _, html) = pilot.send(get("/commerce/postage-policies", Some("staff"))).await;
-    let (nav, main) = (html.find(r#"aria-label="Commerce pages""#).expect("the section's pages"), html.find("<main>").unwrap());
-    assert!(nav < main && !html.contains(r#"<main><nav class="admin-nav__side""#), "{html}");
+    let (nav, main) = (html.find(r#"aria-label="Commerce pages""#).expect("the section's pages"), html.find("<main ").unwrap());
+    let inside = &html[main..];
+    let inside = &inside[inside.find('>').unwrap() + 1..];
+    assert!(nav < main && !inside.starts_with(r#"<nav class="admin-nav__side""#), "{html}");
 }
 
 #[tokio::test]
