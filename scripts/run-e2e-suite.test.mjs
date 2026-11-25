@@ -8,6 +8,7 @@ import * as channelsClient from "../bounded-contexts/channels/client.ts";
 import {
   batchE2eSuiteIds,
   chromiumProbeCallerViolations,
+  cortenMarketplaceBrowserSelectedByChangedFile,
   e2eNoSuiteExclusionForChangedFile,
   e2eSuiteIdsForChangedFile,
   e2eSuites,
@@ -37,7 +38,7 @@ import {
 
 describe("dedicated rendered-copy substrate", () => {
   it("isolates the dedicated entry without changing ordinary batching", () => {
-    const ordinary = ["marketplace_account", "admin_access", "marketplace_browse"];
+    const ordinary = ["admin_support", "admin_access", "admin_growth"];
     expect(suiteRegistry.batchBrowserE2eSuiteIds([...ordinary, "rendered_copy"])).toEqual([
       ...batchE2eSuiteIds(ordinary),
       "rendered_copy",
@@ -47,10 +48,10 @@ describe("dedicated rendered-copy substrate", () => {
 
   it("rejects missing, extra, duplicate, owning-tagged, filtered and reordered listings", () => {
     const order = renderedCopyRunner.expectedRenderedCopyListing();
-    expect(order).toHaveLength(32);
+    expect(order).toHaveLength(17);
     expect(() => renderedCopyRunner.assertRenderedCopyListing(order)).not.toThrow();
     const owning = structuredClone(order);
-    owning[0].title = owning[0].title.replace("@rendered-copy", "@marketplace-account");
+    owning[0].title = owning[0].title.replace("@rendered-copy", "@admin-access");
     for (const mutant of [
       order.slice(1),
       [...order, order[0]],
@@ -248,19 +249,19 @@ describe("unpaired connector extension batching", () => {
     { name: "the extension only", input: [extension], expected: [extension] },
     { name: "a duplicated extension", input: [extension, extension], expected: [extension] },
     {
-      name: "the reversed account pair",
-      input: [extension, "marketplace_account"],
-      expected: ["marketplace_account", extension],
+      name: "the reversed access pair",
+      input: [extension, "admin_access"],
+      expected: ["admin_access", extension],
     },
     {
-      name: "a duplicated account pair",
-      input: ["marketplace_account", extension, "marketplace_account", extension],
-      expected: ["marketplace_account", extension],
+      name: "a duplicated access pair",
+      input: ["admin_access", extension, "admin_access", extension],
+      expected: ["admin_access", extension],
     },
     {
-      name: "the reversed account and seller selection",
-      input: [extension, "marketplace_account", "marketplace_seller"],
-      expected: ["marketplace_account,marketplace_seller", extension],
+      name: "the reversed access and auth selection",
+      input: [extension, "admin_access", "admin_auth"],
+      expected: ["admin_auth,admin_access", extension],
     },
     {
       name: "the other command suites",
@@ -286,10 +287,6 @@ describe("unpaired connector extension batching", () => {
 
   it("keeps the connector extension alone in the full registered roster, reversed and duplicated", () => {
     const roster = [
-      "marketplace_browse",
-      "marketplace_account",
-      "marketplace_checkout",
-      "marketplace_seller",
       "catalog_admin_integrations",
       "catalog_admin_modeling",
       "admin_growth",
@@ -299,20 +296,20 @@ describe("unpaired connector extension batching", () => {
       "admin_auth",
       "admin_access",
       "platform_mcp_sdk",
+      "agent_apps",
       extension,
       "tcgplayer_operator_extension",
       "rendered_copy",
     ];
+    expect([...roster].sort()).toEqual(e2eSuites.map(({ id }) => id).sort());
     for (const input of [roster, [...roster].reverse(), [...roster, ...roster]]) {
       expect(batchE2eSuiteIds(input)).toEqual([
-        "rendered_copy",
-        "catalog_admin_integrations,tcgplayer_operator_extension",
+        "tcgplayer_operator_extension,rendered_copy",
+        "catalog_admin_integrations,agent_apps",
         "catalog_admin_modeling,platform_mcp_sdk",
-        "marketplace_checkout,admin_auth",
-        "marketplace_browse,admin_support",
-        "admin_commerce,admin_platform",
-        "marketplace_account,marketplace_seller",
-        "admin_growth,admin_access",
+        "admin_commerce,admin_auth",
+        "admin_growth,admin_platform",
+        "admin_support,admin_access",
         extension,
       ]);
     }
@@ -328,8 +325,8 @@ describe("unpaired connector extension batching", () => {
 
   it("inherits isolation through the browser dispatch wrapper", () => {
     expect(suiteRegistry.batchBrowserE2eSuiteIds([extension])).toEqual([extension]);
-    expect(suiteRegistry.batchBrowserE2eSuiteIds(["marketplace_account", extension])).toEqual([
-      "marketplace_account",
+    expect(suiteRegistry.batchBrowserE2eSuiteIds(["admin_access", extension])).toEqual([
+      "admin_access",
       extension,
       "rendered_copy",
     ]);
@@ -342,8 +339,10 @@ describe("unpaired connector extension batching", () => {
 
   it("matches the pinned planner for small and near-complete selections and appends the extension alone", async () => {
     const pinned = await importPinnedPlanner();
-    const companions = pinned.e2eSuites.map(({ id }) => id).filter((id) => id !== extension);
-    expect(companions).toHaveLength(15);
+    // The pinned roster still names the four retired marketplace suites; compare the suites registered now.
+    const registered = new Set(e2eSuites.map(({ id }) => id));
+    const companions = pinned.e2eSuites.map(({ id }) => id).filter((id) => id !== extension && registered.has(id));
+    expect(companions).toHaveLength(11);
     const mismatches = [];
     let checked = 0;
     for (let mask = 0; mask < 2 ** companions.length; mask++) {
@@ -361,7 +360,7 @@ describe("unpaired connector extension batching", () => {
         if (JSON.stringify(batchE2eSuiteIds(input)) !== JSON.stringify(output)) mismatches.push({ input, output });
       }
     }
-    expect(checked).toBe(1152);
+    expect(checked).toBe(464);
     expect(mismatches).toEqual([]);
   });
 });
@@ -370,7 +369,7 @@ describe("run e2e suite", () => {
   it("claims one playwright root before dispatching registered suites through the production entrypoint", async () => {
     const events = [];
     const commandSuites = e2eSuites.filter((suite) => Array.isArray(suite.command));
-    const grepSuites = parseSuiteArgs(["marketplace_checkout,marketplace_seller"]);
+    const grepSuites = parseSuiteArgs(["admin_commerce,admin_support"]);
     const argv = process.argv;
     vi.resetModules();
     vi.doMock("./lib/heavy-slot.mjs", () => ({
@@ -507,12 +506,8 @@ describe("run e2e suite", () => {
 
   it("accepts comma-separated and positional suite ids", () => {
     const suites = parseSuiteArgs([
-      "marketplace_browse,marketplace_account",
-      "marketplace_checkout marketplace_seller",
-      "catalog_admin_integrations",
-      "catalog_admin_modeling",
-      "admin_growth",
-      "admin_commerce",
+      "catalog_admin_integrations,catalog_admin_modeling",
+      "admin_growth admin_commerce",
       "admin_support",
       "admin_platform",
       "admin_auth",
@@ -520,10 +515,6 @@ describe("run e2e suite", () => {
     ]);
 
     expect(suites.map((suite) => suite.id)).toEqual([
-      "marketplace_browse",
-      "marketplace_account",
-      "marketplace_checkout",
-      "marketplace_seller",
       "catalog_admin_integrations",
       "catalog_admin_modeling",
       "admin_growth",
@@ -536,9 +527,9 @@ describe("run e2e suite", () => {
   });
 
   it("builds one Playwright grep expression for selected suites", () => {
-    const suites = parseSuiteArgs(["marketplace_checkout,marketplace_seller"]);
+    const suites = parseSuiteArgs(["admin_commerce,admin_support"]);
 
-    expect(buildSuiteGrep(suites)).toBe("@marketplace-checkout|@marketplace-seller");
+    expect(buildSuiteGrep(suites)).toBe("@admin-commerce|@admin-support");
   });
 
   it("selects the tagged responsive journeys in the existing Chromium suites", () => {
@@ -548,26 +539,24 @@ describe("run e2e suite", () => {
         "utf8",
       ),
     );
-    for (const [claimId, suiteId, deviceTag] of [
-      ["mobile-buy-cart-quantity", "marketplace_checkout", "@mobile"],
-      ["tablet-import-review-bulk-actions", "catalog_admin_integrations", "@tablet"],
-    ]) {
-      const { file, testTitle } = manifest.claims.find((claim) => claim.id === claimId);
-      expect(e2eSuiteIdsForChangedFile(file)).toEqual([suiteId]);
-      expect(testTitle.split(" ")).toContain(deviceTag);
-      expect(testTitle).toMatch(new RegExp(buildSuiteGrep(parseSuiteArgs([suiteId]))));
-      expect(testTitle).not.toMatch(new RegExp(buildSuiteGrep(parseSuiteArgs(["rendered_copy"]))));
-    }
+    const tablet = manifest.claims.find((claim) => claim.id === "tablet-import-review-bulk-actions");
+    expect(e2eSuiteIdsForChangedFile(tablet.file)).toEqual(["catalog_admin_integrations"]);
+    expect(tablet.testTitle.split(" ")).toContain("@tablet");
+    expect(tablet.testTitle).toMatch(new RegExp(buildSuiteGrep(parseSuiteArgs(["catalog_admin_integrations"]))));
+    expect(tablet.testTitle).not.toMatch(new RegExp(buildSuiteGrep(parseSuiteArgs(["rendered_copy"]))));
+    // The marketplace's responsive journeys run in the Corten Marketplace Browser Tests job.
+    const mobile = manifest.claims.find((claim) => claim.id === "mobile-buy-cart-quantity");
+    expect(mobile.file).toBe("deployables/corten-pilot/e2e/buyer-purchase-journey.spec.ts");
+    expect(mobile.testTitle.split(" ")).toContain("@mobile");
+    expect(e2eSuiteIdsForChangedFile(mobile.file)).toEqual([]);
+    expect(cortenMarketplaceBrowserSelectedByChangedFile(mobile.file)).toBe(true);
+    expect(manifest.claims.filter((claim) => claim.file.startsWith("deployables/marketplace/"))).toEqual([]);
   });
 
   it("balances selected suites for CI by estimated duration", () => {
     expect(
       batchE2eSuiteIds([
         "catalog_admin_integrations",
-        "marketplace_seller",
-        "marketplace_browse",
-        "marketplace_checkout",
-        "marketplace_account",
         "catalog_admin_modeling",
         "admin_growth",
         "admin_commerce",
@@ -579,20 +568,18 @@ describe("run e2e suite", () => {
     ).toEqual([
       "catalog_admin_integrations,admin_auth",
       "catalog_admin_modeling,admin_platform",
-      "marketplace_checkout,admin_support",
-      "marketplace_browse,marketplace_account",
-      "admin_commerce,admin_access",
-      "marketplace_seller,admin_growth",
+      "admin_commerce,admin_support",
+      "admin_growth,admin_access",
     ]);
   });
 
-  it("runs the connector extension alone for the observed account pair and seller selection", () => {
-    expect(batchE2eSuiteIds(["marketplace_account", "tcgplayer_connector_extension"])).toEqual([
-      "marketplace_account",
+  it("runs the connector extension alone beside an admin pair", () => {
+    expect(batchE2eSuiteIds(["admin_access", "tcgplayer_connector_extension"])).toEqual([
+      "admin_access",
       "tcgplayer_connector_extension",
     ]);
-    expect(batchE2eSuiteIds(["marketplace_seller", "marketplace_account", "tcgplayer_connector_extension"])).toEqual([
-      "marketplace_account,marketplace_seller",
+    expect(batchE2eSuiteIds(["admin_auth", "admin_access", "tcgplayer_connector_extension"])).toEqual([
+      "admin_auth,admin_access",
       "tcgplayer_connector_extension",
     ]);
   });
@@ -602,47 +589,36 @@ describe("run e2e suite", () => {
     "scripts/lib/sandbox.mjs",
     "scripts/dev-system.mjs",
     "scripts/dev-system-config.mjs",
-  ])("shared sandbox runtime %s covers account and seller in normal suite batches", (file) => {
+  ])("shared sandbox runtime %s covers admin suites in normal batches and the Corten marketplace job", (file) => {
     const selected = e2eSuiteIdsForChangedFile(file);
     const batched = batchE2eSuiteIds(selected).flatMap((batch) => batch.split(","));
-    expect(selected).toContain("marketplace_account");
-    expect(selected).toContain("marketplace_seller");
-    expect(batched).toEqual(expect.arrayContaining(["marketplace_account", "marketplace_seller"]));
+    expect(selected).toContain("admin_auth");
+    expect(selected).toContain("catalog_admin_integrations");
+    expect(batched).toEqual(expect.arrayContaining(["admin_auth", "catalog_admin_integrations"]));
     expect(new Set(batched).size).toBe(selected.length);
-  });
-
-  it("routes the marketplace index route to browse coverage", () => {
-    expect(e2eSuiteIdsForChangedFile("deployables/marketplace/app/routes/index.tsx")).toEqual(["marketplace_browse"]);
+    expect(cortenMarketplaceBrowserSelectedByChangedFile(file)).toBe(true);
   });
 
   it("routes deployable Playwright spec changes to their owning suites", () => {
-    expect(e2eSuiteIdsForChangedFile("deployables/marketplace/e2e/item-detail.spec.ts")).toEqual([
-      "marketplace_browse",
-    ]);
-    expect(e2eSuiteIdsForChangedFile("deployables/corten-pilot/e2e/critical-flows.spec.ts")).toEqual([
-      "marketplace_browse",
-      "marketplace_account",
-      "marketplace_checkout",
-      "marketplace_seller",
-    ]);
+    expect(e2eSuiteIdsForChangedFile("deployables/corten-pilot/e2e/critical-flows.spec.ts")).toEqual([]);
+    expect(cortenMarketplaceBrowserSelectedByChangedFile("deployables/corten-pilot/e2e/critical-flows.spec.ts")).toBe(
+      true,
+    );
     expect(e2eSuiteIdsForChangedFile("deployables/admin-web/e2e/access-api-keys.spec.ts")).toEqual(["admin_access"]);
     expect(e2eSuiteIdsForChangedFile("deployables/admin-web/e2e/catalog-scopes.spec.ts")).toEqual([
       "catalog_admin_integrations",
     ]);
-    expect(e2eSuiteIdsForChangedFile("deployables/corten-pilot/e2e/responsive-evidence-contract.spec.ts")).toEqual([
-      "marketplace_browse",
-    ]);
+    expect(e2eSuiteIdsForChangedFile("deployables/corten-pilot/e2e/responsive-evidence-contract.spec.ts")).toEqual([]);
+    expect(
+      cortenMarketplaceBrowserSelectedByChangedFile(
+        "deployables/corten-pilot/e2e/responsive-evidence-contract.spec.ts",
+      ),
+    ).toBe(true);
     expect(e2eSuiteIdsForChangedFile("deployables/admin-web/e2e/catalog-staging-provider-sync.uat.spec.ts")).toEqual(
       [],
     );
     expect(
       e2eNoSuiteExclusionForChangedFile("deployables/admin-web/e2e/catalog-staging-provider-sync.uat.spec.ts"),
-    ).toMatchObject({ reason: expect.stringContaining("Manual staging UAT") });
-    expect(e2eSuiteIdsForChangedFile("deployables/marketplace/e2e/account-payment-stripe-embed.uat.spec.ts")).toEqual(
-      [],
-    );
-    expect(
-      e2eNoSuiteExclusionForChangedFile("deployables/marketplace/e2e/account-payment-stripe-embed.uat.spec.ts"),
     ).toMatchObject({ reason: expect.stringContaining("Manual staging UAT") });
   });
 
@@ -661,15 +637,13 @@ describe("run e2e suite", () => {
   });
 
   it("keeps the privacy policy candidate on the public-web host", () => {
-    // Negative control for the reroute: the spec must not exist under the
-    // marketplace deployable, and no marketplace spec may claim the /privacy
-    // route the marketplace host does not serve.
-    expect(existsSync("deployables/marketplace/e2e/privacy-policy.spec.ts")).toBe(false);
+    // Negative control for the reroute: no marketplace spec may claim the
+    // /privacy route the marketplace host does not serve.
     expect(existsSync("deployables/public-web/e2e/privacy-policy.spec.ts")).toBe(true);
 
-    const marketplaceSpecs = ["deployables/marketplace/e2e", "deployables/corten-pilot/e2e"]
-      .flatMap((directory) => walkFiles(directory))
-      .filter((filePath) => filePath.endsWith(".spec.ts"));
+    const marketplaceSpecs = walkFiles("deployables/corten-pilot/e2e").filter((filePath) =>
+      filePath.endsWith(".spec.ts"),
+    );
     const marketplaceSpecsVisitingPrivacy = marketplaceSpecs.filter((filePath) =>
       /["'`]\/privacy(?:[?#/"'`]|$)/.test(readFileSync(filePath, "utf8")),
     );
@@ -680,16 +654,19 @@ describe("run e2e suite", () => {
 
   it("routes shared auth changes to marketplace and admin auth coverage", () => {
     expect(e2eSuiteIdsForChangedFile("bounded-contexts/auth/features/sign-in/ui/sign-in-page.tsx")).toEqual([
-      "marketplace_account",
       "admin_auth",
     ]);
+    expect(
+      cortenMarketplaceBrowserSelectedByChangedFile("bounded-contexts/auth/features/sign-in/ui/sign-in-page.tsx"),
+    ).toBe(true);
   });
 
   it("routes the Auth seed to its owning suites without widening runtime support", () => {
     const seedPath = "bounded-contexts/auth/support/runtime-support/seed.ts";
-    const owningSuites = ["marketplace_account", "admin_auth"];
+    const owningSuites = ["admin_auth", "rendered_copy"];
     expect(e2eSuiteIdsForChangedFile(seedPath)).toEqual(owningSuites);
     expect(e2eSuiteIdsForChangedFile(seedPath.replaceAll("/", "\\"))).toEqual(owningSuites);
+    expect(cortenMarketplaceBrowserSelectedByChangedFile(seedPath)).toBe(true);
 
     for (const filePath of [
       "bounded-contexts/auth/support/runtime-support/seed.db.test.ts",
@@ -706,20 +683,13 @@ describe("run e2e suite", () => {
 
     expect(e2eSuiteIdsForChangedFile("scripts/e2e-suites.mjs")).toEqual(
       e2eSuites
-        .filter(
-          (suite) =>
-            suite.id !== "rendered_copy" && (suite.deployable === "marketplace" || suite.deployable === "admin-web"),
-        )
+        .filter((suite) => suite.id !== "rendered_copy" && suite.deployable === "admin-web")
         .map((suite) => suite.id),
     );
   });
 
   it("routes shared responsive evidence contract changes to every browser suite", () => {
     const expected = [
-      "marketplace_browse",
-      "marketplace_account",
-      "marketplace_checkout",
-      "marketplace_seller",
       "catalog_admin_integrations",
       "catalog_admin_modeling",
       "admin_growth",
@@ -736,6 +706,13 @@ describe("run e2e suite", () => {
       expected,
     );
     expect(e2eSuiteIdsForChangedFile("scripts/validate-responsive-evidence-artifacts.mjs")).toEqual(expected);
+    for (const file of [
+      "infrastructure/playwright-evidence/index.ts",
+      "infrastructure/playwright-evidence/responsive-evidence-manifest.json",
+      "scripts/validate-responsive-evidence-artifacts.mjs",
+    ]) {
+      expect(cortenMarketplaceBrowserSelectedByChangedFile(file), file).toBe(true);
+    }
   });
 
   it("routes catalog admin integration routes to admin coverage", () => {
@@ -853,10 +830,10 @@ describe("run e2e suite", () => {
     expect(e2eSuiteIdsForChangedFile("bounded-contexts/marketplace/routes/admin/listing-evidence-policy.tsx")).toEqual([
       "admin_platform",
     ]);
-    expect(e2eSuiteIdsForChangedFile("bounded-contexts/marketplace/routes/account-desk.tsx")).toEqual([
-      "marketplace_account",
-      "marketplace_seller",
-    ]);
+    expect(e2eSuiteIdsForChangedFile("bounded-contexts/marketplace/routes/account-desk.tsx")).toEqual([]);
+    expect(cortenMarketplaceBrowserSelectedByChangedFile("bounded-contexts/marketplace/routes/account-desk.tsx")).toBe(
+      true,
+    );
     expect(
       e2eSuiteIdsForChangedFile(
         "bounded-contexts/marketplace/features/listing-evidence-policy/ui/listing-evidence-policy-page.tsx",
@@ -893,16 +870,15 @@ describe("run e2e suite", () => {
   });
 
   it("keeps route E2E ownership complete or explicitly excluded", () => {
-    const routeFiles = [
-      ...walkFiles("bounded-contexts"),
-      ...walkFiles("deployables/marketplace/app/routes"),
-      ...walkFiles("deployables/admin-web/app/routes"),
-    ]
+    const routeFiles = [...walkFiles("bounded-contexts"), ...walkFiles("deployables/admin-web/app/routes")]
       .filter(isRouteFile)
       .sort();
 
     const unownedRoutes = routeFiles.filter(
-      (filePath) => e2eSuiteIdsForChangedFile(filePath).length === 0 && !e2eNoSuiteExclusionForChangedFile(filePath),
+      (filePath) =>
+        e2eSuiteIdsForChangedFile(filePath).length === 0 &&
+        !cortenMarketplaceBrowserSelectedByChangedFile(filePath) &&
+        !e2eNoSuiteExclusionForChangedFile(filePath),
     );
 
     expect(unownedRoutes).toEqual([]);
@@ -910,17 +886,20 @@ describe("run e2e suite", () => {
 
   it("owns seller shipping setup without selecting test files or unclaimed siblings", () => {
     const route = "bounded-contexts/fulfillment/routes/seller-shipping-setup.tsx";
-    expect(e2eSuiteIdsForChangedFile(route)).toEqual(["marketplace_checkout"]);
+    expect(e2eSuiteIdsForChangedFile(route)).toEqual([]);
+    expect(cortenMarketplaceBrowserSelectedByChangedFile(route)).toBe(true);
     expect(e2eNoSuiteExclusionForChangedFile(route)).toBeNull();
     for (const file of [route.replace(".tsx", ".test.tsx"), route.replace("setup.tsx", "setup-unclaimed.tsx")]) {
       expect(e2eSuiteIdsForChangedFile(file), file).toEqual([]);
+      expect(cortenMarketplaceBrowserSelectedByChangedFile(file), file).toBe(false);
     }
   });
 
   it("owns the real Discovery analytics route without selecting tests or unclaimed siblings", async () => {
     const route = "bounded-contexts/discovery/routes/item-detail-rail-analytics.tsx";
     expect(existsSync(route)).toBe(true);
-    expect(e2eSuiteIdsForChangedFile(route)).toEqual(["marketplace_browse"]);
+    expect(e2eSuiteIdsForChangedFile(route)).toEqual([]);
+    expect(cortenMarketplaceBrowserSelectedByChangedFile(route)).toBe(true);
     expect(e2eNoSuiteExclusionForChangedFile(route)).toBeNull();
     for (const file of [
       route.replace(".tsx", ".test.ts"),
@@ -928,9 +907,10 @@ describe("run e2e suite", () => {
       route.replace("rail-analytics.tsx", "rail-analytics-unclaimed.tsx"),
     ]) {
       expect(e2eSuiteIdsForChangedFile(file), file).toEqual([]);
+      expect(cortenMarketplaceBrowserSelectedByChangedFile(file), file).toBe(false);
     }
     for (const sibling of ["item-detail.tsx", "item-detail-market-history.tsx"]) {
-      expect(e2eSuiteIdsForChangedFile(`bounded-contexts/discovery/routes/${sibling}`)).toEqual(["marketplace_browse"]);
+      expect(cortenMarketplaceBrowserSelectedByChangedFile(`bounded-contexts/discovery/routes/${sibling}`)).toBe(true);
     }
 
     const source = readFileSync(new URL("./e2e-suites.mjs", import.meta.url), "utf8");
@@ -941,12 +921,12 @@ describe("run e2e suite", () => {
       .replace(owned, omitted)
       .replace('"./lib/risk-policy-v1.mjs"', JSON.stringify(new URL("./lib/risk-policy-v1.mjs", import.meta.url).href));
     const selector = await import(`data:text/javascript;base64,${Buffer.from(mutant).toString("base64")}`);
-    expect(selector.e2eSuiteIdsForChangedFile(route), "omit-analytics-ownership").toEqual([]);
+    expect(selector.cortenMarketplaceBrowserSelectedByChangedFile(route), "omit-analytics-ownership").toBe(false);
     expect(selector.e2eNoSuiteExclusionForChangedFile(route)).toBeNull();
     for (const sibling of ["item-detail.tsx", "item-detail-market-history.tsx"]) {
-      expect(selector.e2eSuiteIdsForChangedFile(`bounded-contexts/discovery/routes/${sibling}`)).toEqual([
-        "marketplace_browse",
-      ]);
+      expect(
+        selector.cortenMarketplaceBrowserSelectedByChangedFile(`bounded-contexts/discovery/routes/${sibling}`),
+      ).toBe(true);
     }
   });
 
@@ -954,29 +934,25 @@ describe("run e2e suite", () => {
     expect(e2eSuiteIdsForChangedFile("bounded-contexts/channels/routes/admin/ebay-account-deletion.tsx")).toEqual([
       "admin_support",
     ]);
-    // Both Channels ownership keys must independently resolve to marketplace_account,
-    // so deleting either one fails here with an unexpected empty array instead of
-    // silently letting `e2eSuiteIdsForChangedFile` fall through to `?? []`.
-    expect(e2eSuiteIdsForChangedFile("bounded-contexts/channels/features/connections/ui/connection-pages.tsx")).toEqual(
-      ["marketplace_account", "marketplace_seller"],
-    );
-    expect(e2eSuiteIdsForChangedFile("bounded-contexts/channels/routes/marketplace/account-channels.tsx")).toEqual([
-      "marketplace_account",
-      "marketplace_seller",
-    ]);
-    expect(
-      e2eSuiteIdsForChangedFile("bounded-contexts/channels/routes/marketplace/account-channels-connection.tsx"),
-    ).toEqual(["marketplace_account", "marketplace_seller"]);
+    // Both Channels ownership keys must independently select the Corten marketplace
+    // job, so deleting either one fails here instead of silently selecting nothing.
+    for (const file of [
+      "bounded-contexts/channels/features/connections/ui/connection-pages.tsx",
+      "bounded-contexts/channels/routes/marketplace/account-channels.tsx",
+      "bounded-contexts/channels/routes/marketplace/account-channels-connection.tsx",
+    ]) {
+      expect(e2eSuiteIdsForChangedFile(file), file).toEqual([]);
+      expect(cortenMarketplaceBrowserSelectedByChangedFile(file), file).toBe(true);
+    }
   });
 
-  it("routes the Channels account connection detail to marketplace account coverage", () => {
-    expect(
-      e2eSuiteIdsForChangedFile("bounded-contexts/channels/routes/marketplace/account-channels-connection.tsx"),
-    ).toEqual(["marketplace_account", "marketplace_seller"]);
-    expect(
-      e2eSuiteIdsForChangedFile(
-        "bounded-contexts/channels/routes/marketplace/account-channel-connection-manual-sync-download.tsx",
-      ),
-    ).toEqual(["marketplace_account", "marketplace_seller"]);
+  it("routes the Channels account connection detail to the Corten marketplace job", () => {
+    for (const file of [
+      "bounded-contexts/channels/routes/marketplace/account-channels-connection.tsx",
+      "bounded-contexts/channels/routes/marketplace/account-channel-connection-manual-sync-download.tsx",
+    ]) {
+      expect(e2eSuiteIdsForChangedFile(file), file).toEqual([]);
+      expect(cortenMarketplaceBrowserSelectedByChangedFile(file), file).toBe(true);
+    }
   });
 });

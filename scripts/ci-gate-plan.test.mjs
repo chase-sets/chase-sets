@@ -19,7 +19,12 @@ import {
   createCiGatePlan,
   validateCiGatePlan,
 } from "./ci-gate-plan.mjs";
-import { batchBrowserE2eSuiteIds, batchE2eSuiteIds, e2eSuites } from "./e2e-suites.mjs";
+import {
+  batchBrowserE2eSuiteIds,
+  batchE2eSuiteIds,
+  cortenMarketplaceBrowserSelection,
+  e2eSuites,
+} from "./e2e-suites.mjs";
 import { renderedCopyTuples } from "../infrastructure/playwright-evidence/rendered-copy.ts";
 import { listWorkspacePackages } from "./lib/repo.mjs";
 import { ALWAYS_RUN, VERIFY_STATIC_SURFACES } from "./verify-static-surfaces.mjs";
@@ -49,6 +54,12 @@ const scopedCases = selectionFixture.cases.map((entry) => ({
 
 function expectedRenderedCopyBatches(ordinaryBatches) {
   const owners = new Set(renderedCopyTuples.map((tuple) => tuple.suite));
+  // A selection that names rendered_copy itself (a seed whose owning suites hold no sweep tuple) runs it in
+  // its dedicated batch, and the other suites balance without it.
+  const ids = ordinaryBatches.flatMap((batch) => batch.split(","));
+  if (ids.includes("rendered_copy")) {
+    return [...batchE2eSuiteIds(ids.filter((id) => id !== "rendered_copy")), "rendered_copy"];
+  }
   return [
     ...ordinaryBatches,
     ...(ordinaryBatches.some((batch) => batch.split(",").some((id) => owners.has(id))) ? ["rendered_copy"] : []),
@@ -136,6 +147,9 @@ function assertExecutableParity(planner = createCiGatePlan) {
 function assertPreservedSelection(planner = createCiGatePlan) {
   for (const entry of scopedCases) {
     expect(entry.scope.e2eSuiteIds).toEqual(entry.suiteIds);
+    expect(entry.scope.cortenMarketplaceBrowserRequired, JSON.stringify(entry.changedFiles)).toBe(
+      entry.cortenMarketplaceBrowser,
+    );
     for (const scenario of scenarios) {
       const inputs = { ...scenario, scope: entry.scope };
       const prior = priorCreateCiGatePlan(inputs);
@@ -673,19 +687,22 @@ describe("shared CI gate plan", () => {
     expect(selectionFixture.incident).toHaveLength(25);
     const scope = classifyChanges({ changedFiles: selectionFixture.incident, workspaces });
     expect(scope.integrationRiskRequired).toBe(false);
-    expect(scope.e2eSuiteIds).toEqual(["marketplace_browse", "catalog_admin_integrations"]);
+    // marketplace_browse retired with marketplace-web; the same Catalog ownership selects the Corten job.
+    expect(scope.e2eSuiteIds).toEqual(["catalog_admin_integrations"]);
+    expect(scope.cortenMarketplaceBrowserRequired).toBe(true);
     const inputs = { mode: "pull-request", provenance: "same-repository", labels: [], scope };
     const baseline = priorCreateCiGatePlan(inputs);
     expect(baseline.gates.find(({ id }) => id === "e2e-tests")).toMatchObject({
       selection: "NOT_REQUIRED",
       reason: "pr-fast-lane",
-      e2eBatches: ["marketplace_browse,catalog_admin_integrations"],
+      e2eBatches: ["catalog_admin_integrations"],
     });
     expect(executedSuiteIds(baseline, priorOutputMap)).toEqual([]);
     for (const mode of ["pull-request", "merge-group"]) {
       const plan = createCiGatePlan({ ...inputs, mode });
       expect(plan.gates.find(({ id }) => id === "e2e-tests").selection).toBe("REQUIRED");
-      expect(executedSuiteIds(plan)).toEqual(["catalog_admin_integrations", "marketplace_browse", "rendered_copy"]);
+      expect(plan.gates.find(({ id }) => id === "corten-marketplace-browser").selection).toBe("REQUIRED");
+      expect(executedSuiteIds(plan)).toEqual(["catalog_admin_integrations", "rendered_copy"]);
     }
   });
 
@@ -700,8 +717,11 @@ describe("shared CI gate plan", () => {
       ],
       workspaces,
     });
-    const batches = ["marketplace_account,marketplace_seller", "tcgplayer_connector_extension", "rendered_copy"];
-    expect(scope.e2eSuiteIds).toEqual(["marketplace_account", "marketplace_seller", "tcgplayer_connector_extension"]);
+    // The account and seller coverage moved to the Corten Marketplace Browser Tests job with marketplace-web's
+    // retirement, so the extension runs alone in the E2E matrix.
+    const batches = ["tcgplayer_connector_extension"];
+    expect(scope.e2eSuiteIds).toEqual(["tcgplayer_connector_extension"]);
+    expect(scope.cortenMarketplaceBrowserRequired).toBe(true);
     expect(JSON.parse(toOutputMap(scope).e2e_suite_batches_json)).toEqual(batches);
     for (const scenario of scenarios) {
       const plan = createCiGatePlan({ ...scenario, scope });
@@ -714,12 +734,8 @@ describe("shared CI gate plan", () => {
         e2eBatches: batches,
       });
       expect(ciGatePlanOutputMap(plan).e2e_tests_required).toBe("true");
-      expect(executedSuiteIds(plan)).toEqual([
-        "marketplace_account",
-        "marketplace_seller",
-        "rendered_copy",
-        "tcgplayer_connector_extension",
-      ]);
+      expect(executedSuiteIds(plan)).toEqual(["tcgplayer_connector_extension"]);
+      expect(plan.gates.find(({ id }) => id === "corten-marketplace-browser").selection).toBe("REQUIRED");
     }
   });
 
@@ -732,7 +748,6 @@ describe("shared CI gate plan", () => {
       "adminContextRouteSuiteOwnership",
       "e2eSpecSuiteOwnership",
       "e2eNoSuiteExclusions",
-      "marketplaceRouteSuiteOwnership",
       "boundedContextRouteSuiteOwnership",
     ];
     // Inspect ownership data only; the real classifier remains the sole selector.
@@ -740,7 +755,7 @@ describe("shared CI gate plan", () => {
       source
         .slice(source.indexOf("const suiteOrder"), source.indexOf("function normalizeFilePath"))
         .replaceAll("export const", "const") + `\n({${names.join(",")}})`,
-      { e2eSuites },
+      { e2eSuites, marketplaceBrowser: cortenMarketplaceBrowserSelection },
     );
     const families = Object.entries(inventory).flatMap(([name, entries]) =>
       [...entries].map((entry, index) => {
@@ -772,10 +787,9 @@ describe("shared CI gate plan", () => {
       expect(selectionFixture.cases.some(({ changedFiles }) => changedFiles.includes(family.path))).toBe(true);
       if (!family.synthetic) expect(tracked.has(family.path), family.family).toBe(true);
     }
-    // Rendered copy has its own fixture corpus and dedicated batch coverage.
-    expect(new Set(scopedCases.flatMap(({ suiteIds }) => suiteIds))).toEqual(
-      new Set(e2eSuites.filter(({ id }) => id !== "rendered_copy").map(({ id }) => id)),
-    );
+    // Every registered suite is reached by some case; rendered_copy only through a seed whose owning suites
+    // hold no sweep tuple, since its own corpus covers the rest.
+    expect(new Set(scopedCases.flatMap(({ suiteIds }) => suiteIds))).toEqual(new Set(e2eSuites.map(({ id }) => id)));
     const prefixes = [...source.matchAll(/normalized\.startsWith\("([^"]+)"\)/g)].map((match) => match[1]);
     expect(prefixes).toEqual([
       "deployables/tcgplayer-operator-extension/",
@@ -784,7 +798,6 @@ describe("shared CI gate plan", () => {
       "bounded-contexts/catalog/features/operator-session/tests/extension/",
       "deployables/tcgplayer-connector-extension/",
       "bounded-contexts/channels/features/connector-client/",
-      "deployables/marketplace/",
       "deployables/admin-web/",
       "deployables/platform-api/",
       "packages/design-system/",
@@ -800,7 +813,8 @@ describe("shared CI gate plan", () => {
         file,
       ).toBe(true);
     }
-    expect(selectionFixture.families.filter(({ synthetic }) => synthetic)).toHaveLength(6);
+    // Three synthetic families named marketplace-web route paths and left with it.
+    expect(selectionFixture.families.filter(({ synthetic }) => synthetic)).toHaveLength(3);
   });
 
   it("selects identical executable E2E sets across modes, provenance and labels", () => {
@@ -958,11 +972,8 @@ describe("shared CI gate plan", () => {
       expect(outputs.e2e_tests_required).toBe("true");
       expect(outputs.full_battery_required).toBe("false");
       expect(outputs.targeted_heavy_required).toBe("false");
-      expect(executedSuiteIds(JSON.parse(outputs.plan_json))).toEqual([
-        "catalog_admin_integrations",
-        "marketplace_browse",
-        "rendered_copy",
-      ]);
+      expect(executedSuiteIds(JSON.parse(outputs.plan_json))).toEqual(["catalog_admin_integrations", "rendered_copy"]);
+      expect(outputs.corten_marketplace_browser_required).toBe("true");
       expect(workflowCondition(headWorkflow, "e2e-tests")).toBe(
         "needs['change-scope'].outputs.e2e_tests_required == 'true'",
       );
@@ -1158,10 +1169,12 @@ describe("shared CI gate plan", () => {
     expect(() => validateCiGatePlan(executeHostedOnlyGate)).toThrow("GATE_EXECUTABILITY_MISMATCH");
   });
 
-  it("keeps DB and E2E scope-gated without broadening the targeted-heavy lane", () => {
+  it("keeps DB and marketplace browser coverage scope-gated without broadening the targeted-heavy lane", () => {
     const scope = classifyChanges({ changedFiles: ["bounded-contexts/checkout/features/cart/ui/cart-page.tsx"] });
     expect(scope.dbTestsRequired).toBe(true);
-    expect(scope.e2eTestsRequired).toBe(true);
+    // Checkout's browser coverage is the Corten Marketplace Browser Tests job, not an E2E matrix suite.
+    expect(scope.e2eTestsRequired).toBe(false);
+    expect(scope.cortenMarketplaceBrowserRequired).toBe(true);
     const arms = [
       { mode: "pull-request", labels: [], provenance: "same-repository" },
       {
@@ -1178,12 +1191,13 @@ describe("shared CI gate plan", () => {
       expect(plan.gates.find(({ id }) => id === "db-tests")).toMatchObject({ selection: "REQUIRED", reason: "scope" });
     }
     const fast = createCiGatePlan({ mode: "pull-request", labels: [], provenance: "same-repository", scope });
-    expect(fast.gates.find(({ id }) => id === "e2e-tests")).toMatchObject({
+    expect(fast.gates.find(({ id }) => id === "corten-marketplace-browser")).toMatchObject({
       selection: "REQUIRED",
       reason: "scope",
     });
+    expect(fast.gates.find(({ id }) => id === "e2e-tests").selection).toBe("NOT_REQUIRED");
     const mergeGroup = createCiGatePlan({ mode: "merge-group", scope });
-    expect(mergeGroup.gates.find(({ id }) => id === "e2e-tests").selection).toBe("REQUIRED");
+    expect(mergeGroup.gates.find(({ id }) => id === "corten-marketplace-browser").selection).toBe("REQUIRED");
 
     const shippedDbSelection = fast.gates.find(({ id }) => id === "db-tests").selection;
     const bypassDbWithHeavyLane = fast.targetedHeavyRequired && scope.dbTestsRequired ? "REQUIRED" : "NOT_REQUIRED";

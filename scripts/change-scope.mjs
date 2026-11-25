@@ -3,7 +3,13 @@ import { appendFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { batchBrowserE2eSuiteIds, e2eSuites, e2eSuiteIdsForChangedFile, orderE2eSuiteIds } from "./e2e-suites.mjs";
+import {
+  batchBrowserE2eSuiteIds,
+  cortenMarketplaceBrowserSelectedByChangedFile,
+  e2eSuites,
+  e2eSuiteIdsForChangedFile,
+  orderE2eSuiteIds,
+} from "./e2e-suites.mjs";
 import { listWorkspacePackages, normalizePath, repoRoot } from "./lib/repo.mjs";
 import { classifyIntegrationRisk } from "./lib/risk-policy-v1.mjs";
 import { resolveRequiredProofPaths, unavailableChangeSetSelectionMode } from "./lib/context-proof-sets.mjs";
@@ -148,7 +154,8 @@ const catalogUatSyntheticPatterns = [
 // The Corten marketplace browser tests run the kept browser specs in deployables/corten-pilot/e2e against
 // the Corten pilot's marketplace, which serves production. A change to the pilot's marketplace or platform
 // code, its build inputs, those specs and their support modules or the dev-system target that boots it can
-// turn them red.
+// turn them red. The Bounded Context, route and spec ownership in e2e-suites.mjs selects it too, wherever
+// that ownership picked a marketplace suite before the Corten marketplace replaced marketplace-web.
 const cortenMarketplaceBrowserPatterns = [
   /^deployables\/corten-pilot\/(?:marketplace|platform)\/(?!.*\.md$)/,
   /^deployables\/corten-pilot\/Cargo\.(?:toml|lock)$/,
@@ -428,7 +435,8 @@ export function classifyChanges({
 
   for (const filePath of normalizedFiles) {
     catalogUatSyntheticChanged ||= matchesAny(filePath, catalogUatSyntheticPatterns);
-    cortenMarketplaceBrowserChanged ||= matchesAny(filePath, cortenMarketplaceBrowserPatterns);
+    cortenMarketplaceBrowserChanged ||=
+      matchesAny(filePath, cortenMarketplaceBrowserPatterns) || cortenMarketplaceBrowserSelectedByChangedFile(filePath);
     cortenPilotCheckChanged ||= matchesAny(filePath, cortenPilotCheckPatterns);
     for (const [category, patterns] of Object.entries(exposurePosturePatterns)) {
       if (matchesAny(filePath, patterns)) {

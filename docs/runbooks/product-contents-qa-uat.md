@@ -67,7 +67,7 @@ Run scoped checks first:
 ```powershell
 pnpm --filter @chase-sets/catalog run test:fast
 pnpm --filter @chase-sets/discovery run test:fast
-pnpm run test:e2e:suite marketplace_browse,catalog_admin_modeling,catalog_admin_integrations
+pnpm run test:e2e:suite catalog_admin_modeling,catalog_admin_integrations
 pnpm run test:scripts
 ```
 
