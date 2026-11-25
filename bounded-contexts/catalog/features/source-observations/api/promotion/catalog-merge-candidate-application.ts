@@ -64,7 +64,6 @@ import {
   type CatalogItemPromotableSourceObservationNormalized,
 } from "../source-observation-promotion-reference-hierarchy";
 import type {
-  CatalogMergeCandidateApplicationDiagnosticCode,
   CatalogMergeCandidateBulkUnitResult,
   CatalogProviderIntegrationProfileVersionReader,
 } from "../source-observation-runtime-contracts";
@@ -74,6 +73,11 @@ import {
   sourceObservationStreamId,
 } from "../source-observation-stream-identity";
 import { extractMergeCandidateFieldValue, mergeCandidateFieldValuesEqual } from "./catalog-merge-candidate-matcher";
+import type {
+  CatalogMergeCandidateApplicationDiagnosticCode,
+  CatalogMergeCandidatePromotionApplicationRefusal,
+  CatalogMergeCandidatePromotionPlanBlock,
+} from "./catalog-merge-candidate-promotion-diagnostics";
 import {
   planCatalogMergeCandidatePromotionCommands,
   type CatalogMergeCandidatePromotionAssetPlan,
@@ -131,20 +135,18 @@ export type CatalogMergeCandidateApplicationPorts = Readonly<{
  * codes refuse a retained plan or target without retargeting or completing it.
  */
 export class CatalogMergeCandidateApplicationError extends Error {
-  readonly code: string;
-  readonly diagnosticCode?: CatalogMergeCandidateApplicationDiagnosticCode;
-
-  constructor(code: string, detail?: string, diagnosticCode?: CatalogMergeCandidateApplicationDiagnosticCode) {
+  constructor(
+    readonly code: CatalogMergeCandidateApplicationDiagnosticCode,
+    detail?: string,
+  ) {
     super(detail ? `${code}: ${detail}` : code);
     this.name = "CatalogMergeCandidateApplicationError";
-    this.code = code;
-    this.diagnosticCode = diagnosticCode;
   }
 }
 
-const blocked = (code: string, detail?: string) =>
+const blocked = (code: CatalogMergeCandidatePromotionPlanBlock, detail?: string) =>
   new CatalogMergeCandidateApplicationError(`promotion-plan-blocked:${code}`, detail);
-const refused = (code: string, detail?: string) =>
+const refused = (code: CatalogMergeCandidatePromotionApplicationRefusal, detail?: string) =>
   new CatalogMergeCandidateApplicationError(`promotion-application-${code}`, detail);
 
 export function catalogMergeCandidateTargetId(candidateId: string): string {
@@ -641,10 +643,9 @@ async function prepareApplicationPlan(
     currentItem: mode === "create" ? null : promotionCurrentItem(target),
   });
   if (planned.status === "blocked") {
-    throw blocked(
-      planned.diagnostics[0]?.code ?? "unknown",
-      planned.diagnostics.map((diagnostic) => diagnostic.diagnosticText).join(" "),
-    );
+    const first = planned.diagnostics[0];
+    if (!first) throw new Error("Catalog Merge Candidate plan was blocked without a diagnostic.");
+    throw blocked(first.code, planned.diagnostics.map((diagnostic) => diagnostic.diagnosticText).join(" "));
   }
 
   const plan: CatalogMergeCandidatePromotionPlan = {
@@ -1094,7 +1095,7 @@ function candidateCatalogMapping(
  * choice. Storage preparation is idempotent and asset failures are classified.
  */
 type CandidateAssetPlan = CatalogMergeCandidatePromotionAssetPlan & {
-  diagnosticCode?: CatalogMergeCandidateApplicationDiagnosticCode;
+  diagnosticCode?: "asset-processing-failed";
 };
 
 async function prepareCandidateAssets(
@@ -1148,11 +1149,7 @@ async function prepareCandidateAssets(
       if (error instanceof CatalogAssetStorageError) return { diagnosticCode: "asset-processing-failed" };
       throw error;
     }
-    throw new CatalogMergeCandidateApplicationError(
-      "asset-processing-failed",
-      errorText(error),
-      "asset-processing-failed",
-    );
+    throw new CatalogMergeCandidateApplicationError("asset-processing-failed", errorText(error));
   }
 }
 
@@ -1287,7 +1284,7 @@ export function unappliedOutcome(
   candidateId: string,
   status: Exclude<CatalogMergeCandidateBulkUnitResult["status"], "promoted" | "deferred">,
   reason: string,
-  diagnosticCode?: CatalogMergeCandidateApplicationDiagnosticCode,
+  diagnosticCode?: "asset-processing-failed",
 ): CatalogMergeCandidateBulkUnitResult {
   return {
     candidateId,

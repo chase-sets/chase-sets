@@ -917,9 +917,15 @@ describe("AC8 bounded complete reads", () => {
             reason: "https://provider.invalid/private?secret=value",
           },
           {
+            candidateId: "candidate-set",
+            status: "failed",
+            failureDiagnosticCode: "promotion-reference-target-unresolved",
+            reason: "provider body",
+          },
+          {
             candidateId: "candidate-unknown",
             status: "failed",
-            diagnosticCode: "private-value",
+            failureDiagnosticCode: "promotion-plan-blocked:private-value",
             reason: "provider body",
           },
           applied("candidate-ok", "item-ok"),
@@ -945,6 +951,7 @@ describe("AC8 bounded complete reads", () => {
         failedOutcomes: job.result?.outcomes.some((outcome) => outcome.status === "failed")
           ? [
               { candidateId: "candidate-asset", reasonCode: "asset-processing-failed" },
+              { candidateId: "candidate-set", reasonCode: "promotion-reference-target-unresolved" },
               { candidateId: "candidate-unknown", reasonCode: "unclassified" },
             ]
           : [],

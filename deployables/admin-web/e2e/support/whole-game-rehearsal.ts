@@ -4,6 +4,11 @@
 // decisions stay pure and are pinned by scripts/catalog-whole-game-rehearsal.test.mjs.
 // It must not import Playwright or any bounded-context runtime.
 import type { CatalogServices } from "@chase-sets/catalog/server";
+import {
+  isCatalogMergeCandidateApplicationDiagnosticCode,
+  isCatalogMergeCandidateFailureDiagnosticCode,
+  type CatalogMergeCandidateApplicationDiagnosticCode,
+} from "@chase-sets/catalog/promotion-diagnostics";
 
 type CatalogMergeCandidateBulkJob = NonNullable<
   Awaited<ReturnType<CatalogServices["sourceObservations"]["getCatalogMergeCandidateBulkJob"]>>
@@ -295,6 +300,7 @@ export type WholeGamePromoteJob = Pick<CatalogMergeCandidateBulkJob, "jobId" | "
                   | "approvalVersion"
                   | "planFingerprint"
                   | "diagnosticCode"
+                  | "failureDiagnosticCode"
                 >
               >)[];
           }>)
@@ -508,7 +514,7 @@ export type WholeGamePromotionFailure = Readonly<{
   jobStatus: WholeGamePromoteJob["status"];
   failedOutcomes: readonly Readonly<{
     candidateId: string;
-    reasonCode: "asset-processing-failed" | "unclassified";
+    reasonCode: CatalogMergeCandidateApplicationDiagnosticCode | "unclassified";
   }>[];
 }>;
 
@@ -525,7 +531,11 @@ export function wholeGamePromotionFailure(job: WholeGamePromoteJob): WholeGamePr
             {
               candidateId: outcome.candidateId ?? "unavailable",
               reasonCode:
-                outcome.diagnosticCode === "asset-processing-failed" ? "asset-processing-failed" : "unclassified",
+                outcome.diagnosticCode === "asset-processing-failed"
+                  ? outcome.diagnosticCode
+                  : isCatalogMergeCandidateFailureDiagnosticCode(outcome.failureDiagnosticCode)
+                    ? outcome.failureDiagnosticCode
+                    : "unclassified",
             },
           ]
         : [],
@@ -685,7 +695,10 @@ export function validateWholeGameReceipt(value: unknown): readonly string[] {
           if (!outcome) return;
           if (typeof outcome.candidateId !== "string" || !batchIdPattern.test(outcome.candidateId))
             errors.push(`${path}.candidateId`);
-          if (!["asset-processing-failed", "unclassified"].includes(outcome.reasonCode as string))
+          if (
+            outcome.reasonCode !== "unclassified" &&
+            !isCatalogMergeCandidateApplicationDiagnosticCode(outcome.reasonCode)
+          )
             errors.push(`${path}.reasonCode`);
         });
     }

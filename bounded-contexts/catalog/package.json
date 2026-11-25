@@ -28,6 +28,7 @@
     ".": "./index.ts",
     "./context": "./context.json",
     "./client": "./client.ts",
+    "./promotion-diagnostics": "./features/source-observations/api/promotion/catalog-merge-candidate-promotion-diagnostics.ts",
     "./routes/*": "./routes/*.tsx",
     "./server": "./server.ts",
     "./test-support": "./features/source-observations/tests/owner-predicate-test-support.ts",

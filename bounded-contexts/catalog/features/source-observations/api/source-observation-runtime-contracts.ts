@@ -11,6 +11,7 @@ import {
 } from "@chase-sets/platform-runtime/durable-job-work-units";
 import { type JsonValue } from "@chase-sets/primitives/json";
 import type { SourceObservationPromotionConfirmation } from "./promotion/promotion-preview-token";
+import type { CatalogMergeCandidateFailureDiagnosticCode } from "./promotion/catalog-merge-candidate-promotion-diagnostics";
 import type { CatalogItemId, ReferenceRecordId } from "../../../ids";
 import { type CatalogScopeSyncUnitState } from "../../scope-sync-state/domain/state";
 import {
@@ -266,9 +267,6 @@ export type CatalogMergeCandidateBulkWorkUnitPayload = Readonly<{
   candidateId: string;
 }>;
 
-/** Image preparation can fail independently of the Catalog Item application. */
-export type CatalogMergeCandidateApplicationDiagnosticCode = "asset-processing-failed";
-
 export type CatalogMergeCandidateBulkUnitResult = Readonly<{
   candidateId: string;
   status: "promoted" | "deferred" | "skipped-not-eligible" | "failed";
@@ -291,7 +289,9 @@ export type CatalogMergeCandidateBulkUnitResult = Readonly<{
   appliedMode?: CatalogMergeCandidateAppliedMode | null;
   approvalVersion?: number | null;
   planFingerprint?: string | null;
-  diagnosticCode?: CatalogMergeCandidateApplicationDiagnosticCode;
+  diagnosticCode?: "asset-processing-failed";
+  /** Non-asset failures only. Older job readers restrict diagnosticCode to assets. */
+  failureDiagnosticCode?: CatalogMergeCandidateFailureDiagnosticCode;
 }>;
 
 export type CatalogMergeCandidateBulkJobResult = Readonly<{
