@@ -829,6 +829,16 @@ describe("MCP service catalog", () => {
     ).toBe(true);
   });
 
+  it("declares a boolean confirmed input for every tool that requires confirmation", () => {
+    const toolsWithoutBooleanConfirmation = flattenMcpTools()
+      .filter(
+        (tool) => tool.guardrails.confirmation.required && tool.inputSchema.properties.confirmed?.type !== "boolean",
+      )
+      .map((tool) => tool.name);
+
+    expect(toolsWithoutBooleanConfirmation).toEqual([]);
+  });
+
   it("classifies PII and financial write inputs as sensitive for redaction", () => {
     expect(findMcpTool("identity.create-invitation")?.audit.sensitiveInputFields).toEqual([
       "confirmationText",
