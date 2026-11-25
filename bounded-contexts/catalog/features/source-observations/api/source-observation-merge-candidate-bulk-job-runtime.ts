@@ -17,7 +17,10 @@ import {
   unappliedOutcome,
   type CatalogMergeCandidateApplicationPorts,
 } from "./promotion/catalog-merge-candidate-application";
-import { isCatalogMergeCandidateFailureDiagnosticCode } from "./promotion/catalog-merge-candidate-promotion-diagnostics";
+import {
+  displayIdentityFailureCode,
+  isCatalogMergeCandidateFailureDiagnosticCode,
+} from "./promotion/catalog-merge-candidate-promotion-diagnostics";
 import { CatalogPromotionReferenceTargetUnresolvedError } from "./promotion/provider-reference-hierarchy-provisioner";
 import { retainProviderSendJobBinding, runProviderSendJob } from "./providers/provider-send-runtime";
 import { recordBulkReviewWorkUnitTelemetry } from "./providers/provider-option-queries";
@@ -268,6 +271,10 @@ export function createSourceObservationMergeCandidateBulkJobRuntime({
         error instanceof CatalogPromotionReferenceTargetUnresolvedError
           ? error.code
           : "unexpected-promotion-error";
+      const displayIdentity =
+        diagnosticCode === displayIdentityFailureCode && error instanceof CatalogMergeCandidateApplicationError
+          ? error.displayIdentity
+          : undefined;
       const outcome: CatalogMergeCandidateBulkUnitResult =
         job.promotionApplicationVersion === catalogMergeCandidatePromotionApplicationVersion
           ? {
@@ -275,6 +282,7 @@ export function createSourceObservationMergeCandidateBulkJobRuntime({
               ...(diagnosticCode === "asset-processing-failed"
                 ? { diagnosticCode }
                 : { failureDiagnosticCode: diagnosticCode }),
+              ...(displayIdentity === undefined ? {} : { displayIdentity }),
             }
           : { candidateId, status: "failed", catalogItemId: null, reason };
       await requireSourceObservationJobClaim(
@@ -720,6 +728,8 @@ function isWellFormedApplicationOutcome(outcome: CatalogMergeCandidateBulkUnitRe
       outcome.status !== "failed" ||
       outcome.diagnosticCode !== undefined)
   )
+    return false;
+  if (outcome.displayIdentity !== undefined && outcome.failureDiagnosticCode !== displayIdentityFailureCode)
     return false;
   if (
     outcome.disposition !== undefined &&

@@ -39,6 +39,12 @@ export type CatalogPromotionDisplayIdentityEvidence = Readonly<{
   templateReason: CatalogPromotionDisplayIdentityTemplateReason;
 }>;
 
+/** The subset permitted on bulk job outcomes and rehearsal receipts. */
+export type CatalogPromotionDisplayIdentityFailureEvidence = Pick<
+  CatalogPromotionDisplayIdentityEvidence,
+  "missingTokens" | "templateKey" | "templateReason"
+>;
+
 export type CatalogPromotionDisplayIdentityDiagnostic = Readonly<{
   code: typeof DISPLAY_IDENTITY_UNRESOLVABLE_CODE;
   path: typeof DISPLAY_IDENTITY_DIAGNOSTIC_PATH;

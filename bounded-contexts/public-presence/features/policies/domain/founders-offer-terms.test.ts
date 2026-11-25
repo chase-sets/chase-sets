@@ -294,7 +294,7 @@ const creationChain: Citation[] = [
     /feeLocks: event.data.feeLocks/,
   ],
   [
-    `${listingRuntime}:1913-1969`,
+    `${listingRuntime}:1929-1985`,
     /params.publicationScope === "channel-only" \? null : await quoteListingTerms\(params.accountId, params.priceAmount\)/,
     /type: "CreateListing"/,
     /feeLock: quote \? feeLockFromMarketplaceTermsQuote\(params.quantityCap, quote\) : null/,
@@ -403,18 +403,18 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
     "Single and bulk",
     [
       [
-        `${listingRuntime}:2523-2556`,
+        `${listingRuntime}:2540-2573`,
         /updateListingPrice: async/,
         /listing.feeLocks.map\(\(lock\) => requoteMarketplaceListingFeeLock\(lock, params.priceAmount\)\)/,
         /type: "UpdateListingPrice"/,
       ],
       [
-        `${listingRuntime}:2557-2647`,
+        `${listingRuntime}:2574-2664`,
         /applyBulkListingPriceUpdates: async/,
         /driveBulkPriceUpdates\(params.accountId, /,
       ],
       [
-        `${listingRuntime}:2018-2124`,
+        `${listingRuntime}:2034-2140`,
         /async function driveBulkPriceUpdates\(/,
         /assertConfirmedFeeQuote\(update.feeQuoteFingerprint, quote\)/,
         /listing.feeLocks.map\(\(lock\) => requoteMarketplaceListingFeeLock\(lock, update.priceAmount\)\)/,
@@ -488,7 +488,7 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
         /const latest = resized.pop\(\)/,
       ],
       [
-        `${listingRuntime}:2676-2716`,
+        `${listingRuntime}:2693-2733`,
         /addedUnitCount = Math.max\(0, params.quantityCap - listing.quantityCap\)/,
         /addedUnitCount > 0 \? await quoteListingTerms\(params.accountId, listing.priceAmount\) : null/,
         /assertConfirmedFeeQuote\(params.feeQuoteFingerprint, quote\)/,

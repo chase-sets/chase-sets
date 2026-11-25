@@ -747,6 +747,11 @@
       "purpose": "Compose Auth Session, Identity Membership, Channels configuration grants and Inventory reservations for channel-only Listing target commands."
     },
     {
+      "portName": "inventoryItemGradedCardAuthority",
+      "providedBy": "inventory",
+      "purpose": "Read the Graded Item Details Inventory recorded for an account's item so Listing creation from an Inventory snapshot never takes them from the request."
+    },
+    {
       "portName": "managedOfferPricing",
       "providedBy": "pricing",
       "purpose": "Evaluate current buyer Offer targets through Pricing's public boundary without Marketplace querying Pricing storage."

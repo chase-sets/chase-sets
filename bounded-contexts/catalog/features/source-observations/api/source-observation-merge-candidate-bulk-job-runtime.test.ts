@@ -199,6 +199,11 @@ describe("candidate promotion application versioning", () => {
       approvalVersion: null,
       planFingerprint: null,
     }) as unknown as CatalogMergeCandidateBulkUnitResult;
+  const displayIdentity = {
+    missingTokens: ["ink-color", "rarity"],
+    templateKey: null,
+    templateReason: "missing-required-fields",
+  } as const;
 
   it("serializes the version discriminator and keeps retained legacy bytes unchanged", () => {
     const legacy = record("merge-candidate-promote", {}, [legacyPromoted("cand_legacy")]);
@@ -244,6 +249,16 @@ describe("candidate promotion application versioning", () => {
           ...unapplied("cand_two_codes", "failed"),
           diagnosticCode: "asset-processing-failed",
           failureDiagnosticCode: "promotion-reference-target-unresolved",
+        },
+      ],
+    ],
+    [
+      "a failed result carrying display evidence for an unrelated code",
+      [
+        {
+          ...unapplied("cand_wrong_evidence", "failed"),
+          failureDiagnosticCode: "promotion-reference-target-unresolved",
+          displayIdentity,
         },
       ],
     ],
@@ -299,7 +314,13 @@ describe("candidate promotion application versioning", () => {
   });
 
   it("keeps valid version-1 failed and skipped outcomes readable with null application facts", () => {
-    const outcomes = [unapplied("cand_failed", "failed"), unapplied("cand_skipped", "skipped-not-eligible")];
+    const outcomes = [
+      {
+        ...unapplied("cand_failed", "failed"),
+        failureDiagnosticCode: "promotion-plan-blocked:display-identity-unresolvable" as const,
+      },
+      unapplied("cand_skipped", "skipped-not-eligible"),
+    ];
     expect(
       toCatalogMergeCandidateBulkJob(
         record(catalogMergeCandidatePromotionApplicationJobKind, { promotionApplicationVersion: 1 }, outcomes),
@@ -319,51 +340,66 @@ describe("candidate promotion application versioning", () => {
       ),
       diagnosticCode: "promotion-plan-blocked:member-revision-missing",
     },
+    {
+      failure: new CatalogMergeCandidateApplicationError(
+        "promotion-plan-blocked:display-identity-unresolvable",
+        "Targeted template is missing required fields.",
+        displayIdentity,
+      ),
+      diagnosticCode: "promotion-plan-blocked:display-identity-unresolvable",
+      evidence: displayIdentity,
+    },
     { failure: new Error("Synthetic unexpected error."), diagnosticCode: "unexpected-promotion-error" },
-  ])("stores $diagnosticCode and round-trips it through the job reader", async ({ failure, diagnosticCode }) => {
-    const candidateId = "cand_synthetic";
-    const jobKind = catalogMergeCandidatePromotionApplicationJobKind;
-    const payload = { promotionApplicationVersion: 1 };
-    const job = { ...record(jobKind, payload, []), eventContext: context, status: "running" };
-    const recordTerminal = vi
-      .fn<SourceObservationMergeCandidateBulkJobRuntimeDeps["workUnitStore"]["recordTerminal"]>()
-      .mockResolvedValue("recorded");
-    const runtime = createSourceObservationMergeCandidateBulkJobRuntime({
-      deps: { eventStore: { readStream: vi.fn().mockRejectedValue(failure) } },
-      workUnitStore: {
-        claimNext: async () => ({
-          claim: {
-            job,
-            unit: { unitId: candidateId, payload: { candidateId } },
-            claimOwnerId: "worker",
-            claimToken: "token",
-          },
-        }),
-        recordTerminal,
-      },
-      mergeCandidates: {},
-    } as unknown as SourceObservationMergeCandidateBulkJobRuntimeDeps).services;
+  ])(
+    "stores $diagnosticCode and round-trips it through the job reader",
+    async ({ failure, diagnosticCode, evidence }) => {
+      const candidateId = "cand_synthetic";
+      const jobKind = catalogMergeCandidatePromotionApplicationJobKind;
+      const payload = { promotionApplicationVersion: 1 };
+      const job = { ...record(jobKind, payload, []), eventContext: context, status: "running" };
+      const recordTerminal = vi
+        .fn<SourceObservationMergeCandidateBulkJobRuntimeDeps["workUnitStore"]["recordTerminal"]>()
+        .mockResolvedValue("recorded");
+      const runtime = createSourceObservationMergeCandidateBulkJobRuntime({
+        deps: { eventStore: { readStream: vi.fn().mockRejectedValue(failure) } },
+        workUnitStore: {
+          claimNext: async () => ({
+            claim: {
+              job,
+              unit: { unitId: candidateId, payload: { candidateId } },
+              claimOwnerId: "worker",
+              claimToken: "token",
+            },
+          }),
+          recordTerminal,
+        },
+        mergeCandidates: {},
+      } as unknown as SourceObservationMergeCandidateBulkJobRuntimeDeps).services;
 
-    expect(await runtime.processNextCatalogMergeCandidateBulkJob({ claimOwnerId: "worker", claimTtlMs: 60_000 })).toBe(
-      1,
-    );
-    const terminal = recordTerminal.mock.calls[0]?.[0];
-    expect(terminal).toMatchObject({
-      state: "failed",
-      unitResult: {
-        candidateId,
-        status: "failed",
-        appliedCatalogItemId: null,
-        failureDiagnosticCode: diagnosticCode,
-        reason: failure.message,
-      },
-    });
-    expect(terminal?.unitResult?.diagnosticCode).toBeUndefined();
-    expect(toCatalogMergeCandidateBulkJob(record(jobKind, payload, [terminal!.unitResult!])).result).toMatchObject({
-      failed: 1,
-      outcomes: [{ failureDiagnosticCode: diagnosticCode, reason: failure.message }],
-    });
-  });
+      expect(
+        await runtime.processNextCatalogMergeCandidateBulkJob({ claimOwnerId: "worker", claimTtlMs: 60_000 }),
+      ).toBe(1);
+      const terminal = recordTerminal.mock.calls[0]?.[0];
+      expect(terminal).toMatchObject({
+        state: "failed",
+        unitResult: {
+          candidateId,
+          status: "failed",
+          appliedCatalogItemId: null,
+          failureDiagnosticCode: diagnosticCode,
+          reason: failure.message,
+        },
+      });
+      expect(terminal?.unitResult?.diagnosticCode).toBeUndefined();
+      expect(terminal?.unitResult?.displayIdentity).toEqual(evidence);
+      const retained = toCatalogMergeCandidateBulkJob(record(jobKind, payload, [terminal!.unitResult!])).result;
+      expect(retained).toMatchObject({
+        failed: 1,
+        outcomes: [{ failureDiagnosticCode: diagnosticCode, reason: failure.message }],
+      });
+      expect(retained?.outcomes[0]?.displayIdentity).toEqual(evidence);
+    },
+  );
 
   it("keeps reference-only skipped outcomes readable and counted as skipped, beside results that omit disposition", () => {
     const outcomes = [

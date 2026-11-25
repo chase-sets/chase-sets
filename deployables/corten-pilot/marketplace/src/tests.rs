@@ -7577,7 +7577,10 @@ async fn a_link_to_the_retired_notification_sheet_goes_to_the_notification_cente
             "/search?notifications=settings&notificationSection=product-alerts",
             "/account/notifications?view=settings&section=product-alerts",
         ),
-        ("/account/cart?notifications=settings&notificationSection=preferences", "/account/notifications?view=settings"),
+        (
+            "/account/cart?notifications=settings&notificationSection=preferences",
+            "/account/notifications?view=settings&section=preferences",
+        ),
         ("/search?notifications=settings&notificationSection=history", "/account/notifications?view=settings"),
         ("/search?q=charizard&notifications=feed&returnTo=https%3A%2F%2Fevil.test", "/account/notifications"),
         ("/account/notifications?notifications=feed", "/account/notifications"),

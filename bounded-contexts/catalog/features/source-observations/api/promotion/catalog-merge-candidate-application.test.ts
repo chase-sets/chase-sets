@@ -47,7 +47,10 @@ import {
   requireSourceObservationMappingContract,
 } from "../source-observation-promotion-execution";
 import * as referenceHierarchy from "../source-observation-promotion-reference-hierarchy";
-import { createSyntheticDisplayIdentityQueryable } from "../seeding/synthetic-display-identity-queryable";
+import {
+  createSyntheticDisplayIdentityQueryable,
+  type SyntheticDisplayIdentityFixture,
+} from "../seeding/synthetic-display-identity-queryable";
 import type { CatalogAssetStorage } from "../seeding/asset-storage";
 import { createPostgresPromotionTargetExclusion } from "./promotion-target-exclusion";
 import type { PromotionTargetExclusion } from "./promotion-target-exclusion";
@@ -897,6 +900,16 @@ describe("Lorcana ink color from item-producing members", () => {
     expect(effective.fieldProvenance.filter((entry) => entry.fieldPath === inkPath)).toEqual([manual]);
   });
 
+  it("does not restore source ink when the reviewed snapshot has ink provenance but no fact", () => {
+    const manual = { fieldPath: inkPath, value: null, observationId: "obs_a", confidence: "manual" };
+    const effective = snapshotWithAuthoredFacts(snapshot({}, [manual]), [
+      lorcanaRevision("scrydex", "a", "Amber"),
+    ] as never);
+
+    expect(effective.proposedCatalogItemFacts).not.toHaveProperty("inkColor");
+    expect(effective.fieldProvenance.filter((entry) => entry.fieldPath === inkPath)).toEqual([manual]);
+  });
+
   it("keeps a reviewer's ink correction", () => {
     const manual = { fieldPath: inkPath, value: "Ruby", observationId: "obs_a", confidence: "manual" };
     const effective = snapshotWithAuthoredFacts(snapshot({ inkColor: "Ruby" }, [manual]), [
@@ -983,6 +996,7 @@ describe("Catalog Merge Candidate Catalog-owned pictures", () => {
   async function arrange(
     members: readonly ReturnType<typeof member>[],
     existing: readonly CatalogItemEvent[] | null = null,
+    templates?: SyntheticDisplayIdentityFixture["templates"],
   ) {
     const candidateId = "cand_synthetic_picture";
     const candidateStream = catalogMergeCandidateStreamId(candidateId);
@@ -1108,6 +1122,7 @@ describe("Catalog Merge Candidate Catalog-owned pictures", () => {
       },
     };
     const db = createSyntheticDisplayIdentityQueryable({
+      ...(templates === undefined ? {} : { templates }),
       referenceRecords: [
         {
           reference_record_id: referenceId,
@@ -1163,6 +1178,28 @@ describe("Catalog Merge Candidate Catalog-owned pictures", () => {
       itemEvents: () => itemEvents,
     };
   }
+
+  it("carries only the resolver's support-safe display identity evidence on a blocked plan", async () => {
+    const fixture = await arrange([member("scryfall", "magic-card-print")], null, [
+      {
+        key: "synthetic-matched-template",
+        target_kind: "blueprint",
+        target_id: "magic-card-print",
+        priority: 1,
+        title_template: "{item.unknown}",
+        subtitle_template: null,
+        required_field_keys: [],
+      },
+    ]);
+    const failure = await fixture.apply().catch((error: unknown) => error);
+    expect(failure).toMatchObject({ code: "promotion-plan-blocked:display-identity-unresolvable" });
+    expect(failure).toHaveProperty("displayIdentity", {
+      missingTokens: ["item.unknown"],
+      templateKey: "synthetic-matched-template",
+      templateReason: "unresolved-title-tokens",
+    });
+    expect(fixture.itemEvents()).toEqual([]);
+  });
 
   function expectCatalogPicture(fixture: Awaited<ReturnType<typeof arrange>>, providerKey: string) {
     const [asset] = fixture.item().productAssetSets;
