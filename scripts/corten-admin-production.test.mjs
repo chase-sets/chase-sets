@@ -24,10 +24,12 @@ const workflowText = read(".github/workflows/platform-production.yml");
 const workflow = parse(workflowText);
 const digest = "sha256:" + "a".repeat(64);
 const image = `registry.digitalocean.com/chase-sets/chase-sets-corten-admin@${digest}`;
+const marketplaceImage = image.replace("corten-admin", "corten-marketplace");
 const proxies = "10.244.0.0/25,10.244.1.0/25";
 const production = (env = {}, overrides = {}) => ({
   image: `registry.digitalocean.com/chase-sets/chase-sets-platform:release@${digest}`,
   cortenAdminImage: image,
+  cortenMarketplaceImage: marketplaceImage,
   envOverrides: { DEPLOYMENT_ENVIRONMENT: "production", OBSERVABILITY_ENABLED: "false", PROXIES: proxies },
   env: { GITHUB_RUN_ID: "123", GITHUB_RUN_ATTEMPT: "1", PRODUCTION_DOKS_INGRESS_TARGET: "192.0.2.1", ...env },
   managedPostgresCaSha256: "b".repeat(64),
@@ -61,14 +63,14 @@ describe("production admin app switch", () => {
     }
   });
 
-  it("does not deploy admin-corten while admin-web serves admin.chasesets.com, with or without an image or PROXIES", () => {
+  it("does not deploy admin-corten while admin-web serves admin.chasesets.com, with or without an image", () => {
     for (const overrides of [{}, { cortenAdminImage: undefined }]) {
       for (const env of [{}, { PRODUCTION_ADMIN_APP: "admin-web" }]) {
         const args = buildHelmUpgradeArgs(production(env, overrides));
         expect(pilotArgs(args)).toEqual(["components.admin-corten.enabled=false"]);
         expect(args[args.indexOf("components.admin-corten.enabled=false") - 1]).toBe("--set");
         expect(adminRoot(args)).toBe("admin-web");
-        expect(withheldCortenPilots(production(env))).toEqual(["admin-corten", "marketplace-corten", "public-corten"]);
+        expect(withheldCortenPilots(production(env))).toEqual(["admin-corten", "public-corten"]);
       }
     }
     const withoutProxies = production(
@@ -77,7 +79,11 @@ describe("production admin app switch", () => {
         envOverrides: { DEPLOYMENT_ENVIRONMENT: "production", OBSERVABILITY_ENABLED: "false" },
       },
     );
-    expect(pilotArgs(buildHelmUpgradeArgs(withoutProxies))).toEqual(["components.admin-corten.enabled=false"]);
+    // The Corten marketplace serves marketplace.chasesets.com whichever app serves admin, so PROXIES is
+    // required either way.
+    expect(() => buildHelmUpgradeArgs(withoutProxies)).toThrow(
+      "PROXIES is required on production: the ingress pod CIDRs could not be read",
+    );
   });
 
   it("serves admin.chasesets.com from admin-corten with the staged image under admin-corten", () => {
@@ -86,7 +92,7 @@ describe("production admin app switch", () => {
     expect(args[args.indexOf(`components.admin-corten.image=${image}`) - 1]).toBe("--set-string");
     expect(adminRoot(args)).toBe("admin-corten");
     expect(args).toContain(`global.envOverrides.PROXIES=${proxies.replace(",", "\\,")}`);
-    expect(withheldCortenPilots(production(adminCorten))).toEqual(["marketplace-corten", "public-corten"]);
+    expect(withheldCortenPilots(production(adminCorten))).toEqual(["public-corten"]);
     expect(platformKubernetesWorkloads(production(adminCorten)).deployments).toContain(pilotWorkload);
     // The certificate covers the same names either way: no new host or DNS record.
     const names = (env) =>
@@ -120,12 +126,11 @@ describe("production admin app switch", () => {
     }
   });
 
-  it("leaves the marketplace pilot withheld while marketplace-web serves marketplace.chasesets.com", () => {
-    const marketplace = image.replace("corten-admin", "corten-marketplace");
-    for (const overrides of [{}, { cortenMarketplaceImage: marketplace }]) {
-      const args = buildHelmUpgradeArgs(production(adminCorten, overrides));
+  it("serves the marketplace from marketplace-corten whichever app serves admin", () => {
+    for (const env of [{}, adminCorten]) {
+      const args = buildHelmUpgradeArgs(production(env));
       expect(args.filter((arg) => String(arg).startsWith("components.marketplace-corten."))).toEqual([
-        "components.marketplace-corten.enabled=false",
+        `components.marketplace-corten.image=${marketplaceImage}`,
       ]);
     }
   });
