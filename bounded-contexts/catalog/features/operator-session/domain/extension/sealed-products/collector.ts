@@ -126,6 +126,8 @@ export async function collectSealedProducts(input: {
     publish();
     return success ? result : null;
   }
+  let sawSearchHits = false;
+  let sawExactSet = false;
   for (const includeProductLine of [true, false]) {
     const unique = new Set<number>();
     const candidates = new Set<number>();
@@ -166,15 +168,18 @@ export async function collectSealedProducts(input: {
       }
       const previous = unique.size;
       for (const product of page.results) {
+        sawSearchHits = true;
         unique.add(product.productId);
         if (
           product.productLineId === line.id &&
           product.productLineName === line.name &&
           product.setId === input.selection.setId &&
-          product.setName === input.selection.setName &&
-          (product.sealed || /sealed|booster|bundle|deck/i.test(product.productTypeName ?? ""))
-        )
-          candidates.add(product.productId);
+          product.setName === input.selection.setName
+        ) {
+          sawExactSet = true;
+          if (product.sealed || /sealed|booster|bundle|deck/i.test(product.productTypeName ?? ""))
+            candidates.add(product.productId);
+        }
       }
       receipt.summaries = unique.size;
       publish();
@@ -188,6 +193,11 @@ export async function collectSealedProducts(input: {
     }
     receipt.sealedCandidates = candidates.size;
     if (candidates.size === 0 && includeProductLine) continue;
+    if (sawSearchHits && !sawExactSet) {
+      receipt.verdict = "unqualified";
+      publish();
+      return { receipt, details };
+    }
     for (const productId of candidates) {
       const result = await request({ endpoint: "detail", productId });
       if (!result) {

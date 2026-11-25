@@ -309,14 +309,14 @@ export function createSetNameRequestRuntime(deps: {
     const job = (await store(db).get(row.job_id))!;
     if (job.jobKind !== sealedRequestJobKind) throw conflict();
     const digest = createHash("sha256").update(input.text).digest("hex");
-    const isPart = input.answer.kind === "part";
+    const answer = input.answer;
     if (row.closed_at) {
       if (!row.receipt || !("kind" in row.receipt)) throw conflict();
-      if (isPart && row.receipt.kind === "complete") {
-        const replay = await replaySealedRequestPart(db, row.request_id, input.answer.partIndex, digest);
+      if (answer.kind === "part" && row.receipt.kind === "complete") {
+        const replay = await replaySealedRequestPart(db, row.request_id, answer.partIndex, digest);
         if (replay) return replay;
       }
-      if (!isPart && digest === row.answer_digest) return row.receipt;
+      if (answer.kind !== "part" && digest === row.answer_digest) return row.receipt;
       throw conflict();
     }
     if (!row.attempt_until || row.attempt_until <= (await now(db))) throw conflict();
@@ -325,8 +325,8 @@ export function createSetNameRequestRuntime(deps: {
       await close(db, row, "extension-request-stale");
       return null;
     }
-    if (isPart) {
-      const replay = await replaySealedRequestPart(db, row.request_id, input.answer.partIndex, digest);
+    if (answer.kind === "part") {
+      const replay = await replaySealedRequestPart(db, row.request_id, answer.partIndex, digest);
       if (replay) return replay;
     }
     const receipt = await admitSealedRequestAnswer(db, input, digest, job.payload.scope, mapping);

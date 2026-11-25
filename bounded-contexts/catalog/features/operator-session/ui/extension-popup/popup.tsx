@@ -278,7 +278,6 @@ export function renderOperatorExtensionPopup(
   );
   return () => {
     client.dispose();
-    sealedClient.dispose();
     root.unmount();
   };
 }
