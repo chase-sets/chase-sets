@@ -28,7 +28,6 @@ import { createPostgresPromotionTargetExclusion } from "../api/promotion/promoti
 import { promotionTargetBindingStream } from "../api/promotion/promotion-target-identity";
 import { trackPromotionProfileAuthority } from "../api/promotion/promotion-profile-authority";
 import { createCatalogProviderIntegrationProfileVersionStore } from "../api/providers/provider-integration-profile-store";
-import { resetCatalogIntegrationPreLaunchData } from "../api/governance/catalog-integration-data-migration-reset";
 import { promotionCurrentItem } from "../api/promotion/source-observation-target-exclusion";
 import { guardPromotionMaterial } from "../api/promotion/promotion-material-guards";
 import { catalogProviderPromotionPlanFingerprint } from "../api/promotion/provider-promotion-command-planner";
@@ -125,7 +124,7 @@ describeDb("promotion target exclusion through real Catalog services", () => {
     }
   });
 
-  it.each(["seed", "authoring", "reset"].flatMap((writer) => [false, true].map((rollback) => ({ writer, rollback }))))(
+  it.each(["seed", "authoring"].flatMap((writer) => [false, true].map((rollback) => ({ writer, rollback }))))(
     "$writer waits for the real promotion SHARE fence, rollback=$rollback",
     async ({ writer, rollback }) => {
       const profiles = createCatalogProviderIntegrationProfileVersionStore(pool);
@@ -141,11 +140,7 @@ describeDb("promotion target exclusion through real Catalog services", () => {
               .transaction_isolation,
           ).toBe("read committed");
           mutation =
-            writer === "seed"
-              ? profiles.seedProfileVersions([selected])
-              : writer === "authoring"
-                ? profiles.upsertProfileVersion(selected)
-                : resetCatalogIntegrationPreLaunchData(pool, { rebuildSeedProfiles: false });
+            writer === "seed" ? profiles.seedProfileVersions([selected]) : profiles.upsertProfileVersion(selected);
           void mutation.then(
             () => {
               settled = true;

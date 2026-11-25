@@ -1,10 +1,5 @@
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { escapeLikePattern, withPgTransaction } from "@chase-sets/event-core-postgres";
-import {
-  catalogIntegrationDataResetEnvironmentPlans,
-  type CatalogIntegrationDataBackupDecision,
-  type CatalogIntegrationDataResetEnvironment,
-} from "../governance/catalog-integration-data-migration-reset";
 
 /**
  * Destructive reset/rebuild plan for Catalog Scope Registry v2 and Catalog
@@ -12,16 +7,9 @@ import {
  * CatalogSyncScope v2 planner and the Merge Candidate identity re-key
  * described in `../../../docs/scope-registry.md`.
  *
- * This module composes with, and does not replace,
- * `catalog-integration-data-migration-reset.ts`. That module governs Source
- * Observation, integration/bulk-review job, provider option cache, and
- * provider profile version tables — including the durable "Catalog sync
- * parent run" rows (`catalog_source_observation_integration_durable_jobs`)
- * described in `../../../docs/catalog-sync-scope-planning.md`. This module
- * governs the tables and event streams that only exist to support Catalog
- * Merge Candidate review, plus the unreviewed slice of Provider Scope
- * Mapping proposals. Both reset passes are pre-launch and destructive; they
- * should be executed together under one evidence packet.
+ * This reset is limited to Merge Candidate review state and unreviewed Provider
+ * Scope Mapping proposals. The Catalog Integration reset was retired NOT RUN;
+ * see the production disposition in the Catalog Integration verification guide.
  *
  * Event stream prefix `catalog.merge-candidate-` must stay in sync with
  * `catalogMergeCandidateStreamId` in `./runtime.ts` and
@@ -126,7 +114,7 @@ export const catalogScopeMergeCandidatePreservedSurfaces: readonly CatalogScopeM
   {
     targetName: "catalog_source_observation_integration_durable_jobs and related job/work-unit tables",
     reason:
-      "Catalog sync parent-run cleanup is already governed by catalogIntegrationDataResetTargetTables() in catalog-integration-data-migration-reset.ts; this plan composes with that reset instead of duplicating it.",
+      "Catalog sync parent runs are outside this reset's targets. The separate Catalog Integration reset was retired NOT RUN.",
   },
 ] as const;
 
@@ -278,12 +266,35 @@ export type CatalogScopeMergeCandidateRebuildEvidence = Readonly<{
   candidatesCreated: number;
 }>;
 
+type CatalogScopeMergeCandidateResetEnvironment = "local-dev-test" | "staging" | "production-prelaunch";
+
+type CatalogScopeMergeCandidateBackupDecision =
+  | Readonly<{
+      kind: "create-backup-snapshot-export";
+      reference: string;
+      owner: string;
+      retentionUntil: string;
+      restoreVerificationReference: string;
+    }>
+  | Readonly<{
+      kind: "skip-backup-accepted-data-loss";
+      approver: string;
+      rationale: string;
+      targetDataSet: string;
+    }>
+  | Readonly<{
+      kind: "retain-data-reset-unsafe";
+      owner: string;
+      expiresAt: string;
+      reason: string;
+    }>;
+
 export type CatalogScopeMergeCandidateResetEvidencePacket = Readonly<{
-  environment: CatalogIntegrationDataResetEnvironment;
+  environment: CatalogScopeMergeCandidateResetEnvironment;
   generatedAt: string;
   operator: string;
   approvalReference?: string | null;
-  backupDecision?: CatalogIntegrationDataBackupDecision | null;
+  backupDecision?: CatalogScopeMergeCandidateBackupDecision | null;
   stagingRehearsalReference?: string | null;
   smokeVerificationReference?: string | null;
   targetTables: readonly string[];
@@ -325,9 +336,8 @@ export function evaluateCatalogScopeMergeCandidateResetEvidence(
   packet: CatalogScopeMergeCandidateResetEvidencePacket,
 ): readonly CatalogScopeMergeCandidateResetEvidenceFinding[] {
   const findings: CatalogScopeMergeCandidateResetEvidenceFinding[] = [];
-  const plan = catalogIntegrationDataResetEnvironmentPlans.find(
-    (candidate) => candidate.environment === packet.environment,
-  );
+  const requiresApprovalAndBackup = packet.environment === "staging" || packet.environment === "production-prelaunch";
+  const requiresCountReports = requiresApprovalAndBackup || packet.environment === "local-dev-test";
   const allowedTargets = new Set(catalogScopeMergeCandidateResetTargetTables());
 
   if (!packet.operator.trim()) {
@@ -346,14 +356,14 @@ export function evaluateCatalogScopeMergeCandidateResetEvidence(
       ),
     });
   }
-  if (plan?.requiresApprovalReference && !packet.approvalReference?.trim()) {
+  if (requiresApprovalAndBackup && !packet.approvalReference?.trim()) {
     findings.push({
       code: "missing-approval-reference",
       severity: "p0",
       message: resetEvidenceFindingMessage(`${packet.environment} reset evidence requires an approval reference.`),
     });
   }
-  if (plan?.requiresBackupDecision && !packet.backupDecision) {
+  if (requiresApprovalAndBackup && !packet.backupDecision) {
     findings.push({
       code: "missing-backup-decision",
       severity: "p0",
@@ -398,7 +408,7 @@ export function evaluateCatalogScopeMergeCandidateResetEvidence(
       ),
     });
   }
-  if (plan?.requiresDryRunCounts && packet.dryRun === null) {
+  if (requiresCountReports && packet.dryRun === null) {
     findings.push({
       code: "missing-dry-run",
       severity: "p0",
@@ -407,7 +417,7 @@ export function evaluateCatalogScopeMergeCandidateResetEvidence(
       ),
     });
   }
-  if (plan?.requiresBeforeAfterVerification && packet.before === null) {
+  if (requiresCountReports && packet.before === null) {
     findings.push({
       code: "missing-before-verification",
       severity: "p0",
@@ -416,7 +426,7 @@ export function evaluateCatalogScopeMergeCandidateResetEvidence(
       ),
     });
   }
-  if (plan?.requiresBeforeAfterVerification && packet.after === null) {
+  if (requiresCountReports && packet.after === null) {
     findings.push({
       code: "missing-after-verification",
       severity: "p0",
@@ -549,7 +559,7 @@ function resetEvidenceFindingMessage(message: string): string {
   return message;
 }
 
-function isCompleteBackupDecision(decision: CatalogIntegrationDataBackupDecision): boolean {
+function isCompleteBackupDecision(decision: CatalogScopeMergeCandidateBackupDecision): boolean {
   if (decision.kind === "create-backup-snapshot-export") {
     return (
       Boolean(decision.reference.trim()) &&

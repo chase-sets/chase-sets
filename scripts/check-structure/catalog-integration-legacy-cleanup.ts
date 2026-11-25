@@ -1,14 +1,9 @@
-import type {
-  CatalogIntegrationDataSurfaceKey,
-  CatalogIntegrationDataVerificationReport,
-} from "../../bounded-contexts/catalog/features/source-observations/api/governance/catalog-integration-data-migration-reset";
+import type { CatalogIntegrationDataVerificationReport } from "../../bounded-contexts/catalog/features/source-observations/api/governance/catalog-integration-data-verification";
 
 export type CatalogIntegrationLegacyCleanupSurfaceKind = "data-surface" | "bootstrap-path";
 
 export type CatalogIntegrationLegacyCleanupAction =
-  | "wipe"
-  | "reset-to-floor"
-  | "wipe-and-rebuild"
+  | "verify-preserved-profile-version"
   | "rebuild-from-profile-version"
   | "retain-with-explicit-exception";
 
@@ -18,7 +13,6 @@ export type CatalogIntegrationLegacyCleanupSurface = Readonly<{
   action: CatalogIntegrationLegacyCleanupAction;
   owner: "catalog-source-observations";
   implementationReference: string;
-  resetSurfaceKey?: CatalogIntegrationDataSurfaceKey;
   reason: string;
   releaseExpectation: string;
 }>;
@@ -45,12 +39,7 @@ export type CatalogIntegrationLegacyCleanupReadinessInput = Readonly<{
 
 export type CatalogIntegrationLegacyCleanupReadinessFinding = Readonly<{
   code:
-    | "source-observations-not-reset"
     | "legacy-source-observation-references"
-    | "integration-jobs-not-reset"
-    | "bulk-review-jobs-not-reset"
-    | "provider-option-query-cache-not-reset"
-    | "provider-option-rate-limits-not-reset"
     | "seeded-profiles-missing"
     | "profile-sections-missing"
     | "raw-json-section-editor";
@@ -67,15 +56,13 @@ export const catalogIntegrationLegacyCleanupSurfaces: readonly CatalogIntegratio
   {
     key: "provider-profile-version-json-snapshot",
     kind: "data-surface",
-    action: "wipe-and-rebuild",
+    action: "verify-preserved-profile-version",
     owner: "catalog-source-observations",
     implementationReference:
       "bounded-contexts/catalog/features/source-observations/api/provider-integration-profile-store.ts",
-    resetSurfaceKey: "provider-profile-version",
-    reason:
-      "Pre-launch profile JSON rows are replaced by seeded or admin-authored Provider Integration Profile versions.",
+    reason: "Seeded and admin-authored Provider Integration Profile versions are preserved.",
     releaseExpectation:
-      "Seeded TCGdex, TCGplayer, and Scrydex profiles rebuild through the persisted profile version store.",
+      "The persisted profile version store keeps retained Provider Integration Profile versions readable.",
   },
   {
     key: "profile-section-projections",
@@ -84,7 +71,6 @@ export const catalogIntegrationLegacyCleanupSurfaces: readonly CatalogIntegratio
     owner: "catalog-source-observations",
     implementationReference:
       "bounded-contexts/catalog/features/source-observations/api/provider-profile-section-projection.ts",
-    resetSurfaceKey: "profile-section-projection",
     reason: "Section projections are derived read models, not legacy profile truth.",
     releaseExpectation:
       "Profile section rows and diagnostics can be regenerated from retained or seeded profile versions.",
@@ -96,89 +82,8 @@ export const catalogIntegrationLegacyCleanupSurfaces: readonly CatalogIntegratio
     owner: "catalog-source-observations",
     implementationReference:
       "bounded-contexts/catalog/features/source-observations/api/provider-profile-section-projection.ts",
-    resetSurfaceKey: "profile-section-diagnostic",
     reason: "Section diagnostics are derived from profile validation and fixture evidence.",
     releaseExpectation: "Diagnostics rebuild with profile section projections after seeded profile bootstrap.",
-  },
-  {
-    key: "source-observation-profile-references",
-    kind: "data-surface",
-    action: "wipe",
-    owner: "catalog-source-observations",
-    implementationReference: "bounded-contexts/catalog/features/source-observations/read-model/projection.ts",
-    resetSurfaceKey: "source-observation",
-    reason: "Pre-launch Source Observations can be re-imported under current profile and mapping fingerprints.",
-    releaseExpectation: "Clean release reset leaves zero Source Observations and zero legacy profile references.",
-  },
-  {
-    key: "integration-durable-jobs",
-    kind: "data-surface",
-    action: "wipe",
-    owner: "catalog-source-observations",
-    implementationReference: "bounded-contexts/catalog/features/source-observations/api/runtime.ts",
-    resetSurfaceKey: "integration-durable-job",
-    reason: "Queued, running, and completed pre-launch jobs are execution state, not Catalog truth.",
-    releaseExpectation: "Integration durable job rows are empty before launch verification.",
-  },
-  {
-    key: "integration-job-events",
-    kind: "data-surface",
-    action: "wipe",
-    owner: "catalog-source-observations",
-    implementationReference: "bounded-contexts/catalog/features/source-observations/api/runtime.ts",
-    resetSurfaceKey: "integration-job-event",
-    reason: "Pre-launch integration job events are execution evidence for data that is wiped and rebuilt.",
-    releaseExpectation: "Integration job event rows are empty before launch verification.",
-  },
-  {
-    key: "integration-work-units",
-    kind: "data-surface",
-    action: "wipe",
-    owner: "catalog-source-observations",
-    implementationReference: "bounded-contexts/catalog/features/source-observations/api/runtime.ts",
-    resetSurfaceKey: "integration-work-unit",
-    reason: "Pre-launch work units are retry state for jobs that are cancelled or wiped before launch.",
-    releaseExpectation: "Integration work-unit rows are empty before launch verification.",
-  },
-  {
-    key: "bulk-review-jobs",
-    kind: "data-surface",
-    action: "wipe",
-    owner: "catalog-source-observations",
-    implementationReference: "bounded-contexts/catalog/features/source-observations/api/runtime.ts",
-    resetSurfaceKey: "bulk-review-job",
-    reason: "Pre-launch bulk review jobs are operator workflow state, not Catalog truth.",
-    releaseExpectation: "Bulk review job rows are empty before launch verification.",
-  },
-  {
-    key: "bulk-review-job-events",
-    kind: "data-surface",
-    action: "wipe",
-    owner: "catalog-source-observations",
-    implementationReference: "bounded-contexts/catalog/features/source-observations/api/runtime.ts",
-    resetSurfaceKey: "bulk-review-job-event",
-    reason: "Pre-launch bulk review events describe jobs whose target observations are wiped and rebuilt.",
-    releaseExpectation: "Bulk review job event rows are empty before launch verification.",
-  },
-  {
-    key: "bulk-review-work-units",
-    kind: "data-surface",
-    action: "wipe",
-    owner: "catalog-source-observations",
-    implementationReference: "bounded-contexts/catalog/features/source-observations/api/runtime.ts",
-    resetSurfaceKey: "bulk-review-work-unit",
-    reason: "Pre-launch bulk review work units are execution state tied to wipeable Source Observations.",
-    releaseExpectation: "Bulk review work-unit rows are empty before launch verification.",
-  },
-  {
-    key: "provider-option-query-cache",
-    kind: "data-surface",
-    action: "wipe",
-    owner: "catalog-source-observations",
-    implementationReference: "bounded-contexts/catalog/features/source-observations/api/provider-option-query-cache.ts",
-    resetSurfaceKey: "provider-option-query-cache",
-    reason: "Provider option query results are operational cache and must not carry launch semantics.",
-    releaseExpectation: "Provider option query cache rows are zero after pre-launch reset.",
   },
   {
     key: "fixture-contract-metadata-and-payloads",
@@ -212,52 +117,11 @@ export function evaluateCatalogIntegrationLegacyCleanupReadiness(
   const findings: CatalogIntegrationLegacyCleanupReadinessFinding[] = [];
   const { report } = input;
 
-  if (report.sourceObservations > 0) {
-    findings.push({
-      code: "source-observations-not-reset",
-      severity: "p1",
-      releaseCheck: "Clean pre-launch reset expects zero Source Observations before launch verification.",
-    });
-  }
-
   if (report.legacySourceObservationReferences > 0) {
     findings.push({
       code: "legacy-source-observation-references",
       severity: "p1",
       releaseCheck: "Legacy Source Observation profile markers must be zero before launch.",
-    });
-  }
-
-  if (report.integrationDurableJobs > 0 || report.integrationWorkUnits > 0) {
-    findings.push({
-      code: "integration-jobs-not-reset",
-      severity: "p1",
-      releaseCheck: "Integration durable jobs and work units must be empty after pre-launch wipe/rebuild.",
-    });
-  }
-
-  if (report.bulkReviewJobs > 0 || report.bulkReviewWorkUnits > 0) {
-    findings.push({
-      code: "bulk-review-jobs-not-reset",
-      severity: "p1",
-      releaseCheck: "Bulk review jobs and work units must be empty after pre-launch wipe/rebuild.",
-    });
-  }
-
-  if (report.providerOptionRateLimitsAboveFloor > 0) {
-    findings.push({
-      code: "provider-option-rate-limits-not-reset",
-      severity: "p2",
-      releaseCheck:
-        "Provider option rate-limit rows must be at their configured floors with zero shared success streak before launch.",
-    });
-  }
-
-  if (report.providerOptionQueryCacheEntries > 0) {
-    findings.push({
-      code: "provider-option-query-cache-not-reset",
-      severity: "p2",
-      releaseCheck: "Provider option query cache rows must not be carried into launch.",
     });
   }
 
@@ -295,8 +159,7 @@ export function evaluateCatalogIntegrationLegacyCleanupReadiness(
 
 export function catalogIntegrationLegacyCleanupReleaseChecklist(): readonly string[] {
   return [
-    "Run the pre-launch wipe/rebuild reset and keep the before/after verification report with release evidence.",
-    "Verify Source Observations, integration jobs, bulk review jobs, and work units are empty; provider rate-limit rows are at configured floors with zero shared success streak.",
+    "Capture a read-only report of retained Catalog integration data and job status for release evidence.",
     "Verify legacy Source Observation profile references are zero.",
     "Verify seeded active TCGdex, TCGplayer, and Scrydex profile versions are present after bootstrap.",
     "Verify profile section projections and diagnostics rebuilt from retained or seeded profile versions.",

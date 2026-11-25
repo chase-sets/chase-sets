@@ -52,6 +52,18 @@ function expectedRequiredProofPaths(changedFiles) {
   return changedFiles.some((file) => file.startsWith("bounded-contexts/settlement/")) ? settlementProofPaths : [];
 }
 
+// The base classifier predates the Catalog UAT synthetic gate, so its scope never carries the flag.
+const catalogUatSyntheticPaths = [
+  /^deployables\/admin-web\/e2e\/catalog-staging-provider-sync\.uat\.spec\.ts$/,
+  /^deployables\/admin-web\/e2e\/support\/(?:whole-game-rehearsal|whole-game-credential-probe-test-support|representative-catalog-evidence)\.ts$/,
+  /^playwright\.config\.ts$/,
+  /^deployables\/corten-pilot\/admin\/src\/catalog\//,
+];
+
+function expectedCatalogUatSynthetic(changedFiles) {
+  return changedFiles.some((file) => catalogUatSyntheticPaths.some((pattern) => pattern.test(file)));
+}
+
 function withCanonicalProofOutput(output) {
   const { scope_json: scopeJson, ...existing } = output;
   const requiredProofPaths = expectedRequiredProofPaths(JSON.parse(output.changed_files_json));
@@ -2204,7 +2216,11 @@ function withPublicPresenceEnrollmentOutputs(baseOutputMap) {
 // that requires DB tests, because an empty list is how both DB-profile
 // runners sweep every DB workspace.
 function expectedPublicPresenceEnrollment(base, workspaces) {
-  base = { ...base, requiredProofPaths: expectedRequiredProofPaths(base.changedFiles) };
+  base = {
+    ...base,
+    requiredProofPaths: expectedRequiredProofPaths(base.changedFiles),
+    catalogUatSyntheticRequired: expectedCatalogUatSynthetic(base.changedFiles),
+  };
   if (base.changedFiles.length === 0 || (base.dbTestsRequired && base.affectedWorkspaces.length === 0)) {
     return base;
   }
@@ -2484,6 +2500,7 @@ describe("change-scope", () => {
       directlyAffectedWorkspaces: [],
       directlyTestOnlyAffectedWorkspaces: [],
       unitTestsRequired: false,
+      catalogUatSyntheticRequired: false,
       requiredProofPaths: [],
     });
   });

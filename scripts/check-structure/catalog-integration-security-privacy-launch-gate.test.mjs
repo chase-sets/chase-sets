@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 
 const { describe, it } = process.env.VITEST ? await import("vitest") : await import("node:test");
 if (!process.env.VITEST) await import("tsx/esm");
@@ -16,7 +19,7 @@ const { catalogIntegrationDataGovernancePolicies } =
   await import("../../bounded-contexts/catalog/features/source-observations/api/governance/catalog-integration-data-governance.ts");
 
 describe("Catalog integration security/privacy launch gate", () => {
-  it("builds a launch-safe #1064 packet covering RBAC, governance, reset/drop, and retirement", () => {
+  it("builds a launch-safe #1064 packet covering RBAC, governance and retirement", () => {
     const packet = safePacket();
     assert.equal(packet.schemaVersion, catalogSecurityPrivacyLaunchGateSchemaVersion);
     assert.equal(packet.checklistVersion, catalogSecurityPrivacyLaunchGateChecklistVersion);
@@ -35,8 +38,10 @@ describe("Catalog integration security/privacy launch gate", () => {
       packet.governance.coveredDataClasses,
       catalogIntegrationDataGovernancePolicies.map((policy) => policy.key),
     );
-    assert.equal(packet.resetDrop.targetTables.includes("catalog_items"), false);
-    assert.equal(packet.resetDrop.targetTables.includes("orders"), false);
+    assert.equal(packet.integrationResetDisposition.productionApply, "NOT RUN");
+    assert.equal(packet.integrationResetDisposition.decidedAt, "2026-11-22");
+    assert.match(packet.integrationResetDisposition.decision, /#issuecomment-7074059802$/);
+    assert.match(packet.integrationResetDisposition.productionReadOnlyDryRun, /\/44984051710$/);
     for (const surface of [
       "read-model contracts",
       "clients",
@@ -161,20 +166,59 @@ describe("Catalog integration security/privacy launch gate", () => {
     );
   });
 
-  it("fails closed when reset/drop proof is not bounded", () => {
+  it("refuses a packet that reports production apply as PASS", () => {
     const packet = safePacket();
     assert.throws(
       () =>
         assertCatalogSecurityPrivacyLaunchGatePacketIsLaunchSafe({
           ...packet,
-          resetDrop: {
-            ...packet.resetDrop,
-            productionPrelaunchRequiresApproval: false,
-            targetTables: [...packet.resetDrop.targetTables, "orders"],
-          },
+          integrationResetDisposition: { ...packet.integrationResetDisposition, productionApply: "PASS" },
         }),
-      /reset\/drop target table coverage mismatch/,
+      /launch packet must record.*NOT RUN/,
     );
+  });
+
+  it("refuses a missing or tampered archive even for a previously valid packet", () => {
+    const packet = safePacket();
+    withResetRetirementFixture((root, archive, write) => {
+      assert.doesNotThrow(() => assertCatalogSecurityPrivacyLaunchGatePacketIsLaunchSafe(packet, root));
+      rmSync(archive);
+      assert.throws(() => safePacket(root), /disposition is missing or unreadable/);
+      assert.throws(
+        () => assertCatalogSecurityPrivacyLaunchGatePacketIsLaunchSafe(packet, root),
+        /disposition is missing or unreadable/,
+      );
+      for (const patch of [
+        { productionApply: "PASS" },
+        { productionReadOnlyDryRun: "" },
+        { stagingSmoke: null },
+        { decision: "https://example.invalid/not-the-host-decision" },
+      ]) {
+        write(dispositionPath, JSON.stringify({ ...packet.integrationResetDisposition, ...patch }));
+        assert.throws(() => safePacket(root), /must match the archived NOT RUN decision and evidence/);
+      }
+    });
+  });
+
+  it("refuses a restored workflow, CLI, governance module, or ops alias", () => {
+    const packet = safePacket();
+    withResetRetirementFixture((root, _archive, write) => {
+      for (const path of [
+        ".github/workflows/catalog-integration-staging-reset.yml",
+        "scripts/run-catalog-integration-reset.mjs",
+        "scripts/catalog-integration-reset.ts",
+        "bounded-contexts/catalog/features/source-observations/api/governance/catalog-integration-data-migration-reset.ts",
+      ]) {
+        write(path, "");
+        assert.throws(
+          () => assertCatalogSecurityPrivacyLaunchGatePacketIsLaunchSafe(packet, root),
+          /Retired Catalog Integration reset path is present/,
+        );
+        rmSync(join(root, path));
+      }
+      write("scripts/ops.mjs", 'const ops = { "catalog:integration-reset": {} };');
+      assert.throws(() => safePacket(root), /Retired Catalog Integration reset command is present/);
+    });
   });
 
   it("fails closed when retirement preserves compatibility surfaces", () => {
@@ -195,16 +239,39 @@ describe("Catalog integration security/privacy launch gate", () => {
   });
 });
 
-function safePacket() {
-  return buildCatalogSecurityPrivacyLaunchGatePacket({
-    environment: "staging",
-    generatedAt: "2026-06-11T00:00:00.000Z",
-    signoff: {
-      owner: "catalog-source-observations",
-      reviewer: "catalog-release-lead",
-      approvedAt: "2026-06-11T00:00:00.000Z",
-      approvalReference: "https://github.com/chase-sets/chase-sets/issues/1064#issuecomment-launch-gate",
-      checklistVersion: catalogSecurityPrivacyLaunchGateChecklistVersion,
+const dispositionPath = "bounded-contexts/catalog/docs/catalog-integration-production-reset-disposition.json";
+
+function withResetRetirementFixture(run) {
+  const root = mkdtempSync(join(tmpdir(), "catalog-reset-retirement-"));
+  const archive = join(root, dispositionPath);
+  const write = (path, content) => {
+    const destination = join(root, path);
+    mkdirSync(dirname(destination), { recursive: true });
+    writeFileSync(destination, content);
+  };
+  try {
+    write("scripts/ops.mjs", "");
+    mkdirSync(dirname(archive), { recursive: true });
+    copyFileSync(new URL(`../../${dispositionPath}`, import.meta.url), archive);
+    run(root, archive, write);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+function safePacket(repositoryRoot) {
+  return buildCatalogSecurityPrivacyLaunchGatePacket(
+    {
+      environment: "staging",
+      generatedAt: "2026-06-11T00:00:00.000Z",
+      signoff: {
+        owner: "catalog-source-observations",
+        reviewer: "catalog-release-lead",
+        approvedAt: "2026-06-11T00:00:00.000Z",
+        approvalReference: "https://github.com/chase-sets/chase-sets/issues/1064#issuecomment-launch-gate",
+        checklistVersion: catalogSecurityPrivacyLaunchGateChecklistVersion,
+      },
     },
-  });
+    repositoryRoot,
+  );
 }

@@ -161,6 +161,13 @@ export function createAuthApiClient({
     async requestGuestCheckoutClaimLink<T>(body: Record<string, unknown>): Promise<T> {
       return postJson<T>(configuredFetch, buildUrl("guest-checkout/claim-link/request"), body, headers);
     },
+    async getGuestCheckoutContact<T>(): Promise<T> {
+      return parseJsonResponse<T>(
+        await configuredFetch(buildUrl("guest-checkout/contact"), {
+          headers,
+        }),
+      );
+    },
     async getGuestCheckoutClaimContext<T>(body: Record<string, unknown>): Promise<T> {
       return postJson<T>(configuredFetch, buildUrl("guest-checkout/claim-context"), body, headers);
     },

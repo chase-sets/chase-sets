@@ -209,6 +209,17 @@ export function createCatalogServices(
     listProfileVersions: () => providerIntegrationProfiles.listProfileVersions(),
     queryIntegrationOptions: (input) => sourceObservations.queryIntegrationOptions(input),
     providerScopeMappingCommandHandler: providerScopeMappings.commandHandler,
+    providerScopeMappingCommandHandlerInTransaction: (transaction) =>
+      createProviderScopeMappingRuntime({
+        ...deps,
+        db: transaction,
+        eventStore: {
+          ...eventStore,
+          readStream: (read) => eventStore.readStreamInTransaction(transaction, read),
+          appendToStream: (append) => eventStore.appendToStreamInTransaction(transaction, append),
+          appendToStreams: (appends) => eventStore.appendToStreamsInTransaction(transaction, appends),
+        },
+      }).commandHandler,
     referenceRecordCommandHandler: referenceData.referenceRecordCommandHandler,
   });
 
@@ -218,6 +229,7 @@ export function createCatalogServices(
       ports.catalogOperatorAuthority,
       {
         tcgplayerSetNames: providerScopeDiscovery.recordExtensionScopeObservations,
+        answerTcgplayerSetNameRequest: sourceObservationRuntime.answerTcgplayerSetNameRequest,
         tcgplayerSealedProducts: createExtensionTcgplayerSealedProductRecorder({
           deps,
           pool,
@@ -232,6 +244,7 @@ export function createCatalogServices(
           return result.rows[0]!.now.toISOString();
         },
       },
+      sourceObservationRuntime.currentCatalogObservationRequest,
     ),
     dimensions,
     displayTemplates,

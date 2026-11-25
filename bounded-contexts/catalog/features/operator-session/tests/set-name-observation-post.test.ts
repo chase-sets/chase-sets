@@ -16,6 +16,8 @@ import {
   type TcgplayerSetNameObservationRecorder,
 } from "../api/set-name-observations";
 import { OperatorSessionRequestError } from "../api/request";
+import { operatorOrigins } from "../domain/extension/protocol";
+import { setNameRequestHeader } from "../domain/extension/set-names/request";
 import {
   createInMemoryObservationStore,
   postRequest,
@@ -258,6 +260,25 @@ async function expectRefusal(response: Response, status: number, code: string) {
 }
 
 describe("tcgplayer set-name post guard", () => {
+  it("does not admit a byte-order marker stripped from a correlated answer", async () => {
+    const answer = vi.fn(async () => ({ observationCount: 1, newObservationCount: 1, mappingsProposed: 1 }));
+    const handler = createTcgplayerSetNameObservationPost({
+      authorizeObservationGrant: async () => provenance,
+      record: vi.fn(),
+      serializeWrites: async (work) => work(),
+      answer,
+    });
+    const request = (body: string) =>
+      new Request(operatorOrigins.staging, {
+        method: "POST",
+        headers: { [setNameRequestHeader]: "00000000-0000-4000-8000-000000000001" },
+        body,
+      });
+    const body = JSON.stringify(validPost());
+    expect((await handler(request(body))).status).toBe(200);
+    await expectRefusal(await handler(request(`\uFEFF${body}`)), 400, "invalid-body");
+    expect(answer).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ text: body }));
+  });
   it("records Lorcana product line 71 under the Lorcana unit with grant provenance", async () => {
     const h = harness();
     const sets = [setNameEntry(71, 1)];

@@ -28,10 +28,15 @@ describe("payment read-model queries", () => {
     expect(sql).toContain("FROM payments_payment_orders");
     expect(sql).toContain("COUNT(*) = (SELECT COUNT(*) FROM requested_order_ids)");
     expect(sql).toContain("status = ANY($3::text[])");
+    expect(sql).toContain("payment_id <> ALL($4::text[])");
     expect(values).toEqual([
       JSON.stringify(["ord_2", "ord_1"]),
       "acc_buyer",
       ["pending-confirmation", "captured", "partially-refunded", "refunded", "disputed"],
+      [],
     ]);
+
+    await getActivePaymentByOrderSet(db as never, ["ord_2", "ord_1"], "acc_buyer", ["pay_stale"]);
+    expect(db.query).toHaveBeenNthCalledWith(2, sql, [...values.slice(0, 3), ["pay_stale"]]);
   });
 });

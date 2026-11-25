@@ -14,10 +14,15 @@ import {
 } from "@chase-sets/auth-context";
 import { observationWriteLockId, withOperatorSessionBackend } from "./operation";
 import { OperatorSessionRequestError, readGrantBearer, requireEmptyBody } from "./request";
-import { createMarketObservationRoutes, type MarketObservationDeps } from "./market-observations";
+import {
+  createMarketObservationRoutes,
+  type CatalogObservationRequestSource,
+  type MarketObservationDeps,
+} from "./market-observations";
 import {
   createTcgplayerSetNameObservationPost,
   type TcgplayerSetNameObservationRecorder,
+  type TcgplayerSetNameRequestAnswer,
 } from "./set-name-observations";
 import {
   createTcgplayerSealedProductObservationPost,
@@ -46,6 +51,7 @@ function grantsCatalogManage(
 
 export type OperatorObservationRecorders = Readonly<{
   tcgplayerSetNames?: TcgplayerSetNameObservationRecorder;
+  answerTcgplayerSetNameRequest?: TcgplayerSetNameRequestAnswer;
   tcgplayerSealedProducts?: TcgplayerSealedProductObservationRecorder;
 }>;
 
@@ -54,6 +60,7 @@ export function createOperatorSessionGrants(
   catalogOperatorAuthority?: Pick<CatalogOperatorAuthority, "forActor" | "forGrantCreator">,
   observationRecorders: OperatorObservationRecorders = {},
   marketObservations?: Omit<MarketObservationDeps, "authorizeObservationGrant">,
+  catalogObservationRequests?: CatalogObservationRequestSource,
 ) {
   const globalLimit = createInMemoryRateLimiter({ max: 120, windowMs: 60_000, maxBuckets: 1 });
   const grantLimit = createInMemoryRateLimiter({ max: 6, windowMs: 60_000 });
@@ -137,17 +144,20 @@ export function createOperatorSessionGrants(
   }
   return {
     authorizeObservationGrant,
-    marketObservations: createMarketObservationRoutes({
-      ...(marketObservations ?? {
-        requestSource: undefined,
-        store: createPostgresEventStore({ pool }),
-        databaseNow: async () => {
-          const result = await pool.query<{ now: Date }>("SELECT clock_timestamp() AS now");
-          return result.rows[0]!.now.toISOString();
-        },
-      }),
-      authorizeObservationGrant,
-    }),
+    marketObservations: createMarketObservationRoutes(
+      {
+        ...(marketObservations ?? {
+          requestSource: undefined,
+          store: createPostgresEventStore({ pool }),
+          databaseNow: async () => {
+            const result = await pool.query<{ now: Date }>("SELECT clock_timestamp() AS now");
+            return result.rows[0]!.now.toISOString();
+          },
+        }),
+        authorizeObservationGrant,
+      },
+      catalogObservationRequests,
+    ),
     recordTcgplayerSealedProductObservations: createTcgplayerSealedProductObservationPost({
       authorizeObservationGrant,
       record: observationRecorders.tcgplayerSealedProducts,
@@ -156,6 +166,7 @@ export function createOperatorSessionGrants(
     recordTcgplayerSetNameObservations: createTcgplayerSetNameObservationPost({
       authorizeObservationGrant,
       record: observationRecorders.tcgplayerSetNames,
+      answer: observationRecorders.answerTcgplayerSetNameRequest,
       serializeWrites: (work) => withOperatorSessionBackend(pool, work, observationWriteLockId),
     }),
     async execute(action: Action, request: Request, actor?: ResolvedActor | null): Promise<Response> {

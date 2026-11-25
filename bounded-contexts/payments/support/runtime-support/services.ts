@@ -116,17 +116,19 @@ export function createPaymentsServices(
     resolveLimits: async () => (await policies.resolvePolicy(walletFundingLimitsPolicy)).value,
   });
 
+  const runPaymentTransaction = createPaymentTransactionRunner(pool, eventStore);
   const refunds = createRefundRuntime({
     eventStore,
     checkpointStore,
     db,
     processorGateway,
     notificationOutbox,
+    runPaymentTransaction,
   });
   const payments = createPaymentRuntime({
     cardDeclineStore: createCardDeclineStore(pool),
     runWebhookTransaction: createPaymentWebhookRunner(pool, eventStore),
-    runPaymentTransaction: createPaymentTransactionRunner(pool, eventStore),
+    runPaymentTransaction,
     walletFunding,
     evidenceWindowCorrelation: options.evidenceWindowCorrelation,
     evidenceWindowProviderWrite: options.evidenceWindowProviderWrite,

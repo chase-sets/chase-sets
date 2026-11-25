@@ -1,5 +1,5 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { withPgTransaction, type PgQueryable, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import {
@@ -15,6 +15,8 @@ import {
   upsertCatalogScopeSyncUnitState,
 } from "../../scope-sync-state/read-model/queries";
 import { listAcceptedProviderScopeMappingsByScopeRecord } from "../../provider-scope-mapping/read-model/queries";
+import { getCatalogScopeRecord } from "../../scope-registry/read-model/queries";
+import { normalizeCatalogScopeProductDomain } from "../../scope-registry/domain/contract";
 import { type CatalogIntegrationRolloutControlPolicy } from "./governance/catalog-integration-rollout-controls";
 import {
   catalogSyncAcceptedScopeMappingFromRow,
@@ -38,6 +40,8 @@ import type {
   IntegrationJobServices,
   SourceObservationIntegrationJobStore,
   CatalogSyncRunJobStore,
+  CatalogSyncRunPayload,
+  SourceObservationIntegrationDurableJobRecord,
 } from "./source-observation-runtime-contracts";
 import {
   jobMatchesContext,
@@ -82,6 +86,42 @@ export function recordCatalogScopeSyncFailureForLinkedJob(
     completedAt: job.completedAt,
     updatedAt: recordedAt,
   });
+}
+
+async function isActiveSetNameScope(db: PgQueryable, scope: CatalogSyncScope) {
+  const record = await getCatalogScopeRecord(db, scope.reference.scopeRecordId);
+  return (
+    record?.lifecycle_status === "active" &&
+    record.scope_kind === scope.reference.kind &&
+    normalizeCatalogScopeProductDomain(record.product_domain) ===
+      normalizeCatalogScopeProductDomain(scope.productDomain)
+  );
+}
+
+export function createCatalogSetNameRequestRecheck(
+  profileIsCurrent: (db: PgQueryable, job: SourceObservationIntegrationDurableJobRecord) => Promise<boolean>,
+) {
+  return async (db: PgQueryable, job: SourceObservationIntegrationDurableJobRecord) => {
+    const parent = (
+      await db.query<{ payload: CatalogSyncRunPayload }>(
+        `SELECT payload FROM catalog_source_observation_integration_durable_jobs
+        WHERE job_id = $1 AND job_kind = 'catalog-sync-scope'`,
+        [job.payload.syncRunId],
+      )
+    ).rows[0]?.payload;
+    if (!parent || !(await isActiveSetNameScope(db, parent.scope))) return false;
+    const mappings = await listAcceptedProviderScopeMappingsByScopeRecord(db, parent.scope.reference.scopeRecordId);
+    if (
+      mappings.some(
+        (mapping) =>
+          mapping.unit_key === job.payload.scope.ingestionUnitKey &&
+          mapping.product_line_id &&
+          mapping.product_line_id !== job.payload.scope.productLineId,
+      )
+    )
+      return false;
+    return profileIsCurrent(db, job);
+  };
 }
 
 /**
@@ -142,6 +182,7 @@ export function createCatalogScopeSyncStateRuntime({
     scopeKey: string,
     unit: CatalogSyncRunSelectedUnitSnapshot,
   ): Promise<string | null> {
+    if (unit.childExecutionScope.execution === "extension-set-names") return null;
     const currentChildExecutionScope = compactStringRecord(unit.childExecutionScope);
     const state = await readCatalogScopeSyncUnitState(deps.db, {
       scopeKey,
@@ -322,7 +363,18 @@ export function createCatalogScopeSyncStateRuntime({
   async function findReusableCatalogSyncRun(
     idempotencyKey: string,
     context: EventStoreContext,
+    includeTerminal = false,
   ): Promise<CatalogSyncRun | null> {
+    if (includeTerminal) {
+      const exact = await deps.db.query<{ job_id: string }>(
+        `SELECT job_id FROM catalog_source_observation_integration_durable_jobs
+          WHERE job_kind = 'catalog-sync-scope' AND payload->>'idempotencyKey' = $1
+          ORDER BY created_at DESC LIMIT 1`,
+        [idempotencyKey],
+      );
+      const candidate = exact.rows[0] && (await catalogSyncRunStore.get(exact.rows[0].job_id));
+      return candidate && jobMatchesContext(candidate, context) ? toCatalogSyncRun(candidate) : null;
+    }
     const candidates = await catalogSyncRunStore.listRecent({
       jobKinds: ["catalog-sync-scope"],
       eventContext: context,
@@ -450,6 +502,12 @@ export type CatalogSyncRunFanoutRuntimeDeps = Readonly<{
   catalogSyncRunStore: CatalogSyncRunJobStore;
   scopeSyncState: Omit<CatalogScopeSyncStateRuntime, "services" | "recordCatalogScopeSyncStateForChildJob">;
   enqueueIntegrationJob: IntegrationJobServices["enqueueIntegrationJob"];
+  enqueueSetNames?: (input: {
+    scope: CatalogSyncRunSelectedUnitSnapshot["childExecutionScope"];
+    syncRunId: string;
+    context: EventStoreContext;
+  }) => Promise<SourceObservationIntegrationJob>;
+  browserFanoutPool?: PgTransactionalPool;
 }>;
 
 /**
@@ -461,6 +519,8 @@ export function createCatalogSyncRunFanoutRuntime({
   catalogSyncRunStore,
   scopeSyncState,
   enqueueIntegrationJob,
+  enqueueSetNames,
+  browserFanoutPool,
 }: CatalogSyncRunFanoutRuntimeDeps) {
   const {
     previewCatalogSyncScope,
@@ -474,6 +534,7 @@ export function createCatalogSyncRunFanoutRuntime({
   async function enqueueCatalogSyncRun(input: {
     scope: CatalogSyncScope;
     context: EventStoreContext;
+    dispatchKey?: string;
   }): Promise<CatalogSyncRun> {
     const preview = await previewCatalogSyncScope(input);
     if (!preview.startAllowed) {
@@ -489,28 +550,50 @@ export function createCatalogSyncRunFanoutRuntime({
       throw new Error("Catalog sync scope has no selected eligible provider units.");
     }
 
-    const idempotencyKey = catalogSyncRunIdempotencyKey(input.context, preview.scope, selectedUnits);
-    const existingRun = await findReusableCatalogSyncRun(idempotencyKey, input.context);
+    const browser = selectedUnits.some((unit) => unit.childExecutionScope.execution === "extension-set-names");
+    const fingerprint = catalogSyncRunIdempotencyKey(input.context, preview.scope, selectedUnits);
+    const idempotencyKey = browser && input.dispatchKey ? `${fingerprint}:${input.dispatchKey}` : fingerprint;
+    if (browser && browserFanoutPool) {
+      return withPgTransaction(browserFanoutPool, async (lock) => {
+        await lock.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [`catalog-fanout:${idempotencyKey}`]);
+        if (!(await isActiveSetNameScope(lock, preview.scope)))
+          throw new Error("Set-name discovery requires an active Catalog scope.");
+        return fanout(input, preview, selectedUnits, idempotencyKey, true);
+      });
+    }
+    return fanout(input, preview, selectedUnits, idempotencyKey, false);
+  }
+
+  async function fanout(
+    input: { context: EventStoreContext; dispatchKey?: string },
+    preview: CatalogSyncProviderParticipationPreview,
+    selectedUnits: readonly CatalogSyncRunSelectedUnitSnapshot[],
+    idempotencyKey: string,
+    browser: boolean,
+  ): Promise<CatalogSyncRun> {
+    const existingRun = await findReusableCatalogSyncRun(idempotencyKey, input.context, browser && !!input.dispatchKey);
     if (existingRun) {
-      return existingRun;
+      if (!browser || existingRun.childJobs.length > 0) return existingRun;
     }
 
-    const syncRunId = createId("job");
+    const syncRunId = existingRun?.syncRunId ?? createId("job");
     let parentRecord: CatalogSyncRunDurableJobRecord;
     try {
-      parentRecord = await catalogSyncRunStore.enqueue({
-        jobId: syncRunId,
-        jobKind: "catalog-sync-scope",
-        payload: {
-          runVersion: "catalog-sync-run-v1",
-          idempotencyKey,
-          scope: preview.scope,
-          selectedUnits,
-          preview,
-        },
-        progress: catalogSyncRunFanoutProgress(0, selectedUnits.length, null, null, "processing"),
-        eventContext: input.context,
-      });
+      parentRecord =
+        (existingRun && (await catalogSyncRunStore.get(syncRunId))) ||
+        (await catalogSyncRunStore.enqueue({
+          jobId: syncRunId,
+          jobKind: "catalog-sync-scope",
+          payload: {
+            runVersion: "catalog-sync-run-v1",
+            idempotencyKey,
+            scope: preview.scope,
+            selectedUnits,
+            preview,
+          },
+          progress: catalogSyncRunFanoutProgress(0, selectedUnits.length, null, null, "processing"),
+          eventContext: input.context,
+        }));
     } catch (error) {
       const racedRun = await findReusableCatalogSyncRun(idempotencyKey, input.context);
       if (racedRun) {
@@ -545,12 +628,15 @@ export function createCatalogSyncRunFanoutRuntime({
       }
 
       try {
-        const childJob = await enqueueIntegrationJob({
-          action: "import",
-          scope: unit.childExecutionScope,
-          syncRunId,
-          context: input.context,
-        });
+        const childJob =
+          unit.childExecutionScope.execution === "extension-set-names" && enqueueSetNames
+            ? await enqueueSetNames({ scope: unit.childExecutionScope, syncRunId, context: input.context })
+            : await enqueueIntegrationJob({
+                action: "import",
+                scope: unit.childExecutionScope,
+                syncRunId,
+                context: input.context,
+              });
         childJobs.push({
           providerKey: unit.providerKey,
           unitKey: unit.unitKey,

@@ -78,8 +78,10 @@ pub mod url {
     }
 
     /// The list's filters (the filter form's fields) and page (from 1): what the list, its live
-    /// rows, its bulk preview, the drafts' removal and their confirms all carry.
+    /// rows, its bulk preview, the drafts' removal and their confirms all carry. In admin-web's
+    /// names (`blueprintId`, `hasImages`), so an address admin-web made opens the same list.
     #[derive(Clone, Debug, Default, Fields, Route)]
+    #[serde(rename_all = "camelCase")]
     #[route(query)]
     pub struct ItemQuery {
         pub search: Option<String>,

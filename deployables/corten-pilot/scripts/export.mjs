@@ -230,9 +230,6 @@
 // - marketplace/locales/site.en.json: marketplace-web's offline page and its web app manifest's
 //   description (marketplace.app.routes.offline.* as offline.*, and
 //   marketplace.app.routes.manifest.description as manifest_description).
-// - marketplace/static/icons/: marketplace-web's four app icons (public/icons), which its manifest names.
-// - marketplace/fake-cdn/assets/: marketplace-web's fallback pictures (public/fake-cdn/assets), the card
-//   backs Catalog stores and the product placeholder, which the pilot serves at /fake-cdn/assets/.
 // - admin/favicon.svg: the same logo, admin-web's favicon. Not committed (see GENERATED).
 // - admin/locales/site.en.json: admin-web's offline page, its home (the sections), and its web app
 //   manifest's description (adminWeb.app.routes.offline.* as offline.*, adminWeb.app.routes.index.*
@@ -705,29 +702,10 @@ const homeAssets = [
   "chase-sets-og-founders.png",
 ];
 
-// marketplace-web's app icons (deployables/marketplace/public/icons), which its web app manifest
-// names, in the pilot marketplace's static/icons/. The admin app's four icons are committed and owned
-// in admin/static/icons, so the export reads nothing from admin-web for them.
-const appIcons = [
-  [
-    "marketplace",
-    "marketplace",
-    ["chase-sets-192.png", "chase-sets-512.png", "chase-sets-maskable-192.png", "chase-sets-maskable-512.png"],
-  ],
-];
-
-// marketplace-web's fallback pictures (deployables/marketplace/public/fake-cdn/assets): the card
-// backs Catalog stores as fallbacks (contracts/catalog-seed/fallback-assets.ts) and the game-neutral
-// product placeholder, which the pilot marketplace serves at the same paths from fake-cdn/assets/.
-const fakeCdnAssets = [
-  "lorcana-card-back.png",
-  "magic-card-back.svg",
-  "one-piece-card-back.png",
-  "pokemon-card-back.png",
-  "pokemon_tcg_back.png",
-  "product-image-placeholder.svg",
-  "yugioh-card-back.svg",
-];
+// The apps' web app icons (admin/static/icons, marketplace/static/icons) and marketplace's fallback
+// pictures (marketplace/fake-cdn/assets: the card backs Catalog stores and the product placeholder)
+// are committed and owned in the pilot, so the export reads nothing from admin-web or
+// marketplace-web for them.
 
 /** An article as the help center and the developer portal draw it. */
 const article = (a) => ({
@@ -1357,6 +1335,8 @@ const outputs = [
         // Checkout's refusal of Pay now for a buyer who cannot start a payment, which the page
         // gives before it writes anything.
         ["checkout.features.sessions.api.route.payment.", "payment"],
+        // Checkout's refusal of Pay now for a guest whose contact Auth does not hold yet.
+        ["checkout.features.sessions.api.route.guest.contact.", "guest_contact"],
       ]),
     ),
   ],
@@ -2103,34 +2083,6 @@ for (const name of homeAssets) {
   } else {
     copyFileSync(source, target);
     console.log(`wrote public/static/home/${name}`);
-  }
-}
-for (const [deployable, app, names] of appIcons) {
-  mkdirSync(path.join(pilot, app, "static/icons"), { recursive: true });
-  for (const name of names) {
-    const source = path.join(repo, "deployables", deployable, "public/icons", name);
-    const target = path.join(pilot, app, "static/icons", name);
-    if (existsSync(target) && readFileSync(target).equals(readFileSync(source))) continue;
-    if (check) {
-      console.error(`${app}/static/icons/${name} is out of date`);
-      stale += 1;
-    } else {
-      copyFileSync(source, target);
-      console.log(`wrote ${app}/static/icons/${name}`);
-    }
-  }
-}
-mkdirSync(path.join(pilot, "marketplace/fake-cdn/assets"), { recursive: true });
-for (const name of fakeCdnAssets) {
-  const source = path.join(repo, "deployables/marketplace/public/fake-cdn/assets", name);
-  const target = path.join(pilot, "marketplace/fake-cdn/assets", name);
-  if (existsSync(target) && readFileSync(target).equals(readFileSync(source))) continue;
-  if (check) {
-    console.error(`marketplace/fake-cdn/assets/${name} is out of date`);
-    stale += 1;
-  } else {
-    copyFileSync(source, target);
-    console.log(`wrote marketplace/fake-cdn/assets/${name}`);
   }
 }
 process.exit(stale ? 1 : 0);

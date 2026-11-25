@@ -9,6 +9,17 @@ import type { CatalogIntegrationRolloutControlPolicy } from "../governance/catal
 import { unitKeyForCatalogProviderProfileVersion } from "../governance/catalog-integration-impact-analysis";
 import type { SourceObservationIntegrationJobScope } from "../runtime";
 import { normalizeCatalogScopeProductDomain } from "../../../scope-registry/domain/contract";
+import { tcgplayerSetNameUnits } from "../../../operator-session/domain/extension/set-names/contract";
+
+export function catalogSetNamesProductLineId(unitKey: string): number | null {
+  return tcgplayerSetNameUnits.find((unit) => unit.unitKey === unitKey)?.productLineId ?? null;
+}
+
+export function catalogSetNamesUnitKeyForProductDomain(productDomain: string): string | undefined {
+  return tcgplayerSetNameUnits.find(
+    (unit) => unit.productLineId !== null && unitMatchesProductDomain(unit.unitKey, productDomain),
+  )?.unitKey;
+}
 
 export type CatalogSyncScopeReferenceKind = "product-line" | "series" | "expansion" | "set" | "catalog-item";
 
@@ -196,15 +207,14 @@ export async function previewCatalogSyncProviderParticipation(input: {
   const excludedUnitKeys = new Set(scope.providerParticipation?.excludedUnitKeys ?? []);
   const requiredUnitKeys = new Set(scope.providerParticipation?.requiredUnitKeys ?? []);
   const restrictToExplicitParticipation = selectedUnitKeys.size > 0 || requiredUnitKeys.size > 0;
-  // A unit whose registered adapter declares no import planning is never
-  // enrolled: it is not planned, selected or required, contributes no blocker,
-  // and its adapter is never called. An explicitly required one is refused below
-  // as missing.
+  // An adapter with no import planning cannot enroll a server import. Qualified
+  // SetNames units have a separate browser path and never call the adapter.
   const candidates = input.providerProfileVersions
     .filter(
       (version) =>
         version.profile.capabilities.includes("source-observation-import") &&
-        !declaresNoImportPlanning(input.providerAdapterRegistry, version.providerKey),
+        (!declaresNoImportPlanning(input.providerAdapterRegistry, version.providerKey) ||
+          catalogSetNamesProductLineId(unitKeyForCatalogProviderProfileVersion(version)) !== null),
     )
     .map((version) => ({ version, unitKey: unitKeyForCatalogProviderProfileVersion(version) }));
   const activeUnitKeys = new Set(
@@ -223,6 +233,8 @@ export async function previewCatalogSyncProviderParticipation(input: {
       if (restrictToExplicitParticipation) {
         return false;
       }
+      if (catalogSetNamesProductLineId(unitKey) !== null)
+        return scope.reference.kind === "product-line" && unitMatchesProductDomain(unitKey, scope.productDomain);
       return unitMatchesCatalogSyncScope(version, unitKey, scope);
     });
 
@@ -243,7 +255,10 @@ export async function previewCatalogSyncProviderParticipation(input: {
       if (!selectedUnitKeys.has(candidate.unitKey) && !isActiveProviderProfileVersion(candidate.version)) {
         continue;
       }
-      if (providerParticipationRole(candidate.version) === "primary-source-observation") {
+      if (
+        catalogSetNamesProductLineId(candidate.unitKey) === null &&
+        providerParticipationRole(candidate.version) === "primary-source-observation"
+      ) {
         requiredDefaults.add(candidate.unitKey);
       }
     }
@@ -368,7 +383,22 @@ async function planProviderUnit(input: {
   required: boolean;
   explicitlySelected: boolean;
 }): Promise<CatalogSyncProviderParticipationUnit> {
-  const blockers = catalogSyncProfileEligibilityBlockers(input.version, input.unitKey, input.scope, input.mapping);
+  const productLineId = catalogSetNamesProductLineId(input.unitKey);
+  const blockers = catalogSyncProfileEligibilityBlockers(
+    input.version,
+    input.unitKey,
+    input.scope,
+    input.mapping,
+    productLineId !== null,
+  );
+  if (productLineId !== null && input.mapping?.productLineId && input.mapping.productLineId !== String(productLineId)) {
+    blockers.push({
+      code: "provider-plan-unavailable",
+      severity: "error",
+      message: t("catalog.features.sourceObservations.api.catalogSyncScopePlanner.setNamesProductLineMismatch"),
+      action: "Review the accepted Provider Scope Mapping before refreshing set names.",
+    });
+  }
   const adapter = input.registry.get(input.version.providerKey);
   const rolloutEvidence: Array<
     NonNullable<CatalogSyncProviderParticipationUnit["planningEvidence"]>["rollout"][number]
@@ -403,7 +433,7 @@ async function planProviderUnit(input: {
     credentials: [],
     transport: [],
   };
-  if (!adapter) {
+  if (productLineId === null && !adapter) {
     blockers.push({
       code: "provider-adapter-missing",
       severity: "error",
@@ -412,15 +442,37 @@ async function planProviderUnit(input: {
       }),
       action: "Register and configure this provider adapter before selecting the unit.",
     });
-  } else if (input.includeOperationalGates) {
+  } else if (productLineId === null && adapter && input.includeOperationalGates) {
     readinessEvidence = await appendProviderReadinessBlockers(adapter, input.unitKey, blockers);
   }
 
   const childExecutionScope =
-    blockers.length === 0 ? childScopeForProviderUnit(input.scope, input.version, input.unitKey, input.mapping) : null;
+    blockers.length === 0
+      ? productLineId === null
+        ? childScopeForProviderUnit(input.scope, input.version, input.unitKey, input.mapping)
+        : {
+            execution: "extension-set-names" as const,
+            provider: input.version.providerKey,
+            profileKey: input.version.profileKey,
+            ingestionUnitKey: input.unitKey,
+            productLineId: String(productLineId),
+            planningFingerprint: `profile:${input.version.profileVersion}`,
+          }
+      : null;
   const selected = input.explicitlySelected || input.required || blockers.length === 0;
   const estimate =
-    childExecutionScope && adapter ? await planEstimate(adapter, input.unitKey, childExecutionScope, blockers) : null;
+    childExecutionScope && productLineId !== null
+      ? {
+          targetCount: 1,
+          requestStrategy: null,
+          estimatedRequestCount: 1,
+          estimateState: "estimated" as const,
+          estimateReason: null,
+          transportSteps: [],
+        }
+      : childExecutionScope && adapter
+        ? await planEstimate(adapter, input.unitKey, childExecutionScope, blockers)
+        : null;
   const eligibility = catalogSyncProviderEligibility(blockers);
 
   return {
@@ -428,8 +480,11 @@ async function planProviderUnit(input: {
     unitKey: input.unitKey,
     profileKey: input.version.profileKey,
     profileVersion: input.version.profileVersion,
-    displayName: input.version.profile.displayName,
-    role: providerParticipationRole(input.version),
+    displayName:
+      productLineId === null
+        ? input.version.profile.displayName
+        : t("catalog.features.sourceObservations.api.catalogSyncScopePlanner.setNamesDisplayName"),
+    role: productLineId === null ? providerParticipationRole(input.version) : "reference-data",
     requirement: input.required ? "required" : "optional",
     eligibility,
     defaultSelected: eligibility === "eligible",
@@ -576,9 +631,8 @@ function isActiveProviderProfileVersion(version: CatalogProviderIntegrationProfi
   return version.active && version.lifecycle === "active" && version.profile.status === "active";
 }
 
-// The registered adapter's capability declaration is the single signal, never a
-// provider-key branch. A provider with no registered adapter does not declare
-// anything, so its units stay planned and fail closed as provider-adapter-missing.
+// No registered adapter means no declaration; its server units fail closed as
+// provider-adapter-missing instead of silently disappearing from the preview.
 function declaresNoImportPlanning(registry: ProviderAdapterRegistry, providerKey: string): boolean {
   return registry.get(providerKey)?.capabilities.supportsImportPlanning === false;
 }
@@ -594,6 +648,7 @@ export function catalogSyncProfileEligibilityBlockers(
   unitKey: CatalogIntegrationUnitKey,
   scope: CatalogSyncScope,
   mapping: CatalogSyncAcceptedScopeMapping | null,
+  browserSetNames = false,
 ): CatalogSyncProviderParticipationBlocker[] {
   const blockers: CatalogSyncProviderParticipationBlocker[] = [];
   if (!isActiveProviderProfileVersion(version)) {
@@ -617,6 +672,7 @@ export function catalogSyncProfileEligibilityBlockers(
       action: "Select a provider unit for the same Catalog product domain.",
     });
   }
+  if (browserSetNames) return blockers;
   if (scope.productForm && !unitMatchesProductForm(unitKey, scope.productForm)) {
     blockers.push({
       code: "scope-product-form-mismatch",

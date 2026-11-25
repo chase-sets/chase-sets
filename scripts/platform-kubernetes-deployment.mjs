@@ -23,7 +23,7 @@ import {
   previewWildcardTlsSecretNamespace,
   resolveAdminApp,
   resolveMarketplaceApp,
-  resolveStagingPublicApp,
+  resolvePublicApp,
 } from "./render-platform-helm-values.mjs";
 import { writeJsonRecord } from "./lib/output-file.mjs";
 import { MERGE_GATE_NAMESPACE_PATTERN, VERIFICATION_NAMESPACE_PATTERN } from "./ephemeral-verification-namespace.mjs";
@@ -121,7 +121,7 @@ const cortenPilotImages = [
     flag: "corten-public-image",
     component: "public-corten",
     repository: "chase-sets-corten-public",
-    environments: ["staging"],
+    environments: ["staging", "production"],
   },
 ];
 
@@ -144,8 +144,8 @@ export function droppedAdvisoryCortenPilots(options = {}) {
 // The pilots a staging or production deploy renders disabled whatever image it was given. While
 // STAGING_ADMIN_APP or PRODUCTION_ADMIN_APP has admin-web serve the admin host, admin-corten is not deployed; while
 // STAGING_MARKETPLACE_APP or PRODUCTION_MARKETPLACE_APP has marketplace-web serve the marketplace host,
-// marketplace-corten is not deployed; and while STAGING_PUBLIC_APP has public-web serve www.staging,
-// public-corten is not deployed. The release
+// marketplace-corten is not deployed; and while STAGING_PUBLIC_APP or PRODUCTION_PUBLIC_APP has public-web serve
+// the public hosts, public-corten is not deployed. The release
 // waits for every enabled pod (helm --wait --atomic), so a pilot that never becomes ready would otherwise fail
 // the deploy, including the one that rolls admin back to admin-web.
 export function withheldCortenPilots(options = {}) {
@@ -153,16 +153,16 @@ export function withheldCortenPilots(options = {}) {
   const adminApp = resolveAdminApp(options.env ?? {}, environment);
   const withheld = adminApp?.app === "admin-web" ? ["admin-corten"] : [];
   if (resolveMarketplaceApp(options.env ?? {}, environment)?.app === "marketplace") withheld.push("marketplace-corten");
-  if (environment === "staging") {
-    if (resolveStagingPublicApp(options.env ?? {}).app === "public-web") withheld.push("public-corten");
-  }
+  if (resolvePublicApp(options.env ?? {}, environment)?.app === "public-web") withheld.push("public-corten");
   return withheld;
 }
 
 // Why a withheld pilot is not deployed, for the deploy's warning.
 function withheldPilotReason(component, options) {
   const environment = options.envOverrides.DEPLOYMENT_ENVIRONMENT;
-  if (component === "public-corten") return "public-web serves www.staging (STAGING_PUBLIC_APP=public-web)";
+  if (component === "public-corten") {
+    return `public-web serves ${publicHosts[environment]} (${resolvePublicApp(options.env ?? {}, environment).variable}=public-web)`;
+  }
   if (component === "marketplace-corten") {
     return `marketplace-web serves ${marketplaceHosts[environment]} (${resolveMarketplaceApp(options.env ?? {}, environment).variable}=marketplace)`;
   }
@@ -171,6 +171,7 @@ function withheldPilotReason(component, options) {
 
 const adminHosts = { staging: "admin.staging", production: "admin.chasesets.com" };
 const marketplaceHosts = { staging: "marketplace.staging", production: "marketplace.chasesets.com" };
+const publicHosts = { staging: "www.staging", production: "chasesets.com and www.chasesets.com" };
 
 // A production deploy that refuses here changes nothing in production, but it holds every later production
 // release until someone acts, so each refusal says how to recover.
@@ -199,9 +200,22 @@ const productionMarketplaceProxiesRequired = [
   "production change was made. To recover, set PRODUCTION_MARKETPLACE_APP=marketplace (or delete it) in the",
   "production environment and re-run, or fix the ingress pod CIDR discovery and deploy again.",
 ].join(" ");
+const productionPublicImageRequired = [
+  "corten-public-image is required on production while PRODUCTION_PUBLIC_APP=public-corten, and Deploy Staging",
+  "deployed no Corten public image for this release (STAGING_PUBLIC_APP=public-web, or the image was not built).",
+  "No production change was made. To recover, set PRODUCTION_PUBLIC_APP=public-web (or delete it) in the",
+  "production environment and re-run, or return staging to the Corten public app and deploy again.",
+].join(" ");
+const productionPublicProxiesRequired = [
+  "PROXIES is required on production while PRODUCTION_PUBLIC_APP=public-corten: the ingress pod CIDRs could not",
+  "be read, and the Corten public app would take every request as coming from the ingress. No production change",
+  "was made. To recover, set PRODUCTION_PUBLIC_APP=public-web (or delete it) in the production environment and",
+  "re-run, or fix the ingress pod CIDR discovery and deploy again.",
+].join(" ");
 const productionPilotRefusals = {
   "admin-corten": { image: productionAdminImageRequired, proxies: productionAdminProxiesRequired },
   "marketplace-corten": { image: productionMarketplaceImageRequired, proxies: productionMarketplaceProxiesRequired },
+  "public-corten": { image: productionPublicImageRequired, proxies: productionPublicProxiesRequired },
 };
 
 export function platformKubernetesWorkloads(options = {}) {
@@ -882,13 +896,14 @@ export function buildDeploymentEvidence(options = {}) {
       ? {
           stagingAdminApp: stagingAdminAppRecord(options.env ?? {}),
           stagingMarketplaceApp: marketplaceAppRecord(options.env ?? {}, "staging"),
-          stagingPublicApp: stagingPublicAppRecord(options.env ?? {}),
+          stagingPublicApp: publicAppRecord(options.env ?? {}, "staging"),
         }
       : {}),
     ...(options.envOverrides?.DEPLOYMENT_ENVIRONMENT === "production"
       ? {
           productionAdminApp: adminAppRecord(options.env ?? {}, "production"),
           productionMarketplaceApp: marketplaceAppRecord(options.env ?? {}, "production"),
+          productionPublicApp: publicAppRecord(options.env ?? {}, "production"),
         }
       : {}),
     workloads,
@@ -4532,9 +4547,7 @@ async function main(argv, env = process.env, overrides = {}) {
     const stagingOrProduction = deploymentEnvironment === "staging" || deploymentEnvironment === "production";
     const adminApp = stagingOrProduction ? recordAdminApp(options, deploymentEnvironment) : null;
     const marketplaceApp = stagingOrProduction ? recordMarketplaceApp(options, deploymentEnvironment) : null;
-    if (deploymentEnvironment === "staging") {
-      recordStagingPublicApp(options);
-    }
+    const publicApp = stagingOrProduction ? recordPublicApp(options, deploymentEnvironment) : null;
     const admissionRetryRollbackTarget = options.admissionRetryRollbackTargetPath
       ? parseJsonCommandOutput(readFileSync(options.admissionRetryRollbackTargetPath, "utf8"), "rollback target file")
       : undefined;
@@ -4555,6 +4568,7 @@ async function main(argv, env = process.env, overrides = {}) {
     }
     recordDeployedCortenAdminImage(options, adminApp);
     recordDeployedCortenMarketplaceImage(options, marketplaceApp);
+    recordDeployedCortenPublicImage(options, publicApp);
     console.log(JSON.stringify(evidence, null, 2));
     return 0;
   }
@@ -4783,33 +4797,43 @@ export function recordStagingMarketplaceApp(options = {}) {
   return recordMarketplaceApp(options, "staging");
 }
 
-// Which app serves www.staging, what chose it, and whether public-corten runs at all.
-export function stagingPublicAppRecord(env = {}) {
-  const { app, source } = resolveStagingPublicApp(env);
+// Which app serves the public hosts, what chose it, and whether public-corten runs at all.
+export function publicAppRecord(env = {}, environment = "staging") {
+  const { app, source } = resolvePublicApp(env, environment);
   return { app, source, publicCorten: app === "public-web" ? "not-deployed" : "deployed" };
 }
 
-// Says which app serves www.staging before the deploy starts, in the step summary and as the step's
+export function stagingPublicAppRecord(env = {}) {
+  return publicAppRecord(env, "staging");
+}
+
+// Says which app serves the public hosts before the deploy starts, in the step summary and as the step's
 // public_app output, so every run's evidence names it even when the deploy then fails.
-export function recordStagingPublicApp(options = {}) {
-  const record = stagingPublicAppRecord(options.env ?? {});
+export function recordPublicApp(options = {}, environment = "staging") {
+  const { variable } = resolvePublicApp(options.env ?? {}, environment);
+  const record = publicAppRecord(options.env ?? {}, environment);
+  const host = publicHosts[environment];
+  const verb = environment === "production" ? "are" : "is";
   const why =
-    record.source === "default"
-      ? "STAGING_PUBLIC_APP is unset, so the default applies"
-      : `STAGING_PUBLIC_APP=${record.app}`;
-  const lines = [`www.staging is served by ${record.app} (${why}).`];
+    record.source === "default" ? `${variable} is unset, so the default applies` : `${variable}=${record.app}`;
+  const lines = [`${host} ${verb} served by ${record.app} (${why}).`];
   if (record.publicCorten === "not-deployed") {
-    lines.push("public-corten is not deployed while public-web serves www.staging.");
+    lines.push(`public-corten is not deployed while public-web serves ${host}.`);
   }
   for (const line of lines) console.error(line);
   if (options.githubSummaryPath) {
-    appendFileSync(options.githubSummaryPath, `### Staging public app\n\n${lines.join("\n\n")}\n\n`);
+    const heading = environment === "production" ? "Production public app" : "Staging public app";
+    appendFileSync(options.githubSummaryPath, `### ${heading}\n\n${lines.join("\n\n")}\n\n`);
   }
   writeGithubOutput(options.githubOutputPath, {
     public_app: record.app,
     public_app_source: record.source,
   });
   return record;
+}
+
+export function recordStagingPublicApp(options = {}) {
+  return recordPublicApp(options, "staging");
 }
 
 // After a successful staging deploy, names the Corten admin image it deployed as the step's corten_admin_image
@@ -4829,6 +4853,16 @@ export function recordDeployedCortenMarketplaceImage(options = {}, marketplaceAp
   }
   writeGithubOutput(options.githubOutputPath, { corten_marketplace_image: options.cortenMarketplaceImage });
   return options.cortenMarketplaceImage;
+}
+
+// The same for the Corten public app: the step's corten_public_image output, written only after a successful
+// staging deploy that deployed it, is the only image production's public-corten takes.
+export function recordDeployedCortenPublicImage(options = {}, publicApp = null) {
+  if (options.envOverrides?.DEPLOYMENT_ENVIRONMENT !== "staging" || publicApp?.publicCorten !== "deployed") {
+    return null;
+  }
+  writeGithubOutput(options.githubOutputPath, { corten_public_image: options.cortenPublicImage });
+  return options.cortenPublicImage;
 }
 
 function writeGithubOutput(filePath, values) {

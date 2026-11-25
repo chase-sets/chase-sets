@@ -241,18 +241,16 @@ describeDb("managed Postgres client TLS against real PostgreSQL", () => {
     await writeFile(caPath, await readFile(certificates.caA));
     const url = managedUrl(proxyA, caPath);
     // Loaded by URL so the scripts keep their own compiler settings.
-    const reset = (await import(scriptUrl("catalog-integration-reset.ts"))) as PoolFactoryModule;
     const sendWindow = (await import(scriptUrl("catalog-provider-send-window.ts"))) as PoolFactoryModule;
     const redaction = (await import(scriptUrl("collections-anonymous-owner-redaction.mjs"))) as ScriptModule;
     const capture = (await import(scriptUrl("collections-cutover-authority-capture.mjs"))) as ScriptModule;
     const start = proxyA.connections();
 
-    expect(await poolSelectOne(reset.createCatalogIntegrationResetPool!(url))).toBe(1);
     expect(await poolSelectOne(sendWindow.createProviderSendWindowPool!(url))).toBe(1);
     expect(await poolSelectOne((await redaction.openRedactionPool!(url)) as PgTransactionalPool)).toBe(1);
     expect(await clientSelectOne((await capture.createCaptureDatabaseClient!(url)) as pg.Client)).toBe(1);
     expect(await clientSelectOne((await capture.createCapturePooledClient!(url)) as pg.Client)).toBe(1);
-    expect(proxyA.connections() - start).toBe(5);
+    expect(proxyA.connections() - start).toBe(4);
     expect(sentinel.connections()).toBe(0);
   });
 

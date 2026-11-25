@@ -136,6 +136,15 @@ export function deriveStaticChangedFiles({
 
 const docsOnlyPatterns = [/^docs\//, /^artifacts\//, /^\.codex\//, /^README\.md$/, /^AGENTS\.md$/, /^.*\.md$/];
 const platformApiParityDocPatterns = [/^docs\/api\/marketplace\.openapi\.json$/];
+// The Catalog staging provider UAT spec's synthetic tests answer every request with page.route, so
+// they run on PR CI without staging. A change to the spec, the support modules it imports, the
+// Playwright config or the Corten admin's catalog screens can turn them red.
+const catalogUatSyntheticPatterns = [
+  /^deployables\/admin-web\/e2e\/catalog-staging-provider-sync\.uat\.spec\.ts$/,
+  /^deployables\/admin-web\/e2e\/support\/(?:whole-game-rehearsal|whole-game-credential-probe-test-support|representative-catalog-evidence)\.ts$/,
+  /^playwright\.config\.ts$/,
+  /^deployables\/corten-pilot\/admin\/src\/catalog\//,
+];
 // The source-context wake registry is a static aggregate over per-context
 // shard modules plus a shared entry builder. Every member of that file
 // family must classify exactly like the pre-split single file did, including
@@ -383,6 +392,7 @@ export function classifyChanges({
   let clusterPreviewScriptChanged = false;
   let clusterPreviewWorkflowChanged = false;
   let scriptOrConfigChanged = false;
+  let catalogUatSyntheticChanged = false;
   const selectedE2eSuiteIds = new Set();
   const exposurePostureCategories = new Set();
   const integrationRisk = classifyIntegrationRisk({ changedFiles: normalizedFiles });
@@ -395,6 +405,7 @@ export function classifyChanges({
   )?.name;
 
   for (const filePath of normalizedFiles) {
+    catalogUatSyntheticChanged ||= matchesAny(filePath, catalogUatSyntheticPatterns);
     for (const [category, patterns] of Object.entries(exposurePosturePatterns)) {
       if (matchesAny(filePath, patterns)) {
         exposurePostureCategories.add(category);
@@ -616,6 +627,7 @@ export function classifyChanges({
     exposurePostureChanged: exposurePostureCategories.size > 0,
     exposurePostureCategories: [...exposurePostureCategories].sort(),
     requiredProofPaths: resolveRequiredProofPaths({ changedFiles: normalizedFiles, baseDir }),
+    catalogUatSyntheticRequired: catalogUatSyntheticChanged,
   };
 }
 
@@ -716,6 +728,7 @@ function fullScopeForUnavailableChangeSet(workspaces, reason, baseDir) {
       baseDir,
     }),
     requiredProofSelectionMode: unavailableChangeSetSelectionMode,
+    catalogUatSyntheticRequired: true,
   };
 }
 

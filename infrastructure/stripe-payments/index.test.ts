@@ -2006,6 +2006,31 @@ describe("Stripe payment processor gateway", () => {
     vi.unstubAllGlobals();
   });
 
+  it("sends the durable detach obligation key as Stripe idempotency", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) =>
+      Response.json({ id: "pm_synthetic_revoked", type: "card", customer: null }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const gateway = createStripePaymentProcessorGateway({
+        secretKey: "sk_test",
+        publishableKey: "pk_test",
+        webhookSecret: "whsec_test",
+        apiBaseUrl: "https://stripe.test",
+      });
+      const key = "payments:revoked-grant-detach:pm_synthetic_revoked";
+      await expect(gateway.detachSavedPaymentMethod("pm_synthetic_revoked", key)).resolves.toMatchObject({
+        removed: true,
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [url, init] = fetchMock.mock.calls[0]!;
+      expect(url).toBe("https://stripe.test/v1/payment_methods/pm_synthetic_revoked/detach");
+      expect(new Headers(init.headers).get("Idempotency-Key")).toBe(key);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("uses the local refund id for Stripe refund idempotency", async () => {
     const fetchMock = vi.fn(
       async () =>

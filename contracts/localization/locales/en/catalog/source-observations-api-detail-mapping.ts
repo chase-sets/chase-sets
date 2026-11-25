@@ -47,6 +47,9 @@ export const catalogSourceObservationsApiDetailMappingEnglishTranslations = {
     "{count} Source Observations still reference this profile version.",
   "catalog.features.sourceObservations.api.catalogSyncScopePlanner.requiredUnitMissing":
     "{unitKey} was required for this Catalog scope but no provider profile unit is available.",
+  "catalog.features.sourceObservations.api.catalogSyncScopePlanner.setNamesDisplayName": "TCGplayer Set Names",
+  "catalog.features.sourceObservations.api.catalogSyncScopePlanner.setNamesProductLineMismatch":
+    "The accepted mapping does not match the qualified TCGplayer product line.",
   "catalog.features.sourceObservations.api.catalogSyncScopePlanner.providerAdapterMissing":
     "No provider adapter is registered for {providerKey}.",
   "catalog.features.sourceObservations.api.catalogSyncScopePlanner.credentialReadinessUnavailable":

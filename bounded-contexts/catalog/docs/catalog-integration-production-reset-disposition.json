@@ -1,0 +1,8 @@
+{
+  "productionApply": "NOT RUN",
+  "decidedAt": "2026-11-22",
+  "decision": "https://github.com/chase-sets/chase-sets/issues/1900#issuecomment-7074059802",
+  "productionReadOnlyDryRun": "https://github.com/chase-sets/chase-sets/actions/runs/44984051710",
+  "stagingRehearsal": "https://github.com/chase-sets/chase-sets/actions/runs/29661390006",
+  "stagingSmoke": "https://github.com/chase-sets/chase-sets/actions/runs/29675148716"
+}

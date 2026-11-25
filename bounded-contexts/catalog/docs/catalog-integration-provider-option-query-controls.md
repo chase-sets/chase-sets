@@ -59,6 +59,6 @@ Tests should cover cache hit and miss, stale fallback after provider failure, ca
 
 Fixture payloads should stay provider-owned and governed by Catalog Integration Data Governance. Option-query cache rows are operational cache, not retained provider evidence.
 
-## Reset Policy
+## Cache Retention
 
-`catalog_provider_option_query_cache` is operational cache. Pre-launch reset deletes it; rollback does not restore it; bootstrap and Admin usage repopulate it through bounded option queries. Launch readiness must verify the table is empty after pre-launch wipe/rebuild.
+`catalog_provider_option_query_cache` is operational cache. Profile rollback does not restore cache entries. Bootstrap and Admin usage populate the cache through bounded option queries.

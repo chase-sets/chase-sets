@@ -16,11 +16,6 @@
       "uploadPath": "artifacts/roadmap-refined-inventory-authority/roadmap-refined-inventory-authority-probe.json"
     },
     {
-      "workflowFile": ".github/workflows/catalog-integration-staging-reset.yml",
-      "outPath": "artifacts/catalog-integration-reset/catalog-integration-reset.json",
-      "uploadPath": "artifacts/catalog-integration-reset/catalog-integration-reset.json"
-    },
-    {
       "workflowFile": ".github/workflows/catalog-provider-refresh-watch.yml",
       "outPath": "artifacts/release-health/catalog-provider-refresh-status.json",
       "uploadPath": "artifacts/release-health/catalog-provider-refresh-status.json"
@@ -137,13 +132,6 @@
     }
   ],
   "findings": [
-    {
-      "workflowFile": ".github/workflows/catalog-integration-staging-reset.yml",
-      "outPath": "artifacts/catalog-integration-reset/catalog-integration-reset.json",
-      "uploadPath": "artifacts/catalog-integration-reset/catalog-integration-reset.json",
-      "kind": "missing-file-behavior",
-      "observed": "warn"
-    },
     {
       "workflowFile": ".github/workflows/catalog-provider-refresh-watch.yml",
       "outPath": "artifacts/release-health/catalog-provider-refresh-status.json",

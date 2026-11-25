@@ -1,14 +1,20 @@
 export class OperatorSessionRequestError extends Error {
-  constructor(
-    public readonly code: string,
-    public readonly status: number,
-  ) {
+  readonly code: string;
+  readonly status: number;
+
+  constructor(code: string, status: number) {
     super(code);
+    this.code = code;
+    this.status = status;
     this.name = "OperatorSessionRequestError";
   }
 }
 
-export async function readBody(request: Request, maximum: number): Promise<string> {
+export async function readBody(
+  request: Request,
+  maximum: number,
+  options: { preserveByteOrderMark?: boolean } = {},
+): Promise<string> {
   if (!request.body) return "";
   const reader = request.body.getReader();
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -26,7 +32,9 @@ export async function readBody(request: Request, maximum: number): Promise<strin
         throw new OperatorSessionRequestError(maximum ? "request-too-large" : "invalid-request", maximum ? 413 : 400);
       chunks.push(chunk.value);
     }
-    return new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks, length));
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: options.preserveByteOrderMark }).decode(
+      Buffer.concat(chunks, length),
+    );
   } catch (error) {
     // A hostile stream may never acknowledge cancellation; it must not retain admission.
     void reader.cancel().catch(() => undefined);

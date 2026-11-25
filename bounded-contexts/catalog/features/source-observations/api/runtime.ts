@@ -21,7 +21,7 @@ import {
   listSourceObservationIntegrationScopes,
 } from "../read-model/queries";
 import { upsertSourceObservationAliasCandidates } from "../../alias-equivalence/read-model/projection";
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createPostgresDurableJobStore } from "@chase-sets/platform-runtime/durable-job-store";
 import { createPostgresDurableJobWorkUnitStore } from "@chase-sets/platform-runtime/durable-job-work-units";
 import { createCatalogIntegrationDryRunProofRegistry } from "./governance/catalog-integration-dry-run-proofs";
@@ -86,7 +86,15 @@ import {
   toCatalogSyncRunFanoutEventSnapshot,
   sourceObservationRetentionCutoff,
 } from "./source-observation-job-serialization";
-import { requireCatalogImportProfileVersion } from "./source-observation-promotion-execution";
+import {
+  requireCatalogImportProfileVersion,
+  snapshotCatalogProfileVersion,
+  integrationProfileSnapshotKey,
+} from "./source-observation-promotion-execution";
+import { createSetNameRequestRuntime } from "./source-observation-set-name-requests";
+import { createCatalogProviderIntegrationProfileVersionStore } from "./providers/provider-integration-profile-store";
+import { catalogSetNamesProductLineId } from "./providers/catalog-sync-scope-planner";
+import { createCatalogSetNameRequestRecheck } from "./source-observation-catalog-sync-run-runtime";
 import { createSourceObservationMergeCandidateRuntime } from "./source-observation-merge-candidate-runtime";
 import { createSourceObservationPromotionReapplyRuntime } from "./source-observation-promotion-reapply-runtime";
 import { createSourceObservationProviderImportRuntime } from "./source-observation-provider-import-runtime";
@@ -200,7 +208,7 @@ export {
  * the sub-runtime modules imported above.
  */
 export function createSourceObservationRuntime(
-  deps: CatalogRuntimeDeps,
+  deps: CatalogRuntimeDeps & { extensionObservationPool?: PgTransactionalPool },
   items: CatalogItemServices,
   referenceData: ReferenceDataServices,
   profileVersions: CatalogProviderIntegrationProfileVersionReader = staticCatalogProviderIntegrationProfileVersions,
@@ -209,7 +217,10 @@ export function createSourceObservationRuntime(
     upsertSourceObservationAliasCandidates(deps.db, candidates, observedAt),
   aliasPromotion: SourceObservationAliasPromotion | null = null,
   productContents: ProductContentServices | null = null,
-): SourceObservationServices {
+): SourceObservationServices & {
+  currentCatalogObservationRequest?: ReturnType<typeof createSetNameRequestRuntime>["current"];
+  answerTcgplayerSetNameRequest?: ReturnType<typeof createSetNameRequestRuntime>["answer"];
+} {
   const { commandHandler } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<SourceObservationEvent>(),
@@ -346,28 +357,30 @@ export function createSourceObservationRuntime(
       eventSnapshot: toCatalogMergeCandidateBulkJobEventSnapshot,
     },
   );
-  const integrationJobStore = createPostgresDurableJobStore<
-    SourceObservationIntegrationJobPayload,
-    BulkSourceObservationProgress,
-    SourceObservationIntegrationJobResult,
-    SourceObservationIntegrationJob
-  >(
-    deps.db,
-    {
-      jobsTable: "catalog_source_observation_integration_durable_jobs",
-      eventsTable: "catalog_source_observation_integration_job_events",
-      notifyChannel: "catalog_source_observation_durable_job_events",
-    },
-    {
-      eventSnapshot: toSourceObservationIntegrationJobEventSnapshot,
-      onClaimExhausted: async (queryable, job, reason) => {
-        if (job.jobKind === "import") {
-          await recordCatalogScopeSyncFailureForLinkedJob(queryable, job, reason, job.updatedAt);
-        }
+  const integrationJobStoreIn = (db: PgQueryable, live = false) =>
+    createPostgresDurableJobStore<
+      SourceObservationIntegrationJobPayload,
+      BulkSourceObservationProgress,
+      SourceObservationIntegrationJobResult,
+      SourceObservationIntegrationJob
+    >(
+      db,
+      {
+        jobsTable: "catalog_source_observation_integration_durable_jobs",
+        eventsTable: "catalog_source_observation_integration_job_events",
+        notifyChannel: "catalog_source_observation_durable_job_events",
       },
-      notificationWaiterPool: deps.notificationWaiterPool,
-    },
-  );
+      {
+        eventSnapshot: toSourceObservationIntegrationJobEventSnapshot,
+        onClaimExhausted: async (queryable, job, reason) => {
+          if (job.jobKind === "import") {
+            await recordCatalogScopeSyncFailureForLinkedJob(queryable, job, reason, job.updatedAt);
+          }
+        },
+        notificationWaiterPool: live ? deps.notificationWaiterPool : undefined,
+      },
+    );
+  const integrationJobStore = integrationJobStoreIn(deps.db, true);
   const catalogSyncRunStore = createPostgresDurableJobStore<
     CatalogSyncRunPayload,
     CatalogSyncRunFanoutProgress,
@@ -458,6 +471,40 @@ export function createSourceObservationRuntime(
     integrationJobStore,
     catalogSyncRunStore,
   });
+  const setNames =
+    deps.extensionObservationPool &&
+    createSetNameRequestRuntime({
+      pool: deps.extensionObservationPool,
+      storeIn: integrationJobStoreIn,
+      recheck: createCatalogSetNameRequestRecheck(async (db, job) => {
+        const unit = job.payload.scope.ingestionUnitKey;
+        if (!unit || String(catalogSetNamesProductLineId(unit)) !== job.payload.scope.productLineId) return false;
+        const profile = await createCatalogProviderIntegrationProfileVersionStore(db).getActiveProfileVersion(
+          "tcgplayer",
+          {
+            ingestionUnitKey: unit,
+          },
+        );
+        if (!profile || profile.lifecycle !== "active" || !profile.active || profile.profile.status !== "active")
+          return false;
+        return (
+          !!job.payload.profileSnapshot &&
+          integrationProfileSnapshotKey(snapshotCatalogProfileVersion(profile), job.jobId) ===
+            integrationProfileSnapshotKey(job.payload.profileSnapshot, job.jobId) &&
+          (["import", "provider-transport"] as const).every(
+            (capability) =>
+              rolloutControlPolicy.decide({
+                capability,
+                providerKey: "tcgplayer",
+                unitKey: unit,
+                profileKey: profile.profileKey,
+                profileVersion: profile.profileVersion,
+                profileLifecycle: profile.lifecycle,
+              }).allowed,
+          )
+        );
+      }),
+    });
   const integrationJobs = createSourceObservationIntegrationJobRuntime({
     deps,
     profileVersions,
@@ -467,11 +514,14 @@ export function createSourceObservationRuntime(
     promotionReapply,
     scopeSyncState,
     providerImport,
+    setNames,
   });
   const catalogSyncRuns = createCatalogSyncRunFanoutRuntime({
     catalogSyncRunStore,
     scopeSyncState,
     enqueueIntegrationJob: integrationJobs.enqueueIntegrationJob,
+    enqueueSetNames: integrationJobs.enqueueSetNames,
+    browserFanoutPool: deps.extensionObservationPool,
   });
   const mergeCandidateBulkJobs = createSourceObservationMergeCandidateBulkJobRuntime({
     deps,
@@ -506,7 +556,7 @@ export function createSourceObservationRuntime(
     providerImport,
   });
 
-  return bindCatalogProviderServices(
+  const services = bindCatalogProviderServices(
     {
       commandHandler,
       getProviderSendWindow: () => readProviderSendWindow(deps.providerSendRuntime ?? null),
@@ -580,6 +630,11 @@ export function createSourceObservationRuntime(
     },
     deps.providerSendRuntime ?? null,
   );
+  return {
+    ...services,
+    currentCatalogObservationRequest: setNames?.current,
+    answerTcgplayerSetNameRequest: setNames?.answer,
+  };
 }
 
 function shouldInvalidateSourceObservationEvent(eventType: string, event: { data: unknown }): boolean {

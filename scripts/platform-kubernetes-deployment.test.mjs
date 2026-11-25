@@ -456,8 +456,11 @@ const productionAdminWebLines = [
   "admin-corten is not deployed while admin-web serves admin.chasesets.com.",
   "marketplace.chasesets.com is served by marketplace (PRODUCTION_MARKETPLACE_APP is unset, so the default applies).",
   "marketplace-corten is not deployed while marketplace-web serves marketplace.chasesets.com.",
+  "chasesets.com and www.chasesets.com are served by public-web (PRODUCTION_PUBLIC_APP is unset, so the default applies).",
+  "public-corten is not deployed while public-web serves chasesets.com and www.chasesets.com.",
   "Warning: admin-corten is not deployed because admin-web serves admin.chasesets.com (PRODUCTION_ADMIN_APP=admin-web).",
   "Warning: marketplace-corten is not deployed because marketplace-web serves marketplace.chasesets.com (PRODUCTION_MARKETPLACE_APP=marketplace).",
+  "Warning: public-corten is not deployed because public-web serves chasesets.com and www.chasesets.com (PRODUCTION_PUBLIC_APP=public-web).",
 ];
 
 function successfulSpawn(calls) {
@@ -7917,6 +7920,7 @@ describe("advisory Corten pilots without an image", () => {
         STAGING_MARKETPLACE_APP: "marketplace",
         PRODUCTION_MARKETPLACE_APP: "marketplace-corten",
         STAGING_PUBLIC_APP: "public-web",
+        PRODUCTION_PUBLIC_APP: "public-corten",
       };
       expect(platformKubernetesDeployment.withheldCortenPilots({ envOverrides, env })).toEqual([]);
     }

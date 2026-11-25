@@ -5,6 +5,13 @@ import * as contract from "@chase-sets/tcgplayer-market-observations";
 import { redactProviderCredentialReadinessEvidence } from "@chase-sets/provider-credentials";
 import { OperatorSessionRequestError, readBody } from "../api/request";
 import { operatorExtensionContext } from "../api/set-name-observations";
+import {
+  observationPollVersion,
+  operatorEnvironments,
+  operatorOrigins,
+  parseObservationPoll,
+} from "../domain/extension/protocol";
+import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import type { createMarketObservationRoutes } from "../api/market-observations";
 
 export function mutant(needle: string, replacement: string): typeof createMarketObservationRoutes {
@@ -16,6 +23,11 @@ export function mutant(needle: string, replacement: string): typeof createMarket
     .replace(/^export /gm, "");
   const bindings = {
     ...contract,
+    observationPollVersion,
+    operatorEnvironments,
+    operatorOrigins,
+    parseObservationPoll,
+    resolvePublicRequestOrigin,
     redactProviderCredentialReadinessEvidence,
     OperatorSessionRequestError,
     readBody,

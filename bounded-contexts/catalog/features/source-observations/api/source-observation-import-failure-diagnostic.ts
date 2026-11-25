@@ -5,7 +5,7 @@ export type SourceObservationImportFailureDiagnostic = Readonly<{
 
 const scrydexNormalizationPrefix = "Catalog provider 'scrydex' source observation normalization failed at ";
 const observationField =
-  /^(sourceObservation\.(?:observationId|externalKey|sourceUrl|sourceUpdatedAt|sourcePayload)|normalizedObservation\.(?:languageCode|fields\.(?:name|cardNumber|setId|setName|imageUrls|tcg|sealedProductForm)))(?:\.[\w.]+)?$/;
+  /^(sourceObservation\.(?:observationId|externalKey|sourceUrl|sourceUpdatedAt|sourcePayload)|normalizedObservation\.(?:languageCode|fields\.(?:name|cardNumber|setId|setCode|setName|imageUrls|tcg|sealedProductForm|mergeIdentity|externalCatalogItemReferences|externalProductReferences)))(?:\.[\w.]+)?$/;
 
 export function sourceObservationImportFailureDiagnostic(
   providerKey: string,

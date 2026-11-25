@@ -1663,7 +1663,10 @@ export function createStripePaymentProcessorGateway(
       };
     },
     retrieveSavedPaymentMethod: retrievePaymentMethod,
-    async detachSavedPaymentMethod(providerReference: string): Promise<ProcessorSavedPaymentMethod | null> {
+    async detachSavedPaymentMethod(
+      providerReference: string,
+      idempotencyKey?: string,
+    ): Promise<ProcessorSavedPaymentMethod | null> {
       const reference = normalizeOptionalText(providerReference);
       if (!reference) {
         return null;
@@ -1671,6 +1674,7 @@ export function createStripePaymentProcessorGateway(
       const method = await stripeRequest<StripePaymentMethodResponse>(
         `/v1/payment_methods/${encodeURIComponent(reference)}/detach`,
         { method: "POST", body: toFormBody({}) },
+        idempotencyKey === undefined ? undefined : { idempotencyKey },
       );
       return mapSavedPaymentMethod(method);
     },
