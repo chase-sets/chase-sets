@@ -2624,6 +2624,36 @@ impl Pilot {
     }
 }
 
+/// A stacked table's row action (a scope's, catalog list's or item's View, a policy's Open) is a 44px
+/// touch target below the wide breakpoint, where the table stacks into cards, as admin-web's card
+/// actions are; wider, the compact button stays.
+#[tokio::test]
+async fn a_stacked_rows_action_is_a_44px_touch_target_at_phone_width() {
+    let pilot = Pilot::new().await;
+    let cases = [
+        ("/catalog/scopes", "staff", "scope-row-view__view"),
+        ("/catalog/dimensions", "staff", "list-page__view"),
+        ("/catalog/catalog-items", "staff", "item-form__view"),
+        ("/commerce/postage-policies", "staff", "policy-table__open"),
+    ];
+    for (path, who, class) in cases {
+        let (status, _, html) = pilot.send(get(path, Some(who))).await;
+        assert_eq!(status, StatusCode::OK, "{path}: {html}");
+        assert!(html.contains(class), "{path} draws {class}: {html}");
+        let mut css = String::new();
+        for (at, _) in html.match_indices(".css\"") {
+            let start = html[..at].rfind("href=\"").unwrap() + 6;
+            let (status, _, sheet) = pilot.send(get(&html[start..at + 4], None)).await;
+            assert_eq!(status, StatusCode::OK, "{}", &html[start..at + 4]);
+            css.push_str(&sheet);
+        }
+        let stacked = css.split("@media").skip(1).any(|block| {
+            let block = &block[..block.find("}}").or_else(|| block.find("}\n}")).unwrap_or(block.len())];
+            block.contains("not") && block.contains(&format!(".{class}")) && block.contains("2.75rem")
+        });
+        assert!(stacked, "{path}: .{class} has no 44px rule below the wide breakpoint: {css}");
+    }
+}
 #[tokio::test]
 async fn the_catalog_is_an_area_with_its_own_guard_and_stylesheet() {
     let pilot = Pilot::new().await;

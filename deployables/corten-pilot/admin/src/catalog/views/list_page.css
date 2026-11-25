@@ -139,3 +139,10 @@
   gap: var(--space-3);
   margin-block-start: var(--space-3);
 }
+
+/* Stacked at phone width, a row's View is a 44px touch target, as admin-web's card action is. */
+@media not (--wide) {
+  .view {
+    min-height: 2.75rem;
+  }
+}
