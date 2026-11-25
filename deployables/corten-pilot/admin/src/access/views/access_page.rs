@@ -11,7 +11,7 @@ use corten::{
 use crate::{
     access::{
         self, Read,
-        account::{Tab, hub},
+        account::{Pick, Tab, hub, picked},
         api::{Account, ApiKey, Invitation, List, Membership, User},
         people,
         sessions::{self, SESSION_STATUSES, Session},
@@ -50,7 +50,7 @@ fn attention(t: Acc, home: &access::api::Home) -> Vec<Attention> {
                 expires_at: &when(t, Some(&i.expires_at)),
             })
             .to_string(),
-        href: hub(&i.account_id, Tab::Team),
+        href: picked(&i.account_id, Tab::Team, Pick::Invitation(&i.invitation_id)),
     });
     let keys = a.api_keys_needing_rotation.iter().map(|k| Attention {
         kind: t.home_api_key_rotation(),
@@ -62,7 +62,7 @@ fn attention(t: Acc, home: &access::api::Home) -> Vec<Attention> {
                 due_at: &when(t, k.rotation_due_at.as_deref()),
             })
             .to_string(),
-        href: hub(&k.account_id, Tab::ApiAccess),
+        href: picked(&k.account_id, Tab::ApiAccess, Pick::ApiKey(&k.key.api_key_id)),
     });
     let suspended = a.suspended_accounts.iter().map(|acc| Attention {
         kind: t.home_suspended_account(),
@@ -79,7 +79,7 @@ fn attention(t: Acc, home: &access::api::Home) -> Vec<Attention> {
                 role: &access::role(t, &m.role_key),
             })
             .to_string(),
-        href: hub(&m.account_id, Tab::Team),
+        href: picked(&m.account_id, Tab::Team, Pick::Membership(&m.membership_id)),
     });
     invitations.chain(keys).chain(suspended).chain(review).collect()
 }
@@ -460,7 +460,7 @@ pub fn memberships<'a>(t: Acc, p: Pilot, read: &'a Read, list: &'a List<Membersh
                     <Cell label={head[1]}>{m.account_label()}</Cell>
                     <Cell label={head[2]}>{access::role(t, &m.role_key)}</Cell>
                     <Cell label={head[3]}>{access::membership_status(t, &m.status)}</Cell>
-                    <View p={p} href={&hub(&m.account_id, Tab::Team)} />
+                    <View p={p} href={&picked(&m.account_id, Tab::Team, Pick::Membership(&m.membership_id))} />
                 </tr>
             }
         </ListFrame>
@@ -501,7 +501,7 @@ pub fn invitations<'a>(t: Acc, p: Pilot, read: &'a Read, list: &'a List<Invitati
                     <Cell label={head[1]}>{i.account_label()}</Cell>
                     <Cell label={head[2]}>{access::role(t, &i.role_key)}</Cell>
                     <Cell label={head[3]}>{access::invitation_status(t, &i.status)}</Cell>
-                    <View p={p} href={&hub(&i.account_id, Tab::Team)} />
+                    <View p={p} href={&picked(&i.account_id, Tab::Team, Pick::Invitation(&i.invitation_id))} />
                 </tr>
             }
         </ListFrame>

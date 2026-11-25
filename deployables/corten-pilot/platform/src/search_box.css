@@ -1,0 +1,9 @@
+.field {
+  background: var(--color-surface-2);
+  border-radius: var(--radius-md);
+}
+.field > input[type="search"] {
+  min-height: 0;
+  border-radius: 0;
+  background: transparent;
+}

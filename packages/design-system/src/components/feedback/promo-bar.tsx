@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type HTMLAttributes, type ReactNode } from "react";
 import { IconButton, LinkButton } from "../actions/button";
 import { Icon } from "../../icons";
-import { FlexItem, IconRow, Inline, Show, Stack } from "../../primitives/layout";
+import { Grid, IconRow, Inline, Show, Stack } from "../../primitives/layout";
 import { Text } from "../../primitives/typography";
 import { useReducedMotion } from "../../hooks";
 import { cx } from "../../utils/cx";
@@ -86,50 +86,64 @@ export function PromoBar({
     setActiveIndex((current) => (current + 1) % visibleMessages.length);
   }
 
+  const link =
+    activeMessage.href && activeMessage.linkLabel ? (
+      <LinkButton href={activeMessage.href} tone="secondary" size="sm" trailingIcon="chevronRight">
+        {activeMessage.linkLabel}
+      </LinkButton>
+    ) : null;
+  const hasActions = Boolean(link) || hasMultipleMessages;
+
   return (
-    <section {...rest} aria-label={ariaLabel} className={cx("rounded-tokenMd px-3 py-2 md:px-4", toneClasses[tone])}>
-      <Stack direction="row" align="center" justify="between" gap={3}>
-        <FlexItem grow minWidth="0">
-          <IconRow icon={<Icon name={toneIcon(tone)} size="sm" tone={toneToIconTone(tone)} />} align="center" gap={3}>
-            <Stack gap={1} minWidth="0">
-              <Text size="sm" weight="semibold" tone="inherit" truncate={{ base: true, md: false }}>
-                {activeMessage.title}
-              </Text>
-              {activeMessage.description ? (
-                <Show above="md">
-                  <Text size="sm" tone="secondary" truncate={{ base: true, md: false }}>
-                    {activeMessage.description}
-                  </Text>
-                </Show>
-              ) : null}
-            </Stack>
-          </IconRow>
-        </FlexItem>
-        <Inline gap={2} align="center" wrap={false}>
-          {activeMessage.href && activeMessage.linkLabel ? (
-            <LinkButton href={activeMessage.href} tone="secondary" size="sm" trailingIcon="chevronRight">
-              {activeMessage.linkLabel}
-            </LinkButton>
-          ) : null}
-          {hasMultipleMessages ? (
-            <Inline gap={1} align="center" wrap={false}>
-              <IconButton label={previousLabel} icon="chevronLeft" size="sm" onClick={showPrevious} />
-              <span className="min-w-10 text-center text-xs font-medium text-secondary" aria-live="polite">
-                {activeIndex + 1}/{visibleMessages.length}
-              </span>
-              <IconButton label={nextLabel} icon="chevronRight" size="sm" onClick={showNext} />
-              {reducedMotion ? null : (
-                <IconButton
-                  label={paused ? resumeLabel : pauseLabel}
-                  icon={paused ? "play" : "pause"}
-                  size="sm"
-                  onClick={() => setPaused((current) => !current)}
-                />
-              )}
-            </Inline>
-          ) : null}
-        </Inline>
-      </Stack>
+    <section
+      {...rest}
+      aria-label={ariaLabel}
+      className={cx("rounded-tokenMd px-3 py-2 [overflow-wrap:anywhere] md:px-4", toneClasses[tone])}
+    >
+      <Grid
+        columns={1}
+        stackUntil={hasActions ? "sm" : undefined}
+        templateColumns={hasActions ? "minmax(0, 1fr) fit-content(60%)" : undefined}
+        align="center"
+        gap={{ base: 2, sm: 3 }}
+      >
+        <IconRow icon={<Icon name={toneIcon(tone)} size="sm" tone={toneToIconTone(tone)} />} align="center" gap={3}>
+          <Stack gap={1} minWidth="0">
+            <Text size="sm" weight="semibold" tone="inherit">
+              {activeMessage.title}
+            </Text>
+            {activeMessage.description ? (
+              <Show above="md">
+                <Text size="sm" tone="secondary">
+                  {activeMessage.description}
+                </Text>
+              </Show>
+            ) : null}
+          </Stack>
+        </IconRow>
+        {hasActions ? (
+          <Inline gap={2} align="center">
+            {link}
+            {hasMultipleMessages ? (
+              <Inline gap={1} align="center" wrap={false}>
+                <IconButton label={previousLabel} icon="chevronLeft" size="sm" onClick={showPrevious} />
+                <span className="min-w-10 text-center text-xs font-medium text-secondary" aria-live="polite">
+                  {activeIndex + 1}/{visibleMessages.length}
+                </span>
+                <IconButton label={nextLabel} icon="chevronRight" size="sm" onClick={showNext} />
+                {reducedMotion ? null : (
+                  <IconButton
+                    label={paused ? resumeLabel : pauseLabel}
+                    icon={paused ? "play" : "pause"}
+                    size="sm"
+                    onClick={() => setPaused((current) => !current)}
+                  />
+                )}
+              </Inline>
+            ) : null}
+          </Inline>
+        ) : null}
+      </Grid>
     </section>
   );
 }
