@@ -8,10 +8,10 @@
 //!
 //! | Route | Answers |
 //! |---|---|
-//! | `GET /support/platform-feedback?status&topic&workflow&after_write` | the counts and the queue (100 at most, as admin-web reads it) |
+//! | `GET /support/platform-feedback?status&topic&workflow&afterWrite` | the counts and the queue (100 at most, as admin-web reads it) |
 //! | `POST /support/platform-feedback?status&topic&workflow` | a bulk change (`intent`, `feedbackIds`), then the list |
 //! | `GET /support/platform-feedback/export?status&topic&workflow` | the queue as the API's CSV |
-//! | `GET /support/platform-feedback/{id}?after_write` | a feedback's page |
+//! | `GET /support/platform-feedback/{id}?afterWrite` | a feedback's page |
 //! | `POST /support/platform-feedback/{id}` | Mark reviewed, Archive or Record note (`intent`, `body`), then the page |
 //!
 //! admin-web's selection is React state; here the queue is one form whose rows each have a box
@@ -61,6 +61,7 @@ pub mod url {
     pub struct Feedback {
         #[route(query)]
         pub filters: Filters,
+        #[serde(rename = "afterWrite")]
         pub after_write: Option<String>,
     }
 
@@ -76,6 +77,7 @@ pub mod url {
     #[route("/support/platform-feedback/{id}", get = item, post = act)]
     pub struct Item<'a> {
         pub id: &'a str,
+        #[serde(rename = "afterWrite")]
         pub after_write: Option<String>,
     }
 }

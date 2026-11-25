@@ -106,6 +106,7 @@ pub mod url {
     #[derive(Clone, Debug, Default, Deserialize, Route)]
     #[route(query)]
     pub struct ListNotice {
+        #[serde(rename = "afterWrite")]
         pub after_write: Option<String>,
         pub done: Option<Done>,
         pub job: Option<String>,
@@ -160,6 +161,7 @@ pub mod url {
     #[route("/catalog/dimensions/{id}", get = dimension, post = add_option)]
     pub struct Dimension<'a> {
         pub id: &'a str,
+        #[serde(rename = "afterWrite")]
         pub after_write: Option<String>,
         pub done: Option<Done>,
     }
@@ -247,6 +249,7 @@ pub mod url {
     #[route("/catalog/fields/{id}", get = field)]
     pub struct Field<'a> {
         pub id: &'a str,
+        #[serde(rename = "afterWrite")]
         pub after_write: Option<String>,
         pub done: Option<Done>,
     }

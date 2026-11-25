@@ -9,7 +9,7 @@
 //!
 //! | Route | Answers |
 //! |---|---|
-//! | `GET /support/requests?<queue>&requestId&action&after_write&escalated&skipped&capped&escalationTotal` | the queue, with the request's sheet |
+//! | `GET /support/requests?<queue>&requestId&action&afterWrite&escalated&skipped&capped&escalationTotal` | the queue, with the request's sheet |
 //! | `POST /support/requests?<queue>` | Escalate overdue, then the queue with its counts |
 //! | `GET /support/requests/{id}?<queue>` | the queue with the request's sheet, as admin-web redirects |
 //! | `POST /support/requests/{id}?<queue>` | a case or remedy action (`intent`: note, response, escalate, resolve, close, cancel, and the remedy panel's), then the sheet; a remedy preview is the sheet with it |
@@ -70,7 +70,7 @@ pub mod url {
         pub request_id: Option<String>,
         pub action: Option<String>,
         /// The write's receipt, named as on every pilot screen.
-        #[serde(rename = "after_write")]
+        #[serde(rename = "afterWrite")]
         pub after_write: Option<String>,
         pub escalated: Option<String>,
         pub skipped: Option<String>,

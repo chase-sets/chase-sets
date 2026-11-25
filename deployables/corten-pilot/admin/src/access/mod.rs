@@ -12,9 +12,9 @@
 //! | `GET /access/invitations?...` | the invitations | `memberships.view` |
 //! | `GET /access/api-keys?...` | the API keys | `security.manage` |
 //! | `GET /access/users/{id}`, `GET /access/api-keys/{id}` | its account's workspace (a redirect), else the list searched for it | `security.manage` |
-//! | `GET /access/accounts/{id}?tab&after_write`, `POST` | an account's workspace; its forms | `accounts.view`, and each form what admin-web shows it for |
+//! | `GET /access/accounts/{id}?tab&afterWrite`, `POST` | an account's workspace; its forms | `accounts.view`, and each form what admin-web shows it for |
 //! | `GET /access/sessions?...` | Auth's sessions | `security.manage` |
-//! | `GET /access/sessions/{id}?after_write`, `POST` | a session's page; its switch and revoke (`sessions`) | `security.manage` |
+//! | `GET /access/sessions/{id}?afterWrite`, `POST` | a session's page; its switch and revoke (`sessions`) | `security.manage` |
 //!
 //! Each route needs what admin-web's access layout challenges its path for: the nav entry's
 //! permission, else `accounts.view`. A user's, a membership's, an invitation's or an API key's
@@ -91,6 +91,7 @@ pub mod url {
     pub struct AccountHub<'a> {
         pub id: &'a str,
         pub tab: Option<&'a str>,
+        #[serde(rename = "afterWrite")]
         pub after_write: Option<String>,
     }
 }
@@ -139,6 +140,7 @@ pub mod people {
     #[route("/access/sessions/{id}", get = crate::access::sessions::page, post = crate::access::sessions::write)]
     pub struct SessionPage<'a> {
         pub id: &'a str,
+        #[serde(rename = "afterWrite")]
         pub after_write: Option<String>,
     }
 }

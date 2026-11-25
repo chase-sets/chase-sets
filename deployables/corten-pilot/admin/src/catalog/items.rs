@@ -130,6 +130,7 @@ pub mod url {
     #[derive(Clone, Debug, Default, Deserialize, Route)]
     #[route(query)]
     pub struct ItemNotice {
+        #[serde(rename = "afterWrite")]
         pub after_write: Option<String>,
         pub done: Option<ItemDone>,
         pub job: Option<String>,

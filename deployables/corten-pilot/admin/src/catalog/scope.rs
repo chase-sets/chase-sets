@@ -5,7 +5,7 @@
 //!
 //! | Route | Answers |
 //! |---|---|
-//! | `GET /catalog/scopes/{id}?jobs&after_write&done&count&<working set>` | the page (`jobs`: the completed jobs' page cursor; the rest the import-to-promotion section's working set) |
+//! | `GET /catalog/scopes/{id}?jobs&afterWrite&done&count&<working set>` | the page (`jobs`: the completed jobs' page cursor; the rest the import-to-promotion section's working set) |
 //! | `POST /catalog/scopes/{id}/coverage` | a mapping's accept, reject or revoke, or Accept all available |
 //! | `POST /catalog/scopes/{id}/coverage/propose` | Propose mapping (and accept it) |
 //! | `POST /catalog/scopes/{id}/publish` | Confirm canonical record |
@@ -89,6 +89,7 @@ pub mod url {
     #[route(query)]
     pub struct ScopeAt {
         pub jobs: Option<String>,
+        #[serde(rename = "afterWrite")]
         pub after_write: Option<String>,
         pub done: Option<ScopeDone>,
         pub count: Option<u32>,
@@ -309,7 +310,7 @@ pub struct ScopeScreen {
 
 /// The query keys the scope's page owns: the completed jobs' page, what the write before left, and
 /// the import preflight read in.
-const PAGE_KEYS: [&str; 5] = ["jobs", "after_write", "done", "count", crate::catalog::daily::PREFLIGHT];
+const PAGE_KEYS: [&str; 5] = ["jobs", "afterWrite", "done", "count", crate::catalog::daily::PREFLIGHT];
 
 /// The keys the scope sets itself (admin-web's `SCOPE_QUERY_KEYS`, then `scopeRecordId`): a
 /// provider, unit, import scope or profile version in the address is dropped, as there.

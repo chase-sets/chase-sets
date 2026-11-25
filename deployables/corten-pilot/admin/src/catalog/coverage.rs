@@ -5,7 +5,7 @@
 //! | Route | Answers |
 //! |---|---|
 //! | `GET /catalog/scope-coverage?product_domain` | the scopes with provider mappings waiting for review |
-//! | `GET /catalog/scope-coverage/{id}?after_write&done&count` | the scope's coverage matrix |
+//! | `GET /catalog/scope-coverage/{id}?afterWrite&done&count` | the scope's coverage matrix |
 //!
 //! The coverage page is the scope page's coverage matrix on its own. Its forms post to the scope
 //! page's coverage routes (`/catalog/scopes/{id}/coverage`, `../propose`, `../publish`) with
