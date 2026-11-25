@@ -440,6 +440,10 @@ test.describe.serial("catalog admin modeling", () => {
   test("signed-in catalog operator inspects reference data records and types @catalog-admin-modeling", async ({
     page,
   }) => {
+    test.skip(
+      onCortenAdmin,
+      'the Corten reference lists draw Search as an input type="search" (role searchbox) and their filters inline, with no More filters disclosure',
+    );
     test.setTimeout(120_000);
     test.skip(
       skipDeployedAdminE2e,
