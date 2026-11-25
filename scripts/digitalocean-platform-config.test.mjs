@@ -4476,7 +4476,7 @@ describe("DigitalOcean platform configuration", () => {
     // (issue #1417).
     const smokeStep = workflowStep(platformProductionWorkflow, "Boot smoke release image");
     expect(smokeStep).toContain("if: steps.release_image.outputs.built == 'true'");
-    expect(smokeStep).toContain('boot_smoke marketplace "@chase-sets/app-marketplace-web" /health/ready');
+    expect(smokeStep).not.toContain("app-marketplace-web");
     expect(smokeStep).toContain('boot_smoke public-web "@chase-sets/app-public-web" /');
 
     const pushStep = workflowStep(platformProductionWorkflow, "Push release image");
