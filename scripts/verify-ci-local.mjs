@@ -169,6 +169,30 @@ export function createLocalCommandPlan({ plan, baseSha, headSha, scope }) {
       ],
     ],
     [
+      "catalog-uat-synthetic",
+      [
+        command(pnpm, ["exec", "playwright", "install", "--with-deps", "chromium"]),
+        command(
+          pnpm,
+          [
+            "exec",
+            "playwright",
+            "test",
+            "deployables/admin-web/e2e/catalog-staging-provider-sync.uat.spec.ts",
+            "--project=admin-web-chromium",
+          ],
+          {
+            env: { CI: "true", PLAYWRIGHT_SKIP_WEB_SERVER: "true", ADMIN_WEB_URL: "http://127.0.0.1:9" },
+            clearEnv: [
+              "CATALOG_STAGING_PROVIDER_UAT",
+              "CATALOG_STAGING_PROVIDER_UAT_SCOPE",
+              "CATALOG_PREVIEW_PROBE_TRACE_CONTROL",
+            ],
+          },
+        ),
+      ],
+    ],
+    [
       "build",
       [
         command("node", [

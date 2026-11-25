@@ -63,6 +63,7 @@ const inertScope = Object.freeze({
   workflowLintRequired: false,
   clusterPreviewRequired: false,
   composeSmokeRequired: false,
+  catalogUatSyntheticRequired: false,
   affectedWorkspaces: [],
   changedFiles: [],
   e2eSuiteIds: [],
@@ -170,7 +171,7 @@ if (identity === 'static' && ${fail}) {
   for (const [relative, source] of sources) writeFileSync(path.join(fixture, relative), source);
   writeFileSync(path.join(artifact, "fixture-manifest.json"), JSON.stringify(manifest));
   const plan = createCiGatePlan({ mode: "pull-request", provenance: "same-repository", scope: inertScope });
-  expect(plan.gates).toHaveLength(17);
+  expect(plan.gates).toHaveLength(18);
   expect(
     plan.gates
       .filter((gate) => gate.selection === "REQUIRED" && gate.executability === "REPOSITORY_LOCAL")
@@ -183,6 +184,7 @@ if (identity === 'static' && ${fail}) {
     "unit-tests",
     "db-tests",
     "e2e-tests",
+    "catalog-uat-synthetic",
     "build",
   ]);
   checkFixture(fixture, fixture, manifest);
@@ -312,7 +314,7 @@ describe("verify-ci-local", () => {
     const receipt = validateCiLocalReceipt(JSON.parse(result.stdout));
     expect(receipt.disposition).toBe("FAIL");
     expect(receipt.errors).toEqual([]);
-    expect(receipt.gates).toHaveLength(17);
+    expect(receipt.gates).toHaveLength(18);
     expect(
       receipt.gates
         .filter(({ id }) => ["change-scope", "static", "typecheck"].includes(id))
@@ -719,6 +721,7 @@ describe("verify-ci-local", () => {
       "NOT_RUN_NOT_REQUIRED",
       "NOT_RUN_NOT_REQUIRED",
       "NOT_RUN_NOT_REQUIRED",
+      "NOT_RUN_NOT_REQUIRED",
       "NOT_RUN_HOSTED_ONLY",
     ]);
     const next = captureDiagnostics(() =>
@@ -869,7 +872,7 @@ describe("verify-ci-local", () => {
         disposition: "PLAN_ONLY",
         hostedAuthorityOutstanding: true,
       });
-      expect(receipt.gates).toHaveLength(17);
+      expect(receipt.gates).toHaveLength(18);
       expect(
         receipt.gates.filter(
           ({ selection, executability }) => selection === "REQUIRED" && executability === "HOSTED_ONLY",
