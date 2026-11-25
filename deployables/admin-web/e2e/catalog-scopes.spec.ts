@@ -87,6 +87,10 @@ test.describe.serial("catalog admin scopes", () => {
   }, testInfo) => {
     test.setTimeout(120_000);
     test.skip(skipDeployedAdminE2e, SKIP_REASON);
+    test.skip(
+      onCortenAdmin,
+      "the Corten scope list is one table that stacks into cards at phone width, not a separate div[role=list] card list",
+    );
 
     await authenticatePlatformAdmin(page, "/catalog/scopes", "/access/sign-in");
     await expectPageOk(page, "/catalog/scopes");
@@ -106,6 +110,10 @@ test.describe.serial("catalog admin scopes", () => {
   }, testInfo) => {
     test.setTimeout(120_000);
     test.skip(skipDeployedAdminE2e, SKIP_REASON);
+    test.skip(
+      onCortenAdmin,
+      "the Corten scope list has no separate card list to hide at tablet width; its one table stacks only at phone width",
+    );
 
     await authenticatePlatformAdmin(page, "/catalog/scopes", "/access/sign-in");
     await expectPageOk(page, "/catalog/scopes");
