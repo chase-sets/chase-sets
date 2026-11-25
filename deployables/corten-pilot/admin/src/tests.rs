@@ -8879,7 +8879,9 @@ fn daily_surface(location: &str, scope: Option<&str>) -> Response {
             { "observationId": "obs_2", "providerKey": "tcgplayer", "externalKey": "sv1-002", "displayName": "Floragato",
               "status": "promoted", "sourceUpdatedAt": "2026-11-03T09:00:00.000Z", "changedAt": "2026-11-03T09:00:00.000Z",
               "factSummaryPreview": [], "payloadSummary": "11 fields", "redactionSummary": "no secrets",
-              "duplicateCount": 0, "promotionReadiness": { "state": "blocked", "blockers": ["promotion-conflict"] }, "actions": [] }
+              "duplicateCount": 0, "promotionReadiness": { "state": "blocked", "blockers": ["promotion-conflict"] },
+              "actions": [{ "key": "observation.reapply", "state": "available", "blockers": [] },
+                  { "key": "observation.replay", "state": "blocked", "blockers": ["source-profile-retired"] }] }
         ])
     };
     // Built apart from the surface below so one `json!` stays inside the macro's recursion limit.
@@ -8979,7 +8981,9 @@ fn daily_surface(location: &str, scope: Option<&str>) -> Response {
             "promotionPreview": promotion_preview(location),
             "promotionResult": null,
             "actions": [{ "key": "observation.defer", "state": "available", "blockers": [] },
-                { "key": "observation.reject", "state": "available", "blockers": [] }]
+                { "key": "observation.reject", "state": "available", "blockers": [] },
+                { "key": "observation.reapply", "state": "available", "blockers": [] },
+                { "key": "observation.replay", "state": "available", "blockers": [] }]
         }
     });
     // The candidate's detail sheet's lines (set apart, as one `json!` holding them passes its recursion limit).
@@ -11487,6 +11491,57 @@ async fn a_candidate_splits_and_is_edited_with_the_version_the_page_read_and_a_m
     let (status, _, _) = pilot.send(post("/catalog/integrations/candidates/cand_1", "command=split&split=obs_2", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "a split without the version it read");
     assert_eq!(daily_writes(&pilot).len(), before, "it does not reach the API");
+}
+
+#[tokio::test]
+async fn a_promoted_review_row_offers_reapply_and_replay_and_each_posts_its_one_observation() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/integrations?providerKey=tcgplayer", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let row = |id: &str| {
+        let start = html.find(&format!(r#"data-catalog-observation-row="{id}""#)).expect("the row");
+        html[start..start + html[start..].find("</tr>").unwrap()].to_owned()
+    };
+    let promoted = row("obs_2");
+    assert!(
+        promoted.contains(r#"name="reapply" value="obs_2" aria-label="Reapply: Floragato">Reapply</button>"#),
+        "the offered reapply, runnable: {promoted}"
+    );
+    assert!(
+        promoted.contains(r#"name="replay" value="obs_2" disabled aria-label="Replay: Floragato">Replay</button>"#),
+        "a blocked replay is drawn disabled: {promoted}"
+    );
+    assert!(promoted.contains("source-profile-retired") || promoted.contains("Source profile retired"), "{promoted}");
+    let changed = row("obs_1");
+    assert!(
+        !changed.contains(r#"name="reapply""#) && !changed.contains(r#"name="replay""#),
+        "a row that offers neither: {changed}"
+    );
+    assert!(changed.contains(r#"data-catalog-observation-evidence-open="obs_1""#), "Evidence stays on every row: {changed}");
+    // Without the catalog grant, the commands are not drawn.
+    let (status, _, viewer) = pilot.send(get("/catalog/integrations?providerKey=tcgplayer", Some("catalog-reader"))).await;
+    assert_eq!(status, StatusCode::OK, "{viewer}");
+    assert!(!viewer.contains(r#"name="reapply""#), "{viewer}");
+
+    // Each posts the one observation its button names, whatever else is checked, to admin-web's
+    // reapply route: a replay with the observation's original source profile.
+    let at = "/catalog/integrations/review?providerKey=tcgplayer";
+    for body in ["reapply=obs_2&observation=obs_1", "replay=obs_2"] {
+        let (status, headers, _) = pilot.send(post(at, body, false)).await;
+        assert_eq!(status, StatusCode::SEE_OTHER, "{body}");
+        let to = headers[header::LOCATION].to_str().unwrap();
+        assert!(to.contains("jobId=job_10") && to.contains("done=queued"), "{body}: {to}");
+    }
+    let writes: Vec<Call> =
+        daily_writes(&pilot).into_iter().filter(|c| c.path == "/api/catalog/source-observations/reapply").collect();
+    let bodies: Vec<Value> = writes.iter().map(|c| serde_json::from_str(&c.body).unwrap()).collect();
+    assert_eq!(
+        bodies,
+        [
+            json!({ "observationIds": ["obs_2"] }),
+            json!({ "observationIds": ["obs_2"], "reapplyProfileMode": "original-source-profile" })
+        ]
+    );
 }
 
 #[tokio::test]
