@@ -98,6 +98,11 @@
 .row .button {
   width: 100%;
 }
+.form button,
+.button {
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
 .field {
   display: grid;
   gap: var(--space-1);
@@ -173,6 +178,11 @@
   background: var(--color-surface);
   color: var(--color-primary);
   box-shadow: var(--shadow-sm, none);
+}
+@media (width < 30rem) {
+  .card {
+    padding-inline: var(--space-3);
+  }
 }
 @media (min-width: 30rem) {
   .row .button:not(.small) {

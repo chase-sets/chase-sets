@@ -1,4 +1,4 @@
-// Run against the public pilot with a titled promo message from its API:
+// Run against the public pilot with two titled promo messages, the first with a link:
 // node deployables/corten-pilot/public/tests/landing-layout.mjs http://localhost:7792
 import assert from "node:assert/strict";
 import { chromium } from "@playwright/test";
@@ -9,6 +9,40 @@ assert.ok(base, "pass the running public pilot's URL");
 
 const browser = await chromium.launch();
 try {
+  const phone = await browser.newPage({ viewport: { width: 375, height: 900 } });
+  assert.ok((await phone.goto(new URL("/", base).href)).ok());
+  const phonePromo = phone.getByRole("region", { name: "Marketplace announcements" });
+  const previous = phonePromo.locator('[data-promo-step="-1"]');
+  await previous.waitFor();
+  await phonePromo.locator("[data-promo-pause]").click();
+  await phone.evaluate(() => document.fonts.ready.then(() => true));
+  const phoneTitle = phonePromo.locator(".home-page__promo-title").filter({ visible: true });
+  await requiredBox(phoneTitle);
+  assert.ok(await phoneTitle.evaluate((node) => node.scrollWidth <= node.clientWidth), "phone promo title is readable");
+  for (const width of [320, 375]) {
+    await phone.setViewportSize({ width, height: 900 });
+    const promoLink = phonePromo.getByRole("link");
+    await requiredBox(promoLink);
+    for (const label of ["Order protection", "CollectorShippingCredit"]) {
+      const { link, parts, control } = await promoLink.evaluate(measurePromoLink, label);
+      assert.ok(parts.length >= 2, "visible promo link text and its decorative glyph");
+      for (const part of parts) {
+        assert.ok(
+          part.right <= control.left || part.bottom <= control.top || part.top >= control.bottom,
+          `${width}px: ${label} text and glyph stay clear of the previous-message button`,
+        );
+        assert.ok(part.left >= link.left && part.right <= link.right, `${width}px: ${label} stays inside its link`);
+      }
+      if (label === "Order protection") {
+        assert.ok(
+          link.top < control.bottom && link.bottom > control.top,
+          `${width}px: the ordinary link still shares the pager row`,
+        );
+      }
+    }
+  }
+  await phone.close();
+
   const page = await browser.newPage({ javaScriptEnabled: false, colorScheme: "dark" });
   const main = page.locator("main#main-content");
   const hero = main.locator('section[data-section="hero"]');
@@ -76,8 +110,18 @@ try {
 
   assert.ok((await page.goto(new URL("/terms", base).href)).ok());
   await tinted(main.getByRole("region", { name: "Policy metadata" }));
-  await tinted(main.getByRole("navigation", { name: "Terms sections" }));
-  console.log("terms: metadata and contents are tinted without chrome");
+  const termsContents = main.getByRole("navigation", { name: "Terms sections" });
+  await tinted(termsContents);
+  const columns = () =>
+    termsContents
+      .getByRole("list")
+      .evaluate(
+        (list) => new Set(Array.from(list.children, (item) => Math.round(item.getBoundingClientRect().x))).size,
+      );
+  assert.equal(await columns(), 2, "wide terms contents list uses two columns");
+  await page.setViewportSize({ width: 375, height: 900 });
+  assert.equal(await columns(), 1, "phone terms contents list stays in a single column");
+  console.log("terms: tinted contents change from one column to two");
 } finally {
   await browser.close();
 }
@@ -87,6 +131,26 @@ async function requiredBox(locator) {
   const box = await locator.boundingBox();
   assert.ok(box && box.width > 0 && box.height > 0, `visible target: ${locator}`);
   return box;
+}
+
+function measurePromoLink(link, label) {
+  const text = Array.from(link.childNodes).find((node) => node.nodeType === Node.TEXT_NODE && node.data.trim());
+  const glyph = link.querySelector("svg");
+  const previous = link.closest("section")?.querySelector('[data-promo-step="-1"]');
+  if (!text || !glyph || !previous) throw new Error("expected a promo link, decorative glyph, and previous control");
+  const original = text.data;
+  try {
+    text.data = label;
+    const range = document.createRange();
+    range.selectNodeContents(text);
+    return {
+      link: link.getBoundingClientRect().toJSON(),
+      parts: [...range.getClientRects(), glyph.getBoundingClientRect()].map((rect) => rect.toJSON()),
+      control: previous.getBoundingClientRect().toJSON(),
+    };
+  } finally {
+    text.data = original;
+  }
 }
 
 async function edges(locator, left, right, name) {

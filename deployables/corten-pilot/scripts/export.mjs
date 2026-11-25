@@ -404,6 +404,7 @@ const PAGE_ICONS = [
   "chevronLeft",
   "chevronRight",
   "grid",
+  "image",
   "info",
   "message",
   "pause",

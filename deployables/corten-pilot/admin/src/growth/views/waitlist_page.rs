@@ -6,9 +6,8 @@ use corten::{
     prelude::*,
 };
 use platform::{
-    search::SearchGlyph,
+    search::{SearchBox, SearchGlyph},
     ui::{
-        input_group::InputGroup,
         stats::{Stat, StatTone, Stats as KitStats, StatsSurface},
         table::{CellLabel, Table as KitTable, TableLayout},
     },
@@ -96,7 +95,7 @@ pub fn WaitlistPage<'a>(t: Gro, screen: &'a WaitlistScreen) -> impl Render {
                 <form class={Filters} method="get" action={url::Waitlist::default()}>
                     <label class={Field}>
                         <span>{t.admin_search()}</span>
-                        <span class={InputGroup {}}>
+                        <span class={SearchBox {}}>
                             <SearchGlyph />
                             <input type="search" name={f.search} value={&chosen.search}>
                         </span>
