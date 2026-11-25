@@ -5,6 +5,7 @@
 //! of them sends every choice.
 use corten::prelude::*;
 use platform::{
+    numeric_value::MoneyDisplay,
     search::SearchGlyph,
     ui::{input::Input, input_group::InputGroup, visually_hidden::VisuallyHidden},
 };
@@ -113,9 +114,13 @@ fn activities(t: SearchMsg) -> [(Activity, &'static str); 3] {
 
 /// An amount in dollars as money (`formatMoney`), or as it is.
 fn money(t: SearchMsg, amount: &str, currency: &str) -> String {
+    display_money(t, amount, currency).into_text()
+}
+
+fn display_money(t: SearchMsg, amount: &str, currency: &str) -> MoneyDisplay {
     match (platform::money::decimal(amount), corten::i18n::Currency::parse(currency.trim())) {
-        (Some(amount), Some(currency)) => t.money(amount, currency).to_string(),
-        _ => format!("{amount} {}", currency.trim().to_ascii_uppercase()).trim().to_owned(),
+        (Some(amount), Some(currency)) => MoneyDisplay::Formatted(t.money(amount, currency).to_string()),
+        _ => MoneyDisplay::Fallback(format!("{amount} {}", currency.trim().to_ascii_uppercase()).trim().to_owned()),
     }
 }
 
@@ -300,12 +305,13 @@ pub fn SearchPage<'a>(t: SearchMsg, i: ItemMsg, p: Pilot, screen: &'a SearchScre
                 if let Some(summary) = &summary {
                     <p class={SummaryWide}>{summary}</p>
                 }
-            } else {
-                <Hero t={t} screen={screen} summary={summary.as_deref()} />
             }
             <div class={Body}>
                 <Filters t={t} screen={screen} facets={facets} summary={summary.as_deref()} />
                 <section class={Results} aria-labelledby={screen.shelf.is_none().then_some("search-results-heading")}>
+                    if !focused {
+                        <Hero t={t} screen={screen} summary={summary.as_deref()} />
+                    }
                     if failed {
                         <div class={Banner} data-tone="danger" role="alert">
                             <p class={BannerTitle}>{t.page_error()}</p>
@@ -381,7 +387,7 @@ fn Hero<'a>(t: SearchMsg, screen: &'a SearchScreen, summary: Option<&'a str>) ->
             </p>
             <h1 class={Headline}>
                 {before}
-                if foil { <span class={Foil}>{FOIL_WORD}</span> }
+                if foil { <span class={platform::theme::BrandFoilText {}}>{FOIL_WORD}</span> }
                 {after}
             </h1>
             <p class={Lead}>{t.page_search_live_supply_compare_active_markets()}</p>
@@ -389,19 +395,28 @@ fn Hero<'a>(t: SearchMsg, screen: &'a SearchScreen, summary: Option<&'a str>) ->
             <ul class={Chips}>
                 <li>
                     <a class={Chip} href={&category_href("", terms)} aria-current={screen.category.is_empty().then_some("true")}>
+                        <platform::ui::icon::Icon glyph={platform::glyphs::GRID} />
                         {t.page_all()}
                     </a>
                 </li>
                 for category in screen.categories.iter().take(FEATURED) {
-                    <li><a class={Chip} href={&category_href(&category.slug, terms)}>{&category.name}</a></li>
+                    <li>
+                        <a class={Chip} href={&category_href(&category.slug, terms)}>
+                            <platform::ui::icon::Icon glyph={platform::glyphs::TAG} />
+                            {&category.name}
+                        </a>
+                    </li>
                 }
             </ul>
             if let Some(summary) = summary {
                 <p class={Summary}>{summary}</p>
             }
-            <div class={Promo}>
-                <p class={BannerTitle}>{t.page_buyer_confidence_is_built_into_discovery()}</p>
-                <p>{t.page_verified_supply_transparent_pricing_and_item()}</p>
+            <div class={TrustStrip}>
+                <span class={TrustIcon}><platform::ui::icon::Icon glyph={platform::glyphs::SHIELD} /></span>
+                <div>
+                    <p class={TrustTitle}>{t.page_buyer_confidence_is_built_into_discovery()}</p>
+                    <p class={Muted}>{t.page_verified_supply_transparent_pricing_and_item()}</p>
+                </div>
             </div>
         </div>
     }
@@ -752,6 +767,7 @@ fn Shelf<'a>(t: SearchMsg, shelf: &'a HomeShelf) -> impl Render {
                 <ul class={Featured}>
                     for category in &shelf.featured {
                         <li class={Feature}>
+                            <span class={FeatureIcon}><platform::ui::icon::Icon glyph={platform::glyphs::GRID} /></span>
                             <h3 class={CardTitle}>{&category.name}</h3>
                             if let Some(description) = category.description.as_deref().filter(|d| !d.trim().is_empty()) {
                                 <p class={Description}>{description}</p>
@@ -810,7 +826,7 @@ fn ItemCard<'a>(t: SearchMsg, item: &'a SearchItem, index: usize, action: &'a st
     let price = item
         .market_summary
         .as_ref()
-        .and_then(|m| Some(money(t, m.lowest_price_amount.as_deref()?, m.lowest_price_currency_code.as_deref()?)));
+        .and_then(|m| Some(display_money(t, m.lowest_price_amount.as_deref()?, m.lowest_price_currency_code.as_deref()?)));
     let priority = index < PRIORITY_IMAGES;
     html! {
         <li class={Card}>
@@ -1048,7 +1064,7 @@ pub fn ResultMarket<'a>(t: SearchMsg, i: ItemMsg, item: &'a SearchItem, terms: &
         .market_summary
         .as_ref()
         .filter(|_| listings > 0)
-        .and_then(|m| Some(money(t, m.lowest_price_amount.as_deref()?, m.lowest_price_currency_code.as_deref()?)));
+        .and_then(|m| Some(display_money(t, m.lowest_price_amount.as_deref()?, m.lowest_price_currency_code.as_deref()?)));
     let (buy, sell, watch) =
         (market_href(item, terms, Market::Buy), market_href(item, terms, Market::Sell), market_href(item, terms, Market::Watch));
     html! {

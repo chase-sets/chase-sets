@@ -3464,10 +3464,15 @@ async fn a_cart_that_cannot_check_out_says_which_lines_need_attention() {
     assert!(html.contains(r#"data-cart-line="cli_pikachu_a""#), "the merged line keeps the first one's id: {html}");
     assert!(html.contains(r#"name="quantity" value="3" min="1""#), "{html}");
     assert!(page.contains("from $53.85"), "{page}");
+    assert!(
+        html.contains(r#"<p class="cart-item__price" data-price><span class="cart-item__from">from</span> <span class="numeric-value__amount">$53.85</span></p>"#),
+        "only the amount in an indicative cart price gets the numeric role: {html}"
+    );
     assert!(html.contains("data-reason>Needs fulfillment<"), "{html}");
     // The API says the other currency's line needs review.
     assert!(html.contains("data-reason>Needs review<"), "{html}");
     assert!(page.contains("Priced at checkout"), "a line without a priced listing, and the total: {page}");
+    assert!(html.contains("data-price>Priced at checkout</p>"), "a deferred price stays plain text: {html}");
     assert_eq!(page.matches("Find alternatives").count(), 1, "only the line with no fulfillment: {page}");
     assert!(html.contains(r#"href="http://localhost:7753/search?q=Pikachu""#), "{html}");
     assert!(html.contains(">Continue to checkout<") && !html.contains(">Check out<"), "{html}");
@@ -3662,7 +3667,10 @@ async fn the_shell_has_the_account_menu_the_bottom_bar_and_a_visitors_cart_hidde
     let pilot = Pilot::new().await;
     let (_, _, html) = pilot.send(get(CART_SCREEN, Some("seller"))).await;
     let shell = html.split_once("<main>").unwrap().0;
-    assert!(shell.contains("<body data-shell>"), "the page leaves room for the phone's bar: {shell}");
+    assert!(
+        shell.contains(r#"<body class="page-canvas__canvas" data-shell>"#),
+        "the page leaves room for the phone's bar: {shell}"
+    );
     assert!(shell.contains(r#"aria-label="Account menu""#) && shell.contains("Sign Out"), "{shell}");
     assert_eq!(shell.matches("<nav").count(), 2, "the top bar's and the phone's: {shell}");
     assert!(shell.contains(r#"data-badge="checkout.cart-count""#), "the cart's badge: {shell}");
@@ -3682,7 +3690,7 @@ async fn the_shell_has_the_account_menu_the_bottom_bar_and_a_visitors_cart_hidde
     assert_eq!(cart_badges(&html), [(String::new(), true), (String::new(), true)], "{shell}");
     let (_, _, html) = pilot.send(get("/offline", None)).await;
     assert!(
-        !html.contains("<nav") && html.contains("<body><main>"),
+        !html.contains("<nav") && html.contains(r#"<body class="page-canvas__canvas"><main>"#),
         "the offline page has no shell, nor room for its bar: {html}"
     );
 }
@@ -4471,6 +4479,10 @@ async fn anyone_reads_an_item_with_its_best_listing_and_its_market() {
     assert!(page.contains("Pokemon Card Single Charizard Base Set 4/102"), "{page}");
     // Nothing chosen and three buyable listings: the first is the best available one.
     assert!(page.contains("Lowest ask $389.00 All active listings Available 4 Listings 3 listings Sellers 2 sellers"), "{page}");
+    assert!(
+        html.contains(r#"<p class="item-detail__price"><span class="numeric-value__amount">$389.00</span></p>"#),
+        "the market summary styles only its price: {html}"
+    );
     assert!(page.contains("Best available listing $389.00 Card Vault \u{b7} 2 available"), "{page}");
     // The book: the buyable listings in the API's order, the lowest marked, the limit shown.
     assert!(page.contains("3 active listings"), "{page}");
@@ -6949,7 +6961,13 @@ async fn a_category_page_searches_in_it_and_the_landing_offers_categories() {
     let (status, _, html) = pilot.send(get("/search", None)).await;
     assert_eq!(status, StatusCode::OK);
     assert!(html.contains("Find trading cards worth "), "{html}");
-    assert!(html.contains(r#"href="/categories/singles-x1">Singles</a>"#), "{html}");
+    let chip = html
+        .split_once(r#"<a class="search-page__chip" href="/categories/singles-x1">"#)
+        .and_then(|(_, rest)| rest.split_once("</a>"))
+        .map(|(contents, _)| contents)
+        .expect("the landing links to Singles");
+    assert_eq!(text(chip), "Singles");
+    assert!(chip.contains(r#"aria-hidden="true""#), "the category glyph is decorative: {chip}");
 }
 
 #[tokio::test]
@@ -7006,7 +7024,11 @@ async fn a_set_page_shows_the_set_and_its_cards_and_links_to_all_of_them() {
     assert_eq!(html.matches(">View card</a>").count(), 2, "{html}");
     assert!(html.contains(r#"href="/items/set-card-1">View card</a>"#), "{html}");
     // A card shows its lowest price without "From", as marketplace's set cards do.
-    assert!(html.contains(r#"<span class="search-page__strong">$12.50</span>"#) && !html.contains(">From "), "{html}");
+    assert!(
+        html.contains(r#"<span class="search-page__strong"><span class="numeric-value__amount">$12.50</span></span>"#)
+            && !html.contains(">From "),
+        "{html}"
+    );
     // The API sent two of three, so the page links to all of them in search.
     assert!(html.contains(r#"href="/search?reference.expansion=ref_base_set">Browse all 3 cards in this set</a>"#), "{html}");
     assert!(html.contains(r#"<link rel="canonical" href="http://localhost:7753/sets/base-set" "#), "{html}");
@@ -7034,6 +7056,10 @@ async fn a_listing_page_shows_the_listing_its_purchase_panel_and_its_seller() {
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("<title>Charizard | Marketplace</title>"), "{html}");
     assert!(html.contains(r#"<meta name="description" content="$749.00 from Chase Sets." "#), "{html}");
+    assert!(
+        html.contains(r#"<span class="numeric-value__amount">$749.00</span> from Chase Sets</p>"#),
+        "price, not the seller attribution, gets the numeric role: {html}"
+    );
     assert!(html.contains(r#"<link rel="canonical" href="http://localhost:7753/listings/psa-8" "#), "{html}");
     assert!(html.contains(">Charizard</h1>") && html.contains(">Base Set 4/102 Holo Rare</p>"), "{html}");
     for chip in ["graded", "psa", "nm-mt-8"] {
@@ -13727,6 +13753,8 @@ async fn the_inventory_list_shows_each_item_and_data_clients_get_the_screen() {
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(get(INVENTORY_SCREEN, Some("seller"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"surface__tinted" data-elevation-role="furniture">"#), "{html}");
+    assert!(!html.contains(r#"data-elevation-role="entity""#), "the list is a workbench: {html}");
     let page = text(&html);
     for shown in ["Charizard", "English", "Base Set 4/102", "Near Mint", "$4.25", "5.00 (currency not recorded)", "Main shelf"] {
         assert!(page.contains(shown), "{shown}: {page}");
@@ -14012,6 +14040,8 @@ async fn the_item_page_shows_its_holds_and_ledger_and_data_clients_get_the_scree
         assert!(page.contains(shown), "{shown}: {page}");
     }
     assert!(!page.contains("offline-sale"), "no raw kind: {page}");
+    assert!(html.contains(r#"surface__elevated" data-elevation-role="entity">"#), "{html}");
+    assert_eq!(html.matches(r#"surface__tinted" data-elevation-role="furniture">"#).count(), 6, "three forms and three holds");
     assert!(html.contains(r#"action="/account/inventory/items/inv_1/holds/hld_manual/release""#), "{html}");
     assert!(!html.contains("hld_order/release") && !html.contains("hld_old/release"), "only an active manual hold is released");
     // Adjust Quantity posts to the page itself.
@@ -14038,6 +14068,7 @@ async fn the_ledger_filter_shows_one_kind() {
     assert!(html.contains(r#"href="/account/inventory/items/inv_1?ledgerKind=adjusted" aria-current="page""#), "{html}");
     let (_, _, html) = pilot.send(get("/account/inventory/items/inv_1?ledgerKind=hold-expired", Some("seller"))).await;
     assert!(text(&html).contains("No stock movements match this filter."), "{html}");
+    assert!(html.contains(r#"surface__tinted" data-elevation-role="furniture">No stock movements"#), "{html}");
 }
 
 #[tokio::test]
@@ -14656,7 +14687,8 @@ fn recommendations(stand: &Stand, method: &Method, path: &str, body: &str) -> Op
             "catalog_item_title": title, "catalog_item_language_code": "ja", "catalog_item_subtitle": "Base Set 4/102",
             "catalog_item_status": "active", "market_price_amount": 12.5, "market_currency": "USD", "market_signal_type": signal,
             "market_observed_at": "2026-10-29T08:00:00.000Z", "current_price_amount": 14, "current_price_currency_code": "USD",
-            "recommended_list_amount": 12.25, "recommendation_reason": "Lowest active listing is lower.", "quantity_cap": null,
+            "recommended_list_amount": if status == "applied" { None } else { Some(12.25) },
+            "recommendation_reason": "Lowest active listing is lower.", "quantity_cap": null,
             "applied_listing_id": null, "last_error": null, "recommendation_published_at": null, "stock_on_hand_quantity": 2,
             "stock_reserved_quantity": 0, "active_listing_count": 5, "lowest_listing_price_amount": 11.99, "active_offer_count": 1,
             "highest_offer_price_amount": 10, "committed_order_quantity": 0, "delivered_quantity": 3, "returned_quantity": 1,
@@ -14736,6 +14768,10 @@ async fn recommendations_are_for_a_seller_with_pricing_view_and_their_actions_ne
     ] {
         assert!(words.contains(expected), "{expected}: {words}");
     }
+    assert_eq!(html.matches(r#"<span class="numeric-value__amount">$12.50</span>"#).count(), 2, "{html}");
+    assert_eq!(html.matches(r#"<span class="numeric-value__amount">$12.25</span>"#).count(), 1, "{html}");
+    assert!(html.contains(r#"<span class="recommendations-page__strong">Not set</span>"#), "{html}");
+    assert!(html.contains("Lowest active: $11.99</span>") && html.contains("Current: $14.00</span>"), "{html}");
     // The signals: 2 recommendations, 4 units on hand, 10 active listings, 2 offers.
     let value = r#"<dd class="stats__value">"#;
     let stats: Vec<_> =
@@ -15792,6 +15828,10 @@ async fn the_checkout_shows_the_session_payments_quote_the_wallet_and_the_saved_
     assert!(page.contains("Lugia Neo Genesis 9/111 Holo Rare"), "{page}");
     assert!(page.contains("Subtotal $620.00 Shipping $0.00 Estimated tax $0.00 Checkout service fee $18.83"), "{page}");
     assert!(page.contains("Available balance $25.00 Payable total $638.83"), "Payments' quote, not one the page makes: {page}");
+    assert!(
+        html.contains(r#"data-total><span class="numeric-value__amount">$638.83</span></dd>"#),
+        "the formatted checkout total gets the numeric role: {html}"
+    );
     assert!(page.contains("Ship to Demo Collector 42 Binder Lane, Evanston, IL 60201, US Ready"), "the saved default: {page}");
     assert!(page.contains("Standard insured: 2026-11-04 - 2026-11-09."), "{page}");
     // The steps are the kit's: each says its state after its name, a description under it.
@@ -17862,6 +17902,13 @@ async fn the_money_page_shows_the_wallet_the_payouts_and_what_needs_a_next_step(
     let (status, _, html) = pilot.send(get(MONEY, Some("banker"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("Money at a glance") && html.contains("$26.83") && html.contains("$106.96 pending"), "{html}");
+    for amount in ["$26.83", "$9.73"] {
+        assert!(
+            html.contains(&format!(r#"<dd class="money-page__number"><span class="numeric-value__amount">{amount}</span></dd>"#)),
+            "{html}"
+        );
+    }
+    assert!(html.contains("$106.96 pending</dd>"), "{html}");
     // Settlement's next payout and blocked ones, as it answers them.
     assert!(html.contains("$9.73") && html.contains("Estimated by Oct 29, 2026"), "the next payout: {html}");
     assert!(html.contains("2 payouts need attention"), "the failed one and the one with no provider reference: {html}");
@@ -17876,7 +17923,13 @@ async fn the_money_page_shows_the_wallet_the_payouts_and_what_needs_a_next_step(
         html.contains(r#"commandfor="payout-breakdown-pyo_paid""#) && html.contains(r#"<dialog id="payout-breakdown-pyo_paid""#),
         "{html}"
     );
+    let (_, breakdown) = html.split_once(r#"<dialog id="payout-breakdown-pyo_paid""#).unwrap();
+    let (breakdown, _) = breakdown.split_once("</dialog>").unwrap();
+    for amount in ["$10.00", "$0.27", "$9.73"] {
+        assert!(breakdown.contains(&format!(r#"<dd><span class="numeric-value__amount">{amount}</span></dd>"#)), "{breakdown}");
+    }
     assert!(html.contains("Sale of Charizard") && html.contains("Wallet adjustment"), "the activity: {html}");
+    assert!(html.contains(r#"<span class="numeric-value__amount">$56.83</span>"#), "{html}");
     assert!(html.contains("drawer=wallet-adjustment&amp;entity=WADJ-1"), "the adjustment's breakdown: {html}");
     assert!(html.contains("Minimum · $5.00") && html.contains("Full available · $26.83"), "the policy's amounts: {html}");
     assert!(html.contains("Manage payout account") && !html.contains("Finish payout setup"), "setup is done: {html}");
@@ -17905,6 +17958,7 @@ async fn the_money_page_shows_the_wallet_the_payouts_and_what_needs_a_next_step(
     assert_eq!(status, StatusCode::OK, "{html}");
     let shown = text(&html);
     assert!(shown.contains("Payout history is incomplete"), "{shown}");
+    assert!(html.contains(r#"<dd class="money-page__number">Payout history is incomplete"#), "{html}");
     assert!(!shown.contains("Estimated by") && !html.contains("data-blocked-payout"), "{html}");
 
     let (status, _, _) = pilot.send(get(MONEY, Some("buyer"))).await;
@@ -17929,6 +17983,7 @@ async fn a_wallet_adjustment_the_address_names_opens_its_breakdown() {
     );
     assert!(html.contains("Wallet adjustment WADJ-1") && html.contains("Goodwill credit"), "{html}");
     assert!(html.contains("Resulting available balance") && html.contains("$30.00"), "{html}");
+    assert!(html.contains(r#"<dd><span class="numeric-value__amount">$30.00</span></dd>"#), "{html}");
     let (status, _, html) = pilot.send(get(&format!("{MONEY}?drawer=wallet-adjustment&entity=WADJ-9"), Some("banker"))).await;
     assert_eq!(status, StatusCode::OK, "one the account has not is the page without it");
     assert!(!html.contains("Wallet adjustment WADJ-9"), "{html}");
@@ -18003,6 +18058,10 @@ async fn a_payouts_page_shows_its_status_amounts_moments_and_timeline() {
     assert!(words.contains("Payout PYO-pyo_paid") && words.contains("Net payout: $9.73"), "{words}");
     assert!(words.contains("Payout account: Saved payout account"), "no note, no failure: {words}");
     assert!(words.contains("$10.00") && words.contains("$0.27") && words.contains("Completed"), "{words}");
+    for amount in ["$10.00", "$0.27", "$9.73"] {
+        assert!(html.contains(&format!(r#"<dd><span class="numeric-value__amount">{amount}</span></dd>"#)), "{html}");
+    }
+    assert!(html.contains("Net payout: $9.73</p>"), "{html}");
     assert!(words.contains("Last provider check"), "{words}");
     assert!(words.contains("The payout provider accepted the transfer."), "{words}");
     // The kit's Steps as a timeline, an <ol> named by its label (no <nav>), every step done.
@@ -23276,6 +23335,12 @@ async fn a_purchase_intent_is_the_pilots_page_and_submit_offer_shows_the_offer()
     // The line at its offer, and No payment today: no shipping, tax, fee or wallet.
     assert!(page.contains("$24.50"), "{page}");
     assert!(page.contains("No payment today") && page.contains("Not applicable"), "{page}");
+    assert!(
+        html.contains(r#"data-line-price><span class="numeric-value__amount">$24.50</span></p>"#),
+        "the line's offered money is styled as a value: {html}"
+    );
+    assert!(html.contains("data-total>No payment today</dd>"), "the status is not a numeric total: {html}");
+    assert!(html.contains("<dd>Pending</dd>"), "pending subtotal copy stays plain text: {html}");
     assert!(page.contains("Sellers can accept your offer before an order and payment are created."), "{page}");
     assert!(page.contains("Shipping is saved for seller acceptance."), "{page}");
     for absent in ["Checkout service fee", "Payable total", "Pay now", "Totals need refresh", "Available balance"] {

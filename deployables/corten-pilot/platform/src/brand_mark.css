@@ -1,0 +1,19 @@
+.mark {
+  flex: none;
+}
+.stop-start {
+  stop-color: var(--color-logo-start);
+}
+.stop-mid {
+  stop-color: var(--color-logo-mid);
+}
+.stop-end {
+  stop-color: var(--color-logo-end);
+}
+@media (forced-colors: active) {
+  .stop-start,
+  .stop-mid,
+  .stop-end {
+    stop-color: CanvasText;
+  }
+}

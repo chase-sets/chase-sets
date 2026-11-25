@@ -13,6 +13,7 @@ use corten::{
     prelude::*,
     view::Id,
 };
+use platform::surface::{Elevation, Surface};
 
 use super::{
     WriteForm,
@@ -176,7 +177,7 @@ pub fn InventoryItemPage<'a>(
             <div class={Main}>
                 <section class={Section} aria-labelledby="item-summary-title">
                     <h2 id="item-summary-title" class={PartTitle}>{t.item_inventory_item_summary()}</h2>
-                    <dl class={(Card, Facts)}>
+                    <dl class={(Panel, Facts, Surface { elevation: Elevation::Elevated })} data-elevation-role="entity">
                         <div>
                             <dt>{t.item_catalog_item()}</dt>
                             <dd>{&item.catalog_catalog_item_id}</dd>
@@ -212,7 +213,9 @@ pub fn InventoryItemPage<'a>(
                 <section class={Section} aria-labelledby="item-holds-title">
                     <h2 id="item-holds-title" class={PartTitle}>{t.item_hold_history()}</h2>
                     if screen.item.holds.is_empty() {
-                        <p class={Card}>{t.item_no_holds_have_been_created_for()}</p>
+                        <p class={(Panel, Surface { elevation: Elevation::Tinted })} data-elevation-role="furniture">
+                            {t.item_no_holds_have_been_created_for()}
+                        </p>
                     } else {
                         <ul class={Holds}>
                             for hold in &screen.item.holds {
@@ -227,7 +230,7 @@ pub fn InventoryItemPage<'a>(
                 <div class={Aside}>
                     <section id={ItemSaleId} class={Section} aria-labelledby="item-sale-title">
                         <h2 id="item-sale-title" class={PartTitle}>{t.sale_title()}</h2>
-                        <div class={Card}>
+                        <div class={(Panel, Surface { elevation: Elevation::Tinted })} data-elevation-role="furniture">
                             <SaleForm
                                 t={t}
                                 p={p}
@@ -240,13 +243,13 @@ pub fn InventoryItemPage<'a>(
                     </section>
                     <section class={Section} aria-labelledby="item-adjust-title">
                         <h2 id="item-adjust-title" class={PartTitle}>{t.item_adjust_quantity()}</h2>
-                        <div class={Card}>
+                        <div class={(Panel, Surface { elevation: Elevation::Tinted })} data-elevation-role="furniture">
                             <AdjustForm t={t} m={m} viewer={viewer} screen={screen} drafts={drafts} />
                         </div>
                     </section>
                     <section class={Section} aria-labelledby="item-hold-title">
                         <h2 id="item-hold-title" class={PartTitle}>{t.item_create_hold()}</h2>
-                        <div class={Card}>
+                        <div class={(Panel, Surface { elevation: Elevation::Tinted })} data-elevation-role="furniture">
                             <HoldForm t={t} m={m} viewer={viewer} screen={screen} drafts={drafts} />
                         </div>
                     </section>
@@ -390,7 +393,7 @@ fn HoldCard<'a>(
     let order = source_order(hold.source_ref.as_ref());
     let left = if active { hold.expires_at.as_deref().and_then(|at| countdown(t, at)) } else { None };
     html! {
-        <li class={(Card, HoldCard)}>
+        <li class={(Panel, Surface { elevation: Elevation::Tinted })} data-elevation-role="furniture">
             <p class={Strong}>{format!("{} ({})", hold.reason, hold.quantity)}</p>
             <p class={Row}>
                 <span class={Badge} data-tone={if hold.purpose == "manual" { "neutral" } else { "info" }}>
@@ -476,7 +479,9 @@ fn Ledger<'a>(t: InventoryMsg, screen: &'a ItemScreen) -> impl Render {
                 }
             </nav>
             if entries.is_empty() {
-                <p class={Card}>{t.item_no_stock_movements()}</p>
+                <p class={(Panel, Surface { elevation: Elevation::Tinted })} data-elevation-role="furniture">
+                    {t.item_no_stock_movements()}
+                </p>
             } else {
                 <ol class={Timeline}>
                     for entry in entries {

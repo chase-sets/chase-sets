@@ -126,7 +126,7 @@ pub fn ComparePage<'a>(
                     }
                 </div>
             </section>
-            <div class={(Card, Subtle)}>
+            <div class={Card}>
                 <p class={Muted}>{c.cta_text()}</p>
                 <div class={Actions}>
                     <a
@@ -282,7 +282,7 @@ pub fn FeeCalculator<'a>(t: HomeMsg, c: CompareMsg, p: Pilot, calculator: &'a Ca
                     }
                 </div>
             }
-            <div class={(Card, Subtle)}>
+            <div class={Card}>
                 <div class={Actions}>
                     <span class={Badge}>{t.home_fee_calculator_founders_badge()}</span>
                     <a class={(Button, Secondary, Small)} href={crate::app::url::Founders.href()}>

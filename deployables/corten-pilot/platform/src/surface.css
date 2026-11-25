@@ -1,0 +1,16 @@
+.flush {
+  background: transparent;
+}
+.tinted {
+  background: var(--color-surface-2);
+  border-radius: var(--radius-lg);
+}
+.outlined,
+.elevated {
+  background: var(--color-surface-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+.elevated {
+  box-shadow: var(--shadow-lg);
+}

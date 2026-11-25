@@ -6,9 +6,12 @@
 //! a form or a link. One column on a phone, where the table is a card per row; the signals are the
 //! kit's Stats.
 use corten::prelude::*;
-use platform::ui::{
-    stats::{Stat, StatTone, Stats as KitStats, StatsSurface},
-    visually_hidden::VisuallyHidden,
+use platform::{
+    numeric_value::MoneyDisplay,
+    ui::{
+        stats::{Stat, StatTone, Stats as KitStats, StatsSurface},
+        visually_hidden::VisuallyHidden,
+    },
 };
 
 use crate::{
@@ -26,12 +29,12 @@ pub struct RecommendationsPartId;
 pub struct RecommendationsNoticeId;
 
 /// An amount to two places in the market's currency, or Not set (`money`).
-fn money(t: RepricingMsg, amount: Option<f64>, currency: &str) -> String {
-    let Some(amount) = amount else { return t.recs_not_set().to_owned() };
+fn money(t: RepricingMsg, amount: Option<f64>, currency: &str) -> MoneyDisplay {
+    let Some(amount) = amount else { return MoneyDisplay::Fallback(t.recs_not_set().to_owned()) };
     let fixed = format!("{amount:.2}");
     match (platform::money::decimal(&fixed), corten::i18n::Currency::parse(currency.trim())) {
-        (Some(value), Some(currency)) => t.money(value, currency).to_string(),
-        _ => fixed,
+        (Some(value), Some(currency)) => MoneyDisplay::Formatted(t.money(value, currency).to_string()),
+        _ => MoneyDisplay::Fallback(fixed),
     }
 }
 
@@ -268,16 +271,18 @@ fn Row<'a>(t: RepricingMsg, row: &'a Recommendation, manage: bool, busy: bool, f
             </td>
             <td class={Number} data-label={t.recs_market()}>
                 <span class={Strong}>{money(t, row.market_price_amount, cur)}</span>
-                <span class={Hint}>{t.recs_lowest_active(&money(t, row.lowest_listing_price_amount, cur)).to_string()}</span>
+                <span class={Hint}>
+                    {t.recs_lowest_active(money(t, row.lowest_listing_price_amount, cur).text()).to_string()}
+                </span>
             </td>
             <td class={Number} data-label={t.recs_recommended()}>
                 <span class={Strong}>{money(t, row.recommended_list_amount, cur)}</span>
-                <span class={Hint}>{t.recs_current_price(&money(t, row.current_price_amount, cur)).to_string()}</span>
+                <span class={Hint}>{t.recs_current_price(money(t, row.current_price_amount, cur).text()).to_string()}</span>
                 <span class={Hint}>{row.recommendation_reason.as_deref().unwrap_or(t.recs_no_reason())}</span>
             </td>
             <td data-label={t.recs_signals()}>
                 <span>
-                    {t.recs_offer_signal(crate::text::repricing_msg::RecsOfferSignal { offers: &row.active_offer_count.to_string(), highest: &money(t, row.highest_offer_price_amount, cur) }).to_string()}
+                    {t.recs_offer_signal(crate::text::repricing_msg::RecsOfferSignal { offers: &row.active_offer_count.to_string(), highest: money(t, row.highest_offer_price_amount, cur).text() }).to_string()}
                 </span>
                 <span class={Hint}>
                     {t.recs_fulfillment_signal(crate::text::repricing_msg::RecsFulfillmentSignal { delivered: &row.delivered_quantity.to_string(), returned: &row.returned_quantity.to_string() }).to_string()}
