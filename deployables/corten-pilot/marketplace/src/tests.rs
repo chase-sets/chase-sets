@@ -6961,7 +6961,13 @@ async fn a_category_page_searches_in_it_and_the_landing_offers_categories() {
     let (status, _, html) = pilot.send(get("/search", None)).await;
     assert_eq!(status, StatusCode::OK);
     assert!(html.contains("Find trading cards worth "), "{html}");
-    assert!(html.contains(r#"href="/categories/singles-x1">Singles</a>"#), "{html}");
+    let chip = html
+        .split_once(r#"<a class="search-page__chip" href="/categories/singles-x1">"#)
+        .and_then(|(_, rest)| rest.split_once("</a>"))
+        .map(|(contents, _)| contents)
+        .expect("the landing links to Singles");
+    assert_eq!(text(chip), "Singles");
+    assert!(chip.contains(r#"aria-hidden="true""#), "the category glyph is decorative: {chip}");
 }
 
 #[tokio::test]
@@ -7018,7 +7024,11 @@ async fn a_set_page_shows_the_set_and_its_cards_and_links_to_all_of_them() {
     assert_eq!(html.matches(">View card</a>").count(), 2, "{html}");
     assert!(html.contains(r#"href="/items/set-card-1">View card</a>"#), "{html}");
     // A card shows its lowest price without "From", as marketplace's set cards do.
-    assert!(html.contains(r#"<span class="search-page__strong">$12.50</span>"#) && !html.contains(">From "), "{html}");
+    assert!(
+        html.contains(r#"<span class="search-page__strong"><span class="numeric-value__amount">$12.50</span></span>"#)
+            && !html.contains(">From "),
+        "{html}"
+    );
     // The API sent two of three, so the page links to all of them in search.
     assert!(html.contains(r#"href="/search?reference.expansion=ref_base_set">Browse all 3 cards in this set</a>"#), "{html}");
     assert!(html.contains(r#"<link rel="canonical" href="http://localhost:7753/sets/base-set" "#), "{html}");

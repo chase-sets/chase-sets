@@ -81,6 +81,11 @@
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
+/* Fixed tracks cannot grow to fit the kit's normally unwrapped stat value. */
+.stats-grid > div > dd:first-of-type {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 /* The lowest asks, a list in the active listings' note (the kit's Stat). */
 .asks {
   margin: 0;
