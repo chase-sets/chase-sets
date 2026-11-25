@@ -1479,6 +1479,17 @@ describe("AC4 publish preview guard", () => {
 });
 
 describe("AC5 support-safe receipt schema", () => {
+  const displayIdentity = {
+    missingTokens: ["ink-color", "rarity"],
+    templateKey: null,
+    templateReason: "missing-required-fields",
+  };
+  const displayIdentityFailure = {
+    candidateId: "candidate-display",
+    status: "failed",
+    failureDiagnosticCode: "promotion-plan-blocked:display-identity-unresolvable",
+  };
+
   const failureReceipt = () =>
     receipt({
       state: "failed",
@@ -1506,12 +1517,80 @@ describe("AC5 support-safe receipt schema", () => {
       context.writeWholeGameReceipt(diagnostic);
       expect(existsSync(path)).toBe(true);
       expect(JSON.parse(readFileSync(path, "utf8"))).toEqual(diagnostic);
+      const enriched = {
+        ...diagnostic,
+        promotionFailure: rehearsal.wholeGamePromotionFailure(
+          promoteJob("failed-job", [
+            { ...displayIdentityFailure, displayIdentity: { ...displayIdentity, templateTargetId: "not-forwarded" } },
+            { ...displayIdentityFailure, candidateId: "candidate-old" },
+            {
+              ...displayIdentityFailure,
+              candidateId: "candidate-unresolved-title",
+              displayIdentity: {
+                missingTokens: ["item.unknown"],
+                templateKey: "synthetic-template",
+                templateReason: "unresolved-title-tokens",
+              },
+            },
+            {
+              ...displayIdentityFailure,
+              candidateId: "candidate-malformed",
+              displayIdentity: {
+                ...displayIdentity,
+                missingTokens: ["https://provider.invalid/private"],
+              },
+            },
+            {
+              ...displayIdentityFailure,
+              candidateId: "candidate-other",
+              failureDiagnosticCode: "promotion-reference-target-unresolved",
+              displayIdentity,
+            },
+          ]),
+        ),
+      };
+      context.writeWholeGameReceipt(enriched);
+      expect(JSON.parse(readFileSync(path, "utf8")).promotionFailure.failedOutcomes).toEqual([
+        { candidateId: "candidate-display", reasonCode: displayIdentityFailure.failureDiagnosticCode, displayIdentity },
+        { candidateId: "candidate-old", reasonCode: displayIdentityFailure.failureDiagnosticCode },
+        {
+          candidateId: "candidate-unresolved-title",
+          reasonCode: displayIdentityFailure.failureDiagnosticCode,
+          displayIdentity: {
+            missingTokens: ["item.unknown"],
+            templateKey: "synthetic-template",
+            templateReason: "unresolved-title-tokens",
+          },
+        },
+        { candidateId: "candidate-malformed", reasonCode: displayIdentityFailure.failureDiagnosticCode },
+        { candidateId: "candidate-other", reasonCode: "promotion-reference-target-unresolved" },
+      ]);
       const unsafe = { ...diagnostic, promotionFailure: { ...diagnostic.promotionFailure, reason: "provider body" } };
       expect(() => context.writeWholeGameReceipt(unsafe)).toThrow(/schema validation/);
-      expect(JSON.parse(readFileSync(path, "utf8"))).toEqual(diagnostic);
+      expect(JSON.parse(readFileSync(path, "utf8"))).toEqual(enriched);
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
+  });
+
+  it.each([
+    [{ ...displayIdentity, title: "provider body" }, displayIdentityFailure.failureDiagnosticCode],
+    [
+      { ...displayIdentity, missingTokens: ["https://provider.invalid/private"] },
+      displayIdentityFailure.failureDiagnosticCode,
+    ],
+    [{ ...displayIdentity, templateKey: "private provider title" }, displayIdentityFailure.failureDiagnosticCode],
+    [{ ...displayIdentity, missingTokens: ["field.bearer"] }, displayIdentityFailure.failureDiagnosticCode],
+    [{ ...displayIdentity, templateReason: "provider body" }, displayIdentityFailure.failureDiagnosticCode],
+    [displayIdentity, "asset-processing-failed"],
+  ])("rejects unsafe or misplaced display evidence: %j", (evidence, reasonCode) => {
+    const diagnostic = failureReceipt();
+    Object.assign(diagnostic.promotionFailure.failedOutcomes[0], { displayIdentity: evidence, reasonCode });
+    expect(validateWholeGameReceipt(diagnostic)).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/^promotionFailure\.failedOutcomes\.0\.displayIdentity(?:\.keys)?$/),
+      ]),
+    );
   });
 
   it.each([
@@ -1519,6 +1598,7 @@ describe("AC5 support-safe receipt schema", () => {
     ["reasonCode", "new-unclassified-code"],
     ["candidateId", "x".repeat(129)],
     ["candidateId", "https://provider.invalid/candidate"],
+    ["candidateId", "candidate-secret"],
     ["reason", "provider body"],
   ])("rejects unsafe or non-contract outcome evidence: %s", (key, value) => {
     const diagnostic = failureReceipt();

@@ -4,6 +4,8 @@ import type { CatalogServices } from "../../../../support/authoring-support/serv
 import type { CatalogItemId, ReferenceRecordId } from "../../../../ids";
 import { seedDisplayTemplates } from "../../../display-templates/api/seed";
 import { deriveRequiredFieldKeys, type DisplayTemplateCommand } from "../../../display-templates/domain/domain";
+import { decideSourceObservation, evolveSourceObservation, initialSourceObservationState } from "../../domain/domain";
+import { observationRow } from "../../tests/magic-provider-role-fixture";
 import normalPayload from "../__fixtures__/lorcanajson-card-reference/normal.json";
 import {
   lorcanajsonLorcanaCardReferenceProviderProfile,
@@ -14,6 +16,11 @@ import {
   type CatalogProviderIntegrationProfile,
 } from "../provider-integration-profiles";
 import { lorcanajsonLorcanaCardReferenceSourceObservationMappingContract } from "../providers/lorcanajson/executable-mapping-contract";
+import {
+  catalogProviderIntegrationProfileVersions,
+  catalogProviderProfileVersionIngestionUnitKey,
+} from "../providers/registry";
+import { scrydexLorcanaCardPrintSourceObservationMappingContract } from "../providers/scrydex/lorcana-executable-mapping-contract";
 import { loadCatalogItemPromotionProfile } from "../source-observation-promotion-execution";
 import { createChangedObservationRefreshHarness } from "../seeding/runtime-test-harness";
 import {
@@ -22,6 +29,9 @@ import {
   type SyntheticDisplayTemplate,
 } from "../seeding/synthetic-display-identity-queryable";
 import { normalizeCatalogProviderSourceObservation } from "./provider-source-observation-normalizer";
+import { snapshotWithAuthoredFacts } from "./catalog-merge-candidate-application";
+import { buildCatalogMergeCandidatesFromObservations } from "./catalog-merge-candidate-matcher";
+import { planCatalogMergeCandidatePromotionCommands } from "./catalog-merge-candidate-promotion-planner";
 import {
   planCatalogProviderPromotionCommands,
   type CatalogProviderPromotionMode,
@@ -136,6 +146,149 @@ async function plan(mode: CatalogProviderPromotionMode, referenceName = "The Fir
   };
   return { input, harness, result: await planCatalogProviderPromotionCommands(input) };
 }
+
+describe("synthetic Scrydex D23 Collection candidate display identity", () => {
+  // Set shape and printed-number format come from the offline Scrydex import test;
+  // the card identity and values are controls, not retained staging data.
+  it.each([
+    { ink: "Amber", rarity: "Promo", missing: [] },
+    { ink: "Amber / Ruby", rarity: "Promo", missing: [] },
+    { ink: null, rarity: "Promo", missing: ["ink-color"] },
+    { ink: "Amber", rarity: null, missing: ["rarity"] },
+    { ink: null, rarity: null, missing: ["ink-color", "rarity"] },
+    { ink: "Amber", rarity: "Promo", reviewedInk: "", missing: ["ink-color"] },
+    { ink: "Amber", rarity: "Promo", reviewedRarity: "Rare", missing: ["rarity"] },
+  ])(
+    "resolves or reports $missing (ink $ink, rarity $rarity, reviewed ink $reviewedInk, reviewed rarity $reviewedRarity)",
+    async ({ ink, rarity, reviewedInk, reviewedRarity, missing }) => {
+      const at = "2026-10-02T00:00:00.000Z";
+      const contract = scrydexLorcanaCardPrintSourceObservationMappingContract;
+      const { observation, diagnostics } = normalizeCatalogProviderSourceObservation({
+        contract,
+        payload: {
+          kind: "lorcana-card",
+          sourceUrl: "https://source.example/synthetic-d23",
+          card: {
+            id: "synthetic-d23-card",
+            name: "Synthetic Promo Card",
+            number: "1",
+            printed_number: "1/D23",
+            ...(ink === null ? {} : { ink }),
+            ...(rarity === null ? {} : { rarity }),
+            language_code: "en",
+            expansion: { id: "synthetic-d23", code: "D23C24", name: "D23 Collection" },
+          },
+        },
+        observedAt: at,
+      });
+      expect(diagnostics).toEqual([]);
+      if (observation?.normalized.kind !== "lorcana-card-print") throw new Error("Scrydex card did not normalize");
+      const { normalized } = observation;
+      expect(normalized).toMatchObject({ name: "Synthetic Promo Card", cardNumber: "1/D23", setCode: "d23c24" });
+      expect(normalized.inkColor ?? null).toBe(ink);
+      expect(normalized.rarity ?? null).toBe(rarity);
+
+      const version = catalogProviderIntegrationProfileVersions.find(
+        (entry) =>
+          entry.providerKey === contract.providerKey &&
+          entry.profileKey === contract.profileKey &&
+          entry.profileVersion === contract.profileVersion,
+      );
+      if (!version) throw new Error("Scrydex card profile is not registered");
+      const unit = catalogProviderProfileVersionIngestionUnitKey(version);
+      const { candidates, exclusions } = buildCatalogMergeCandidatesFromObservations([observationRow(observation)], {
+        addedAt: at,
+        providerUnitKeyByObservationId: { [observation.observationId]: unit },
+        acceptedScopeMappings: [
+          {
+            mapping_id: "map_synthetic_d23",
+            scope_record_id: "ref_synthetic_d23",
+            provider_key: contract.providerKey,
+            unit_key: unit,
+            product_line_id: null,
+            series_id: null,
+            set_id: "synthetic-d23",
+            set_name: "D23 Collection",
+            language_coordinates: null,
+            confidence: "exact",
+            review_status: "accepted",
+            provenance: {},
+            evidence: {},
+            last_actor: null,
+            last_reason: null,
+            policy_version: "synthetic",
+            proposed_at: at,
+            reviewed_at: at,
+            updated_at: at,
+          },
+        ],
+      });
+      expect(exclusions).toEqual([]);
+      expect(candidates).toHaveLength(1);
+      const candidate = candidates[0]!;
+      expect(candidate.snapshot.proposedCatalogItemFacts).not.toHaveProperty("inkColor");
+      const snapshot = {
+        ...candidate.snapshot,
+        proposedCatalogItemFacts: {
+          ...candidate.snapshot.proposedCatalogItemFacts,
+          ...(reviewedInk === undefined ? {} : { inkColor: reviewedInk }),
+          ...(reviewedRarity === undefined ? {} : { rarity: reviewedRarity }),
+        },
+      };
+      const revision = decideSourceObservation(initialSourceObservationState, {
+        type: "RecordSourceObservation",
+        ...observation,
+      }).reduce(evolveSourceObservation, initialSourceObservationState);
+      const authored = snapshotWithAuthoredFacts(snapshot, [{ revision, normalized, version }]);
+      expect(authored.proposedCatalogItemFacts.inkColor ?? null).toBe(reviewedInk ?? ink);
+      expect(authored.proposedCatalogItemFacts.rarity ?? null).toBe(reviewedRarity === undefined ? rarity : null);
+
+      const { db, deps } = await fixture(version.profile, undefined, "D23 Collection");
+      const { blueprintId, categoryId, fieldIds } = await loadCatalogItemPromotionProfile(deps, version.profile);
+      const result = await planCatalogMergeCandidatePromotionCommands({
+        db,
+        candidate: { candidateId: candidate.candidateId, status: "ready", snapshot: authored },
+        createCatalogItemId: "cat_synthetic_d23" as CatalogItemId,
+        catalog: {
+          blueprintId,
+          categoryId,
+          fields: [
+            { fieldPath: "catalogItem.name", fieldId: fieldIds.cardName, valueKind: "localized-text", factKey: "name" },
+            {
+              fieldPath: "catalogItem.collectorNumber",
+              fieldId: fieldIds.cardNumber,
+              valueKind: "raw",
+              factKey: "collectorNumber",
+            },
+            { fieldPath: "catalogItem.rarity", fieldId: fieldIds.rarity, valueKind: "raw", factKey: "rarity" },
+            { fieldPath: "catalogItem.inkColor", fieldId: fieldIds.inkColor!, valueKind: "raw", factKey: "inkColor" },
+            {
+              fieldPath: "catalogItem.setName",
+              fieldId: fieldIds.set!,
+              valueKind: "reference-record",
+              referenceRecordId: "synthetic_lorcana_set" as ReferenceRecordId,
+            },
+          ],
+        },
+      });
+      if (missing.length === 0) {
+        expect(result.status).toBe("planned");
+        expect(result.plan?.displayIdentity).toMatchObject({
+          resolutionStatus: "resolved",
+          templateKey: "lorcana-card-print-default",
+        });
+      } else {
+        expect(result.status).toBe("blocked");
+        expect(result.diagnostics).toMatchObject([
+          {
+            code: "display-identity-unresolvable",
+            displayIdentity: { missingTokens: missing, templateKey: null, templateReason: "missing-required-fields" },
+          },
+        ]);
+      }
+    },
+  );
+});
 
 describe("Lorcana ink promotion through real mapper, active-key loader and seeded template (synthetic Catalog)", () => {
   it.each(["create", "refresh"] as const)(

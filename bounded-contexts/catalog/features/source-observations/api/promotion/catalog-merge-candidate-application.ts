@@ -74,10 +74,11 @@ import {
   sourceObservationStreamId,
 } from "../source-observation-stream-identity";
 import { extractMergeCandidateFieldValue, mergeCandidateFieldValuesEqual } from "./catalog-merge-candidate-matcher";
-import type {
-  CatalogMergeCandidateApplicationDiagnosticCode,
-  CatalogMergeCandidatePromotionApplicationRefusal,
-  CatalogMergeCandidatePromotionPlanBlock,
+import {
+  displayIdentityFailureCode,
+  type CatalogMergeCandidateApplicationDiagnosticCode,
+  type CatalogMergeCandidatePromotionApplicationRefusal,
+  type CatalogMergeCandidatePromotionPlanBlock,
 } from "./catalog-merge-candidate-promotion-diagnostics";
 import {
   planCatalogMergeCandidatePromotionCommands,
@@ -85,6 +86,10 @@ import {
   type CatalogMergeCandidatePromotionCatalogMapping,
   type CatalogMergeCandidatePromotionFieldMapping,
 } from "./catalog-merge-candidate-promotion-planner";
+import {
+  DISPLAY_IDENTITY_UNRESOLVABLE_CODE,
+  type CatalogPromotionDisplayIdentityFailureEvidence,
+} from "./promotion-display-identity";
 import { guardPromotionMaterial } from "./promotion-material-guards";
 import {
   foldPromotionTargetSource,
@@ -138,7 +143,11 @@ export type CatalogMergeCandidateApplicationPorts = Readonly<{
 export class CatalogMergeCandidateApplicationError extends Error {
   readonly code: CatalogMergeCandidateApplicationDiagnosticCode;
 
-  constructor(code: CatalogMergeCandidateApplicationDiagnosticCode, detail?: string) {
+  constructor(
+    code: CatalogMergeCandidateApplicationDiagnosticCode,
+    detail?: string,
+    readonly displayIdentity?: CatalogPromotionDisplayIdentityFailureEvidence,
+  ) {
     super(detail ? `${code}: ${detail}` : code);
     this.name = "CatalogMergeCandidateApplicationError";
     this.code = code;
@@ -721,7 +730,16 @@ async function prepareApplicationPlan(
   if (planned.status === "blocked") {
     const first = planned.diagnostics[0];
     if (!first) throw new Error("Catalog Merge Candidate plan was blocked without a diagnostic.");
-    throw blocked(first.code, planned.diagnostics.map((diagnostic) => diagnostic.diagnosticText).join(" "));
+    const detail = planned.diagnostics.map((diagnostic) => diagnostic.diagnosticText).join(" ");
+    if (first.code === DISPLAY_IDENTITY_UNRESOLVABLE_CODE && first.displayIdentity) {
+      const { missingTokens, templateKey, templateReason } = first.displayIdentity;
+      throw new CatalogMergeCandidateApplicationError(displayIdentityFailureCode, detail, {
+        missingTokens,
+        templateKey,
+        templateReason,
+      });
+    }
+    throw blocked(first.code, detail);
   }
 
   const plan: CatalogMergeCandidatePromotionPlan = {

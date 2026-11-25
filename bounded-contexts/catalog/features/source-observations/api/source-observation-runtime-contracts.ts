@@ -12,6 +12,7 @@ import {
 import { type JsonValue } from "@chase-sets/primitives/json";
 import type { SourceObservationPromotionConfirmation } from "./promotion/promotion-preview-token";
 import type { CatalogMergeCandidateFailureDiagnosticCode } from "./promotion/catalog-merge-candidate-promotion-diagnostics";
+import type { CatalogPromotionDisplayIdentityFailureEvidence } from "./promotion/promotion-display-identity";
 import type { CatalogItemId, ReferenceRecordId } from "../../../ids";
 import { type CatalogScopeSyncUnitState } from "../../scope-sync-state/domain/state";
 import {
@@ -292,6 +293,8 @@ export type CatalogMergeCandidateBulkUnitResult = Readonly<{
   diagnosticCode?: "asset-processing-failed";
   /** Non-asset failures only. Older job readers restrict diagnosticCode to assets. */
   failureDiagnosticCode?: CatalogMergeCandidateFailureDiagnosticCode;
+  /** Resolver evidence on display-identity failures only; absent on retained outcomes. */
+  displayIdentity?: CatalogPromotionDisplayIdentityFailureEvidence;
 }>;
 
 export type CatalogMergeCandidateBulkJobResult = Readonly<{
