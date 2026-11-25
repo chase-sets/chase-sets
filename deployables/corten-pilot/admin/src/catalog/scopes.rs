@@ -85,6 +85,7 @@ pub mod url {
     #[derive(Clone, Debug, Default, Deserialize, Route)]
     #[route(query)]
     pub struct ScopeNotice {
+        #[serde(rename = "afterWrite")]
         pub after_write: Option<String>,
         pub done: Option<AttentionDone>,
         pub parked: Option<String>,

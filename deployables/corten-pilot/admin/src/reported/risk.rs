@@ -7,7 +7,7 @@
 //! | Route | Answers |
 //! |---|---|
 //! | `GET /support/risk-alerts?status&alertKind` | the counts and the queue (100 at most, as admin-web reads it) |
-//! | `GET /support/risk-alerts/{alertId}?after_write` | an alert's page |
+//! | `GET /support/risk-alerts/{alertId}?afterWrite` | an alert's page |
 //! | `POST /support/risk-alerts/{alertId}` | a response (`action`, `note`), then the page |
 //!
 //! Request manual payout review is offered only for a candidate, as admin-web offers it; the API
@@ -62,6 +62,7 @@ pub mod url {
     #[route("/support/risk-alerts/{alert_id}", get = alert, post = act)]
     pub struct Alert<'a> {
         pub alert_id: &'a str,
+        #[serde(rename = "afterWrite")]
         pub after_write: Option<String>,
     }
 }

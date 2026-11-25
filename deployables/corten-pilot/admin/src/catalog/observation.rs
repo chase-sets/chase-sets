@@ -5,7 +5,7 @@
 //!
 //! | Route | Answers |
 //! |---|---|
-//! | `GET /catalog/source-observations/{id}?after_write&done` | the observation; `POST` promotes or rejects it |
+//! | `GET /catalog/source-observations/{id}?afterWrite&done` | the observation; `POST` promotes or rejects it |
 //!
 //! Reading needs `catalog.view` and a review `catalog.manage`, as the API asks. admin-web links to
 //! this page from nowhere (its workbench opens an evidence sheet instead), so neither does the
@@ -35,6 +35,7 @@ pub mod url {
     #[route("/catalog/source-observations/{id}", get = crate::catalog::observation::page, post = crate::catalog::observation::review)]
     pub struct Observation<'a> {
         pub id: &'a str,
+        #[serde(rename = "afterWrite")]
         pub after_write: Option<String>,
         pub done: Option<super::Reviewed>,
     }

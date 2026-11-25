@@ -58,6 +58,7 @@ pub mod url {
     #[derive(Clone, Debug, Default)]
     #[route("/platform/policy-console", get = console, post = confirm)]
     pub struct Console {
+        #[serde(rename = "afterWrite")]
         pub after_write: Option<String>,
     }
 
@@ -65,6 +66,7 @@ pub mod url {
     #[route("/platform/policy-console/{policy_key}", get = policy, post = revise)]
     pub struct Policy<'a> {
         pub policy_key: &'a str,
+        #[serde(rename = "afterWrite")]
         pub after_write: Option<String>,
     }
 }

@@ -7,7 +7,7 @@
 //! | Route | Answers |
 //! |---|---|
 //! | `GET /support/reported-content?status&targetType` | the counts and the queue (100 at most, as admin-web reads it) |
-//! | `GET /support/reported-content/{targetType}/{targetId}?after_write` | a target's page |
+//! | `GET /support/reported-content/{targetType}/{targetId}?afterWrite` | a target's page |
 //! | `POST /support/reported-content/{targetType}/{targetId}` | a moderation action (`action`, `note`) or `action=acknowledge`, then the page |
 //!
 //! Which actions a target type has is the published contract table
@@ -70,6 +70,7 @@ pub mod url {
     pub struct Item<'a> {
         pub target_type: &'a str,
         pub target_id: &'a str,
+        #[serde(rename = "afterWrite")]
         pub after_write: Option<String>,
     }
 }

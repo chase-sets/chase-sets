@@ -113,6 +113,7 @@ pub mod url {
     #[route("/catalog/components/{id}", get = component)]
     pub struct Component<'a> {
         pub id: &'a str,
+        #[serde(rename = "afterWrite")]
         pub after_write: Option<String>,
         pub done: Option<crate::catalog::Done>,
     }

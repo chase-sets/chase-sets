@@ -105,6 +105,7 @@ pub mod url {
     #[route("/catalog/categories/{id}", get = category)]
     pub struct Category<'a> {
         pub id: &'a str,
+        #[serde(rename = "afterWrite")]
         pub after_write: Option<String>,
         pub done: Option<crate::catalog::Done>,
     }

@@ -85,6 +85,7 @@ pub mod url {
     #[derive(Clone, Debug, Default, Fields, Route)]
     #[route(query)]
     pub struct Opened {
+        #[serde(rename = "afterWrite")]
         pub after_write: Option<String>,
     }
 
@@ -124,6 +125,7 @@ pub mod url {
     #[route("/catalog/blueprints/{id}", get = blueprint)]
     pub struct Blueprint<'a> {
         pub id: &'a str,
+        #[serde(rename = "afterWrite")]
         pub after_write: Option<String>,
         pub done: Option<crate::catalog::Done>,
     }

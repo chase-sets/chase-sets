@@ -8,7 +8,7 @@
 //!
 //! | Route | Answers |
 //! |---|---|
-//! | `GET /commerce/return-intake?facilityId&identifier&result&after_write` | the station, with the scanned package |
+//! | `GET /commerce/return-intake?facilityId&identifier&result&afterWrite` | the station, with the scanned package |
 //! | `POST /commerce/return-intake?facilityId&identifier` | an intake action (`intent`: complete, unidentified, reconcile, correct), then the station |
 //!
 //! Every form posts `multipart/form-data` (two carry photos), read with Corten's `Upload`; each
@@ -62,7 +62,7 @@ pub mod url {
         pub facility_id: Option<String>,
         pub identifier: Option<String>,
         pub result: Option<String>,
-        #[serde(rename = "after_write")]
+        #[serde(rename = "afterWrite")]
         pub after_write: Option<String>,
     }
 

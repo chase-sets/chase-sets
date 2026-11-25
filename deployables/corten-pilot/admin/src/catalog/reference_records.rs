@@ -123,6 +123,7 @@ pub mod url {
     #[route("/catalog/reference-records/{id}", get = ref_record)]
     pub struct RefRecord<'a> {
         pub id: &'a str,
+        #[serde(rename = "afterWrite")]
         pub after_write: Option<String>,
         pub done: Option<crate::catalog::Done>,
     }

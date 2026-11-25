@@ -4,7 +4,7 @@
 //!
 //! | Route | Answers |
 //! |---|---|
-//! | `GET /commerce/postage-policies?limit&offset&policy&after_write` | the list, and the policy's sheet |
+//! | `GET /commerce/postage-policies?limit&offset&policy&afterWrite` | the list, and the policy's sheet |
 //! | `POST /commerce/postage-policies` | create a draft |
 //! | `GET /commerce/postage-policies/{id}` | a redirect to the list with the policy's sheet open |
 //! | `POST /commerce/postage-policies/{id}/revise`, `/activate`, `/retire`, `/clone` | the write |
@@ -89,6 +89,7 @@ pub mod url {
         pub limit: Option<u32>,
         pub offset: Option<u32>,
         pub policy: Option<String>,
+        #[serde(rename = "afterWrite")]
         pub after_write: Option<String>,
     }
 

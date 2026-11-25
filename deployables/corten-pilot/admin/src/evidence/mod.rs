@@ -53,6 +53,7 @@ pub mod url {
     #[derive(Clone, Debug, Default)]
     #[route("/platform/listing-evidence-policy", get = page, post = act)]
     pub struct Evidence {
+        #[serde(rename = "afterWrite")]
         pub after_write: Option<String>,
     }
 }
