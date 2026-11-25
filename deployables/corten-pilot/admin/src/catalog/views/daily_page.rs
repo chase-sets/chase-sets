@@ -30,6 +30,7 @@ use platform::{
 use super::integrations_page::{
     Banner, Blockers, Cell, Counts, Empty, Evidence, Module, Pairs, Pill, Shell, maybe_when, state_label, when,
 };
+use super::job_status_filter::JobStatusFilter;
 use crate::{
     catalog::{
         api::AliasReview,
@@ -939,6 +940,7 @@ fn JobsModule<'a>(
             if jobs.jobs.is_empty() {
                 <Empty title={t.wb_jobs_empty_title()} description={t.wb_jobs_empty_description()} />
             } else {
+                let table = html! {
                 <Table layout={TableLayout::Stack}>
                     <table>
                         <caption class={VisuallyHidden {}}>{t.wb_stage_supporting_jobs()}</caption>
@@ -969,7 +971,12 @@ fn JobsModule<'a>(
                                 let lines = usage(t, job);
                                 let action = at(&daily::url::Job { id: &job.job_id }.href(), context);
                                 let review = link_to(req, &job.source_observation_review_href);
-                                <tr data-catalog-import-job-row="true" data-catalog-import-job-id={&job.job_id}>
+                                <tr
+                                    data-catalog-import-job-row="true"
+                                    data-catalog-import-job-id={&job.job_id}
+                                    data-catalog-import-job-state={&job.state}
+                                    data-catalog-import-job-operator-status={&job.operator_status}
+                                >
                                     <td>
                                         <CellLabel>{t.wb_jobs_table_job()}</CellLabel>
                                         <span class={CellBlock}>
@@ -1080,6 +1087,13 @@ fn JobsModule<'a>(
                         </tbody>
                     </table>
                 </Table>
+                };
+                // admin-web filters the jobs by status for TCGplayer only.
+                if route.provider_key.as_deref() == Some("tcgplayer") {
+                    <JobStatusFilter t={t} jobs={&jobs.jobs} context={context}>{table}</JobStatusFilter>
+                } else {
+                    {table}
+                }
             }
         </Module>
     }

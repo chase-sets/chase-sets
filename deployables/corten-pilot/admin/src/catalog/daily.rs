@@ -1342,6 +1342,21 @@ pub const HOME: &str = "home";
 /// for a browser its `<corten-live>` part brings nothing to. It is never sent to the API.
 pub const PREFLIGHT: &str = "preflight";
 
+/// The pilot's key for the import jobs' Status filter (admin-web keeps it in the component's state):
+/// the operator status the page draws chosen, so a GET form without the script and the address
+/// with it keep the choice. It is never sent to the API.
+pub const JOB_STATUS: &str = "jobStatus";
+
+/// The import jobs' Status filter choice the working set `context` carries: one of
+/// admin-web's operator statuses, or `all` for none or another value.
+pub fn job_status(context: &str) -> &'static str {
+    let chosen = context_value(context, JOB_STATUS);
+    JOB_STATUSES.iter().copied().find(|status| chosen.as_deref() == Some(*status)).unwrap_or("all")
+}
+
+/// admin-web's `importJobOperatorStatuses`, in its order.
+pub const JOB_STATUSES: [&str; 8] = ["queued", "running", "stale", "retried", "partial", "failed", "cancelled", "completed"];
+
 /// The page the working set `context` draws its stages on, with its import preflight read in: the
 /// loading line's link. `nofollow` where it is drawn, as the page it opens waits for the slow read.
 pub fn read_in(context: &str) -> String {
@@ -1372,7 +1387,7 @@ pub fn rebase(context: &str, href: &str) -> Option<String> {
 /// The daily surface's location for the working set, less the pilot's `home`: the scope's page its
 /// `home` names, whose journey the Catalog API composes from the Scope Record, or the daily route.
 pub fn location(context: &str) -> String {
-    let rest = with_query(context, &[(HOME, None)]);
+    let rest = with_query(context, &[(HOME, None), (JOB_STATUS, None)]);
     match context_value(context, HOME).filter(|id| !id.is_empty()) {
         Some(id) => at(crate::catalog::scope::url::ScopePage::of(&id).href().as_str(), &rest),
         None => at(url::Daily.href().as_str(), &rest),
