@@ -7,6 +7,7 @@ import type {
   CatalogSyncScope,
 } from "../../source-observations/api/catalog-sync-scope-planner";
 import type { CatalogSyncRun, SourceObservationIntegrationJob } from "../../source-observations/api/runtime";
+import type { IntegrationJobServices } from "../../source-observations/api/source-observation-runtime-contracts";
 import type { ScopeSyncBatchBudget, ScopeSyncBatchPreview, ScopeSyncBatchSelection } from "../domain/batch";
 import { createScopeSyncBatchStore, type ScopeSyncBatchSnapshot } from "../read-model/store";
 import { createScopeSyncBatchConfirmationCheck } from "./count-capture-planner";
@@ -25,7 +26,7 @@ export function createScopeSyncBatchRuntime(deps: {
     includeOperationalGates?: boolean;
     acceptedScopeMappings?: readonly CatalogSyncAcceptedScopeMapping[];
   }) => Promise<CatalogSyncProviderParticipationPreview>;
-  enqueueCatalogSyncRun: (input: { scope: CatalogSyncScope; context: EventStoreContext }) => Promise<CatalogSyncRun>;
+  enqueueCatalogSyncRun: IntegrationJobServices["enqueueCatalogSyncRun"];
   getCatalogSyncRun: (input: { syncRunId: string; context: EventStoreContext }) => Promise<CatalogSyncRun | null>;
   cancelIntegrationJob: (input: {
     jobId: string;
@@ -61,7 +62,14 @@ export function createScopeSyncBatchRuntime(deps: {
     context: EventStoreContext;
   }): Promise<ScopeSyncBatchSnapshot> {
     const current = await confirmation.resolveConfirmation(input);
-    const settled = await store.findCompletedByFingerprint(current.preview.planFingerprint, input.context);
+    const hasRefresh = current.plans.some((plan) =>
+      plan.participationPreview.units.some(
+        (unit) => unit.selected && unit.childExecutionScope?.execution === "extension-set-names",
+      ),
+    );
+    const settled = hasRefresh
+      ? null
+      : await store.findCompletedByFingerprint(current.preview.planFingerprint, input.context);
     if (settled && (await remainsSettled(settled, input.context))) return settled;
     return (deps.counts?.reserveBatch ?? store.create)({
       batchId: createId("job"),

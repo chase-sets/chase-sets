@@ -1,6 +1,13 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
+import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
+import { closed, operatorEnvironments, operatorOrigins, type OperatorEnvironment } from "../domain/extension/protocol";
+import {
+  setNameAnswerFailures,
+  setNameRequestHeader,
+  type SetNameAnswerFailure,
+} from "../domain/extension/set-names/request";
 import {
   parseTcgplayerSetNameObservationPost,
   tcgplayerSetNameObservationLimits,
@@ -25,12 +32,32 @@ export type TcgplayerSetNameObservationRecorder = (
     context: EventStoreContext;
   }>,
   backend?: PgTransactionalPool,
+  transaction?: PgQueryable,
 ) => Promise<TcgplayerSetNameObservationResult>;
+
+export type TcgplayerSetNameRequestAnswer = (
+  input: Readonly<{
+    requestId: string;
+    text: string;
+    grant: ObservationGrant;
+    environment: OperatorEnvironment;
+    backend: PgTransactionalPool | undefined;
+  }> &
+    (
+      | Readonly<{
+          kind: "observations";
+          productLineId: number;
+          record: (db: PgQueryable) => Promise<TcgplayerSetNameObservationResult>;
+        }>
+      | Readonly<{ kind: "failure"; failure: SetNameAnswerFailure }>
+    ),
+) => Promise<TcgplayerSetNameObservationResult | null>;
 
 export type TcgplayerSetNameObservationPostDeps = Readonly<{
   authorizeObservationGrant: (request: Request) => Promise<ObservationGrant>;
   record: TcgplayerSetNameObservationRecorder | undefined;
   serializeWrites: <T>(work: (backend?: PgTransactionalPool) => Promise<T>) => Promise<T>;
+  answer?: TcgplayerSetNameRequestAnswer;
 }>;
 
 const headers = { "Cache-Control": "no-store" } as const;
@@ -64,9 +91,24 @@ export function createTcgplayerSetNameObservationPost(deps: TcgplayerSetNameObse
         : refusal("custody-unavailable", 503);
     }
 
+    const requestId = request.headers.get(setNameRequestHeader);
+    const environment =
+      requestId === null
+        ? undefined
+        : operatorEnvironments.find((candidate) => operatorOrigins[candidate] === resolvePublicRequestOrigin(request));
+    if (requestId !== null) {
+      if (!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(requestId))
+        return refusal("invalid-observation-request", 400);
+      if (!environment) return refusal("environment-refused", 403);
+      if (!deps.answer) return refusal("scope-observations-unavailable", 503);
+    }
+
     let text: string;
     try {
-      text = await readBody(request, tcgplayerSetNameObservationLimits.maxPostBytes);
+      // A correlated answer must not lose bytes before its receipt digest is computed.
+      text = await readBody(request, tcgplayerSetNameObservationLimits.maxPostBytes, {
+        preserveByteOrderMark: requestId !== null,
+      });
     } catch (error) {
       if (error instanceof OperatorSessionRequestError && error.code === "request-too-large")
         return refusal("body-too-large", 413);
@@ -81,22 +123,47 @@ export function createTcgplayerSetNameObservationPost(deps: TcgplayerSetNameObse
     } catch {
       return refusal("invalid-body", 400);
     }
-    const parsed = parseTcgplayerSetNameObservationPost(value);
-    if (!parsed.ok) return refusal(parsed.code, parsed.code === "product-line-unsupported" ? 422 : 400);
-
     try {
-      const result = await deps.serializeWrites((backend) =>
-        record(
-          {
-            unitKey: parsed.unitKey,
-            productLineId: parsed.post.productLineId,
-            sets: parsed.post.sets,
-            provenance: grant,
-            context: operatorExtensionContext(grant),
-          },
-          backend,
-        ),
-      );
+      const failure = closed(value, ["failure"]) && setNameAnswerFailures.find((code) => code === value.failure);
+      if (failure && requestId && environment && deps.answer) {
+        const result = await deps.serializeWrites((backend) =>
+          deps.answer!({
+            kind: "failure",
+            failure,
+            requestId,
+            text,
+            grant,
+            environment,
+            backend,
+          }),
+        );
+        return result ? Response.json(result, { headers }) : refusal("observation-request-closed", 409);
+      }
+      const parsed = parseTcgplayerSetNameObservationPost(value);
+      if (!parsed.ok) return refusal(parsed.code, parsed.code === "product-line-unsupported" ? 422 : 400);
+      const observation = {
+        unitKey: parsed.unitKey,
+        productLineId: parsed.post.productLineId,
+        sets: parsed.post.sets,
+        provenance: grant,
+        context: operatorExtensionContext(grant),
+      };
+      const result = await deps.serializeWrites((backend) => {
+        if (requestId && environment && deps.answer) {
+          return deps.answer({
+            kind: "observations",
+            productLineId: observation.productLineId,
+            requestId,
+            text,
+            grant,
+            environment,
+            backend,
+            record: (db) => record(observation, backend, db),
+          });
+        }
+        return record(observation, backend);
+      });
+      if (!result) return refusal("observation-request-closed", 409);
       return Response.json(
         {
           observationCount: result.observationCount,

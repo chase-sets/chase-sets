@@ -1,7 +1,12 @@
-import { createOperatorBackground, type OperatorAdapters } from "@chase-sets/catalog/client";
+import {
+  createOperatorBackground,
+  createSetNamesObservationDispatcher,
+  type OperatorAdapters,
+} from "@chase-sets/catalog/client";
 import { fetchTcgplayerSetNames, createTcgplayerSealedFetch } from "./tcgplayer-set-name-endpoint";
 
 const observationAlarm = "catalog-observation-poll";
+const dispatchSetNames = createSetNamesObservationDispatcher(fetchTcgplayerSetNames);
 
 const adapters: OperatorAdapters = {
   storage: {
@@ -17,6 +22,7 @@ const adapters: OperatorAdapters = {
     await chrome.action.setBadgeText({ text: required ? "!" : "" });
   },
   fetch: (input, init) => globalThis.fetch(input, init),
+  dispatchObservationRequest: (_environment, request, post) => dispatchSetNames(request, post),
   setNames: fetchTcgplayerSetNames,
   sealedProducts: createTcgplayerSealedFetch(),
 };

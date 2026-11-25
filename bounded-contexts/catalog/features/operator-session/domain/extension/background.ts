@@ -30,7 +30,11 @@ export type OperatorAdapters = {
   };
   badge(required: boolean): Promise<void>;
   fetch: typeof fetch;
-  dispatchObservationRequest?: (environment: OperatorEnvironment, request: OperatorObservationRequest) => Promise<void>;
+  dispatchObservationRequest?: (
+    environment: OperatorEnvironment,
+    request: OperatorObservationRequest,
+    postSetNameAnswer: (body: string) => Promise<void>,
+  ) => Promise<void>;
   setNames?: (productLineId: string) => Promise<SetNamesRequestResult>;
   sealedProducts?: SealedFetch;
 };
@@ -105,24 +109,56 @@ export function createOperatorBackground(adapters: OperatorAdapters) {
       );
       if (!pairing) return;
       const result = await transport.poll(environment, pairing.grant);
+      const matches = ({ blocked, record }: Slot) =>
+        !blocked && record.profileRevision === pairing.profileRevision && record.grant === pairing.grant;
+      const clearGrant = async (current: Slot) => {
+        await write(current, {
+          ...current.record,
+          grant: null,
+          state: "re-pair-required",
+          dirty: false,
+          nextAttemptAt: 0,
+          lastOutcome: "grant-invalid",
+        });
+        await badge();
+      };
+      const postSetNameAnswer = async (body: string) => {
+        if (result.outcome !== "polled" || result.request?.kind !== "set-names") return;
+        const { requestId, expiresAt } = result.request;
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          const flight = await serial(environment, async (current) => {
+            if (!matches(current) || Date.parse(expiresAt) <= Date.now()) return undefined;
+            return { answer: transport.postSetNameAnswer(environment, pairing.grant, requestId, body) };
+          });
+          if (!flight) return;
+          const answer = await flight.answer;
+          if (answer.outcome === "grant-invalid") {
+            await serial(environment, async (current) => {
+              if (matches(current)) await clearGrant(current);
+            });
+            return;
+          }
+          if (answer.outcome !== "unavailable") return;
+          const delay = Math.max(250, answer.retryAt - Date.now());
+          if (attempt > 0 || delay > 2_000 || Date.now() + delay >= Date.parse(expiresAt)) {
+            if (answer.retryAt > Date.now())
+              await serial(environment, async (current) => {
+                if (matches(current)) await write(current, { ...current.record, nextAttemptAt: answer.retryAt });
+              });
+            return;
+          }
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+      };
       const dispatch = await serial(environment, async (current) => {
         const record = current.record;
-        if (current.blocked || record.profileRevision !== pairing.profileRevision || record.grant !== pairing.grant)
-          return;
+        if (!matches(current)) return;
         if (result.outcome === "grant-invalid") {
-          await write(current, {
-            ...record,
-            grant: null,
-            state: "re-pair-required",
-            dirty: false,
-            nextAttemptAt: 0,
-            lastOutcome: "grant-invalid",
-          });
-          await badge();
+          await clearGrant(current);
         } else if (result.outcome === "unavailable" && result.retryAt > Date.now()) {
           await write(current, { ...record, nextAttemptAt: result.retryAt });
         } else if (result.outcome === "polled" && result.request && Date.parse(result.request.expiresAt) > Date.now()) {
-          return { finished: adapters.dispatchObservationRequest?.(environment, result.request) };
+          return { finished: adapters.dispatchObservationRequest?.(environment, result.request, postSetNameAnswer) };
         }
       });
       await dispatch?.finished;

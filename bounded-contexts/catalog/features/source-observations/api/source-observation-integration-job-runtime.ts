@@ -89,6 +89,8 @@ import {
 import type { CatalogScopeSyncStateRuntime } from "./source-observation-catalog-sync-run-runtime";
 import type { SourceObservationProviderImportRuntime } from "./source-observation-provider-import-runtime";
 import type { SourceObservationPromotionReapplyRuntime } from "./source-observation-promotion-reapply-runtime";
+import { catalogSetNamesProductLineId } from "./providers/catalog-sync-scope-planner";
+import { setNameRequestJobKind, type createSetNameRequestRuntime } from "./source-observation-set-name-requests";
 
 const INTEGRATION_REAPPLY_JOB_BATCH_SIZE = 10;
 const RETIRED_TCGPLAYER_MESSAGE = "TCGplayer server transport is retired; use the browser handoff.";
@@ -152,6 +154,7 @@ export type SourceObservationIntegrationJobRuntimeDeps = Readonly<{
   promotionReapply: Pick<SourceObservationPromotionReapplyRuntime, "reapplyObservationIds">;
   scopeSyncState: Pick<CatalogScopeSyncStateRuntime, "recordCatalogScopeSyncStateForChildJob">;
   providerImport: SourceObservationProviderImportRuntime;
+  setNames?: ReturnType<typeof createSetNameRequestRuntime>;
 }>;
 
 /**
@@ -168,6 +171,7 @@ export function createSourceObservationIntegrationJobRuntime({
   promotionReapply,
   scopeSyncState,
   providerImport,
+  setNames,
 }: SourceObservationIntegrationJobRuntimeDeps) {
   const { reapplyObservationIds } = promotionReapply;
   const { recordCatalogScopeSyncStateForChildJob } = scopeSyncState;
@@ -176,6 +180,40 @@ export function createSourceObservationIntegrationJobRuntime({
     previewProviderAdapterIntegrationImportTargets,
     importProviderAdapterIntegrationTarget,
   } = providerImport;
+  const visibleJobKinds = setNames ? ["import", "reapply", setNameRequestJobKind] : ["import", "reapply"];
+
+  async function enqueueSetNames(input: {
+    scope: SourceObservationIntegrationJobScope;
+    syncRunId: string;
+    context: EventStoreContext;
+  }): Promise<SourceObservationIntegrationJob> {
+    const scope = normalizeIntegrationJobScope(input.scope);
+    const unit = scope.ingestionUnitKey;
+    const productLineId = unit ? catalogSetNamesProductLineId(unit) : null;
+    if (
+      !setNames ||
+      scope.provider !== "tcgplayer" ||
+      productLineId === null ||
+      scope.productLineId !== String(productLineId) ||
+      scope.execution !== setNameRequestJobKind
+    )
+      throw new Error("Set-name discovery is unavailable.");
+    const profile = await requireCatalogImportProfileVersion(
+      profileVersions,
+      scope.provider,
+      profileSelectorFromScope(scope),
+    );
+    if (scope.planningFingerprint !== `profile:${profile.profileVersion}`)
+      throw new Error("The set-name discovery profile changed.");
+    assertCatalogIntegrationProfileUnitAllowed(rolloutControlPolicy, "import", profile);
+    assertCatalogIntegrationProfileUnitAllowed(rolloutControlPolicy, "provider-transport", profile);
+    return setNames.enqueue({
+      ...input,
+      scope,
+      profileSnapshot: snapshotCatalogProfileVersion(profile),
+      productLineId,
+    });
+  }
 
   async function listIntegrationWorkUnitsForJob(
     queryable: PgQueryable,
@@ -371,6 +409,7 @@ export function createSourceObservationIntegrationJobRuntime({
     context: EventStoreContext;
   }): Promise<SourceObservationIntegrationJob> {
     const job = await requireImportIntegrationLifecycleJob(input.jobId, input.context);
+    if (job.jobKind === setNameRequestJobKind && setNames) return setNames.retry(job.jobId);
     assertProviderTransportNotRetired(job.payload.scope?.provider ?? "");
     if (job.status === "running" && isDurableJobClaimExpired(job)) {
       return resumeIntegrationJob(input);
@@ -426,6 +465,8 @@ export function createSourceObservationIntegrationJobRuntime({
     context: EventStoreContext;
   }): Promise<SourceObservationIntegrationJob> {
     const job = await requireImportIntegrationLifecycleJob(input.jobId, input.context);
+    if (job.jobKind === setNameRequestJobKind && (job.status === "queued" || job.status === "running"))
+      return toSourceObservationIntegrationJob(job);
     assertProviderTransportNotRetired(job.payload.scope?.provider ?? "");
     if (job.status === "queued") {
       return toSourceObservationIntegrationJob(job);
@@ -471,6 +512,7 @@ export function createSourceObservationIntegrationJobRuntime({
     context: EventStoreContext;
   }): Promise<SourceObservationIntegrationJob> {
     const job = await requireImportIntegrationLifecycleJob(input.jobId, input.context);
+    if (job.jobKind === setNameRequestJobKind && setNames) return setNames.cancel(job.jobId);
     if (isOperatorCancelledIntegrationJob(job)) {
       return toSourceObservationIntegrationJob(job);
     }
@@ -1085,12 +1127,12 @@ export function createSourceObservationIntegrationJobRuntime({
 
       const snapshot = integrationJobStore.listActiveSnapshot
         ? await integrationJobStore.listActiveSnapshot({
-            jobKinds: ["import", "reapply"],
+            jobKinds: visibleJobKinds,
             eventContext: context,
             limit: 50,
           })
         : {
-            items: await integrationJobStore.listActive({ jobKinds: ["import", "reapply"] }),
+            items: await integrationJobStore.listActive({ jobKinds: visibleJobKinds }),
             completeness: "incomplete" as const,
           };
       return {
@@ -1108,7 +1150,7 @@ export function createSourceObservationIntegrationJobRuntime({
 
       return (
         await integrationJobStore.listRecent({
-          jobKinds: ["import", "reapply"],
+          jobKinds: visibleJobKinds,
           eventContext: context,
           limit,
         })
@@ -1116,9 +1158,17 @@ export function createSourceObservationIntegrationJobRuntime({
         .filter((job) => jobMatchesContext(job, context))
         .map(toSourceObservationIntegrationJob);
     },
-    processNextIntegrationJob,
+    processNextIntegrationJob: async (input) => {
+      const advanced =
+        setNames &&
+        !isJobRunCancelled(input) &&
+        rolloutControlPolicy.decide({ capability: "worker-job-processing" }).allowed
+          ? await setNames.advance()
+          : 0;
+      return advanced + (await processNextIntegrationJob(input));
+    },
     getIntegrationWorkUnitSummary: (input = {}) => integrationWorkUnitStore.summarize({ jobId: input.jobId ?? null }),
   };
 
-  return { services, enqueueIntegrationJob };
+  return { services, enqueueIntegrationJob, enqueueSetNames };
 }
