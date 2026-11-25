@@ -1,3 +1,4 @@
+import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   envReport,
@@ -731,6 +732,48 @@ describe("stripe money smoke test", () => {
     ).rejects.toThrow(/payout setup page/);
   });
 
+  it("skips only the payout setup page when the workflow says there is no marketplace web app", async () => {
+    const calls = [];
+    const pages = [];
+    const result = await runSellerFlow("https://marketplace.preview.test", {
+      fetchImpl: async (url, init) => {
+        const path = new URL(String(url)).pathname;
+        if (path === "/account/payouts/setup") {
+          pages.push(path);
+          return jsonResponse({ error: { code: "not_found" } }, 404);
+        }
+        return createSmokeFetch(calls)(url, init);
+      },
+      env: {
+        ...platformAdminEnv,
+        PLATFORM_API_AUTHORIZATION: "Bearer preview",
+        STRIPE_MONEY_SMOKE_MARKETPLACE_WEB: "absent",
+      },
+    });
+
+    expect(pages).toEqual([]);
+    expect(result.setupPage).toEqual({ status: "skipped", reason: "STRIPE_MONEY_SMOKE_MARKETPLACE_WEB=absent" });
+    // Every API and Stripe leg still runs.
+    expect(result.embeddedSetupSession).toBeTruthy();
+    expect(result.readinessRefresh).toBeTruthy();
+    expect(result.checkout).toBeTruthy();
+    expect(result.walletFunding).toBeTruthy();
+  });
+
+  it("refuses any other STRIPE_MONEY_SMOKE_MARKETPLACE_WEB value instead of skipping the page", async () => {
+    const calls = [];
+    await expect(
+      runSellerFlow("https://marketplace.preview.test", {
+        fetchImpl: createSmokeFetch(calls),
+        env: {
+          ...platformAdminEnv,
+          PLATFORM_API_AUTHORIZATION: "Bearer preview",
+          STRIPE_MONEY_SMOKE_MARKETPLACE_WEB: "absnet",
+        },
+      }),
+    ).rejects.toThrow(/must be "absent" or unset/);
+  });
+
   it("reports safe payout preview blocking reasons without requesting a payout", async () => {
     const calls = [];
     const result = await runSellerFlow("https://marketplace.preview.test", {
@@ -999,5 +1042,27 @@ describe("stripe money smoke test", () => {
     );
 
     expect(calls.map((call) => new URL(call.url).pathname)).not.toContain("/api/auth/register");
+  });
+});
+
+describe("marketplace web opt-out", () => {
+  it("is set only by the workflows whose marketplace host routes only the API", () => {
+    const workflows = readdirSync(".github/workflows").filter((name) => /\.ya?ml$/.test(name));
+    const setting = workflows.filter((name) =>
+      readFileSync(`.github/workflows/${name}`, "utf8").includes("STRIPE_MONEY_SMOKE_MARKETPLACE_WEB"),
+    );
+    // Staging (platform-production.yml's staging smoke and the representative commerce state)
+    // and production keep loading the payout setup page from the Corten marketplace.
+    expect(setting.sort()).toEqual([
+      "platform-ephemeral-verification.yml",
+      "platform-merge-gate-verification.yml",
+      "platform-pr.yml",
+    ]);
+    for (const name of setting) {
+      const source = readFileSync(`.github/workflows/${name}`, "utf8");
+      expect(source.match(/STRIPE_MONEY_SMOKE_MARKETPLACE_WEB: (\S+)/g)).toEqual([
+        "STRIPE_MONEY_SMOKE_MARKETPLACE_WEB: absent",
+      ]);
+    }
   });
 });

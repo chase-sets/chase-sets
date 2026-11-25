@@ -50,7 +50,6 @@ export const renderedCopyExclusions = ["code", "pre", "[data-raw-identifier]"] a
 
 // The fixed census is shared by discovery, observations and part validation.
 export const renderedCopySweepSpecs = {
-  marketplace: "deployables/marketplace/e2e/rendered-copy-sweep.spec.ts",
   "admin-web": "deployables/admin-web/e2e/rendered-copy-sweep.spec.ts",
 } as const;
 export type RenderedCopyDeployable = keyof typeof renderedCopySweepSpecs;
@@ -62,18 +61,6 @@ export type RenderedCopyTuple = Readonly<{
   tag: string;
 }>;
 
-const marketplaceAccount = {
-  deployable: "marketplace",
-  persona: "collector",
-  suite: "marketplace_account",
-  tag: "@marketplace-account",
-} as const;
-const marketplaceSeller = {
-  deployable: "marketplace",
-  persona: "demo",
-  suite: "marketplace_seller",
-  tag: "@marketplace-seller",
-} as const;
 const admin = (persona: "owner" | "platform-admin", suite: string, page: string): RenderedCopyTuple => ({
   deployable: "admin-web",
   persona,
@@ -83,21 +70,6 @@ const admin = (persona: "owner" | "platform-admin", suite: string, page: string)
 });
 
 export const renderedCopyTuples: readonly RenderedCopyTuple[] = [
-  { ...marketplaceAccount, page: "/account/notifications" },
-  { ...marketplaceAccount, page: "/account/offers/submitted" },
-  { ...marketplaceAccount, page: "/account/sessions" },
-  { ...marketplaceAccount, page: "/account/support" },
-  { ...marketplaceAccount, page: "/account/payments/pay_seed_checkout_pending" },
-  { ...marketplaceAccount, page: "/account/payments/pay_seed_review_eligible_captured" },
-  { ...marketplaceAccount, page: "/account/shipments/shp_seed_review_eligible" },
-  { ...marketplaceSeller, page: "/account/desk/money" },
-  { ...marketplaceSeller, page: "/account/listings" },
-  { ...marketplaceSeller, page: "/account/sell-list" },
-  { ...marketplaceSeller, page: "/account/sales/shipments" },
-  { ...marketplaceSeller, page: "/account/sales/shipments/packing-slips?shipmentIds=shp_seed_awaiting_label" },
-  { ...marketplaceSeller, page: "/account/sales/shipments/shp_seed_awaiting_label" },
-  { ...marketplaceSeller, page: "/account/channels/connection-seed-tcgplayer-manual" },
-  { ...marketplaceSeller, page: "/account/channels/publication/connection-seed-tcgplayer-manual" },
   admin("owner", "admin_access", "/access/accounts/acc_seed_demo_account?tab=audit"),
   admin("owner", "admin_access", "/access/sessions"),
   admin("platform-admin", "catalog_admin_modeling", "/catalog/dimensions/dim_seed_condition"),
@@ -136,36 +108,6 @@ export type RenderedCopyOwnerRule = Readonly<{
 }>;
 
 export const renderedCopyOwnerRules: readonly RenderedCopyOwnerRule[] = [
-  {
-    token: "SB8-COPY-01",
-    field: "Submitted Offer identity",
-    page: "/account/offers/submitted",
-    class: "seed-id",
-    selector: "main",
-    label: null,
-    prefix: "off_",
-    issue: 9937,
-  },
-  {
-    token: "SB8-COPY-02",
-    field: "manual-sync Channel Connection instant",
-    page: "/account/channels/connection-seed-tcgplayer-manual",
-    class: "iso-instant",
-    selector: '[data-testid="manual-sync-lease-facts"], [data-testid="manual-sync-ingest-probe"]',
-    label: null,
-    prefix: null,
-    issue: 9938,
-  },
-  {
-    token: "SB8-COPY-03",
-    field: "publication blocked-listing identity",
-    page: "/account/channels/publication/connection-seed-tcgplayer-manual",
-    class: "seed-id",
-    selector: "main",
-    label: null,
-    prefix: "lst_",
-    issue: 8776,
-  },
   {
     token: "SB8-COPY-04",
     field: "Google Shopping listing identity",

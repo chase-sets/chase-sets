@@ -1618,14 +1618,14 @@ async fn an_accepted_write_redirects_to_the_policy_with_its_receipt() {
     let (status, headers, _) = pilot.send(post("/commerce/postage-policies", &create_body("Draft", "8"), true)).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
     let to = headers["corten-location"].to_str().unwrap().to_owned();
-    assert!(to.starts_with("/commerce/postage-policies?policy=opp_new&after_write="), "{to}");
+    assert!(to.starts_with("/commerce/postage-policies?policy=opp_new&afterWrite="), "{to}");
     let sent = pilot.policy_calls().into_iter().find(|c| c.method == Method::POST).unwrap();
     let body: Value = serde_json::from_str(&sent.body).unwrap();
     assert_eq!((body["label"].as_str(), body["maxLetterUnits"].as_f64()), (Some("Draft"), Some(8.0)), "{body}");
 
     let (status, headers, _) = pilot.send(post("/commerce/postage-policies", &create_body("Draft", "8"), false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
-    assert_eq!(headers[header::LOCATION].to_str().unwrap().split("&after_write=").next(), to.split("&after_write=").next());
+    assert_eq!(headers[header::LOCATION].to_str().unwrap().split("&afterWrite=").next(), to.split("&afterWrite=").next());
 }
 
 #[tokio::test]
@@ -1633,7 +1633,7 @@ async fn the_read_after_a_write_sends_the_receipt_and_waits_for_it() {
     let pilot = Pilot::new().await;
     let receipt = fresh_receipt();
     let (status, _, _) =
-        pilot.send(get(&format!("/commerce/postage-policies?policy=opp_new&after_write={receipt}"), Some("staff"))).await;
+        pilot.send(get(&format!("/commerce/postage-policies?policy=opp_new&afterWrite={receipt}"), Some("staff"))).await;
     assert_eq!(status, StatusCode::OK);
     let reads = pilot.policy_calls();
     assert_eq!(reads.len(), 2, "the list and the sheet: {reads:?}");
@@ -1646,7 +1646,7 @@ async fn the_read_after_a_write_sends_the_receipt_and_waits_for_it() {
 
     // The write's projection is not readable yet: "preparing", as admin-web answers.
     let (status, _, _) =
-        pilot.send(get(&format!("/commerce/postage-policies?policy=opp_pending&after_write={receipt}"), Some("staff"))).await;
+        pilot.send(get(&format!("/commerce/postage-policies?policy=opp_pending&afterWrite={receipt}"), Some("staff"))).await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
     // Without a write before it, the same answer is the API failing.
     let (status, _, _) = pilot.send(get("/commerce/postage-policies?policy=opp_pending", Some("staff"))).await;
@@ -1659,7 +1659,7 @@ async fn a_stale_receipt_is_not_sent() {
     let old = format!(r#"{{"observedAtMs":1000,"commitPosition":"42","sources":{RECEIPT}}}"#);
     let old = percent_encoding::utf8_percent_encode(&old, percent_encoding::NON_ALPHANUMERIC).to_string();
     let (status, _, _) =
-        pilot.send(get(&format!("/commerce/postage-policies?policy=opp_new&after_write={old}"), Some("staff"))).await;
+        pilot.send(get(&format!("/commerce/postage-policies?policy=opp_new&afterWrite={old}"), Some("staff"))).await;
     assert_eq!(status, StatusCode::OK);
     assert!(pilot.policy_calls().iter().all(|c| !c.headers.contains_key("chase-sets-read-after-write")));
 }
@@ -1670,7 +1670,7 @@ async fn activation_sends_the_reason_or_asks_for_one() {
     let (status, headers, _) =
         pilot.send(post("/commerce/postage-policies/opp_seed/activate", "label=Default&activation_reason=Reviewed", true)).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
-    assert!(headers["corten-location"].to_str().unwrap().starts_with("/commerce/postage-policies?policy=opp_seed&after_write="));
+    assert!(headers["corten-location"].to_str().unwrap().starts_with("/commerce/postage-policies?policy=opp_seed&afterWrite="));
     let sent = pilot.policy_calls().into_iter().find(|c| c.method == Method::POST).unwrap();
     assert_eq!(sent.path, format!("{POLICIES}/opp_seed/activate"));
     assert_eq!(serde_json::from_str::<Value>(&sent.body).unwrap(), json!({ "activationReason": "Reviewed" }));
@@ -2793,7 +2793,7 @@ async fn a_create_sends_its_drawn_id_and_comes_back_with_the_receipt_and_the_toa
     let (status, headers, _) = pilot.send(post("/catalog/dimensions?status=active", body, true)).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
     let to = headers["corten-location"].to_str().unwrap().to_owned();
-    assert!(to.starts_with("/catalog/dimensions?status=active&after_write=") && to.ends_with("&done=created"), "{to}");
+    assert!(to.starts_with("/catalog/dimensions?status=active&afterWrite=") && to.ends_with("&done=created"), "{to}");
     let sent = pilot.catalog_writes().remove(0);
     assert_eq!((sent.method, sent.path.as_str()), (Method::POST, "/api/catalog/dimensions"));
     assert_eq!(
@@ -2846,7 +2846,7 @@ async fn a_dimension_shows_its_options_and_the_changes_its_status_allows() {
     let (status, _, _) = pilot.send(get("/catalog/dimensions/dim_missing", Some("staff"))).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     let (status, _, _) =
-        pilot.send(get(&format!("/catalog/dimensions/dim_pending?after_write={}", fresh_receipt()), Some("staff"))).await;
+        pilot.send(get(&format!("/catalog/dimensions/dim_pending?afterWrite={}", fresh_receipt()), Some("staff"))).await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "the write is not readable yet");
 }
 
@@ -2880,7 +2880,7 @@ async fn lifecycle_changes_go_to_their_api_routes_and_a_refusal_is_the_forms_mes
         pilot.send(post("/catalog/dimensions/dim_seed/lifecycle", "action=deprecate&status=active", true)).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
     let to = headers["corten-location"].to_str().unwrap();
-    assert!(to.starts_with("/catalog/dimensions/dim_seed?after_write=") && to.ends_with("&done=deprecated"), "{to}");
+    assert!(to.starts_with("/catalog/dimensions/dim_seed?afterWrite=") && to.ends_with("&done=deprecated"), "{to}");
     let sent = pilot.catalog_writes().remove(0);
     assert_eq!((sent.path.as_str(), sent.body.as_str()), ("/api/catalog/dimensions/dim_seed/deprecate", ""));
     let (_, _, html) = pilot.send(get(to, Some("staff"))).await;
@@ -3175,18 +3175,18 @@ async fn blueprints_are_created_and_their_components_attached_and_rules_set() {
     // The page: its components, its rules folded with what they name, and a draft's openers,
     // which carry the page's receipt.
     let receipt = fresh_receipt();
-    let (_, _, html) = pilot.send(get(&format!("/catalog/blueprints/bpr_seed?after_write={receipt}"), Some("staff"))).await;
+    let (_, _, html) = pilot.send(get(&format!("/catalog/blueprints/bpr_seed?afterWrite={receipt}"), Some("staff"))).await;
     assert!(html.contains("<td>Card face</td>") && html.contains("<td>Language</td>"), "{html}");
     assert!(html.contains("<td>nm</td>") && html.contains("<td>Finish = holo</td>"), "{html}");
     assert!(html.contains("1 field rules") && html.contains("<dd>Condition</dd>"), "{html}");
     assert!(html.contains(r#"action="/catalog/blueprints/bpr_seed/components/cmp_seed/detach""#), "{html}");
     assert!(html.contains(r#"action="/catalog/blueprints/bpr_seed/field-rules" data-patch"#), "{html}");
-    assert!(html.contains(r#"name="after_write" value=""#), "{html}");
+    assert!(html.contains(r#"name="afterWrite" value=""#), "{html}");
     assert!(html.contains(r#"name="action" value="publish">Publish</button>"#), "{html}");
 
     // A Set dialog starts from the blueprint's detail, read when it is opened, by id.
     let (status, headers, html) =
-        pilot.send(opened(&format!("/catalog/blueprints/bpr_seed/field-rules?after_write={receipt}"))).await;
+        pilot.send(opened(&format!("/catalog/blueprints/bpr_seed/field-rules?afterWrite={receipt}"))).await;
     assert_eq!(status, StatusCode::OK);
     assert!(headers.contains_key("corten-patch"), "{headers:?}");
     assert!(html.contains(r#"value="fld_seed""#) && html.matches(r#"name="field_id""#).count() == 1, "{html}");
@@ -3898,7 +3898,7 @@ async fn an_item_is_created_with_its_drawn_id_as_its_english_title() {
         .await;
     assert_eq!(status, StatusCode::NO_CONTENT);
     let to = headers["corten-location"].to_str().unwrap();
-    assert!(to.starts_with("/catalog/catalog-items?status=draft&after_write=") && to.ends_with("&done=created"), "{to}");
+    assert!(to.starts_with("/catalog/catalog-items?status=draft&afterWrite=") && to.ends_with("&done=created"), "{to}");
     let sent = pilot.catalog_writes().remove(0);
     assert_eq!(sent.path, "/api/catalog/items");
     assert_eq!(
@@ -4374,7 +4374,7 @@ async fn parking_an_item_sends_its_reason_and_the_list_offers_restore() {
     let (status, headers, _) = pilot.send(post("/catalog/scopes/attention/dismiss?status=active", &form, true)).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
     let to = headers["corten-location"].to_str().unwrap().to_owned();
-    assert!(to.starts_with("/catalog/scopes?status=active&after_write="), "{to}");
+    assert!(to.starts_with("/catalog/scopes?status=active&afterWrite="), "{to}");
     assert!(
         to.ends_with(&format!(
             "&done=queued&parked={}",
@@ -4533,7 +4533,7 @@ async fn the_all_scopes_alias_review_is_folded_under_the_queue_and_its_commands_
         .await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers[header::LOCATION].to_str().unwrap();
-    assert!(to.starts_with("/catalog/scopes?status=active&after_write=") && to.ends_with("&done=alias_accepted"), "{to}");
+    assert!(to.starts_with("/catalog/scopes?status=active&afterWrite=") && to.ends_with("&done=alias_accepted"), "{to}");
     let (_, headers, _) =
         pilot.send(post("/catalog/scopes/aliases", "intent=alias.revoke&alias_hashes=ah_pika&reason=Wrong+card", false)).await;
     assert!(headers[header::LOCATION].to_str().unwrap().ends_with("&done=alias_revoked"), "{headers:?}");
@@ -4635,7 +4635,7 @@ async fn a_queue_the_api_cannot_read_is_its_banner_and_the_list_still_shows() {
     assert!(review.contains("Alias review") && review.contains("Unavailable") && !review[..300].contains("<details"), "{review}");
 
     let (status, _, _) =
-        pilot.send(get(&format!("/catalog/scopes?after_write={}&done=queued", fresh_receipt()), Some("queue-down"))).await;
+        pilot.send(get(&format!("/catalog/scopes?afterWrite={}&done=queued", fresh_receipt()), Some("queue-down"))).await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "after a park, a queue still catching up is the page's preparing answer");
 }
 
@@ -5093,7 +5093,7 @@ async fn a_scopes_coverage_writes_send_the_commands_and_redirect_with_the_toast(
         pilot.send(post("/catalog/scopes/scp_paf/coverage", "intent=accept&mapping_ids=map_1&all=1", false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers[header::LOCATION].to_str().unwrap().to_owned();
-    assert!(to.starts_with("/catalog/scopes/scp_paf?after_write=") && to.ends_with("&done=available_accepted&count=1"), "{to}");
+    assert!(to.starts_with("/catalog/scopes/scp_paf?afterWrite=") && to.ends_with("&done=available_accepted&count=1"), "{to}");
     pilot.send(post("/catalog/scopes/scp_paf/coverage", "intent=revoke&mapping_ids=map_2&reason=Wrong+set", true)).await;
     pilot
         .send(post(
@@ -5162,7 +5162,7 @@ async fn a_scopes_coverage_page_writes_through_the_scope_routes_and_comes_back()
         pilot.send(post("/catalog/scopes/scp_paf/coverage?via=coverage", "intent=accept&mapping_ids=map_1", false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers[header::LOCATION].to_str().unwrap().to_owned();
-    assert!(to.starts_with("/catalog/scope-coverage/scp_paf?after_write=") && to.ends_with("&done=mapping_accepted"), "{to}");
+    assert!(to.starts_with("/catalog/scope-coverage/scp_paf?afterWrite=") && to.ends_with("&done=mapping_accepted"), "{to}");
     let (_, _, html) = pilot.send(get(&to, Some("staff"))).await;
     assert!(html.contains("Mapping accepted."), "the toast: {html}");
 
@@ -5918,12 +5918,12 @@ async fn a_workspace_form_writes_to_identity_and_reads_the_page_after_it() {
     let (status, headers, _) = pilot.send(post_as("access-admin", "/access/accounts/acc_1", "intent=suspend", false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers[header::LOCATION].to_str().unwrap();
-    assert!(to.starts_with("/access/accounts/acc_1?tab=overview&after_write="), "{to}");
+    assert!(to.starts_with("/access/accounts/acc_1?tab=overview&afterWrite="), "{to}");
 
     let body = "intent=create-invitation&email=new2%40example.test&roleKey=manager";
     let (status, headers, _) = pilot.send(post_as("access-admin", "/access/accounts/acc_1", body, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
-    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/access/accounts/acc_1?tab=team&after_write="));
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/access/accounts/acc_1?tab=team&afterWrite="));
     let writes: Vec<Call> = pilot.calls_to("/api/identity/").into_iter().filter(|c| c.method == Method::POST).collect();
     assert_eq!(
         writes.iter().map(|c| c.path.as_str()).collect::<Vec<_>>(),
@@ -5955,7 +5955,7 @@ async fn a_workspace_form_writes_to_identity_and_reads_the_page_after_it() {
 #[tokio::test]
 async fn a_workspace_whose_write_is_not_readable_yet_is_read_without_it() {
     let pilot = Pilot::new().await;
-    let uri = format!("/access/accounts/acc_1?tab=team&after_write={}", fresh_receipt());
+    let uri = format!("/access/accounts/acc_1?tab=team&afterWrite={}", fresh_receipt());
     let (status, _, html) = pilot.send(get(&uri, Some("lagging-admin"))).await;
     assert_eq!(status, StatusCode::OK, "admin-web's onPending: {html}");
     assert!(
@@ -6005,7 +6005,7 @@ async fn a_sessions_switch_or_revoke_writes_to_auth_and_reads_the_page_after_it(
         let (status, headers, _) = pilot.send(post_as("access-staff", "/access/sessions/ses_1", body, false)).await;
         assert_eq!(status, StatusCode::SEE_OTHER, "{body}");
         let to = headers[header::LOCATION].to_str().unwrap();
-        assert!(to.starts_with("/access/sessions/ses_1?after_write="), "{to}");
+        assert!(to.starts_with("/access/sessions/ses_1?afterWrite="), "{to}");
         let write = pilot.calls_to("/api/auth/sessions").into_iter().last().unwrap();
         assert_eq!(
             (write.method, write.path.as_str(), write.body.as_str()),
@@ -6137,7 +6137,7 @@ async fn a_moderation_action_is_sent_and_the_page_is_read_after_it() {
     let (status, headers, _) = pilot.send(post_as("moderator", at, "action=unlist&note=+Counterfeit+", false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers[header::LOCATION].to_str().unwrap();
-    assert!(to.starts_with("/support/reported-content/listing/lst_1?after_write="), "{to}");
+    assert!(to.starts_with("/support/reported-content/listing/lst_1?afterWrite="), "{to}");
     let write = pilot.calls_to(REPORTED).into_iter().last().unwrap();
     assert_eq!(
         (write.method, write.path.as_str(), write.body.as_str()),
@@ -6165,7 +6165,7 @@ async fn a_moderation_action_is_sent_and_the_page_is_read_after_it() {
 #[tokio::test]
 async fn a_target_read_after_an_action_that_is_not_readable_yet_is_read_without_it_and_says_so() {
     let pilot = Pilot::new().await;
-    let at = format!("/support/reported-content/listing/lst_1?after_write={}", fresh_receipt());
+    let at = format!("/support/reported-content/listing/lst_1?afterWrite={}", fresh_receipt());
     let (status, _, html) = pilot.send(get(&at, Some("moderator-lag"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(main_of(&html).contains(r#"role="status""#) && html.contains("Refresh in a moment"), "{html}");
@@ -6187,7 +6187,7 @@ async fn acknowledging_a_response_posts_to_its_endpoint_and_a_refusal_draws_the_
         "no body and no note, as admin-web sends it"
     );
     let to = headers[header::LOCATION].to_str().unwrap().to_owned();
-    assert!(to.starts_with("/support/reported-content/listing/lst_1?after_write="), "the section stays: {to}");
+    assert!(to.starts_with("/support/reported-content/listing/lst_1?afterWrite="), "the section stays: {to}");
     let (status, _, html) = pilot.send(get(&to, Some("moderator"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     let read = pilot.calls_to(REPORTED).into_iter().last().unwrap();
@@ -6239,7 +6239,7 @@ async fn a_risk_alert_response_is_sent_and_the_page_is_read_after_it() {
     let (status, headers, _) = pilot.send(post_as("moderator", at, "action=acknowledge&note=+Known+seller+", false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers[header::LOCATION].to_str().unwrap().to_owned();
-    assert!(to.starts_with("/support/risk-alerts/ral_1?after_write="), "{to}");
+    assert!(to.starts_with("/support/risk-alerts/ral_1?afterWrite="), "{to}");
     let write = pilot.calls_to(RISK).into_iter().last().unwrap();
     assert_eq!(
         (write.method, write.path.as_str(), write.body.as_str()),
@@ -6430,7 +6430,7 @@ async fn a_bulk_change_sends_the_ticked_rows_and_the_list_is_read_after_it() {
     let (status, headers, _) = pilot.send(post_as("feedback-manager", at, form, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers[header::LOCATION].to_str().unwrap().to_owned();
-    assert!(to.starts_with("/support/platform-feedback?status=new&after_write="), "{to}");
+    assert!(to.starts_with("/support/platform-feedback?status=new&afterWrite="), "{to}");
     let write = pilot.calls_to(FEEDBACK).into_iter().last().unwrap();
     assert_eq!(
         (write.method, write.path.as_str(), write.body.as_str()),
@@ -6499,11 +6499,11 @@ async fn a_feedbacks_writes_are_sent_and_its_page_is_read_after_them() {
     let (status, headers, _) = pilot.send(post_as("feedback-manager", at, "intent=record-note&body=Called+back", false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers[header::LOCATION].to_str().unwrap().to_owned();
-    assert!(to.starts_with("/support/platform-feedback/pfb_1?after_write="), "{to}");
+    assert!(to.starts_with("/support/platform-feedback/pfb_1?afterWrite="), "{to}");
     let write = pilot.calls_to(FEEDBACK).into_iter().last().unwrap();
     assert_eq!((write.path.as_str(), write.body.as_str()), (&*format!("{FEEDBACK}/pfb_1/notes"), r#"{"body":"Called back"}"#));
     let (_, headers, _) = pilot.send(post_as("feedback-manager", at, "intent=review", false)).await;
-    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/support/platform-feedback/pfb_1?after_write="));
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/support/platform-feedback/pfb_1?afterWrite="));
     let write = pilot.calls_to(FEEDBACK).into_iter().last().unwrap();
     assert_eq!((write.path.as_str(), write.body.as_str()), (&*format!("{FEEDBACK}/pfb_1/review"), "{}"));
 
@@ -6515,7 +6515,7 @@ async fn a_feedbacks_writes_are_sent_and_its_page_is_read_after_them() {
     assert_eq!((status, headers[header::LOCATION].to_str().unwrap()), (StatusCode::SEE_OTHER, at));
     assert_eq!(pilot.send(post_as("feedback-viewer", at, "intent=review", false)).await.0, StatusCode::FORBIDDEN);
 
-    let lagging = format!("{at}?after_write={}", fresh_receipt());
+    let lagging = format!("{at}?afterWrite={}", fresh_receipt());
     let (status, _, html) = pilot.send(get(&lagging, Some("feedback-lag"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(main_of(&html).contains(r#"role="status""#) && html.contains("Refresh in a moment"), "{html}");
@@ -6601,7 +6601,7 @@ async fn a_case_action_is_sent_and_the_sheet_is_read_after_it() {
     let (status, headers, _) = pilot.send(post_as("support-agent", at, form, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers[header::LOCATION].to_str().unwrap().to_owned();
-    assert!(to.starts_with("/support/requests?status=ready-for-support&requestId=req_1&action=resolve&after_write="), "{to}");
+    assert!(to.starts_with("/support/requests?status=ready-for-support&requestId=req_1&action=resolve&afterWrite="), "{to}");
     let write = pilot.calls_to(SUPPORT_REQUESTS).into_iter().last().unwrap();
     assert_eq!(write.path, format!("{SUPPORT_REQUESTS}/ops/req_1/resolve"));
     assert_eq!(
@@ -6642,7 +6642,7 @@ async fn a_case_action_is_sent_and_the_sheet_is_read_after_it() {
         "nothing more written"
     );
 
-    let lagging = format!("/support/requests?requestId=req_1&action=note&after_write={}", fresh_receipt());
+    let lagging = format!("/support/requests?requestId=req_1&action=note&afterWrite={}", fresh_receipt());
     let (status, _, html) = pilot.send(get(&lagging, Some("support-lag"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("Called the carrier.") && html.contains("Refresh in a moment"), "read without the receipt: {html}");
@@ -6695,7 +6695,7 @@ async fn a_refund_decision_offers_a_remedy_proposal_previewed_before_it_is_reque
     let (status, headers, _) = pilot.send(post_as("support-remedies", at, &propose, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers[header::LOCATION].to_str().unwrap().to_owned();
-    assert!(to.starts_with("/support/requests?status=resolved&requestId=req_done&action=remedy-proposed&after_write="), "{to}");
+    assert!(to.starts_with("/support/requests?status=resolved&requestId=req_done&action=remedy-proposed&afterWrite="), "{to}");
     let call = pilot.calls_to(SUPPORT_REQUESTS).into_iter().last().unwrap();
     assert_eq!(call.path, format!("{SUPPORT_REQUESTS}/ops/req_done/remedy-proposals"));
 
@@ -6777,7 +6777,7 @@ async fn a_remedy_shows_its_workflow_and_the_recovery_admin_web_offers() {
         let (status, headers, _) = pilot.send(post_as("support-remedies", "/support/requests/req_remedy", form, false)).await;
         assert_eq!(status, StatusCode::SEE_OTHER, "{form}");
         let to = headers[header::LOCATION].to_str().unwrap().to_owned();
-        assert!(to.starts_with(&format!("/support/requests?requestId=req_remedy&action={action}&after_write=")), "{to}");
+        assert!(to.starts_with(&format!("/support/requests?requestId=req_remedy&action={action}&afterWrite=")), "{to}");
         let call = pilot.calls_to(SUPPORT_REQUESTS).into_iter().last().unwrap();
         assert_eq!(call.path, format!("{SUPPORT_REQUESTS}/ops/req_remedy{path}"));
         assert_eq!(serde_json::from_str::<Value>(&call.body).unwrap(), body, "{form}");
@@ -6793,7 +6793,7 @@ async fn escalate_overdue_reports_its_counts_on_the_queue() {
     let (status, headers, _) = pilot.send(post_as("support-agent", "/support/requests?status=open", "", false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers[header::LOCATION].to_str().unwrap().to_owned();
-    assert!(to.starts_with("/support/requests?status=open&after_write="), "{to}");
+    assert!(to.starts_with("/support/requests?status=open&afterWrite="), "{to}");
     assert!(to.ends_with("&escalated=2&skipped=1&capped=true&escalationTotal=120"), "{to}");
     let write = pilot.calls_to(SUPPORT_REQUESTS).into_iter().last().unwrap();
     assert_eq!(
@@ -7424,7 +7424,7 @@ async fn completing_an_intake_sends_each_photo_then_cites_it_at_the_operators_ti
         pilot.send(post_multipart(at, "intake-manager", Some("America/Chicago"), &fields, &photos)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     let location = headers[header::LOCATION].to_str().unwrap();
-    assert!(location.starts_with("/commerce/return-intake?facilityId=fac_1&result=completed&after_write="), "{location}");
+    assert!(location.starts_with("/commerce/return-intake?facilityId=fac_1&result=completed&afterWrite="), "{location}");
     assert!(!location.contains("identifier="), "the station again, without the scan: {location}");
 
     let calls = pilot.calls_to(RETURN_INTAKE);
@@ -7691,7 +7691,7 @@ async fn a_recovered_item_action_posts_admin_webs_body_and_reports_the_new_statu
     let (status, headers, html) = pilot.send(post_as("recovery-manager", RECOVERED_PAGE, &recovered_body(&fields), false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     let location = headers[header::LOCATION].to_str().unwrap().to_owned();
-    assert!(location.starts_with("/commerce/recovered-items?item=rci_1&status=sellable&after_write="), "{location}");
+    assert!(location.starts_with("/commerce/recovered-items?item=rci_1&status=sellable&afterWrite="), "{location}");
     let call = pilot.calls_to(RECOVERED).into_iter().find(|c| c.method == Method::POST).expect("the action");
     assert_eq!(call.path, "/api/inventory/recovered-items/rci_1/actions");
     let sent: Value = serde_json::from_str(&call.body).unwrap();
@@ -7982,7 +7982,7 @@ async fn the_create_sheets_start_from_the_schedule_in_effect_and_write_what_admi
         pilot.send(post_as("terms-viewer", "/commerce/terms?create=agreement&account=acc_1", &body, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     let location = headers[header::LOCATION].to_str().unwrap().to_owned();
-    assert!(location.starts_with("/commerce/terms?agreement=cag_new&after_write="), "{location}");
+    assert!(location.starts_with("/commerce/terms?agreement=cag_new&afterWrite="), "{location}");
     let call = pilot.calls_to(TERMS_API).into_iter().find(|c| c.method == Method::POST).expect("the create");
     let sent: Value = serde_json::from_str(&call.body).unwrap();
     assert_eq!(sent["accountId"], "acc_1");
@@ -8010,7 +8010,7 @@ async fn the_create_sheets_start_from_the_schedule_in_effect_and_write_what_admi
     let body = terms_body("create-schedule", &[("accountType", "enterprise")], "Enterprise");
     let (status, headers, _) = pilot.send(post_as("terms-viewer", "/commerce/terms?create=schedule", &body, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
-    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/commerce/terms?schedule=cts_new&after_write="));
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/commerce/terms?schedule=cts_new&afterWrite="));
     let call = pilot.calls_to(TERMS_API).into_iter().filter(|c| c.method == Method::POST).nth(1).expect("the schedule");
     let sent: Value = serde_json::from_str(&call.body).unwrap();
     assert_eq!(sent["accountType"], "enterprise");
@@ -9889,7 +9889,7 @@ async fn each_provider_command_sends_the_apis_path_and_lands_on_the_page() {
         pilot.send(post(&format!("/catalog/providers/tcgplayer/refresh?{at}"), "command=pause", false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert!(
-        landed(&headers).starts_with(&format!("/catalog/providers/tcgplayer?{at}&done=paused&after_write=")),
+        landed(&headers).starts_with(&format!("/catalog/providers/tcgplayer?{at}&done=paused&afterWrite=")),
         "{}",
         landed(&headers)
     );
@@ -9904,7 +9904,7 @@ async fn each_provider_command_sends_the_apis_path_and_lands_on_the_page() {
         .await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert!(
-        landed(&headers).starts_with("/catalog/providers/tcgplayer?profileVersion=2026.07.13-draft&done=drafted&after_write="),
+        landed(&headers).starts_with("/catalog/providers/tcgplayer?profileVersion=2026.07.13-draft&done=drafted&afterWrite="),
         "the draft the API made, read after its write: {}",
         landed(&headers)
     );
@@ -10040,7 +10040,7 @@ async fn the_activation_decision_saves_evidence_and_activates_and_draws_the_apis
     let (status, headers, _) = pilot.send(post(&format!("/catalog/providers/tcgplayer/evidence?{at}"), form, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert!(
-        landed(&headers).starts_with(&format!("/catalog/providers/tcgplayer?{at}&done=evidence-saved&after_write=")),
+        landed(&headers).starts_with(&format!("/catalog/providers/tcgplayer?{at}&done=evidence-saved&afterWrite=")),
         "{}",
         landed(&headers)
     );
@@ -11059,7 +11059,7 @@ async fn each_command_sends_the_apis_body_and_lands_on_the_working_set() {
     assert_eq!(status, StatusCode::SEE_OTHER);
     let landed = headers[header::LOCATION].to_str().unwrap().to_owned();
     assert!(
-        landed.starts_with(&format!("/catalog/integrations?{at}&jobId=run_1&done=queued&after_write=")),
+        landed.starts_with(&format!("/catalog/integrations?{at}&jobId=run_1&done=queued&afterWrite=")),
         "the run it queued: {landed}"
     );
     let sent: Value = serde_json::from_str(&daily_writes(&pilot)[0].body).unwrap();
@@ -11475,7 +11475,7 @@ async fn a_units_sync_and_reapply_post_the_scopes_the_api_built_and_land_on_its_
     let landed = headers[header::LOCATION].to_str().unwrap().to_owned();
     assert!(
         landed.starts_with(
-            "/catalog/integrations?providerKey=tcgplayer&unitKey=tcgplayer%3Apokemon%3Acard&importScope=en%3Asv1&jobId=job_9&done=queued&after_write="
+            "/catalog/integrations?providerKey=tcgplayer&unitKey=tcgplayer%3Apokemon%3Acard&importScope=en%3Asv1&jobId=job_9&done=queued&afterWrite="
         ),
         "the unit's working set, with the job it queued: {landed}"
     );
@@ -12359,7 +12359,7 @@ async fn a_profile_section_is_drawn_from_its_workspace_and_saved_over_the_stored
         .await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let landed = headers[header::LOCATION].to_str().unwrap().to_owned();
-    assert!(landed.starts_with(&format!("/catalog/providers/tcgplayer?{at}&done=section-saved&after_write=")), "{landed}");
+    assert!(landed.starts_with(&format!("/catalog/providers/tcgplayer?{at}&done=section-saved&afterWrite=")), "{landed}");
     let sent = pilot.calls.lock().unwrap().iter().find(|c| c.path.ends_with("/sections/basics")).cloned().unwrap();
     assert_eq!(sent.method, Method::PATCH);
     assert_eq!(sent.headers[header::IF_MATCH], r#""sha256:basics-read""#);

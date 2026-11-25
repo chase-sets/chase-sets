@@ -2157,39 +2157,7 @@
               },
               {
                 "type": "text",
-                "value": " — the service that graded the card. Supported companies with validated certificate formats are "
-              },
-              {
-                "type": "strong",
-                "value": "PSA"
-              },
-              {
-                "type": "text",
-                "value": ", "
-              },
-              {
-                "type": "strong",
-                "value": "BGS"
-              },
-              {
-                "type": "text",
-                "value": " (Beckett), "
-              },
-              {
-                "type": "strong",
-                "value": "CGC"
-              },
-              {
-                "type": "text",
-                "value": ", and "
-              },
-              {
-                "type": "strong",
-                "value": "SGC"
-              },
-              {
-                "type": "text",
-                "value": "."
+                "value": " — the service that graded the card. Choose it from the grading companies the catalog offers for your card."
               }
             ],
             [
@@ -2199,47 +2167,23 @@
               },
               {
                 "type": "text",
-                "value": " — the numeric grade on the label, from "
+                "value": " — the grade on the slab label, chosen from the grades the catalog offers for that company (for example "
               },
               {
                 "type": "code",
-                "value": "1"
+                "value": "Gem Mint 10"
               },
               {
                 "type": "text",
-                "value": " to "
+                "value": " or "
               },
               {
                 "type": "code",
-                "value": "10"
+                "value": "Mint 9"
               },
               {
                 "type": "text",
-                "value": " in half-point steps (for example "
-              },
-              {
-                "type": "code",
-                "value": "9"
-              },
-              {
-                "type": "text",
-                "value": ", "
-              },
-              {
-                "type": "code",
-                "value": "9.5"
-              },
-              {
-                "type": "text",
-                "value": ", "
-              },
-              {
-                "type": "code",
-                "value": "10"
-              },
-              {
-                "type": "text",
-                "value": ")."
+                "value": "). Your listing shows the grade exactly as the catalog names it."
               }
             ],
             [
@@ -2249,7 +2193,7 @@
               },
               {
                 "type": "text",
-                "value": " — the number printed on the slab label. Each company uses its own length, so enter the exact digits from the label; the composer checks the number against that company's format."
+                "value": " — the number printed on the slab label. It is required for every graded listing. Enter the exact digits from the label: under the active listing-evidence policy, Chase Sets may check the number against that company's format."
               }
             ]
           ]

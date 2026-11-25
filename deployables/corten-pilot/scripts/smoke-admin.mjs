@@ -110,7 +110,7 @@ async function context(javaScriptEnabled) {
 
   await create.getByLabel("Max letter units").fill("8");
   await create.getByRole("button", { name: "Create draft" }).click();
-  await page.waitForURL(/policy=.*after_write=/);
+  await page.waitForURL(/policy=.*afterWrite=/);
   check(await sheetTitled(page, `Smoke ${stamp}`), "create lands on the new draft's sheet");
   const sheet = page.locator("dialog[open]").first();
   check(await sheet.evaluate((d) => d.matches(":modal")), "the sheet is modal with JavaScript");

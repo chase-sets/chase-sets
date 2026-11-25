@@ -1,38 +1,13 @@
 import { isDesignSystemNavigationRiskPath } from "./lib/risk-policy-v1.mjs";
 
+// The marketplace has no suite of its own: production serves the Corten pilot's marketplace, whose kept
+// browser specs run in the Corten Marketplace Browser Tests job. The ownership maps below name that job with
+// this selection wherever a change would have picked a marketplace suite when marketplace-web served it, so
+// the same changes keep running browser coverage of the served marketplace.
+export const cortenMarketplaceBrowserSelection = "corten-marketplace-browser";
+const marketplaceBrowser = cortenMarketplaceBrowserSelection;
+
 export const e2eSuites = Object.freeze([
-  {
-    id: "marketplace_browse",
-    label: "Marketplace Browse",
-    deployable: "marketplace",
-    journeys: ["browse", "search", "auth entry"],
-    grep: "@marketplace-browse",
-    estimatedDurationSeconds: 420,
-  },
-  {
-    id: "marketplace_account",
-    label: "Marketplace Account",
-    deployable: "marketplace",
-    journeys: ["account access", "authentication", "market-following Offer consent and Checkout acceptance"],
-    grep: "@marketplace-account",
-    estimatedDurationSeconds: 300,
-  },
-  {
-    id: "marketplace_checkout",
-    label: "Marketplace Checkout",
-    deployable: "marketplace",
-    journeys: ["buy cart", "sell list", "checkout"],
-    grep: "@marketplace-checkout",
-    estimatedDurationSeconds: 540,
-  },
-  {
-    id: "marketplace_seller",
-    label: "Marketplace Seller",
-    deployable: "marketplace",
-    journeys: ["listings", "offers", "seller operations"],
-    grep: "@marketplace-seller",
-    estimatedDurationSeconds: 360,
-  },
   {
     id: "catalog_admin_integrations",
     label: "Catalog Admin Integrations",
@@ -153,7 +128,7 @@ export const e2eSuites = Object.freeze([
   {
     id: "rendered_copy",
     label: "Rendered Copy Sweep",
-    deployable: "marketplace",
+    deployable: "admin-web",
     journeys: ["seeded rendered-copy observations"],
     grep: "@rendered-copy",
     estimatedDurationSeconds: 900,
@@ -162,15 +137,11 @@ export const e2eSuites = Object.freeze([
 
 const suiteOrder = new Map(e2eSuites.map((suite, index) => [suite.id, index]));
 const suitesById = new Map(e2eSuites.map((suite) => [suite.id, suite]));
-const allMarketplaceSuiteIds = e2eSuites
-  .filter((suite) => suite.deployable === "marketplace" && suite.id !== "rendered_copy")
+const allMarketplaceSuiteIds = Object.freeze([marketplaceBrowser]);
+const allAdminWebSuiteIds = e2eSuites
+  .filter((suite) => suite.deployable === "admin-web" && suite.id !== "rendered_copy")
   .map((suite) => suite.id);
-const allAdminWebSuiteIds = e2eSuites.filter((suite) => suite.deployable === "admin-web").map((suite) => suite.id);
-const allBrowserSuiteIds = e2eSuites
-  .filter(
-    (suite) => suite.id !== "rendered_copy" && (suite.deployable === "marketplace" || suite.deployable === "admin-web"),
-  )
-  .map((suite) => suite.id);
+const allBrowserSuiteIds = Object.freeze([...allAdminWebSuiteIds, marketplaceBrowser]);
 const defaultSuiteBatchSize = 2;
 const fallbackEstimatedSuiteDurationSeconds = 300;
 
@@ -195,38 +166,38 @@ const browserRuntimePatterns = [
 ];
 
 const contextSuiteOwnership = new Map([
-  ["auth", ["marketplace_account", "admin_auth"]],
-  ["catalog", ["marketplace_browse", "catalog_admin_integrations"]],
-  ["channels", ["marketplace_account", "marketplace_seller"]],
-  ["checkout", ["marketplace_checkout"]],
-  ["commercial-terms", ["marketplace_browse", "marketplace_seller"]],
-  ["discovery", ["marketplace_browse"]],
-  ["fulfillment", ["marketplace_account"]],
-  ["identity", ["marketplace_account", "admin_access"]],
-  ["inventory", ["marketplace_seller"]],
-  ["marketplace", ["marketplace_account", "marketplace_seller"]],
-  ["notifications", ["marketplace_account"]],
-  ["ordering", ["marketplace_account", "marketplace_checkout", "admin_commerce"]],
-  ["payments", ["marketplace_account", "marketplace_checkout"]],
-  ["platform-operations", ["marketplace_account", "admin_support", "admin_platform"]],
-  ["pricing", ["marketplace_browse"]],
-  ["public-presence", ["marketplace_browse", "admin_growth"]],
-  ["settlement", ["marketplace_account", "marketplace_seller"]],
+  ["auth", [marketplaceBrowser, "admin_auth"]],
+  ["catalog", [marketplaceBrowser, "catalog_admin_integrations"]],
+  ["channels", [marketplaceBrowser]],
+  ["checkout", [marketplaceBrowser]],
+  ["commercial-terms", [marketplaceBrowser]],
+  ["discovery", [marketplaceBrowser]],
+  ["fulfillment", [marketplaceBrowser]],
+  ["identity", [marketplaceBrowser, "admin_access"]],
+  ["inventory", [marketplaceBrowser]],
+  ["marketplace", [marketplaceBrowser]],
+  ["notifications", [marketplaceBrowser]],
+  ["ordering", [marketplaceBrowser, "admin_commerce"]],
+  ["payments", [marketplaceBrowser]],
+  ["platform-operations", [marketplaceBrowser, "admin_support", "admin_platform"]],
+  ["pricing", [marketplaceBrowser]],
+  ["public-presence", [marketplaceBrowser, "admin_growth"]],
+  ["settlement", [marketplaceBrowser]],
 ]);
 
 const marketplaceContextRouteSuiteOwnership = new Map([
-  ["auth", ["marketplace_account"]],
-  ["channels", ["marketplace_account", "marketplace_seller"]],
-  ["discovery", ["marketplace_browse"]],
-  ["fulfillment", ["marketplace_account"]],
-  ["identity", ["marketplace_account"]],
-  ["inventory", ["marketplace_seller"]],
-  ["marketplace", ["marketplace_account", "marketplace_seller"]],
-  ["payments", ["marketplace_account", "marketplace_checkout"]],
-  ["platform-operations", ["marketplace_account"]],
-  ["pricing", ["marketplace_seller"]],
-  ["public-presence", ["marketplace_browse"]],
-  ["settlement", ["marketplace_account", "marketplace_seller"]],
+  ["auth", [marketplaceBrowser]],
+  ["channels", [marketplaceBrowser]],
+  ["discovery", [marketplaceBrowser]],
+  ["fulfillment", [marketplaceBrowser]],
+  ["identity", [marketplaceBrowser]],
+  ["inventory", [marketplaceBrowser]],
+  ["marketplace", [marketplaceBrowser]],
+  ["payments", [marketplaceBrowser]],
+  ["platform-operations", [marketplaceBrowser]],
+  ["pricing", [marketplaceBrowser]],
+  ["public-presence", [marketplaceBrowser]],
+  ["settlement", [marketplaceBrowser]],
 ]);
 
 const adminContextRouteSuiteOwnership = new Map([
@@ -245,21 +216,14 @@ const adminContextRouteSuiteOwnership = new Map([
 ]);
 
 const e2eSpecSuiteOwnership = [
-  {
-    pattern: /^deployables\/marketplace\/e2e\/(?:account-management-interruption|account-form-pending)\.spec\.ts$/,
-    suites: ["marketplace_account"],
-  },
-  { pattern: /^deployables\/marketplace\/e2e\/account-elevation-intent\.spec\.ts$/, suites: ["marketplace_account"] },
-  { pattern: /^deployables\/marketplace\/e2e\/item-detail\.spec\.ts$/, suites: ["marketplace_browse"] },
   { pattern: /^deployables\/corten-pilot\/e2e\/critical-flows\.spec\.ts$/, suites: allMarketplaceSuiteIds },
   {
-    pattern:
-      /^deployables\/(?:marketplace\/e2e\/(?:account-payment|buy-funnel-redesign|sell-checkout-session)|corten-pilot\/e2e\/buyer-purchase-journey)\.spec\.ts$/,
-    suites: ["marketplace_checkout"],
+    pattern: /^deployables\/corten-pilot\/e2e\/buyer-purchase-journey\.spec\.ts$/,
+    suites: [marketplaceBrowser],
   },
   {
     pattern: /^deployables\/corten-pilot\/e2e\/responsive-evidence-contract\.spec\.ts$/,
-    suites: ["marketplace_browse"],
+    suites: [marketplaceBrowser],
   },
   { pattern: /^deployables\/admin-web\/e2e\/access-/, suites: ["admin_access"] },
   {
@@ -277,14 +241,9 @@ const e2eSpecSuiteOwnership = [
     pattern: /^deployables\/admin-web\/e2e\/(?:admin-cross-cutting-topology|platform-projection-operations)\.spec\.ts$/,
     suites: ["admin_platform"],
   },
-  { pattern: /^deployables\/marketplace\/e2e\/inventory-recovery\.spec\.ts$/, suites: ["marketplace_seller"] },
   {
     pattern: /^deployables\/corten-pilot\/e2e\/marketplace-shell-header\.spec\.ts$/,
-    suites: ["marketplace_browse"],
-  },
-  {
-    pattern: /^deployables\/marketplace\/e2e\/rendered-copy-sweep\.spec\.ts$/,
-    suites: ["marketplace_account", "marketplace_seller"],
+    suites: [marketplaceBrowser],
   },
   {
     pattern: /^deployables\/admin-web\/e2e\/rendered-copy-sweep\.spec\.ts$/,
@@ -301,69 +260,21 @@ const e2eSpecSuiteOwnership = [
 
 export const e2eNoSuiteExclusions = Object.freeze([
   {
-    pattern:
-      /^deployables\/marketplace\/app\/routes\/(?:chrome-devtools|favicon|favicon-svg|health-ready|manifest|robots|service-worker|sitemap)\./,
-    reason: "Marketplace technical endpoint with static/runtime health coverage instead of browser journey coverage.",
-  },
-  {
     pattern: /^deployables\/admin-web\/e2e\/catalog-staging-provider-sync\.uat\.spec\.ts$/,
     reason:
       "Manual staging UAT spec; it is outside the CI grep suite catalog, and its synthetic tests run in the Catalog UAT Synthetic Tests gate instead.",
   },
   {
-    pattern: /^deployables\/marketplace\/e2e\/account-payment-stripe-embed\.uat\.spec\.ts$/,
-    reason:
-      "Manual staging UAT spec exercising the real Stripe embed -> confirm -> webhook path with live Stripe test-mode keys; it is intentionally outside the CI grep suite catalog.",
-  },
-  {
     pattern: /^deployables\/public-web\/e2e\/.*\.spec\.ts$/,
     reason:
-      "public-presence/public-web deployed-target spec: the public-web Playwright project only exists when PUBLIC_WEB_URL names a running public-web host, and the PR browser-e2e system boots admin-web and marketplace only. It runs through test:e2e:deployed in the staging advisory evidence lane.",
+      "public-presence/public-web deployed-target spec: the public-web Playwright project only exists when PUBLIC_WEB_URL names a running public-web host, and the PR browser-e2e systems boot admin-web or the Corten marketplace only. It runs through test:e2e:deployed in the staging advisory evidence lane.",
   },
 ]);
-
-const marketplaceRouteSuiteOwnership = [
-  {
-    pattern:
-      /^deployables\/marketplace\/app\/routes\/(?:chrome-devtools|favicon|favicon-svg|health-ready|manifest|robots|service-worker|sitemap)\./,
-    suites: [],
-  },
-  {
-    pattern: /^deployables\/marketplace\/app\/routes\/(?:search|_index|index)\./,
-    suites: ["marketplace_browse"],
-  },
-  {
-    pattern: /^deployables\/marketplace\/app\/routes\/(?:account-payment|checkout-payment)/,
-    suites: ["marketplace_checkout"],
-  },
-  {
-    pattern:
-      /^deployables\/marketplace\/app\/routes\/(?:account-listing|account-listings|account-inventory|account-offers|account-repricing)/,
-    suites: ["marketplace_seller"],
-  },
-  {
-    pattern:
-      /^deployables\/marketplace\/app\/routes\/(?:account-purchase|account-sale|account-review|account-payout|account-settlement|account-support)/,
-    suites: ["marketplace_account"],
-  },
-  {
-    pattern: /^deployables\/marketplace\/app\/(?:auth\.server|root)\./,
-    suites: ["marketplace_account", "marketplace_browse"],
-  },
-  {
-    pattern: /^deployables\/marketplace\/app\/routes\/(?:not-found|offline)\./,
-    suites: ["marketplace_browse"],
-  },
-  {
-    pattern: /^deployables\/marketplace\/app\/routes\/layout\./,
-    suites: allMarketplaceSuiteIds,
-  },
-];
 
 const boundedContextRouteSuiteOwnership = [
   {
     pattern: /^bounded-contexts\/channels\/routes\/marketplace\/account-channels-connection\./,
-    suites: ["marketplace_account", "marketplace_seller"],
+    suites: [marketplaceBrowser],
   },
   {
     pattern:
@@ -409,7 +320,7 @@ const boundedContextRouteSuiteOwnership = [
   },
   {
     pattern: /^bounded-contexts\/commercial-terms\/(?:routes\/public|features\/marketplace-sales-fee\/ui\/routes)\//,
-    suites: ["marketplace_browse"],
+    suites: [marketplaceBrowser],
   },
   {
     pattern: /^bounded-contexts\/commercial-terms\/features\/(?:schedules|agreements|resolutions)\/(?:api|ui)\//,
@@ -489,19 +400,19 @@ const boundedContextRouteSuiteOwnership = [
   },
   {
     pattern: /^bounded-contexts\/identity\/routes\/marketplace\//,
-    suites: ["marketplace_account"],
+    suites: [marketplaceBrowser],
   },
   {
     pattern: /^bounded-contexts\/marketplace\/routes\/marketplace\//,
-    suites: ["marketplace_account"],
+    suites: [marketplaceBrowser],
   },
   {
     pattern: /^bounded-contexts\/platform-operations\/routes\/marketplace\//,
-    suites: ["marketplace_account"],
+    suites: [marketplaceBrowser],
   },
   {
     pattern: /^bounded-contexts\/auth\/routes\/marketplace\//,
-    suites: ["marketplace_account"],
+    suites: [marketplaceBrowser],
   },
   {
     pattern: /^bounded-contexts\/auth\/routes\/(?:access-admin|catalog-admin)\//,
@@ -509,11 +420,11 @@ const boundedContextRouteSuiteOwnership = [
   },
   {
     pattern: /^bounded-contexts\/checkout\/routes\//,
-    suites: ["marketplace_checkout"],
+    suites: [marketplaceBrowser],
   },
   {
     pattern: /^bounded-contexts\/discovery\/routes\/(?:search|public-|account-product-alerts|set\.)/,
-    suites: ["marketplace_browse"],
+    suites: [marketplaceBrowser],
   },
   {
     pattern: /^bounded-contexts\/identity\/routes\/admin\//,
@@ -521,72 +432,65 @@ const boundedContextRouteSuiteOwnership = [
   },
   {
     pattern: /^bounded-contexts\/marketplace\/routes\/account-(?:desk|listing|listings|offer)/,
-    suites: ["marketplace_account", "marketplace_seller"],
+    suites: [marketplaceBrowser],
   },
   {
     pattern: /^bounded-contexts\/ordering\/routes\/account-(?:purchase|sale)/,
-    suites: ["marketplace_account"],
+    suites: [marketplaceBrowser],
   },
   {
     pattern:
       /^bounded-contexts\/payments\/(?:routes\/marketplace|features\/payments\/ui\/routes)\/account-payment(?:-methods|-new)/,
-    suites: ["marketplace_account"],
+    suites: [marketplaceBrowser],
   },
   {
     pattern: /^bounded-contexts\/pricing\/routes\/marketplace\/account-repricing/,
-    suites: ["marketplace_seller"],
+    suites: [marketplaceBrowser],
   },
   {
     pattern: /^bounded-contexts\/settlement\/routes\/marketplace\//,
-    suites: ["marketplace_account", "marketplace_seller"],
+    suites: [marketplaceBrowser],
   },
   {
     pattern: /^bounded-contexts\/marketplace\/routes\/account-listing\./,
-    suites: ["marketplace_account", "marketplace_seller"],
+    suites: [marketplaceBrowser],
   },
   {
-    // Milestone-25 decomposed route: browse -> item-detail commerce panel
-    // composition is owned by the marketplace_browse item-detail e2e spec.
-    // Also covers the item-detail-market-history.tsx resource route (m111
-    // market panel): its Sales-tab range/data fetch is exercised by the same
-    // spec's Sales-tab assertion.
+    // The item detail page and its market-history and rail-analytics resource routes.
     pattern: /^bounded-contexts\/discovery\/routes\/item-detail(?:\.|-market-history\.|-rail-analytics\.)/,
-    suites: ["marketplace_browse"],
+    suites: [marketplaceBrowser],
   },
   {
-    // Milestone-25 decomposed route: the sell-handoff composition + readiness
-    // redirect chain is owned by the marketplace_checkout sell-checkout-session spec.
+    // The sell handoff into a checkout session.
     pattern: /^bounded-contexts\/checkout\/routes\/sell-checkout-session\./,
-    suites: ["marketplace_checkout"],
+    suites: [marketplaceBrowser],
   },
   {
-    // Milestone-25 decomposed routes: the signed-in payment confirmation surface
-    // and the guest checkout-payment claim entry point are owned by the
-    // marketplace_checkout account-payment spec.
+    // The signed-in payment confirmation and the guest checkout-payment claim entry point.
     pattern:
       /^bounded-contexts\/payments\/(?:routes\/marketplace|features\/payments\/ui\/routes)\/(?:account-payment|checkout-payment)\./,
-    suites: ["marketplace_checkout"],
+    suites: [marketplaceBrowser],
   },
   {
     pattern: /^bounded-contexts\/public-presence\/(?:routes\/marketplace|features\/policies\/ui\/routes)\//,
-    suites: ["marketplace_browse"],
+    suites: [marketplaceBrowser],
   },
   {
     pattern: /^bounded-contexts\/public-presence\/routes\/developers\//,
-    suites: ["marketplace_browse"],
+    suites: [marketplaceBrowser],
   },
   {
     pattern: /^bounded-contexts\/public-presence\/features\/waitlist\/ui\/public-pages\./,
-    suites: ["marketplace_browse"],
+    suites: [marketplaceBrowser],
   },
   {
     pattern:
       /^bounded-contexts\/notifications\/(?:routes|features\/notification-center\/ui\/routes)\/account-notifications\./,
-    suites: ["marketplace_account"],
+    suites: [marketplaceBrowser],
   },
   {
     pattern: /^bounded-contexts\/fulfillment\/routes\/seller-shipping-setup\.tsx$/,
-    suites: ["marketplace_checkout"],
+    suites: [marketplaceBrowser],
   },
 ];
 
@@ -650,8 +554,6 @@ export function e2eSuiteById(suiteId) {
 }
 
 export const renderedCopyOwningSuiteIds = Object.freeze([
-  "marketplace_account",
-  "marketplace_seller",
   "catalog_admin_integrations",
   "catalog_admin_modeling",
   "admin_growth",
@@ -675,9 +577,7 @@ export function estimatedE2eSuiteDurationSeconds(suiteId) {
 }
 
 export function isE2eSpecFile(filePath) {
-  return /^deployables\/(?:marketplace|admin-web|public-web|corten-pilot)\/e2e\/.*\.spec\.ts$/.test(
-    normalizeFilePath(filePath),
-  );
+  return /^deployables\/(?:admin-web|public-web|corten-pilot)\/e2e\/.*\.spec\.ts$/.test(normalizeFilePath(filePath));
 }
 
 export function isRouteFile(filePath) {
@@ -687,7 +587,7 @@ export function isRouteFile(filePath) {
   }
 
   return (
-    /^deployables\/(?:marketplace|admin-web)\/app\/routes\/.*\.(?:ts|tsx|js|jsx)$/.test(normalized) ||
+    /^deployables\/admin-web\/app\/routes\/.*\.(?:ts|tsx|js|jsx)$/.test(normalized) ||
     /^bounded-contexts\/[^/]+\/routes\/.*\.(?:ts|tsx|js|jsx)$/.test(normalized)
   );
 }
@@ -713,24 +613,6 @@ function isTestOnlyOrDocumentationFile(filePath) {
     /(?:^|\/)(?:__tests__|tests|test-support)\//.test(filePath) ||
     /\.(?:md|mdx)$/.test(filePath)
   );
-}
-
-function marketplaceDeployableSuiteIdsForChangedFile(filePath) {
-  if (e2eNoSuiteExclusionForChangedFile(filePath)) {
-    return [];
-  }
-
-  if (isTestOnlyOrDocumentationFile(filePath)) {
-    return [];
-  }
-
-  for (const routeOwnership of marketplaceRouteSuiteOwnership) {
-    if (routeOwnership.pattern.test(filePath)) {
-      return routeOwnership.suites;
-    }
-  }
-
-  return allMarketplaceSuiteIds;
 }
 
 function boundedContextSuiteIdsForChangedFile(filePath, contextName) {
@@ -799,10 +681,6 @@ function ordinaryE2eSuiteIdsForChangedFile(filePath) {
     return allBrowserSuiteIds;
   }
 
-  if (normalized.startsWith("deployables/marketplace/")) {
-    return marketplaceDeployableSuiteIdsForChangedFile(normalized);
-  }
-
   if (normalized.startsWith("deployables/admin-web/")) {
     return isTestOnlyOrDocumentationFile(normalized) ? [] : allAdminWebSuiteIds;
   }
@@ -833,7 +711,7 @@ function ordinaryE2eSuiteIdsForChangedFile(filePath) {
   return boundedContextSuiteIdsForChangedFile(normalized, boundedContextMatch[1] ?? "");
 }
 
-export function e2eSuiteIdsForChangedFile(filePath) {
+function selectionsForChangedFile(filePath) {
   const normalized = normalizeFilePath(filePath);
   const suites = ordinaryE2eSuiteIdsForChangedFile(normalized);
   const agentApps =
@@ -853,11 +731,38 @@ export function e2eSuiteIdsForChangedFile(filePath) {
     /^bounded-contexts\/(?:auth|catalog|checkout|commercial-terms|fulfillment|identity|inventory|marketplace|ordering|payments|platform-operations|pricing|settlement)\/support\/(?:runtime-support|authoring-support)\/seed\.ts$/.test(
       normalized,
     );
-  return orderE2eSuiteIds([
+  return [
     ...suites,
     ...(agentApps ? ["agent_apps"] : []),
     ...(seedFamily && !suites.some((id) => renderedCopyOwningSuiteIds.includes(id)) ? ["rendered_copy"] : []),
-  ]);
+  ];
+}
+
+export function e2eSuiteIdsForChangedFile(filePath) {
+  return orderE2eSuiteIds(selectionsForChangedFile(filePath).filter((id) => id !== marketplaceBrowser));
+}
+
+// The ownership entries that select the Corten Marketplace Browser Tests job, for the test that pins them.
+// Beyond these, every non-test change to the platform API, the design system or a browser runtime file
+// selects it, as each did every marketplace suite.
+export function cortenMarketplaceBrowserOwnership() {
+  const selecting = (suites) => suites.includes(marketplaceBrowser);
+  return {
+    contexts: [...contextSuiteOwnership].filter(([, suites]) => selecting(suites)).map(([name]) => name),
+    marketplaceRouteContexts: [...marketplaceContextRouteSuiteOwnership]
+      .filter(([, suites]) => selecting(suites))
+      .map(([name]) => name),
+    routePatterns: boundedContextRouteSuiteOwnership
+      .filter(({ suites }) => selecting(suites))
+      .map(({ pattern }) => pattern.source),
+    specPatterns: e2eSpecSuiteOwnership.filter(({ suites }) => selecting(suites)).map(({ pattern }) => pattern.source),
+  };
+}
+
+// Whether a change selects the Corten Marketplace Browser Tests job through the same context, route and spec
+// ownership that selected a marketplace suite while marketplace-web served the marketplace.
+export function cortenMarketplaceBrowserSelectedByChangedFile(filePath) {
+  return selectionsForChangedFile(filePath).includes(marketplaceBrowser);
 }
 
 export function chromiumProbeCallerViolations(workspaces, suites = e2eSuites) {

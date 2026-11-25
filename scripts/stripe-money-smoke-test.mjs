@@ -434,6 +434,19 @@ function isProductionChaseSetsUrl(value) {
   }
 }
 
+// Previews route only the API on their marketplace host, so their workflows say there is no
+// marketplace web app with STRIPE_MONEY_SMOKE_MARKETPLACE_WEB=absent. Any other set value is refused,
+// so a typo can never skip a web-page leg.
+export function marketplaceWebPresent(env = process.env) {
+  const value = readEnv("STRIPE_MONEY_SMOKE_MARKETPLACE_WEB", env);
+  if (value === null) return true;
+  assert(
+    value === "absent",
+    `STRIPE_MONEY_SMOKE_MARKETPLACE_WEB must be "absent" or unset, got ${JSON.stringify(value)}.`,
+  );
+  return false;
+}
+
 function resolveMarketplaceWebBaseUrl(apiBaseUrl, env = process.env) {
   return stripTrailingSlash(readEnv("MARKETPLACE_WEB_BASE_URL", env) ?? apiBaseUrl);
 }
@@ -787,12 +800,9 @@ export async function runSellerFlow(baseUrl, options = {}) {
   const checkout = await runCheckoutProbe(baseUrl, { env, fetchImpl, headers });
   const walletFunding = await runWalletFundingProbe(baseUrl, { env, fetchImpl, headers });
 
-  const setupPage = await getRouteOk(
-    fetchImpl,
-    `${marketplaceWebBaseUrl}/account/payouts/setup`,
-    headers,
-    "payout setup page",
-  );
+  const setupPage = !marketplaceWebPresent(env)
+    ? { status: "skipped", reason: "STRIPE_MONEY_SMOKE_MARKETPLACE_WEB=absent" }
+    : await getRouteOk(fetchImpl, `${marketplaceWebBaseUrl}/account/payouts/setup`, headers, "payout setup page");
 
   const setupHeaders = new Headers(headers);
   setupHeaders.set("Content-Type", "application/json");

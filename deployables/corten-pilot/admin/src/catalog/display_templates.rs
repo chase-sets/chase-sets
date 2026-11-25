@@ -92,6 +92,7 @@ pub mod url {
     #[route("/catalog/display-templates/{id}", get = template)]
     pub struct Template<'a> {
         pub id: &'a str,
+        #[serde(rename = "afterWrite")]
         pub after_write: Option<String>,
         pub done: Option<crate::catalog::Done>,
     }

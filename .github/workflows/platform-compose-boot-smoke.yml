@@ -155,10 +155,8 @@ jobs:
             artifacts/compose-smoke/env/platform-api.env \
             artifacts/compose-smoke/env/platform-worker.env \
             artifacts/compose-smoke/env/public-web.env \
-            artifacts/compose-smoke/env/marketplace.env \
             artifacts/compose-smoke/env/admin-web.env \
             artifacts/compose-smoke/ingress-landing.log \
-            artifacts/compose-smoke/ingress-marketplace.log \
             artifacts/compose-smoke/ingress-admin.log
 
       - uses: ./.github/actions/setup-pnpm-workspace
@@ -220,15 +218,13 @@ jobs:
       # domain stands in for the real one (see the comment atop
       # scripts/platform-compose-ingress.mjs): platform-smoke.mjs makes the
       # same `/api`, `/ucp`, `/mcp` calls a browser would make against a
-      # cluster preview's landing/marketplace/admin origins, and those calls
+      # cluster preview's landing and admin origins, and those calls
       # must resolve to platform-api, not the web app container.
       - name: Start compose ingress proxies
         run: |
           set -euo pipefail
           mkdir -p artifacts/compose-smoke
           nohup node ./scripts/platform-compose-ingress.mjs --port 18180 --label landing --web-target http://localhost:18192 --api-target http://localhost:18190 > artifacts/compose-smoke/ingress-landing.log 2>&1 &
-          disown
-          nohup node ./scripts/platform-compose-ingress.mjs --port 18181 --label marketplace --web-target http://localhost:18193 --api-target http://localhost:18190 > artifacts/compose-smoke/ingress-marketplace.log 2>&1 &
           disown
           nohup node ./scripts/platform-compose-ingress.mjs --port 18182 --label admin --web-target http://localhost:18194 --api-target http://localhost:18190 > artifacts/compose-smoke/ingress-admin.log 2>&1 &
           disown
@@ -243,7 +239,6 @@ jobs:
           PLATFORM_ADMIN_PASSWORD: compose-smoke-not-a-real-secret
           SMOKE_REQUIRE_ADMIN: "true"
           SMOKE_REQUIRE_LANDING: "true"
-          SMOKE_REQUIRE_MARKETPLACE: "true"
           SMOKE_REQUIRE_SOCIAL_LOGIN: "false"
           SMOKE_REQUIRE_ADMIN_GOOGLE_WORKSPACE_SSO: "false"
           SMOKE_REQUIRE_FULFILLMENT_POSTAGE: "false"
@@ -255,8 +250,7 @@ jobs:
         run: |
           pnpm run smoke:platform -- \
             http://localhost:18180 \
-            http://localhost:18182 \
-            http://localhost:18181
+            http://localhost:18182
 
       - name: Worker registry boot evidence
         if: always()

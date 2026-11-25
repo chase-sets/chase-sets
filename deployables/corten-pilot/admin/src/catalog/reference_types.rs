@@ -100,6 +100,7 @@ pub mod url {
     #[route("/catalog/reference-types/{id}", get = ref_type)]
     pub struct RefType<'a> {
         pub id: &'a str,
+        #[serde(rename = "afterWrite")]
         pub after_write: Option<String>,
         pub done: Option<crate::catalog::Done>,
     }

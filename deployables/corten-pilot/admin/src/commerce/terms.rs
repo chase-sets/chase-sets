@@ -8,7 +8,7 @@
 //!
 //! | Route | Answers |
 //! |---|---|
-//! | `GET /commerce/terms?schedule&agreement&create&account&after_write` | the page, with a sheet open |
+//! | `GET /commerce/terms?schedule&agreement&create&account&afterWrite` | the page, with a sheet open |
 //! | `POST /commerce/terms?..` | a write (`intent`: create-schedule, revise-schedule, create-agreement, revise-agreement), then the page with its sheet |
 //! | `GET /commerce/terms/schedules`, `/agreements` | the page, with the query (admin-web's redirects) |
 //! | `GET /commerce/terms/schedules/{id}`, `/agreements/{id}` | the page with that sheet open |
@@ -51,7 +51,7 @@ pub mod url {
         pub agreement: Option<String>,
         pub create: Option<String>,
         pub account: Option<String>,
-        #[serde(rename = "after_write")]
+        #[serde(rename = "afterWrite")]
         pub after_write: Option<String>,
     }
 

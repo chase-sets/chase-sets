@@ -14,7 +14,14 @@ import {
   toGithubOutputMap,
   toOutputMap,
 } from "./change-scope.mjs";
-import { e2eSuiteById, e2eSuiteIdsForChangedFile, estimatedE2eSuiteDurationSeconds } from "./e2e-suites.mjs";
+import {
+  batchE2eSuiteIds,
+  cortenMarketplaceBrowserOwnership,
+  cortenMarketplaceBrowserSelectedByChangedFile,
+  e2eSuiteById,
+  e2eSuiteIdsForChangedFile,
+  estimatedE2eSuiteDurationSeconds,
+} from "./e2e-suites.mjs";
 import { listWorkspacePackages, repoRoot } from "./lib/repo.mjs";
 import { classifyIntegrationRisk, classifyRisk } from "./lib/risk-policy-v1.mjs";
 import { renderedCopyTuples } from "../infrastructure/playwright-evidence/rendered-copy.ts";
@@ -64,7 +71,8 @@ function expectedCatalogUatSynthetic(changedFiles) {
   return changedFiles.some((file) => catalogUatSyntheticPaths.some((pattern) => pattern.test(file)));
 }
 
-// Nor does it carry the Corten marketplace browser flag.
+// Nor does it carry the Corten marketplace browser flag, which the pilot's own paths select and, since
+// marketplace-web's retirement, the context, route and spec ownership that selected a marketplace suite.
 const cortenMarketplaceBrowserPaths = [
   /^deployables\/corten-pilot\/(?:marketplace|platform)\/(?!.*\.md$)/,
   /^deployables\/corten-pilot\/Cargo\.(?:toml|lock)$/,
@@ -74,7 +82,78 @@ const cortenMarketplaceBrowserPaths = [
 ];
 
 function expectedCortenMarketplaceBrowser(changedFiles) {
-  return changedFiles.some((file) => cortenMarketplaceBrowserPaths.some((pattern) => pattern.test(file)));
+  return changedFiles.some(
+    (file) =>
+      cortenMarketplaceBrowserPaths.some((pattern) => pattern.test(file)) ||
+      cortenMarketplaceBrowserSelectedByChangedFile(file),
+  );
+}
+
+// The four marketplace-web suites retired with marketplace-web. The context, route and spec ownership that
+// selected one of them selects the Corten Marketplace Browser Tests job instead, so a selection captured
+// before the retirement drops them and expects that job.
+const retiredMarketplaceSuiteIds = [
+  "marketplace_browse",
+  "marketplace_account",
+  "marketplace_checkout",
+  "marketplace_seller",
+];
+
+function withoutRetiredMarketplaceSuites(suites) {
+  return suites.filter((id) => !retiredMarketplaceSuiteIds.includes(id));
+}
+
+function selectsRetiredMarketplaceSuite(suites) {
+  return suites.some((id) => retiredMarketplaceSuiteIds.includes(id));
+}
+
+// Paths under the deleted deployables/marketplace tree select nothing.
+function isRetiredMarketplaceWebPath(file) {
+  return file.startsWith("deployables/marketplace/");
+}
+
+// Ownership data names the Corten job where it named the first retired suite.
+function withCortenForRetiredSuites(suites) {
+  const first = suites.findIndex((id) => retiredMarketplaceSuiteIds.includes(id));
+  if (first < 0) return suites;
+  return suites.flatMap((id, index) =>
+    index === first ? ["corten-marketplace-browser"] : retiredMarketplaceSuiteIds.includes(id) ? [] : [id],
+  );
+}
+
+// The scope a classifier captured before the retirement reports once its ownership names the Corten job.
+function withRetiredMarketplaceScope(scope) {
+  if (!selectsRetiredMarketplaceSuite(scope.e2eSuiteIds)) return scope;
+  const e2eSuiteIds = withRetiredMarketplaceSuiteIds(scope.changedFiles, scope.e2eSuiteIds);
+  return { ...scope, e2eSuiteIds, e2eTestsRequired: e2eSuiteIds.length > 0, cortenMarketplaceBrowserRequired: true };
+}
+
+// A captured output map drops the retired suites and rebatches what remains.
+function withRetiredMarketplaceOutput(output) {
+  const captured = JSON.parse(output.e2e_suites_json);
+  if (!selectsRetiredMarketplaceSuite(captured)) return output;
+  const suites = withoutRetiredMarketplaceSuites(captured);
+  const renderedCopy = JSON.parse(output.e2e_suite_batches_json).includes("rendered_copy") ? ["rendered_copy"] : [];
+  return {
+    ...output,
+    e2e_tests: String(suites.length > 0 || renderedCopy.length > 0),
+    e2e_suites: suites.join(","),
+    e2e_suites_json: JSON.stringify(suites),
+    e2e_suite_batches_json: JSON.stringify([...batchE2eSuiteIds(suites), ...renderedCopy]),
+  };
+}
+
+// The Auth seed named rendered_copy through marketplace_account's sweep tuples; with those gone it names the
+// dedicated sweep itself, as every other seed whose suites hold no tuple does.
+const retirementRenderedCopySeeds = ["bounded-contexts/auth/support/runtime-support/seed.ts"];
+
+function withRetiredMarketplaceSuiteIds(changedFiles, suites) {
+  const remaining = withoutRetiredMarketplaceSuites(suites);
+  return changedFiles.some((file) => retirementRenderedCopySeeds.includes(file)) &&
+    selectsRetiredMarketplaceSuite(suites) &&
+    !remaining.includes("rendered_copy")
+    ? [...remaining, "rendered_copy"]
+    : remaining;
 }
 
 // Nor the Corten admin browser flag.
@@ -1000,12 +1079,14 @@ describe("shared E2E setup selection", () => {
   async function loadSelectorClassifier(source) {
     const directory = mkdtempSync(path.join(tmpdir(), "setup-e2e-selector-"));
     const file = path.join(directory, "e2e-suites.mjs");
+    // Before marketplace-web retired, no ownership selected the Corten Marketplace Browser Tests job.
+    const ownershipExport = "export function cortenMarketplaceBrowserSelectedByChangedFile(";
     writeFileSync(
       file,
       source.replace(
         '"./lib/risk-policy-v1.mjs"',
         JSON.stringify(pathToFileURL(path.join(repoRoot, "scripts/lib/risk-policy-v1.mjs")).href),
-      ),
+      ) + (source.includes(ownershipExport) ? "" : `\n${ownershipExport}) {\n  return false;\n}\n`),
     );
     try {
       const variant = await importChangeScopeVariant(
@@ -1101,24 +1182,6 @@ describe("shared E2E setup selection", () => {
     const fallback = captured.cases.find(({ changedFiles }) =>
       changedFiles.includes("deployables/marketplace/e2e/unmapped.spec.ts"),
     );
-    // Five agent/MCP cases and the Chromium install setup case were added independently of route moves.
-    const nonRouteCasesAdded = 6;
-    const routeCasesAdded = routeMoves.reduce(
-      (total, { addedCaseCount, movedRoutes }) => total + (addedCaseCount ?? movedRoutes.files.length),
-      0,
-    );
-    expect(captured.cases).toHaveLength(150);
-    expect(candidate.cases).toHaveLength(captured.cases.length + nonRouteCasesAdded + routeCasesAdded);
-
-    const expectedFamilies = new Map(
-      captured.families
-        .filter((family) => family.path !== retired)
-        .map((family) =>
-          family.family === "e2eNoSuiteExclusions:4" ? { ...family, family: "e2eNoSuiteExclusions:3" } : family,
-        )
-        .map((family) => [family.family, family]),
-    );
-    const familyDeltas = routeMoves.flatMap(({ families }) => Object.entries(families));
     // Specs that moved to another E2E root keep their case and suites under the new path; the only
     // scope deltas are the workspace they left and the gate their new root selects.
     const movedSpecs = new Map(
@@ -1131,21 +1194,81 @@ describe("shared E2E setup selection", () => {
           : [],
       ),
     );
+    // Five agent/MCP cases and the Chromium install setup case were added independently of route moves.
+    const nonRouteCasesAdded = 6;
+    // marketplace-web's retirement removed the cases for its own paths and added one for the Corten buyer
+    // purchase journey spec, which no longer shares a family with marketplace-web specs.
+    const retiredCases = captured.cases.filter(
+      ({ changedFiles }) =>
+        changedFiles.length > 0 &&
+        changedFiles.every((file) => isRetiredMarketplaceWebPath(movedSpecs.get(file)?.path ?? file)),
+    );
+    const retirementCasesAdded = ["deployables/corten-pilot/e2e/buyer-purchase-journey.spec.ts"];
+    const routeCasesAdded = routeMoves.reduce(
+      (total, { addedCaseCount, movedRoutes }) => total + (addedCaseCount ?? movedRoutes.files.length),
+      0,
+    );
+    expect(captured.cases).toHaveLength(150);
+    expect(retiredCases).toHaveLength(17);
+    expect(candidate.cases).toHaveLength(
+      captured.cases.length + nonRouteCasesAdded + routeCasesAdded - retiredCases.length + retirementCasesAdded.length,
+    );
+
+    const expectedFamilies = new Map(
+      captured.families
+        .filter((family) => family.path !== retired)
+        .map((family) =>
+          family.family === "e2eNoSuiteExclusions:4" ? { ...family, family: "e2eNoSuiteExclusions:3" } : family,
+        )
+        .map((family) => [family.family, family]),
+    );
+    const familyDeltas = routeMoves.flatMap(({ families }) => Object.entries(families));
     // Updates retain captured order; new route families are appended in registry order.
     for (const [family, delta] of familyDeltas.sort(([left], [right]) =>
       left.localeCompare(right, "en", { numeric: true }),
     )) {
       expectedFamilies.set(family, { family, ...expectedFamilies.get(family), ...delta });
     }
-    expect(candidate.families).toEqual([...expectedFamilies.values()]);
-    expect(candidate.families).toHaveLength(expectedFamilies.size);
+    // marketplace-web's retirement: the families of its own paths left with it, the buyer purchase journey
+    // family names only the Corten spec, index-keyed families renumber, and the retired suites become the
+    // Corten Marketplace Browser Tests job.
+    const buyerJourney = "deployables/corten-pilot/e2e/buyer-purchase-journey.spec.ts";
+    const survivingFamilies = [...expectedFamilies.values()]
+      .map((family) =>
+        family.pattern.includes("corten-pilot\\/e2e\\/buyer-purchase-journey")
+          ? {
+              ...family,
+              pattern: String(/^deployables\/corten-pilot\/e2e\/buyer-purchase-journey\.spec\.ts$/),
+              path: buyerJourney,
+              trackedCandidates: 1,
+            }
+          : family,
+      )
+      .filter((family) => !isRetiredMarketplaceWebPath(family.path));
+    // Index-keyed families take the rank of their surviving index within their registry.
+    const survivingIndexes = (name) =>
+      survivingFamilies
+        .map((family) => family.family.split(":"))
+        .filter(([other, key]) => other === name && /^\d+$/.test(key))
+        .map(([, key]) => Number(key))
+        .sort((left, right) => left - right);
+    const expectedRetiredFamilies = survivingFamilies.map((family) => {
+      const [name, key] = family.family.split(":");
+      return {
+        ...family,
+        family: /^\d+$/.test(key) ? `${name}:${survivingIndexes(name).indexOf(Number(key))}` : family.family,
+        suites: family.suites && withCortenForRetiredSuites(family.suites),
+      };
+    });
+    expect(expectedFamilies.size - expectedRetiredFamilies.length).toBe(15);
+    expect(candidate.families).toEqual(expectedRetiredFamilies);
     for (const { movedRoutes, selectorCases = [] } of routeMoves) {
-      for (const { file, suites, batches } of selectorCases) {
+      for (const { file, suites, batches, cortenMarketplaceBrowser } of selectorCases) {
         if (batches === undefined) continue;
         expect(
           candidate.cases.find(({ changedFiles }) => changedFiles.length === 1 && changedFiles[0] === file),
           file,
-        ).toEqual({ changedFiles: [file], suiteIds: suites, batches });
+        ).toEqual({ changedFiles: [file], suiteIds: suites, batches, cortenMarketplaceBrowser });
       }
       if (!movedRoutes) continue;
       const { legacyDirectory, featureDirectory, files } = movedRoutes;
@@ -1155,8 +1278,9 @@ describe("shared E2E setup selection", () => {
       ).toEqual(
         files.map(([file, suite]) => ({
           changedFiles: [`${featureDirectory}${file}`],
-          suiteIds: [suite],
-          batches: [suite],
+          suiteIds: withoutRetiredMarketplaceSuites([suite]),
+          batches: withoutRetiredMarketplaceSuites([suite]),
+          cortenMarketplaceBrowser: selectsRetiredMarketplaceSuite([suite]),
         })),
       );
       for (const [file, suite] of files) {
@@ -1164,7 +1288,9 @@ describe("shared E2E setup selection", () => {
         const featurePath = `${featureDirectory}${file}`;
         expect(baseline.classifyChanges({ changedFiles: [legacyPath] }).e2eSuiteIds, legacyPath).toEqual([suite]);
         for (const route of [legacyPath, featurePath]) {
-          expect(classifyChanges({ changedFiles: [route], workspaces }).e2eSuiteIds, route).toEqual([suite]);
+          const scope = classifyChanges({ changedFiles: [route], workspaces });
+          expect(scope.e2eSuiteIds, route).toEqual(withoutRetiredMarketplaceSuites([suite]));
+          expect(scope.cortenMarketplaceBrowserRequired, route).toBe(selectsRetiredMarketplaceSuite([suite]));
         }
       }
     }
@@ -1174,13 +1300,22 @@ describe("shared E2E setup selection", () => {
       ),
     ).toEqual({
       changedFiles: ["bounded-contexts/fulfillment/routes/seller-shipping-setup.tsx"],
-      suiteIds: ["marketplace_checkout"],
-      batches: ["marketplace_checkout"],
+      suiteIds: [],
+      batches: [],
+      cortenMarketplaceBrowser: true,
     });
     for (const entry of captured.cases) {
       const old = baseline.classifyChanges({ changedFiles: entry.changedFiles });
       const changedFiles = entry.changedFiles.map((file) => movedSpecs.get(file)?.path ?? file);
       const next = classifyChanges({ changedFiles, workspaces });
+      const sameFiles = (item) => JSON.stringify(item.changedFiles) === JSON.stringify(changedFiles);
+      if (retiredCases.includes(entry)) {
+        // A path in the deleted marketplace-web tree selects no browser coverage of any kind.
+        expect(next, JSON.stringify(changedFiles)).toEqual({ ...old, e2eSuiteIds: [], e2eTestsRequired: false });
+        expect(next.cortenMarketplaceBrowserRequired).toBe(false);
+        expect(candidate.cases.find(sameFiles)).toBeUndefined();
+        continue;
+      }
       const ownsSetup = entry.changedFiles.some((file) => setupPaths.includes(file));
       const ownsRetired = entry.changedFiles.includes(retired);
       const moved = entry.changedFiles.map((file) => movedSpecs.get(file)).find(Boolean);
@@ -1195,22 +1330,29 @@ describe("shared E2E setup selection", () => {
             ...moved.addedScope,
           }
         : {};
-      expect(next).toEqual(
+      const expected = withRetiredMarketplaceScope(
         ownsRetired
           ? { ...old, e2eSuiteIds: fallback.suiteIds, e2eTestsRequired: true }
           : ownsSetup
             ? { ...old, e2eSuiteIds: ["admin_auth"], e2eTestsRequired: true }
             : { ...old, ...moveDelta },
       );
-      expect(
-        candidate.cases.find((item) => JSON.stringify(item.changedFiles) === JSON.stringify(changedFiles)),
-      ).toEqual(
-        ownsRetired
-          ? { ...entry, suiteIds: fallback.suiteIds, batches: fallback.batches }
-          : ownsSetup
-            ? { ...entry, suiteIds: ["admin_auth"], batches: ["admin_auth"] }
-            : { ...entry, changedFiles },
-      );
+      expect(next, JSON.stringify(changedFiles)).toEqual(expected);
+      const capturedCase = ownsRetired
+        ? { ...entry, suiteIds: fallback.suiteIds, batches: fallback.batches }
+        : ownsSetup
+          ? { ...entry, suiteIds: ["admin_auth"], batches: ["admin_auth"] }
+          : { ...entry, changedFiles };
+      expect(candidate.cases.find(sameFiles)).toEqual({
+        ...capturedCase,
+        ...(selectsRetiredMarketplaceSuite(capturedCase.suiteIds)
+          ? {
+              suiteIds: withRetiredMarketplaceSuiteIds(changedFiles, capturedCase.suiteIds),
+              batches: batchE2eSuiteIds(withRetiredMarketplaceSuiteIds(changedFiles, capturedCase.suiteIds)),
+            }
+          : {}),
+        cortenMarketplaceBrowser: expected.cortenMarketplaceBrowserRequired,
+      });
     }
     for (const file of nearMisses) {
       const scope = classifyChanges({ changedFiles: [file], workspaces });
@@ -1223,6 +1365,7 @@ describe("shared E2E setup selection", () => {
       changedFiles: [setupPaths[1]],
       suiteIds: ["admin_auth"],
       batches: ["admin_auth"],
+      cortenMarketplaceBrowser: false,
     });
     const mixed = ["bounded-contexts/catalog/features/operator-session/api/route.ts"];
     expect(
@@ -1233,10 +1376,11 @@ describe("shared E2E setup selection", () => {
         toOutputMap(classifyChanges({ changedFiles: [...mixed, ...setupPaths, ...setupPaths], workspaces }))
           .e2e_suite_batches_json,
       ),
-    ).toEqual(["catalog_admin_integrations", "marketplace_browse,admin_auth", "rendered_copy"]);
+    ).toEqual(["catalog_admin_integrations,admin_auth", "rendered_copy"]);
     const auth = ["bounded-contexts/auth/features/auth/api/route.ts"];
     const authScope = classifyChanges({ changedFiles: auth, workspaces });
-    expect(authScope.e2eSuiteIds).toEqual(["marketplace_account", "admin_auth"]);
+    expect(authScope.e2eSuiteIds).toEqual(["admin_auth"]);
+    expect(authScope.cortenMarketplaceBrowserRequired).toBe(true);
     expect(classifyChanges({ changedFiles: [...auth, ...setupPaths], workspaces }).e2eSuiteIds).toEqual(
       authScope.e2eSuiteIds,
     );
@@ -2230,6 +2374,17 @@ function withWorkerJobDependents(names, changedFiles) {
 function withRenderedCopyOutput(output) {
   const batches = JSON.parse(output.e2e_suite_batches_json);
   const owners = new Set(renderedCopyTuples.map((tuple) => tuple.suite));
+  const ids = batches.flatMap((batch) => batch.split(","));
+  if (ids.includes("rendered_copy")) {
+    // A selection naming rendered_copy itself runs it in its dedicated batch.
+    return {
+      ...output,
+      e2e_suite_batches_json: JSON.stringify([
+        ...batchE2eSuiteIds(ids.filter((id) => id !== "rendered_copy")),
+        "rendered_copy",
+      ]),
+    };
+  }
   return {
     ...output,
     e2e_suite_batches_json: JSON.stringify([
@@ -2359,10 +2514,11 @@ function batchDurationSeconds(batch) {
 }
 
 describe("change-scope", () => {
-  it("enrolls the Inventory recovery browser spec in the hosted seller suite", () => {
-    const scope = classifyChanges({ changedFiles: ["deployables/marketplace/e2e/inventory-recovery.spec.ts"] });
-    expect(scope.e2eTestsRequired).toBe(true);
-    expect(scope.e2eSuiteIds).toEqual(["marketplace_seller"]);
+  it("runs a kept Corten marketplace browser spec in the Corten marketplace job only", () => {
+    const scope = classifyChanges({ changedFiles: ["deployables/corten-pilot/e2e/critical-flows.spec.ts"] });
+    expect(scope.cortenMarketplaceBrowserRequired).toBe(true);
+    expect(scope.e2eTestsRequired).toBe(false);
+    expect(scope.e2eSuiteIds).toEqual([]);
   });
   it("selects the Chromium authority caller for package and connector-client changes", () => {
     const baseDir = path.join(process.cwd(), "repo");
@@ -2594,9 +2750,10 @@ describe("change-scope", () => {
     const scope = classifyChanges({ changedFiles: [file], workspaces: [] });
     const output = toOutputMap(scope);
     expect(scope.e2eTestsRequired).toBe(true);
-    expect(scope.e2eSuiteIds).toEqual(expect.arrayContaining(["marketplace_account", "marketplace_seller"]));
+    expect(scope.e2eSuiteIds).toEqual(expect.arrayContaining(["admin_auth", "catalog_admin_integrations"]));
     const covered = JSON.parse(output.e2e_suite_batches_json).flatMap((batch) => batch.split(","));
-    expect(covered).toEqual(expect.arrayContaining(["marketplace_account", "marketplace_seller"]));
+    expect(covered).toEqual(expect.arrayContaining(["admin_auth", "catalog_admin_integrations"]));
+    expect(scope.cortenMarketplaceBrowserRequired).toBe(true);
   });
 
   it("diffs changed files from the merge-base instead of the moving base branch tip", () => {
@@ -2802,10 +2959,6 @@ describe("change-scope", () => {
     expect(scope.integrationRiskRequired).toBe(true);
     expect(scope.integrationRiskReason).toBe("Design-system navigation changed");
     expect(scope.e2eSuiteIds).toEqual([
-      "marketplace_browse",
-      "marketplace_account",
-      "marketplace_checkout",
-      "marketplace_seller",
       "catalog_admin_integrations",
       "catalog_admin_modeling",
       "admin_growth",
@@ -2815,6 +2968,7 @@ describe("change-scope", () => {
       "admin_auth",
       "admin_access",
     ]);
+    expect(scope.cortenMarketplaceBrowserRequired).toBe(true);
   });
 
   it("keeps docs and ordinary single-slice changes on the fast lane", () => {
@@ -3140,6 +3294,7 @@ describe("change-scope", () => {
     expect(domainScope.unitTestsRequired).toBe(true);
     expect(domainScope.e2eTestsRequired).toBe(false);
     expect(domainScope.e2eSuiteIds).toEqual([]);
+    expect(domainScope.cortenMarketplaceBrowserRequired).toBe(false);
 
     const routeScope = classifyChanges({
       baseDir,
@@ -3147,13 +3302,14 @@ describe("change-scope", () => {
       workspaces: [workspace(baseDir, "bounded-contexts", "marketplace", "@test/marketplace")],
     });
 
-    expect(routeScope.e2eTestsRequired).toBe(true);
-    expect(routeScope.e2eSuiteIds).toEqual(["marketplace_account", "marketplace_seller"]);
+    expect(routeScope.cortenMarketplaceBrowserRequired).toBe(true);
+    expect(routeScope.e2eTestsRequired).toBe(false);
+    expect(routeScope.e2eSuiteIds).toEqual([]);
 
     const deployableTestScope = classifyChanges({
       baseDir,
-      changedFiles: ["deployables/marketplace/app/routes/account-listing.test.tsx"],
-      workspaces: [workspace(baseDir, "deployables", "marketplace", "@test/marketplace-web")],
+      changedFiles: ["deployables/admin-web/app/routes/catalog-items.test.tsx"],
+      workspaces: [workspace(baseDir, "deployables", "admin-web", "@test/admin-web")],
     });
 
     expect(deployableTestScope.e2eTestsRequired).toBe(false);
@@ -3161,12 +3317,12 @@ describe("change-scope", () => {
 
     const deployableTestSupportScope = classifyChanges({
       baseDir,
-      changedFiles: ["deployables/marketplace/app/routes/test-support/http.ts"],
+      changedFiles: ["deployables/admin-web/app/routes/test-support/http.ts"],
       workspaces: [
         {
-          ...workspace(baseDir, "deployables", "marketplace", "@test/marketplace-web"),
+          ...workspace(baseDir, "deployables", "admin-web", "@test/admin-web"),
           packageJson: {
-            name: "@test/marketplace-web",
+            name: "@test/admin-web",
             dependencies: {},
             scripts: { test: "vitest run" },
           },
@@ -3174,7 +3330,7 @@ describe("change-scope", () => {
       ],
     });
 
-    expect(deployableTestSupportScope.affectedWorkspaces).toEqual(["@test/marketplace-web"]);
+    expect(deployableTestSupportScope.affectedWorkspaces).toEqual(["@test/admin-web"]);
     expect(deployableTestSupportScope.runtimeAffectedWorkspaces).toEqual([]);
     expect(deployableTestSupportScope.unitTestsRequired).toBe(true);
     expect(deployableTestSupportScope.buildRequired).toBe(false);
@@ -3182,35 +3338,15 @@ describe("change-scope", () => {
     expect(deployableTestSupportScope.e2eTestsRequired).toBe(false);
     expect(deployableTestSupportScope.e2eSuiteIds).toEqual([]);
 
-    const deployableRouteScope = classifyChanges({
-      baseDir,
-      changedFiles: ["deployables/marketplace/app/routes/account-listing.tsx"],
-      workspaces: [workspace(baseDir, "deployables", "marketplace", "@test/marketplace-web")],
-    });
-
-    expect(deployableRouteScope.e2eTestsRequired).toBe(true);
-    expect(deployableRouteScope.e2eSuiteIds).toEqual(["marketplace_seller"]);
-
-    const deployableUtilityScope = classifyChanges({
-      baseDir,
-      changedFiles: ["deployables/marketplace/app/routes/manifest.ts"],
-      workspaces: [workspace(baseDir, "deployables", "marketplace", "@test/marketplace-web")],
-    });
-
-    expect(deployableUtilityScope.e2eTestsRequired).toBe(false);
-    expect(deployableUtilityScope.e2eSuiteIds).toEqual([]);
-
-    const deployableSpecScope = classifyChanges({
-      baseDir,
-      changedFiles: ["deployables/marketplace/e2e/item-detail.spec.ts"],
-      workspaces: [workspace(baseDir, "deployables", "marketplace", "@test/marketplace-web")],
-    });
-
-    expect(deployableSpecScope.runtimeAffectedWorkspaces).toEqual([]);
-    expect(deployableSpecScope.unitTestsRequired).toBe(true);
-    expect(deployableSpecScope.buildRequired).toBe(false);
-    expect(deployableSpecScope.e2eTestsRequired).toBe(true);
-    expect(deployableSpecScope.e2eSuiteIds).toEqual(["marketplace_browse"]);
+    for (const changedFile of [
+      "deployables/corten-pilot/marketplace/src/app.rs",
+      "deployables/corten-pilot/e2e/critical-flows.spec.ts",
+    ]) {
+      const cortenScope = classifyChanges({ baseDir, changedFiles: [changedFile], workspaces: [] });
+      expect(cortenScope.cortenMarketplaceBrowserRequired, changedFile).toBe(true);
+      expect(cortenScope.e2eTestsRequired, changedFile).toBe(false);
+      expect(cortenScope.e2eSuiteIds, changedFile).toEqual([]);
+    }
   });
 
   it("routes root browser runtime changes to browser E2E suites", () => {
@@ -3218,15 +3354,11 @@ describe("change-scope", () => {
     const scope = classifyChanges({
       baseDir,
       changedFiles: ["package.json", "pnpm-lock.yaml"],
-      workspaces: [workspace(baseDir, "deployables", "marketplace", "@test/marketplace-web")],
+      workspaces: [workspace(baseDir, "deployables", "admin-web", "@test/admin-web")],
     });
 
     expect(scope.e2eTestsRequired).toBe(true);
     expect(scope.e2eSuiteIds).toEqual([
-      "marketplace_browse",
-      "marketplace_account",
-      "marketplace_checkout",
-      "marketplace_seller",
       "catalog_admin_integrations",
       "catalog_admin_modeling",
       "admin_growth",
@@ -3236,6 +3368,7 @@ describe("change-scope", () => {
       "admin_auth",
       "admin_access",
     ]);
+    expect(scope.cortenMarketplaceBrowserRequired).toBe(true);
   });
 
   it("keeps test typecheck configuration changes out of runtime fanout", () => {
@@ -3462,8 +3595,10 @@ describe("change-scope", () => {
 
       expect(Object.keys(outputs)).toEqual(currentOutputMapKeyOrder);
       expect(outputs.db_tests).toBe(testCase.expectedDbTests);
-      const expected = withSetupE2eOutput(
-        withPublicPresenceEnrollmentOutputs({ ...testCase.baseOutputMap, db_tests: testCase.expectedDbTests }),
+      const expected = withRetiredMarketplaceOutput(
+        withSetupE2eOutput(
+          withPublicPresenceEnrollmentOutputs({ ...testCase.baseOutputMap, db_tests: testCase.expectedDbTests }),
+        ),
       );
       if (testCase.name === "unrelated bounded-context change") {
         // Making Auth -> Payments test-only stops Ordering's runtime fan-out at
@@ -3992,14 +4127,12 @@ describe("change-scope", () => {
     const scope = classifyChanges({
       baseDir,
       changedFiles: ["package.json"],
-      workspaces: [workspace(baseDir, "deployables", "marketplace", "@test/marketplace-web")],
+      workspaces: [workspace(baseDir, "deployables", "admin-web", "@test/admin-web")],
     });
     const allBatches = JSON.parse(toOutputMap(scope).e2e_suite_batches_json);
     expect(allBatches.filter((batch) => batch.includes("rendered_copy"))).toEqual(["rendered_copy"]);
     const suiteBatches = allBatches.filter((batch) => batch !== "rendered_copy");
     const oldStaticBatches = [
-      "marketplace_browse,marketplace_account",
-      "marketplace_checkout,marketplace_seller",
       "catalog_admin_integrations,catalog_admin_modeling",
       "admin_growth,admin_commerce",
       "admin_support,admin_platform",
@@ -4012,10 +4145,8 @@ describe("change-scope", () => {
     expect(suiteBatches).toEqual([
       "catalog_admin_integrations,admin_auth",
       "catalog_admin_modeling,admin_platform",
-      "marketplace_checkout,admin_support",
-      "marketplace_browse,marketplace_account",
-      "admin_commerce,admin_access",
-      "marketplace_seller,admin_growth",
+      "admin_commerce,admin_support",
+      "admin_growth,admin_access",
     ]);
     expect(suiteBatches.flatMap((batch) => batch.split(",")).sort()).toEqual([...scope.e2eSuiteIds].sort());
     expect(new Set(suiteBatches.flatMap((batch) => batch.split(","))).size).toBe(scope.e2eSuiteIds.length);
@@ -4034,26 +4165,33 @@ describe("change-scope", () => {
         "bounded-contexts/channels/features/tcgplayer-csv/api/runtime.ts",
         "deployables/tcgplayer-connector-extension/__tests__/harness/executors.harness.ts",
       ],
-      suites: ["marketplace_account", "marketplace_seller", "tcgplayer_connector_extension"],
-      batches: ["marketplace_account,marketplace_seller", "tcgplayer_connector_extension", "rendered_copy"],
+      // Their marketplace account and seller coverage now runs in the Corten marketplace job.
+      suites: ["tcgplayer_connector_extension"],
+      batches: ["tcgplayer_connector_extension"],
+      cortenMarketplaceBrowser: true,
     },
     {
       changedFiles: [
-        "deployables/marketplace/e2e/account-elevation-intent.spec.ts",
+        "bounded-contexts/identity/routes/admin/users.tsx",
         "deployables/tcgplayer-connector-extension/src/background.ts",
       ],
-      suites: ["marketplace_account", "tcgplayer_connector_extension"],
-      batches: ["marketplace_account", "tcgplayer_connector_extension", "rendered_copy"],
+      suites: ["admin_access", "tcgplayer_connector_extension"],
+      batches: ["admin_access", "tcgplayer_connector_extension", "rendered_copy"],
+      cortenMarketplaceBrowser: false,
     },
-  ])("emits the connector extension as its own matrix batch for $suites", ({ changedFiles, suites, batches }) => {
-    const scope = classifyChanges({ changedFiles });
-    const output = toOutputMap(scope);
-    expect(scope.e2eTestsRequired).toBe(true);
-    expect(scope.e2eSuiteIds).toEqual(suites);
-    expect(output.e2e_tests).toBe("true");
-    expect(output.e2e_suites).toBe(suites.join(","));
-    expect(JSON.parse(output.e2e_suite_batches_json)).toEqual(batches);
-  });
+  ])(
+    "emits the connector extension as its own matrix batch for $suites",
+    ({ changedFiles, suites, batches, cortenMarketplaceBrowser }) => {
+      const scope = classifyChanges({ changedFiles });
+      const output = toOutputMap(scope);
+      expect(scope.cortenMarketplaceBrowserRequired).toBe(cortenMarketplaceBrowser);
+      expect(scope.e2eTestsRequired).toBe(true);
+      expect(scope.e2eSuiteIds).toEqual(suites);
+      expect(output.e2e_tests).toBe("true");
+      expect(output.e2e_suites).toBe(suites.join(","));
+      expect(JSON.parse(output.e2e_suite_batches_json)).toEqual(batches);
+    },
+  );
 
   it("routes context UI and API slices to owned E2E suites", () => {
     const baseDir = path.join(process.cwd(), "repo");
@@ -4076,13 +4214,8 @@ describe("change-scope", () => {
     });
 
     expect(scope.e2eTestsRequired).toBe(true);
-    expect(scope.e2eSuiteIds).toEqual([
-      "marketplace_browse",
-      "marketplace_checkout",
-      "marketplace_seller",
-      "admin_commerce",
-      "admin_access",
-    ]);
+    expect(scope.e2eSuiteIds).toEqual(["admin_commerce", "admin_access"]);
+    expect(scope.cortenMarketplaceBrowserRequired).toBe(true);
   });
 
   it("routes catalog admin integration routes to admin E2E", () => {
@@ -4167,8 +4300,9 @@ describe("change-scope", () => {
       ],
     });
 
-    expect(marketplaceAccountScope.e2eTestsRequired).toBe(true);
-    expect(marketplaceAccountScope.e2eSuiteIds).toEqual(["marketplace_account"]);
+    expect(marketplaceAccountScope.cortenMarketplaceBrowserRequired).toBe(true);
+    expect(marketplaceAccountScope.e2eTestsRequired).toBe(false);
+    expect(marketplaceAccountScope.e2eSuiteIds).toEqual([]);
 
     const adminScope = classifyChanges({
       baseDir,
@@ -4178,9 +4312,10 @@ describe("change-scope", () => {
 
     expect(adminScope.e2eTestsRequired).toBe(true);
     expect(adminScope.e2eSuiteIds).toEqual(["admin_access"]);
+    expect(adminScope.cortenMarketplaceBrowserRequired).toBe(false);
   });
 
-  it("routes milestone-25 decomposed routes to their owning E2E suites", () => {
+  it("routes decomposed marketplace routes to the Corten marketplace browser job", () => {
     const baseDir = path.join(process.cwd(), "repo");
     const scope = classifyChanges({
       baseDir,
@@ -4197,26 +4332,104 @@ describe("change-scope", () => {
       ],
     });
 
-    expect(scope.e2eTestsRequired).toBe(true);
-    expect(scope.e2eSuiteIds).toEqual(["marketplace_browse", "marketplace_checkout"]);
+    expect(scope.cortenMarketplaceBrowserRequired).toBe(true);
+    expect(scope.e2eTestsRequired).toBe(false);
+    expect(scope.e2eSuiteIds).toEqual([]);
   });
 
   it.each(routeMoves.flatMap(({ selectorCases = [] }) => selectorCases))(
     "selects the owning E2E suites for route-move files: $file",
-    ({ file, suites }) => {
+    ({ file, suites, cortenMarketplaceBrowser }) => {
       expect(e2eSuiteIdsForChangedFile(file)).toEqual(suites);
+      expect(cortenMarketplaceBrowserSelectedByChangedFile(file)).toBe(cortenMarketplaceBrowser);
     },
   );
 
   it.each([
-    ["bounded-contexts/notifications/routes/account-notifications.tsx", ["marketplace_account"]],
-    [
-      "bounded-contexts/notifications/features/notification-center/ui/routes/account-notifications.tsx",
-      ["marketplace_account"],
-    ],
-    ["bounded-contexts/notifications/routes/account-notifications.test.tsx", []],
-  ])("selects the owning E2E suite for account notification files: %s", (file, suites) => {
-    expect(e2eSuiteIdsForChangedFile(file)).toEqual(suites);
+    ["bounded-contexts/notifications/routes/account-notifications.tsx", true],
+    ["bounded-contexts/notifications/features/notification-center/ui/routes/account-notifications.tsx", true],
+    ["bounded-contexts/notifications/routes/account-notifications.test.tsx", false],
+  ])("selects the Corten marketplace browser job for account notification files: %s", (file, selected) => {
+    expect(e2eSuiteIdsForChangedFile(file)).toEqual([]);
+    expect(cortenMarketplaceBrowserSelectedByChangedFile(file)).toBe(selected);
+  });
+
+  it("pins the ownership that selects the Corten Marketplace Browser Tests job", () => {
+    const ownership = cortenMarketplaceBrowserOwnership();
+    expect(ownership.contexts).toEqual([
+      "auth",
+      "catalog",
+      "channels",
+      "checkout",
+      "commercial-terms",
+      "discovery",
+      "fulfillment",
+      "identity",
+      "inventory",
+      "marketplace",
+      "notifications",
+      "ordering",
+      "payments",
+      "platform-operations",
+      "pricing",
+      "public-presence",
+      "settlement",
+    ]);
+    expect(ownership.marketplaceRouteContexts).toEqual([
+      "auth",
+      "channels",
+      "discovery",
+      "fulfillment",
+      "identity",
+      "inventory",
+      "marketplace",
+      "payments",
+      "platform-operations",
+      "pricing",
+      "public-presence",
+      "settlement",
+    ]);
+    expect(ownership.routePatterns.map((pattern) => pattern.source)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    ]);
+    expect(ownership.specPatterns.map((pattern) => pattern.source)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    ]);
+  });
+
+  it("selects only the Corten marketplace job for a Bounded Context-only marketplace change", () => {
+    const scope = classifyChanges({ changedFiles: ["bounded-contexts/checkout/features/sessions/api/route.ts"] });
+    expect(scope.cortenMarketplaceBrowserRequired).toBe(true);
+    expect(scope.e2eTestsRequired).toBe(false);
+    expect(scope.e2eSuiteIds).toEqual([]);
+    for (const mode of ["pull-request", "merge-group"]) {
+      const plan = ciGatePlanOutputMap(createCiGatePlan({ mode, scope }));
+      expect(plan.corten_marketplace_browser_required, mode).toBe("true");
+    }
   });
 
   it("routes context changes to the consolidated marketplace seed DB acceptance suite", () => {

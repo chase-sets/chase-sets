@@ -3,7 +3,7 @@
 //!
 //! | Route | Answers |
 //! |---|---|
-//! | \`GET /catalog/catalog-items/{id}?after_write&done\` | the page |
+//! | \`GET /catalog/catalog-items/{id}?afterWrite&done\` | the page |
 //! | \`GET .../publish\`, \`POST .../publish\` | the publish form with the readiness now (Recheck); publishes |
 //! | \`POST .../lifecycle\` | archives |
 //! | \`POST .../blueprint\`, \`.../metadata\`, \`.../tags\`, \`.../image-urls\`, \`.../image-fallback\` | the item's values |
@@ -80,6 +80,7 @@ pub mod url {
     #[route("/catalog/catalog-items/{id}", get = page)]
     pub struct Item<'a> {
         pub id: &'a str,
+        #[serde(rename = "afterWrite")]
         pub after_write: Option<String>,
         pub done: Option<Change>,
     }

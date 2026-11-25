@@ -7,7 +7,7 @@
 //!
 //! | Route | Answers |
 //! |---|---|
-//! | `GET /commerce/recovered-items?item&status&after_write` | the page, with what the last action did |
+//! | `GET /commerce/recovered-items?item&status&afterWrite` | the page, with what the last action did |
 //! | `POST /commerce/recovered-items` | an action (`intent`: one of nine), then the page |
 //!
 //! The form posts what admin-web's does, field for field, so the API's answer is the same. A
@@ -56,7 +56,7 @@ pub mod url {
     pub struct Done {
         pub item: Option<String>,
         pub status: Option<String>,
-        #[serde(rename = "after_write")]
+        #[serde(rename = "afterWrite")]
         pub after_write: Option<String>,
     }
 

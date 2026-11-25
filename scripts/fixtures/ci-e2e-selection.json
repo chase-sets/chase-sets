@@ -94,8 +94,8 @@
       },
       {
         "path": "bounded-contexts/payments/features/payments/api/provider-webhook-paths.ts",
-        "selected": true,
-        "reason": "payments-provider API retains old marketplace_account ownership despite provider spelling"
+        "selected": false,
+        "reason": "payments-provider API selected marketplace_account, which retired with marketplace-web and took its rendered-copy tuples with it"
       },
       {
         "path": "tsconfig.base.json",
@@ -103,14 +103,14 @@
         "reason": "root browser runtime retains all owning suites"
       },
       {
-        "path": "deployables/marketplace/app/smoke-auth-support.test.ts",
+        "path": "deployables/admin-web/app/auth.server.test.ts",
         "selected": false,
-        "reason": "smoke-auth test-only negative control"
+        "reason": "admin-web auth test-only negative control, in place of marketplace-web's retired smoke-auth test"
       },
       {
         "path": "bounded-contexts/auth/support/runtime-support/seed.ts",
         "selected": true,
-        "reason": "Auth seed retains old marketplace_account ownership"
+        "reason": "intentional delta: Auth seed now selects the dedicated sweep because marketplace_account and its sweep tuples retired"
       },
       {
         "path": "bounded-contexts/identity/support/runtime-support/seed.ts",
@@ -294,7 +294,7 @@
     {
       "family": "contextSuiteOwnership:auth",
       "pattern": "/^bounded-contexts\\/auth\\/features\\/[^/]+\\/(?:api|ui)\\//",
-      "suites": ["marketplace_account", "admin_auth"],
+      "suites": ["corten-marketplace-browser", "admin_auth"],
       "path": "bounded-contexts/auth/features/account-selection/ui/account-selection-page.tsx",
       "trackedCandidates": 16,
       "synthetic": false
@@ -302,7 +302,7 @@
     {
       "family": "contextSuiteOwnership:catalog",
       "pattern": "/^bounded-contexts\\/catalog\\/features\\/[^/]+\\/(?:api|ui)\\//",
-      "suites": ["marketplace_browse", "catalog_admin_integrations"],
+      "suites": ["corten-marketplace-browser", "catalog_admin_integrations"],
       "path": "bounded-contexts/catalog/features/alias-equivalence/api/alias-review-admin-contracts.ts",
       "trackedCandidates": 627,
       "synthetic": false
@@ -310,7 +310,7 @@
     {
       "family": "contextSuiteOwnership:channels",
       "pattern": "/^bounded-contexts\\/channels\\/features\\/[^/]+\\/(?:api|ui)\\//",
-      "suites": ["marketplace_account", "marketplace_seller"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/channels/features/connection-attention/api/lifecycle.ts",
       "trackedCandidates": 30,
       "synthetic": false
@@ -318,7 +318,7 @@
     {
       "family": "contextSuiteOwnership:checkout",
       "pattern": "/^bounded-contexts\\/checkout\\/features\\/[^/]+\\/(?:api|ui)\\//",
-      "suites": ["marketplace_checkout"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/checkout/features/cart/api/cart-readiness-observability.ts",
       "trackedCandidates": 61,
       "synthetic": false
@@ -326,7 +326,7 @@
     {
       "family": "contextSuiteOwnership:commercial-terms",
       "pattern": "/^bounded-contexts\\/commercial-terms\\/features\\/[^/]+\\/(?:api|ui)\\//",
-      "suites": ["marketplace_browse", "marketplace_seller"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/commercial-terms/features/agreements/api/account-id.ts",
       "trackedCandidates": 11,
       "synthetic": false
@@ -334,7 +334,7 @@
     {
       "family": "contextSuiteOwnership:discovery",
       "pattern": "/^bounded-contexts\\/discovery\\/features\\/[^/]+\\/(?:api|ui)\\//",
-      "suites": ["marketplace_browse"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/discovery/features/browse/api/contracts.ts",
       "trackedCandidates": 63,
       "synthetic": false
@@ -342,7 +342,7 @@
     {
       "family": "contextSuiteOwnership:fulfillment",
       "pattern": "/^bounded-contexts\\/fulfillment\\/features\\/[^/]+\\/(?:api|ui)\\//",
-      "suites": ["marketplace_account"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/fulfillment/features/return-shipments/api/evidence.ts",
       "trackedCandidates": 21,
       "synthetic": false
@@ -350,7 +350,7 @@
     {
       "family": "contextSuiteOwnership:identity",
       "pattern": "/^bounded-contexts\\/identity\\/features\\/[^/]+\\/(?:api|ui)\\//",
-      "suites": ["marketplace_account", "admin_access"],
+      "suites": ["corten-marketplace-browser", "admin_access"],
       "path": "bounded-contexts/identity/features/access-hub/api/contracts.ts",
       "trackedCandidates": 67,
       "synthetic": false
@@ -358,7 +358,7 @@
     {
       "family": "contextSuiteOwnership:inventory",
       "pattern": "/^bounded-contexts\\/inventory\\/features\\/[^/]+\\/(?:api|ui)\\//",
-      "suites": ["marketplace_seller"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/inventory/features/channel-allocations/api/contracts.ts",
       "trackedCandidates": 52,
       "synthetic": false
@@ -366,7 +366,7 @@
     {
       "family": "contextSuiteOwnership:marketplace",
       "pattern": "/^bounded-contexts\\/marketplace\\/features\\/[^/]+\\/(?:api|ui)\\//",
-      "suites": ["marketplace_account", "marketplace_seller"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/marketplace/features/channel-inbound-clamp/api/capability.ts",
       "trackedCandidates": 69,
       "synthetic": false
@@ -374,7 +374,7 @@
     {
       "family": "contextSuiteOwnership:notifications",
       "pattern": "/^bounded-contexts\\/notifications\\/features\\/[^/]+\\/(?:api|ui)\\//",
-      "suites": ["marketplace_account"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/notifications/features/notification-center/api/provider-webhook-paths.ts",
       "trackedCandidates": 3,
       "synthetic": false
@@ -382,7 +382,7 @@
     {
       "family": "contextSuiteOwnership:ordering",
       "pattern": "/^bounded-contexts\\/ordering\\/features\\/[^/]+\\/(?:api|ui)\\//",
-      "suites": ["marketplace_account", "marketplace_checkout", "admin_commerce"],
+      "suites": ["corten-marketplace-browser", "admin_commerce"],
       "path": "bounded-contexts/ordering/features/orders/api/authenticity-fee-policy-resolver.ts",
       "trackedCandidates": 24,
       "synthetic": false
@@ -390,7 +390,7 @@
     {
       "family": "contextSuiteOwnership:payments",
       "pattern": "/^bounded-contexts\\/payments\\/features\\/[^/]+\\/(?:api|ui)\\//",
-      "suites": ["marketplace_account", "marketplace_checkout"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/payments/features/payments/api/balance-credit-request.ts",
       "trackedCandidates": 21,
       "synthetic": false
@@ -398,7 +398,7 @@
     {
       "family": "contextSuiteOwnership:platform-operations",
       "pattern": "/^bounded-contexts\\/platform-operations\\/features\\/[^/]+\\/(?:api|ui)\\//",
-      "suites": ["marketplace_account", "admin_support", "admin_platform"],
+      "suites": ["corten-marketplace-browser", "admin_support", "admin_platform"],
       "path": "bounded-contexts/platform-operations/features/commercial-terms-attention/api/routes.ts",
       "trackedCandidates": 72,
       "synthetic": false
@@ -406,7 +406,7 @@
     {
       "family": "contextSuiteOwnership:pricing",
       "pattern": "/^bounded-contexts\\/pricing\\/features\\/[^/]+\\/(?:api|ui)\\//",
-      "suites": ["marketplace_browse"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/pricing/features/bulk-reprice-ingestion/api/route.ts",
       "trackedCandidates": 40,
       "synthetic": false
@@ -414,7 +414,7 @@
     {
       "family": "contextSuiteOwnership:public-presence",
       "pattern": "/^bounded-contexts\\/public-presence\\/features\\/[^/]+\\/(?:api|ui)\\//",
-      "suites": ["marketplace_browse", "admin_growth"],
+      "suites": ["corten-marketplace-browser", "admin_growth"],
       "path": "bounded-contexts/public-presence/features/developer-portal/ui/developer-pages.tsx",
       "trackedCandidates": 58,
       "synthetic": false
@@ -422,7 +422,7 @@
     {
       "family": "contextSuiteOwnership:settlement",
       "pattern": "/^bounded-contexts\\/settlement\\/features\\/[^/]+\\/(?:api|ui)\\//",
-      "suites": ["marketplace_account", "marketplace_seller"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/settlement/features/liability-allocation/api/ports.ts",
       "trackedCandidates": 43,
       "synthetic": false
@@ -430,7 +430,7 @@
     {
       "family": "marketplaceContextRouteSuiteOwnership:auth",
       "pattern": "/^bounded-contexts\\/auth\\/routes\\/marketplace\\//",
-      "suites": ["marketplace_account"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/auth/routes/marketplace/account-agents-detail.tsx",
       "trackedCandidates": 11,
       "synthetic": false
@@ -438,7 +438,7 @@
     {
       "family": "marketplaceContextRouteSuiteOwnership:channels",
       "pattern": "/^bounded-contexts\\/channels\\/routes\\/marketplace\\//",
-      "suites": ["marketplace_account", "marketplace_seller"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/channels/routes/marketplace/account-channel-connection-manual-sync-download.tsx",
       "trackedCandidates": 5,
       "synthetic": false
@@ -446,7 +446,7 @@
     {
       "family": "marketplaceContextRouteSuiteOwnership:discovery",
       "pattern": "/^bounded-contexts\\/discovery\\/routes\\/marketplace\\//",
-      "suites": ["marketplace_browse"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/discovery/routes/marketplace/search.tsx",
       "trackedCandidates": 0,
       "synthetic": true
@@ -454,7 +454,7 @@
     {
       "family": "marketplaceContextRouteSuiteOwnership:fulfillment",
       "pattern": "/^bounded-contexts\\/fulfillment\\/routes\\/marketplace\\//",
-      "suites": ["marketplace_account"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/fulfillment/routes/marketplace/account-sale-shipment-packing-slips.tsx",
       "trackedCandidates": 6,
       "synthetic": false
@@ -462,7 +462,7 @@
     {
       "family": "marketplaceContextRouteSuiteOwnership:identity",
       "pattern": "/^bounded-contexts\\/identity\\/routes\\/marketplace\\//",
-      "suites": ["marketplace_account"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/identity/routes/marketplace/account-consents.tsx",
       "trackedCandidates": 5,
       "synthetic": false
@@ -470,7 +470,7 @@
     {
       "family": "marketplaceContextRouteSuiteOwnership:inventory",
       "pattern": "/^bounded-contexts\\/inventory\\/routes\\/marketplace\\//",
-      "suites": ["marketplace_seller"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/inventory/routes/marketplace/account-inventory-imports.tsx",
       "trackedCandidates": 5,
       "synthetic": false
@@ -478,7 +478,7 @@
     {
       "family": "marketplaceContextRouteSuiteOwnership:marketplace",
       "pattern": "/^bounded-contexts\\/marketplace\\/routes\\/marketplace\\//",
-      "suites": ["marketplace_account", "marketplace_seller"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/marketplace/routes/marketplace/account-purchase-review.tsx",
       "trackedCandidates": 6,
       "synthetic": false
@@ -486,7 +486,7 @@
     {
       "family": "marketplaceContextRouteSuiteOwnership:payments",
       "pattern": "/^bounded-contexts\\/payments\\/routes\\/marketplace\\//",
-      "suites": ["marketplace_account", "marketplace_checkout"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/payments/routes/marketplace/account-payment-methods.tsx",
       "trackedCandidates": 4,
       "synthetic": false
@@ -494,7 +494,7 @@
     {
       "family": "marketplaceContextRouteSuiteOwnership:platform-operations",
       "pattern": "/^bounded-contexts\\/platform-operations\\/routes\\/marketplace\\//",
-      "suites": ["marketplace_account"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/platform-operations/routes/marketplace/account-support-detail.tsx",
       "trackedCandidates": 2,
       "synthetic": false
@@ -502,7 +502,7 @@
     {
       "family": "marketplaceContextRouteSuiteOwnership:pricing",
       "pattern": "/^bounded-contexts\\/pricing\\/routes\\/marketplace\\//",
-      "suites": ["marketplace_seller"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/pricing/routes/marketplace/account-desk-repricing-policy.tsx",
       "trackedCandidates": 5,
       "synthetic": false
@@ -510,7 +510,7 @@
     {
       "family": "marketplaceContextRouteSuiteOwnership:public-presence",
       "pattern": "/^bounded-contexts\\/public-presence\\/routes\\/marketplace\\//",
-      "suites": ["marketplace_browse"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/public-presence/routes/marketplace/agent-terms.tsx",
       "trackedCandidates": 19,
       "synthetic": false
@@ -518,7 +518,7 @@
     {
       "family": "marketplaceContextRouteSuiteOwnership:settlement",
       "pattern": "/^bounded-contexts\\/settlement\\/routes\\/marketplace\\//",
-      "suites": ["marketplace_account", "marketplace_seller"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/settlement/routes/marketplace/account-desk-money.tsx",
       "trackedCandidates": 8,
       "synthetic": false
@@ -621,54 +621,30 @@
     },
     {
       "family": "e2eSpecSuiteOwnership:0",
-      "pattern": "/^deployables\\/marketplace\\/e2e\\/(?:account-management-interruption|account-form-pending)\\.spec\\.ts$/",
-      "suites": ["marketplace_account"],
-      "path": "deployables/marketplace/e2e/account-management-interruption.spec.ts",
-      "trackedCandidates": 2,
-      "synthetic": false
-    },
-    {
-      "family": "e2eSpecSuiteOwnership:1",
-      "pattern": "/^deployables\\/marketplace\\/e2e\\/account-elevation-intent\\.spec\\.ts$/",
-      "suites": ["marketplace_account"],
-      "path": "deployables/marketplace/e2e/account-elevation-intent.spec.ts",
-      "trackedCandidates": 1,
-      "synthetic": false
-    },
-    {
-      "family": "e2eSpecSuiteOwnership:2",
-      "pattern": "/^deployables\\/marketplace\\/e2e\\/item-detail\\.spec\\.ts$/",
-      "suites": ["marketplace_browse"],
-      "path": "deployables/marketplace/e2e/item-detail.spec.ts",
-      "trackedCandidates": 1,
-      "synthetic": false
-    },
-    {
-      "family": "e2eSpecSuiteOwnership:3",
       "pattern": "/^deployables\\/corten-pilot\\/e2e\\/critical-flows\\.spec\\.ts$/",
-      "suites": ["marketplace_browse", "marketplace_account", "marketplace_checkout", "marketplace_seller"],
+      "suites": ["corten-marketplace-browser"],
       "path": "deployables/corten-pilot/e2e/critical-flows.spec.ts",
       "trackedCandidates": 1,
       "synthetic": false
     },
     {
-      "family": "e2eSpecSuiteOwnership:4",
-      "pattern": "/^deployables\\/(?:marketplace\\/e2e\\/(?:account-payment|buy-funnel-redesign|sell-checkout-session)|corten-pilot\\/e2e\\/buyer-purchase-journey)\\.spec\\.ts$/",
-      "suites": ["marketplace_checkout"],
-      "path": "deployables/marketplace/e2e/account-payment.spec.ts",
-      "trackedCandidates": 4,
+      "family": "e2eSpecSuiteOwnership:1",
+      "pattern": "/^deployables\\/corten-pilot\\/e2e\\/buyer-purchase-journey\\.spec\\.ts$/",
+      "suites": ["corten-marketplace-browser"],
+      "path": "deployables/corten-pilot/e2e/buyer-purchase-journey.spec.ts",
+      "trackedCandidates": 1,
       "synthetic": false
     },
     {
-      "family": "e2eSpecSuiteOwnership:5",
+      "family": "e2eSpecSuiteOwnership:2",
       "pattern": "/^deployables\\/corten-pilot\\/e2e\\/responsive-evidence-contract\\.spec\\.ts$/",
-      "suites": ["marketplace_browse"],
+      "suites": ["corten-marketplace-browser"],
       "path": "deployables/corten-pilot/e2e/responsive-evidence-contract.spec.ts",
       "trackedCandidates": 1,
       "synthetic": false
     },
     {
-      "family": "e2eSpecSuiteOwnership:6",
+      "family": "e2eSpecSuiteOwnership:3",
       "pattern": "/^deployables\\/admin-web\\/e2e\\/access-/",
       "suites": ["admin_access"],
       "path": "deployables/admin-web/e2e/access-account-badges.spec.ts",
@@ -676,7 +652,7 @@
       "synthetic": false
     },
     {
-      "family": "e2eSpecSuiteOwnership:7",
+      "family": "e2eSpecSuiteOwnership:4",
       "pattern": "/^deployables\\/admin-web\\/e2e\\/admin-tablet-navigation\\.spec\\.ts$/",
       "suites": ["catalog_admin_integrations", "admin_support"],
       "path": "deployables/admin-web/e2e/admin-tablet-navigation.spec.ts",
@@ -684,7 +660,7 @@
       "synthetic": false
     },
     {
-      "family": "e2eSpecSuiteOwnership:8",
+      "family": "e2eSpecSuiteOwnership:5",
       "pattern": "/^deployables\\/admin-web\\/e2e\\/auth-shell-rbac\\.spec\\.ts$/",
       "suites": ["admin_auth"],
       "path": "deployables/admin-web/e2e/auth-shell-rbac.spec.ts",
@@ -692,7 +668,7 @@
       "synthetic": false
     },
     {
-      "family": "e2eSpecSuiteOwnership:9",
+      "family": "e2eSpecSuiteOwnership:6",
       "pattern": "/^deployables\\/admin-web\\/e2e\\/catalog-integrations\\.spec\\.ts$/",
       "suites": ["catalog_admin_integrations"],
       "path": "deployables/admin-web/e2e/catalog-integrations.spec.ts",
@@ -700,7 +676,7 @@
       "synthetic": false
     },
     {
-      "family": "e2eSpecSuiteOwnership:10",
+      "family": "e2eSpecSuiteOwnership:7",
       "pattern": "/^deployables\\/admin-web\\/e2e\\/catalog-scopes\\.spec\\.ts$/",
       "suites": ["catalog_admin_integrations"],
       "path": "deployables/admin-web/e2e/catalog-scopes.spec.ts",
@@ -708,7 +684,7 @@
       "synthetic": false
     },
     {
-      "family": "e2eSpecSuiteOwnership:11",
+      "family": "e2eSpecSuiteOwnership:8",
       "pattern": "/^deployables\\/admin-web\\/e2e\\/catalog-modeling\\.spec\\.ts$/",
       "suites": ["catalog_admin_modeling"],
       "path": "deployables/admin-web/e2e/catalog-modeling.spec.ts",
@@ -716,7 +692,7 @@
       "synthetic": false
     },
     {
-      "family": "e2eSpecSuiteOwnership:12",
+      "family": "e2eSpecSuiteOwnership:9",
       "pattern": "/^deployables\\/admin-web\\/e2e\\/commerce-/",
       "suites": ["admin_commerce"],
       "path": "deployables/admin-web/e2e/commerce-commercial-terms.spec.ts",
@@ -724,7 +700,7 @@
       "synthetic": false
     },
     {
-      "family": "e2eSpecSuiteOwnership:13",
+      "family": "e2eSpecSuiteOwnership:10",
       "pattern": "/^deployables\\/admin-web\\/e2e\\/growth-/",
       "suites": ["admin_growth"],
       "path": "deployables/admin-web/e2e/growth-google-shopping-waitlist.spec.ts",
@@ -732,7 +708,7 @@
       "synthetic": false
     },
     {
-      "family": "e2eSpecSuiteOwnership:14",
+      "family": "e2eSpecSuiteOwnership:11",
       "pattern": "/^deployables\\/admin-web\\/e2e\\/support-/",
       "suites": ["admin_support"],
       "path": "deployables/admin-web/e2e/support-platform-feedback.spec.ts",
@@ -740,7 +716,7 @@
       "synthetic": false
     },
     {
-      "family": "e2eSpecSuiteOwnership:15",
+      "family": "e2eSpecSuiteOwnership:12",
       "pattern": "/^deployables\\/admin-web\\/e2e\\/(?:admin-cross-cutting-topology|platform-projection-operations)\\.spec\\.ts$/",
       "suites": ["admin_platform"],
       "path": "deployables/admin-web/e2e/admin-cross-cutting-topology.spec.ts",
@@ -748,31 +724,15 @@
       "synthetic": false
     },
     {
-      "family": "e2eSpecSuiteOwnership:16",
-      "pattern": "/^deployables\\/marketplace\\/e2e\\/inventory-recovery\\.spec\\.ts$/",
-      "suites": ["marketplace_seller"],
-      "path": "deployables/marketplace/e2e/inventory-recovery.spec.ts",
-      "trackedCandidates": 1,
-      "synthetic": false
-    },
-    {
-      "family": "e2eSpecSuiteOwnership:17",
+      "family": "e2eSpecSuiteOwnership:13",
       "pattern": "/^deployables\\/corten-pilot\\/e2e\\/marketplace-shell-header\\.spec\\.ts$/",
-      "suites": ["marketplace_browse"],
+      "suites": ["corten-marketplace-browser"],
       "path": "deployables/corten-pilot/e2e/marketplace-shell-header.spec.ts",
       "trackedCandidates": 1,
       "synthetic": false
     },
     {
-      "family": "e2eSpecSuiteOwnership:18",
-      "pattern": "/^deployables\\/marketplace\\/e2e\\/rendered-copy-sweep\\.spec\\.ts$/",
-      "suites": ["marketplace_account", "marketplace_seller"],
-      "path": "deployables/marketplace/e2e/rendered-copy-sweep.spec.ts",
-      "trackedCandidates": 1,
-      "synthetic": false
-    },
-    {
-      "family": "e2eSpecSuiteOwnership:19",
+      "family": "e2eSpecSuiteOwnership:14",
       "pattern": "/^deployables\\/admin-web\\/e2e\\/rendered-copy-sweep\\.spec\\.ts$/",
       "suites": [
         "catalog_admin_integrations",
@@ -788,14 +748,6 @@
     },
     {
       "family": "e2eNoSuiteExclusions:0",
-      "pattern": "/^deployables\\/marketplace\\/app\\/routes\\/(?:chrome-devtools|favicon|favicon-svg|health-ready|manifest|robots|service-worker|sitemap)\\./",
-      "suites": null,
-      "path": "deployables/marketplace/app/routes/chrome-devtools.ts",
-      "trackedCandidates": 8,
-      "synthetic": false
-    },
-    {
-      "family": "e2eNoSuiteExclusions:1",
       "pattern": "/^deployables\\/admin-web\\/e2e\\/catalog-staging-provider-sync\\.uat\\.spec\\.ts$/",
       "suites": null,
       "path": "deployables/admin-web/e2e/catalog-staging-provider-sync.uat.spec.ts",
@@ -803,15 +755,7 @@
       "synthetic": false
     },
     {
-      "family": "e2eNoSuiteExclusions:2",
-      "pattern": "/^deployables\\/marketplace\\/e2e\\/account-payment-stripe-embed\\.uat\\.spec\\.ts$/",
-      "suites": null,
-      "path": "deployables/marketplace/e2e/account-payment-stripe-embed.uat.spec.ts",
-      "trackedCandidates": 1,
-      "synthetic": false
-    },
-    {
-      "family": "e2eNoSuiteExclusions:3",
+      "family": "e2eNoSuiteExclusions:1",
       "pattern": "/^deployables\\/public-web\\/e2e\\/.*\\.spec\\.ts$/",
       "suites": null,
       "path": "deployables/public-web/e2e/landing-disclosure.spec.ts",
@@ -819,73 +763,9 @@
       "synthetic": false
     },
     {
-      "family": "marketplaceRouteSuiteOwnership:0",
-      "pattern": "/^deployables\\/marketplace\\/app\\/routes\\/(?:chrome-devtools|favicon|favicon-svg|health-ready|manifest|robots|service-worker|sitemap)\\./",
-      "suites": [],
-      "path": "deployables/marketplace/app/routes/chrome-devtools.ts",
-      "trackedCandidates": 8,
-      "synthetic": false
-    },
-    {
-      "family": "marketplaceRouteSuiteOwnership:1",
-      "pattern": "/^deployables\\/marketplace\\/app\\/routes\\/(?:search|_index|index)\\./",
-      "suites": ["marketplace_browse"],
-      "path": "deployables/marketplace/app/routes/index.tsx",
-      "trackedCandidates": 1,
-      "synthetic": false
-    },
-    {
-      "family": "marketplaceRouteSuiteOwnership:2",
-      "pattern": "/^deployables\\/marketplace\\/app\\/routes\\/(?:account-payment|checkout-payment)/",
-      "suites": ["marketplace_checkout"],
-      "path": "deployables/marketplace/app/routes/account-payment.tsx",
-      "trackedCandidates": 0,
-      "synthetic": true
-    },
-    {
-      "family": "marketplaceRouteSuiteOwnership:3",
-      "pattern": "/^deployables\\/marketplace\\/app\\/routes\\/(?:account-listing|account-listings|account-inventory|account-offers|account-repricing)/",
-      "suites": ["marketplace_seller"],
-      "path": "deployables/marketplace/app/routes/account-listing.tsx",
-      "trackedCandidates": 0,
-      "synthetic": true
-    },
-    {
-      "family": "marketplaceRouteSuiteOwnership:4",
-      "pattern": "/^deployables\\/marketplace\\/app\\/routes\\/(?:account-purchase|account-sale|account-review|account-payout|account-settlement|account-support)/",
-      "suites": ["marketplace_account"],
-      "path": "deployables/marketplace/app/routes/account-purchase.tsx",
-      "trackedCandidates": 0,
-      "synthetic": true
-    },
-    {
-      "family": "marketplaceRouteSuiteOwnership:5",
-      "pattern": "/^deployables\\/marketplace\\/app\\/(?:auth\\.server|root)\\./",
-      "suites": ["marketplace_account", "marketplace_browse"],
-      "path": "deployables/marketplace/app/auth.server.ts",
-      "trackedCandidates": 2,
-      "synthetic": false
-    },
-    {
-      "family": "marketplaceRouteSuiteOwnership:6",
-      "pattern": "/^deployables\\/marketplace\\/app\\/routes\\/(?:not-found|offline)\\./",
-      "suites": ["marketplace_browse"],
-      "path": "deployables/marketplace/app/routes/not-found.tsx",
-      "trackedCandidates": 2,
-      "synthetic": false
-    },
-    {
-      "family": "marketplaceRouteSuiteOwnership:7",
-      "pattern": "/^deployables\\/marketplace\\/app\\/routes\\/layout\\./",
-      "suites": ["marketplace_browse", "marketplace_account", "marketplace_checkout", "marketplace_seller"],
-      "path": "deployables/marketplace/app/routes/layout.tsx",
-      "trackedCandidates": 1,
-      "synthetic": false
-    },
-    {
       "family": "boundedContextRouteSuiteOwnership:0",
       "pattern": "/^bounded-contexts\\/channels\\/routes\\/marketplace\\/account-channels-connection\\./",
-      "suites": ["marketplace_account", "marketplace_seller"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/channels/routes/marketplace/account-channels-connection.tsx",
       "trackedCandidates": 1,
       "synthetic": false
@@ -973,7 +853,7 @@
     {
       "family": "boundedContextRouteSuiteOwnership:11",
       "pattern": "/^bounded-contexts\\/commercial-terms\\/(?:routes\\/public|features\\/marketplace-sales-fee\\/ui\\/routes)\\//",
-      "suites": ["marketplace_browse"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/commercial-terms/routes/public/sales-fees.tsx",
       "trackedCandidates": 2,
       "synthetic": false
@@ -1133,7 +1013,7 @@
     {
       "family": "boundedContextRouteSuiteOwnership:31",
       "pattern": "/^bounded-contexts\\/identity\\/routes\\/marketplace\\//",
-      "suites": ["marketplace_account"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/identity/routes/marketplace/account-consents.tsx",
       "trackedCandidates": 5,
       "synthetic": false
@@ -1141,7 +1021,7 @@
     {
       "family": "boundedContextRouteSuiteOwnership:32",
       "pattern": "/^bounded-contexts\\/marketplace\\/routes\\/marketplace\\//",
-      "suites": ["marketplace_account"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/marketplace/routes/marketplace/account-purchase-review.tsx",
       "trackedCandidates": 6,
       "synthetic": false
@@ -1149,7 +1029,7 @@
     {
       "family": "boundedContextRouteSuiteOwnership:33",
       "pattern": "/^bounded-contexts\\/platform-operations\\/routes\\/marketplace\\//",
-      "suites": ["marketplace_account"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/platform-operations/routes/marketplace/account-support-detail.tsx",
       "trackedCandidates": 2,
       "synthetic": false
@@ -1157,7 +1037,7 @@
     {
       "family": "boundedContextRouteSuiteOwnership:34",
       "pattern": "/^bounded-contexts\\/auth\\/routes\\/marketplace\\//",
-      "suites": ["marketplace_account"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/auth/routes/marketplace/account-agents-detail.tsx",
       "trackedCandidates": 11,
       "synthetic": false
@@ -1173,7 +1053,7 @@
     {
       "family": "boundedContextRouteSuiteOwnership:36",
       "pattern": "/^bounded-contexts\\/checkout\\/routes\\//",
-      "suites": ["marketplace_checkout"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/checkout/routes/account-cart.tsx",
       "trackedCandidates": 8,
       "synthetic": false
@@ -1181,7 +1061,7 @@
     {
       "family": "boundedContextRouteSuiteOwnership:37",
       "pattern": "/^bounded-contexts\\/discovery\\/routes\\/(?:search|public-|account-product-alerts|set\\.)/",
-      "suites": ["marketplace_browse"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/discovery/routes/account-product-alerts.tsx",
       "trackedCandidates": 5,
       "synthetic": false
@@ -1197,7 +1077,7 @@
     {
       "family": "boundedContextRouteSuiteOwnership:39",
       "pattern": "/^bounded-contexts\\/marketplace\\/routes\\/account-(?:desk|listing|listings|offer)/",
-      "suites": ["marketplace_account", "marketplace_seller"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/marketplace/routes/account-desk.tsx",
       "trackedCandidates": 8,
       "synthetic": false
@@ -1205,7 +1085,7 @@
     {
       "family": "boundedContextRouteSuiteOwnership:40",
       "pattern": "/^bounded-contexts\\/ordering\\/routes\\/account-(?:purchase|sale)/",
-      "suites": ["marketplace_account"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/ordering/routes/account-purchase.tsx",
       "trackedCandidates": 4,
       "synthetic": false
@@ -1213,7 +1093,7 @@
     {
       "family": "boundedContextRouteSuiteOwnership:41",
       "pattern": "/^bounded-contexts\\/payments\\/(?:routes\\/marketplace|features\\/payments\\/ui\\/routes)\\/account-payment(?:-methods|-new)/",
-      "suites": ["marketplace_account"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/payments/routes/marketplace/account-payment-methods.tsx",
       "trackedCandidates": 4,
       "synthetic": false
@@ -1221,7 +1101,7 @@
     {
       "family": "boundedContextRouteSuiteOwnership:42",
       "pattern": "/^bounded-contexts\\/pricing\\/routes\\/marketplace\\/account-repricing/",
-      "suites": ["marketplace_seller"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/pricing/routes/marketplace/account-repricing.tsx",
       "trackedCandidates": 1,
       "synthetic": false
@@ -1229,7 +1109,7 @@
     {
       "family": "boundedContextRouteSuiteOwnership:43",
       "pattern": "/^bounded-contexts\\/settlement\\/routes\\/marketplace\\//",
-      "suites": ["marketplace_account", "marketplace_seller"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/settlement/routes/marketplace/account-desk-money.tsx",
       "trackedCandidates": 8,
       "synthetic": false
@@ -1237,7 +1117,7 @@
     {
       "family": "boundedContextRouteSuiteOwnership:44",
       "pattern": "/^bounded-contexts\\/marketplace\\/routes\\/account-listing\\./",
-      "suites": ["marketplace_account", "marketplace_seller"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/marketplace/routes/account-listing.tsx",
       "trackedCandidates": 1,
       "synthetic": false
@@ -1245,7 +1125,7 @@
     {
       "family": "boundedContextRouteSuiteOwnership:45",
       "pattern": "/^bounded-contexts\\/discovery\\/routes\\/item-detail(?:\\.|-market-history\\.|-rail-analytics\\.)/",
-      "suites": ["marketplace_browse"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/discovery/routes/item-detail-market-history.tsx",
       "trackedCandidates": 2,
       "synthetic": false
@@ -1253,7 +1133,7 @@
     {
       "family": "boundedContextRouteSuiteOwnership:46",
       "pattern": "/^bounded-contexts\\/checkout\\/routes\\/sell-checkout-session\\./",
-      "suites": ["marketplace_checkout"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/checkout/routes/sell-checkout-session.tsx",
       "trackedCandidates": 1,
       "synthetic": false
@@ -1261,7 +1141,7 @@
     {
       "family": "boundedContextRouteSuiteOwnership:47",
       "pattern": "/^bounded-contexts\\/payments\\/(?:routes\\/marketplace|features\\/payments\\/ui\\/routes)\\/(?:account-payment|checkout-payment)\\./",
-      "suites": ["marketplace_checkout"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/payments/features/payments/ui/routes/account-payment.tsx",
       "trackedCandidates": 4,
       "synthetic": false
@@ -1269,7 +1149,7 @@
     {
       "family": "boundedContextRouteSuiteOwnership:48",
       "pattern": "/^bounded-contexts\\/public-presence\\/(?:routes\\/marketplace|features\\/policies\\/ui\\/routes)\\//",
-      "suites": ["marketplace_browse"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/public-presence/routes/marketplace/agent-terms.tsx",
       "trackedCandidates": 26,
       "synthetic": false
@@ -1277,7 +1157,7 @@
     {
       "family": "boundedContextRouteSuiteOwnership:49",
       "pattern": "/^bounded-contexts\\/public-presence\\/routes\\/developers\\//",
-      "suites": ["marketplace_browse"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/public-presence/routes/developers/article.tsx",
       "trackedCandidates": 4,
       "synthetic": false
@@ -1285,7 +1165,7 @@
     {
       "family": "boundedContextRouteSuiteOwnership:50",
       "pattern": "/^bounded-contexts\\/public-presence\\/features\\/waitlist\\/ui\\/public-pages\\./",
-      "suites": ["marketplace_browse"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx",
       "trackedCandidates": 1,
       "synthetic": false
@@ -1293,7 +1173,7 @@
     {
       "family": "boundedContextRouteSuiteOwnership:51",
       "pattern": "/^bounded-contexts\\/notifications\\/(?:routes|features\\/notification-center\\/ui\\/routes)\\/account-notifications\\./",
-      "suites": ["marketplace_account"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/notifications/features/notification-center/ui/routes/account-notifications.tsx",
       "trackedCandidates": 2,
       "synthetic": false
@@ -1301,7 +1181,7 @@
     {
       "family": "boundedContextRouteSuiteOwnership:52",
       "pattern": "/^bounded-contexts\\/fulfillment\\/routes\\/seller-shipping-setup\\.tsx$/",
-      "suites": ["marketplace_checkout"],
+      "suites": ["corten-marketplace-browser"],
       "path": "bounded-contexts/fulfillment/routes/seller-shipping-setup.tsx",
       "trackedCandidates": 1,
       "synthetic": false
@@ -1310,81 +1190,85 @@
   "cases": [
     {
       "changedFiles": ["bounded-contexts/public-presence/features/policies/ui/routes/agent-terms.tsx"],
-      "suiteIds": ["marketplace_browse"],
-      "batches": ["marketplace_browse"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/public-presence/features/policies/ui/routes/authenticity-terms.tsx"],
-      "suiteIds": ["marketplace_browse"],
-      "batches": ["marketplace_browse"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/public-presence/features/policies/ui/routes/founders.tsx"],
-      "suiteIds": ["marketplace_browse"],
-      "batches": ["marketplace_browse"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/public-presence/features/policies/ui/routes/payments-terms.tsx"],
-      "suiteIds": ["marketplace_browse"],
-      "batches": ["marketplace_browse"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/public-presence/features/policies/ui/routes/privacy.tsx"],
-      "suiteIds": ["marketplace_browse"],
-      "batches": ["marketplace_browse"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/public-presence/features/policies/ui/routes/seller-agreement.tsx"],
-      "suiteIds": ["marketplace_browse"],
-      "batches": ["marketplace_browse"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/public-presence/features/policies/ui/routes/terms.tsx"],
-      "suiteIds": ["marketplace_browse"],
-      "batches": ["marketplace_browse"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/fulfillment/routes/seller-shipping-setup.tsx"],
-      "suiteIds": ["marketplace_checkout"],
-      "batches": ["marketplace_checkout"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["deployables/agent-apps/tests/product-cards.chromium.spec.ts"],
       "suiteIds": ["agent_apps"],
-      "batches": ["agent_apps"]
+      "batches": ["agent_apps"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/discovery/features/search/ui/agent-product-cards-view.tsx"],
-      "suiteIds": ["marketplace_browse", "agent_apps"],
-      "batches": ["marketplace_browse,agent_apps"]
+      "suiteIds": ["agent_apps"],
+      "batches": ["agent_apps"],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["infrastructure/platform-runtime/mcp-widget-resources.ts"],
       "suiteIds": ["agent_apps"],
-      "batches": ["agent_apps"]
+      "batches": ["agent_apps"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["contracts/localization/locales/en/checkout.ts"],
       "suiteIds": ["agent_apps"],
-      "batches": ["agent_apps"]
+      "batches": ["agent_apps"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["deployables/platform-api/__tests__/mcp-sdk-agent-journey.e2e.test.ts"],
       "suiteIds": ["platform_mcp_sdk"],
-      "batches": ["platform_mcp_sdk"]
-    },
-    {
-      "changedFiles": ["deployables/marketplace/e2e/inventory-recovery.spec.ts"],
-      "suiteIds": ["marketplace_seller"],
-      "batches": ["marketplace_seller"]
+      "batches": ["platform_mcp_sdk"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["docker-compose.dev.yml"],
       "suiteIds": [
-        "marketplace_browse",
-        "marketplace_account",
-        "marketplace_checkout",
-        "marketplace_seller",
         "catalog_admin_integrations",
         "catalog_admin_modeling",
         "admin_growth",
@@ -1397,19 +1281,14 @@
       "batches": [
         "catalog_admin_integrations,admin_auth",
         "catalog_admin_modeling,admin_platform",
-        "marketplace_checkout,admin_support",
-        "marketplace_browse,marketplace_account",
-        "admin_commerce,admin_access",
-        "marketplace_seller,admin_growth"
-      ]
+        "admin_commerce,admin_support",
+        "admin_growth,admin_access"
+      ],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["scripts/lib/sandbox.mjs"],
       "suiteIds": [
-        "marketplace_browse",
-        "marketplace_account",
-        "marketplace_checkout",
-        "marketplace_seller",
         "catalog_admin_integrations",
         "catalog_admin_modeling",
         "admin_growth",
@@ -1422,19 +1301,14 @@
       "batches": [
         "catalog_admin_integrations,admin_auth",
         "catalog_admin_modeling,admin_platform",
-        "marketplace_checkout,admin_support",
-        "marketplace_browse,marketplace_account",
-        "admin_commerce,admin_access",
-        "marketplace_seller,admin_growth"
-      ]
+        "admin_commerce,admin_support",
+        "admin_growth,admin_access"
+      ],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["scripts/dev-system.mjs"],
       "suiteIds": [
-        "marketplace_browse",
-        "marketplace_account",
-        "marketplace_checkout",
-        "marketplace_seller",
         "catalog_admin_integrations",
         "catalog_admin_modeling",
         "admin_growth",
@@ -1447,19 +1321,14 @@
       "batches": [
         "catalog_admin_integrations,admin_auth",
         "catalog_admin_modeling,admin_platform",
-        "marketplace_checkout,admin_support",
-        "marketplace_browse,marketplace_account",
-        "admin_commerce,admin_access",
-        "marketplace_seller,admin_growth"
-      ]
+        "admin_commerce,admin_support",
+        "admin_growth,admin_access"
+      ],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["scripts/dev-system-config.mjs"],
       "suiteIds": [
-        "marketplace_browse",
-        "marketplace_account",
-        "marketplace_checkout",
-        "marketplace_seller",
         "catalog_admin_integrations",
         "catalog_admin_modeling",
         "admin_growth",
@@ -1472,34 +1341,32 @@
       "batches": [
         "catalog_admin_integrations,admin_auth",
         "catalog_admin_modeling,admin_platform",
-        "marketplace_checkout,admin_support",
-        "marketplace_browse,marketplace_account",
-        "admin_commerce,admin_access",
-        "marketplace_seller,admin_growth"
-      ]
+        "admin_commerce,admin_support",
+        "admin_growth,admin_access"
+      ],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/catalog/features/operator-session/api/route.ts"],
-      "suiteIds": ["marketplace_browse", "catalog_admin_integrations"],
-      "batches": ["marketplace_browse,catalog_admin_integrations"]
+      "suiteIds": ["catalog_admin_integrations"],
+      "batches": ["catalog_admin_integrations"],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": [".github/workflows/platform-pr.yml"],
       "suiteIds": ["admin_auth"],
-      "batches": ["admin_auth"]
+      "batches": ["admin_auth"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["scripts/playwright-chromium-install.mjs"],
       "suiteIds": ["admin_auth"],
-      "batches": ["admin_auth"]
+      "batches": ["admin_auth"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": [".npmrc"],
       "suiteIds": [
-        "marketplace_browse",
-        "marketplace_account",
-        "marketplace_checkout",
-        "marketplace_seller",
         "catalog_admin_integrations",
         "catalog_admin_modeling",
         "admin_growth",
@@ -1512,757 +1379,766 @@
       "batches": [
         "catalog_admin_integrations,admin_auth",
         "catalog_admin_modeling,admin_platform",
-        "marketplace_checkout,admin_support",
-        "marketplace_browse,marketplace_account",
-        "admin_commerce,admin_access",
-        "marketplace_seller,admin_growth"
-      ]
+        "admin_commerce,admin_support",
+        "admin_growth,admin_access"
+      ],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["README.md"],
       "suiteIds": [],
-      "batches": []
+      "batches": [],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/auth/features/account-selection/ui/account-selection-page.tsx"],
-      "suiteIds": ["marketplace_account", "admin_auth"],
-      "batches": ["marketplace_account,admin_auth"]
+      "suiteIds": ["admin_auth"],
+      "batches": ["admin_auth"],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/auth/routes/access-admin/account-select.tsx"],
       "suiteIds": ["admin_auth", "admin_access"],
-      "batches": ["admin_auth,admin_access"]
+      "batches": ["admin_auth,admin_access"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/auth/routes/marketplace/account-agents-detail.tsx"],
-      "suiteIds": ["marketplace_account"],
-      "batches": ["marketplace_account"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/catalog/client.ts"],
       "suiteIds": ["tcgplayer_operator_extension"],
-      "batches": ["tcgplayer_operator_extension"]
+      "batches": ["tcgplayer_operator_extension"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/catalog/features/alias-equivalence/api/alias-review-admin-contracts.ts"],
-      "suiteIds": ["marketplace_browse", "catalog_admin_integrations"],
-      "batches": ["marketplace_browse,catalog_admin_integrations"]
+      "suiteIds": ["catalog_admin_integrations"],
+      "batches": ["catalog_admin_integrations"],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/catalog/features/dimensions/api/route.ts"],
       "suiteIds": ["catalog_admin_modeling"],
-      "batches": ["catalog_admin_modeling"]
+      "batches": ["catalog_admin_modeling"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/catalog/features/operator-session/domain/extension/background.ts"],
       "suiteIds": ["tcgplayer_operator_extension"],
-      "batches": ["tcgplayer_operator_extension"]
+      "batches": ["tcgplayer_operator_extension"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/catalog/features/operator-session/tests/extension/fixture.ts"],
       "suiteIds": ["tcgplayer_operator_extension"],
-      "batches": ["tcgplayer_operator_extension"]
+      "batches": ["tcgplayer_operator_extension"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/catalog/features/operator-session/ui/extension-popup/client.ts"],
       "suiteIds": ["tcgplayer_operator_extension"],
-      "batches": ["tcgplayer_operator_extension"]
+      "batches": ["tcgplayer_operator_extension"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": [],
       "suiteIds": [],
-      "batches": []
+      "batches": [],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/catalog/routes/admin/blueprints-detail.tsx"],
       "suiteIds": ["catalog_admin_modeling"],
-      "batches": ["catalog_admin_modeling"]
+      "batches": ["catalog_admin_modeling"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/catalog/routes/admin/dimensions-detail.tsx"],
       "suiteIds": ["catalog_admin_modeling"],
-      "batches": ["catalog_admin_modeling"]
+      "batches": ["catalog_admin_modeling"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/catalog/routes/admin/integrations-governance.tsx"],
       "suiteIds": ["catalog_admin_integrations"],
-      "batches": ["catalog_admin_integrations"]
+      "batches": ["catalog_admin_integrations"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/catalog/routes/admin/integrations.tsx"],
       "suiteIds": ["catalog_admin_integrations"],
-      "batches": ["catalog_admin_integrations"]
+      "batches": ["catalog_admin_integrations"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/catalog/tests/catalog.test.ts"],
       "suiteIds": [],
-      "batches": []
+      "batches": [],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/channels/features/connection-attention/api/lifecycle.ts"],
-      "suiteIds": ["marketplace_account", "marketplace_seller"],
-      "batches": ["marketplace_account,marketplace_seller"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/channels/features/connector-client/api/client.ts"],
       "suiteIds": ["tcgplayer_connector_extension"],
-      "batches": ["tcgplayer_connector_extension"]
+      "batches": ["tcgplayer_connector_extension"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/channels/routes/admin/ebay-account-deletion.tsx"],
       "suiteIds": ["admin_support"],
-      "batches": ["admin_support"]
+      "batches": ["admin_support"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": [
         "bounded-contexts/channels/routes/marketplace/account-channel-connection-manual-sync-download.tsx"
       ],
-      "suiteIds": ["marketplace_account", "marketplace_seller"],
-      "batches": ["marketplace_account,marketplace_seller"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/channels/routes/marketplace/account-channels-connection.tsx"],
-      "suiteIds": ["marketplace_account", "marketplace_seller"],
-      "batches": ["marketplace_account,marketplace_seller"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/checkout/features/cart/api/cart-readiness-observability.ts"],
-      "suiteIds": ["marketplace_checkout"],
-      "batches": ["marketplace_checkout"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/checkout/routes/account-cart.tsx"],
-      "suiteIds": ["marketplace_checkout"],
-      "batches": ["marketplace_checkout"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/checkout/routes/sell-checkout-session.tsx"],
-      "suiteIds": ["marketplace_checkout"],
-      "batches": ["marketplace_checkout"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/commercial-terms/features/agreements/api/account-id.ts"],
       "suiteIds": ["admin_commerce"],
-      "batches": ["admin_commerce"]
+      "batches": ["admin_commerce"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/commercial-terms/routes/admin/account-agreement-new.tsx"],
       "suiteIds": ["admin_commerce"],
-      "batches": ["admin_commerce"]
+      "batches": ["admin_commerce"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/commercial-terms/routes/public/sales-fees.tsx"],
-      "suiteIds": ["marketplace_browse"],
-      "batches": ["marketplace_browse"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/commercial-terms/features/agreements/ui/routes/account-agreement-new.tsx"],
       "suiteIds": ["admin_commerce"],
-      "batches": ["admin_commerce"]
+      "batches": ["admin_commerce"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/commercial-terms/features/agreements/ui/routes/agreements-detail.tsx"],
       "suiteIds": ["admin_commerce"],
-      "batches": ["admin_commerce"]
+      "batches": ["admin_commerce"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/commercial-terms/features/agreements/ui/routes/agreements.tsx"],
       "suiteIds": ["admin_commerce"],
-      "batches": ["admin_commerce"]
+      "batches": ["admin_commerce"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/commercial-terms/features/home/ui/routes/home.tsx"],
       "suiteIds": ["admin_commerce"],
-      "batches": ["admin_commerce"]
+      "batches": ["admin_commerce"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/commercial-terms/features/schedules/ui/routes/schedules-detail.tsx"],
       "suiteIds": ["admin_commerce"],
-      "batches": ["admin_commerce"]
+      "batches": ["admin_commerce"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/commercial-terms/features/schedules/ui/routes/schedules.tsx"],
       "suiteIds": ["admin_commerce"],
-      "batches": ["admin_commerce"]
+      "batches": ["admin_commerce"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/commercial-terms/features/marketplace-sales-fee/ui/routes/sales-fees.tsx"],
-      "suiteIds": ["marketplace_browse"],
-      "batches": ["marketplace_browse"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/customer-feedback/features/attention/api/access.ts"],
       "suiteIds": ["admin_support"],
-      "batches": ["admin_support"]
+      "batches": ["admin_support"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/customer-feedback/routes/admin/attention.tsx"],
       "suiteIds": ["admin_support"],
-      "batches": ["admin_support"]
+      "batches": ["admin_support"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/customer-feedback/features/attention/ui/routes/attention.tsx"],
       "suiteIds": ["admin_support"],
-      "batches": ["admin_support"]
+      "batches": ["admin_support"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/customer-feedback/features/attention/ui/localization/locales/en.ts"],
       "suiteIds": ["admin_support"],
-      "batches": ["admin_support"]
+      "batches": ["admin_support"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/discovery/features/browse/api/contracts.ts"],
-      "suiteIds": ["marketplace_browse"],
-      "batches": ["marketplace_browse"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/discovery/features/google-shopping-operations/api/export-row.ts"],
       "suiteIds": ["admin_growth"],
-      "batches": ["admin_growth"]
+      "batches": ["admin_growth"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/discovery/routes/account-product-alerts.tsx"],
-      "suiteIds": ["marketplace_browse"],
-      "batches": ["marketplace_browse"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/discovery/routes/admin/google-shopping.tsx"],
       "suiteIds": ["admin_growth"],
-      "batches": ["admin_growth"]
+      "batches": ["admin_growth"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/discovery/routes/item-detail-market-history.tsx"],
-      "suiteIds": ["marketplace_browse"],
-      "batches": ["marketplace_browse"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/discovery/routes/marketplace/search.tsx"],
-      "suiteIds": ["marketplace_browse"],
-      "batches": ["marketplace_browse"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/fulfillment/features/return-shipments/api/evidence.ts"],
       "suiteIds": ["admin_commerce"],
-      "batches": ["admin_commerce"]
+      "batches": ["admin_commerce"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/fulfillment/routes/admin/return-intake.tsx"],
       "suiteIds": ["admin_commerce"],
-      "batches": ["admin_commerce"]
+      "batches": ["admin_commerce"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/fulfillment/routes/marketplace/account-sale-shipment-packing-slips.tsx"],
-      "suiteIds": ["marketplace_account"],
-      "batches": ["marketplace_account"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/identity/features/access-hub/api/contracts.ts"],
-      "suiteIds": ["marketplace_account", "admin_access"],
-      "batches": ["marketplace_account,admin_access"]
+      "suiteIds": ["admin_access"],
+      "batches": ["admin_access"],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/identity/features/accounts/api/contracts.ts"],
       "suiteIds": ["admin_access"],
-      "batches": ["admin_access"]
+      "batches": ["admin_access"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/identity/features/api-keys/api/contracts.ts"],
       "suiteIds": ["admin_access"],
-      "batches": ["admin_access"]
+      "batches": ["admin_access"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/identity/features/invitations/api/contracts.ts"],
       "suiteIds": ["admin_access"],
-      "batches": ["admin_access"]
+      "batches": ["admin_access"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/identity/routes/admin/access-home.tsx"],
       "suiteIds": ["admin_access"],
-      "batches": ["admin_access"]
+      "batches": ["admin_access"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/identity/routes/admin/accounts-detail.tsx"],
       "suiteIds": ["admin_access"],
-      "batches": ["admin_access"]
+      "batches": ["admin_access"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/identity/routes/admin/api-keys-detail.tsx"],
       "suiteIds": ["admin_access"],
-      "batches": ["admin_access"]
+      "batches": ["admin_access"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/identity/routes/admin/invitations-detail.tsx"],
       "suiteIds": ["admin_access"],
-      "batches": ["admin_access"]
+      "batches": ["admin_access"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/identity/routes/marketplace/account-consents.tsx"],
-      "suiteIds": ["marketplace_account"],
-      "batches": ["marketplace_account"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/inventory/features/channel-allocations/api/contracts.ts"],
-      "suiteIds": ["marketplace_seller"],
-      "batches": ["marketplace_seller"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/inventory/features/recovered-items/api/route.ts"],
       "suiteIds": ["admin_commerce"],
-      "batches": ["admin_commerce"]
+      "batches": ["admin_commerce"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/inventory/routes/admin/recovered-items.tsx"],
       "suiteIds": ["admin_commerce"],
-      "batches": ["admin_commerce"]
+      "batches": ["admin_commerce"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/inventory/routes/marketplace/account-inventory-imports.tsx"],
-      "suiteIds": ["marketplace_seller"],
-      "batches": ["marketplace_seller"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/inventory/features/recovered-items/ui/routes/recovered-items.tsx"],
       "suiteIds": ["admin_commerce"],
-      "batches": ["admin_commerce"]
+      "batches": ["admin_commerce"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/inventory/features/import-batches/ui/routes/account-inventory-imports.tsx"],
-      "suiteIds": ["marketplace_seller"],
-      "batches": ["marketplace_seller"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/inventory/features/inventory-items/ui/routes/account-inventory-item.tsx"],
-      "suiteIds": ["marketplace_seller"],
-      "batches": ["marketplace_seller"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/inventory/features/inventory-items/ui/routes/account-inventory.tsx"],
-      "suiteIds": ["marketplace_seller"],
-      "batches": ["marketplace_seller"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": [
         "bounded-contexts/inventory/features/restock-decisions/ui/routes/account-inventory-restock-decisions.tsx"
       ],
-      "suiteIds": ["marketplace_seller"],
-      "batches": ["marketplace_seller"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": [
         "bounded-contexts/inventory/features/storage-locations/ui/routes/account-inventory-locations.tsx"
       ],
-      "suiteIds": ["marketplace_seller"],
-      "batches": ["marketplace_seller"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/marketplace/features/channel-inbound-clamp/api/capability.ts"],
-      "suiteIds": ["marketplace_account", "marketplace_seller"],
-      "batches": ["marketplace_account,marketplace_seller"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/marketplace/features/listing-evidence-policy/api/client.ts"],
       "suiteIds": ["admin_platform"],
-      "batches": ["admin_platform"]
+      "batches": ["admin_platform"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/marketplace/routes/account-desk.tsx"],
-      "suiteIds": ["marketplace_account", "marketplace_seller"],
-      "batches": ["marketplace_account,marketplace_seller"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/marketplace/routes/account-listing.tsx"],
-      "suiteIds": ["marketplace_account", "marketplace_seller"],
-      "batches": ["marketplace_account,marketplace_seller"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/marketplace/routes/admin/listing-evidence-policy.tsx"],
       "suiteIds": ["admin_platform"],
-      "batches": ["admin_platform"]
+      "batches": ["admin_platform"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/marketplace/routes/marketplace/account-purchase-review.tsx"],
-      "suiteIds": ["marketplace_account"],
-      "batches": ["marketplace_account"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/notifications/features/notification-center/api/provider-webhook-paths.ts"],
-      "suiteIds": ["marketplace_account"],
-      "batches": ["marketplace_account"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": [
         "bounded-contexts/notifications/features/notification-center/ui/routes/account-notifications.tsx"
       ],
-      "suiteIds": ["marketplace_account"],
-      "batches": ["marketplace_account"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/notifications/routes/account-notifications.tsx"],
-      "suiteIds": ["marketplace_account"],
-      "batches": ["marketplace_account"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/ordering/features/orders/api/authenticity-fee-policy-resolver.ts"],
-      "suiteIds": ["marketplace_account", "marketplace_checkout", "admin_commerce"],
-      "batches": ["marketplace_checkout", "marketplace_account,admin_commerce"]
+      "suiteIds": ["admin_commerce"],
+      "batches": ["admin_commerce"],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/ordering/features/postage-policies/api/route.ts"],
       "suiteIds": ["admin_commerce"],
-      "batches": ["admin_commerce"]
+      "batches": ["admin_commerce"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/ordering/routes/account-purchase.tsx"],
-      "suiteIds": ["marketplace_account"],
-      "batches": ["marketplace_account"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/ordering/routes/admin/postage-policies-detail.tsx"],
       "suiteIds": ["admin_commerce"],
-      "batches": ["admin_commerce"]
+      "batches": ["admin_commerce"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/ordering/features/postage-policies/ui/routes/postage-policies.tsx"],
       "suiteIds": ["admin_commerce"],
-      "batches": ["admin_commerce"]
+      "batches": ["admin_commerce"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/ordering/features/postage-policies/ui/routes/postage-policies-detail.tsx"],
       "suiteIds": ["admin_commerce"],
-      "batches": ["admin_commerce"]
+      "batches": ["admin_commerce"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/payments/features/payments/api/balance-credit-request.ts"],
-      "suiteIds": ["marketplace_account", "marketplace_checkout"],
-      "batches": ["marketplace_account,marketplace_checkout"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/payments/routes/marketplace/account-payment-methods.tsx"],
-      "suiteIds": ["marketplace_account"],
-      "batches": ["marketplace_account"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/payments/routes/marketplace/account-payment.tsx"],
-      "suiteIds": ["marketplace_checkout"],
-      "batches": ["marketplace_checkout"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/payments/features/payments/ui/routes/account-payment-methods.tsx"],
-      "suiteIds": ["marketplace_account"],
-      "batches": ["marketplace_account"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/payments/features/payments/ui/routes/account-payment-new.tsx"],
-      "suiteIds": ["marketplace_account"],
-      "batches": ["marketplace_account"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/payments/features/payments/ui/routes/account-payment.tsx"],
-      "suiteIds": ["marketplace_checkout"],
-      "batches": ["marketplace_checkout"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/payments/features/payments/ui/routes/checkout-payment.tsx"],
-      "suiteIds": ["marketplace_checkout"],
-      "batches": ["marketplace_checkout"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/platform-operations/features/commercial-terms-attention/api/routes.ts"],
-      "suiteIds": ["marketplace_account", "admin_support", "admin_platform"],
-      "batches": ["marketplace_account", "admin_support,admin_platform"]
+      "suiteIds": ["admin_support", "admin_platform"],
+      "batches": ["admin_support,admin_platform"],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/platform-operations/features/support-requests/api/attachments.ts"],
       "suiteIds": ["admin_support"],
-      "batches": ["admin_support"]
+      "batches": ["admin_support"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/platform-operations/routes/admin/csat-dashboard.tsx"],
       "suiteIds": ["admin_support", "admin_platform"],
-      "batches": ["admin_support,admin_platform"]
+      "batches": ["admin_support,admin_platform"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/platform-operations/routes/admin/platform-feedback-detail.tsx"],
       "suiteIds": ["admin_support"],
-      "batches": ["admin_support"]
+      "batches": ["admin_support"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/platform-operations/routes/admin/projection-operations-reference.tsx"],
       "suiteIds": ["admin_platform"],
-      "batches": ["admin_platform"]
+      "batches": ["admin_platform"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/platform-operations/routes/admin/request-detail.tsx"],
       "suiteIds": ["admin_support"],
-      "batches": ["admin_support"]
+      "batches": ["admin_support"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/platform-operations/routes/marketplace/account-support-detail.tsx"],
-      "suiteIds": ["marketplace_account"],
-      "batches": ["marketplace_account"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/pricing/features/bulk-reprice-ingestion/api/route.ts"],
-      "suiteIds": ["marketplace_browse"],
-      "batches": ["marketplace_browse"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/pricing/routes/marketplace/account-desk-repricing-policy.tsx"],
-      "suiteIds": ["marketplace_seller"],
-      "batches": ["marketplace_seller"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/pricing/routes/marketplace/account-repricing.tsx"],
-      "suiteIds": ["marketplace_seller"],
-      "batches": ["marketplace_seller"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/public-presence/features/developer-portal/ui/developer-pages.tsx"],
-      "suiteIds": ["marketplace_browse", "admin_growth"],
-      "batches": ["marketplace_browse,admin_growth"]
+      "suiteIds": ["admin_growth"],
+      "batches": ["admin_growth"],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/public-presence/features/waitlist/api/analytics.ts"],
       "suiteIds": ["admin_growth"],
-      "batches": ["admin_growth"]
+      "batches": ["admin_growth"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx"],
       "suiteIds": ["admin_growth"],
-      "batches": ["admin_growth"]
+      "batches": ["admin_growth"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/public-presence/routes/admin/campaign-analytics.tsx"],
       "suiteIds": ["admin_growth"],
-      "batches": ["admin_growth"]
+      "batches": ["admin_growth"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/public-presence/routes/admin/promo-bar.tsx"],
       "suiteIds": ["admin_growth"],
-      "batches": ["admin_growth"]
+      "batches": ["admin_growth"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/public-presence/routes/admin/waitlist.tsx"],
       "suiteIds": ["admin_growth"],
-      "batches": ["admin_growth"]
+      "batches": ["admin_growth"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/public-presence/routes/developers/article.tsx"],
-      "suiteIds": ["marketplace_browse"],
-      "batches": ["marketplace_browse"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/public-presence/routes/marketplace/agent-terms.tsx"],
-      "suiteIds": ["marketplace_browse"],
-      "batches": ["marketplace_browse"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/settlement/features/liability-allocation/api/ports.ts"],
-      "suiteIds": ["marketplace_account", "marketplace_seller"],
-      "batches": ["marketplace_account,marketplace_seller"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/settlement/routes/admin/money-health.tsx"],
       "suiteIds": ["admin_commerce"],
-      "batches": ["admin_commerce"]
+      "batches": ["admin_commerce"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["bounded-contexts/settlement/routes/marketplace/account-desk-money.tsx"],
-      "suiteIds": ["marketplace_account", "marketplace_seller"],
-      "batches": ["marketplace_account,marketplace_seller"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/unmapped/features/example/api/runtime.ts"],
       "suiteIds": [],
-      "batches": []
+      "batches": [],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["contracts/localization/locales/en/catalog/operator-extension.ts"],
       "suiteIds": ["tcgplayer_operator_extension"],
-      "batches": ["tcgplayer_operator_extension"]
+      "batches": ["tcgplayer_operator_extension"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["deployables/admin-web/e2e/access-account-badges.spec.ts"],
       "suiteIds": ["admin_access"],
-      "batches": ["admin_access"]
+      "batches": ["admin_access"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["deployables/admin-web/e2e/admin-cross-cutting-topology.spec.ts"],
       "suiteIds": ["admin_platform"],
-      "batches": ["admin_platform"]
+      "batches": ["admin_platform"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["deployables/admin-web/e2e/admin-tablet-navigation.spec.ts"],
       "suiteIds": ["catalog_admin_integrations", "admin_support"],
-      "batches": ["catalog_admin_integrations,admin_support"]
+      "batches": ["catalog_admin_integrations,admin_support"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["deployables/admin-web/e2e/auth-shell-rbac.spec.ts"],
       "suiteIds": ["admin_auth"],
-      "batches": ["admin_auth"]
+      "batches": ["admin_auth"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["deployables/admin-web/e2e/catalog-integrations.spec.ts"],
       "suiteIds": ["catalog_admin_integrations"],
-      "batches": ["catalog_admin_integrations"]
+      "batches": ["catalog_admin_integrations"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["deployables/admin-web/e2e/catalog-modeling.spec.ts"],
       "suiteIds": ["catalog_admin_modeling"],
-      "batches": ["catalog_admin_modeling"]
+      "batches": ["catalog_admin_modeling"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["deployables/admin-web/e2e/catalog-scopes.spec.ts"],
       "suiteIds": ["catalog_admin_integrations"],
-      "batches": ["catalog_admin_integrations"]
+      "batches": ["catalog_admin_integrations"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["deployables/admin-web/e2e/catalog-staging-provider-sync.uat.spec.ts"],
       "suiteIds": [],
-      "batches": []
+      "batches": [],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["deployables/admin-web/e2e/commerce-commercial-terms.spec.ts"],
       "suiteIds": ["admin_commerce"],
-      "batches": ["admin_commerce"]
+      "batches": ["admin_commerce"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["deployables/admin-web/e2e/growth-google-shopping-waitlist.spec.ts"],
       "suiteIds": ["admin_growth"],
-      "batches": ["admin_growth"]
+      "batches": ["admin_growth"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["deployables/admin-web/e2e/support-platform-feedback.spec.ts"],
       "suiteIds": ["admin_support"],
-      "batches": ["admin_support"]
-    },
-    {
-      "changedFiles": ["deployables/marketplace/app/auth.server.ts"],
-      "suiteIds": ["marketplace_browse", "marketplace_account"],
-      "batches": ["marketplace_browse,marketplace_account"]
-    },
-    {
-      "changedFiles": ["deployables/marketplace/app/routes/account-listing.tsx"],
-      "suiteIds": ["marketplace_seller"],
-      "batches": ["marketplace_seller"]
-    },
-    {
-      "changedFiles": ["deployables/marketplace/app/routes/account-payment.tsx"],
-      "suiteIds": ["marketplace_checkout"],
-      "batches": ["marketplace_checkout"]
-    },
-    {
-      "changedFiles": ["deployables/marketplace/app/routes/account-purchase.tsx"],
-      "suiteIds": ["marketplace_account"],
-      "batches": ["marketplace_account"]
-    },
-    {
-      "changedFiles": ["deployables/marketplace/app/routes/chrome-devtools.ts"],
-      "suiteIds": [],
-      "batches": []
-    },
-    {
-      "changedFiles": ["deployables/marketplace/app/routes/index.tsx"],
-      "suiteIds": ["marketplace_browse"],
-      "batches": ["marketplace_browse"]
-    },
-    {
-      "changedFiles": ["deployables/marketplace/app/routes/layout.tsx"],
-      "suiteIds": ["marketplace_browse", "marketplace_account", "marketplace_checkout", "marketplace_seller"],
-      "batches": ["marketplace_account,marketplace_checkout", "marketplace_browse,marketplace_seller"]
-    },
-    {
-      "changedFiles": ["deployables/marketplace/app/routes/not-found.tsx"],
-      "suiteIds": ["marketplace_browse"],
-      "batches": ["marketplace_browse"]
-    },
-    {
-      "changedFiles": ["deployables/marketplace/e2e/account-elevation-intent.spec.ts"],
-      "suiteIds": ["marketplace_account"],
-      "batches": ["marketplace_account"]
-    },
-    {
-      "changedFiles": ["deployables/marketplace/e2e/account-payment-stripe-embed.uat.spec.ts"],
-      "suiteIds": [],
-      "batches": []
-    },
-    {
-      "changedFiles": ["deployables/marketplace/e2e/account-payment.spec.ts"],
-      "suiteIds": ["marketplace_checkout"],
-      "batches": ["marketplace_checkout"]
+      "batches": ["admin_support"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["deployables/corten-pilot/e2e/critical-flows.spec.ts"],
-      "suiteIds": ["marketplace_browse", "marketplace_account", "marketplace_checkout", "marketplace_seller"],
-      "batches": ["marketplace_account,marketplace_checkout", "marketplace_browse,marketplace_seller"]
-    },
-    {
-      "changedFiles": ["deployables/marketplace/e2e/item-detail.spec.ts"],
-      "suiteIds": ["marketplace_browse"],
-      "batches": ["marketplace_browse"]
-    },
-    {
-      "changedFiles": ["deployables/marketplace/e2e/payout-connect-appearance.uat.spec.ts"],
-      "suiteIds": [
-        "marketplace_browse",
-        "marketplace_account",
-        "marketplace_checkout",
-        "marketplace_seller",
-        "catalog_admin_integrations",
-        "catalog_admin_modeling",
-        "admin_growth",
-        "admin_commerce",
-        "admin_support",
-        "admin_platform",
-        "admin_auth",
-        "admin_access"
-      ],
-      "batches": [
-        "catalog_admin_integrations,admin_auth",
-        "catalog_admin_modeling,admin_platform",
-        "marketplace_checkout,admin_support",
-        "marketplace_browse,marketplace_account",
-        "admin_commerce,admin_access",
-        "marketplace_seller,admin_growth"
-      ]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["deployables/corten-pilot/e2e/responsive-evidence-contract.spec.ts"],
-      "suiteIds": ["marketplace_browse"],
-      "batches": ["marketplace_browse"]
-    },
-    {
-      "changedFiles": ["deployables/marketplace/e2e/unmapped.spec.ts"],
-      "suiteIds": [
-        "marketplace_browse",
-        "marketplace_account",
-        "marketplace_checkout",
-        "marketplace_seller",
-        "catalog_admin_integrations",
-        "catalog_admin_modeling",
-        "admin_growth",
-        "admin_commerce",
-        "admin_support",
-        "admin_platform",
-        "admin_auth",
-        "admin_access"
-      ],
-      "batches": [
-        "catalog_admin_integrations,admin_auth",
-        "catalog_admin_modeling,admin_platform",
-        "marketplace_checkout,admin_support",
-        "marketplace_browse,marketplace_account",
-        "admin_commerce,admin_access",
-        "marketplace_seller,admin_growth"
-      ]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["deployables/platform-api/src/index.ts"],
       "suiteIds": [
-        "marketplace_browse",
-        "marketplace_account",
-        "marketplace_checkout",
-        "marketplace_seller",
         "catalog_admin_integrations",
         "catalog_admin_modeling",
         "admin_growth",
@@ -2275,39 +2151,38 @@
       "batches": [
         "catalog_admin_integrations,admin_auth",
         "catalog_admin_modeling,admin_platform",
-        "marketplace_checkout,admin_support",
-        "marketplace_browse,marketplace_account",
-        "admin_commerce,admin_access",
-        "marketplace_seller,admin_growth"
-      ]
+        "admin_commerce,admin_support",
+        "admin_growth,admin_access"
+      ],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["deployables/public-web/e2e/landing-disclosure.spec.ts"],
       "suiteIds": [],
-      "batches": []
+      "batches": [],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["deployables/tcgplayer-connector-extension/package.json"],
       "suiteIds": ["tcgplayer_connector_extension"],
-      "batches": ["tcgplayer_connector_extension"]
+      "batches": ["tcgplayer_connector_extension"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["deployables/tcgplayer-operator-extension/package.json"],
       "suiteIds": ["tcgplayer_operator_extension"],
-      "batches": ["tcgplayer_operator_extension"]
+      "batches": ["tcgplayer_operator_extension"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["infrastructure/digitalocean/platform/main.tf"],
       "suiteIds": [],
-      "batches": []
+      "batches": [],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["infrastructure/playwright-evidence/index.ts"],
       "suiteIds": [
-        "marketplace_browse",
-        "marketplace_account",
-        "marketplace_checkout",
-        "marketplace_seller",
         "catalog_admin_integrations",
         "catalog_admin_modeling",
         "admin_growth",
@@ -2320,19 +2195,14 @@
       "batches": [
         "catalog_admin_integrations,admin_auth",
         "catalog_admin_modeling,admin_platform",
-        "marketplace_checkout,admin_support",
-        "marketplace_browse,marketplace_account",
-        "admin_commerce,admin_access",
-        "marketplace_seller,admin_growth"
-      ]
+        "admin_commerce,admin_support",
+        "admin_growth,admin_access"
+      ],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["package.json"],
       "suiteIds": [
-        "marketplace_browse",
-        "marketplace_account",
-        "marketplace_checkout",
-        "marketplace_seller",
         "catalog_admin_integrations",
         "catalog_admin_modeling",
         "admin_growth",
@@ -2345,19 +2215,14 @@
       "batches": [
         "catalog_admin_integrations,admin_auth",
         "catalog_admin_modeling,admin_platform",
-        "marketplace_checkout,admin_support",
-        "marketplace_browse,marketplace_account",
-        "admin_commerce,admin_access",
-        "marketplace_seller,admin_growth"
-      ]
+        "admin_commerce,admin_support",
+        "admin_growth,admin_access"
+      ],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["packages/design-system/src/components/actions/navigation.tsx"],
       "suiteIds": [
-        "marketplace_browse",
-        "marketplace_account",
-        "marketplace_checkout",
-        "marketplace_seller",
         "catalog_admin_integrations",
         "catalog_admin_modeling",
         "admin_growth",
@@ -2370,19 +2235,14 @@
       "batches": [
         "catalog_admin_integrations,admin_auth",
         "catalog_admin_modeling,admin_platform",
-        "marketplace_checkout,admin_support",
-        "marketplace_browse,marketplace_account",
-        "admin_commerce,admin_access",
-        "marketplace_seller,admin_growth"
-      ]
+        "admin_commerce,admin_support",
+        "admin_growth,admin_access"
+      ],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["packages/design-system/src/theme/provider.tsx"],
       "suiteIds": [
-        "marketplace_browse",
-        "marketplace_account",
-        "marketplace_checkout",
-        "marketplace_seller",
         "catalog_admin_integrations",
         "catalog_admin_modeling",
         "admin_growth",
@@ -2395,19 +2255,14 @@
       "batches": [
         "catalog_admin_integrations,admin_auth",
         "catalog_admin_modeling,admin_platform",
-        "marketplace_checkout,admin_support",
-        "marketplace_browse,marketplace_account",
-        "admin_commerce,admin_access",
-        "marketplace_seller,admin_growth"
-      ]
+        "admin_commerce,admin_support",
+        "admin_growth,admin_access"
+      ],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["playwright.config.ts"],
       "suiteIds": [
-        "marketplace_browse",
-        "marketplace_account",
-        "marketplace_checkout",
-        "marketplace_seller",
         "catalog_admin_integrations",
         "catalog_admin_modeling",
         "admin_growth",
@@ -2420,19 +2275,14 @@
       "batches": [
         "catalog_admin_integrations,admin_auth",
         "catalog_admin_modeling,admin_platform",
-        "marketplace_checkout,admin_support",
-        "marketplace_browse,marketplace_account",
-        "admin_commerce,admin_access",
-        "marketplace_seller,admin_growth"
-      ]
+        "admin_commerce,admin_support",
+        "admin_growth,admin_access"
+      ],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["pnpm-lock.yaml"],
       "suiteIds": [
-        "marketplace_browse",
-        "marketplace_account",
-        "marketplace_checkout",
-        "marketplace_seller",
         "catalog_admin_integrations",
         "catalog_admin_modeling",
         "admin_growth",
@@ -2445,19 +2295,14 @@
       "batches": [
         "catalog_admin_integrations,admin_auth",
         "catalog_admin_modeling,admin_platform",
-        "marketplace_checkout,admin_support",
-        "marketplace_browse,marketplace_account",
-        "admin_commerce,admin_access",
-        "marketplace_seller,admin_growth"
-      ]
+        "admin_commerce,admin_support",
+        "admin_growth,admin_access"
+      ],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["pnpm-workspace.yaml"],
       "suiteIds": [
-        "marketplace_browse",
-        "marketplace_account",
-        "marketplace_checkout",
-        "marketplace_seller",
         "catalog_admin_integrations",
         "catalog_admin_modeling",
         "admin_growth",
@@ -2470,19 +2315,14 @@
       "batches": [
         "catalog_admin_integrations,admin_auth",
         "catalog_admin_modeling,admin_platform",
-        "marketplace_checkout,admin_support",
-        "marketplace_browse,marketplace_account",
-        "admin_commerce,admin_access",
-        "marketplace_seller,admin_growth"
-      ]
+        "admin_commerce,admin_support",
+        "admin_growth,admin_access"
+      ],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["react-router.config.ts"],
       "suiteIds": [
-        "marketplace_browse",
-        "marketplace_account",
-        "marketplace_checkout",
-        "marketplace_seller",
         "catalog_admin_integrations",
         "catalog_admin_modeling",
         "admin_growth",
@@ -2495,24 +2335,20 @@
       "batches": [
         "catalog_admin_integrations,admin_auth",
         "catalog_admin_modeling,admin_platform",
-        "marketplace_checkout,admin_support",
-        "marketplace_browse,marketplace_account",
-        "admin_commerce,admin_access",
-        "marketplace_seller,admin_growth"
-      ]
+        "admin_commerce,admin_support",
+        "admin_growth,admin_access"
+      ],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["scripts/ci-gate-plan.mjs"],
       "suiteIds": [],
-      "batches": []
+      "batches": [],
+      "cortenMarketplaceBrowser": false
     },
     {
       "changedFiles": ["scripts/e2e-suites.mjs"],
       "suiteIds": [
-        "marketplace_browse",
-        "marketplace_account",
-        "marketplace_checkout",
-        "marketplace_seller",
         "catalog_admin_integrations",
         "catalog_admin_modeling",
         "admin_growth",
@@ -2525,19 +2361,14 @@
       "batches": [
         "catalog_admin_integrations,admin_auth",
         "catalog_admin_modeling,admin_platform",
-        "marketplace_checkout,admin_support",
-        "marketplace_browse,marketplace_account",
-        "admin_commerce,admin_access",
-        "marketplace_seller,admin_growth"
-      ]
+        "admin_commerce,admin_support",
+        "admin_growth,admin_access"
+      ],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["scripts/run-e2e-suite.mjs"],
       "suiteIds": [
-        "marketplace_browse",
-        "marketplace_account",
-        "marketplace_checkout",
-        "marketplace_seller",
         "catalog_admin_integrations",
         "catalog_admin_modeling",
         "admin_growth",
@@ -2550,19 +2381,14 @@
       "batches": [
         "catalog_admin_integrations,admin_auth",
         "catalog_admin_modeling,admin_platform",
-        "marketplace_checkout,admin_support",
-        "marketplace_browse,marketplace_account",
-        "admin_commerce,admin_access",
-        "marketplace_seller,admin_growth"
-      ]
+        "admin_commerce,admin_support",
+        "admin_growth,admin_access"
+      ],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["scripts/validate-responsive-evidence-artifacts.mjs"],
       "suiteIds": [
-        "marketplace_browse",
-        "marketplace_account",
-        "marketplace_checkout",
-        "marketplace_seller",
         "catalog_admin_integrations",
         "catalog_admin_modeling",
         "admin_growth",
@@ -2575,19 +2401,14 @@
       "batches": [
         "catalog_admin_integrations,admin_auth",
         "catalog_admin_modeling,admin_platform",
-        "marketplace_checkout,admin_support",
-        "marketplace_browse,marketplace_account",
-        "admin_commerce,admin_access",
-        "marketplace_seller,admin_growth"
-      ]
+        "admin_commerce,admin_support",
+        "admin_growth,admin_access"
+      ],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["tailwind.config.ts"],
       "suiteIds": [
-        "marketplace_browse",
-        "marketplace_account",
-        "marketplace_checkout",
-        "marketplace_seller",
         "catalog_admin_integrations",
         "catalog_admin_modeling",
         "admin_growth",
@@ -2600,19 +2421,14 @@
       "batches": [
         "catalog_admin_integrations,admin_auth",
         "catalog_admin_modeling,admin_platform",
-        "marketplace_checkout,admin_support",
-        "marketplace_browse,marketplace_account",
-        "admin_commerce,admin_access",
-        "marketplace_seller,admin_growth"
-      ]
+        "admin_commerce,admin_support",
+        "admin_growth,admin_access"
+      ],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["tsconfig.base.json"],
       "suiteIds": [
-        "marketplace_browse",
-        "marketplace_account",
-        "marketplace_checkout",
-        "marketplace_seller",
         "catalog_admin_integrations",
         "catalog_admin_modeling",
         "admin_growth",
@@ -2625,19 +2441,14 @@
       "batches": [
         "catalog_admin_integrations,admin_auth",
         "catalog_admin_modeling,admin_platform",
-        "marketplace_checkout,admin_support",
-        "marketplace_browse,marketplace_account",
-        "admin_commerce,admin_access",
-        "marketplace_seller,admin_growth"
-      ]
+        "admin_commerce,admin_support",
+        "admin_growth,admin_access"
+      ],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["tsconfig.json"],
       "suiteIds": [
-        "marketplace_browse",
-        "marketplace_account",
-        "marketplace_checkout",
-        "marketplace_seller",
         "catalog_admin_integrations",
         "catalog_admin_modeling",
         "admin_growth",
@@ -2650,19 +2461,14 @@
       "batches": [
         "catalog_admin_integrations,admin_auth",
         "catalog_admin_modeling,admin_platform",
-        "marketplace_checkout,admin_support",
-        "marketplace_browse,marketplace_account",
-        "admin_commerce,admin_access",
-        "marketplace_seller,admin_growth"
-      ]
+        "admin_commerce,admin_support",
+        "admin_growth,admin_access"
+      ],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["vite.config.ts"],
       "suiteIds": [
-        "marketplace_browse",
-        "marketplace_account",
-        "marketplace_checkout",
-        "marketplace_seller",
         "catalog_admin_integrations",
         "catalog_admin_modeling",
         "admin_growth",
@@ -2675,39 +2481,31 @@
       "batches": [
         "catalog_admin_integrations,admin_auth",
         "catalog_admin_modeling,admin_platform",
-        "marketplace_checkout,admin_support",
-        "marketplace_browse,marketplace_account",
-        "admin_commerce,admin_access",
-        "marketplace_seller,admin_growth"
-      ]
+        "admin_commerce,admin_support",
+        "admin_growth,admin_access"
+      ],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": [
         "bounded-contexts/catalog/features/operator-session/api/route.ts",
         "bounded-contexts/inventory/features/listings/ui/listing.tsx"
       ],
-      "suiteIds": ["marketplace_browse", "marketplace_seller", "catalog_admin_integrations"],
-      "batches": ["catalog_admin_integrations", "marketplace_browse,marketplace_seller"]
+      "suiteIds": ["catalog_admin_integrations"],
+      "batches": ["catalog_admin_integrations"],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["bounded-contexts/auth/support/runtime-support/seed.ts"],
-      "suiteIds": ["marketplace_account", "admin_auth"],
-      "batches": ["marketplace_account,admin_auth"]
-    },
-    {
-      "changedFiles": ["deployables/marketplace/e2e/account-management-interruption.spec.ts"],
-      "suiteIds": ["marketplace_account"],
-      "batches": ["marketplace_account"]
+      "suiteIds": ["admin_auth", "rendered_copy"],
+      "batches": ["admin_auth,rendered_copy"],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["deployables/corten-pilot/e2e/marketplace-shell-header.spec.ts"],
-      "suiteIds": ["marketplace_browse"],
-      "batches": ["marketplace_browse"]
-    },
-    {
-      "changedFiles": ["deployables/marketplace/e2e/rendered-copy-sweep.spec.ts"],
-      "suiteIds": ["marketplace_account", "marketplace_seller"],
-      "batches": ["marketplace_account,marketplace_seller"]
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "changedFiles": ["deployables/admin-web/e2e/rendered-copy-sweep.spec.ts"],
@@ -2723,7 +2521,14 @@
         "catalog_admin_integrations,admin_support",
         "catalog_admin_modeling,admin_access",
         "admin_growth,admin_commerce"
-      ]
+      ],
+      "cortenMarketplaceBrowser": false
+    },
+    {
+      "changedFiles": ["deployables/corten-pilot/e2e/buyer-purchase-journey.spec.ts"],
+      "suiteIds": [],
+      "batches": [],
+      "cortenMarketplaceBrowser": true
     }
   ]
 }

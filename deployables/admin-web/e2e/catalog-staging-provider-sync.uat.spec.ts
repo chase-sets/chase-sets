@@ -7934,7 +7934,7 @@ async function wholeGameSettle(
       counts.publishPreviewed += 1;
       await waitForWholeGamePublishJob(page, jobId, runtime);
       for (const { catalogItemId } of drafts) {
-        const item = await readPromotedCatalogItem(page, catalogItemId, runtime);
+        const item = await readPublishedCatalogItem(page, catalogItemId, runtime);
         if (item.status !== "active") throw new WholeGameRehearsalRefusal("promoted-draft-not-published");
         counts.published += 1;
         counts.draftsRemaining -= 1;
@@ -7983,6 +7983,18 @@ async function readPromotedCatalogItem(page: Page, catalogItemId: string, runtim
   return { blueprint_id: item.blueprint_id, status: item.status };
 }
 
+// A completed publish job can finish before the item read reflects it, so a
+// draft gets a bounded number of re-reads, each still held to the settle
+// deadline by readWholeGameJson; any other status answers at once.
+async function readPublishedCatalogItem(page: Page, catalogItemId: string, runtime: WholeGameRuntime) {
+  const attempts = 24;
+  let item = await readPromotedCatalogItem(page, catalogItemId, runtime);
+  for (let attempt = 1; item.status === "draft" && attempt < attempts; attempt += 1) {
+    await page.waitForTimeout(runtime.pollMs);
+    item = await readPromotedCatalogItem(page, catalogItemId, runtime);
+  }
+  return item;
+}
 async function readActivePromoteJobs(
   page: Page,
   scopeRecordId: string,

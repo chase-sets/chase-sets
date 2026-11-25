@@ -9,7 +9,7 @@
 //!
 //! | Route | Answers |
 //! |---|---|
-//! | `GET /catalog/providers/{key}?<context>&after_write&done` | the page for the context, after the command the address names |
+//! | `GET /catalog/providers/{key}?<context>&afterWrite&done` | the page for the context, after the command the address names |
 //! | `POST /catalog/providers/{key}/refresh?<context>` | pauses, resumes or runs the provider's source-option refresh |
 //! | `POST /catalog/providers/{key}/draft?<context>` | creates a draft from the selected profile version |
 //! | `POST /catalog/providers/{key}/lifecycle?<context>` | rolls back, deprecates or retires a profile version |
@@ -556,7 +556,7 @@ pub(crate) async fn page(
     uri: Uri,
     Params(route): Params<url::Provider<'_>>,
 ) -> HtmlResult {
-    let receipt = Receipt::from_param(param(&uri, "after_write").as_deref());
+    let receipt = Receipt::from_param(param(&uri, "afterWrite").as_deref());
     let said = param(&uri, "done").as_deref().and_then(Done::of).map(Said::Done);
     let context = daily::context_of(&uri);
     render(&req, &staff.viewer, &config, &headers, &route.key, &context, receipt, said, false, None).await
@@ -577,7 +577,7 @@ fn landed(
     all.push(("done", Some(done.word())));
     let receipt = written.and_then(receipt);
     if let Some(receipt) = receipt.as_deref() {
-        all.push(("after_write", Some(receipt)));
+        all.push(("afterWrite", Some(receipt)));
     }
     let to = at(&url::Provider { key }.href().to_string(), &with_query(context, &all));
     match Local::parse(&to) {

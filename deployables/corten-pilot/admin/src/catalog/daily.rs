@@ -6,7 +6,7 @@
 //!
 //! | Route | Answers |
 //! |---|---|
-//! | `GET /catalog/integrations?<context>&after_write&done&preflight` | the workbench for the context, after the command the address names; with `preflight=true`, its import preflight read in |
+//! | `GET /catalog/integrations?<context>&afterWrite&done&preflight` | the workbench for the context, after the command the address names; with `preflight=true`, its import preflight read in |
 //! | `POST /catalog/integrations/catalog-sync?<context>` | starts a Catalog sync of the scope with the checked provider units, and lands on its run |
 //! | `POST /catalog/integrations/jobs/{id}?<context>` | retries, resumes or cancels an import job |
 //! | `POST /catalog/integrations/units?<context>` | imports or reapplies a workset unit's scope |
@@ -1382,7 +1382,7 @@ pub fn location(context: &str) -> String {
 /// The address's working set: its query without what the last command left on it, and the pilot's
 /// [`PREFLIGHT`].
 pub fn context_of(uri: &Uri) -> String {
-    with_query(uri.query().unwrap_or_default(), &[("after_write", None), ("done", None), (PREFLIGHT, None)])
+    with_query(uri.query().unwrap_or_default(), &[("afterWrite", None), ("done", None), (PREFLIGHT, None)])
 }
 
 /// A query value the address carries (the last command's receipt and outcome), decoded.
@@ -1677,7 +1677,7 @@ pub(crate) async fn page(
     headers: HeaderMap,
     uri: Uri,
 ) -> HtmlResult {
-    let receipt = Receipt::from_param(param(&uri, "after_write").as_deref());
+    let receipt = Receipt::from_param(param(&uri, "afterWrite").as_deref());
     let said = param(&uri, "done").as_deref().and_then(Ran::of).map(Said::Ran);
     let context = context_of(&uri);
     let asked = param(&uri, PREFLIGHT).as_deref() == Some("true");
@@ -1730,7 +1730,7 @@ fn landed(req: &Req, context: &str, set: &[(&str, Option<&str>)], written: &supe
     changes.push(("done", Some(ran.word())));
     let receipt = receipt(written);
     if let Some(receipt) = receipt.as_deref() {
-        changes.push(("after_write", Some(receipt)));
+        changes.push(("afterWrite", Some(receipt)));
     }
     let to = at(&home(context), &with_query(context, &changes));
     match Local::parse(&to) {
@@ -2550,11 +2550,11 @@ mod tests {
         );
         assert_eq!(with_query(context, &[("filter.status", None), ("reviewOffset", None)]), "providerKey=tcgplayer");
         assert_eq!(with_query("", &[("filter.status", Some("a b"))]), "filter.status=a%20b");
-        let uri: Uri = "/catalog/integrations?providerKey=x&after_write=r1&done=queued".parse().unwrap();
+        let uri: Uri = "/catalog/integrations?providerKey=x&afterWrite=r1&done=queued".parse().unwrap();
         assert_eq!(context_of(&uri), "providerKey=x");
         assert_eq!(param(&uri, "done").as_deref(), Some("queued"));
-        let receipt: Uri = format!("/catalog/integrations?after_write={}", segment(r#"{"a": 1}"#)).parse().unwrap();
-        assert_eq!(param(&receipt, "after_write").as_deref(), Some(r#"{"a": 1}"#), "the receipt as it was written");
+        let receipt: Uri = format!("/catalog/integrations?afterWrite={}", segment(r#"{"a": 1}"#)).parse().unwrap();
+        assert_eq!(param(&receipt, "afterWrite").as_deref(), Some(r#"{"a": 1}"#), "the receipt as it was written");
         assert_eq!(at("/catalog/integrations", ""), "/catalog/integrations");
     }
 

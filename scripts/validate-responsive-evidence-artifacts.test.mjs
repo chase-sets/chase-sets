@@ -52,7 +52,7 @@ describe("responsive evidence artifact validation", () => {
   it("retains required web evidence when a command suite shares the batch", async () => {
     const root = await fixture();
     await rm(path.join(root, screenshotPath));
-    const suiteBatch = "marketplace_browse,tcgplayer_connector_extension";
+    const suiteBatch = "admin_platform,tcgplayer_connector_extension";
     const result = await prepareHostedResponsiveEvidenceArtifact({
       repoRoot: root,
       selectedGreps: responsiveEvidenceGrepsForSuiteBatch(suiteBatch),
@@ -155,8 +155,8 @@ describe("responsive evidence artifact validation", () => {
     const originalManifest = await readFile(path.join(root, runtimeManifestPath), "utf8");
     const result = await prepareHostedResponsiveEvidenceArtifact({
       repoRoot: root,
-      selectedGreps: responsiveEvidenceGrepsForSuiteBatch("marketplace_browse,tcgplayer_connector_extension"),
-      producer: { ...successfulProducer(), suiteBatch: "marketplace_browse,tcgplayer_connector_extension" },
+      selectedGreps: responsiveEvidenceGrepsForSuiteBatch("admin_platform,tcgplayer_connector_extension"),
+      producer: { ...successfulProducer(), suiteBatch: "admin_platform,tcgplayer_connector_extension" },
       producerLogPath: await producerLog(root),
       gitIdentity: syntheticGitIdentity(),
       outputRoot,
@@ -170,7 +170,7 @@ describe("responsive evidence artifact validation", () => {
         runId: 123,
         runAttempt: 2,
         jobIndex: 3,
-        suiteBatch: "marketplace_browse,tcgplayer_connector_extension",
+        suiteBatch: "admin_platform,tcgplayer_connector_extension",
       },
       claims: [{ claimId: "claim" }],
     });
@@ -216,7 +216,7 @@ describe("responsive evidence artifact validation", () => {
 
     const result = await prepareHostedResponsiveEvidenceArtifact({
       repoRoot: root,
-      selectedGreps: ["@marketplace-browse"],
+      selectedGreps: ["@admin-platform"],
       producer: successfulProducer(),
       producerLogPath: await producerLog(root),
       gitIdentity: syntheticGitIdentity(),
@@ -236,7 +236,7 @@ describe("responsive evidence artifact validation", () => {
 
     const result = await prepareHostedResponsiveEvidenceArtifact({
       repoRoot: root,
-      selectedGreps: ["@marketplace-browse"],
+      selectedGreps: ["@admin-platform"],
       producer: { ...successfulProducer(), ...producerPatch },
       producerLogPath: await producerLog(root),
       gitIdentity,
@@ -252,15 +252,15 @@ describe("responsive evidence artifact validation", () => {
     const log = await producerLog(root);
     await writeFile(
       log,
-      "× 1 [marketplace-chromium] › claim.spec.ts:1:1 › claim @marketplace-browse (1ms)\n" +
-        "± 1 [marketplace-chromium] › claim.spec.ts:1:1 › claim @marketplace-browse (retry #1) (1ms)\n" +
+      "× 1 [admin-web-chromium] › claim.spec.ts:1:1 › claim @admin-platform (1ms)\n" +
+        "± 1 [admin-web-chromium] › claim.spec.ts:1:1 › claim @admin-platform (retry #1) (1ms)\n" +
         "1 flaky\n",
       "utf8",
     );
 
     const result = await prepareHostedResponsiveEvidenceArtifact({
       repoRoot: root,
-      selectedGreps: ["@marketplace-browse"],
+      selectedGreps: ["@admin-platform"],
       producer: successfulProducer(),
       producerLogPath: log,
       gitIdentity: syntheticGitIdentity(),
@@ -279,7 +279,7 @@ describe("hosted evidence from synthetic Git merge checkouts", () => {
 
     const result = await prepareHostedResponsiveEvidenceArtifact({
       repoRoot: root,
-      selectedGreps: ["@marketplace-browse"],
+      selectedGreps: ["@admin-platform"],
       producer,
       producerLogPath: await producerLog(root),
       gitIdentity,
@@ -307,7 +307,7 @@ describe("hosted evidence from synthetic Git merge checkouts", () => {
 
     const result = await prepareHostedResponsiveEvidenceArtifact({
       repoRoot: root,
-      selectedGreps: ["@marketplace-browse"],
+      selectedGreps: ["@admin-platform"],
       producer,
       producerLogPath: await producerLog(root),
       gitIdentity,
@@ -325,7 +325,7 @@ describe("hosted evidence from synthetic Git merge checkouts", () => {
     const { root, producer } = await mergeCheckout(1);
     const result = await prepareHostedResponsiveEvidenceArtifact({
       repoRoot: root,
-      selectedGreps: ["@marketplace-browse"],
+      selectedGreps: ["@admin-platform"],
       producer,
       producerLogPath: await producerLog(root),
       gitIdentity: observeGitIdentity(root, producer.sourceHeadSha),
@@ -350,7 +350,7 @@ describe("hosted evidence from synthetic Git merge checkouts", () => {
 
     const result = await prepareHostedResponsiveEvidenceArtifact({
       repoRoot: root,
-      selectedGreps: ["@marketplace-browse"],
+      selectedGreps: ["@admin-platform"],
       producer,
       producerLogPath: await producerLog(root),
       gitIdentity,
@@ -367,7 +367,7 @@ describe("hosted evidence from synthetic Git merge checkouts", () => {
 
     const result = await prepareHostedResponsiveEvidenceArtifact({
       repoRoot: root,
-      selectedGreps: ["@marketplace-browse"],
+      selectedGreps: ["@admin-platform"],
       producer,
       producerLogPath: await producerLog(root),
       gitIdentity: observeGitIdentity(root, producer.sourceHeadSha),
@@ -390,7 +390,7 @@ describe("hosted evidence from synthetic Git merge checkouts", () => {
 
     const result = await prepareHostedResponsiveEvidenceArtifact({
       repoRoot: root,
-      selectedGreps: ["@marketplace-browse"],
+      selectedGreps: ["@admin-platform"],
       producer,
       producerLogPath: await producerLog(root),
       gitIdentity,
@@ -408,7 +408,7 @@ describe("hosted evidence from synthetic Git merge checkouts", () => {
 
     const result = await prepareHostedResponsiveEvidenceArtifact({
       repoRoot: root,
-      selectedGreps: ["@marketplace-browse"],
+      selectedGreps: ["@admin-platform"],
       producer,
       producerLogPath: await producerLog(root),
       gitIdentity,
@@ -426,7 +426,7 @@ describe("hosted evidence from synthetic Git merge checkouts", () => {
     const observedSource = _name === "wrong source" ? validProducer.checkoutSha : producer.sourceHeadSha;
     const result = await prepareHostedResponsiveEvidenceArtifact({
       repoRoot: root,
-      selectedGreps: ["@marketplace-browse"],
+      selectedGreps: ["@admin-platform"],
       producer,
       producerLogPath: await producerLog(root),
       gitIdentity: observeGitIdentity(root, observedSource),
@@ -452,7 +452,7 @@ describe("hosted evidence from synthetic Git merge checkouts", () => {
     producer[field] = field === "checkoutParentShas" ? ["f".repeat(40)] : "f".repeat(40);
     const result = await prepareHostedResponsiveEvidenceArtifact({
       repoRoot: root,
-      selectedGreps: ["@marketplace-browse"],
+      selectedGreps: ["@admin-platform"],
       producer,
       producerLogPath: await producerLog(root),
       gitIdentity: observeGitIdentity(root, producer.sourceHeadSha),
@@ -479,7 +479,7 @@ describe("hosted evidence from synthetic Git merge checkouts", () => {
 
     const result = await prepareHostedResponsiveEvidenceArtifact({
       repoRoot: root,
-      selectedGreps: ["@marketplace-browse"],
+      selectedGreps: ["@admin-platform"],
       producer,
       producerLogPath: await producerLog(root),
       gitIdentity: observeGitIdentity(root, observedSource),
@@ -497,7 +497,7 @@ describe("hosted evidence from synthetic Git merge checkouts", () => {
     producer[field] = value;
     const result = await prepareHostedResponsiveEvidenceArtifact({
       repoRoot: root,
-      selectedGreps: ["@marketplace-browse"],
+      selectedGreps: ["@admin-platform"],
       producer,
       producerLogPath: await producerLog(root),
       gitIdentity: observeGitIdentity(root, producer.sourceHeadSha),
@@ -868,8 +868,8 @@ async function fixture() {
   const claim = {
     kind: "claim",
     id: "claim",
-    file: "deployables/marketplace/e2e/claim.spec.ts",
-    testTitle: "claim @marketplace-browse",
+    file: "deployables/admin-web/e2e/claim.spec.ts",
+    testTitle: "claim @admin-platform",
     route: { name: "route", path: "/route" },
     fixture: { identity: "fixture:v1" },
     viewport: { width: 390, height: 844 },
@@ -930,7 +930,7 @@ async function producerLog(root) {
   await write(
     root,
     file,
-    "✓ 1 [marketplace-chromium] › claim.spec.ts:1:1 › claim @marketplace-browse (1ms)\n" +
+    "✓ 1 [admin-web-chromium] › claim.spec.ts:1:1 › claim @admin-platform (1ms)\n" +
       'palette (light): {"observed":{"background":"rgb(0, 0, 0)"},"expected":{"background":"rgb(0, 0, 0)"}}\n' +
       "1 passed (1s)\n" +
       "SYNTHETIC_SECRET=must-not-be-retained\n",
@@ -950,7 +950,7 @@ function successfulProducer() {
     runAttempt: 2,
     job: "evidence",
     jobIndex: 3,
-    suiteBatch: "marketplace_browse",
+    suiteBatch: "admin_platform",
     checkoutSha: "1".repeat(40),
     checkoutTreeSha: "5".repeat(40),
     checkoutParentShas: ["3".repeat(40), "2".repeat(40)],

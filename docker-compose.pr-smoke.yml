@@ -123,28 +123,6 @@ services:
       retries: 30
       start_period: 15s
 
-  marketplace:
-    image: ${CHASE_SETS_COMPOSE_SMOKE_IMAGE:?CHASE_SETS_COMPOSE_SMOKE_IMAGE is required}
-    env_file: ${CHASE_SETS_COMPOSE_SMOKE_ENV_DIR:-artifacts/compose-smoke/env}/marketplace.env
-    command: ["pnpm", "--filter", "@chase-sets/app-marketplace-web", "run", "start"]
-    ports:
-      - "${MARKETPLACE_HOST_PORT:-18193}:8080"
-    depends_on:
-      platform-api:
-        condition: service_healthy
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "node",
-          "-e",
-          "fetch('http://localhost:8080/health/live').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
-        ]
-      interval: 5s
-      timeout: 5s
-      retries: 30
-      start_period: 15s
-
   admin-web:
     image: ${CHASE_SETS_COMPOSE_SMOKE_IMAGE:?CHASE_SETS_COMPOSE_SMOKE_IMAGE is required}
     env_file: ${CHASE_SETS_COMPOSE_SMOKE_ENV_DIR:-artifacts/compose-smoke/env}/admin-web.env
