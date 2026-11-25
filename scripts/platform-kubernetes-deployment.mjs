@@ -227,8 +227,8 @@ export function platformKubernetesWorkloads(options = {}) {
           .map(({ component }) => [component, environmentComponents[component]]),
       )
     : {};
-  // A base component the environment's values disable (marketplace-web in staging and production) is not
-  // deployed there, so the deploy must not wait for it.
+  // A base component the environment's values disable is not deployed there, so the deploy must not wait
+  // for it.
   const environmentDisabled = new Set(
     Object.entries(environmentComponents ?? {})
       .filter(([, component]) => component?.enabled === false)
