@@ -2013,6 +2013,35 @@ describe("platform Kubernetes deployment", () => {
     });
   });
 
+  it("gives a base component the environment's values disable no wait target, and leaves live values alone", () => {
+    const web = "proof-chase-sets-platform-marketplace";
+    const corten = "proof-chase-sets-platform-marketplace-corten";
+    for (const environment of ["staging", "production"]) {
+      const { deployments, rollouts, jobs } = platformKubernetesWorkloads({
+        release: "proof",
+        envOverrides: { DEPLOYMENT_ENVIRONMENT: environment },
+      });
+      const targets = [...deployments, ...rollouts, ...jobs];
+      expect(targets, environment).not.toContain(web);
+      expect(targets, environment).toContain(corten);
+      expect(targets, environment).toContain("proof-chase-sets-platform-platform-api");
+    }
+    // Previews keep marketplace-web until it is removed from them.
+    expect(
+      platformKubernetesWorkloads({ release: "proof", envOverrides: { DEPLOYMENT_ENVIRONMENT: "preview" } })
+        .deployments,
+    ).toContain(web);
+    // The rollback path reads the release's live values, so an earlier release that still enabled marketplace-web
+    // is waited on as it was deployed.
+    expect(
+      platformKubernetesWorkloads({
+        values: sampleValues,
+        release: "proof",
+        envOverrides: { DEPLOYMENT_ENVIRONMENT: "production" },
+      }).deployments,
+    ).toContain(web);
+  });
+
   it("pins KEDA to the worker deployment and keeps the scaler opt-in to staging", () => {
     const chartValues = readFileSync("infrastructure/helm/platform/values.yaml", "utf8");
     const stagingValues = readFileSync("infrastructure/helm/platform/values.staging.yaml", "utf8");
