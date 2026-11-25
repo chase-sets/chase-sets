@@ -314,7 +314,7 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
       {
         category: "member-declaration",
         symbol:
-          "createExtensionTcgplayerSealedProductRecorder.recordExtensionTcgplayerSealedProducts.eventStore.readStream",
+          "createExtensionTcgplayerSealedProductRecorder.recordExtensionTcgplayerSealedProducts.write.eventStore.readStream",
       },
     ]);
     expect(
