@@ -440,6 +440,7 @@ export async function readAllCompletedPromoteJobs(
 
 export type WholeGamePromotedItems = Readonly<{
   catalogItemIds: readonly string[];
+  createdCatalogItemIds: ReadonlySet<string>;
   promotedOutcomes: number;
   promotedWithoutCatalogItem: number;
 }>;
@@ -497,41 +498,17 @@ export function promotedCatalogItems(jobs: readonly WholeGamePromoteJob[]): Whol
   }
   return {
     catalogItemIds: [...new Set([...applications.values()].map((identity) => identity.catalogItemId))].sort(),
+    createdCatalogItemIds: new Set(
+      [...applications.values()]
+        .filter((identity) => identity.mode === "create")
+        .map((identity) => identity.catalogItemId),
+    ),
     promotedOutcomes: applications.size,
     promotedWithoutCatalogItem: [...legacyApprovals].filter((candidateId) => !applications.has(candidateId)).length,
   };
 }
 
-export type WholeGamePublishFilter = Readonly<{
-  blueprintId: string;
-  source: string;
-  language: string;
-  status: "draft";
-}>;
-
-/** One draft filter per blueprint x batch provider source x language, in a stable order. */
-export function publishFilters(
-  items: readonly Readonly<{ blueprintId: string | null; languageCode: string | null }>[],
-  providerSources: readonly string[],
-): readonly WholeGamePublishFilter[] {
-  const pairs = new Map<string, Readonly<{ blueprintId: string; language: string }>>();
-  for (const item of items) {
-    if (!item.blueprintId || !item.languageCode) continue;
-    pairs.set(`${item.blueprintId}\u0000${item.languageCode}`, {
-      blueprintId: item.blueprintId,
-      language: item.languageCode,
-    });
-  }
-  const filters: WholeGamePublishFilter[] = [];
-  for (const pair of [...pairs.values()].sort(
-    (a, b) => a.blueprintId.localeCompare(b.blueprintId) || a.language.localeCompare(b.language),
-  )) {
-    for (const source of [...new Set(providerSources)].sort()) {
-      filters.push({ blueprintId: pair.blueprintId, source, language: pair.language, status: "draft" });
-    }
-  }
-  return filters;
-}
+export type WholeGamePublishDraft = Readonly<{ catalogItemId: string; blueprintId: string }>;
 
 // AC4 — the publish guard reads the complete preview response, not the rendered rows.
 export type WholeGamePublishPreview = Readonly<{
@@ -540,14 +517,14 @@ export type WholeGamePublishPreview = Readonly<{
   candidates: readonly Readonly<{
     catalog_item_id: string;
     blueprint_id: string | null;
-    source_providers: readonly string[];
+    status: string;
+    source_providers?: readonly string[];
   }>[];
 }>;
 
 export function assertPublishPreviewGuard(
   preview: WholeGamePublishPreview,
-  filter: WholeGamePublishFilter,
-  collectedBlueprintIds: ReadonlySet<string>,
+  drafts: readonly WholeGamePublishDraft[],
 ): void {
   if (
     preview.total !== preview.candidates.length ||
@@ -556,17 +533,17 @@ export function assertPublishPreviewGuard(
   ) {
     throw new WholeGameRehearsalRefusal("publish-preview-incomplete");
   }
+  const expected = new Map(drafts.map((draft) => [draft.catalogItemId, draft.blueprintId]));
+  if (preview.total !== expected.size || new Set(preview.item_ids).size !== expected.size) {
+    throw new WholeGameRehearsalRefusal("publish-preview-selection-mismatch");
+  }
   preview.candidates.forEach((candidate, index) => {
-    if (!candidate.source_providers.includes(filter.source)) {
-      throw new WholeGameRehearsalRefusal(`publish-preview-row-${index + 1}-missing-provider-source`);
-    }
-    if (
-      candidate.blueprint_id === null ||
-      candidate.blueprint_id !== filter.blueprintId ||
-      !collectedBlueprintIds.has(candidate.blueprint_id)
-    ) {
+    const blueprintId = expected.get(candidate.catalog_item_id);
+    if (!blueprintId) throw new WholeGameRehearsalRefusal(`publish-preview-row-${index + 1}-foreign-item`);
+    if (candidate.blueprint_id !== blueprintId) {
       throw new WholeGameRehearsalRefusal(`publish-preview-row-${index + 1}-foreign-blueprint`);
     }
+    if (candidate.status !== "draft") throw new WholeGameRehearsalRefusal(`publish-preview-row-${index + 1}-not-draft`);
   });
 }
 
@@ -686,7 +663,7 @@ export type WholeGameReceipt = Readonly<{
     publishPreviewed: number;
     published: number;
     readyRemaining: number;
-    draftsRemaining: number;
+    draftsRemaining: number | null;
     scopeProgress?: readonly WholeGameScopeProgress[];
   }> | null;
 }>;
@@ -874,7 +851,10 @@ export function validateWholeGameReceipt(value: unknown): readonly string[] {
       if (typeof settle.resumed !== "boolean") errors.push("settle.resumed");
       const units = record(settle.units, "settle.units", unitStates, errors);
       if (units) for (const state of unitStates) if (!count(units[state])) errors.push(`settle.units.${state}`);
-      for (const key of settleCountKeys) if (!count(settle[key])) errors.push(`settle.${key}`);
+      for (const key of settleCountKeys) {
+        if (key === "draftsRemaining" && settle[key] === null) continue;
+        if (!count(settle[key])) errors.push(`settle.${key}`);
+      }
       if (hasProgress) {
         if (!Array.isArray(settle.scopeProgress)) errors.push("settle.scopeProgress");
         else

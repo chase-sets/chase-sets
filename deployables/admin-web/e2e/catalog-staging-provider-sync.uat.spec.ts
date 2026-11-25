@@ -98,7 +98,6 @@ import {
   planWholeGameSettle,
   scopePromotionCheckpoint,
   promotedCatalogItems,
-  publishFilters,
   readAllCompletedPromoteJobs,
   startConfirmationRefusal,
   validateWholeGameReceipt,
@@ -111,7 +110,7 @@ import {
   type WholeGameJourneyScope,
   type WholeGamePreviewRecord,
   type WholeGamePromoteJob,
-  type WholeGamePublishFilter,
+  type WholeGamePublishDraft,
   type WholeGamePublishPreview,
   type WholeGameReceipt,
   type WholeGameScopeProgress,
@@ -7379,7 +7378,7 @@ type WholeGameSettleCounts = {
   -readonly [Key in Exclude<
     keyof NonNullable<WholeGameReceipt["settle"]>,
     "batchStatus" | "units" | "resumed" | "scopeProgress"
-  >]: number;
+  >]: NonNullable<WholeGameReceipt["settle"]>[Key];
 };
 
 function isWholeGameJourneyScope(scope: string): scope is WholeGameJourneyScope {
@@ -7568,14 +7567,6 @@ async function readWholeGameJson<T>(page: Page, path: string, runtime?: WholeGam
   if (result.status === 0) throw new WholeGameDeadlineReached();
   if (!result.ok) throw new WholeGameRehearsalRefusal(`catalog-read-${result.status}`);
   return result.body as T;
-}
-
-async function readWholeGameTotal(page: Page, path: string, runtime?: WholeGameRuntime): Promise<number> {
-  const result = await readWholeGameJson<{ total?: unknown }>(page, path, runtime);
-  if (typeof result.total !== "number" || !Number.isInteger(result.total) || result.total < 0) {
-    throw new WholeGameRehearsalRefusal("catalog-total-unreadable");
-  }
-  return result.total;
 }
 
 async function readWholeGameBatch(
@@ -7770,7 +7761,7 @@ async function wholeGameSettle(
     publishPreviewed: 0,
     published: 0,
     readyRemaining: 0,
-    draftsRemaining: 0,
+    draftsRemaining: null,
   };
   let resumed = false;
   const scopeProgress: WholeGameScopeProgress[] = [];
@@ -7919,30 +7910,37 @@ async function wholeGameSettle(
     counts.promotedOutcomes = promoted.promotedOutcomes;
     counts.promotedWithoutCatalogItem = promoted.promotedWithoutCatalogItem;
     if (counts.promotedWithoutCatalogItem > 0) throw new WholeGameRehearsalRefusal("promoted-catalog-item-unresolved");
-    const items: { blueprintId: string | null; languageCode: string | null }[] = [];
+    const blueprintIds = new Set<string>();
+    const createdDrafts: WholeGamePublishDraft[] = [];
+    let draftsRemaining = 0;
     for (const catalogItemId of promoted.catalogItemIds) {
-      const item = await readWholeGameJson<{
-        catalog_item_id: string;
-        blueprint_id: string | null;
-        language_code: string | null;
-      }>(page, `/api/catalog/items/${encodeURIComponent(catalogItemId)}`, runtime);
-      if (item.catalog_item_id !== catalogItemId) throw new WholeGameRehearsalRefusal("catalog-item-mismatch");
-      if (!item.blueprint_id || !item.language_code)
-        throw new WholeGameRehearsalRefusal("promoted-catalog-item-unresolved");
-      items.push({ blueprintId: item.blueprint_id, languageCode: item.language_code });
+      const item = await readPromotedCatalogItem(page, catalogItemId, runtime);
+      blueprintIds.add(item.blueprint_id);
+      if (item.status !== "draft") continue;
+      draftsRemaining += 1;
+      if (promoted.createdCatalogItemIds.has(catalogItemId)) {
+        createdDrafts.push({ catalogItemId, blueprintId: item.blueprint_id });
+      }
     }
-    const blueprintIds = new Set(items.flatMap((item) => (item.blueprintId ? [item.blueprintId] : [])));
-    const filters = publishFilters(items, [...new Set(batch.units.flatMap((unit) => unit.providerKeys))]);
     counts.blueprints = blueprintIds.size;
-    counts.publishFilters = filters.length;
-    for (const filter of filters) {
-      if (Date.now() >= runtime.deadlineAt) return receipt("running");
-      const drafts = await readWholeGameTotal(page, draftItemsPath(filter), runtime);
-      if (drafts === 0) continue;
-      await publishThroughCatalogItems(page, filter, blueprintIds, runtime);
+    counts.draftsRemaining = draftsRemaining;
+    // Keep Corten's form-encoded GET preview below ordinary request-line limits (232 IDs will not fit).
+    const publishBatchSize = 40;
+    // Retain the receipt field name for existing readers; it now counts explicit-ID selections.
+    counts.publishFilters = Math.ceil(createdDrafts.length / publishBatchSize);
+    for (let offset = 0; offset < createdDrafts.length; offset += publishBatchSize) {
+      const drafts = createdDrafts.slice(offset, offset + publishBatchSize);
+      const jobId = await publishThroughCatalogItems(page, drafts, runtime);
       counts.publishPreviewed += 1;
-      counts.published += Math.max(0, drafts - (await readWholeGameTotal(page, draftItemsPath(filter), runtime)));
+      await waitForWholeGamePublishJob(page, jobId, runtime);
+      for (const { catalogItemId } of drafts) {
+        const item = await readPromotedCatalogItem(page, catalogItemId, runtime);
+        if (item.status !== "active") throw new WholeGameRehearsalRefusal("promoted-draft-not-published");
+        counts.published += 1;
+        counts.draftsRemaining -= 1;
+      }
     }
+    if (counts.draftsRemaining > 0) throw new WholeGameRehearsalRefusal("preexisting-promoted-drafts-not-selected");
 
     for (const scopeRecordId of step.scopeRecordIds) {
       counts.readyRemaining += await readReadyCandidateCount(
@@ -7952,8 +7950,6 @@ async function wholeGameSettle(
         runtime,
       );
     }
-    for (const filter of filters)
-      counts.draftsRemaining += await readWholeGameTotal(page, draftItemsPath(filter), runtime);
     return receipt(counts.readyRemaining === 0 && counts.draftsRemaining === 0 ? "settled" : "running");
   } catch (error) {
     if (
@@ -7974,8 +7970,17 @@ function promoteJobsPath(scopeRecordId: string, status: "active" | "completed", 
   })}`;
 }
 
-function draftItemsPath(filter: WholeGamePublishFilter): string {
-  return `/api/catalog/items?${wholeGameQuery({ ...filter, limit: "1" })}`;
+async function readPromotedCatalogItem(page: Page, catalogItemId: string, runtime: WholeGameRuntime) {
+  const item = await readWholeGameJson<{ catalog_item_id: string; blueprint_id: string | null; status: string }>(
+    page,
+    `/api/catalog/items/${encodeURIComponent(catalogItemId)}`,
+    runtime,
+  );
+  if (item.catalog_item_id !== catalogItemId) throw new WholeGameRehearsalRefusal("catalog-item-mismatch");
+  if (!item.blueprint_id || !["draft", "active", "archived", "removed"].includes(item.status)) {
+    throw new WholeGameRehearsalRefusal("promoted-catalog-item-unresolved");
+  }
+  return { blueprint_id: item.blueprint_id, status: item.status };
 }
 
 async function readActivePromoteJobs(
@@ -8135,112 +8140,89 @@ async function waitForPromoteJob(
 
 async function publishThroughCatalogItems(
   page: Page,
-  filter: WholeGamePublishFilter,
-  blueprintIds: ReadonlySet<string>,
+  drafts: readonly WholeGamePublishDraft[],
   runtime?: WholeGameRuntime,
-): Promise<void> {
-  await gotoWholeGamePage(page, `/catalog/catalog-items?${wholeGameQuery(filter)}`, runtime);
-  if (await isCortenAdminPage(page)) return await publishThroughCortenItems(page, filter, blueprintIds, runtime);
-  await clickWholeGameControl(page, page.getByRole("button", { name: "Actions", exact: true }).first(), runtime);
-  const [response] = await Promise.all([
-    page.waitForResponse(
-      (candidate) =>
-        candidate.request().method() === "POST" &&
-        /\/items\/bulk-publish\/preview$/.test(new URL(candidate.url()).pathname),
-      { timeout: wholeGameRemainingMs(runtime) },
-    ),
-    clickWholeGameControl(page, page.getByRole("button", { name: "Preview publish", exact: true }), runtime),
-  ]);
-  if (!response.ok()) throw new WholeGameRehearsalRefusal(`publish-preview-${response.status()}`);
-  const body = response.request().postDataJSON() as { selection?: { mode?: unknown; query?: unknown } } | null;
-  const query = (body?.selection?.query ?? {}) as Record<string, unknown>;
-  if (
-    body?.selection?.mode !== "filter" ||
-    query.blueprintId !== filter.blueprintId ||
-    query.source !== filter.source ||
-    query.language !== filter.language ||
-    query.status !== filter.status
-  ) {
-    throw new WholeGameRehearsalRefusal("publish-preview-selection-mismatch");
-  }
-  // The dialog renders at most 20 rows; the guard reads every candidate the UI received.
-  assertPublishPreviewGuard(
-    await readBeforeWholeGameDeadline(
-      Date.now() + wholeGameRemainingMs(runtime),
-      async () => (await response.json()) as WholeGamePublishPreview,
-    ),
-    filter,
-    blueprintIds,
-  );
-  await expect(page.getByText("Bulk Publish Preview", { exact: true })).toBeVisible({
-    timeout: wholeGameRemainingMs(runtime),
-  });
-  wholeGameRemainingMs(runtime);
-  assertWholeGameOrigin(page.url());
-  await clickWholeGameControl(
+): Promise<string> {
+  await gotoWholeGamePage(page, "/catalog/catalog-items?status=draft", runtime);
+  const preview = await postWholeGamePublish<WholeGamePublishPreview>(
     page,
-    page.getByRole("button", { name: "Publish or recheck items", exact: true }),
+    "preview",
+    { selection: { mode: "ids", ids: drafts.map((draft) => draft.catalogItemId) } },
     runtime,
   );
-  await expect(page.getByText("Bulk Publish Result", { exact: true })).toBeVisible({
-    timeout: wholeGameRemainingMs(runtime, terminalSyncTimeoutMs),
-  });
+  assertPublishPreviewGuard(preview, drafts);
+  if (await isCortenAdminPage(page)) return publishThroughCortenItems(page, preview.item_ids, runtime);
+  // The React list can select only rendered rows. Use its existing API with the guarded IDs.
+  const job = await postWholeGamePublish<{ jobId: string }>(page, "confirm", { itemIds: preview.item_ids }, runtime);
+  if (typeof job.jobId !== "string" || !job.jobId) throw new WholeGameRehearsalRefusal("publish-job-not-observed");
+  return job.jobId;
 }
 
-// The Corten admin draws the publish preview on the server (20 rows, no Blueprint), so the guard
-// reads the API's complete preview for the same filter, then the pilot's confirm form must carry
-// exactly the guarded items before it is pressed.
+// The pilot's server-rendered confirm form must carry exactly the fully guarded preview IDs.
 async function publishThroughCortenItems(
   page: Page,
-  filter: WholeGamePublishFilter,
-  blueprintIds: ReadonlySet<string>,
+  itemIds: readonly string[],
   runtime?: WholeGameRuntime,
-): Promise<void> {
-  const preview = await readWholeGamePublishPreview(page, filter, runtime);
-  assertPublishPreviewGuard(preview, filter, blueprintIds);
-  await gotoWholeGamePage(
-    page,
-    `/catalog/catalog-items/bulk?${wholeGameQuery({ ...filter, action: "publish", mode: "filter" })}`,
-    runtime,
-  );
+): Promise<string> {
+  const query = new URLSearchParams({ status: "draft", action: "publish", mode: "ids" });
+  for (const id of itemIds) query.append("ids", id);
+  await gotoWholeGamePage(page, `/catalog/catalog-items/bulk?${query}`, runtime);
   const form = page.locator('form[method="post"][action^="/catalog/catalog-items/bulk/confirm"]');
   await expect(form).toHaveCount(1, { timeout: wholeGameRemainingMs(runtime, pageReadyTimeoutMs) });
+  const action = await form.getAttribute("action", { timeout: wholeGameRemainingMs(runtime) });
+  if (
+    !action ||
+    new URL(action, page.url()).pathname !== "/catalog/catalog-items/bulk/confirm" ||
+    (await form.locator('input[type="hidden"][name="action"][value="publish"]').count()) !== 1 ||
+    (await form.locator('input[type="hidden"][name="mode"][value="ids"]').count()) !== 1
+  ) {
+    throw new WholeGameRehearsalRefusal("publish-confirm-selection-mismatch");
+  }
   const carried = await form
     .locator('input[type="hidden"][name="ids"]')
     .evaluateAll((inputs) => inputs.map((input) => (input as HTMLInputElement).value));
-  const guarded = [...preview.item_ids].sort();
+  const guarded = [...itemIds].sort();
   if (carried.length !== guarded.length || [...carried].sort().some((id, index) => id !== guarded[index])) {
     throw new WholeGameRehearsalRefusal("publish-confirm-selection-mismatch");
   }
   wholeGameRemainingMs(runtime);
   assertWholeGameOrigin(page.url());
-  await clickWholeGameControl(
-    page,
-    form.getByRole("button", { name: "Publish or recheck items", exact: true }),
-    runtime,
-  );
+  const confirm = form.getByRole("button", { name: "Publish or recheck items", exact: true });
+  if (!(await confirm.isEnabled({ timeout: wholeGameRemainingMs(runtime, pageReadyTimeoutMs) }))) {
+    throw new WholeGameRehearsalRefusal("publish-confirm-unavailable");
+  }
+  await clickWholeGameControl(page, confirm, runtime);
   // The pilot answers a started publish with the list following its job.
-  await page.waitForURL((url) => url.pathname === "/catalog/catalog-items" && url.searchParams.has("job"), {
-    timeout: wholeGameRemainingMs(runtime, terminalSyncTimeoutMs),
-  });
+  try {
+    await page.waitForURL((url) => url.pathname === "/catalog/catalog-items" && Boolean(url.searchParams.get("job")), {
+      timeout: wholeGameRemainingMs(runtime, terminalSyncTimeoutMs),
+    });
+  } catch (error) {
+    wholeGameRemainingMs(runtime);
+    if (error instanceof Error && error.name === "TimeoutError") {
+      throw new WholeGameRehearsalRefusal("publish-job-not-observed");
+    }
+    throw error;
+  }
+  assertWholeGameOrigin(page.url());
+  return new URL(page.url()).searchParams.get("job")!;
 }
 
-// The publish preview is the API's read of what a publish would do; it writes nothing. Only this
-// path is posted, with admin-web's filter selection.
-async function readWholeGamePublishPreview(
+async function postWholeGamePublish<T>(
   page: Page,
-  filter: WholeGamePublishFilter,
+  action: "preview" | "confirm",
+  body: unknown,
   runtime?: WholeGameRuntime,
-): Promise<WholeGamePublishPreview> {
+): Promise<T> {
   assertWholeGameOrigin(page.url());
   const remaining = wholeGameRemainingMs(runtime);
   const result = await readBeforeWholeGameDeadline(Date.now() + remaining, () =>
     page.evaluate(
-      async ({ body, remaining }) => {
+      async ({ action, body, remaining }) => {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), remaining);
         try {
-          const response = await fetch("/api/catalog/items/bulk-publish/preview", {
+          const response = await fetch(`/api/catalog/items/bulk-publish/${action}`, {
             method: "POST",
             credentials: "same-origin",
             redirect: "error",
@@ -8260,12 +8242,30 @@ async function readWholeGamePublishPreview(
           clearTimeout(timer);
         }
       },
-      { body: { selection: { mode: "filter", query: filter } }, remaining },
+      { action, body, remaining },
     ),
   );
   if (result.status === 0) throw new WholeGameDeadlineReached();
-  if (!result.ok) throw new WholeGameRehearsalRefusal(`publish-preview-${result.status}`);
-  return result.body as WholeGamePublishPreview;
+  if (!result.ok) throw new WholeGameRehearsalRefusal(`publish-${action}-${result.status}`);
+  return result.body as T;
+}
+
+async function waitForWholeGamePublishJob(page: Page, jobId: string, runtime: WholeGameRuntime): Promise<void> {
+  for (;;) {
+    const job = await readWholeGameJson<{ jobId: string; kind: string; status: string }>(
+      page,
+      `/api/catalog/bulk-authoring-jobs/${encodeURIComponent(jobId)}`,
+      runtime,
+    );
+    if (job.jobId !== jobId || job.kind !== "catalog.authoring.items.publish") {
+      throw new WholeGameRehearsalRefusal("publish-job-mismatch");
+    }
+    if (job.status === "completed") return;
+    if (job.status !== "queued" && job.status !== "running") {
+      throw new WholeGameRehearsalRefusal("publish-job-failed");
+    }
+    await page.waitForTimeout(Math.min(runtime.pollMs, wholeGameRemainingMs(runtime)));
+  }
 }
 
 // Fixture Admin: the whole-game journeys run against fulfilled Admin pages and
@@ -8426,30 +8426,12 @@ function cortenFixturePreview(
     </form></section>`;
 }
 
-const fixtureCatalogItemsPage = `<button type="button" onclick="document.getElementById('panel').hidden = false">Actions</button>
-  <div id="panel" hidden><button type="button" id="preview">Preview publish</button></div>
-  <div id="dialog" hidden><h2>Bulk Publish Preview</h2><button type="button" id="confirm">Publish or recheck items</button></div>
-  <div id="result" hidden><h2>Bulk Publish Result</h2></div>
-  <script>
-    const query = Object.fromEntries(new URLSearchParams(location.search));
-    document.getElementById("preview").onclick = async () => {
-      const response = await fetch("/api/catalog/items/bulk-publish/preview", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ selection: { mode: "filter", query } }),
-      });
-      window.fixturePreview = await response.json();
-      document.getElementById("dialog").hidden = false;
-    };
-    document.getElementById("confirm").onclick = async () => {
-      await fetch("/api/catalog/items/bulk-publish/confirm", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ itemIds: window.fixturePreview.item_ids }),
-      });
-      document.getElementById("result").hidden = false;
-    };
-  </script>`;
+const fixtureCatalogItemsPage = "<h1>Catalog Items</h1>";
+const fixtureCompletedPublish = (jobId: string) => ({
+  jobId,
+  kind: "catalog.authoring.items.publish",
+  status: "completed",
+});
 
 function fixturePublishPreview(
   count: number,
@@ -8458,10 +8440,15 @@ function fixturePublishPreview(
   const candidates = Array.from({ length: count }, (_, index) => ({
     catalog_item_id: `item-${index + 1}`,
     blueprint_id: "blueprint-1",
+    status: "draft",
     source_providers: ["scrydex"],
     ...mutate(index),
   }));
   return { item_ids: candidates.map((candidate) => candidate.catalog_item_id), total: count, candidates };
+}
+
+function fixturePublishDrafts(preview: WholeGamePublishPreview): WholeGamePublishDraft[] {
+  return preview.item_ids.map((catalogItemId) => ({ catalogItemId, blueprintId: "blueprint-1" }));
 }
 
 const fixtureRun: WholeGameRunIdentity = { sha: "a".repeat(40), runId: "9220", runAttempt: "1" };
@@ -8555,11 +8542,16 @@ async function serveWholeGameApplicationFixture(
     }
     if (request.path === "/api/catalog/source-observations/merge-candidates") return { json: { total: 0, items: [] } };
     if (request.path === "/catalog/catalog-items") return { html: fixtureCatalogItemsPage };
-    if (request.path === "/api/catalog/items") return { json: { total: drafts, items: [] } };
-    if (request.path === "/api/catalog/items/bulk-publish/preview") return { json: fixturePublishPreview(drafts) };
+    if (request.path === "/api/catalog/items/bulk-publish/preview") {
+      const id = (options.recoveredOutcome ?? fixtureAppliedOutcome()).appliedCatalogItemId;
+      return { json: fixturePublishPreview(drafts, () => ({ catalog_item_id: id })) };
+    }
     if (request.path === "/api/catalog/items/bulk-publish/confirm") {
       drafts = 0;
       return { json: { jobId: "publish-job" } };
+    }
+    if (request.path === "/api/catalog/bulk-authoring-jobs/publish-job") {
+      return { json: fixtureCompletedPublish("publish-job") };
     }
     if (request.path.startsWith("/api/catalog/items/")) {
       if (abortPending && options.abortAt === "completed-before-publication") {
@@ -8567,7 +8559,11 @@ async function serveWholeGameApplicationFixture(
         return { abort: true };
       }
       return {
-        json: { catalog_item_id: request.path.split("/").at(-1), blueprint_id: "blueprint-1", language_code: "en" },
+        json: {
+          catalog_item_id: request.path.split("/").at(-1),
+          blueprint_id: "blueprint-1",
+          status: drafts ? "draft" : "active",
+        },
       };
     }
     return undefined;
@@ -8992,8 +8988,7 @@ test.describe("catalog whole-game rehearsal journeys", () => {
               : () =>
                   publishThroughCatalogItems(
                     page,
-                    { blueprintId: "blueprint-1", source: "scrydex", language: "en", status: "draft" },
-                    new Set(["blueprint-1"]),
+                    [{ catalogItemId: "item-1", blueprintId: "blueprint-1" }],
                     fixtureRuntime(),
                   );
       await expect(invoke()).rejects.toMatchObject({ code: "staging-origin-required" });
@@ -9464,13 +9459,6 @@ test.describe("catalog whole-game rehearsal journeys", () => {
     ]);
   });
 
-  const cortenPublishFilter: WholeGamePublishFilter = {
-    blueprintId: "blueprint-1",
-    source: "scrydex",
-    language: "en",
-    status: "draft",
-  };
-
   async function serveCortenPublishFixture(
     page: Page,
     preview: WholeGamePublishPreview,
@@ -9504,15 +9492,20 @@ test.describe("catalog whole-game rehearsal journeys", () => {
   test("Corten admin: publish guards the API's whole preview, then confirms exactly its items", async ({ page }) => {
     const preview = fixturePublishPreview(25);
     const calls = await serveCortenPublishFixture(page, preview, preview.item_ids);
-    await publishThroughCatalogItems(page, cortenPublishFilter, new Set(["blueprint-1"]), fixtureRuntime());
+    expect(await publishThroughCatalogItems(page, fixturePublishDrafts(preview), fixtureRuntime())).toBe("job-publish");
 
     const previews = calls.filter((call) => call.startsWith("POST /api/catalog/items/bulk-publish/preview "));
     expect(previews).toHaveLength(1);
     expect(JSON.parse(previews[0]!.slice(previews[0]!.indexOf("{")))).toEqual({
-      selection: { mode: "filter", query: cortenPublishFilter },
+      selection: { mode: "ids", ids: preview.item_ids },
     });
     expect(calls).toContain(
-      "GET /catalog/catalog-items/bulk?blueprintId=blueprint-1&source=scrydex&language=en&status=draft&action=publish&mode=filter",
+      `GET /catalog/catalog-items/bulk?${new URLSearchParams([
+        ["status", "draft"],
+        ["action", "publish"],
+        ["mode", "ids"],
+        ...preview.item_ids.map((id) => ["ids", id]),
+      ])}`,
     );
     const confirms = calls.filter((call) => call.startsWith("POST /catalog/catalog-items/bulk/confirm"));
     expect(confirms).toHaveLength(1);
@@ -9542,11 +9535,109 @@ test.describe("catalog whole-game rehearsal journeys", () => {
       await page.unrouteAll();
       const calls = await serveCortenPublishFixture(page, answer, carried);
       await expect(
-        publishThroughCatalogItems(page, cortenPublishFilter, new Set(["blueprint-1"]), fixtureRuntime()),
+        publishThroughCatalogItems(page, fixturePublishDrafts(preview), fixtureRuntime()),
       ).rejects.toMatchObject({ code });
       expect(calls.some((call) => call.startsWith("GET /catalog/catalog-items/bulk?"))).toBe(opened);
       expect(calls.filter((call) => call.startsWith("POST /catalog/catalog-items/bulk/confirm"))).toEqual([]);
     }
+  });
+
+  test("Corten settle publishes only promoted drafts when their source is not a batch provider", async ({ page }) => {
+    const promotedDraftId = "synthetic_promoted_draft";
+    const promotedActiveId = "synthetic_promoted_active";
+    const unrelatedDraftId = "synthetic_unrelated_draft";
+    const items = new Map([
+      [promotedDraftId, "draft"],
+      [promotedActiveId, "active"],
+      [unrelatedDraftId, "draft"],
+    ]);
+    const batch = fixtureBatch({
+      units: [{ scopeRecordId: "scope-1", state: "completed", providerKeys: ["lorcanajson", "scrydex"] }],
+    });
+    const promotedJob = {
+      jobId: "synthetic_promotion",
+      kind: "merge-candidate-promote",
+      scopeRecordId: "scope-1",
+      status: "completed",
+      promotionApplicationVersion: 1,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      result: {
+        promoted: 2,
+        outcomes: [
+          fixtureAppliedOutcome("draft-candidate", promotedDraftId),
+          fixtureAppliedOutcome("active-candidate", promotedActiveId),
+        ],
+      },
+    };
+    const checkpoint = {
+      ...promotedJob,
+      jobId: "synthetic_checkpoint",
+      createdAt: "2026-01-01T00:01:00.000Z",
+      result: { promoted: 0, outcomes: [] },
+    };
+    let publishSucceeds = false;
+    const calls = await serveWholeGameFixture(page, (request) => {
+      if (request.path === "/catalog/scopes/sync-batches") return { html: fixtureBatchSection(batch), corten: true };
+      if (request.path === "/api/catalog/scope-sync-batches/batch-requested") return { json: batch };
+      if (request.path === "/api/catalog/source-observations/bulk-jobs/active") {
+        return { json: { items: request.search.get("status") === "completed" ? [checkpoint, promotedJob] : [] } };
+      }
+      if (request.path === "/api/catalog/source-observations/merge-candidates" || request.path === "/api/catalog/items")
+        return { json: { items: [], total: 0 } };
+      if (request.path === "/api/catalog/items/bulk-publish/preview") {
+        const { selection } = JSON.parse(request.body);
+        expect(selection).toEqual({ mode: "ids", ids: [promotedDraftId] });
+        return {
+          json: fixturePublishPreview(1, () => ({ catalog_item_id: promotedDraftId, source_providers: ["tcgplayer"] })),
+        };
+      }
+      if (request.path === "/api/catalog/bulk-authoring-jobs/synthetic_publish") {
+        return { json: fixtureCompletedPublish("synthetic_publish") };
+      }
+      if (request.path.startsWith("/api/catalog/items/")) {
+        const id = request.path.split("/").at(-1)!;
+        return {
+          json: { catalog_item_id: id, blueprint_id: "blueprint-1", language_code: "en", status: items.get(id) },
+        };
+      }
+      if (request.path === "/catalog/catalog-items") return { html: "<h1>Catalog Items</h1>", corten: true };
+      if (request.path === "/catalog/catalog-items/bulk") {
+        const ids = request.search.getAll("ids");
+        expect(ids).toEqual([promotedDraftId]);
+        return {
+          html: `<form method="post" action="/catalog/catalog-items/bulk/confirm"><input type="hidden" name="action" value="publish"><input type="hidden" name="mode" value="ids"><input type="hidden" name="ids" value="${ids[0]}"><button type="submit">Publish or recheck items</button></form>`,
+          corten: true,
+        };
+      }
+      if (request.path === "/catalog/catalog-items/bulk/confirm") {
+        const ids = new URLSearchParams(request.body).getAll("ids");
+        expect(ids).toEqual([promotedDraftId]);
+        if (publishSucceeds) for (const id of ids) items.set(id, "active");
+        return {
+          html: '<script>history.replaceState(null, "", "/catalog/catalog-items?job=synthetic_publish")</script>',
+          corten: true,
+        };
+      }
+      return undefined;
+    });
+    const input = { batchId: batch.batchId, retryFailed: false, resumeCancelled: false };
+    await expect(wholeGameSettle(page, input, fixtureRun, fixtureRuntime(), fixtureReceiptSink)).rejects.toMatchObject({
+      code: "promoted-draft-not-published",
+    });
+    expect(items.get(promotedDraftId)).toBe("draft");
+    publishSucceeds = true;
+    expect(await wholeGameSettle(page, input, fixtureRun, fixtureRuntime(), fixtureReceiptSink)).toMatchObject({
+      state: "settled",
+      settle: { promotedOutcomes: 2, publishPreviewed: 1, published: 1, draftsRemaining: 0 },
+    });
+    expect(items.get(promotedDraftId)).toBe("active");
+    expect(items.get(unrelatedDraftId)).toBe("draft");
+    expect(calls.filter((call) => call.startsWith("POST ")).map((call) => call.split(" ")[1])).toEqual([
+      "/api/catalog/items/bulk-publish/preview",
+      "/catalog/catalog-items/bulk/confirm",
+      "/api/catalog/items/bulk-publish/preview",
+      "/catalog/catalog-items/bulk/confirm",
+    ]);
   });
 
   test("AC2 settle retries only the requested batch's failed unit and refuses a different batch_id", async ({
@@ -9610,7 +9701,7 @@ test.describe("catalog whole-game rehearsal journeys", () => {
     });
     let killedJobPolls = 0;
     const zeroJobs: WholeGamePromoteJob[] = [];
-    let drafts = 25;
+    let drafts = 2;
     const calls = await serveWholeGameFixture(page, (request) => {
       const killedJob = promoteJob("job-killed", "item-1", killedJobPolls > 1 ? "completed" : "running");
       if (request.path === "/catalog/scopes/sync-batches") return { html: fixtureBatchSection(fixtureBatch({})) };
@@ -9651,13 +9742,18 @@ test.describe("catalog whole-game rehearsal journeys", () => {
         return { json: { items: [], total: 0 } };
       if (request.path.startsWith("/api/catalog/items/") && request.method === "GET") {
         const catalogItemId = decodeURIComponent(request.path.slice("/api/catalog/items/".length));
-        return { json: { catalog_item_id: catalogItemId, blueprint_id: "blueprint-1", language_code: "en" } };
+        return {
+          json: { catalog_item_id: catalogItemId, blueprint_id: "blueprint-1", status: drafts ? "draft" : "active" },
+        };
       }
-      if (request.path === "/api/catalog/items") return { json: { items: [], total: drafts } };
       if (request.path === "/api/catalog/items/bulk-publish/preview") return { json: fixturePublishPreview(drafts) };
       if (request.path === "/api/catalog/items/bulk-publish/confirm") {
+        expect(JSON.parse(request.body)).toEqual({ itemIds: ["item-1", "item-2"] });
         drafts = 0;
         return { json: { jobId: "publish-job" } };
+      }
+      if (request.path === "/api/catalog/bulk-authoring-jobs/publish-job") {
+        return { json: fixtureCompletedPublish("publish-job") };
       }
       return undefined;
     });
@@ -9674,7 +9770,7 @@ test.describe("catalog whole-game rehearsal journeys", () => {
         blueprints: 1,
         publishFilters: 1,
         publishPreviewed: 1,
-        published: 25,
+        published: 2,
         readyRemaining: 0,
         draftsRemaining: 0,
       },
@@ -9690,27 +9786,20 @@ test.describe("catalog whole-game rehearsal journeys", () => {
     expect(calls.filter((call) => call.startsWith("POST /api/catalog/items/bulk-publish/confirm"))).toHaveLength(1);
   });
 
-  test("AC4 publication aborts when an item beyond the 20th preview row lacks the provider source or another game's blueprint appears", async ({
+  test("AC4 publication refuses a foreign item, a foreign blueprint or a non-draft beyond the 20th preview row", async ({
     page,
   }) => {
-    const filter: WholeGamePublishFilter = {
-      blueprintId: "blueprint-1",
-      source: "scrydex",
-      language: "en",
-      status: "draft",
-    };
+    const drafts = fixturePublishDrafts(fixturePublishPreview(25));
     const cases: readonly (readonly [
       (index: number) => Partial<WholeGamePublishPreview["candidates"][number]>,
       string,
     ])[] = [
-      [
-        (index) => (index === 22 ? { source_providers: ["tcgdex"] } : {}),
-        "publish-preview-row-23-missing-provider-source",
-      ],
+      [(index) => (index === 22 ? { catalog_item_id: "item-other" } : {}), "publish-preview-row-23-foreign-item"],
       [
         (index) => (index === 21 ? { blueprint_id: "blueprint-other-game" } : {}),
         "publish-preview-row-22-foreign-blueprint",
       ],
+      [(index) => (index === 23 ? { status: "active" } : {}), "publish-preview-row-24-not-draft"],
     ];
     for (const [mutate, code] of cases) {
       await page.unrouteAll();
@@ -9721,7 +9810,7 @@ test.describe("catalog whole-game rehearsal journeys", () => {
         }
         return undefined;
       });
-      await expect(publishThroughCatalogItems(page, filter, new Set(["blueprint-1"]))).rejects.toMatchObject({ code });
+      await expect(publishThroughCatalogItems(page, drafts)).rejects.toMatchObject({ code });
       expect(calls.filter((call) => call.includes("bulk-publish/confirm"))).toEqual([]);
     }
   });
