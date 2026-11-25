@@ -227,9 +227,12 @@ describeDb("durable Scope Sync set-name requests", () => {
       { observationCount: 2, newObservationCount: 2, mappingsProposed: 2 },
       { observationCount: 2, newObservationCount: 2, mappingsProposed: 2 },
     ]);
+    expect((await h.answer(request!.requestId, { ...post, sets: [] })).status).toBe(400);
+    const conflictingReplay = await h.answer(request!.requestId, setNamePost(1, [setNameEntry(1, 43)]));
+    expect(conflictingReplay.status).toBe(409);
+    await expect(conflictingReplay.json()).resolves.toEqual({ code: "observation-request-closed" });
     expect(await h.count(observations)).toBe(2);
     expect(await h.count(proposals)).toBe(2);
-    expect((await h.answer(request!.requestId, { ...post, sets: [] })).status).toBe(409);
     for (const run of runs)
       expect(await h.snapshot(run.syncRunId)).toMatchObject({
         status: "completed",
