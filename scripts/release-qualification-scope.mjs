@@ -352,6 +352,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
   // Composite actions under .github/actions by directory name.
   actions: Object.freeze({
     "block-docker-hub": "release",
+    "corten-pilot-check": "release",
     "export-managed-postgres-authority": "release",
     "production-marker-recovery-context": "release",
     "report-scheduled-workflow-alert": "ci",

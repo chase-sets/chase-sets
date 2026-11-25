@@ -14,10 +14,11 @@ runs:
 
     # Also writes the two uncommitted outputs that carry the brand foil (tokens.json, favicon.svg).
     # From the repository root with the full path: scripts/managed-postgres-authority-guard.mjs resolves
-    # a step's script from the root.
+    # a step's script from the root. `--import=tsx` keeps the option one word, so the executed-bytes
+    # scan (scripts/staging-executed-bytes.test.mjs) reads export.mjs as the script.
     - name: The exported text, tokens, nav and defaults match the React apps' sources
       shell: bash
-      run: node --import tsx deployables/corten-pilot/scripts/export.mjs --check
+      run: node --import=tsx deployables/corten-pilot/scripts/export.mjs --check
 
     # corten check type-checks each app's scripts with tsc from the PATH, and fails without it.
     - name: TypeScript on the PATH for corten check
@@ -40,7 +41,7 @@ runs:
         # `cargo install` refuse ("binary `corten` already exists").
         # v3: built on Ubuntu 24.04; a v2 target from a newer image can hold build scripts and proc
         # macros linked against a newer glibc. Corten Marketplace Browser Tests (platform-pr.yml) reads
-        # the same key; scripts/corten-pilot-check-action.test.mjs keeps the two equal.
+        # the same key; scripts/ci-gate-plan.test.mjs keeps the two equal.
         key: corten-pilot-v3-${{ runner.os }}-${{ hashFiles('deployables/corten-pilot/Cargo.lock') }}
 
     - name: Rust toolchain and the Corten CLI at the pinned revision

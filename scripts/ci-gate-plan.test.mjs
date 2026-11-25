@@ -1381,7 +1381,7 @@ describe("shared CI gate plan", () => {
     expect(action).toContain("        corten check 2>&1 | tee corten-check.log\n");
     expect(action).toContain('        ! grep -q "were not type-checked" corten-check.log\n');
     expect(action).toContain('cargo install --locked --git "$git" --rev "$rev" corten-cli');
-    expect(action).toContain("run: node --import tsx deployables/corten-pilot/scripts/export.mjs --check");
+    expect(action).toContain("run: node --import=tsx deployables/corten-pilot/scripts/export.mjs --check");
     // The advisory check skips a pull request that touches only the paths this gate selects.
     for (const ignored of [
       "deployables/corten-pilot/marketplace/**",
