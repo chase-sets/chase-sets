@@ -77,7 +77,6 @@ pub fn MarketNav<'a>(p: Pilot, req: &'a Req, viewer: Option<&'a Viewer>) -> impl
                 <BrandMark gradient_id="chase-logo-market-nav" />
                 <span>{p.shell_marketplace()}</span>
             </a>
-            <span class={Tag}>{p.shell_pilot()}</span>
             <nav class={Wide} aria-label={p.shell_navigation()}>
                 <ul class={Items}>
                     for (item, children) in &primary {

@@ -523,9 +523,12 @@ describe("public policy corpus compiler", () => {
     // Re-derived for the Stripe charge-path citation after adding durable detach idempotency.
     // Re-derived for the byte-identical Marketplace glossary citation moves to 205-216 and 243-256, ten lines down
     // for the Certificate Number Format entry.
+    // Re-derived for the glossary citation re-pins to the lines that hold the Order, Self-Service Purchase
+    // Cancellation, Listing Evidence, Review, Report, Reported Content, Moderation Queue and Support Request
+    // entries today.
     expect(
       fingerprint(baseline.find(({ relativePath }) => relativePath === "terms-of-service-publication.ts")?.content),
-    ).toBe("sha256:d7289fdf4a6126819a8acf15ee27a7f5d6ea45035d90d5b1f9f7af0ddeb2db8b");
+    ).toBe("sha256:3f0ad22043970320a9a7041473104981ce3581e1b1769a8c3dba9a94456caf1b");
 
     for (const module of changed) {
       const before = baseline.find((candidate) => candidate.relativePath === module.relativePath)?.content;

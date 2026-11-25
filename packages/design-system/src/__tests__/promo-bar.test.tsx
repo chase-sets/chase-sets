@@ -109,31 +109,39 @@ describe("PromoBar", () => {
     expect(screen.getByText("2/2")).toBeTruthy();
   });
 
-  it("keeps the headline and link on a single row at every breakpoint (no mobile column stack)", () => {
+  it("gives the headline its own row on a phone and keeps the desktop actions beside it", () => {
     const { container } = renderPromoBar([
       {
         id: "shipping-credit",
         title: "Earn 5% toward shipping on every order.",
         href: "/order-protection",
-        linkLabel: "Learn more",
+        linkLabel: "Read the complete shipping credit terms and conditions",
       },
+      { id: "listing-fees", title: "0% fees on beta listings." },
     ]);
 
-    const row = container.querySelector("section > div");
-    expect(row?.className).toContain("flex-row");
-    expect(row?.className).not.toContain("flex-col");
+    const layout = container.querySelector("section > div")!;
+    const headline = screen.getByText("Earn 5% toward shipping on every order.");
+    const link = screen.getByRole("link", { name: "Read the complete shipping credit terms and conditions" });
+    expect(layout.classList.contains("grid")).toBe(true);
+    expect(layout.className).toContain("sm:[grid-template-columns:");
+    expect(layout.children[0]?.contains(headline)).toBe(true);
+    expect(headline.classList.contains("truncate")).toBe(false);
+    expect(layout.children[1]?.contains(link)).toBe(true);
+    expect(layout.children[1]?.classList.contains("flex-wrap")).toBe(true);
+    expect(layout.children[1]?.contains(screen.getByLabelText("Pause announcements"))).toBe(true);
   });
 
-  it("truncates the headline below md but preserves wrapping from md up, since mobile compaction shouldn't drop desktop content", () => {
-    renderPromoBar([{ id: "shipping-credit", title: "Earn 5% toward shipping on every order." }]);
+  it("does not reserve an empty action column for a text-only announcement", () => {
+    const { container } = renderPromoBar([{ id: "maintenance", title: "Scheduled maintenance tonight" }]);
 
-    const title = screen.getByText("Earn 5% toward shipping on every order.");
-    expect(title.className).toContain("truncate");
-    expect(title.className).toContain("md:whitespace-normal");
-    expect(title.className).not.toContain("md:truncate");
+    const layout = container.querySelector("section > div")!;
+    expect(layout.children).toHaveLength(1);
+    expect(layout.classList.contains("grid-cols-1")).toBe(true);
+    expect(layout.className).not.toContain("sm:[grid-template-columns:");
   });
 
-  it("hides the description below the md breakpoint, and truncates it below md but preserves wrapping from md up", () => {
+  it("hides the description below md and wraps it where it is shown", () => {
     renderPromoBar([
       {
         id: "shipping-credit",
@@ -146,9 +154,7 @@ describe("PromoBar", () => {
     const descriptionWrapper = description.closest("div");
     expect(descriptionWrapper?.className).toContain("hidden");
     expect(descriptionWrapper?.className).toContain("md:block");
-    expect(description.className).toContain("truncate");
-    expect(description.className).toContain("md:whitespace-normal");
-    expect(description.className).not.toContain("md:truncate");
+    expect(description.classList.contains("truncate")).toBe(false);
   });
 
   it("keeps manual navigation and pause controls visible at every breakpoint while auto-rotation is active, so mobile users can navigate and pause", () => {

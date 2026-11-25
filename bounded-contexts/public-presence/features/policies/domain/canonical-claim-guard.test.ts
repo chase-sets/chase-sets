@@ -1129,7 +1129,7 @@ const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
   // Repinned for the byte-identical relocation of the Settlement account risk source projection's cluster block
   // from 14-59 to 8-53 after its velocity-only imports were removed; the C1-C7 normalization is unchanged.
   // Repinned for the byte-identical registration form move to 419-584; C1-C7 normalization is unchanged.
-  [citationFencePaths.privacyPolicy]: "dc2789188ada0474fb0bb45ccc5c768bb7905bd3f8ac28130e795b852c51898e",
+  [citationFencePaths.privacyPolicy]: "8267f158c7a37486e50892236c7a96bbe9d1faea4c8a769c6b90c685f7f0e9cf",
   // Repinned for #11849: the quote function ref follows the same move to 79-105.
   // Repinned after the fee band category lists were deleted: the policy definition ref moved to 138-145 and
   // the quote function ref to 70-94.

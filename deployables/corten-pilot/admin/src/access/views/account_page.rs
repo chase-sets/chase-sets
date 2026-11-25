@@ -96,7 +96,7 @@ pub fn AccountPage<'a>(t: Acc, p: Pilot, viewer: &'a Viewer, screen: &'a HubScre
     let team = hub.memberships.len() + hub.invitations.iter().filter(|i| i.status == "pending").count();
     let keys = hub.api_keys.iter().filter(|k| k.status == "active").count();
     html! {
-        let links = Tab::ALL.map(|tab| url::AccountHub { id, tab: Some(tab.key()), after_write: None });
+        let links = Tab::ALL.map(|tab| crate::access::account::at(id, Some(tab.key()), None, None));
         let labels = Tab::ALL.map(|tab| match tab {
             Tab::Team => format!("{} ({team})", tab_label(t, tab)),
             Tab::ApiAccess => format!("{} ({keys})", tab_label(t, tab)),
@@ -144,7 +144,7 @@ pub fn AccountPage<'a>(t: Acc, p: Pilot, viewer: &'a Viewer, screen: &'a HubScre
 
 /// A form: its intent and fields, posted to the workspace.
 fn action(id: &str) -> url::AccountHub<'_> {
-    url::AccountHub { id, tab: None, after_write: None }
+    crate::access::account::at(id, None, None, None)
 }
 
 /// A button that asks first: the dialog it opens says what will happen and sends the form.

@@ -1,0 +1,20 @@
+/* admin-web's skip link: off screen until it has focus, then over the page's top corner. */
+.skip {
+  position: absolute;
+  left: -9999px;
+  top: var(--space-4);
+  z-index: 50;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+.skip:focus {
+  left: var(--space-4);
+}
+/* The skip link moves focus here; main is not a control, so it draws no focus ring. */
+.main:focus {
+  outline: none;
+}
