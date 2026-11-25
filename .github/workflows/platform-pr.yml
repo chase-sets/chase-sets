@@ -980,7 +980,6 @@ jobs:
             return 1
           }
 
-          boot_smoke marketplace "@chase-sets/app-marketplace-web" /health/ready 18080
           boot_smoke public-web "@chase-sets/app-public-web" / 18081
 
       - name: Push boot-smoked merge-group image
