@@ -5927,6 +5927,26 @@ async fn an_accounts_workspace_draws_each_tab_from_one_read() {
     assert_eq!(writes, 0, "a refused or unknown form writes nothing");
 }
 
+/// admin-web's workspace reads only `tab`: an address that names a user or a membership (as an
+/// access record's page and the access lists link it) opens the team tab, which draws every user's
+/// card and membership's row, the named record's among them with its forms.
+#[tokio::test]
+async fn an_access_records_address_opens_the_team_tab_with_that_records_detail() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/access/accounts/acc_1?tab=team&user=usr_2", Some("access-admin"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    for words in ["<code>usr_2</code>", "Update Profile", r#"value="suspend-user""#] {
+        assert!(html.contains(words), "the user's card: {words}: {html}");
+    }
+    let (status, _, html) = pilot.send(get("/access/accounts/acc_1?tab=team&membership=mem_1", Some("access-admin"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    for words in [r#"value="change-membership-role""#, r#"value="mem_1""#, r#"value="revoke-membership""#, "dana@example.test"] {
+        assert!(html.contains(words), "the membership's row: {words}: {html}");
+    }
+    let paths: Vec<String> = pilot.calls_to("/api/identity/").into_iter().map(|c| c.path).collect();
+    assert_eq!(paths, ["/api/identity/access-hub/accounts/acc_1"; 2], "the record's key is not sent to Identity");
+}
+
 #[tokio::test]
 async fn a_workspace_form_writes_to_identity_and_reads_the_page_after_it() {
     let pilot = Pilot::new().await;
