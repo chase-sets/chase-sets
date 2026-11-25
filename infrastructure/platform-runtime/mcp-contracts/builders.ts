@@ -310,7 +310,12 @@ export const writeTool = (
   availability: DEFAULT_MCP_CAPABILITY_AVAILABILITY,
   serviceId,
   risk,
-  inputSchema,
+  inputSchema: inputSchema.properties.confirmed
+    ? inputSchema
+    : {
+        ...inputSchema,
+        properties: { ...inputSchema.properties, confirmed: booleanProperty("Confirm this exact action.") },
+      },
   permissionBoundary: readBoundary(permission, scope),
   guardrails: guardrails(risk),
   audit: audit(serviceId, name, targetType, sensitiveInputFieldsForWriteTool(inputSchema)),

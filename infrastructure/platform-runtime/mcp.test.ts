@@ -2961,6 +2961,47 @@ describe("operator invocation context", () => {
   const offerEconomicsResource = "chase-sets://platform-operations/offer-economics/summary";
   const operatorWriteGrant = grantActor(["operations:write"]);
 
+  it.each([
+    {
+      name: "catalog.review-scope-mappings",
+      input: { intent: "revoke", mappingIds: ["mapping_1"], reason: "Stale mapping." },
+      confirmationText: "Review Scope Mappings.",
+      mismatchError: "Confirmation text must exactly match 'Review Scope Mappings.'.",
+    },
+    {
+      name: "catalog.confirm-scope-sync-batch",
+      input: { selection: {}, planFingerprint: "plan-7f3a" },
+      confirmationText: "plan-7f3a",
+      mismatchError: "Confirmation text must exactly match the 'planFingerprint' input value.",
+    },
+  ])(
+    "enforces $name confirmation using only MCP arguments",
+    async ({ name, input, confirmationText, mismatchError }) => {
+      const handler = vi.fn(async () => ({ ok: true }));
+      const app = createActorApp(operatorWriteGrant, {
+        operatorAuthority: async () => grantedPlatformAdmin,
+        toolHandlers: { [name]: handler },
+      });
+
+      const call = (confirmed?: boolean, text = confirmationText) =>
+        postMcp(app, "tools/call", {
+          name,
+          arguments: { ...input, idempotencyKey: "idem_catalog", confirmed, confirmationText: text },
+        });
+
+      for (const confirmed of [undefined, false]) {
+        expect((await call(confirmed)).body).toEqual(
+          toolErrorResponse("request_1", "Confirmation is required for this MCP tool."),
+        );
+      }
+      expect((await call(true, "Wrong confirmation.")).body).toEqual(toolErrorResponse("request_1", mismatchError));
+      expect(handler).not.toHaveBeenCalled();
+
+      expect((await call(true)).body).toEqual(toolSuccessResponse("request_1", { ok: true }));
+      expect(handler).toHaveBeenCalledTimes(1);
+    },
+  );
+
   it("runs the offer-economics tool and resource with the current role's permissions, not the supplied snapshot", async () => {
     const seen: ResolvedActor[] = [];
     const app = createActorApp(operatorWriteGrant, {
