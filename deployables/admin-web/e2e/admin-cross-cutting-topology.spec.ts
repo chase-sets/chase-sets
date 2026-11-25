@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { captureResponsiveEvidence } from "@chase-sets/playwright-evidence";
-import { authenticateAdmin, expectPageOk, skipDeployedAdminE2e, onCortenAdmin } from "./support/admin-e2e";
+import { authenticateAdmin, expectPageOk, skipDeployedAdminE2e } from "./support/admin-e2e";
 
 type AccountRealtimeProbeResult = Readonly<{
   status: number;
@@ -89,10 +89,6 @@ test.describe("admin cross-cutting error state", () => {
     test(`unknown admin route renders the shared not-found shell on ${viewport.name} @admin-cross-cutting`, async ({
       page,
     }) => {
-      test.skip(
-        onCortenAdmin,
-        'the Corten admin\'s 404 heading reads "Not found", not admin-web\'s "Admin page not found"',
-      );
       test.setTimeout(120_000);
       test.skip(
         skipDeployedAdminE2e,
