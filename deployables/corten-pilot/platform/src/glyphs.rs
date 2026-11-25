@@ -24,6 +24,8 @@ pub const CREDIT_CARD: Glyph = Glyph::new(r##"<rect width="20" height="14" x="2"
 pub const DOLLAR: Glyph = Glyph::new(r##"<line x1="12" x2="12" y1="2" y2="22"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>"##);
 /// `grid`.
 pub const GRID: Glyph = Glyph::new(r##"<path d="M12 3v18"></path><path d="M3 12h18"></path><rect x="3" y="3" width="18" height="18" rx="2"></rect>"##);
+/// `image`.
+pub const IMAGE: Glyph = Glyph::new(r##"<rect width="18" height="18" x="3" y="3" rx="2" ry="2"></rect><circle cx="9" cy="9" r="2"></circle><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"></path>"##);
 /// `info`.
 pub const INFO: Glyph = Glyph::new(r##"<circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path>"##);
 /// `menu`.
@@ -71,6 +73,7 @@ pub fn named(name: &str) -> Option<Glyph> {
         "creditCard" => Some(CREDIT_CARD),
         "dollar" => Some(DOLLAR),
         "grid" => Some(GRID),
+        "image" => Some(IMAGE),
         "info" => Some(INFO),
         "menu" => Some(MENU),
         "message" => Some(MESSAGE),
