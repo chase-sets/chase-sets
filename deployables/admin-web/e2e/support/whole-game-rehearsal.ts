@@ -5,6 +5,8 @@
 // It must not import Playwright or any bounded-context runtime.
 import type { CatalogMergeCandidateApplicationDiagnosticCode, CatalogServices } from "@chase-sets/catalog/server";
 
+const displayIdentityFailureCode = "promotion-plan-blocked:display-identity-unresolvable";
+
 // Catalog owns these promotion diagnostic codes. This module keeps its own closed copy
 // so it imports no bounded-context runtime; typecheck fails if the copy and Catalog's
 // union drift in either direction.
@@ -19,7 +21,7 @@ const promotionDiagnosticCodes = [
   "promotion-plan-blocked:candidate-has-blocking-conflicts",
   "promotion-plan-blocked:candidate-not-ready",
   "promotion-plan-blocked:conflicting-external-reference-level",
-  "promotion-plan-blocked:display-identity-unresolvable",
+  displayIdentityFailureCode,
   "promotion-plan-blocked:duplicate-external-catalog-item-reference",
   "promotion-plan-blocked:duplicate-external-product-reference",
   "promotion-plan-blocked:external-product-reference-duplicate-dimension",
@@ -362,6 +364,7 @@ export type WholeGamePromoteJob = Pick<CatalogMergeCandidateBulkJob, "jobId" | "
                   | "planFingerprint"
                   | "diagnosticCode"
                   | "failureDiagnosticCode"
+                  | "displayIdentity"
                 >
               >)[];
           }>)
@@ -567,7 +570,34 @@ export function assertPublishPreviewGuard(
   });
 }
 
-// AC5 — support-safe receipt: counts, states and opaque ids only.
+type WholeGameDisplayIdentityEvidence = NonNullable<CatalogMergeCandidateBulkUnitResult["displayIdentity"]>;
+const displayIdentityKeys = ["missingTokens", "templateKey", "templateReason"];
+const displayIdentityIdentifier = /^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$/;
+const supportUnsafeText = /https?:|@|bearer|cookie|authorization|password|secret|token/i;
+
+function readDisplayIdentityEvidence(value: unknown): WholeGameDisplayIdentityEvidence | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const { missingTokens, templateKey, templateReason } = value as Record<string, unknown>;
+  const identifier = (key: unknown): key is string =>
+    typeof key === "string" &&
+    key.length <= 128 &&
+    key === key.trim() &&
+    displayIdentityIdentifier.test(key) &&
+    !supportUnsafeText.test(key);
+  if (
+    !Array.isArray(missingTokens) ||
+    !missingTokens.every(identifier) ||
+    (templateKey !== null && !identifier(templateKey)) ||
+    (templateReason !== "missing-required-fields" &&
+      templateReason !== "no-targeted-template" &&
+      templateReason !== "unresolved-title-tokens")
+  ) {
+    return undefined;
+  }
+  return { missingTokens, templateKey, templateReason };
+}
+
+// AC5 — support-safe receipt: no free text or field values.
 export type WholeGamePromotionFailure = Readonly<{
   code: "scope-promotion-failed";
   scopeRecordId: string;
@@ -576,30 +606,36 @@ export type WholeGamePromotionFailure = Readonly<{
   failedOutcomes: readonly Readonly<{
     candidateId: string;
     reasonCode: CatalogMergeCandidateApplicationDiagnosticCode | "unclassified";
+    displayIdentity?: WholeGameDisplayIdentityEvidence;
   }>[];
 }>;
 
 export function wholeGamePromotionFailure(job: WholeGamePromoteJob): WholeGamePromotionFailure {
-  // `reason` is free text; only the API's classified diagnostic code is support-safe.
+  // Never forward the free-text reason or copy raw diagnostic objects into a receipt.
   return {
     code: "scope-promotion-failed",
     scopeRecordId: job.scopeRecordId,
     jobId: job.jobId,
     jobStatus: job.status,
-    failedOutcomes: (job.result?.outcomes ?? []).flatMap((outcome) =>
-      outcome.status === "failed"
-        ? [
-            {
-              candidateId: outcome.candidateId ?? "unavailable",
-              reasonCode:
-                outcome.diagnosticCode === "asset-processing-failed"
-                  ? outcome.diagnosticCode
-                  : isCatalogMergeCandidateFailureDiagnosticCode(outcome.failureDiagnosticCode)
-                    ? outcome.failureDiagnosticCode
-                    : "unclassified",
-            },
-          ]
-        : [],
+    failedOutcomes: (job.result?.outcomes ?? []).flatMap<WholeGamePromotionFailure["failedOutcomes"][number]>(
+      (outcome) => {
+        if (outcome.status !== "failed") return [];
+        const reasonCode =
+          outcome.diagnosticCode === "asset-processing-failed"
+            ? outcome.diagnosticCode
+            : isCatalogMergeCandidateFailureDiagnosticCode(outcome.failureDiagnosticCode)
+              ? outcome.failureDiagnosticCode
+              : "unclassified";
+        const displayIdentity =
+          reasonCode === displayIdentityFailureCode ? readDisplayIdentityEvidence(outcome.displayIdentity) : undefined;
+        return [
+          {
+            candidateId: outcome.candidateId ?? "unavailable",
+            reasonCode,
+            ...(displayIdentity === undefined ? {} : { displayIdentity }),
+          },
+        ];
+      },
     ),
   };
 }
@@ -733,6 +769,7 @@ export function validateWholeGameReceipt(value: unknown): readonly string[] {
   ) {
     errors.push("paid-preview-receipt");
   }
+  const validatedDisplayIdentities = new Set<unknown>();
   if (hasFailure !== (receipt.state === "failed")) errors.push("promotionFailure.state");
   if (hasFailure) {
     if (receipt.journeyScope !== "full-game-settle" || receipt.settle === null) errors.push("promotionFailure.settle");
@@ -752,7 +789,12 @@ export function validateWholeGameReceipt(value: unknown): readonly string[] {
       else
         failure.failedOutcomes.forEach((entry, index) => {
           const path = `promotionFailure.failedOutcomes.${index}`;
-          const outcome = record(entry, path, ["candidateId", "reasonCode"], errors);
+          const hasDisplayIdentity =
+            entry !== null && typeof entry === "object" && Object.hasOwn(entry, "displayIdentity");
+          const keys = hasDisplayIdentity
+            ? ["candidateId", "reasonCode", "displayIdentity"]
+            : ["candidateId", "reasonCode"];
+          const outcome = record(entry, path, keys, errors);
           if (!outcome) return;
           if (typeof outcome.candidateId !== "string" || !batchIdPattern.test(outcome.candidateId))
             errors.push(`${path}.candidateId`);
@@ -761,6 +803,17 @@ export function validateWholeGameReceipt(value: unknown): readonly string[] {
             !isCatalogMergeCandidateApplicationDiagnosticCode(outcome.reasonCode)
           )
             errors.push(`${path}.reasonCode`);
+          if (hasDisplayIdentity) {
+            const evidencePath = `${path}.displayIdentity`;
+            const evidence = outcome.displayIdentity;
+            if (outcome.reasonCode !== displayIdentityFailureCode || !readDisplayIdentityEvidence(evidence)) {
+              errors.push(evidencePath);
+            } else {
+              const errorCount = errors.length;
+              record(evidence, evidencePath, displayIdentityKeys, errors);
+              if (errors.length === errorCount) validatedDisplayIdentities.add(evidence);
+            }
+          }
         });
     }
   }
@@ -862,7 +915,12 @@ export function validateWholeGameReceipt(value: unknown): readonly string[] {
       errors.push("settled-with-remaining-work");
     }
   }
-  if (/https?:|@|bearer|cookie|authorization|password|secret|token/i.test(JSON.stringify(value))) {
+  // These diagnostics already scanned their untrusted strings. Their known schema
+  // literals ("missingTokens", "unresolved-title-tokens") are not credentials.
+  const supportText = JSON.stringify(value, (_key, entry: unknown) =>
+    validatedDisplayIdentities.has(entry) ? null : entry,
+  );
+  if (supportUnsafeText.test(supportText)) {
     errors.push("support-unsafe-text");
   }
   return errors;

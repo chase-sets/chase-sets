@@ -47,6 +47,7 @@ export type CatalogMergeCandidatePromotionPlanBlock = (typeof planBlocks)[number
 export type CatalogMergeCandidatePromotionApplicationRefusal = (typeof applicationRefusals)[number];
 
 type PlanBlockCode = `promotion-plan-blocked:${CatalogMergeCandidatePromotionPlanBlock}`;
+export const displayIdentityFailureCode = "promotion-plan-blocked:display-identity-unresolvable";
 type ApplicationRefusalCode = `promotion-application-${CatalogMergeCandidatePromotionApplicationRefusal}`;
 
 const otherDiagnostics = [
