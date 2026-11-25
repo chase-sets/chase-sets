@@ -1026,9 +1026,11 @@ describe("caller inventory (seed/bootstrap/import/reconciliation) — issue #583
       "bounded-contexts/marketplace/features/offer-payment-authorization/integrations/payments/reconcile.ts",
     );
     expect({ discovered: discovered.length, persistentCount, ruledCount }).toEqual({
-      discovered: 173,
+      // The Corten marketplace's browser specs carry their own copy of the e2e seed contract, which the
+      // reviewed deployables/*/e2e/ ruling covers like marketplace-web's.
+      discovered: 174,
       persistentCount: 167,
-      ruledCount: 6,
+      ruledCount: 7,
     });
   });
 
