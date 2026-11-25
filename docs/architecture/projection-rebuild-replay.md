@@ -21,8 +21,15 @@ During projection-group sync, runtime compares the declared `projectionRevision`
 
 - If no revision has been stored yet, runtime treats the current declaration as the baseline after the next successful sync.
 - If the stored revision differs from the declared revision, runtime rebuilds the projection group before marking the new revision.
-- Rebuild truncates the projection group's owned tables, resets its subscription checkpoints, replays source events through the group subscriptions, and stores the declared revision only after replay succeeds.
-- If replay fails, the old stored revision remains. Health status reports the projection group as stale until a later sync succeeds.
+- A rebuild resets the group's subscription checkpoints, replays source events through the group subscriptions, and stores the declared revision only after replay succeeds.
+- If replay fails, the old stored revision remains. A failure does not undo a committed reset or earlier replay batches. For a revision bump, health status reports the projection group as stale until a later sync succeeds.
+
+Each group declares its `resetStrategy` in its `projectionGroups` entry in the bounded context's `context.json`. The runtime's default reset refuses a group that owns tables and declares no strategy.
+
+- `truncate-owned-tables`: The default reset truncates the declared owned tables before replay.
+- `replay-only`: The default reset does not truncate owned tables. Replay uses the rows already there.
+- `append-only-no-reset`: The default reset does not truncate owned tables. Despite the name, a rebuild still resets the subscription checkpoints and replays events.
+- `generation-cutover`: The runtime does not truncate owned tables. It requires a context-provided reset adapter and starts a rebuilding generation before reset and replay. It records the generation as active and stores the revision only after replay succeeds. If replay fails in `rebuildProjectionGroup`, it records the rebuilding generation as failed.
 
 Workers must run cross-context catch-up through projection group runners, not raw subscription runners. That keeps long-running catch-up on the same revision-aware path as bootstrap and explicit sync: stale groups reset once, replay batch-by-batch, and mark the new revision only after they catch up.
 
@@ -37,7 +44,9 @@ Workers must run cross-context catch-up through projection group runners, not ra
 
 Before merging a projection change that bumps `projectionRevision`:
 
-- Confirm the projection group declares every owned table that must be cleared.
-- Confirm handlers are idempotent across full replay.
+- For `truncate-owned-tables`, confirm the group declares every owned table that must be cleared.
+- For `replay-only`, `append-only-no-reset`, or any rebuild that keeps existing rows for replay, confirm handlers apply only event revisions newer than those stored on the affected rows so replay cannot regress them.
+- For `generation-cutover`, confirm the context provides the reset adapter the runtime requires, and that the adapter's own reset is safe to run again after a failed generation.
+- For every strategy, confirm handlers are idempotent across full replay.
 - Confirm side-effect projections either use durable idempotency/outbox keys or are excluded from destructive replay until they can be rebuilt safely.
 - Run the bounded-context runtime projection replay tests and any context tests that cover the changed projection.
