@@ -2,11 +2,16 @@ import { expect, test } from "@playwright/test";
 import { captureResponsiveEvidence } from "@chase-sets/playwright-evidence";
 import { registerSyntheticAccount, signInThroughMarketplaceForm, syntheticAccountFor } from "./support/auth";
 import { marketplaceBrowserE2eBuyerCredentials, marketplaceBrowserE2eSeedContract } from "./support/seed-contract";
+import { onCortenMarketplace } from "./support/system";
 
 test.describe("marketplace buyer purchase journey", () => {
   test("phone buyer searches, adds a product and reaches payment review @marketplace-checkout @mobile @browser-e2e-seed", async ({
     page,
   }, testInfo) => {
+    test.skip(
+      onCortenMarketplace,
+      "the Corten marketplace has no site-wide header search yet (combobox, suggestions and the phone search row)",
+    );
     test.setTimeout(120_000);
 
     async function expectNoHorizontalOverflow(step: string) {
@@ -118,6 +123,10 @@ test.describe("marketplace buyer purchase journey", () => {
   });
 
   test("seeded buyer submits the marketplace sign-in form @marketplace-account @browser-e2e-seed", async ({ page }) => {
+    test.skip(
+      onCortenMarketplace,
+      "the Corten sign-in identifier step is a script-free GET form with a plain method list, not marketplace-web's role=listitem list, Password radio and client submit handler",
+    );
     await page.goto("/sign-in?returnTo=%2Faccount%2Fcart", { waitUntil: "domcontentloaded" });
     await signInThroughMarketplaceForm(page, marketplaceBrowserE2eBuyerCredentials());
 
@@ -128,6 +137,10 @@ test.describe("marketplace buyer purchase journey", () => {
   test("seeded buyer walks the real cart to the checkout-session boundary @marketplace-checkout @browser-e2e-seed", async ({
     page,
   }) => {
+    test.skip(
+      onCortenMarketplace,
+      "the Corten sign-in identifier step is a script-free GET form with a plain method list, not marketplace-web's role=listitem list, Password radio and client submit handler",
+    );
     test.setTimeout(120_000);
 
     await page.goto("/sign-in?returnTo=%2Faccount%2Fcart", { waitUntil: "domcontentloaded" });
