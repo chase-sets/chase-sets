@@ -6,7 +6,6 @@ import {
   CurrencyInput,
   DetailPanel,
   Fieldset,
-  Form,
   Grid,
   HiddenInput,
   Inset,
@@ -21,7 +20,9 @@ import {
   Text,
   TextInput,
 } from "@chase-sets/design-system";
+import { RouterForm as Form } from "@chase-sets/design-system/react-router";
 import { t } from "@chase-sets/localization";
+import { useFormAction, useNavigation } from "react-router";
 import type { ListingEvidencePolicyRule } from "../domain/policy";
 import type {
   ListingEvidencePolicyOverview,
@@ -169,6 +170,18 @@ export function ListingEvidencePolicyPage({
   validation?: (ListingEvidencePolicyValidation & Readonly<{ documentId: string; version: number }>) | null;
   error?: string | null;
 }>) {
+  const navigation = useNavigation();
+  const formAction = useFormAction();
+  // A submission stays pending while the page reloads after its action, so a second click cannot post it again.
+  const submittingFormData =
+    navigation.state !== "idle" &&
+    navigation.formMethod?.toLowerCase() === "post" &&
+    navigation.formAction === formAction
+      ? navigation.formData
+      : undefined;
+  const isSubmitting = (intent: string, policyId: string | null = null) =>
+    submittingFormData?.get("intent") === intent && submittingFormData?.get("policyId") === policyId;
+
   const [policyName, setPolicyName] = useState(() =>
     t("marketplace.features.listingEvidencePolicy.ui.default.policy.name"),
   );
@@ -256,7 +269,7 @@ export function ListingEvidencePolicyPage({
                   </Text>
                   <Stack direction="row" gap={2}>
                     {canValidate && ["draft", "validated"].includes(document.lifecycle) ? (
-                      <Form method="post">
+                      <Form method="post" submitting={isSubmitting("validate", document.policyId)}>
                         <HiddenInput name="intent" value="validate" readOnly />
                         <HiddenInput name="policyId" value={document.policyId} readOnly />
                         <Button type="submit" tone="secondary">
@@ -265,7 +278,7 @@ export function ListingEvidencePolicyPage({
                       </Form>
                     ) : null}
                     {canDraft && ["draft", "validated"].includes(document.lifecycle) ? (
-                      <Form method="post">
+                      <Form method="post" submitting={isSubmitting("reject", document.policyId)}>
                         <HiddenInput name="intent" value="reject" readOnly />
                         <HiddenInput name="policyId" value={document.policyId} readOnly />
                         <Button type="submit" tone="danger">
@@ -274,7 +287,7 @@ export function ListingEvidencePolicyPage({
                       </Form>
                     ) : null}
                     {canDraft && document.lifecycle === "active" ? (
-                      <Form method="post">
+                      <Form method="post" submitting={isSubmitting("rollback", document.policyId)}>
                         <HiddenInput name="intent" value="rollback" readOnly />
                         <HiddenInput name="policyId" value={document.policyId} readOnly />
                         <Button type="submit" tone="secondary">
@@ -311,7 +324,7 @@ export function ListingEvidencePolicyPage({
               </Text>
             ))}
             {canActivate && validation.valid ? (
-              <Form method="post" spacing="lg">
+              <Form method="post" spacing="lg" submitting={isSubmitting("activate", validation.documentId)}>
                 <HiddenInput name="intent" value="activate" readOnly />
                 <HiddenInput name="policyId" value={validation.documentId} readOnly />
                 <HiddenInput name="impactAcknowledgmentHash" value={validation.impactPreview.previewHash} readOnly />
@@ -341,7 +354,7 @@ export function ListingEvidencePolicyPage({
 
       {canDraft ? (
         <DetailPanel title={t("marketplace.features.listingEvidencePolicy.ui.draft.title")}>
-          <Form method="post" spacing="lg">
+          <Form method="post" spacing="lg" submitting={isSubmitting("create-draft")}>
             <HiddenInput name="intent" value="create-draft" readOnly />
             <HiddenInput name="rules" value={serializedRules} readOnly />
             <TextInput
