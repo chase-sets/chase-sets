@@ -145,15 +145,15 @@ const catalogUatSyntheticPatterns = [
   /^playwright\.config\.ts$/,
   /^deployables\/corten-pilot\/admin\/src\/catalog\//,
 ];
-// The Corten marketplace browser tests run marketplace-web's kept browser specs against the Corten
-// pilot's marketplace, which serves production. A change to the pilot's marketplace or platform code,
-// its build inputs, those specs or the dev-system target that boots it can turn them red.
+// The Corten marketplace browser tests run the kept browser specs in deployables/corten-pilot/e2e against
+// the Corten pilot's marketplace, which serves production. A change to the pilot's marketplace or platform
+// code, its build inputs, those specs and their support modules or the dev-system target that boots it can
+// turn them red.
 const cortenMarketplaceBrowserPatterns = [
   /^deployables\/corten-pilot\/(?:marketplace|platform)\/(?!.*\.md$)/,
   /^deployables\/corten-pilot\/Cargo\.(?:toml|lock)$/,
   /^deployables\/corten-pilot\/scripts\/export\.mjs$/,
-  /^deployables\/marketplace\/e2e\/(?:critical-flows|buyer-purchase-journey|marketplace-navigation|marketplace-shell-header|responsive-evidence-contract|search-scroll-restoration)\.spec\.ts$/,
-  /^deployables\/marketplace\/e2e\/support\/(?:auth|search-settle|seed-contract|sign-in-readiness|system)\.ts$/,
+  /^deployables\/corten-pilot\/e2e\//,
   /^scripts\/(?:dev-system|dev-system-config|platform-compose-ingress)\.mjs$/,
 ];
 // The Corten pilot check (corten check) is required for the pilot's marketplace and platform code, its

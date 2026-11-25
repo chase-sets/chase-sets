@@ -31,7 +31,9 @@ const browserE2eSystemTarget = resolveBrowserE2eSystemTarget();
 const browserE2eEvidenceEnvironment = createBrowserE2eRunEvidenceEnvironment(sandbox);
 const marketplaceDesktop = {
   name: "marketplace-chromium",
-  testMatch: "deployables/marketplace/e2e/**/*.spec.ts",
+  // marketplace-web's specs, plus the kept specs that run against the Corten marketplace. Both trees
+  // answer on the marketplace host.
+  testMatch: ["deployables/marketplace/e2e/**/*.spec.ts", "deployables/corten-pilot/e2e/**/*.spec.ts"],
   use: { ...devices["Desktop Chrome"], baseURL: marketplaceBaseUrl },
 };
 const adminWebDesktop = {

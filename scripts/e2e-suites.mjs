@@ -251,14 +251,14 @@ const e2eSpecSuiteOwnership = [
   },
   { pattern: /^deployables\/marketplace\/e2e\/account-elevation-intent\.spec\.ts$/, suites: ["marketplace_account"] },
   { pattern: /^deployables\/marketplace\/e2e\/item-detail\.spec\.ts$/, suites: ["marketplace_browse"] },
-  { pattern: /^deployables\/marketplace\/e2e\/critical-flows\.spec\.ts$/, suites: allMarketplaceSuiteIds },
+  { pattern: /^deployables\/corten-pilot\/e2e\/critical-flows\.spec\.ts$/, suites: allMarketplaceSuiteIds },
   {
     pattern:
-      /^deployables\/marketplace\/e2e\/(?:account-payment|buy-funnel-redesign|buyer-purchase-journey|sell-checkout-session)\.spec\.ts$/,
+      /^deployables\/(?:marketplace\/e2e\/(?:account-payment|buy-funnel-redesign|sell-checkout-session)|corten-pilot\/e2e\/buyer-purchase-journey)\.spec\.ts$/,
     suites: ["marketplace_checkout"],
   },
   {
-    pattern: /^deployables\/marketplace\/e2e\/responsive-evidence-contract\.spec\.ts$/,
+    pattern: /^deployables\/corten-pilot\/e2e\/responsive-evidence-contract\.spec\.ts$/,
     suites: ["marketplace_browse"],
   },
   { pattern: /^deployables\/admin-web\/e2e\/access-/, suites: ["admin_access"] },
@@ -279,7 +279,7 @@ const e2eSpecSuiteOwnership = [
   },
   { pattern: /^deployables\/marketplace\/e2e\/inventory-recovery\.spec\.ts$/, suites: ["marketplace_seller"] },
   {
-    pattern: /^deployables\/marketplace\/e2e\/marketplace-shell-header\.spec\.ts$/,
+    pattern: /^deployables\/corten-pilot\/e2e\/marketplace-shell-header\.spec\.ts$/,
     suites: ["marketplace_browse"],
   },
   {
@@ -675,7 +675,9 @@ export function estimatedE2eSuiteDurationSeconds(suiteId) {
 }
 
 export function isE2eSpecFile(filePath) {
-  return /^deployables\/(?:marketplace|admin-web|public-web)\/e2e\/.*\.spec\.ts$/.test(normalizeFilePath(filePath));
+  return /^deployables\/(?:marketplace|admin-web|public-web|corten-pilot)\/e2e\/.*\.spec\.ts$/.test(
+    normalizeFilePath(filePath),
+  );
 }
 
 export function isRouteFile(filePath) {

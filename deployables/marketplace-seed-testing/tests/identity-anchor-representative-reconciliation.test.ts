@@ -14,7 +14,7 @@ import { describeWithMarketplaceSeedDatabase, useMarketplaceSeedRuntime } from "
 // State refresh (.github/workflows/platform-staging-representative-commerce-state.yml)
 // walks every active Catalog Item, including the pinned identity anchors the
 // browser E2E seed contract depends on for an exact deterministic listing shape
-// (deployables/marketplace/e2e/support/seed-contract.ts). This reproduces that
+// (deployables/corten-pilot/e2e/support/seed-contract.ts). This reproduces that
 // pollution against the real Bulbasaur anchor and asserts that rerunning the
 // marketplace scenario seed reconciles it away, the same way the staging
 // advisory lane reruns scenario-seed on every attempt.

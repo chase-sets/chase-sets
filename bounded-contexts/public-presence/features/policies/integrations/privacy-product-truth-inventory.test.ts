@@ -79,7 +79,7 @@ describe("privacy product-truth partition", () => {
       { path: "bounded-contexts/checkout/support/request-support/guest-checkout.ts", reason: null },
       { path: "packages/design-system/src/theme/theme-toggle.tsx", reason: null },
       { path: "some/arbitrary/place/in/the/tree/production-module.ts", reason: null },
-      { path: "deployables/marketplace/e2e/support/auth.ts", reason: null },
+      { path: "deployables/corten-pilot/e2e/support/auth.ts", reason: null },
       { path: "contracts/public-docs/generated/privacy-policy-publication.ts", reason: null },
       { path: "README.md", reason: "not-typescript-source" },
       { path: "scripts/lib/repo.mjs", reason: "not-typescript-source" },

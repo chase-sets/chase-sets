@@ -240,8 +240,8 @@ Surface meanings:
 Private route and request helpers must stay inside the owning bounded context under explicit support folders, not as ad hoc top-level files.
 
 Deployable browser tests may consume `@chase-sets/<package>/seed-support/<subpath>`
-only from direct or nested `.spec.ts` files under `deployables/admin-web/e2e/`
-or `deployables/marketplace/e2e/`. This exception uses the target's actual package
+only from direct or nested `.spec.ts` files under `deployables/admin-web/e2e/`,
+`deployables/marketplace/e2e/` or `deployables/corten-pilot/e2e/`. This exception uses the target's actual package
 identity, not its context directory name. Both `context.json` `publicExports`
 and a string `package.json` `exports["./seed-support/*"]` mapping must declare
 the surface, and the mapped target must resolve to an existing module file.

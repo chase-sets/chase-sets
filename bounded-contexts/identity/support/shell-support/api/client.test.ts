@@ -203,7 +203,7 @@ describe("Identity API account enforcement client", () => {
     const inventory = manifest.mutationConsistencyInventory;
     const entry = inventory.find((row: { id: string }) => row.id === "identity.user-preferences-api-command-snapshots");
     expect(entry.proof.authoritativeResponse).toContain("writeUserPreferences");
-    expect(readFileSync(path.join(root, "deployables/marketplace/e2e/critical-flows.spec.ts"), "utf8")).toMatch(
+    expect(readFileSync(path.join(root, "deployables/corten-pilot/e2e/critical-flows.spec.ts"), "utf8")).toMatch(
       /request\.put\("\/api\/identity\/preferences",\s*\{\s*headers: \{ "Idempotency-Key": crypto\.randomUUID\(\) \}/,
     );
     const fixtureRoot = mkdtempSync(path.join(tmpdir(), "cs-7164-census-"));

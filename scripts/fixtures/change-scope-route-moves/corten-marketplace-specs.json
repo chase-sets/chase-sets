@@ -1,0 +1,34 @@
+{
+  "addedCaseCount": 0,
+  "families": {
+    "e2eSpecSuiteOwnership:3": {
+      "pattern": "/^deployables\\/corten-pilot\\/e2e\\/critical-flows\\.spec\\.ts$/",
+      "path": "deployables/corten-pilot/e2e/critical-flows.spec.ts"
+    },
+    "e2eSpecSuiteOwnership:4": {
+      "pattern": "/^deployables\\/(?:marketplace\\/e2e\\/(?:account-payment|buy-funnel-redesign|sell-checkout-session)|corten-pilot\\/e2e\\/buyer-purchase-journey)\\.spec\\.ts$/"
+    },
+    "e2eSpecSuiteOwnership:5": {
+      "pattern": "/^deployables\\/corten-pilot\\/e2e\\/responsive-evidence-contract\\.spec\\.ts$/",
+      "path": "deployables/corten-pilot/e2e/responsive-evidence-contract.spec.ts"
+    },
+    "e2eSpecSuiteOwnership:17": {
+      "pattern": "/^deployables\\/corten-pilot\\/e2e\\/marketplace-shell-header\\.spec\\.ts$/",
+      "path": "deployables/corten-pilot/e2e/marketplace-shell-header.spec.ts"
+    }
+  },
+  "movedSpecs": {
+    "legacyDirectory": "deployables/marketplace/e2e/",
+    "destinationDirectory": "deployables/corten-pilot/e2e/",
+    "leftWorkspaces": ["@chase-sets/app-marketplace-web"],
+    "addedScope": { "cortenMarketplaceBrowserRequired": true },
+    "files": [
+      "buyer-purchase-journey.spec.ts",
+      "critical-flows.spec.ts",
+      "marketplace-navigation.spec.ts",
+      "marketplace-shell-header.spec.ts",
+      "responsive-evidence-contract.spec.ts",
+      "search-scroll-restoration.spec.ts"
+    ]
+  }
+}

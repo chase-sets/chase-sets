@@ -4,8 +4,9 @@ The Corten marketplace serves production in place of marketplace-web. This table
 marketplace-web's browser specs (`deployables/marketplace/e2e`) is covered now, so retiring
 marketplace-web drops no coverage without a recorded reason.
 
-1. **Retargeted**: the spec runs against the Corten marketplace in Platform PR's Corten Marketplace
-   Browser Tests. Tests that read marketplace-web's own DOM shape are skipped there, each with a
+1. **Retargeted**: the spec now lives in `deployables/corten-pilot/e2e` and runs against the Corten
+   marketplace in Platform PR's Corten Marketplace Browser Tests. Tests that read marketplace-web's
+   own DOM shape are skipped there, each with a
    `test.skip(onCortenMarketplace, "<reason>")`.
 2. **Covered**: the behavior is tested by the named Rust tests in `marketplace/src/tests.rs`, which
    run in Corten Pilot Check.

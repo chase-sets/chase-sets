@@ -301,7 +301,7 @@ describe("marketplace account lifecycle probe joins", () => {
 
   it.each([
     "deployables/marketplace/e2e/manual-sync-recovery.spec.ts",
-    "deployables/marketplace/e2e/critical-flows.spec.ts",
+    "deployables/corten-pilot/e2e/critical-flows.spec.ts",
     "deployables/marketplace/e2e/channel-connection-connect.spec.ts",
     "deployables/marketplace/e2e/agent-grant-revocation-real-route.spec.ts",
     "bounded-contexts/channels/features/manual-sync/tests/browser-recovery-fixture.ts",

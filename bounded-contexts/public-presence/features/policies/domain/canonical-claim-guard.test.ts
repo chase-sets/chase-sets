@@ -1137,7 +1137,9 @@ const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
   // Repinned for #10066, #8846, the current-main lost-update guard surface merge, and the #10176 JSON import census
   // evidence-citation update, #9878 TCGplayer guard surface, the #9553 context-registry guard surface, and the
   // #7313 managed-Postgres client policy surface with its authority-guard and client-policy evidence ranges.
-  [citationFencePaths.staticSurfaces]: "ac94c950cf78bbca8cdeb7310b25ff9de92015f06dc60ed3945059a1793717f5",
+  // Repinned when the deployed browser E2E profile surface gained the Corten pilot's e2e root, after the Corten
+  // marketplace's kept browser specs moved there; the C1-C7 normalization is unchanged.
+  [citationFencePaths.staticSurfaces]: "844aac4ddc409813405ac6e2a7546086baecf0bcd98f6bbf7faf7c4e6ee5265d",
 };
 
 const citationFenceOccurrences: Readonly<Record<string, readonly RegExp[]>> = {

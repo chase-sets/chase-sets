@@ -1040,6 +1040,7 @@ describe("deployable-browser-test-support-import-fence", () => {
     "deployables/marketplace/e2e/support/auth-trace-artifact.probe.spec.ts",
     "deployables/admin-web/e2e/arbitrary/nested/neutral.multi.spec.ts",
     "deployables/marketplace/e2e/neutral.spec.ts",
+    "deployables/corten-pilot/e2e/critical-flows.spec.ts",
   ];
   const ineligible = [
     "deployables/admin-web/app/neutral.ts",
@@ -1048,6 +1049,8 @@ describe("deployable-browser-test-support-import-fence", () => {
     "deployables/platform-worker/src/neutral.ts",
     "deployables/admin-web/e2e/support/neutral.ts",
     "deployables/marketplace/e2e/neutral.test.ts",
+    "deployables/corten-pilot/marketplace/src/neutral.spec.ts",
+    "deployables/corten-pilot/e2e/support/neutral.ts",
     "deployables/admin-web/e2e/neutral.spec.tsx",
     "deployables/admin-web/e2e/neutral.spec.js",
     "deployables/admin-web/arbitrary/neutral.spec.ts",

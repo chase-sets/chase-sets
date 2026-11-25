@@ -6,7 +6,7 @@ import ts from "@chase-sets/typescript-compiler-api";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
 const devSourceTag = "@browser-e2e-dev-source";
-const e2eDirectories = ["marketplace", "admin-web", "public-web"];
+const e2eDirectories = ["marketplace", "corten-pilot", "admin-web", "public-web"];
 
 function sourceImportsInDeployedSpec(source, file) {
   const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);

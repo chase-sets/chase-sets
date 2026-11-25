@@ -6561,12 +6561,14 @@ describe("DigitalOcean platform configuration", () => {
   });
 
   it("binds each deployed Playwright project to its own host and never crosses deployables", () => {
-    // Each project's testMatch is anchored to exactly one deployable's e2e tree,
-    // and each baseURL comes from that deployable's own URL input. The failure
+    // Each project's testMatch is anchored to the e2e trees of the deployables
+    // that serve its host, and each baseURL comes from that host's own URL input. The failure
     // this pins is a spec answered by a host that does not serve its route: the
     // deployed run then asserts against another deployable's not-found shell.
     expect(playwrightConfig).toContain('name: "marketplace-chromium"');
-    expect(playwrightConfig).toContain('testMatch: "deployables/marketplace/e2e/**/*.spec.ts"');
+    expect(playwrightConfig).toContain(
+      'testMatch: ["deployables/marketplace/e2e/**/*.spec.ts", "deployables/corten-pilot/e2e/**/*.spec.ts"]',
+    );
     expect(playwrightConfig).toContain("baseURL: marketplaceBaseUrl");
     expect(playwrightConfig).toContain('name: "admin-web-chromium"');
     expect(playwrightConfig).toContain('testMatch: "deployables/admin-web/e2e/**/*.spec.ts"');
@@ -6582,9 +6584,11 @@ describe("DigitalOcean platform configuration", () => {
     // Negative control: no project may widen its testMatch across deployables,
     // which is how the public-web privacy spec previously answered on the
     // marketplace host.
-    const projectTestMatches = [...playwrightConfig.matchAll(/testMatch: "([^"]+)"/g)].map(([, pattern]) => pattern);
+    const projectTestMatches = [...playwrightConfig.matchAll(/testMatch: (\[[^\]]+\]|"[^"]+")/g)].map(([, pattern]) =>
+      JSON.parse(pattern),
+    );
     expect(projectTestMatches).toEqual([
-      "deployables/marketplace/e2e/**/*.spec.ts",
+      ["deployables/marketplace/e2e/**/*.spec.ts", "deployables/corten-pilot/e2e/**/*.spec.ts"],
       "deployables/admin-web/e2e/**/*.spec.ts",
       "deployables/public-web/e2e/**/*.spec.ts",
     ]);
