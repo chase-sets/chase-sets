@@ -84,6 +84,7 @@ jobs:
       db_tests_required: ${{ steps.gate-plan.outputs.db_tests_required }}
       e2e_tests_required: ${{ steps.gate-plan.outputs.e2e_tests_required }}
       catalog_uat_synthetic_required: ${{ steps.gate-plan.outputs.catalog_uat_synthetic_required }}
+      corten_marketplace_browser_required: ${{ steps.gate-plan.outputs.corten_marketplace_browser_required }}
       build_required: ${{ steps.gate-plan.outputs.build_required }}
       docker_image_required: ${{ steps.gate-plan.outputs.docker_image_required }}
       workflow_lint_required: ${{ steps.gate-plan.outputs.workflow_lint_required }}
@@ -189,7 +190,9 @@ jobs:
       BOUNDARY_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     timeout-minutes: 30
     needs: [change-scope, static-source]
-    if: always() && needs['change-scope'].result == 'success' && needs['change-scope'].outputs.static_required == 'true'
+    # !cancelled(), not always(): still runs to report a failed Static Source, but a run superseded by a
+    # newer push stops here instead of holding the PR's concurrency group for this job's full length.
+    if: ${{ !cancelled() && needs['change-scope'].result == 'success' && needs['change-scope'].outputs.static_required == 'true' }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -569,6 +572,102 @@ jobs:
           set -euo pipefail
           unset CATALOG_STAGING_PROVIDER_UAT CATALOG_STAGING_PROVIDER_UAT_SCOPE CATALOG_PREVIEW_PROBE_TRACE_CONTROL
           pnpm exec playwright test deployables/admin-web/e2e/catalog-staging-provider-sync.uat.spec.ts --project=admin-web-chromium
+
+  # marketplace-web's kept browser specs against the Corten pilot's marketplace, which serves
+  # production: the seeded browser sandbox with the pilot's binary behind an ingress on the marketplace
+  # port (CHASE_SETS_BROWSER_E2E_SYSTEM=corten-marketplace). It reads the pilot check's Rust cache under
+  # the same key, so an unchanged Cargo.lock is a hit and nothing is saved; only a PR that changes
+  # Cargo.lock misses, and that save stays in the PR's own cache scope.
+  # Ubuntu 24.04 like every Chromium job: Playwright has no build for a newer Ubuntu and the installer
+  # refuses its fallback. The pilot check runs on the same image so the cached target is reusable.
+  corten-marketplace-browser:
+    name: Corten Marketplace Browser Tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    permissions:
+      contents: read
+    needs: change-scope
+    if: needs['change-scope'].outputs.corten_marketplace_browser_required == 'true'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      # The sandbox Postgres starts from its digest-pinned mirror with Docker Hub unreachable.
+      - uses: ./.github/actions/block-docker-hub
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - name: Export the pilot's text, tokens and nav
+        run: node --import tsx deployables/corten-pilot/scripts/export.mjs
+
+      - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin/corten
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
+            deployables/corten-pilot/target
+          key: corten-pilot-v3-${{ runner.os }}-${{ hashFiles('deployables/corten-pilot/Cargo.lock') }}
+
+      - name: Build the Corten marketplace
+        timeout-minutes: 25
+        working-directory: deployables/corten-pilot
+        run: cargo build --locked -p corten-pilot-marketplace
+
+      - name: Resolve Playwright Chromium cache
+        id: browser-cache
+        run: node scripts/playwright-chromium-install.mjs --cache-identity
+
+      - name: Cache Playwright Chromium
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ${{ steps.browser-cache.outputs.path }}
+          key: ${{ steps.browser-cache.outputs.key }}
+
+      - name: Install Playwright Chromium
+        timeout-minutes: 10
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ steps.browser-cache.outputs.path }}
+          PLAYWRIGHT_INSTALL_SITE: platform-pr-corten-marketplace-browser
+          PLAYWRIGHT_INSTALL_POLICY: single-attempt
+        run: node scripts/playwright-chromium-install.mjs
+
+      - name: Run the kept marketplace specs against the Corten marketplace
+        id: specs
+        timeout-minutes: 30
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ steps.browser-cache.outputs.path }}
+          CHASE_SETS_BROWSER_E2E_SYSTEM: corten-marketplace
+        run: |
+          set -euo pipefail
+          pnpm exec playwright test \
+            deployables/marketplace/e2e/critical-flows.spec.ts \
+            deployables/marketplace/e2e/buyer-purchase-journey.spec.ts \
+            deployables/marketplace/e2e/marketplace-navigation.spec.ts \
+            deployables/marketplace/e2e/marketplace-shell-header.spec.ts \
+            deployables/marketplace/e2e/responsive-evidence-contract.spec.ts \
+            deployables/marketplace/e2e/search-scroll-restoration.spec.ts \
+            --project=marketplace-chromium --project=marketplace-mobile
+
+      # The job uploads no Playwright artifacts (scripts/playwright-artifact-upload-fence.mjs), so a
+      # failed run prints each failed test's page snapshot instead: what the pilot drew, by role and text.
+      - name: Print the failed tests' page snapshots
+        if: failure() && steps.specs.outcome == 'failure'
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          find artifacts/playwright/test-results -name error-context.md -print0 2>/dev/null | sort -z | head -z -n 60 |
+            while IFS= read -r -d '' file; do
+              echo "::group::${file#artifacts/playwright/test-results/}"
+              head -c 16000 "$file"
+              echo
+              echo "::endgroup::"
+            done
 
   e2e-tests:
     name: E2E Tests (${{ matrix.suite_batch }})
@@ -2026,6 +2125,7 @@ jobs:
       - db-tests
       - e2e-tests
       - catalog-uat-synthetic
+      - corten-marketplace-browser
       - capture-hermetic-chromium
       - build
       - docker-image
@@ -2081,6 +2181,7 @@ jobs:
           require_job "DB Profile Tests" "${{ needs['db-tests'].result }}" "${{ needs['change-scope'].outputs.db_tests_required }}"
           require_job "E2E Tests" "${{ needs['e2e-tests'].result }}" "${{ needs['change-scope'].outputs.e2e_tests_required }}"
           require_job "Catalog UAT Synthetic Tests" "${{ needs['catalog-uat-synthetic'].result }}" "${{ needs['change-scope'].outputs.catalog_uat_synthetic_required }}"
+          require_job "Corten Marketplace Browser Tests" "${{ needs['corten-marketplace-browser'].result }}" "${{ needs['change-scope'].outputs.corten_marketplace_browser_required }}"
           capture_required="$(node --input-type=module -e '
           const required = process.env.AC4_E2E_REQUIRED;
           const suites = JSON.parse(process.env.AC4_E2E_SUITES_JSON);

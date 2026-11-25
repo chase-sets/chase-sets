@@ -1724,8 +1724,10 @@ pub mod url {
     }
 
     /// The buy checkout page (marketplace's `checkout/buy/session/:sessionId`): the session, Update
-    /// totals and Pay now (see `checkout`). Every handler takes a `CheckoutBuyer`.
-    #[corten::routes(state = crate::app::Shared, area = BuyCheckoutArea, caller = crate::auth::CheckoutBuyer)]
+    /// totals and Pay now (see `checkout`). The writes and Checkout received take a
+    /// `CheckoutBuyer`; the page reads `Option<Caller<CheckoutBuyer>>`, since no one signed in is
+    /// answered marketplace's access-required recovery rather than sent to sign in.
+    #[corten::routes(state = crate::app::Shared, area = BuyCheckoutArea)]
     pub mod checkout {
         /// The area's prefix: only the start of its paths. No page is served at
         /// `/checkout/buy/session` (marketplace answers its not-found page), so it names no handler

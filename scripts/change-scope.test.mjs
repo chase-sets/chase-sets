@@ -64,6 +64,20 @@ function expectedCatalogUatSynthetic(changedFiles) {
   return changedFiles.some((file) => catalogUatSyntheticPaths.some((pattern) => pattern.test(file)));
 }
 
+// Nor does it carry the Corten marketplace browser flag.
+const cortenMarketplaceBrowserPaths = [
+  /^deployables\/corten-pilot\/(?:marketplace|platform)\/(?!.*\.md$)/,
+  /^deployables\/corten-pilot\/Cargo\.(?:toml|lock)$/,
+  /^deployables\/corten-pilot\/scripts\/export\.mjs$/,
+  /^deployables\/marketplace\/e2e\/(?:critical-flows|buyer-purchase-journey|marketplace-navigation|marketplace-shell-header|responsive-evidence-contract|search-scroll-restoration)\.spec\.ts$/,
+  /^deployables\/marketplace\/e2e\/support\/(?:auth|search-settle|seed-contract|sign-in-readiness|system)\.ts$/,
+  /^scripts\/(?:dev-system|dev-system-config|platform-compose-ingress)\.mjs$/,
+];
+
+function expectedCortenMarketplaceBrowser(changedFiles) {
+  return changedFiles.some((file) => cortenMarketplaceBrowserPaths.some((pattern) => pattern.test(file)));
+}
+
 function withCanonicalProofOutput(output) {
   const { scope_json: scopeJson, ...existing } = output;
   const requiredProofPaths = expectedRequiredProofPaths(JSON.parse(output.changed_files_json));
@@ -430,7 +444,9 @@ describe("canonical proof sets:", () => {
 
     const aggregate = workflow.jobs.static;
     expect(aggregate.needs).toContain("static-source");
-    expect(aggregate.if).toContain("always()");
+    // !cancelled(), not always(): it still reports a failed source, but a superseded run stops here.
+    expect(aggregate.if).toMatch(/^\$\{\{ !cancelled\(\) && /);
+    expect(aggregate.if).not.toContain("always()");
     expect(aggregate.steps).toContainEqual({
       name: "Require full source checks",
       if: "always()",
@@ -2220,6 +2236,7 @@ function expectedPublicPresenceEnrollment(base, workspaces) {
     ...base,
     requiredProofPaths: expectedRequiredProofPaths(base.changedFiles),
     catalogUatSyntheticRequired: expectedCatalogUatSynthetic(base.changedFiles),
+    cortenMarketplaceBrowserRequired: expectedCortenMarketplaceBrowser(base.changedFiles),
   };
   if (base.changedFiles.length === 0 || (base.dbTestsRequired && base.affectedWorkspaces.length === 0)) {
     return base;
@@ -2501,6 +2518,7 @@ describe("change-scope", () => {
       directlyTestOnlyAffectedWorkspaces: [],
       unitTestsRequired: false,
       catalogUatSyntheticRequired: false,
+      cortenMarketplaceBrowserRequired: false,
       requiredProofPaths: [],
     });
   });

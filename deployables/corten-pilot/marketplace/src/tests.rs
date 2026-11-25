@@ -16122,14 +16122,22 @@ async fn a_session_that_is_not_the_buyers_checkout_says_what_it_is() {
     assert!(html.contains(r#"<noscript data-corten-read-again="2" data-corten-head>"#), "{html}");
     // A guest's checkout is the page (see `a_guest_checkout_is_the_pilots_page_with_every_step_a_form`),
     // as a purchase intent's is (`a_purchase_intent_is_the_pilots_page_and_submit_offer_shows_the_offer`);
-    // signed out goes to sign-in.
+    // signed out is marketplace's access-required recovery: 401, a way to browse and a way to sign in
+    // back to the page, and no read of the session.
     let (status, _, html) = pilot.send(get(CHECKOUT_SCREEN, Some("guest"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    let (status, headers, _) = pilot.send(get(CHECKOUT_SCREEN, None)).await;
-    assert_eq!(
-        (status, headers[header::LOCATION].to_str().unwrap()),
-        (StatusCode::SEE_OTHER, "/sign-in?returnTo=%2Fcheckout%2Fbuy%2Fsession%2Fchk_1")
-    );
+    let before = pilot.stand.calls.lock().unwrap().len();
+    let (status, headers, html) = pilot.send(get(CHECKOUT_SCREEN, None)).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{html}");
+    assert!(!headers.contains_key(header::LOCATION), "{headers:?}");
+    let page = text(&html);
+    assert!(page.contains("Checkout access required"), "{page}");
+    assert!(page.contains("Your payment has not started."), "{page}");
+    assert!(html.contains(r#"href="/search">Browse marketplace</a>"#), "{html}");
+    assert!(html.contains(r#"href="/sign-in?returnTo=%2Fcheckout%2Fbuy%2Fsession%2Fchk_1">Sign in to continue</a>"#), "{html}");
+    assert!(!html.contains("Marketplace error"), "{html}");
+    let calls: Vec<String> = pilot.stand.calls.lock().unwrap()[before..].iter().map(|c| c.path.clone()).collect();
+    assert!(!calls.iter().any(|p| p.contains("checkout-sessions")), "{calls:?}");
 }
 
 #[tokio::test]

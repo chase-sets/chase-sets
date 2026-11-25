@@ -33,7 +33,9 @@ concurrency:
 jobs:
   check:
     name: Check the Corten pilot
-    runs-on: ubuntu-latest
+    # Ubuntu 24.04, the image Corten Marketplace Browser Tests (platform-pr.yml) needs for Chromium,
+    # so that job can reuse this check's Rust cache.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: read
@@ -73,7 +75,9 @@ jobs:
             deployables/corten-pilot/target
           # v2: v1 cached the binary without cargo's install records, so a cache hit made
           # `cargo install` refuse ("binary `corten` already exists").
-          key: corten-pilot-v2-${{ runner.os }}-${{ hashFiles('deployables/corten-pilot/Cargo.lock') }}
+          # v3: built on Ubuntu 24.04; a v2 target from a newer image can hold build scripts and proc
+          # macros linked against a newer glibc.
+          key: corten-pilot-v3-${{ runner.os }}-${{ hashFiles('deployables/corten-pilot/Cargo.lock') }}
 
       - name: Rust toolchain and the Corten CLI at the pinned revision
         run: |

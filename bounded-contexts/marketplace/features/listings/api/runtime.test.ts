@@ -1115,7 +1115,7 @@ describe("marketplace listing runtime", () => {
     const db = {
       query: vi.fn(async (sql: string, values: readonly unknown[] = []) => {
         if (sql.includes("INSERT INTO marketplace_supply_locations")) {
-          return { rows: [] };
+          return { rows: [{ storage_location_id: String(values[0]) }] };
         }
 
         if (sql.includes("INSERT INTO marketplace_supply_items")) {
@@ -1133,7 +1133,7 @@ describe("marketplace listing runtime", () => {
             shipFromAddress: shipFromAddress,
             totalQuantity: Number(values[6]),
           });
-          return { rows: [] };
+          return { rows: [{ item_id: String(values[0]) }] };
         }
 
         if (sql.includes("FROM marketplace_supply_items AS item")) {
@@ -3281,8 +3281,9 @@ describe("native Listing creation requires a resolved shipping measure", () => {
     const putObject = vi.fn();
     const db = {
       query: vi.fn(async (sql: string) => {
-        if (sql.includes("INSERT INTO marketplace_supply_locations")) return { rows: [] };
-        if (sql.includes("INSERT INTO marketplace_supply_items")) return { rows: [] };
+        if (sql.includes("INSERT INTO marketplace_supply_locations"))
+          return { rows: [{ storage_location_id: "loc_1" }] };
+        if (sql.includes("INSERT INTO marketplace_supply_items")) return { rows: [{ item_id: "inv_1" }] };
         if (sql.includes("FROM marketplace_supply_items AS item")) {
           return {
             rows: [
@@ -3460,5 +3461,154 @@ describe("native Listing creation requires a resolved shipping measure", () => {
         context,
       ),
     ).rejects.toThrow("Listings require a resolved shipping measure before publication.");
+  });
+});
+
+describe("an inventory snapshot changes only supply mirror rows its account owns", () => {
+  const LOCATION_WRITE = "INSERT INTO marketplace_supply_locations";
+  const ITEM_WRITE = "INSERT INTO marketplace_supply_items";
+
+  /** `refused` names the mirror write that finds its row under another account and so returns no row. */
+  function createFixture(refused: "location" | "item" | null) {
+    const memory = createInMemoryEventStore();
+    const resolveListingTerms = vi.fn(async ({ amount, accountId }) => ({
+      accountId,
+      accountType: "business" as const,
+      basisAmount: amount,
+      marketplaceSalesFeeUnitAmount: "1.00",
+      sellerNetUnitAmount: "19.00",
+      scheduleId: "cts_default",
+      agreementId: null,
+      resolvedAt: "2026-04-17T00:00:00.000Z",
+    }));
+    const statements: string[] = [];
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        statements.push(sql);
+        if (sql.includes(LOCATION_WRITE)) {
+          return { rows: refused === "location" ? [] : [{ storage_location_id: "loc_1" }] };
+        }
+        if (sql.includes(ITEM_WRITE)) return { rows: refused === "item" ? [] : [{ item_id: "inv_1" }] };
+        if (sql.includes("FROM marketplace_supply_items AS item")) {
+          return {
+            rows: [
+              {
+                item_id: "inv_1",
+                account_id: "acc_seller",
+                catalog_catalog_item_id: "cat_1",
+                product_id: "cat_1::",
+                item_title: "Charizard",
+                item_subtitle: null,
+                selected_options: [],
+                product_summary: null,
+                product_measure_snapshot: productMeasureSnapshot,
+                storage_location_name: "North shelf",
+                ship_from_code: "CHI",
+                ship_from_address: shipFromAddress,
+                available_quantity: 2,
+              },
+            ],
+          };
+        }
+        if (sql.includes("COALESCE(SUM(quantity_cap), 0)::text AS quantity_cap")) {
+          return { rows: [{ quantity_cap: "0" }] };
+        }
+        throw new Error(`Unexpected query in test: ${sql}`);
+      }),
+    };
+    const services = createMarketplaceListingRuntime({
+      eventStore: memory.eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      commercialTermsResolver: { resolveListingTerms } as never,
+    });
+    return { ...memory, services, resolveListingTerms, statements };
+  }
+
+  const snapshot = {
+    accountId: "acc_seller" as never,
+    inventoryItemId: "inv_1",
+    priceAmount: "20.00",
+    priceCurrencyCode: "USD",
+    quantityCap: 1,
+    catalogItemId: "cat_1",
+    productId: "cat_1::",
+    selectedOptions: [],
+    storageLocationId: "loc_1",
+    storageLocationName: "North shelf",
+    shipFromCode: "CHI",
+    shipFromAddress,
+    totalQuantity: 2,
+    acquisitionCostAmount: null,
+  };
+  type Services = ReturnType<typeof createFixture>["services"];
+  const creators = {
+    createListingFromInventorySnapshot: (services: Services) =>
+      services.createListingFromInventorySnapshot(listingTestCommand("listing.create", snapshot), context),
+    createBatchDraftListingFromInventorySnapshot: (services: Services) =>
+      services.createBatchDraftListingFromInventorySnapshot(
+        { ...snapshot, importBatchId: "imb_1", importRowId: "imr_1", listingIdOverride: "lst_batch_owned" as never },
+        context,
+      ),
+  };
+  const creatorNames = Object.keys(creators) as (keyof typeof creators)[];
+  const notFound = {
+    name: "MarketplaceListingDomainError",
+    code: "inventory-item-not-found",
+    message: "Inventory item not found.",
+  };
+  const written = (statements: readonly string[], write: string) => statements.filter((sql) => sql.includes(write));
+
+  it.each(creatorNames)(
+    "%s stops at a storage location row another account owns, before the item write, any fee quote or append",
+    async (creator) => {
+      const { allEvents, services, resolveListingTerms, statements } = createFixture("location");
+
+      await expect(creators[creator](services)).rejects.toMatchObject(notFound);
+
+      expect(written(statements, LOCATION_WRITE)).toHaveLength(1);
+      expect(written(statements, ITEM_WRITE)).toHaveLength(0);
+      expect(statements).toHaveLength(1);
+      expect(resolveListingTerms).not.toHaveBeenCalled();
+      expect(allEvents).toHaveLength(0);
+    },
+  );
+
+  it.each(creatorNames)(
+    "%s stops at an inventory item row another account owns, before any fee quote or append",
+    async (creator) => {
+      const { allEvents, services, resolveListingTerms, statements } = createFixture("item");
+
+      await expect(creators[creator](services)).rejects.toMatchObject(notFound);
+
+      expect(statements.map((sql) => (sql.includes(LOCATION_WRITE) ? "location" : "item"))).toEqual([
+        "location",
+        "item",
+      ]);
+      expect(written(statements, ITEM_WRITE)).toHaveLength(1);
+      expect(resolveListingTerms).not.toHaveBeenCalled();
+      expect(allEvents).toHaveLength(0);
+    },
+  );
+
+  it.each(creatorNames)("%s creates the Listing when both rows belong to the account or are new", async (creator) => {
+    const { allEvents, services, statements } = createFixture(null);
+
+    await expect(creators[creator](services)).resolves.toMatchObject({ version: 1 });
+
+    expect(allEvents.filter((event) => event.eventType === "marketplace.listing.created")).toHaveLength(1);
+    // Each write changes an existing row only under the account of the snapshot, and reports whether it wrote.
+    const [location] = written(statements, LOCATION_WRITE);
+    const [item] = written(statements, ITEM_WRITE);
+    expect(location).toMatch(
+      /ON CONFLICT \(storage_location_id\) DO UPDATE SET[\s\S]+WHERE marketplace_supply_locations\.account_id = EXCLUDED\.account_id\s+RETURNING storage_location_id$/,
+    );
+    expect(item).toMatch(
+      /ON CONFLICT \(item_id\) DO UPDATE SET[\s\S]+WHERE marketplace_supply_items\.account_id = EXCLUDED\.account_id\s+RETURNING item_id$/,
+    );
+    // No update can move a row to another account, and the snapshot leaves the stream version alone, so the
+    // first Inventory event still replaces the row.
+    for (const write of [location, item]) expect(write).not.toMatch(/^\s*account_id = /m);
+    expect(item).not.toMatch(/DO UPDATE SET[\s\S]*last_stream_version/);
   });
 });

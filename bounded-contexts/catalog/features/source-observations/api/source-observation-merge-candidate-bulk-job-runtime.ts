@@ -17,6 +17,8 @@ import {
   unappliedOutcome,
   type CatalogMergeCandidateApplicationPorts,
 } from "./promotion/catalog-merge-candidate-application";
+import { isCatalogMergeCandidateFailureDiagnosticCode } from "./promotion/catalog-merge-candidate-promotion-diagnostics";
+import { CatalogPromotionReferenceTargetUnresolvedError } from "./promotion/provider-reference-hierarchy-provisioner";
 import { retainProviderSendJobBinding, runProviderSendJob } from "./providers/provider-send-runtime";
 import { recordBulkReviewWorkUnitTelemetry } from "./providers/provider-option-queries";
 import {
@@ -261,14 +263,19 @@ export function createSourceObservationMergeCandidateBulkJobRuntime({
       }
 
       const reason = error instanceof Error ? error.message : "Catalog Merge Candidate bulk review failed.";
+      const diagnosticCode =
+        error instanceof CatalogMergeCandidateApplicationError ||
+        error instanceof CatalogPromotionReferenceTargetUnresolvedError
+          ? error.code
+          : "unexpected-promotion-error";
       const outcome: CatalogMergeCandidateBulkUnitResult =
         job.promotionApplicationVersion === catalogMergeCandidatePromotionApplicationVersion
-          ? unappliedOutcome(
-              candidateId,
-              "failed",
-              reason,
-              error instanceof CatalogMergeCandidateApplicationError ? error.diagnosticCode : undefined,
-            )
+          ? {
+              ...unappliedOutcome(candidateId, "failed", reason),
+              ...(diagnosticCode === "asset-processing-failed"
+                ? { diagnosticCode }
+                : { failureDiagnosticCode: diagnosticCode }),
+            }
           : { candidateId, status: "failed", catalogItemId: null, reason };
       await requireSourceObservationJobClaim(
         workUnitStore.recordTerminal({
@@ -707,6 +714,13 @@ function requireCatalogMergeCandidateBulkJobResult(
 
 function isWellFormedApplicationOutcome(outcome: CatalogMergeCandidateBulkUnitResult): boolean {
   if (outcome.diagnosticCode !== undefined && outcome.diagnosticCode !== "asset-processing-failed") return false;
+  if (
+    outcome.failureDiagnosticCode !== undefined &&
+    (!isCatalogMergeCandidateFailureDiagnosticCode(outcome.failureDiagnosticCode) ||
+      outcome.status !== "failed" ||
+      outcome.diagnosticCode !== undefined)
+  )
+    return false;
   if (
     outcome.disposition !== undefined &&
     (outcome.disposition !== "reference-only" ||

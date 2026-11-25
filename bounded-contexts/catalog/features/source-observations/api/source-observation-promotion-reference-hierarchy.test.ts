@@ -15,6 +15,7 @@ import enSets from "./__fixtures__/tcgdex/en-sets.json";
 import jaSets from "./__fixtures__/tcgdex/ja-sets.json";
 import {
   lorcanajsonLorcanaCardReferenceProviderProfile,
+  scrydexLorcanaCardPrintProviderProfile,
   tcgdexPokemonTcgProviderProfile,
   type CatalogProviderIntegrationProfile,
 } from "./provider-integration-profiles";
@@ -30,6 +31,7 @@ import {
   resolvePromotionReferenceHierarchyReadOnly,
 } from "./source-observation-promotion-reference-hierarchy";
 import { requireCatalogProviderSourceObservation } from "./promotion/provider-source-observation-normalizer";
+import { scrydexLorcanaCardPrintSourceObservationMappingContract } from "./providers/scrydex/lorcana-executable-mapping-contract";
 import {
   ygojsonYugiohSetReferenceProviderProfile,
   ygojsonYugiohSetReferenceSourceObservationMappingContract,
@@ -170,6 +172,42 @@ function harness(projected: readonly ProjectedReferenceRecord[] = []) {
 }
 
 describe("promotion reference hierarchy provisioning against authoritative Reference Data histories", () => {
+  it.each([null, 987654321])("resolves the set on an imported Scrydex Lorcana card (TCGplayer ID: %s)", async (id) => {
+    const h = harness();
+    const { normalized } = requireCatalogProviderSourceObservation({
+      contract: scrydexLorcanaCardPrintSourceObservationMappingContract,
+      observedAt: "2026-11-25T00:00:00Z",
+      payload: {
+        sourceUrl: "https://example.invalid/lorcana/cards/synthetic-card-1",
+        card: {
+          id: "synthetic-card-1",
+          name: "Synthetic Lorcana Card",
+          number: 1,
+          printed_number: "1/SYN",
+          language: "English",
+          language_code: "EN",
+          tcgplayer_id: id,
+          expansion: { id: "SYN24", code: "SYN24", name: "Synthetic Collection" },
+        },
+      },
+    });
+    if (normalized.kind !== "lorcana-card-print") throw new Error("Expected a Lorcana card print.");
+    expect(normalized).toMatchObject({
+      setId: "SYN24",
+      setCode: "syn24",
+      setName: "Synthetic Collection",
+      externalCatalogItemReferences: id ? [{ providerKey: "tcgplayer", externalKey: `product:${id}` }] : [],
+    });
+    const input = { deps: h.deps, profile: scrydexLorcanaCardPrintProviderProfile, normalized };
+    const preview = await resolvePromotionReferenceHierarchyReadOnly(input);
+    expect(preview.targetReferenceRecordId).toBe("ref_scrydex_lorcana_set_syn24");
+    const stream = `catalog.reference-record-${preview.targetReferenceRecordId}`;
+    expect(await h.types(stream)).toEqual([]);
+    const applied = await resolvePromotionReferenceHierarchy({ ...input, referenceData: h.referenceData, context });
+    expect(applied).toEqual(preview);
+    expect(await h.types(stream)).toEqual(activeRecordHistory);
+  });
+
   it("promotes the captured YGOJSON set through the seeded hierarchy and scope projection", async () => {
     const h = harness([
       {

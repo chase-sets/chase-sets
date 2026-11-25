@@ -1683,7 +1683,11 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     const cost = parseAcquisitionCostSnapshot(params.acquisitionCostAmount, params.acquisitionCostCurrencyCode);
     const address = parseShipFromAddressSnapshot(params.shipFromAddress);
     assert(address, "Ship-from address is required.");
-    await deps.db.query(
+    // A snapshot bridges projection lag for the account's own stock. Each statement changes an existing row
+    // only when that row already belongs to the snapshot's account; the condition is in the write, so a row
+    // the projection puts under another account first is not overwritten. The location goes first because
+    // an item row must never point at a location row its account does not own.
+    const location = await deps.db.query(
       `INSERT INTO marketplace_supply_locations (
          storage_location_id,
          account_id,
@@ -1694,12 +1698,13 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
          updated_at
        ) VALUES ($1, $2, $3, $4, $5, false, now())
        ON CONFLICT (storage_location_id) DO UPDATE SET
-         account_id = EXCLUDED.account_id,
          name = EXCLUDED.name,
          ship_from_code = EXCLUDED.ship_from_code,
          ship_from_address = EXCLUDED.ship_from_address,
          is_archived = false,
-         updated_at = EXCLUDED.updated_at`,
+         updated_at = EXCLUDED.updated_at
+       WHERE marketplace_supply_locations.account_id = EXCLUDED.account_id
+       RETURNING storage_location_id`,
       [
         params.storageLocationId,
         params.accountId,
@@ -1708,7 +1713,10 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         JSON.stringify(address),
       ],
     );
-    await deps.db.query(
+    if (location.rows.length === 0) {
+      throw new MarketplaceListingDomainError("inventory-item-not-found", "Inventory item not found.");
+    }
+    const item = await deps.db.query(
       `INSERT INTO marketplace_supply_items (
          item_id,
          account_id,
@@ -1724,7 +1732,6 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
          updated_at
        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0, now())
        ON CONFLICT (item_id) DO UPDATE SET
-         account_id = EXCLUDED.account_id,
          catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
          product_id = EXCLUDED.product_id,
          selected_options = EXCLUDED.selected_options,
@@ -1733,7 +1740,9 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
          total_quantity = EXCLUDED.total_quantity,
          acquisition_cost_amount = EXCLUDED.acquisition_cost_amount,
          acquisition_cost_currency_code = EXCLUDED.acquisition_cost_currency_code,
-         updated_at = EXCLUDED.updated_at`,
+         updated_at = EXCLUDED.updated_at
+       WHERE marketplace_supply_items.account_id = EXCLUDED.account_id
+       RETURNING item_id`,
       [
         params.inventoryItemId,
         params.accountId,
@@ -1747,6 +1756,9 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         cost.acquisitionCostCurrencyCode,
       ],
     );
+    if (item.rows.length === 0) {
+      throw new MarketplaceListingDomainError("inventory-item-not-found", "Inventory item not found.");
+    }
   }
 
   function stringField(data: Readonly<Record<string, unknown>>, key: string) {

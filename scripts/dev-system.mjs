@@ -13,6 +13,7 @@ import {
   assertSandboxPostgresSettings,
   applyDevTargetEnvOverrides,
   browserE2eProductionBuilds,
+  browserE2eCortenMarketplaceTarget,
   browserE2eProductionTarget,
   buildPlatformBootstrapEnvironment,
   buildPlatformChildEnvironment,
@@ -245,6 +246,7 @@ const devTargets = {
   "admin-web": ["platform-api", "platform-worker", "admin-web"],
   "browser-e2e": ["platform-api", "platform-worker", "admin-web", "marketplace"],
   [browserE2eProductionTarget]: ["platform-api", "platform-worker", "admin-web", "marketplace"],
+  [browserE2eCortenMarketplaceTarget]: ["platform-api", "platform-worker", "marketplace"],
   marketplace: ["marketplace"],
   "marketplace-full": ["platform-api", "platform-worker", "marketplace"],
   "public-web": ["platform-api", "platform-worker", "public-web"],
@@ -578,7 +580,9 @@ async function runDev(targetName = "all") {
         prefix: build.name,
       });
     }
+  }
 
+  if (targetName === browserE2eProductionTarget || targetName === browserE2eCortenMarketplaceTarget) {
     selectedProcesses.push(
       ...createBrowserE2eProductionIngressDefinitions(selectedProcesses, {
         apiUrl: sandbox.urls.platformApi,

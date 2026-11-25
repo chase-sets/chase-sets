@@ -380,7 +380,7 @@ it("required Static keeps the complete source gate and native matrix under the a
   expect(source).toContain("FORMAT_CHECK_SCOPE: full");
   expect(source).toContain("run: pnpm run verify:static");
   expect(native).toContain("needs: [change-scope, static-source]");
-  expect(native).toContain("if: always() && needs['change-scope'].result == 'success'");
+  expect(native).toContain("if: ${{ !cancelled() && needs['change-scope'].result == 'success'");
   expect(native).toContain("node scripts/provider-object-disposition/browser-boundary/hosted-controls.mjs");
   expect(native).toContain("name: Remove owned provider browser boundary\n        if: always()");
   expect(native).toContain("name: Require full source checks\n        if: always()");

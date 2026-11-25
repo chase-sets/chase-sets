@@ -1,5 +1,6 @@
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
 import { buildMinimalProcessEnvironment } from "./lib/process.mjs";
 import { browserE2eLifecyclePathEnv } from "./browser-e2e-evidence.mjs";
@@ -288,6 +289,23 @@ export const browserE2ePlatformWorkerCiCommand = Object.freeze(
 );
 
 export const browserE2eProductionTarget = "browser-e2e-production";
+// The browser e2e sandbox with the marketplace served by the Corten pilot's marketplace binary, against
+// the same platform API and seed. As in production, an ingress on the marketplace port sends /api to the
+// platform API and everything else to the pilot, which listens on its own origin port. The binary is
+// built before the system starts (cargo build -p corten-pilot-marketplace in deployables/corten-pilot);
+// this target does not build it.
+export const browserE2eCortenMarketplaceTarget = "browser-e2e-corten-marketplace";
+// A fixed value both the platform API and the pilot read: the pilot has no development default for
+// the internal capability, and the API's default is not visible to a Rust process.
+const browserE2eCortenInternalAuthSecret = "browser-e2e-corten-marketplace-internal-auth";
+
+export function cortenMarketplaceBinaryPath(environment = process.env, platform = process.platform) {
+  const configured = environment.CORTEN_MARKETPLACE_BINARY?.trim();
+  if (configured) return configured;
+  const name = platform === "win32" ? "corten-pilot-marketplace.exe" : "corten-pilot-marketplace";
+  const repositoryRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+  return path.join(repositoryRoot, "deployables", "corten-pilot", "target", "debug", name);
+}
 
 const browserE2eProductionWorkspaces = Object.freeze({
   "platform-api": "@chase-sets/app-platform-api",
@@ -310,7 +328,7 @@ export const browserE2eProductionBuilds = Object.freeze([
 ]);
 
 const browserE2eProductionWebOriginPortOffset = 4;
-const browserE2eProductionWebNames = new Set(browserE2eProductionBuilds.map(({ name }) => name));
+const browserE2eIngressWebNames = new Set(browserE2eProductionBuilds.map(({ name }) => name));
 
 export const browserE2eDirectCiCommands = Object.freeze({
   "platform-worker": browserE2ePlatformWorkerCiCommand,
@@ -324,11 +342,20 @@ export function resolveBrowserE2eSystemTarget(environment = process.env) {
   if (mode === "production") {
     return browserE2eProductionTarget;
   }
-  throw new Error(`CHASE_SETS_BROWSER_E2E_SYSTEM must be "development" or "production"; received "${mode}".`);
+  if (mode === "corten-marketplace") {
+    return browserE2eCortenMarketplaceTarget;
+  }
+  throw new Error(
+    `CHASE_SETS_BROWSER_E2E_SYSTEM must be "development", "production" or "corten-marketplace"; received "${mode}".`,
+  );
 }
 
 export function isBrowserE2eTarget(targetName) {
-  return targetName === "browser-e2e" || targetName === browserE2eProductionTarget;
+  return (
+    targetName === "browser-e2e" ||
+    targetName === browserE2eProductionTarget ||
+    targetName === browserE2eCortenMarketplaceTarget
+  );
 }
 
 export function acquireDevSystemHeavySlot(mode, targetName, acquireSlot) {
@@ -338,7 +365,7 @@ export function acquireDevSystemHeavySlot(mode, targetName, acquireSlot) {
 
 export function createBrowserE2eProductionIngressDefinitions(processDefinitions, { apiUrl, ingressScriptPath }) {
   return processDefinitions
-    .filter((definition) => browserE2eProductionWebNames.has(definition.name))
+    .filter((definition) => browserE2eIngressWebNames.has(definition.name) && definition.publicPort !== undefined)
     .map((definition) => ({
       name: `${definition.name}-ingress`,
       command: "node",
@@ -382,6 +409,9 @@ export function applyDevTargetEnvOverrides(
           ...browserE2ePlatformAdminEnv,
           ...browserE2eReadConsistencyEnv,
           ...(targetName === browserE2eProductionTarget ? browserE2eProductionIngressEnv : {}),
+          ...(targetName === browserE2eCortenMarketplaceTarget
+            ? { ...browserE2eProductionIngressEnv, PLATFORM_INTERNAL_AUTH_SECRET: browserE2eCortenInternalAuthSecret }
+            : {}),
         },
         ...(productionCommand ?? (ci ? browserE2eDirectCiCommands[definition.name] : {})),
       };
@@ -400,8 +430,30 @@ export function applyDevTargetEnvOverrides(
       };
     }
 
+    if (definition.name === "marketplace" && targetName === browserE2eCortenMarketplaceTarget) {
+      const internalApiOrigin = definition.env.CHASE_SETS_INTERNAL_API_ORIGIN ?? definition.env.PLATFORM_API_URL;
+      if (!internalApiOrigin) throw new Error("marketplace requires PLATFORM_API_URL for the Corten marketplace.");
+      const originPort = definition.port + browserE2eProductionWebOriginPortOffset;
+      return {
+        name: definition.name,
+        command: cortenMarketplaceBinaryPath(environment, platform),
+        args: [],
+        env: {
+          ...definition.env,
+          CHASE_SETS_INTERNAL_API_ORIGIN: internalApiOrigin,
+          PLATFORM_INTERNAL_AUTH_SECRET: browserE2eCortenInternalAuthSecret,
+          MARKETPLACE_WEB_ORIGIN: `http://localhost:${definition.port}`,
+          HOST: "127.0.0.1",
+          PORT: String(originPort),
+          CHASE_SETS_MARKETPLACE_INDEXING: "off",
+        },
+        port: originPort,
+        publicPort: definition.port,
+      };
+    }
+
     if (productionCommand) {
-      const isProductionWeb = browserE2eProductionWebNames.has(definition.name);
+      const isProductionWeb = browserE2eIngressWebNames.has(definition.name);
       const originPort = isProductionWeb ? definition.port + browserE2eProductionWebOriginPortOffset : definition.port;
       const internalApiOrigin = definition.env.PLATFORM_API_URL ?? definition.env.VITE_PLATFORM_API_URL;
       if (isProductionWeb && !internalApiOrigin) {

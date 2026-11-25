@@ -46,6 +46,7 @@ export {
 export type { CatalogProviderSourceObservationMappingContract } from "./features/source-observations/api/promotion/provider-source-observation-normalizer";
 export { planCatalogProviderPromotionCommands } from "./features/source-observations/api/promotion/provider-promotion-command-planner";
 export type { CatalogProviderPromotionResolvedCatalogMapping } from "./features/source-observations/api/promotion/provider-promotion-command-planner";
+export type { CatalogMergeCandidateApplicationDiagnosticCode } from "./features/source-observations/api/promotion/catalog-merge-candidate-promotion-diagnostics";
 // Synthetic, test-only display identity data for database-free planner
 // evidence (browser e2e support); never production identity validation.
 export { createSyntheticDisplayIdentityQueryable } from "./features/source-observations/api/seeding/synthetic-display-identity-queryable";

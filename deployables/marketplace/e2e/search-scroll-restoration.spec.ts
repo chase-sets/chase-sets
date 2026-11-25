@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { marketplaceBrowserE2eSeedContract } from "./support/seed-contract";
+import { onCortenMarketplace } from "./support/system";
 
 const searchQuery = process.env.MARKETPLACE_E2E_SEARCH_QUERY ?? "charizard";
 const searchRestorationStorageKey = "discovery.search.restoration.v2";
@@ -59,6 +60,10 @@ test.describe("marketplace search scroll restoration", () => {
   test("canonicalizes interpreted grade words once and keeps the notice honest @marketplace-browse", async ({
     page,
   }) => {
+    test.skip(
+      onCortenMarketplace,
+      "counts the dismissed notice with toHaveCount(0) and removes a grade with a button; marketplace-web removes the notice from the DOM, while the Corten marketplace hides it with the hidden attribute and removes a grade with a link",
+    );
     const redirects: string[] = [];
     page.on("response", (response) => {
       if (response.status() >= 300 && response.status() < 400 && new URL(response.url()).pathname === "/search") {
@@ -98,6 +103,10 @@ test.describe("marketplace search scroll restoration", () => {
   });
 
   test("replaces restored pages when a former hybrid cursor restarts @marketplace-browse", async ({ page }) => {
+    test.skip(
+      onCortenMarketplace,
+      "seeds marketplace-web's session-storage result snapshot and waits for its cursor request; the Corten marketplace keeps no such snapshot",
+    );
     const firstPageUrl = `/api/marketplace/items?search=${encodeURIComponent(searchQuery)}&sort=relevance&limit=24&includeTotal=true`;
     const firstResponse = await page.request.get(firstPageUrl);
     expect(firstResponse.ok()).toBe(true);
@@ -153,6 +162,10 @@ test.describe("marketplace search scroll restoration", () => {
   });
 
   test("restores loaded Result Set context after an item-detail roundtrip @marketplace-browse", async ({ page }) => {
+    test.skip(
+      onCortenMarketplace,
+      "seeds marketplace-web's session-storage result snapshot; the Corten marketplace does not yet restore the rows Load more added after Back",
+    );
     await page.goto(`/search?q=${encodeURIComponent(searchQuery)}`, { waitUntil: "domcontentloaded" });
     const basePage = await page.evaluate(async (query) => {
       const response = await fetch(
