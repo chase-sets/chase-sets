@@ -7,7 +7,7 @@ export const catalogOperatorExtensionEnglishTranslations = {
   "catalog.operatorExtension.pair": "Pair",
   "catalog.operatorExtension.unpair": "Unpair",
   "catalog.operatorExtension.refresh": "Refresh status",
-  "catalog.operatorExtension.recover": "Retry current session",
+  "catalog.operatorExtension.recover": "Run now",
   "catalog.operatorExtension.cancel": "Clear pairing grant",
   "catalog.operatorExtension.loading": "Loading status",
   "catalog.operatorExtension.unavailable": "Status unavailable. Reopen the extension to try again.",

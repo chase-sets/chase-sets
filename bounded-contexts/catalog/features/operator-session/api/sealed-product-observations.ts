@@ -1,11 +1,18 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import {
-  parseTcgplayerSealedProductObservationPost,
   tcgplayerSealedProductObservationLimits,
   type TcgplayerSealedProductObservationPost,
 } from "../domain/extension/sealed-products/contract";
-import { tcgplayerSealedProductUnitKeyForLine } from "../../source-observations/api/providers/tcgplayer/adapter";
+import {
+  parseSealedAnswer,
+  sealedPartHeader,
+  type SealedAnswer,
+} from "../domain/extension/sealed-products/answer-contract";
+import { operatorEnvironments, operatorOrigins, type OperatorEnvironment } from "../domain/extension/protocol";
+import { setNameRequestHeader } from "../domain/extension/set-names/request";
+import type { ProviderScopeMappingRow } from "../../provider-scope-mapping/read-model/queries";
 import { OperatorSessionRequestError, readBody } from "./request";
 import { operatorExtensionContext, type ObservationGrant } from "./set-name-observations";
 
@@ -22,15 +29,43 @@ export type TcgplayerSealedProductObservationRecorder = (
     unitKey: string;
     provenance: ObservationGrant;
     context: EventStoreContext;
+    scopeMapping?: ProviderScopeMappingRow;
   }>,
   backend?: PgTransactionalPool,
+  transaction?: PgQueryable,
 ) => Promise<TcgplayerSealedProductObservationResult>;
+
+export type SealedAnswerReceipt =
+  | Readonly<{ kind: "part"; partIndex: number }>
+  | Readonly<
+      { kind: "complete"; productCount: number; verifiedEmpty: boolean } & TcgplayerSealedProductObservationResult
+    >
+  | Readonly<{
+      kind: "failure";
+      code: Extract<SealedAnswer, { kind: "failure" }>["code"];
+      endpointCode: string | null;
+    }>;
+
+export type TcgplayerSealedRequestAnswer = (input: {
+  requestId: string;
+  text: string;
+  grant: ObservationGrant;
+  environment: OperatorEnvironment;
+  answer: SealedAnswer;
+  backend?: PgTransactionalPool;
+  record: (
+    db: PgQueryable,
+    post: TcgplayerSealedProductObservationPost,
+    mapping: ProviderScopeMappingRow,
+  ) => Promise<TcgplayerSealedProductObservationResult>;
+}) => Promise<SealedAnswerReceipt | null>;
 
 // Issue: https://github.com/chase-sets/chase-sets/issues/10040
 export function createTcgplayerSealedProductObservationPost(
   deps: Readonly<{
     authorizeObservationGrant: (request: Request) => Promise<ObservationGrant>;
     record: TcgplayerSealedProductObservationRecorder | undefined;
+    answer?: TcgplayerSealedRequestAnswer;
     serializeWrites: <T>(work: (backend?: PgTransactionalPool) => Promise<T>) => Promise<T>;
   }>,
 ) {
@@ -45,9 +80,23 @@ export function createTcgplayerSealedProductObservationPost(
         ? refusal(error.code, error.status)
         : refusal("custody-unavailable", 503);
     }
-    let value: unknown;
+    const requestId = request.headers.get(setNameRequestHeader);
+    if (!requestId || !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(requestId))
+      return refusal("invalid-observation-request", 400);
+    const environment = operatorEnvironments.find(
+      (key) => operatorOrigins[key] === resolvePublicRequestOrigin(request),
+    );
+    if (!environment) return refusal("environment-refused", 403);
+    const { record, answer } = deps;
+    if (!record || !answer) return refusal("source-observations-unavailable", 503);
+    const part = request.headers.get(sealedPartHeader);
+    let text: string;
+    let parsed: SealedAnswer | null;
     try {
-      value = JSON.parse(await readBody(request, tcgplayerSealedProductObservationLimits.maxPostBytes));
+      text = await readBody(request, part === null ? 36_000 : tcgplayerSealedProductObservationLimits.maxPostBytes, {
+        preserveByteOrderMark: true,
+      });
+      parsed = parseSealedAnswer(JSON.parse(text), part);
     } catch (error) {
       if (error instanceof OperatorSessionRequestError && error.code === "request-too-large")
         return refusal("body-too-large", 413);
@@ -55,25 +104,31 @@ export function createTcgplayerSealedProductObservationPost(
         return refusal("request-timeout", 408);
       return refusal("invalid-body", 400);
     }
-    const parsed = parseTcgplayerSealedProductObservationPost(value);
-    if (!parsed.ok) return refusal(parsed.code, 400);
-    const unitKey = tcgplayerSealedProductUnitKeyForLine(parsed.post.products[0]!.productLineName);
-    if (!unitKey) return refusal("unit-unsupported", 422);
-    const record = deps.record;
-    if (!record) return refusal("source-observations-unavailable", 503);
+    if (!parsed) return refusal("invalid-body", 400);
     try {
       const result = await deps.serializeWrites((backend) =>
-        record(
-          {
-            post: parsed.post,
-            unitKey,
-            provenance: grant,
-            context: operatorExtensionContext(grant),
-          },
+        answer({
+          requestId,
+          text,
+          grant,
+          environment,
+          answer: parsed,
           backend,
-        ),
+          record: (db, post, scopeMapping) =>
+            record(
+              {
+                post,
+                unitKey: scopeMapping.unit_key,
+                scopeMapping,
+                provenance: grant,
+                context: operatorExtensionContext(grant),
+              },
+              backend,
+              db,
+            ),
+        }),
       );
-      return Response.json(result, { headers });
+      return result ? Response.json(result, { headers }) : refusal("observation-request-closed", 409);
     } catch (error) {
       return error instanceof OperatorSessionRequestError
         ? refusal(error.code, error.status)

@@ -92,6 +92,7 @@ import {
   integrationProfileSnapshotKey,
 } from "./source-observation-promotion-execution";
 import { createSetNameRequestRuntime } from "./source-observation-set-name-requests";
+import { sealedRequestProductLine } from "./providers/tcgplayer/sealed-request-coordinates";
 import { createCatalogProviderIntegrationProfileVersionStore } from "./providers/provider-integration-profile-store";
 import { catalogSetNamesProductLineId } from "./providers/catalog-sync-scope-planner";
 import { createCatalogSetNameRequestRecheck } from "./source-observation-catalog-sync-run-runtime";
@@ -220,6 +221,7 @@ export function createSourceObservationRuntime(
 ): SourceObservationServices & {
   currentCatalogObservationRequest?: ReturnType<typeof createSetNameRequestRuntime>["current"];
   answerTcgplayerSetNameRequest?: ReturnType<typeof createSetNameRequestRuntime>["answer"];
+  answerTcgplayerSealedRequest?: ReturnType<typeof createSetNameRequestRuntime>["answerSealed"];
 } {
   const { commandHandler } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
@@ -478,7 +480,19 @@ export function createSourceObservationRuntime(
       storeIn: integrationJobStoreIn,
       recheck: createCatalogSetNameRequestRecheck(async (db, job) => {
         const unit = job.payload.scope.ingestionUnitKey;
-        if (!unit || String(catalogSetNamesProductLineId(unit)) !== job.payload.scope.productLineId) return false;
+        const sealed = job.payload.scope.execution === "extension-sealed-products";
+        if (
+          !unit ||
+          String(sealed ? sealedRequestProductLine(unit) : catalogSetNamesProductLineId(unit)) !==
+            job.payload.scope.productLineId
+        )
+          return false;
+        if (sealed)
+          await db.query(
+            `SELECT profile_version FROM catalog_provider_integration_profile_versions
+            WHERE provider_key = 'tcgplayer' AND ingestion_unit_key = $1 AND active FOR SHARE`,
+            [unit],
+          );
         const profile = await createCatalogProviderIntegrationProfileVersionStore(db).getActiveProfileVersion(
           "tcgplayer",
           {
@@ -634,6 +648,7 @@ export function createSourceObservationRuntime(
     ...services,
     currentCatalogObservationRequest: setNames?.current,
     answerTcgplayerSetNameRequest: setNames?.answer,
+    answerTcgplayerSealedRequest: setNames?.answerSealed,
   };
 }
 

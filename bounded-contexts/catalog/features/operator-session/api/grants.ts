@@ -27,6 +27,7 @@ import {
 import {
   createTcgplayerSealedProductObservationPost,
   type TcgplayerSealedProductObservationRecorder,
+  type TcgplayerSealedRequestAnswer,
 } from "./sealed-product-observations";
 
 type Action = "metadata" | "mint" | "disconnect" | "unpair";
@@ -53,6 +54,7 @@ export type OperatorObservationRecorders = Readonly<{
   tcgplayerSetNames?: TcgplayerSetNameObservationRecorder;
   answerTcgplayerSetNameRequest?: TcgplayerSetNameRequestAnswer;
   tcgplayerSealedProducts?: TcgplayerSealedProductObservationRecorder;
+  answerTcgplayerSealedRequest?: TcgplayerSealedRequestAnswer;
 }>;
 
 export function createOperatorSessionGrants(
@@ -161,6 +163,7 @@ export function createOperatorSessionGrants(
     recordTcgplayerSealedProductObservations: createTcgplayerSealedProductObservationPost({
       authorizeObservationGrant,
       record: observationRecorders.tcgplayerSealedProducts,
+      answer: observationRecorders.answerTcgplayerSealedRequest,
       serializeWrites: (work) => withOperatorSessionBackend(pool, work, observationWriteLockId),
     }),
     recordTcgplayerSetNameObservations: createTcgplayerSetNameObservationPost({

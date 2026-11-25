@@ -63,6 +63,7 @@ export type SourceObservationMergeCandidateRuntimeDeps = Readonly<{
   deps: CatalogRuntimeDeps;
   profileVersions: CatalogProviderIntegrationProfileVersionReader;
   loadObservationRows?: (ids: readonly string[]) => Promise<readonly SourceObservationListRow[]>;
+  loadAcceptedScopeMappings?: typeof listAcceptedProviderScopeMappingsForProviders;
 }>;
 
 /**
@@ -75,6 +76,7 @@ export function createSourceObservationMergeCandidateRuntime({
   deps,
   profileVersions,
   loadObservationRows,
+  loadAcceptedScopeMappings = listAcceptedProviderScopeMappingsForProviders,
 }: SourceObservationMergeCandidateRuntimeDeps) {
   const codec = createPassthroughDomainEventCodec<CatalogMergeCandidateEvent>();
   const { commandHandler: catalogMergeCandidateCommandHandler, repository: catalogMergeCandidateRepository } =
@@ -144,7 +146,7 @@ export function createSourceObservationMergeCandidateRuntime({
         return unitKey ? [[observation.observation_id, unitKey]] : [];
       }),
     );
-    const acceptedScopeMappings = await listAcceptedProviderScopeMappingsForProviders(deps.db, providerKeys);
+    const acceptedScopeMappings = await loadAcceptedScopeMappings(deps.db, providerKeys);
     const generated = buildCatalogMergeCandidatesFromObservations(observations, {
       addedAt,
       acceptedScopeMappings,
@@ -206,7 +208,7 @@ export function createSourceObservationMergeCandidateRuntime({
       const allProviderKeys = [
         ...new Set([...allRows.values()].map((row) => row.provider_key.trim().toLowerCase())),
       ].sort();
-      const allAcceptedScopeMappings = await listAcceptedProviderScopeMappingsForProviders(deps.db, allProviderKeys);
+      const allAcceptedScopeMappings = await loadAcceptedScopeMappings(deps.db, allProviderKeys);
       const allProviderVersions = (
         await Promise.all(allProviderKeys.map((providerKey) => profileVersions.listProfileVersions(providerKey)))
       ).flat();

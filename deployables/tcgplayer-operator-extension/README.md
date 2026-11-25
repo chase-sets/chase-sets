@@ -54,9 +54,23 @@ A refusal, a missing or late reply, or no runtime leaves Admin showing the
 grant as not confirmed for popup paste; that is not proof of non-receipt or a
 rollback. Neither side retries or mints again, and the grant is never recorded.
 
-The extension never reads or writes provider cookies, logs secrets, or calls
-TCGplayer. Synthetic Chromium applicability tests establish browser behavior,
-not a live provider/account assertion.
+The service worker uses an MV3 alarm to poll Catalog about every five minutes.
+Keep the paired browser open; the popup can stay closed. Catalog selects the
+product line or mapped set. Run now wakes the same poller and does not submit
+a set or approve a request. The separate SetNames probe remains available for
+diagnostics and does not post observations.
+
+The worker calls only the existing SetNames, sealed search and sealed detail
+endpoints, with omitted credentials, fixed timeouts, bounded reads and paced
+sealed requests. It never reads or writes provider cookies or logs secrets.
+Sealed Search and Detail must finish before reduced chunks and their manifest
+are sent to Catalog. A verified empty result can settle without chunks;
+incomplete or abandoned collections do not settle. Catalog owns job status,
+counts and fixed failure receipts. A provider refusal does not unpair the
+extension; confirmed Catalog grant loss requires re-pairing.
+
+Synthetic Chromium tests replace provider and Catalog responses and block
+network egress. They are not evidence about a live provider or account.
 
 Each environment has one serialized storage boundary. Pairing and unpairing are
 serialized per environment. A refused or missing handoff remains an explicit

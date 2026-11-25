@@ -155,11 +155,12 @@ export async function readStaleActiveCatalogScopeRecordAttentionWindow(
 export async function getCatalogScopeRecord(
   db: PgQueryable,
   scopeRecordId: string,
+  lock = false,
 ): Promise<CatalogScopeRecordRow | null> {
   const result = await db.query<CatalogScopeRecordRow>(
     `SELECT *, ${catalogIsoUtcTimestamp("updated_at")}
      FROM catalog_scope_records
-     WHERE scope_record_id = $1`,
+     WHERE scope_record_id = $1 ${lock ? "FOR SHARE" : ""}`,
     [scopeRecordId],
   );
 

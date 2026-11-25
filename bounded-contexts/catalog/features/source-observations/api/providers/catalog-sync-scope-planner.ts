@@ -10,6 +10,7 @@ import { unitKeyForCatalogProviderProfileVersion } from "../governance/catalog-i
 import type { SourceObservationIntegrationJobScope } from "../runtime";
 import { normalizeCatalogScopeProductDomain } from "../../../scope-registry/domain/contract";
 import { tcgplayerSetNameUnits } from "../../../operator-session/domain/extension/set-names/contract";
+import { sealedRequestProductLine, type SealedRequestCoordinates } from "./tcgplayer/sealed-request-coordinates";
 
 export function catalogSetNamesProductLineId(unitKey: string): number | null {
   return tcgplayerSetNameUnits.find((unit) => unit.unitKey === unitKey)?.productLineId ?? null;
@@ -49,6 +50,7 @@ export type CatalogSyncAcceptedScopeMapping = Readonly<{
   mappingId: string;
   mappingVersion: string;
   reviewStatus: string;
+  sealedCoordinates?: SealedRequestCoordinates | null;
 }>;
 
 export type CatalogSyncProviderParticipationSelection = Readonly<{
@@ -90,7 +92,7 @@ export function catalogSyncAcceptedScopeMappingFromRow(row: {
     productLineId: normalizeOptionalKey(row.product_line_id),
     seriesId: normalizeOptionalKey(row.series_id),
     setId: normalizeOptionalKey(row.set_id),
-    setName: row.set_name?.trim() || null,
+    setName: (sealedRequestProductLine(row.unit_key) !== null ? row.set_name : row.set_name?.trim()) || null,
     languageCode: readLanguageCode(row.language_coordinates),
     mappingId: row.mapping_id,
     mappingVersion: row.updated_at,
@@ -107,6 +109,7 @@ export type CatalogSyncProviderParticipationBlocker = Readonly<{
     | "scope-product-form-mismatch"
     | "scope-reference-unsupported"
     | "provider-scope-mapping-missing"
+    | "sealed-request-coordinates-unavailable"
     | "provider-plan-unavailable"
     | "provider-credential-not-ready"
     | "provider-transport-blocked"
@@ -214,7 +217,8 @@ export async function previewCatalogSyncProviderParticipation(input: {
       (version) =>
         version.profile.capabilities.includes("source-observation-import") &&
         (!declaresNoImportPlanning(input.providerAdapterRegistry, version.providerKey) ||
-          catalogSetNamesProductLineId(unitKeyForCatalogProviderProfileVersion(version)) !== null),
+          catalogSetNamesProductLineId(unitKeyForCatalogProviderProfileVersion(version)) !== null ||
+          sealedRequestProductLine(unitKeyForCatalogProviderProfileVersion(version)) !== null),
     )
     .map((version) => ({ version, unitKey: unitKeyForCatalogProviderProfileVersion(version) }));
   const activeUnitKeys = new Set(
@@ -235,6 +239,13 @@ export async function previewCatalogSyncProviderParticipation(input: {
       }
       if (catalogSetNamesProductLineId(unitKey) !== null)
         return scope.reference.kind === "product-line" && unitMatchesProductDomain(unitKey, scope.productDomain);
+      if (sealedRequestProductLine(unitKey) !== null)
+        return (
+          (scope.reference.kind === "set" || scope.reference.kind === "expansion") &&
+          unitMatchesProductDomain(unitKey, scope.productDomain) &&
+          (!scope.productForm || unitMatchesProductForm(unitKey, scope.productForm)) &&
+          acceptedScopeMappings.some((mapping) => mapping.unitKey === unitKey && mapping.sealedCoordinates)
+        );
       return unitMatchesCatalogSyncScope(version, unitKey, scope);
     });
 
@@ -384,13 +395,24 @@ async function planProviderUnit(input: {
   explicitlySelected: boolean;
 }): Promise<CatalogSyncProviderParticipationUnit> {
   const productLineId = catalogSetNamesProductLineId(input.unitKey);
+  const sealed = sealedRequestProductLine(input.unitKey) !== null;
+  const coordinates = input.mapping?.sealedCoordinates;
   const blockers = catalogSyncProfileEligibilityBlockers(
     input.version,
     input.unitKey,
     input.scope,
     input.mapping,
     productLineId !== null,
+    sealed,
   );
+  if (sealed && !coordinates) {
+    blockers.push({
+      code: "sealed-request-coordinates-unavailable",
+      severity: "error",
+      message: t("catalog.features.sourceObservations.api.catalogSyncScopePlanner.sealedCoordinatesUnavailable"),
+      action: "Refresh set names and review the accepted sealed Provider Scope Mapping.",
+    });
+  }
   if (productLineId !== null && input.mapping?.productLineId && input.mapping.productLineId !== String(productLineId)) {
     blockers.push({
       code: "provider-plan-unavailable",
@@ -433,7 +455,7 @@ async function planProviderUnit(input: {
     credentials: [],
     transport: [],
   };
-  if (productLineId === null && !adapter) {
+  if (productLineId === null && !sealed && !adapter) {
     blockers.push({
       code: "provider-adapter-missing",
       severity: "error",
@@ -442,14 +464,23 @@ async function planProviderUnit(input: {
       }),
       action: "Register and configure this provider adapter before selecting the unit.",
     });
-  } else if (productLineId === null && adapter && input.includeOperationalGates) {
+  } else if (productLineId === null && !sealed && adapter && input.includeOperationalGates) {
     readinessEvidence = await appendProviderReadinessBlockers(adapter, input.unitKey, blockers);
   }
 
   const childExecutionScope =
     blockers.length === 0
       ? productLineId === null
-        ? childScopeForProviderUnit(input.scope, input.version, input.unitKey, input.mapping)
+        ? sealed && coordinates
+          ? {
+              ...childScopeForProviderUnit(input.scope, input.version, input.unitKey, input.mapping),
+              execution: "extension-sealed-products" as const,
+              productLineId: String(coordinates.productLineId),
+              setId: String(coordinates.setNameId),
+              setName: coordinates.searchName,
+              language: "en",
+            }
+          : childScopeForProviderUnit(input.scope, input.version, input.unitKey, input.mapping)
         : {
             execution: "extension-set-names" as const,
             provider: input.version.providerKey,
@@ -470,7 +501,7 @@ async function planProviderUnit(input: {
           estimateReason: null,
           transportSteps: [],
         }
-      : childExecutionScope && adapter
+      : childExecutionScope && !sealed && adapter
         ? await planEstimate(adapter, input.unitKey, childExecutionScope, blockers)
         : null;
   const eligibility = catalogSyncProviderEligibility(blockers);
@@ -649,6 +680,7 @@ export function catalogSyncProfileEligibilityBlockers(
   scope: CatalogSyncScope,
   mapping: CatalogSyncAcceptedScopeMapping | null,
   browserSetNames = false,
+  browserSealed = false,
 ): CatalogSyncProviderParticipationBlocker[] {
   const blockers: CatalogSyncProviderParticipationBlocker[] = [];
   if (!isActiveProviderProfileVersion(version)) {
@@ -684,7 +716,11 @@ export function catalogSyncProfileEligibilityBlockers(
       action: "Select a provider unit with the same Catalog product form.",
     });
   }
-  if (!unitSupportsReferenceScope(version, scope.reference.kind)) {
+  if (
+    !(browserSealed
+      ? scope.reference.kind === "set" || scope.reference.kind === "expansion"
+      : unitSupportsReferenceScope(version, scope.reference.kind))
+  ) {
     blockers.push({
       code: "scope-reference-unsupported",
       severity: "error",
@@ -699,6 +735,7 @@ export function catalogSyncProfileEligibilityBlockers(
   // missing mapping — or one that does not yet supply a coordinate this provider
   // unit requires — is an actionable blocker that points the operator at the
   // unmapped-scope inbox instead of asking them to hand-enter provider values.
+  if (browserSealed) return blockers;
   const childScope = childScopeForProviderUnit(scope, version, unitKey, mapping);
   for (const coordinate of requiredProviderScopeCoordinates(version)) {
     if (childScope[coordinate.field]) {
@@ -880,7 +917,7 @@ function acceptedMappingFor(
   if (!mapping || !scopeLanguageCode || !mappingLanguageCode || mappingLanguageCode === scopeLanguageCode) {
     return mapping;
   }
-  return { ...mapping, productLineId: null, seriesId: null, setId: null, setName: null };
+  return { ...mapping, productLineId: null, seriesId: null, setId: null, setName: null, sealedCoordinates: null };
 }
 
 function unitMatchesProductDomain(unitKey: CatalogIntegrationUnitKey, productDomain: string): boolean {

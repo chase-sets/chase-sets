@@ -84,6 +84,7 @@ export async function readProposedProviderScopeMappingAttentionWindow(
 export async function listAcceptedProviderScopeMappingsByScopeRecord(
   db: PgQueryable,
   scopeRecordId: string,
+  lock = false,
 ): Promise<readonly ProviderScopeMappingRow[]> {
   const normalizedScopeRecordId = scopeRecordId.trim();
   if (!normalizedScopeRecordId) {
@@ -95,7 +96,8 @@ export async function listAcceptedProviderScopeMappingsByScopeRecord(
      FROM catalog_provider_scope_mappings
      WHERE scope_record_id = $1
        AND review_status IN ('accepted', 'auto-accepted')
-     ORDER BY provider_key ASC, unit_key ASC, set_name ASC NULLS LAST, set_id ASC NULLS LAST`,
+     ORDER BY provider_key ASC, unit_key ASC, set_name ASC NULLS LAST, set_id ASC NULLS LAST
+     ${lock ? "FOR SHARE" : ""}`,
     [normalizedScopeRecordId],
   );
 

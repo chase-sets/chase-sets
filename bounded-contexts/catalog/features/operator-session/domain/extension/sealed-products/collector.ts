@@ -1,14 +1,8 @@
 import { z } from "zod";
-import { tcgplayerSetNameUnits } from "../set-names/contract";
+import { sealedProductLines, sealedRequestMaxProducts } from "./contract";
 import { isSealedRequestResult, sealedRequestFailure, type SealedRequestResult } from "./request-result";
 
-export const sealedProductLines = () =>
-  tcgplayerSetNameUnits.flatMap((unit) => {
-    const game = unit.unitKey.split(":")[1];
-    const name =
-      game === "mtg" ? "Magic" : game === "pokemon" ? "Pokemon" : game === "lorcana" ? "Disney Lorcana" : null;
-    return name === null || unit.productLineId === null ? [] : [{ id: unit.productLineId, name }];
-  });
+export { sealedProductLines } from "./contract";
 export type SealedSelection = { productLineId: number; setId: number; setName: string };
 export type SealedRequest =
   | { endpoint: "search"; productLineId: number; setName: string; from: number; includeProductLine: boolean }
@@ -73,7 +67,11 @@ const search = z.object({
     )
     .length(1),
 });
-export const sealedCollectionLimits = { maxPages: 500, maxProducts: 12_000, maxDetailBytes: 16 * 1024 * 1024 } as const;
+export const sealedCollectionLimits = {
+  maxPages: 500,
+  maxProducts: sealedRequestMaxProducts,
+  maxDetailBytes: 16 * 1024 * 1024,
+} as const;
 export function validSealedSelection(selection: SealedSelection): boolean {
   return (
     sealedProductLines().some((line) => line.id === selection.productLineId) &&

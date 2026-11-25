@@ -50,12 +50,6 @@ createRoot(document.getElementById("root")!).render(
         serverRevision: 0,
       })}
       setNameRequest={request}
-      postSetNames={async () => ({
-        outcome: "recorded",
-        observationCount: 1,
-        newObservationCount: 1,
-        mappingsProposed: 0,
-      })}
       copyProbeReport={async () => undefined}
       extensionVersion="0.1.0"
       buildCommit="synthetic-screenshot"

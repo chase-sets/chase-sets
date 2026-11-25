@@ -230,6 +230,7 @@ export function createCatalogServices(
       {
         tcgplayerSetNames: providerScopeDiscovery.recordExtensionScopeObservations,
         answerTcgplayerSetNameRequest: sourceObservationRuntime.answerTcgplayerSetNameRequest,
+        answerTcgplayerSealedRequest: sourceObservationRuntime.answerTcgplayerSealedRequest,
         tcgplayerSealedProducts: createExtensionTcgplayerSealedProductRecorder({
           deps,
           pool,

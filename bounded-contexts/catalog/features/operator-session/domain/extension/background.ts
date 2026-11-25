@@ -12,15 +12,8 @@ import {
 import { emptyOperatorRecord, isOperatorRecord, operatorRecordKey, type OperatorRecord } from "./record";
 import { createOperatorTransport } from "./transport";
 import { isSetNamesRequestResult, type SetNamesRequestResult } from "./set-names/probe";
-import { isSetNamesPostMessage, type SetNamesPostResult } from "./set-names/transport";
-import { isSealedRequestMessage } from "./sealed-products/bridge";
-import {
-  isSealedRequestResult,
-  sealedRequestFailure,
-  type SealedRequestResult,
-} from "./sealed-products/request-result";
-import { isSealedPostMessage, type SealedPostResult } from "./sealed-products/transport";
 import type { SealedFetch } from "./sealed-products/collector";
+import { createSealedObservationDispatcher } from "./sealed-products/request";
 
 export type OperatorAdapters = {
   storage: {
@@ -43,6 +36,7 @@ type Slot = { record: OperatorRecord; blocked: boolean; polling: boolean; queue:
 
 export function createOperatorBackground(adapters: OperatorAdapters) {
   const transport = createOperatorTransport(adapters.fetch);
+  const dispatchSealed = adapters.sealedProducts && createSealedObservationDispatcher(adapters.sealedProducts);
   const slots = new Map<OperatorEnvironment, Slot>(
     operatorEnvironments.map((environment) => [
       environment,
@@ -56,7 +50,7 @@ export function createOperatorBackground(adapters: OperatorAdapters) {
       paired: !current.blocked && current.record.grant !== null,
       state: current.blocked ? "upgrade-required" : current.record.state,
       lastOutcome: current.record.lastOutcome,
-      lastPushedAt: null,
+      lastPushedAt: current.record.lastPushedAt,
       serverRevision: current.record.lastRevision,
     };
   };
@@ -122,33 +116,42 @@ export function createOperatorBackground(adapters: OperatorAdapters) {
         });
         await badge();
       };
-      const postSetNameAnswer = async (body: string) => {
-        if (result.outcome !== "polled" || result.request?.kind !== "set-names") return;
-        const { requestId, expiresAt } = result.request;
+      const postAnswer = async (body: string, partIndex?: number): Promise<boolean> => {
+        if (result.outcome !== "polled" || !result.request || result.request.kind === "market-observations")
+          return false;
+        const { requestId, expiresAt, kind } = result.request;
         for (let attempt = 0; attempt < 2; attempt += 1) {
           const flight = await serial(environment, async (current) => {
             if (!matches(current) || Date.parse(expiresAt) <= Date.now()) return undefined;
-            return { answer: transport.postSetNameAnswer(environment, pairing.grant, requestId, body) };
+            return { answer: transport.postAnswer(environment, pairing.grant, kind, requestId, body, partIndex) };
           });
-          if (!flight) return;
+          if (!flight) return false;
           const answer = await flight.answer;
           if (answer.outcome === "grant-invalid") {
             await serial(environment, async (current) => {
               if (matches(current)) await clearGrant(current);
             });
-            return;
+            return false;
           }
-          if (answer.outcome !== "unavailable") return;
+          if (answer.outcome !== "unavailable") {
+            if (answer.outcome === "recorded" && kind === "sealed-products" && partIndex === undefined)
+              await serial(environment, async (current) => {
+                if (matches(current))
+                  await write(current, { ...current.record, lastPushedAt: new Date().toISOString() });
+              });
+            return answer.outcome === "recorded";
+          }
           const delay = Math.max(250, answer.retryAt - Date.now());
           if (attempt > 0 || delay > 2_000 || Date.now() + delay >= Date.parse(expiresAt)) {
             if (answer.retryAt > Date.now())
               await serial(environment, async (current) => {
                 if (matches(current)) await write(current, { ...current.record, nextAttemptAt: answer.retryAt });
               });
-            return;
+            return false;
           }
           await new Promise((resolve) => setTimeout(resolve, delay));
         }
+        return false;
       };
       const dispatch = await serial(environment, async (current) => {
         const record = current.record;
@@ -158,7 +161,15 @@ export function createOperatorBackground(adapters: OperatorAdapters) {
         } else if (result.outcome === "unavailable" && result.retryAt > Date.now()) {
           await write(current, { ...record, nextAttemptAt: result.retryAt });
         } else if (result.outcome === "polled" && result.request && Date.parse(result.request.expiresAt) > Date.now()) {
-          return { finished: adapters.dispatchObservationRequest?.(environment, result.request, postSetNameAnswer) };
+          const request = result.request;
+          return {
+            finished:
+              request.kind === "sealed-products" && dispatchSealed
+                ? dispatchSealed(request, postAnswer, () => matches(current))
+                : adapters.dispatchObservationRequest?.(environment, request, async (body) => {
+                    await postAnswer(body);
+                  }),
+          };
         }
       });
       await dispatch?.finished;
@@ -169,7 +180,8 @@ export function createOperatorBackground(adapters: OperatorAdapters) {
   async function command(command: OperatorCommand): Promise<OperatorStatus> {
     const environment = command.environment;
     if (command.action === "poll-now") {
-      await poll(environment);
+      void poll(environment).catch(() => undefined);
+      await ready;
       return status(environment);
     }
     if (command.action === "status" || command.action === "recover") {
@@ -203,83 +215,6 @@ export function createOperatorBackground(adapters: OperatorAdapters) {
   return {
     async pollObservations() {
       await Promise.allSettled(operatorEnvironments.map(poll));
-    },
-    async receiveSealedProducts(
-      value: unknown,
-      sender: { id?: string; url?: string; origin?: string; hasTab: boolean },
-      extensionId: string,
-    ): Promise<SealedRequestResult | SealedPostResult | null> {
-      const origin = `chrome-extension://${extensionId}`;
-      if (
-        sender.id !== extensionId ||
-        sender.url !== `${origin}/popup.html` ||
-        sender.origin !== origin ||
-        sender.hasTab
-      )
-        return null;
-      if (isSealedRequestMessage(value)) {
-        try {
-          if (!adapters.sealedProducts) return sealedRequestFailure("unavailable");
-          const result = await adapters.sealedProducts(value.request);
-          return isSealedRequestResult(result) ? result : sealedRequestFailure("invalid-response");
-        } catch {
-          return sealedRequestFailure("unavailable");
-        }
-      }
-      if (!isSealedPostMessage(value)) return null;
-      try {
-        return await serial(value.environment, async (current): Promise<SealedPostResult> => {
-          if (current.blocked || !current.record.grant) return { outcome: "grant-invalid" };
-          const result = await transport.postSealedProducts(value.environment, current.record.grant, value.post);
-          if (result.outcome === "grant-invalid") {
-            await write(current, {
-              ...current.record,
-              grant: null,
-              state: "re-pair-required",
-              dirty: false,
-              lastOutcome: "grant-invalid",
-            });
-            await badge();
-          }
-          return result;
-        });
-      } catch {
-        return { outcome: "unavailable" };
-      }
-    },
-    async receiveSetNamePost(
-      value: unknown,
-      sender: { id?: string; url?: string; origin?: string; hasTab: boolean },
-      extensionId: string,
-    ): Promise<SetNamesPostResult | null> {
-      const origin = `chrome-extension://${extensionId}`;
-      if (
-        sender.id !== extensionId ||
-        sender.url !== `${origin}/popup.html` ||
-        sender.origin !== origin ||
-        sender.hasTab ||
-        !isSetNamesPostMessage(value)
-      )
-        return null;
-      try {
-        return await serial(value.environment, async (current): Promise<SetNamesPostResult> => {
-          if (current.blocked || !current.record.grant) return { outcome: "grant-invalid" };
-          const result = await transport.postSetNames(value.environment, current.record.grant, value.post);
-          if (result.outcome === "grant-invalid") {
-            await write(current, {
-              ...current.record,
-              grant: null,
-              state: "re-pair-required",
-              dirty: false,
-              lastOutcome: "grant-invalid",
-            });
-            await badge();
-          }
-          return result;
-        });
-      } catch {
-        return { outcome: "unavailable" };
-      }
     },
     async receiveSetNames(
       value: unknown,

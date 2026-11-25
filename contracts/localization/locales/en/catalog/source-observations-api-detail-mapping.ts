@@ -50,6 +50,8 @@ export const catalogSourceObservationsApiDetailMappingEnglishTranslations = {
   "catalog.features.sourceObservations.api.catalogSyncScopePlanner.setNamesDisplayName": "TCGplayer Set Names",
   "catalog.features.sourceObservations.api.catalogSyncScopePlanner.setNamesProductLineMismatch":
     "The accepted mapping does not match the qualified TCGplayer product line.",
+  "catalog.features.sourceObservations.api.catalogSyncScopePlanner.sealedCoordinatesUnavailable":
+    "The accepted sealed mapping does not resolve to one qualified TCGplayer set.",
   "catalog.features.sourceObservations.api.catalogSyncScopePlanner.providerAdapterMissing":
     "No provider adapter is registered for {providerKey}.",
   "catalog.features.sourceObservations.api.catalogSyncScopePlanner.credentialReadinessUnavailable":

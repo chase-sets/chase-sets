@@ -8,15 +8,8 @@ import {
   type OperatorEnvironment,
   type OperatorObservationRequest,
 } from "./protocol";
-import { isSetNamesPostMessage, isSetNamesPostResult, type SetNamesPostResult } from "./set-names/transport";
-import type { TcgplayerSetNameObservationPost } from "./set-names/contract";
 import { setNameRequestHeader } from "./set-names/request";
-import {
-  isSealedPostMessage,
-  isSealedPostResult,
-  type SealedPost,
-  type SealedPostResult,
-} from "./sealed-products/transport";
+import { sealedPartHeader } from "./sealed-products/answer-contract";
 
 export type OperatorResult = { outcome: "revoked" | "grant-invalid" | "unavailable" | "refused" | "invalid-response" };
 type ObservationPollResult =
@@ -101,60 +94,39 @@ export function createOperatorTransport(fetcher: typeof fetch) {
       return { outcome: "unavailable" };
     }
   }
-  async function postSetNames(
+  async function postAnswer(
     environment: OperatorEnvironment,
     grant: string,
-    post: TcgplayerSetNameObservationPost,
-  ): Promise<SetNamesPostResult> {
-    if (!isGrant(grant) || !isSetNamesPostMessage({ action: "post-set-names", environment, post }))
-      return { outcome: "refused" };
-    try {
-      const response = await fetcher(
-        `${operatorOrigins[environment]}/api/public/catalog/operator-session/scope-observations/tcgplayer-set-names`,
-        {
-          method: "POST",
-          credentials: "omit",
-          redirect: "error",
-          cache: "no-store",
-          headers: { Authorization: `Bearer ${grant}`, "Content-Type": "application/json" },
-          body: JSON.stringify(post),
-        },
-      );
-      if (response.status === 401 || response.status === 403) return { outcome: "grant-invalid" };
-      if (response.status >= 500) return { outcome: "unavailable" };
-      if (response.status !== 200) return { outcome: "refused" };
-      const body: unknown = await response.json();
-      if (!closed(body, ["observationCount", "newObservationCount", "mappingsProposed"]))
-        return { outcome: "invalid-response" };
-      const result = { outcome: "recorded", ...body };
-      return isSetNamesPostResult(result) ? result : { outcome: "invalid-response" };
-    } catch {
-      return { outcome: "unavailable" };
-    }
-  }
-  async function postSetNameAnswer(
-    environment: OperatorEnvironment,
-    grant: string,
+    kind: "set-names" | "sealed-products",
     requestId: string,
     body: string,
+    partIndex?: number,
   ): Promise<{ outcome: "recorded" | "grant-invalid" | "refused" } | { outcome: "unavailable"; retryAt: number }> {
     try {
-      const response = await fetcher(
-        `${operatorOrigins[environment]}/api/public/catalog/operator-session/scope-observations/tcgplayer-set-names`,
-        {
-          method: "POST",
-          credentials: "omit",
-          redirect: "error",
-          cache: "no-store",
-          signal: AbortSignal.timeout(10_000),
-          headers: {
-            Authorization: `Bearer ${grant}`,
-            "Content-Type": "application/json",
-            [setNameRequestHeader]: requestId,
-          },
-          body,
+      const init: RequestInit = {
+        method: "POST",
+        credentials: "omit",
+        redirect: "error",
+        cache: "no-store",
+        signal: AbortSignal.timeout(10_000),
+        headers: {
+          Authorization: `Bearer ${grant}`,
+          "Content-Type": "application/json",
+          [setNameRequestHeader]: requestId,
+          ...(partIndex === undefined ? {} : { [sealedPartHeader]: String(partIndex) }),
         },
-      );
+        body,
+      };
+      const response =
+        kind === "set-names"
+          ? await fetcher(
+              `${operatorOrigins[environment]}/api/public/catalog/operator-session/scope-observations/tcgplayer-set-names`,
+              init,
+            )
+          : await fetcher(
+              `${operatorOrigins[environment]}/api/public/catalog/operator-session/catalog-observations/tcgplayer-sealed-products`,
+              init,
+            );
       if (response.status === 429 || response.status >= 500)
         return { outcome: "unavailable", retryAt: retryAt(response.headers.get("Retry-After")) };
       if (response.status === 200) return { outcome: "recorded" };
@@ -168,36 +140,5 @@ export function createOperatorTransport(fetcher: typeof fetch) {
       return { outcome: "unavailable", retryAt: 0 };
     }
   }
-  async function postSealedProducts(
-    environment: Parameters<SealedPost>[0],
-    grant: string,
-    post: Parameters<SealedPost>[1],
-  ): Promise<SealedPostResult> {
-    if (!isGrant(grant) || !isSealedPostMessage({ action: "post-sealed-products", environment, post }))
-      return { outcome: "refused" };
-    try {
-      const response = await fetcher(
-        `${operatorOrigins[environment]}/api/public/catalog/operator-session/catalog-observations/tcgplayer-sealed-products`,
-        {
-          method: "POST",
-          credentials: "omit",
-          redirect: "error",
-          cache: "no-store",
-          headers: { Authorization: `Bearer ${grant}`, "Content-Type": "application/json" },
-          body: JSON.stringify(post),
-        },
-      );
-      if (response.status === 401 || response.status === 403) return { outcome: "grant-invalid" };
-      if (response.status >= 500) return { outcome: "unavailable" };
-      if (response.status !== 200) return { outcome: "refused" };
-      const body: unknown = await response.json();
-      if (!closed(body, ["recorded", "changed", "unchanged", "candidateCount", "exclusions"]))
-        return { outcome: "invalid-response" };
-      const result = { ...body, outcome: "recorded" };
-      return isSealedPostResult(result) ? result : { outcome: "invalid-response" };
-    } catch {
-      return { outcome: "unavailable" };
-    }
-  }
-  return { poll, revoke, postSetNames, postSetNameAnswer, postSealedProducts };
+  return { poll, revoke, postAnswer };
 }
