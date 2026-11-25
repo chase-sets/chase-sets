@@ -2068,6 +2068,8 @@ jobs:
           STRIPE_CONNECT_WEBHOOK_SECRET: ${{ secrets.STRIPE_CONNECT_WEBHOOK_SECRET || secrets.STRIPE_WEBHOOK_SECRET }}
           STRIPE_MONEY_SMOKE_ENVIRONMENT: preview
           STRIPE_MONEY_SMOKE_REQUIRE_DELIVERED_WEBHOOKS: "false"
+          # The preview's marketplace host routes only the API; there is no payout setup page.
+          STRIPE_MONEY_SMOKE_MARKETPLACE_WEB: absent
           PLATFORM_API_BASE_URL: https://${{ steps.preview_domains.outputs.marketplace_domain }}
           PLATFORM_AUTH_BASE_URL: https://${{ steps.preview_domains.outputs.marketplace_domain }}
         run: pnpm run stripe:money-smoke -- --edge-check --seller-flow

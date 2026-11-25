@@ -6105,6 +6105,8 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingMoneySmokeStep).toContain("STAGING_SMOKE_ORDER_IDS");
     expect(stagingMoneySmokeStep).toContain('PLATFORM_API_BASE_URL="https://${marketplace_domain}"');
     expect(stagingMoneySmokeStep).toContain("pnpm run stripe:money-smoke -- --edge-check --seller-flow");
+    // Staging's marketplace host is served by the Corten marketplace, so its smoke loads the payout setup page.
+    expect(stagingMoneySmokeStep).not.toContain("STRIPE_MONEY_SMOKE_MARKETPLACE_WEB");
 
     expect(platformProductionWorkflow).toContain("Staging requires dedicated Stripe test-mode keys");
     expect(platformProductionWorkflow).not.toContain("STAGING_STRIPE_WEBHOOK_DELIVERY_EVIDENCE_REFERENCE");
@@ -6123,6 +6125,8 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(previewMoneySmokeStep).toContain('STRIPE_MONEY_SMOKE_REQUIRE_DELIVERED_WEBHOOKS: "false"');
     expect(previewMoneySmokeStep).toContain("pnpm run stripe:money-smoke -- --edge-check --seller-flow");
+    // A preview's marketplace host routes only the API, so the smoke skips the payout setup page.
+    expect(previewMoneySmokeStep).toContain("STRIPE_MONEY_SMOKE_MARKETPLACE_WEB: absent");
 
     expect(platformProductionWorkflow).not.toContain("- name: Staging marketplace critical flows");
     expect(platformProductionWorkflow).not.toContain("- name: Seed staging Kubernetes scenario data");

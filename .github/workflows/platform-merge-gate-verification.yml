@@ -667,6 +667,8 @@ jobs:
           STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
           STRIPE_MONEY_SMOKE_ENVIRONMENT: preview
           STRIPE_MONEY_SMOKE_REQUIRE_DELIVERED_WEBHOOKS: "true"
+          # The preview's marketplace host routes only the API; there is no payout setup page.
+          STRIPE_MONEY_SMOKE_MARKETPLACE_WEB: absent
           SMOKE_REGISTER_SELLER: "true"
           SMOKE_SELLER_EMAIL: stripe-gate+${{ github.run_id }}-${{ github.run_attempt }}@chasesets.test
           SMOKE_SELLER_PASSWORD: gate-stripe-${{ github.run_id }}-${{ github.run_attempt }}
