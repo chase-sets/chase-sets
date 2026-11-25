@@ -28,13 +28,7 @@ describe("platform-compose-smoke", () => {
   it("covers every enabled platform Helm component, matching the deployables the Dockerfile ships", () => {
     const names = composeSmokeComponentNames();
     expect(names).toEqual(
-      expect.arrayContaining([
-        "public-web",
-        "admin-web",
-        "platform-api",
-        "platform-worker",
-        "platform-bootstrap",
-      ]),
+      expect.arrayContaining(["public-web", "admin-web", "platform-api", "platform-worker", "platform-bootstrap"]),
     );
     expect(names).not.toContain("marketplace");
   });

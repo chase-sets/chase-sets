@@ -467,13 +467,7 @@ describe("render platform Helm values", () => {
 
   it("scaffolds the five current DOKS runtime components", () => {
     const values = buildPlatformHelmValues({ repoRoot });
-    const expectedNames = [
-      "admin-web",
-      "platform-api",
-      "platform-bootstrap",
-      "platform-worker",
-      "public-web",
-    ];
+    const expectedNames = ["admin-web", "platform-api", "platform-bootstrap", "platform-worker", "public-web"];
 
     expect(Object.keys(values.components).sort()).toEqual(expectedNames);
     expect(Object.values(values.components).filter((component) => component.kind === "service")).toHaveLength(3);

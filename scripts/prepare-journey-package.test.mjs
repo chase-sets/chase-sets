@@ -1298,9 +1298,7 @@ describe("journey package workflow and boundaries", () => {
     const config = readFileSync(path.join(repoRoot, "playwright.config.ts"), "utf8");
     expect(existsSync(path.join(repoRoot, journeyPackageTarget.file))).toBe(true);
     expect(config).toContain(`name: "${journeyPackageTarget.project}"`);
-    expect(config).toContain(
-      'testMatch: "deployables/corten-pilot/e2e/**/*.spec.ts"',
-    );
+    expect(config).toContain('testMatch: "deployables/corten-pilot/e2e/**/*.spec.ts"');
     expect(config).toContain(`outputDir: "${rawRoot}"`);
     expect(config.match(/\["\.\/scripts\/lib\/journey-package-reporter\.mjs"\]/g)).toHaveLength(1);
   });

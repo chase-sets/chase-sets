@@ -218,8 +218,7 @@ const adminContextRouteSuiteOwnership = new Map([
 const e2eSpecSuiteOwnership = [
   { pattern: /^deployables\/corten-pilot\/e2e\/critical-flows\.spec\.ts$/, suites: allMarketplaceSuiteIds },
   {
-    pattern:
-      /^deployables\/corten-pilot\/e2e\/buyer-purchase-journey\.spec\.ts$/,
+    pattern: /^deployables\/corten-pilot\/e2e\/buyer-purchase-journey\.spec\.ts$/,
     suites: [marketplaceBrowser],
   },
   {
@@ -578,9 +577,7 @@ export function estimatedE2eSuiteDurationSeconds(suiteId) {
 }
 
 export function isE2eSpecFile(filePath) {
-  return /^deployables\/(?:admin-web|public-web|corten-pilot)\/e2e\/.*\.spec\.ts$/.test(
-    normalizeFilePath(filePath),
-  );
+  return /^deployables\/(?:admin-web|public-web|corten-pilot)\/e2e\/.*\.spec\.ts$/.test(normalizeFilePath(filePath));
 }
 
 export function isRouteFile(filePath) {

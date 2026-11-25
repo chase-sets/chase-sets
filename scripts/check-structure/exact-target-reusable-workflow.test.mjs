@@ -144,10 +144,7 @@ function normalizeMovedStep(step) {
   ) {
     delete normalized.with;
   }
-  if (
-    normalized.env?.SMOKE_REQUIRE_ADMIN === "true" &&
-    normalized.env?.SMOKE_REQUIRE_LANDING === "true"
-  ) {
+  if (normalized.env?.SMOKE_REQUIRE_ADMIN === "true" && normalized.env?.SMOKE_REQUIRE_LANDING === "true") {
     normalized.env.SMOKE_WAITLIST_EMAIL = "ops+compose-smoke-pr-${{ github.event.pull_request.number }}@chasesets.test";
     normalized.env.SMOKE_UTM_CAMPAIGN = "pr-${{ github.event.pull_request.number }}";
   }

@@ -70,13 +70,7 @@ export const platformApiIngressPrefixes = [
   "/api",
 ];
 
-const componentOrder = [
-  "public-web",
-  "admin-web",
-  "platform-api",
-  "platform-worker",
-  "platform-bootstrap",
-];
+const componentOrder = ["public-web", "admin-web", "platform-api", "platform-worker", "platform-bootstrap"];
 
 const deploymentKindByTerraformKind = {
   service: "service",
@@ -317,12 +311,7 @@ const tolerantLivenessProbe = {
   failureThreshold: 6,
 };
 const componentsWithStartupProbe = new Set(["platform-api", "platform-worker"]);
-const componentsWithTolerantLiveness = new Set([
-  "platform-api",
-  "platform-worker",
-  "admin-web",
-  "public-web",
-]);
+const componentsWithTolerantLiveness = new Set(["platform-api", "platform-worker", "admin-web", "public-web"]);
 
 // platform-api readiness probes the DB-aware /health/ready (SELECT 1 on
 // the control pool). Kubernetes' default 1s probe timeout is too tight for a
