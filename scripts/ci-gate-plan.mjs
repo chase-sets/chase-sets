@@ -39,6 +39,13 @@ export const CI_GATE_DEFINITIONS = Object.freeze([
   gate("unit-tests", "Unit Tests", "scope-gated", "REPOSITORY_LOCAL", "unitTestsRequired"),
   gate("db-tests", "DB Profile Tests", "scope-gated", "REPOSITORY_LOCAL", "dbTestsRequired"),
   gate("e2e-tests", "E2E Tests", "scope-gated", "REPOSITORY_LOCAL", "e2eTestsRequired"),
+  gate(
+    "catalog-uat-synthetic",
+    "Catalog UAT Synthetic Tests",
+    "scope-gated",
+    "REPOSITORY_LOCAL",
+    "catalogUatSyntheticRequired",
+  ),
   gate("build", "Build", "full-battery-only", "REPOSITORY_LOCAL", "buildRequired"),
   gate("docker-image", "Docker Image Build", "full-battery-only", "HOSTED_ONLY", "dockerImageRequired"),
   gate("workflow-lint", "Workflow Lint", "scope-gated", "HOSTED_ONLY", "workflowLintRequired"),
@@ -115,6 +122,7 @@ export function validateCiGateScope(scope) {
     "workflowLintRequired",
     "clusterPreviewRequired",
     "composeSmokeRequired",
+    "catalogUatSyntheticRequired",
   ];
   for (const key of booleans) {
     if (typeof scope[key] !== "boolean") throw new Error(`MALFORMED_SCOPE: ${key} must be boolean`);

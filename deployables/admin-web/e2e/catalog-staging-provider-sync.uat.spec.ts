@@ -8912,7 +8912,9 @@ credentialProbeTest.describe("catalog staging sign-in settlement", () => {
 });
 
 test.describe("catalog whole-game rehearsal journeys", () => {
-  test.use({ offline: true, serviceWorkers: "block" });
+  // These offline journeys assert the staging origin, and sign-in opens its page relative to baseURL,
+  // so pin baseURL here rather than inherit ADMIN_WEB_URL (the live workflow sets the same origin).
+  test.use({ offline: true, serviceWorkers: "block", baseURL: wholeGameStagingOrigin });
   for (const target of [
     "https://production.invalid",
     "http://admin.staging.chasesets.com",

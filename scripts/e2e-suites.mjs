@@ -307,7 +307,8 @@ export const e2eNoSuiteExclusions = Object.freeze([
   },
   {
     pattern: /^deployables\/admin-web\/e2e\/catalog-staging-provider-sync\.uat\.spec\.ts$/,
-    reason: "Manual staging UAT spec; it is intentionally outside the CI grep suite catalog.",
+    reason:
+      "Manual staging UAT spec; it is outside the CI grep suite catalog, and its synthetic tests run in the Catalog UAT Synthetic Tests gate instead.",
   },
   {
     pattern: /^deployables\/marketplace\/e2e\/account-payment-stripe-embed\.uat\.spec\.ts$/,
