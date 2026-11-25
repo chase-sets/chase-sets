@@ -1761,6 +1761,22 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     }
   }
 
+  /** Inventory alone says whether an item is graded and how; a create request's own `gradedCard` is never written. */
+  async function resolveInventoryGradedCard(params: Readonly<{ accountId: string; inventoryItemId: string }>) {
+    const authority = deps.inventoryItemGradedCardAuthority;
+    if (!authority) throw new Error("Inventory graded item details are unavailable.");
+    let recorded;
+    try {
+      recorded = await authority.resolve({ accountId: params.accountId, inventoryItemId: params.inventoryItemId });
+    } catch {
+      throw new Error("Inventory graded item details are unavailable.");
+    }
+    if (!recorded) {
+      throw new MarketplaceListingDomainError("inventory-item-not-found", "Inventory item not found.");
+    }
+    return recorded.gradedCard;
+  }
+
   function stringField(data: Readonly<Record<string, unknown>>, key: string) {
     const value = data[key];
     return typeof value === "string" && value.trim().length > 0 ? value : null;
@@ -2268,7 +2284,8 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         params.quantityCap <= (params.availableQuantity ?? params.totalQuantity),
         "Listing quantity caps cannot exceed available listing stock.",
       );
-      await upsertBatchInventorySnapshot(params);
+      const gradedCard = await resolveInventoryGradedCard(params);
+      await upsertBatchInventorySnapshot({ ...params, gradedCard });
       return createListing(
         {
           accountId: params.accountId as AccountId,

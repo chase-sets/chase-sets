@@ -74,6 +74,7 @@ import {
   createStorageLocationAuthority,
   createImportResolutionAttentionSourceFromReadModel,
   createInventoryHoldCleanupAuthorityForPool,
+  createInventoryItemGradedCardAuthority,
   type RecordExternalChannelSale,
   type InventoryServices,
 } from "@chase-sets/inventory/server";
@@ -859,6 +860,13 @@ export function createPlatformApiHost(
           ? createStorageLocationAuthority(inventoryPool).resolveStorageLocationAuthority
           : async () => null,
       },
+      ...(inventoryPool
+        ? {
+            inventoryItemGradedCardAuthority: {
+              resolve: createInventoryItemGradedCardAuthority(inventoryPool).resolveInventoryItemGradedCard,
+            },
+          }
+        : {}),
       inventorySavedListImportBatchCreator,
       marketplaceChannelInboundClamp,
       readyToShipCanaryOwnerUserId: process.env.CHANNELS_READY_TO_SHIP_CANARY_OWNER_USER_ID,
