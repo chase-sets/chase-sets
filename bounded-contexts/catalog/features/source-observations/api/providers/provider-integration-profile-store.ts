@@ -364,6 +364,23 @@ async function getActiveProfileVersion(
   return selectActiveCatalogProviderProfileVersion(providerKey, result.rows.map(rowToProfileVersion), selector);
 }
 
+export async function lockActiveCatalogProviderProfileVersion(
+  transaction: PgQueryable,
+  providerKey: string,
+  ingestionUnitKey: string,
+): Promise<CatalogProviderIntegrationProfileVersionRecord | null> {
+  const result = await transaction.query<CatalogProviderIntegrationProfileVersionRow>(
+    `SELECT *
+     FROM catalog_provider_integration_profile_versions
+     WHERE provider_key = $1 AND ingestion_unit_key = $2 AND active = true AND lifecycle = 'active'
+     FOR SHARE`,
+    [providerKey, ingestionUnitKey],
+  );
+  return selectActiveCatalogProviderProfileVersion(providerKey, result.rows.map(rowToProfileVersion), {
+    ingestionUnitKey,
+  });
+}
+
 async function activateProfileVersion(
   db: PgQueryable,
   providerKey: string,

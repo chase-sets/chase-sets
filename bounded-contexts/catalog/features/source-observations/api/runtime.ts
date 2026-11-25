@@ -93,7 +93,10 @@ import {
 } from "./source-observation-promotion-execution";
 import { createSetNameRequestRuntime } from "./source-observation-set-name-requests";
 import { sealedRequestProductLine } from "./providers/tcgplayer/sealed-request-coordinates";
-import { createCatalogProviderIntegrationProfileVersionStore } from "./providers/provider-integration-profile-store";
+import {
+  createCatalogProviderIntegrationProfileVersionStore,
+  lockActiveCatalogProviderProfileVersion,
+} from "./providers/provider-integration-profile-store";
 import { catalogSetNamesProductLineId } from "./providers/catalog-sync-scope-planner";
 import { createCatalogSetNameRequestRecheck } from "./source-observation-catalog-sync-run-runtime";
 import { createSourceObservationMergeCandidateRuntime } from "./source-observation-merge-candidate-runtime";
@@ -487,18 +490,11 @@ export function createSourceObservationRuntime(
             job.payload.scope.productLineId
         )
           return false;
-        if (sealed)
-          await db.query(
-            `SELECT profile_version FROM catalog_provider_integration_profile_versions
-            WHERE provider_key = 'tcgplayer' AND ingestion_unit_key = $1 AND active FOR SHARE`,
-            [unit],
-          );
-        const profile = await createCatalogProviderIntegrationProfileVersionStore(db).getActiveProfileVersion(
-          "tcgplayer",
-          {
-            ingestionUnitKey: unit,
-          },
-        );
+        const profile = sealed
+          ? await lockActiveCatalogProviderProfileVersion(db, "tcgplayer", unit)
+          : await createCatalogProviderIntegrationProfileVersionStore(db).getActiveProfileVersion("tcgplayer", {
+              ingestionUnitKey: unit,
+            });
         if (!profile || profile.lifecycle !== "active" || !profile.active || profile.profile.status !== "active")
           return false;
         return (

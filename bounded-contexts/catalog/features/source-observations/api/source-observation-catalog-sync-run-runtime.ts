@@ -14,7 +14,10 @@ import {
   readCatalogScopeSyncUnitState,
   upsertCatalogScopeSyncUnitState,
 } from "../../scope-sync-state/read-model/queries";
-import { listAcceptedProviderScopeMappingsByScopeRecord } from "../../provider-scope-mapping/read-model/queries";
+import {
+  listAcceptedProviderScopeMappingsByScopeRecord,
+  lockCurrentAcceptedProviderScopeMapping,
+} from "../../provider-scope-mapping/read-model/queries";
 import { getCatalogScopeRecord } from "../../scope-registry/read-model/queries";
 import { normalizeCatalogScopeProductDomain } from "../../scope-registry/domain/contract";
 import { type CatalogIntegrationRolloutControlPolicy } from "./governance/catalog-integration-rollout-controls";
@@ -133,6 +136,7 @@ export function createCatalogSetNameRequestRecheck(
         String(coordinates.productLineId) === scope.productLineId &&
         String(coordinates.setNameId) === scope.setId &&
         coordinates.searchName === scope.setName &&
+        (await lockCurrentAcceptedProviderScopeMapping(db, mapping)) &&
         (await profileIsCurrent(db, job))
         ? { ...mapping, set_name: coordinates.searchName, set_id: String(coordinates.setNameId) }
         : false;

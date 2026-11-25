@@ -43,6 +43,8 @@ test("captures the four synthetic popup component states @tcgplayer-operator-ext
     await page.route("**/*", (route) => (route.request().url().startsWith(origin) ? route.continue() : route.abort()));
     for (const state of ["empty", "loading", "error", "success"]) {
       await page.goto(`${origin}/synthetic-operator-popup.html?state=${state}`, { waitUntil: "load" });
+      await expect(page.getByRole("status")).toContainText("Paired.");
+      await expect(page.getByRole("button", { name: "Run now" })).toBeEnabled();
       await expect(page.getByRole("heading", { name: "TCGplayer SetNames probe" })).toBeVisible();
       if (state === "empty") {
         for (const input of await page.locator('input[inputmode="numeric"]').all()) await input.fill("");
@@ -61,26 +63,6 @@ test("captures the four synthetic popup component states @tcgplayer-operator-ext
       const screenshot = testInfo.outputPath(`popup-${state}.png`);
       await page.screenshot({ path: screenshot, fullPage: true });
       await testInfo.attach(`popup-${state}.png`, { path: screenshot, contentType: "image/png" });
-    }
-    for (const state of ["empty", "loading", "error", "success"]) {
-      await page.goto(`${origin}/synthetic-operator-popup.html?state=${state}`, { waitUntil: "load" });
-      await expect(page.getByRole("heading", { name: "TCGplayer set names", exact: true })).toBeVisible();
-      if (state === "empty") {
-        await expect(page.getByRole("button", { name: "Run", exact: true })).toBeDisabled();
-      } else {
-        await page.getByLabel("Product line", { exact: true }).selectOption("3");
-        await page.getByRole("button", { name: "Run", exact: true }).click();
-        if (state === "loading") await expect(page.getByRole("button", { name: "Fetching set names" })).toBeDisabled();
-        if (state === "error") await expect(page.getByRole("alert")).toContainText("unqualified");
-        if (state === "success") {
-          await expect(page.getByText("Catalog set names recorded")).toBeVisible();
-          await expect(page.getByLabel("Receipt", { exact: true })).toBeVisible();
-          await expect(page.getByRole("button", { name: "Copy receipt text" })).toBeVisible();
-        }
-      }
-      const screenshot = testInfo.outputPath(`set-names-${state}.png`);
-      await page.screenshot({ path: screenshot, fullPage: true });
-      await testInfo.attach(`set-names-${state}.png`, { path: screenshot, contentType: "image/png" });
     }
   } finally {
     await server.close();

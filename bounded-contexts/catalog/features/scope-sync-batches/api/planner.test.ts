@@ -93,38 +93,53 @@ const profiles = catalogProviderIntegrationProfileVersions.filter((profile) =>
 );
 
 describe("whole Magic mapping preview", () => {
-  it("plans the mapped Magic scope with browser SetNames and zero Scrydex credits", async () => {
+  it("plans the mapped Magic scope with browser SetNames and sealed work and zero Scrydex credits", async () => {
     const fixture = await magicFixture();
     const { preview, plans } = await fixture.resolve();
     expect(fixture.deniedFetch).not.toHaveBeenCalled();
     expect(preview).toMatchObject({
       status: "ready",
       confirmAllowed: true,
-      counts: { scopes: 1, readyScopes: 1, blockedScopes: 0, providerUnits: 4 },
+      counts: { scopes: 1, readyScopes: 1, blockedScopes: 0, providerUnits: 5 },
       budget: { creditedProviderRequestLimits: { scrydex: 0 } },
       blockers: [],
     });
-    expect(preview.providerUnitTotals).toEqual({ mtgjson: 2, scryfall: 1, tcgplayer: 1 });
+    expect(preview.providerUnitTotals).toEqual({ mtgjson: 2, scryfall: 1, tcgplayer: 2 });
     expect(plans).toHaveLength(1);
     expect(preview.planFingerprint).toMatchInlineSnapshot(
-      `"f36a617142a331a61958ebf882003797eb1db21ed72d9303b6e39b3c01487366"`,
+      `"61820582b1235ec44ede2edf0d2a7c9cdf84e7da4ddfef0fa1eb951c794f84fb"`,
     );
     expect(plans[0]!.participationPreview.units.map((unit) => unit.unitKey).sort()).toEqual(fixture.unitKeys);
     expect(plans[0]!.participationPreview.units.every((unit) => unit.selected && unit.eligibility === "eligible")).toBe(
       true,
     );
     expect(plans[0]!.participationPreview.units.filter((unit) => unit.providerKey === "scrydex")).toEqual([]);
-    expect(plans[0]!.participationPreview.units.find((unit) => unit.providerKey === "tcgplayer")).toMatchObject({
+    expect(
+      plans[0]!.participationPreview.units.find(
+        (unit) => unit.childExecutionScope?.execution === "extension-set-names",
+      ),
+    ).toMatchObject({
       requirement: "optional",
       childExecutionScope: { execution: "extension-set-names", productLineId: "1" },
     });
+    expect(plans[0]!.participationPreview.units).toContainEqual(
+      expect.objectContaining({
+        providerKey: "tcgplayer",
+        childExecutionScope: expect.objectContaining({
+          execution: "extension-sealed-products",
+          productLineId: "1",
+          setId: "321",
+          setName: "Time Spiral",
+        }),
+      }),
+    );
     expect(fixture.planImport).toHaveBeenCalledTimes(2);
     const mtgjsonPlans = await Promise.all(fixture.planImport.mock.results.map((result) => result.value));
     expect(mtgjsonPlans.map((plan) => plan.planKey).sort()).toEqual(["mtgjson:cards:set:TSP", "mtgjson:set:TSP"]);
     expectNoAdapterCalls(fixture.tcgplayerCalls);
   });
 
-  it("keeps the four plannable units with every active Magic profile, without planning the requirement pass", async () => {
+  it("keeps the five plannable units with every active Magic profile, without planning the requirement pass", async () => {
     const activeMagicProfiles = catalogProviderIntegrationProfileVersions.filter(
       (profile) =>
         profile.active &&
@@ -137,11 +152,11 @@ describe("whole Magic mapping preview", () => {
     const { preview, plans } = await fixture.resolve();
     expect(preview).toMatchObject({
       confirmAllowed: true,
-      counts: { scopes: 1, readyScopes: 1, blockedScopes: 0, providerUnits: 4 },
+      counts: { scopes: 1, readyScopes: 1, blockedScopes: 0, providerUnits: 5 },
       budget: { creditedProviderRequestLimits: { scrydex: 0 } },
       blockers: [],
     });
-    expect(preview.providerUnitTotals).toEqual({ mtgjson: 2, scryfall: 1, tcgplayer: 1 });
+    expect(preview.providerUnitTotals).toEqual({ mtgjson: 2, scryfall: 1, tcgplayer: 2 });
     expect(plans[0]!.scope.providerParticipation?.selectedUnitKeys).toEqual(
       fixture.mappings.map((mapping) => mapping.unit_key),
     );
@@ -165,7 +180,7 @@ describe("whole Magic mapping preview", () => {
     const { preview, plans } = await fixture.resolve();
     expect(preview).toMatchObject({
       confirmAllowed: false,
-      counts: { scopes: 1, readyScopes: 0, blockedScopes: 1, providerUnits: 4 },
+      counts: { scopes: 1, readyScopes: 0, blockedScopes: 1, providerUnits: 5 },
     });
     expect(plans[0]!.participationPreview.units.map((unit) => unit.unitKey).sort()).toEqual(fixture.unitKeys);
     expect(preview.blockers).toContainEqual(
@@ -210,7 +225,7 @@ describe("whole Magic mapping preview", () => {
     expect(fixture.deniedFetch).not.toHaveBeenCalled();
     expect(preview).toMatchObject({
       confirmAllowed: false,
-      counts: { scopes: 1, readyScopes: 0, blockedScopes: 1, providerUnits: 4 },
+      counts: { scopes: 1, readyScopes: 0, blockedScopes: 1, providerUnits: 5 },
     });
     expect(plans[0]!.participationPreview.units).toContainEqual(
       expect.objectContaining({ unitKey: requiredMapping.unit_key, selected: true, requirement: "required" }),
@@ -475,7 +490,11 @@ async function magicFixture(providerProfiles: readonly CatalogProviderIntegratio
         const callsBefore = planningCalls.map((call) => call.mock.calls.length);
         const result = await previewCatalogSyncProviderParticipation({
           ...input,
-          acceptedScopeMappings: input.acceptedScopeMappings ?? [],
+          acceptedScopeMappings: (input.acceptedScopeMappings ?? []).map((mapping) =>
+            mapping.unitKey === "tcgplayer:mtg:sealed-product:source-observation-import"
+              ? { ...mapping, sealedCoordinates: { productLineId: 1, setNameId: 321, searchName: "Time Spiral" } }
+              : mapping,
+          ),
           providerProfileVersions: providerProfiles,
           providerAdapterRegistry: new ProviderAdapterRegistry([adapter, scryfall, tcgplayer.adapter]),
         });
@@ -486,11 +505,7 @@ async function magicFixture(providerProfiles: readonly CatalogProviderIntegratio
         return result;
       },
     ),
-    // The sealed profile is still not a plannable browser or server unit.
-    unitKeys: profiles
-      .filter((profile) => profile.profileKey !== "mtg-sealed-product-sku")
-      .map(unitKeyForCatalogProviderProfileVersion)
-      .sort(),
+    unitKeys: profiles.map(unitKeyForCatalogProviderProfileVersion).sort(),
     records: [scopeRecord("scope_synthetic_magic_tsp")],
     mappings: profiles.map(
       (profile): ProviderScopeMappingRow => ({

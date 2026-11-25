@@ -8,6 +8,7 @@ import type {
   CatalogAttentionSourceWindow,
 } from "../../attention-queue/read-model/attention-item";
 import { catalogAttentionItemParkedSql } from "../../attention-queue/read-model/dismissal-queries";
+import { CATALOG_PROVIDER_SCOPE_MAPPING_STREAM_PREFIX } from "../domain/domain";
 import {
   normalizeProviderScopeMappingIdentity,
   type ProviderScopeMappingConfidenceTier,
@@ -102,6 +103,29 @@ export async function listAcceptedProviderScopeMappingsByScopeRecord(
   );
 
   return result.rows;
+}
+
+export async function lockCurrentAcceptedProviderScopeMapping(
+  transaction: PgQueryable,
+  mapping: ProviderScopeMappingRow,
+): Promise<boolean> {
+  if (mapping.review_status !== "accepted" && mapping.review_status !== "auto-accepted") return false;
+  const streamId = `${CATALOG_PROVIDER_SCOPE_MAPPING_STREAM_PREFIX}${mapping.mapping_id}`;
+  // Review commands append before this projection catches up. Hold the stream
+  // head through settlement so a newer command cannot invalidate admission.
+  const head = await transaction.query<{ current_version: string }>(
+    "SELECT current_version FROM event_store_streams WHERE stream_id = $1 FOR SHARE",
+    [streamId],
+  );
+  const version = head.rows[0]?.current_version;
+  if (!version) return false;
+  const current = await transaction.query(
+    `SELECT 1 FROM event_store_events
+     WHERE stream_id = $1 AND stream_version = $2 AND recorded_at = $3::timestamptz
+       AND payload->>'reviewStatus' = $4`,
+    [streamId, version, mapping.updated_at, mapping.review_status],
+  );
+  return current.rows.length === 1;
 }
 
 export async function listAcceptedProviderScopeMappingsByProviderUnit(

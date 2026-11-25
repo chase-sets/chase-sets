@@ -1,11 +1,15 @@
 import { createHash } from "node:crypto";
+import { toTransportEvent } from "@chase-sets/event-core/transport";
 import { expect, it } from "vitest";
+import { proposeProviderScopeMapping, reviewProviderScopeMappings } from "../../provider-scope-mapping/api/route";
+import { CATALOG_PROVIDER_SCOPE_MAPPING_STREAM_PREFIX } from "../../provider-scope-mapping/domain/domain";
+import { buildProviderScopeMappingProjectionHandlers } from "../../provider-scope-mapping/read-model/projection";
 import { operatorSessionPublicRoutes } from "../api/route";
 import { operatorOrigins } from "../domain/extension/protocol";
 import { sealedPartHeader } from "../domain/extension/sealed-products/answer-contract";
 import { setNameRequestHeader } from "../domain/extension/set-names/request";
 import { describeDb, useOperatorSessionDatabase } from "./db-fixture";
-import { acceptSealedMapping, composeSealedProducts } from "./sealed-product-db-fixture";
+import { composeSealedProducts } from "./sealed-product-db-fixture";
 import { salvage, sealedPost, sealedRoutePath } from "./sealed-product-observation-fixture";
 import { grantBearer, routePath, setNameEntry, setNamePost, testContext } from "./set-name-observation-fixture";
 
@@ -21,21 +25,32 @@ describeDb("durable Scope Sync sealed requests", () => {
   const db = useOperatorSessionDatabase("durable_sealed_request");
   async function harness() {
     const pool = db();
-    const { services } = await composeSealedProducts(pool);
+    const { services, store } = await composeSealedProducts(pool);
     const app = operatorSessionPublicRoutes(services.operatorSession);
     const headers = { Authorization: `Bearer ${grantBearer}`, "Content-Type": "application/json" };
-    const scopeId = await acceptSealedMapping(
-      pool,
-      unit.unitKey,
-      "synthetic-provider-clean-name",
-      detail.productLineId,
-    );
+    const scopeId = "scope-sealed-request";
     await pool.query(
       `INSERT INTO catalog_scope_records (scope_record_id, product_domain, scope_kind, reference_type_key,
         reference_record_id, reference_record_key, name, lifecycle_status)
         VALUES ($1, 'magic', 'expansion', 'set', $1, $1, 'Different Catalog name', 'active')`,
       [scopeId],
     );
+    const { mappingId } = await proposeProviderScopeMapping(
+      services.providerScopeMappings,
+      {
+        scopeRecordId: scopeId,
+        providerKey: "tcgplayer",
+        unitKey: unit.unitKey,
+        coordinates: { productLineId: String(detail.productLineId), setName: "synthetic-provider-clean-name" },
+        autoAccept: true,
+      },
+      testContext,
+    );
+    const handlers = buildProviderScopeMappingProjectionHandlers(pool);
+    for (const event of await store.readStream({
+      streamId: `${CATALOG_PROVIDER_SCOPE_MAPPING_STREAM_PREFIX}${mappingId}`,
+    }))
+      await handlers[event.eventType]!(toTransportEvent(event));
     const entry = setNameEntry(detail.productLineId, detail.setId, {
       name: detail.setName,
       cleanSetName: "synthetic-provider-clean-name",
@@ -109,7 +124,7 @@ describeDb("durable Scope Sync sealed requests", () => {
       for (let index = 0; index < 3; index++) await services.sourceObservations.processNextIntegrationJob(turn);
       return snapshot();
     }
-    return { pool, send, snapshot, settle, events, scopeId, services, scope };
+    return { pool, send, snapshot, settle, events, mappingId, services, scope };
   }
 
   it("admits a complete manifest once and settles its mapped child and batch", async () => {
@@ -163,15 +178,16 @@ describeDb("durable Scope Sync sealed requests", () => {
     expect(await h.settle()).toMatchObject({ status: "completed", units: [{ state: "completed" }] });
   });
 
-  it("refuses a stale mapping after staging and never applies the part", async () => {
+  it("refuses a canonical revocation after staging even before the projection catches up", async () => {
     const h = await harness();
     const part = JSON.stringify(sealedPost());
     expect((await h.send(part, 0)).status).toBe(200);
-    await h.pool.query(
-      `UPDATE catalog_provider_scope_mappings SET review_status = 'rejected'
-      WHERE scope_record_id = $1 AND unit_key = $2`,
-      [h.scopeId, unit.unitKey],
+    await reviewProviderScopeMappings(
+      h.services.providerScopeMappings,
+      { intent: "revoke", mappingIds: [h.mappingId], reason: "Synthetic revocation" },
+      testContext,
     );
+    expect(await h.services.providerScopeMappings.getMapping(h.mappingId)).toMatchObject({ review_status: "accepted" });
     expect((await h.send(complete(1, digest(part)))).status).toBe(409);
     expect(await h.events()).toEqual([]);
     expect(await h.settle()).toMatchObject({
