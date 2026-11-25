@@ -1,20 +1,30 @@
 name: Corten Pilot
 
-# The Corten pilot (deployables/corten-pilot) is a Cargo workspace of standalone Rust apps that are
-# not deployed and are not part of the platform gates. This check is advisory: it is not a required
-# status check (main requires only "PR Required"), the delivery loop waits only on required checks,
-# and it does not run in the merge queue, so it never blocks a merge.
+# The Corten pilot (deployables/corten-pilot) is a Cargo workspace of Rust apps; its marketplace serves
+# production. This workflow is advisory: it is not a required status check (main requires only
+# "PR Required"), the delivery loop waits only on required checks, and it does not run in the merge
+# queue, so it never blocks a merge. Platform PR's Corten Pilot Check runs the same steps (the
+# corten-pilot-check action) as a required gate when a change touches the pilot's marketplace or
+# platform code, its Cargo files or its export, and in the merge queue.
 #
 # It runs on every pull request and every push to main, except changes to documentation alone, so
 # drift between main and the pilot shows up on the PR that causes it rather than days later. The
 # pilot's export reads the React apps' text, nav and tokens through their TypeScript imports, which
 # reach most of the workspace, so a path list would miss causes. A failure caused by a change
 # elsewhere is noted on that PR and fixed by the pilot's owner (deployables/corten-pilot/AGENTS.md).
+# A pull request that touches only the paths the required gate selects runs that gate alone.
 on:
   pull_request:
     paths-ignore:
       - "docs/**"
       - "**/*.md"
+      # Selected by Platform PR's required Corten Pilot Check (scripts/change-scope.mjs).
+      - "deployables/corten-pilot/marketplace/**"
+      - "deployables/corten-pilot/platform/**"
+      - "deployables/corten-pilot/Cargo.toml"
+      - "deployables/corten-pilot/Cargo.lock"
+      - "deployables/corten-pilot/scripts/export.mjs"
+      - ".github/actions/corten-pilot-check/**"
   push:
     branches: ["main", "pilot/corten"]
     paths-ignore:
@@ -39,60 +49,7 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
-    defaults:
-      run:
-        working-directory: deployables/corten-pilot
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
-      - uses: ./.github/actions/setup-pnpm-workspace
-        with:
-          # scripts/export.mjs imports admin-web's and marketplace's TypeScript sources through tsx.
-          install: "true"
-
-      # Also writes the two uncommitted outputs that carry the brand foil (tokens.json, favicon.svg).
-      # From the repository root with the full path: scripts/managed-postgres-authority-guard.mjs resolves
-      # a step's script from the root and does not read the job's working-directory default.
-      - name: The exported text, tokens, nav and defaults match the React apps' sources
-        working-directory: ${{ github.workspace }}
-        run: node --import tsx deployables/corten-pilot/scripts/export.mjs --check
-
-      # corten check type-checks each app's scripts with tsc from the PATH, and fails without it.
-      - name: TypeScript on the PATH for corten check
-        run: |
-          set -euo pipefail
-          test -x "$GITHUB_WORKSPACE/node_modules/.bin/tsc"
-          echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
-
-      - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            ~/.cargo/bin/corten
-            ~/.cargo/.crates.toml
-            ~/.cargo/.crates2.json
-            deployables/corten-pilot/target
-          # v2: v1 cached the binary without cargo's install records, so a cache hit made
-          # `cargo install` refuse ("binary `corten` already exists").
-          # v3: built on Ubuntu 24.04; a v2 target from a newer image can hold build scripts and proc
-          # macros linked against a newer glibc.
-          key: corten-pilot-v3-${{ runner.os }}-${{ hashFiles('deployables/corten-pilot/Cargo.lock') }}
-
-      - name: Rust toolchain and the Corten CLI at the pinned revision
-        run: |
-          set -euo pipefail
-          rustup component add clippy rustfmt
-          # The repository and revision the apps build against, so the CLI is always the pin's.
-          git="$(sed -n 's/^corten = { git = "\([^"]*\)", rev = "[0-9a-f]*".*/\1/p' Cargo.toml)"
-          rev="$(sed -n 's/^corten = { git = "[^"]*", rev = "\([0-9a-f]*\)".*/\1/p' Cargo.toml)"
-          test -n "$git" && test -n "$rev"
-          # Skipped when the cached binary was built from the same revision (cargo's install records
-          # are cached with it).
-          cargo install --locked --git "$git" --rev "$rev" corten-cli
-
-      - name: corten check (cargo fmt, corten fmt, clippy -D warnings, the scripts' types, tests)
-        run: |
-          set -euo pipefail
-          corten check 2>&1 | tee corten-check.log
-          ! grep -q "were not type-checked" corten-check.log
+      - uses: ./.github/actions/corten-pilot-check

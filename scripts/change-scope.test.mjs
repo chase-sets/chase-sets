@@ -78,6 +78,18 @@ function expectedCortenMarketplaceBrowser(changedFiles) {
   return changedFiles.some((file) => cortenMarketplaceBrowserPaths.some((pattern) => pattern.test(file)));
 }
 
+// Nor the Corten pilot check flag.
+const cortenPilotCheckPaths = [
+  /^deployables\/corten-pilot\/(?:marketplace|platform)\/(?!.*\.md$)/,
+  /^deployables\/corten-pilot\/Cargo\.(?:toml|lock)$/,
+  /^deployables\/corten-pilot\/scripts\/export\.mjs$/,
+  /^\.github\/actions\/corten-pilot-check\//,
+];
+
+function expectedCortenPilotCheck(changedFiles) {
+  return changedFiles.some((file) => cortenPilotCheckPaths.some((pattern) => pattern.test(file)));
+}
+
 function withCanonicalProofOutput(output) {
   const { scope_json: scopeJson, ...existing } = output;
   const requiredProofPaths = expectedRequiredProofPaths(JSON.parse(output.changed_files_json));
@@ -2237,6 +2249,7 @@ function expectedPublicPresenceEnrollment(base, workspaces) {
     requiredProofPaths: expectedRequiredProofPaths(base.changedFiles),
     catalogUatSyntheticRequired: expectedCatalogUatSynthetic(base.changedFiles),
     cortenMarketplaceBrowserRequired: expectedCortenMarketplaceBrowser(base.changedFiles),
+    cortenPilotCheckRequired: expectedCortenPilotCheck(base.changedFiles),
   };
   if (base.changedFiles.length === 0 || (base.dbTestsRequired && base.affectedWorkspaces.length === 0)) {
     return base;
@@ -2519,6 +2532,7 @@ describe("change-scope", () => {
       unitTestsRequired: false,
       catalogUatSyntheticRequired: false,
       cortenMarketplaceBrowserRequired: false,
+      cortenPilotCheckRequired: false,
       requiredProofPaths: [],
     });
   });

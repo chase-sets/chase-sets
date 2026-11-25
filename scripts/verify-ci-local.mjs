@@ -89,16 +89,22 @@ function resolvePnpmCommand() {
   return "pnpm";
 }
 
-function command(commandName, args, { env = {}, clearEnv = [] } = {}) {
+// cwd, when given, is a repository-relative directory the command runs in (corten check reads the
+// workspace from its working directory and takes no path).
+function command(commandName, args, { env = {}, clearEnv = [], cwd } = {}) {
   if (
     typeof commandName !== "string" ||
     !commandName ||
     !Array.isArray(args) ||
-    args.some((arg) => typeof arg !== "string")
+    args.some((arg) => typeof arg !== "string") ||
+    (cwd !== undefined &&
+      (typeof cwd !== "string" || !cwd || path.isAbsolute(cwd) || cwd.split(/[\\/]/).includes("..")))
   ) {
     throw new Error("MISSING_LOCAL_COMMAND_SHAPE");
   }
-  return { command: commandName, args, env, clearEnv };
+  return cwd === undefined
+    ? { command: commandName, args, env, clearEnv }
+    : { command: commandName, args, env, clearEnv, cwd };
 }
 
 export function createLocalCommandPlan({ plan, baseSha, headSha, scope }) {
@@ -225,6 +231,13 @@ export function createLocalCommandPlan({ plan, baseSha, headSha, scope }) {
       ],
     ],
     [
+      "corten-pilot-check",
+      [
+        command("node", ["--import", "tsx", "deployables/corten-pilot/scripts/export.mjs", "--check"]),
+        command("corten", ["check"], { cwd: "deployables/corten-pilot" }),
+      ],
+    ],
+    [
       "build",
       [
         command("node", [
@@ -316,7 +329,7 @@ export function defaultCommandExecutor(spec) {
   const env = { ...process.env, ...spec.env };
   for (const name of spec.clearEnv) delete env[name];
   const result = spawnSync(spec.command, spec.args, {
-    cwd: process.cwd(),
+    cwd: spec.cwd === undefined ? process.cwd() : path.resolve(process.cwd(), spec.cwd),
     env,
     encoding: "utf8",
     stdio: ["inherit", "pipe", "pipe"],

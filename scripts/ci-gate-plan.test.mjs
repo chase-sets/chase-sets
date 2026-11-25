@@ -158,8 +158,8 @@ function assertPreservedSelection(planner = createCiGatePlan) {
 }
 
 // The gates added after both parity bases, in order right after E2E Tests, each selected only by its
-// own classifier flag: the Catalog UAT spec's synthetic tests, and marketplace-web's kept browser
-// specs against the Corten marketplace.
+// own classifier flag: the Catalog UAT spec's synthetic tests, marketplace-web's kept browser specs
+// against the Corten marketplace, and the Corten pilot check.
 const postBaseGates = [
   { id: "catalog-uat-synthetic", name: "Catalog UAT Synthetic Tests", capability: "catalogUatSyntheticRequired" },
   {
@@ -167,6 +167,7 @@ const postBaseGates = [
     name: "Corten Marketplace Browser Tests",
     capability: "cortenMarketplaceBrowserRequired",
   },
+  { id: "corten-pilot-check", name: "Corten Pilot Check", capability: "cortenPilotCheckRequired" },
 ];
 
 function expectedPostBaseGate(id, scope) {
@@ -478,13 +479,19 @@ describe("shared E2E setup regression and enforcement", () => {
             unitTestsRequired: previous.affectedWorkspaces.length > 0,
             catalogUatSyntheticRequired: false,
             cortenMarketplaceBrowserRequired: false,
+            cortenPilotCheckRequired: false,
           });
           for (const mode of ["pull-request", "merge-group"]) {
             const inputs = { mode, labels: [], provenance: "same-repository" };
             expect(
               createCiGatePlan({
                 ...inputs,
-                scope: { ...previous, catalogUatSyntheticRequired: false, cortenMarketplaceBrowserRequired: false },
+                scope: {
+                  ...previous,
+                  catalogUatSyntheticRequired: false,
+                  cortenMarketplaceBrowserRequired: false,
+                  cortenPilotCheckRequired: false,
+                },
               }).gates.find(({ id }) => id === "e2e-tests"),
             ).toMatchObject({ selection: "NOT_REQUIRED", e2eBatches: [] });
             const plan = createCiGatePlan({ ...inputs, scope });
@@ -1131,6 +1138,7 @@ describe("shared CI gate plan", () => {
       "e2e-tests",
       "catalog-uat-synthetic",
       "corten-marketplace-browser",
+      "corten-pilot-check",
       "build",
     ]);
     expect(
@@ -1139,7 +1147,7 @@ describe("shared CI gate plan", () => {
           ? typeof hostedOnlyReason === "string" && hostedOnlyReason.length > 0
           : hostedOnlyReason === null,
       ),
-    ).toHaveLength(19);
+    ).toHaveLength(20);
 
     const scope = classifyChanges({ changedFiles: ["README.md"] });
     const plan = createCiGatePlan({ mode: "merge-group", scope });
@@ -1298,11 +1306,10 @@ describe("shared CI gate plan", () => {
       "key: corten-pilot-v3-${{ runner.os }}-${{ hashFiles('deployables/corten-pilot/Cargo.lock') }}",
     );
     // The same key and image as the pilot check, which saves the cache from main.
-    const pilot = readFileSync(".github/workflows/corten-pilot.yml", "utf8");
-    expect(pilot).toContain(
+    expect(readFileSync(".github/actions/corten-pilot-check/action.yml", "utf8")).toContain(
       "key: corten-pilot-v3-${{ runner.os }}-${{ hashFiles('deployables/corten-pilot/Cargo.lock') }}",
     );
-    expect(pilot).toContain("    runs-on: ubuntu-24.04\n");
+    expect(readFileSync(".github/workflows/corten-pilot.yml", "utf8")).toContain("    runs-on: ubuntu-24.04\n");
     expect(job).toContain("run: cargo build --locked -p corten-pilot-marketplace");
     expect(job).toContain("CHASE_SETS_BROWSER_E2E_SYSTEM: corten-marketplace");
     expect(job).not.toContain("PLAYWRIGHT_SKIP_WEB_SERVER");
@@ -1313,6 +1320,85 @@ describe("shared CI gate plan", () => {
       name: "Corten Marketplace Browser Tests",
       result: "${{ needs['corten-marketplace-browser'].result }}",
       required: "${{ needs['change-scope'].outputs.corten_marketplace_browser_required }}",
+    });
+  });
+
+  it("selects Corten Pilot Check from the pilot's marketplace and platform code, its Cargo files, its export and its action", () => {
+    const triggers = [
+      "deployables/corten-pilot/marketplace/src/checkout.rs",
+      "deployables/corten-pilot/marketplace/static/app.css",
+      "deployables/corten-pilot/platform/src/api.rs",
+      "deployables/corten-pilot/Cargo.toml",
+      "deployables/corten-pilot/Cargo.lock",
+      "deployables/corten-pilot/scripts/export.mjs",
+      ".github/actions/corten-pilot-check/action.yml",
+    ];
+    const nearMisses = [
+      "README.md",
+      "deployables/corten-pilot/README.md",
+      "deployables/corten-pilot/marketplace/NOTES.md",
+      "deployables/corten-pilot/admin/src/app.rs",
+      "deployables/corten-pilot/public/src/home.rs",
+      "deployables/corten-pilot/scripts/other.mjs",
+      "deployables/marketplace/e2e/critical-flows.spec.ts",
+      "scripts/dev-system.mjs",
+      ".github/actions/setup-pnpm-workspace/action.yml",
+    ];
+    for (const [changedFiles, required] of [
+      ...triggers.map((file) => [[file], true]),
+      ...nearMisses.map((file) => [[file], false]),
+    ]) {
+      const scope = classifyChanges({ changedFiles, workspaces });
+      expect(scope.cortenPilotCheckRequired, changedFiles[0]).toBe(required);
+      for (const scenario of scenarios) {
+        const plan = createCiGatePlan({ ...scenario, scope });
+        expect(
+          plan.gates.find(({ id }) => id === "corten-pilot-check"),
+          changedFiles[0],
+        ).toEqual(expectedPostBaseGate("corten-pilot-check", scope));
+        expect(ciGatePlanOutputMap(plan).corten_pilot_check_required).toBe(String(required));
+      }
+    }
+  });
+
+  it("runs Corten Pilot Check only on its scope output, through the same action as the advisory pilot check", () => {
+    const job = workflowJob(headWorkflow, "corten-pilot-check").text;
+    expect(job).toContain("    name: Corten Pilot Check\n");
+    expect(workflowCondition(headWorkflow, "corten-pilot-check")).toBe(
+      "needs['change-scope'].outputs.corten_pilot_check_required == 'true'",
+    );
+    expect(job).not.toMatch(/secrets\./);
+    expect(job).toContain("    runs-on: ubuntu-24.04\n");
+    // One sequence for both workflows, so the pin, the cache key and the steps cannot drift apart.
+    const pilot = readFileSync(".github/workflows/corten-pilot.yml", "utf8");
+    for (const text of [job, pilot]) {
+      expect(text).toContain("      - uses: ./.github/actions/corten-pilot-check\n");
+      expect(text).not.toContain("corten check");
+      expect(text).not.toContain("cargo install");
+      expect(text).not.toContain("actions/cache@");
+    }
+    const action = readFileSync(".github/actions/corten-pilot-check/action.yml", "utf8");
+    expect(action).toContain("        corten check 2>&1 | tee corten-check.log\n");
+    expect(action).toContain('        ! grep -q "were not type-checked" corten-check.log\n');
+    expect(action).toContain('cargo install --locked --git "$git" --rev "$rev" corten-cli');
+    expect(action).toContain("run: node --import=tsx deployables/corten-pilot/scripts/export.mjs --check");
+    // The advisory check skips a pull request that touches only the paths this gate selects.
+    for (const ignored of [
+      "deployables/corten-pilot/marketplace/**",
+      "deployables/corten-pilot/platform/**",
+      "deployables/corten-pilot/Cargo.toml",
+      "deployables/corten-pilot/Cargo.lock",
+      "deployables/corten-pilot/scripts/export.mjs",
+      ".github/actions/corten-pilot-check/**",
+    ]) {
+      expect(pilot).toContain(`      - "${ignored}"\n`);
+    }
+    expect(requiredNeeds(headWorkflow)).toContain("corten-pilot-check");
+    expect(requiredCalls(headWorkflow)).toContainEqual({
+      helper: "require_job",
+      name: "Corten Pilot Check",
+      result: "${{ needs['corten-pilot-check'].result }}",
+      required: "${{ needs['change-scope'].outputs.corten_pilot_check_required }}",
     });
   });
 
