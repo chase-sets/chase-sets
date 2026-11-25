@@ -47,8 +47,9 @@ describe("Corten public staging, first slice", () => {
     const expected = {
       "reconcile-production-marker": "6e7171774b3d654c0dcd81d993140ebcfb0bf8436d05c7a5809c7137b5f2c317",
       "reconcile-managed-postgres-ca-production": "2a089333675961592792931dc522f4a8725e1f4b2f8688a0a7ecbb5a3246f389",
-      // Moved for the production public switch: PRODUCTION_PUBLIC_APP, the staged Corten public image, best-effort PROXIES.
-      "deploy-production": "8c09ed0455705b188d67a82a123f0c63b1432d53a14758da84f19ea17889bf16",
+      // Moved for the production public switch (PRODUCTION_PUBLIC_APP, the staged Corten public image, best-effort PROXIES),
+      // then for retiring marketplace-web (no PRODUCTION_MARKETPLACE_APP).
+      "deploy-production": "9eabad66f3039a0bcd0fda196becdf3bbebbc59a69f127fbfb2c55ab300d9c48",
       "notify-production-deploy-incident": "45ba7ca357af41620cb066784a2ef94c80741725d98aa98a6520f3b049166262",
       "notify-production-rollback-incident": "6620994b81902ec45da29e5b3f049a1e49b2e9a2483d1b6acf6663584272710e",
     };
@@ -68,7 +69,8 @@ describe("Corten public staging, first slice", () => {
   it("preserves the production values", () => {
     for (const [file, sha] of Object.entries({
       "values.yaml": "deabfa12c21bfed16326e58432c13a4aecf3a1f1f852768320a311e3916baadc",
-      "values.production.yaml": "b39cdc628cf5295e0669b9a6beccbe379a0dd48e431e181c52129ad685be36c9",
+      // Moved for retiring marketplace-web: the marketplace component is disabled.
+      "values.production.yaml": "fe798bf89f480fff7cdc04b947831bb157bf089a466ca50fdf7f1e7e22ee58de",
     })) {
       expect(
         createHash("sha256")
@@ -273,7 +275,7 @@ describe("Corten public staging, first slice", () => {
     const steps = workflow.jobs["deploy-staging"].steps;
     const index = steps.findIndex(({ name }) => name === "Advisory Corten public smoke");
     const smoke = steps[index];
-    expect(steps[index - 1].name).toBe("Advisory Corten marketplace smoke");
+    expect(steps[index - 1].name).toBe("Advisory Corten admin smoke");
     expect(smoke["continue-on-error"]).toBe(true);
     expect(smoke.if).toBe(steps.find(({ name }) => name === "Smoke check").if);
     expect(smoke.env).toEqual({ PUBLIC_APP: "${{ steps.staging_kubernetes_deploy.outputs.public_app }}" });
@@ -328,9 +330,6 @@ describe("Corten public staging, first slice", () => {
     }
     // Each pilot answers only to its own variable.
     expect(withheldCortenPilots(withApp(options, "public-web"))).not.toContain("marketplace-corten");
-    expect(
-      withheldCortenPilots({ ...options, env: { ...options.env, STAGING_MARKETPLACE_APP: "marketplace" } }),
-    ).not.toContain("public-corten");
     // Production never reads it: production's own PRODUCTION_PUBLIC_APP still defaults to public-web.
     expect(
       withheldCortenPilots({

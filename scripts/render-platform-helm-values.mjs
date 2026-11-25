@@ -462,29 +462,8 @@ export function buildPlatformHelmStagingValues(options = {}) {
       "public-web": {
         rollout: rolloutValues(true, true, "/health/ready"),
       },
-      marketplace: {
-        replicas: 1,
-        strategy: {
-          type: "RollingUpdate",
-          rollingUpdate: { maxSurge: 1, maxUnavailable: 0 },
-        },
-        resources: {
-          // Retained staging eviction evidence observed 1091900Ki usage with
-          // a zero request. Keep the request above that peak and the limit
-          // below the node's pressure cliff while live recurrence metrics are
-          // unavailable on this seat.
-          requests: { cpu: "200m", memory: "1280Mi" },
-          limits: { cpu: "1", memory: "1536Mi" },
-        },
-        rollout: {
-          ...rolloutValues(true, true, "/health/ready"),
-          canary: {
-            ...rolloutValues(true, true, "/health/ready").canary,
-            maxSurge: 1,
-            maxUnavailable: 0,
-          },
-        },
-      },
+      // marketplace-corten serves the marketplace hosts, so marketplace-web is not deployed.
+      marketplace: { enabled: false },
       "platform-api": {
         ...doksStagingApiOverrides,
         env: stagingApiValues.components["platform-api"].env,
@@ -515,7 +494,6 @@ export function buildPlatformHelmStagingValues(options = {}) {
 // platform-bootstrap is a short pre-rollout hook and is deliberately absent.
 const productionAppComponentRequests = {
   "public-web": { cpu: "200m", memory: "256Mi" },
-  marketplace: { cpu: "200m", memory: "256Mi" },
   "admin-web": { cpu: "100m", memory: "256Mi" },
   "platform-api": { cpu: "250m", memory: "512Mi" },
   "platform-worker": { cpu: "200m", memory: "512Mi" },
@@ -549,9 +527,9 @@ export function buildPlatformHelmProductionValues(options = {}) {
       },
     },
     components: {
-      // The Corten admin, marketplace and public pilots. The deploy renders each disabled while its React app
-      // serves its hosts (admin-web for admin.chasesets.com, marketplace-web for marketplace.chasesets.com,
-      // public-web for chasesets.com and www.chasesets.com).
+      // The Corten admin, marketplace and public apps. The deploy renders admin-corten and public-corten disabled
+      // while their React apps serve their hosts (admin-web for admin.chasesets.com, public-web for chasesets.com
+      // and www.chasesets.com). marketplace-corten always serves marketplace.chasesets.com.
       ...productionComponents,
       ...Object.fromEntries(
         Object.entries(productionAppComponentRequests).map(([name, requests]) => [
@@ -562,6 +540,8 @@ export function buildPlatformHelmProductionValues(options = {}) {
           },
         ]),
       ),
+      // marketplace-corten serves marketplace.chasesets.com, so marketplace-web is not deployed.
+      marketplace: { enabled: false },
     },
   };
 }
@@ -637,50 +617,10 @@ function resolveAdminAppVariable(env, variable, defaultApp) {
   return { app: value, source: "variable" };
 }
 
-// The app that serves marketplace.staging and the staging root. STAGING_MARKETPLACE_APP is a GitHub variable, so a
-// rollback to marketplace-web (the "marketplace" component) is a variable change and a deploy, with no pull
-// request. Unset means the default; any other value fails.
-export const STAGING_MARKETPLACE_APPS = Object.freeze(["marketplace-corten", "marketplace"]);
-export const defaultStagingMarketplaceApp = "marketplace-corten";
-
-export function resolveStagingMarketplaceApp(env = {}) {
-  const value = String(env.STAGING_MARKETPLACE_APP ?? "").trim();
-  if (value === "") {
-    return { app: defaultStagingMarketplaceApp, source: "default" };
-  }
-  if (!STAGING_MARKETPLACE_APPS.includes(value)) {
-    throw new Error(`STAGING_MARKETPLACE_APP must be one of ${STAGING_MARKETPLACE_APPS.join(", ")}; got "${value}".`);
-  }
-  return { app: value, source: "variable" };
-}
-
-// The app that serves marketplace.chasesets.com, from the production environment's PRODUCTION_MARKETPLACE_APP.
-// It defaults to marketplace (marketplace-web); switching production to the Corten marketplace is its own
-// reviewed change (docs/runbooks/production-marketplace-app.md). Unset means the default; any other value fails.
-export const PRODUCTION_MARKETPLACE_APPS = STAGING_MARKETPLACE_APPS;
-export const defaultProductionMarketplaceApp = "marketplace";
-
-export function resolveProductionMarketplaceApp(env = {}) {
-  const value = String(env.PRODUCTION_MARKETPLACE_APP ?? "").trim();
-  if (value === "") {
-    return { app: defaultProductionMarketplaceApp, source: "default" };
-  }
-  if (!PRODUCTION_MARKETPLACE_APPS.includes(value)) {
-    throw new Error(
-      `PRODUCTION_MARKETPLACE_APP must be one of ${PRODUCTION_MARKETPLACE_APPS.join(", ")}; got "${value}".`,
-    );
-  }
-  return { app: value, source: "variable" };
-}
-
-// The marketplace app for a staging or production deploy; null for any other environment.
-export function resolveMarketplaceApp(env = {}, environment) {
-  if (environment === "staging") return { ...resolveStagingMarketplaceApp(env), variable: "STAGING_MARKETPLACE_APP" };
-  if (environment === "production") {
-    return { ...resolveProductionMarketplaceApp(env), variable: "PRODUCTION_MARKETPLACE_APP" };
-  }
-  return null;
-}
+// The Corten marketplace serves marketplace.staging, the staging root and marketplace.chasesets.com. There is no
+// variable to choose marketplace-web: rolling back is reverting to an earlier release
+// (docs/runbooks/staging-marketplace-app.md, docs/runbooks/production-marketplace-app.md).
+export const marketplaceApp = "marketplace-corten";
 
 // The app that serves www.staging. STAGING_PUBLIC_APP is a GitHub variable, so a rollback to public-web is a
 // variable change and a deploy, with no pull request. Unset means the default; any other value fails.
@@ -731,7 +671,6 @@ export function buildDoksIngressValues(options = {}) {
 
   const production = environment === "production";
   const adminApp = production ? resolveProductionAdminApp(env).app : resolveStagingAdminApp(env).app;
-  const marketplaceApp = production ? resolveProductionMarketplaceApp(env).app : resolveStagingMarketplaceApp(env).app;
   const publicApp = production ? resolveProductionPublicApp(env).app : resolveStagingPublicApp(env).app;
   const targetVariable = production ? "PRODUCTION_DOKS_INGRESS_TARGET" : "DOKS_INGRESS_TARGET";
   const target = String(env[targetVariable] ?? "").trim();
@@ -759,7 +698,7 @@ export function buildDoksIngressValues(options = {}) {
       host: `admin-corten.${stagingEnvironmentZone}`,
       paths: doksIngressPaths("admin-corten"),
     });
-    // The marketplace pilot's own host, whichever app serves marketplace.staging.
+    // The Corten marketplace's own host, beside marketplace.staging.
     hosts.push({
       host: `marketplace-corten.${stagingEnvironmentZone}`,
       paths: doksIngressPaths("marketplace-corten"),

@@ -92,6 +92,16 @@ const rollbackImageRef = `registry.digitalocean.com/chase-sets/chase-sets-platfo
 const stagingCortenAdminImage = `registry.digitalocean.com/chase-sets/chase-sets-corten-admin@sha256:${"c".repeat(64)}`;
 const stagingCortenMarketplaceImage = `registry.digitalocean.com/chase-sets/chase-sets-corten-marketplace@sha256:${"e".repeat(64)}`;
 const stagingCortenPublicImage = `registry.digitalocean.com/chase-sets/chase-sets-corten-public@sha256:${"f".repeat(64)}`;
+// marketplace-corten serves marketplace.chasesets.com, so every production deploy carries the image staging
+// deployed and the ingress pod CIDRs it believes X-Forwarded-For from.
+const productionProxies = "10.244.0.0/25";
+const productionMarketplacePilot = { cortenMarketplaceImage: stagingCortenMarketplaceImage };
+const productionMarketplaceArgv = [
+  "--corten-marketplace-image",
+  stagingCortenMarketplaceImage,
+  "--runtime-env",
+  `PROXIES=${productionProxies}`,
+];
 const productionIndex = {
   schemaVersion: 2,
   mediaType: "application/vnd.oci.image.index.v1+json",
@@ -454,12 +464,9 @@ function failedRollbackCaptureCompletions() {
 const productionAdminWebLines = [
   "admin.chasesets.com is served by admin-web (PRODUCTION_ADMIN_APP is unset, so the default applies).",
   "admin-corten is not deployed while admin-web serves admin.chasesets.com.",
-  "marketplace.chasesets.com is served by marketplace (PRODUCTION_MARKETPLACE_APP is unset, so the default applies).",
-  "marketplace-corten is not deployed while marketplace-web serves marketplace.chasesets.com.",
   "chasesets.com and www.chasesets.com are served by public-web (PRODUCTION_PUBLIC_APP is unset, so the default applies).",
   "public-corten is not deployed while public-web serves chasesets.com and www.chasesets.com.",
   "Warning: admin-corten is not deployed because admin-web serves admin.chasesets.com (PRODUCTION_ADMIN_APP=admin-web).",
-  "Warning: marketplace-corten is not deployed because marketplace-web serves marketplace.chasesets.com (PRODUCTION_MARKETPLACE_APP=marketplace).",
   "Warning: public-corten is not deployed because public-web serves chasesets.com and www.chasesets.com (PRODUCTION_PUBLIC_APP=public-web).",
 ];
 
@@ -528,7 +535,14 @@ describe("platform Kubernetes deployment", () => {
 
   it("does not introduce the Catalog send-window override into production Helm arguments", () => {
     const parsed = parseArgs(
-      ["deploy", "--image", rollbackImageRef, "--runtime-env", "DEPLOYMENT_ENVIRONMENT=production"],
+      [
+        "deploy",
+        "--image",
+        rollbackImageRef,
+        "--runtime-env",
+        "DEPLOYMENT_ENVIRONMENT=production",
+        ...productionMarketplaceArgv,
+      ],
       {},
     );
     const args = buildHelmUpgradeArgs(parsed);
@@ -1259,8 +1273,10 @@ describe("platform Kubernetes deployment", () => {
         namespace: "production",
         timeout: "12m",
         image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
+        ...productionMarketplacePilot,
         envOverrides: {
           DEPLOYMENT_ENVIRONMENT: "production",
+          PROXIES: productionProxies,
         },
       }),
     ).toEqual(expect.arrayContaining(["--values", "infrastructure/helm/platform/values.production.yaml"]));
@@ -1342,9 +1358,11 @@ describe("platform Kubernetes deployment", () => {
       namespace: "chase-sets-platform",
       image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
       observabilityExporterEndpoint: "https://otel.chasesets.com",
+      ...productionMarketplacePilot,
       envOverrides: {
         DEPLOYMENT_ENVIRONMENT: "production",
         OBSERVABILITY_ENABLED: "true",
+        PROXIES: productionProxies,
         // These hostile values prove an observability-enabled production path
         // cannot inherit the base chart's empty/preview telemetry posture.
         OTEL_EXPORTER_OTLP_ENDPOINT: "https://otel.preview.chasesets.com",
@@ -1400,10 +1418,12 @@ describe("platform Kubernetes deployment", () => {
     const args = (revision, environment = "production") =>
       buildHelmUpgradeArgs({
         image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
+        ...(environment === "production" ? productionMarketplacePilot : {}),
         envOverrides: {
           DEPLOYMENT_ENVIRONMENT: environment,
           OBSERVABILITY_ENABLED: "false",
           PREVIEW_IDENTIFIER: "pr-42",
+          ...(environment === "production" ? { PROXIES: productionProxies } : {}),
         },
         env: { PRODUCTION_RUNTIME_SECRET_REVISION: revision },
       });
@@ -1614,8 +1634,10 @@ describe("platform Kubernetes deployment", () => {
       namespace: "production",
       timeout: "12m",
       image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
+      ...productionMarketplacePilot,
       envOverrides: {
         DEPLOYMENT_ENVIRONMENT: "production",
+        PROXIES: productionProxies,
       },
       env: {
         PRODUCTION_DOKS_INGRESS_TARGET: "203.0.113.20",
@@ -1874,9 +1896,10 @@ describe("platform Kubernetes deployment", () => {
               cortenMarketplaceImage: stagingCortenMarketplaceImage,
               cortenPublicImage: stagingCortenPublicImage,
             }
-          : {}),
+          : productionMarketplacePilot),
         envOverrides: {
           DEPLOYMENT_ENVIRONMENT: environment,
+          ...(environment === "production" ? { PROXIES: productionProxies } : {}),
         },
       });
 
@@ -1988,6 +2011,35 @@ describe("platform Kubernetes deployment", () => {
       rollouts: ["proof-chase-sets-platform-public-web", "proof-chase-sets-platform-marketplace"],
       jobs: ["proof-chase-sets-platform-platform-bootstrap"],
     });
+  });
+
+  it("gives a base component the environment's values disable no wait target, and leaves live values alone", () => {
+    const web = "proof-chase-sets-platform-marketplace";
+    const corten = "proof-chase-sets-platform-marketplace-corten";
+    for (const environment of ["staging", "production"]) {
+      const { deployments, rollouts, jobs } = platformKubernetesWorkloads({
+        release: "proof",
+        envOverrides: { DEPLOYMENT_ENVIRONMENT: environment },
+      });
+      const targets = [...deployments, ...rollouts, ...jobs];
+      expect(targets, environment).not.toContain(web);
+      expect(targets, environment).toContain(corten);
+      expect(targets, environment).toContain("proof-chase-sets-platform-platform-api");
+    }
+    // Previews keep marketplace-web until it is removed from them.
+    expect(
+      platformKubernetesWorkloads({ release: "proof", envOverrides: { DEPLOYMENT_ENVIRONMENT: "preview" } })
+        .deployments,
+    ).toContain(web);
+    // The rollback path reads the release's live values, so an earlier release that still enabled marketplace-web
+    // is waited on as it was deployed.
+    expect(
+      platformKubernetesWorkloads({
+        values: sampleValues,
+        release: "proof",
+        envOverrides: { DEPLOYMENT_ENVIRONMENT: "production" },
+      }).deployments,
+    ).toContain(web);
   });
 
   it("pins KEDA to the worker deployment and keeps the scaler opt-in to staging", () => {
@@ -6206,7 +6258,12 @@ function retryDeployOptions(scenario, calls, extra = {}) {
     namespace: retryNamespace,
     timeout: "30s",
     image: `registry.digitalocean.com/chase-sets/chase-sets-platform:${"e".repeat(40)}@sha256:${"d".repeat(64)}`,
-    envOverrides: { DEPLOYMENT_ENVIRONMENT: "production", ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS: plantedEnvOverride },
+    ...productionMarketplacePilot,
+    envOverrides: {
+      DEPLOYMENT_ENVIRONMENT: "production",
+      ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS: plantedEnvOverride,
+      PROXIES: productionProxies,
+    },
     // A context whose own default namespace is `default`; the probe must still name the deploy namespace.
     env: { KUBECONFIG: "/synthetic/kubeconfig-with-default-namespace" },
     clock: scenario.clock,
@@ -6736,6 +6793,7 @@ describe("attempts record", () => {
               "DEPLOYMENT_ENVIRONMENT=production",
               "--runtime-env",
               `ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS=${plantedEnvOverride}`,
+              ...productionMarketplaceArgv,
               "--managed-postgres-ca-sha256",
               managedPostgresCaSha256,
               "--namespace",
@@ -6987,6 +7045,7 @@ describe("admission webhook root cause", () => {
             `registry.digitalocean.com/chase-sets/chase-sets-platform:${"e".repeat(40)}@sha256:${"d".repeat(64)}`,
             "--runtime-env",
             "DEPLOYMENT_ENVIRONMENT=production",
+            ...productionMarketplaceArgv,
             "--managed-postgres-ca-sha256",
             managedPostgresCaSha256,
             "--namespace",
@@ -7173,10 +7232,13 @@ describe("preview Postgres connection ceiling and diagnostics (#10022)", () => {
             cortenMarketplaceImage: stagingCortenMarketplaceImage,
             cortenPublicImage: stagingCortenPublicImage,
           }
-        : {}),
+        : environment === "production"
+          ? productionMarketplacePilot
+          : {}),
       envOverrides: {
         DEPLOYMENT_ENVIRONMENT: environment,
         ...(environment === "preview" ? { PREVIEW_IDENTIFIER: "pr-123" } : {}),
+        ...(environment === "production" ? { PROXIES: productionProxies } : {}),
       },
       env: { DOKS_INGRESS_TARGET: "203.0.113.10", PRODUCTION_DOKS_INGRESS_TARGET: "203.0.113.20" },
     });
@@ -7760,9 +7822,9 @@ describe("advisory Corten pilots without an image", () => {
   const adminImage = `registry.digitalocean.com/chase-sets/chase-sets-corten-admin@sha256:${"a".repeat(64)}`;
   const marketplaceImage = `registry.digitalocean.com/chase-sets/chase-sets-corten-marketplace@sha256:${"c".repeat(64)}`;
   const publicImage = `registry.digitalocean.com/chase-sets/chase-sets-corten-public@sha256:${"d".repeat(64)}`;
-  // admin-corten serves admin.staging, marketplace-corten serves marketplace.staging and public-corten serves
-  // www.staging here (STAGING_ADMIN_APP, STAGING_MARKETPLACE_APP and STAGING_PUBLIC_APP unset), so no pilot is
-  // advisory. The advisory path is exercised by naming a pilot in advisoryCortenPilotComponents.
+  // admin-corten serves admin.staging and public-corten serves www.staging here (STAGING_ADMIN_APP and
+  // STAGING_PUBLIC_APP unset), and marketplace-corten always serves marketplace.staging, so no pilot is advisory.
+  // The advisory path is exercised by naming a pilot in advisoryCortenPilotComponents.
   const staging = {
     release: "proof",
     namespace: "staging",
@@ -7874,22 +7936,18 @@ describe("advisory Corten pilots without an image", () => {
     }
   });
 
-  it("does not deploy marketplace-corten while marketplace-web serves marketplace.staging, whether or not its image was built", async () => {
-    for (const cortenMarketplaceImage of [marketplaceImage, undefined]) {
-      const { result, warnings, helm, waited } = await deployStaging({
-        env: { STAGING_MARKETPLACE_APP: "marketplace" },
-        cortenMarketplaceImage,
-      });
-      expect(helm.filter((arg) => String(arg).startsWith("components.marketplace-corten."))).toEqual([
-        "components.marketplace-corten.enabled=false",
-      ]);
-      expect(warnings).toContain(
-        "Warning: marketplace-corten is not deployed because marketplace-web serves marketplace.staging (STAGING_MARKETPLACE_APP=marketplace).",
-      );
-      expect(waited.some((args) => args.includes("proof-chase-sets-platform-platform-api"))).toBe(true);
-      expect(waited.filter((args) => args.includes(marketplaceWorkload))).toEqual([]);
-      expect(JSON.stringify(result)).not.toContain(marketplaceWorkload);
-    }
+  it("deploys marketplace-corten whatever a leftover STAGING_MARKETPLACE_APP says", async () => {
+    const { result, warnings, helm, waited } = await deployStaging({
+      env: { STAGING_MARKETPLACE_APP: "marketplace" },
+    });
+    expect(helm.filter((arg) => String(arg).startsWith("components.marketplace-corten."))).toEqual([
+      `components.marketplace-corten.image=${marketplaceImage}`,
+    ]);
+    expect(warnings.filter((message) => message.includes("marketplace"))).toEqual([]);
+    expect(waited.filter((args) => args.includes(marketplaceWorkload))).toHaveLength(1);
+    // marketplace-web is disabled in the staging values, so the deploy does not wait for it.
+    expect(waited.filter((args) => args.includes("/proof-chase-sets-platform-marketplace "))).toEqual([]);
+    expect(JSON.stringify(result)).toContain(marketplaceWorkload);
   });
 
   it("does not deploy public-corten while public-web serves www.staging, whether or not its image was built", async () => {
@@ -7917,8 +7975,6 @@ describe("advisory Corten pilots without an image", () => {
       const env = {
         STAGING_ADMIN_APP: "admin-web",
         PRODUCTION_ADMIN_APP: "admin-corten",
-        STAGING_MARKETPLACE_APP: "marketplace",
-        PRODUCTION_MARKETPLACE_APP: "marketplace-corten",
         STAGING_PUBLIC_APP: "public-web",
         PRODUCTION_PUBLIC_APP: "public-corten",
       };

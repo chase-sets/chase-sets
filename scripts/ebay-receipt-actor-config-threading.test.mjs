@@ -117,8 +117,9 @@ describe("staging eBay receipt actor configuration threading", () => {
       namespace: "chase-sets-platform",
       timeout: "10m",
       image: "registry.digitalocean.com/chase-sets/chase-sets-platform:proof",
+      cortenMarketplaceImage: `registry.digitalocean.com/chase-sets/chase-sets-corten-marketplace@sha256:${"c".repeat(64)}`,
       managedPostgresCaSha256,
-      envOverrides: { DEPLOYMENT_ENVIRONMENT: "production" },
+      envOverrides: { DEPLOYMENT_ENVIRONMENT: "production", PROXIES: "10.244.0.0/25" },
       env: { GITHUB_RUN_ID: "107110001", GITHUB_RUN_ATTEMPT: "2" },
     });
     expect(productionArgs.join(" ")).not.toContain("staging-runtime-revision");

@@ -42,7 +42,6 @@
     "dev:db:refresh": "node ./scripts/dev-system.mjs refresh",
     "remote-dev": "node ./scripts/remote-dev.mjs",
     "smoke:corten-admin": "node ./scripts/corten-admin-smoke.mjs",
-    "smoke:corten-marketplace": "node ./scripts/corten-marketplace-smoke.mjs",
     "smoke:platform": "node ./scripts/platform-smoke.mjs",
     "smoke:public-web-routes": "node ./scripts/public-web-route-smoke.mjs",
     "platform:kubernetes-deployment": "node ./scripts/platform-kubernetes-deployment.mjs",

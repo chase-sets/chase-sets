@@ -741,22 +741,11 @@ describe("render platform Helm values", () => {
     });
   });
 
-  it("reserves staging marketplace memory and preserves one Ready replica during rollout", () => {
+  it("keeps marketplace-web off staging, and keeps the chart's one-Ready-replica rollout support", () => {
+    // The Corten marketplace serves marketplace.staging, so marketplace-web, which this staging memory reservation
+    // and zero-unavailable rollout were for, is no longer deployed there.
     const staging = buildPlatformHelmStagingValues();
-    const marketplace = staging.components.marketplace;
-    expect(marketplace.replicas).toBe(1);
-    expect(marketplace.resources).toEqual({
-      requests: { cpu: "200m", memory: "1280Mi" },
-      limits: { cpu: "1", memory: "1536Mi" },
-    });
-    expect(marketplace.rollout).toMatchObject({
-      enabled: true,
-      canary: { maxSurge: 1, maxUnavailable: 0 },
-    });
-    expect(marketplace.strategy).toEqual({
-      type: "RollingUpdate",
-      rollingUpdate: { maxSurge: 1, maxUnavailable: 0 },
-    });
+    expect(staging.components.marketplace).toEqual({ enabled: false });
     const rolloutTemplate = readChartFiles(["templates/rollout.yaml"])[0];
     expect(rolloutTemplate).toContain('hasKey $component.rollout.canary "maxSurge"');
     expect(rolloutTemplate).toContain('hasKey $component.rollout.canary "maxUnavailable"');
@@ -1536,24 +1525,24 @@ spec:
     const production = buildPlatformHelmProductionValues({ repoRoot });
     const expectedRequests = {
       "admin-web": { cpu: "100m", memory: "256Mi" },
-      marketplace: { cpu: "200m", memory: "256Mi" },
       "platform-api": { cpu: "250m", memory: "512Mi" },
       "platform-worker": { cpu: "200m", memory: "512Mi" },
       "public-web": { cpu: "200m", memory: "256Mi" },
     };
 
     expect(production.components, "production overlay must carry per-component resources").toBeDefined();
-    // Exactly the five long-lived app components. platform-bootstrap is a
+    // Exactly the four long-lived React and platform app components. platform-bootstrap is a
     // short pre-rollout hook that finishes before the cutover it guards, so
     // reserving a node share for it would only shrink what the app pods can
     // land on.
-    // The Corten admin, marketplace and public pilots are the only other components; each runs only while
-    // PRODUCTION_ADMIN_APP=admin-corten, PRODUCTION_MARKETPLACE_APP=marketplace-corten or
-    // PRODUCTION_PUBLIC_APP=public-corten, beside its React app
-    // (the rollback), and carries its own Burstable 100m / 128Mi request.
+    // The Corten admin, marketplace and public pilots are the only other components, each with its own Burstable
+    // 100m / 128Mi request. The admin and public pilots run only while PRODUCTION_ADMIN_APP=admin-corten or
+    // PRODUCTION_PUBLIC_APP=public-corten, beside their React apps (the rollback). The Corten marketplace always
+    // serves marketplace.chasesets.com, so marketplace-web is disabled and reserves nothing.
     expect(Object.keys(production.components).sort()).toEqual(
-      [...Object.keys(expectedRequests), "admin-corten", "marketplace-corten", "public-corten"].sort(),
+      [...Object.keys(expectedRequests), "marketplace", "admin-corten", "marketplace-corten", "public-corten"].sort(),
     );
+    expect(production.components.marketplace).toEqual({ enabled: false });
     for (const pilot of ["admin-corten", "marketplace-corten", "public-corten"]) {
       expect(production.components[pilot].resources).toEqual({
         requests: { cpu: "100m", memory: "128Mi" },
@@ -1561,11 +1550,11 @@ spec:
       });
     }
     const summed = Object.values(production.components).reduce(
-      (total, { resources }) => total + millicores(resources.requests.cpu),
+      (total, { resources }) => total + (resources ? millicores(resources.requests.cpu) : 0),
       0,
     );
     // Every app pod and the three pilots together still fit one 1900m-allocatable runtime node.
-    expect(summed).toBe(1250);
+    expect(summed).toBe(1050);
     expect(summed).toBeLessThan(1900);
 
     for (const [name, requests] of Object.entries(expectedRequests)) {
@@ -1602,9 +1591,9 @@ spec:
       0,
     );
 
-    expect(totalMillicores).toBe(950);
-    expect(totalMemoryKi).toBe(1835008);
-    // Headroom left on that node for the add-ons: 950m CPU and 1239884Ki.
+    expect(totalMillicores).toBe(750);
+    expect(totalMemoryKi).toBe(1572864);
+    // Headroom left on that node for the add-ons: 1150m CPU and 1502028Ki.
     expect(1900 - totalMillicores).toBeGreaterThanOrEqual(900);
     expect(3074892 - totalMemoryKi).toBeGreaterThanOrEqual(1024 * 1024);
 
@@ -1634,7 +1623,7 @@ spec:
 
     expect(production.components, "production overlay must carry per-component spread").toBeDefined();
 
-    for (const name of ["admin-web", "marketplace", "platform-api", "platform-worker", "public-web"]) {
+    for (const name of ["admin-web", "platform-api", "platform-worker", "public-web"]) {
       // ScheduleAnyway, not DoNotSchedule: a rolling cutover with one
       // schedulable node must still place the replacement pod rather than hang
       // Pending. The exact-equality also pins the absence of `labelSelector` --
@@ -1670,7 +1659,8 @@ spec:
     );
 
     const [generated] = readChartFiles(["values.production.yaml"]);
-    expect(generated.split("\n").filter((line) => line.trim() === "topologySpreadConstraints:")).toHaveLength(5);
+    // marketplace-web is disabled in production, so it carries no spread.
+    expect(generated.split("\n").filter((line) => line.trim() === "topologySpreadConstraints:")).toHaveLength(4);
     expect(generated).toContain(
       [
         "    topologySpreadConstraints:",

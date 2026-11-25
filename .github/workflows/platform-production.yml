@@ -1411,10 +1411,6 @@ jobs:
       # The app that serves admin.staging: admin-corten, or admin-web to roll back (docs/runbooks/staging-admin-app.md).
       # Unset means admin-corten; the deploy script refuses any other value and records which one served.
       STAGING_ADMIN_APP: ${{ vars.STAGING_ADMIN_APP || '' }}
-      # The app that serves marketplace.staging and the staging root: marketplace-corten, or marketplace
-      # (marketplace-web) to roll back (docs/runbooks/staging-marketplace-app.md). Unset means marketplace-corten;
-      # the deploy script refuses any other value and records which one served.
-      STAGING_MARKETPLACE_APP: ${{ vars.STAGING_MARKETPLACE_APP || '' }}
       # The app that serves www.staging: public-corten, or public-web to roll back
       # (docs/runbooks/staging-public-app.md). Unset means public-corten; the deploy script refuses any other
       # value and records which one served.
@@ -2211,8 +2207,8 @@ jobs:
           else
             echo "::warning title=Corten admin pilot::No Corten admin image was built for this release."
           fi
-          # The same for the marketplace: with no image the deploy script fails while marketplace-corten serves
-          # marketplace.staging, and under STAGING_MARKETPLACE_APP=marketplace it does not deploy the pilot at all.
+          # The same for the marketplace: marketplace-corten serves marketplace.staging, so with no image the
+          # deploy script fails.
           if [ -n "${CORTEN_MARKETPLACE_IMAGE:-}" ]; then
             corten_image_args+=(--corten-marketplace-image "$CORTEN_MARKETPLACE_IMAGE")
           else
@@ -2290,7 +2286,6 @@ jobs:
         working-directory: infrastructure/digitalocean/platform
         env:
           ADMIN_APP: ${{ steps.staging_kubernetes_deploy.outputs.admin_app }}
-          MARKETPLACE_APP: ${{ steps.staging_kubernetes_deploy.outputs.marketplace_app }}
           PUBLIC_APP: ${{ steps.staging_kubernetes_deploy.outputs.public_app }}
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
@@ -2317,14 +2312,11 @@ jobs:
           ingress_urls=(
             "https://${landing_domain}/health/ready"
             "https://${admin_domain}/health/ready"
+            "https://marketplace-corten.staging.chasesets.com/health/ready"
           )
           # admin-corten runs only while it serves admin.staging; under STAGING_ADMIN_APP=admin-web it is not deployed (withheldCortenPilots).
           if [ "$ADMIN_APP" != "admin-web" ]; then
             ingress_urls+=("https://admin-corten.staging.chasesets.com/health/ready")
-          fi
-          # marketplace-corten runs only while it serves marketplace.staging; under STAGING_MARKETPLACE_APP=marketplace it is not deployed (withheldCortenPilots).
-          if [ "$MARKETPLACE_APP" != "marketplace" ]; then
-            ingress_urls+=("https://marketplace-corten.staging.chasesets.com/health/ready")
           fi
           # public-corten runs only while it serves www.staging; under STAGING_PUBLIC_APP=public-web it is not deployed (withheldCortenPilots).
           if [ "$PUBLIC_APP" != "public-web" ]; then
@@ -2399,16 +2391,15 @@ jobs:
           SMOKE_SOURCE: staging-smoke
           SMOKE_UTM_CAMPAIGN: staging-main
           ADMIN_APP: ${{ steps.staging_kubernetes_deploy.outputs.admin_app }}
-          MARKETPLACE_APP: ${{ steps.staging_kubernetes_deploy.outputs.marketplace_app }}
           PUBLIC_APP: ${{ steps.staging_kubernetes_deploy.outputs.public_app }}
-          # Signs in and opens a marketplace account page on marketplace.staging, whichever app serves it.
+          # Signs in and opens a marketplace account page on marketplace.staging.
           SMOKE_REQUIRE_MARKETPLACE_SIGNED_IN: "true"
           SMOKE_FETCH_ATTEMPTS: "24"
           SMOKE_FETCH_RETRY_DELAY_MS: "5000"
           SMOKE_FETCH_TIMEOUT_MS: "15000"
         run: |
           set -euo pipefail
-          echo "Smoking the live staging hosts served by DOKS; ${ADMIN_APP} serves admin, ${MARKETPLACE_APP} serves marketplace and ${PUBLIC_APP} serves www."
+          echo "Smoking the live staging hosts served by DOKS; ${ADMIN_APP} serves admin, marketplace-corten serves marketplace and ${PUBLIC_APP} serves www."
           landing_domain="$(terraform output -raw landing_domain)"
           admin_domain="$(terraform output -raw admin_domain)"
           catalog_asset_public_base_url="$(terraform output -raw catalog_asset_public_base_url)"
@@ -2437,13 +2428,10 @@ jobs:
               --expect-status 200 \
               --url "https://admin-corten.staging.chasesets.com/health/ready"
           fi
-          # marketplace-corten runs only while it serves marketplace.staging; under STAGING_MARKETPLACE_APP=marketplace it is not deployed (withheldCortenPilots).
-          if [ "$MARKETPLACE_APP" != "marketplace" ]; then
-            node ./scripts/platform-ingress-wait.mjs \
-              --attempts 1 \
-              --expect-status 200 \
-              --url "https://marketplace-corten.staging.chasesets.com/health/ready"
-          fi
+          node ./scripts/platform-ingress-wait.mjs \
+            --attempts 1 \
+            --expect-status 200 \
+            --url "https://marketplace-corten.staging.chasesets.com/health/ready"
           # public-corten runs only while it serves www.staging; under STAGING_PUBLIC_APP=public-web it is not deployed (withheldCortenPilots).
           if [ "$PUBLIC_APP" != "public-web" ]; then
             node ./scripts/platform-ingress-wait.mjs \
@@ -2502,39 +2490,6 @@ jobs:
             exit 0
           fi
           echo "admin-web serves admin.staging (STAGING_ADMIN_APP=admin-web), so admin-corten is not deployed and is not smoked."
-
-      # While marketplace-corten serves marketplace.staging, the Smoke check above already
-      # smokes it, signed in, so this step only says so. Under STAGING_MARKETPLACE_APP=marketplace
-      # the pilot is not deployed, and the step says that instead. It never fails Deploy Staging.
-      - name: Advisory Corten marketplace smoke
-        timeout-minutes: 15
-        if: env.SHOULD_DEPLOY != 'false'
-        continue-on-error: true
-        working-directory: infrastructure/digitalocean/platform
-        env:
-          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
-          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-          TF_VAR_google_social_login_client_id: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}
-          TF_VAR_google_social_login_client_secret: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
-          TF_VAR_facebook_social_login_client_id: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
-          TF_VAR_facebook_social_login_client_secret: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
-          MARKETPLACE_APP: ${{ steps.staging_kubernetes_deploy.outputs.marketplace_app }}
-          SMOKE_SOURCE: staging-corten-marketplace-smoke
-          SMOKE_UTM_CAMPAIGN: staging-main
-          SMOKE_FETCH_ATTEMPTS: "24"
-          SMOKE_FETCH_RETRY_DELAY_MS: "5000"
-          SMOKE_FETCH_TIMEOUT_MS: "15000"
-        run: |
-          set -euo pipefail
-          # marketplace-corten runs only while it serves marketplace.staging; under STAGING_MARKETPLACE_APP=marketplace it is not deployed (withheldCortenPilots).
-          if [ "$MARKETPLACE_APP" != "marketplace" ]; then
-            echo "marketplace-corten serves marketplace.staging, so the Smoke check above smoked it signed in."
-            exit 0
-          fi
-          echo "marketplace-web serves marketplace.staging (STAGING_MARKETPLACE_APP=marketplace), so marketplace-corten is not deployed and is not smoked."
 
       # While public-corten serves www.staging, the Smoke check above already runs the derived public
       # route walk against it (the landing smoke), so this step only says so. Under STAGING_PUBLIC_APP=public-web
@@ -3455,7 +3410,6 @@ jobs:
     environment: production
     outputs:
       admin_app: ${{ steps.production_kubernetes_deploy.outputs.admin_app }}
-      marketplace_app: ${{ steps.production_kubernetes_deploy.outputs.marketplace_app }}
       public_app: ${{ steps.production_kubernetes_deploy.outputs.public_app }}
       rollback_result: ${{ steps.production_rollback.outputs.result || 'not-attempted' }}
       rollback_target_commit: ${{ steps.production_rollback.outputs.rollback_target_commit || '' }}
@@ -3487,8 +3441,6 @@ jobs:
       PRODUCTION_MARKETPLACE_PUBLIC_ENABLED: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED || 'false' }}
       # admin-web (the default) or admin-corten; see docs/runbooks/production-admin-app.md.
       PRODUCTION_ADMIN_APP: ${{ vars.PRODUCTION_ADMIN_APP || '' }}
-      # marketplace (marketplace-web, the default) or marketplace-corten; see docs/runbooks/production-marketplace-app.md.
-      PRODUCTION_MARKETPLACE_APP: ${{ vars.PRODUCTION_MARKETPLACE_APP || '' }}
       # public-web (the default) or public-corten, for chasesets.com and www.chasesets.com; see docs/runbooks/production-public-app.md.
       PRODUCTION_PUBLIC_APP: ${{ vars.PRODUCTION_PUBLIC_APP || '' }}
       TF_VAR_doks_ingress_target: ${{ vars.PRODUCTION_DOKS_INGRESS_TARGET || '' }}
@@ -4593,11 +4545,10 @@ jobs:
           add_optional_runtime_env "STRIPE_API_BASE_URL" "${TF_VAR_stripe_api_base_url:-}"
           add_optional_runtime_env "EASYPOST_API_BASE_URL" "${TF_VAR_easypost_api_base_url:-}"
 
-          # The Corten pilots believe X-Forwarded-For only from the ingress pods in PROXIES. Discovery is
-          # best-effort: while admin-web, marketplace-web and public-web serve their hosts the pilots are not
-          # deployed and a failure here must not hold the release; under PRODUCTION_ADMIN_APP=admin-corten,
-          # PRODUCTION_MARKETPLACE_APP=marketplace-corten or PRODUCTION_PUBLIC_APP=public-corten the deploy script
-          # refuses an empty PROXIES.
+          # The Corten apps believe X-Forwarded-For only from the ingress pods in PROXIES. A discovery failure
+          # leaves PROXIES empty, and the deploy script then refuses before Helm, because marketplace-corten
+          # always serves marketplace.chasesets.com (and so do admin-corten and public-corten once
+          # PRODUCTION_ADMIN_APP or PRODUCTION_PUBLIC_APP selects them).
           ingress_pod_cidrs=""
           if ingress_nodes="$(kubectl -n ingress-nginx get pods -l app.kubernetes.io/component=controller -o json \
             | jq -ce '[.items[] | select(.status.phase == "Running") | .spec.nodeName] | unique | select(length > 0)')" \
@@ -4625,8 +4576,8 @@ jobs:
           if [ -n "$CORTEN_ADMIN_IMAGE" ]; then
             corten_image_args+=(--corten-admin-image "$CORTEN_ADMIN_IMAGE")
           fi
-          # The same for the Corten marketplace: under marketplace (marketplace-web) the script does not deploy the
-          # pilot, image or not; under marketplace-corten it refuses a missing image.
+          # The same for the Corten marketplace, which serves marketplace.chasesets.com: the script refuses a
+          # missing image.
           if [ -n "${CORTEN_MARKETPLACE_IMAGE:-}" ]; then
             corten_image_args+=(--corten-marketplace-image "$CORTEN_MARKETPLACE_IMAGE")
           fi
@@ -4904,7 +4855,6 @@ jobs:
           SMOKE_EMAIL_SUFFIX: production-${{ github.run_id }}-${{ github.run_attempt }}
           SMOKE_SOURCE: production-smoke
           SMOKE_UTM_CAMPAIGN: production-main
-          MARKETPLACE_APP: ${{ steps.production_kubernetes_deploy.outputs.marketplace_app }}
           SMOKE_FETCH_ATTEMPTS: "24"
           SMOKE_FETCH_RETRY_DELAY_MS: "5000"
           SMOKE_FETCH_TIMEOUT_MS: "15000"
@@ -4925,11 +4875,9 @@ jobs:
             export SMOKE_ADMIN_TOPOLOGY="public-marketplace"
             export SMOKE_REQUIRE_MARKETPLACE="true"
             smoke_urls+=("https://${marketplace_domain}")
-            # While marketplace-corten serves marketplace.chasesets.com, also sign in there and open a marketplace
-            # account page, as staging's Smoke check does on marketplace.staging (docs/runbooks/production-marketplace-app.md).
-            if [ "$MARKETPLACE_APP" = "marketplace-corten" ]; then
-              export SMOKE_REQUIRE_MARKETPLACE_SIGNED_IN="true"
-            fi
+            # Also sign in on marketplace.chasesets.com and open a marketplace account page, as staging's Smoke
+            # check does on marketplace.staging (docs/runbooks/production-marketplace-app.md).
+            export SMOKE_REQUIRE_MARKETPLACE_SIGNED_IN="true"
           else
             export SMOKE_ADMIN_TOPOLOGY="production-platform-disabled"
           fi
