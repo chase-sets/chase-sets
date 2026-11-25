@@ -12,7 +12,8 @@
   "selectorCases": [
     {
       "file": "bounded-contexts/fulfillment/features/shipments/ui/routes/account-shipments.tsx",
-      "suites": ["marketplace_account"]
+      "suites": [],
+      "cortenMarketplaceBrowser": true
     }
   ]
 }

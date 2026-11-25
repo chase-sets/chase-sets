@@ -16,51 +16,63 @@
   "selectorCases": [
     {
       "file": "bounded-contexts/inventory/routes/admin/recovered-items.tsx",
-      "suites": ["admin_commerce"]
+      "suites": ["admin_commerce"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "file": "bounded-contexts/inventory/features/recovered-items/ui/routes/recovered-items.tsx",
-      "suites": ["admin_commerce"]
+      "suites": ["admin_commerce"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "file": "bounded-contexts/inventory/routes/marketplace/account-inventory-imports.tsx",
-      "suites": ["marketplace_seller"]
+      "suites": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "file": "bounded-contexts/inventory/features/import-batches/ui/routes/account-inventory-imports.tsx",
-      "suites": ["marketplace_seller"]
+      "suites": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "file": "bounded-contexts/inventory/routes/marketplace/account-inventory-item.tsx",
-      "suites": ["marketplace_seller"]
+      "suites": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "file": "bounded-contexts/inventory/features/inventory-items/ui/routes/account-inventory-item.tsx",
-      "suites": ["marketplace_seller"]
+      "suites": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "file": "bounded-contexts/inventory/routes/marketplace/account-inventory.tsx",
-      "suites": ["marketplace_seller"]
+      "suites": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "file": "bounded-contexts/inventory/features/inventory-items/ui/routes/account-inventory.tsx",
-      "suites": ["marketplace_seller"]
+      "suites": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "file": "bounded-contexts/inventory/routes/marketplace/account-inventory-restock-decisions.tsx",
-      "suites": ["marketplace_seller"]
+      "suites": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "file": "bounded-contexts/inventory/features/restock-decisions/ui/routes/account-inventory-restock-decisions.tsx",
-      "suites": ["marketplace_seller"]
+      "suites": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "file": "bounded-contexts/inventory/routes/marketplace/account-inventory-locations.tsx",
-      "suites": ["marketplace_seller"]
+      "suites": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "file": "bounded-contexts/inventory/features/storage-locations/ui/routes/account-inventory-locations.tsx",
-      "suites": ["marketplace_seller"]
+      "suites": [],
+      "cortenMarketplaceBrowser": true
     }
   ]
 }

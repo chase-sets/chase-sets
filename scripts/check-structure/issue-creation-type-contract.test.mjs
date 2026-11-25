@@ -146,7 +146,7 @@ const reviewedSiteContexts = {
   "scripts/staging-projection-operations.mjs": "ab2d69296083f225b19579adce4156c0155bbd77d8959222321fb77cc6074d74",
   "scripts/staging-refresh-preflight.mjs": "8327da03d2d0ea8d486d3f456f9daf2fd5301ba15068a034ddf30f28b41267e3",
   "scripts/staging-wake-drills.mjs": "3c5544f6031c2473f2e69b9bf20f4c2c64f55afb08bb0be1e93a481a51c50937",
-  "scripts/stripe-money-smoke-test.mjs": "cf6de8a707be5bf66f88681d59d2f63022856624776a0e6104aea96fccbe833a",
+  "scripts/stripe-money-smoke-test.mjs": "1de94d351b5734fd972266bcfaa99486748e56ddbe2c93e29d25e72754a5810c",
   "scripts/stripe-payment-create-uncertain-outcome-probe.mjs":
     "22daa7b7296f5934175d4e7033c6735a975c0eac67cf33efbc0676818d0b4a08",
   "scripts/stripe-webhook-endpoint.mjs": "d6e3f6d474afd012e8062e469b5253477dd04fa481a67ad011abd728c94a20cd",

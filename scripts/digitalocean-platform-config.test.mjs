@@ -4476,7 +4476,7 @@ describe("DigitalOcean platform configuration", () => {
     // (issue #1417).
     const smokeStep = workflowStep(platformProductionWorkflow, "Boot smoke release image");
     expect(smokeStep).toContain("if: steps.release_image.outputs.built == 'true'");
-    expect(smokeStep).toContain('boot_smoke marketplace "@chase-sets/app-marketplace-web" /health/ready');
+    expect(smokeStep).not.toContain("app-marketplace-web");
     expect(smokeStep).toContain('boot_smoke public-web "@chase-sets/app-public-web" /');
 
     const pushStep = workflowStep(platformProductionWorkflow, "Push release image");
@@ -4818,13 +4818,13 @@ describe("DigitalOcean platform configuration", () => {
     expect(verifyIndex).toBeGreaterThan(deployIndex);
     expect(verifyIndex).toBeLessThan(waitIndex);
 
-    // The app-host https /health/ready probes remain the final end-to-end gate,
-    // now against single-label hosts.
+    // The https probes remain the final end-to-end gate, against single-label hosts. No marketplace app runs in a
+    // preview, so its host, the preview's API origin, is probed through the platform API.
     const waitStep = workflowStep(deployJob, "Wait for preview ingress URLs");
     expect(waitStep).toContain('admin_domain="${PREVIEW_IDENTIFIER}-admin.preview.chasesets.com"');
     expect(waitStep).toContain('marketplace_domain="${PREVIEW_IDENTIFIER}-marketplace.preview.chasesets.com"');
     expect(waitStep).toContain('"https://${admin_domain}/health/ready"');
-    expect(waitStep).toContain('"https://${marketplace_domain}/health/ready"');
+    expect(waitStep).toContain('"https://${marketplace_domain}/api/health"');
 
     // Every preview namespace references the same shared secret name, not a
     // per-preview derived name.
@@ -6105,6 +6105,8 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingMoneySmokeStep).toContain("STAGING_SMOKE_ORDER_IDS");
     expect(stagingMoneySmokeStep).toContain('PLATFORM_API_BASE_URL="https://${marketplace_domain}"');
     expect(stagingMoneySmokeStep).toContain("pnpm run stripe:money-smoke -- --edge-check --seller-flow");
+    // Staging's marketplace host is served by the Corten marketplace, so its smoke loads the payout setup page.
+    expect(stagingMoneySmokeStep).not.toContain("STRIPE_MONEY_SMOKE_MARKETPLACE_WEB");
 
     expect(platformProductionWorkflow).toContain("Staging requires dedicated Stripe test-mode keys");
     expect(platformProductionWorkflow).not.toContain("STAGING_STRIPE_WEBHOOK_DELIVERY_EVIDENCE_REFERENCE");
@@ -6123,6 +6125,8 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(previewMoneySmokeStep).toContain('STRIPE_MONEY_SMOKE_REQUIRE_DELIVERED_WEBHOOKS: "false"');
     expect(previewMoneySmokeStep).toContain("pnpm run stripe:money-smoke -- --edge-check --seller-flow");
+    // A preview's marketplace host routes only the API, so the smoke skips the payout setup page.
+    expect(previewMoneySmokeStep).toContain("STRIPE_MONEY_SMOKE_MARKETPLACE_WEB: absent");
 
     expect(platformProductionWorkflow).not.toContain("- name: Staging marketplace critical flows");
     expect(platformProductionWorkflow).not.toContain("- name: Seed staging Kubernetes scenario data");
@@ -6566,9 +6570,7 @@ describe("DigitalOcean platform configuration", () => {
     // this pins is a spec answered by a host that does not serve its route: the
     // deployed run then asserts against another deployable's not-found shell.
     expect(playwrightConfig).toContain('name: "marketplace-chromium"');
-    expect(playwrightConfig).toContain(
-      'testMatch: ["deployables/marketplace/e2e/**/*.spec.ts", "deployables/corten-pilot/e2e/**/*.spec.ts"]',
-    );
+    expect(playwrightConfig).toContain('testMatch: "deployables/corten-pilot/e2e/**/*.spec.ts"');
     expect(playwrightConfig).toContain("baseURL: marketplaceBaseUrl");
     expect(playwrightConfig).toContain('name: "admin-web-chromium"');
     expect(playwrightConfig).toContain('testMatch: "deployables/admin-web/e2e/**/*.spec.ts"');
@@ -6588,7 +6590,7 @@ describe("DigitalOcean platform configuration", () => {
       JSON.parse(pattern),
     );
     expect(projectTestMatches).toEqual([
-      ["deployables/marketplace/e2e/**/*.spec.ts", "deployables/corten-pilot/e2e/**/*.spec.ts"],
+      "deployables/corten-pilot/e2e/**/*.spec.ts",
       "deployables/admin-web/e2e/**/*.spec.ts",
       "deployables/public-web/e2e/**/*.spec.ts",
     ]);

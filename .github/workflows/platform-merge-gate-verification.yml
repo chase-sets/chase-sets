@@ -610,9 +610,10 @@ jobs:
       - name: Wait for gate ingress URLs
         run: |
           set -euo pipefail
+          # No marketplace app runs in a gate stack; its host is the API origin, so wait for the platform API there.
           node ./scripts/platform-ingress-wait.mjs \
             --url "https://${GATE_SLUG}-admin.preview.chasesets.com/health/ready" \
-            --url "https://${GATE_SLUG}-marketplace.preview.chasesets.com/health/ready" \
+            --url "https://${GATE_SLUG}-marketplace.preview.chasesets.com/api/health" \
             --attempts 24 --delay-ms 5000
           node ./scripts/platform-ingress-wait.mjs \
             --url "https://${GATE_SLUG}.preview.chasesets.com/" \
@@ -643,7 +644,6 @@ jobs:
           PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
           SMOKE_REQUIRE_ADMIN: "true"
           SMOKE_REQUIRE_LANDING: "true"
-          SMOKE_REQUIRE_MARKETPLACE: "true"
           SMOKE_WAITLIST_EMAIL: ops+gate-${{ github.run_id }}-${{ github.run_attempt }}@chasesets.com
           SMOKE_SOURCE: merge-gate-verification
           SMOKE_UTM_CAMPAIGN: gate-${{ steps.candidate.outputs.candidate_sha }}
@@ -651,7 +651,7 @@ jobs:
           SMOKE_FETCH_RETRY_DELAY_MS: "5000"
         run: |
           set -euo pipefail
-          pnpm run smoke:platform -- "https://${GATE_SLUG}.preview.chasesets.com" "https://${GATE_SLUG}-admin.preview.chasesets.com" "https://${GATE_SLUG}-marketplace.preview.chasesets.com"
+          pnpm run smoke:platform -- "https://${GATE_SLUG}.preview.chasesets.com" "https://${GATE_SLUG}-admin.preview.chasesets.com"
           node ./scripts/merge-gate-verification.mjs mark --file "$MERGE_GATE_PHASES_FILE" --phase smoke-complete
 
       # Stripe proof uses test-mode keys and REQUIRES delivered webhooks: the
@@ -667,6 +667,8 @@ jobs:
           STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
           STRIPE_MONEY_SMOKE_ENVIRONMENT: preview
           STRIPE_MONEY_SMOKE_REQUIRE_DELIVERED_WEBHOOKS: "true"
+          # The preview's marketplace host routes only the API; there is no payout setup page.
+          STRIPE_MONEY_SMOKE_MARKETPLACE_WEB: absent
           SMOKE_REGISTER_SELLER: "true"
           SMOKE_SELLER_EMAIL: stripe-gate+${{ github.run_id }}-${{ github.run_attempt }}@chasesets.test
           SMOKE_SELLER_PASSWORD: gate-stripe-${{ github.run_id }}-${{ github.run_attempt }}

@@ -23,9 +23,13 @@ promiseTable:
         "bounded-contexts/marketplace/features/listings/domain/listing-evidence-readiness.test.ts",
         "bounded-contexts/marketplace/features/listing-evidence-policy/domain/policy.test.ts",
       ]
-  - claim: A graded listing records the grading company, grade, and certification number, and the certification number is validated against the grading company's format.
-    issues: ["#4358"]
-    tests: ["bounded-contexts/marketplace/features/listings/domain/domain.test.ts"]
+  - claim: A graded listing records the grading company, grade, and certification number. The certification number is required, and it is checked against the grading company's format where the active listing-evidence policy sets one.
+    issues: ["#4358", "#11938"]
+    tests:
+      [
+        "bounded-contexts/marketplace/features/listings/domain/domain.test.ts",
+        "bounded-contexts/marketplace/features/listing-evidence-policy/domain/policy.test.ts",
+      ]
 ---
 
 ## Pick a condition first
@@ -54,9 +58,9 @@ Conditions below Mint do not carry a mandatory photo, but adding one still helps
 
 A graded card is authenticated and scored by a professional grading company, sealed in a tamper-evident slab. When you list one, record its certification details so buyers can verify it:
 
-- **Grading company** — the service that graded the card. Supported companies with validated certificate formats are **PSA**, **BGS** (Beckett), **CGC**, and **SGC**.
-- **Grade** — the numeric grade on the label, from `1` to `10` in half-point steps (for example `9`, `9.5`, `10`).
-- **Certification number** — the number printed on the slab label. Each company uses its own length, so enter the exact digits from the label; the composer checks the number against that company's format.
+- **Grading company** — the service that graded the card. Choose it from the grading companies the catalog offers for your card.
+- **Grade** — the grade on the slab label, chosen from the grades the catalog offers for that company (for example `Gem Mint 10` or `Mint 9`). Your listing shows the grade exactly as the catalog names it.
+- **Certification number** — the number printed on the slab label. It is required for every graded listing. Enter the exact digits from the label: under the active listing-evidence policy, Chase Sets may check the number against that company's format.
 
 A graded listing requires three photos — the **slab**, the card **front**, and the card **back** — so a buyer can read the label and inspect both faces. As with raw conditions, you cannot publish a graded listing until all three views are attached.
 

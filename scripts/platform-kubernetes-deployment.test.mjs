@@ -1494,7 +1494,7 @@ describe("platform Kubernetes deployment", () => {
     expect(helmCall.args.filter((arg) => String(arg).includes("WORKER_PROJECTION_WAKE_RELAY_ENABLED"))).toEqual([]);
     expect(helmCall.args.join(" ")).toContain("global.envOverrides.DEPLOYMENT_ENVIRONMENT=staging");
     expect(helmCall.args.join(" ")).toContain("components.public-web.rollout.enabled=true");
-    expect(helmCall.args.join(" ")).toContain("components.marketplace.rollout.enabled=true");
+    expect(helmCall.args.join(" ")).not.toContain("components.marketplace.");
     expect(helmCall.args.join(" ")).toContain("components.platform-api.rollout.enabled=true");
   });
 
@@ -1934,7 +1934,6 @@ describe("platform Kubernetes deployment", () => {
         "global.betaWave.inviteCount=250",
         "global.betaWave.rolloutExposurePercent=25",
         "components.public-web.rollout.canary.pauseAfterWeight=25",
-        "components.marketplace.rollout.canary.pauseAfterWeight=25",
         "components.platform-api.rollout.canary.pauseAfterWeight=25",
       ]),
     );
@@ -2013,24 +2012,21 @@ describe("platform Kubernetes deployment", () => {
     });
   });
 
-  it("gives a base component the environment's values disable no wait target, and leaves live values alone", () => {
+  it("waits on no marketplace-web anywhere, and leaves live values alone", () => {
     const web = "proof-chase-sets-platform-marketplace";
     const corten = "proof-chase-sets-platform-marketplace-corten";
-    for (const environment of ["staging", "production"]) {
+    for (const environment of ["staging", "production", "preview"]) {
       const { deployments, rollouts, jobs } = platformKubernetesWorkloads({
         release: "proof",
         envOverrides: { DEPLOYMENT_ENVIRONMENT: environment },
       });
       const targets = [...deployments, ...rollouts, ...jobs];
       expect(targets, environment).not.toContain(web);
-      expect(targets, environment).toContain(corten);
       expect(targets, environment).toContain("proof-chase-sets-platform-platform-api");
+      // Previews run no marketplace app at all; staging and production run the Corten marketplace.
+      if (environment === "preview") expect(targets, environment).not.toContain(corten);
+      else expect(targets, environment).toContain(corten);
     }
-    // Previews keep marketplace-web until it is removed from them.
-    expect(
-      platformKubernetesWorkloads({ release: "proof", envOverrides: { DEPLOYMENT_ENVIRONMENT: "preview" } })
-        .deployments,
-    ).toContain(web);
     // The rollback path reads the release's live values, so an earlier release that still enabled marketplace-web
     // is waited on as it was deployed.
     expect(
@@ -7272,7 +7268,6 @@ describe("preview Postgres connection ceiling and diagnostics (#10022)", () => {
   it("reserves memory and requires single-node, cross-namespace release isolation for PR, gate and verify", () => {
     const memoryByComponent = {
       "public-web": "1216Mi",
-      marketplace: "1280Mi",
       "admin-web": "960Mi",
       "platform-api": "1408Mi",
       "platform-worker": "960Mi",
@@ -7283,7 +7278,7 @@ describe("preview Postgres connection ceiling and diagnostics (#10022)", () => {
       const args = deployArgs("preview", release);
       expect(args).toEqual(expect.arrayContaining(["--values", "infrastructure/helm/platform/values.preview.yaml"]));
       const pods = documents(helmTemplate(templateArgs(args))).filter((item) => item.spec?.template);
-      expect(pods).toHaveLength(7);
+      expect(pods).toHaveLength(6);
       expect(pods.map((item) => item.metadata.labels["app.kubernetes.io/component"]).sort()).toEqual(
         Object.keys(memoryByComponent).sort(),
       );
@@ -7343,7 +7338,7 @@ describe("preview Postgres connection ceiling and diagnostics (#10022)", () => {
       const workloads = rendered.filter(
         (item) => item.spec?.template && item.metadata.labels["app.kubernetes.io/component"] !== "preview-postgres",
       );
-      expect(workloads).toHaveLength(6);
+      expect(workloads).toHaveLength(5);
       for (const workload of workloads) {
         const container = workload.spec.template.spec.containers[0];
         const env = Object.fromEntries(container.env.filter((entry) => "value" in entry).map((e) => [e.name, e.value]));

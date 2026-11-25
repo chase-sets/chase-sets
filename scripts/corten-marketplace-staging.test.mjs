@@ -66,9 +66,9 @@ describe("Corten marketplace staging, first slice", () => {
 
   it("preserves the production values", () => {
     for (const [file, sha] of Object.entries({
-      "values.yaml": "deabfa12c21bfed16326e58432c13a4aecf3a1f1f852768320a311e3916baadc",
-      // Moved for retiring marketplace-web: the marketplace component is disabled.
-      "values.production.yaml": "fe798bf89f480fff7cdc04b947831bb157bf089a466ca50fdf7f1e7e22ee58de",
+      // Moved for retiring marketplace-web: the chart has no marketplace component.
+      "values.yaml": "46cd205dd42a7275dbfff08c78df949a68cf8cb9b42f737d635ba7c89a6af5c3",
+      "values.production.yaml": "2d12059c80fe6ac167b48df4c3140a1e7f0a4902fe9789d89d1fcffc8744a8ec",
     })) {
       expect(
         createHash("sha256")
@@ -301,7 +301,7 @@ describe("Corten marketplace staging, first slice", () => {
       );
     }
     // marketplace-web is no longer deployed on staging, and no ingress path reaches it.
-    expect(buildPlatformHelmStagingValues().components.marketplace).toEqual({ enabled: false });
+    expect(buildPlatformHelmStagingValues().components).not.toHaveProperty("marketplace");
     expect(Object.values(ingress({}))).not.toContain("marketplace");
     const { deployments, rollouts } = platformKubernetesWorkloads(options);
     expect([...deployments, ...rollouts]).not.toContain("chase-sets-platform-chase-sets-platform-marketplace");

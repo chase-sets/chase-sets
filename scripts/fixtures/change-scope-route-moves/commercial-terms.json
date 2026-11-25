@@ -13,59 +13,73 @@
   "selectorCases": [
     {
       "file": "bounded-contexts/commercial-terms/routes/admin/account-agreement-new.tsx",
-      "suites": ["admin_commerce"]
+      "suites": ["admin_commerce"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "file": "bounded-contexts/commercial-terms/features/agreements/ui/routes/account-agreement-new.tsx",
-      "suites": ["admin_commerce"]
+      "suites": ["admin_commerce"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "file": "bounded-contexts/commercial-terms/routes/admin/agreements-detail.tsx",
-      "suites": ["admin_commerce"]
+      "suites": ["admin_commerce"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "file": "bounded-contexts/commercial-terms/features/agreements/ui/routes/agreements-detail.tsx",
-      "suites": ["admin_commerce"]
+      "suites": ["admin_commerce"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "file": "bounded-contexts/commercial-terms/routes/admin/agreements.tsx",
-      "suites": ["admin_commerce"]
+      "suites": ["admin_commerce"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "file": "bounded-contexts/commercial-terms/features/agreements/ui/routes/agreements.tsx",
-      "suites": ["admin_commerce"]
+      "suites": ["admin_commerce"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "file": "bounded-contexts/commercial-terms/routes/admin/home.tsx",
-      "suites": ["admin_commerce"]
+      "suites": ["admin_commerce"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "file": "bounded-contexts/commercial-terms/features/home/ui/routes/home.tsx",
-      "suites": ["admin_commerce"]
+      "suites": ["admin_commerce"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "file": "bounded-contexts/commercial-terms/routes/admin/schedules-detail.tsx",
-      "suites": ["admin_commerce"]
+      "suites": ["admin_commerce"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "file": "bounded-contexts/commercial-terms/features/schedules/ui/routes/schedules-detail.tsx",
-      "suites": ["admin_commerce"]
+      "suites": ["admin_commerce"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "file": "bounded-contexts/commercial-terms/routes/admin/schedules.tsx",
-      "suites": ["admin_commerce"]
+      "suites": ["admin_commerce"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "file": "bounded-contexts/commercial-terms/features/schedules/ui/routes/schedules.tsx",
-      "suites": ["admin_commerce"]
+      "suites": ["admin_commerce"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "file": "bounded-contexts/commercial-terms/routes/public/sales-fees.tsx",
-      "suites": ["marketplace_browse"]
+      "suites": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "file": "bounded-contexts/commercial-terms/features/marketplace-sales-fee/ui/routes/sales-fees.tsx",
-      "suites": ["marketplace_browse"]
+      "suites": [],
+      "cortenMarketplaceBrowser": true
     }
   ]
 }

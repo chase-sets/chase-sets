@@ -8,12 +8,10 @@ The Playwright e2e layer exists to catch composition and wiring failures that on
 
 ## Suite coverage
 
-The lane runs by tag (`scripts/e2e-suites.mjs` maps each suite id to a `@tag`; `scripts/run-e2e-suite.mjs` invokes `playwright test --grep`). Playwright auto-discovers any spec under the marketplace and admin-web `e2e/**/*.spec.ts` trees via the `marketplace-chromium` and `admin-web-chromium` project `testMatch` globs -- the two projects the local browser E2E system boots hosts for -- so a new marketplace or admin-web spec joins the PR lane purely by carrying an existing suite tag -- no config change. That auto-discovery is scoped to those marketplace and admin-web PR suites and does not extend to `deployables/public-web/e2e/**` (see Public-web specs below). Change-scope selection (`e2eSuiteIdsForChangedFile`) decides _whether_ e2e runs and _which_ suites, keyed off route-file globs.
+The lane runs by tag (`scripts/e2e-suites.mjs` maps each suite id to a `@tag`; `scripts/run-e2e-suite.mjs` invokes `playwright test --grep`). Playwright auto-discovers any spec under the admin-web `e2e/**/*.spec.ts` tree via the `admin-web-chromium` project `testMatch` glob, so a new admin-web spec joins the PR lane purely by carrying an existing suite tag -- no config change. That auto-discovery does not extend to `deployables/public-web/e2e/**` (see Public-web specs below). Change-scope selection (`e2eSuiteIdsForChangedFile`) decides _whether_ e2e runs and _which_ suites, keyed off route-file globs.
 
-- `marketplace_browse` (`@marketplace-browse`): search/browse and the decomposed `items/:id` item-detail route + commerce panel.
-- `marketplace_account` (`@marketplace-account`): authenticated account-area access and return-path preservation.
-- `marketplace_checkout` (`@marketplace-checkout`): buy/sell checkout recovery, the decomposed `checkout/sell/session/:sessionId` sell handoff + readiness redirect chain, and the decomposed `account/payments/:paymentId` / `checkout/payments/:paymentId` payment confirmation and guest-claim surfaces.
-- `marketplace_seller` (`@marketplace-seller`): listings, offers, and seller operations.
+The marketplace host is served by the Corten marketplace, so the marketplace has no named suite. Its browser coverage is the required `Corten Marketplace Browser Tests` job in `platform-pr.yml`, which runs the kept specs under `deployables/corten-pilot/e2e/` by path. Change scope selects it (`corten_marketplace_browser_required`) for the pilot's marketplace paths and for the Bounded Context, route and spec ownership that used to select a marketplace suite (`cortenMarketplaceBrowserOwnership()` in `scripts/e2e-suites.mjs`). The `@marketplace-*` tags left in those specs are labels only; nothing greps for them.
+
 - `catalog_admin_integrations` (`@catalog-admin-integrations`): the admin-web catalog integration workbench.
 - `catalog_admin_modeling` (`@catalog-admin-modeling`): the admin-web catalog model authoring surfaces, including Dimensions list/detail navigation and create-dialog affordances.
 

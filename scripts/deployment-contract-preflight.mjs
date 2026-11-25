@@ -66,14 +66,7 @@ export function renderDeploymentContract(input) {
 
   const components = values.components;
   const activeComponents = Object.keys(components).sort();
-  const requiredComponents = [
-    "admin-web",
-    "marketplace",
-    "platform-api",
-    "platform-bootstrap",
-    "platform-worker",
-    "public-web",
-  ];
+  const requiredComponents = ["admin-web", "platform-api", "platform-bootstrap", "platform-worker", "public-web"];
   const missingComponents = requiredComponents.filter((name) => !activeComponents.includes(name));
   if (missingComponents.length > 0) {
     throw new Error(`DOKS runtime values are missing components: ${missingComponents.join(", ")}.`);
