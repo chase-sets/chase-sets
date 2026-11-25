@@ -13,6 +13,31 @@ import {
 
 type QueryCall = Readonly<{ sql: string; params: readonly unknown[] }>;
 
+/** Every key a public Listing row may carry. Written out here so the production list cannot vouch for itself. */
+const publicListingKeys = [
+  "listing_id",
+  "account_id",
+  "catalog_catalog_item_id",
+  "product_id",
+  "item_title",
+  "item_subtitle",
+  "selected_options",
+  "product_summary",
+  "graded_card",
+  "ship_from_code",
+  "price_amount",
+  "price_currency_code",
+  "listing_stream_version",
+  "shipping_allowance_percentage_bps",
+  "max_units_per_order",
+  "max_units_per_day",
+  "max_units_per_customer_account",
+  "status",
+  "seller_display_name",
+  "visible_quantity",
+  "public_gallery",
+] as const;
+
 function expectCorrelatedActiveHoldLookup(calls: readonly QueryCall[]) {
   for (const call of calls) {
     expect(call.sql).not.toContain("GROUP BY item_id");
@@ -208,6 +233,109 @@ describe("marketplace listing read-model queries", () => {
     expect(calls[0]?.sql).not.toContain("listing.last_stream_version");
     expect(calls[0]?.sql).toContain("LIMIT $2 OFFSET $3");
     expectCorrelatedActiveHoldLookup(calls);
+  });
+
+  it("returns exactly the public keys for a stored row that holds an address, fee amounts, a fingerprint and Fee Locks", async () => {
+    const calls: QueryCall[] = [];
+    const db: PgQueryable = {
+      async query<Row = Record<string, unknown>>(sql: string, params: readonly unknown[] = []) {
+        calls.push({ sql, params });
+        return {
+          rows: [
+            {
+              // A whole stored row, as a reader that selected every column would hold it.
+              ...listingPageRow,
+              price_currency_code: "USD",
+              listing_stream_version: 4,
+              fee_locks: [{ lockId: "lock_air_balloon", feeBps: 0 }],
+              evidence_requirements: { policyHash: "hash_air_balloon" },
+              pause_reason: null,
+              inventory_capacity_recovery_block: null,
+              seller_display_name: "QA Seller",
+              visible_quantity: 2,
+            } as Row,
+          ],
+        };
+      },
+    };
+
+    const [row] = await listItemListings(db, "cat_air_balloon::form:raw|condition:damaged");
+
+    expect(Object.keys(row ?? {}).sort()).toEqual([...publicListingKeys].sort());
+    expect(row).toEqual({
+      listing_id: "lst_air_balloon",
+      account_id: "acc_seller",
+      catalog_catalog_item_id: "cat_air_balloon",
+      product_id: "cat_air_balloon::form:raw|condition:damaged",
+      item_title: "Air Balloon",
+      item_subtitle: null,
+      selected_options: [
+        { dimensionId: "form", optionId: "raw" },
+        { dimensionId: "condition", optionId: "damaged" },
+      ],
+      product_summary: "Form: Raw | Condition: Damaged",
+      graded_card: null,
+      ship_from_code: "home",
+      price_amount: "21.50",
+      price_currency_code: "USD",
+      listing_stream_version: 4,
+      shipping_allowance_percentage_bps: 0,
+      max_units_per_order: null,
+      max_units_per_day: null,
+      max_units_per_customer_account: null,
+      status: "active",
+      seller_display_name: "QA Seller",
+      visible_quantity: 2,
+      public_gallery: [],
+    });
+    const serialized = JSON.stringify(row);
+    for (const privateValue of [
+      "200 Market Street",
+      "Main bin",
+      "2.15",
+      "19.35",
+      "fee_quote_air_balloon",
+      "lock_air_balloon",
+    ]) {
+      expect(serialized).not.toContain(privateValue);
+    }
+  });
+
+  it("selects no private column for a public Listing row", async () => {
+    const calls: QueryCall[] = [];
+    const db: PgQueryable = {
+      async query<Row = Record<string, unknown>>(sql: string, params: readonly unknown[] = []) {
+        calls.push({ sql, params });
+        return { rows: [] as Row[] };
+      },
+    };
+
+    await listItemListings(db, "cat_air_balloon::form:raw|condition:damaged");
+
+    const sql = calls[0]?.sql ?? "";
+    const selectList = sql.slice(0, sql.indexOf("FROM marketplace_listing_pages"));
+    expect(selectList).toContain("listing.listing_id");
+    // The join to supply reads `listing.inventory_item_id`; the select list must not.
+    expect(selectList).not.toContain("inventory_item_id");
+    for (const privateColumn of [
+      "ship_from_address",
+      "storage_location_name",
+      "seller_net_unit_amount",
+      "marketplace_sales_fee_unit_amount",
+      "fee_quote_fingerprint",
+      "fee_locks",
+      "terms_schedule_id",
+      "terms_agreement_id",
+      "terms_resolved_at",
+      "evidence_requirements",
+      "pause_reason",
+      "inventory_capacity_recovery_block",
+    ]) {
+      expect(sql).not.toContain(privateColumn);
+    }
+    expect(sql).not.toContain("listing.*");
+    // The stored evidence is read to build the public gallery and never leaves on the row.
+    expect(selectList).toContain("listing.evidence");
   });
 
   it("bounds custom item listing page sizes", async () => {
