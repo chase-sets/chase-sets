@@ -33,6 +33,10 @@ pub use welcome_page::{WaveStatus, WelcomePage};
 /// summary, its `Segmented` the hero's role choice, and its `Progress` the welcome page's referral bar.
 pub const COMPONENTS: &[Component] = &[
     theme::TOKENS,
+    platform::numeric_value::NumericValue,
+    theme::PageCanvas,
+    theme::BrandFoilText,
+    platform::brand_mark::BrandMark,
     platform::ui::icon::Icon,
     platform::ui::visually_hidden::VisuallyHidden,
     platform::ui::progress::Progress,
@@ -85,13 +89,14 @@ pub fn Layout<'a, T: Render, H: Render, C: Render>(req: &'a Req, title: T, head:
                     crossorigin
                     href={req.asset(crate::app::Static::FONTS_SPACE_GROTESK_LATIN_600_NORMAL_WOFF2)}
                 >
+                <link rel="stylesheet" href={req.asset(crate::app::Static::FONTS_CSS)}>
                 <link rel="stylesheet" href={req.asset(crate::app::Static::STYLE_CSS)}>
                 <title>{title}</title>
                 {head}
                 <Corten />
                 <script type="module" src={req.asset(crate::app::Static::APP_JS)}></script>
             </head>
-            <body>
+            <body class={theme::PageCanvas {}}>
                 <main>{children}</main>
                 <Toasts>
                     <Toaster
@@ -138,13 +143,14 @@ pub fn HomeLayout<'a, T: Render, H: Render, C: Render>(
                     crossorigin
                     href={req.asset(crate::app::Static::FONTS_SPACE_GROTESK_LATIN_600_NORMAL_WOFF2)}
                 >
+                <link rel="stylesheet" href={req.asset(crate::app::Static::FONTS_CSS)}>
                 <link rel="stylesheet" href={req.asset(crate::app::Static::STYLE_CSS)}>
                 <title>{title}</title>
                 {head}
                 <Corten />
                 <script type="module" src={req.asset(crate::app::Static::APP_JS)}></script>
             </head>
-            <body>
+            <body class={theme::PageCanvas {}}>
                 <a class={Skip} href={MainContentId.fragment()}>{p.shell_skip()}</a>
                 <div class={Shell}>
                     if !promos.is_empty() {

@@ -134,7 +134,6 @@
 .price {
   margin: 0;
   font-weight: 600;
-  font-variant-numeric: tabular-nums;
 }
 .from {
   color: var(--color-text-secondary);
@@ -288,7 +287,6 @@ button.button {
 .total dd {
   margin: 0;
   text-align: end;
-  font-variant-numeric: tabular-nums;
 }
 .total {
   display: grid;
@@ -343,7 +341,6 @@ button.button {
 .bar-amount {
   font-size: 1.125rem;
   font-weight: 700;
-  font-variant-numeric: tabular-nums;
 }
 .secure {
   color: var(--color-success);

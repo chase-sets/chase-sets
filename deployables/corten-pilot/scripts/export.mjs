@@ -245,7 +245,7 @@
 // - platform/tokens/: the design system's light and dark values (packages/design-system styles.css)
 //   for the tokens the pilot uses, as W3C Design Tokens files and a resolver (DTCG 2025.10), which
 //   Corten's `tokens!` reads. Not committed (see GENERATED).
-// - <app>/static/fonts/: the three @fontsource files the screens use, in each app's static folder.
+// - <app>/static/fonts.css and fonts/: the Latin faces imported by the design system.
 //
 // <app>/locales/pilot.en.json is each app's own text (its shell and input checks) and is not exported.
 //
@@ -396,17 +396,20 @@ async function designIcons(extra, ...slots) {
 }
 
 // The design system's icons the public pages draw (public/src/views/home_page.rs's `IconName`).
-const PUBLIC_ICONS = [
+const PAGE_ICONS = [
   "cart",
   "check",
   "chevronDown",
   "chevronLeft",
   "chevronRight",
+  "grid",
   "info",
   "message",
   "pause",
   "rocket",
+  "shield",
   "store",
+  "tag",
   "users",
   "warning",
 ];
@@ -450,7 +453,10 @@ function glyphsModule(icons) {
 // property with a --dark- prefix.
 const colors = {
   background: "background",
+  "spotlight-a": "page-spotlight-a",
+  "spotlight-b": "page-spotlight-b",
   surface: "card",
+  "surface-elevated": "elevated",
   "surface-2": "surface-2",
   "surface-3": "surface-3",
   border: "border",
@@ -681,11 +687,34 @@ function tokens() {
     },
   };
 }
-const fonts = [
-  ["@fontsource/ibm-plex-sans", "ibm-plex-sans-latin-400-normal.woff2"],
-  ["@fontsource/ibm-plex-sans", "ibm-plex-sans-latin-600-normal.woff2"],
-  ["@fontsource/space-grotesk", "space-grotesk-latin-600-normal.woff2"],
-];
+const require = createRequire(path.join(repo, "packages/design-system/package.json"));
+const designCss = readFileSync(path.join(repo, "packages/design-system/src/styles/styles.css"), "utf8");
+const fonts = Array.from(designCss.matchAll(/^@import\s+["'](@fontsource\/[^"']+)["'];/gm), ([, specifier]) => {
+  const match = /^(@fontsource\/([\w-]+))\/latin-(\d+)\.css$/.exec(specifier);
+  if (!match) throw new Error(`Unsupported design-system font import: ${specifier}`);
+  const [, pkg, slug, weight] = match;
+  const dir = path.dirname(require.resolve(`${pkg}/package.json`));
+  const { family } = JSON.parse(readFileSync(path.join(dir, "metadata.json"), "utf8"));
+  const name = `${slug}-latin-${weight}-normal.woff2`;
+  return { family, slug, dir, weight, name, source: path.join(dir, "files", name) };
+});
+if (!fonts.length) throw new Error("No design-system font faces to export");
+const fontNotices = Array.from(new Map(fonts.map(({ slug, dir }) => [slug, dir])), ([slug, dir]) => ({
+  name: `${slug}-LICENSE.txt`,
+  source: path.join(dir, "LICENSE"),
+}));
+const fontCss = fonts
+  .map(
+    ({ family, weight, name }) => `@font-face {
+  font-family: "${family}";
+  font-style: normal;
+  font-display: swap;
+  font-weight: ${weight};
+  src: url(fonts/${name}) format("woff2");
+}
+`,
+  )
+  .join("");
 
 // public-web's home page's pictures (features/waitlist/ui/assets): the hero in its three widths
 // and the social cards, in public/static/home/.
@@ -869,6 +898,7 @@ const paymentMethodStep = Object.entries(
 const paymentMethodStepTail = paymentMethodStep.findIndex(([key]) => key === "step.continue.shopping");
 if (paymentMethodStepTail === -1) throw new Error("Missing payment methods catalog order boundary");
 const outputs = [
+  ...apps.map((app) => [`${app}/static/fonts.css`, fontCss]),
   [
     "admin/locales/en.json",
     json(
@@ -2024,7 +2054,7 @@ const outputs = [
   ["marketplace/nav.account.json", json(marketplaceNav("account-menu"))],
   [
     "platform/src/glyphs.rs",
-    glyphsModule(await designIcons(PUBLIC_ICONS, marketplaceNav("bottom-nav"), marketplaceNav("account-menu"))),
+    glyphsModule(await designIcons(PAGE_ICONS, marketplaceNav("bottom-nav"), marketplaceNav("account-menu"))),
   ],
   ["platform/tokens/base.tokens.json", json(designTokens.base)],
   ["platform/tokens/dark.tokens.json", json(designTokens.dark)],
@@ -2043,7 +2073,6 @@ const GENERATED = new Set([
   "platform/tokens/ui.tokens.json",
   "platform/tokens/tokens.resolver.json",
 ]);
-const require = createRequire(path.join(repo, "packages/design-system/package.json"));
 let stale = 0;
 for (const [file, text] of outputs) {
   const target = path.join(pilot, file);
@@ -2059,8 +2088,7 @@ for (const [file, text] of outputs) {
 }
 for (const app of apps) {
   mkdirSync(path.join(pilot, app, "static/fonts"), { recursive: true });
-  for (const [pkg, name] of fonts) {
-    const source = path.join(path.dirname(require.resolve(`${pkg}/package.json`)), "files", name);
+  for (const { name, source } of [...fonts, ...fontNotices]) {
     const target = path.join(pilot, app, "static/fonts", name);
     if (existsSync(target) && readFileSync(target).equals(readFileSync(source))) continue;
     if (check) {

@@ -7,6 +7,7 @@
 //! the form is drawn again in place). Record sale is a link to the page with the item's dialog
 //! open; the dialog is modal once it joins the page (corten-ui's `dialog::modal`).
 use corten::{i18n::Currency, prelude::*, view::AttrValue};
+use platform::surface::{Elevation, Surface};
 
 use super::{WriteForm, cart_item::options, listing_new_page::handlers as picker};
 use crate::{
@@ -89,7 +90,7 @@ pub fn InventoryPage<'a>(
         }
         <section class={Section} aria-labelledby="create-item-title">
             <h2 id="create-item-title" class={PartTitle}>{t.list_create_inventory_item()}</h2>
-            <div class={Card}>
+            <div class={(Panel, Surface { elevation: Elevation::Tinted })} data-elevation-role="furniture">
                 <CreateItemForm t={t} p={p} m={m} viewer={viewer} screen={screen} create={create} />
             </div>
         </section>
@@ -357,7 +358,7 @@ fn Items<'a>(t: InventoryMsg, p: Pilot, screen: &'a InventoryScreen) -> impl Ren
     let paged = page.total > limit || offset > 0;
     html! {
         if page.items.is_empty() {
-            <div class={Card}>
+            <div class={(Panel, Surface { elevation: Elevation::Tinted })} data-elevation-role="furniture">
                 <p class={Strong}>{t.list_no_inventory_items_yet()}</p>
                 <p class={Muted}>{t.list_create_your_first_inventory_item_to()}</p>
             </div>

@@ -43,14 +43,16 @@
 .actions form {
   margin: 0;
 }
-.card {
+.group {
   display: grid;
   gap: var(--space-3);
+}
+.group,
+.panel {
   min-width: 0;
+}
+.panel {
   padding: var(--space-4);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  background: var(--color-surface);
 }
 .heading {
   margin: 0;
@@ -69,7 +71,6 @@
   gap: var(--space-3);
   align-items: center;
   justify-content: space-between;
-  background: var(--color-warning-soft);
 }
 .gate p {
   margin: 0;
@@ -254,8 +255,6 @@
   display: grid;
   gap: var(--space-1);
   padding: var(--space-6) var(--space-4);
-  border: 1px dashed var(--color-border-strong);
-  border-radius: var(--radius-lg);
   text-align: center;
 }
 @media (min-width: 40rem) {

@@ -5,6 +5,7 @@
 //! ([`money`]). Each app owns its screens, its shell and its API calls.
 pub mod api;
 pub mod auth;
+pub mod brand_mark;
 pub mod chart;
 // Written by scripts/export.mjs, as `export.mjs --check` compares it.
 #[rustfmt::skip]
@@ -12,12 +13,14 @@ pub mod glyphs;
 pub mod jobs;
 pub mod money;
 pub mod nav;
+pub mod numeric_value;
 pub mod post_write;
 pub mod realtime;
 pub mod receipt;
 pub mod search;
 pub mod section;
 pub mod session;
+pub mod surface;
 #[cfg(feature = "otlp")]
 pub mod telemetry;
 pub mod theme;

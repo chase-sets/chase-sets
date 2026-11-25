@@ -10,6 +10,7 @@
 //! in the forms, and the analytics events.
 use corten::prelude::*;
 use platform::{
+    brand_mark::BrandMark,
     glyphs,
     ui::{
         icon::Icon as KitIcon,
@@ -148,7 +149,9 @@ fn HeroCopy(t: HomeMsg, p: Pilot, variant: Variant, shown: bool) -> impl Render 
             <div class={HeroText}>
                 <h1 class={HeroTitle}>
                     match parts {
-                        Some((before, word, after)) => { {before}<span class={Foil}>{word}</span>{after} }
+                        Some((before, word, after)) => {
+                            {before}<span class={platform::theme::BrandFoilText {}}>{word}</span>{after}
+                        }
                         None => { {title} }
                     }
                 </h1>
@@ -608,22 +611,9 @@ fn Sticky(t: HomeMsg) -> impl Render {
 /// `BrandLink`: the logo and the name, home.
 #[component(css = HomePage)]
 pub fn Brand<'a>(t: HomeMsg, id: &'a str) -> impl Render {
-    let fill = format!("url(#{id})");
     html! {
         <a class={Brand} href={crate::app::url::files::Home} aria-label={t.brand()}>
-            <svg width="20" height="20" viewBox="0 0 1254 1254" aria-hidden="true" focusable="false">
-                <defs>
-                    <linearGradient id={id} gradientUnits="userSpaceOnUse" x1="248" y1="420" x2="1012" y2="842">
-                        <stop offset="0" class={StopStart}></stop>
-                        <stop offset="0.52" class={StopMid}></stop>
-                        <stop offset="1" class={StopEnd}></stop>
-                    </linearGradient>
-                </defs>
-                <g fill={&fill}>
-                    <path d="M638 66 L988 310 L867 395 L640 246 L423 393 L423 488 L735 706 L628 788 L272 538 L272 323 Z"></path>
-                    <path d="M647 385 L994 621 L994 852 L645 1108 L286 842 L399 759 L630 928 L832 778 L832 666 L540 461 Z"></path>
-                </g>
-            </svg>
+            <BrandMark gradient_id={id} />
             <span>{t.brand()}</span>
         </a>
     }

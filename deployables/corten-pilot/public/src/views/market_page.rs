@@ -10,6 +10,7 @@ use corten::{
 };
 use platform::{
     chart::{Chart, Point, TimeSeries},
+    numeric_value::MoneyDisplay,
     ui::stats::{Stat, StatTone, Stats as KitStats, StatsSurface},
 };
 
@@ -27,13 +28,13 @@ pub struct Screen {
 }
 
 /// An amount in the request's locale (`formatMoney`), or "No data yet" without one.
-fn money(t: MarketMsg, amount: Option<&str>, currency: Option<&str>) -> String {
+fn money(t: MarketMsg, amount: Option<&str>, currency: Option<&str>) -> MoneyDisplay {
     let (Some(amount), Some(currency)) = (amount.map(str::trim).filter(|a| !a.is_empty()), currency) else {
-        return t.page_no_data().to_owned();
+        return MoneyDisplay::Fallback(t.page_no_data().to_owned());
     };
     match (platform::money::decimal(amount), Currency::parse(currency.trim())) {
-        (Some(amount), Some(currency)) => t.money(amount, currency).to_string(),
-        _ => format!("{amount} {}", currency.trim().to_ascii_uppercase()),
+        (Some(amount), Some(currency)) => MoneyDisplay::Formatted(t.money(amount, currency).to_string()),
+        _ => MoneyDisplay::Fallback(format!("{amount} {}", currency.trim().to_ascii_uppercase())),
     }
 }
 
@@ -51,11 +52,11 @@ struct Group {
     chart: Chart,
     summary: String,
     summary_id: String,
-    last_sold: String,
+    last_sold: MoneyDisplay,
     last_sold_on: Option<String>,
-    median30: String,
+    median30: MoneyDisplay,
     trades30: String,
-    median90: String,
+    median90: MoneyDisplay,
     trades90: String,
     sell_through: Option<String>,
 }
@@ -83,8 +84,8 @@ impl Group {
                 .chart_summary(crate::text::pilot::ChartSummary {
                     name: &page.title,
                     count: plot.count,
-                    min: &price(plot.min),
-                    max: &price(plot.max),
+                    min: price(plot.min).text(),
+                    max: price(plot.max).text(),
                 })
                 .to_string(),
             Chart::Empty | Chart::Insufficient => String::new(),
@@ -131,7 +132,7 @@ pub fn MarketPage<'a>(t: MarketMsg, p: Pilot, screen: &'a Screen) -> impl Render
     let asks: Vec<String> = page
         .live_asks
         .iter()
-        .map(|ask| t.page_starting_at(&money(t, Some(&ask.min_ask_amount), Some(&ask.currency_code))).to_string())
+        .map(|ask| t.page_starting_at(money(t, Some(&ask.min_ask_amount), Some(&ask.currency_code)).text()).to_string())
         .collect();
     html! {
         <div class={Wide}>
@@ -166,22 +167,22 @@ pub fn MarketPage<'a>(t: MarketMsg, p: Pilot, screen: &'a Screen) -> impl Render
                     data-currency={group.currency.as_deref()}
                 >
                     <h2 class={SectionTitle} id={format!("{}-stats", group.summary_id)}>{&group.stats}</h2>
-                    <dl class={KitStats { surface: StatsSurface::Plain }}>
+                    <dl class={(KitStats { surface: StatsSurface::Plain }, StatsGrid)}>
                         <Stat
                             label={t.page_last_sold()}
-                            value={group.last_sold.as_str()}
+                            value={&group.last_sold}
                             note={group.last_sold_on.as_deref()}
                             tone={StatTone::Neutral}
                         />
                         <Stat
                             label={t.page_median_30_day()}
-                            value={group.median30.as_str()}
+                            value={&group.median30}
                             note={group.trades30.as_str()}
                             tone={StatTone::Neutral}
                         />
                         <Stat
                             label={t.page_median_90_day()}
-                            value={group.median90.as_str()}
+                            value={&group.median90}
                             note={group.trades90.as_str()}
                             tone={StatTone::Neutral}
                         />

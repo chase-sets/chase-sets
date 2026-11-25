@@ -229,6 +229,7 @@
   color: var(--color-text-secondary);
 }
 .contents {
+  border: 0;
   background: var(--color-surface-2);
   box-shadow: none;
 }

@@ -4,6 +4,7 @@
 //! from 60rem the summary sits beside the page.
 use corten::prelude::*;
 use platform::{
+    numeric_value::MoneyDisplay,
     theme::gap_2,
     ui::stack::{Gap, Stack as KitStack},
 };
@@ -14,10 +15,10 @@ use crate::{
     text::CheckoutMsg,
 };
 
-fn money(t: CheckoutMsg, amount: &str, currency: &str) -> String {
+fn money(t: CheckoutMsg, amount: &str, currency: &str) -> MoneyDisplay {
     match (platform::money::decimal(amount), corten::i18n::Currency::parse(currency.trim())) {
-        (Some(amount), Some(currency)) => t.money(amount, currency).to_string(),
-        _ => format!("{amount} {}", currency.trim().to_ascii_uppercase()).trim().to_owned(),
+        (Some(amount), Some(currency)) => MoneyDisplay::Formatted(t.money(amount, currency).to_string()),
+        _ => MoneyDisplay::Fallback(format!("{amount} {}", currency.trim().to_ascii_uppercase()).trim().to_owned()),
     }
 }
 
@@ -26,10 +27,10 @@ fn quantity(q: f64) -> String {
 }
 
 /// The entry's price (`checkoutStartSourcePrice`).
-fn price(t: CheckoutMsg, source: &Source) -> String {
+fn price(t: CheckoutMsg, source: &Source) -> MoneyDisplay {
     match source.price() {
         Some((amount, currency)) => money(t, amount, currency),
-        None => t.start_price_confirmed_before_payment().to_owned(),
+        None => MoneyDisplay::Fallback(t.start_price_confirmed_before_payment().to_owned()),
     }
 }
 

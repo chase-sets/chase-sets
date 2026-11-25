@@ -10,7 +10,7 @@
 use std::collections::HashMap;
 
 use corten::{Local, NavLink, NavLinks, NavTo, prelude::*};
-use platform::{glyphs, ui::icon::Icon as KitIcon};
+use platform::{brand_mark::BrandMark, glyphs, ui::icon::Icon as KitIcon};
 
 use super::marketplace;
 use crate::{
@@ -73,7 +73,10 @@ pub fn MarketNav<'a>(p: Pilot, req: &'a Req, viewer: Option<&'a Viewer>) -> impl
         let bottom_marks = marks(req, &bottom);
         let phone: HashMap<&str, NavLink<'_>> = bottom_marks.links().map(|(link, key)| (*key, link)).collect();
         <header class={Bar}>
-            <a class={Brand} href={marketplace("/").map(|u| u.to_string()).unwrap_or_default()}>{p.shell_marketplace()}</a>
+            <a class={Brand} href={marketplace("/").map(|u| u.to_string()).unwrap_or_default()}>
+                <BrandMark gradient_id="chase-logo-market-nav" />
+                <span>{p.shell_marketplace()}</span>
+            </a>
             <span class={Tag}>{p.shell_pilot()}</span>
             <nav class={Wide} aria-label={p.shell_navigation()}>
                 <ul class={Items}>

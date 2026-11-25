@@ -2,6 +2,7 @@
 //! ([`recovered`]), Commercial Terms ([`terms`]) and Money Health and Payout Operations
 //! ([`payouts`]) and the Wallet Workbench ([`wallet`]); Postage Policies is the app's own area (`crate::app`).
 use corten::i18n::Currency;
+use platform::numeric_value::MoneyDisplay;
 
 use crate::text::Com;
 
@@ -20,9 +21,14 @@ pub fn usd(t: Com, amount: &str) -> String {
 /// An amount in `currency` (admin-web's `formatMoney(value, currency)`; `usd` is USD), or the
 /// API's text.
 pub fn money(t: Com, amount: &str, currency: &str) -> String {
+    money_display(t, amount, currency).into_text()
+}
+
+/// The same money formatting, with the numeric role only when formatting succeeds.
+pub fn money_display(t: Com, amount: &str, currency: &str) -> MoneyDisplay {
     match (platform::money::decimal(amount), Currency::parse(currency)) {
-        (Some(amount), Some(currency)) => t.money(amount, currency).to_string(),
-        _ => amount.to_owned(),
+        (Some(amount), Some(currency)) => MoneyDisplay::Formatted(t.money(amount, currency).to_string()),
+        _ => MoneyDisplay::Fallback(amount.to_owned()),
     }
 }
 

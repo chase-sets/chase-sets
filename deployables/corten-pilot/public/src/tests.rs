@@ -262,6 +262,10 @@ async fn a_market_page_draws_the_items_stats_and_links_and_any_cache_may_keep_it
     }
     // Price history, Market stats and Buy or sell: public-web's stat values are headings too.
     assert_eq!(page.matches("<h2").count(), 3, "{page}");
+    assert!(page.contains(r#"<dd class="stats__value"><span class="numeric-value__amount">$44.50</span></dd>"#));
+    assert_eq!(page.matches(r#"<dd class="stats__value">No data yet</dd>"#).count(), 2, "{page}");
+    assert!(page.contains(r#"<dd class="stats__value">3</dd>"#), "{page}");
+    assert!(page.contains("Starting at $43.25</li>"), "{page}");
     // No trades in the series: the empty chart.
     assert!(page.contains("Data will appear here once activity accumulates."), "{page}");
     assert!(!page.contains("<svg viewBox=\"0 0 640 220\""), "{page}");
@@ -312,6 +316,7 @@ async fn each_currency_has_its_chart_and_stats_and_a_single_day_is_not_a_trend()
         "{page}"
     );
     assert!(page.contains("Charizard: 2 points, from $380.00 to $390.00."), "{page}");
+    assert_eq!(page.matches(r#"<span class="numeric-value__amount">$390.00</span>"#).count(), 2, "{page}");
     assert_eq!(page.matches("time-series__chart-band").count(), 1, "{page}");
     // CAD: one day.
     assert!(page.contains("Not enough data yet"), "{page}");
@@ -424,7 +429,7 @@ async fn the_home_page_draws_the_waitlists_landing_and_any_cache_may_keep_it() {
         "the social card is absolute: {page}"
     );
     // The seller's hero is shown and the buyer's is hidden; the foil word is one span.
-    assert!(page.contains(r#"The <span class="home-page__foil">marketplace</span> that works both ways."#), "{page}");
+    assert!(page.contains(r#"The <span class="brand-foil-text__foil">marketplace</span> that works both ways."#), "{page}");
     assert!(page.contains(r#"data-variant-copy="seller_first_v2" hidden"#), "{page}");
     // Both forms post to the address, with the hero's role as radios and the source fields.
     assert_eq!(page.matches(r#"<form class="home-page__form" method="post" action="/""#).count(), 2, "{page}");
@@ -433,6 +438,10 @@ async fn the_home_page_draws_the_waitlists_landing_and_any_cache_may_keep_it() {
     // The brand links home and the nav to the hero's form, by the id the form has.
     assert!(page.contains(r#"href="/" aria-label="#) && page.contains(r#"id="waitlist-form""#), "{page}");
     assert!(page.contains(r#"href="/#waitlist-form" data-cta="nav""#), "{page}");
+    for id in ["chase-logo-nav", "chase-logo-sticky"] {
+        assert_eq!(page.matches(&format!(r#"id="{id}""#)).count(), 1, "{page}");
+        assert_eq!(page.matches(&format!(r#"fill="url(#{id})""#)).count(), 1, "{page}");
+    }
     // The live terms reach the FAQ and its structured data; the counter and the titled promos are drawn.
     assert!(page.contains("3.25% + $0.30 by card, 0% by bank account"), "{page}");
     assert!(

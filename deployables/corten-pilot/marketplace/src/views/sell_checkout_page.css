@@ -54,7 +54,6 @@
   margin: 0;
   font-size: 1.25rem;
   font-weight: 600;
-  font-variant-numeric: tabular-nums;
 }
 .tight {
   display: grid;
@@ -216,7 +215,6 @@
 }
 .facts dd {
   margin: 0;
-  font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
 .facts > .sum {

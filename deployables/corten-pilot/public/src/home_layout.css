@@ -1,28 +1,35 @@
-/* The public-presence shell (PublicPresencePageShell): the design system's wide container with the
-   page gutter (px-4, md:px-6), the skip link, and the page's own padding instead of style.css's
-   <main> defaults. The bottom bar on a phone never covers the footer (MobileStickyInset). */
+/* The wide shell has no inline padding: main owns the page gutter, and the promo bar, nav and
+   footer repeat it. The hero can bleed through main's padding to the shell edges below lg. */
 .shell {
+  --page-gutter: var(--space-4);
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-4);
   width: 100%;
   max-width: 80rem;
   margin: 0 auto;
-  padding: var(--space-4) var(--space-4) 0;
+  padding-block-start: var(--space-4);
 }
 @media (--md) {
   .shell {
-    padding: var(--space-4) var(--space-6) 0;
+    --page-gutter: var(--space-6);
   }
+}
+.shell > :not(.main) {
+  margin-inline: var(--page-gutter);
 }
 .main {
   width: 100%;
   max-width: none;
   margin: 0;
-  padding: var(--space-2) 0 var(--space-6);
+  padding-block: var(--space-2) var(--space-6);
+  padding-inline: var(--page-gutter);
   min-width: 0;
+  overflow-x: clip;
 }
 @media not (--md) {
   .shell {
+    /* Keep the footer clear of the sticky CTA. */
     padding-bottom: 5.5rem;
   }
 }
