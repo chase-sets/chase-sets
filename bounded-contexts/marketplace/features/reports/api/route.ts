@@ -4,17 +4,14 @@ import {
   publicClientRequestKey,
   rateLimitExceededJsonResponse,
 } from "@chase-sets/http/rate-limit";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { MarketplaceApiEnv } from "../../../api";
-import {
-  marketplaceListingReportReasons,
-  marketplaceReviewReportReasons,
-  type MarketplaceListingReportReason,
-  type MarketplaceReviewReportReason,
-} from "../domain/domain";
-import type { MarketplaceReportServices } from "./runtime";
+import { marketplaceListingReportReasons, marketplaceReviewReportReasons } from "../domain/domain";
+import { DuplicateReportError, reportValidationError, type MarketplaceReportServices } from "./runtime";
+import { MarketplaceListingDomainError } from "../../listings/domain/listing-error";
+import { ReputationDomainError } from "../../reviews/domain/common";
 import { MarketplaceAttemptError } from "../../mutation-recovery/api/attempt";
 import { marketplaceReceiptResponse } from "../../mutation-recovery/api/receipt";
 import { marketplaceReporterFingerprint } from "./reporter";
@@ -27,30 +24,44 @@ const reportListingSubmitRateLimiter = createConfiguredInMemoryRateLimiter("mark
 const MARKETPLACE_REPORT_SYSTEM_TENANT_ID = "tnt_marketplace_reports" as TenantId;
 const MARKETPLACE_REPORT_SYSTEM_USER_ID = "usr_marketplace_reports" as UserId;
 
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : t("marketplace.features.reports.api.request.failed");
-}
-
-function isDuplicateReportError(error: unknown) {
-  return error instanceof Error && error.message === "This reporter has already reported this content.";
-}
-
-function normalizeListingReason(value: unknown): MarketplaceListingReportReason {
-  const reason = String(value ?? "").trim();
-  if ((marketplaceListingReportReasons as readonly string[]).includes(reason)) {
-    return reason as MarketplaceListingReportReason;
+function reportErrorResponse(c: Context<MarketplaceApiEnv>, error: unknown) {
+  if (error instanceof MarketplaceAttemptError) {
+    return c.json(
+      { error: { code: error.code, message: error.message } },
+      error.code === "attempt_conflict" ? 409 : error.code === "history_incomplete" ? 503 : 400,
+    );
   }
-
-  throw new Error("Report reason is invalid.");
+  if (error instanceof DuplicateReportError) {
+    return c.json({ error: { code: "report_already_submitted", message: error.message } }, 409);
+  }
+  if (error instanceof MarketplaceListingDomainError || error instanceof ReputationDomainError) {
+    return c.json({ error: { code: "validation_failed", message: error.message } }, 400);
+  }
+  // Do not let a dependency's domain name or concurrency code turn a server failure into a caller error.
+  throw new Error("Report submission failed.", { cause: error });
 }
 
-function normalizeReviewReason(value: unknown): MarketplaceReviewReportReason {
-  const reason = String(value ?? "").trim();
-  if ((marketplaceReviewReportReasons as readonly string[]).includes(reason)) {
-    return reason as MarketplaceReviewReportReason;
+function reportRequestFields<Reason extends string>(
+  body: Record<string, unknown>,
+  target: "listing" | "review",
+  reasons: readonly Reason[],
+  invalidReasonMessage: string,
+) {
+  try {
+    const attemptId = typeof body.attemptId === "string" ? body.attemptId : "";
+    const reasonText = String(body.reason ?? "").trim();
+    const reason = reasons.find((allowed) => allowed === reasonText);
+    if (!reason) throw reportValidationError(target, invalidReasonMessage);
+    return {
+      attemptId,
+      reason,
+      details: typeof body.details === "string" ? body.details : null,
+      sourceRoutePath: typeof body.sourceRoutePath === "string" ? body.sourceRoutePath : `/${target}s`,
+    };
+  } catch (error) {
+    if (error instanceof TypeError || error instanceof RangeError) throw reportValidationError(target, error.message);
+    throw error;
   }
-
-  throw new Error("Review report reason is invalid.");
 }
 
 function visitorReporterKey(c: { req: { header(name: string): string | undefined } }) {
@@ -100,15 +111,12 @@ export function createMarketplaceReportRoutes(services: MarketplaceReportService
     try {
       const result = await services.reportListing(
         {
-          attemptId: typeof body.attemptId === "string" ? body.attemptId : "",
+          ...reportRequestFields(body, "listing", marketplaceListingReportReasons, "Report reason is invalid."),
           listingId: c.req.param("id"),
           reporterKind: actor ? "account" : "visitor",
           reporterKey: actor?.accountId ?? visitorKey ?? "",
           reporterAccountId: actor?.accountId ?? null,
           reporterUserId: actor?.userId ?? null,
-          reason: normalizeListingReason(body.reason),
-          details: typeof body.details === "string" ? body.details : null,
-          sourceRoutePath: typeof body.sourceRoutePath === "string" ? body.sourceRoutePath : "/listings",
         },
         context,
       );
@@ -130,15 +138,7 @@ export function createMarketplaceReportRoutes(services: MarketplaceReportService
         result,
       );
     } catch (error) {
-      if (error instanceof MarketplaceAttemptError)
-        return c.json(
-          { error: { code: error.code, message: error.message } },
-          error.code === "attempt_conflict" ? 409 : error.code === "history_incomplete" ? 503 : 400,
-        );
-      if (isDuplicateReportError(error)) {
-        return c.json({ error: { code: "report_already_submitted", message: errorMessage(error) } }, 409);
-      }
-      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+      return reportErrorResponse(c, error);
     }
   });
 
@@ -181,13 +181,10 @@ export function createMarketplaceReportRoutes(services: MarketplaceReportService
     try {
       const result = await services.reportReview(
         {
-          attemptId: typeof body.attemptId === "string" ? body.attemptId : "",
+          ...reportRequestFields(body, "review", marketplaceReviewReportReasons, "Review report reason is invalid."),
           reviewId: c.req.param("id"),
           reporterAccountId: actor.accountId,
           reporterUserId: actor.userId,
-          reason: normalizeReviewReason(body.reason),
-          details: typeof body.details === "string" ? body.details : null,
-          sourceRoutePath: typeof body.sourceRoutePath === "string" ? body.sourceRoutePath : "/reviews",
         },
         context,
       );
@@ -206,15 +203,7 @@ export function createMarketplaceReportRoutes(services: MarketplaceReportService
         result,
       );
     } catch (error) {
-      if (error instanceof MarketplaceAttemptError)
-        return c.json(
-          { error: { code: error.code, message: error.message } },
-          error.code === "attempt_conflict" ? 409 : error.code === "history_incomplete" ? 503 : 400,
-        );
-      if (isDuplicateReportError(error)) {
-        return c.json({ error: { code: "report_already_submitted", message: errorMessage(error) } }, 409);
-      }
-      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+      return reportErrorResponse(c, error);
     }
   });
 
