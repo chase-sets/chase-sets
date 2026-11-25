@@ -63,7 +63,6 @@
 }
 .amount {
   font-weight: 700;
-  font-variant-numeric: tabular-nums;
 }
 .quiet {
   color: var(--color-text-secondary);
@@ -498,7 +497,6 @@
 .price {
   margin: 0;
   font-weight: 600;
-  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 .totals {
@@ -513,7 +511,6 @@
 }
 .totals dd {
   margin: 0;
-  font-variant-numeric: tabular-nums;
   text-align: end;
 }
 .total {

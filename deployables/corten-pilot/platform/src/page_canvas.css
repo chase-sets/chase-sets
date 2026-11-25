@@ -1,0 +1,14 @@
+.canvas {
+  background-color: var(--color-background);
+  background-image:
+    radial-gradient(circle at top right, var(--color-spotlight-a), transparent 30rem),
+    radial-gradient(circle at top left, var(--color-spotlight-b), transparent 26rem);
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+@media (forced-colors: active) {
+  .canvas {
+    background-image: none;
+  }
+}

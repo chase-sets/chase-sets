@@ -17,7 +17,7 @@ use platform::ui::{
 
 use crate::{
     commerce::{
-        money,
+        money, money_display,
         payouts::{FILTERS, MoneyHealth, OperationsAttention, OperationsScreen, Payout, Run, payout_href, url},
     },
     text::{Com, Ops, Pilot},
@@ -140,13 +140,13 @@ pub fn MoneyHealthPage<'a>(t: Com, screen: &'a MoneyHealth, marketplace: Option<
                         <p class={Muted}>
                             {t.mh_pending_payout_demand()}
                             <span class={Number}>
-                                {money(t, &forecast.pending_payout_demand_amount, &forecast.currency_code)}
+                                {money_display(t, &forecast.pending_payout_demand_amount, &forecast.currency_code)}
                             </span>
                         </p>
                         <p class={Muted}>
                             {t.mh_forecast_after_pending_demand()}
                             <span class={Number}>
-                                {money(t, &forecast.forecast_after_pending_demand_amount, &forecast.currency_code)}
+                                {money_display(t, &forecast.forecast_after_pending_demand_amount, &forecast.currency_code)}
                             </span>
                         </p>
                     </div>
@@ -213,7 +213,7 @@ pub fn MoneyHealthPage<'a>(t: Com, screen: &'a MoneyHealth, marketplace: Option<
                                             </td>
                                             <td class={Number}>
                                                 <CellLabel>{t.mh_negative_amount()}</CellLabel>
-                                                {money(t, &row.available_balance_amount, &row.currency_code)}
+                                                {money_display(t, &row.available_balance_amount, &row.currency_code)}
                                             </td>
                                             <td>
                                                 <CellLabel>{t.mh_negative_since()}</CellLabel>
@@ -262,15 +262,15 @@ pub fn MoneyHealthPage<'a>(t: Com, screen: &'a MoneyHealth, marketplace: Option<
                                             </td>
                                             <td class={Number}>
                                                 <CellLabel>{t.payout_requested_amount()}</CellLabel>
-                                                {money(t, &row.requested_amount, &row.currency_code)}
+                                                {money_display(t, &row.requested_amount, &row.currency_code)}
                                             </td>
                                             <td class={Number}>
                                                 <CellLabel>{t.payout_fee()}</CellLabel>
-                                                {money(t, &row.fee_amount, &row.currency_code)}
+                                                {money_display(t, &row.fee_amount, &row.currency_code)}
                                             </td>
                                             <td class={Number}>
                                                 <CellLabel>{t.payout_net()}</CellLabel>
-                                                {money(t, &row.net_amount, &row.currency_code)}
+                                                {money_display(t, &row.net_amount, &row.currency_code)}
                                             </td>
                                             <td>
                                                 <CellLabel>{t.mh_updated()}</CellLabel>
@@ -636,15 +636,15 @@ pub fn PayoutOperationsPage<'a>(
                                             </td>
                                             <td class={Number}>
                                                 <CellLabel>{t.payout_requested_amount()}</CellLabel>
-                                                {money(t, &row.requested_amount, &row.currency_code)}
+                                                {money_display(t, &row.requested_amount, &row.currency_code)}
                                             </td>
                                             <td class={Number}>
                                                 <CellLabel>{t.payout_fee()}</CellLabel>
-                                                {money(t, &row.fee_amount, &row.currency_code)}
+                                                {money_display(t, &row.fee_amount, &row.currency_code)}
                                             </td>
                                             <td class={Number}>
                                                 <CellLabel>{t.payout_net()}</CellLabel>
-                                                {money(t, &row.net_amount, &row.currency_code)}
+                                                {money_display(t, &row.net_amount, &row.currency_code)}
                                             </td>
                                             <td>
                                                 <CellLabel>{t.po_payout_confirmation()}</CellLabel>

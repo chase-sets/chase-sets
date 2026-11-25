@@ -17,6 +17,7 @@ use corten::{
     prelude::*,
 };
 use platform::{
+    numeric_value::MoneyDisplay,
     theme::gap_3,
     ui::stack::{Gap, Stack as KitStack},
 };
@@ -41,6 +42,19 @@ fn usd() -> Currency {
 
 fn dollars(t: SellCheckoutMsg, cents: i64) -> String {
     t.money(Decimal::new(i128::from(cents), 2), usd()).to_string()
+}
+
+fn has_price(line: &SellListRow) -> bool {
+    line.offer_price_amount
+        .as_deref()
+        .or(line.minimum_listing_price_amount.as_deref())
+        .and_then(platform::money::cents)
+        .is_some()
+}
+
+fn priced_dollars(t: SellCheckoutMsg, cents: i64, has_price: bool) -> MoneyDisplay {
+    let text = dollars(t, cents);
+    if has_price { MoneyDisplay::Formatted(text) } else { MoneyDisplay::Fallback(text) }
 }
 
 /// The words that differ between an account's page and a guest's.
@@ -272,7 +286,7 @@ fn refused(errors: &Errors, fields: &[&str]) -> bool {
 #[component(css)]
 pub fn SellCheckoutPage<'a>(t: SellCheckoutMsg, s: SellListMsg, p: Pilot, screen: &'a Screen) -> impl Render {
     let w = Words::of(t, screen.account);
-    let total = dollars(t, screen.total());
+    let total = priced_dollars(t, screen.total(), screen.lines.iter().any(has_price));
     let blocked = screen.recovery.is_some() || screen.attempt.is_some();
     let quantity: u64 = screen.lines.iter().map(|l| l.quantity).sum();
     let count = screen.lines.len() as u64;
@@ -425,7 +439,7 @@ fn AttemptBanner<'a>(s: SellListMsg, p: Pilot, screen: &'a Screen, attempt: &'a 
 
 /// The sale summary (`SummaryPanel`): each line, the counts, readiness and the estimated payout.
 #[component(css = SellCheckoutPage)]
-fn Summary<'a>(t: SellCheckoutMsg, w: Words, screen: &'a Screen, total: &'a str, quantity: u64) -> impl Render {
+fn Summary<'a>(t: SellCheckoutMsg, w: Words, screen: &'a Screen, total: &'a MoneyDisplay, quantity: u64) -> impl Render {
     let count = screen.lines.len() as u64;
     let subtitle =
         if screen.account { t.signed_summary_subtitle(count).to_string() } else { t.guest_summary_subtitle(count).to_string() };
@@ -446,7 +460,7 @@ fn Summary<'a>(t: SellCheckoutMsg, w: Words, screen: &'a Screen, total: &'a str,
                     <li class={Line}>
                         <p class={Spread}>
                             <span class={Strong}>{&line.item_title}</span>
-                            <span class={Strong}>{dollars(t, line_value(line))}</span>
+                            <span class={Strong}>{priced_dollars(t, line_value(line), has_price(line))}</span>
                         </p>
                         if let Some(sub) = line.item_subtitle.as_deref().or(line.product_summary.as_deref()) {
                             <p class={Hint}>{sub}</p>

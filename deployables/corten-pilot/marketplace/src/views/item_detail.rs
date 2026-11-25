@@ -6,6 +6,7 @@
 use corten::prelude::*;
 use platform::{
     chart::{self, Chart, TimeSeries},
+    numeric_value::MoneyDisplay,
     ui::{
         badge::{Badge, BadgeEmphasis, BadgeTone},
         segmented::{SegmentedLinks, SegmentedWidth},
@@ -49,21 +50,21 @@ const PRODUCTION_HOST: &str = "marketplace.chasesets.com";
 
 /// An amount in the request's locale (`formatMoney`): "Unavailable" without an amount or a
 /// currency, `<amount> <CODE>` when it is not money.
-pub fn money(t: ItemMsg, amount: Option<&str>, currency: Option<&str>) -> String {
+fn money(t: ItemMsg, amount: Option<&str>, currency: Option<&str>) -> MoneyDisplay {
     let (Some(amount), Some(currency)) = (amount.filter(|a| !a.is_empty()), currency) else {
-        return t.page_unavailable().to_owned();
+        return MoneyDisplay::Fallback(t.page_unavailable().to_owned());
     };
     match (platform::money::decimal(amount), corten::i18n::Currency::parse(currency.trim())) {
-        (Some(amount), Some(currency)) => t.money(amount, currency).to_string(),
-        _ => format!("{amount} {}", currency.trim().to_ascii_uppercase()).trim().to_owned(),
+        (Some(amount), Some(currency)) => MoneyDisplay::Formatted(t.money(amount, currency).to_string()),
+        _ => MoneyDisplay::Fallback(format!("{amount} {}", currency.trim().to_ascii_uppercase()).trim().to_owned()),
     }
 }
 
-fn listing_price(t: ItemMsg, l: &Listing) -> String {
+fn listing_price(t: ItemMsg, l: &Listing) -> MoneyDisplay {
     money(t, Some(&l.price_amount), l.price_currency_code.as_deref())
 }
 
-fn offer_price(t: ItemMsg, o: &Offer) -> String {
+fn offer_price(t: ItemMsg, o: &Offer) -> MoneyDisplay {
     money(t, Some(&o.price_amount), o.price_currency_code.as_deref())
 }
 
@@ -487,7 +488,7 @@ fn Dock<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: &'a 
             .as_ref()
             .map(|_| money(t, summary.lowest_price_amount.as_deref(), summary.lowest_price_currency_code.as_deref())),
     };
-    let price = price.unwrap_or_else(|| t.view_market_price_unavailable().to_owned());
+    let price = price.unwrap_or_else(|| MoneyDisplay::Fallback(t.view_market_price_unavailable().to_owned()));
     html! {
         <div class={Dock} id="item-dock">
             <nav class={DockBar} aria-label={t.page_choose_market_intent()}>
@@ -670,9 +671,9 @@ fn Sales<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: &'a
 /// One currency's numbers and chart on the Sales tab.
 struct CurrencySales {
     heading: Option<String>,
-    sold: (String, Option<String>),
-    m30: (String, String),
-    m90: (String, String),
+    sold: (MoneyDisplay, Option<String>),
+    m30: (MoneyDisplay, String),
+    m90: (MoneyDisplay, String),
     chart: SalesChart,
     /// The chart summary's id, one for each currency.
     summary_id: String,
@@ -713,7 +714,7 @@ fn SalesRead<'a>(
     let label = t.panel_chart_label(title).to_string();
     html! {
         <dl class={KitStats { surface: StatsSurface::Cards }}>
-            <Stat label={t.panel_spread_label()} value={spread.as_str()} note={spread_note.as_deref()} tone={StatTone::Neutral} />
+            <Stat label={t.panel_spread_label()} value={&spread} note={spread_note.as_deref()} tone={StatTone::Neutral} />
         </dl>
         for group in &groups {
             <section class={SalesGroup}>
@@ -723,19 +724,19 @@ fn SalesRead<'a>(
                 <dl class={KitStats { surface: StatsSurface::Cards }}>
                     <Stat
                         label={t.panel_last_sold_label()}
-                        value={group.sold.0.as_str()}
+                        value={&group.sold.0}
                         note={group.sold.1.as_deref()}
                         tone={StatTone::Neutral}
                     />
                     <Stat
                         label={t.panel_median30d_label()}
-                        value={group.m30.0.as_str()}
+                        value={&group.m30.0}
                         note={group.m30.1.as_str()}
                         tone={StatTone::Neutral}
                     />
                     <Stat
                         label={t.panel_median90d_label()}
-                        value={group.m90.0.as_str()}
+                        value={&group.m90.0}
                         note={group.m90.1.as_str()}
                         tone={StatTone::Neutral}
                     />
@@ -790,17 +791,20 @@ fn range_label(t: ItemMsg, range: Range) -> &'static str {
 }
 
 /// The spread and what it is between (`formatSpread`): ask and bid, or only one of them.
-fn spread(t: ItemMsg, state: Option<&MarketState>) -> (String, Option<String>) {
+fn spread(t: ItemMsg, state: Option<&MarketState>) -> (MoneyDisplay, Option<String>) {
     // Marketplace formats these without a currency, which it reads as dollars.
     let usd = |amount: &str| money(t, Some(amount), Some("USD"));
-    let unavailable = || t.panel_unavailable().to_owned();
+    let unavailable = || MoneyDisplay::Fallback(t.panel_unavailable().to_owned());
     let Some(state) = state else { return (unavailable(), None) };
     let ask = state.min_ask_amount.as_deref().filter(|a| !a.is_empty());
     let bid = state.max_bid_amount.as_deref().filter(|a| !a.is_empty());
     match (ask, bid) {
         (Some(ask), Some(bid)) => (
             state.spread_amount.as_deref().filter(|a| !a.is_empty()).map_or_else(unavailable, usd),
-            Some(t.panel_ask_and_bid(crate::text::item_msg::PanelAskAndBid { ask: &usd(ask), bid: &usd(bid) }).to_string()),
+            Some(
+                t.panel_ask_and_bid(crate::text::item_msg::PanelAskAndBid { ask: usd(ask).text(), bid: usd(bid).text() })
+                    .to_string(),
+            ),
         ),
         (Some(ask), None) => (usd(ask), Some(t.panel_ask_only().to_owned())),
         (None, Some(bid)) => (usd(bid), Some(t.panel_bid_only().to_owned())),
@@ -809,9 +813,9 @@ fn spread(t: ItemMsg, state: Option<&MarketState>) -> (String, Option<String>) {
 }
 
 /// The last sale and when (`formatLastSold`).
-fn last_sold(t: ItemMsg, aggregate: Option<&MarketAggregate>) -> (String, Option<String>) {
+fn last_sold(t: ItemMsg, aggregate: Option<&MarketAggregate>) -> (MoneyDisplay, Option<String>) {
     let Some((aggregate, at)) = aggregate.and_then(|a| a.last_sold_at.as_deref().map(|at| (a, at))) else {
-        return (t.panel_no_sales_yet().to_owned(), None);
+        return (MoneyDisplay::Fallback(t.panel_no_sales_yet().to_owned()), None);
     };
     let date = corten::i18n::parse_timestamp(at)
         .map(|at| t.date_time(at, corten::i18n::DateStyle::Medium, corten::i18n::TimeStyle::Short).to_string())
@@ -824,7 +828,7 @@ fn last_sold(t: ItemMsg, aggregate: Option<&MarketAggregate>) -> (String, Option
 
 /// A window's median, or why it is not shown (`formatMedianWindow`): no sales, or fewer than
 /// the minimum sample.
-fn median(t: ItemMsg, aggregate: Option<&MarketAggregate>, days: u32, minimum: u64) -> (String, String) {
+fn median(t: ItemMsg, aggregate: Option<&MarketAggregate>, days: u32, minimum: u64) -> (MoneyDisplay, String) {
     let (amount, volume, trades) = match (aggregate, days) {
         (Some(a), 30) => (a.median_price30d.as_deref(), a.volume30d, a.trade_count30d),
         (Some(a), _) => (a.median_price90d.as_deref(), a.volume90d, a.trade_count90d),
@@ -838,7 +842,7 @@ fn median(t: ItemMsg, aggregate: Option<&MarketAggregate>, days: u32, minimum: u
         };
         return (money(t, Some(amount), Some(&a.currency_code)), sold);
     }
-    let unavailable = t.panel_unavailable().to_owned();
+    let unavailable = MoneyDisplay::Fallback(t.panel_unavailable().to_owned());
     if trades == 0 {
         return (unavailable, t.panel_no_sales_in_window(days).to_string());
     }
@@ -884,7 +888,7 @@ impl SalesChart {
                     let mark = value.filter(|_| markers && point.verified_trade_count > 0).map(|v| {
                         let label = t
                             .panel_verified_sale_marker(crate::text::item_msg::PanelVerifiedSaleMarker {
-                                price: &price(v),
+                                price: price(v).text(),
                                 date: &point.day,
                             })
                             .to_string();
@@ -903,8 +907,8 @@ impl SalesChart {
                 .item_chart_summary(crate::text::pilot::ItemChartSummary {
                     name,
                     count: plot.count,
-                    min: &price(plot.min),
-                    max: &price(plot.max),
+                    min: price(plot.min).text(),
+                    max: price(plot.max).text(),
                 })
                 .to_string(),
             Chart::Empty | Chart::Insufficient => String::new(),
@@ -960,10 +964,10 @@ fn option_note(t: ItemMsg, market: Market, summary: Option<&OptionMarket>) -> St
     let Some(summary) = summary else { return t.page_none().to_owned() };
     let price = summary.price.as_ref().map_or_else(|| money(t, None, None), |p| money(t, Some(&p.amount), Some(&p.currency)));
     if market == Market::Sell {
-        t.page_offer_option_summary(crate::text::item_msg::PageOfferOptionSummary { count: summary.count, price: &price })
+        t.page_offer_option_summary(crate::text::item_msg::PageOfferOptionSummary { count: summary.count, price: price.text() })
             .to_string()
     } else {
-        t.page_option_summary(crate::text::item_msg::PageOptionSummary { count: summary.count, price: &price }).to_string()
+        t.page_option_summary(crate::text::item_msg::PageOptionSummary { count: summary.count, price: price.text() }).to_string()
     }
 }
 
@@ -1104,7 +1108,7 @@ fn MarketSummary<'a>(t: ItemMsg, screen: &'a ItemScreen) -> impl Render {
     } else if s.lowest_price_currency_code.is_some() {
         money(t, s.lowest_price_amount.as_deref(), s.lowest_price_currency_code.as_deref())
     } else {
-        t.view_market_price_unavailable().to_owned()
+        MoneyDisplay::Fallback(t.view_market_price_unavailable().to_owned())
     };
     let chosen = screen.chosen();
     let note = match (chosen.is_empty(), sell, screen.picks.is_empty()) {
@@ -1408,7 +1412,7 @@ fn Rail<'a>(
                         <Hidden pairs={&page} />
                         <input type="hidden" name={field::PRODUCT} value={product}>
                         if let Some(lowest) = &lowest {
-                            <p class={Muted}>{t.route_current_lowest_listing_summary(lowest)}</p>
+                            <p class={Muted}>{t.route_current_lowest_listing_summary(lowest.text())}</p>
                         }
                         if let Some(message) = error(RailForm::Offer) {
                             <p class={Error} role="alert" on:connect={analytics::refused("buy", "make_offer", "", "make_offer")}>
@@ -1499,15 +1503,15 @@ fn payout(t: ItemMsg, offer: &Offer, terms: &crate::api::StandardTerms) -> Optio
         (
             t.route_seller_payout().to_owned(),
             t.route_seller_payout_after_fee(crate::text::item_msg::RouteSellerPayoutAfterFee {
-                payout: &write(net),
-                fee: &write(fee),
+                payout: write(net).text(),
+                fee: write(fee).text(),
             })
             .to_string(),
         ),
         (
             t.route_shipping_allowance().to_owned(),
             t.route_shipping_allowance_amount(crate::text::item_msg::RouteShippingAllowanceAmount {
-                amount: &write(allowance),
+                amount: write(allowance).text(),
                 percentage: &bps_percent(t, terms.shipping_allowance_percentage_bps),
             })
             .to_string(),
@@ -1582,7 +1586,7 @@ fn SellForms<'a>(
                 <Hidden pairs={page} />
                 <input type="hidden" name={selling::field::OFFER} value={&o.offer_id}>
                 if let Some(total) = &total {
-                    <p class={Strong}>{t.route_offer_total(total)}</p>
+                    <p class={Strong}>{t.route_offer_total(total.text())}</p>
                 }
                 if let Some(rows) = &rows {
                     <dl class={Pairs} on:connect={analytics::payout(true, offer_workflow, offer_selection)}>
@@ -1760,7 +1764,7 @@ fn ListForms<'a>(
                 <a class={Button} href={&manage(id)}>{t.route_manage_listing()}</a>
             } else if let Some(l) = own {
                 <p class={Muted}>
-                    {t.route_your_listing_summary(crate::text::item_msg::RouteYourListingSummary { status: &l.status, price: &listing_price(t, l) })}
+                    {t.route_your_listing_summary(crate::text::item_msg::RouteYourListingSummary { status: &l.status, price: listing_price(t, l).text() })}
                 </p>
                 <a class={Button} href={&manage(&l.listing_id)}>{t.route_manage_listing()}</a>
             } else {
@@ -1774,7 +1778,7 @@ fn ListForms<'a>(
                     <Hidden pairs={page} />
                     <input type="hidden" name={listing::field::PRODUCT} value={product}>
                     if let Some(l) = best {
-                        <p class={Muted}>{t.route_current_best_listing_summary(&listing_price(t, l))}</p>
+                        <p class={Muted}>{t.route_current_best_listing_summary(listing_price(t, l).text())}</p>
                     }
                     <p class={Muted}>
                         {if screen.guest_listing_draft {
@@ -2263,7 +2267,7 @@ fn Listings<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: 
                             limit={purchase_limit(l)}
                             selected={screen.listing_id.as_deref() == Some(l.listing_id.as_str())}
                             select={&url::Item { slug, state: address.with_listing(&l.listing_id), after: Default::default() }.href()}
-                            label={&t.page_listing_row_label(crate::text::item_msg::PageListingRowLabel { price: &listing_price(t, l), seller: l.seller_display_name.as_deref().unwrap_or(t.page_seller()) }).to_string()}
+                            label={&t.page_listing_row_label(crate::text::item_msg::PageListingRowLabel { price: listing_price(t, l).text(), seller: l.seller_display_name.as_deref().unwrap_or(t.page_seller()) }).to_string()}
                         />
                     }
                 </ul>
@@ -2317,7 +2321,7 @@ fn Offers<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: &'
                             limit={None}
                             selected={screen.offer_id.as_deref() == Some(o.offer_id.as_str())}
                             select={&url::Item { slug, state: address.with_offer(&o.offer_id), after: Default::default() }.href()}
-                            label={&t.page_offer_row_label(crate::text::item_msg::PageOfferRowLabel { price: &offer_price(t, o), buyer: o.buyer_display_name.as_deref().unwrap_or(&o.buyer_account_id) }).to_string()}
+                            label={&t.page_offer_row_label(crate::text::item_msg::PageOfferRowLabel { price: offer_price(t, o).text(), buyer: o.buyer_display_name.as_deref().unwrap_or(&o.buyer_account_id) }).to_string()}
                         />
                     }
                 </ul>
@@ -2330,7 +2334,7 @@ fn Offers<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: &'
 #[component(css = ItemDetail)]
 fn Row<'a, W: Render>(
     t: ItemMsg,
-    price: &'a str,
+    price: &'a MoneyDisplay,
     badge: Option<&'a str>,
     mine: Option<(&'a str, &'a str)>,
     who: W,

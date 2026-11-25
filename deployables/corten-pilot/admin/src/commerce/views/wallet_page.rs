@@ -13,7 +13,7 @@ use platform::ui::table::{CellLabel, Table as KitTable, TableLayout, TableNumeri
 use crate::{
     api::segment,
     commerce::{
-        money,
+        money, money_display,
         wallet::{
             APPROVE_INTENT, Adjustment, CommandForm, DETAIL_REQUIRED, Kind, PREVIEW, REASONS, REJECT_INTENT, REQUEST,
             REVERSE_INTENT, Refusal, STATUSES, WalletScreen, url,
@@ -115,7 +115,7 @@ fn Refused<'a>(t: Com, refusal: &'a Refusal, sign_in: &'a str) -> impl Render {
 }
 
 #[component(css = WalletPage)]
-fn Figure<'a>(label: &'a str, value: String) -> impl Render {
+fn Figure<'a, V: Render>(label: &'a str, value: V) -> impl Render {
     html! {
         <div class={Figure}>
             <span class={Muted}>{label}</span>
@@ -363,14 +363,14 @@ fn Request<'a>(t: Com, screen: &'a WalletScreen, sign_in: &'a str) -> impl Rende
                 <button type="submit" class={(Button, Secondary)}>{t.wa_flow_request_preview()}</button>
             </form>
             if let Some(preview) = preview {
-                let before = money(t, &preview.available_balance_before, &preview.currency_code);
-                let after = money(t, &preview.available_balance_after, &preview.currency_code);
+                let before = money_display(t, &preview.available_balance_before, &preview.currency_code);
+                let after = money_display(t, &preview.available_balance_after, &preview.currency_code);
                 let amount = money(t, &preview.amount, &preview.currency_code);
                 let yes_no = |b: bool| if b { t.wa_flow_yes() } else { t.wa_flow_no() };
                 let debit = preview.direction == "debit";
                 let direction = direction_label(t, &preview.direction).to_lowercase();
                 let elevation: Vec<&str> = preview.elevation_reasons.iter().map(|r| elevation_label(t, r)).collect();
-                let confirm = t.wa_flow_confirm_description(crate::text::com::WaFlowConfirmDescription { direction: &direction, amount: &amount, account: label, after: &after }).to_string();
+                let confirm = t.wa_flow_confirm_description(crate::text::com::WaFlowConfirmDescription { direction: &direction, amount: &amount, account: label, after: after.text() }).to_string();
                 <div class={(Card, Raised)}>
                     <h3 class={Strong}>{t.wa_flow_preview_title()}</h3>
                     <dl class={Pairs}>
@@ -518,10 +518,13 @@ pub fn WalletPage<'a>(t: Com, screen: &'a WalletScreen, title: &'a str) -> impl 
             <section class={Card} aria-labelledby="wallet-balance">
                 <h2 class={Heading} id="wallet-balance">{t.ww_balance()}</h2>
                 <div class={Figures}>
-                    <Figure label={t.ww_available()} value={money(t, &w.available_balance_amount, &w.currency_code)} />
-                    <Figure label={t.ww_pending()} value={money(t, &w.pending_balance_amount, &w.currency_code)} />
-                    <Figure label={t.ww_lifetime_credits()} value={money(t, &w.total_credited_amount, &w.currency_code)} />
-                    <Figure label={t.ww_lifetime_debits()} value={money(t, &w.total_debited_amount, &w.currency_code)} />
+                    <Figure label={t.ww_available()} value={money_display(t, &w.available_balance_amount, &w.currency_code)} />
+                    <Figure label={t.ww_pending()} value={money_display(t, &w.pending_balance_amount, &w.currency_code)} />
+                    <Figure
+                        label={t.ww_lifetime_credits()}
+                        value={money_display(t, &w.total_credited_amount, &w.currency_code)}
+                    />
+                    <Figure label={t.ww_lifetime_debits()} value={money_display(t, &w.total_debited_amount, &w.currency_code)} />
                 </div>
                 <p class={Line}>
                     <span class={(Pill, standing_tone)}>{standing}</span>
@@ -597,7 +600,9 @@ pub fn WalletPage<'a>(t: Com, screen: &'a WalletScreen, title: &'a str) -> impl 
                                             <td>
                                                 <CellLabel>{t.ww_direction()}</CellLabel>
                                                 <span class={(Pill, direction_tone)}>{direction_label(t, &row.direction)}</span>
-                                                <span class={(Strong, Block)}>{money(t, &row.amount, &row.currency_code)}</span>
+                                                <span class={(Strong, Block)}>
+                                                    {money_display(t, &row.amount, &row.currency_code)}
+                                                </span>
                                             </td>
                                             <td>
                                                 <CellLabel>{t.ww_reason()}</CellLabel>
@@ -623,7 +628,11 @@ pub fn WalletPage<'a>(t: Com, screen: &'a WalletScreen, title: &'a str) -> impl 
                                             </td>
                                             <td>
                                                 <CellLabel>{t.ww_resulting_balance()}</CellLabel>
-                                                {row.available_balance_after.as_deref().map_or_else(|| "\u{2014}".to_owned(), |a| money(t, a, &row.currency_code))}
+                                                if let Some(after) = row.available_balance_after.as_deref() {
+                                                    {money_display(t, after, &row.currency_code)}
+                                                } else {
+                                                    "\u{2014}"
+                                                }
                                             </td>
                                             <td>
                                                 <CellLabel>{t.ww_reversal()}</CellLabel>
@@ -700,7 +709,7 @@ pub fn WalletPage<'a>(t: Com, screen: &'a WalletScreen, title: &'a str) -> impl 
                                             </td>
                                             <td class={TableNumeric {}}>
                                                 <CellLabel>{t.ww_amount()}</CellLabel>
-                                                {money(t, &entry.amount, &entry.currency_code)}
+                                                {money_display(t, &entry.amount, &entry.currency_code)}
                                             </td>
                                             <td>
                                                 <CellLabel>{t.ww_posted()}</CellLabel>

@@ -132,7 +132,7 @@
   color: var(--color-primary-foreground);
 }
 
-/* The shell's nav, brand and footer. */
+/* The shell's flush nav and footer. */
 .nav {
   display: flex;
   flex-wrap: wrap;
@@ -140,8 +140,6 @@
   justify-content: space-between;
   gap: var(--space-2);
   padding: var(--space-2);
-  border-radius: var(--radius-lg);
-  background: var(--color-surface-2);
 }
 .brand {
   display: inline-flex;
@@ -157,28 +155,10 @@
 .brand:hover {
   color: var(--color-primary);
 }
-.stop-start {
-  stop-color: var(--color-logo-start);
-}
-.stop-mid {
-  stop-color: var(--color-logo-mid);
-}
-.stop-end {
-  stop-color: var(--color-logo-end);
-}
-@media (forced-colors: active) {
-  .stop-start,
-  .stop-mid,
-  .stop-end {
-    stop-color: CanvasText;
-  }
-}
 .footer {
   display: grid;
   gap: var(--space-3);
   padding: var(--space-4);
-  border-radius: var(--radius-lg);
-  background: var(--color-surface-2);
 }
 .footer-title {
   margin: 0;
@@ -288,7 +268,7 @@
    over it and the form beside it from lg. */
 .hero {
   position: relative;
-  margin: 0 calc(-1 * var(--space-4));
+  margin-inline: calc(-1 * var(--page-gutter));
   min-height: 18rem;
 }
 @media (min-width: 40rem) {
@@ -296,14 +276,9 @@
     min-height: 20rem;
   }
 }
-@media (--md) {
-  .hero {
-    margin: 0 calc(-1 * var(--space-6));
-  }
-}
 @media (min-width: 64rem) {
   .hero {
-    margin: 0;
+    margin-inline: 0;
   }
 }
 .hero-image {
@@ -342,17 +317,14 @@
   position: relative;
   display: grid;
   gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
+  padding-block: var(--space-3);
+  padding-inline: var(--page-gutter);
   min-height: 18rem;
 }
 @media (min-width: 40rem) {
   .hero-grid {
-    padding: var(--space-5) var(--space-4);
-  }
-}
-@media (--md) {
-  .hero-grid {
-    padding: var(--space-5) var(--space-6);
+    padding-block: var(--space-5);
+    min-height: 20rem;
   }
 }
 @media (min-width: 64rem) {
@@ -397,23 +369,6 @@
   .hero-title {
     font-size: 3rem;
     line-height: 1.1;
-  }
-}
-.foil {
-  background-image: linear-gradient(
-    119deg,
-    var(--color-logo-start) 0%,
-    var(--color-logo-mid) 52%,
-    var(--color-logo-end) 100%
-  );
-  background-clip: text;
-  -webkit-background-clip: text;
-  color: transparent;
-}
-@media (forced-colors: active) {
-  .foil {
-    background-image: none;
-    color: CanvasText;
   }
 }
 .hero-description {
@@ -476,6 +431,9 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.highlight .highlight-value {
+  margin-block-start: 0.125rem;
+}
 .hero-panel {
   display: grid;
   align-content: center;
@@ -496,8 +454,8 @@
   padding: var(--space-4);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-md);
+  background: var(--color-surface-elevated);
+  box-shadow: var(--shadow-lg);
   scroll-margin-top: 4.5rem;
 }
 .panel-hero {

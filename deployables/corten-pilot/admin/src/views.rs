@@ -50,6 +50,8 @@ pub use status_badge::StatusBadge;
 /// because no area can be at `/`.
 pub const COMPONENTS: &[Component] = &[
     theme::TOKENS,
+    platform::numeric_value::NumericValue,
+    theme::PageCanvas,
     platform::ui::nav_bar::NavBar,
     platform::ui::table::Table,
     platform::ui::stats::Stats,
@@ -197,13 +199,14 @@ fn Frame<'a, H: Render, T: Render, C: Render>(
                     crossorigin
                     href={req.asset(crate::app::Static::FONTS_IBM_PLEX_SANS_LATIN_400_NORMAL_WOFF2)}
                 >
+                <link rel="stylesheet" href={req.asset(crate::app::Static::FONTS_CSS)}>
                 <link rel="stylesheet" href={req.asset(crate::app::Static::STYLE_CSS)}>
                 <title>{title}</title>
                 {head}
                 <Corten />
                 <script type="module" src={req.asset(crate::app::Static::APP_JS)}></script>
             </head>
-            <body>
+            <body class={theme::PageCanvas {}}>
                 if let Some(viewer) = viewer {
                     <AdminNav p={p} req={req} viewer={viewer} />
                 }

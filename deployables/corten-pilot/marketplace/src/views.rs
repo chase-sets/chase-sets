@@ -162,6 +162,10 @@ pub use team_page::TeamPage;
 /// The kit's `Stack` is most screens' columns, so it is here rather than in each area's list.
 pub const COMPONENTS: &[Component] = &[
     theme::TOKENS,
+    theme::PageCanvas,
+    platform::numeric_value::NumericValue,
+    theme::BrandFoilText,
+    platform::brand_mark::BrandMark,
     platform::ui::stack::Stack,
     platform::ui::icon::Icon,
     platform::ui::input::Input,
@@ -183,6 +187,7 @@ pub const INVENTORY: &[Component] = &[
     DecisionCard,
     InventoryPage,
     InventoryItemPage,
+    platform::surface::Surface,
     ImportsPage,
     listing_new_page::handlers::COMPONENT,
     corten_ui::dialog::COMPONENT,
@@ -516,6 +521,7 @@ pub fn Frame<'a, H: Render, C: Render>(
                     crossorigin
                     href={req.asset(crate::app::Static::FONTS_IBM_PLEX_SANS_LATIN_400_NORMAL_WOFF2)}
                 >
+                <link rel="stylesheet" href={req.asset(crate::app::Static::FONTS_CSS)}>
                 <link rel="stylesheet" href={req.asset(crate::app::Static::STYLE_CSS)}>
                 <title>{title}</title>
                 <SiteRobots indexed={crate::app::site_indexing()} />
@@ -523,7 +529,7 @@ pub fn Frame<'a, H: Render, C: Render>(
                 <Corten />
                 <script type="module" src={req.asset(crate::app::Static::APP_JS)}></script>
             </head>
-            <body data-shell={shell}>
+            <body class={theme::PageCanvas {}} data-shell={shell}>
                 if shell {
                     <MarketNav p={p} req={req} viewer={viewer} />
                 }
@@ -788,7 +794,7 @@ pub fn cart_page<'a>(t: CartMsg, p: Pilot, screen: &'a CartScreen, notice: Optio
     let readiness = screen.readiness.as_ref();
     let money = |m: Option<&crate::api::Money>| match m {
         Some(m) => cart_item::money(t, &m.amount, &m.currency),
-        None => t.page_priced_at_checkout().to_owned(),
+        None => platform::numeric_value::MoneyDisplay::Fallback(t.page_priced_at_checkout().to_owned()),
     };
     let total = money(readiness.and_then(|r| r.estimated_subtotal.as_ref()));
     let known = readiness.is_some_and(|r| r.estimated_subtotal.is_some());
@@ -800,11 +806,11 @@ pub fn cart_page<'a>(t: CartMsg, p: Pilot, screen: &'a CartScreen, notice: Optio
     let offer_title = match &offered_seller {
         Some(seller) => t
             .page_optimization_switch_to_seller_title(crate::text::cart_msg::PageOptimizationSwitchToSellerTitle {
-                savings: &savings,
+                savings: savings.text(),
                 seller: seller.name,
             })
             .to_string(),
-        None => t.page_optimization_available_title(&savings).to_string(),
+        None => t.page_optimization_available_title(savings.text()).to_string(),
     };
     let context = if screen.ready() || readiness.is_none() {
         t.page_taxes_and_shipping_calculated()

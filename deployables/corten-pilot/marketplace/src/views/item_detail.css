@@ -330,8 +330,9 @@
 }
 .price {
   margin: 0;
-  font: 600 1.75rem/1.2 var(--font-display);
-  font-variant-numeric: tabular-nums;
+  font-size: 1.75rem;
+  font-weight: 600;
+  line-height: 1.2;
 }
 .facts {
   display: grid;

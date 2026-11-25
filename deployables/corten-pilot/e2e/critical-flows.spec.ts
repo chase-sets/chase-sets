@@ -10,10 +10,14 @@ import {
   expectAccessibleMain,
 } from "@chase-sets/playwright-evidence";
 import { registerSyntheticAccount, signInWithPassword, syntheticAccountFor } from "./support/auth";
+import { registerMarketplaceInkFoilTests } from "./support/marketplace-ink-foil";
 import { marketplaceBrowserE2eSeedContract, marketplaceBrowserE2eSellerCredentials } from "./support/seed-contract";
 import { settleSearchResults } from "./support/search-settle";
 import { hasIdentifierSubmitHandler } from "./support/sign-in-readiness";
 import { onCortenMarketplace } from "./support/system";
+
+// The required Corten browser gate runs an explicit list of specs that includes this file.
+registerMarketplaceInkFoilTests();
 
 const configuredMarketplaceAccount = {
   email: process.env.MARKETPLACE_E2E_EMAIL?.trim() ?? "",
