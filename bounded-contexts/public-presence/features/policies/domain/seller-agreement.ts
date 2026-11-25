@@ -95,10 +95,10 @@ export const sellerAgreementPolicyArtifact: SellerAgreementPolicyArtifact = {
           "Incorporate condition-standard and Listing Evidence Policy accuracy requirements by reference, state the closed-catalog listing rule, and state a physical-possession/no-drop-shipping representation as a seller warranty rather than a platform-verified control.",
         decisionRefs: [],
         productTruthRefs: [
-          "bounded-contexts/marketplace/features/listing-evidence-policy/domain/policy.ts:478-588 (photo requirements for top raw conditions and graded listings; seller-trust price gating)",
+          "bounded-contexts/marketplace/features/listing-evidence-policy/domain/policy.ts:535-646 (photo requirements for top raw conditions and graded listings; seller-trust price gating)",
           "bounded-contexts/marketplace/features/listings/domain/listing-evidence-readiness.test.ts (publication blocked until evidence/seller-trust requirements are satisfied)",
-          'bounded-contexts/marketplace/features/listings/api/runtime.ts:818,1420,1651 (assert(supply, "Inventory item not found.") — a listing requires an existing catalog-linked inventory row)',
-          "bounded-contexts/marketplace/features/listings/api/runtime.ts:1302-1316 (catalog_catalog_item_id persisted per listing)",
+          'bounded-contexts/marketplace/features/listings/api/runtime.ts:819,1421,1652 (assert(supply, "Inventory item not found.") — a listing requires an existing catalog-linked inventory row)',
+          "bounded-contexts/marketplace/features/listings/api/runtime.ts:1303-1317 (catalog_catalog_item_id persisted per listing)",
           "bounded-contexts/public-presence/features/help/domain/articles/condition-and-photo-standards.en.md",
         ],
         openQuestions: [],
@@ -106,7 +106,7 @@ export const sellerAgreementPolicyArtifact: SellerAgreementPolicyArtifact = {
           {
             assertion:
               "Listings can only be created against an existing catalog entry; there is no free-text or off-catalog listing path.",
-            evidenceRef: "bounded-contexts/marketplace/features/listings/api/runtime.ts:818,1420,1651,1302-1316",
+            evidenceRef: "bounded-contexts/marketplace/features/listings/api/runtime.ts:819,1421,1652,1303-1317",
           },
           {
             assertion:

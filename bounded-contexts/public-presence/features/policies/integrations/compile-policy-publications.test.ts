@@ -521,9 +521,11 @@ describe("public policy corpus compiler", () => {
     // authenticity plan category removed, and two lines more that the recorded shipping rates had added unpinned.
     // Re-derived for the byte-identical registration form move to 419-584.
     // Re-derived for the Stripe charge-path citation after adding durable detach idempotency.
+    // Re-derived for the byte-identical Marketplace glossary citation moves to 205-216 and 243-256, ten lines down
+    // for the Certificate Number Format entry.
     expect(
       fingerprint(baseline.find(({ relativePath }) => relativePath === "terms-of-service-publication.ts")?.content),
-    ).toBe("sha256:70e5ac930cbe1380e2a8fe31f3c71711ba4f60f73c1a3859eb87a396aaaca199");
+    ).toBe("sha256:d7289fdf4a6126819a8acf15ee27a7f5d6ea45035d90d5b1f9f7af0ddeb2db8b");
 
     for (const module of changed) {
       const before = baseline.find((candidate) => candidate.relativePath === module.relativePath)?.content;
