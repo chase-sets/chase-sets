@@ -1762,8 +1762,8 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     }
   }
 
-  /** Inventory alone says whether an item is graded and how; a create request's own `gradedCard` is never written. */
-  async function resolveInventoryGradedCard(params: Readonly<{ accountId: string; inventoryItemId: string }>) {
+  /** Inventory alone says how an item is graded and what it selects; a create request's own values are never written. */
+  async function resolveInventoryRecordedItem(params: Readonly<{ accountId: string; inventoryItemId: string }>) {
     const authority = deps.inventoryItemGradedCardAuthority;
     if (!authority) throw new Error("Inventory graded item details are unavailable.");
     let recorded;
@@ -1775,7 +1775,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     if (!recorded) {
       throw new MarketplaceListingDomainError("inventory-item-not-found", "Inventory item not found.");
     }
-    return recorded.gradedCard;
+    return recorded;
   }
 
   function stringField(data: Readonly<Record<string, unknown>>, key: string) {
@@ -2291,8 +2291,8 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         params.quantityCap <= (params.availableQuantity ?? params.totalQuantity),
         "Listing quantity caps cannot exceed available listing stock.",
       );
-      const gradedCard = await resolveInventoryGradedCard(params);
-      await upsertBatchInventorySnapshot({ ...params, gradedCard });
+      const { gradedCard, selectedOptions } = await resolveInventoryRecordedItem(params);
+      await upsertBatchInventorySnapshot({ ...params, gradedCard, selectedOptions });
       return createListing(
         {
           accountId: params.accountId as AccountId,

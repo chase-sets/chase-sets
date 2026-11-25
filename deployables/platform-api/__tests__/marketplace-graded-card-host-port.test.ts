@@ -44,6 +44,10 @@ const gradedCard = {
   population: null,
   conditionDescriptors: ["Gem Mint"],
 };
+const selectedOptions = [
+  { dimensionId: "form", optionId: "graded" },
+  { dimensionId: "grading_company", optionId: "psa" },
+];
 
 /** The `inventory.item.created` row Inventory's event store returns for the item's first stream version. */
 function createdRow(accountId: string) {
@@ -56,7 +60,7 @@ function createdRow(accountId: string) {
     stream_context_name: "inventory",
     stream_category: "item",
     event_type: "inventory.item.created",
-    payload: { itemId: "inv_graded_card_host_port", accountId, gradedCard },
+    payload: { itemId: "inv_graded_card_host_port", accountId, selectedOptions, gradedCard },
     metadata: {},
     occurred_at: "2026-11-01T00:00:00.000Z",
     recorded_at: "2026-11-01T00:00:00.000Z",
@@ -72,7 +76,7 @@ function createdRow(accountId: string) {
 describe("marketplace-graded-card-inventory-host-port", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("passes Marketplace an authority that reads the item's first event from the Inventory pool", async () => {
+  it("passes Marketplace an authority that reads the item's details and selection from its first event in the Inventory pool", async () => {
     const pools = createPools("public");
     try {
       const inventoryQuery = vi
@@ -99,7 +103,7 @@ describe("marketplace-graded-card-inventory-host-port", () => {
 
       await expect(
         authority.resolve({ accountId: "acc_owner", inventoryItemId: "inv_graded_card_host_port" }),
-      ).resolves.toEqual({ gradedCard });
+      ).resolves.toEqual({ gradedCard, selectedOptions });
       await expect(
         authority.resolve({ accountId: "acc_other", inventoryItemId: "inv_graded_card_host_port" }),
       ).resolves.toBeNull();

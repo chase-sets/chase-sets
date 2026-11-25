@@ -3266,7 +3266,7 @@ describe("inventory capacity recovery revision races", () => {
 });
 
 /** Inventory's answer for a raw item the account owns, for fixtures whose subject is not Graded Item Details. */
-const rawInventoryItem = { resolve: async () => ({ gradedCard: null }) };
+const rawInventoryItem = { resolve: async () => ({ gradedCard: null, selectedOptions: [] }) };
 
 describe("native Listing creation requires a resolved shipping measure", () => {
   function createFixture(memory = createInMemoryEventStore()) {
@@ -3618,7 +3618,14 @@ describe("an inventory snapshot changes only supply mirror rows its account owns
   });
 });
 
-describe("a snapshot create takes Graded Item Details from Inventory, not from the request", () => {
+/** The launch value keys a Certificate Number Format on the PSA Grading Company Option and none on ACE. */
+const launchPsaRule = LISTING_EVIDENCE_LAUNCH_POLICY_VALUE.rules.find(
+  (rule) => rule.ruleId === "certificate-format-psa",
+)!;
+const psaOption = launchPsaRule.selector.options[0]!;
+const aceOption = { dimensionId: psaOption.dimensionId, optionId: "chc_seed_grading_company_ace" };
+
+describe("a snapshot create takes Graded Item Details and the selection from Inventory, not from the request", () => {
   const LOCATION_WRITE = "INSERT INTO marketplace_supply_locations";
   const ITEM_WRITE = "INSERT INTO marketplace_supply_items";
   const psa = {
@@ -3635,13 +3642,17 @@ describe("a snapshot create takes Graded Item Details from Inventory, not from t
     population: null,
     conditionDescriptors: [],
   };
-  type InventoryAnswer = Readonly<{ gradedCard: typeof psa | null }> | null;
+  type InventoryAnswer = Readonly<{
+    gradedCard: typeof psa | null;
+    selectedOptions: readonly Readonly<{ dimensionId: string; optionId: string }>[];
+  }> | null;
 
   /** `inventory` is what the host port answers; the fake mirror row reads back what the item write stored. */
   function createFixture(inventory: "absent" | (() => Promise<InventoryAnswer>)) {
     const memory = createInMemoryEventStore();
     const order: string[] = [];
     const itemWrites: unknown[] = [];
+    const selectionWrites: unknown[] = [];
     const resolveListingTerms = vi.fn(async ({ amount, accountId }) => ({
       accountId,
       accountType: "business" as const,
@@ -3668,10 +3679,12 @@ describe("a snapshot create takes Graded Item Details from Inventory, not from t
       if (sql.includes(ITEM_WRITE)) {
         order.push("item write");
         itemWrites.push(values[5]);
+        selectionWrites.push(values[4]);
         return { rows: [{ item_id: "inv_1" }] };
       }
       if (sql.includes("FROM marketplace_supply_items AS item")) {
         const stored = itemWrites.at(-1);
+        const storedSelection = selectionWrites.at(-1);
         return {
           rows: [
             {
@@ -3681,7 +3694,7 @@ describe("a snapshot create takes Graded Item Details from Inventory, not from t
               product_id: "cat_1::",
               item_title: "Charizard",
               item_subtitle: null,
-              selected_options: [],
+              selected_options: typeof storedSelection === "string" ? JSON.parse(storedSelection) : null,
               product_summary: null,
               product_measure_snapshot: productMeasureSnapshot,
               graded_card: typeof stored === "string" ? JSON.parse(stored) : null,
@@ -3714,7 +3727,7 @@ describe("a snapshot create takes Graded Item Details from Inventory, not from t
       listingEvidencePolicyEvaluator: { evaluate },
       ...(inventory === "absent" ? {} : { inventoryItemGradedCardAuthority: { resolve } }),
     });
-    return { ...memory, services, resolveListingTerms, evaluate, query, resolve, order, itemWrites };
+    return { ...memory, services, resolveListingTerms, evaluate, query, resolve, order, itemWrites, selectionWrites };
   }
 
   const snapshot = {
@@ -3748,7 +3761,7 @@ describe("a snapshot create takes Graded Item Details from Inventory, not from t
   ])(
     "writes the details Inventory holds to the supply mirror and the Listing when the request says $label",
     async ({ requested, recorded }) => {
-      const f = createFixture(async () => ({ gradedCard: recorded }));
+      const f = createFixture(async () => ({ gradedCard: recorded, selectedOptions: [] }));
 
       const created = await f.services.createListingFromInventorySnapshot(
         listingTestCommand("listing.create", {
@@ -3769,6 +3782,66 @@ describe("a snapshot create takes Graded Item Details from Inventory, not from t
       expect(f.evaluate.mock.calls.map(([facts]) => facts.gradedItem)).toEqual([recorded !== null]);
     },
   );
+
+  const requestedSelections = (["native", "channel-only"] as const).flatMap((publicationScope) => [
+    { publicationScope, label: "no selection", requested: [] },
+    { publicationScope, label: "the ACE Option", requested: [aceOption] },
+  ]);
+  const createdSelections = (events: readonly StoredEvent[]) =>
+    events
+      .filter((event) => event.eventType === "marketplace.listing.created")
+      .map((event) => event.payload.selectedOptions);
+
+  it.each(requestedSelections)(
+    "refuses a $publicationScope Listing whose PSA certificate breaks the launch format when the request sends $label",
+    async ({ publicationScope, requested }) => {
+      const f = createFixture(async () => ({
+        gradedCard: { ...psa, certificationNumber: "1234567" },
+        selectedOptions: [psaOption],
+      }));
+
+      await expect(
+        f.services.createListingFromInventorySnapshot(
+          listingTestCommand("listing.create", { ...snapshot, selectedOptions: requested, publicationScope }),
+          context,
+        ),
+      ).rejects.toThrow("PSA certification numbers must use 8 to 10 digits.");
+
+      // The mirror row holds the selection Inventory recorded, and that row is what the policy is asked about.
+      expect(f.selectionWrites).toEqual([JSON.stringify([psaOption])]);
+      expect(f.evaluate.mock.calls.map(([facts]) => facts.selectedOptions)).toEqual([[psaOption]]);
+      expect(f.allEvents).toHaveLength(0);
+    },
+  );
+
+  it.each(requestedSelections)(
+    "creates a $publicationScope Listing on the selection Inventory holds when the request sends $label",
+    async ({ publicationScope, requested }) => {
+      const f = createFixture(async () => ({ gradedCard: psa, selectedOptions: [psaOption] }));
+
+      const created = await f.services.createListingFromInventorySnapshot(
+        listingTestCommand("listing.create", { ...snapshot, selectedOptions: requested, publicationScope }),
+        context,
+      );
+
+      expect(f.selectionWrites).toEqual([JSON.stringify([psaOption])]);
+      expect(f.evaluate.mock.calls.map(([facts]) => facts.selectedOptions)).toEqual([[psaOption]]);
+      expect(createdSelections(f.allEvents)).toEqual([[psaOption]]);
+      expect(created.state).toMatchObject({ publicationScope, selectedOptions: [psaOption], gradedCard: psa });
+    },
+  );
+
+  it("writes an empty selection for an item Inventory recorded without one, whatever the request selects", async () => {
+    const f = createFixture(async () => ({ gradedCard: null, selectedOptions: [] }));
+
+    await f.services.createListingFromInventorySnapshot(
+      listingTestCommand("listing.create", { ...snapshot, selectedOptions: [psaOption] }),
+      context,
+    );
+
+    expect(f.selectionWrites).toEqual(["[]"]);
+    expect(createdSelections(f.allEvents)).toEqual([[]]);
+  });
 
   it.each([
     {
@@ -3847,11 +3920,6 @@ describe("a snapshot create takes Graded Item Details from Inventory, not from t
 });
 
 describe("a created Listing takes its Certificate Number Format from the resolved Listing Evidence Policy", () => {
-  const launchPsaRule = LISTING_EVIDENCE_LAUNCH_POLICY_VALUE.rules.find(
-    (rule) => rule.ruleId === "certificate-format-psa",
-  )!;
-  const psaOption = launchPsaRule.selector.options[0]!;
-  const aceOption = { dimensionId: psaOption.dimensionId, optionId: "chc_seed_grading_company_ace" };
   const tagOption = { dimensionId: psaOption.dimensionId, optionId: "chc_seed_grading_company_tag" };
   /** A document an operator activated: the launch rules plus a format the launch value does not carry. */
   const policyWithAceFormat = {

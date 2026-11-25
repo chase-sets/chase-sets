@@ -204,7 +204,7 @@ describeDb("own predicate writer enrollment with Pricing projection delivery hel
       marketplaceModule.createServices(db, {
         commercialTermsResolver: terms,
         // Fixture Listings are created for a raw item; most cases never create it in Inventory.
-        inventoryItemGradedCardAuthority: { resolve: async () => ({ gradedCard: null }) },
+        inventoryItemGradedCardAuthority: { resolve: async () => ({ gradedCard: null, selectedOptions: [] }) },
       });
     const actor = {
       accountId,

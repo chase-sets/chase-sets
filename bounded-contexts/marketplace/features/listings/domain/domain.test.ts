@@ -996,6 +996,37 @@ describe("marketplace Graded Item Details on a created Listing", () => {
     expect(createdGradedCard({ certificateNumberFormats: [psaFormat] })).toBeNull();
     expect(createdGradedCard({ gradedCard: null, certificateNumberFormats: [psaFormat] })).toBeNull();
   });
+
+  const blankTexts = [
+    ["an empty", ""],
+    ["a whitespace-only", " \t "],
+    ["a leading-padded", " PSA"],
+    ["a trailing-padded", "PSA "],
+  ] as const;
+  const channelOnly = { publicationScope: "channel-only", feeLock: null, evidenceRequirements: null } as const;
+
+  it.each(blankTexts)(
+    "refuses %s grading company or grade on a channel-only Listing, from the created-payload parser in contracts",
+    (_label, text) => {
+      expect(createdGradedCard({ ...channelOnly, gradedCard: gradedCard() })).toMatchObject({ gradingCompany: "PSA" });
+      expect(() => createdGradedCard({ ...channelOnly, gradedCard: gradedCard({ gradingCompany: text }) })).toThrow(
+        "Listing graded card gradingCompany must be a nonempty, unpadded string.",
+      );
+      expect(() => createdGradedCard({ ...channelOnly, gradedCard: gradedCard({ grade: text }) })).toThrow(
+        "Listing graded card grade must be a nonempty, unpadded string.",
+      );
+    },
+  );
+
+  it.each(blankTexts)(
+    "records %s grading company or grade as given on a native Listing, whose creation record that parser does not check",
+    (_label, text) => {
+      expect(createdGradedCard({ gradedCard: gradedCard({ gradingCompany: text }) })).toMatchObject({
+        gradingCompany: text,
+      });
+      expect(createdGradedCard({ gradedCard: gradedCard({ grade: text }) })).toMatchObject({ grade: text });
+    },
+  );
 });
 
 describe("listing enforcement actions", () => {
