@@ -139,7 +139,8 @@ describe("Inventory Listing stock compatibility", () => {
       const db = {
         query: async (sql: string, values: readonly unknown[] = []) => {
           writes.push({ sql, values });
-          return { rows: [] };
+          // Each mirror write returns the row it wrote; the supply read that follows finds none.
+          return { rows: sql.includes("INSERT INTO marketplace_supply_") ? [{}] : [] };
         },
       };
       const { eventStore } = createInMemoryEventStore();
