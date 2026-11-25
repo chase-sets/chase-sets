@@ -85,8 +85,13 @@ export function createComposeIngressServer({ label, webTarget, apiTarget, fetchI
       });
 
       const responseHeaders = {};
+      // fetch decodes a compressed body, so the bytes written below are the decoded ones: the
+      // upstream's encoding and its length (of the encoded bytes) no longer describe them. Kept, the
+      // length cuts a browser's read of the page short at the encoded size.
+      const decoded = upstreamResponse.headers.has("content-encoding");
       for (const [name, value] of upstreamResponse.headers) {
-        if (name.toLowerCase() === "content-encoding") {
+        const normalizedName = name.toLowerCase();
+        if (normalizedName === "content-encoding" || (decoded && normalizedName === "content-length")) {
           continue;
         }
         responseHeaders[name] = value;

@@ -1,6 +1,7 @@
 import { once } from "node:events";
-import { request as httpRequest } from "node:http";
+import { createServer as createHttpServer, request as httpRequest } from "node:http";
 import { connect } from "node:net";
+import { gzipSync } from "node:zlib";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV } from "../infrastructure/platform-runtime/http.ts";
 import { createWebApp } from "../infrastructure/platform-runtime/web-server.ts";
@@ -166,6 +167,59 @@ describe("platform-compose-ingress", () => {
       expect(upstreamHeaders["x-forwarded-proto"]).toBe("http");
     } finally {
       await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    }
+  });
+
+  it("answers a compressed upstream page whole, without the encoded length", async () => {
+    const page = `<html><body>${"x".repeat(5000)}<label>Email or phone<input></label></body></html>`;
+    const compressed = gzipSync(page);
+    const upstream = createHttpServer((request, response) => {
+      if (request.url === "/plain") {
+        response.writeHead(200, { "content-type": "text/html", "content-length": Buffer.byteLength(page) });
+        response.end(page);
+        return;
+      }
+      response.writeHead(200, {
+        "content-type": "text/html",
+        "content-encoding": "gzip",
+        "content-length": compressed.length,
+      });
+      response.end(compressed);
+    });
+    const upstreamPort = await listen(upstream);
+    const server = createComposeIngressServer({
+      webTarget: `http://127.0.0.1:${upstreamPort}`,
+      apiTarget: "http://127.0.0.1:9",
+    });
+    const get = (port, path) =>
+      new Promise((resolve, reject) => {
+        httpRequest({ host: "127.0.0.1", port, path, headers: { "accept-encoding": "gzip" } }, (response) => {
+          let body = "";
+          response.setEncoding("utf8");
+          response.on("data", (chunk) => {
+            body += chunk;
+          });
+          response.on("end", () => resolve({ headers: response.headers, body }));
+          response.on("error", reject);
+        })
+          .on("error", reject)
+          .end();
+      });
+
+    try {
+      const port = await listen(server);
+
+      const compressedAnswer = await get(port, "/sign-in");
+      expect(compressedAnswer.headers).not.toHaveProperty("content-encoding");
+      expect(compressedAnswer.headers["content-length"]).not.toBe(String(compressed.length));
+      expect(compressedAnswer.body).toBe(page);
+
+      const plainAnswer = await get(port, "/plain");
+      expect(plainAnswer.headers["content-length"]).toBe(String(Buffer.byteLength(page)));
+      expect(plainAnswer.body).toBe(page);
+    } finally {
+      await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+      await new Promise((resolve, reject) => upstream.close((error) => (error ? reject(error) : resolve())));
     }
   });
 });
