@@ -28,6 +28,7 @@ import {
   type CatalogMergeCandidateCommand,
   type CatalogMergeCandidateConflictResolution,
   type CatalogMergeCandidateEvent,
+  type CatalogMergeCandidateFieldProvenance,
   type CatalogMergeCandidatePromotionApplication,
   type CatalogMergeCandidatePromotionAppliedEvent,
   type CatalogMergeCandidatePromotionPlan,
@@ -459,6 +460,13 @@ const promotionFacts = [
   },
   { fieldPath: "catalogItem.rarity", fieldIdKey: "rarity", valueKind: "raw", factKey: "rarity", required: false },
   {
+    fieldPath: "catalogItem.inkColor",
+    fieldIdKey: "inkColor",
+    valueKind: "raw",
+    factKey: "inkColor",
+    required: false,
+  },
+  {
     fieldPath: "catalogItem.productForm",
     fieldIdKey: "cardVariant",
     valueKind: "raw",
@@ -509,7 +517,60 @@ export function snapshotWithAuthoredFacts(
     delete facts[fact.factKey];
     fieldProvenance = fieldProvenance.filter((entry) => entry.fieldPath !== fact.fieldPath);
   }
+  for (const fact of promotionFacts) {
+    if (!authorCarriedFactKeys.has(fact.factKey)) continue;
+    if (approvedFact(snapshot.proposedCatalogItemFacts, fact.factKey) !== null) continue;
+    const carried = authors.flatMap((author) => {
+      const extracted = extractMergeCandidateFieldValue(fact.factKey, author, snapshot.identity);
+      return extracted && !extracted.fromFallback ? [{ author, value: extracted.value }] : [];
+    });
+    const first = carried[0];
+    if (!first || carried.some((entry) => !mergeCandidateFieldValuesEqual(entry.value, first.value))) continue;
+    facts[fact.factKey] = first.value;
+    fieldProvenance = [
+      ...fieldProvenance.filter((entry) => entry.fieldPath !== fact.fieldPath),
+      ...carried.map(({ author, value }) => authorProvenance(snapshot, author, fact.fieldPath, value, carried.length)),
+    ];
+  }
   return { ...snapshot, proposedCatalogItemFacts: facts, fieldProvenance };
+}
+
+/**
+ * Facts a reviewed snapshot may lack only because its candidate was proposed
+ * before the matcher projected them. Ink color is required by the Lorcana
+ * display template; when the snapshot has none, the item-producing members'
+ * own reviewed revisions supply it if they agree, as direct provider promotion
+ * does. Disagreement leaves it unset.
+ */
+const authorCarriedFactKeys: ReadonlySet<string> = new Set(["inkColor"]);
+
+function authorProvenance(
+  snapshot: CatalogMergeCandidateReviewSnapshot,
+  author: ItemAuthor,
+  fieldPath: string,
+  value: JsonValue,
+  carriedCount: number,
+): CatalogMergeCandidateFieldProvenance {
+  const { revision } = author;
+  const member = snapshot.membership.find(
+    (entry) =>
+      entry.providerKey === revision.providerKey &&
+      entry.externalKey === revision.externalKey &&
+      entry.sourceRecordHash === revision.sourceRecordHash,
+  );
+  return {
+    fieldPath,
+    value,
+    observationId: member?.observationId ?? revision.id ?? "",
+    providerKey: revision.providerKey,
+    sourceProfileKey: revision.sourceProfileKey,
+    sourceProfileVersion: revision.sourceProfileVersion,
+    confidence: carriedCount === 1 ? "exact" : "high",
+    evidence: {
+      sourceField: fieldPath.replace(/^catalogItem\./, ""),
+      sourceMappingFingerprint: revision.sourceMappingFingerprint,
+    },
+  };
 }
 
 function approvedFact(facts: JsonObject, factKey: string): JsonValue | null {
@@ -1065,13 +1126,11 @@ function candidateCatalogMapping(
   if (referenceField && !referenceFieldId) throw blocked("missing-reference-record-target", referenceField);
   const fields: CatalogMergeCandidatePromotionFieldMapping[] = promotionFacts
     .filter((fact) => fact.factKey !== "productForm" || "sealedProductForm" in primary.normalized)
-    .map(({ fieldPath, fieldIdKey, valueKind, factKey, required }) => ({
-      fieldPath,
-      fieldId: fieldIds[fieldIdKey],
-      valueKind,
-      factKey,
-      ...(required ? { required } : {}),
-    }));
+    .flatMap(({ fieldPath, fieldIdKey, valueKind, factKey, required }) => {
+      // Optional fields such as ink color exist only on the profiles that declare them.
+      const fieldId = fieldIds[fieldIdKey];
+      return fieldId ? [{ fieldPath, fieldId, valueKind, factKey, ...(required ? { required } : {}) }] : [];
+    });
   if (referenceFieldId) {
     fields.push({
       fieldPath: referenceField === "expansion" ? "catalogItem.expansionName" : "catalogItem.setName",

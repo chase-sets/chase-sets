@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import { bootstrapContextDatabase, drainLocalProjectionHandlerSets } from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
@@ -847,6 +848,9 @@ describeDb("Catalog Merge Candidate application through real Catalog services (d
             printed_number: `${number}/SYN`,
             language: "English",
             language_code: "EN",
+            // The Lorcana display template requires ink and rarity, which Scrydex returns.
+            rarity: "Common",
+            ink: "Amber",
             tcgplayer_id: tcgplayerId,
             expansion: { id: "SYN24", code: "SYN24", name: "Synthetic Collection" },
           },
@@ -860,7 +864,12 @@ describeDb("Catalog Merge Candidate application through real Catalog services (d
         context,
       });
       await drainLocalProjectionHandlerSets("catalog", pool, services.sourceObservations.projectors);
-      const candidateId = await candidateFrom([observation.observationId], (snapshot) => snapshot, version);
+      // The first candidate stands in for one proposed before the matcher carried ink color.
+      const candidateId = await candidateFrom(
+        [observation.observationId],
+        number === 1 ? withoutInkColor : (snapshot) => snapshot,
+        version,
+      );
       candidates.push({ candidateId, tcgplayerId });
     }
 
@@ -883,8 +892,19 @@ describeDb("Catalog Merge Candidate application through real Catalog services (d
       expect(item.externalCatalogItemReferences.filter((reference) => reference.providerKey === "tcgplayer")).toEqual(
         tcgplayerId ? [expect.objectContaining({ externalKey: `product:${tcgplayerId}` })] : [],
       );
+      expect(item.fieldValues).toContainEqual({ fieldId: catalogSeedIds.fields.inkColor, value: "Amber" });
     }
   });
+
+  function withoutInkColor(snapshot: CatalogMergeCandidateReviewSnapshot): CatalogMergeCandidateReviewSnapshot {
+    expect(snapshot.proposedCatalogItemFacts.inkColor).toBe("Amber");
+    const { inkColor: _inkColor, ...facts } = snapshot.proposedCatalogItemFacts;
+    return {
+      ...snapshot,
+      proposedCatalogItemFacts: facts,
+      fieldProvenance: snapshot.fieldProvenance.filter((entry) => entry.fieldPath !== "catalogItem.inkColor"),
+    };
+  }
 
   async function completionFacts() {
     const candidates = await pool.query<{ candidate_id: string }>(

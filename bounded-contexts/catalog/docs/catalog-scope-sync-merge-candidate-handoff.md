@@ -207,7 +207,10 @@ planner and the shared executor:
    would write must be carried by an item-producing member's own revision or be
    a reviewer's correction, and the name must be carried at all
    (`promotion-facts-missing`, before planning; the planner's `missing-title` and
-   `missing-field-value` are unchanged). Then enforce the
+   `missing-field-value` are unchanged). Ink color, which the Lorcana display
+   template requires, is taken from the item-producing members' own reviewed
+   revisions when an approved snapshot proposed before the matcher carried it
+   has none, and only when they agree. Then enforce the
    global/provider/unit promotion rollout controls, require every item-producing
    member to agree on blueprint, category, fields and hierarchy Reference Record,
    and nominate reuse targets from the duplicate resolver under each member's
