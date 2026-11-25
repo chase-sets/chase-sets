@@ -2655,7 +2655,7 @@ async fn the_catalog_is_an_area_with_its_own_guard_and_stylesheet() {
     assert!(section.contains(".list-page__table") && section.contains(".catalog-dialog__form"), "{section}");
     assert!(!section.contains(".policy-table__"), "{section}");
     assert!(!shared.contains(".list-page__") && !shared.contains(".policy-table__"), "{shared}");
-    assert!(shared.contains(".nav-bar__bar") && shared.contains(".admin-nav__tag"), "the frame is shared: {shared}");
+    assert!(shared.contains(".nav-bar__bar") && shared.contains(".admin-nav__trigger"), "the frame is shared: {shared}");
 }
 
 #[tokio::test]
