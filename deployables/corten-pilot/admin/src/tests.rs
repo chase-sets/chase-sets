@@ -2685,7 +2685,7 @@ async fn the_catalog_is_an_area_with_its_own_guard_and_stylesheet() {
     assert!(section.contains(".list-page__table") && section.contains(".catalog-dialog__form"), "{section}");
     assert!(!section.contains(".policy-table__"), "{section}");
     assert!(!shared.contains(".list-page__") && !shared.contains(".policy-table__"), "{shared}");
-    assert!(shared.contains(".nav-bar__bar") && shared.contains(".admin-nav__tag"), "the frame is shared: {shared}");
+    assert!(shared.contains(".nav-bar__bar") && shared.contains(".admin-nav__trigger"), "the frame is shared: {shared}");
 }
 
 #[tokio::test]
@@ -5877,8 +5877,16 @@ async fn accesss_home_shows_each_attention_kind_and_searches_accounts() {
     assert!(html.contains("new@example.test · Manager · "), "{html}");
     assert!(html.contains("Inventory sync · Dana · "), "{html}");
     assert!(html.contains("dana@example.test · Unrecognized"), "an unknown role is named as one: {html}");
-    assert!(html.contains(r#"href="/access/accounts/acc_1?tab=team""#), "{html}");
-    assert!(html.contains(r#"href="/access/accounts/acc_1?tab=api-access""#), "{html}");
+    for href in [
+        "/access/accounts/acc_1?tab=team&amp;invitation=inv_1",
+        "/access/accounts/acc_1?tab=api-access&amp;apiKey=key_1",
+        "/access/accounts/acc_1?tab=team&amp;membership=mem_1",
+    ] {
+        assert!(
+            html.contains(&format!(r#"href="{href}""#)),
+            "each attention row opens its record, as admin-web does: {href}: {html}"
+        );
+    }
     assert!(html.contains(r#"href="/access/accounts/acc_2""#), "the overview is the plain address: {html}");
     assert!(!html.contains("localhost:7752/access/accounts"), "nothing opens admin-web's workspace: {html}");
     assert!(html.contains("39 accounts found") && html.contains(r#"value="acme""#), "{html}");
@@ -5913,7 +5921,7 @@ async fn an_access_list_asks_identity_as_admin_web_does_and_pages() {
     assert!(html.contains("Password, Passkey"), "{html}");
     let (_, _, html) = pilot.send(get("/access/memberships", Some("access-staff"))).await;
     assert!(html.contains("dana@example.test") && html.contains("Acme Cards LLC"), "{html}");
-    assert!(html.contains(r#"href="/access/accounts/acc_1?tab=team""#), "{html}");
+    assert!(html.contains(r#"href="/access/accounts/acc_1?tab=team&amp;membership=mem_1""#), "{html}");
     let (_, _, html) = pilot.send(get("/access/api-keys", Some("access-staff"))).await;
     assert!(html.contains("<code>csk_abc</code>") && html.contains(r#"href="/access/api-keys/key_1""#), "{html}");
 }
@@ -5947,6 +5955,26 @@ async fn an_accounts_workspace_draws_each_tab_from_one_read() {
     assert_eq!(status, StatusCode::BAD_REQUEST);
     let writes = pilot.calls_to("/api/identity/").into_iter().filter(|c| c.method != Method::GET).count();
     assert_eq!(writes, 0, "a refused or unknown form writes nothing");
+}
+
+/// admin-web's workspace reads only `tab`: an address that names a user or a membership (as an
+/// access record's page and the access lists link it) opens the team tab, which draws every user's
+/// card and membership's row, the named record's among them with its forms.
+#[tokio::test]
+async fn an_access_records_address_opens_the_team_tab_with_that_records_detail() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/access/accounts/acc_1?tab=team&user=usr_2", Some("access-admin"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    for words in ["<code>usr_2</code>", "Update Profile", r#"value="suspend-user""#] {
+        assert!(html.contains(words), "the user's card: {words}: {html}");
+    }
+    let (status, _, html) = pilot.send(get("/access/accounts/acc_1?tab=team&membership=mem_1", Some("access-admin"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    for words in [r#"value="change-membership-role""#, r#"value="mem_1""#, r#"value="revoke-membership""#, "dana@example.test"] {
+        assert!(html.contains(words), "the membership's row: {words}: {html}");
+    }
+    let paths: Vec<String> = pilot.calls_to("/api/identity/").into_iter().map(|c| c.path).collect();
+    assert_eq!(paths, ["/api/identity/access-hub/accounts/acc_1"; 2], "the record's key is not sent to Identity");
 }
 
 #[tokio::test]
@@ -6066,14 +6094,14 @@ async fn a_sessions_switch_or_revoke_writes_to_auth_and_reads_the_page_after_it(
 }
 
 #[tokio::test]
-async fn a_users_or_keys_page_opens_its_accounts_workspace() {
+async fn a_users_or_keys_page_opens_its_accounts_workspace_for_that_record() {
     let pilot = Pilot::new().await;
     for (path, to) in [
-        ("/access/users/usr_2", "/access/accounts/acc_1?tab=team"),
+        ("/access/users/usr_2", "/access/accounts/acc_1?tab=team&user=usr_2"),
         ("/access/users/usr_9", "/access/users?search=usr_9"),
-        ("/access/api-keys/key_1", "/access/accounts/acc_1?tab=api-access"),
-        ("/access/memberships/mem_1", "/access/accounts/acc_1?tab=team"),
-        ("/access/invitations/inv_1", "/access/accounts/acc_1?tab=team"),
+        ("/access/api-keys/key_1", "/access/accounts/acc_1?tab=api-access&apiKey=key_1"),
+        ("/access/memberships/mem_1", "/access/accounts/acc_1?tab=team&membership=mem_1"),
+        ("/access/invitations/inv_1", "/access/accounts/acc_1?tab=team&invitation=inv_1"),
     ] {
         let (status, headers, html) = pilot.send(get(path, Some("access-staff"))).await;
         assert_eq!(status, StatusCode::SEE_OTHER, "{path}: {html}");
@@ -7351,7 +7379,7 @@ fn post_multipart(
 /// Whether the input `marker` names is a search field: the kit's input group, with the search glyph before it.
 fn in_search_group(html: &str, marker: &str) -> bool {
     let Some(input) = html.find(marker) else { return false };
-    html[..input].rfind(r#"<span class="input-group__input-group">"#).is_some_and(|group| {
+    html[..input].rfind(r#"<span class="input-group__input-group search-box__field">"#).is_some_and(|group| {
         html[group..input].contains(r#"<span class="input-group__adornment" aria-hidden="true"><svg"#)
             && !html[group..input].contains("</span></span>")
     })

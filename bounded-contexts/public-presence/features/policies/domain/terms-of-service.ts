@@ -417,11 +417,11 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
         assumptions: [
           {
             assertion: "Ordering's Order, recorded before pending payment and capture, is the buyer-seller commitment.",
-            evidenceRef: "bounded-contexts/ordering/GLOSSARY.md:1-22; bounded-contexts/ordering/README.md:5",
+            evidenceRef: "bounded-contexts/ordering/GLOSSARY.md:11-18; bounded-contexts/ordering/README.md:5",
           },
           {
             assertion: "Buyers retain a limited self-service purchase-cancellation window before shipment.",
-            evidenceRef: "bounded-contexts/ordering/GLOSSARY.md:76-85",
+            evidenceRef: "bounded-contexts/ordering/GLOSSARY.md:94-104",
           },
         ],
       },
@@ -464,9 +464,9 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
         scopeNote: "Describe user content, Chase Sets' license, and how reported or infringing content is handled.",
         decisionRefs: [],
         productTruthRefs: [
-          "bounded-contexts/marketplace/GLOSSARY.md:19-28,243-256",
+          "bounded-contexts/marketplace/GLOSSARY.md:82-91,357-370",
           "bounded-contexts/marketplace/features/reports/domain/domain.ts:3-27",
-          "bounded-contexts/platform-operations/GLOSSARY.md:70-76",
+          "bounded-contexts/platform-operations/GLOSSARY.md:117-119,131-133",
           "bounded-contexts/public-presence/features/help/domain/articles/intellectual-property-and-dmca.en.md:58-62",
         ],
         openQuestions: [
@@ -476,12 +476,12 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
         assumptions: [
           {
             assertion: "Listing photos are normalized into Chase Sets-owned WebP asset variants after upload.",
-            evidenceRef: "bounded-contexts/marketplace/GLOSSARY.md:19-28",
+            evidenceRef: "bounded-contexts/marketplace/GLOSSARY.md:82-91",
           },
           {
             assertion:
               "Listing and review content may be reported; listings can auto-unlist at a distinct-reporter threshold, while review reports never auto-remove.",
-            evidenceRef: "bounded-contexts/marketplace/GLOSSARY.md:205-216",
+            evidenceRef: "bounded-contexts/marketplace/GLOSSARY.md:311-322,324-334",
           },
         ],
       },
@@ -583,7 +583,7 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
           "Describe the Support Request process as the platform's buyer-seller dispute avenue, and state a release of Chase Sets for user-to-user disputes consistent with that operator-mediated process.",
         decisionRefs: [],
         productTruthRefs: [
-          "bounded-contexts/platform-operations/GLOSSARY.md:11-13",
+          "bounded-contexts/platform-operations/GLOSSARY.md:15-17",
           "bounded-contexts/platform-operations/features/support-requests/domain/common.ts:5-79",
           "bounded-contexts/platform-operations/features/support-requests/domain/domain.ts:32,841,1475,1508",
         ],
