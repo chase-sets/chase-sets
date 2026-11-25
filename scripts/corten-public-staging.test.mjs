@@ -47,7 +47,8 @@ describe("Corten public staging, first slice", () => {
     const expected = {
       "reconcile-production-marker": "6e7171774b3d654c0dcd81d993140ebcfb0bf8436d05c7a5809c7137b5f2c317",
       "reconcile-managed-postgres-ca-production": "2a089333675961592792931dc522f4a8725e1f4b2f8688a0a7ecbb5a3246f389",
-      "deploy-production": "df0d9ff6ac024bf0498e3bb269bada04c88fdb61fb4630ad40d272104ff9631d",
+      // Moved for the production public switch: PRODUCTION_PUBLIC_APP, the staged Corten public image, best-effort PROXIES.
+      "deploy-production": "8c09ed0455705b188d67a82a123f0c63b1432d53a14758da84f19ea17889bf16",
       "notify-production-deploy-incident": "45ba7ca357af41620cb066784a2ef94c80741725d98aa98a6520f3b049166262",
       "notify-production-rollback-incident": "6620994b81902ec45da29e5b3f049a1e49b2e9a2483d1b6acf6663584272710e",
     };
@@ -67,7 +68,7 @@ describe("Corten public staging, first slice", () => {
   it("preserves the production values", () => {
     for (const [file, sha] of Object.entries({
       "values.yaml": "deabfa12c21bfed16326e58432c13a4aecf3a1f1f852768320a311e3916baadc",
-      "values.production.yaml": "2f908317309dca398afb71c062bfe218dfd7d65d3b04bbe9c0bbdcfd62f5974c",
+      "values.production.yaml": "b39cdc628cf5295e0669b9a6beccbe379a0dd48e431e181c52129ad685be36c9",
     })) {
       expect(
         createHash("sha256")
@@ -123,15 +124,14 @@ describe("Corten public staging, first slice", () => {
     },
   );
 
-  it("keeps the pilot out of base, production and preview values and production ingress", () => {
+  it("keeps the pilot out of base and preview values and preview workloads, and adds no production ingress host", () => {
     expect(buildPlatformHelmValues().components).not.toHaveProperty("public-corten");
-    expect(buildPlatformHelmProductionValues().components).not.toHaveProperty("public-corten");
+    // Production declares it (corten-public-production.test.mjs) but withholds it while public-web serves.
+    expect(buildPlatformHelmProductionValues().components).toHaveProperty("public-corten");
     expect(read("infrastructure/helm/platform/values.preview.yaml")).not.toContain("public-corten");
-    for (const environment of ["production", "preview"]) {
-      expect(
-        platformKubernetesWorkloads({ envOverrides: { DEPLOYMENT_ENVIRONMENT: environment } }).deployments,
-      ).not.toContain(workload);
-    }
+    expect(
+      platformKubernetesWorkloads({ envOverrides: { DEPLOYMENT_ENVIRONMENT: "preview" } }).deployments,
+    ).not.toContain(workload);
     expect(
       buildDoksIngressValues({
         environment: "production",
@@ -201,15 +201,13 @@ describe("Corten public staging, first slice", () => {
   it("pins the pilot image only on staging and refuses mutable or wrong-repository references", () => {
     expect(buildHelmUpgradeArgs(options)).toContain(`components.public-corten.image=${image}`);
     expect(parseArgs(["deploy", "--corten-public-image", image], {}).cortenPublicImage).toBe(image);
-    for (const environment of ["production", "preview"]) {
-      const elsewhere = {
-        ...options,
-        cortenAdminImage: undefined,
-        cortenMarketplaceImage: undefined,
-        envOverrides: { DEPLOYMENT_ENVIRONMENT: environment },
-      };
-      expect(() => buildHelmUpgradeArgs(elsewhere)).toThrow("corten-public-image is staging-only.");
-    }
+    const preview = {
+      ...options,
+      cortenAdminImage: undefined,
+      cortenMarketplaceImage: undefined,
+      envOverrides: { DEPLOYMENT_ENVIRONMENT: "preview" },
+    };
+    expect(() => buildHelmUpgradeArgs(preview)).toThrow("corten-public-image is staging and production only.");
     expect(() => buildHelmUpgradeArgs({ ...options, cortenPublicImage: image.split("@")[0] + ":latest" })).toThrow();
     for (const repository of ["chase-sets-platform", "chase-sets-corten-admin", "chase-sets-corten-marketplace"]) {
       expect(() =>
@@ -267,8 +265,8 @@ describe("Corten public staging, first slice", () => {
     expect(deploy.run).toContain(
       'if [ -n "${CORTEN_PUBLIC_IMAGE:-}" ]; then\n  corten_image_args+=(--corten-public-image "$CORTEN_PUBLIC_IMAGE")\nelse\n',
     );
-    expect(JSON.stringify(workflow.jobs["deploy-production"])).not.toContain("corten_public_image");
-    expect(JSON.stringify(workflow.jobs["deploy-production"])).not.toContain("corten-public");
+    // Production takes only the image Deploy Staging deployed (corten-public-production.test.mjs), never the build's.
+    expect(JSON.stringify(workflow.jobs["deploy-production"])).not.toContain("build-corten-pilot-images");
   });
 
   it("only reports from the advisory step, which never fails Deploy Staging and adds no secret", () => {
@@ -333,13 +331,13 @@ describe("Corten public staging, first slice", () => {
     expect(
       withheldCortenPilots({ ...options, env: { ...options.env, STAGING_MARKETPLACE_APP: "marketplace" } }),
     ).not.toContain("public-corten");
-    // Production never reads it.
+    // Production never reads it: production's own PRODUCTION_PUBLIC_APP still defaults to public-web.
     expect(
       withheldCortenPilots({
         envOverrides: { DEPLOYMENT_ENVIRONMENT: "production" },
-        env: { STAGING_PUBLIC_APP: "public-web" },
+        env: { STAGING_PUBLIC_APP: "public-corten" },
       }),
-    ).not.toContain("public-corten");
+    ).toContain("public-corten");
   });
 
   it("says which app served www.staging, in the summary, the step output and the deploy record", () => {

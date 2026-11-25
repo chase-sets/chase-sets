@@ -2,7 +2,7 @@
 export function isDeferredCheckoutPayment(
   payment: Readonly<{
     source_context: string | null;
-    processor_payment_kind: string;
+    processor_payment_kind: string | null;
     processor_client_secret: string | null;
     saved_checkout_instrument_id: string | null;
   }>,

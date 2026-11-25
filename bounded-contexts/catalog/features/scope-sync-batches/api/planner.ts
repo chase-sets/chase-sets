@@ -4,6 +4,7 @@ import { t } from "@chase-sets/localization";
 import { catalogIsoUtcTimestamp } from "../../../support/runtime-support/iso-utc-timestamp";
 import {
   catalogSyncAcceptedScopeMappingFromRow,
+  catalogSetNamesUnitKeyForProductDomain,
   type CatalogSyncAcceptedScopeMapping,
   type CatalogSyncProviderParticipationPreview,
   type CatalogSyncScope,
@@ -240,6 +241,8 @@ function catalogSyncScopeFromRecord(
   selection: ScopeSyncBatchSelection,
 ): CatalogSyncScope {
   const languageCode = selection.mode === "matching-scope" ? selection.query.languageCode : null;
+  const refreshUnit =
+    record.scope_kind === "product-line" ? catalogSetNamesUnitKeyForProductDomain(record.product_domain) : undefined;
   return {
     scopeVersion: "catalog-sync-scope-v2",
     productDomain: record.product_domain,
@@ -249,7 +252,7 @@ function catalogSyncScopeFromRecord(
       scopeRecordId: record.scope_record_id,
     },
     providerParticipation: {
-      selectedUnitKeys: mappings.map((mapping) => mapping.unit_key),
+      selectedUnitKeys: [...mappings.map((mapping) => mapping.unit_key), ...(refreshUnit ? [refreshUnit] : [])],
     },
   };
 }
@@ -268,7 +271,10 @@ function scopePlanBlockers(
       message: t("catalog.features.scopeSyncBatches.api.planner.catalog.scope.record.not.active"),
     });
   }
-  if (mappings.length === 0) {
+  if (
+    mappings.length === 0 &&
+    !preview.units.some((unit) => unit.selected && unit.childExecutionScope?.execution === "extension-set-names")
+  ) {
     blockers.push({
       code: "mapping-missing",
       scopeRecordId: record.scope_record_id,

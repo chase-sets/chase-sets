@@ -871,7 +871,7 @@ export function createAccountPaymentRoutes(services: PaymentServices, publicConf
           if (stale) {
             return stale;
           }
-          return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+          return c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 400);
         }
       }),
     )

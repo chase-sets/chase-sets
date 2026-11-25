@@ -93,34 +93,38 @@ const profiles = catalogProviderIntegrationProfileVersions.filter((profile) =>
 );
 
 describe("whole Magic mapping preview", () => {
-  it("plans the mapped Magic scope from MTGJSON and Scryfall alone, with zero Scrydex credits", async () => {
+  it("plans the mapped Magic scope with browser SetNames and zero Scrydex credits", async () => {
     const fixture = await magicFixture();
     const { preview, plans } = await fixture.resolve();
     expect(fixture.deniedFetch).not.toHaveBeenCalled();
     expect(preview).toMatchObject({
       status: "ready",
       confirmAllowed: true,
-      counts: { scopes: 1, readyScopes: 1, blockedScopes: 0, providerUnits: 3 },
+      counts: { scopes: 1, readyScopes: 1, blockedScopes: 0, providerUnits: 4 },
       budget: { creditedProviderRequestLimits: { scrydex: 0 } },
       blockers: [],
     });
-    expect(preview.providerUnitTotals).toEqual({ mtgjson: 2, scryfall: 1 });
+    expect(preview.providerUnitTotals).toEqual({ mtgjson: 2, scryfall: 1, tcgplayer: 1 });
     expect(plans).toHaveLength(1);
     expect(preview.planFingerprint).toMatchInlineSnapshot(
-      `"87dbc83a2bcd872ff3981b8aaca10eca0738c7a7e196b0cbc764140842614052"`,
+      `"f36a617142a331a61958ebf882003797eb1db21ed72d9303b6e39b3c01487366"`,
     );
     expect(plans[0]!.participationPreview.units.map((unit) => unit.unitKey).sort()).toEqual(fixture.unitKeys);
     expect(plans[0]!.participationPreview.units.every((unit) => unit.selected && unit.eligibility === "eligible")).toBe(
       true,
     );
     expect(plans[0]!.participationPreview.units.filter((unit) => unit.providerKey === "scrydex")).toEqual([]);
+    expect(plans[0]!.participationPreview.units.find((unit) => unit.providerKey === "tcgplayer")).toMatchObject({
+      requirement: "optional",
+      childExecutionScope: { execution: "extension-set-names", productLineId: "1" },
+    });
     expect(fixture.planImport).toHaveBeenCalledTimes(2);
     const mtgjsonPlans = await Promise.all(fixture.planImport.mock.results.map((result) => result.value));
     expect(mtgjsonPlans.map((plan) => plan.planKey).sort()).toEqual(["mtgjson:cards:set:TSP", "mtgjson:set:TSP"]);
     expectNoAdapterCalls(fixture.tcgplayerCalls);
   });
 
-  it("keeps the three plannable mapped units with every active Magic profile, without planning the requirement pass", async () => {
+  it("keeps the four plannable units with every active Magic profile, without planning the requirement pass", async () => {
     const activeMagicProfiles = catalogProviderIntegrationProfileVersions.filter(
       (profile) =>
         profile.active &&
@@ -133,11 +137,11 @@ describe("whole Magic mapping preview", () => {
     const { preview, plans } = await fixture.resolve();
     expect(preview).toMatchObject({
       confirmAllowed: true,
-      counts: { scopes: 1, readyScopes: 1, blockedScopes: 0, providerUnits: 3 },
+      counts: { scopes: 1, readyScopes: 1, blockedScopes: 0, providerUnits: 4 },
       budget: { creditedProviderRequestLimits: { scrydex: 0 } },
       blockers: [],
     });
-    expect(preview.providerUnitTotals).toEqual({ mtgjson: 2, scryfall: 1 });
+    expect(preview.providerUnitTotals).toEqual({ mtgjson: 2, scryfall: 1, tcgplayer: 1 });
     expect(plans[0]!.scope.providerParticipation?.selectedUnitKeys).toEqual(
       fixture.mappings.map((mapping) => mapping.unit_key),
     );
@@ -161,7 +165,7 @@ describe("whole Magic mapping preview", () => {
     const { preview, plans } = await fixture.resolve();
     expect(preview).toMatchObject({
       confirmAllowed: false,
-      counts: { scopes: 1, readyScopes: 0, blockedScopes: 1, providerUnits: 3 },
+      counts: { scopes: 1, readyScopes: 0, blockedScopes: 1, providerUnits: 4 },
     });
     expect(plans[0]!.participationPreview.units.map((unit) => unit.unitKey).sort()).toEqual(fixture.unitKeys);
     expect(preview.blockers).toContainEqual(
@@ -206,7 +210,7 @@ describe("whole Magic mapping preview", () => {
     expect(fixture.deniedFetch).not.toHaveBeenCalled();
     expect(preview).toMatchObject({
       confirmAllowed: false,
-      counts: { scopes: 1, readyScopes: 0, blockedScopes: 1, providerUnits: 3 },
+      counts: { scopes: 1, readyScopes: 0, blockedScopes: 1, providerUnits: 4 },
     });
     expect(plans[0]!.participationPreview.units).toContainEqual(
       expect.objectContaining({ unitKey: requiredMapping.unit_key, selected: true, requirement: "required" }),
@@ -349,12 +353,12 @@ describe("Pokemon English preview regression", () => {
 });
 
 describe("held-set batch required participation", () => {
-  it("retains every non-TCGplayer required unit and blocks the zero-unit Yu-Gi-Oh scope", async () => {
+  it("retains required server units and makes the TCGplayer-only Yu-Gi-Oh scope ready", async () => {
     const domains = [
-      ["magic", "mtg", "set"],
-      ["pokemon", "pokemon", "expansion"],
-      ["yugioh", "yugioh", "set"],
-      ["one-piece", "one-piece", "set"],
+      ["magic", "mtg", "set", "1"],
+      ["pokemon", "pokemon", "expansion", "3"],
+      ["yugioh", "yugioh", "set", "2"],
+      ["one-piece", "one-piece", "set", "68"],
     ] as const;
     const records = domains.map(([productDomain, , kind]) => ({
       ...scopeRecord(`scope_synthetic_held_${productDomain}`),
@@ -369,11 +373,12 @@ describe("held-set batch required participation", () => {
     const tcgplayerMapping = fixture.mappings.find(
       (mapping) => mapping.unit_key === "tcgplayer:mtg:single-card:source-observation-import",
     )!;
-    const mappings = domains.map(([domain, unitDomain]) => ({
+    const mappings = domains.map(([domain, unitDomain, , productLineId]) => ({
       ...tcgplayerMapping,
       mapping_id: `mapping_synthetic_held_${domain}`,
       scope_record_id: `scope_synthetic_held_${domain}`,
       unit_key: `tcgplayer:${unitDomain}:single-card:source-observation-import`,
+      product_line_id: productLineId,
     }));
     const db: PgQueryable = {
       async query<Row>(sql: string, values?: readonly unknown[]) {
@@ -401,41 +406,44 @@ describe("held-set batch required participation", () => {
       context,
     });
     expect(plans.map((plan) => plan.participationPreview.units.map((unit) => unit.unitKey).sort())).toEqual([
-      ["scryfall:mtg:single-card:reference-data"],
-      ["tcgdex:pokemon:single-card:source-observation-import"],
-      [],
+      ["scryfall:mtg:single-card:reference-data", "tcgplayer:mtg:single-card:source-observation-import"],
+      [
+        "tcgdex:pokemon:single-card:source-observation-import",
+        "tcgplayer:pokemon:single-card:source-observation-import",
+      ],
+      ["tcgplayer:yugioh:single-card:source-observation-import"],
       [
         "scrydex:one-piece:sealed-product:source-observation-import",
         "scrydex:one-piece:single-card:source-observation-import",
+        "tcgplayer:one-piece:single-card:source-observation-import",
       ],
     ]);
     expect(
       plans.every((plan) =>
-        plan.participationPreview.units.every((unit) => unit.requirement === "required" && unit.selected),
+        plan.participationPreview.units.every(
+          (unit) =>
+            unit.selected &&
+            (unit.providerKey === "tcgplayer"
+              ? unit.requirement === "optional" && unit.childExecutionScope?.execution === "extension-set-names"
+              : unit.requirement === "required"),
+        ),
       ),
     ).toBe(true);
-    expect(plans[2]!.blockers).toEqual([
-      {
-        code: "scope-planning-blocked",
-        scopeRecordId: "scope_synthetic_held_yugioh",
-        providerKey: null,
-        message: "Catalog Scope Record has no selected provider units.",
-      },
-    ]);
+    expect(plans[2]!.blockers).toEqual([]);
     expect(preview).toMatchObject({
       confirmAllowed: false,
-      counts: { scopes: 4, readyScopes: 0, blockedScopes: 4, providerUnits: 4 },
+      counts: { scopes: 4, readyScopes: 1, blockedScopes: 3, providerUnits: 8 },
     });
-    expect(preview.providerUnitTotals).toEqual({ scrydex: 2, scryfall: 1, tcgdex: 1 });
+    expect(preview.providerUnitTotals).toEqual({ scrydex: 2, scryfall: 1, tcgdex: 1, tcgplayer: 4 });
 
     const yugiohOnly = await planner.resolve({
       selection: { mode: "ids", scopeRecordIds: ["scope_synthetic_held_yugioh"] },
       context,
     });
     expect(yugiohOnly.preview).toMatchObject({
-      status: "blocked",
-      confirmAllowed: false,
-      counts: { scopes: 1, readyScopes: 0, blockedScopes: 1, providerUnits: 0 },
+      status: "ready",
+      confirmAllowed: true,
+      counts: { scopes: 1, readyScopes: 1, blockedScopes: 0, providerUnits: 1 },
     });
     expectNoAdapterCalls(tcgplayer.calls);
   });
@@ -478,9 +486,9 @@ async function magicFixture(providerProfiles: readonly CatalogProviderIntegratio
         return result;
       },
     ),
-    // The TCGplayer profiles stay mapped, but the real adapter cannot plan them.
+    // The sealed profile is still not a plannable browser or server unit.
     unitKeys: profiles
-      .filter((profile) => profile.providerKey !== "tcgplayer")
+      .filter((profile) => profile.profileKey !== "mtg-sealed-product-sku")
       .map(unitKeyForCatalogProviderProfileVersion)
       .sort(),
     records: [scopeRecord("scope_synthetic_magic_tsp")],

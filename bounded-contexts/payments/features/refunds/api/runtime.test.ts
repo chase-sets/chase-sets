@@ -9,7 +9,14 @@ import type {
 } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION, type StoredEvent } from "@chase-sets/event-core/storage";
 import type { JsonObject } from "@chase-sets/primitives/json";
-import { createRefundRuntime } from "./runtime";
+import { createRefundRuntime as createRuntime } from "./runtime";
+
+function createRefundRuntime(deps: Omit<Parameters<typeof createRuntime>[0], "runPaymentTransaction" | "handlers">) {
+  return createRuntime({
+    ...deps,
+    runPaymentTransaction: (work) => work({ db: deps.db, eventStore: deps.eventStore, lock: async () => {} }),
+  });
+}
 
 function storedEvent(input: {
   streamId: string;

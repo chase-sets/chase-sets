@@ -22,6 +22,7 @@ import {
   catalogOperatorSessionGrantSchemaSql,
   catalogOperatorSessionGrantSchemaMigrations,
 } from "../../features/operator-session/read-model/grant-schema";
+import { catalogSetNameRequestSchemaSql } from "../../features/operator-session/read-model/set-name-request-schema";
 import { catalogProductContentsSchemaSql } from "../../features/product-contents/read-model/schema";
 import {
   catalogProductMeasureSchemaMigrations,
@@ -85,6 +86,7 @@ export const catalogAuthoringSchemaSql = [
   catalogAliasEquivalenceSchemaSql,
   catalogAttentionDismissalSchemaSql,
   catalogOperatorSessionGrantSchemaSql,
+  catalogSetNameRequestSchemaSql,
   realtimeOutboxSchemaSql,
 ].join("\n\n");
 

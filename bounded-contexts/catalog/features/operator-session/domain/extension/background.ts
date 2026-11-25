@@ -6,6 +6,7 @@ import {
   operatorOrigins,
   type OperatorCommand,
   type OperatorEnvironment,
+  type OperatorObservationRequest,
   type OperatorStatus,
 } from "./protocol";
 import { emptyOperatorRecord, isOperatorRecord, operatorRecordKey, type OperatorRecord } from "./record";
@@ -29,18 +30,23 @@ export type OperatorAdapters = {
   };
   badge(required: boolean): Promise<void>;
   fetch: typeof fetch;
+  dispatchObservationRequest?: (
+    environment: OperatorEnvironment,
+    request: OperatorObservationRequest,
+    postSetNameAnswer: (body: string) => Promise<void>,
+  ) => Promise<void>;
   setNames?: (productLineId: string) => Promise<SetNamesRequestResult>;
   sealedProducts?: SealedFetch;
 };
 
-type Slot = { record: OperatorRecord; blocked: boolean; queue: Promise<unknown> };
+type Slot = { record: OperatorRecord; blocked: boolean; polling: boolean; queue: Promise<unknown> };
 
 export function createOperatorBackground(adapters: OperatorAdapters) {
   const transport = createOperatorTransport(adapters.fetch);
   const slots = new Map<OperatorEnvironment, Slot>(
     operatorEnvironments.map((environment) => [
       environment,
-      { record: emptyOperatorRecord(environment), blocked: false, queue: Promise.resolve() },
+      { record: emptyOperatorRecord(environment), blocked: false, polling: false, queue: Promise.resolve() },
     ]),
   );
   const slot = (environment: OperatorEnvironment) => slots.get(environment)!;
@@ -91,8 +97,81 @@ export function createOperatorBackground(adapters: OperatorAdapters) {
   async function badge() {
     await adapters.badge([...slots.values()].some((current) => current.record.state === "re-pair-required"));
   }
+  async function poll(environment: OperatorEnvironment) {
+    const current = slot(environment);
+    if (current.polling) return;
+    current.polling = true;
+    try {
+      const pairing = await serial(environment, async ({ record, blocked }) =>
+        blocked || !record.grant || Date.now() < record.nextAttemptAt
+          ? null
+          : { grant: record.grant, profileRevision: record.profileRevision },
+      );
+      if (!pairing) return;
+      const result = await transport.poll(environment, pairing.grant);
+      const matches = ({ blocked, record }: Slot) =>
+        !blocked && record.profileRevision === pairing.profileRevision && record.grant === pairing.grant;
+      const clearGrant = async (current: Slot) => {
+        await write(current, {
+          ...current.record,
+          grant: null,
+          state: "re-pair-required",
+          dirty: false,
+          nextAttemptAt: 0,
+          lastOutcome: "grant-invalid",
+        });
+        await badge();
+      };
+      const postSetNameAnswer = async (body: string) => {
+        if (result.outcome !== "polled" || result.request?.kind !== "set-names") return;
+        const { requestId, expiresAt } = result.request;
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          const flight = await serial(environment, async (current) => {
+            if (!matches(current) || Date.parse(expiresAt) <= Date.now()) return undefined;
+            return { answer: transport.postSetNameAnswer(environment, pairing.grant, requestId, body) };
+          });
+          if (!flight) return;
+          const answer = await flight.answer;
+          if (answer.outcome === "grant-invalid") {
+            await serial(environment, async (current) => {
+              if (matches(current)) await clearGrant(current);
+            });
+            return;
+          }
+          if (answer.outcome !== "unavailable") return;
+          const delay = Math.max(250, answer.retryAt - Date.now());
+          if (attempt > 0 || delay > 2_000 || Date.now() + delay >= Date.parse(expiresAt)) {
+            if (answer.retryAt > Date.now())
+              await serial(environment, async (current) => {
+                if (matches(current)) await write(current, { ...current.record, nextAttemptAt: answer.retryAt });
+              });
+            return;
+          }
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+      };
+      const dispatch = await serial(environment, async (current) => {
+        const record = current.record;
+        if (!matches(current)) return;
+        if (result.outcome === "grant-invalid") {
+          await clearGrant(current);
+        } else if (result.outcome === "unavailable" && result.retryAt > Date.now()) {
+          await write(current, { ...record, nextAttemptAt: result.retryAt });
+        } else if (result.outcome === "polled" && result.request && Date.parse(result.request.expiresAt) > Date.now()) {
+          return { finished: adapters.dispatchObservationRequest?.(environment, result.request, postSetNameAnswer) };
+        }
+      });
+      await dispatch?.finished;
+    } finally {
+      current.polling = false;
+    }
+  }
   async function command(command: OperatorCommand): Promise<OperatorStatus> {
     const environment = command.environment;
+    if (command.action === "poll-now") {
+      await poll(environment);
+      return status(environment);
+    }
     if (command.action === "status" || command.action === "recover") {
       await serial(environment, async () => undefined);
       return status(environment);
@@ -122,6 +201,9 @@ export function createOperatorBackground(adapters: OperatorAdapters) {
     return status(environment);
   }
   return {
+    async pollObservations() {
+      await Promise.allSettled(operatorEnvironments.map(poll));
+    },
     async receiveSealedProducts(
       value: unknown,
       sender: { id?: string; url?: string; origin?: string; hasTab: boolean },

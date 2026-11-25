@@ -8,7 +8,7 @@ import {
   recordReservationHoldCleanup,
 } from "../read-model/queries";
 import type { BalanceCreditResolver } from "./balance-credit-resolver";
-import type { PaymentTransactionRunner } from "./webhook-transaction";
+import { withPaymentLock, type PaymentTransactionRunner } from "./webhook-transaction";
 
 const RESERVATION_STALE_MS = 15 * 60 * 1000;
 
@@ -28,7 +28,7 @@ export async function sweepPaymentCreationReservations(
   });
   const attention: { kind: "creation-reservation"; payment_id: string; reason: string }[] = [];
   for (const paymentId of paymentIds) {
-    const buyerAccountId = await deps.runPaymentTransaction(async ({ db, eventStore }) => {
+    const buyerAccountId = await withPaymentLock(deps.runPaymentTransaction, paymentId, async ({ db, eventStore }) => {
       const reservation = await lockMarkedPaymentCreationReservation(db, paymentId);
       if (!reservation) return null;
       const stale = reservation.status === "active" && new Date(reservation.created_at) < staleBefore;

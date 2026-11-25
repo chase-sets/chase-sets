@@ -220,10 +220,19 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(detachment.totals.detachmentEscapeSites).toBe(detachment.diagnostics.length);
   });
 
-  it("derives forty-eight green grammar instances across forty-two live locations without a registry", () => {
+  it("derives forty-nine green grammar instances across forty-three live locations without a registry", () => {
     const green = productionGrammar;
-    expect(green).toHaveLength(48);
-    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(42);
+    expect(green).toHaveLength(49);
+    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(43);
+    expect(
+      green.filter((entry) => entry.file === "bounded-contexts/catalog/support/authoring-support/services.ts"),
+    ).toEqual([
+      expect.objectContaining({
+        category: "member-declaration",
+        symbol:
+          "createCatalogServices.providerScopeDiscovery.providerScopeMappingCommandHandlerInTransaction.eventStore.readStream",
+      }),
+    ]);
     expect(
       green
         .filter((entry) =>
@@ -756,7 +765,7 @@ const memberDeclarationSelectors = [
   ],
   [
     "bounded-contexts/payments/features/payments/api/webhook-transaction.ts",
-    "createPaymentTransactionRunner.eventStore.readStream",
+    "createPaymentTransactionRunner.committed.result.eventStore.readStream",
   ],
   [
     "bounded-contexts/payments/features/payments/api/webhook-transaction.ts",

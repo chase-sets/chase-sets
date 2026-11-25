@@ -955,6 +955,8 @@ export function createCheckoutApiClient({
         fulfillmentPreviewRevision?: string | null;
         acknowledgedMaterialChanges?: boolean;
         shippingAddress?: CheckoutShippingAddressInput | null;
+        shippingOption?: string;
+        authenticityCheckOptIn?: Readonly<{ selected: boolean; quoteFingerprint: string | null }>;
       }> = {},
     ): Promise<
       CheckoutMutationResult<{

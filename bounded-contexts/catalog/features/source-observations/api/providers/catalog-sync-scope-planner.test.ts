@@ -167,7 +167,7 @@ describe("Pokemon mapping language coordinates", () => {
 
 describe("server-unplannable provider units", () => {
   it.each([false, true])(
-    "excludes real TCGplayer Lorcana units from a set preview (explicit selection: %s)",
+    "does not dispatch a wrong-line or sealed Lorcana mapping (explicit selection: %s)",
     async (selected) => {
       const profiles = catalogProviderIntegrationProfileVersions.filter(
         (version) => version.providerKey === "tcgplayer" && version.ingestionUnitIdentity?.productDomain === "lorcana",
@@ -203,7 +203,18 @@ describe("server-unplannable provider units", () => {
         providerAdapterRegistry: new ProviderAdapterRegistry([tcgplayer.adapter]),
         includeOperationalGates: true,
       });
-      expect(preview.units).toEqual([]);
+      expect(preview.units).toEqual(
+        selected
+          ? [
+              expect.objectContaining({
+                profileKey: "lorcana-single-card-product-sku",
+                eligibility: "ineligible",
+                childExecutionScope: null,
+                blockers: [expect.objectContaining({ code: "provider-plan-unavailable" })],
+              }),
+            ]
+          : [],
+      );
       expect(preview.blockers).toEqual([]);
       expectNoAdapterCalls(tcgplayer.calls);
     },
@@ -270,38 +281,43 @@ describe("server-unplannable provider units", () => {
       name: "every Magic unit explicitly selected",
       providerParticipation: { selectedUnitKeys: magicProfiles.map(unitKeyForCatalogProviderProfileVersion) },
     },
-  ])(
-    "previews a Magic set without the real TCGplayer adapter's units under $name",
-    async ({ providerParticipation }) => {
-      expect(magicProfiles).toHaveLength(5);
-      expect(magicProfiles.find((version) => version.profileKey === "mtg-sealed-product-sku")).toMatchObject({
-        active: true,
-        lifecycle: "active",
-        profile: {
-          status: "active",
-          capabilities: expect.arrayContaining(["source-observation-import", "catalog-item-promotion"]),
-        },
-      });
-      expect(magicMappings.map((mapping) => mapping.unitKey)).toContain(
-        TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-      );
-      const tcgplayer = realTcgplayerAdapter();
-      const preview = await previewCatalogSyncProviderParticipation({
-        scope: magicSetScope(providerParticipation),
-        acceptedScopeMappings: magicMappings,
-        providerProfileVersions: magicProfiles,
-        providerAdapterRegistry: magicRegistry(tcgplayer.adapter),
-        includeOperationalGates: true,
-      });
+  ])("previews a Magic set without TCGplayer imports under $name", async ({ providerParticipation }) => {
+    expect(magicProfiles).toHaveLength(5);
+    expect(magicProfiles.find((version) => version.profileKey === "mtg-sealed-product-sku")).toMatchObject({
+      active: true,
+      lifecycle: "active",
+      profile: {
+        status: "active",
+        capabilities: expect.arrayContaining(["source-observation-import", "catalog-item-promotion"]),
+      },
+    });
+    expect(magicMappings.map((mapping) => mapping.unitKey)).toContain(
+      TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+    );
+    const tcgplayer = realTcgplayerAdapter();
+    const preview = await previewCatalogSyncProviderParticipation({
+      scope: magicSetScope(providerParticipation),
+      acceptedScopeMappings: magicMappings,
+      providerProfileVersions: magicProfiles,
+      providerAdapterRegistry: magicRegistry(tcgplayer.adapter),
+      includeOperationalGates: true,
+    });
 
-      expect(preview).toMatchObject({ status: "ready", startAllowed: true, blockers: [] });
-      expect(preview.units.map((unit) => unit.providerKey).sort()).toEqual(["mtgjson", "mtgjson", "scryfall"]);
-      expect(
-        preview.units.every((unit) => unit.eligibility === "eligible" && unit.selected && unit.blockers.length === 0),
-      ).toBe(true);
-      expectNoAdapterCalls(tcgplayer.calls);
-    },
-  );
+    expect(preview).toMatchObject({ status: "ready", startAllowed: true, blockers: [] });
+    expect(preview.units.map((unit) => unit.providerKey).sort()).toEqual(
+      providerParticipation ? ["mtgjson", "mtgjson", "scryfall", "tcgplayer"] : ["mtgjson", "mtgjson", "scryfall"],
+    );
+    if (providerParticipation) {
+      expect(preview.units.find((unit) => unit.providerKey === "tcgplayer")).toMatchObject({
+        profileKey: "mtg-single-card-product-sku",
+        childExecutionScope: { execution: "extension-set-names", productLineId: "1" },
+      });
+    }
+    expect(
+      preview.units.every((unit) => unit.eligibility === "eligible" && unit.selected && unit.blockers.length === 0),
+    ).toBe(true);
+    expectNoAdapterCalls(tcgplayer.calls);
+  });
 
   it("refuses an explicitly required import-unplannable unit as required-provider-unit-missing", async () => {
     const tcgplayer = realTcgplayerAdapter();
@@ -382,8 +398,9 @@ describe("server-unplannable provider units", () => {
     });
 
     expect(preview).toMatchObject({ status: "blocked", startAllowed: false });
-    expect(preview.units.map((unit) => unit.unitKey).sort()).toEqual(scrydexUnitKeys);
-    for (const unit of preview.units) {
+    const scrydexUnits = preview.units.filter((unit) => unit.providerKey === "scrydex");
+    expect(scrydexUnits.map((unit) => unit.unitKey).sort()).toEqual(scrydexUnitKeys);
+    for (const unit of scrydexUnits) {
       expect(unit).toMatchObject({
         requirement: "required",
         eligibility: "ineligible",
@@ -395,6 +412,10 @@ describe("server-unplannable provider units", () => {
         expect.objectContaining({ state: "missing", diagnosticCode: "credential-missing", importBlocking: true }),
       );
     }
+    expect(preview.units.find((unit) => unit.providerKey === "tcgplayer")).toMatchObject({
+      eligibility: "eligible",
+      childExecutionScope: { execution: "extension-set-names", productLineId: "68" },
+    });
     expect(preview.blockers).toContainEqual(expect.objectContaining({ code: "provider-credential-not-ready" }));
     expectNoAdapterCalls(tcgplayer.calls);
   });
@@ -592,7 +613,7 @@ describe("Catalog sync scope planner", () => {
     });
   });
 
-  it("defaults every eligible mapped provider role into Pokemon Expansion participation", async () => {
+  it("defaults the mapped server unit without implicitly refreshing SetNames for an expansion", async () => {
     const tcgdex = requireProfile("tcgdex", "pokemon-tcg");
     const tcgplayer = activeProfile("tcgplayer", "pokemon-single-card-product-sku");
     const tcgdexUnitKey = unitKeyForCatalogProviderProfileVersion(tcgdex);
@@ -611,14 +632,12 @@ describe("Catalog sync scope planner", () => {
 
     expect(preview.status).toBe("ready");
     expect(preview.startAllowed).toBe(true);
-    expect(preview.units).toHaveLength(2);
     expect(preview.units.map((unit) => [unit.unitKey, unit.role, unit.requirement, unit.selected])).toEqual([
       [tcgdexUnitKey, "primary-source-observation", "required", true],
-      [tcgplayerUnitKey, "supplemental-marketplace-reference", "optional", true],
     ]);
     expect(preview.units.every((unit) => unit.defaultSelected)).toBe(true);
     expect(preview.estimate).toMatchObject({
-      totalEstimatedRequestCount: 2,
+      totalEstimatedRequestCount: 1,
       estimateState: "estimated",
       creditConsumingProviders: [],
     });
@@ -629,24 +648,13 @@ describe("Catalog sync scope planner", () => {
       setId: "base1",
       seriesId: "base",
     });
-    expect(preview.units[1]?.childExecutionScope).toMatchObject({
-      provider: "tcgplayer",
-      ingestionUnitKey: tcgplayerUnitKey,
-      productLineId: "3",
-      setName: "Base Set",
-    });
     expect(tcgdexPlanImport).toHaveBeenCalledWith(
       expect.objectContaining({
         unitKey: tcgdexUnitKey,
         values: expect.objectContaining({ setId: "base1", language: "en" }),
       }),
     );
-    expect(tcgplayerPlanImport).toHaveBeenCalledWith(
-      expect.objectContaining({
-        unitKey: tcgplayerUnitKey,
-        values: expect.objectContaining({ productLineId: "3", setName: "Base Set" }),
-      }),
-    );
+    expect(tcgplayerPlanImport).not.toHaveBeenCalled();
 
     expect(aggregateCatalogSyncProviderParticipationEstimate(preview.units, new Set([tcgdexUnitKey]))).toMatchObject({
       totalEstimatedRequestCount: 1,
@@ -675,33 +683,30 @@ describe("Catalog sync scope planner", () => {
       },
     });
     const preview = await previewCatalogSyncProviderParticipation({
-      scope: pokemonBaseSetScope(),
+      scope: pokemonBaseSetScope({ selectedUnitKeys: [tcgdexUnitKey, tcgplayerUnitKey] }),
       acceptedScopeMappings: [tcgdexBaseSetMapping(tcgdexUnitKey), tcgplayerBaseSetMapping(tcgplayerUnitKey)],
       providerProfileVersions: [tcgdex, tcgplayer],
-      providerAdapterRegistry: new ProviderAdapterRegistry([
-        fakeAdapter("tcgdex", fakePlanImport(102)),
-        fakeAdapter("tcgplayer", unavailablePlan),
-      ]),
+      providerAdapterRegistry: new ProviderAdapterRegistry([fakeAdapter("tcgdex", unavailablePlan)]),
     });
 
     expect(preview.units.map((unit) => [unit.unitKey, unit.estimate])).toEqual([
       [
         tcgdexUnitKey,
         expect.objectContaining({
-          estimateState: "estimated",
-          estimatedRequestCount: 1,
-          usageCheckState: "not-supported",
-          degradedDiagnostic: null,
-        }),
-      ],
-      [
-        tcgplayerUnitKey,
-        expect.objectContaining({
           estimateState: "estimate-unavailable",
           estimatedRequestCount: null,
           estimateReason: "Synthetic page count is available only after the first paged response.",
           usageCheckState: "unavailable",
           degradedDiagnostic: "Synthetic provider appears degraded with HTTP 503.",
+        }),
+      ],
+      [
+        tcgplayerUnitKey,
+        expect.objectContaining({
+          estimateState: "estimated",
+          estimatedRequestCount: 1,
+          targetCount: 1,
+          transportSteps: [],
         }),
       ],
     ]);
@@ -732,21 +737,16 @@ describe("Catalog sync scope planner", () => {
     expect(preview.status).toBe("ready");
     expect(preview.startAllowed).toBe(true);
     expect(preview.units.map((unit) => [unit.unitKey, unit.role, unit.requirement, unit.selected])).toEqual([
-      [tcgplayerUnitKey, "supplemental-marketplace-reference", "optional", true],
+      [tcgplayerUnitKey, "reference-data", "optional", true],
     ]);
     expect(preview.units[0]?.childExecutionScope).toMatchObject({
+      execution: "extension-set-names",
       provider: "tcgplayer",
       ingestionUnitKey: tcgplayerUnitKey,
       productLineId: "3",
-      setName: "Base Set",
     });
     expect(tcgdexPlanImport).not.toHaveBeenCalled();
-    expect(tcgplayerPlanImport).toHaveBeenCalledWith(
-      expect.objectContaining({
-        unitKey: tcgplayerUnitKey,
-        values: expect.objectContaining({ productLineId: "3", setName: "Base Set" }),
-      }),
-    );
+    expect(tcgplayerPlanImport).not.toHaveBeenCalled();
     expect(JSON.stringify(preview)).not.toContain(tcgdexUnitKey);
   });
 
@@ -817,8 +817,8 @@ describe("Catalog sync scope planner", () => {
     ]);
   });
 
-  it("never enrols an explicitly selected, fully mapped unit whose real adapter cannot plan imports", async () => {
-    const tcgplayer = activeProfile("tcgplayer", "pokemon-single-card-product-sku");
+  it("never enrols an explicitly selected, fully mapped sealed unit in SetNames", async () => {
+    const tcgplayer = activeProfile("tcgplayer", "pokemon-sealed-product-sku");
     const tcgplayerUnitKey = unitKeyForCatalogProviderProfileVersion(tcgplayer);
     const adapter = realTcgplayerAdapter();
     const preview = await previewCatalogSyncProviderParticipation({
@@ -835,30 +835,22 @@ describe("Catalog sync scope planner", () => {
     expect(preview.scope.reference).toEqual({ kind: "expansion", scopeRecordId: BASE_SET_SCOPE_RECORD_ID });
   });
 
-  it("plans canonical Magic through an active raw TCGplayer MTG unit and its accepted mapping", async () => {
+  it("bootstraps canonical Magic SetNames through a qualified line without a set mapping", async () => {
     const tcgplayer = activeProfile("tcgplayer", "mtg-single-card-product-sku");
     const tcgplayerUnitKey = unitKeyForCatalogProviderProfileVersion(tcgplayer);
     const scopeRecordId = "scope_magic_synthetic_ready_control";
-    const mapping = acceptedMapping({
-      scopeRecordId,
-      providerKey: "tcgplayer",
-      unitKey: tcgplayerUnitKey,
-      productLineId: "1",
-      setName: "Synthetic Magic Ready Control",
-      mappingId: "mapping_magic_tcgplayer_mtg_ready_control",
-    });
+    const adapter = realTcgplayerAdapter();
     const preview = await previewCatalogSyncProviderParticipation({
       scope: {
         scopeVersion: "catalog-sync-scope-v2",
         productDomain: "magic",
         productForm: "single-card",
         languageCode: "en",
-        reference: { kind: "expansion", scopeRecordId },
-        providerParticipation: { requiredUnitKeys: [tcgplayerUnitKey] },
+        reference: { kind: "product-line", scopeRecordId },
       },
-      acceptedScopeMappings: [mapping],
+      acceptedScopeMappings: [],
       providerProfileVersions: [tcgplayer],
-      providerAdapterRegistry: new ProviderAdapterRegistry([fakeAdapter("tcgplayer", vi.fn(fakePlanImport(1)))]),
+      providerAdapterRegistry: new ProviderAdapterRegistry([adapter.adapter]),
     });
 
     expect(tcgplayerUnitKey).toBe("tcgplayer:mtg:single-card:source-observation-import");
@@ -870,12 +862,14 @@ describe("Catalog sync scope planner", () => {
       eligibility: "eligible",
       blockers: [],
       childExecutionScope: {
+        execution: "extension-set-names",
         ingestionUnitKey: tcgplayerUnitKey,
         productLineId: "1",
-        setName: "Synthetic Magic Ready Control",
+        planningFingerprint: `profile:${tcgplayer.profileVersion}`,
       },
     });
-    expect(preview.units[0]?.childExecutionScope?.planningFingerprint).toContain(mapping.mappingId);
+    expect(preview.units[0]?.childExecutionScope?.setName).toBeUndefined();
+    expectNoAdapterCalls(adapter.calls);
   });
 
   it("fails closed when either the canonical scope domain or raw unit-key domain is unknown", async () => {
@@ -948,15 +942,13 @@ describe("Catalog sync scope planner", () => {
   });
 
   it("blocks a partially mapped scope, pointing at the unmapped-scope inbox", async () => {
-    const tcgplayer = activeProfile("tcgplayer", "pokemon-single-card-product-sku");
-    const tcgplayerUnitKey = unitKeyForCatalogProviderProfileVersion(tcgplayer);
+    const tcgdex = requireProfile("tcgdex", "pokemon-tcg");
+    const tcgdexUnitKey = unitKeyForCatalogProviderProfileVersion(tcgdex);
     const preview = await previewCatalogSyncProviderParticipation({
-      // TCGplayer needs both a product-line/category id and a set name; keep
-      // the product-line coordinate but remove the set name.
-      scope: pokemonBaseSetScope({ requiredUnitKeys: [tcgplayerUnitKey] }),
-      acceptedScopeMappings: [tcgplayerBaseSetMapping(tcgplayerUnitKey, { setName: null })],
-      providerProfileVersions: [tcgplayer],
-      providerAdapterRegistry: new ProviderAdapterRegistry([fakeAdapter("tcgplayer", vi.fn(fakePlanImport(205)))]),
+      scope: pokemonBaseSetScope({ requiredUnitKeys: [tcgdexUnitKey] }),
+      acceptedScopeMappings: [tcgdexBaseSetMapping(tcgdexUnitKey, { setId: null })],
+      providerProfileVersions: [tcgdex],
+      providerAdapterRegistry: new ProviderAdapterRegistry([fakeAdapter("tcgdex", vi.fn(fakePlanImport(102)))]),
     });
 
     expect(preview.status).toBe("blocked");
@@ -971,7 +963,7 @@ describe("Catalog sync scope planner", () => {
         }),
       ],
     });
-    expect(preview.units[0]?.blockers[0]?.message).toContain("set-name");
+    expect(preview.units[0]?.blockers[0]?.message).toContain("expansion coordinate");
   });
 
   it("blocks an unmapped scope with an actionable provider-scope-mapping-missing blocker", async () => {
@@ -996,15 +988,13 @@ describe("Catalog sync scope planner", () => {
   });
 
   it("ignores accepted mappings that belong to a different scope record", async () => {
-    const tcgplayer = activeProfile("tcgplayer", "pokemon-single-card-product-sku");
-    const tcgplayerUnitKey = unitKeyForCatalogProviderProfileVersion(tcgplayer);
+    const tcgdex = requireProfile("tcgdex", "pokemon-tcg");
+    const tcgdexUnitKey = unitKeyForCatalogProviderProfileVersion(tcgdex);
     const preview = await previewCatalogSyncProviderParticipation({
-      scope: pokemonBaseSetScope({ requiredUnitKeys: [tcgplayerUnitKey] }),
-      acceptedScopeMappings: [
-        { ...tcgplayerBaseSetMapping(tcgplayerUnitKey), scopeRecordId: "scope_some_other_expansion" },
-      ],
-      providerProfileVersions: [tcgplayer],
-      providerAdapterRegistry: new ProviderAdapterRegistry([fakeAdapter("tcgplayer", vi.fn(fakePlanImport(205)))]),
+      scope: pokemonBaseSetScope({ requiredUnitKeys: [tcgdexUnitKey] }),
+      acceptedScopeMappings: [{ ...tcgdexBaseSetMapping(tcgdexUnitKey), scopeRecordId: "scope_some_other_expansion" }],
+      providerProfileVersions: [tcgdex],
+      providerAdapterRegistry: new ProviderAdapterRegistry([fakeAdapter("tcgdex", vi.fn(fakePlanImport(102)))]),
     });
 
     expect(preview.status).toBe("blocked");

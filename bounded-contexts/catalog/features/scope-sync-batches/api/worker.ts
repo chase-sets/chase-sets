@@ -1,6 +1,8 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { CatalogSyncRun } from "../../source-observations/api/runtime";
 import { sourceObservationImportFailureDiagnostic } from "../../source-observations/api/source-observation-import-failure-diagnostic";
+import { setNameRequestFailures } from "../../source-observations/api/source-observation-set-name-requests";
+import type { IntegrationJobServices } from "../../source-observations/api/source-observation-runtime-contracts";
 import type { ScopeSyncBatchBudget, ScopeSyncBatchPlannedScope, ScopeSyncBatchUnitState } from "../domain/batch";
 
 export type ClaimedScopeSyncBatchUnit = Readonly<{
@@ -11,6 +13,7 @@ export type ClaimedScopeSyncBatchUnit = Readonly<{
   syncRunId: string | null;
   budget: ScopeSyncBatchBudget;
   context: EventStoreContext;
+  attemptCount?: number;
 }>;
 
 export type ScopeSyncBatchWorkerRepository = Readonly<{
@@ -25,10 +28,7 @@ export type ScopeSyncBatchWorkerRepository = Readonly<{
 
 export function createScopeSyncBatchWorker(deps: {
   repository: ScopeSyncBatchWorkerRepository;
-  enqueueCatalogSyncRun: (input: {
-    scope: ScopeSyncBatchPlannedScope["scope"];
-    context: EventStoreContext;
-  }) => Promise<CatalogSyncRun>;
+  enqueueCatalogSyncRun: IntegrationJobServices["enqueueCatalogSyncRun"];
   getCatalogSyncRun: (input: { syncRunId: string; context: EventStoreContext }) => Promise<CatalogSyncRun | null>;
 }) {
   async function processNext(input: { claimOwnerId: string; claimTtlMs: number }): Promise<number> {
@@ -48,7 +48,15 @@ export function createScopeSyncBatchWorker(deps: {
     try {
       const run = claim.syncRunId
         ? await deps.getCatalogSyncRun({ syncRunId: claim.syncRunId, context: claim.context })
-        : await deps.enqueueCatalogSyncRun({ scope: claim.plan.scope, context: claim.context });
+        : await deps.enqueueCatalogSyncRun({
+            scope: claim.plan.scope,
+            context: claim.context,
+            ...(claim.attemptCount === undefined
+              ? {}
+              : {
+                  dispatchKey: JSON.stringify([claim.batchId, claim.scopeRecordId, claim.attemptCount]),
+                }),
+          });
       if (!run) {
         throw new Error("Scope Sync Run was not found while reconciling the batch unit.");
       }
@@ -79,12 +87,16 @@ export function createScopeSyncBatchWorker(deps: {
 }
 
 function scopeSyncRunFailureDiagnostic(run: CatalogSyncRun): string {
+  const extensionUnavailable = setNameRequestFailures[0];
+  if (run.childJobs.some((child) => child.job?.errorMessage === extensionUnavailable)) return extensionUnavailable;
   const runDiagnostic = knownHttpStatusDiagnostic(run.errorMessage);
   if (runDiagnostic) return runDiagnostic;
   const runSummary = `Scope Sync Run ended ${run.status}`;
   let childSummary: string | undefined;
   for (const child of run.childJobs) {
     if (child.status !== "failed" && child.status !== "partial" && child.status !== "cancelled") continue;
+    const browserFailure = setNameRequestFailures.find((reason) => reason === child.job?.errorMessage);
+    if (browserFailure) return browserFailure;
     const childDiagnostic =
       knownHttpStatusDiagnostic(child.errorMessage) ?? knownHttpStatusDiagnostic(child.job?.errorMessage);
     if (childDiagnostic) return childDiagnostic;

@@ -193,6 +193,22 @@ pub async fn call_internal<T: DeserializeOwned>(
     sent(caller, caller.request_internal(Http::POST, path, AUTH), client, body).await
 }
 
+/// An auth read only a host may make (a guest checkout's own contact,
+/// `createInternalAuthRequestApiClient`'s `GET`): the read with the platform's internal capability
+/// and the browser's address, which Auth's per-address limiter counts.
+pub async fn read_internal<T: DeserializeOwned>(
+    caller: &Caller<'_>,
+    client: Option<ClientIp>,
+    path: &str,
+) -> Result<T, ApiError> {
+    let mut req = caller.request_internal(Http::GET, path, AUTH);
+    if let Some(ClientIp(ip)) = client {
+        req = req.header("x-forwarded-for", ip.to_string());
+    }
+    // A read names no receipt; `write` is only how the answer is checked and decoded.
+    caller.write::<T>(req).await.map(|(answer, _)| answer)
+}
+
 async fn sent<T: DeserializeOwned>(
     caller: &Caller<'_>,
     req: crate::api::RequestBuilder,

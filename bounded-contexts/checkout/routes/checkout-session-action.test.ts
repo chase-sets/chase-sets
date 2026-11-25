@@ -14,6 +14,9 @@ import {
   MockCheckoutApiError,
   mockConfirmCheckoutSession,
   mockCreateAuthRequestApiClient,
+  mockBindGuestCheckoutContact,
+  mockCreateInternalAuthRequestApiClient,
+  mockGetGuestCheckoutContact,
   mockCreateCheckoutRequestApiClient,
   mockCreateIdentityRequestApiClient,
   mockCreateMarketplaceRequestApiClient,
@@ -49,6 +52,7 @@ vi.mock("@chase-sets/auth/server", async () => {
   return {
     ...actual,
     createAuthRequestApiClient: mockCreateAuthRequestApiClient,
+    createInternalAuthRequestApiClient: mockCreateInternalAuthRequestApiClient,
   };
 });
 
@@ -3008,4 +3012,278 @@ describe("checkout session day-after confirm replay matrix", () => {
       }
     },
   );
+});
+
+describe("guest contact save in the checkout session action", () => {
+  const JANE = { contactName: "Jane Smith", contactEmail: "jane@example.com" } as const;
+
+  function authError(status: number, code?: string) {
+    return Object.assign(new Error(`Auth API error ${status}`), {
+      status,
+      body: code ? { error: { code, message: code } } : { error: "refused" },
+    });
+  }
+
+  function guestForm(intent: "refresh-checkout-preview" | "confirm-checkout", contact: Record<string, string>) {
+    const form = new URLSearchParams();
+    form.set("intent", intent);
+    form.set("sourceType", "cart");
+    form.set("shippingOption", "standard");
+    form.set("paymentMethodCategory", "card");
+    form.set("previewPaymentMethodCategory", "card");
+    form.set("shippingName", "Jane Smith");
+    form.set("shippingLine1", "100 Market Street");
+    form.set("shippingCity", "Chicago");
+    form.set("shippingState", "IL");
+    form.set("shippingPostalCode", "60601");
+    form.set("shippingCountry", "US");
+    for (const [name, value] of Object.entries(contact)) {
+      form.set(name, value);
+    }
+    return form;
+  }
+
+  async function submit(form: URLSearchParams) {
+    return checkoutSessionAction({
+      request: new Request("http://localhost/checkout/buy/session/chk_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never);
+  }
+
+  function expectNoCheckoutWrite() {
+    expect(mockSelectShippingOption).not.toHaveBeenCalled();
+    expect(mockSelectShippingAddress).not.toHaveBeenCalled();
+    expect(mockSelectAuthenticityCheckOptIn).not.toHaveBeenCalled();
+    expect(mockRecordFulfillmentPreview).not.toHaveBeenCalled();
+    expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
+  }
+
+  beforeEach(() => {
+    applyCheckoutRouteMockDefaults();
+    mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
+    mockGetGuestCheckoutContact.mockResolvedValue({ contactName: null, contactEmail: null });
+    mockSelectShippingOption.mockResolvedValue(checkoutCommit("41", "evt_shipping_option"));
+    mockSelectShippingAddress.mockResolvedValue(checkoutCommit("42", "evt_shipping_address"));
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      selectShippingOption: mockSelectShippingOption,
+      selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
+      selectShippingAddress: mockSelectShippingAddress,
+      confirmCheckoutSession: mockConfirmCheckoutSession,
+    });
+  });
+
+  afterEach(() => {
+    vi.resetAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  it("binds Guest Contact through the internal Auth client and never the generic client", async () => {
+    const response = (await submit(
+      guestForm("refresh-checkout-preview", { contactName: "  Jane Smith ", shippingEmail: " Jane@Example.COM " }),
+    )) as Response;
+
+    expect(response.status).toBe(302);
+    expect(mockBindGuestCheckoutContact).toHaveBeenCalledTimes(1);
+    expect(mockBindGuestCheckoutContact).toHaveBeenCalledWith({ email: "jane@example.com", displayName: "Jane Smith" });
+    expect(mockCreateAuthRequestApiClient).not.toHaveBeenCalled();
+    // The save comes before the first Checkout write.
+    expect(mockBindGuestCheckoutContact.mock.invocationCallOrder[0]).toBeLessThan(
+      mockSelectShippingOption.mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it("refuses a forged bound contact payload and still treats authority as unbound", async () => {
+    const result = await submit(
+      guestForm("confirm-checkout", {
+        guestContactState: "bound",
+        contactEmail: "jane@example.com",
+        guestContact: JSON.stringify({ state: "bound", ...JANE }),
+      }),
+    );
+
+    expect(result).toEqual({ guestContactAttempt: { contactEmail: "", contactName: "", problem: "invalid" } });
+    expect(mockBindGuestCheckoutContact).not.toHaveBeenCalled();
+    expectNoCheckoutWrite();
+  });
+
+  it("keeps identical Guest Contact resubmission idempotent with one bind call", async () => {
+    const contact = { contactName: "Jane Smith", shippingEmail: "jane@example.com" };
+    await submit(guestForm("refresh-checkout-preview", contact));
+    mockGetGuestCheckoutContact.mockResolvedValue(JANE);
+    const second = (await submit(guestForm("refresh-checkout-preview", contact))) as Response;
+
+    expect(second.status).toBe(302);
+    expect(mockBindGuestCheckoutContact).toHaveBeenCalledTimes(1);
+    expect(mockSelectShippingOption).toHaveBeenCalledTimes(2);
+  });
+
+  it("retains known bound authority on guest_contact_locked without a reconciliation read", async () => {
+    mockGetGuestCheckoutContact.mockResolvedValue(JANE);
+    mockBindGuestCheckoutContact.mockRejectedValue(authError(409, "guest_contact_locked"));
+
+    const result = await submit(
+      guestForm("confirm-checkout", { contactName: "Janet Smith", shippingEmail: "jane@example.com" }),
+    );
+
+    expect(result).toEqual({ guestContact: { state: "bound", ...JANE }, guestContactLocked: true });
+    expect(mockGetGuestCheckoutContact).toHaveBeenCalledTimes(1);
+    expectNoCheckoutWrite();
+  });
+
+  it("reconciles a raced guest_contact_locked with exactly one own-contact read and renders the returned authority", async () => {
+    mockGetGuestCheckoutContact
+      .mockResolvedValueOnce({ contactName: null, contactEmail: null })
+      .mockResolvedValue(JANE);
+    mockBindGuestCheckoutContact.mockRejectedValue(authError(409, "guest_contact_locked"));
+
+    const result = await submit(
+      guestForm("confirm-checkout", { contactName: "Janet Smith", shippingEmail: "janet@example.com" }),
+    );
+
+    expect(result).toEqual({ guestContact: { state: "bound", ...JANE }, guestContactLocked: true });
+    expect(mockGetGuestCheckoutContact).toHaveBeenCalledTimes(2);
+    expectNoCheckoutWrite();
+  });
+
+  it.each([
+    ["unreadable", () => mockGetGuestCheckoutContact.mockRejectedValueOnce(authError(503))],
+    [
+      "reads as unbound",
+      () => mockGetGuestCheckoutContact.mockResolvedValueOnce({ contactName: null, contactEmail: null }),
+    ],
+  ])("falls closed to the unavailable state when locked reconciliation is %s", async (_name, reconcile) => {
+    mockGetGuestCheckoutContact.mockResolvedValueOnce({ contactName: null, contactEmail: null });
+    reconcile();
+    mockBindGuestCheckoutContact.mockRejectedValue(authError(409, "guest_contact_locked"));
+
+    const result = await submit(
+      guestForm("confirm-checkout", { contactName: "Jane Smith", shippingEmail: "jane@example.com" }),
+    );
+
+    expect(result).toEqual({
+      guestContact: { state: "indeterminate", reason: "unreadable" },
+      guestContactLocked: true,
+    });
+    expect(mockGetGuestCheckoutContact).toHaveBeenCalledTimes(2);
+    expectNoCheckoutWrite();
+  });
+
+  it("returns editable contact collision state and lets a fresh email bind", async () => {
+    mockBindGuestCheckoutContact.mockRejectedValueOnce(authError(409, "account_sign_in_required"));
+
+    const refused = await submit(
+      guestForm("confirm-checkout", { contactName: "Jane Smith", shippingEmail: "member@example.com" }),
+    );
+
+    expect(refused).toEqual({
+      guestContactAttempt: {
+        contactName: "Jane Smith",
+        contactEmail: "member@example.com",
+        problem: "sign-in-required",
+      },
+    });
+    expectNoCheckoutWrite();
+
+    const retried = (await submit(
+      guestForm("refresh-checkout-preview", { contactName: "Jane Smith", shippingEmail: "jane@example.com" }),
+    )) as Response;
+    expect(retried.status).toBe(302);
+    expect(mockBindGuestCheckoutContact).toHaveBeenLastCalledWith({
+      email: "jane@example.com",
+      displayName: "Jane Smith",
+    });
+  });
+
+  it("keeps Guest Contact editable and retryable after a contact-qualified 429", async () => {
+    mockBindGuestCheckoutContact.mockRejectedValueOnce(authError(429));
+
+    const limited = await submit(
+      guestForm("confirm-checkout", { contactName: "Jane Smith", shippingEmail: "jane@example.com" }),
+    );
+
+    expect(limited).toEqual({
+      guestContactAttempt: { contactName: "Jane Smith", contactEmail: "jane@example.com", problem: "retry-later" },
+    });
+    expectNoCheckoutWrite();
+
+    const later = (await submit(
+      guestForm("refresh-checkout-preview", { contactName: "Jane Smith", shippingEmail: "jane@example.com" }),
+    )) as Response;
+    expect(later.status).toBe(302);
+    expect(mockBindGuestCheckoutContact).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows the unavailable state when Auth cannot be read, without saving or writing", async () => {
+    mockGetGuestCheckoutContact.mockRejectedValue(authError(429));
+
+    const result = await submit(
+      guestForm("confirm-checkout", { contactName: "Jane Smith", shippingEmail: "jane@example.com" }),
+    );
+
+    expect(result).toEqual({ guestContact: { state: "indeterminate", reason: "rate-limited" } });
+    expect(mockBindGuestCheckoutContact).not.toHaveBeenCalled();
+    expectNoCheckoutWrite();
+  });
+
+  it("writes nothing when confirm refuses a guest's contact after a bound save, and sends the choices with confirm", async () => {
+    mockGetGuestCheckoutContact.mockResolvedValue(JANE);
+    mockConfirmCheckoutSession.mockRejectedValue(
+      new MockCheckoutApiError(409, {
+        error: {
+          code: "guest_contact_required",
+          message: "Add your name and email for this checkout before you pay. Nothing was reserved or ordered.",
+        },
+      }),
+    );
+    const form = guestForm("confirm-checkout", { contactName: "Jane Smith", shippingEmail: "jane@example.com" });
+    form.set("marketplaceCheckoutFeeQuoteFingerprint", "quote_1");
+    form.set("authenticityCheckOptIn", "true");
+    form.set("authenticityCheckOptInQuoteFingerprint", "authenticity_quote_1");
+
+    const result = await submit(form);
+
+    expect(mockBindGuestCheckoutContact).not.toHaveBeenCalled();
+    expect(mockSelectShippingOption).not.toHaveBeenCalled();
+    expect(mockSelectShippingAddress).not.toHaveBeenCalled();
+    expect(mockSelectAuthenticityCheckOptIn).not.toHaveBeenCalled();
+    expect(mockRecordFulfillmentPreview).not.toHaveBeenCalled();
+    expect(mockConfirmCheckoutSession).toHaveBeenCalledExactlyOnceWith(
+      "chk_1",
+      expect.objectContaining({
+        shippingOption: "standard",
+        authenticityCheckOptIn: { selected: true, quoteFingerprint: "authenticity_quote_1" },
+      }),
+    );
+    expect(result).toEqual({
+      error: "Add your name and email for this checkout before you pay. Nothing was reserved or ordered.",
+    });
+  });
+
+  it("still writes a guest's choices when Pay now refreshes the review instead of confirming", async () => {
+    mockGetGuestCheckoutContact.mockResolvedValue(JANE);
+    const form = guestForm("confirm-checkout", { contactName: "Jane Smith", shippingEmail: "jane@example.com" });
+    form.set("sourceType", "cart");
+
+    const response = (await submit(form)) as Response;
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toContain("review=updated");
+    expect(mockSelectShippingOption).toHaveBeenCalledExactlyOnceWith("chk_1", { shippingOption: "standard" });
+    expect(mockSelectAuthenticityCheckOptIn).toHaveBeenCalledTimes(1);
+    expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it("never reads or saves a guest contact for a signed-in buyer", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+
+    const response = (await submit(guestForm("refresh-checkout-preview", {}))) as Response;
+
+    expect(response.status).toBe(302);
+    expect(mockCreateInternalAuthRequestApiClient).not.toHaveBeenCalled();
+  });
 });

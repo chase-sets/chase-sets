@@ -1,5 +1,6 @@
 import type { CheckoutFulfillmentPreview, CheckoutSessionRow } from "../../../support/request-support/api-client";
 import type { ReactNode } from "react";
+import type { GuestContactAuthority } from "../../../support/request-support/guest-contact-authority";
 
 export type DeferredCheckoutCard = Readonly<{
   entry: ReactNode;
@@ -64,9 +65,13 @@ export type CheckoutSavedPaymentInstrument = Readonly<{
 
 export type CheckoutEditSection = "contact" | "delivery" | "shipping" | "payment";
 
-export type GuestCheckoutContact = Readonly<{
+export type { GuestContactAuthority } from "../../../support/request-support/guest-contact-authority";
+
+/** What a guest last entered as contact, kept editable, and why it was not saved. */
+export type GuestContactAttempt = Readonly<{
   contactEmail: string;
-  contactName: string | null;
+  contactName: string;
+  problem: "sign-in-required" | "invalid" | "retry-later";
 }>;
 
 export type CheckoutReservationUnavailableLine = Pick<
@@ -108,7 +113,13 @@ export type CheckoutSessionPageProps = {
   confirmationAmbiguous?: boolean;
   savedShippingAddresses?: readonly CheckoutSavedShippingAddress[];
   savedCheckoutInstruments?: readonly CheckoutSavedPaymentInstrument[];
-  guestCheckoutContact?: GuestCheckoutContact | null;
+  /** Set for a guest: the contact Auth holds for this checkout. */
+  guestContact?: GuestContactAuthority | null;
+  guestContactAttempt?: GuestContactAttempt | null;
+  /** A save tried to change a contact that is already saved. */
+  guestContactLocked?: boolean;
+  /** Sign-in link that returns to this checkout, offered when the email already has an account. */
+  guestContactSignInHref?: string | null;
   canManageShippingAddresses?: boolean;
   canSavePaymentMethods?: boolean;
   isSignedInBuyer?: boolean;

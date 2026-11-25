@@ -230,7 +230,7 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
   // that append's stream row is still uncommitted, so holding a runtime there blocks the other's append.
   const isAttemptLock = (statement: Statement, attemptId?: string) =>
     /pg_advisory_xact_lock\(hashtextextended/.test(statement.sql) &&
-    (attemptId === undefined || statement.params[0] === `payments-command:${streamIdFor(attemptId)}`);
+    (attemptId === undefined || statement.params[0] === `payments:${streamIdFor(attemptId)}`);
   const deferred = () => {
     let resolve!: () => void;
     let settled = false;

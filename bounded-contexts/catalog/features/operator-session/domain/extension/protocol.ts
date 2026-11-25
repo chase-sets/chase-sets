@@ -1,3 +1,8 @@
+import {
+  parseTcgplayerMarketObservationRequest,
+  type TcgplayerMarketObservationRequest,
+} from "@chase-sets/tcgplayer-market-observations";
+
 export const operatorEnvironments = ["staging", "production"] as const;
 export const operatorExtensionId = "ghemdloifdkoadnapmigabiekchlholm";
 export type OperatorEnvironment = (typeof operatorEnvironments)[number];
@@ -35,7 +40,57 @@ export type OperatorStatus = {
 };
 export type OperatorCommand =
   | { action: "pair"; environment: OperatorEnvironment; grant: string }
-  | { action: "status" | "unpair" | "recover"; environment: OperatorEnvironment };
+  | { action: "status" | "unpair" | "recover" | "poll-now"; environment: OperatorEnvironment };
+
+type ObservationRequestIdentity = Readonly<{ requestId: string; expiresAt: string }>;
+export type CatalogObservationRequest = ObservationRequestIdentity &
+  (
+    | Readonly<{ kind: "set-names"; productLineId: number }>
+    | Readonly<{ kind: "sealed-products"; productLineId: number; setNameId: number; searchName: string }>
+  );
+export type OperatorObservationRequest =
+  | CatalogObservationRequest
+  | (ObservationRequestIdentity &
+      Readonly<{ kind: "market-observations"; marketRequest: TcgplayerMarketObservationRequest }>);
+export const observationPollVersion = "2";
+
+const observationId = /^[A-Za-z0-9_-]{1,64}$/;
+const providerId = (value: unknown): value is number => safeInteger(value) && value > 0 && value <= 2147483647;
+const requestIdentity = ["kind", "requestId", "expiresAt"];
+
+export function isCatalogObservationRequest(value: unknown): value is CatalogObservationRequest {
+  return (
+    ((closed(value, [...requestIdentity, "productLineId"]) && value.kind === "set-names") ||
+      (closed(value, [...requestIdentity, "productLineId", "setNameId", "searchName"]) &&
+        value.kind === "sealed-products" &&
+        providerId(value.setNameId) &&
+        typeof value.searchName === "string" &&
+        value.searchName.length <= 256 &&
+        value.searchName.trim().length > 0 &&
+        !/[\x00-\x1f\x7f]|:\/\//.test(value.searchName))) &&
+    typeof value.requestId === "string" &&
+    observationId.test(value.requestId) &&
+    isInstant(value.expiresAt) &&
+    providerId(value.productLineId)
+  );
+}
+
+export function parseObservationPoll(value: unknown): OperatorObservationRequest | null {
+  if (closed(value, ["contractVersion", "request"]) && value.contractVersion === 2) {
+    const request = value.request;
+    if (request === null || isCatalogObservationRequest(request)) return request;
+    if (
+      closed(request, [...requestIdentity, "marketRequest"]) &&
+      request.kind === "market-observations" &&
+      isInstant(request.expiresAt)
+    ) {
+      const marketRequest = parseTcgplayerMarketObservationRequest(request.marketRequest);
+      if (request.requestId === marketRequest.requestId)
+        return { kind: request.kind, requestId: request.requestId, expiresAt: request.expiresAt, marketRequest };
+    }
+  }
+  throw new Error("invalid-observation-poll");
+}
 
 export function closed(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
   return (
@@ -78,7 +133,10 @@ export function isCommand(value: unknown): value is OperatorCommand {
     closed(value, ["action", "environment"]) &&
     "environment" in value &&
     isEnvironment(value.environment) &&
-    (value.action === "status" || value.action === "unpair" || value.action === "recover")
+    (value.action === "status" ||
+      value.action === "unpair" ||
+      value.action === "recover" ||
+      value.action === "poll-now")
   );
 }
 export function isStatus(value: unknown): value is OperatorStatus {

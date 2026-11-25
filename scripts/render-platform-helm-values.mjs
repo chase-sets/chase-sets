@@ -549,8 +549,9 @@ export function buildPlatformHelmProductionValues(options = {}) {
       },
     },
     components: {
-      // The Corten admin and marketplace pilots. The deploy renders each disabled while its React app serves
-      // its host (admin-web for admin.chasesets.com, marketplace-web for marketplace.chasesets.com).
+      // The Corten admin, marketplace and public pilots. The deploy renders each disabled while its React app
+      // serves its hosts (admin-web for admin.chasesets.com, marketplace-web for marketplace.chasesets.com,
+      // public-web for chasesets.com and www.chasesets.com).
       ...productionComponents,
       ...Object.fromEntries(
         Object.entries(productionAppComponentRequests).map(([name, requests]) => [
@@ -697,6 +698,30 @@ export function resolveStagingPublicApp(env = {}) {
   return { app: value, source: "variable" };
 }
 
+// The app that serves chasesets.com and www.chasesets.com, from the production environment's PRODUCTION_PUBLIC_APP.
+// It defaults to public-web; switching production to the Corten public app is its own reviewed change
+// (docs/runbooks/production-public-app.md). Unset means the default; any other value fails.
+export const PRODUCTION_PUBLIC_APPS = STAGING_PUBLIC_APPS;
+export const defaultProductionPublicApp = "public-web";
+
+export function resolveProductionPublicApp(env = {}) {
+  const value = String(env.PRODUCTION_PUBLIC_APP ?? "").trim();
+  if (value === "") {
+    return { app: defaultProductionPublicApp, source: "default" };
+  }
+  if (!PRODUCTION_PUBLIC_APPS.includes(value)) {
+    throw new Error(`PRODUCTION_PUBLIC_APP must be one of ${PRODUCTION_PUBLIC_APPS.join(", ")}; got "${value}".`);
+  }
+  return { app: value, source: "variable" };
+}
+
+// The public app for a staging or production deploy; null for any other environment.
+export function resolvePublicApp(env = {}, environment) {
+  if (environment === "staging") return { ...resolveStagingPublicApp(env), variable: "STAGING_PUBLIC_APP" };
+  if (environment === "production") return { ...resolveProductionPublicApp(env), variable: "PRODUCTION_PUBLIC_APP" };
+  return null;
+}
+
 export function buildDoksIngressValues(options = {}) {
   const env = options.env ?? {};
   const environment = options.environment ?? "staging";
@@ -707,7 +732,7 @@ export function buildDoksIngressValues(options = {}) {
   const production = environment === "production";
   const adminApp = production ? resolveProductionAdminApp(env).app : resolveStagingAdminApp(env).app;
   const marketplaceApp = production ? resolveProductionMarketplaceApp(env).app : resolveStagingMarketplaceApp(env).app;
-  const publicApp = production ? null : resolveStagingPublicApp(env).app;
+  const publicApp = production ? resolveProductionPublicApp(env).app : resolveStagingPublicApp(env).app;
   const targetVariable = production ? "PRODUCTION_DOKS_INGRESS_TARGET" : "DOKS_INGRESS_TARGET";
   const target = String(env[targetVariable] ?? "").trim();
 
@@ -720,6 +745,7 @@ export function buildDoksIngressValues(options = {}) {
           marketplaceServed,
           adminService: adminApp,
           marketplaceService: marketplaceApp,
+          publicService: publicApp,
         })
       : buildDoksIngressHosts(stagingEnvironmentZone, "live", {
           apexService: marketplaceApp,
@@ -848,7 +874,10 @@ function buildDoksIngressHosts(environmentZone, hostMode, options = {}) {
 function buildProductionDoksIngressHosts(options = {}) {
   const includeMarketplace = options.marketplaceServed === true;
   const buildHostSet = (hostMode) =>
+    // The production apex and www are both public hosts, so one app serves them both.
     buildDoksIngressHosts(productionEnvironmentZone, hostMode, {
+      apexService: options.publicService,
+      wwwService: options.publicService,
       adminService: options.adminService,
       marketplaceService: options.marketplaceService,
     }).filter((host) => includeMarketplace || !host.host.startsWith("marketplace."));

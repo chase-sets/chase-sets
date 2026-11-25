@@ -474,7 +474,7 @@ function createScrydexAdapter(options: ScrydexOnePieceProviderAdapterOptions): S
             `Scrydex ${productLabel} card payload fetch requires cardId.`,
           );
           const sourceUrl = scrydexUrl(`cards/${encodeURIComponent(cardId)}`, {}, options, productDomain);
-          const card = sanitizeScrydexCard(await fetchScrydexJson(sourceUrl, options));
+          const card = mapScrydexImportCard(await fetchScrydexJson(sourceUrl, options), productDomain, plan.scope);
           yield scrydexEnvelope({
             unitKey: plan.unitKey,
             externalKey: `card:${requireString(card.id ?? cardId, `Scrydex ${productLabel} card payload is missing id.`)}`,
@@ -508,7 +508,10 @@ function createScrydexAdapter(options: ScrydexOnePieceProviderAdapterOptions): S
         );
         await cacheScrydexCardObservation(plan.scope, pages, validatedPagination, options);
         const cards = pages.flatMap((page) =>
-          page.items.map((card) => ({ card: sanitizeScrydexCard(card), sourceUrl: page.sourceUrl })),
+          page.items.map((card) => ({
+            card: mapScrydexImportCard(card, productDomain, plan.scope),
+            sourceUrl: page.sourceUrl,
+          })),
         );
         for (let index = 0; index < cards.length; index += 1) {
           const current = cards[index]!;
@@ -2282,6 +2285,21 @@ function sealedProductOptionItem(sealedProduct: ScrydexOnePieceSealedProduct, ex
       language: sealedProduct.language,
       languageCode: sealedProduct.language_code,
     }),
+  };
+}
+
+function mapScrydexImportCard(
+  value: JsonValue,
+  productDomain: ScrydexProductDomain,
+  scope: ProviderImportScope,
+): ScrydexOnePieceCard {
+  const card = sanitizeScrydexCard(value);
+  if (productDomain !== "lorcana" || card.language_code !== undefined || card.language?.toLowerCase() !== "english") {
+    return card;
+  }
+  return {
+    ...card,
+    language_code: card.expansion?.language_code ?? scope.values.languageCode ?? scope.values.language ?? "en",
   };
 }
 

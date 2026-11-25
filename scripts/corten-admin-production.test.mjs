@@ -68,7 +68,7 @@ describe("production admin app switch", () => {
         expect(pilotArgs(args)).toEqual(["components.admin-corten.enabled=false"]);
         expect(args[args.indexOf("components.admin-corten.enabled=false") - 1]).toBe("--set");
         expect(adminRoot(args)).toBe("admin-web");
-        expect(withheldCortenPilots(production(env))).toEqual(["admin-corten", "marketplace-corten"]);
+        expect(withheldCortenPilots(production(env))).toEqual(["admin-corten", "marketplace-corten", "public-corten"]);
       }
     }
     const withoutProxies = production(
@@ -86,7 +86,7 @@ describe("production admin app switch", () => {
     expect(args[args.indexOf(`components.admin-corten.image=${image}`) - 1]).toBe("--set-string");
     expect(adminRoot(args)).toBe("admin-corten");
     expect(args).toContain(`global.envOverrides.PROXIES=${proxies.replace(",", "\\,")}`);
-    expect(withheldCortenPilots(production(adminCorten))).toEqual(["marketplace-corten"]);
+    expect(withheldCortenPilots(production(adminCorten))).toEqual(["marketplace-corten", "public-corten"]);
     expect(platformKubernetesWorkloads(production(adminCorten)).deployments).toContain(pilotWorkload);
     // The certificate covers the same names either way: no new host or DNS record.
     const names = (env) =>

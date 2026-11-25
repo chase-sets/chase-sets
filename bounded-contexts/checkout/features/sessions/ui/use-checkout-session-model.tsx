@@ -36,7 +36,10 @@ export function useCheckoutSessionModel({
   isSubmitting = false,
   savedShippingAddresses = [],
   savedCheckoutInstruments = [],
-  guestCheckoutContact = null,
+  guestContact = null,
+  guestContactAttempt = null,
+  guestContactLocked = false,
+  guestContactSignInHref = null,
   canManageShippingAddresses = false,
   canSavePaymentMethods = false,
   isSignedInBuyer = false,
@@ -49,6 +52,10 @@ export function useCheckoutSessionModel({
   const isOfferIntent = session.source_type === "offer-intent";
   const signedInBuyCheckout = isSignedInBuyer && !isOfferIntent;
   const guestBuyCheckout = !isSignedInBuyer && !isOfferIntent;
+  // Only Auth's answer, never a shipping value, makes a guest's contact ready.
+  const boundGuestContact = guestBuyCheckout && guestContact?.state === "bound" ? guestContact : null;
+  // Auth could not be read: the contact is neither shown nor asked for, and nothing can be confirmed.
+  const guestContactUnavailable = guestBuyCheckout && guestContact?.state === "indeterminate";
   const preview = fulfillmentPreview ?? null;
   const payment = walletUnavailable && !hasPayment ? null : (paymentPreview ?? null);
   // Confirm posts the revision its orders were bound to; once they exist the preview is gone and the Session keeps it.
@@ -119,7 +126,7 @@ export function useCheckoutSessionModel({
     session,
     defaultSavedAddress,
     guestBuyCheckout,
-    guestCheckoutContact,
+    boundGuestContact,
   });
   const previewPayableTotal = payment?.marketplace_checkout_fee.total_amount ?? preview?.totals.totalAmount ?? null;
   const authenticityCheckOffer = preview?.authenticityCheckOffer ?? null;
@@ -176,8 +183,16 @@ export function useCheckoutSessionModel({
   const savedAddressReady = Boolean(
     defaultSavedAddress && !selectedSavedPaymentInstrument && !isOfferIntent && !hasPayment,
   );
-  const guestContactReady = guestBuyCheckout && addressDefaults.email.trim().length > 0;
-  const contactReady = (signedInBuyCheckout || guestContactReady) && addressDefaults.email.trim().length > 0;
+  const contactReady = signedInBuyCheckout ? addressDefaults.email.trim().length > 0 : boundGuestContact !== null;
+  const contactEmail = boundGuestContact?.contactEmail ?? guestContactAttempt?.contactEmail ?? addressDefaults.email;
+  const guestContactEntry =
+    guestBuyCheckout && !boundGuestContact && !guestContactUnavailable
+      ? {
+          contactName: guestContactAttempt?.contactName ?? "",
+          problem: guestContactAttempt?.problem ?? null,
+          signInHref: guestContactSignInHref,
+        }
+      : null;
   const deliveryReady = signedInBuyCheckout && addressIsComplete(addressDefaults);
   const shippingMethodReady = signedInBuyCheckout && Boolean(firstDeliveryGroup);
   const paymentMethodReady = signedInBuyCheckout && Boolean(selectedSavedPaymentInstrument);
@@ -318,6 +333,11 @@ export function useCheckoutSessionModel({
     canManageAddressBookInCheckout,
     defaultSavedAddress,
     addressDefaults,
+    contactEmail,
+    boundGuestContact,
+    guestContactEntry,
+    guestContactUnavailable,
+    guestContactLocked: guestContactLocked && boundGuestContact !== null,
     authenticityCheckOffer,
     authenticityCheckEligible,
     authenticityCheckSelected,

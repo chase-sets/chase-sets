@@ -184,11 +184,9 @@ test.describe.serial("catalog admin scopes", () => {
     });
     const previewIds = await previewTable.locator("tbody tr td:nth-child(1)").allTextContents();
     expect(previewIds).toEqual(resolvedIds);
-    // The server never plans TCGplayer units: Magic, Pokemon and One Piece keep
-    // only their required non-TCGplayer units, and the TCGplayer-only Yu-Gi-Oh
-    // scope selects none, so it is blocked rather than ready.
-    await expect(page.getByText("0 ready scopes, 4 blocked scopes, 4 provider units.", { exact: true })).toBeVisible();
-    await expect(page.getByText("tcgplayer units / requests", { exact: true })).toHaveCount(0);
+    // Only browser SetNames is planned for TCGplayer; the other required providers still block confirmation.
+    await expect(page.getByText("1 ready scopes, 3 blocked scopes, 8 provider units.", { exact: true })).toBeVisible();
+    await expect(page.getByText("tcgplayer units / requests", { exact: true })).toBeVisible();
     const planningBlockerAlerts = page
       .getByRole("alert")
       .filter({ has: page.getByText("scope-planning-blocked", { exact: true }) });
@@ -196,7 +194,7 @@ test.describe.serial("catalog admin scopes", () => {
       planningBlockerAlerts.filter({
         has: page.getByText("Catalog Scope Record has no selected provider units.", { exact: true }),
       }),
-    ).toHaveCount(1);
+    ).toHaveCount(0);
     await expect(
       planningBlockerAlerts.filter({
         has: page.getByText("tcgplayer does not expose import planning for this unit.", { exact: true }),

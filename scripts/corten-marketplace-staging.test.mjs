@@ -45,8 +45,8 @@ describe("Corten marketplace staging, first slice", () => {
     const expected = {
       "reconcile-production-marker": "6e7171774b3d654c0dcd81d993140ebcfb0bf8436d05c7a5809c7137b5f2c317",
       "reconcile-managed-postgres-ca-production": "2a089333675961592792931dc522f4a8725e1f4b2f8688a0a7ecbb5a3246f389",
-      // Moved for the production admin and marketplace switches: PRODUCTION_ADMIN_APP and PRODUCTION_MARKETPLACE_APP, the staged Corten images, best-effort PROXIES.
-      "deploy-production": "df0d9ff6ac024bf0498e3bb269bada04c88fdb61fb4630ad40d272104ff9631d",
+      // Moved for the production admin, marketplace and public switches: PRODUCTION_ADMIN_APP, PRODUCTION_MARKETPLACE_APP and PRODUCTION_PUBLIC_APP, the staged Corten images, best-effort PROXIES.
+      "deploy-production": "8c09ed0455705b188d67a82a123f0c63b1432d53a14758da84f19ea17889bf16",
       "notify-production-deploy-incident": "45ba7ca357af41620cb066784a2ef94c80741725d98aa98a6520f3b049166262",
       "notify-production-rollback-incident": "6620994b81902ec45da29e5b3f049a1e49b2e9a2483d1b6acf6663584272710e",
     };
@@ -66,7 +66,7 @@ describe("Corten marketplace staging, first slice", () => {
   it("preserves the production values", () => {
     for (const [file, sha] of Object.entries({
       "values.yaml": "deabfa12c21bfed16326e58432c13a4aecf3a1f1f852768320a311e3916baadc",
-      "values.production.yaml": "2f908317309dca398afb71c062bfe218dfd7d65d3b04bbe9c0bbdcfd62f5974c",
+      "values.production.yaml": "b39cdc628cf5295e0669b9a6beccbe379a0dd48e431e181c52129ad685be36c9",
     })) {
       expect(
         createHash("sha256")

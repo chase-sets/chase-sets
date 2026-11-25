@@ -10,23 +10,11 @@ const {
   catalogIntegrationRetainedLegacyPaths,
   evaluateCatalogIntegrationLegacyCleanupReadiness,
 } = await import("./catalog-integration-legacy-cleanup.ts");
-const { catalogIntegrationDataSurfacePolicies } =
-  await import("../../bounded-contexts/catalog/features/source-observations/api/governance/catalog-integration-data-migration-reset.ts");
 const { catalogProviderProfileEditableSectionMetadata } =
   await import("../../bounded-contexts/catalog/features/source-observations/api/admin/provider-profile-admin-contracts.ts");
 
 describe("catalog integration legacy cleanup", () => {
-  it("inventories resettable data surfaces and supported launch paths", () => {
-    const retiredResetSurfaceKeys = new Set(["provider-option-rate-limit", "provider-option-rate-limit-lease"]);
-    const resetSurfaceKeys = new Set(
-      catalogIntegrationDataSurfacePolicies
-        .map((surface) => surface.key)
-        .filter((key) => !retiredResetSurfaceKeys.has(key)),
-    );
-    const inventoryResetSurfaceKeys = new Set(
-      catalogIntegrationLegacyCleanupSurfaces.map((surface) => surface.resetSurfaceKey).filter(Boolean),
-    );
-    assert.deepEqual(inventoryResetSurfaceKeys, resetSurfaceKeys);
+  it("inventories retained fixture metadata and supported authoring paths", () => {
     assert.ok(
       catalogIntegrationLegacyCleanupSurfaces.some(
         (surface) => surface.key === "fixture-contract-metadata-and-payloads",
@@ -41,10 +29,17 @@ describe("catalog integration legacy cleanup", () => {
     assert.deepEqual(catalogIntegrationRetainedLegacyPaths, []);
   });
 
-  it("passes clean pre-launch bootstrap readiness", () => {
+  it("passes readiness with retained Catalog integration data", () => {
     assert.deepEqual(
       evaluateCatalogIntegrationLegacyCleanupReadiness({
-        report: cleanReport(),
+        report: {
+          ...cleanReport(),
+          sourceObservations: 2,
+          integrationDurableJobs: 1,
+          providerOptionQueryCacheEntries: 3,
+          providerOptionRateLimits: 3,
+          providerOptionRateLimitsAboveFloor: 3,
+        },
         editableSections: catalogProviderProfileEditableSectionMetadata(),
       }),
       { launchReady: true, findings: [] },
@@ -66,20 +61,14 @@ describe("catalog integration legacy cleanup", () => {
     assert.equal(readiness.launchReady, false);
     assert.deepEqual(
       readiness.findings.map((finding) => finding.code),
-      [
-        "source-observations-not-reset",
-        "legacy-source-observation-references",
-        "integration-jobs-not-reset",
-        "provider-option-rate-limits-not-reset",
-        "raw-json-section-editor",
-      ],
+      ["legacy-source-observation-references", "raw-json-section-editor"],
     );
   });
 
-  it("publishes launch verification checklist and SQL for clean-start release evidence", () => {
+  it("publishes launch verification checklist and SQL for retained-data release evidence", () => {
     const checklist = catalogIntegrationLegacyCleanupReleaseChecklist();
     for (const marker of [
-      "pre-launch wipe/rebuild reset",
+      "read-only report",
       "rawJsonBacked=false",
       "unsupported profile authoring compatibility code",
     ]) {

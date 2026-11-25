@@ -46,7 +46,8 @@ export type {
   CheckoutSavedPaymentInstrument,
   CheckoutSavedShippingAddress,
   CheckoutSessionPageProps,
-  GuestCheckoutContact,
+  GuestContactAttempt,
+  GuestContactAuthority,
 } from "./checkout-page-types";
 
 export function CheckoutSessionPage(props: CheckoutSessionPageProps) {
@@ -104,6 +105,7 @@ function CheckoutSessionPageContent({
     paymentEntryPending: Boolean(card && !card.ready && model.commitIntent === "confirm-checkout"),
     confirmationAmbiguous: props.confirmationAmbiguous ?? false,
     verifyEmailHref: props.paymentVerifyEmailHref ?? null,
+    contactUnavailable: model.guestContactUnavailable,
     submittingCtaLabel: model.submittingCtaLabel,
     primaryCtaLabel: model.primaryCtaLabel,
   };
@@ -160,7 +162,24 @@ function CheckoutSessionPageContent({
           title={t("checkout.features.sessions.ui.checkoutPage.checkout.cancelled")}
           description={t("checkout.features.sessions.ui.checkoutPage.checkout.cancelled.description")}
         />
-      ) : props.expiredCheckout ? null : model.preparedPaymentEntry ? (
+      ) : props.expiredCheckout ? null : model.guestContactUnavailable && model.session.payment_id ? (
+        // Auth could not say whose contact this is: the payment's references show, but nothing
+        // goes on to pay until a later read answers.
+        <Stack gap={4}>
+          <CheckoutStateNotice
+            tone="warning"
+            title={t("checkout.features.sessions.ui.checkoutPage.contact.unavailable.title")}
+            description={t("checkout.features.sessions.ui.checkoutPage.contact.unavailable.description")}
+          />
+          <CheckoutConfirmationSection
+            paymentId={model.session.payment_id}
+            orderReferenceValue={model.orderReferenceValue}
+            buySupportReferenceValue={model.buySupportReferenceValue}
+            totalsPayableTotal={model.totalsTotal}
+            paymentHandoffAvailable={false}
+          />
+        </Stack>
+      ) : model.preparedPaymentEntry ? (
         model.preparedPaymentEntry
       ) : model.session.payment_id ? (
         <CheckoutConfirmationSection
@@ -230,6 +249,7 @@ function CheckoutSessionPageContent({
             <CheckoutSavedInfoSection
               showSavedCheckoutRows={model.showSavedCheckoutRows}
               contactReady={model.contactReady}
+              boundGuestContact={model.boundGuestContact}
               deliveryReady={model.deliveryReady}
               shippingMethodReady={model.shippingMethodReady}
               paymentMethodReady={model.paymentMethodReady}
@@ -246,7 +266,10 @@ function CheckoutSessionPageContent({
             <CheckoutContactSection
               showContactForm={model.showContactForm}
               isOfferIntent={model.isOfferIntent}
-              email={model.addressDefaults.email}
+              email={model.contactEmail}
+              guestEntry={model.guestContactEntry}
+              guestContactUnavailable={model.guestContactUnavailable}
+              guestContactLocked={model.guestContactLocked}
             />
 
             <CheckoutDeliverySection

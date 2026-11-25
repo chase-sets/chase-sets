@@ -36,8 +36,8 @@ use crate::{
         daily::{
             self, CANDIDATE_COMMANDS, Candidate, CandidateInput, ContentsLine, Daily, DailyScreen, EditForm, EvidenceDetail,
             Governance, Health, ImportJob, ImportPreview, JobInput, ObservationEvidence, PROMOTION_INTENTS, PreflightPart,
-            PromotionInput, PromotionPreview, Ran, ReviewInput, ReviewRow, Said, Stage, StageState, SyncInput, SyncRun,
-            UnitInput, UnitState, WorksetUnit, at, with_query,
+            PromotionInput, PromotionPreview, Ran, ReviewInput, ReviewRow, Said, ScopeCandidatesInput, Stage, StageState,
+            SyncInput, SyncRun, UnitInput, UnitState, WorksetUnit, at, with_query,
         },
         integrations,
         views::AliasReviewPart,
@@ -283,6 +283,7 @@ pub fn Stages<'a>(t: Cat, p: Pilot, req: &'a Req, screen: &'a DailyScreen, conte
                                 />
                             }
                             Stage::Review => {
+                                <ScopeReviewModule t={t} model={model} context={context} manage={screen.manage} />
                                 <CandidatesModule t={t} p={p} model={model} context={context} manage={screen.manage} />
                                 <ReviewModule
                                     t={t}
@@ -1210,6 +1211,87 @@ fn candidate_tone(status: &str) -> &'static str {
         "ready" | "promoted" => "success",
         "has-conflicts" | "rejected" => "danger",
         _ => "warning",
+    }
+}
+
+/// The page's candidates by what a scope job would do with them (admin-web's `partitionCandidates`):
+/// ready to promote, needing conflict resolution, and the rest still to review. Promoted, rejected
+/// and deferred candidates are in none. It draws the summary only: the job selects its own.
+fn partition(rows: &[Candidate]) -> (usize, usize, usize) {
+    let open = rows.iter().filter(|r| !matches!(r.status.as_str(), "promoted" | "rejected" | "deferred"));
+    let (mut ready, mut conflicts, mut rest) = (0, 0, 0);
+    for row in open {
+        if row.status == "has-conflicts" {
+            conflicts += 1;
+        }
+        if row.status == "ready" && row.promote_readiness.state == "ready" {
+            ready += 1;
+        } else {
+            rest += 1;
+        }
+    }
+    (ready, conflicts, rest)
+}
+
+/// Scope review actions (admin-web's `CatalogScopeBulkReviewActions`), on a scope's own surface:
+/// Promote all ready and Defer remainder, each a form that queues one job over the whole scope,
+/// which picks its candidates when it runs. The counts are this page's rows only.
+#[component(css = DailyPage)]
+fn ScopeReviewModule<'a>(t: Cat, model: &'a Daily, context: &'a str, manage: bool) -> impl Render {
+    let scope = model.route_context.scope_record_id.as_deref().filter(|id| !id.is_empty());
+    let rows = &model.merge_candidate_review.rows;
+    let (ready, conflicts, rest) = partition(rows);
+    let open = manage && model.readiness.rbac_allowed;
+    let action = at(&daily::url::ScopeCandidates.href(), context);
+    let f = ScopeCandidatesInput::FIELDS;
+    let ready_text = t.wb_merge_bulk_summary_ready(ready).to_string();
+    let conflict_text = t.wb_merge_bulk_summary_conflict(conflicts).to_string();
+    let rest_text = t.wb_merge_bulk_summary_remainder(rest).to_string();
+    html! {
+        if let Some(scope) = scope {
+            <Module
+                id="wb-scope-review"
+                title={t.wb_merge_bulk_title()}
+                description={t.wb_merge_bulk_description()}
+                status={ready_text.clone()}
+                tone={if ready > 0 { "success" } else { "neutral" }}
+            >
+                <p class={Count}>
+                    <Pill text={&conflict_text} tone={if conflicts > 0 { "warning" } else { "neutral" }} />
+                    <Pill text={&rest_text} tone="neutral" />
+                </p>
+                if rows.is_empty() {
+                    <p class={Muted}>{t.wb_merge_bulk_empty()}</p>
+                }
+                <form method="post" action={&action} class={Row} data-catalog-merge-candidate-bulk-promote="true">
+                    <input type="hidden" name={f.intent} value="promote">
+                    <input type="hidden" name={f.scope_record_id} value={scope}>
+                    <button
+                        type="submit"
+                        class={Button { variant: ButtonVariant::Primary, size: ButtonSize::Sm }}
+                        disabled={!open}
+                    >
+                        {t.wb_merge_bulk_promote_all()}
+                    </button>
+                </form>
+                <p class={Muted}>{t.wb_merge_bulk_promote_all_skip(rest).to_string()}</p>
+                <form method="post" action={&action} data-catalog-merge-candidate-bulk-defer="true">
+                    <input type="hidden" name={f.intent} value="defer">
+                    <input type="hidden" name={f.scope_record_id} value={scope}>
+                    <label class={Field}>
+                        <span>{t.wb_merge_bulk_defer_reason()}</span>
+                        <textarea name={f.reason} rows="2" required class={Textarea {}}></textarea>
+                    </label>
+                    <button
+                        type="submit"
+                        class={Button { variant: ButtonVariant::Outline, size: ButtonSize::Sm }}
+                        disabled={!open}
+                    >
+                        {t.wb_merge_bulk_defer_remainder()}
+                    </button>
+                </form>
+            </Module>
+        }
     }
 }
 

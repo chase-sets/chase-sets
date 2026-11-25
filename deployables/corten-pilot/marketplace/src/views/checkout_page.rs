@@ -25,8 +25,8 @@ use crate::{
     api::{FulfillmentPreview, SessionLine},
     app::url,
     checkout::{
-        CheckoutForm, ConfirmationScreen, DeferredCard, Edit, MANUAL, Notice, Place, Recovery, SHIPPING, Screen, signature,
-        support_reference,
+        CheckoutForm, ConfirmationScreen, ContactProblem, DeferredCard, Edit, MANUAL, Notice, Place, Recovery, SHIPPING, Screen,
+        signature, support_reference,
     },
     text::{CheckoutMsg, PaymentMsg, Pilot},
 };
@@ -35,6 +35,10 @@ use platform::ui::steps::{Step, StepState, Steps as KitSteps, StepsLayout};
 /// The checkout form, which the bar's Pay now also submits.
 #[derive(Id, Clone, Copy)]
 pub struct CheckoutFormId;
+
+/// Why a guest's contact email was not saved, which the email field names.
+#[derive(Id, Clone, Copy)]
+pub struct ContactEmailErrorId;
 
 /// An amount in dollars (`formatMoney(.., "USD")`), or the amount as sent when it is not money.
 fn money(t: CheckoutMsg, amount: &str) -> String {
@@ -389,7 +393,7 @@ fn CheckoutFormPart<'a>(t: CheckoutMsg, pm: PaymentMsg, screen: &'a Screen) -> i
             id={CheckoutFormId}
             class={Form}
             method="post"
-            action={url::BuyCheckout { id, place: Place::default() }}
+            action={url::BuyCheckout { id, place: screen.shown.clone() }}
             on:change={js::stale(event)}
             on:input={js::stale(event)}
             on:submit={js::pay(event, f.confirmation_token_id)}
@@ -419,24 +423,7 @@ fn CheckoutFormPart<'a>(t: CheckoutMsg, pm: PaymentMsg, screen: &'a Screen) -> i
             if steps.rows() {
                 <SavedRows t={t} screen={screen} />
             }
-            if steps.show_contact {
-                <fieldset class={Part}>
-                    <legend class={PartTitle}>{t.page_contact()}</legend>
-                    <label class={Field}>
-                        <span class={Label}>{t.page_email()}</span>
-                        <input
-                            class={Input}
-                            type="email"
-                            name={f.shipping_email}
-                            value={text(&a.email)}
-                            autocomplete="email"
-                            required={!screen.offer}
-                        >
-                    </label>
-                </fieldset>
-            } else {
-                <input type="hidden" name={f.shipping_email} value={text(&a.email)}>
-            }
+            <Contact t={t} screen={screen} />
             if steps.show_delivery {
                 <fieldset class={Part} data-step="delivery">
                     <legend class={PartTitle}>{t.page_delivery()}</legend>
@@ -776,8 +763,8 @@ fn SavedRows<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
                 if s.contact {
                     <SavedRow
                         label={t.page_contact()}
-                        value={a.email.as_deref().unwrap_or("")}
-                        detail={&contact_text}
+                        value={screen.bound_contact().map_or(a.email.as_deref().unwrap_or(""), |(_, name)| name)}
+                        detail={screen.bound_contact().map_or(contact_text.as_str(), |(email, _)| email)}
                         ready={t.page_ready()}
                         status="success"
                         edit={(!s.show_contact && !screen.guest).then(|| (edit(Edit::Contact).href(), t.page_edit_contact()))}
@@ -872,6 +859,11 @@ fn Commit<'a>(t: CheckoutMsg, screen: &'a Screen, in_form: bool) -> impl Render 
             >
                 {t.page_place_purchase_intent()}
             </button>
+        } else if screen.contact_unavailable() {
+            // Nothing can be confirmed until the guest's contact can be read (`contactUnavailable`).
+            <button type="submit" class={(Button, Wide)} form={form} name={f.intent} value="confirm-checkout" disabled>
+                {t.page_pay_now()}
+            </button>
         } else if !screen.can_confirm {
             <a class={(Button, Wide)} href={url::Cart::default()}>{t.page_review_buy_cart()}</a>
         } else if let Some(verify) = &screen.verify_email {
@@ -915,6 +907,79 @@ fn Commit<'a>(t: CheckoutMsg, screen: &'a Screen, in_form: bool) -> impl Render 
     }
 }
 
+/// The Contact step (`CheckoutContactSection`): the email while the step is open, else a hidden
+/// copy of it. A guest whose contact Auth does not hold also enters a name, and is told why the
+/// last save failed; a guest whose contact Auth could not read is told so instead of a form.
+#[component(css = CheckoutPage)]
+fn Contact<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
+    let f = CheckoutForm::FIELDS;
+    let email = screen.contact_email();
+    let entry = screen.guest && !screen.offer && screen.bound_contact().is_none();
+    let attempt = screen.contact_attempt.as_ref();
+    let problem = attempt.map(|a| a.problem);
+    let email_error = match problem {
+        Some(ContactProblem::SignInRequired) => Some(t.page_contact_sign_in_required()),
+        Some(ContactProblem::Invalid) => Some(t.page_contact_invalid()),
+        _ => None,
+    };
+    html! {
+        if screen.contact_unavailable() {
+            <div class={Banner} data-tone="warning" role="status" data-checkout-contact-unavailable>
+                <p class={Strong}>{t.page_contact_unavailable_title()}</p>
+                <p>{t.page_contact_unavailable_description()}</p>
+            </div>
+        } else if screen.steps.show_contact {
+            <fieldset class={Part}>
+                <legend class={PartTitle}>{t.page_contact()}</legend>
+                if entry {
+                    <label class={Field}>
+                        <span class={Label}>{t.page_contact_name()}</span>
+                        <input
+                            class={Input}
+                            type="text"
+                            name={f.contact_name}
+                            value={attempt.map_or("", |a| a.name.as_str())}
+                            autocomplete="name"
+                            required
+                        >
+                    </label>
+                }
+                <label class={Field}>
+                    <span class={Label}>{t.page_email()}</span>
+                    <input
+                        class={Input}
+                        type="email"
+                        name={f.shipping_email}
+                        value={email}
+                        autocomplete="email"
+                        required={!screen.offer}
+                        aria-invalid={email_error.is_some().then_some("true")}
+                        aria-describedby={email_error.is_some().then_some(ContactEmailErrorId)}
+                    >
+                </label>
+                if let Some(error) = email_error {
+                    <p id={ContactEmailErrorId} class={FieldError} role="alert">{error}</p>
+                }
+                if let Some(href) = screen.contact_sign_in.as_deref().filter(|_| problem == Some(ContactProblem::SignInRequired)) {
+                    <a class={(Button, Secondary)} href={href}>{t.page_contact_sign_in()}</a>
+                }
+                if problem == Some(ContactProblem::RetryLater) {
+                    <div class={Banner} data-tone="warning" role="status">
+                        <p>{t.page_contact_retry_later()}</p>
+                    </div>
+                }
+            </fieldset>
+        } else {
+            <input type="hidden" name={f.shipping_email} value={email}>
+            if screen.contact_locked {
+                <div class={Banner} data-tone="info" role="status">
+                    <p>{t.page_contact_locked()}</p>
+                </div>
+            }
+        }
+    }
+}
+
 /// The bar a phone keeps at the bottom: the total and Pay now (`CheckoutStickyAction`).
 #[component(css = CheckoutPage)]
 fn StickyBar<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
@@ -928,7 +993,10 @@ fn StickyBar<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
                     {if screen.offer { t.page_shipping_saved_for_seller_acceptance() } else { t.page_secure_checkout_context() }}
                 </p>
             </div>
-            if let Some(payment) = &screen.session.payment_id {
+            if screen.session.payment_id.is_some() && screen.contact_unavailable() {
+                // A guest's payment is handed off only once Auth's contact can be read again.
+                <button type="button" class={(Button, Wide)} disabled>{t.page_continue_to_payment()}</button>
+            } else if let Some(payment) = &screen.session.payment_id {
                 <a class={(Button, Wide)} href={crate::checkout::payment_href(screen.guest, payment, None)}>
                     {t.page_continue_to_payment()}
                 </a>
@@ -981,11 +1049,20 @@ fn Confirmation<'a>(t: CheckoutMsg, screen: &'a Screen, payment: &'a str) -> imp
                     </li>
                 }
             </ul>
-            <p>
-                <a class={Button} href={crate::checkout::payment_href(screen.guest, payment, None)}>
-                    {t.page_continue_to_payment()}
-                </a>
-            </p>
+            if screen.contact_unavailable() {
+                // As marketplace's page withholds the handoff (`paymentHandoffAvailable`): the payment
+                // stays where it is until the guest's contact can be read again.
+                <div class={Banner} data-tone="warning" role="status" data-checkout-contact-unavailable>
+                    <p class={Strong}>{t.page_contact_unavailable_title()}</p>
+                    <p>{t.page_contact_unavailable_description()}</p>
+                </div>
+            } else {
+                <p>
+                    <a class={Button} href={crate::checkout::payment_href(screen.guest, payment, None)}>
+                        {t.page_continue_to_payment()}
+                    </a>
+                </p>
+            }
         </section>
     }
 }

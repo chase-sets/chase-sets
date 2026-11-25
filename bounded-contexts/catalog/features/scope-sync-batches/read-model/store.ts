@@ -187,9 +187,6 @@ export function createScopeSyncBatchStore(db: PgQueryable) {
     claimOwnerId: string;
     claimTtlMs: number;
   }): Promise<ClaimedScopeSyncBatchUnit | null> {
-    const running = await claimCandidate(db, input, "running");
-    if (running) return claimedUnit(running);
-
     const candidates = await db.query<UnitRow>(
       `SELECT u.*, b.budget, b.event_context
        FROM catalog_scope_sync_batch_units u
@@ -243,7 +240,8 @@ export function createScopeSyncBatchStore(db: PgQueryable) {
         return claimedUnit({ ...row, budget: candidate.budget, event_context: candidate.event_context });
       }
     }
-    return null;
+    const running = await claimCandidate(db, input, "running");
+    return running ? claimedUnit(running) : null;
   }
 
   async function recordRunning(input: { claim: ClaimedScopeSyncBatchUnit; syncRunId: string }): Promise<void> {
@@ -368,7 +366,7 @@ async function claimCandidate(
        JOIN catalog_scope_sync_batches b ON b.batch_id = u.batch_id
        WHERE u.state = $1 AND b.status IN ('queued', 'running')
          AND (u.claimed_until IS NULL OR u.claimed_until < now())
-       ORDER BY b.created_at ASC, u.ordinal ASC
+       ORDER BY u.updated_at ASC, b.created_at ASC, u.ordinal ASC
        FOR UPDATE SKIP LOCKED
        LIMIT 1
      )
@@ -394,6 +392,7 @@ function claimedUnit(row: UnitRow): ClaimedScopeSyncBatchUnit {
     syncRunId: row.sync_run_id,
     budget: parseJson<ScopeSyncBatchBudget>(row.budget),
     context: parseJson<EventStoreContext>(row.event_context),
+    attemptCount: Number(row.attempt_count),
   };
 }
 

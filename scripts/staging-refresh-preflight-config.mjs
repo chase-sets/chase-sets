@@ -25,7 +25,6 @@ export const stagingRefreshOverlapWorkflowFiles = Object.freeze([
   ".github/workflows/platform-database-restore-drill.yml",
   ".github/workflows/catalog-staging-count-preparation.yml",
   ".github/workflows/catalog-staging-provider-uat.yml",
-  ".github/workflows/catalog-integration-staging-reset.yml",
   ".github/workflows/platform-staging-representative-commerce-state.yml",
   ".github/workflows/platform-staging-cluster-addons.yml",
 ]);
