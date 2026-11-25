@@ -580,7 +580,6 @@ async function runDev(targetName = "all") {
         prefix: build.name,
       });
     }
-
   }
 
   if (targetName === browserE2eProductionTarget || targetName === browserE2eCortenMarketplaceTarget) {

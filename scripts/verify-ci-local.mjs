@@ -193,6 +193,38 @@ export function createLocalCommandPlan({ plan, baseSha, headSha, scope }) {
       ],
     ],
     [
+      "corten-marketplace-browser",
+      [
+        command("node", ["--import", "tsx", "deployables/corten-pilot/scripts/export.mjs"]),
+        command("cargo", [
+          "build",
+          "--locked",
+          "--manifest-path",
+          "deployables/corten-pilot/Cargo.toml",
+          "-p",
+          "corten-pilot-marketplace",
+        ]),
+        command(pnpm, ["exec", "playwright", "install", "--with-deps", "chromium"]),
+        command(
+          pnpm,
+          [
+            "exec",
+            "playwright",
+            "test",
+            "deployables/marketplace/e2e/critical-flows.spec.ts",
+            "deployables/marketplace/e2e/buyer-purchase-journey.spec.ts",
+            "deployables/marketplace/e2e/marketplace-navigation.spec.ts",
+            "deployables/marketplace/e2e/marketplace-shell-header.spec.ts",
+            "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts",
+            "deployables/marketplace/e2e/search-scroll-restoration.spec.ts",
+            "--project=marketplace-chromium",
+            "--project=marketplace-mobile",
+          ],
+          { env: { CI: "true", CHASE_SETS_BROWSER_E2E_SYSTEM: "corten-marketplace" } },
+        ),
+      ],
+    ],
+    [
       "build",
       [
         command("node", [

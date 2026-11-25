@@ -266,7 +266,11 @@ describe("dev system target env overrides", () => {
       {
         name: "marketplace",
         workspace: "@chase-sets/app-marketplace-web",
-        env: { PORT: "6173", PLATFORM_API_URL: "http://localhost:6182", CHASE_SETS_INTERNAL_API_ORIGIN: "http://localhost:6182" },
+        env: {
+          PORT: "6173",
+          PLATFORM_API_URL: "http://localhost:6182",
+          CHASE_SETS_INTERNAL_API_ORIGIN: "http://localhost:6182",
+        },
         port: 6173,
       },
     ];
@@ -317,7 +321,9 @@ describe("dev system target env overrides", () => {
         port: 6173,
       },
     ]);
-    expect(cortenMarketplaceBinaryPath({}, "linux")).toMatch(/deployables[\\/]corten-pilot[\\/]target[\\/]debug[\\/]corten-pilot-marketplace$/);
+    expect(cortenMarketplaceBinaryPath({}, "linux")).toMatch(
+      /deployables[\\/]corten-pilot[\\/]target[\\/]debug[\\/]corten-pilot-marketplace$/,
+    );
     expect(cortenMarketplaceBinaryPath({ CORTEN_MARKETPLACE_BINARY: "/opt/pilot" }, "linux")).toBe("/opt/pilot");
     // The development target keeps the React marketplace and the API's own default capability.
     const [devApi, devMarketplace] = applyDevTargetEnvOverrides("browser-e2e", processes, { ci: true });

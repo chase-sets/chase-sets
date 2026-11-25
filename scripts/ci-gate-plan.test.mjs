@@ -140,7 +140,7 @@ function assertPreservedSelection(planner = createCiGatePlan) {
       const inputs = { ...scenario, scope: entry.scope };
       const prior = priorCreateCiGatePlan(inputs);
       const candidate = planner(inputs);
-      const expected = withCatalogUatSyntheticGate(structuredClone(prior), entry.scope);
+      const expected = withPostBaseGates(structuredClone(prior), entry.scope);
       const e2e = expected.gates.find(({ id }) => id === "e2e-tests");
       expect(e2e.e2eBatches).toEqual(entry.batches);
       e2e.e2eBatches = expectedRenderedCopyBatches(entry.batches);
@@ -157,31 +157,46 @@ function assertPreservedSelection(planner = createCiGatePlan) {
   }
 }
 
-// The one gate added after both parity bases: the Catalog UAT spec's synthetic tests, selected only
-// by the classifier's catalogUatSyntheticRequired flag and placed right after E2E Tests.
-function expectedCatalogUatSyntheticGate(scope) {
+// The gates added after both parity bases, in order right after E2E Tests, each selected only by its
+// own classifier flag: the Catalog UAT spec's synthetic tests, and marketplace-web's kept browser
+// specs against the Corten marketplace.
+const postBaseGates = [
+  { id: "catalog-uat-synthetic", name: "Catalog UAT Synthetic Tests", capability: "catalogUatSyntheticRequired" },
+  {
+    id: "corten-marketplace-browser",
+    name: "Corten Marketplace Browser Tests",
+    capability: "cortenMarketplaceBrowserRequired",
+  },
+];
+
+function expectedPostBaseGate(id, scope) {
+  const { name, capability } = postBaseGates.find((gate) => gate.id === id);
   return {
-    id: "catalog-uat-synthetic",
-    name: "Catalog UAT Synthetic Tests",
+    id,
+    name,
     category: "scope-gated",
-    selection: scope.catalogUatSyntheticRequired ? "REQUIRED" : "NOT_REQUIRED",
+    selection: scope[capability] ? "REQUIRED" : "NOT_REQUIRED",
     executability: "REPOSITORY_LOCAL",
-    reason: scope.catalogUatSyntheticRequired ? "scope" : "not-affected",
+    reason: scope[capability] ? "scope" : "not-affected",
     hostedOnlyReason: null,
     affectedWorkspaces: [...scope.affectedWorkspaces],
     e2eBatches: [],
   };
 }
 
-function withCatalogUatSyntheticGate(plan, scope) {
+function expectedCatalogUatSyntheticGate(scope) {
+  return expectedPostBaseGate("catalog-uat-synthetic", scope);
+}
+
+function withPostBaseGates(plan, scope) {
   const index = plan.gates.findIndex(({ id }) => id === "e2e-tests");
-  plan.gates.splice(index + 1, 0, expectedCatalogUatSyntheticGate(scope));
+  plan.gates.splice(index + 1, 0, ...postBaseGates.map(({ id }) => expectedPostBaseGate(id, scope)));
   return plan;
 }
 
-function withCatalogUatSyntheticNeed(ids) {
+function withPostBaseNeeds(ids) {
   const index = ids.indexOf("e2e-tests");
-  return [...ids.slice(0, index + 1), "catalog-uat-synthetic", ...ids.slice(index + 1)];
+  return [...ids.slice(0, index + 1), ...postBaseGates.map(({ id }) => id), ...ids.slice(index + 1)];
 }
 
 const IMPLEMENTATION_BASE_SHA = "0b4bf3adde0adda5bae2060dd898443cb4dcdb21";
@@ -462,13 +477,15 @@ describe("shared E2E setup regression and enforcement", () => {
             e2eTestsRequired: true,
             unitTestsRequired: previous.affectedWorkspaces.length > 0,
             catalogUatSyntheticRequired: false,
+            cortenMarketplaceBrowserRequired: false,
           });
           for (const mode of ["pull-request", "merge-group"]) {
             const inputs = { mode, labels: [], provenance: "same-repository" };
             expect(
-              createCiGatePlan({ ...inputs, scope: { ...previous, catalogUatSyntheticRequired: false } }).gates.find(
-                ({ id }) => id === "e2e-tests",
-              ),
+              createCiGatePlan({
+                ...inputs,
+                scope: { ...previous, catalogUatSyntheticRequired: false, cortenMarketplaceBrowserRequired: false },
+              }).gates.find(({ id }) => id === "e2e-tests"),
             ).toMatchObject({ selection: "NOT_REQUIRED", e2eBatches: [] });
             const plan = createCiGatePlan({ ...inputs, scope });
             expect(plan.gates.find(({ id }) => id === "e2e-tests")).toMatchObject({
@@ -1016,8 +1033,11 @@ describe("shared CI gate plan", () => {
       for (const scenario of scenarios) {
         const plan = createCiGatePlan({ ...scenario, scope });
         for (const gate of plan.gates) {
-          // E2E Tests moved to scope-gated, and Catalog UAT Synthetic Tests is new; both follow the scope alone.
-          const scopeOnly = { "e2e-tests": "e2eTestsRequired", "catalog-uat-synthetic": "catalogUatSyntheticRequired" };
+          // E2E Tests moved to scope-gated, and the post-base gates are new; each follows the scope alone.
+          const scopeOnly = {
+            "e2e-tests": "e2eTestsRequired",
+            ...Object.fromEntries(postBaseGates.map(({ id, capability }) => [id, capability])),
+          };
           const category = gate.id in scopeOnly ? "scope-gated" : baseCategories.get(gate.id);
           const required =
             gate.id in scopeOnly ? scope[scopeOnly[gate.id]] : baseSelection(gate.id, { ...scenario, scope });
@@ -1095,8 +1115,8 @@ describe("shared CI gate plan", () => {
     ).toThrow("UNKNOWN_OR_MISSING_GATE_IDS");
   });
 
-  it("closes executability over the base's seventeen gates plus Catalog UAT Synthetic Tests", () => {
-    const universe = [...withCatalogUatSyntheticNeed(requiredNeeds(baseWorkflow)), "pr-required"];
+  it("closes executability over the base's seventeen gates plus the two post-base gates", () => {
+    const universe = [...withPostBaseNeeds(requiredNeeds(baseWorkflow)), "pr-required"];
     expect(CI_GATE_DEFINITIONS.map(({ id }) => id)).toEqual(universe);
     expect([...requiredNeeds(headWorkflow), "pr-required"].filter((id) => universe.includes(id))).toEqual(universe);
     expect(CI_GATE_DEFINITIONS.every(({ executability }) => CI_GATE_EXECUTABILITY.includes(executability))).toBe(true);
@@ -1110,6 +1130,7 @@ describe("shared CI gate plan", () => {
       "db-tests",
       "e2e-tests",
       "catalog-uat-synthetic",
+      "corten-marketplace-browser",
       "build",
     ]);
     expect(
@@ -1118,7 +1139,7 @@ describe("shared CI gate plan", () => {
           ? typeof hostedOnlyReason === "string" && hostedOnlyReason.length > 0
           : hostedOnlyReason === null,
       ),
-    ).toHaveLength(18);
+    ).toHaveLength(19);
 
     const scope = classifyChanges({ changedFiles: ["README.md"] });
     const plan = createCiGatePlan({ mode: "merge-group", scope });
@@ -1215,6 +1236,75 @@ describe("shared CI gate plan", () => {
       name: "Catalog UAT Synthetic Tests",
       result: "${{ needs['catalog-uat-synthetic'].result }}",
       required: "${{ needs['change-scope'].outputs.catalog_uat_synthetic_required }}",
+    });
+  });
+
+  it("selects Corten Marketplace Browser Tests from the pilot's marketplace and platform, its build inputs, the kept specs and the dev-system target", () => {
+    const triggers = [
+      "deployables/corten-pilot/marketplace/src/checkout.rs",
+      "deployables/corten-pilot/marketplace/static/app.css",
+      "deployables/corten-pilot/platform/src/api.rs",
+      "deployables/corten-pilot/Cargo.toml",
+      "deployables/corten-pilot/Cargo.lock",
+      "deployables/corten-pilot/scripts/export.mjs",
+      "deployables/marketplace/e2e/critical-flows.spec.ts",
+      "deployables/marketplace/e2e/buyer-purchase-journey.spec.ts",
+      "deployables/marketplace/e2e/marketplace-navigation.spec.ts",
+      "deployables/marketplace/e2e/marketplace-shell-header.spec.ts",
+      "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts",
+      "deployables/marketplace/e2e/search-scroll-restoration.spec.ts",
+      "scripts/dev-system.mjs",
+      "scripts/dev-system-config.mjs",
+      "scripts/platform-compose-ingress.mjs",
+    ];
+    const nearMisses = [
+      "README.md",
+      "deployables/corten-pilot/README.md",
+      "deployables/corten-pilot/marketplace/NOTES.md",
+      "deployables/corten-pilot/admin/src/app.rs",
+      "deployables/corten-pilot/public/src/home.rs",
+      "deployables/corten-pilot/scripts/other.mjs",
+      "deployables/marketplace/e2e/item-detail.spec.ts",
+      "deployables/marketplace/e2e/account-payment-stripe-embed.uat.spec.ts",
+      "scripts/dev-system-config.test.mjs",
+    ];
+    for (const [changedFiles, required] of [
+      ...triggers.map((file) => [[file], true]),
+      ...nearMisses.map((file) => [[file], false]),
+    ]) {
+      const scope = classifyChanges({ changedFiles, workspaces });
+      expect(scope.cortenMarketplaceBrowserRequired, changedFiles[0]).toBe(required);
+      for (const scenario of scenarios) {
+        const plan = createCiGatePlan({ ...scenario, scope });
+        expect(
+          plan.gates.find(({ id }) => id === "corten-marketplace-browser"),
+          changedFiles[0],
+        ).toEqual(expectedPostBaseGate("corten-marketplace-browser", scope));
+        expect(ciGatePlanOutputMap(plan).corten_marketplace_browser_required).toBe(String(required));
+      }
+    }
+  });
+
+  it("runs Corten Marketplace Browser Tests only on its scope output, with no secret, on the pilot check's Rust cache", () => {
+    const job = workflowJob(headWorkflow, "corten-marketplace-browser").text;
+    expect(job).toContain("    name: Corten Marketplace Browser Tests\n");
+    expect(workflowCondition(headWorkflow, "corten-marketplace-browser")).toBe(
+      "needs['change-scope'].outputs.corten_marketplace_browser_required == 'true'",
+    );
+    expect(job).not.toMatch(/secrets\./);
+    expect(job).toContain(
+      "key: corten-pilot-v2-${{ runner.os }}-${{ hashFiles('deployables/corten-pilot/Cargo.lock') }}",
+    );
+    expect(job).toContain("run: cargo build --locked -p corten-pilot-marketplace");
+    expect(job).toContain("CHASE_SETS_BROWSER_E2E_SYSTEM: corten-marketplace");
+    expect(job).not.toContain("PLAYWRIGHT_SKIP_WEB_SERVER");
+    expect(job).toContain("--project=marketplace-chromium --project=marketplace-mobile");
+    expect(requiredNeeds(headWorkflow)).toContain("corten-marketplace-browser");
+    expect(requiredCalls(headWorkflow)).toContainEqual({
+      helper: "require_job",
+      name: "Corten Marketplace Browser Tests",
+      result: "${{ needs['corten-marketplace-browser'].result }}",
+      required: "${{ needs['change-scope'].outputs.corten_marketplace_browser_required }}",
     });
   });
 
