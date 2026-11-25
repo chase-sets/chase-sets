@@ -21,22 +21,21 @@ try {
   assert.ok(await phoneTitle.evaluate((node) => node.scrollWidth <= node.clientWidth), "phone promo title is readable");
   for (const width of [320, 375]) {
     await phone.setViewportSize({ width, height: 900 });
-    const previousBox = await requiredBox(previous);
     const promoLink = phonePromo.getByRole("link");
     await requiredBox(promoLink);
     for (const label of ["Order protection", "CollectorShippingCredit"]) {
-      const { link, parts } = await promoLink.evaluate(measurePromoLink, label);
+      const { link, parts, control } = await promoLink.evaluate(measurePromoLink, label);
       assert.ok(parts.length >= 2, "visible promo link text and its decorative glyph");
       for (const part of parts) {
         assert.ok(
-          part.right <= previousBox.x || part.bottom <= previousBox.y || part.top >= previousBox.y + previousBox.height,
+          part.right <= control.left || part.bottom <= control.top || part.top >= control.bottom,
           `${width}px: ${label} text and glyph stay clear of the previous-message button`,
         );
         assert.ok(part.left >= link.left && part.right <= link.right, `${width}px: ${label} stays inside its link`);
       }
       if (label === "Order protection") {
         assert.ok(
-          link.top < previousBox.y + previousBox.height && link.bottom > previousBox.y,
+          link.top < control.bottom && link.bottom > control.top,
           `${width}px: the ordinary link still shares the pager row`,
         );
       }
@@ -137,7 +136,8 @@ async function requiredBox(locator) {
 function measurePromoLink(link, label) {
   const text = Array.from(link.childNodes).find((node) => node.nodeType === Node.TEXT_NODE && node.data.trim());
   const glyph = link.querySelector("svg");
-  if (!text || !glyph) throw new Error("expected a promo link with text and a decorative glyph");
+  const previous = link.closest("section")?.querySelector('[data-promo-step="-1"]');
+  if (!text || !glyph || !previous) throw new Error("expected a promo link, decorative glyph, and previous control");
   const original = text.data;
   try {
     text.data = label;
@@ -146,6 +146,7 @@ function measurePromoLink(link, label) {
     return {
       link: link.getBoundingClientRect().toJSON(),
       parts: [...range.getClientRects(), glyph.getBoundingClientRect()].map((rect) => rect.toJSON()),
+      control: previous.getBoundingClientRect().toJSON(),
     };
   } finally {
     text.data = original;
