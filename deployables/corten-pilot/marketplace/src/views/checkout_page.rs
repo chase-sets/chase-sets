@@ -149,9 +149,11 @@ fn steps(t: CheckoutMsg, screen: &Screen) -> Vec<(&'static str, &'static str, &'
     steps
 }
 
-/// A page that is not the checkout (marketplace's `CheckoutSessionRecoveryPage`).
+/// A page that is not the checkout (marketplace's `CheckoutSessionRecoveryPage`). Every kind but
+/// an unreadable checkout says the payment has not started, as marketplace's recoveries do;
+/// `sign_in` is the sign-in back to this page, the second way out of access-required.
 #[component(css = CheckoutPage)]
-pub fn CheckoutRecovery(t: CheckoutMsg, kind: Recovery) -> impl Render {
+pub fn CheckoutRecovery<'a>(t: CheckoutMsg, kind: Recovery, sign_in: &'a str) -> impl Render {
     let (title, description) = match kind {
         Recovery::NotFound => (t.route_checkout_session_not_found(), t.route_checkout_session_not_found_description()),
         Recovery::WrongAccount => {
@@ -159,14 +161,24 @@ pub fn CheckoutRecovery(t: CheckoutMsg, kind: Recovery) -> impl Render {
         }
         Recovery::Preparing => (t.recovery_checkout_preparing(), t.recovery_checkout_preparing_auto_description()),
         Recovery::Unavailable => (t.route_checkout_unavailable(), t.route_checkout_unavailable_description()),
+        Recovery::AccessRequired => (t.route_checkout_access_required(), t.route_checkout_access_required_description()),
     };
+    let not_started = kind != Recovery::Unavailable;
     html! {
         <section class={(Panel, Lost)} data-recovery={format!("{kind:?}")}>
             <h1 class={Title}>{title}</h1>
             <p class={Muted}>{description}</p>
+            if not_started {
+                <p class={Muted}>{t.route_payment_has_not_started()}</p>
+            }
             <p class={Row}>
-                <a class={Button} href={url::Cart::default()}>{t.recovery_view_buy_cart()}</a>
-                <a class={(Button, Secondary)} href={url::Search::default()}>{t.recovery_browse_marketplace()}</a>
+                if kind == Recovery::AccessRequired {
+                    <a class={Button} href={url::Search::default()}>{t.recovery_browse_marketplace()}</a>
+                    <a class={(Button, Secondary)} href={sign_in}>{t.route_sign_in_to_continue()}</a>
+                } else {
+                    <a class={Button} href={url::Cart::default()}>{t.recovery_view_buy_cart()}</a>
+                    <a class={(Button, Secondary)} href={url::Search::default()}>{t.recovery_browse_marketplace()}</a>
+                }
             </p>
         </section>
     }
