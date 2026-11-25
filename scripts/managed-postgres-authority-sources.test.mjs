@@ -105,29 +105,11 @@ const cortenAdminSmokeDelta = [
   secretName,
   purpose: "terraform-infra",
 }));
-// The advisory Corten marketplace smoke at deploy-staging position 44, after the admin one, shifts later anchors by
-// one. It reuses the Smoke check's Terraform and social-login secrets; no admin credential and no new secret.
-const cortenMarketplaceSmokeStepInsertion = [{ file: workflowPath, jobId: "deploy-staging", position: 44 }];
-const cortenMarketplaceSmokeDelta = [
-  "DIGITALOCEAN_ACCESS_TOKEN",
-  "FACEBOOK_SOCIAL_LOGIN_CLIENT_ID",
-  "FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET",
-  "GOOGLE_SOCIAL_LOGIN_CLIENT_ID",
-  "GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET",
-  "SPACES_ACCESS_ID",
-  "SPACES_ACCESS_ID",
-  "SPACES_SECRET_KEY",
-  "SPACES_SECRET_KEY",
-].map((secretName) => ({
-  file: workflowPath,
-  jobId: "deploy-staging",
-  stepAnchor: "name:Advisory Corten marketplace smoke#44",
-  secretName,
-  purpose: "terraform-infra",
-}));
-// The advisory Corten public smoke at deploy-staging position 45, after the marketplace one, shifts later anchors by
-// one. It reads no secret, so it adds no grant.
-const cortenPublicSmokeStepInsertion = [{ file: workflowPath, jobId: "deploy-staging", position: 45 }];
+// The advisory Corten marketplace smoke that sat at deploy-staging position 44 was deleted with marketplace-web's
+// retirement from staging and production, together with the nine grants its reviewed insertion had added; later
+// anchors moved back by one. The advisory Corten public smoke at position 44, after the admin one, shifts later
+// anchors by one. It adds no secret, so it adds no grant.
+const cortenPublicSmokeStepInsertion = [{ file: workflowPath, jobId: "deploy-staging", position: 44 }];
 const fragmentPath = `${AUTHORITY_ROOT}/platform-production/deploy.json`;
 const boundaryTarget = "./.github/actions/export-managed-postgres-authority";
 // Rule for later grant changes: `migrationBase` and its 1609-grant assertion never move. A slice that adds grants
@@ -1205,8 +1187,6 @@ describe("managed Postgres authority source generator", () => {
             !cortenPilotImagesJobRemovals.some((removal) => JSON.stringify(removal) === JSON.stringify(record)),
         )
         .concat(cortenPilotImagesJobDelta)
-        .map((record) => applyStepInsertions(record, cortenMarketplaceSmokeStepInsertion))
-        .concat(cortenMarketplaceSmokeDelta)
         .map((record) => applyStepInsertions(record, cortenPublicSmokeStepInsertion)),
     };
     // Exact stable-record multiset parity below is the authority; a whole-corpus total would only re-conflict.

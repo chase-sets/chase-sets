@@ -42,8 +42,10 @@ describe("Corten admin staging deployment", () => {
     const expected = {
       "reconcile-production-marker": "6e7171774b3d654c0dcd81d993140ebcfb0bf8436d05c7a5809c7137b5f2c317",
       "reconcile-managed-postgres-ca-production": "2a089333675961592792931dc522f4a8725e1f4b2f8688a0a7ecbb5a3246f389",
-      // Moved for the production admin, marketplace and public switches: PRODUCTION_ADMIN_APP, PRODUCTION_MARKETPLACE_APP and PRODUCTION_PUBLIC_APP, the staged Corten images, best-effort PROXIES.
-      "deploy-production": "8c09ed0455705b188d67a82a123f0c63b1432d53a14758da84f19ea17889bf16",
+      // Moved for the production admin and public switches (PRODUCTION_ADMIN_APP, PRODUCTION_PUBLIC_APP), the staged Corten
+      // images and best-effort PROXIES, then for retiring marketplace-web: no PRODUCTION_MARKETPLACE_APP, and the
+      // marketplace signed-in smoke runs whenever production serves a marketplace.
+      "deploy-production": "9eabad66f3039a0bcd0fda196becdf3bbebbc59a69f127fbfb2c55ab300d9c48",
       "notify-production-deploy-incident": "45ba7ca357af41620cb066784a2ef94c80741725d98aa98a6520f3b049166262",
       "notify-production-rollback-incident": "6620994b81902ec45da29e5b3f049a1e49b2e9a2483d1b6acf6663584272710e",
     };
@@ -63,7 +65,8 @@ describe("Corten admin staging deployment", () => {
   it("preserves the production values at the deployment baseline", () => {
     for (const [file, digest] of Object.entries({
       "values.yaml": "deabfa12c21bfed16326e58432c13a4aecf3a1f1f852768320a311e3916baadc",
-      "values.production.yaml": "b39cdc628cf5295e0669b9a6beccbe379a0dd48e431e181c52129ad685be36c9",
+      // Moved for retiring marketplace-web: the marketplace component is disabled.
+      "values.production.yaml": "fe798bf89f480fff7cdc04b947831bb157bf089a466ca50fdf7f1e7e22ee58de",
     })) {
       expect(
         createHash("sha256")
@@ -194,9 +197,10 @@ describe("Corten admin staging deployment", () => {
     const productionArgs = buildHelmUpgradeArgs({
       ...options,
       cortenAdminImage: undefined,
-      cortenMarketplaceImage: undefined,
+      // marketplace-corten serves marketplace.chasesets.com, so production always carries its staged image.
+      cortenMarketplaceImage: image.replace("corten-admin", "corten-marketplace"),
       cortenPublicImage: undefined,
-      envOverrides: { DEPLOYMENT_ENVIRONMENT: "production", OBSERVABILITY_ENABLED: "false" },
+      envOverrides: { DEPLOYMENT_ENVIRONMENT: "production", OBSERVABILITY_ENABLED: "false", PROXIES: "10.244.0.0/25" },
       env: { ...options.env, PRODUCTION_DOKS_INGRESS_TARGET: "192.0.2.1" },
     });
     expect(
@@ -219,9 +223,9 @@ describe("Corten admin staging deployment", () => {
     // Production under its default (admin-web) does not deploy the pilot, whatever image it was given.
     const production = buildHelmUpgradeArgs({
       ...options,
-      cortenMarketplaceImage: undefined,
+      cortenMarketplaceImage: image.replace("corten-admin", "corten-marketplace"),
       cortenPublicImage: undefined,
-      envOverrides: { DEPLOYMENT_ENVIRONMENT: "production" },
+      envOverrides: { DEPLOYMENT_ENVIRONMENT: "production", PROXIES: "10.244.0.0/25" },
     });
     expect(production.filter((arg) => String(arg).startsWith("components.admin-corten."))).toEqual([
       "components.admin-corten.enabled=false",

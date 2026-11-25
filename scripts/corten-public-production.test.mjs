@@ -30,6 +30,8 @@ const proxies = "10.244.0.0/25,10.244.1.0/25";
 const production = (env = {}, overrides = {}) => ({
   image: `registry.digitalocean.com/chase-sets/chase-sets-platform:release@${digest}`,
   cortenPublicImage: image,
+  // marketplace-corten serves marketplace.chasesets.com, so every production deploy carries its staged image.
+  cortenMarketplaceImage: image.replace("corten-public", "corten-marketplace"),
   envOverrides: { DEPLOYMENT_ENVIRONMENT: "production", OBSERVABILITY_ENABLED: "false", PROXIES: proxies },
   env: {
     GITHUB_RUN_ID: "123",
@@ -90,19 +92,24 @@ describe("production public app switch", () => {
       {},
       { envOverrides: { DEPLOYMENT_ENVIRONMENT: "production", OBSERVABILITY_ENABLED: "false" } },
     );
-    expect(pilotArgs(buildHelmUpgradeArgs(withoutProxies))).toEqual(["components.public-corten.enabled=false"]);
+    // Without PROXIES the deploy refuses for the Corten marketplace, which always serves its host, not for the
+    // withheld public pilot.
+    expect(() => buildHelmUpgradeArgs(withoutProxies)).toThrow(
+      "PROXIES is required on production: the ingress pod CIDRs could not be read, and the Corten marketplace",
+    );
   });
 
   it("leaves the default production ingress exactly as it was", () => {
     const hosts = (env) => buildDoksIngressValues({ environment: "production", env: production(env).env }).hosts;
-    // public-web keeps both public hosts, and nothing else routes differently, with or without the marketplace host.
+    // public-web keeps both public hosts, and nothing else routes differently, with or without the marketplace host,
+    // which the Corten marketplace serves.
     for (const served of ["true", "false"]) {
       const env = { PRODUCTION_MARKETPLACE_SERVED: served };
       const roots = Object.fromEntries(hosts(env).map(({ host, paths }) => [host, paths.at(-1).service]));
       expect(roots).toEqual({
         "chasesets.com": "public-web",
         "www.chasesets.com": "public-web",
-        ...(served === "true" ? { "marketplace.chasesets.com": "marketplace" } : {}),
+        ...(served === "true" ? { "marketplace.chasesets.com": "marketplace-corten" } : {}),
         "admin.chasesets.com": "admin-web",
       });
       expect(hosts({ ...env, PRODUCTION_PUBLIC_APP: "public-web" })).toEqual(hosts(env));
@@ -115,8 +122,8 @@ describe("production public app switch", () => {
     expect(args[args.indexOf(`components.public-corten.image=${image}`) - 1]).toBe("--set-string");
     expect(hostRoot(args, "chasesets.com")).toBe("public-corten");
     expect(hostRoot(args, "www.chasesets.com")).toBe("public-corten");
-    // The marketplace and admin hosts keep their React apps.
-    expect(hostRoot(args, "marketplace.chasesets.com")).toBe("marketplace");
+    // The marketplace host stays with the Corten marketplace and admin keeps admin-web.
+    expect(hostRoot(args, "marketplace.chasesets.com")).toBe("marketplace-corten");
     expect(hostRoot(args, "admin.chasesets.com")).toBe("admin-web");
     // /api and the other platform paths stay on platform-api on both public hosts.
     const ingress = buildDoksIngressValues({ environment: "production", env: production(publicCorten).env });
@@ -142,22 +149,20 @@ describe("production public app switch", () => {
     expect(refusal).toThrow("return staging to the Corten public app and deploy again");
   });
 
-  it("refuses before Helm, saying how to recover, when public-corten has no PROXIES", () => {
+  it("refuses before Helm when public-corten has no PROXIES, with the marketplace's refusal that comes first", () => {
     const envOverrides = { DEPLOYMENT_ENVIRONMENT: "production", OBSERVABILITY_ENABLED: "false" };
     const refusal = () => buildHelmUpgradeArgs(production(publicCorten, { envOverrides }));
-    expect(refusal).toThrow("PROXIES is required on production while PRODUCTION_PUBLIC_APP=public-corten");
-    expect(refusal).toThrow("No production change was made.");
-    expect(refusal).toThrow("set PRODUCTION_PUBLIC_APP=public-web (or delete it) in the production environment and");
+    // marketplace-corten always serves marketplace.chasesets.com and needs PROXIES too, so its refusal is the one
+    // raised; it names the same fix, the ingress pod CIDR discovery.
+    expect(refusal).toThrow("PROXIES is required on production: the ingress pod CIDRs could not be read");
+    expect(refusal).toThrow("No production change was made, and production keeps serving the last release.");
+    expect(refusal).toThrow("To recover, fix the ingress pod CIDR discovery and deploy again");
   });
 
-  it("keeps the admin and marketplace switches independent of the public one", () => {
+  it("keeps the admin switch and the marketplace independent of the public switch", () => {
     const admin = image.replace("corten-public", "corten-admin");
     const marketplace = image.replace("corten-public", "corten-marketplace");
-    const all = {
-      ...publicCorten,
-      PRODUCTION_ADMIN_APP: "admin-corten",
-      PRODUCTION_MARKETPLACE_APP: "marketplace-corten",
-    };
+    const all = { ...publicCorten, PRODUCTION_ADMIN_APP: "admin-corten" };
     const args = buildHelmUpgradeArgs(
       production(all, { cortenAdminImage: admin, cortenMarketplaceImage: marketplace }),
     );
@@ -165,7 +170,7 @@ describe("production public app switch", () => {
     expect(args).toContain(`components.marketplace-corten.image=${marketplace}`);
     expect(args).toContain(`components.public-corten.image=${image}`);
     expect(withheldCortenPilots(production(all))).toEqual([]);
-    expect(withheldCortenPilots(production(publicCorten))).toEqual(["admin-corten", "marketplace-corten"]);
+    expect(withheldCortenPilots(production(publicCorten))).toEqual(["admin-corten"]);
   });
 
   it("does not wait for public-corten under public-web and waits for it under public-corten", async () => {

@@ -202,45 +202,7 @@ components:
           - 100
         pauseAfterWeight: 10
   marketplace:
-    replicas: 1
-    strategy:
-      type: "RollingUpdate"
-      rollingUpdate:
-        maxSurge: 1
-        maxUnavailable: 0
-    resources:
-      requests:
-        cpu: "200m"
-        memory: "1280Mi"
-      limits:
-        cpu: "1"
-        memory: "1536Mi"
-    rollout:
-      enabled: true
-      revisionHistoryLimit: 5
-      progressDeadlineSeconds: 900
-      rollbackWindowRevisions: 3
-      analysis:
-        enabled: false
-        path: "/health/ready"
-        initialDelay: "30s"
-        interval: "10s"
-        count: 5
-        failureLimit: 2
-        timeoutSeconds: 5
-      canary:
-        canaryServiceSuffix: "canary"
-        trafficRouting:
-          nginx:
-            enabled: true
-        weights:
-          - 10
-          - 25
-          - 50
-          - 100
-        pauseAfterWeight: 10
-        maxSurge: 1
-        maxUnavailable: 0
+    enabled: false
   platform-api:
     replicas: 2
     envOverrides:
