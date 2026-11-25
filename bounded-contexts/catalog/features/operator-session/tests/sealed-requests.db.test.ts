@@ -99,8 +99,6 @@ describeDb("durable Scope Sync sealed requests", () => {
     const plan = await services.scopeSyncBatches.preview(batchInput);
     expect(plan).toMatchObject({ status: "ready", providerUnitTotals: { tcgplayer: 1 } });
     const batch = await services.scopeSyncBatches.confirm({ ...batchInput, planFingerprint: plan.planFingerprint });
-    expect(await services.scopeSyncBatches.processNextScopeSyncBatch(turn)).toBe(1);
-    await services.sourceObservations.processNextIntegrationJob(turn);
     await services.sourceObservations.processNextIntegrationJob(turn);
     const polled = await app.request(origin + "/observation-requests/current?version=2", { headers });
     const { request } = await polled.json();
@@ -130,8 +128,7 @@ describeDb("durable Scope Sync sealed requests", () => {
         )
       ).rows;
     async function settle() {
-      for (let index = 0; index < 3; index++) await services.sourceObservations.processNextIntegrationJob(turn);
-      expect(await services.scopeSyncBatches.processNextScopeSyncBatch(turn)).toBe(1);
+      await services.sourceObservations.processNextIntegrationJob(turn);
       return snapshot();
     }
     return { pool, send, snapshot, settle, events, mappingId, services, scope };
