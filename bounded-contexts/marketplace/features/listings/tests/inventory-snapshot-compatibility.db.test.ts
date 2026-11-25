@@ -96,8 +96,13 @@ describeDb("Inventory snapshot PostgreSQL compatibility", () => {
     );
   });
   afterAll(async () => closeMultiContextTestPools(pools));
-  /** Inventory's answer for a raw item the account owns; the cases that read Inventory's database pass its authority. */
-  const rawInventoryItem: InventoryGradedCardPort = { resolve: async () => ({ gradedCard: null }) };
+  /**
+   * Inventory's answer for a raw item the account owns, recorded with the snapshot's selection; the cases that
+   * read Inventory's database pass its authority.
+   */
+  const rawInventoryItem: InventoryGradedCardPort = {
+    resolve: async () => ({ gradedCard: null, selectedOptions: snapshot().selectedOptions }),
+  };
   const owner = (inventoryItemGradedCardAuthority = rawInventoryItem) =>
     createMarketplaceServices(pools.marketplace, { commercialTermsResolver: terms, inventoryItemGradedCardAuthority });
   const snapshot = () => ({
@@ -489,8 +494,17 @@ describeDb("Inventory snapshot PostgreSQL compatibility", () => {
     /** Marketplace reading the item's first event from the Inventory database, as the platform API wires it. */
     const inventoryBacked = () =>
       owner({ resolve: createInventoryItemGradedCardAuthority(pools.inventory).resolveInventoryItemGradedCard });
+    /** The Options Inventory recorded for the item; the request's snapshot sends others. */
+    const recordedSelection = [
+      { dimensionId: "form", optionId: "graded" },
+      { dimensionId: "grading_company", optionId: "psa" },
+    ];
     /** The creation event Inventory holds for the snapshot's item. */
-    async function recordInventoryItem(accountId: string, gradedCard: typeof graded | null) {
+    async function recordInventoryItem(
+      accountId: string,
+      gradedCard: typeof graded | null,
+      selectedOptions: readonly { dimensionId: string; optionId: string }[] = snapshot().selectedOptions,
+    ) {
       const data = snapshot();
       await createPostgresEventStore({ pool: pools.inventory }).appendToStream({
         streamId: `inventory.item-${data.inventoryItemId}`,
@@ -504,7 +518,7 @@ describeDb("Inventory snapshot PostgreSQL compatibility", () => {
               accountId,
               catalogItemId: data.catalogItemId,
               productId: data.productId,
-              selectedOptions: data.selectedOptions,
+              selectedOptions,
               gradedCard,
               storageLocationId: data.storageLocationId,
               totalQuantity: data.totalQuantity,
@@ -547,8 +561,9 @@ describeDb("Inventory snapshot PostgreSQL compatibility", () => {
       expect(await inventoryEventCount()).toBe(1);
     });
 
-    it("creates a graded supply row and Listing from the details Inventory holds when the request sends none", async () => {
-      await recordInventoryItem("acc_c4", graded);
+    it("creates a graded supply row and Listing from the details and selection Inventory holds when the request sends no details and another selection", async () => {
+      await recordInventoryItem("acc_c4", graded, recordedSelection);
+      expect(routeSnapshot().selectedOptions).not.toEqual(recordedSelection);
 
       const { response, services } = await post(routeSnapshot(), inventoryBacked());
 
@@ -557,8 +572,14 @@ describeDb("Inventory snapshot PostgreSQL compatibility", () => {
       expect(await supplyRows()).toEqual([
         { item_id: snapshot().inventoryItemId, account_id: "acc_c4", graded_card: graded },
       ]);
+      expect((await pools.marketplace.query("SELECT selected_options FROM marketplace_supply_items")).rows).toEqual([
+        { selected_options: recordedSelection },
+      ]);
       expect(await createdListingGradedCards()).toEqual([graded]);
-      await expect(services.listings.loadListingState(id)).resolves.toMatchObject({ gradedCard: graded });
+      await expect(services.listings.loadListingState(id)).resolves.toMatchObject({
+        gradedCard: graded,
+        selectedOptions: recordedSelection,
+      });
       expect(await inventoryEventCount()).toBe(1);
     });
 

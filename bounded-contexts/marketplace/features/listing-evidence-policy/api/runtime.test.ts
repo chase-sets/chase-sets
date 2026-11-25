@@ -165,4 +165,95 @@ describe("Listing Evidence Policy runtime", () => {
     );
     expect(query).toHaveBeenCalled();
   });
+
+  it("creates, validates and activates a draft carrying a Certificate Number Format, then evaluates with it", async () => {
+    const { policies, documents } = createPolicies();
+    const runtime = createListingEvidencePolicyRuntime({
+      db: createDb(),
+      policies,
+      now: () => new Date("2026-07-13T00:00:00.000Z"),
+    });
+    const launchPsaRule = LISTING_EVIDENCE_LAUNCH_POLICY_VALUE.rules.find(
+      (rule) => rule.ruleId === "certificate-format-psa",
+    )!;
+    const aceOption = {
+      dimensionId: launchPsaRule.selector.options[0]!.dimensionId,
+      optionId: "chc_seed_grading_company_ace",
+    };
+    const aceFormat = { minimumDigits: 5, maximumDigits: 5 };
+    const aceRule = {
+      ...launchPsaRule,
+      ruleId: "certificate-format-ace",
+      selector: { ...launchPsaRule.selector, options: [aceOption] },
+      outcome: { ...launchPsaRule.outcome, certificateNumber: aceFormat },
+    };
+    const facts = {
+      catalogItemId: "cat_1",
+      productId: "prd_1",
+      blueprintId: null,
+      categoryIds: [],
+      selectedOptions: [aceOption],
+      gradedItem: true,
+      priceAmount: "10.00",
+      seller: { reviewCount: 0, badgeKeys: [], riskLevel: null },
+    };
+    expect((await runtime.evaluate(facts)).certificateNumberFormats).toEqual([]);
+
+    await expect(
+      runtime.createDraft(
+        {
+          policyName: "Unkeyed format",
+          rules: [{ ...aceRule, selector: { ...aceRule.selector, options: [] } }],
+          actorUserId: "usr_admin",
+        },
+        context,
+      ),
+    ).rejects.toThrow("sets a Certificate Number Format and must select at least one Option.");
+    expect(documents.size).toBe(0);
+
+    const draft = await runtime.createDraft(
+      {
+        policyName: "Certificate formats",
+        rules: [...LISTING_EVIDENCE_LAUNCH_POLICY_VALUE.rules, aceRule],
+        actorUserId: "usr_admin",
+      },
+      context,
+    );
+    expect(documents.get(draft.documentId)?.value).toMatchObject({
+      lifecycle: "draft",
+      rules: expect.arrayContaining([
+        expect.objectContaining({
+          ruleId: "certificate-format-ace",
+          outcome: expect.objectContaining({ certificateNumber: aceFormat }),
+        }),
+      ]),
+    });
+
+    const validation = await runtime.validateDraft(draft.documentId, "usr_reviewer", context);
+    expect(validation).toMatchObject({
+      valid: true,
+      semanticDiff: { addedRuleIds: ["certificate-format-ace"], changedRuleIds: [], removedRuleIds: [] },
+    });
+
+    const activation = await runtime.activateDraft(
+      draft.documentId,
+      {
+        effectiveFrom: "2026-07-13T00:00:00.000Z",
+        effectiveUntil: null,
+        impactAcknowledgmentHash: validation.impactPreview.previewHash,
+        actorUserId: "usr_activator",
+      },
+      context,
+    );
+    expect(activation).toMatchObject({ scheduled: false, policyHash: validation.policyHash });
+
+    const evaluation = await runtime.evaluate(facts);
+    expect(evaluation).toMatchObject({
+      policyId: activation.policyId,
+      policyHash: activation.policyHash,
+      matchedRuleIds: ["graded-item-views", "certificate-format-ace"],
+      certificateNumberFormats: [aceFormat],
+    });
+    expect(JSON.stringify(evaluation.requirements)).not.toMatch(/certificateNumber|Digits/);
+  });
 });

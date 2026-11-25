@@ -66,10 +66,11 @@ async function evaluationFacts(
   };
 }
 
-export async function resolveListingEvidenceRequirements(
+/** The policy evaluation itself, for a caller that reads more than the Listing Evidence Requirements. */
+export async function resolveListingEvidenceEvaluation(
   deps: ResolverDeps,
   input: ResolveListingEvidenceRequirementsInput,
-): Promise<ListingEvidenceRequirementSnapshot> {
+): Promise<ListingEvidencePolicyEvaluation> {
   const facts = deps.listingEvidencePolicyEvaluator
     ? await evaluationFacts(deps, input)
     : {
@@ -82,18 +83,24 @@ export async function resolveListingEvidenceRequirements(
         priceAmount: input.priceAmount,
         seller: { reviewCount: 0, badgeKeys: [], riskLevel: null },
       };
-  let evaluation: ListingEvidencePolicyEvaluation;
 
   if (deps.listingEvidencePolicyEvaluator) {
-    evaluation = await deps.listingEvidencePolicyEvaluator.evaluate(facts, input.evaluatedAt);
-  } else {
-    evaluation = evaluateListingEvidencePolicy(LISTING_EVIDENCE_LAUNCH_POLICY_VALUE, facts, {
-      policyId: null,
-      policyVersion: null,
-      effectiveFrom: null,
-      effectiveUntil: null,
-    });
+    return deps.listingEvidencePolicyEvaluator.evaluate(facts, input.evaluatedAt);
   }
+  return evaluateListingEvidencePolicy(LISTING_EVIDENCE_LAUNCH_POLICY_VALUE, facts, {
+    policyId: null,
+    policyVersion: null,
+    effectiveFrom: null,
+    effectiveUntil: null,
+  });
+}
 
-  return createListingEvidenceRequirementSnapshot(evaluation, input.evaluatedAt);
+export async function resolveListingEvidenceRequirements(
+  deps: ResolverDeps,
+  input: ResolveListingEvidenceRequirementsInput,
+): Promise<ListingEvidenceRequirementSnapshot> {
+  return createListingEvidenceRequirementSnapshot(
+    await resolveListingEvidenceEvaluation(deps, input),
+    input.evaluatedAt,
+  );
 }

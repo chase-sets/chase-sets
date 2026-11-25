@@ -1838,7 +1838,10 @@ describe("marketplace listing routes", () => {
       }),
     };
     // Inventory holds the item as raw, whatever the request says.
-    const resolve = vi.fn(async () => ({ gradedCard: null }));
+    const resolve = vi.fn(async () => ({
+      gradedCard: null,
+      selectedOptions: validInventorySnapshot.selectedOptions,
+    }));
     const unused = () => {
       throw new Error("This in-memory test does not use projection checkpoints.");
     };
