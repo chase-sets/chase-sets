@@ -23,10 +23,15 @@
 //! alerts). The Product alerts list is Discovery's read model, so the read
 //! after an alert's write waits for its receipt and, while it catches up, says the change is saved
 //! and reads again.
+//!
+//! The notification center was a sheet on every page before it was this page. A link to that
+//! sheet (`?notifications=feed` or `?notifications=settings`, with an optional
+//! `notificationSection`) on any page goes to this page ([`RetiredSheet`]), as marketplace's
+//! layout loader sends it (`resolveLegacyNotificationCenterHref`).
 use std::time::Duration;
 
 use corten::{
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, HeaderValue, IntoResponse, Method, Request, Response, StatusCode, header::LOCATION},
     prelude::*,
 };
 use platform::receipt::Receipt;
@@ -42,6 +47,50 @@ use crate::{
 /// `/account/product-alerts`: the settings at the Product alerts, which ask who they are for.
 pub(crate) async fn product_alerts(req: Req) -> HtmlResult {
     req.redirect(&url::Notifications { place: Place::settings(Section::ProductAlerts, None) })
+}
+
+/// A `GET` of any page whose address opens the retired notification sheet goes to the
+/// notification center: `notifications=feed` to the feed, `notifications=settings` to the
+/// settings, at the Product alerts when `notificationSection=product-alerts`. The page's other
+/// parameters are not carried over, so the answer is always this fixed page. Any other request
+/// goes on as it came.
+pub struct RetiredSheet;
+
+impl Middleware for RetiredSheet {
+    async fn call(&self, req: Request, next: impl Next) -> Response {
+        let to = (req.method() == Method::GET || req.method() == Method::HEAD)
+            .then(|| req.uri().query().and_then(retired_sheet_href))
+            .flatten();
+        match to.and_then(|href| HeaderValue::from_str(&href).ok()) {
+            Some(location) => (StatusCode::FOUND, [(LOCATION, location)]).into_response(),
+            None => next.run(req).await,
+        }
+    }
+}
+
+/// The notification center's address for a query that opens the retired sheet, or none
+/// (`resolveLegacyNotificationCenterHref`).
+pub(crate) fn retired_sheet_href(query: &str) -> Option<String> {
+    let value = |key: &str| {
+        query.split('&').find_map(|pair| {
+            let (name, value) = pair.split_once('=').unwrap_or((pair, ""));
+            (decoded(name)? == key).then(|| decoded(value)).flatten()
+        })
+    };
+    let place = match value("notifications")?.as_str() {
+        "feed" => Place::default(),
+        "settings" => match value("notificationSection").as_deref() {
+            Some("product-alerts") => Place::settings(Section::ProductAlerts, None),
+            _ => Place::settings(Section::Preferences, None),
+        },
+        _ => return None,
+    };
+    Some(url::Notifications { place }.href())
+}
+
+fn decoded(part: &str) -> Option<String> {
+    let plus = part.replace('+', " ");
+    percent_encoding::percent_decode_str(&plus).decode_utf8().ok().map(|s| s.into_owned())
 }
 
 /// The address's parameters: the view, the settings' section, and the receipt of the write the

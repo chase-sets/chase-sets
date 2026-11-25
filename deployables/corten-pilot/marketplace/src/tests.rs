@@ -7564,6 +7564,40 @@ async fn mark_read_draws_the_feed_the_api_answered_with_and_without_a_script_red
 }
 
 #[tokio::test]
+async fn a_link_to_the_retired_notification_sheet_goes_to_the_notification_center() {
+    let pilot = Pilot::new().await;
+    // marketplace's account-notifications.test.tsx cases: any page, any other parameter dropped.
+    for (from, to) in [
+        ("/search?notifications=feed", "/account/notifications"),
+        ("/?notifications=feed", "/account/notifications"),
+        ("/account/listings?notifications=feed&notificationSection=product-alerts", "/account/notifications"),
+        ("/search?notifications=settings", "/account/notifications?view=settings"),
+        ("/?notifications=settings", "/account/notifications?view=settings"),
+        (
+            "/search?notifications=settings&notificationSection=product-alerts",
+            "/account/notifications?view=settings&section=product-alerts",
+        ),
+        ("/account/cart?notifications=settings&notificationSection=preferences", "/account/notifications?view=settings"),
+        ("/search?notifications=settings&notificationSection=history", "/account/notifications?view=settings"),
+        ("/search?q=charizard&notifications=feed&returnTo=https%3A%2F%2Fevil.test", "/account/notifications"),
+        ("/account/notifications?notifications=feed", "/account/notifications"),
+    ] {
+        // Twice: a page the app keeps is still sent on.
+        for _ in 0..2 {
+            let (status, headers, html) = pilot.send(get(from, None)).await;
+            assert_eq!(status, StatusCode::FOUND, "{from}: {html}");
+            assert_eq!(headers["location"].to_str().unwrap(), to, "{from}");
+        }
+    }
+    // Anything else is the page itself.
+    for path in ["/search?notifications=other", "/search?notificationSection=product-alerts"] {
+        let (status, headers, html) = pilot.send(get(path, None)).await;
+        assert_ne!(status, StatusCode::FOUND, "{path}: {html}");
+        assert!(headers.get("location").is_none(), "{path}");
+    }
+}
+
+#[tokio::test]
 async fn the_settings_show_the_channels_the_page_has_words_for_and_the_accounts_alerts() {
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(get("/account/notifications?view=settings", Some("watcher"))).await;
