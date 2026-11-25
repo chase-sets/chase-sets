@@ -7321,7 +7321,7 @@ fn post_multipart(
 /// Whether the input `marker` names is a search field: the kit's input group, with the search glyph before it.
 fn in_search_group(html: &str, marker: &str) -> bool {
     let Some(input) = html.find(marker) else { return false };
-    html[..input].rfind(r#"<span class="input-group__input-group">"#).is_some_and(|group| {
+    html[..input].rfind(r#"<span class="input-group__input-group search-box__field">"#).is_some_and(|group| {
         html[group..input].contains(r#"<span class="input-group__adornment" aria-hidden="true"><svg"#)
             && !html[group..input].contains("</span></span>")
     })

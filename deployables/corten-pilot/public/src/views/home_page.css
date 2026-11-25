@@ -233,9 +233,7 @@
   margin: 0;
   font-size: 0.875rem;
   font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 .promo-description {
   display: none;
@@ -244,9 +242,6 @@
   font-size: 0.875rem;
 }
 @media (--md) {
-  .promo-title {
-    white-space: normal;
-  }
   .promo-description {
     display: block;
   }
@@ -262,6 +257,33 @@
   color: var(--color-text-secondary);
   font-size: 0.75rem;
   text-align: center;
+}
+@media (width < 40rem) {
+  .promo {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: var(--space-2);
+  }
+  /* The title gets its own row; the active message's link shares the controls row. */
+  .promo-messages,
+  .promo-message {
+    display: contents;
+  }
+  .promo-icon {
+    grid-area: 1 / 1;
+  }
+  .promo-text {
+    grid-area: 1 / 2 / auto / -1;
+  }
+  .promo-message > a {
+    grid-area: 2 / 1 / auto / 3;
+    justify-self: start;
+    min-width: 0;
+  }
+  .promo-controls {
+    grid-area: 2 / 3;
+    gap: 0;
+  }
 }
 
 /* The hero: the picture under a scrim, edge to edge on a phone and rounded from lg, the copy

@@ -1,4 +1,4 @@
-// Run against the public pilot with a titled promo message from its API:
+// Run against the public pilot with two titled promo messages from its API:
 // node deployables/corten-pilot/public/tests/landing-layout.mjs http://localhost:7792
 import assert from "node:assert/strict";
 import { chromium } from "@playwright/test";
@@ -9,6 +9,15 @@ assert.ok(base, "pass the running public pilot's URL");
 
 const browser = await chromium.launch();
 try {
+  const phone = await browser.newPage({ viewport: { width: 375, height: 900 } });
+  assert.ok((await phone.goto(new URL("/", base).href)).ok());
+  const phonePromo = phone.getByRole("region", { name: "Marketplace announcements" });
+  await phonePromo.locator("[data-promo-step]").filter({ visible: true }).first().waitFor();
+  const phoneTitle = phonePromo.locator(".home-page__promo-title").filter({ visible: true });
+  await requiredBox(phoneTitle);
+  assert.ok(await phoneTitle.evaluate((node) => node.scrollWidth <= node.clientWidth), "phone promo title is readable");
+  await phone.close();
+
   const page = await browser.newPage({ javaScriptEnabled: false, colorScheme: "dark" });
   const main = page.locator("main#main-content");
   const hero = main.locator('section[data-section="hero"]');
@@ -76,8 +85,18 @@ try {
 
   assert.ok((await page.goto(new URL("/terms", base).href)).ok());
   await tinted(main.getByRole("region", { name: "Policy metadata" }));
-  await tinted(main.getByRole("navigation", { name: "Terms sections" }));
-  console.log("terms: metadata and contents are tinted without chrome");
+  const termsContents = main.getByRole("navigation", { name: "Terms sections" });
+  await tinted(termsContents);
+  const columns = () =>
+    termsContents
+      .getByRole("list")
+      .evaluate(
+        (list) => new Set(Array.from(list.children, (item) => Math.round(item.getBoundingClientRect().x))).size,
+      );
+  assert.equal(await columns(), 2, "wide terms contents list uses two columns");
+  await page.setViewportSize({ width: 375, height: 900 });
+  assert.equal(await columns(), 1, "phone terms contents list stays in a single column");
+  console.log("terms: tinted contents change from one column to two");
 } finally {
   await browser.close();
 }
