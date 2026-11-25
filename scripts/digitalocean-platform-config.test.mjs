@@ -4286,6 +4286,7 @@ describe("DigitalOcean platform configuration", () => {
       dbCall.line,
       e2eCall.line,
       'require_job "Catalog UAT Synthetic Tests" "${{ needs[\'catalog-uat-synthetic\'].result }}" "${{ needs[\'change-scope\'].outputs.catalog_uat_synthetic_required }}"',
+      'require_job "Corten Marketplace Browser Tests" "${{ needs[\'corten-marketplace-browser\'].result }}" "${{ needs[\'change-scope\'].outputs.corten_marketplace_browser_required }}"',
       'require_job "Capture Hermetic Chromium" "${{ needs[\'capture-hermetic-chromium\'].result }}" "$capture_required"',
       'require_job "Build" "${{ needs.build.result }}" "${{ needs[\'change-scope\'].outputs.build_required }}"',
       'require_job "Docker Image Build" "${{ needs[\'docker-image\'].result }}" "${{ needs[\'change-scope\'].outputs.docker_image_required }}"',

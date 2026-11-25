@@ -2,6 +2,7 @@ import { expect, test, type Locator, type Page, type TestInfo } from "@playwrigh
 import { captureResponsiveEvidence } from "@chase-sets/playwright-evidence";
 import { signInWithPassword } from "./support/auth";
 import { marketplaceBrowserE2eSellerCredentials } from "./support/seed-contract";
+import { onCortenMarketplace } from "./support/system";
 
 // #9551: owner-manifest navigation for the seeded owner seller, whose permissions cover every
 // Marketplace contribution. The unit parity and active matrices live in app/routes/layout.test.tsx.
@@ -140,6 +141,10 @@ test.describe("marketplace owner navigation", () => {
   test("records Marketplace owner navigation at 1280x900 @marketplace-account @browser-e2e-seed", async ({
     page,
   }, testInfo) => {
+    test.skip(
+      onCortenMarketplace,
+      "locates marketplace-web's 'Primary navigation' nav and its bottom bar classes; the Corten marketplace labels and styles its navs differently",
+    );
     await openAccountAt(page, { width: 1280, height: 900 });
     const top = topNav(page);
     await expect(top).toBeVisible();
@@ -206,6 +211,10 @@ test.describe("marketplace owner navigation", () => {
   test("records Marketplace owner navigation at 360x800 @marketplace-account @browser-e2e-seed", async ({
     page,
   }, testInfo) => {
+    test.skip(
+      onCortenMarketplace,
+      "locates marketplace-web's 'Primary navigation' nav and its bottom bar classes; the Corten marketplace labels and styles its navs differently",
+    );
     await openAccountAt(page, { width: 360, height: 800 });
     await expectPopulatedBottomNav(page, testInfo, 360);
     await captureResponsiveEvidence({ page, testInfo, claimId: "marketplace-navigation-mobile-360" });
@@ -215,6 +224,10 @@ test.describe("marketplace owner navigation", () => {
   test("records Marketplace owner navigation at 390x844 @marketplace-account @browser-e2e-seed", async ({
     page,
   }, testInfo) => {
+    test.skip(
+      onCortenMarketplace,
+      "locates marketplace-web's 'Primary navigation' nav and its bottom bar classes; the Corten marketplace labels and styles its navs differently",
+    );
     await openAccountAt(page, { width: 390, height: 844 });
     await expectPopulatedBottomNav(page, testInfo, 390);
     await captureResponsiveEvidence({ page, testInfo, claimId: "marketplace-navigation-mobile-390" });
