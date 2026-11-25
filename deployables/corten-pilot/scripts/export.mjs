@@ -689,16 +689,20 @@ function tokens() {
 }
 const require = createRequire(path.join(repo, "packages/design-system/package.json"));
 const designCss = readFileSync(path.join(repo, "packages/design-system/src/styles/styles.css"), "utf8");
-const fonts = Array.from(designCss.matchAll(/^@import "(@fontsource\/[^"]+)";/gm), ([, specifier]) => {
+const fonts = Array.from(designCss.matchAll(/^@import\s+["'](@fontsource\/[^"']+)["'];/gm), ([, specifier]) => {
   const match = /^(@fontsource\/([\w-]+))\/latin-(\d+)\.css$/.exec(specifier);
   if (!match) throw new Error(`Unsupported design-system font import: ${specifier}`);
   const [, pkg, slug, weight] = match;
   const dir = path.dirname(require.resolve(`${pkg}/package.json`));
   const { family } = JSON.parse(readFileSync(path.join(dir, "metadata.json"), "utf8"));
   const name = `${slug}-latin-${weight}-normal.woff2`;
-  return { family, weight, name, source: path.join(dir, "files", name) };
+  return { family, slug, dir, weight, name, source: path.join(dir, "files", name) };
 });
 if (!fonts.length) throw new Error("No design-system font faces to export");
+const fontNotices = Array.from(new Map(fonts.map(({ slug, dir }) => [slug, dir])), ([slug, dir]) => ({
+  name: `${slug}-LICENSE.txt`,
+  source: path.join(dir, "LICENSE"),
+}));
 const fontCss = fonts
   .map(
     ({ family, weight, name }) => `@font-face {
@@ -2084,7 +2088,7 @@ for (const [file, text] of outputs) {
 }
 for (const app of apps) {
   mkdirSync(path.join(pilot, app, "static/fonts"), { recursive: true });
-  for (const { name, source } of fonts) {
+  for (const { name, source } of [...fonts, ...fontNotices]) {
     const target = path.join(pilot, app, "static/fonts", name);
     if (existsSync(target) && readFileSync(target).equals(readFileSync(source))) continue;
     if (check) {

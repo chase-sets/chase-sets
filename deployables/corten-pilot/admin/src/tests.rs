@@ -8579,8 +8579,12 @@ async fn google_shopping_shows_the_feed_and_inspect_and_close_keep_the_filters()
     );
     assert!(html.contains("<title>Google Shopping | Operations"), "{html}");
     assert!(html.contains("1 of 2 rows eligible; 1 excluded"), "{html}");
-    for (id, elevation) in [("gs-readiness", "tinted"), ("gs-detail", "tinted"), ("gs-filters", "outlined"), ("gs-rows", "flush")] {
-        assert!(html.contains(&format!(r#"surface__{elevation}" aria-labelledby="{id}" data-elevation-role="furniture""#)), "{html}");
+    for (id, elevation) in [("gs-readiness", "tinted"), ("gs-detail", "tinted"), ("gs-filters", "outlined"), ("gs-rows", "flush")]
+    {
+        assert!(
+            html.contains(&format!(r#"surface__{elevation}" aria-labelledby="{id}" data-elevation-role="furniture""#)),
+            "{html}"
+        );
     }
     assert!(!html.contains(r#"data-elevation-role="entity""#), "no job, no elevated surface: {html}");
     assert!(html.contains("Missing condition") && html.contains("Unrecognized exclusion reason (brand-new-reason)"), "{html}");

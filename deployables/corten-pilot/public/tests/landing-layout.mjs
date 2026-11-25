@@ -11,7 +11,7 @@ const browser = await chromium.launch();
 try {
   const page = await browser.newPage({ javaScriptEnabled: false, colorScheme: "dark" });
   const main = page.locator("main#main-content");
-  const hero = main.locator('[data-section="hero"]');
+  const hero = main.locator('section[data-section="hero"]');
   const promo = page.getByRole("region", { name: "Marketplace announcements" });
   const nav = page.getByRole("navigation");
   const footer = page.getByRole("contentinfo");
@@ -44,10 +44,7 @@ try {
       assert.ok(Math.abs(title.x - frameInset) <= 1, "hero title starts on the page gutter");
     }
 
-    const highlights = hero.getByRole("group", {
-      name: width < 768 ? "Marketing highlight" : "Marketing highlights",
-      exact: true,
-    });
+    const highlights = highlightGroup(hero, width);
     for (const node of [hero, nav, footer, highlights]) {
       const style = await surface(node);
       assert.deepEqual(style, { fill: transparent, border: "0px", shadow: "none" }, `flush surface: ${node}`);
@@ -55,9 +52,16 @@ try {
     const panel = await surface(hero.locator('[data-panel="hero"]'));
     assert.notEqual(panel.fill, transparent, "the signup panel has a fill");
     assert.notEqual(panel.shadow, "none", "the signup panel is raised");
+    await readableFacts(highlights, width);
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth));
-    console.log(`landing ${width}px: aligned shell, hero bleed and surface hierarchy`);
+    console.log(`landing ${width}px: aligned shell, hero bleed, surface hierarchy and readable facts`);
   }
+
+  assert.ok((await page.goto(new URL("/?utm_campaign=collectors", base).href)).ok());
+  const buyerHighlights = highlightGroup(hero, 1440);
+  assert.match(await buyerHighlights.textContent(), /Collector Shipping Credit/i, "buyer variant is visible");
+  await readableFacts(buyerHighlights, 1440);
+  console.log("buyer landing 1440px: readable facts");
 
   assert.ok((await page.goto(new URL("/compare/tcgplayer", base).href)).ok());
   const frame = await requiredBox(nav);
@@ -103,4 +107,23 @@ async function tinted(locator) {
   assert.notEqual(fill, transparent, `tinted fill: ${locator}`);
   assert.equal(border, "0px", `no border: ${locator}`);
   assert.equal(shadow, "none", `no shadow: ${locator}`);
+}
+
+function highlightGroup(hero, width) {
+  return hero.getByRole("group", {
+    name: width < 768 ? "Marketing highlight" : "Marketing highlights",
+    exact: true,
+  });
+}
+
+async function readableFacts(highlights, width) {
+  const { count, clipped } = await highlights.evaluate((node) => {
+    const facts = Array.from(node.querySelectorAll("span, div")).filter((item) => item.childElementCount === 0);
+    return {
+      count: facts.length,
+      clipped: facts.filter((item) => item.scrollWidth > item.clientWidth).map((item) => item.textContent),
+    };
+  });
+  assert.equal(count, width < 768 ? 2 : 6, "rendered highlight labels and values");
+  assert.deepEqual(clipped, [], `clipped highlights at ${width}px`);
 }

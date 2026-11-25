@@ -45,11 +45,7 @@ fn dollars(t: SellCheckoutMsg, cents: i64) -> String {
 }
 
 fn has_price(line: &SellListRow) -> bool {
-    line.offer_price_amount
-        .as_deref()
-        .or(line.minimum_listing_price_amount.as_deref())
-        .and_then(platform::money::cents)
-        .is_some()
+    line.offer_price_amount.as_deref().or(line.minimum_listing_price_amount.as_deref()).and_then(platform::money::cents).is_some()
 }
 
 fn priced_dollars(t: SellCheckoutMsg, cents: i64, has_price: bool) -> MoneyDisplay {

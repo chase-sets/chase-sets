@@ -1,28 +1,32 @@
+import { readFileSync } from "node:fs";
 import { expect, test, type CDPSession, type Locator, type Page } from "@playwright/test";
-import { cssValues, stylesheet } from "../../../../packages/design-system/src/__tests__/token-contract";
 import { marketplaceBrowserE2eSeedContract } from "./seed-contract";
 import { onCortenMarketplace } from "./system";
 
 // Read the final design-system CSS independently of the pilot's export and runtime tokens.
+const stylesheet = readFileSync(
+  new URL("../../../../packages/design-system/src/styles/styles.css", import.meta.url),
+  "utf8",
+);
+
+function designToken(name: string) {
+  const value = stylesheet.match(new RegExp(`^\\s*--${name}:\\s*([^;]+);`, "m"))?.[1]?.trim();
+  if (!value || value.includes("var(")) throw new Error(`Missing literal design-system token --${name}`);
+  return value;
+}
+
 const gradient = stylesheet.match(/\.ds-brand-foil-text\s*{\s*background-image:\s*(linear-gradient\([^;]+\));/)?.[1];
-const logoStops = /var\((--chase-logo-(?:start|mid|end))\)/g;
+const logoStops = /var\(--(chase-logo-(?:start|mid|end))\)/g;
 if (!gradient || [...gradient.matchAll(logoStops)].length !== 3) {
   throw new Error("Missing the design system's three-stop brand foil gradient");
 }
-const themes = (["light", "dark"] as const).map((mode) => {
-  const tokens = cssValues(mode);
-  return {
-    mode,
-    gradient: gradient.replace(logoStops, (_, token: string) => {
-      if (!tokens[token]) throw new Error(`Missing design-system token ${mode}/${token}`);
-      return tokens[token];
-    }),
-  };
-});
+const themes = (["light", "dark"] as const).map((mode) => ({
+  mode,
+  gradient: gradient.replace(logoStops, (_, token: string) => designToken(mode === "light" ? token : `dark-${token}`)),
+}));
 
-const lightTokens = cssValues("light");
 function primaryFamily(role: "body" | "display" | "mono") {
-  const family = lightTokens[`--${role}-font`]?.split(",")[0]?.trim().replaceAll('"', "");
+  const family = designToken(`${role}-font`).split(",")[0]?.trim().replaceAll('"', "");
   if (!family) throw new Error(`Missing design-system ${role} font`);
   return family;
 }

@@ -3667,7 +3667,10 @@ async fn the_shell_has_the_account_menu_the_bottom_bar_and_a_visitors_cart_hidde
     let pilot = Pilot::new().await;
     let (_, _, html) = pilot.send(get(CART_SCREEN, Some("seller"))).await;
     let shell = html.split_once("<main>").unwrap().0;
-    assert!(shell.contains(r#"<body class="page-canvas__canvas" data-shell>"#), "the page leaves room for the phone's bar: {shell}");
+    assert!(
+        shell.contains(r#"<body class="page-canvas__canvas" data-shell>"#),
+        "the page leaves room for the phone's bar: {shell}"
+    );
     assert!(shell.contains(r#"aria-label="Account menu""#) && shell.contains("Sign Out"), "{shell}");
     assert_eq!(shell.matches("<nav").count(), 2, "the top bar's and the phone's: {shell}");
     assert!(shell.contains(r#"data-badge="checkout.cart-count""#), "the cart's badge: {shell}");
