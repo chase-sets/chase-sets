@@ -865,7 +865,7 @@ test.describe.serial("catalog admin integrations", () => {
   }) => {
     test.skip(
       onCortenAdmin,
-      "the Corten workbench draws its Run sync stage as a details summary, not an aria-expanded button disclosure",
+      "the Corten Source Observation review rows do not yet offer Reapply or Replay on a promoted observation (and the Run sync stage is a details summary, not a button)",
     );
     test.setTimeout(120_000);
     test.skip(
