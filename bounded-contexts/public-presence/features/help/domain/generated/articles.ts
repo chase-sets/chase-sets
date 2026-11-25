@@ -2212,9 +2212,12 @@ export const helpArticles = [
       },
       {
         claim:
-          "A graded listing records the grading company, grade, and certification number, and the certification number is validated against the grading company's format.",
-        issues: ["#4358"],
-        tests: ["bounded-contexts/marketplace/features/listings/domain/domain.test.ts"],
+          "A graded listing records the grading company, grade, and certification number. The certification number is required, and it is checked against the grading company's format where the active listing-evidence policy sets one.",
+        issues: ["#4358", "#11938"],
+        tests: [
+          "bounded-contexts/marketplace/features/listings/domain/domain.test.ts",
+          "bounded-contexts/marketplace/features/listing-evidence-policy/domain/policy.test.ts",
+        ],
       },
     ],
     href: "/help/selling/condition-and-photo-standards",
@@ -2520,39 +2523,8 @@ export const helpArticles = [
             },
             {
               type: "text",
-              value: " — the service that graded the card. Supported companies with validated certificate formats are ",
-            },
-            {
-              type: "strong",
-              value: "PSA",
-            },
-            {
-              type: "text",
-              value: ", ",
-            },
-            {
-              type: "strong",
-              value: "BGS",
-            },
-            {
-              type: "text",
-              value: " (Beckett), ",
-            },
-            {
-              type: "strong",
-              value: "CGC",
-            },
-            {
-              type: "text",
-              value: ", and ",
-            },
-            {
-              type: "strong",
-              value: "SGC",
-            },
-            {
-              type: "text",
-              value: ".",
+              value:
+                " — the service that graded the card. Choose it from the grading companies the catalog offers for your card.",
             },
           ],
           [
@@ -2562,47 +2534,24 @@ export const helpArticles = [
             },
             {
               type: "text",
-              value: " — the numeric grade on the label, from ",
+              value:
+                " — the grade on the slab label, chosen from the grades the catalog offers for that company (for example ",
             },
             {
               type: "code",
-              value: "1",
+              value: "Gem Mint 10",
             },
             {
               type: "text",
-              value: " to ",
+              value: " or ",
             },
             {
               type: "code",
-              value: "10",
+              value: "Mint 9",
             },
             {
               type: "text",
-              value: " in half-point steps (for example ",
-            },
-            {
-              type: "code",
-              value: "9",
-            },
-            {
-              type: "text",
-              value: ", ",
-            },
-            {
-              type: "code",
-              value: "9.5",
-            },
-            {
-              type: "text",
-              value: ", ",
-            },
-            {
-              type: "code",
-              value: "10",
-            },
-            {
-              type: "text",
-              value: ").",
+              value: "). Your listing shows the grade exactly as the catalog names it.",
             },
           ],
           [
@@ -2613,7 +2562,7 @@ export const helpArticles = [
             {
               type: "text",
               value:
-                " — the number printed on the slab label. Each company uses its own length, so enter the exact digits from the label; the composer checks the number against that company's format.",
+                " — the number printed on the slab label. It is required for every graded listing. Enter the exact digits from the label: under the active listing-evidence policy, Chase Sets may check the number against that company's format.",
             },
           ],
         ],
