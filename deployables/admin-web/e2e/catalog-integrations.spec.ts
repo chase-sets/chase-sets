@@ -863,6 +863,10 @@ test.describe.serial("catalog admin integrations", () => {
   test("catalog operator can inspect job recovery and review reapply/replay controls @catalog-admin-integrations", async ({
     page,
   }) => {
+    test.skip(
+      onCortenAdmin,
+      "the Corten workbench draws its Run sync stage as a details summary, not an aria-expanded button disclosure",
+    );
     test.setTimeout(120_000);
     test.skip(
       skipDeployedAdminE2e,

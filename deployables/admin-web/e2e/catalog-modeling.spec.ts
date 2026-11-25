@@ -356,6 +356,10 @@ test.describe.serial("catalog admin modeling", () => {
   test("signed-in catalog operator creates and activates a draft dimension @catalog-admin-modeling", async ({
     page,
   }) => {
+    test.skip(
+      onCortenAdmin,
+      "the Corten dimension create form posts to the pilot's /catalog/dimensions rather than fetching /api/catalog/dimensions from the browser",
+    );
     test.setTimeout(240_000);
     test.skip(
       skipDeployedAdminE2e,
