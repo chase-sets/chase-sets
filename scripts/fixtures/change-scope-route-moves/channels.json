@@ -4,23 +4,28 @@
   "selectorCases": [
     {
       "file": "bounded-contexts/channels/routes/marketplace/account-channels-publication.tsx",
-      "suites": ["marketplace_account", "marketplace_seller"]
+      "suites": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "file": "bounded-contexts/channels/routes/marketplace/account-channels-publication-connection.tsx",
-      "suites": ["marketplace_account", "marketplace_seller"]
+      "suites": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "file": "bounded-contexts/channels/features/listing-composition/ui/routes/account-channels-publication.tsx",
-      "suites": ["marketplace_account", "marketplace_seller"]
+      "suites": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "file": "bounded-contexts/channels/features/listing-composition/ui/routes/account-channels-publication-connection.tsx",
-      "suites": ["marketplace_account", "marketplace_seller"]
+      "suites": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "file": "bounded-contexts/channels/features/listing-composition/api/request-client.test.ts",
-      "suites": []
+      "suites": [],
+      "cortenMarketplaceBrowser": false
     }
   ]
 }

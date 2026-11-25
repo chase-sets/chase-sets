@@ -28,7 +28,6 @@ const previewPostgresSecretName = "chase-sets-preview-postgres";
 // D5-R max(N, H, L), https://github.com/chase-sets/chase-sets/issues/9963 (sizing table).
 const previewMeasuredMemoryBytes = {
   "public-web": 1063137280,
-  marketplace: 1142210560,
   "admin-web": 871866368,
   "platform-api": 1248432128,
   "platform-worker": 840187904,
@@ -37,7 +36,7 @@ const previewMeasuredMemoryBytes = {
 };
 
 function previewResources(name) {
-  const floorMi = ["public-web", "marketplace", "admin-web"].includes(name) ? 256 : 512;
+  const floorMi = ["public-web", "admin-web"].includes(name) ? 256 : 512;
   const memoryMi = Math.max(floorMi, Math.ceil((1.15 * previewMeasuredMemoryBytes[name]) / (1024 * 1024 * 64)) * 64);
   const memory = `${memoryMi}Mi`;
   return { requests: { cpu: name === "platform-bootstrap" ? "250m" : "100m", memory }, limits: { memory } };
@@ -71,14 +70,7 @@ export const platformApiIngressPrefixes = [
   "/api",
 ];
 
-const componentOrder = [
-  "public-web",
-  "marketplace",
-  "admin-web",
-  "platform-api",
-  "platform-worker",
-  "platform-bootstrap",
-];
+const componentOrder = ["public-web", "admin-web", "platform-api", "platform-worker", "platform-bootstrap"];
 
 const deploymentKindByTerraformKind = {
   service: "service",
@@ -181,7 +173,7 @@ export const doksStagingWorkerAutoscaling = {
   ],
 };
 
-const rolloutEligibleComponents = new Set(["public-web", "marketplace", "platform-api"]);
+const rolloutEligibleComponents = new Set(["public-web", "platform-api"]);
 
 function rolloutValues(enabled, nginxEnabled, analysisPath) {
   return {
@@ -319,13 +311,7 @@ const tolerantLivenessProbe = {
   failureThreshold: 6,
 };
 const componentsWithStartupProbe = new Set(["platform-api", "platform-worker"]);
-const componentsWithTolerantLiveness = new Set([
-  "platform-api",
-  "platform-worker",
-  "admin-web",
-  "marketplace",
-  "public-web",
-]);
+const componentsWithTolerantLiveness = new Set(["platform-api", "platform-worker", "admin-web", "public-web"]);
 
 // platform-api readiness probes the DB-aware /health/ready (SELECT 1 on
 // the control pool). Kubernetes' default 1s probe timeout is too tight for a
@@ -462,8 +448,6 @@ export function buildPlatformHelmStagingValues(options = {}) {
       "public-web": {
         rollout: rolloutValues(true, true, "/health/ready"),
       },
-      // marketplace-corten serves the marketplace hosts, so marketplace-web is not deployed.
-      marketplace: { enabled: false },
       "platform-api": {
         ...doksStagingApiOverrides,
         env: stagingApiValues.components["platform-api"].env,
@@ -540,8 +524,6 @@ export function buildPlatformHelmProductionValues(options = {}) {
           },
         ]),
       ),
-      // marketplace-corten serves marketplace.chasesets.com, so marketplace-web is not deployed.
-      marketplace: { enabled: false },
     },
   };
 }
@@ -773,7 +755,7 @@ export function buildPreviewDoksIngressValues(options = {}) {
 function buildDoksIngressHosts(environmentZone, hostMode, options = {}) {
   const apexService = options.apexService ?? "public-web";
   const wwwService = options.wwwService ?? "public-web";
-  const marketplaceService = options.marketplaceService ?? "marketplace";
+  const marketplaceService = options.marketplaceService ?? marketplaceApp;
   const adminService = options.adminService ?? "admin-web";
   const hosts =
     hostMode === "live"
@@ -830,6 +812,9 @@ function buildProductionDoksIngressHosts(options = {}) {
 // every preview's every app host. The retired two-label shape
 // (`marketplace.pr-<n>.preview...`, `admin.pr-<n>.preview...`) required a
 // fresh per-PR certificate because a wildcard only matches one label.
+// No marketplace app runs in a preview: the Corten marketplace is covered by its PR browser tests and staging's
+// smoke. `pr-<n>-marketplace` stays as the preview's API origin, routed wholly to platform-api, because the
+// provider webhooks, the Stripe and Auth base URLs and cleanup all name it.
 function buildPreviewDoksIngressHosts(previewIdentifier) {
   return [
     {
@@ -838,7 +823,7 @@ function buildPreviewDoksIngressHosts(previewIdentifier) {
     },
     {
       host: `${previewIdentifier}-marketplace.${previewEnvironmentZone}`,
-      paths: doksIngressPaths("marketplace"),
+      paths: doksIngressPaths("platform-api"),
     },
     {
       host: `${previewIdentifier}-admin.${previewEnvironmentZone}`,

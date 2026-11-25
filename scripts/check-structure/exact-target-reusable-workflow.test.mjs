@@ -144,11 +144,7 @@ function normalizeMovedStep(step) {
   ) {
     delete normalized.with;
   }
-  if (
-    normalized.env?.SMOKE_REQUIRE_ADMIN === "true" &&
-    normalized.env?.SMOKE_REQUIRE_LANDING === "true" &&
-    normalized.env?.SMOKE_REQUIRE_MARKETPLACE === "true"
-  ) {
+  if (normalized.env?.SMOKE_REQUIRE_ADMIN === "true" && normalized.env?.SMOKE_REQUIRE_LANDING === "true") {
     normalized.env.SMOKE_WAITLIST_EMAIL = "ops+compose-smoke-pr-${{ github.event.pull_request.number }}@chasesets.test";
     normalized.env.SMOKE_UTM_CAMPAIGN = "pr-${{ github.event.pull_request.number }}";
   }
@@ -158,7 +154,9 @@ function normalizeMovedStep(step) {
 // SHA-256 of each parsed step object at origin/main
 // 0d1efeefc0b007e0465b4f05dd484bd0a6673634 before extraction. Storing
 // digests instead of a second runnable copy makes body drift executable while
-// retaining one implementation.
+// retaining one implementation. Re-pinned once since: the ingress-proxy and
+// Smoke check steps lost the marketplace-web proxy and smoke surface when
+// marketplace-web was retired, and nothing else in either step changed.
 const movedStepDigests = [
   "821e2707372b2e0955fb3114f3211c3251da71e5e6690af5a4704d32b9126385",
   "8cb009aa651f1c171e7b62b299b14eddbb54ca04d50b2da369ec8a9330133297",
@@ -168,8 +166,8 @@ const movedStepDigests = [
   "b070316712e6c36b39175f064f7c78f4b6b2f0a3c9ac15d088919808b227ec9d",
   "b70b5c91979e7a2a0cf20418b9e3a9dd50225d6ba8236bbb52a8e8ff037c70b5",
   "73efa45c685443c83de6bca09f427903ac6374f9ddfe246a873de7125a01c505",
-  "0141c9c994f2e39419b6b7bf3bbc1c71cfd05c5d9ff32f37cd5743c1627eefa1",
-  "dc80318c9b536c02e27b99f37c275864b2c0cb0bcd707b78a9894a463dcfd87c",
+  "47ffe5bd5382700817987687a3cbcc2043fc156e36160256ce0594ee6e1cb9a7",
+  "c83f62dcb262690ef147915e9280810222a8e95b12ba261e92f61eb4b0802ee2",
   "5cfc82190b29e121d924a068d1ba120b8fa86e3c1a75c9c798730af11a47efef",
   "75dbc499e3b45ced66e36556586825fcecb53409fa651699fa0cc72882fe9f84",
   "f87870a4987de87b2131cea0b256c347dffc8d53cb4895612413138e8ae54483",
@@ -548,7 +546,7 @@ describe("exact-target terminal behavior and isolation", () => {
       (step) => typeof step.run === "string" && step.run.includes("nohup node") && step.run.includes("2>&1 &"),
     );
     const ingressLogs = [...ingress.run.matchAll(/> (artifacts\/[^ ]+\.log) 2>&1/gu)].map((match) => match[1]);
-    expect(ingressLogs).toHaveLength(3);
+    expect(ingressLogs).toHaveLength(2);
     for (const log of ingressLogs) {
       expect(prepare.run).toContain(log);
     }

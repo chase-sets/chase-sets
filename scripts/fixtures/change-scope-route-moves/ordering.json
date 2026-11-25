@@ -15,11 +15,13 @@
   "selectorCases": [
     {
       "file": "bounded-contexts/ordering/features/postage-policies/ui/routes/postage-policies.tsx",
-      "suites": ["admin_commerce"]
+      "suites": ["admin_commerce"],
+      "cortenMarketplaceBrowser": false
     },
     {
       "file": "bounded-contexts/ordering/features/postage-policies/ui/routes/postage-policies-detail.tsx",
-      "suites": ["admin_commerce"]
+      "suites": ["admin_commerce"],
+      "cortenMarketplaceBrowser": false
     }
   ]
 }

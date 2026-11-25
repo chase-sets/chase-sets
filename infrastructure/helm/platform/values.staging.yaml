@@ -201,8 +201,6 @@ components:
           - 50
           - 100
         pauseAfterWeight: 10
-  marketplace:
-    enabled: false
   platform-api:
     replicas: 2
     envOverrides:

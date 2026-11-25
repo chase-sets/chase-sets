@@ -24,31 +24,38 @@
   "selectorCases": [
     {
       "file": "bounded-contexts/public-presence/features/policies/ui/routes/agent-terms.tsx",
-      "suites": ["marketplace_browse"]
+      "suites": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "file": "bounded-contexts/public-presence/features/policies/ui/routes/authenticity-terms.tsx",
-      "suites": ["marketplace_browse"]
+      "suites": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "file": "bounded-contexts/public-presence/features/policies/ui/routes/founders.tsx",
-      "suites": ["marketplace_browse"]
+      "suites": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "file": "bounded-contexts/public-presence/features/policies/ui/routes/payments-terms.tsx",
-      "suites": ["marketplace_browse"]
+      "suites": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "file": "bounded-contexts/public-presence/features/policies/ui/routes/privacy.tsx",
-      "suites": ["marketplace_browse"]
+      "suites": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "file": "bounded-contexts/public-presence/features/policies/ui/routes/seller-agreement.tsx",
-      "suites": ["marketplace_browse"]
+      "suites": [],
+      "cortenMarketplaceBrowser": true
     },
     {
       "file": "bounded-contexts/public-presence/features/policies/ui/routes/terms.tsx",
-      "suites": ["marketplace_browse"]
+      "suites": [],
+      "cortenMarketplaceBrowser": true
     }
   ]
 }
