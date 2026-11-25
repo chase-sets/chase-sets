@@ -53,6 +53,7 @@ export const CI_GATE_DEFINITIONS = Object.freeze([
     "REPOSITORY_LOCAL",
     "cortenMarketplaceBrowserRequired",
   ),
+  gate("corten-pilot-check", "Corten Pilot Check", "scope-gated", "REPOSITORY_LOCAL", "cortenPilotCheckRequired"),
   gate("build", "Build", "full-battery-only", "REPOSITORY_LOCAL", "buildRequired"),
   gate("docker-image", "Docker Image Build", "full-battery-only", "HOSTED_ONLY", "dockerImageRequired"),
   gate("workflow-lint", "Workflow Lint", "scope-gated", "HOSTED_ONLY", "workflowLintRequired"),
@@ -131,6 +132,7 @@ export function validateCiGateScope(scope) {
     "composeSmokeRequired",
     "catalogUatSyntheticRequired",
     "cortenMarketplaceBrowserRequired",
+    "cortenPilotCheckRequired",
   ];
   for (const key of booleans) {
     if (typeof scope[key] !== "boolean") throw new Error(`MALFORMED_SCOPE: ${key} must be boolean`);

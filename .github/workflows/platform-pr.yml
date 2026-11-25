@@ -85,6 +85,7 @@ jobs:
       e2e_tests_required: ${{ steps.gate-plan.outputs.e2e_tests_required }}
       catalog_uat_synthetic_required: ${{ steps.gate-plan.outputs.catalog_uat_synthetic_required }}
       corten_marketplace_browser_required: ${{ steps.gate-plan.outputs.corten_marketplace_browser_required }}
+      corten_pilot_check_required: ${{ steps.gate-plan.outputs.corten_pilot_check_required }}
       build_required: ${{ steps.gate-plan.outputs.build_required }}
       docker_image_required: ${{ steps.gate-plan.outputs.docker_image_required }}
       workflow_lint_required: ${{ steps.gate-plan.outputs.workflow_lint_required }}
@@ -666,6 +667,25 @@ jobs:
               echo
               echo "::endgroup::"
             done
+
+  # The Corten pilot's check (cargo fmt, corten fmt, clippy -D warnings, the scripts' types, the tests),
+  # required when a change touches the pilot's marketplace or platform code, its Cargo files or its
+  # export: the Corten marketplace serves production. The same corten-pilot-check action runs advisory
+  # in corten-pilot.yml for every other change. Same image and Rust cache key as that check.
+  corten-pilot-check:
+    name: Corten Pilot Check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    needs: change-scope
+    if: needs['change-scope'].outputs.corten_pilot_check_required == 'true'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/corten-pilot-check
 
   e2e-tests:
     name: E2E Tests (${{ matrix.suite_batch }})
@@ -2124,6 +2144,7 @@ jobs:
       - e2e-tests
       - catalog-uat-synthetic
       - corten-marketplace-browser
+      - corten-pilot-check
       - capture-hermetic-chromium
       - build
       - docker-image
@@ -2180,6 +2201,7 @@ jobs:
           require_job "E2E Tests" "${{ needs['e2e-tests'].result }}" "${{ needs['change-scope'].outputs.e2e_tests_required }}"
           require_job "Catalog UAT Synthetic Tests" "${{ needs['catalog-uat-synthetic'].result }}" "${{ needs['change-scope'].outputs.catalog_uat_synthetic_required }}"
           require_job "Corten Marketplace Browser Tests" "${{ needs['corten-marketplace-browser'].result }}" "${{ needs['change-scope'].outputs.corten_marketplace_browser_required }}"
+          require_job "Corten Pilot Check" "${{ needs['corten-pilot-check'].result }}" "${{ needs['change-scope'].outputs.corten_pilot_check_required }}"
           capture_required="$(node --input-type=module -e '
           const required = process.env.AC4_E2E_REQUIRED;
           const suites = JSON.parse(process.env.AC4_E2E_SUITES_JSON);
