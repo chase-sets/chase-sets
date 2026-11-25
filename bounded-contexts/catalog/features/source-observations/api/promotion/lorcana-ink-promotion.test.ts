@@ -147,9 +147,8 @@ async function plan(mode: CatalogProviderPromotionMode, referenceName = "The Fir
   return { input, harness, result: await planCatalogProviderPromotionCommands(input) };
 }
 
-describe("synthetic Scrydex D23 Collection candidate display identity", () => {
-  // Set shape and printed-number format come from the offline Scrydex import test;
-  // the card identity and values are controls, not retained staging data.
+describe("synthetic D23 Collection candidate display identity", () => {
+  // Provider coordinates mirror the retained D23 shapes; card identities and values are synthetic controls.
   it.each([
     { ink: "Amber", rarity: "Promo", missing: [] },
     { ink: "Amber / Ruby", rarity: "Promo", missing: [] },
@@ -158,33 +157,71 @@ describe("synthetic Scrydex D23 Collection candidate display identity", () => {
     { ink: null, rarity: null, missing: ["ink-color", "rarity"] },
     { ink: "Amber", rarity: "Promo", reviewedInk: "", missing: ["ink-color"] },
     { ink: "Amber", rarity: "Promo", reviewedRarity: "Rare", missing: ["rarity"] },
+    { lorcanajson: true, ink: "Steel", rarity: "Special", missing: [] },
   ])(
     "resolves or reports $missing (ink $ink, rarity $rarity, reviewed ink $reviewedInk, reviewed rarity $reviewedRarity)",
-    async ({ ink, rarity, reviewedInk, reviewedRarity, missing }) => {
+    async ({ ink, rarity, reviewedInk, reviewedRarity, lorcanajson, missing }) => {
       const at = "2026-10-02T00:00:00.000Z";
-      const contract = scrydexLorcanaCardPrintSourceObservationMappingContract;
+      const setId = "synthetic-d23";
+      const setCode = lorcanajson ? "D23" : "d23c24";
+      const setName = lorcanajson ? "D23" : "D23 Collection";
+      const cardNumber = lorcanajson ? "1" : "1/D23";
+      const name = "Synthetic Promo Card";
+      const sourceUrl = "https://source.example/synthetic-d23";
+      const contract = lorcanajson
+        ? lorcanajsonLorcanaCardReferenceSourceObservationMappingContract
+        : scrydexLorcanaCardPrintSourceObservationMappingContract;
       const { observation, diagnostics } = normalizeCatalogProviderSourceObservation({
         contract,
-        payload: {
-          kind: "lorcana-card",
-          sourceUrl: "https://source.example/synthetic-d23",
-          card: {
-            id: "synthetic-d23-card",
-            name: "Synthetic Promo Card",
-            number: "1",
-            printed_number: "1/D23",
-            ...(ink === null ? {} : { ink }),
-            ...(rarity === null ? {} : { rarity }),
-            language_code: "en",
-            expansion: { id: "synthetic-d23", code: "D23C24", name: "D23 Collection" },
-          },
-        },
+        payload: lorcanajson
+          ? {
+              sourceUrl,
+              sourceUpdatedAt: at,
+              sourcePayload: { name, inkColor: ink },
+              catalogHashMaterial: { name, cardNumber, inkColor: ink },
+              cardId: "synthetic-d23-card",
+              name,
+              cardNumber,
+              setId,
+              setCode,
+              setName,
+              inkColor: ink,
+              rarity,
+              cardType: "Character",
+              releaseDate: "2024-08-08",
+              releaseYear: 2024,
+              languageCode: "en",
+              imageUrls: [],
+              externalCatalogItemReferences: [],
+              mergeIdentity: {
+                tcg: "lorcana",
+                setName,
+                printedProductName: name,
+                collectorNumber: cardNumber,
+                productForm: "single-card",
+                languageCode: "en",
+              },
+            }
+          : {
+              kind: "lorcana-card",
+              sourceUrl,
+              card: {
+                id: "synthetic-d23-card",
+                name,
+                number: "1",
+                printed_number: cardNumber,
+                ...(ink === null ? {} : { ink }),
+                ...(rarity === null ? {} : { rarity }),
+                language_code: "en",
+                expansion: { id: setId, code: "D23C24", name: setName },
+              },
+            },
         observedAt: at,
       });
       expect(diagnostics).toEqual([]);
-      if (observation?.normalized.kind !== "lorcana-card-print") throw new Error("Scrydex card did not normalize");
+      if (observation?.normalized.kind !== "lorcana-card-print") throw new Error("D23 card did not normalize");
       const { normalized } = observation;
-      expect(normalized).toMatchObject({ name: "Synthetic Promo Card", cardNumber: "1/D23", setCode: "d23c24" });
+      expect(normalized).toMatchObject({ name, cardNumber, setCode: setCode.toLowerCase() });
       expect(normalized.inkColor ?? null).toBe(ink);
       expect(normalized.rarity ?? null).toBe(rarity);
 
@@ -207,8 +244,8 @@ describe("synthetic Scrydex D23 Collection candidate display identity", () => {
             unit_key: unit,
             product_line_id: null,
             series_id: null,
-            set_id: "synthetic-d23",
-            set_name: "D23 Collection",
+            set_id: setId,
+            set_name: setName,
             language_coordinates: null,
             confidence: "exact",
             review_status: "accepted",
@@ -240,7 +277,6 @@ describe("synthetic Scrydex D23 Collection candidate display identity", () => {
         ...observation,
       }).reduce(evolveSourceObservation, initialSourceObservationState);
       const authored = snapshotWithAuthoredFacts(snapshot, [{ revision, normalized, version }]);
-      expect(authored.proposedCatalogItemFacts.inkColor ?? null).toBe(reviewedInk ?? ink);
       expect(authored.proposedCatalogItemFacts.rarity ?? null).toBe(reviewedRarity === undefined ? rarity : null);
 
       const { db, deps } = await fixture(version.profile, undefined, "D23 Collection");
@@ -272,10 +308,15 @@ describe("synthetic Scrydex D23 Collection candidate display identity", () => {
         },
       });
       if (missing.length === 0) {
-        expect(result.status).toBe("planned");
+        expect(result.status, JSON.stringify(result.diagnostics)).toBe("planned");
         expect(result.plan?.displayIdentity).toMatchObject({
           resolutionStatus: "resolved",
           templateKey: "lorcana-card-print-default",
+        });
+        expect(result.plan?.commands).toContainEqual({
+          type: "SetCatalogItemFieldValue",
+          fieldId: fieldIds.inkColor,
+          value: ink,
         });
       } else {
         expect(result.status).toBe("blocked");
@@ -286,6 +327,7 @@ describe("synthetic Scrydex D23 Collection candidate display identity", () => {
           },
         ]);
       }
+      expect(authored.proposedCatalogItemFacts.inkColor ?? null).toBe(reviewedInk ?? ink);
     },
   );
 });

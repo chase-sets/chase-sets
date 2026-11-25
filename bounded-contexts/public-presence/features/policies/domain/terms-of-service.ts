@@ -464,7 +464,7 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
         scopeNote: "Describe user content, Chase Sets' license, and how reported or infringing content is handled.",
         decisionRefs: [],
         productTruthRefs: [
-          "bounded-contexts/marketplace/GLOSSARY.md:19-28,233-246",
+          "bounded-contexts/marketplace/GLOSSARY.md:19-28,243-256",
           "bounded-contexts/marketplace/features/reports/domain/domain.ts:3-27",
           "bounded-contexts/platform-operations/GLOSSARY.md:70-76",
           "bounded-contexts/public-presence/features/help/domain/articles/intellectual-property-and-dmca.en.md:58-62",
@@ -481,7 +481,7 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
           {
             assertion:
               "Listing and review content may be reported; listings can auto-unlist at a distinct-reporter threshold, while review reports never auto-remove.",
-            evidenceRef: "bounded-contexts/marketplace/GLOSSARY.md:195-206",
+            evidenceRef: "bounded-contexts/marketplace/GLOSSARY.md:205-216",
           },
         ],
       },

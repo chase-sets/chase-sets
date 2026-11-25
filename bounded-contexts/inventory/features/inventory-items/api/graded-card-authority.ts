@@ -1,15 +1,17 @@
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { GradedCardDetails, InventoryItemEvent } from "../domain/domain";
+import type { InventorySelectedOptionEntry } from "../integrations/catalog/versioning";
 
 const inventoryItemEventCodec = createPassthroughDomainEventCodec<InventoryItemEvent>();
 
 /**
- * Read-only authority for the Graded Item Details recorded when an inventory item was created.
+ * Read-only authority for the Graded Item Details recorded when an inventory item was created, and
+ * the selection those details were written from.
  *
  * `inventory.item.created` is the first event of the item's stream and no later event changes the
- * item's account or its `gradedCard`, so that one event is the whole answer. No projection is read,
- * no command is issued and no event is appended.
+ * item's account, its `gradedCard` or its `selectedOptions`, so that one event is the whole answer.
+ * No projection is read, no command is issued and no event is appended.
  */
 export function createInventoryItemGradedCardAuthority(pool: PgTransactionalPool) {
   const eventStore = createPostgresEventStore({ pool });
@@ -17,7 +19,10 @@ export function createInventoryItemGradedCardAuthority(pool: PgTransactionalPool
   return {
     async resolveInventoryItemGradedCard(
       input: Readonly<{ accountId: string; inventoryItemId: string }>,
-    ): Promise<Readonly<{ gradedCard: GradedCardDetails | null }> | null> {
+    ): Promise<Readonly<{
+      gradedCard: GradedCardDetails | null;
+      selectedOptions: readonly InventorySelectedOptionEntry[];
+    }> | null> {
       if (
         !input ||
         typeof input !== "object" ||
@@ -44,8 +49,15 @@ export function createInventoryItemGradedCardAuthority(pool: PgTransactionalPool
       ) {
         return null;
       }
-      // The passthrough codec does not re-validate a stored payload; an item recorded without the key is raw.
-      return { gradedCard: created.data.gradedCard ?? null };
+      // The passthrough codec does not re-validate a stored payload; an item recorded without a key is raw
+      // and selects nothing.
+      const recordedOptions: unknown = created.data.selectedOptions;
+      return {
+        gradedCard: created.data.gradedCard ?? null,
+        selectedOptions: Array.isArray(recordedOptions)
+          ? created.data.selectedOptions.map(({ dimensionId, optionId }) => ({ dimensionId, optionId }))
+          : [],
+      };
     },
   };
 }

@@ -33,6 +33,9 @@ export type ListingEvidenceSlotRequirement = Readonly<{
   maximumAgeHours: number | null;
 }>;
 
+/** Digits only, with a count from `minimumDigits` to `maximumDigits`. */
+export type CertificateNumberFormat = Readonly<{ minimumDigits: number; maximumDigits: number }>;
+
 export type ListingEvidenceRuleOutcome = Readonly<{
   minimumPhotoCount: number;
   requiredSlots: readonly ListingEvidenceSlotRequirement[];
@@ -42,6 +45,8 @@ export type ListingEvidenceRuleOutcome = Readonly<{
     acceptedBadgeKeys: readonly string[];
   }> | null;
   buyerAcknowledgment: BuyerAcknowledgmentPosture;
+  /** Absent, never null: a rule without a format has no key, so documents stored before the member keep their hash. */
+  certificateNumber?: CertificateNumberFormat;
 }>;
 
 export type ListingEvidencePolicyRule = Readonly<{
@@ -100,6 +105,8 @@ export type ListingEvidencePolicyEvaluation = Readonly<{
   policyHash: string;
   matchedRuleIds: readonly string[];
   requirements: ResolvedListingEvidenceRequirements;
+  /** One entry per matched rule that sets a format. Kept out of `requirements`, which stored snapshots hash. */
+  certificateNumberFormats: readonly CertificateNumberFormat[];
   effectiveInterval: Readonly<{ from: string | null; until: string | null }>;
   explanationCodes: readonly string[];
 }>;
@@ -219,6 +226,14 @@ function decodeSlot(value: unknown, path: string): ListingEvidenceSlotRequiremen
   };
 }
 
+function decodeCertificateNumberFormat(value: unknown, path: string): CertificateNumberFormat {
+  const record = recordOf(value, path);
+  const minimumDigits = wholeNumber(record.minimumDigits, `${path}.minimumDigits`, 1, 32);
+  const maximumDigits = wholeNumber(record.maximumDigits, `${path}.maximumDigits`, 1, 32);
+  assert(minimumDigits <= maximumDigits, `${path}.minimumDigits cannot be greater than its maximumDigits.`);
+  return { minimumDigits, maximumDigits };
+}
+
 function decodeRule(value: unknown, index: number): ListingEvidencePolicyRule {
   const path = `rules[${index}]`;
   const record = recordOf(value, path);
@@ -243,6 +258,10 @@ function decodeRule(value: unknown, index: number): ListingEvidencePolicyRule {
     !sellerTrust || sellerTrustMinimumReviewCount > 0 || acceptedBadgeKeys.length > 0,
     `${path}.outcome.sellerTrust needs a positive review threshold or an accepted badge.`,
   );
+  const certificateNumber =
+    outcome.certificateNumber === null || outcome.certificateNumber === undefined
+      ? null
+      : decodeCertificateNumberFormat(outcome.certificateNumber, `${path}.outcome.certificateNumber`);
   return {
     ruleId: text(record.ruleId, `${path}.ruleId`, /^[a-z][a-z0-9-]{2,79}$/),
     explanationCode: text(record.explanationCode, `${path}.explanationCode`, /^[a-z][a-z0-9.-]{2,99}$/),
@@ -263,6 +282,7 @@ function decodeRule(value: unknown, index: number): ListingEvidencePolicyRule {
           }
         : null,
       buyerAcknowledgment: outcome.buyerAcknowledgment === "required" ? "required" : "none",
+      ...(certificateNumber ? { certificateNumber } : {}),
     },
   };
 }
@@ -317,6 +337,13 @@ export function validateListingEvidencePolicy(
       });
     }
     ruleIds.add(rule.ruleId);
+    if (rule.outcome.certificateNumber && rule.selector.options.length === 0) {
+      diagnostics.push({
+        code: "certificate_format_without_option",
+        path: `rules[${ruleIndex}].selector.options`,
+        message: `Rule '${rule.ruleId}' sets a Certificate Number Format and must select at least one Option.`,
+      });
+    }
     const slots = new Map<string, ListingEvidenceSlotRequirement>();
     for (const [slotIndex, slot] of rule.outcome.requiredSlots.entries()) {
       const existing = slots.get(slot.slotId);
@@ -459,6 +486,9 @@ export function evaluateListingEvidencePolicy(
         ? "required"
         : "none",
     },
+    certificateNumberFormats: matched.flatMap((rule) =>
+      rule.outcome.certificateNumber ? [rule.outcome.certificateNumber] : [],
+    ),
     effectiveInterval: { from: metadata.effectiveFrom, until: metadata.effectiveUntil },
     explanationCodes: [...new Set(matched.map((rule) => rule.explanationCode))],
   };
@@ -474,6 +504,33 @@ const emptySelector: ListingEvidenceSelector = {
   priceBand: null,
   seller: { minimumReviewCount: null, badgeKeys: [], riskLevels: [] },
 };
+
+const gradingCompany = catalogSeedIds.dimensions.gradingCompany;
+
+/** One rule per Grading Company Option whose certificates have a known digit count; other companies have no rule. */
+const certificateNumberFormatLaunchRules: readonly ListingEvidencePolicyRule[] = (
+  [
+    ["psa", 8, 10],
+    ["bgs", 8, 10],
+    ["cgc", 7, 10],
+    ["sgc", 6, 10],
+  ] as const
+).map(([company, minimumDigits, maximumDigits], index) => ({
+  ruleId: `certificate-format-${company}`,
+  explanationCode: "listing-evidence.certificate-format",
+  priority: 400 + index * 10,
+  selector: {
+    ...emptySelector,
+    options: [{ dimensionId: gradingCompany.dimensionId, optionId: gradingCompany.optionIds[company] }],
+  },
+  outcome: {
+    minimumPhotoCount: 0,
+    requiredSlots: [],
+    sellerTrust: null,
+    buyerAcknowledgment: "none",
+    certificateNumber: { minimumDigits, maximumDigits },
+  },
+}));
 
 export const LISTING_EVIDENCE_LAUNCH_POLICY_VALUE: ListingEvidencePolicyValue = {
   schemaVersion: 1,
@@ -584,6 +641,7 @@ export const LISTING_EVIDENCE_LAUNCH_POLICY_VALUE: ListingEvidencePolicyValue = 
         buyerAcknowledgment: "none",
       },
     },
+    ...certificateNumberFormatLaunchRules,
   ],
 };
 

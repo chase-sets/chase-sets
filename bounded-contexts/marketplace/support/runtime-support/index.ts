@@ -24,11 +24,15 @@ export type ListingPhotoStorage = Readonly<{
   deleteObjects?: (keys: readonly string[]) => Promise<void>;
 }>;
 
-/** Inventory's answer for one item its account owns: the Graded Item Details recorded at creation. */
+/**
+ * Inventory's answer for one item its account owns: the Graded Item Details recorded at creation and the
+ * selection they were written from.
+ */
 export type InventoryItemGradedCardAuthority = Readonly<{
-  resolve(
-    input: Readonly<{ accountId: string; inventoryItemId: string }>,
-  ): Promise<Readonly<{ gradedCard: MarketplaceGradedCardDetails | null }> | null>;
+  resolve(input: Readonly<{ accountId: string; inventoryItemId: string }>): Promise<Readonly<{
+    gradedCard: MarketplaceGradedCardDetails | null;
+    selectedOptions: readonly { dimensionId: string; optionId: string }[];
+  }> | null>;
 }>;
 
 export type MarketplaceRuntimeDeps = Readonly<{

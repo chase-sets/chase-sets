@@ -100,6 +100,7 @@ dbDescribe("Offer attempt first results on PostgreSQL", () => {
             sellerTrustRequirements: [],
             buyerAcknowledgment: "none",
           },
+          certificateNumberFormats: [],
           effectiveInterval: { from: "2026-01-01T00:00:00.000Z", until: null },
           explanationCodes: [],
         }),

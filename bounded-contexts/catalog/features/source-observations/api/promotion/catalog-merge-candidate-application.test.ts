@@ -861,12 +861,20 @@ describe("Lorcana ink color from item-producing members", () => {
     );
   });
 
-  it("supplies no ink to a candidate with no Scrydex member", () => {
-    const effective = snapshotWithAuthoredFacts(snapshot(), [lorcanaRevision("lorcanajson", "a", "Amethyst")] as never);
+  it.each([false, true])(
+    "uses a LorcanaJSON author's ink with no Scrydex value (blank Scrydex author: %s)",
+    (blank) => {
+      const effective = snapshotWithAuthoredFacts(snapshot(), [
+        lorcanaRevision("lorcanajson", "a", " Amethyst "),
+        ...(blank ? [lorcanaRevision("scrydex", "b", "  ")] : []),
+      ] as never);
 
-    expect(effective.proposedCatalogItemFacts).not.toHaveProperty("inkColor");
-    expect(effective.fieldProvenance).not.toContainEqual(expect.objectContaining({ fieldPath: inkPath }));
-  });
+      expect(effective.proposedCatalogItemFacts.inkColor).toBe("Amethyst");
+      expect(effective.fieldProvenance.filter((entry) => entry.fieldPath === inkPath)).toEqual([
+        expect.objectContaining({ providerKey: "lorcanajson", value: "Amethyst", observationId: "obs_a" }),
+      ]);
+    },
+  );
 
   it("takes ink only from the Scrydex member when another provider also authors the item", () => {
     const effective = snapshotWithAuthoredFacts(snapshot(), [
@@ -880,10 +888,21 @@ describe("Lorcana ink color from item-producing members", () => {
     ]);
   });
 
-  it("supplies nothing when item-producing members disagree", () => {
+  it("does not fall back when Scrydex authors disagree", () => {
     const effective = snapshotWithAuthoredFacts(snapshot(), [
       lorcanaRevision("scrydex", "a", "Amber"),
       lorcanaRevision("scrydex", "b", "Ruby"),
+      lorcanaRevision("lorcanajson", "c", "Ruby"),
+    ] as never);
+
+    expect(effective.proposedCatalogItemFacts).not.toHaveProperty("inkColor");
+    expect(effective.fieldProvenance).not.toContainEqual(expect.objectContaining({ fieldPath: inkPath }));
+  });
+
+  it("supplies nothing when fallback authors disagree", () => {
+    const effective = snapshotWithAuthoredFacts(snapshot(), [
+      lorcanaRevision("lorcanajson", "a", "Amber"),
+      lorcanaRevision("lorcanajson", "b", "Ruby"),
     ] as never);
 
     expect(effective.proposedCatalogItemFacts).not.toHaveProperty("inkColor");

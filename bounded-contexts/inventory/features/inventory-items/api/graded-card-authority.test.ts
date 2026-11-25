@@ -19,6 +19,10 @@ const gradedCard = {
   population: { populationAtGrade: 12, populationHigher: 0, source: "PSA population report", asOf: "2026-04-01" },
   conditionDescriptors: ["Gem Mint"],
 };
+const selection = [
+  { dimensionId: "form", optionId: "graded" },
+  { dimensionId: "grading_company", optionId: "psa" },
+];
 
 function created(itemId: string, recorded: Readonly<Record<string, unknown>>) {
   return {
@@ -86,13 +90,52 @@ describe("Inventory Item Graded Card Authority", () => {
       authority.resolveInventoryItemGradedCard({ accountId: "owner", inventoryItemId: "item" }),
     ).resolves.toEqual({
       gradedCard: expected,
+      selectedOptions: [],
     });
+  });
+
+  it("returns the selection recorded at creation, entry for entry and in its recorded order", async () => {
+    const { append, authority } = fixture();
+    await append("inventory.item-item", [created("item", { gradedCard, selectedOptions: selection })]);
+
+    await expect(
+      authority.resolveInventoryItemGradedCard({ accountId: "owner", inventoryItemId: "item" }),
+    ).resolves.toEqual({ gradedCard, selectedOptions: selection });
+  });
+
+  it("returns only the dimension and Option of each recorded entry", async () => {
+    const { append, authority } = fixture();
+    await append("inventory.item-item", [
+      created("item", { selectedOptions: selection.map((entry) => ({ ...entry, label: "PSA" })) }),
+    ]);
+
+    await expect(
+      authority.resolveInventoryItemGradedCard({ accountId: "owner", inventoryItemId: "item" }),
+    ).resolves.toEqual({ gradedCard: null, selectedOptions: selection });
+  });
+
+  it.each([
+    { label: "without the key", recorded: undefined },
+    { label: "with a null selection", recorded: { selectedOptions: null } },
+    { label: "with a selection that is not a list", recorded: { selectedOptions: { form: "graded" } } },
+  ])("answers an empty selection for a creation event stored $label", async ({ recorded }) => {
+    const { append, authority } = fixture();
+    const event = created("item", { gradedCard, ...recorded });
+    if (!recorded) {
+      delete (event.payload as Record<string, unknown>).selectedOptions;
+      expect(event.payload).not.toHaveProperty("selectedOptions");
+    }
+    await append("inventory.item-item", [event]);
+
+    await expect(
+      authority.resolveInventoryItemGradedCard({ accountId: "owner", inventoryItemId: "item" }),
+    ).resolves.toEqual({ gradedCard, selectedOptions: [] });
   });
 
   it("keeps answering from the creation event after later events on the stream", async () => {
     const { append, authority } = fixture();
     await append("inventory.item-item", [
-      created("item", { gradedCard }),
+      created("item", { gradedCard, selectedOptions: selection }),
       { eventType: "inventory.item.adjusted", payload: { itemId: "item", quantityDelta: -1, reason: "sold" } },
     ]);
 
@@ -100,6 +143,7 @@ describe("Inventory Item Graded Card Authority", () => {
       authority.resolveInventoryItemGradedCard({ accountId: "owner", inventoryItemId: "item" }),
     ).resolves.toEqual({
       gradedCard,
+      selectedOptions: selection,
     });
   });
 

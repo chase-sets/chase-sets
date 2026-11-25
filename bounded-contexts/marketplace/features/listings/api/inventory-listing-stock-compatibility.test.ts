@@ -150,7 +150,9 @@ describe("Inventory Listing stock compatibility", () => {
         checkpointStore: { loadCheckpoint: async () => ZERO_GLOBAL_POSITION, saveCheckpoint: async () => {} },
         commercialTermsResolver: {} as never,
         // Inventory holds the ensured raw item for the account.
-        inventoryItemGradedCardAuthority: { resolve: async () => ({ gradedCard: null }) },
+        inventoryItemGradedCardAuthority: {
+          resolve: async () => ({ gradedCard: null, selectedOptions: snapshot.selectedOptions }),
+        },
       });
       await expect(
         runtime[method](

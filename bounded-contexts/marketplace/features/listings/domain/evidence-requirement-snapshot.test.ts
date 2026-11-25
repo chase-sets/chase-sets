@@ -24,6 +24,7 @@ const evaluation: ListingEvidencePolicyEvaluation = {
     sellerTrustRequirements: [],
     buyerAcknowledgment: "none",
   },
+  certificateNumberFormats: [],
   effectiveInterval: { from: "2026-07-01T00:00:00.000Z", until: null },
   explanationCodes: ["rule-matched:rule_front"],
 };
@@ -52,5 +53,14 @@ describe("Listing Evidence requirement snapshot", () => {
     };
 
     expect(listingEvidenceRequirementHash(revised)).not.toBe(listingEvidenceRequirementHash(evaluation));
+  });
+
+  it("keeps Certificate Number Formats out of the snapshot and its hash", () => {
+    const withFormats = { ...evaluation, certificateNumberFormats: [{ minimumDigits: 8, maximumDigits: 10 }] };
+
+    expect(listingEvidenceRequirementHash(withFormats)).toBe(listingEvidenceRequirementHash(evaluation));
+    expect(createListingEvidenceRequirementSnapshot(withFormats, "2026-07-13T12:00:00.000Z")).toEqual(
+      createListingEvidenceRequirementSnapshot(evaluation, "2026-07-13T12:00:00.000Z"),
+    );
   });
 });
