@@ -81,6 +81,8 @@ pub(crate) fn retired_sheet_href(query: &str) -> Option<String> {
         "feed" => Place::default(),
         "settings" => match value("notificationSection").as_deref() {
             Some("product-alerts") => Place::settings(Section::ProductAlerts, None),
+            // Named as the old link named it, as marketplace-web does; the page is the same.
+            Some("preferences") => Place { section: Some("preferences".into()), ..Place::settings(Section::Preferences, None) },
             _ => Place::settings(Section::Preferences, None),
         },
         _ => return None,
