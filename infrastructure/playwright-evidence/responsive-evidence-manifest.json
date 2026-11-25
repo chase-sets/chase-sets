@@ -5,7 +5,7 @@
     {
       "kind": "claim",
       "id": "mobile-buy-cart-quantity",
-      "file": "deployables/marketplace/e2e/buyer-purchase-journey.spec.ts",
+      "file": "deployables/corten-pilot/e2e/buyer-purchase-journey.spec.ts",
       "testTitle": "phone buyer searches, adds a product and reaches payment review @marketplace-checkout @mobile @browser-e2e-seed",
       "route": { "name": "Marketplace Buy Cart", "path": "/account/cart" },
       "fixture": { "identity": "marketplace-browser-e2e-seed:charizard" },
@@ -877,7 +877,7 @@
     {
       "kind": "negative-control",
       "id": "hidden-accordion-target",
-      "file": "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts",
+      "file": "deployables/corten-pilot/e2e/responsive-evidence-contract.spec.ts",
       "testTitle": "fails before capture when the exact accordion target is hidden @marketplace-browse",
       "route": {
         "name": "hidden accordion fixture",
@@ -911,7 +911,7 @@
     {
       "kind": "negative-control",
       "id": "zero-table-unrelated-list-item",
-      "file": "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts",
+      "file": "deployables/corten-pilot/e2e/responsive-evidence-contract.spec.ts",
       "testTitle": "fails before capture when the exact table is empty despite an unrelated list item @marketplace-browse",
       "route": {
         "name": "empty scoped table fixture",
@@ -945,7 +945,7 @@
     {
       "kind": "negative-control",
       "id": "gap-above-missing-reference",
-      "file": "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts",
+      "file": "deployables/corten-pilot/e2e/responsive-evidence-contract.spec.ts",
       "testTitle": "fails before capture when the gap-above reference element is absent @marketplace-browse",
       "route": {
         "name": "gap-above missing reference fixture",
@@ -980,7 +980,7 @@
     {
       "kind": "negative-control",
       "id": "scroll-margin-bottom-hidden-target",
-      "file": "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts",
+      "file": "deployables/corten-pilot/e2e/responsive-evidence-contract.spec.ts",
       "testTitle": "fails before capture when the scroll-margin-bottom measurement target is hidden @marketplace-browse",
       "route": {
         "name": "scroll-margin-bottom hidden target fixture",
@@ -1014,7 +1014,7 @@
     {
       "kind": "negative-control",
       "id": "css-custom-property-non-numeric",
-      "file": "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts",
+      "file": "deployables/corten-pilot/e2e/responsive-evidence-contract.spec.ts",
       "testTitle": "fails before capture when the css-custom-property observation is non-numeric @marketplace-browse",
       "route": {
         "name": "css-custom-property non-numeric fixture",
@@ -1049,7 +1049,7 @@
     {
       "kind": "negative-control",
       "id": "css-custom-property-unsupported-unit",
-      "file": "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts",
+      "file": "deployables/corten-pilot/e2e/responsive-evidence-contract.spec.ts",
       "testTitle": "fails before capture when the css-custom-property observation carries an unsupported length unit @marketplace-browse",
       "route": {
         "name": "css-custom-property unsupported unit fixture",
@@ -1085,7 +1085,7 @@
     {
       "kind": "negative-control",
       "id": "horizontal-overflow-clipped-label",
-      "file": "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts",
+      "file": "deployables/corten-pilot/e2e/responsive-evidence-contract.spec.ts",
       "testTitle": "fails before capture when an element-scoped label is clipped @marketplace-browse",
       "route": {
         "name": "clipped label fixture",
@@ -1119,7 +1119,7 @@
     {
       "kind": "claim",
       "id": "population-bulk-positive",
-      "file": "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts",
+      "file": "deployables/corten-pilot/e2e/responsive-evidence-contract.spec.ts",
       "testTitle": "records every row in a high-cardinality population @marketplace-browse",
       "route": {
         "name": "high-cardinality populated target fixture",
@@ -1154,7 +1154,7 @@
     {
       "kind": "negative-control",
       "id": "population-bulk-hidden-late",
-      "file": "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts",
+      "file": "deployables/corten-pilot/e2e/responsive-evidence-contract.spec.ts",
       "testTitle": "fails before capture when a late population row is hidden @marketplace-browse",
       "route": {
         "name": "high-cardinality late hidden population fixture",
@@ -1189,7 +1189,7 @@
     {
       "kind": "negative-control",
       "id": "population-bulk-zero-layout-late",
-      "file": "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts",
+      "file": "deployables/corten-pilot/e2e/responsive-evidence-contract.spec.ts",
       "testTitle": "fails before capture when a late population row has zero layout @marketplace-browse",
       "route": {
         "name": "high-cardinality late zero-layout population fixture",
@@ -1224,7 +1224,7 @@
     {
       "kind": "negative-control",
       "id": "population-bulk-absent",
-      "file": "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts",
+      "file": "deployables/corten-pilot/e2e/responsive-evidence-contract.spec.ts",
       "testTitle": "fails before capture when a high-cardinality fixture has no matching population @marketplace-browse",
       "route": {
         "name": "high-cardinality absent population fixture",
@@ -1259,7 +1259,7 @@
     {
       "kind": "claim",
       "id": "fixture-scope-cards-mobile",
-      "file": "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts",
+      "file": "deployables/corten-pilot/e2e/responsive-evidence-contract.spec.ts",
       "testTitle": "records exact mobile card evidence at 390px @marketplace-browse",
       "route": {
         "name": "populated responsive scope fixture",
@@ -1321,7 +1321,7 @@
     {
       "kind": "claim",
       "id": "fixture-scope-table-tablet",
-      "file": "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts",
+      "file": "deployables/corten-pilot/e2e/responsive-evidence-contract.spec.ts",
       "testTitle": "records exact tablet table evidence at 820px @marketplace-browse",
       "route": {
         "name": "populated responsive scope fixture",
@@ -4719,7 +4719,7 @@
     {
       "kind": "claim",
       "id": "sign-in-methods-mobile",
-      "file": "deployables/marketplace/e2e/critical-flows.spec.ts",
+      "file": "deployables/corten-pilot/e2e/critical-flows.spec.ts",
       "testTitle": "records sign-in method list and email option at 390x844 @marketplace-account",
       "route": {
         "name": "marketplace sign-in",
@@ -4762,7 +4762,7 @@
     {
       "kind": "claim",
       "id": "sign-in-email-option-mobile",
-      "file": "deployables/marketplace/e2e/critical-flows.spec.ts",
+      "file": "deployables/corten-pilot/e2e/critical-flows.spec.ts",
       "testTitle": "records sign-in method list and email option at 390x844 @marketplace-account",
       "route": {
         "name": "marketplace sign-in",
@@ -4805,7 +4805,7 @@
     {
       "kind": "claim",
       "id": "sign-in-methods-desktop",
-      "file": "deployables/marketplace/e2e/critical-flows.spec.ts",
+      "file": "deployables/corten-pilot/e2e/critical-flows.spec.ts",
       "testTitle": "records sign-in method list and email option at 1280x900 @marketplace-account",
       "route": {
         "name": "marketplace sign-in",
@@ -4848,7 +4848,7 @@
     {
       "kind": "claim",
       "id": "sign-in-email-option-desktop",
-      "file": "deployables/marketplace/e2e/critical-flows.spec.ts",
+      "file": "deployables/corten-pilot/e2e/critical-flows.spec.ts",
       "testTitle": "records sign-in method list and email option at 1280x900 @marketplace-account",
       "route": {
         "name": "marketplace sign-in",
@@ -6403,7 +6403,7 @@
     {
       "kind": "claim",
       "id": "marketplace-navigation-desktop-1280",
-      "file": "deployables/marketplace/e2e/marketplace-navigation.spec.ts",
+      "file": "deployables/corten-pilot/e2e/marketplace-navigation.spec.ts",
       "testTitle": "records Marketplace owner navigation at 1280x900 @marketplace-account @browser-e2e-seed",
       "route": {
         "name": "Seeded owner account home",
@@ -6473,7 +6473,7 @@
     {
       "kind": "claim",
       "id": "marketplace-navigation-mobile-360",
-      "file": "deployables/marketplace/e2e/marketplace-navigation.spec.ts",
+      "file": "deployables/corten-pilot/e2e/marketplace-navigation.spec.ts",
       "testTitle": "records Marketplace owner navigation at 360x800 @marketplace-account @browser-e2e-seed",
       "route": {
         "name": "Seeded owner account home",
@@ -6543,7 +6543,7 @@
     {
       "kind": "claim",
       "id": "marketplace-navigation-mobile-390",
-      "file": "deployables/marketplace/e2e/marketplace-navigation.spec.ts",
+      "file": "deployables/corten-pilot/e2e/marketplace-navigation.spec.ts",
       "testTitle": "records Marketplace owner navigation at 390x844 @marketplace-account @browser-e2e-seed",
       "route": {
         "name": "Seeded owner account home",
@@ -6613,7 +6613,7 @@
     {
       "kind": "claim",
       "id": "marketplace-shell-search-row-expanded-390",
-      "file": "deployables/marketplace/e2e/marketplace-shell-header.spec.ts",
+      "file": "deployables/corten-pilot/e2e/marketplace-shell-header.spec.ts",
       "testTitle": "publishes the expanded search row before scrolling on the pinned item route @marketplace-browse",
       "route": {
         "name": "item detail (charizard base set)",
@@ -6658,7 +6658,7 @@
     {
       "kind": "claim",
       "id": "marketplace-shell-search-row-collapsed-390",
-      "file": "deployables/marketplace/e2e/marketplace-shell-header.spec.ts",
+      "file": "deployables/corten-pilot/e2e/marketplace-shell-header.spec.ts",
       "testTitle": "binds the search-row state observed across the responsive capture @marketplace-browse",
       "route": {
         "name": "item detail (charizard base set)",
@@ -6703,7 +6703,7 @@
     {
       "kind": "claim",
       "id": "marketplace-shell-search-row-search-route-390",
-      "file": "deployables/marketplace/e2e/marketplace-shell-header.spec.ts",
+      "file": "deployables/corten-pilot/e2e/marketplace-shell-header.spec.ts",
       "testTitle": "keeps the search row expanded on the search route under the same downward scroll @marketplace-browse",
       "route": {
         "name": "search results (charizard)",
@@ -6748,7 +6748,7 @@
     {
       "kind": "claim",
       "id": "marketplace-shell-search-row-desktop-768",
-      "file": "deployables/marketplace/e2e/marketplace-shell-header.spec.ts",
+      "file": "deployables/corten-pilot/e2e/marketplace-shell-header.spec.ts",
       "testTitle": "keeps the search row inline in a single header row at 768 @marketplace-browse",
       "route": {
         "name": "item detail (charizard base set)",

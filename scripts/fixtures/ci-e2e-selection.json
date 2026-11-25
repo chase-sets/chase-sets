@@ -645,15 +645,15 @@
     },
     {
       "family": "e2eSpecSuiteOwnership:3",
-      "pattern": "/^deployables\\/marketplace\\/e2e\\/critical-flows\\.spec\\.ts$/",
+      "pattern": "/^deployables\\/corten-pilot\\/e2e\\/critical-flows\\.spec\\.ts$/",
       "suites": ["marketplace_browse", "marketplace_account", "marketplace_checkout", "marketplace_seller"],
-      "path": "deployables/marketplace/e2e/critical-flows.spec.ts",
+      "path": "deployables/corten-pilot/e2e/critical-flows.spec.ts",
       "trackedCandidates": 1,
       "synthetic": false
     },
     {
       "family": "e2eSpecSuiteOwnership:4",
-      "pattern": "/^deployables\\/marketplace\\/e2e\\/(?:account-payment|buy-funnel-redesign|buyer-purchase-journey|sell-checkout-session)\\.spec\\.ts$/",
+      "pattern": "/^deployables\\/(?:marketplace\\/e2e\\/(?:account-payment|buy-funnel-redesign|sell-checkout-session)|corten-pilot\\/e2e\\/buyer-purchase-journey)\\.spec\\.ts$/",
       "suites": ["marketplace_checkout"],
       "path": "deployables/marketplace/e2e/account-payment.spec.ts",
       "trackedCandidates": 4,
@@ -661,9 +661,9 @@
     },
     {
       "family": "e2eSpecSuiteOwnership:5",
-      "pattern": "/^deployables\\/marketplace\\/e2e\\/responsive-evidence-contract\\.spec\\.ts$/",
+      "pattern": "/^deployables\\/corten-pilot\\/e2e\\/responsive-evidence-contract\\.spec\\.ts$/",
       "suites": ["marketplace_browse"],
-      "path": "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts",
+      "path": "deployables/corten-pilot/e2e/responsive-evidence-contract.spec.ts",
       "trackedCandidates": 1,
       "synthetic": false
     },
@@ -757,9 +757,9 @@
     },
     {
       "family": "e2eSpecSuiteOwnership:17",
-      "pattern": "/^deployables\\/marketplace\\/e2e\\/marketplace-shell-header\\.spec\\.ts$/",
+      "pattern": "/^deployables\\/corten-pilot\\/e2e\\/marketplace-shell-header\\.spec\\.ts$/",
       "suites": ["marketplace_browse"],
-      "path": "deployables/marketplace/e2e/marketplace-shell-header.spec.ts",
+      "path": "deployables/corten-pilot/e2e/marketplace-shell-header.spec.ts",
       "trackedCandidates": 1,
       "synthetic": false
     },
@@ -2192,7 +2192,7 @@
       "batches": ["marketplace_checkout"]
     },
     {
-      "changedFiles": ["deployables/marketplace/e2e/critical-flows.spec.ts"],
+      "changedFiles": ["deployables/corten-pilot/e2e/critical-flows.spec.ts"],
       "suiteIds": ["marketplace_browse", "marketplace_account", "marketplace_checkout", "marketplace_seller"],
       "batches": ["marketplace_account,marketplace_checkout", "marketplace_browse,marketplace_seller"]
     },
@@ -2227,7 +2227,7 @@
       ]
     },
     {
-      "changedFiles": ["deployables/marketplace/e2e/responsive-evidence-contract.spec.ts"],
+      "changedFiles": ["deployables/corten-pilot/e2e/responsive-evidence-contract.spec.ts"],
       "suiteIds": ["marketplace_browse"],
       "batches": ["marketplace_browse"]
     },
@@ -2700,7 +2700,7 @@
       "batches": ["marketplace_account"]
     },
     {
-      "changedFiles": ["deployables/marketplace/e2e/marketplace-shell-header.spec.ts"],
+      "changedFiles": ["deployables/corten-pilot/e2e/marketplace-shell-header.spec.ts"],
       "suiteIds": ["marketplace_browse"],
       "batches": ["marketplace_browse"]
     },

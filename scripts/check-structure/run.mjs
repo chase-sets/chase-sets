@@ -1419,7 +1419,7 @@ export function isAllowedDeployableBoundedContextImport(relativeFile, specifier,
   }
 
   if (
-    /^deployables\/(admin-web|marketplace)\/e2e\/(?:[^/]+\/)*[^/]+\.spec\.ts$/.test(normalizedFile) &&
+    /^deployables\/(admin-web|marketplace|corten-pilot)\/e2e\/(?:[^/]+\/)*[^/]+\.spec\.ts$/.test(normalizedFile) &&
     normalizedFile.split("/").every((segment) => segment !== "." && segment !== "..") &&
     targetContext?.packageName === targetContext?.packageJson?.name &&
     targetContext?.packageName === targetContext?.manifest?.packageName &&

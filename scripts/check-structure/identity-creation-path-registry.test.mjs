@@ -511,7 +511,9 @@ const landingSelectors = {
   "phone-code-registration": [personalIdentity("registerPhoneCodeRoutes", "post", "/phone-code/consume")],
   "social-login-first-use": [personalIdentity("registerSocialLoginRoutes", "get", "/social/:provider/callback")],
   "marketplace-register-route-action": [call("api.register", "createRegisterAction")],
+  // The Corten marketplace's kept browser specs and marketplace-web's own specs each carry a copy of the helper.
   "marketplace-e2e-auth-helper": [
+    call("fetch", "registerSyntheticAccount", (node) => registrationEndpoint(node.arguments[0]) && postOptions(node)),
     call("fetch", "registerSyntheticAccount", (node) => registrationEndpoint(node.arguments[0]) && postOptions(node)),
   ],
   "guest-buy-now-freshness-probe": [
@@ -831,7 +833,8 @@ describe("identity creation pin landing", () => {
   it("every registry pin lands on its creation call", () => {
     const sources = registeredSources;
     const landings = discoverLandingTargets(registry, sources);
-    expect(landings).toHaveLength(50);
+    // The marketplace E2E auth helper lands twice: the Corten pilot's copy and the marketplace-web copy.
+    expect(landings).toHaveLength(51);
     expect(landings.filter((landing) => landing.wholeFile)).toHaveLength(6);
     expect(collectPinLandingViolations(registry, sources)).toEqual([]);
     for (const slot of landings) {

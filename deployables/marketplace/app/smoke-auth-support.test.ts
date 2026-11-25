@@ -954,7 +954,6 @@ const expectedConsumers: Record<string, readonly [number, number, number, number
   "account-form-pending.spec.ts": [1, 0, 0, 1, "synthetic; account form pending state"],
   "account-payment.spec.ts": [1, 1, 0, 1, "synthetic/configured"],
   "buy-funnel-redesign.spec.ts": [1, 2, 0, 1, "synthetic/configured/seeded"],
-  "critical-flows.spec.ts": [1, 4, 0, 2, "synthetic/configured/later-session/seeded"],
   "support/auth-trace-artifact.probe.spec.ts": [1, 0, 0, 1, "synthetic operator probe; outside functional counts"],
   "sell-list-evidence.spec.ts": [0, 1, 0, 0, "configured evidence seller"],
   "seller-desk-journey.uat.spec.ts": [0, 1, 0, 0, "configured UAT seller"],
@@ -963,11 +962,9 @@ const expectedConsumers: Record<string, readonly [number, number, number, number
   "listing-evidence-readiness.spec.ts": [0, 1, 0, 0, "configured/seeded"],
   "notifications.spec.ts": [0, 1, 0, 0, "seeded"],
   "rendered-copy-sweep.spec.ts": [0, 1, 0, 0, "seeded"],
-  "marketplace-navigation.spec.ts": [0, 1, 0, 0, "seeded owner navigation"],
   "inventory-recovery.spec.ts": [0, 4, 0, 0, "configured/seeded seller recovery"],
   "market-following-offers.spec.ts": [0, 2, 0, 0, "seeded buyer/seller; receipted Identity-to-Auth session"],
   "support-case-detail.spec.ts": [0, 2, 0, 0, "seeded"],
-  "buyer-purchase-journey.spec.ts": [1, 0, 2, 1, "synthetic phone buyer; seeded-form desktop buyer"],
   "saved-list-addition.spec.ts": [0, 0, 2, 0, "seeded-form"],
   "channel-publication-freshness.spec.ts": [0, 0, 1, 0, "seeded-form"],
   "channel-connection-connect.spec.ts": [0, 0, 1, 0, "seeded-form"],
@@ -1094,8 +1091,12 @@ describe("retained-suite caller and journey controls", () => {
     expect(retainedRoleActors(retry)).not.toEqual(retainedRoleActors(retry, { ...info, retry: 2 } as typeof info));
   });
   it("performs a real transition from both default and already-Dark preferences; the old no-op is red", () => {
-    const file = "deployables/marketplace/e2e/critical-flows.spec.ts";
-    const source = sourceFunction(file, "accountColorModeChanges");
+    const file = "deployables/corten-pilot/e2e/critical-flows.spec.ts";
+    const source = sourceFunction(
+      file,
+      "accountColorModeChanges",
+      new Map([[file, readFileSync(`${root}/${file}`, "utf8")]]),
+    );
     const transitions = runInNewContext(`${source}; accountColorModeChanges`);
     expect(transitions("system")).toEqual(["dark"]);
     expect(transitions("light")).toEqual(["dark"]);
@@ -1358,8 +1359,8 @@ function discoverAuthCallers(files: ReadonlyMap<string, string>, roots = censusR
   return {
     scanned: files.size,
     totalRuntime: consumers.size,
-    synthetic: 8,
-    direct: 10,
+    synthetic: 6,
+    direct: 9,
     receiptedSessionReads,
     form: 10,
     helper: 1,
@@ -1373,9 +1374,9 @@ describe("auth-caller-census", () => {
   it("discovers the complete tracked graph, with runtime/helper/test/launcher and configured/seeded labels separate", () => {
     const census = discoverAuthCallers(sources);
     expect(census).toMatchObject({
-      totalRuntime: 31,
-      synthetic: 8,
-      direct: 10,
+      totalRuntime: 28,
+      synthetic: 6,
+      direct: 9,
       receiptedSessionReads: 1,
       form: 10,
       helper: 1,
@@ -1385,7 +1386,7 @@ describe("auth-caller-census", () => {
     expect(census.scanned).toBe(trackedMarketplaceSources.length);
     expect(readFileSync(`${root}/${launcher}`, "utf8")).toContain("AUTH_TRACE_ARTIFACT_PROBE");
     console.log(
-      `auth caller census scanned=${census.scanned} runtime=${census.totalRuntime} synthetic=${census.synthetic} direct=10 receipted-session=1 seeded-form=10 helper=1 unit=1 launcher=1`,
+      `auth caller census scanned=${census.scanned} runtime=${census.totalRuntime} synthetic=${census.synthetic} direct=9 receipted-session=1 seeded-form=10 helper=1 unit=1 launcher=1`,
     );
   });
   it("resolves named aliases, namespace imports, local aliases and re-exports without filename assumptions", () => {
@@ -1408,7 +1409,7 @@ describe("auth-caller-census", () => {
         "deployables/marketplace/e2e/support/auth-alias.ts",
         'export { signInWithPassword as login } from "./auth";',
       );
-      expect(discoverAuthCallers(variant).totalRuntime).toBe(31);
+      expect(discoverAuthCallers(variant).totalRuntime).toBe(28);
     }
   });
   it("classifies only the exact receipt-bearing session read, not arbitrary auth in the same spec or a sibling", () => {
@@ -1502,7 +1503,6 @@ const expectedFreshReadRouteCallers = {
   "account-form-pending.spec.ts": 1,
   "account-management-interruption.spec.ts": 2,
   "agent-grant-revocation-real-route.spec.ts": 2,
-  "buyer-purchase-journey.spec.ts": 1,
 };
 /** Every `freshReadRoute:` option outside the helper and this test, by file, with its route literal. */
 function freshReadRouteCallers(files: ReadonlyMap<string, string>) {

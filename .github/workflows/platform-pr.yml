@@ -647,12 +647,12 @@ jobs:
         run: |
           set -euo pipefail
           pnpm exec playwright test \
-            deployables/marketplace/e2e/critical-flows.spec.ts \
-            deployables/marketplace/e2e/buyer-purchase-journey.spec.ts \
-            deployables/marketplace/e2e/marketplace-navigation.spec.ts \
-            deployables/marketplace/e2e/marketplace-shell-header.spec.ts \
-            deployables/marketplace/e2e/responsive-evidence-contract.spec.ts \
-            deployables/marketplace/e2e/search-scroll-restoration.spec.ts \
+            deployables/corten-pilot/e2e/critical-flows.spec.ts \
+            deployables/corten-pilot/e2e/buyer-purchase-journey.spec.ts \
+            deployables/corten-pilot/e2e/marketplace-navigation.spec.ts \
+            deployables/corten-pilot/e2e/marketplace-shell-header.spec.ts \
+            deployables/corten-pilot/e2e/responsive-evidence-contract.spec.ts \
+            deployables/corten-pilot/e2e/search-scroll-restoration.spec.ts \
             --project=marketplace-chromium --project=marketplace-mobile
 
       # The job uploads no Playwright artifacts (scripts/playwright-artifact-upload-fence.mjs), so a

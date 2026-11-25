@@ -198,7 +198,7 @@ describe("responsive evidence real-tree reviewer mutations", () => {
 
   it("rejects disabled test registration for a real claim", async () => {
     const root = await realFixture();
-    await mutateFile(root, "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts", (source) =>
+    await mutateFile(root, "deployables/corten-pilot/e2e/responsive-evidence-contract.spec.ts", (source) =>
       source.replace(
         'test("records exact mobile card evidence at 390px @marketplace-browse"',
         'test.skip("records exact mobile card evidence at 390px @marketplace-browse"',
@@ -225,7 +225,7 @@ describe("responsive evidence real-tree reviewer mutations", () => {
 
   it("rejects capture hidden behind locator all length", async () => {
     const root = await realFixture();
-    await mutateFile(root, "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts", (source) =>
+    await mutateFile(root, "deployables/corten-pilot/e2e/responsive-evidence-contract.spec.ts", (source) =>
       source.replace(
         '    await captureResponsiveEvidence({ page, testInfo, claimId: "fixture-scope-cards-mobile" });',
         `    if ((await page.locator("body").all()).length) {
@@ -241,7 +241,7 @@ describe("responsive evidence real-tree reviewer mutations", () => {
 
   it("rejects a local no-op substituted for the canonical helper", async () => {
     const root = await realFixture();
-    await mutateFile(root, "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts", (source) =>
+    await mutateFile(root, "deployables/corten-pilot/e2e/responsive-evidence-contract.spec.ts", (source) =>
       source
         .replace(
           "import { captureResponsiveEvidence, responsiveEvidenceArtifactPaths } from",

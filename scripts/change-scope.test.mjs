@@ -69,8 +69,7 @@ const cortenMarketplaceBrowserPaths = [
   /^deployables\/corten-pilot\/(?:marketplace|platform)\/(?!.*\.md$)/,
   /^deployables\/corten-pilot\/Cargo\.(?:toml|lock)$/,
   /^deployables\/corten-pilot\/scripts\/export\.mjs$/,
-  /^deployables\/marketplace\/e2e\/(?:critical-flows|buyer-purchase-journey|marketplace-navigation|marketplace-shell-header|responsive-evidence-contract|search-scroll-restoration)\.spec\.ts$/,
-  /^deployables\/marketplace\/e2e\/support\/(?:auth|search-settle|seed-contract|sign-in-readiness|system)\.ts$/,
+  /^deployables\/corten-pilot\/e2e\//,
   /^scripts\/(?:dev-system|dev-system-config|platform-compose-ingress)\.mjs$/,
 ];
 
@@ -1106,6 +1105,18 @@ describe("shared E2E setup selection", () => {
         .map((family) => [family.family, family]),
     );
     const familyDeltas = routeMoves.flatMap(({ families }) => Object.entries(families));
+    // Specs that moved to another E2E root keep their case and suites under the new path; the only
+    // scope deltas are the workspace they left and the gate their new root selects.
+    const movedSpecs = new Map(
+      routeMoves.flatMap(({ movedSpecs }) =>
+        movedSpecs
+          ? movedSpecs.files.map((file) => [
+              `${movedSpecs.legacyDirectory}${file}`,
+              { ...movedSpecs, path: `${movedSpecs.destinationDirectory}${file}` },
+            ])
+          : [],
+      ),
+    );
     // Updates retain captured order; new route families are appended in registry order.
     for (const [family, delta] of familyDeltas.sort(([left], [right]) =>
       left.localeCompare(right, "en", { numeric: true }),
@@ -1154,24 +1165,37 @@ describe("shared E2E setup selection", () => {
     });
     for (const entry of captured.cases) {
       const old = baseline.classifyChanges({ changedFiles: entry.changedFiles });
-      const next = classifyChanges({ changedFiles: entry.changedFiles, workspaces });
+      const changedFiles = entry.changedFiles.map((file) => movedSpecs.get(file)?.path ?? file);
+      const next = classifyChanges({ changedFiles, workspaces });
       const ownsSetup = entry.changedFiles.some((file) => setupPaths.includes(file));
       const ownsRetired = entry.changedFiles.includes(retired);
+      const moved = entry.changedFiles.map((file) => movedSpecs.get(file)).find(Boolean);
+      const moveDelta = moved
+        ? {
+            ...Object.fromEntries(
+              Object.entries(old)
+                .filter(([, value]) => Array.isArray(value))
+                .map(([key, value]) => [key, value.filter((item) => !moved.leftWorkspaces.includes(item))]),
+            ),
+            changedFiles,
+            ...moved.addedScope,
+          }
+        : {};
       expect(next).toEqual(
         ownsRetired
           ? { ...old, e2eSuiteIds: fallback.suiteIds, e2eTestsRequired: true }
           : ownsSetup
             ? { ...old, e2eSuiteIds: ["admin_auth"], e2eTestsRequired: true }
-            : old,
+            : { ...old, ...moveDelta },
       );
       expect(
-        candidate.cases.find((item) => JSON.stringify(item.changedFiles) === JSON.stringify(entry.changedFiles)),
+        candidate.cases.find((item) => JSON.stringify(item.changedFiles) === JSON.stringify(changedFiles)),
       ).toEqual(
         ownsRetired
           ? { ...entry, suiteIds: fallback.suiteIds, batches: fallback.batches }
           : ownsSetup
             ? { ...entry, suiteIds: ["admin_auth"], batches: ["admin_auth"] }
-            : entry,
+            : { ...entry, changedFiles },
       );
     }
     for (const file of nearMisses) {

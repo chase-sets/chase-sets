@@ -619,7 +619,7 @@ describe("run e2e suite", () => {
     expect(e2eSuiteIdsForChangedFile("deployables/marketplace/e2e/item-detail.spec.ts")).toEqual([
       "marketplace_browse",
     ]);
-    expect(e2eSuiteIdsForChangedFile("deployables/marketplace/e2e/critical-flows.spec.ts")).toEqual([
+    expect(e2eSuiteIdsForChangedFile("deployables/corten-pilot/e2e/critical-flows.spec.ts")).toEqual([
       "marketplace_browse",
       "marketplace_account",
       "marketplace_checkout",
@@ -629,7 +629,7 @@ describe("run e2e suite", () => {
     expect(e2eSuiteIdsForChangedFile("deployables/admin-web/e2e/catalog-scopes.spec.ts")).toEqual([
       "catalog_admin_integrations",
     ]);
-    expect(e2eSuiteIdsForChangedFile("deployables/marketplace/e2e/responsive-evidence-contract.spec.ts")).toEqual([
+    expect(e2eSuiteIdsForChangedFile("deployables/corten-pilot/e2e/responsive-evidence-contract.spec.ts")).toEqual([
       "marketplace_browse",
     ]);
     expect(e2eSuiteIdsForChangedFile("deployables/admin-web/e2e/catalog-staging-provider-sync.uat.spec.ts")).toEqual(
@@ -667,9 +667,9 @@ describe("run e2e suite", () => {
     expect(existsSync("deployables/marketplace/e2e/privacy-policy.spec.ts")).toBe(false);
     expect(existsSync("deployables/public-web/e2e/privacy-policy.spec.ts")).toBe(true);
 
-    const marketplaceSpecs = walkFiles("deployables/marketplace/e2e").filter((filePath) =>
-      filePath.endsWith(".spec.ts"),
-    );
+    const marketplaceSpecs = ["deployables/marketplace/e2e", "deployables/corten-pilot/e2e"]
+      .flatMap((directory) => walkFiles(directory))
+      .filter((filePath) => filePath.endsWith(".spec.ts"));
     const marketplaceSpecsVisitingPrivacy = marketplaceSpecs.filter((filePath) =>
       /["'`]\/privacy(?:[?#/"'`]|$)/.test(readFileSync(filePath, "utf8")),
     );

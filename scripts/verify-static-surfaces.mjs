@@ -423,12 +423,13 @@ export const VERIFY_STATIC_GUARD_TEST_SURFACES = {
     include: [{ kind: "any" }],
   },
   "scripts/check-structure/deployed-browser-e2e-profile.test.mjs": {
-    rule: "deployed browser config, three web E2E roots, and the guard source",
+    rule: "deployed browser config, four web E2E roots, and the guard source",
     evidence: ["scripts/check-structure/deployed-browser-e2e-profile.test.mjs:1-9,64-73"],
     include: [
       ...exact("playwright.config.ts", "pnpm-lock.yaml"),
       ...prefix(
         "deployables/marketplace/e2e",
+        "deployables/corten-pilot/e2e",
         "deployables/admin-web/e2e",
         "deployables/public-web/e2e",
         "scripts",

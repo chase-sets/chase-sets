@@ -116,6 +116,11 @@
       "reason": "Registers synthetic accounts against the real register route; omitting the submission is the shape that failed a hosted CI shard, so it resolves before it registers.",
       "sites": [
         {
+          "file": "deployables/corten-pilot/e2e/support/auth.ts",
+          "symbol": "registerSyntheticAccount",
+          "content": "fetch"
+        },
+        {
           "file": "deployables/marketplace/e2e/support/auth.ts",
           "symbol": "registerSyntheticAccount",
           "content": "fetch"

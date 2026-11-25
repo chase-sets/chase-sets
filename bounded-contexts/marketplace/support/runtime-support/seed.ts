@@ -1392,7 +1392,7 @@ export async function seedMarketplaceDatabase(
 }
 
 // Pinned identity anchors the browser E2E seed contract depends on for an exact
-// deterministic listing shape (deployables/marketplace/e2e/support/seed-contract.ts):
+// deterministic listing shape (deployables/corten-pilot/e2e/support/seed-contract.ts):
 // a zero-listing item drives the "no product selected" dock, and a single raw
 // near-mint listing drives implicit price-based product resolution. The
 // out-of-band Representative Commerce State refresh

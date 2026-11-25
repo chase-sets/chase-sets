@@ -250,7 +250,7 @@ function validateClaimShape(claim, claimIds, artifactNames, associationKeys, vio
   }
   const normalizedFile = normalize(String(claim?.file ?? ""));
   if (
-    !/^deployables\/(?:admin-web|marketplace)\/e2e\/.+\.spec\.ts$/.test(normalizedFile) ||
+    !/^deployables\/(?:admin-web|marketplace|corten-pilot)\/e2e\/.+\.spec\.ts$/.test(normalizedFile) ||
     normalizedFile.includes("../")
   ) {
     violations.push(`${manifestPath}: responsive evidence claim '${label}' must designate a deployable E2E spec.`);
@@ -523,7 +523,7 @@ function stringLiteral(node) {
 
 async function discoverE2eSpecFiles(repoRoot) {
   const files = [];
-  for (const deployable of ["admin-web", "marketplace"]) {
+  for (const deployable of ["admin-web", "marketplace", "corten-pilot"]) {
     files.push(
       ...(await collectFiles(path.join(repoRoot, "deployables", deployable, "e2e"), {
         extensions: new Set([".ts", ".tsx"]),
