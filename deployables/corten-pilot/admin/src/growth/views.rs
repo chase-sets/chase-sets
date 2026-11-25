@@ -13,8 +13,8 @@ pub use waitlist_page::WaitlistPage;
 
 /// Campaign Analytics' components: its stylesheet, and the kit's Progress for its goals' bars.
 pub const CAMPAIGN: &[Component] = &[CampaignPage, platform::ui::progress::Progress];
-/// Google Shopping's components: its stylesheet.
-pub const GOOGLE_SHOPPING: &[Component] = &[GoogleShoppingPage];
+/// Google Shopping's components: its stylesheet and Chase Sets surfaces.
+pub const GOOGLE_SHOPPING: &[Component] = &[GoogleShoppingPage, platform::surface::Surface];
 /// Promo Bar's components: its stylesheet, and the sheets' dialog.
 pub const PROMO: &[Component] = &[PromoPage, corten_ui::dialog::COMPONENT];
 /// Waitlist's components: its stylesheet.

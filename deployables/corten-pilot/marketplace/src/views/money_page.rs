@@ -14,7 +14,10 @@ use corten::{
     prelude::*,
 };
 
-use platform::ui::steps::{Step, StepState, Steps, StepsLayout};
+use platform::{
+    numeric_value::MoneyDisplay,
+    ui::steps::{Step, StepState, Steps, StepsLayout},
+};
 
 use super::on_marketplace;
 use crate::{
@@ -34,11 +37,15 @@ pub struct AdjustmentDialogId;
 const NONE: [(&str, &str); 0] = [];
 
 /// An amount the API sent, in the request's locale (`formatMoney`), or as sent when it is not money.
-fn money(t: MoneyMsg, amount: &str, currency: &str) -> String {
+fn money_display(t: MoneyMsg, amount: &str, currency: &str) -> MoneyDisplay {
     match (platform::money::decimal(amount), Currency::parse(currency.trim())) {
-        (Some(amount), Some(currency)) => t.money(amount, currency).to_string(),
-        _ => format!("{amount} {}", currency.trim().to_ascii_uppercase()).trim().to_owned(),
+        (Some(amount), Some(currency)) => MoneyDisplay::Formatted(t.money(amount, currency).to_string()),
+        _ => MoneyDisplay::Fallback(format!("{amount} {}", currency.trim().to_ascii_uppercase()).trim().to_owned()),
     }
+}
+
+fn money(t: MoneyMsg, amount: &str, currency: &str) -> String {
+    money_display(t, amount, currency).into_text()
 }
 
 fn date(t: MoneyMsg, at: &str) -> String {
@@ -113,7 +120,7 @@ fn term(label: &str) -> &str {
 pub fn PayoutPage<'a>(t: MoneyMsg, p: Pilot, screen: &'a PayoutScreen) -> impl Render {
     let payout = &screen.payout;
     let currency = payout.currency_code.as_str();
-    let net = money(t, &payout.net_amount, currency);
+    let net = money_display(t, &payout.net_amount, currency);
     let requested_at = date_time(t, &payout.requested_at);
     let transfer = present(&payout.provider_transfer_reference) || present(&payout.sent_at);
     let submitted = present(&payout.provider_payout_reference) || present(&payout.sent_at);
@@ -182,7 +189,7 @@ pub fn PayoutPage<'a>(t: MoneyMsg, p: Pilot, screen: &'a PayoutScreen) -> impl R
             <div class={Tight}>
                 <p class={Eyebrow}>{t.detail_settlement()}</p>
                 <h1 class={Title}>{t.detail_payout_title(&payout.display_reference)}</h1>
-                <p class={Muted}>{t.payout_net_payout_amount(&net)}</p>
+                <p class={Muted}>{t.payout_net_payout_amount(net.text())}</p>
             </div>
             <a class={(Button, Secondary)} href={url::Money::default()}>{t.detail_back_to_payouts()}</a>
         </header>
@@ -191,7 +198,7 @@ pub fn PayoutPage<'a>(t: MoneyMsg, p: Pilot, screen: &'a PayoutScreen) -> impl R
                 <h2 id="payout-requested-title" class={PartTitle}>{t.detail_payout_requested()}</h2>
                 <div class={Banner} data-tone="success" role="status">
                     <p class={Strong}>{t.detail_payout_requested_2()}</p>
-                    <p>{t.detail_amount_is_being_sent_to_your_saved(&net)}</p>
+                    <p>{t.detail_amount_is_being_sent_to_your_saved(net.text())}</p>
                 </div>
             </section>
         }
@@ -219,11 +226,11 @@ pub fn PayoutPage<'a>(t: MoneyMsg, p: Pilot, screen: &'a PayoutScreen) -> impl R
             <dl class={(Card, Breakdown)}>
                 <div>
                     <dt>{t.payout_requested_amount()}</dt>
-                    <dd>{money(t, &payout.requested_amount, currency)}</dd>
+                    <dd>{money_display(t, &payout.requested_amount, currency)}</dd>
                 </div>
                 <div>
                     <dt>{t.payout_fee()}</dt>
-                    <dd>{money(t, &payout.fee_amount, currency)}</dd>
+                    <dd>{money_display(t, &payout.fee_amount, currency)}</dd>
                 </div>
                 <div>
                     <dt>{term(t.detail_requested_2())}</dt>
@@ -326,7 +333,7 @@ pub fn MoneyPage<'a>(t: MoneyMsg, p: Pilot, screen: &'a MoneyScreen) -> impl Ren
             <dl class={Figures}>
                 <div class={Figure}>
                     <dt>{t.page_wallet_balance()}</dt>
-                    <dd class={Number}>{money(t, &wallet.available_balance_amount, currency)}</dd>
+                    <dd class={Number}>{money_display(t, &wallet.available_balance_amount, currency)}</dd>
                     <dd class={Muted}>{t.page_pending_balance(&money(t, &wallet.pending_balance_amount, currency))}</dd>
                 </div>
                 <div class={Figure}>
@@ -335,7 +342,7 @@ pub fn MoneyPage<'a>(t: MoneyMsg, p: Pilot, screen: &'a MoneyScreen) -> impl Ren
                         <dd class={Number}>{&incomplete}</dd>
                         <dd class={Muted}>{&incomplete}</dd>
                     } else if let Some(next) = &summary.next_payout {
-                        <dd class={Number}>{money(t, &next.amount, &next.currency_code)}</dd>
+                        <dd class={Number}>{money_display(t, &next.amount, &next.currency_code)}</dd>
                         <dd class={Muted}>{t.page_estimated_by(&date(t, &next.estimated_arrival_at))}</dd>
                     } else {
                         <dd class={Number}>{t.page_none_scheduled()}</dd>
@@ -651,7 +658,7 @@ fn PayoutRow<'a>(t: MoneyMsg, p: Pilot, payout: &'a Payout) -> impl Render {
                     <span class={Strong}>{&payout.display_reference}</span>
                     <span class={Badge} data-tone={tone}>{&status}</span>
                 </p>
-                <p>{t.payout_net_payout()}": "<span class={Number}>{money(t, &payout.net_amount, currency)}</span></p>
+                <p>{t.payout_net_payout()}": "<span class={Number}>{money_display(t, &payout.net_amount, currency)}</span></p>
                 <p class={Muted}>{date_time(t, &payout.updated_at)}</p>
             </div>
             <div class={Row}>
@@ -665,11 +672,11 @@ fn PayoutRow<'a>(t: MoneyMsg, p: Pilot, payout: &'a Payout) -> impl Render {
                 <dl class={Breakdown}>
                     <div>
                         <dt>{t.payout_requested_amount()}</dt>
-                        <dd>{money(t, &payout.requested_amount, currency)}</dd>
+                        <dd>{money_display(t, &payout.requested_amount, currency)}</dd>
                     </div>
                     <div>
                         <dt>{t.payout_fee()}</dt>
-                        <dd>{money(t, &payout.fee_amount, currency)}</dd>
+                        <dd>{money_display(t, &payout.fee_amount, currency)}</dd>
                     </div>
                     <div>
                         <dt>{t.page_requested()}</dt>
@@ -689,7 +696,7 @@ fn PayoutRow<'a>(t: MoneyMsg, p: Pilot, payout: &'a Payout) -> impl Render {
                     }
                     <div class={Total}>
                         <dt>{t.payout_net_payout()}</dt>
-                        <dd>{money(t, &payout.net_amount, currency)}</dd>
+                        <dd>{money_display(t, &payout.net_amount, currency)}</dd>
                     </div>
                 </dl>
                 <div class={Row}>
@@ -718,7 +725,7 @@ fn EntryRow<'a>(t: MoneyMsg, entry: &'a WalletEntry) -> impl Render {
             <div class={Tight}>
                 <p class={Strong}>{&activity}</p>
                 <p class={Row}>
-                    <span class={Number}>{money(t, &entry.amount, &entry.currency_code)}</span>
+                    <span class={Number}>{money_display(t, &entry.amount, &entry.currency_code)}</span>
                     <span class={Badge} data-tone={tone}>{&entry.funds_status}</span>
                 </p>
                 <p class={Muted}>{t.page_posted()}" "{date(t, &entry.posted_at)}</p>
@@ -770,7 +777,7 @@ fn AdjustmentDialog<'a>(t: MoneyMsg, p: Pilot, adjustment: &'a WalletAdjustment)
                 </div>
                 <div>
                     <dt>{t.page_amount()}</dt>
-                    <dd>{money(t, &adjustment.amount, currency)}</dd>
+                    <dd>{money_display(t, &adjustment.amount, currency)}</dd>
                 </div>
                 <div>
                     <dt>{t.page_reason()}</dt>
@@ -783,7 +790,7 @@ fn AdjustmentDialog<'a>(t: MoneyMsg, p: Pilot, adjustment: &'a WalletAdjustment)
                 if let Some(after) = &adjustment.available_balance_after {
                     <div>
                         <dt>{t.page_resulting_balance()}</dt>
-                        <dd>{money(t, after, currency)}</dd>
+                        <dd>{money_display(t, after, currency)}</dd>
                     </div>
                 }
             </dl>

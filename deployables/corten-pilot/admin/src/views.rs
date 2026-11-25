@@ -13,7 +13,7 @@ use crate::{
     app::{Screen, url},
     auth::Viewer,
     form::{ActivateInput, CloneInput, PolicyInput, RetireInput, default_payload},
-    text::{Msg, Pilot},
+    text::{Msg, Pilot, SiteMsg},
 };
 use corten_ui::{Toast, Toaster};
 use platform::{theme, ui::toasts::Toasts};
@@ -50,6 +50,8 @@ pub use status_badge::StatusBadge;
 /// because no area can be at `/`.
 pub const COMPONENTS: &[Component] = &[
     theme::TOKENS,
+    platform::numeric_value::NumericValue,
+    theme::PageCanvas,
     platform::ui::nav_bar::NavBar,
     platform::ui::table::Table,
     platform::ui::stats::Stats,
@@ -197,13 +199,14 @@ fn Frame<'a, H: Render, T: Render, C: Render>(
                     crossorigin
                     href={req.asset(crate::app::Static::FONTS_IBM_PLEX_SANS_LATIN_400_NORMAL_WOFF2)}
                 >
+                <link rel="stylesheet" href={req.asset(crate::app::Static::FONTS_CSS)}>
                 <link rel="stylesheet" href={req.asset(crate::app::Static::STYLE_CSS)}>
                 <title>{title}</title>
                 {head}
                 <Corten />
                 <script type="module" src={req.asset(crate::app::Static::APP_JS)}></script>
             </head>
-            <body>
+            <body class={theme::PageCanvas {}}>
                 if let Some(viewer) = viewer {
                     <AdminNav p={p} req={req} viewer={viewer} />
                 }
@@ -224,9 +227,11 @@ fn Frame<'a, H: Render, T: Render, C: Render>(
 /// read. Under `corten dev` it shows the error; Corten sends it with `X-Robots-Tag: noindex`.
 pub async fn error_page(failure: Failure, req: Req, viewer: Option<Caller<Viewer>>) -> HtmlResult {
     let p: Pilot = req.t();
+    let site: SiteMsg = req.t();
     // Each case is named, so a case Corten adds stops this compiling.
     let (title, text) = match &failure {
-        Failure::NotFound => (p.error_not_found_title(), p.error_not_found()),
+        // admin-web's root error page for a 404, an unknown address or a record the API does not have.
+        Failure::NotFound => (site.root_not_found_title(), site.root_admin_error_description()),
         Failure::Refused { .. } | Failure::CrossSite => (p.error_forbidden_title(), p.error_forbidden()),
         // A read that has not caught up with the write before it (`read_failed`).
         Failure::Failed { status, .. } if *status == StatusCode::SERVICE_UNAVAILABLE => {
@@ -254,6 +259,9 @@ pub async fn error_page(failure: Failure, req: Req, viewer: Option<Caller<Viewer
         <Layout req={&req} viewer={viewer.as_ref()} title={title} head="">
             <h1>{title}</h1>
             <p>{text}</p>
+            if matches!(failure, Failure::NotFound) {
+                <p><a href={crate::site::files::Home}>{site.root_go_to_admin_home()}</a></p>
+            }
             if let Some(detail) = &detail {
                 <pre>{detail}</pre>
             }

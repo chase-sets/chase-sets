@@ -1553,7 +1553,14 @@ async fn an_unknown_address_is_drawn_for_who_is_asking() {
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(get("/commerce/nowhere", Some("staff"))).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
-    assert!(html.contains("There is nothing at this address.") && html.contains("<header"), "with the staff nav: {html}");
+    assert!(
+        html.contains("<h1>Admin page not found</h1>") && html.contains("<header"),
+        "admin-web's heading, with the staff nav: {html}"
+    );
+    assert!(
+        html.contains("The admin surface could not finish loading.") && html.contains(r#"<a href="/">Go to admin home</a>"#),
+        "{html}"
+    );
     let (status, _, html) = pilot.send(get("/commerce/nowhere", None)).await;
     assert_eq!(status, StatusCode::NOT_FOUND, "an unknown address is not a sign-in");
     assert!(!html.contains("<header"), "no one, no nav: {html}");
@@ -8201,6 +8208,10 @@ async fn money_health_shows_its_one_read() {
     let (_, _, html) = pilot.send(get("/commerce/money-health", Some("payouts-viewer"))).await;
     assert!(html.contains("<title>Money Health | Settlement Admin"), "{html}");
     assert!(html.contains("$107.91 available") && html.contains("Pending payout demand: "), "{html}");
+    for amount in ["$0.00", "$107.91", "-$12.50", "$20.00", "$0.25", "$19.75"] {
+        assert!(html.contains(&format!(r#"<span class="numeric-value__amount">{amount}</span>"#)), "{html}");
+    }
+    assert!(html.contains("$107.91 available</p>"), "{html}");
     assert!(html.contains("signature-invalid, unknown-event") && html.contains(">Required<"), "{html}");
     assert!(html.contains(">Unavailable<"), "connected payouts unsupported: {html}");
     assert!(html.contains("acc_neg") && html.contains("-$12.50") && html.contains(">collections<"), "{html}");
@@ -8218,6 +8229,9 @@ async fn payout_operations_forwards_the_filter_and_reads_the_rest_only_to_reconc
     assert!(!html.contains("run-reconciliation") && !html.contains("Recent Provider Attempts"), "{html}");
     assert!(html.contains(r#"aria-current="page""#) && html.contains("Retry queued"), "{html}");
     assert!(html.contains("1 attempt; next "), "{html}");
+    for amount in ["$20.00", "$0.25", "$19.75"] {
+        assert!(html.contains(&format!(r#"<span class="numeric-value__amount">{amount}</span>"#)), "{html}");
+    }
     assert!(html.contains("Older than 20 minutes"), "Settlement's age for a stale request: {html}");
     let failed = html.find("Failed payouts").unwrap();
     assert!(html[failed..].contains(r#">7</span>"#), "Settlement's count, not the rows': {html}");
@@ -8572,6 +8586,14 @@ async fn google_shopping_shows_the_feed_and_inspect_and_close_keep_the_filters()
     );
     assert!(html.contains("<title>Google Shopping | Operations"), "{html}");
     assert!(html.contains("1 of 2 rows eligible; 1 excluded"), "{html}");
+    for (id, elevation) in [("gs-readiness", "tinted"), ("gs-detail", "tinted"), ("gs-filters", "outlined"), ("gs-rows", "flush")]
+    {
+        assert!(
+            html.contains(&format!(r#"surface__{elevation}" aria-labelledby="{id}" data-elevation-role="furniture""#)),
+            "{html}"
+        );
+    }
+    assert!(!html.contains(r#"data-elevation-role="entity""#), "no job, no elevated surface: {html}");
     assert!(html.contains("Missing condition") && html.contains("Unrecognized exclusion reason (brand-new-reason)"), "{html}");
     assert!(html.contains("Box lst_b"), "the first blocked row's detail opens: {html}");
     assert!(
@@ -8626,6 +8648,7 @@ async fn a_google_shopping_dry_run_is_queued_with_the_pages_limit_and_followed()
 
     let (_, _, html) = pilot.send(get("/growth/google-shopping?job=gsj_1&queued=full-sync", Some("shopping-viewer"))).await;
     assert!(html.contains("Full sync dry-run queued as gsj_1.") && html.contains("3 of 23"), "{html}");
+    assert!(html.contains(r#"surface__elevated" aria-labelledby="gs-job" data-elevation-role="entity""#), "{html}");
     assert!(html.contains("/growth/google-shopping/live?job=gsj_1"), "a running job is followed: {html}");
 
     let (status, _, html) = pilot
@@ -12113,6 +12136,10 @@ async fn the_wallet_workbench_shows_the_balance_the_history_with_its_commands_an
     ] {
         assert!(html.contains(text), "{text}: {html}");
     }
+    for amount in ["-$4.50", "$10.00", "$300.00", "$304.50", "$25.00", "$125.00", "$50.00"] {
+        assert!(html.contains(&format!(r#"<span class="numeric-value__amount">{amount}</span>"#)), "{html}");
+    }
+    assert!(!html.contains("<span class=\"numeric-value__amount\">\u{2014}</span>"), "{html}");
     // A requested adjustment that needs an elevated approver asks for one in its Approve dialog;
     // the operator's own request cannot be approved by them.
     assert!(
@@ -12174,6 +12201,9 @@ async fn a_preview_offers_confirm_and_submit_with_its_balance_revision_and_a_req
         r#"aria-current="step""#,
     ] {
         assert!(html.contains(text), "{text}: {html}");
+    }
+    for amount in ["-$4.50", "-$1,004.50"] {
+        assert!(html.contains(&format!(r#"<dd><span class="numeric-value__amount">{amount}</span></dd>"#)), "{html}");
     }
     let (_, _, html) = pilot.send(post_as("wallet-admin", WALLET_PAGE, &form.replace("1000.00", "666"), false)).await;
     assert!(
