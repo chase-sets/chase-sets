@@ -406,10 +406,3 @@ describe("platform operations mutation consistency route actions", () => {
     expect(response.headers.get("Location")).toBe(`${returnTo}&action=response`);
   });
 });
-
-describe("marketplace response removal", () => {
-  afterEach(() => {
-    vi.resetAllMocks();
-    vi.unstubAllGlobals();
-  });
-});

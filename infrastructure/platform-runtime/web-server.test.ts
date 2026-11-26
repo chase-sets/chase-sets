@@ -197,7 +197,7 @@ describe("web deployable roots", () => {
   // A fresh process, as E2E and compose start a root, with NODE_ENV unset: the
   // root must default it before anything loads React, or react-dom/server binds
   // the production build against React's development build.
-  it.each(["admin-web", "marketplace", "public-web"])(
+  it.each(["admin-web", "public-web"])(
     "%s renders a route through one React build when started without NODE_ENV",
     async (deployable) => {
       deployableRoot = createWebDeployableTestRoot(

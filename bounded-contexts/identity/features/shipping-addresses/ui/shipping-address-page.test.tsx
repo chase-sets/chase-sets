@@ -70,8 +70,6 @@ async function openUpdate(index = 1) {
   return { dialog, form: dialog.querySelector("form")! };
 }
 
-describe("Shipping address real data-router occurrences", () => {});
-
 function busy(button: HTMLElement) {
   return { disabled: button.matches(":disabled"), busy: button.getAttribute("aria-busy") };
 }
