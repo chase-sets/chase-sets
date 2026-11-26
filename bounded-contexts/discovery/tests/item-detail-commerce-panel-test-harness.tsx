@@ -9,7 +9,6 @@ import type {
   DiscoveryReferenceRecordRef,
   ProductSchema,
 } from "../support/client-support/contracts";
-import DiscoveryItemDetailRoute from "../routes/item-detail";
 import { EntryAttemptKeyScope } from "../support/ui-support/entry-attempt-key";
 
 export const baseListing: DiscoveryMarketListing = {
@@ -166,19 +165,6 @@ export function renderWithDataRouter(element: ReactElement) {
     {
       path: "/",
       element: <EntryAttemptKeyScope loaderKey={PAGE_VIEW_ENTRY_KEY}>{element}</EntryAttemptKeyScope>,
-      action: async () => ({ status: "ok" }),
-    },
-  ]);
-
-  return render(<RouterProvider router={router} />);
-}
-
-export function renderItemDetailRoute(loaderData: Record<string, unknown>) {
-  const router = createMemoryRouter([
-    {
-      path: "/",
-      element: <DiscoveryItemDetailRoute />,
-      loader: async () => ({ entryAttemptKey: PAGE_VIEW_ENTRY_KEY, ...loaderData }),
       action: async () => ({ status: "ok" }),
     },
   ]);

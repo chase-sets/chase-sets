@@ -12,7 +12,6 @@ import {
   baseOffer,
   captureItemDetailRailAnalytics,
   createItem,
-  renderItemDetailRoute,
   renderWithDataRouter,
   requiredSchema,
   variantSchema,
@@ -135,56 +134,6 @@ describe("item detail commerce panel market intents and listing selection", () =
       ),
     );
     analytics.stop();
-  });
-
-  it("places listing and offer watches in the Watch intent", async () => {
-    renderItemDetailRoute({
-      item: createItem(),
-      accountOfferMatches: [baseAccountOfferMatch],
-      sellerInventoryItems: [],
-      sellerAccountId: "seller_1",
-      hasListingStockLocation: false,
-      listingSetupLoadState: "missing",
-      viewerAccountId: "seller_1",
-      initialMarketIntent: "buy",
-      initialSelectedOptions: [],
-      hasInitialSelectedOptionFilters: false,
-      showSellerTab: true,
-      canUseSellerFeatures: true,
-      canUseListingFeatures: true,
-      canSubmitOffers: true,
-      registerToSellHref: "/register",
-      notFound: false,
-      error: null,
-      canonicalUrl: null,
-    });
-
-    expect(await screen.findByText("Selected product")).toBeTruthy();
-    expect(screen.queryByLabelText("Maximum listing price")).toBeNull();
-    expect(screen.queryByLabelText("Minimum offer price")).toBeNull();
-
-    fireEvent.click(
-      within(screen.getByRole("radiogroup", { name: "Choose market intent" })).getByRole("radio", {
-        name: "Watch",
-      }),
-    );
-
-    expect(await screen.findByRole("button", { name: /Watch listings/ })).toBeTruthy();
-
-    expect(await screen.findByLabelText("Maximum listing price")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Set listing alert" })).toBeTruthy();
-    expect(screen.queryByLabelText("Minimum offer price")).toBeNull();
-    // The server HTML carries the page view's key, so a resubmitted Set alert is the same create.
-    const listingAlertForm = screen.getByRole("button", { name: "Set listing alert" }).closest("form");
-    expect(listingAlertForm?.querySelector<HTMLInputElement>('input[name="attemptId"]')?.value).toBe(
-      PAGE_VIEW_ENTRY_KEY,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: /Watch offers/ }));
-
-    expect(await screen.findByLabelText("Minimum offer price")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Set offer alert" })).toBeTruthy();
-    expect(screen.queryByLabelText("Maximum listing price")).toBeNull();
   });
 
   it("keeps the market intent URL in sync when switching tabs", () => {

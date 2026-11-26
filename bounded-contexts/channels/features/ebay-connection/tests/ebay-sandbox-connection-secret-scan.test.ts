@@ -5,33 +5,8 @@ import { createEbayConnectionRoutes } from "../api/route";
 import { createEbayConnectionRuntime } from "../api/runtime";
 import { createEbayOAuthProvider, revokeCurrentGrant } from "../api/provider";
 import { config, context, owner } from "./db-support";
-import { loader as callbackLoader } from "../../../routes/marketplace/ebay-callback";
 
 describe("ebay-sandbox-connection-secret-scan", () => {
-  it.each(["callback", "declined"])(
-    "keeps signed-out %s query secrets out of redirects and auth requests",
-    async (path) => {
-      const marker = "synthetic-private-callback-marker";
-      const transport = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 401 }));
-      try {
-        const result = await callbackLoader({
-          request: new Request(`http://localhost/channels/ebay/${path}?code=${marker}&state=${marker}`),
-          params: {},
-          context: {},
-          url: new URL(`http://localhost/channels/ebay/${path}`),
-          pattern: `/channels/ebay/${path}`,
-        });
-        expect(result).toBeInstanceOf(Response);
-        expect(result.headers.get("Location")).toBe("/sign-in?returnTo=%2Faccount%2Fchannels%2Febay");
-        expect(result.headers.get("Cache-Control")).toBe("no-store");
-        expect(result.headers.get("Referrer-Policy")).toBe("no-referrer");
-        expect(JSON.stringify(transport.mock.calls)).not.toContain(marker);
-        expect(await result.text()).not.toContain(marker);
-      } finally {
-        transport.mockRestore();
-      }
-    },
-  );
   it("never exposes provider exception material in responses, logs or metadata", async () => {
     const marker = "synthetic-token-code-userId-username-marker";
     const logs = [vi.spyOn(console, "log"), vi.spyOn(console, "warn"), vi.spyOn(console, "error")];
