@@ -51,3 +51,10 @@
   height: 1rem;
   accent-color: var(--color-primary);
 }
+
+/* Below the wide breakpoint, a 44px touch target, as admin-web's controls are; wider, the compact size stays. */
+@media not (--wide) {
+  .small {
+    min-height: var(--control-height-sm);
+  }
+}
