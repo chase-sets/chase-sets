@@ -27,6 +27,21 @@ async function clickUntilDisclosureExpanded(trigger: Locator, expanded: boolean)
     .toBe(expectedValue);
 }
 
+// Opens a daily workbench stage. admin-web draws each stage's trigger as a button; the Corten
+// admin draws the stage as a <details> that opens when its summary is pressed.
+async function openWorkbenchStage(page: Page, name: string, key: string) {
+  if (onCortenAdmin) {
+    const stage = page.locator(`details[data-catalog-import-workflow-stage="${key}"]`);
+    await expect(stage).toHaveCount(1);
+    if ((await stage.getAttribute("open")) === null) {
+      await stage.locator(":scope > summary").click();
+    }
+    await expect(stage).toHaveAttribute("open", /.*/);
+    return;
+  }
+  await page.getByRole("button", { name }).first().click();
+}
+
 type CatalogStreamProbeResult = Readonly<{
   status: number;
   contentType: string;
@@ -774,10 +789,6 @@ test.describe.serial("catalog admin integrations", () => {
   });
 
   test("catalog operator can inspect integration health triage @catalog-admin-integrations", async ({ page }) => {
-    test.skip(
-      onCortenAdmin,
-      "the Corten section nav does not yet mark a nested entry such as Integration health as the current page",
-    );
     test.setTimeout(120_000);
     test.skip(
       skipDeployedAdminE2e,
@@ -859,10 +870,6 @@ test.describe.serial("catalog admin integrations", () => {
   test("catalog operator can inspect job recovery and review reapply/replay controls @catalog-admin-integrations", async ({
     page,
   }) => {
-    test.skip(
-      onCortenAdmin,
-      "the Corten Source Observation review rows do not yet offer Reapply or Replay on a promoted observation (and the Run sync stage is a details summary, not a button)",
-    );
     test.setTimeout(120_000);
     test.skip(
       skipDeployedAdminE2e,
@@ -879,7 +886,7 @@ test.describe.serial("catalog admin integrations", () => {
     // so coverage here is deliberately opportunistic: every assertion is guarded on a
     // matching action button actually rendering for a row. The test never submits a
     // recovery command.
-    await page.getByRole("button", { name: "Run sync" }).first().click();
+    await openWorkbenchStage(page, "Run sync", "run-sync");
     const importJobRows = page.locator("[data-catalog-import-job-row='true']");
     const importJobRowCount = await importJobRows.count();
     for (let index = 0; index < importJobRowCount; index += 1) {
@@ -892,6 +899,19 @@ test.describe.serial("catalog admin integrations", () => {
       ] as const) {
         const actionButton = row.getByRole("button", { name: buttonName });
         if (!(await actionButton.count())) {
+          continue;
+        }
+        if (onCortenAdmin) {
+          // The Corten admin posts a row's recovery from one form to that job's own address,
+          // the command as the pressed button's value.
+          const commandForm = row.locator('form[data-catalog-primary-workbench-command="job"]');
+          await expect(commandForm).toHaveCount(1);
+          await expect(commandForm).toHaveAttribute(
+            "action",
+            new RegExp(`^/catalog/integrations/jobs/${encodeURIComponent(jobId ?? "")}(\\?|$)`),
+          );
+          await expect(actionButton).toHaveAttribute("name", "command");
+          await expect(actionButton).toHaveAttribute("value", intent.slice("job.".length));
           continue;
         }
         const commandForm = row.locator(`form[data-catalog-primary-workbench-command="${intent}"]`);
@@ -908,7 +928,7 @@ test.describe.serial("catalog admin integrations", () => {
     // user-visible convergence boundary: only after the promoted row renders do we
     // inspect the action forms' exact row identity. The test never submits a command.
     await expectPageOk(page, "/catalog/integrations?providerKey=tcgdex&filter.status=promoted");
-    await page.getByRole("button", { name: "Review changes" }).first().click();
+    await openWorkbenchStage(page, "Review changes", "review-changes");
     const reviewTable = page.getByRole("table", { name: "Source Observation review" });
     const promotedRow = reviewTable.getByRole("row").filter({ hasText: "Pikachu" });
     await expect(promotedRow).toContainText("Promoted");
@@ -920,6 +940,13 @@ test.describe.serial("catalog admin integrations", () => {
       const actionButton = promotedRow.getByRole("button", { name: actionName });
       await expect(actionButton).toBeVisible();
       await expect(actionButton).toBeEnabled();
+      if (onCortenAdmin) {
+        // The Corten admin's row buttons submit the review form, the observation as the pressed
+        // button's value under its command's name.
+        await expect(actionButton).toHaveAttribute("name", intent.slice("observation.".length));
+        await expect(actionButton).toHaveAttribute("value", "tcgdex_en_base2_60");
+        continue;
+      }
       const commandForm = actionButton.locator("xpath=ancestor::form");
       await expect(commandForm.locator('input[name="_intent"]')).toHaveValue(intent);
       await expect(commandForm.locator('input[name="selectedObservationIds"]')).toHaveValue("tcgdex_en_base2_60");
