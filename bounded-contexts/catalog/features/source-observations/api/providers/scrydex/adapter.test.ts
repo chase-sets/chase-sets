@@ -5,6 +5,7 @@ import onePieceSetReferenceFixture from "../../__fixtures__/scrydex-one-piece-se
 import lorcanaSetReferenceFixture from "../../__fixtures__/scrydex-lorcana-set-reference/normal.json";
 import {
   createScrydexOnePieceProviderAdapter,
+  runScrydexLorcanaSingleCardSourceObservationImportProofDryRun,
   SCRYDEX_ONE_PIECE_SET_REFERENCE_DATA_UNIT_KEY,
   SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
@@ -316,6 +317,13 @@ describe("Scrydex usage snapshot boundary", () => {
     await first.adapter.planImport(scope);
     expect(first.fetch).toHaveBeenCalledTimes(3);
   });
+});
+
+it("maps the documented Scrydex Lorcana card facts in the offline adapter proof", async () => {
+  const result = await runScrydexLorcanaSingleCardSourceObservationImportProofDryRun();
+
+  expect(result.diagnostics).toEqual([]);
+  expect(result.observations).toMatchObject([{ normalizedFacts: { inkColor: "Amethyst", cardType: "Character" } }]);
 });
 
 describe("accepted set-name coordinates", () => {

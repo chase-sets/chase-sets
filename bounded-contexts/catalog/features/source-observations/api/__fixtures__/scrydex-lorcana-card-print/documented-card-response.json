@@ -1,0 +1,41 @@
+{
+  "data": [
+    {
+      "id": "synthetic-amber-character",
+      "name": "Synthetic Amber Character",
+      "number": "1",
+      "language_code": "EN",
+      "ink_types": ["Amber"],
+      "supertype": "Character",
+      "expansion": { "id": "synthetic-ink-set", "name": "Synthetic Ink Set" }
+    },
+    {
+      "id": "synthetic-dual-ink-character",
+      "name": "Synthetic Dual Ink Character",
+      "number": "2",
+      "language_code": "EN",
+      "ink_types": ["Ruby", "Amber"],
+      "ink_type": "Ruby",
+      "supertype": "Character",
+      "expansion": { "id": "synthetic-ink-set", "name": "Synthetic Ink Set" }
+    },
+    {
+      "id": "synthetic-scalar-ink-item",
+      "name": "Synthetic Scalar Ink Item",
+      "number": "3",
+      "language_code": "EN",
+      "ink_type": "Steel",
+      "supertype": "Item",
+      "expansion": { "id": "synthetic-ink-set", "name": "Synthetic Ink Set" }
+    },
+    {
+      "id": "synthetic-no-ink-action",
+      "name": "Synthetic No Ink Action",
+      "number": "4",
+      "language_code": "EN",
+      "supertype": "Action",
+      "expansion": { "id": "synthetic-ink-set", "name": "Synthetic Ink Set" }
+    }
+  ],
+  "total_pages": 1
+}
