@@ -19,10 +19,20 @@ use crate::{
     text::ShipmentsMsg,
 };
 
+#[derive(Fields)]
+#[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
+struct FormatFields {
+    #[serde(default)]
+    shipment_ids: Vec<String>,
+    format: String,
+}
+
 /// The page.
-#[component(css)]
-pub fn PackingSlipsPage<'a>(t: ShipmentsMsg, screen: &'a SlipsScreen) -> impl Render {
-    let ids: Vec<&str> = screen.slips.iter().map(|s| s.shipment_id.as_str()).collect();
+#[component(css, js)]
+pub fn PackingSlipsPage<'a>(t: ShipmentsMsg, screen: &'a SlipsScreen, shipment_ids: &'a [String]) -> impl Render {
+    let (form, format, sheets) = refs();
+    let fields = FormatFields::FIELDS;
     let action = url::PackingSlips { shipment_ids: &[], format: None };
     html! {
         <div class={Page}>
@@ -33,15 +43,27 @@ pub fn PackingSlipsPage<'a>(t: ShipmentsMsg, screen: &'a SlipsScreen) -> impl Re
                     <p class={Muted}>{t.slip_ready_to_print(screen.slips.len())}</p>
                 </div>
                 <div class={Actions}>
-                    <form class={Chooser} method="get" action={action}>
-                        for id in &ids {
-                            <input type="hidden" name="shipmentIds" value={*id}>
+                    <form
+                        ref={form}
+                        class={Chooser}
+                        method="get"
+                        action={action}
+                        on:submit={js::choose(event, target, format, sheets)}
+                    >
+                        for id in shipment_ids {
+                            <input type="hidden" name={fields.shipment_ids} value={id}>
                         }
                         <label class={Field}>
                             <span class={Label}>{t.slip_format()}</span>
-                            <select name="format">
-                                <option value="letter" selected={screen.format == Format::Letter}>{t.slip_letter()}</option>
-                                <option value="thermal-4x6" selected={screen.format == Format::Thermal}>
+                            <select
+                                ref={format}
+                                name={fields.format}
+                                on:change={js::apply(form)}
+                            >
+                                <option value={Format::Letter.as_str()} selected={screen.format == Format::Letter}>
+                                    {t.slip_letter()}
+                                </option>
+                                <option value={Format::Thermal.as_str()} selected={screen.format == Format::Thermal}>
                                     {t.slip_thermal_4x6()}
                                 </option>
                             </select>
@@ -51,9 +73,9 @@ pub fn PackingSlipsPage<'a>(t: ShipmentsMsg, screen: &'a SlipsScreen) -> impl Re
                     <PrintButton label={t.slip_print()} class={Print} />
                 </div>
             </div>
-            <div class={Sheets} data-format={screen.format.as_str()}>
+            <div ref={sheets} class={Sheets} data-format={screen.format.as_str()}>
                 for slip in &screen.slips {
-                    <Slip t={t} slip={slip} format={screen.format} />
+                    <Slip t={t} slip={slip} />
                 }
             </div>
         </div>
@@ -62,12 +84,11 @@ pub fn PackingSlipsPage<'a>(t: ShipmentsMsg, screen: &'a SlipsScreen) -> impl Re
 
 /// One shipment's slip.
 #[component(css = PackingSlipsPage)]
-fn Slip<'a>(t: ShipmentsMsg, slip: &'a ShipmentDetail, format: Format) -> impl Render {
-    let thermal = format == Format::Thermal;
+fn Slip<'a>(t: ShipmentsMsg, slip: &'a ShipmentDetail) -> impl Render {
     let to = slip.shipping_destination_snapshot.as_ref().map(address_lines).unwrap_or_default();
     let from = slip.shipping_origin_snapshot.as_ref().map(address_lines);
     html! {
-        <article class={(Sheet, (!thermal).then_some(Letter), thermal.then_some(Thermal))} data-packing-slip-page>
+        <article class={Sheet} data-packing-slip-page>
             <header class={SheetHeader}>
                 <div>
                     <h2 class={SheetTitle}>{t.slip_packing_slip()}</h2>

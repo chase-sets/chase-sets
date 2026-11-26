@@ -30,6 +30,9 @@ use crate::{
 /// The feedback section, which the role and page links go to.
 #[derive(Id)]
 pub struct FeedbackId;
+
+#[derive(Id)]
+struct FeedbackRoleId<'a>(&'a str);
 /// The page, which `<corten-live>` replaces with Account unavailable once the account is not active.
 #[derive(Id)]
 pub struct AccountPageId;
@@ -172,11 +175,12 @@ pub fn AccountPage<'a>(t: AccountMsg, p: Pilot, screen: &'a AccountScreen) -> im
                         <Distribution t={t} title={t.page_as_seller()} side={&Side::seller(account)} />
                         <Distribution t={t} title={t.page_as_buyer()} side={&Side::buyer(account)} />
                     </div>
-                    <ul class={Roles}>
+                    <ul class={Roles} data-keep-place>
                         for (role, label) in [(None, t.page_all_roles()), (Some(Role::Seller), t.page_as_seller()), (Some(Role::Buyer), t.page_as_buyer())] {
                             <li>
                                 <a
                                     class={if screen.role == role { Primary } else { Secondary }}
+                                    id={FeedbackRoleId(role.map_or("all", Role::as_str))}
                                     href={&screen.feedback_href(role, 1)}
                                     aria-current={(screen.role == role).then_some("page")}
                                 >

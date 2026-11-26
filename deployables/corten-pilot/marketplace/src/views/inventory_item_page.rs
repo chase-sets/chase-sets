@@ -1,7 +1,7 @@
 //! An inventory item's page (marketplace's `InventoryItemDetailPage`): the header with Create
 //! listing and Back to inventory, what the last write and the last sale did, the item, Record
 //! sale, Adjust Quantity, Create Hold, the hold history (a manual hold's Release) and the stock
-//! ledger with its filter as links.
+//! ledger with its filter as links that switch in place on a plain item read.
 //!
 //! Every action works without JavaScript; each form is a `data-patch` form, so with a script a
 //! refused one is drawn again in place. One column on a phone; from 64rem the writes are a column
@@ -41,6 +41,12 @@ pub struct ReleaseFormId<'a>(pub &'a str);
 /// Record sale's section: a refused sale's patch replaces its form inside.
 #[derive(Id)]
 pub struct ItemSaleId;
+
+#[derive(Id)]
+struct LedgerAll;
+
+#[derive(Id)]
+struct LedgerKind<'a>(&'a str);
 
 /// A hold's purpose (`holdPurposeLabel`).
 fn purpose(t: InventoryMsg, purpose: &str) -> String {
@@ -133,7 +139,7 @@ fn facts(t: InventoryMsg, entry: &LedgerEntry) -> String {
 }
 
 /// The page.
-#[component(css)]
+#[component(css, js)]
 pub fn InventoryItemPage<'a>(
     t: InventoryMsg,
     p: Pilot,
@@ -451,42 +457,62 @@ pub fn ReleaseForm<'a>(
 }
 
 /// The stock ledger: its kinds as links (All movements first), and the movements.
-#[component(css = InventoryItemPage)]
+#[component(css = InventoryItemPage, js = InventoryItemPage)]
 fn Ledger<'a>(t: InventoryMsg, screen: &'a ItemScreen) -> impl Render {
+    let (filter, row, timeline, empty) = refs();
     let id = screen.item.item.item_id.as_str();
     let selected = screen.place.kind();
+    let local = screen.can_filter_ledger_in_place;
     let link = |kind: Option<&str>| url::StockItem { id, place: screen.place.filtered(kind), check: Check::default() };
-    let entries: Vec<&LedgerEntry> = screen.ledger().collect();
+    let visible = move |entry: &LedgerEntry| selected.is_none_or(|kind| entry.kind == kind);
+    let has_matches = screen.item.ledger.iter().any(visible);
     html! {
         <section class={Section} aria-labelledby="item-ledger-title">
             <h2 id="item-ledger-title" class={PartTitle}>{t.item_stock_ledger()}</h2>
-            <nav class={Row} aria-label={t.item_stock_ledger()}>
+            <nav
+                class={Row}
+                aria-label={t.item_stock_ledger()}
+                data-keep-place
+                data-no-prefetch={local}
+                on:click={js::filter(event, filter.closest(), filter, row, timeline, empty, local)}
+            >
                 <a
+                    id={LedgerAll}
                     class={(Button, Secondary, Small)}
                     href={link(None)}
                     aria-current={selected.is_none().then_some("page")}
+                    ref={filter.with("")}
                 >
                     {t.item_all_movements()}
                 </a>
                 for k in screen.kinds() {
                     <a
+                        id={LedgerKind(k)}
                         class={(Button, Secondary, Small)}
                         href={link(Some(k))}
                         aria-current={(selected == Some(k)).then_some("page")}
+                        ref={filter.with(k)}
                     >
                         {kind(t, k)}
                     </a>
                 }
             </nav>
-            if entries.is_empty() {
-                <p class={(Panel, Surface { elevation: Elevation::Tinted })} data-elevation-role="furniture">
-                    {t.item_no_stock_movements()}
-                </p>
-            } else {
-                <ol class={Timeline}>
-                    for entry in entries {
+            <p
+                class={(Panel, Surface { elevation: Elevation::Tinted })}
+                data-elevation-role="furniture"
+                ref={empty}
+                hidden={has_matches}
+            >
+                {t.item_no_stock_movements()}
+            </p>
+            <ol class={Timeline} ref={timeline} hidden={!has_matches}>
+                for entry in &screen.item.ledger {
+                    let shown = visible(entry);
+                    if local || shown {
                         <li
                             class={Step}
+                            ref={row.with(entry.kind.as_str())}
+                            hidden={!shown}
                             data-status={if entry.kind == "hold-expired" || entry.reason == "written-off" { "issue" } else { "complete" }}
                         >
                             <p class={Strong}>{kind(t, &entry.kind)}</p>
@@ -498,8 +524,8 @@ fn Ledger<'a>(t: InventoryMsg, screen: &'a ItemScreen) -> impl Render {
                             }
                         </li>
                     }
-                </ol>
-            }
+                }
+            </ol>
         </section>
     }
 }

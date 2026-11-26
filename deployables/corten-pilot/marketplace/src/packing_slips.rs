@@ -92,6 +92,6 @@ pub(crate) async fn page(
         Err(error) => return read_failed(&req, Some(&viewer), error, None),
     };
     let screen = SlipsScreen { format: Format::read(route.format.as_deref()), slips };
-    let view = html! { <views::PackingSlipsPage t={t} screen={&screen} /> };
+    let view = html! { <views::PackingSlipsPage t={t} screen={&screen} shipment_ids={&ids} /> };
     req.screen(&screen, html! { <Layout req={&req} viewer={Some(&viewer)} title={title} head="">{view}</Layout> })
 }
