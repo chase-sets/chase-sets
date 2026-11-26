@@ -295,14 +295,29 @@ export const browserE2eProductionTarget = "browser-e2e-production";
 // built before the system starts (cargo build -p corten-pilot-marketplace in deployables/corten-pilot);
 // this target does not build it.
 export const browserE2eCortenMarketplaceTarget = "browser-e2e-corten-marketplace";
+// The browser e2e sandbox with admin served by the Corten pilot's admin binary, against the same
+// platform API and seed. As in production, an ingress on the admin port sends /api to the platform API
+// and everything else to the pilot, which listens on its own origin port. The binary is built before the
+// system starts (cargo build -p corten-pilot-admin in deployables/corten-pilot); this target does not
+// build it.
+export const browserE2eCortenAdminTarget = "browser-e2e-corten-admin";
 // A fixed value both the platform API and the pilot read: the pilot has no development default for
 // the internal capability, and the API's default is not visible to a Rust process.
 const browserE2eCortenInternalAuthSecret = "browser-e2e-corten-marketplace-internal-auth";
+const browserE2eCortenTargets = new Set([browserE2eCortenMarketplaceTarget, browserE2eCortenAdminTarget]);
 
 export function cortenMarketplaceBinaryPath(environment = process.env, platform = process.platform) {
   const configured = environment.CORTEN_MARKETPLACE_BINARY?.trim();
   if (configured) return configured;
   const name = platform === "win32" ? "corten-pilot-marketplace.exe" : "corten-pilot-marketplace";
+  const repositoryRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+  return path.join(repositoryRoot, "deployables", "corten-pilot", "target", "debug", name);
+}
+
+export function cortenAdminBinaryPath(environment = process.env, platform = process.platform) {
+  const configured = environment.CORTEN_ADMIN_BINARY?.trim();
+  if (configured) return configured;
+  const name = platform === "win32" ? "corten-pilot-admin.exe" : "corten-pilot-admin";
   const repositoryRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
   return path.join(repositoryRoot, "deployables", "corten-pilot", "target", "debug", name);
 }
@@ -345,16 +360,17 @@ export function resolveBrowserE2eSystemTarget(environment = process.env) {
   if (mode === "corten-marketplace") {
     return browserE2eCortenMarketplaceTarget;
   }
+  if (mode === "corten-admin") {
+    return browserE2eCortenAdminTarget;
+  }
   throw new Error(
-    `CHASE_SETS_BROWSER_E2E_SYSTEM must be "development", "production" or "corten-marketplace"; received "${mode}".`,
+    `CHASE_SETS_BROWSER_E2E_SYSTEM must be "development", "production", "corten-marketplace" or "corten-admin"; received "${mode}".`,
   );
 }
 
 export function isBrowserE2eTarget(targetName) {
   return (
-    targetName === "browser-e2e" ||
-    targetName === browserE2eProductionTarget ||
-    targetName === browserE2eCortenMarketplaceTarget
+    targetName === "browser-e2e" || targetName === browserE2eProductionTarget || browserE2eCortenTargets.has(targetName)
   );
 }
 
@@ -409,7 +425,7 @@ export function applyDevTargetEnvOverrides(
           ...browserE2ePlatformAdminEnv,
           ...browserE2eReadConsistencyEnv,
           ...(targetName === browserE2eProductionTarget ? browserE2eProductionIngressEnv : {}),
-          ...(targetName === browserE2eCortenMarketplaceTarget
+          ...(browserE2eCortenTargets.has(targetName)
             ? { ...browserE2eProductionIngressEnv, PLATFORM_INTERNAL_AUTH_SECRET: browserE2eCortenInternalAuthSecret }
             : {}),
         },
@@ -427,6 +443,29 @@ export function applyDevTargetEnvOverrides(
           ...(logFilePath === undefined ? {} : { LOG_FILE_PATH: logFilePath }),
         },
         ...(productionCommand ?? (ci ? resolveBrowserE2ePlatformWorkerCiCommand(platform) : {})),
+      };
+    }
+
+    if (definition.name === "admin-web" && targetName === browserE2eCortenAdminTarget) {
+      const internalApiOrigin = definition.env.CHASE_SETS_INTERNAL_API_ORIGIN ?? definition.env.PLATFORM_API_URL;
+      if (!internalApiOrigin) throw new Error("admin-web requires PLATFORM_API_URL for the Corten admin.");
+      const originPort = definition.port + browserE2eProductionWebOriginPortOffset;
+      return {
+        name: definition.name,
+        command: cortenAdminBinaryPath(environment, platform),
+        args: [],
+        env: {
+          ...definition.env,
+          CHASE_SETS_INTERNAL_API_ORIGIN: internalApiOrigin,
+          PLATFORM_INTERNAL_AUTH_SECRET: browserE2eCortenInternalAuthSecret,
+          // The admin's own public origin, as staging and production set it: the pilot links to,
+          // signs in at and allows forms to post to the host that serves it.
+          ADMIN_WEB_ORIGIN: `http://localhost:${definition.port}`,
+          HOST: "127.0.0.1",
+          PORT: String(originPort),
+        },
+        port: originPort,
+        publicPort: definition.port,
       };
     }
 

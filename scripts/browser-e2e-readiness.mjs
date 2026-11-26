@@ -10,7 +10,7 @@ import {
   resolveBrowserE2eEvidencePaths,
   writeBrowserE2eReadinessEvidence,
 } from "./browser-e2e-evidence.mjs";
-import { resolveBrowserE2eSystemTarget } from "./dev-system-config.mjs";
+import { browserE2eCortenAdminTarget, resolveBrowserE2eSystemTarget } from "./dev-system-config.mjs";
 import { resolveWorktreeSandbox } from "./lib/sandbox.mjs";
 
 // Playwright permits each web server six hundred seconds to boot. Phase one
@@ -242,12 +242,22 @@ export async function waitForBrowserE2eReadiness({
   );
 }
 
-export function browserE2eComponents(sandbox) {
+// The web host each target boots: the Corten admin target boots admin and no marketplace.
+export function browserE2eComponents(sandbox, target = resolveBrowserE2eSystemTarget()) {
+  const web =
+    target === browserE2eCortenAdminTarget
+      ? { name: "admin-web", url: `${sandbox.urls.adminWeb}/health/ready` }
+      : { name: "marketplace", url: `${sandbox.urls.marketplaceWeb}/health/ready` };
   return [
-    { name: "marketplace", url: `${sandbox.urls.marketplaceWeb}/health/ready` },
+    web,
     { name: "platform-api", url: `${sandbox.urls.platformApi}/health/ready` },
     { name: "platform-worker", url: `${sandbox.urls.platformWorker}/health/ready` },
   ];
+}
+
+function componentNames(sandbox, target) {
+  const names = browserE2eComponents(sandbox, target).map(({ name }) => name);
+  return `${names.slice(0, -1).join(", ")}, and ${names.at(-1)}`;
 }
 
 function selectActiveCheckpointRows(rows, targetContextName) {
@@ -579,7 +589,7 @@ export async function runBrowserE2eReadinessCoordinator({
   await listen(server, sandbox.ports.portal);
   persistEvidence("starting");
   console.log(
-    `[browser-e2e-readiness] Awaiting marketplace, platform-api, and platform-worker at ${sandbox.urls.portal}/health/ready.`,
+    `[browser-e2e-readiness] Awaiting ${componentNames(sandbox, target)} at ${sandbox.urls.portal}/health/ready.`,
   );
 
   const stop = async () => {
@@ -590,7 +600,7 @@ export async function runBrowserE2eReadinessCoordinator({
 
   try {
     await waitForReadiness({
-      components: browserE2eComponents(sandbox),
+      components: browserE2eComponents(sandbox, target),
       timeoutMs: phaseOneTimeoutMs,
       readLifecycleEvidence: () => readJsonIfPresent(evidencePaths.lifecyclePath),
       onObservations: (observations) => {
@@ -605,7 +615,7 @@ export async function runBrowserE2eReadinessCoordinator({
         readSnapshot: projectionSnapshots.read,
         assertLiveness: async () => {
           const [worker] = await Promise.all(
-            browserE2eComponents(sandbox)
+            browserE2eComponents(sandbox, target)
               .filter((component) => component.name === "platform-worker")
               .map((component) => probeComponent(component, fetch, defaultRequestTimeoutMs)),
           );
@@ -636,13 +646,13 @@ export async function runBrowserE2eReadinessCoordinator({
     }
     persistEvidence("ready");
     ready = true;
-    console.log("[browser-e2e-readiness] marketplace, platform-api, and platform-worker are ready.");
+    console.log(`[browser-e2e-readiness] ${componentNames(sandbox, target)} are ready.`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const componentNames =
       error instanceof BrowserE2eReadinessError
         ? error.componentNames
-        : browserE2eComponents(sandbox).map((component) => component.name);
+        : browserE2eComponents(sandbox, target).map((component) => component.name);
     const lifecycleEvidence = readJsonIfPresent(evidencePaths.lifecyclePath);
     const lifecycleReport =
       error instanceof BrowserE2eReadinessError && error.includesLifecycleEvidence

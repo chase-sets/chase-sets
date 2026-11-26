@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { expectAdminWebHydrated, platformAdminAccount, skipDeployedAdminE2e } from "./support/admin-e2e";
+import { expectAdminWebHydrated, platformAdminAccount, skipDeployedAdminE2e, onCortenAdmin } from "./support/admin-e2e";
 
 const pageReadyTimeoutMs = 90_000;
 const adminSectionNames = ["Access", "Catalog", "Commerce", "Growth", "Support", "Platform"] as const;
@@ -23,6 +23,10 @@ test.describe("admin auth shell and session", () => {
   }
 
   test("operator sees mobile shell navigation and account actions after sign-in @admin-auth", async ({ page }) => {
+    test.skip(
+      onCortenAdmin,
+      "the Corten admin has no phone bottom navigation, tablet section bar, Sections control or current-section trail yet",
+    );
     test.setTimeout(150_000);
     test.skip(
       skipDeployedAdminE2e,
@@ -164,11 +168,13 @@ async function isAuthenticatedAdminShellVisible(page: Page) {
     return false;
   }
 
+  // admin-web marks <html data-admin-web-hydrated="true"> once React has hydrated; the Corten admin
+  // (a page carrying Corten's `corten-shell` meta) is ready once parsed.
   return page
-    .locator("html")
-    .getAttribute("data-admin-web-hydrated", { timeout: 1_000 })
-    .then(
-      (value) => value === "true",
-      () => false,
-    );
+    .evaluate(
+      () =>
+        document.documentElement.dataset.adminWebHydrated === "true" ||
+        (document.readyState !== "loading" && document.querySelector('meta[name="corten-shell"]') !== null),
+    )
+    .catch(() => false);
 }

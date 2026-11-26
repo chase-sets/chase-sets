@@ -4,11 +4,16 @@ import {
   expectAdminPageReady,
   expectPageOk,
   skipDeployedAdminE2e,
+  onCortenAdmin,
 } from "./support/admin-e2e";
 import { logSeedContractGap } from "./support/seed-contract-gap";
 
 test.describe("growth admin google shopping and waitlist", () => {
   test("operator reviews Google Shopping gates and waitlist export @admin-growth", async ({ page }) => {
+    test.skip(
+      onCortenAdmin,
+      "the Corten admin serves the waitlist CSV from its own /growth/waitlist/export, not the public-presence API address",
+    );
     test.setTimeout(120_000);
     test.skip(
       skipDeployedAdminE2e,

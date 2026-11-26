@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import http from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  browserE2eComponents,
   evaluateProjectionReadiness,
   primeBrowserE2eProjectionWakeRelayCursors,
   resolveBrowserE2ePhaseOneTimeoutMs,
@@ -91,6 +92,31 @@ describe("browser e2e readiness", () => {
 
     expect(now).toBe(180_000);
     expect(observations).toEqual([expect.objectContaining({ name: "platform-worker", ready: true })]);
+  });
+
+  it("waits on the web host each target boots: admin for the Corten admin, else the marketplace", () => {
+    const sandbox = {
+      urls: {
+        adminWeb: "http://localhost:6172",
+        marketplaceWeb: "http://localhost:6173",
+        platformApi: "http://localhost:6182",
+        platformWorker: "http://localhost:6183",
+      },
+    };
+    const rest = [
+      { name: "platform-api", url: "http://localhost:6182/health/ready" },
+      { name: "platform-worker", url: "http://localhost:6183/health/ready" },
+    ];
+    expect(browserE2eComponents(sandbox, "browser-e2e-corten-admin")).toEqual([
+      { name: "admin-web", url: "http://localhost:6172/health/ready" },
+      ...rest,
+    ]);
+    for (const target of ["browser-e2e", "browser-e2e-production", "browser-e2e-corten-marketplace"]) {
+      expect(browserE2eComponents(sandbox, target)).toEqual([
+        { name: "marketplace", url: "http://localhost:6173/health/ready" },
+        ...rest,
+      ]);
+    }
   });
 
   it("allows the phase-one budget to be configured", () => {
