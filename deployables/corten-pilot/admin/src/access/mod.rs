@@ -91,6 +91,13 @@ pub mod url {
     pub struct AccountHub<'a> {
         pub id: &'a str,
         pub tab: Option<&'a str>,
+        /// The record the address was opened for (admin-web's `user`, `membership`,
+        /// `invitation` and `apiKey`), which the workspace's links and redirects carry.
+        pub user: Option<&'a str>,
+        pub membership: Option<&'a str>,
+        pub invitation: Option<&'a str>,
+        #[serde(rename = "apiKey")]
+        pub api_key: Option<&'a str>,
         #[serde(rename = "afterWrite")]
         pub after_write: Option<String>,
     }

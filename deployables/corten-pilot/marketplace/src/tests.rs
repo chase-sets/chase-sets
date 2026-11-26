@@ -6707,6 +6707,10 @@ async fn search_sends_its_terms_and_draws_results_filters_and_load_more() {
     }
     assert!(!read.contains_key("priceMax"), "a price with a leading zero is no price: {read:?}");
     assert_eq!(html.matches(r#"<li id="result-"#).count(), 24);
+    assert_eq!(
+        html.matches(r#"class="search-page__no-image"><svg class="icon__icon" viewBox="0 0 24 24" aria-hidden="true""#).count(),
+        24
+    );
     assert!(html.contains("Showing 24 of 30 results in All Categories"), "{html}");
     // A result links to its item with the dimension filter, Buy first when it has listings.
     assert!(html.contains(r#"href="/items/card-1?dimension.dim_grade=chc_10""#), "{html}");
@@ -6722,11 +6726,12 @@ async fn search_sends_its_terms_and_draws_results_filters_and_load_more() {
     assert!(html.contains(r#"<input class="input__input" type="search" name="q" form="search-form" value="pika""#), "{html}");
     // The words box is the kit's input group, the design system's search glyph inside its border
     // and hidden from a screen reader, which reads the label's words.
-    let words = &html[html.find(r#"<label class="input-group__input-group">"#).expect("the words box's group")..];
+    let words =
+        &html[html.find(r#"<label class="input-group__input-group search-box__field">"#).expect("the words box's group")..];
     let words = &words[..words.find("</label>").unwrap()];
     assert!(
         words.starts_with(
-            r#"<label class="input-group__input-group"><span class="input-group__adornment" aria-hidden="true"><svg"#
+            r#"<label class="input-group__input-group search-box__field"><span class="input-group__adornment" aria-hidden="true"><svg"#
         ),
         "{words}"
     );
@@ -6988,6 +6993,10 @@ async fn the_home_page_shows_the_featured_categories_and_the_newest_items_until_
     assert!(html.contains(">New arrivals</h2>"), "{html}");
     assert!(html.contains(r#"href="/search?sort=newest">Browse all new arrivals</a>"#), "{html}");
     assert_eq!(html.matches(">View item</a>").count(), 3, "{html}");
+    assert_eq!(
+        html.matches(r#"class="search-page__no-image"><svg class="icon__icon" viewBox="0 0 24 24" aria-hidden="true""#).count(),
+        3
+    );
     assert!(html.contains(r#"href="/items/card-1">View item</a>"#), "{html}");
     // The shelf is in place of the results, and the address it stands for is the search's.
     assert!(!html.contains(r#"<li id="result-"#), "{html}");

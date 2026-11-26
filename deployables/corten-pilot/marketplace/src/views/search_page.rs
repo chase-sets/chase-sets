@@ -6,8 +6,8 @@
 use corten::prelude::*;
 use platform::{
     numeric_value::MoneyDisplay,
-    search::SearchGlyph,
-    ui::{input::Input, input_group::InputGroup, visually_hidden::VisuallyHidden},
+    search::{SearchBox, SearchGlyph},
+    ui::{input::Input, visually_hidden::VisuallyHidden},
 };
 
 use super::{
@@ -350,7 +350,7 @@ fn WordsBox<'a>(t: SearchMsg, terms: &'a Terms, placeholder: &'a str) -> impl Re
     let f = TermsQuery::FIELDS;
     html! {
         <search class={Words}>
-            <label class={InputGroup {}}>
+            <label class={SearchBox {}}>
                 <SearchGlyph />
                 <input
                     class={Input {}}
@@ -845,7 +845,7 @@ fn ItemCard<'a>(t: SearchMsg, item: &'a SearchItem, index: usize, action: &'a st
                             alt=""
                         >
                     }
-                    None => { <span class={NoImage}></span> }
+                    None => { <MissingCardArt /> }
                 }
             </a>
             <div class={CardBody}>
@@ -1017,7 +1017,7 @@ pub fn ResultCard<'a>(
                             alt=""
                         >
                     }
-                    None => { <span class={NoImage}></span> }
+                    None => { <MissingCardArt /> }
                 }
             </a>
             <div class={CardBody}>
@@ -1042,6 +1042,13 @@ pub fn ResultCard<'a>(
                 <ResultMarket t={t} i={i} item={item} terms={terms} from={from} />
             </div>
         </li>
+    }
+}
+
+#[component(css = SearchPage)]
+fn MissingCardArt() -> impl Render {
+    html! {
+        <span class={NoImage}><platform::ui::icon::Icon glyph={platform::glyphs::IMAGE} /></span>
     }
 }
 

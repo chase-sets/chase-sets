@@ -16,14 +16,6 @@
   font: 600 1.125rem/1 var(--font-display);
   text-decoration: none;
 }
-.tag {
-  padding: 0.125rem 0.5rem;
-  border-radius: var(--radius-full);
-  background: var(--color-primary-soft);
-  color: var(--color-primary);
-  font-size: 0.75rem;
-  font-weight: 600;
-}
 .items {
   display: flex;
   flex-wrap: wrap;

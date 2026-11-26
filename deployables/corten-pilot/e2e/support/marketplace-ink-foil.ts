@@ -72,6 +72,9 @@ async function expectHero(page: Page, cdp: CDPSession, main: Locator) {
 
   for (const theme of themes) {
     await page.emulateMedia({ colorScheme: theme.mode, forcedColors: "none" });
+    const field = main.getByRole("searchbox", { name: "Marketplace search" });
+    await expect(field).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await expect(field.locator("..")).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
     const expectedGradient = await page.evaluate((value) => {
       const sample = document.createElement("span");
       Object.assign(sample.style, { backgroundImage: value, position: "absolute", visibility: "hidden" });

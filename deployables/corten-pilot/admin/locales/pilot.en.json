@@ -5,8 +5,7 @@
     "admin": "Chase Sets Admin",
     "navigation": "Admin sections",
     "section_navigation": "{section} pages",
-    "skip": "Skip to content",
-    "pilot": "Corten pilot"
+    "skip": "Skip to main content"
   },
   "section": {
     "access": "Access",
