@@ -4208,7 +4208,7 @@ export const helpArticles = [
           "Every listing is created from an inventory item that references one Chase Sets catalog entry, and there is no free-text listing path.",
         issues: ["#5693"],
         tests: [
-          "bounded-contexts/inventory/tests/account-inventory-routes.test.ts",
+          "bounded-contexts/inventory/features/inventory-items/api/route.test.ts",
           "bounded-contexts/marketplace/features/listings/api/runtime.test.ts",
         ],
       },

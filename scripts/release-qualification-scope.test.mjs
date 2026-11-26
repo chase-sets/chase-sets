@@ -1027,10 +1027,11 @@ describe("caller inventory (seed/bootstrap/import/reconciliation) — issue #583
     );
     expect({ discovered: discovered.length, persistentCount, ruledCount }).toEqual({
       // The Corten marketplace's browser specs carry their own copy of the e2e seed contract, which the
-      // reviewed deployables/*/e2e/ ruling covers like marketplace-web's.
-      discovered: 174,
-      persistentCount: 167,
-      ruledCount: 7,
+      // reviewed deployables/*/e2e/ ruling covers. marketplace-web's copy and its channel connection
+      // browser seed left with that deployable.
+      discovered: 171,
+      persistentCount: 166,
+      ruledCount: 5,
     });
   });
 

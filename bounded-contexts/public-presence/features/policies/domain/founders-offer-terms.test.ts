@@ -709,7 +709,7 @@ describe("founders clause-level source authority", () => {
         /method: "POST"/,
       ],
       [
-        "bounded-contexts/marketplace/features/listings/api/route.ts:1601-1633",
+        "bounded-contexts/marketplace/features/listings/api/route.ts:1602-1634",
         /"\/listings\/prices\/bulk"/,
         /const batch = parseBulkListingPriceUpdates\(body, c\.req\.header\("Idempotency-Key"\)\)/,
         /services.applyBulkListingPriceUpdates/,

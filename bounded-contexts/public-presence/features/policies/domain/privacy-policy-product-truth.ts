@@ -162,7 +162,139 @@ function cookieBinding(
 }
 
 /**
- * The complete binding set for the facts the current-source inventory derives.
+ * Consumer facts the Corten marketplace now serves. The code-shape inventory
+ * reads Git-tracked TypeScript reachable from a TypeScript route, and
+ * marketplace-web's routes are metadata only, so it no longer derives these.
+ * This list is their whole authority, keyed by fact id: a binding listed here
+ * must cite exactly these refs, and each ref's cited lines must still carry its
+ * token, so a ref to a file that no longer carries the behaviour fails. Every
+ * required disclosure token must also appear in the cited lines (route
+ * parameters compare by position: `:paymentId` and `{id}` are the same), so a
+ * disclosure requirement still cannot assert what the source does not say.
+ * If the inventory derives one of these facts again, the binding must move
+ * back to derived evidence.
+ */
+export type PrivacyPilotEvidence = Readonly<{ ref: string; token: string }>;
+
+export type PrivacyPilotEvidencedFact = Readonly<{
+  factId: string;
+  reason: string;
+  followUp?: string;
+  evidence: readonly PrivacyPilotEvidence[];
+}>;
+
+const pilotMarketplace = "deployables/corten-pilot/marketplace/src";
+const stripeLoaderUrl: PrivacyPilotEvidence = {
+  ref: `${pilotMarketplace}/views/stripe.js:8`,
+  token: "https://js.stripe.com/endive/stripe.js",
+};
+const stripeCspOrigin: PrivacyPilotEvidence = {
+  ref: `${pilotMarketplace}/app.rs:1887`,
+  token: 'STRIPE_JS: &str = "https://js.stripe.com"',
+};
+const connectLoaderUrl: PrivacyPilotEvidence = {
+  ref: `${pilotMarketplace}/views/stripe.js:10`,
+  token: "https://connect-js.stripe.com/v1.0/connect.js",
+};
+const connectScriptAdded: PrivacyPilotEvidence = {
+  ref: `${pilotMarketplace}/views/connect_surface.js:24`,
+  token: "script.src = connectScriptUrl()",
+};
+const connectCspOrigin: PrivacyPilotEvidence = {
+  ref: `${pilotMarketplace}/app.rs:1914`,
+  token: 'CONNECT_JS: &str = "https://connect-js.stripe.com"',
+};
+const payoutSetupRoute: PrivacyPilotEvidence = {
+  ref: `${pilotMarketplace}/app.rs:1132`,
+  token: '"/account/desk/settings"',
+};
+const payoutSetupArea: PrivacyPilotEvidence = {
+  ref: `${pilotMarketplace}/app.rs:2063-2065`,
+  token: "stripe_connect(p)",
+};
+
+export const privacyPilotEvidencedFacts: readonly PrivacyPilotEvidencedFact[] = [
+  {
+    factId: "provider-loader-stripe-js-confirmation-card",
+    reason: "The Corten marketplace's payment step loads Stripe.js on the account and guest payment pages.",
+    evidence: [
+      { ref: `${pilotMarketplace}/views/payment_entry.js:135`, token: "await loadStripe()" },
+      stripeLoaderUrl,
+      { ref: `${pilotMarketplace}/app.rs:1185`, token: '"/account/payments/{id}"' },
+      { ref: `${pilotMarketplace}/app.rs:1216`, token: '"/checkout/payments/{id}"' },
+      { ref: `${pilotMarketplace}/app.rs:2069`, token: "views::PAYMENT).policy(stripe)" },
+      { ref: `${pilotMarketplace}/app.rs:2070`, token: "views::GUEST_PAYMENT).policy(stripe)" },
+      stripeCspOrigin,
+    ],
+  },
+  {
+    factId: "provider-loader-stripe-js-setup-card",
+    reason: "The Corten marketplace's Add payment method step loads Stripe.js on the saved payment methods page.",
+    evidence: [
+      { ref: `${pilotMarketplace}/views/payment_setup.js:84`, token: "await loadStripe()" },
+      stripeLoaderUrl,
+      { ref: `${pilotMarketplace}/app.rs:1262`, token: '"/account/payment-methods"' },
+      { ref: `${pilotMarketplace}/app.rs:2072`, token: "views::PAYMENT_METHODS).policy(stripe)" },
+      stripeCspOrigin,
+    ],
+  },
+  {
+    factId: "provider-loader-stripe-js-deferred-payment",
+    reason: "The Corten marketplace's checkout page loads Stripe.js to confirm a new card on Pay now.",
+    evidence: [
+      { ref: `${pilotMarketplace}/views/checkout_page.js:140`, token: "await loadStripe()" },
+      stripeLoaderUrl,
+      { ref: `${pilotMarketplace}/app.rs:1739`, token: '"/checkout/buy/session/{id}"' },
+      { ref: `${pilotMarketplace}/app.rs:2008`, token: "views::CHECKOUT).policy(stripe)" },
+      stripeCspOrigin,
+    ],
+  },
+  {
+    factId: "provider-loader-connect-js-payout-setup-page",
+    reason: "The Corten marketplace's payout setup page mounts Stripe's Connect onboarding component.",
+    evidence: [
+      { ref: `${pilotMarketplace}/views/connect_surface.js:70`, token: 'return "account-onboarding"' },
+      connectScriptAdded,
+      connectLoaderUrl,
+      payoutSetupRoute,
+      payoutSetupArea,
+      connectCspOrigin,
+    ],
+  },
+  {
+    factId: "provider-loader-connect-js-notification-banner",
+    reason: "The Corten marketplace's payout setup page mounts Stripe's Connect notification banner.",
+    evidence: [
+      { ref: `${pilotMarketplace}/views/connect_surface.js:69`, token: 'return "notification-banner"' },
+      connectScriptAdded,
+      connectLoaderUrl,
+      payoutSetupRoute,
+      payoutSetupArea,
+      connectCspOrigin,
+    ],
+  },
+  {
+    factId: "cache-storage-marketplace-pwa",
+    reason: "The Corten marketplace registers Corten's service worker, which leaves the private paths to the network.",
+    followUp: "https://github.com/chase-sets/chase-sets/issues/12095",
+    evidence: [
+      { ref: `${pilotMarketplace}/app.rs:56`, token: "/service-worker.js" },
+      { ref: `${pilotMarketplace}/app.rs:1938-1949`, token: "const NETWORK_ONLY" },
+      { ref: `${pilotMarketplace}/app.rs:1954`, token: "fn pwa() -> corten::pwa::Pwa" },
+      { ref: `${pilotMarketplace}/app.rs:1986`, token: ".pwa(pwa())" },
+    ],
+  },
+];
+
+function pilotEvidenceRefs(factId: string): readonly string[] {
+  const fact = privacyPilotEvidencedFacts.find((entry) => entry.factId === factId);
+  if (fact === undefined) throw new Error(`no pilot-evidenced fact '${factId}'`);
+  return [...new Set(fact.evidence.map((entry) => entry.ref))].sort();
+}
+
+/**
+ * The complete binding set: the facts the current-source inventory derives,
+ * plus the pilot-evidenced facts above.
  * Evidence refs are the exact code-shape-derived ranges the collector
  * resolved; an adjacent-but-resolving range is a stale-evidence violation, not
  * a near miss.
@@ -375,106 +507,63 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
   {
     factId: "provider-loader-stripe-js-confirmation-card",
     classification: { noticeBoundary: "consumer-notice", factFamily: "provider-injected-client-storage" },
-    inventorySubject:
-      "@stripe/stripe-js@bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx",
-    evidenceRefs: [
-      "bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx:152",
-      "bounded-contexts/payments/package.json:42",
-      "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:7",
-      "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:9",
-      "deployables/marketplace/package.json:35",
-    ],
+    inventorySubject: "stripe.js@deployables/corten-pilot/marketplace/src/views/payment_entry.js",
+    evidenceRefs: pilotEvidenceRefs("provider-loader-stripe-js-confirmation-card"),
     factualSummary:
-      "The payment confirmation card calls the Stripe.js loader, so Stripe's own browser script loads on /checkout/buy/session/:sessionId, /account/payments/:paymentId, and /checkout/payments/:paymentId. Payments and the Marketplace deployable declare @stripe/stripe-js@10.3.0, and the committed embedded-component CSP permits https://js.stripe.com for scripts and frames. Source entails only that the provider script loads on those surfaces and may use provider-controlled client-side storage.",
+      "The Corten marketplace's payment step (payment_entry.js) calls the pilot's Stripe.js loader, which loads Stripe's own browser script from https://js.stripe.com, on /account/payments/:paymentId and /checkout/payments/:paymentId. Both pages' areas carry the Stripe content-security policy, which permits https://js.stripe.com for scripts and frames. Source entails only that the provider script loads on those surfaces and may use provider-controlled client-side storage.",
     disclosures: [
       {
         sectionId: cookiesSection,
-        requiredTokens: [
-          "/checkout/buy/session/:sessionId",
-          "/account/payments/:paymentId",
-          "/checkout/payments/:paymentId",
-        ],
+        requiredTokens: ["/account/payments/:paymentId", "/checkout/payments/:paymentId"],
       },
     ],
   },
   {
     factId: "provider-loader-stripe-js-setup-card",
     classification: { noticeBoundary: "consumer-notice", factFamily: "provider-injected-client-storage" },
-    inventorySubject:
-      "@stripe/stripe-js@bounded-contexts/payments/features/payments/ui/account-payment/stripe-setup-card.tsx",
-    evidenceRefs: [
-      "bounded-contexts/payments/features/payments/ui/account-payment/stripe-setup-card.tsx:39",
-      "bounded-contexts/payments/package.json:42",
-      "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:7",
-      "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:9",
-      "deployables/marketplace/package.json:35",
-    ],
+    inventorySubject: "stripe.js@deployables/corten-pilot/marketplace/src/views/payment_setup.js",
+    evidenceRefs: pilotEvidenceRefs("provider-loader-stripe-js-setup-card"),
     factualSummary:
-      "The payment-method setup card calls the Stripe.js loader, so Stripe's own browser script loads on /account/payment-methods. Payments and the Marketplace deployable declare @stripe/stripe-js@10.3.0, and the committed embedded-component CSP permits https://js.stripe.com for scripts and frames. Source entails only that the provider script loads on that surface and may use provider-controlled client-side storage.",
+      "The Corten marketplace's Add payment method step (payment_setup.js) calls the pilot's Stripe.js loader, which loads Stripe's own browser script from https://js.stripe.com, on /account/payment-methods. The page's area carries the Stripe content-security policy, which permits https://js.stripe.com for scripts and frames. Source entails only that the provider script loads on that surface and may use provider-controlled client-side storage.",
     disclosures: [{ sectionId: cookiesSection, requiredTokens: ["/account/payment-methods"] }],
   },
   {
     factId: "provider-loader-stripe-js-deferred-payment",
     classification: { noticeBoundary: "consumer-notice", factFamily: "provider-injected-client-storage" },
-    inventorySubject:
-      "@stripe/stripe-js@bounded-contexts/payments/features/payments/ui/account-payment/use-deferred-stripe-payment.tsx",
-    evidenceRefs: [
-      "bounded-contexts/payments/features/payments/ui/account-payment/use-deferred-stripe-payment.tsx:46",
-      "bounded-contexts/payments/package.json:42",
-      "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:7",
-      "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:9",
-      "deployables/marketplace/package.json:35",
-    ],
+    inventorySubject: "stripe.js@deployables/corten-pilot/marketplace/src/views/checkout_page.js",
+    evidenceRefs: pilotEvidenceRefs("provider-loader-stripe-js-deferred-payment"),
     factualSummary:
-      "Deferred payment confirmation calls the Stripe.js loader on /checkout/buy/session/:sessionId. Payments and the Marketplace deployable declare @stripe/stripe-js@10.3.0, and the committed embedded-component CSP permits https://js.stripe.com for scripts and frames. The script may use provider-controlled client-side storage.",
+      "The Corten marketplace's checkout page (checkout_page.js) takes a new card and confirms it on Pay now, calling the pilot's Stripe.js loader on /checkout/buy/session/:sessionId. The page's area carries the Stripe content-security policy, which permits https://js.stripe.com for scripts and frames. The script may use provider-controlled client-side storage.",
     disclosures: [{ sectionId: cookiesSection, requiredTokens: ["/checkout/buy/session/:sessionId"] }],
   },
   {
     factId: "provider-loader-connect-js-payout-setup-page",
     classification: { noticeBoundary: "consumer-notice", factFamily: "provider-injected-client-storage" },
-    inventorySubject:
-      "@stripe/connect-js@bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.tsx",
-    evidenceRefs: [
-      "bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.tsx:57-61",
-      "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:7",
-      "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:9",
-      "bounded-contexts/settlement/package.json:46",
-    ],
+    inventorySubject: "connect.js@deployables/corten-pilot/marketplace/src/views/connect_surface.js#account-onboarding",
+    evidenceRefs: pilotEvidenceRefs("provider-loader-connect-js-payout-setup-page"),
     factualSummary:
-      "The payout setup page calls the Stripe Connect.js loader, so Stripe's own embedded-component browser script loads on /account/desk/settings. Settlement declares @stripe/connect-js@3.4.5, and the committed embedded-component CSP permits https://connect-js.stripe.com and https://js.stripe.com for scripts and frames. Source entails only that the provider script loads on that surface and may use provider-controlled client-side storage.",
+      "The Corten marketplace's payout setup page mounts Stripe's Connect onboarding component (connect_surface.js), which adds Stripe's Connect.js script from https://connect-js.stripe.com, on /account/desk/settings. The page's area carries the Connect content-security policy, which permits https://connect-js.stripe.com and https://js.stripe.com for scripts and frames. Source entails only that the provider script loads on that surface and may use provider-controlled client-side storage.",
     disclosures: [{ sectionId: cookiesSection, requiredTokens: ["/account/desk/settings"] }],
   },
   {
     factId: "provider-loader-connect-js-notification-banner",
     classification: { noticeBoundary: "consumer-notice", factFamily: "provider-injected-client-storage" },
     inventorySubject:
-      "@stripe/connect-js@bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-notification-banner.tsx",
-    evidenceRefs: [
-      "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:7",
-      "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:9",
-      "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-notification-banner.tsx:69-80",
-      "bounded-contexts/settlement/package.json:46",
-    ],
+      "connect.js@deployables/corten-pilot/marketplace/src/views/connect_surface.js#notification-banner",
+    evidenceRefs: pilotEvidenceRefs("provider-loader-connect-js-notification-banner"),
     factualSummary:
-      "The Stripe Connect notification banner calls the Stripe Connect.js loader, so Stripe's own embedded-component browser script loads on /account/desk/settings. Settlement declares @stripe/connect-js@3.4.5, and the committed embedded-component CSP permits https://connect-js.stripe.com and https://js.stripe.com for scripts and frames. Source entails only that the provider script loads on that surface and may use provider-controlled client-side storage.",
+      "The Corten marketplace's payout setup page also mounts Stripe's Connect notification banner (connect_surface.js), through the same Connect.js script from https://connect-js.stripe.com, on /account/desk/settings, under the same Connect content-security policy. Source entails only that the provider script loads on that surface and may use provider-controlled client-side storage.",
     disclosures: [{ sectionId: cookiesSection, requiredTokens: ["/account/desk/settings"] }],
   },
 
   {
     factId: "cache-storage-marketplace-pwa",
     classification: { noticeBoundary: "consumer-notice", factFamily: "cache-storage" },
-    inventorySubject: "chase-sets-marketplace-pwa-v1",
-    evidenceRefs: [
-      "deployables/marketplace/app/pwa/service-worker-source.ts:34",
-      "deployables/marketplace/app/pwa/service-worker-source.ts:8-24",
-      "deployables/marketplace/app/root.tsx:111",
-      "deployables/marketplace/app/routes/service-worker.ts:4",
-    ],
+    inventorySubject: "corten-pwa@deployables/corten-pilot/marketplace",
+    evidenceRefs: pilotEvidenceRefs("cache-storage-marketplace-pwa"),
     factualSummary:
-      "The Marketplace deployable declares a typed service-worker policy whose CacheStorage cache is named chase-sets-marketplace-pwa-v1. The Marketplace root registers the worker, the worker is served from /service-worker.js, and registration happens only in production builds. The policy sets credentialedRequestHandling to skip and excludes the exact paths /guest-checkout/exit, /sign-in, /sign-out, and /register plus the path prefixes /api/, /account, /checkout, /payment, /payments, and /orders. These are technical facts about which responses the browser cache holds, not a legal classification.",
-    disclosures: [
-      { sectionId: cookiesSection, requiredTokens: ["chase-sets-marketplace-pwa-v1", "/service-worker.js"] },
-    ],
+      "The Corten marketplace registers Corten's service worker through the pilot's pwa(), served from /service-worker.js: pages come from the network, with an offline page when there is none, and static files from the worker's cache. The pilot leaves /guest-checkout/exit, /sign-in, /sign-out, /register, /api/, /account, /checkout, /payment, /payments and /orders to the network. Corten names that cache from its own version, not chase-sets-marketplace-pwa-v1 as the operative copy still says; the entry's follow-up issue carries that wording to Todd. These are technical facts about which responses the browser cache holds, not a legal classification.",
+    disclosures: [{ sectionId: cookiesSection, requiredTokens: ["/service-worker.js", "/guest-checkout/exit"] }],
   },
   {
     factId: "cache-storage-admin-pwa",
@@ -658,16 +747,72 @@ function textDisclosesToken(text: string, token: string): boolean {
  * The one binding-integrity evaluation. Returns a stable, sorted violation
  * list; an empty list is the only passing result.
  */
+export type PrivacyCitedSourceReader = (ref: string) => Readonly<{ text?: string; error?: string }>;
+
+/** Route parameters compare by position, so a policy's `:paymentId` matches
+ *  the pilot's `{id}`; everything else compares literally. */
+function canonicalRouteParameters(value: string): string {
+  return value.replace(/:[A-Za-z_][A-Za-z0-9_]*/g, "{}").replace(/\{[A-Za-z_][A-Za-z0-9_]*\}/g, "{}");
+}
+
+/** Checks one pilot-evidenced binding against its list entry and returns the
+ *  cited lines it read, which are the only source its disclosure tokens may
+ *  be drawn from. */
+function evaluatePilotEvidence(
+  binding: PrivacyProductTruthBinding,
+  pilot: PrivacyPilotEvidencedFact,
+  readCitedSource: PrivacyCitedSourceReader | undefined,
+  violations: string[],
+): readonly string[] | undefined {
+  const { factId } = binding;
+  if (pilot.reason.trim().length === 0) violations.push(`pilot-evidenced fact '${factId}' gives no reason.`);
+  if (pilot.evidence.length === 0) violations.push(`pilot-evidenced fact '${factId}' cites no evidence.`);
+  const listedRefs = [...new Set(pilot.evidence.map((entry) => entry.ref))].sort();
+  const bindingRefs = [...binding.evidenceRefs].sort();
+  if (bindingRefs.length !== listedRefs.length || bindingRefs.some((ref, at) => ref !== listedRefs[at])) {
+    violations.push(
+      `stale evidence on binding '${factId}': cited [${bindingRefs.join(", ")}] but its pilot evidence lists [${listedRefs.join(", ")}].`,
+    );
+  }
+  if (readCitedSource === undefined) {
+    violations.push(`pilot-evidenced binding '${factId}' cannot be checked without a cited-source reader.`);
+    return undefined;
+  }
+  const texts: string[] = [];
+  for (const { ref, token } of pilot.evidence) {
+    const slice = readCitedSource(ref);
+    if (slice.error !== undefined || slice.text === undefined) {
+      violations.push(`pilot evidence '${ref}' for binding '${factId}' does not resolve: ${slice.error ?? "no text"}.`);
+      continue;
+    }
+    if (token.length === 0 || !slice.text.includes(token)) {
+      violations.push(`pilot evidence '${ref}' for binding '${factId}' no longer carries '${token}'.`);
+      continue;
+    }
+    texts.push(canonicalRouteParameters(slice.text));
+  }
+  return texts;
+}
+
 export function evaluatePrivacyProductTruthBindings(
   input: Readonly<{
     inventory: PrivacyProductTruthInventory;
     artifact: PublicPolicyArtifact;
     bindings?: readonly PrivacyProductTruthBinding[];
+    pilotEvidencedFacts?: readonly PrivacyPilotEvidencedFact[];
+    readCitedSource?: PrivacyCitedSourceReader;
   }>,
 ): readonly string[] {
-  const { inventory, artifact } = input;
+  const { inventory, artifact, readCitedSource } = input;
   const bindings = input.bindings ?? privacyProductTruthBindings;
+  const pilotEvidencedFacts = input.pilotEvidencedFacts ?? privacyPilotEvidencedFacts;
   const violations: string[] = [];
+
+  const pilotById = new Map<string, PrivacyPilotEvidencedFact>();
+  for (const pilot of pilotEvidencedFacts) {
+    if (pilotById.has(pilot.factId)) violations.push(`duplicate pilot-evidenced fact '${pilot.factId}'.`);
+    pilotById.set(pilot.factId, pilot);
+  }
 
   for (const failure of inventory.readFailures ?? []) {
     violations.push(`unreadable tracked production module ${failure.relativePath}: ${failure.reason}`);
@@ -715,32 +860,51 @@ export function evaluatePrivacyProductTruthBindings(
     boundKeys.add(key);
 
     const fact = factsByKey.get(key);
-    if (fact === undefined) {
-      violations.push(
-        `orphan binding '${factId}': the inventory derives no ${classification.factFamily} subject '${inventorySubject}'.`,
-      );
-      continue;
-    }
+    const pilot = pilotById.get(factId);
+    let entailed: (token: string) => boolean;
+    if (pilot !== undefined) {
+      if (fact !== undefined) {
+        violations.push(
+          `pilot-evidenced binding '${factId}' is derived by the inventory again; drop it from the pilot-evidenced facts and cite the derived evidence.`,
+        );
+      }
+      const pilotTexts = evaluatePilotEvidence(binding, pilot, readCitedSource, violations);
+      // Without a reader the binding has already failed closed above; its
+      // tokens are not reported again as unentailed.
+      entailed =
+        pilotTexts === undefined
+          ? () => true
+          : (token) => pilotTexts.some((text) => text.includes(canonicalRouteParameters(token)));
+    } else {
+      if (fact === undefined) {
+        violations.push(
+          `orphan binding '${factId}': the inventory derives no ${classification.factFamily} subject '${inventorySubject}'.`,
+        );
+        continue;
+      }
 
-    const bindingRefs = [...binding.evidenceRefs].sort();
-    const derivedRefs = [...fact.evidenceRefs].sort();
-    if (bindingRefs.length !== derivedRefs.length || bindingRefs.some((ref, at) => ref !== derivedRefs[at])) {
-      violations.push(
-        `stale evidence on binding '${factId}': cited [${bindingRefs.join(", ")}] but the inventory derives [${derivedRefs.join(", ")}].`,
-      );
-    }
+      const bindingRefs = [...binding.evidenceRefs].sort();
+      const derivedRefs = [...fact.evidenceRefs].sort();
+      if (bindingRefs.length !== derivedRefs.length || bindingRefs.some((ref, at) => ref !== derivedRefs[at])) {
+        violations.push(
+          `stale evidence on binding '${factId}': cited [${bindingRefs.join(", ")}] but the inventory derives [${derivedRefs.join(", ")}].`,
+        );
+      }
 
-    if (fact.trackedGeneratedDerived === true) {
-      violations.push(
-        `binding '${factId}' rests on a tracked generated module; generated modules may reconcile a derived fact but may never be its evidence authority.`,
-      );
+      if (fact.trackedGeneratedDerived === true) {
+        violations.push(
+          `binding '${factId}' rests on a tracked generated module; generated modules may reconcile a derived fact but may never be its evidence authority.`,
+        );
+      }
+
+      const universe = new Set(derivePrivacyDisclosureTokenUniverse(fact));
+      entailed = (token) => universe.has(token);
     }
 
     if (binding.factualSummary.trim().length === 0) {
       violations.push(`binding '${factId}' has an empty factual summary.`);
     }
 
-    const universe = new Set(derivePrivacyDisclosureTokenUniverse(fact));
     const consumingSectionIds = privacyProductTruthConsumingSectionIds(binding);
 
     if (classification.noticeBoundary === "consumer-notice" && consumingSectionIds.length === 0) {
@@ -762,9 +926,9 @@ export function evaluatePrivacyProductTruthBindings(
         violations.push(`binding '${factId}' requires no disclosure token in section '${disclosure.sectionId}'.`);
       }
       for (const token of disclosure.requiredTokens) {
-        if (!universe.has(token)) {
+        if (!entailed(token)) {
           violations.push(
-            `binding '${factId}' requires disclosure token '${token}', which its derived evidence does not entail.`,
+            `binding '${factId}' requires disclosure token '${token}', which its ${pilot === undefined ? "derived" : "pilot"} evidence does not entail.`,
           );
           continue;
         }
@@ -795,6 +959,12 @@ export function evaluatePrivacyProductTruthBindings(
           `operator-only subject '${binding.inventorySubject}' is not counsel-visible in any Privacy review manifest open question.`,
         );
       }
+    }
+  }
+
+  for (const pilot of pilotById.values()) {
+    if (!seenFactIds.has(pilot.factId)) {
+      violations.push(`pilot-evidenced fact '${pilot.factId}' has no binding.`);
     }
   }
 

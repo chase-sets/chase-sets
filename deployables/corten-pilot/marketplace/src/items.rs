@@ -1,4 +1,4 @@
-//! Marketplace's item page (`/items/{id}`, bounded-contexts/discovery/routes/item-detail.tsx): the
+//! Marketplace's item page (`/items/{id}`): the
 //! item, its product options, the market for the product chosen, and the market book of its
 //! listings and offers. Anyone may read it; a session only says whose offers are theirs.
 //!

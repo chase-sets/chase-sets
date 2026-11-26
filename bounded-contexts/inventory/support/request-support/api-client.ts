@@ -1,5 +1,5 @@
 import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
-import type { InventoryApiClientOptions } from "./client";
+import type { InventoryApiClientOptions } from "../../features/storage-locations/api/transport";
 export { createInventoryApiClient, InventoryApiError, inventoryApi } from "../../client";
 export type {
   InventoryApiClientOptions,

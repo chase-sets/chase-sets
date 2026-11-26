@@ -565,7 +565,6 @@
         {
           "routeId": "channels-ebay-connection",
           "routePath": "account/channels/ebay",
-          "fileExport": "./routes/marketplace/account-channels-ebay",
           "routeType": "route",
           "sourceContext": "channels",
           "delivery": "server-only",
@@ -583,7 +582,6 @@
             "web": true,
             "mobile": false
           },
-          "pageComponentExport": "default",
           "unsupportedMobile": {
             "owner": "channels",
             "followUp": "#5238",
@@ -593,7 +591,6 @@
         {
           "routeId": "channels-ebay-callback",
           "routePath": "channels/ebay/callback",
-          "fileExport": "./routes/marketplace/ebay-callback",
           "routeType": "route",
           "sourceContext": "channels",
           "delivery": "web-resource-only",
@@ -621,7 +618,6 @@
         {
           "routeId": "channels-ebay-declined",
           "routePath": "channels/ebay/declined",
-          "fileExport": "./routes/marketplace/ebay-callback",
           "routeType": "route",
           "sourceContext": "channels",
           "delivery": "web-resource-only",
@@ -649,14 +645,12 @@
         {
           "routeId": "channels-connections",
           "routePath": "account/channels",
-          "fileExport": "./routes/marketplace/account-channels",
           "routeType": "route",
           "sourceContext": "channels",
           "delivery": "server-only",
           "authorization": { "kind": "authenticated", "requiredPermissions": ["channels.view"] },
           "canonicalLink": { "kind": "not-applicable", "reason": "Account connection status is private." },
           "availability": { "web": true, "mobile": false },
-          "pageComponentExport": "default",
           "unsupportedMobile": {
             "owner": "channels",
             "followUp": "#5238",
@@ -666,14 +660,12 @@
         {
           "routeId": "channels-connection-detail",
           "routePath": "account/channels/:connectionId",
-          "fileExport": "./routes/marketplace/account-channels-connection",
           "routeType": "route",
           "sourceContext": "channels",
           "delivery": "server-only",
           "authorization": { "kind": "authenticated", "requiredPermissions": ["channels.view"] },
           "canonicalLink": { "kind": "not-applicable", "reason": "Account connection status is private." },
           "availability": { "web": true, "mobile": false },
-          "pageComponentExport": "default",
           "unsupportedMobile": {
             "owner": "channels",
             "followUp": "#5238",
@@ -683,14 +675,12 @@
         {
           "routeId": "channels-publication",
           "routePath": "account/channels/publication",
-          "fileExport": "./routes/marketplace/account-channels-publication",
           "routeType": "route",
           "sourceContext": "channels",
           "delivery": "server-only",
           "authorization": { "kind": "authenticated", "requiredPermissions": ["channels.view"] },
           "canonicalLink": { "kind": "not-applicable", "reason": "Account publication settings are private." },
           "availability": { "web": true, "mobile": false },
-          "pageComponentExport": "default",
           "unsupportedMobile": {
             "owner": "channels",
             "followUp": "#5238",
@@ -700,7 +690,6 @@
         {
           "routeId": "account-channel-connection-manual-sync-download",
           "routePath": "account/channels/:connectionId/manual-sync/download",
-          "fileExport": "./routes/marketplace/account-channel-connection-manual-sync-download",
           "routeType": "route",
           "placement": "root",
           "sourceContext": "channels",
@@ -723,14 +712,12 @@
         {
           "routeId": "channels-publication-connection",
           "routePath": "account/channels/publication/:connectionId",
-          "fileExport": "./routes/marketplace/account-channels-publication-connection",
           "routeType": "route",
           "sourceContext": "channels",
           "delivery": "server-only",
           "authorization": { "kind": "authenticated", "requiredPermissions": ["channels.view"] },
           "canonicalLink": { "kind": "not-applicable", "reason": "Account publication settings are private." },
           "availability": { "web": true, "mobile": false },
-          "pageComponentExport": "default",
           "unsupportedMobile": {
             "owner": "channels",
             "followUp": "#5238",
@@ -884,8 +871,7 @@
         "api-route:bounded-contexts/channels/features/ebay-connection/api/route.ts:POST /connections/:id/setup",
         "post-form:bounded-contexts/channels/features/ebay-connection/ui/connection-journey.tsx:Hb08a81ecfd73#1",
         "post-form:bounded-contexts/channels/features/ebay-connection/ui/connection-journey.tsx:Hb08a81ecfd73#2",
-        "post-form:bounded-contexts/channels/features/ebay-connection/ui/seller-setup.tsx:Hb08a81ecfd73#1",
-        "route-action:bounded-contexts/channels/routes/marketplace/account-channels-ebay.tsx"
+        "post-form:bounded-contexts/channels/features/ebay-connection/ui/seller-setup.tsx:Hb08a81ecfd73#1"
       ],
       "visibleDestination": {
         "routeId": "channels-ebay-connection",
@@ -955,8 +941,7 @@
       "strategy": "fresh-read",
       "surfaces": [
         "api-route:bounded-contexts/channels/features/connections/api/route.ts:POST /",
-        "post-form:bounded-contexts/channels/features/connections/ui/connection-pages.tsx:Hb08a81ecfd73#1",
-        "route-action:bounded-contexts/channels/routes/marketplace/account-channels.tsx"
+        "post-form:bounded-contexts/channels/features/connections/ui/connection-pages.tsx:Hb08a81ecfd73#1"
       ],
       "visibleDestination": {
         "routeId": "channels-connection-detail",
@@ -986,8 +971,7 @@
       "proof": {
         "authoritativeResponse": "The real decision transaction returns its revision and operation identity. The form stays disabled during submission and revalidation; uncertainty retains the exact request, and conflicts require explicit refresh. Accepted/requested copy never asserts enqueue, application or health.",
         "tests": [
-          "bounded-contexts/channels/features/reconciliation/tests/channel-reconciliation-runtime.db.test.ts",
-          "bounded-contexts/channels/features/reconciliation/tests/channel-drift-detail.test.tsx"
+          "bounded-contexts/channels/features/reconciliation/tests/channel-reconciliation-runtime.db.test.ts"
         ]
       }
     },
@@ -1076,8 +1060,7 @@
         "authoritativeResponse": "The route maps CommandExecutionResult.state directly to the closed public DTO for writes and accepted no-ops; the detail route action returns the same committed connection to the page, which re-renders its status badge and allowed-action set from that value alone.",
         "tests": [
           "bounded-contexts/channels/features/connections/tests/channel-connection-http-contract.test.ts",
-          "bounded-contexts/channels/features/connections/tests/channel-connection-command-snapshot-responses.test.ts",
-          "bounded-contexts/channels/features/connections/tests/channel-connection-actions.test.tsx"
+          "bounded-contexts/channels/features/connections/tests/channel-connection-command-snapshot-responses.test.ts"
         ]
       }
     },
@@ -1092,8 +1075,7 @@
         "api-route:bounded-contexts/channels/features/listing-composition/api/route.ts:POST /:connectionId/mappings/:dimension/:sourceKey/decision",
         "api-route:bounded-contexts/channels/features/listing-composition/api/route.ts:PUT /:connectionId/settings",
         "post-form:bounded-contexts/channels/features/listing-composition/ui/publication-pages.tsx:H8d7b1af0483d#1",
-        "post-form:bounded-contexts/channels/features/listing-composition/ui/publication-pages.tsx:Hdedc9988f2e2#1",
-        "route-action:bounded-contexts/channels/features/listing-composition/ui/routes/account-channels-publication-connection.server.ts"
+        "post-form:bounded-contexts/channels/features/listing-composition/ui/publication-pages.tsx:Hdedc9988f2e2#1"
       ],
       "visibleDestination": {
         "description": "Publication settings and mapping forms retain submitted values in disabled forms with a pending notice while the real data-router revalidates; a changed configuration stream version remounts the forms from authoritative loader data, while conflicts and command errors remain visible."
@@ -1101,8 +1083,7 @@
       "proof": {
         "correction": "Both forms keep loader-owned expectedStreamVersion. The post-write action-data handoff retains the command streamVersion and latest submitted settings or matching mapping target for display only. A lower projection version retains disabled detail forms under the pending notice and bounded revalidation until the account-scoped API result reaches the written version; the applied-version render identity remounts uncontrolled forms, and conflicts and command failures remain visible.",
         "tests": [
-          "bounded-contexts/channels/features/listing-composition/tests/channel-publication-settings-route.test.tsx",
-          "bounded-contexts/channels/features/listing-composition/tests/channel-mapping-review-route.test.ts"
+          "bounded-contexts/channels/features/listing-composition/tests/channel-publication-blocking-reason-surface.test.tsx"
         ]
       }
     },
@@ -1120,8 +1101,7 @@
         "api-route:bounded-contexts/channels/features/manual-sync/api/route.ts:POST /:connectionId/manual-sync/runs/:runId/release",
         "api-route:bounded-contexts/channels/features/manual-sync/api/route.ts:POST /:connectionId/manual-sync/runs/:runId/upload-attempt",
         "api-route:bounded-contexts/channels/features/manual-sync/api/route.ts:POST /:connectionId/manual-sync/runs/:runId/validation-cancelled",
-        "api-route:bounded-contexts/channels/features/manual-sync/api/route.ts:POST /:connectionId/manual-sync/runs/:runId/verify",
-        "route-action:bounded-contexts/channels/routes/marketplace/account-channel-connection-manual-sync-download.tsx"
+        "api-route:bounded-contexts/channels/features/manual-sync/api/route.ts:POST /:connectionId/manual-sync/runs/:runId/verify"
       ],
       "visibleDestination": {
         "routeId": "channels-connection-detail",
@@ -1158,7 +1138,6 @@
         "correction": "Successful run actions redirect to the same connection route so its authenticated loader replaces the panel with the latest producer revision; ingest returns its bounded receipt as action data while the route revalidates the panel; Staged-basis Compose refusals render ingest guidance, other failures render a canonical error banner, and stale or unlisted actions write nothing.",
         "tests": [
           "bounded-contexts/channels/features/manual-sync/ui/manual-sync-panel.test.tsx",
-          "bounded-contexts/channels/features/connections/ui/account-channels-connection-route-adapter.test.tsx",
           "bounded-contexts/channels/features/manual-sync/api/manual-sync-route.test.ts",
           "bounded-contexts/channels/features/manual-sync/domain/manual-sync-contracts.test.ts"
         ]

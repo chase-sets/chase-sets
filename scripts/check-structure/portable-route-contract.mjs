@@ -1,10 +1,19 @@
+import { METADATA_ONLY_WEB_HOSTS } from "../lib/repo.mjs";
+
 const deliveries = new Set(["portable", "web-resource-only", "server-only"]);
 
 function isNonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-export function validatePortableRouteContract({ contextName, deployable, route }) {
+// A metadata-only host keeps its route records for the link catalog but serves no module of its own,
+// so its records must name neither a route module nor a page component.
+export function validatePortableRouteContract({
+  contextName,
+  deployable,
+  route,
+  metadataOnlyHosts = METADATA_ONLY_WEB_HOSTS,
+}) {
   if (deployable !== "marketplace-web") return [];
   if (!route || typeof route !== "object" || Array.isArray(route)) return ["route must be an object"];
   const violations = [];
@@ -12,7 +21,11 @@ export function validatePortableRouteContract({ contextName, deployable, route }
 
   if (!deliveries.has(route.delivery)) add("delivery must be portable, web-resource-only, or server-only");
   if (route.sourceContext !== contextName) add("sourceContext must match the owning bounded context");
-  if (route.delivery === "web-resource-only" && route.pageComponentExport !== undefined) {
+  if (metadataOnlyHosts.includes(deployable)) {
+    if (route.fileExport !== undefined || route.pageComponentExport !== undefined) {
+      add("metadata-only routes cannot declare fileExport or pageComponentExport");
+    }
+  } else if (route.delivery === "web-resource-only" && route.pageComponentExport !== undefined) {
     add("web-resource-only routes cannot declare pageComponentExport");
   } else if (route.delivery !== "web-resource-only" && !isNonEmptyString(route.pageComponentExport)) {
     add("pageComponentExport must identify the page component");

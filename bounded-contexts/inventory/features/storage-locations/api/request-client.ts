@@ -1,4 +1,4 @@
-import { createInventoryClientTransport } from "../../../support/request-support/client";
+import { createInventoryClientTransport } from "./transport";
 import {
   inventoryRequestOptions,
   type InventoryRequestClientOptions,

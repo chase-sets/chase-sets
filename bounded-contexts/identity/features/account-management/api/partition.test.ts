@@ -89,18 +89,17 @@ function formPartition(file: ts.SourceFile) {
 }
 
 describe("issue-7168-ac1-derived-partition", () => {
-  it("reconciles all 16 real route/form/client/manifest actions and refuses source drift mutants", () => {
+  // The marketplace route modules that declared these intents left with marketplace-web; the
+  // Corten marketplace serves the pages, so the partition is derived from the pages' forms.
+  it("reconciles all 16 real form/client/manifest actions and refuses source drift mutants", () => {
     const derived: string[] = [];
     for (const [route, actions] of Object.entries(routeActions)) {
-      const slug = route === "/account" ? "account" : `account-${route.split("/").at(-1)}`;
-      const file = parse(path.join(root, `routes/marketplace/${slug}.tsx`));
-      expect(routeIntents(file)).toEqual([...actions].sort());
-      derived.push(...routeIntents(file));
       const source = readFileSync(path.join(root, `features/${pages[route as keyof typeof pages]}`), "utf8");
       const page = parse("page.tsx", source);
       expect(importsAccountMutationForm(page), route).toBe(true);
       const forms = formPartition(page);
       expect(forms.flatMap((form) => form.intents).sort()).toEqual([...actions].sort());
+      derived.push(...forms.flatMap((form) => form.intents));
       for (const form of forms) {
         const action = form.intents[0] as keyof typeof actionFields;
         const allowed: readonly string[] = [

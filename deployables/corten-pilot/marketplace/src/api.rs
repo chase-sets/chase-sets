@@ -5521,6 +5521,11 @@ pub trait ConsentCalls {
     async fn consents(&self, user: &str, account: &str) -> Result<Vec<Consent>, ApiError>;
     /// Withdraw `consent` as `attempt`.
     async fn withdraw_consent(&self, consent: &str, attempt: &str) -> Result<AccountAnswer, ApiError>;
+    /// Accept the current Terms of Service (`POST /consents/terms-of-service/accept`, which reads the
+    /// version in effect itself), as marketplace's Start payment does. The receipt of Identity's
+    /// write, or `None` when the answer does not confirm one: Identity did not say the terms are
+    /// accepted, or wrote nothing (they already were).
+    async fn accept_terms(&self) -> Result<Option<Receipt>, ApiError>;
 }
 
 impl ConsentCalls for Caller<'_> {
@@ -5541,6 +5546,16 @@ impl ConsentCalls for Caller<'_> {
         let (status, receipt) = (res.status().as_u16(), Receipt::from_response(res.headers()));
         let text = res.text().await?;
         AccountAnswer::read(status, &text, receipt)
+    }
+    async fn accept_terms(&self) -> Result<Option<Receipt>, ApiError> {
+        #[derive(Deserialize)]
+        struct Status {
+            #[serde(default)]
+            accepted: bool,
+        }
+        let req = self.request(Method::POST, "/api/identity/consents/terms-of-service/accept", IDENTITY);
+        let (status, receipt) = self.write::<Status>(req).await?;
+        Ok(receipt.filter(|receipt| status.accepted && receipt.has_source(IDENTITY)))
     }
 }
 

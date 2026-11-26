@@ -96,11 +96,10 @@ up_preview() {
   sudo -u codex bash -lc "cd '$APP_DIR' && pnpm run build"
   write_service "chase-sets-platform-api" "pnpm --dir '${APP_DIR}' --filter @chase-sets/app-platform-api run start"
   write_service "chase-sets-platform-worker" "pnpm --dir '${APP_DIR}' --filter @chase-sets/app-platform-worker run start"
-  write_service "chase-sets-marketplace" "pnpm --dir '${APP_DIR}' --filter @chase-sets/app-marketplace-web run start"
   write_service "chase-sets-admin-web" "pnpm --dir '${APP_DIR}' --filter @chase-sets/app-admin-web run start"
   write_service "chase-sets-portal" "PORT=6170 node ./scripts/dev-portal.mjs"
   systemctl daemon-reload
-  systemctl enable --now chase-sets-platform-api.service chase-sets-platform-worker.service chase-sets-marketplace.service chase-sets-admin-web.service chase-sets-portal.service
+  systemctl enable --now chase-sets-platform-api.service chase-sets-platform-worker.service chase-sets-admin-web.service chase-sets-portal.service
 }
 
 reset_db() {

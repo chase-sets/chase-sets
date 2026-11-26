@@ -9,10 +9,8 @@ import { buildPlatformApiApp } from "../src/app";
 
 // Seller Desk acceptance gate — the epic capstone that proves the deep modules
 // carry the whole seller journey on the MCP connector transport, at parity with
-// the web Seller Desk. The web half of the gate is the playwright harness in
-// deployables/marketplace/e2e/seller-desk-journey.uat.spec.ts; that half stays
-// pending until the redesigned web surfaces land, so this file delivers the
-// largest runnable slice now: the full "what needs me -> act -> resolve" journey
+// the web Seller Desk. The web half of the gate is not yet written for the Corten
+// marketplace, so this file delivers the largest runnable slice now: the full "what needs me -> act -> resolve" journey
 // driven through the native MCP SDK over the same platform-api /mcp endpoint an
 // external agent connects to.
 //

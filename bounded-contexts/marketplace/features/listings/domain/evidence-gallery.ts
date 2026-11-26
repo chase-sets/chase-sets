@@ -1,5 +1,6 @@
 import type { ListingEvidenceSnapshot } from "./evidence-snapshot";
 import { activeListingPhotos, type MarketplaceListingPhoto, type MarketplaceListingPhotoAssetVariant } from "./domain";
+import { publicEntries, publicNumber, publicText } from "./public-values";
 
 /**
  * Public-safe Listing Evidence gallery projection.
@@ -45,6 +46,37 @@ function publicAsset(variant: {
     height: variant.height,
     density: variant.density,
   };
+}
+
+function copyPublicAsset(asset: Readonly<Record<string, unknown>>): MarketplaceListingPublicGalleryImageAsset | null {
+  const role = publicText(asset.role);
+  const publicUrl = publicText(asset.publicUrl);
+  const width = publicNumber(asset.width);
+  const height = publicNumber(asset.height);
+  if (role === null || publicUrl === null || width === null || height === null) return null;
+  return { role, publicUrl, width, height, density: asset.density === 1 || asset.density === 2 ? asset.density : null };
+}
+
+function copyPublicImage(image: Readonly<Record<string, unknown>>): MarketplaceListingPublicGalleryImage | null {
+  const photoId = publicText(image.photoId);
+  const sortOrder = publicNumber(image.sortOrder);
+  if (photoId === null || sortOrder === null) return null;
+  return {
+    photoId,
+    slotId: publicText(image.slotId),
+    viewKind: publicText(image.viewKind),
+    altText: publicText(image.altText),
+    sortOrder,
+    assets: publicEntries(image.assets, copyPublicAsset),
+  };
+}
+
+/**
+ * Copies a public gallery key by key and checks each value's type, so an image or asset passed in with
+ * other fields, or with a value of another type, cannot carry it out. A malformed image or asset is dropped.
+ */
+export function copyPublicListingGallery(gallery: unknown): MarketplaceListingPublicGalleryImage[] {
+  return publicEntries(gallery, copyPublicImage);
 }
 
 export function toPublicListingGallery(

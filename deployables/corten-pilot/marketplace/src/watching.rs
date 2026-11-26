@@ -1,5 +1,4 @@
-//! The item page's Watch forms (marketplace's item action, `create-product-alert` in
-//! bounded-contexts/discovery/support/route-support/item-detail/action.ts): a Watch alert for the
+//! The item page's Watch forms (the item action's `create-product-alert` intent): a Watch alert for the
 //! product chosen, on its listings (at or below a price) or its offers (at or above one).
 //!
 //! | Form | `side` | Threshold |

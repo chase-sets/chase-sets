@@ -207,8 +207,9 @@ in the [README before it was cut](https://github.com/chase-sets/chase-sets/blob/
 
 ## Running it
 
-From the worktree root, with the dev system running (`node scripts/dev-system.mjs dev marketplace-full`,
-or `admin-web` for admin):
+From the worktree root, with the dev system running (`node scripts/dev-system.mjs dev admin-web`, which
+also serves the platform API the apps read; the React marketplace is gone, so `measure.mjs` and a
+marketplace sign-in against it need a checkout from before its deletion):
 
 ```powershell
 node --import tsx deployables/corten-pilot/scripts/export.mjs   # first: writes platform/tokens.json and the favicons, which are not committed

@@ -15,14 +15,14 @@ const doksOperationsRunbook = readFileSync(resolve("docs/runbooks/doks-platform-
 describe("DOKS preview node pool", () => {
   it("defaults only preview nodes to the approved 16 GB size and keeps the three-node ceiling", () => {
     expect(doksVariables).toMatch(
-      /variable "preview_node_pool_size" \{\s+type\s*= string\s+default\s*= "s-4vcpu-16gb-amd"/,
+      /variable "preview_node_pool_size" \{\s+type\s*= string\s+default\s*= "s-4vcpu-16gb-320gb-intel"/,
     );
     expect(doksVariables).toMatch(
       /variable "runtime_xl_node_pool_size" \{\s+type\s*= string\s+default\s*= "s-4vcpu-8gb"/,
     );
     expect(doksVariables).toMatch(/variable "preview_node_pool_max_nodes" \{\s+type\s*= number\s+default\s*= 3/);
     expect(doksMain).toContain("size       = var.preview_node_pool_size");
-    expect(doksOperationsRunbook).toContain("`s-4vcpu-16gb-amd`");
+    expect(doksOperationsRunbook).toContain("`s-4vcpu-16gb-320gb-intel`");
   });
 
   it("provisions a dedicated scale-to-zero preview pool on the staging cluster only", () => {

@@ -1113,11 +1113,11 @@ describe("candidate-specific inventory neutrality", () => {
     emit("N7_SYNTHETIC", { roles: record.roles, refBaseMutant: "red" });
   });
 
-  it("C1 five reclassified modules remain not-sql with zero violations and unresolved roots", () => {
+  it("C1 four reclassified modules remain not-sql with zero violations and unresolved roots", () => {
     const files = [
       "bounded-contexts/catalog/support/test-support/source-observation-fixtures.ts",
       "deployables/admin-web/src/test/setup.ts",
-      "deployables/marketplace/app/test-support/setup.ts",
+      // marketplace-web's test setup left with the deployable.
       "deployables/platform-api/src/test-support/provider-gateways.ts",
       "deployables/platform-worker/src/test-support/provider-gateways.ts",
     ];

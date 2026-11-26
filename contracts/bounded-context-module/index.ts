@@ -172,6 +172,19 @@ export type BcRouteModule = Readonly<{
   readonly section?: string;
 }>;
 
+/**
+ * A contributed route's metadata without a route module, for a host that
+ * serves the route outside TypeScript. Owners keep publishing its path,
+ * authorization and canonical-link metadata.
+ */
+export type BcRouteMetadata = Readonly<
+  Omit<BcRouteModule, "fileExport"> & {
+    readonly fileExport?: never;
+  }
+>;
+
+export type BcContributedRoute = BcRouteModule | BcRouteMetadata;
+
 export type RouteDelivery = "portable" | "web-resource-only" | "server-only";
 
 export type RouteAuthorization = Readonly<
@@ -210,29 +223,29 @@ export type UnsupportedMobileRoute = Readonly<{
   readonly reason: string;
 }>;
 
-export type BcPortableRouteModule = BcRouteModule &
+export type BcPortableRouteModule = BcRouteMetadata &
   Readonly<{
     readonly delivery: "portable";
     readonly authorization: RouteAuthorization;
     readonly canonicalLink: RouteCanonicalLinkIntent;
     readonly availability: Readonly<{ web: true; mobile: true }>;
-    readonly pageComponentExport: string;
+    readonly pageComponentExport?: never;
     readonly portableDataOperations: PortableDataOperations;
     readonly unsupportedMobile?: never;
   }>;
 
-export type BcServerOnlyRouteModule = BcRouteModule &
+export type BcServerOnlyRouteModule = BcRouteMetadata &
   Readonly<{
     readonly delivery: "server-only";
     readonly authorization: RouteAuthorization;
     readonly canonicalLink: RouteCanonicalLinkIntent;
     readonly availability: Readonly<{ web: true; mobile: false }>;
-    readonly pageComponentExport: string;
+    readonly pageComponentExport?: never;
     readonly portableDataOperations?: never;
     readonly unsupportedMobile: UnsupportedMobileRoute;
   }>;
 
-export type BcWebResourceOnlyRouteModule = BcRouteModule &
+export type BcWebResourceOnlyRouteModule = BcRouteMetadata &
   Readonly<{
     readonly delivery: "web-resource-only";
     readonly authorization: RouteAuthorization;
@@ -309,7 +322,7 @@ export type PortableContextRegistryEntry<
 
 export type BcDeployableContribution = Readonly<{
   readonly deployable: string;
-  readonly routes: readonly BcRouteModule[];
+  readonly routes: readonly BcContributedRoute[];
 }>;
 
 export type BcShellContributionSlot = "primary-nav" | "top-nav" | "bottom-nav" | "account-menu";

@@ -13,6 +13,31 @@ import {
 
 type QueryCall = Readonly<{ sql: string; params: readonly unknown[] }>;
 
+/** Every key a public Listing row may carry. Written out here so the production list cannot vouch for itself. */
+const publicListingKeys = [
+  "listing_id",
+  "account_id",
+  "catalog_catalog_item_id",
+  "product_id",
+  "item_title",
+  "item_subtitle",
+  "selected_options",
+  "product_summary",
+  "graded_card",
+  "ship_from_code",
+  "price_amount",
+  "price_currency_code",
+  "listing_stream_version",
+  "shipping_allowance_percentage_bps",
+  "max_units_per_order",
+  "max_units_per_day",
+  "max_units_per_customer_account",
+  "status",
+  "seller_display_name",
+  "visible_quantity",
+  "public_gallery",
+] as const;
+
 function expectCorrelatedActiveHoldLookup(calls: readonly QueryCall[]) {
   for (const call of calls) {
     expect(call.sql).not.toContain("GROUP BY item_id");
@@ -208,6 +233,307 @@ describe("marketplace listing read-model queries", () => {
     expect(calls[0]?.sql).not.toContain("listing.last_stream_version");
     expect(calls[0]?.sql).toContain("LIMIT $2 OFFSET $3");
     expectCorrelatedActiveHoldLookup(calls);
+  });
+
+  it("returns exactly the public keys for a stored row that holds an address, fee amounts, a fingerprint and Fee Locks", async () => {
+    const calls: QueryCall[] = [];
+    const db: PgQueryable = {
+      async query<Row = Record<string, unknown>>(sql: string, params: readonly unknown[] = []) {
+        calls.push({ sql, params });
+        return {
+          rows: [
+            {
+              // A whole stored row, as a reader that selected every column would hold it.
+              ...listingPageRow,
+              price_currency_code: "USD",
+              listing_stream_version: 4,
+              fee_locks: [{ lockId: "lock_air_balloon", feeBps: 0 }],
+              evidence_requirements: { policyHash: "hash_air_balloon" },
+              pause_reason: null,
+              inventory_capacity_recovery_block: null,
+              seller_display_name: "QA Seller",
+              visible_quantity: 2,
+            } as Row,
+          ],
+        };
+      },
+    };
+
+    const [row] = await listItemListings(db, "cat_air_balloon::form:raw|condition:damaged");
+
+    expect(Object.keys(row ?? {}).sort()).toEqual([...publicListingKeys].sort());
+    expect(row).toEqual({
+      listing_id: "lst_air_balloon",
+      account_id: "acc_seller",
+      catalog_catalog_item_id: "cat_air_balloon",
+      product_id: "cat_air_balloon::form:raw|condition:damaged",
+      item_title: "Air Balloon",
+      item_subtitle: null,
+      selected_options: [
+        { dimensionId: "form", optionId: "raw" },
+        { dimensionId: "condition", optionId: "damaged" },
+      ],
+      product_summary: "Form: Raw | Condition: Damaged",
+      graded_card: null,
+      ship_from_code: "home",
+      price_amount: "21.50",
+      price_currency_code: "USD",
+      listing_stream_version: 4,
+      shipping_allowance_percentage_bps: 0,
+      max_units_per_order: null,
+      max_units_per_day: null,
+      max_units_per_customer_account: null,
+      status: "active",
+      seller_display_name: "QA Seller",
+      visible_quantity: 2,
+      public_gallery: [],
+    });
+    const serialized = JSON.stringify(row);
+    for (const privateValue of [
+      "200 Market Street",
+      "Main bin",
+      "2.15",
+      "19.35",
+      "fee_quote_air_balloon",
+      "lock_air_balloon",
+    ]) {
+      expect(serialized).not.toContain(privateValue);
+    }
+  });
+
+  it("copies a stored grade, option and photo key by key, so a field stored beside them is not returned", async () => {
+    const storedAsset = (role: string) => ({
+      role,
+      width: 480,
+      height: 640,
+      density: 1,
+      mediaType: "image/webp",
+      storageKey: `private/key/photo_one/${role}`,
+      publicUrl: `https://assets.test/photo_one/${role}.webp`,
+      byteSize: 1234,
+      generatedAt: "2026-07-10T00:00:00.000Z",
+    });
+    const db: PgQueryable = {
+      async query<Row = Record<string, unknown>>() {
+        return {
+          rows: [
+            {
+              ...listingPageRow,
+              price_currency_code: "USD",
+              listing_stream_version: 4,
+              seller_display_name: "QA Seller",
+              visible_quantity: 2,
+              selected_options: [{ dimensionId: "form", optionId: "graded", internalRank: 7 }],
+              graded_card: {
+                gradingCompany: "PSA",
+                grade: "Gem Mint 10",
+                certificationNumber: "12345678",
+                population: {
+                  populationAtGrade: 10,
+                  populationHigher: 0,
+                  source: "census",
+                  asOf: "2026-01-01",
+                  fetchedBy: "usr_private",
+                },
+                conditionDescriptors: ["sharp corners"],
+                internalNote: "bought at a show",
+              },
+              evidence: [
+                {
+                  photoId: "photo_one",
+                  originalFilename: "secret-filename.png",
+                  altText: "Front",
+                  slotId: "front",
+                  viewKind: "front",
+                  status: "active",
+                  sortOrder: 0,
+                  capturedAt: null,
+                  uploadedAt: "2026-07-10T00:00:00.000Z",
+                  assetSet: {
+                    kind: "listing-photo",
+                    sourceHash: "hash_private",
+                    source: storedAsset("source"),
+                    variants: [storedAsset("catalog-detail")],
+                  },
+                },
+              ],
+            } as Row,
+          ],
+        };
+      },
+    };
+
+    const [row] = await listItemListings(db, "cat_air_balloon::form:raw|condition:damaged");
+
+    expect(row?.selected_options).toEqual([{ dimensionId: "form", optionId: "graded" }]);
+    expect(row?.graded_card).toEqual({
+      gradingCompany: "PSA",
+      grade: "Gem Mint 10",
+      certificationNumber: "12345678",
+      population: { populationAtGrade: 10, populationHigher: 0, source: "census", asOf: "2026-01-01" },
+      conditionDescriptors: ["sharp corners"],
+    });
+    expect(row?.public_gallery).toEqual([
+      {
+        photoId: "photo_one",
+        slotId: "front",
+        viewKind: "front",
+        altText: "Front",
+        sortOrder: 0,
+        assets: [
+          {
+            role: "catalog-detail",
+            publicUrl: "https://assets.test/photo_one/catalog-detail.webp",
+            width: 480,
+            height: 640,
+            density: 1,
+          },
+        ],
+      },
+    ]);
+    const serialized = JSON.stringify(row);
+    for (const privateText of [
+      "internalRank",
+      "internalNote",
+      "fetchedBy",
+      "private/key",
+      "hash_private",
+      "secret-filename",
+      "byteSize",
+    ]) {
+      expect(serialized).not.toContain(privateText);
+    }
+  });
+
+  it("serves a product's other Listings when one stored option or grade value has the wrong type", async () => {
+    const storedRow = (listingId: string, values: Record<string, unknown>) => ({
+      ...listingPageRow,
+      listing_id: listingId,
+      price_currency_code: "USD",
+      listing_stream_version: 4,
+      seller_display_name: "QA Seller",
+      visible_quantity: 2,
+      evidence: [],
+      ...values,
+    });
+    const db: PgQueryable = {
+      async query<Row = Record<string, unknown>>() {
+        return {
+          rows: [
+            storedRow("lst_malformed", {
+              selected_options: [
+                null,
+                { dimensionId: "form", optionId: { internalRank: 7 } },
+                { dimensionId: "form", optionId: "graded" },
+              ],
+              graded_card: {
+                gradingCompany: "PSA",
+                grade: "Gem Mint 10",
+                certificationNumber: 12345678,
+                population: { populationAtGrade: "10", populationHigher: 0, source: { fetchedBy: "usr_private" } },
+                conditionDescriptors: ["sharp corners", { internalNote: "bought at a show" }],
+              },
+            }),
+            storedRow("lst_no_grade", { graded_card: { gradingCompany: "PSA", grade: { internalNote: "x" } } }),
+          ] as Row[],
+        };
+      },
+    };
+
+    const rows = await listItemListings(db, "cat_air_balloon::form:raw|condition:damaged");
+
+    expect(rows.map(({ listing_id }) => listing_id)).toEqual(["lst_malformed", "lst_no_grade"]);
+    expect(rows[0]?.selected_options).toEqual([{ dimensionId: "form", optionId: "graded" }]);
+    expect(rows[0]?.graded_card).toEqual({
+      gradingCompany: "PSA",
+      grade: "Gem Mint 10",
+      certificationNumber: null,
+      population: { populationAtGrade: null, populationHigher: 0, source: null, asOf: null },
+      conditionDescriptors: ["sharp corners"],
+    });
+    expect(rows[1]?.graded_card).toBeNull();
+    const serialized = JSON.stringify(rows);
+    for (const privateText of ["internalRank", "internalNote", "fetchedBy", "12345678"]) {
+      expect(serialized).not.toContain(privateText);
+    }
+  });
+
+  it("selects exactly the stored columns the public Listing row is built from", async () => {
+    const calls: QueryCall[] = [];
+    const db: PgQueryable = {
+      async query<Row = Record<string, unknown>>(sql: string, params: readonly unknown[] = []) {
+        calls.push({ sql, params });
+        return { rows: [] as Row[] };
+      },
+    };
+
+    await listItemListings(db, "cat_air_balloon::form:raw|condition:damaged");
+
+    const sql = calls[0]?.sql ?? "";
+    const selectList = sql.slice(0, sql.indexOf("FROM marketplace_listing_pages"));
+    const selected = [...new Set([...selectList.matchAll(/\blisting\.(\w+)/g)].map((match) => match[1]))].sort();
+    expect(selected).toEqual(
+      [
+        "listing_id",
+        "account_id",
+        "catalog_catalog_item_id",
+        "product_id",
+        "item_title",
+        "item_subtitle",
+        "selected_options",
+        "product_summary",
+        "graded_card",
+        "ship_from_code",
+        "price_amount",
+        "price_currency_code",
+        "listing_stream_version",
+        "shipping_allowance_percentage_bps",
+        "max_units_per_order",
+        "max_units_per_day",
+        "max_units_per_customer_account",
+        "status",
+        // Read to build `public_gallery` and `visible_quantity`; neither is returned as stored.
+        "evidence",
+        "quantity_cap",
+      ].sort(),
+    );
+  });
+
+  it("selects no private column for a public Listing row", async () => {
+    const calls: QueryCall[] = [];
+    const db: PgQueryable = {
+      async query<Row = Record<string, unknown>>(sql: string, params: readonly unknown[] = []) {
+        calls.push({ sql, params });
+        return { rows: [] as Row[] };
+      },
+    };
+
+    await listItemListings(db, "cat_air_balloon::form:raw|condition:damaged");
+
+    const sql = calls[0]?.sql ?? "";
+    const selectList = sql.slice(0, sql.indexOf("FROM marketplace_listing_pages"));
+    expect(selectList).toContain("listing.listing_id");
+    // The join to supply reads `listing.inventory_item_id`; the select list must not.
+    expect(selectList).not.toContain("inventory_item_id");
+    for (const privateColumn of [
+      "ship_from_address",
+      "storage_location_name",
+      "seller_net_unit_amount",
+      "marketplace_sales_fee_unit_amount",
+      "fee_quote_fingerprint",
+      "fee_locks",
+      "terms_schedule_id",
+      "terms_agreement_id",
+      "terms_resolved_at",
+      "evidence_requirements",
+      "pause_reason",
+      "inventory_capacity_recovery_block",
+    ]) {
+      expect(sql).not.toContain(privateColumn);
+    }
+    expect(sql).not.toContain("listing.*");
+    // The stored evidence is read to build the public gallery and never leaves on the row.
+    expect(selectList).toContain("listing.evidence");
   });
 
   it("bounds custom item listing page sizes", async () => {

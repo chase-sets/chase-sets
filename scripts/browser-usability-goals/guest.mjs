@@ -3,11 +3,8 @@ export default {
   routeScope: [
     "^bounded-contexts/public-presence/routes/(marketplace|developers)/",
     "^bounded-contexts/commercial-terms/routes/public/",
-    "^bounded-contexts/discovery/routes/(search|set|item-detail|item-detail-market-history|public-account|public-listing)\\.tsx$",
     "^bounded-contexts/pricing/routes/marketplace/market-price-history\\.tsx$",
-    "^bounded-contexts/auth/routes/marketplace/(sign-in|sign-in-magic|register|invite|sign-out|guest-checkout-exit|guest-payment-claim)\\.tsx$",
-    "^deployables/(marketplace|public-web)/app/routes/",
-    "^bounded-contexts/discovery/routes/item-detail-rail-analytics\\.tsx$",
+    "^deployables/public-web/app/routes/",
   ],
   goals: [
     {
@@ -190,12 +187,7 @@ export default {
         "sales-history":
           "Reobserve the recorded-sales state for that product against the discovery market-history read model; an empty history reported honestly is correct.",
       },
-      routes: {
-        "deployables/marketplace/app/routes/index.tsx": "search-results",
-        "bounded-contexts/discovery/routes/search.tsx": "search-results",
-        "bounded-contexts/discovery/routes/item-detail.tsx": "lowest-ask",
-        "bounded-contexts/discovery/routes/item-detail-market-history.tsx": "sales-history",
-      },
+      routes: {},
       paths: ["bounded-contexts/discovery/", "contracts/catalog-seed/representative-commerce-state.ts"],
     },
     {
@@ -212,10 +204,7 @@ export default {
         "filtered-results":
           "Reobserve the search results constrained to the Base Set with a fifty dollar maximum against the discovery search read model; compare names and lowest prices.",
       },
-      routes: {
-        "bounded-contexts/discovery/routes/set.tsx": "set-facts",
-        "bounded-contexts/discovery/routes/search.tsx": "filtered-results",
-      },
+      routes: {},
       paths: ["bounded-contexts/discovery/", "bounded-contexts/catalog/features/reference-data/"],
     },
     {
@@ -232,10 +221,7 @@ export default {
         "listing-detail":
           "Reobserve the opened listing's price and available quantity against the discovery listing read model and the representative listings.",
       },
-      routes: {
-        "bounded-contexts/discovery/routes/public-account.tsx": "seller-profile",
-        "bounded-contexts/discovery/routes/public-listing.tsx": "listing-detail",
-      },
+      routes: {},
       paths: ["bounded-contexts/discovery/", "contracts/catalog-seed/representative-commerce-state.ts"],
     },
     {
@@ -271,10 +257,8 @@ export default {
         "sign-in-methods":
           "Compare the reported methods against the marketplace auth host's configured sign-in methods; confirm from the recorded actions that no credential was entered and no link or code was requested.",
       },
-      routes: {
-        "bounded-contexts/auth/routes/marketplace/sign-in.tsx": "sign-in-methods",
-      },
-      paths: ["bounded-contexts/auth/features/sign-in/", "bounded-contexts/auth/routes/marketplace/sign-in"],
+      routes: {},
+      paths: ["bounded-contexts/auth/features/sign-in/"],
     },
     {
       id: "create-account",
@@ -289,10 +273,8 @@ export default {
         "registration-requirements":
           "Compare the reported requirements and the no-password option against the registration page's rendered fields; confirm from the recorded actions that nothing was submitted and no account exists for the session.",
       },
-      routes: {
-        "bounded-contexts/auth/routes/marketplace/register.tsx": "registration-requirements",
-      },
-      paths: ["bounded-contexts/auth/features/registration/", "bounded-contexts/auth/routes/marketplace/register"],
+      routes: {},
+      paths: ["bounded-contexts/auth/features/registration/"],
     },
     {
       id: "sign-out",
@@ -309,19 +291,12 @@ export default {
         "session-restored":
           "Confirm the moderator signs the same synthetic account back in before any other goal that starts signed in.",
       },
-      routes: {
-        "bounded-contexts/auth/routes/marketplace/sign-out.tsx": "signed-out",
-      },
-      paths: ["bounded-contexts/auth/support/route-support/", "bounded-contexts/auth/routes/marketplace/sign-out"],
+      routes: {},
+      paths: ["bounded-contexts/auth/support/route-support/"],
       permits: "You may sign out of the synthetic account you start in.",
     },
   ],
   excludedRoutes: [
-    {
-      path: "bounded-contexts/discovery/routes/item-detail-rail-analytics.tsx",
-      reason:
-        "fixture-gap: no participant-observable analytics receipt in the usability fixture; Discovery POST-only ingestion is proven by route and bridge tests, not a standalone page goal",
-    },
     { path: "bounded-contexts/public-presence/routes/marketplace/faq.tsx", reason: "redirect-only" },
     { path: "bounded-contexts/public-presence/routes/marketplace/order-protection.tsx", reason: "redirect-only" },
     { path: "bounded-contexts/public-presence/routes/marketplace/refunds-and-returns.tsx", reason: "redirect-only" },
@@ -345,29 +320,6 @@ export default {
       reason:
         "fixture-gap: CHASE_SETS_M86_DEVELOPER_PORTAL_READY is unset in the bootstrap sandbox, so the route returns 404",
     },
-    {
-      path: "bounded-contexts/auth/routes/marketplace/sign-in-magic.tsx",
-      reason: "fixture-gap: no seeded magic-link token; without one the landing renders only its missing-link error",
-    },
-    {
-      path: "bounded-contexts/auth/routes/marketplace/invite.tsx",
-      reason: "fixture-gap: no seeded invitation id and acceptance token",
-    },
-    {
-      path: "bounded-contexts/auth/routes/marketplace/guest-checkout-exit.tsx",
-      reason: "fixture-gap: no seeded guest checkout session to exit from",
-    },
-    {
-      path: "bounded-contexts/auth/routes/marketplace/guest-payment-claim.tsx",
-      reason: "fixture-gap: no seeded captured guest payment and claim token",
-    },
-    {
-      path: "deployables/marketplace/app/routes/guest-payment-claim.tsx",
-      reason: "fixture-gap: no seeded captured guest payment and claim token",
-    },
-    { path: "deployables/marketplace/app/routes/layout.tsx", reason: "layout-only" },
-    { path: "deployables/marketplace/app/routes/not-found.tsx", reason: "error-page" },
-    { path: "deployables/marketplace/app/routes/offline.tsx", reason: "error-page" },
     { path: "deployables/public-web/app/routes/not-found.tsx", reason: "error-page" },
   ],
 };

@@ -174,7 +174,10 @@ const executableEvidenceNeedles: Readonly<Record<string, readonly RegExp[]>> = {
     /accounts\/acc_1\/reactivate/i,
     /accounts\/acc_1\/close/i,
   ],
-  "bounded-contexts/inventory/tests/account-inventory-routes.test.ts": [/catalogItemId/i, /create-item/i],
+  "bounded-contexts/inventory/features/inventory-items/api/route.test.ts": [
+    /forwards POST items certificationNumber/i,
+    /catalogItemId: "cat_1"/,
+  ],
   "bounded-contexts/marketplace/features/listings/api/runtime.test.ts": [
     /creates batch draft listings from committed inventory snapshots/i,
   ],

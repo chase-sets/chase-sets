@@ -602,7 +602,6 @@
         {
           "routeId": "account-desk-money",
           "routePath": "account/desk/money",
-          "fileExport": "./routes/marketplace/account-desk-money",
           "routeType": "route",
           "sourceContext": "settlement",
           "delivery": "server-only",
@@ -618,7 +617,6 @@
             "web": true,
             "mobile": false
           },
-          "pageComponentExport": "default",
           "unsupportedMobile": {
             "owner": "settlement",
             "followUp": "#5238",
@@ -628,7 +626,6 @@
         {
           "routeId": "account-desk-payout",
           "routePath": "account/desk/payouts/:payoutId",
-          "fileExport": "./routes/marketplace/account-desk-payout",
           "routeType": "route",
           "sourceContext": "settlement",
           "delivery": "server-only",
@@ -644,7 +641,6 @@
             "web": true,
             "mobile": false
           },
-          "pageComponentExport": "default",
           "unsupportedMobile": {
             "owner": "settlement",
             "followUp": "#5238",
@@ -654,7 +650,6 @@
         {
           "routeId": "account-desk-settings",
           "routePath": "account/desk/settings",
-          "fileExport": "./routes/marketplace/account-payout-setup",
           "routeType": "route",
           "sourceContext": "settlement",
           "delivery": "server-only",
@@ -669,7 +664,6 @@
             "web": true,
             "mobile": false
           },
-          "pageComponentExport": "default",
           "unsupportedMobile": {
             "owner": "settlement",
             "followUp": "#5238",
@@ -682,7 +676,6 @@
         {
           "routeId": "account-payout-setup",
           "routePath": "account/payouts/setup",
-          "fileExport": "./routes/marketplace/account-desk-settings",
           "routeType": "route",
           "sourceContext": "settlement",
           "delivery": "server-only",
@@ -697,7 +690,6 @@
             "web": true,
             "mobile": false
           },
-          "pageComponentExport": "default",
           "unsupportedMobile": {
             "owner": "settlement",
             "followUp": "#5238",
@@ -710,7 +702,6 @@
         {
           "routeId": "account-payout",
           "routePath": "account/payouts/:payoutId",
-          "fileExport": "./routes/marketplace/account-payout",
           "routeType": "route",
           "sourceContext": "settlement",
           "delivery": "server-only",
@@ -726,7 +717,6 @@
             "web": true,
             "mobile": false
           },
-          "pageComponentExport": "default",
           "unsupportedMobile": {
             "owner": "settlement",
             "followUp": "#5238",
@@ -736,7 +726,6 @@
         {
           "routeId": "account-payouts",
           "routePath": "account/payouts",
-          "fileExport": "./routes/marketplace/account-payouts",
           "routeType": "route",
           "sourceContext": "settlement",
           "delivery": "server-only",
@@ -752,7 +741,6 @@
             "web": true,
             "mobile": false
           },
-          "pageComponentExport": "default",
           "unsupportedMobile": {
             "owner": "settlement",
             "followUp": "#5238",
@@ -762,7 +750,6 @@
         {
           "routeId": "account-settlement",
           "routePath": "account/settlement",
-          "fileExport": "./routes/marketplace/account-settlement",
           "routeType": "route",
           "sourceContext": "settlement",
           "delivery": "server-only",
@@ -778,7 +765,6 @@
             "web": true,
             "mobile": false
           },
-          "pageComponentExport": "default",
           "unsupportedMobile": {
             "owner": "settlement",
             "followUp": "#5238",
@@ -788,7 +774,6 @@
         {
           "routeId": "account-wallet-adjustment",
           "routePath": "account/wallet/adjustments/:reference",
-          "fileExport": "./routes/marketplace/account-wallet-adjustment",
           "routeType": "route",
           "sourceContext": "settlement",
           "delivery": "server-only",
@@ -803,7 +788,6 @@
             "web": true,
             "mobile": false
           },
-          "pageComponentExport": "default",
           "unsupportedMobile": {
             "owner": "settlement",
             "followUp": "#5238",
@@ -1117,8 +1101,7 @@
         "post-form:bounded-contexts/settlement/features/payouts/ui/payout-request-panel.tsx:H2df726441e2a#1",
         "post-form:bounded-contexts/settlement/features/payouts/ui/payout-request-panel.tsx:H2df726441e2a#2",
         "post-form:bounded-contexts/settlement/features/payouts/ui/payout-request-panel.tsx:H2df726441e2a#3",
-        "post-form:bounded-contexts/settlement/features/money-dashboard/ui/money-dashboard-page.tsx:H2df726441e2a#1",
-        "route-action:bounded-contexts/settlement/routes/marketplace/account-desk-money.tsx"
+        "post-form:bounded-contexts/settlement/features/money-dashboard/ui/money-dashboard-page.tsx:H2df726441e2a#1"
       ],
       "visibleDestination": {
         "routeId": "account-desk-money",
@@ -1127,7 +1110,6 @@
       "proof": {
         "authoritativeResponse": "preview-payout returns the computed preview snapshot, edit-payout returns the submitted draft snapshot, retry and run-reconciliation return reconciliation progress, and confirm-payout preserves the createPayout commit receipt via navigateAfterWrite.",
         "tests": [
-          "bounded-contexts/settlement/routes/marketplace/account-payouts-route.test.ts",
           "bounded-contexts/settlement/features/payouts/api/route.test.ts",
           "bounded-contexts/settlement/features/payouts/ui/payout-detail-page.test.tsx",
           "bounded-contexts/settlement/features/money-dashboard/ui/money-dashboard-page.test.tsx"
@@ -1143,8 +1125,7 @@
         "post-form:bounded-contexts/settlement/features/payout-readiness/ui/payout-readiness-panel.tsx:H2df726441e2a#1",
         "post-form:bounded-contexts/settlement/features/payout-readiness/ui/payout-readiness-panel.tsx:H2df726441e2a#2",
         "post-form:bounded-contexts/settlement/features/payout-readiness/ui/payout-readiness-panel.tsx:H2df726441e2a#3",
-        "post-form:bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.tsx:H2df726441e2a#1",
-        "route-action:bounded-contexts/settlement/routes/marketplace/account-payout-setup.tsx"
+        "post-form:bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.tsx:H2df726441e2a#1"
       ],
       "visibleDestination": {
         "routeId": "account-desk-settings",
@@ -1153,7 +1134,6 @@
       "proof": {
         "authoritativeResponse": "account-payout-setup refresh returns payoutReadiness action data from refreshPayoutSetup, and provider exit stores the same API snapshot locally while triggering route revalidation as a secondary correction path.",
         "tests": [
-          "bounded-contexts/settlement/routes/marketplace/account-payout-setup-route-action.test.ts",
           "bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.test.tsx",
           "bounded-contexts/settlement/features/payout-readiness/api/runtime.test.ts"
         ]

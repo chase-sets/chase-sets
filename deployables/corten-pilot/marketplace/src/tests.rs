@@ -565,8 +565,11 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             // may only see them.
             "channeler" => actor(&["channels.view", "channels.manage"]),
             "channel_reader" => actor(&["channels.view"]),
-            // A buyer at checkout who may see the wallet and saved addresses and save a card.
-            "payer" => actor(&["accounts.view", "payouts.view", "orders.view", "orders.manage"]),
+            // A buyer at checkout who may see the wallet and saved addresses and save a card; the
+            // `terms_` buyers accept the Terms of Service as `terms_api` says.
+            "payer" | "terms_accepted" | "terms_late" | "terms_inactive" | "terms_unconfirmed" | "terms_elsewhere" => {
+                actor(&["accounts.view", "payouts.view", "orders.view", "orders.manage"])
+            }
             // Saved payment methods: `card_reader` may only see them, `card_none` has none.
             "card_reader" => actor(&["orders.view"]),
             "card_none" => actor(&["orders.view", "orders.manage"]),
@@ -615,6 +618,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
         return Json(json!({ "userId": "usr_1", "locale": "en", "timeZone": zone })).into_response();
     }
     if let Some(answer) = team_api(&method, &uri, &headers, &body) {
+        return answer;
+    }
+    if let Some(answer) = terms_api(session, &method, &uri) {
         return answer;
     }
     if let Some(answer) = consents_api(&method, &uri, &headers) {
@@ -790,7 +796,7 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = checkout_sessions(&stand, &method, &uri, &headers, &body) {
         return answer;
     }
-    if let Some(answer) = account_payments(&method, &uri, &headers, &body) {
+    if let Some(answer) = account_payments(session, &method, &uri, &headers, &body) {
         return answer;
     }
     if let Some(answer) = payment_methods(session, &method, uri.path(), &body) {
@@ -1284,7 +1290,7 @@ fn payment_methods(session: &str, method: &Method, path: &str, body: &str) -> Op
 /// no email, and `ord_gone` is not the account's. Payments quotes the card and a bank account, and
 /// refuses a wallet credit of $999.00 and withholds $25.00 until the terms are accepted; starting a
 /// payment (Continue to payment) starts `pay_new`.
-fn account_payments(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
+fn account_payments(session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
     if *method == Method::POST && uri.path() == "/api/marketplace/account/payments" {
         let sent: Value = serde_json::from_str(body).unwrap_or_default();
         if sent["orderIds"] == json!(["ord_refused"]) {
@@ -1327,8 +1333,18 @@ fn account_payments(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str)
             "marketplace_checkout_fee_reduction_amount": "12.63", "total_amount": "626.20",
             "processor_amount": "601.20", "quote_fingerprint": "fp-bank",
         });
-        // The wallet's $25.00 is withheld until the buyer accepts the current terms, as Settlement does.
-        let reasons = if uri.query().unwrap_or_default().contains("requestedBalanceCreditAmount=25.00") {
+        // The wallet's $25.00 is withheld until the buyer accepts the current terms, as Settlement
+        // does: `terms_accepted` has, and a read after Identity's acceptance sees it, though one
+        // waiting for its write at 52 has not caught up.
+        if waits_for_source(headers, "identity") && waits_for(headers).as_deref() == Some("52") {
+            return Some(refusal(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "projection_freshness_timeout",
+                "Projection read model did not catch up to the requested write receipt before the freshness timeout.",
+            ));
+        }
+        let accepted = session == "terms_accepted" || waits_for_source(headers, "identity");
+        let reasons = if !accepted && uri.query().unwrap_or_default().contains("requestedBalanceCreditAmount=25.00") {
             json!([{
                 "code": "wallet-terms-not-accepted",
                 "message": "Accept the current Terms of Service to use wallet balance as payment.",
@@ -16731,13 +16747,13 @@ async fn starting_a_payment_shows_the_orders_quote_and_wallet_and_continue_start
         "{page}"
     );
     assert!(page.contains("Card $18.83 Marketplace Checkout Fee Base card checkout fee Final payment: $638.83"), "{page}");
-    // The form: the wallet's most by default, credit only off while it does not cover the total.
+    // The form. Payments withholds the wallet until the terms are accepted, so the page says so
+    // and offers no wallet balance (the terms' part is `a_buyer_whose_wallet_awaits_the_terms_..`).
     assert!(html.contains(r#"<form id="#) && html.contains(r#"method="post" action="/account/payments/new""#), "{html}");
-    assert!(html.contains(r#"<option value="max" selected>Use up to $25.00</option>"#), "{html}");
-    assert!(html.contains(r#"<option value="platform-credit" disabled>Platform credit only</option>"#), "{html}");
-    assert!(page.contains("Using the maximum leaves $613.83 for secure external payment."), "{page}");
-    // Payments withholds the wallet until the terms are accepted, and the page says so.
     assert!(page.contains("Accept the current Terms of Service to use wallet balance as payment."), "{page}");
+    assert!(html.contains(r#"<option value="max" disabled>Use up to $25.00</option>"#), "{html}");
+    assert!(html.contains(r#"<option value="platform-credit" disabled>Platform credit only</option>"#), "{html}");
+    assert!(page.contains("Continue without wallet balance to pay the quoted external charge."), "{page}");
     // The phone's bar submits the same form.
     assert!(
         html.contains(r#"<button type="submit" class="#) && html.matches("Continue to payment</button>").count() == 2,
@@ -16774,17 +16790,29 @@ async fn starting_a_payment_shows_the_orders_quote_and_wallet_and_continue_start
     assert_eq!(sent["requestedBalanceCreditAmount"], Value::Null);
     assert_eq!(sent["marketplaceCheckoutFeeQuoteFingerprint"], "fp-retry");
 
-    // The wallet's most is what covers the orders when the form is posted.
+    // The wallet's most is what covers the orders when the form is posted, for a buyer whose
+    // wallet Payments lets pay.
     let form = "order_ids=ord_pay&payment_method_category=card&balance_credit_mode=max&requested_balance_credit_amount=";
-    let (status, _, _) = pilot.send(post("/account/payments/new", "payer", form, false)).await;
+    let (status, _, _) = pilot.send(post("/account/payments/new", "terms_accepted", form, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let calls = pilot.stand.calls.lock().unwrap().clone();
     let started = calls.iter().rev().find(|c| c.method == Method::POST && c.path == "/api/marketplace/account/payments").unwrap();
     assert_eq!(serde_json::from_str::<Value>(&started.body).unwrap()["requestedBalanceCreditAmount"], "25.00");
-
-    // A refusal is the page again with Payments' words and the choices kept.
-    let form = "order_ids=ord_pay&payment_method_category=bank-account&balance_credit_mode=custom&requested_balance_credit_amount=999.00";
+    // One whose wallet Payments withholds starts nothing with it: the page again says why.
+    let before = pilot.stand.calls.lock().unwrap().len();
     let (status, _, html) = pilot.send(post("/account/payments/new", "payer", form, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Wallet balance is not available for this payment"), "{html}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    assert!(
+        !calls[before..].iter().any(|c| c.method == Method::POST && c.path == "/api/marketplace/account/payments"),
+        "{calls:?}"
+    );
+
+    // A refusal is the page again with Payments' words and the choices kept. The buyer has accepted
+    // the Terms, since a withheld buyer's wallet choices are off and would not be kept.
+    let form = "order_ids=ord_pay&payment_method_category=bank-account&balance_credit_mode=custom&requested_balance_credit_amount=999.00";
+    let (status, _, html) = pilot.send(post("/account/payments/new", "terms_accepted", form, false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(text(&html).contains("Requested balance credit exceeds the available wallet balance."), "{html}");
     assert!(html.contains(r#"<option value="custom" selected>"#) && html.contains(r#"value="999.00""#), "{html}");
@@ -16793,6 +16821,134 @@ async fn starting_a_payment_shows_the_orders_quote_and_wallet_and_continue_start
     let (status, _, html) = pilot.send(post("/account/payments/new", "payer", form, false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(text(&html).contains("The payment quote changed. Review it again."), "{html}");
+}
+
+/// Identity's Terms of Service acceptance calls the stand-in received.
+fn terms_accepts(pilot: &Pilot) -> usize {
+    let calls = pilot.stand.calls.lock().unwrap();
+    calls.iter().filter(|c| c.method == Method::POST && c.path == "/api/identity/consents/terms-of-service/accept").count()
+}
+
+#[tokio::test]
+async fn a_buyer_whose_wallet_awaits_the_terms_accepts_them_and_then_pays_from_the_wallet() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/account/payments/new?orderIds=ord_pay", Some("payer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(
+        page.contains(
+            "Wallet balance is not available for this payment Accept the current Terms of Service to use wallet balance as payment."
+        ),
+        "{page}"
+    );
+    assert!(html.contains(">Review Terms of Service</a>") && html.contains("/terms"), "{html}");
+    assert!(html.contains(r#"<input type="hidden" name="intent" value="accept-terms">"#), "{html}");
+    assert!(page.contains("Accept Terms of Service"), "{page}");
+    assert!(html.contains(r#"<option value="none" selected>"#), "{html}");
+    assert!(!page.contains("Refresh wallet status"), "{page}");
+
+    // Accept Terms of Service: Identity records it, once, and the page is read again after its write.
+    let (status, headers, html) =
+        pilot.send(post("/account/payments/new", "payer", "order_ids=ord_pay&intent=accept-terms", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(to.starts_with("/account/payments/new?orderIds=ord_pay&afterWrite="), "{to}");
+    let after: Value = serde_json::from_str(&query(&to)["afterWrite"]).unwrap();
+    assert_eq!(
+        (after["commitPosition"].as_str(), after["sources"][0]["sourceContextName"].as_str()),
+        (Some("51"), Some("identity"))
+    );
+    assert_eq!(terms_accepts(&pilot), 1);
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    assert!(!calls.iter().any(|c| c.method == Method::POST && c.path == "/api/marketplace/account/payments"), "{calls:?}");
+
+    // Read after Identity's write, Payments' quote lets the wallet pay.
+    let (status, _, html) = pilot.send(get(&to, Some("payer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(!page.contains("Wallet balance is not available") && !page.contains("Accept Terms of Service"), "{page}");
+    assert!(html.contains(r#"<option value="max" selected>Use up to $25.00</option>"#), "{html}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    let quoted = calls.iter().rev().find(|c| c.path.starts_with("/api/marketplace/account/checkout/status")).unwrap();
+    assert!(waits_for_source(&quoted.headers, "identity") && quoted.path.contains("requestedBalanceCreditAmount=25.00"));
+
+    // Continue to payment's form carries the receipt, so its quote sees the acceptance too, and the
+    // payment uses the wallet's most.
+    let action = to.replace("orderIds=ord_pay&", "");
+    assert!(html.contains(&format!(r#"method="post" action="{action}""#)), "{action}: {html}");
+    let form = "order_ids=ord_pay&payment_method_category=card&balance_credit_mode=max&requested_balance_credit_amount=";
+    let (status, headers, html) = pilot.send(post(&action, "payer", form, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/payments/pay_new?afterWrite="), "{headers:?}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    let started = calls.iter().rev().find(|c| c.method == Method::POST && c.path == "/api/marketplace/account/payments").unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&started.body).unwrap()["requestedBalanceCreditAmount"], "25.00");
+    assert_eq!(terms_accepts(&pilot), 1);
+}
+
+#[tokio::test]
+async fn a_buyer_who_has_accepted_the_terms_is_offered_no_terms_action() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/account/payments/new?orderIds=ord_pay", Some("terms_accepted"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    for absent in
+        ["Wallet balance is not available", "Review Terms of Service", "Accept Terms of Service", "Refresh wallet status"]
+    {
+        assert!(!page.contains(absent), "{absent}: {page}");
+    }
+    assert!(!html.contains(r#"name="intent""#), "{html}");
+    assert!(html.contains(r#"<option value="max" selected>Use up to $25.00</option>"#), "{html}");
+    assert!(page.contains("Using the maximum leaves $613.83 for secure external payment."), "{page}");
+    assert_eq!(terms_accepts(&pilot), 0);
+}
+
+#[tokio::test]
+async fn an_acceptance_identity_does_not_confirm_keeps_the_orders_and_the_wallet_withheld() {
+    let pilot = Pilot::new().await;
+    // No terms in effect to accept, an answer with no write, and a receipt that is not Identity's.
+    for (n, session) in ["terms_inactive", "terms_unconfirmed", "terms_elsewhere"].into_iter().enumerate() {
+        let (status, _, html) =
+            pilot.send(post("/account/payments/new", session, "order_ids=ord_pay&intent=accept-terms", false)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{session}: {html}");
+        let page = text(&html);
+        assert!(
+            page.contains("Terms acceptance could not be confirmed. Review the Terms or continue without wallet balance."),
+            "{session}: {page}"
+        );
+        assert!(page.contains("Purchase ord_pay") && page.contains("Total due $638.83"), "{session}: {page}");
+        assert!(page.contains("Wallet balance is not available for this payment"), "{session}: {page}");
+        assert!(html.contains(r#"<option value="max" disabled>Use up to $25.00</option>"#), "{session}: {html}");
+        assert!(html.contains(r#"name="intent" value="accept-terms""#), "{session}: {html}");
+        assert_eq!(terms_accepts(&pilot), n + 1, "{session}");
+    }
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    assert!(!calls.iter().any(|c| c.method == Method::POST && c.path == "/api/marketplace/account/payments"), "{calls:?}");
+}
+
+#[tokio::test]
+async fn while_the_read_after_accepting_catches_up_the_wallet_stays_withheld_with_a_refresh() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) =
+        pilot.send(post("/account/payments/new", "terms_late", "order_ids=ord_pay&intent=accept-terms", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    let (status, _, html) = pilot.send(get(&to, Some("terms_late"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Wallet balance is not available for this payment"), "{page}");
+    assert!(page.contains("Wallet status is catching up. Refresh before using wallet balance."), "{page}");
+    assert!(html.contains(&format!(r#"href="{}">Refresh wallet status</a>"#, to.replace('&', "&amp;"))), "{to}: {html}");
+    assert!(!html.contains(r#"name="intent""#), "{html}");
+    assert!(html.contains(r#"<option value="max" disabled>Use up to $25.00</option>"#), "{html}");
+    // Continue to payment with the wallet while it catches up starts nothing.
+    let action = to.replace("orderIds=ord_pay&", "");
+    let form = "order_ids=ord_pay&payment_method_category=card&balance_credit_mode=max&requested_balance_credit_amount=";
+    let (status, _, html) = pilot.send(post(&action, "terms_late", form, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Wallet status is catching up. Refresh before using wallet balance."), "{html}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    assert!(!calls.iter().any(|c| c.method == Method::POST && c.path == "/api/marketplace/account/payments"), "{calls:?}");
 }
 
 #[tokio::test]
@@ -17502,6 +17658,27 @@ const CONSENTS: &str = "/account/consents";
 /// is still catching up. A withdrawal's
 /// attempt decides an answer as a team write's does (`NO_RECORD`, `APPLIED_BEFORE`, `CHECK_DOWN`
 /// are `indeterminate`); the old Privacy Policy is refused as superseded.
+/// Identity's Terms of Service acceptance, as each `terms_` buyer's answers: `payer`'s is
+/// Identity's write at 51, `terms_late`'s at 52 (which Payments' quote has not caught up with),
+/// `terms_inactive` has no terms in effect to accept, `terms_unconfirmed`'s says accepted with no
+/// write (they already were), and `terms_elsewhere`'s receipt is not Identity's.
+fn terms_api(session: &str, method: &Method, uri: &Uri) -> Option<Response> {
+    if *method != Method::POST || uri.path() != "/api/identity/consents/terms-of-service/accept" {
+        return None;
+    }
+    let status = json!({ "accepted": true, "requiredVersion": "2026-05-01", "acceptedVersion": "2026-05-01" });
+    Some(match session {
+        "payer" => committed(StatusCode::CREATED, "identity", "51", status),
+        "terms_late" => committed(StatusCode::CREATED, "identity", "52", status),
+        "terms_elsewhere" => committed(StatusCode::CREATED, "settlement", "51", status),
+        "terms_unconfirmed" => Json(status).into_response(),
+        "terms_inactive" => {
+            refusal(StatusCode::CONFLICT, "terms_of_service_not_active", "No Terms of Service version is active.")
+        }
+        _ => refusal(StatusCode::UNAUTHORIZED, "authentication_required", "Sign in."),
+    })
+}
+
 fn consents_api(method: &Method, uri: &Uri, headers: &HeaderMap) -> Option<Response> {
     let path = uri.path();
     let attempt = headers.get("idempotency-key").and_then(|v| v.to_str().ok()).unwrap_or_default();

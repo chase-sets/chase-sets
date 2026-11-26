@@ -714,7 +714,7 @@ function admissionFixture() {
     apiVersion: "v1",
     kind: "Node",
     metadata: meta("node", {
-      labels: { "chase-sets.com/pool": "preview", "node.kubernetes.io/instance-type": "s-4vcpu-16gb-amd" },
+      labels: { "chase-sets.com/pool": "preview", "node.kubernetes.io/instance-type": "s-4vcpu-16gb-320gb-intel" },
     }),
     spec: { taints: [{ key: "chase-sets.com/preview-only", value: "true", effect: "NoSchedule" }] },
     status: {
@@ -1634,7 +1634,7 @@ describe("producer inventory", () => {
 describe("admission recheck", () => {
   it("refuses the old preview slug while replacement nodes drain", async () => {
     const f = admissionFixture();
-    f.bodies.nodes.items[0].metadata.labels["node.kubernetes.io/instance-type"] = "s-8vcpu-16gb";
+    f.bodies.nodes.items[0].metadata.labels["node.kubernetes.io/instance-type"] = "s-4vcpu-16gb-amd";
     expect(await f.run()).toMatchObject({ state: "REFUSED", reasons: ["INSTANCE_TYPE"] });
   });
 

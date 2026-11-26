@@ -1,18 +1,6 @@
 export default {
   id: "seller",
-  routeScope: [
-    "^bounded-contexts/checkout/routes/(account-desk-offers|account-sell-list|sell-checkout-session|sell-checkout-confirmation)\\.tsx$",
-    "^bounded-contexts/marketplace/routes/(account-desk|account-listing|account-listings|account-listings-new)\\.tsx$",
-    "^bounded-contexts/marketplace/routes/marketplace/(account-received-reviews|account-sale-review)\\.tsx$",
-    "^bounded-contexts/ordering/routes/account-sales?\\.tsx$",
-    "^bounded-contexts/fulfillment/routes/marketplace/account-sale-",
-    "^bounded-contexts/inventory/routes/marketplace/",
-    "^bounded-contexts/pricing/routes/marketplace/(account-desk-pricing-health|account-desk-repricing|account-desk-repricing-policy|account-repricing|bulk-reprice)\\.tsx$",
-    "^bounded-contexts/settlement/routes/marketplace/",
-    "^bounded-contexts/channels/routes/marketplace/",
-    "^bounded-contexts/identity/routes/marketplace/account-team\\.tsx$",
-    "^bounded-contexts/fulfillment/routes/seller-shipping-setup\\.tsx$",
-  ],
+  routeScope: [],
   goals: [
     ...[
       { id: "seller-shipping-setup", startSignedIn: true, ownerMode: "authenticated account" },
@@ -35,12 +23,8 @@ export default {
         "fixture-restored":
           "Moderator resets the isolated synthetic fixture to its preflight state after the run; no support operation, provider call or other owner's setup may change.",
       },
-      routes: {
-        "bounded-contexts/fulfillment/routes/seller-shipping-setup.tsx": "saved-choices",
-      },
       paths: [
         "bounded-contexts/fulfillment/features/seller-checkout-readiness/",
-        "bounded-contexts/fulfillment/routes/seller-shipping-setup",
         "bounded-contexts/fulfillment/client.ts",
         "bounded-contexts/fulfillment/support/request-support/",
         "contracts/auth-context/",
@@ -63,13 +47,8 @@ export default {
         "clean-route-readback": "A clean-route revisit without receipt parameters.",
         "fixture-restored": "Restoration of the same synthetic account's initially empty schedule.",
       },
-      routes: {
-        "bounded-contexts/marketplace/routes/account-listings.tsx": "scheduled-dates",
-      },
-      paths: [
-        "bounded-contexts/marketplace/features/listings/",
-        "bounded-contexts/marketplace/routes/account-listings",
-      ],
+      routes: {},
+      paths: ["bounded-contexts/marketplace/features/listings/"],
       permits: "You may schedule time away for the dates in your task context.",
       selectOnSharedChange: true,
     },
@@ -87,9 +66,7 @@ export default {
         "orders-to-ship-count":
           "Ordering seller open-order count read model for the synthetic seller. A degraded tile reported as unavailable is a valid answer only if the read model call actually failed.",
       },
-      routes: {
-        "bounded-contexts/marketplace/routes/account-desk.tsx": "active-listings-count",
-      },
+      routes: {},
       paths: [
         "bounded-contexts/marketplace/features/seller-desk/",
         "bounded-contexts/marketplace/support/route-support/account-desk/",
@@ -115,11 +92,8 @@ export default {
         "fixture-restored":
           "Moderator restores the same listing to its seeded 620.00 USD price and confirms it in the read model.",
       },
-      routes: {
-        "bounded-contexts/marketplace/routes/account-listings.tsx": "listing-identity",
-        "bounded-contexts/marketplace/routes/account-listing.tsx": "new-price-persisted",
-      },
-      paths: ["bounded-contexts/marketplace/features/listings/", "bounded-contexts/marketplace/routes/account-listing"],
+      routes: {},
+      paths: ["bounded-contexts/marketplace/features/listings/"],
       permits: "You may change the price of the one listing named in your task context to the amount given there.",
     },
     {
@@ -138,13 +112,8 @@ export default {
         "nothing-created":
           "Seller listing read model for the synthetic seller has no new listing after the run; inventory stock for the item is unchanged.",
       },
-      routes: {
-        "bounded-contexts/marketplace/routes/account-listings-new.tsx": "fee-preview",
-      },
-      paths: [
-        "bounded-contexts/marketplace/features/listings/",
-        "bounded-contexts/marketplace/routes/account-listings-new",
-      ],
+      routes: {},
+      paths: ["bounded-contexts/marketplace/features/listings/"],
     },
     {
       id: "seller-offer-review",
@@ -164,16 +133,8 @@ export default {
         "fixture-restored":
           "Moderator removes the sell-list line the participant added, confirms the offer is still submitted (not accepted or declined), and confirms no sale or checkout session exists for it.",
       },
-      routes: {
-        "bounded-contexts/checkout/routes/account-sell-list.tsx": "expected-payout",
-        "bounded-contexts/checkout/routes/account-desk-offers.tsx": "expected-payout",
-      },
-      paths: [
-        "bounded-contexts/checkout/features/sell-list/",
-        "bounded-contexts/checkout/routes/account-sell-list",
-        "bounded-contexts/checkout/routes/account-desk-offers",
-        "bounded-contexts/marketplace/features/offers/",
-      ],
+      routes: {},
+      paths: ["bounded-contexts/checkout/features/sell-list/", "bounded-contexts/marketplace/features/offers/"],
       permits: "You may add the one offer named in your task context to your sell list so that its terms are shown.",
     },
     {
@@ -191,11 +152,8 @@ export default {
         "feedback-eligibility":
           "Reputation order review opportunity for that order: eligible_at is the seeded delivery time 2026-03-22T12:00Z with a 60-day window, so the window is expired; the order also carries the seller's withdrawn seeded review rev_seed_seller_to_buyer_withdrawn. The answer must match the opportunity read model, not the participant's assumption.",
       },
-      routes: {
-        "bounded-contexts/ordering/routes/account-sales.tsx": "sale-identity",
-        "bounded-contexts/ordering/routes/account-sale.tsx": "sale-status",
-      },
-      paths: ["bounded-contexts/ordering/features/orders/", "bounded-contexts/ordering/routes/account-sale"],
+      routes: {},
+      paths: ["bounded-contexts/ordering/features/orders/"],
     },
     {
       id: "seller-shipment-label-pending",
@@ -213,15 +171,8 @@ export default {
         "packing-slip":
           "A clean-route revisit of the packing-slip print page for that shipment id (the seller packing-slip read model), compared with what the participant reported. The print link opens a new tab, so record a participant who could not read it as an obstacle, not a pass.",
       },
-      routes: {
-        "bounded-contexts/fulfillment/routes/marketplace/account-sale-shipments.tsx": "shipment-identity",
-        "bounded-contexts/fulfillment/routes/marketplace/account-sale-shipment.tsx": "shipment-details",
-        "bounded-contexts/fulfillment/routes/marketplace/account-sale-shipment-packing-slips.tsx": "packing-slip",
-      },
-      paths: [
-        "bounded-contexts/fulfillment/features/shipments/",
-        "bounded-contexts/fulfillment/routes/marketplace/account-sale-",
-      ],
+      routes: {},
+      paths: ["bounded-contexts/fulfillment/features/shipments/"],
     },
     {
       id: "seller-shipment-carrier-delay",
@@ -237,14 +188,8 @@ export default {
         "carrier-report":
           "Fulfillment shipment read model for shp_seed_exception: carrier note 'Missed origin scan handoff.' and tracking reference 1ZSEEDEXCEPTION.",
       },
-      routes: {
-        "bounded-contexts/fulfillment/routes/marketplace/account-sale-shipments.tsx": "delayed-shipment",
-        "bounded-contexts/fulfillment/routes/marketplace/account-sale-shipment.tsx": "carrier-report",
-      },
-      paths: [
-        "bounded-contexts/fulfillment/features/shipments/",
-        "bounded-contexts/fulfillment/routes/marketplace/account-sale-",
-      ],
+      routes: {},
+      paths: ["bounded-contexts/fulfillment/features/shipments/"],
     },
     {
       id: "seller-inventory-stock",
@@ -262,12 +207,8 @@ export default {
         "retired-locations":
           "Bootstrap locations: loc_seed_north_shelf and loc_seed_vault_annex active; loc_seed_archived_overflow ('Archived overflow') archived. Compare against the storage location read model.",
       },
-      routes: {
-        "bounded-contexts/inventory/routes/marketplace/account-inventory.tsx": "stock-and-location",
-        "bounded-contexts/inventory/routes/marketplace/account-inventory-item.tsx": "held-units",
-        "bounded-contexts/inventory/routes/marketplace/account-inventory-locations.tsx": "retired-locations",
-      },
-      paths: ["bounded-contexts/inventory/features/", "bounded-contexts/inventory/routes/marketplace/"],
+      routes: {},
+      paths: ["bounded-contexts/inventory/features/"],
     },
     {
       id: "seller-returned-package",
@@ -283,13 +224,8 @@ export default {
         "return-reason":
           "Same read model row: return reason 'Carrier return to sender', pending since 2026-03-22T12:00Z. The decision must still be pending with no outcome after the run.",
       },
-      routes: {
-        "bounded-contexts/inventory/routes/marketplace/account-inventory-restock-decisions.tsx": "returned-item",
-      },
-      paths: [
-        "bounded-contexts/inventory/features/restock-decisions/",
-        "bounded-contexts/inventory/routes/marketplace/account-inventory-restock-decisions",
-      ],
+      routes: {},
+      paths: ["bounded-contexts/inventory/features/restock-decisions/"],
     },
     {
       id: "seller-price-suggestion",
@@ -307,13 +243,8 @@ export default {
         "fixture-restored":
           "No listing price changed and no recommendation was applied; the moderator dismisses any recommendations a refresh produced so that no proposed or applied recommendation remains for the next run (dismissed rows persist in the read model).",
       },
-      routes: {
-        "bounded-contexts/pricing/routes/marketplace/account-repricing.tsx": "suggested-price",
-      },
-      paths: [
-        "bounded-contexts/pricing/features/recommendations/",
-        "bounded-contexts/pricing/routes/marketplace/account-repricing",
-      ],
+      routes: {},
+      paths: ["bounded-contexts/pricing/features/recommendations/"],
       permits: "You may request fresh price suggestions for this synthetic account.",
     },
     {
@@ -332,13 +263,8 @@ export default {
         "clean-route-readback": "A clean-route revisit shows the halt still engaged.",
         "fixture-restored": "Moderator releases the halt and confirms the released state in the read model.",
       },
-      routes: {
-        "bounded-contexts/pricing/routes/marketplace/account-desk-repricing.tsx": "halt-engaged",
-      },
-      paths: [
-        "bounded-contexts/pricing/features/repricing-policies/",
-        "bounded-contexts/pricing/routes/marketplace/account-desk-repricing",
-      ],
+      routes: {},
+      paths: ["bounded-contexts/pricing/features/repricing-policies/"],
       permits: "You may stop (halt) automatic repricing for this synthetic account.",
     },
     {
@@ -357,11 +283,8 @@ export default {
         "manual-credit":
           "Bootstrap ledger entry led_seed_available_adjustment_credit: 30.00 USD adjustment credit dated 2026-03-24T09:05Z, read from the settlement wallet activity read model.",
       },
-      routes: {
-        "bounded-contexts/settlement/routes/marketplace/account-desk-money.tsx": "payout-identity",
-        "bounded-contexts/settlement/routes/marketplace/account-desk-payout.tsx": "payout-outcome",
-      },
-      paths: ["bounded-contexts/settlement/features/", "bounded-contexts/settlement/routes/marketplace/account-desk-"],
+      routes: {},
+      paths: ["bounded-contexts/settlement/features/"],
     },
     {
       id: "seller-channel-connection",
@@ -381,14 +304,8 @@ export default {
         "publication-readiness":
           "Channels publication settings read model for that connection: bootstrap seeds no publication settings or mappings, so the connection is not yet set up to carry listings. Compare the participant's answer against that read model.",
       },
-      routes: {
-        "bounded-contexts/channels/routes/marketplace/account-channels.tsx": "connection-identity",
-        "bounded-contexts/channels/routes/marketplace/account-channels-connection.tsx": "connection-state",
-        "bounded-contexts/channels/routes/marketplace/account-channels-publication.tsx": "publication-connection",
-        "bounded-contexts/channels/routes/marketplace/account-channels-publication-connection.tsx":
-          "publication-readiness",
-      },
-      paths: ["bounded-contexts/channels/features/", "bounded-contexts/channels/routes/marketplace/"],
+      routes: {},
+      paths: ["bounded-contexts/channels/features/"],
     },
     {
       id: "seller-ebay-sandbox-connection",
@@ -406,13 +323,8 @@ export default {
         "setup-boundary":
           "The participant reports that authorization leaves the connection pending setup, without starting syncing or publishing; compare against the Channels connection state machine.",
       },
-      routes: {
-        "bounded-contexts/channels/routes/marketplace/account-channels-ebay.tsx": "authorization-state",
-      },
-      paths: [
-        "bounded-contexts/channels/features/ebay-connection/",
-        "bounded-contexts/channels/routes/marketplace/account-channels-ebay",
-      ],
+      routes: {},
+      paths: ["bounded-contexts/channels/features/ebay-connection/"],
     },
     {
       id: "seller-team-roster",
@@ -428,9 +340,7 @@ export default {
         "pending-invitations":
           "Bootstrap invitations ivt_seed_support_accept_sha256 (accepted), ivt_seed_declined, ivt_seed_cancelled, ivt_seed_expired: none pending. The correct answer is that nobody is still waiting, unless the invitations read model says otherwise.",
       },
-      routes: {
-        "bounded-contexts/identity/routes/marketplace/account-team.tsx": "team-roster",
-      },
+      routes: {},
       paths: ["bounded-contexts/identity/features/memberships/"],
     },
     {
@@ -445,66 +355,9 @@ export default {
         "received-review":
           "Bootstrap review rev_seed_buyer_to_seller_active (bounded-contexts/marketplace/support/runtime-support/seed.ts): the only review received by the synthetic seller, rating updated to 5, text 'Packed well, shipped quickly, and matched the listing.', revealed. Compare against the reputation received-reviews read model.",
       },
-      routes: {
-        "bounded-contexts/marketplace/routes/marketplace/account-received-reviews.tsx": "received-review",
-      },
-      paths: [
-        "bounded-contexts/marketplace/features/reviews/",
-        "bounded-contexts/marketplace/routes/marketplace/account-received-reviews",
-      ],
+      routes: {},
+      paths: ["bounded-contexts/marketplace/features/reviews/"],
     },
   ],
-  excludedRoutes: [
-    {
-      path: "bounded-contexts/channels/routes/marketplace/ebay-callback.tsx",
-      reason: "provider-step-only",
-    },
-    {
-      path: "bounded-contexts/pricing/routes/marketplace/account-desk-pricing-health.tsx",
-      reason:
-        "fixture-gap: the goal-only demo fixture has no active policy or stored health run; the isolated seeded Playwright spec owns populated coverage",
-    },
-    {
-      path: "bounded-contexts/checkout/routes/sell-checkout-session.tsx",
-      reason:
-        "fixture-gap: payout-ready demo seller (bootstrap payout readiness is not-started, which disables seller checkout from the sell list)",
-    },
-    {
-      path: "bounded-contexts/checkout/routes/sell-checkout-confirmation.tsx",
-      reason: "fixture-gap: committed sell-checkout confirmation for the demo seller",
-    },
-    {
-      path: "bounded-contexts/marketplace/routes/marketplace/account-sale-review.tsx",
-      reason:
-        "fixture-gap: demo sale with an open seller-to-buyer review window (the seeded 2026-03-22 delivery closed the 60-day window)",
-    },
-    {
-      path: "bounded-contexts/fulfillment/routes/marketplace/account-sale-shipment-packing.tsx",
-      reason: "fixture-gap: demo sale shipment still awaiting packing (every seeded shipment is already packed)",
-    },
-    {
-      path: "bounded-contexts/inventory/routes/marketplace/account-inventory-imports.tsx",
-      reason: "fixture-gap: inventory import batch for the demo seller",
-    },
-    {
-      path: "bounded-contexts/pricing/routes/marketplace/account-desk-repricing-policy.tsx",
-      reason: "fixture-gap: repricing policy for the demo seller",
-    },
-    {
-      path: "bounded-contexts/pricing/routes/marketplace/bulk-reprice.tsx",
-      reason:
-        "fixture-gap: bulk reprice job for the demo seller (the probe wrapper cannot upload the CSV that starts one)",
-    },
-    { path: "bounded-contexts/settlement/routes/marketplace/account-desk-settings.tsx", reason: "redirect-only" },
-    { path: "bounded-contexts/settlement/routes/marketplace/account-payout.tsx", reason: "redirect-only" },
-    { path: "bounded-contexts/settlement/routes/marketplace/account-payouts.tsx", reason: "redirect-only" },
-    { path: "bounded-contexts/settlement/routes/marketplace/account-settlement.tsx", reason: "redirect-only" },
-    { path: "bounded-contexts/settlement/routes/marketplace/account-wallet-adjustment.tsx", reason: "redirect-only" },
-    { path: "bounded-contexts/settlement/routes/marketplace/account-payout-setup.tsx", reason: "provider-step-only" },
-    {
-      path: "bounded-contexts/channels/routes/marketplace/account-channel-connection-manual-sync-download.tsx",
-      reason:
-        "fixture-gap: restorable composed manual-sync run (the seeded run starts in clamp recovery, and its download claims the run and clamps the listing with no restore path)",
-    },
-  ],
+  excludedRoutes: [],
 };

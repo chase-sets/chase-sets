@@ -436,17 +436,20 @@ describe("surface contracts and coverage", () => {
       unclaimed: [],
     });
   });
-  it("partitions representative route fixtures across all five surfaces", () => {
+  it("partitions representative route fixtures across the surfaces that still have route modules", () => {
+    // The Corten marketplace serves the buyer and seller surfaces, so they have no React route modules to scope.
+    expect(browserUsabilityGoalModules.filter((s) => !s.routeScope.length).map((s) => s.id)).toEqual([
+      "buyer",
+      "seller",
+    ]);
     const result = auditBrowserUsabilityRoutes([
       "bounded-contexts/public-presence/routes/marketplace/home.tsx",
-      "bounded-contexts/ordering/routes/account-purchase.tsx",
-      "bounded-contexts/marketplace/routes/account-listings.tsx",
       "bounded-contexts/catalog/routes/scopes.tsx",
       "deployables/admin-web/app/routes/layout.tsx",
     ]).coverage;
     expect(result.unscoped).toEqual([]);
     expect(result.invalid).toEqual([]);
-    expect(Object.values(result.surfaces).map((surface) => surface.inScope)).toEqual([1, 1, 1, 1, 1]);
+    expect(Object.values(result.surfaces).map((surface) => surface.inScope)).toEqual([1, 0, 0, 1, 1]);
   });
   it("supports advisory surface filtering without gating production coverage", () => {
     const result = main(["audit"]).coverage;
@@ -679,6 +682,10 @@ describe("read-only sweep summaries", () => {
     return root;
   }
   const audit = (root, extra = {}) => auditProbeSweep({ root, surfaceId: "buyer", ...extra });
+  // Route coverage needs a surface that still has route modules; the guest help pages are claimed by condition-policy.
+  const guestAudit = (root, extra = {}) => auditProbeSweep({ root, surfaceId: "guest", ...extra });
+  const guestGoal = "condition-policy";
+  const helpRoute = (name) => `bounded-contexts/public-presence/routes/marketplace/${name}.tsx`;
   it.each(["finished", "timed-out"])("summarizes a clean or %s terminal attempt", (status) => {
     const root = sweep();
     const f = sweepRun(root, "attempt", { status });
@@ -791,37 +798,37 @@ describe("read-only sweep summaries", () => {
   });
   it("does not exercise a blocked navigation target; a reached broken page is exercised", () => {
     const root = sweep();
-    const target = "bounded-contexts/fulfillment/routes/marketplace/account-shipment.tsx";
-    const f = sweepRun(root, "blocked", { goalId: "buyer-shipment" });
+    const target = helpRoute("help");
+    const f = sweepRun(root, "blocked", { goalId: guestGoal });
     judge(f, { findings: [finding()] }, "blocked");
-    const before = audit(root);
+    const before = guestAudit(root);
     expect(before.coverage.exercised).not.toContain(target);
     expect(before.coverage.unexercised).toContainEqual({
-      key: `buyer/unexercised/${target}`,
+      key: `guest/unexercised/${target}`,
       route: target,
-      goalId: "buyer-shipment",
+      goalId: guestGoal,
       status: "blocked",
     });
-    const broken = sweepRun(root, "broken", { goalId: "buyer-shipment", preparedAt: "2026-10-03T15:00:00Z" });
+    const broken = sweepRun(root, "broken", { goalId: guestGoal, preparedAt: "2026-10-03T15:00:00Z" });
     const receipt = judge(broken, { reachedRoutes: [{ route: target, step: 0, evidence: "proof.txt" }] }, "incorrect");
     expect(receipt.reachedRoutes[0].evidence.sha256).toMatch(/^[0-9a-f]{64}$/);
-    expect(audit(root).coverage.exercised).toContain(target);
+    expect(guestAudit(root).coverage.exercised).toContain(target);
   });
   it("uses only selected reachedRoutes, gives exclusions precedence, and partitions the route universe", () => {
     const root = sweep();
-    const surface = browserUsabilityGoalModules.find((s) => s.id === "buyer");
-    const excluded = "bounded-contexts/ordering/routes/account-purchase.tsx";
-    const reached = "bounded-contexts/fulfillment/routes/marketplace/account-shipment.tsx";
-    const old = "bounded-contexts/fulfillment/routes/marketplace/account-shipments.tsx";
-    judge(sweepRun(root, "older", { goalId: "buyer-shipment" }), {
+    const surface = browserUsabilityGoalModules.find((s) => s.id === "guest");
+    const excluded = helpRoute("help-category");
+    const reached = helpRoute("help");
+    const old = helpRoute("help-article");
+    judge(sweepRun(root, "older", { goalId: guestGoal }), {
       reachedRoutes: [{ route: old, step: 0, evidence: "proof.txt" }],
     });
-    judge(sweepRun(root, "selected", { goalId: "buyer-shipment", preparedAt: "2026-10-03T15:00:00Z" }), {
+    judge(sweepRun(root, "selected", { goalId: guestGoal, preparedAt: "2026-10-03T15:00:00Z" }), {
       reachedRoutes: [excluded, reached].map((route) => ({ route, step: 0, evidence: "proof.txt" })),
     });
     surface.excludedRoutes.push({ path: excluded, reason: "provider-step-only" });
     try {
-      const coverage = audit(root, { files: [excluded, reached, old] }).coverage;
+      const coverage = guestAudit(root, { files: [excluded, reached, old] }).coverage;
       expect(coverage.exercised).toEqual([reached]);
       expect(coverage.unexercised.map((entry) => entry.route)).toEqual([old]);
       expect(coverage.excluded).toEqual([{ path: excluded, reason: "provider-step-only" }]);
@@ -838,10 +845,10 @@ describe("read-only sweep summaries", () => {
   });
   it.each([false, true])("scopes exclusions to the audited route universe (empty: %s)", (empty) => {
     const root = sweep();
-    const surface = browserUsabilityGoalModules.find((s) => s.id === "buyer");
-    const excluded = "bounded-contexts/ordering/routes/account-purchase.tsx";
-    const outside = "bounded-contexts/fulfillment/routes/marketplace/account-shipment.tsx";
-    const unexercised = "bounded-contexts/fulfillment/routes/marketplace/account-shipments.tsx";
+    const surface = browserUsabilityGoalModules.find((s) => s.id === "guest");
+    const excluded = helpRoute("help-category");
+    const outside = helpRoute("help");
+    const unexercised = helpRoute("help-article");
     const files = empty ? [] : [excluded, unexercised];
     const exclusions = [
       { path: excluded, reason: "provider-step-only" },
@@ -849,8 +856,8 @@ describe("read-only sweep summaries", () => {
     ];
     surface.excludedRoutes.push(...exclusions);
     try {
-      expect(audit(root).coverage.excluded).toEqual(surface.excludedRoutes);
-      const coverage = audit(root, { files }).coverage;
+      expect(guestAudit(root).coverage.excluded).toEqual(surface.excludedRoutes);
+      const coverage = guestAudit(root, { files }).coverage;
       expect(coverage.exercised).toEqual([]);
       expect(coverage.unexercised.map((entry) => entry.route)).toEqual(empty ? [] : [unexercised]);
       expect(coverage.excluded).toEqual(empty ? [] : [exclusions[0]]);

@@ -154,8 +154,7 @@ export function catalogAuditSampleForm(productForm: string | null): CatalogAudit
   return null;
 }
 
-// Discovery's public item path, as bounded-contexts/discovery/routes/set.tsx
-// builds it. Catalog stores no slug (Discovery derives it), so the sample uses
+// The marketplace's public item path. Catalog stores no slug (Discovery derives it), so the sample uses
 // the id branch, which the item route resolves to the canonical slug.
 export function catalogAuditSamplePublicPath(item: Readonly<{ slug?: string | null; catalogItemId: string }>): string {
   return `/items/${item.slug || item.catalogItemId}`;

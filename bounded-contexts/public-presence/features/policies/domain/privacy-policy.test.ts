@@ -19,7 +19,9 @@ import {
   privacyExternalClientPackageClassifications,
   privacyFactFamilies,
   privacyNoticeBoundaries,
+  privacyPilotEvidencedFacts,
   privacyProductTruthBindings,
+  type PrivacyPilotEvidencedFact,
   type PrivacyProductTruthBinding,
 } from "./privacy-policy-product-truth";
 import { privacyPolicyArtifact, requiredPrivacyPolicySubjectIds } from "./privacy-policy";
@@ -36,11 +38,25 @@ const inventory = collectPrivacyProductTruthInventory({
   externalPackageClassifications: privacyExternalClientPackageClassifications,
 });
 
+const readCitedSource = (ref: string) => readCitedSourceSlice(repoRoot, ref);
+
 function evaluate(
   artifact: PublicPolicyArtifact = privacyPolicyArtifact,
   bindings: readonly PrivacyProductTruthBinding[] = privacyProductTruthBindings,
+  pilotEvidencedFacts: readonly PrivacyPilotEvidencedFact[] = privacyPilotEvidencedFacts,
 ): readonly string[] {
-  return evaluatePrivacyProductTruthBindings({ inventory, artifact, bindings });
+  return evaluatePrivacyProductTruthBindings({ inventory, artifact, bindings, pilotEvidencedFacts, readCitedSource });
+}
+
+function withPilotEvidence(
+  factId: string,
+  mutate: (fact: PrivacyPilotEvidencedFact) => PrivacyPilotEvidencedFact,
+): readonly PrivacyPilotEvidencedFact[] {
+  expect(
+    privacyPilotEvidencedFacts.some((fact) => fact.factId === factId),
+    factId,
+  ).toBe(true);
+  return privacyPilotEvidencedFacts.map((fact) => (fact.factId === factId ? mutate(fact) : fact));
 }
 
 function sectionText(artifact: PublicPolicyArtifact, sectionId: string): string {
@@ -154,9 +170,9 @@ describe("Privacy Policy candidate", () => {
     expect(section.reviewStatus).toBe("counsel-required");
   });
 
-  it("carries one classification binding per derived fact, with closed families and boundaries", () => {
+  it("carries one classification binding per derived or pilot-evidenced fact, with closed families and boundaries", () => {
     expect(evaluate()).toEqual([]);
-    expect(privacyProductTruthBindings).toHaveLength(inventory.facts.length);
+    expect(privacyProductTruthBindings).toHaveLength(inventory.facts.length + privacyPilotEvidencedFacts.length);
     for (const binding of privacyProductTruthBindings) {
       expect(privacyNoticeBoundaries, binding.factId).toContain(binding.classification.noticeBoundary);
       expect(privacyFactFamilies, binding.factId).toContain(binding.classification.factFamily);
@@ -164,6 +180,30 @@ describe("Privacy Policy candidate", () => {
     }
     expect(new Set(privacyProductTruthBindings.map((binding) => binding.factId)).size).toBe(
       privacyProductTruthBindings.length,
+    );
+  });
+
+  it("lists exactly the consumer facts the Corten marketplace now evidences", () => {
+    expect(privacyPilotEvidencedFacts.map((fact) => fact.factId).sort()).toEqual([
+      "cache-storage-marketplace-pwa",
+      "provider-loader-connect-js-notification-banner",
+      "provider-loader-connect-js-payout-setup-page",
+      "provider-loader-stripe-js-confirmation-card",
+      "provider-loader-stripe-js-deferred-payment",
+      "provider-loader-stripe-js-setup-card",
+    ]);
+    for (const fact of privacyPilotEvidencedFacts) {
+      for (const { ref, token } of fact.evidence) {
+        expect(ref, fact.factId).toMatch(/^deployables\/corten-pilot\//);
+        const slice = readCitedSourceSlice(repoRoot, ref);
+        expect(slice.error, `${fact.factId} -> ${ref}`).toBeUndefined();
+        expect(slice.text, `${fact.factId} -> ${ref}`).toContain(token);
+      }
+    }
+    // The operative copy still names marketplace-web's retired cache; the
+    // wording is Todd's to change, and the issue carries it.
+    expect(privacyPilotEvidencedFacts.find((fact) => fact.factId === "cache-storage-marketplace-pwa")?.followUp).toBe(
+      "https://github.com/chase-sets/chase-sets/issues/12095",
     );
   });
 
@@ -293,9 +333,9 @@ describe(
         (text) => text.slice(0, providerParagraphStart) + text.slice(providerParagraphEnd),
       );
 
-      // Seven required route tokens across the five provider surfaces.
+      // Six required route tokens across the five provider surfaces.
       const violations = evaluate(mutant);
-      expect(violations).toHaveLength(7);
+      expect(violations).toHaveLength(6);
       for (const violation of violations) {
         expect(violation).toMatch(/required by binding 'provider-loader-/);
       }
@@ -313,7 +353,7 @@ describe(
       );
       expectSoleViolation(
         evaluate(privacyPolicyArtifact, mutantBindings),
-        /missing binding: the inventory derives cache-storage subject 'chase-sets-marketplace-pwa-v1' with no classification binding\./,
+        /pilot-evidenced fact 'cache-storage-marketplace-pwa' has no binding\./,
       );
     });
 
@@ -392,6 +432,21 @@ describe(
 
     it("entailment control: a disclosure token the evidence does not entail is rejected", () => {
       const mutantBindings = privacyProductTruthBindings.map((binding) =>
+        binding.factId === "social-provider-facebook"
+          ? {
+              ...binding,
+              disclosures: [{ sectionId: "data-categories-and-sources", requiredTokens: ["hostedDomain"] }],
+            }
+          : binding,
+      );
+      expectSoleViolation(
+        evaluate(privacyPolicyArtifact, mutantBindings),
+        /binding 'social-provider-facebook' requires disclosure token 'hostedDomain', which its derived evidence does not entail\./,
+      );
+    });
+
+    it("pilot entailment control: a disclosure token the pilot's cited lines do not carry is rejected", () => {
+      const mutantBindings = privacyProductTruthBindings.map((binding) =>
         binding.factId === "provider-loader-stripe-js-setup-card"
           ? {
               ...binding,
@@ -401,7 +456,75 @@ describe(
       );
       expectSoleViolation(
         evaluate(privacyPolicyArtifact, mutantBindings),
-        /binding 'provider-loader-stripe-js-setup-card' requires disclosure token '__stripe_mid', which its derived evidence does not entail\./,
+        /binding 'provider-loader-stripe-js-setup-card' requires disclosure token '__stripe_mid', which its pilot evidence does not entail\./,
+      );
+    });
+
+    it("pilot content control: a cited pilot line that no longer carries its token fails", () => {
+      const mutant = withPilotEvidence("cache-storage-marketplace-pwa", (fact) => ({
+        ...fact,
+        evidence: fact.evidence.map((entry) =>
+          entry.token === ".pwa(pwa())" ? { ...entry, token: ".pwa(retired_pwa())" } : entry,
+        ),
+      }));
+      expectSoleViolation(
+        evaluate(privacyPolicyArtifact, privacyProductTruthBindings, mutant),
+        /pilot evidence 'deployables\/corten-pilot\/marketplace\/src\/app\.rs:1986' for binding 'cache-storage-marketplace-pwa' no longer carries '\.pwa\(retired_pwa\(\)\)'\./,
+      );
+    });
+
+    it("pilot moved-file control: a pilot ref to a file that is gone fails, and so does the stale binding", () => {
+      const moved = "deployables/corten-pilot/marketplace/src/views/payment_setup_retired.js:84";
+      const mutantFacts = withPilotEvidence("provider-loader-stripe-js-setup-card", (fact) => ({
+        ...fact,
+        evidence: fact.evidence.map((entry) =>
+          entry.token === "await loadStripe()" ? { ...entry, ref: moved } : entry,
+        ),
+      }));
+      const violations = evaluate(privacyPolicyArtifact, privacyProductTruthBindings, mutantFacts);
+      expect(violations).toHaveLength(2);
+      expect(violations).toEqual(
+        expect.arrayContaining([
+          expect.stringMatching(
+            /^pilot evidence '.*payment_setup_retired\.js:84' for binding 'provider-loader-stripe-js-setup-card' does not resolve/,
+          ),
+          expect.stringMatching(
+            /^stale evidence on binding 'provider-loader-stripe-js-setup-card': .* but its pilot evidence lists/,
+          ),
+        ]),
+      );
+    });
+
+    it("pilot evaluation fails closed without a cited-source reader", () => {
+      const violations = evaluatePrivacyProductTruthBindings({ inventory, artifact: privacyPolicyArtifact });
+      expect(violations).toHaveLength(privacyPilotEvidencedFacts.length);
+      for (const violation of violations)
+        expect(violation).toMatch(/cannot be checked without a cited-source reader\./);
+    });
+
+    it("pilot re-derivation control: a pilot-evidenced fact the inventory derives again must leave the list", () => {
+      const setup = privacyProductTruthBindings.find(
+        (binding) => binding.factId === "provider-loader-stripe-js-setup-card",
+      )!;
+      const violations = evaluatePrivacyProductTruthBindings({
+        inventory: {
+          ...inventory,
+          facts: [
+            ...inventory.facts,
+            {
+              factFamily: setup.classification.factFamily,
+              subject: setup.inventorySubject,
+              evidenceRefs: setup.evidenceRefs,
+              detail: { consumerRoutes: ["/account/payment-methods"] },
+            },
+          ],
+        },
+        artifact: privacyPolicyArtifact,
+        readCitedSource,
+      });
+      expectSoleViolation(
+        violations,
+        /pilot-evidenced binding 'provider-loader-stripe-js-setup-card' is derived by the inventory again/,
       );
     });
 
@@ -471,6 +594,7 @@ describe(
           indeterminate: [{ factFamily: "cache-storage", reason: "synthetic unresolved derivation" }],
         },
         artifact: privacyPolicyArtifact,
+        readCitedSource,
       });
       expect(violations).toEqual([
         "unresolved product-truth derivation [cache-storage]: synthetic unresolved derivation",
