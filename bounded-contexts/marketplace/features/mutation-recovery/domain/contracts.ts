@@ -21,6 +21,7 @@ export const marketplaceListingMutationKinds = [
   "listing.update-price",
   "listing.update-quantity",
   "listing.update-purchase-limits",
+  "listing.set-certification-number",
   "listing.pause",
   "listing.withdraw",
   "seller.availability",
@@ -186,6 +187,8 @@ export function marketplaceListingCanonicalRequest(
       };
     case "listing.update-purchase-limits":
       return { listingId: input.listingId, purchaseLimits: canonicalPurchaseLimits(input.purchaseLimits) };
+    case "listing.set-certification-number":
+      return { listingId: input.listingId, certificationNumber: input.certificationNumber };
     case "listing.pause":
       return { listingId: input.listingId, reason: input.reason ?? "seller" };
     case "seller.availability":

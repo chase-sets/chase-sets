@@ -11,7 +11,6 @@ import {
   parseMarketplaceListingCreatedPayload,
   parseMarketplaceListingEnforcementData,
   parseMarketplaceListingOperatorUnlistedPayload,
-  type AggregateDecider,
   type AggregateEvolver,
   type DomainEvent,
   type MarketplaceListingAutoUnlistedPayload,
@@ -315,6 +314,7 @@ export type MarketplaceListingState = Readonly<{
   evidenceRequirements: ListingEvidenceRequirementSnapshot | null;
   evidence: readonly MarketplaceListingPhoto[];
   status: ListingStatus;
+  hasBeenPublished: boolean;
   pauseReason: ListingPauseReason | null;
   inventoryCapacityRecoveryBlock: InventoryCapacityRecoveryBlock | null;
   /** The latest Listing Enforcement Action, retained across republish and pause. */
@@ -368,6 +368,7 @@ export const initialMarketplaceListingState: MarketplaceListingState = {
   evidenceRequirements: null,
   evidence: [],
   status: "draft",
+  hasBeenPublished: false,
   pauseReason: null,
   inventoryCapacityRecoveryBlock: null,
   listingEnforcement: null,
@@ -511,6 +512,11 @@ export type MarketplaceListingCommand =
   | UpdateListingPriceCommand
   | UpdateListingQuantityCapCommand
   | UpdateListingPurchaseLimitsCommand
+  | Readonly<{
+      type: "SetListingCertificationNumber";
+      certificationNumber: string;
+      certificateNumberFormats: readonly CertificateNumberFormat[];
+    }>
   | AddListingPhotosCommand
   | ClassifyListingPhotoCommand
   | ReplaceListingPhotoCommand
@@ -530,6 +536,7 @@ export const marketplaceListingCommandTypes = Object.keys({
   UpdateListingPrice: true,
   UpdateListingQuantityCap: true,
   UpdateListingPurchaseLimits: true,
+  SetListingCertificationNumber: true,
   AddListingPhotos: true,
   ClassifyListingPhoto: true,
   ReplaceListingPhoto: true,
@@ -717,6 +724,7 @@ export type MarketplaceListingEvent =
   | ListingPriceUpdatedEvent
   | ListingQuantityCapUpdatedEvent
   | ListingPurchaseLimitsUpdatedEvent
+  | DomainEvent<"marketplace.listing.certification-number-set", Readonly<{ certificationNumber: string }>>
   | ListingPhotosAddedEvent
   | ListingPhotoClassifiedEvent
   | ListingPhotoReplacedEvent
@@ -730,11 +738,11 @@ export type MarketplaceListingEvent =
   | ListingWithdrawnEvent
   | ListingOfferCommitmentRecordedEvent;
 
-export const decideMarketplaceListing: AggregateDecider<
-  MarketplaceListingState,
-  MarketplaceListingCommand,
-  MarketplaceListingEvent
-> = (state, command) => {
+export function decideMarketplaceListing(
+  state: Readonly<MarketplaceListingState>,
+  command: Readonly<MarketplaceListingCommand>,
+  creationSource?: "inventory-import-draft",
+): readonly MarketplaceListingEvent[] {
   if (
     state.publicationScope === "channel-only" &&
     ["PublishListing", "UpdateListingPrice", "UpdateListingQuantityCap", "UpdateListingPurchaseLimits"].includes(
@@ -796,7 +804,11 @@ export const decideMarketplaceListing: AggregateDecider<
           })),
           productSummary: command.productSummary?.trim() ?? null,
           productMeasureSnapshot: command.productMeasureSnapshot ?? null,
-          gradedCard: normalizeGradedCardDetails(command.gradedCard ?? null, command.certificateNumberFormats ?? []),
+          gradedCard: normalizeGradedCardDetails(
+            command.gradedCard ?? null,
+            command.certificateNumberFormats ?? [],
+            creationSource === "inventory-import-draft",
+          ),
           storageLocationName: command.storageLocationName?.trim() ?? null,
           shipFromCode: command.shipFromCode?.trim() ?? null,
           shipFromAddress: normalizeAddressSnapshot(command.shipFromAddress, "Ship-from address"),
@@ -961,6 +973,18 @@ export const decideMarketplaceListing: AggregateDecider<
 
       return [{ type: "marketplace.listing.purchase-limits-updated", data: { purchaseLimits } }];
     }
+    case "SetListingCertificationNumber": {
+      assert(state.listingId !== null, "Listing must be created first.");
+      assert(state.status !== "withdrawn", "Withdrawn listings cannot be updated.");
+      assert(state.gradedCard, "Only graded Listings can have a certification number.");
+      assert(!state.hasBeenPublished && !Object.keys(state.channelActivations).length, "Listing already published.");
+      const certificationNumber = normalizeCertificationNumber(
+        { ...state.gradedCard, certificationNumber: command.certificationNumber },
+        command.certificateNumberFormats,
+        "certification-number-invalid",
+      );
+      return [{ type: "marketplace.listing.certification-number-set", data: { certificationNumber } }];
+    }
     case "AddListingPhotos":
       assert(state.listingId !== null, "Listing must be created first.");
       assert(state.status !== "withdrawn", "Withdrawn listings cannot be updated.");
@@ -1064,6 +1088,7 @@ export const decideMarketplaceListing: AggregateDecider<
         return [];
       }
       assert(state.status !== "active", "Listing is already active.");
+      assertListingCertificationNumberForPublication(state);
       assert(
         state.priceAmount !== null && state.priceCurrencyCode !== null,
         "Listing price is incomplete. Supply an amount and currency before publication.",
@@ -1142,7 +1167,7 @@ export const decideMarketplaceListing: AggregateDecider<
     default:
       return assertNever(command);
   }
-};
+}
 
 export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState, MarketplaceListingEvent> = (
   state,
@@ -1187,6 +1212,7 @@ export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState,
         evidenceRequirements: event.data.evidenceRequirements ?? null,
         evidence: hydrateStoredListingPhotos(event.data.evidence),
         status: "draft",
+        hasBeenPublished: false,
         pauseReason: null,
         inventoryCapacityRecoveryBlock: null,
         listingEnforcement: null,
@@ -1231,6 +1257,10 @@ export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState,
         ...state,
         purchaseLimits: event.data.purchaseLimits,
       };
+    case "marketplace.listing.certification-number-set":
+      return state.gradedCard
+        ? { ...state, gradedCard: { ...state.gradedCard, certificationNumber: event.data.certificationNumber } }
+        : state;
     case "marketplace.listing.photos-added":
       return {
         ...state,
@@ -1299,6 +1329,7 @@ export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState,
       return {
         ...state,
         status: "active",
+        hasBeenPublished: true,
         pauseReason: null,
         inventoryCapacityRecoveryBlock: null,
       };
@@ -1614,30 +1645,54 @@ function normalizeListingPhotoAssetVariant(
   };
 }
 
+export function assertListingCertificationNumberForPublication(state: MarketplaceListingState) {
+  if (state.gradedCard && !state.gradedCard.certificationNumber) {
+    throw new MarketplaceListingDomainError(
+      "certification-number-required",
+      "Add a certification number before publishing this Listing.",
+    );
+  }
+}
+
+function normalizeCertificationNumber(
+  details: MarketplaceGradedCardDetails,
+  certificateNumberFormats: readonly CertificateNumberFormat[],
+  code: "command-rejected" | "certification-number-invalid",
+): string {
+  const certificationNumber = (details.certificationNumber ?? "").replaceAll(/\s+/g, "");
+  if (!certificationNumber)
+    throw new MarketplaceListingDomainError(code, "Graded cards require a certification number.");
+  for (const { minimumDigits, maximumDigits } of certificateNumberFormats) {
+    if (
+      !/^\d+$/.test(certificationNumber) ||
+      certificationNumber.length < minimumDigits ||
+      certificationNumber.length > maximumDigits
+    ) {
+      throw new MarketplaceListingDomainError(
+        code,
+        `${details.gradingCompany} certification numbers must use ${minimumDigits} to ${maximumDigits} digits.`,
+      );
+    }
+  }
+  return certificationNumber;
+}
+
 /**
  * `gradingCompany` and `grade` are Inventory's display copies and pass through as given. The certification number
- * is required, and must hold every Certificate Number Format the Listing Evidence Policy matched for the Listing.
+ * must hold every Certificate Number Format the Listing Evidence Policy matched for the Listing. Only an Inventory
+ * import draft may be created without one, and it cannot be published until the seller sets it.
  */
 function normalizeGradedCardDetails(
   details: MarketplaceGradedCardDetails | null,
   certificateNumberFormats: readonly CertificateNumberFormat[],
+  allowMissingCertificationNumber: boolean,
 ): MarketplaceGradedCardDetails | null {
-  if (!details) {
-    return null;
-  }
+  if (!details) return null;
 
-  const certificationNumber = normalizeRequiredText(
-    details.certificationNumber ?? "",
-    "Graded cards require a certification number.",
-  ).replaceAll(/\s+/g, "");
-  for (const { minimumDigits, maximumDigits } of certificateNumberFormats) {
-    assert(
-      /^\d+$/.test(certificationNumber) &&
-        certificationNumber.length >= minimumDigits &&
-        certificationNumber.length <= maximumDigits,
-      `${details.gradingCompany} certification numbers must use ${minimumDigits} to ${maximumDigits} digits.`,
-    );
-  }
+  const certificationNumber =
+    allowMissingCertificationNumber && details.certificationNumber === null
+      ? null
+      : normalizeCertificationNumber(details, certificateNumberFormats, "command-rejected");
 
   const population = details.population
     ? {

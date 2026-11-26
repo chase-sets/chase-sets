@@ -1916,6 +1916,118 @@ describe("marketplace listing routes", () => {
     expect(allEvents).toHaveLength(committed);
   });
 
+  it("refuses seller-created graded Inventory without a certification number", async () => {
+    const { eventStore, allEvents } = createInMemoryEventStore();
+    const { catalogItemId, inventoryItemId, productId, selectedOptions, storageLocationId } = validInventorySnapshot;
+    const gradedCard = {
+      gradingCompany: "PSA",
+      grade: "10",
+      certificationNumber: null,
+      population: null,
+      conditionDescriptors: [],
+    };
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("INSERT INTO marketplace_supply_locations"))
+          return { rows: [{ storage_location_id: storageLocationId }] };
+        if (sql.includes("INSERT INTO marketplace_supply_items")) return { rows: [{ item_id: inventoryItemId }] };
+        if (sql.includes("FROM marketplace_supply_items AS item"))
+          return {
+            rows: [
+              {
+                item_id: inventoryItemId,
+                account_id: "acc_seller",
+                catalog_catalog_item_id: catalogItemId,
+                product_id: productId,
+                graded_card: gradedCard,
+                selected_options: selectedOptions,
+                ship_from_address: validShipFromAddress,
+                available_quantity: 2,
+              },
+            ],
+          };
+        return { rows: [] };
+      }),
+    };
+    const unused = () => {
+      throw new Error("This test does not use projection checkpoints.");
+    };
+    const services = createMarketplaceListingRuntime({
+      db: db as never,
+      eventStore,
+      checkpointStore: { loadCheckpoint: unused, saveCheckpoint: unused },
+      commercialTermsResolver: createMarketplaceCommercialTermsResolver(db as never),
+      inventoryItemGradedCardAuthority: { resolve: async () => ({ gradedCard, selectedOptions }) },
+    });
+    const app = buildApp({ actor: sellerActor, services });
+    const response = await app.request("/account/listings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        publicationScope: "channel-only",
+        priceAmount: "12.00",
+        priceCurrencyCode: "USD",
+        quantityCap: 1,
+        inventorySnapshot: { ...validInventorySnapshot, gradedCard },
+      }),
+    });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: { code: "listing_command_rejected" } });
+    expect(allEvents).toEqual([]);
+  });
+
+  it("sets certification on the seller's Listing and returns only safe refusal text for invalid numbers", async () => {
+    const setListingCertificationNumber = vi
+      .fn<MarketplaceListingServices["setListingCertificationNumber"]>()
+      .mockResolvedValueOnce({ listingId: "lst_1", version: 2 })
+      .mockRejectedValueOnce(new MarketplaceListingDomainError("certification-number-invalid", "private diagnostic"));
+    const services = { ...createServices(), setListingCertificationNumber };
+    const app = buildApp({ actor: sellerActor, services });
+    const send = (certificationNumber: string) =>
+      app.request("/account/listings/lst_1/certification-number", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ certificationNumber, idempotencyKey: "certification_test_attempt_0001" }),
+      });
+
+    const accepted = await send("00123456");
+    expect(accepted.status).toBe(200);
+    expect(await accepted.json()).toEqual({ id: "lst_1", version: 2, status: "certification-number-set" });
+    expect(setListingCertificationNumber).toHaveBeenCalledWith(
+      {
+        accountId: "acc_seller",
+        listingId: "lst_1",
+        certificationNumber: "00123456",
+        idempotencyKey: "certification_test_attempt_0001",
+      },
+      expect.any(Object),
+    );
+    const refused = await send("001");
+    expect(refused.status).toBe(400);
+    expect(await refused.json()).toEqual({
+      error: {
+        code: "listing_certification_number_invalid",
+        message: "Enter a certification number that matches the grading company's required format.",
+      },
+    });
+  });
+
+  it("returns an actionable conflict when publish requires a certification number", async () => {
+    const services = createServices();
+    vi.mocked(services.publishListing).mockRejectedValueOnce(
+      new MarketplaceListingDomainError("certification-number-required", "private diagnostic"),
+    );
+    const app = buildApp({ actor: sellerActor, services });
+    const response = await app.request("/account/listings/lst_1/publish", { method: "POST" });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "listing_certification_number_required",
+        message: "Add a certification number before publishing this Listing.",
+      },
+    });
+  });
+
   it("publishes a seller listing through the documented API action", async () => {
     const services = createServices();
     const app = buildApp({

@@ -44,6 +44,13 @@ describe("Listing MCP mirrors", () => {
     };
     expect(stale).not.toEqual(source.inputSchema);
   });
+  it("keeps the seller's certification entry HTTP-only", () => {
+    const openApi = JSON.parse(readFileSync(new URL("docs/api/marketplace.openapi.json", root), "utf8"));
+    expect(openApi.paths["/api/marketplace/account/listings/{id}/certification-number"].post).toBeDefined();
+    expect(
+      flattenAvailableMcpTools().some((tool) => tool.name === "marketplace.set-listing-certification-number"),
+    ).toBe(false);
+  });
   it("keeps the public catalog's serialized Listing schemas equal to source", () => {
     const text = readFileSync(
       new URL("bounded-contexts/public-presence/features/developer-portal/domain/generated/mcp-tool-catalog.ts", root),

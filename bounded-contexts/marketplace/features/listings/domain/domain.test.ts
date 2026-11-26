@@ -882,6 +882,75 @@ describe("marketplace Graded Item Details on a created Listing", () => {
 
   const psaFormat = { minimumDigits: 8, maximumDigits: 10 };
 
+  function importedGradedDraft() {
+    return decideMarketplaceListing(
+      initialMarketplaceListingState,
+      { ...createListingCommand, gradedCard: gradedCard({ certificationNumber: null }) },
+      "inventory-import-draft",
+    ).reduce(evolveMarketplaceListing, initialMarketplaceListingState);
+  }
+
+  const setCertification = {
+    type: "SetListingCertificationNumber",
+    certificationNumber: " 1234 5678 ",
+    certificateNumberFormats: [psaFormat],
+  } as const;
+
+  it("refuses to publish a graded draft without emitting a publication event", () => {
+    const draft = importedGradedDraft();
+    const events: MarketplaceListingEvent[] = [];
+    expect(() => events.push(...decideMarketplaceListing(draft, publishListingCommand))).toThrow(
+      "Add a certification number before publishing this Listing.",
+    );
+    expect(events).toEqual([]);
+  });
+
+  it("sets the number on a never-published graded Listing without changing its grade", () => {
+    const draft = importedGradedDraft();
+    const events = decideMarketplaceListing(draft, setCertification);
+    expect(events).toEqual([
+      { type: "marketplace.listing.certification-number-set", data: { certificationNumber: "12345678" } },
+    ]);
+    expect(events.reduce(evolveMarketplaceListing, draft).gradedCard).toEqual(gradedCard({}));
+  });
+
+  it("refuses a certification number that breaks a matched format", () => {
+    expect(() =>
+      decideMarketplaceListing(importedGradedDraft(), { ...setCertification, certificationNumber: "123" }),
+    ).toThrow("PSA certification numbers must use 8 to 10 digits.");
+  });
+
+  it("refuses to set a certification number on an ungraded Listing", () => {
+    const raw = decideMarketplaceListing(initialMarketplaceListingState, createListingCommand).reduce(
+      evolveMarketplaceListing,
+      initialMarketplaceListingState,
+    );
+    expect(() => decideMarketplaceListing(raw, setCertification)).toThrow("Only graded Listings");
+  });
+
+  it("refuses to change the number after a Listing was published and then paused", () => {
+    const draft = importedGradedDraft();
+    const certified = decideMarketplaceListing(draft, setCertification).reduce(evolveMarketplaceListing, draft);
+    const active = decideMarketplaceListing(certified, publishListingCommand).reduce(
+      evolveMarketplaceListing,
+      certified,
+    );
+    const paused = decideMarketplaceListing(active, { type: "PauseListing" }).reduce(evolveMarketplaceListing, active);
+    expect(paused.status).toBe("paused");
+    expect(() => decideMarketplaceListing(paused, setCertification)).toThrow("Listing already published.");
+  });
+
+  it("publishes the same graded draft after its number is set", () => {
+    const draft = importedGradedDraft();
+    const certified = decideMarketplaceListing(draft, setCertification).reduce(evolveMarketplaceListing, draft);
+    expect(decideMarketplaceListing(certified, publishListingCommand)).toEqual([
+      expect.objectContaining({
+        type: "marketplace.listing.published",
+        data: expect.objectContaining({ listingId: draft.listingId }),
+      }),
+    ]);
+  });
+
   it.each([
     ["ACE", "Pristine 10"],
     ["TAG", "Gem Mint 10"],

@@ -74,6 +74,44 @@ const listing: MarketplaceListingDetail = {
   updated_at: "2026-04-01T00:00:00.000Z",
 };
 
+it("shows imported grading, keeps rejected certification input, and disables controls during submission", () => {
+  const graded = {
+    ...listing,
+    status: "draft" as const,
+    graded_card: {
+      gradingCompany: "PSA",
+      grade: "Gem Mint 10",
+      certificationNumber: null,
+      population: null,
+      conditionDescriptors: [],
+    },
+  };
+  const refusal = "Enter a certification number that matches the grading company's required format.";
+  const props = { listing: graded, certificationNumberDraft: "001", certificationNumberError: refusal };
+  const { rerender } = render(<MarketplaceListingDetailPage {...props} certificationNumberSubmitting />);
+  expect(screen.getByText("PSA")).toBeTruthy();
+  expect(screen.getByText("Gem Mint 10")).toBeTruthy();
+  expect(screen.getByText("Add a certification number before publishing this Listing.")).toBeTruthy();
+  expect(screen.getByText(refusal)).toBeTruthy();
+  const input = screen.getByRole<HTMLInputElement>("textbox", { name: /certification number/i });
+  expect(input.value).toBe("001");
+  expect(input.matches(":disabled")).toBe(true);
+  const save = screen.getByRole("button", { name: "Save certification number" });
+  expect(save.matches(":disabled")).toBe(true);
+  rerender(<MarketplaceListingDetailPage {...props} certificationNumberSubmitting={false} />);
+  const enabledInput = screen.getByRole<HTMLInputElement>("textbox", { name: /certification number/i });
+  expect(enabledInput.matches(":disabled")).toBe(false);
+  expect(enabledInput.value).toBe("001");
+  expect(screen.getByRole("button", { name: "Save certification number" }).matches(":disabled")).toBe(false);
+  rerender(
+    <MarketplaceListingDetailPage
+      listing={{ ...graded, graded_card: { ...graded.graded_card, certificationNumber: "00123456" } }}
+    />,
+  );
+  expect(screen.queryByRole("textbox", { name: /certification number/i })).toBeNull();
+  expect(screen.getByText("00123456")).toBeTruthy();
+});
+
 const currentQuote: MarketplaceListingTermsPreview = {
   account_type: "business",
   basis_amount: "20.00",

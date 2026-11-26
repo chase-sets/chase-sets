@@ -1182,6 +1182,7 @@ describe("marketplace listing runtime", () => {
       commercialTermsResolver: {
         resolveListingTerms,
       } as never,
+      inventoryItemGradedCardAuthority: rawInventoryItem,
     });
 
     const result = await services.createBatchDraftListingFromInventorySnapshot(
@@ -3904,18 +3905,70 @@ describe("a snapshot create takes Graded Item Details and the selection from Inv
     expect(connect).not.toHaveBeenCalled();
   });
 
-  it("leaves batch draft creation on the snapshot it is given, without asking Inventory", async () => {
-    const f = createFixture("absent");
+  const importDraft = {
+    ...snapshot,
+    selectedOptions: [psaOption],
+    importBatchId: "imb_1",
+    importRowId: "imr_1",
+    listingIdOverride: "lst_batch_graded" as never,
+  };
 
-    await expect(
-      f.services.createBatchDraftListingFromInventorySnapshot(
-        { ...snapshot, importBatchId: "imb_1", importRowId: "imr_1", listingIdOverride: "lst_batch_graded" as never },
-        context,
-      ),
-    ).resolves.toMatchObject({ version: 1 });
+  it.each([psa, null])(
+    "uses Inventory grading (%j) and the import message selection on the draft",
+    async (gradedCard) => {
+      const f = createFixture(async () => ({ gradedCard, selectedOptions: [aceOption] }));
+      const expected = gradedCard && { ...gradedCard, certificationNumber: null };
+      await expect(
+        f.services.createBatchDraftListingFromInventorySnapshot(importDraft, context),
+      ).resolves.toMatchObject({ version: 1 });
+      expect(f.resolve).toHaveBeenCalledExactlyOnceWith({ accountId: "acc_seller", inventoryItemId: "inv_1" });
+      expect(f.selectionWrites).toEqual([JSON.stringify([psaOption])]);
+      expect(f.itemWrites).toEqual([expected ? JSON.stringify(expected) : null]);
+      expect(f.evaluate).toHaveBeenCalledWith(
+        expect.objectContaining({ gradedItem: gradedCard !== null, selectedOptions: [psaOption] }),
+        expect.any(String),
+      );
+      const [created] = await f.eventStore.readStream({
+        streamId: `marketplace.listing-${importDraft.listingIdOverride}`,
+      });
+      expect(created).toMatchObject({
+        eventType: "marketplace.listing.created",
+        payload: { gradedCard: expected, selectedOptions: [psaOption] },
+      });
+    },
+  );
 
-    expect(f.resolve).not.toHaveBeenCalled();
-    expect(f.itemWrites).toEqual([null]);
+  it("stops import draft creation before writing when the Inventory authority cannot be read", async () => {
+    const f = createFixture(async () => {
+      throw new Error("Inventory unavailable");
+    });
+    await expect(f.services.createBatchDraftListingFromInventorySnapshot(importDraft, context)).rejects.toThrow(
+      "Inventory graded item details are unavailable.",
+    );
+    expect(f.query).not.toHaveBeenCalled();
+    expect(f.allEvents).toHaveLength(0);
+  });
+
+  it("validates the number with active Evidence Policy formats and keeps replay idempotent", async () => {
+    const f = createFixture(async () => ({ gradedCard: psa, selectedOptions: [psaOption] }));
+    await f.services.createBatchDraftListingFromInventorySnapshot(importDraft, context);
+    const listingId = importDraft.listingIdOverride;
+    const request = (certificationNumber: string) =>
+      listingTestCommand("listing.set-certification-number", {
+        listingId,
+        accountId: "acc_seller",
+        certificationNumber,
+      });
+    await expect(f.services.setListingCertificationNumber(request("123"), context)).rejects.toThrow("8 to 10 digits");
+    const valid = request("00123456");
+    const response = await f.services.setListingCertificationNumber(valid, context);
+    expect(await f.services.setListingCertificationNumber(valid, context)).toEqual(response);
+    const events = await f.eventStore.readStream({ streamId: `marketplace.listing-${listingId}` });
+    expect(events.map(({ eventType }) => eventType)).toEqual([
+      "marketplace.listing.created",
+      "marketplace.listing.certification-number-set",
+    ]);
+    expect(events[1]?.payload).toEqual({ certificationNumber: "00123456" });
   });
 });
 

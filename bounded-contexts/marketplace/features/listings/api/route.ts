@@ -1843,6 +1843,55 @@ export function createAccountListingRoutes(
     }
   });
 
+  app.post("/listings/:id/certification-number", async (c) => {
+    try {
+      const access = requireListingAccess(c, "listings.manage");
+      if (access.response) return access.response;
+
+      const context = c.get("context");
+      if (!context) {
+        return c.json(
+          {
+            error: {
+              code: "authentication_required",
+              message: t("marketplace.features.listings.api.route.authentication.context.missing.4"),
+            },
+          },
+          401,
+        );
+      }
+
+      const body: unknown = await c.req.json().catch(() => null);
+      if (!body || typeof body !== "object" || Array.isArray(body)) {
+        throw new MarketplaceListingRequestError("unknown-field", "Certification number request must be an object.");
+      }
+      const input = body as Record<string, unknown>;
+      assertClosedObject(
+        input,
+        ["certificationNumber", "idempotencyKey", "requestHash"],
+        "Certification number request",
+      );
+      const result = await services.setListingCertificationNumber(
+        {
+          accountId: access.actor.accountId,
+          listingId: c.req.param("id"),
+          certificationNumber: typeof input.certificationNumber === "string" ? input.certificationNumber : "",
+          ...listingAttemptInput(c, input),
+        },
+        context,
+      );
+      return c.json({ id: result.listingId, version: result.version, status: "certification-number-set" });
+    } catch (error) {
+      return listingErrorResponse(error, [
+        "unknown-field",
+        "listing-not-found",
+        "command-rejected",
+        "certification-number-invalid",
+        ...listingAttemptErrors,
+      ]);
+    }
+  });
+
   app.post("/listings/:id/publish", async (c) => {
     try {
       const access = requireListingAccess(c, "listings.manage");
@@ -1881,6 +1930,7 @@ export function createAccountListingRoutes(
         "listing-not-found",
         "inventory-item-not-found",
         "command-rejected",
+        "certification-number-required",
         "evidence-incomplete",
         "fee-quote-stale",
         ...listingAttemptErrors,

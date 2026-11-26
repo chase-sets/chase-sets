@@ -2,6 +2,8 @@ export type MarketplaceListingDomainErrorCode =
   | "listing-not-found"
   | "inventory-item-not-found"
   | "shipping-measure-missing"
+  | "certification-number-required"
+  | "certification-number-invalid"
   | "command-rejected";
 
 export class MarketplaceListingDomainError extends Error {

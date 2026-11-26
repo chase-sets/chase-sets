@@ -30,7 +30,7 @@ import {
 import type { ListingId } from "@chase-sets/primitives/typed-ids";
 import { normalizeAddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { MarketplaceListingServices } from "./runtime";
-import { normalizePurchaseLimits } from "../domain/domain";
+import { normalizePurchaseLimits, type MarketplaceGradedCardDetails } from "../domain/domain";
 import { MarketplaceListingDomainError } from "../domain/listing-error";
 import { inventoryListingCapacityStreamId } from "../domain/inventory-listing-capacity";
 import { INVENTORY_DRAFT_RECEIPT_MIGRATION_ID } from "../read-model/inventory-draft-receipt-schema";
@@ -135,6 +135,7 @@ async function inspectDraft(
   db: PgQueryable,
   eventStore: EventStore,
   message: InventoryDraftListingMessage,
+  gradedCard: MarketplaceGradedCardDetails | null = null,
 ): Promise<{ version: number; feeQuoteFingerprint: string | null }> {
   const listingId = listingIdForInventoryDraftRow(message.snapshot.importRowId);
   const streamId = `marketplace.listing-${listingId}`;
@@ -150,7 +151,7 @@ async function inspectDraft(
     throw new InventoryDraftListingConflict();
   }
   if (events.length === 0) return { version: 0, feeQuoteFingerprint: null };
-  // Only an untouched, owner-attributed legacy draft can acquire its first receipt.
+  // Only an untouched, owner-attributed draft can acquire its first receipt.
   const event = events[0]!;
   if (
     events.length !== 1 ||
@@ -168,7 +169,7 @@ async function inspectDraft(
     catalogItemId: snapshot.catalogItemId,
     productId: snapshot.productId,
     selectedOptions: snapshot.selectedOptions,
-    gradedCard: null,
+    gradedCard,
     storageLocationName: snapshot.storageLocationName,
     shipFromCode: snapshot.shipFromCode,
     shipFromAddress: normalizeAddressSnapshot(snapshot.shipFromAddress, "Ship-from address"),
@@ -277,6 +278,7 @@ export function createInventoryDraftListingConsumer(
                     listingId,
                     version: legacy.version,
                     feeQuoteFingerprint: legacy.feeQuoteFingerprint,
+                    recordedGradedCard: undefined,
                   }
                 : await deps.createListings(client, eventStore).createBatchDraftListingFromInventorySnapshot(
                     {
@@ -302,7 +304,7 @@ export function createInventoryDraftListingConsumer(
                     },
                     context,
                   );
-            const acceptedDraft = await inspectDraft(client, eventStore, message);
+            const acceptedDraft = await inspectDraft(client, eventStore, message, result.recordedGradedCard ?? null);
             const { version } = acceptedDraft;
             if (
               result.listingId !== listingId ||

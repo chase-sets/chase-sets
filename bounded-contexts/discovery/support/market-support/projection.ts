@@ -1277,6 +1277,21 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
       await refreshGoogleShoppingListing(db, event, listingId, "eligibility");
       await emitListingPatch(db, event, listingId);
     },
+    "marketplace.listing.certification-number-set": async (event) => {
+      const listingId = extractIdFromStreamId(event.streamId, MARKETPLACE_LISTING_STREAM_PREFIX);
+      const { certificationNumber } = event.data;
+      if (typeof certificationNumber !== "string" || !certificationNumber) {
+        throw new Error("Invalid Listing certification number event.");
+      }
+      await db.query(
+        `UPDATE discovery_market_listings
+         SET graded_card = jsonb_set(graded_card, '{certificationNumber}', to_jsonb($2::text)),
+             updated_at = $3
+         WHERE listing_id = $1`,
+        [listingId, certificationNumber, event.timing.recordedAt],
+      );
+      await emitListingPatch(db, event, listingId);
+    },
     "marketplace.listing.published": async (event) => {
       const listingId = extractIdFromStreamId(event.streamId, MARKETPLACE_LISTING_STREAM_PREFIX);
       await transitionStatus(db, {
