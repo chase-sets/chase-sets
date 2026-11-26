@@ -16,6 +16,7 @@ import {
   toPublicListingGallery,
   type MarketplaceListingPublicGalleryImage,
 } from "../domain/evidence-gallery";
+import { isRecord, publicEntries, publicNumber, publicText, publicTextList } from "../domain/public-values";
 import type { ListingEvidenceRequirementSnapshot } from "../domain/evidence-requirement-snapshot";
 
 export type MarketplaceListingListRow = Readonly<{
@@ -87,27 +88,39 @@ export type MarketplaceItemListingRow = Readonly<{
   public_gallery: readonly MarketplaceListingPublicGalleryImage[];
 }>;
 
-function copyGradedCard(card: MarketplaceGradedCardDetails | null): MarketplaceGradedCardDetails | null {
-  if (!card) return null;
+/** A stored grade without a grading company and grade as text is not served. */
+function copyGradedCard(card: unknown): MarketplaceGradedCardDetails | null {
+  if (!isRecord(card)) return null;
+  const gradingCompany = publicText(card.gradingCompany);
+  const grade = publicText(card.grade);
+  if (gradingCompany === null || grade === null) return null;
+  const population = card.population;
   return {
-    gradingCompany: card.gradingCompany,
-    grade: card.grade,
-    certificationNumber: card.certificationNumber,
-    population: card.population
+    gradingCompany,
+    grade,
+    certificationNumber: publicText(card.certificationNumber),
+    population: isRecord(population)
       ? {
-          populationAtGrade: card.population.populationAtGrade,
-          populationHigher: card.population.populationHigher,
-          source: card.population.source,
-          asOf: card.population.asOf,
+          populationAtGrade: publicNumber(population.populationAtGrade),
+          populationHigher: publicNumber(population.populationHigher),
+          source: publicText(population.source),
+          asOf: publicText(population.asOf),
         }
       : null,
-    conditionDescriptors: Array.isArray(card.conditionDescriptors) ? [...card.conditionDescriptors] : [],
+    conditionDescriptors: publicTextList(card.conditionDescriptors),
   };
 }
 
+function copySelectedOption(option: Readonly<Record<string, unknown>>) {
+  const dimensionId = publicText(option.dimensionId);
+  const optionId = publicText(option.optionId);
+  return dimensionId === null || optionId === null ? null : { dimensionId, optionId };
+}
+
 /**
- * Copies the public keys by name, nested values included, so a wider row, grade, option or image
- * passed in cannot carry another field out.
+ * Copies the public keys by name, nested values included, and checks each stored JSON value's type, so a
+ * wider row, grade, option or image passed in cannot carry another field out. A malformed option or image
+ * is dropped rather than failing the whole read.
  */
 export function toMarketplaceItemListingRow(row: MarketplaceItemListingRow): MarketplaceItemListingRow {
   return {
@@ -117,7 +130,7 @@ export function toMarketplaceItemListingRow(row: MarketplaceItemListingRow): Mar
     product_id: row.product_id,
     item_title: row.item_title,
     item_subtitle: row.item_subtitle,
-    selected_options: row.selected_options.map(({ dimensionId, optionId }) => ({ dimensionId, optionId })),
+    selected_options: publicEntries(row.selected_options, copySelectedOption),
     product_summary: row.product_summary,
     graded_card: copyGradedCard(row.graded_card),
     ship_from_code: row.ship_from_code,

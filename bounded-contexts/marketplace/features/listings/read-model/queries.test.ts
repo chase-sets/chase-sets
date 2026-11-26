@@ -405,6 +405,59 @@ describe("marketplace listing read-model queries", () => {
     }
   });
 
+  it("serves a product's other Listings when one stored option or grade value has the wrong type", async () => {
+    const storedRow = (listingId: string, values: Record<string, unknown>) => ({
+      ...listingPageRow,
+      listing_id: listingId,
+      price_currency_code: "USD",
+      listing_stream_version: 4,
+      seller_display_name: "QA Seller",
+      visible_quantity: 2,
+      evidence: [],
+      ...values,
+    });
+    const db: PgQueryable = {
+      async query<Row = Record<string, unknown>>() {
+        return {
+          rows: [
+            storedRow("lst_malformed", {
+              selected_options: [
+                null,
+                { dimensionId: "form", optionId: { internalRank: 7 } },
+                { dimensionId: "form", optionId: "graded" },
+              ],
+              graded_card: {
+                gradingCompany: "PSA",
+                grade: "Gem Mint 10",
+                certificationNumber: 12345678,
+                population: { populationAtGrade: "10", populationHigher: 0, source: { fetchedBy: "usr_private" } },
+                conditionDescriptors: ["sharp corners", { internalNote: "bought at a show" }],
+              },
+            }),
+            storedRow("lst_no_grade", { graded_card: { gradingCompany: "PSA", grade: { internalNote: "x" } } }),
+          ] as Row[],
+        };
+      },
+    };
+
+    const rows = await listItemListings(db, "cat_air_balloon::form:raw|condition:damaged");
+
+    expect(rows.map(({ listing_id }) => listing_id)).toEqual(["lst_malformed", "lst_no_grade"]);
+    expect(rows[0]?.selected_options).toEqual([{ dimensionId: "form", optionId: "graded" }]);
+    expect(rows[0]?.graded_card).toEqual({
+      gradingCompany: "PSA",
+      grade: "Gem Mint 10",
+      certificationNumber: null,
+      population: { populationAtGrade: null, populationHigher: 0, source: null, asOf: null },
+      conditionDescriptors: ["sharp corners"],
+    });
+    expect(rows[1]?.graded_card).toBeNull();
+    const serialized = JSON.stringify(rows);
+    for (const privateText of ["internalRank", "internalNote", "fetchedBy", "12345678"]) {
+      expect(serialized).not.toContain(privateText);
+    }
+  });
+
   it("selects exactly the stored columns the public Listing row is built from", async () => {
     const calls: QueryCall[] = [];
     const db: PgQueryable = {
