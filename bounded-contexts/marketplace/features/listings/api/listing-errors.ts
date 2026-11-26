@@ -54,6 +54,8 @@ function classifyListingError(error: unknown): ListingErrorCode | null {
       case "listing-not-found":
       case "inventory-item-not-found":
       case "shipping-measure-missing":
+      case "certification-number-required":
+      case "certification-number-invalid":
       case "command-rejected":
         return error.code;
       default:

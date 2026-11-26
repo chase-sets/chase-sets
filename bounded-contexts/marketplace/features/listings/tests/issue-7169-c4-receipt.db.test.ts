@@ -63,7 +63,12 @@ describeDb("issue-7169-c4-draft-receipt PostgreSQL", () => {
       "INSERT INTO marketplace_catalog_items (catalog_item_id, title, status, product_measure_snapshots) VALUES ('cat_c4', 'Draft card', 'published', $1)",
       [JSON.stringify([draftProductMeasure()])],
     );
-  const services = (db: PgTransactionalPool) => createMarketplaceServices(db, { commercialTermsResolver: terms });
+  /** Draft creation asks Inventory how the item is graded; every draft in this file is a raw item. */
+  const services = (db: PgTransactionalPool) =>
+    createMarketplaceServices(db, {
+      commercialTermsResolver: terms,
+      inventoryItemGradedCardAuthority: { resolve: async () => ({ gradedCard: null, selectedOptions: [] }) },
+    });
 
   async function counts() {
     return (

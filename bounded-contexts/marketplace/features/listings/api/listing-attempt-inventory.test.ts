@@ -24,6 +24,8 @@ describe("listing attempt caller partition", () => {
     "const send = api.pauseListing; send(id);",
     'api["withdrawListing"](id);',
     "api.publishListing!(id, {});",
+    'api.setListingCertificationNumber(id, { certificationNumber: "123" });',
+    'request.post("/api/marketplace/account/listings/lst_1/certification-number", { data: {} });',
     'request.post("/api/marketplace/account/listings", { data: {} });',
     "const target = `/api/marketplace/account/listings/${id}`; request.post(`${target}/publish`, { data: {} });",
     'client.callTool({ name: "marketplace.create-listing", arguments: {} });',

@@ -13,6 +13,7 @@ export function buildChannelMarketplaceFactsProjectionHandlers(db: PgQueryable):
     "marketplace.listing.created": async (event) => projectListingCreated(db, event),
     "marketplace.listing.price-updated": async (event) => projectListingPrice(db, event),
     "marketplace.listing.quantity-cap-updated": async (event) => projectListingQuantity(db, event),
+    "marketplace.listing.certification-number-set": async (event) => projectListingCertificationNumber(db, event),
     "marketplace.listing.published": async (event) => projectListingStatus(db, event, "active", null),
     "marketplace.listing.paused": async (event) =>
       projectListingStatus(db, event, "paused", textOrNull(record(event.data).reason)),
@@ -207,6 +208,20 @@ async function projectListingQuantity(db: PgQueryable, event: Transport): Promis
      SET quantity_cap=$2, updated_at=$3, listing_stream_version=$4
      WHERE listing_id=$1 AND listing_stream_version < $4`,
     [listingId(event), data.quantityCap, event.timing.recordedAt, event.streamVersion],
+  );
+}
+
+async function projectListingCertificationNumber(db: PgQueryable, event: Transport): Promise<void> {
+  const { certificationNumber } = event.data;
+  if (typeof certificationNumber !== "string" || !certificationNumber) {
+    throw new Error("Invalid Listing certification number event.");
+  }
+  await db.query(
+    `UPDATE channels_listing_publication_facts
+     SET graded_card = jsonb_set(graded_card, '{certificationNumber}', to_jsonb($2::text)),
+         updated_at=$3, listing_stream_version=$4
+     WHERE listing_id=$1 AND listing_stream_version < $4`,
+    [listingId(event), certificationNumber, event.timing.recordedAt, event.streamVersion],
   );
 }
 

@@ -145,6 +145,13 @@ class ProjectionDb implements PgQueryable {
       return { rows: updated as Row[], rowCount: updated.length };
     }
 
+    if (sql.includes("UPDATE marketplace_listing_pages") && sql.includes("SET graded_card = jsonb_set")) {
+      const row = this.listings.get(String(values[0]));
+      if (!row) return { rows: [], rowCount: 0 };
+      row.graded_card = { ...(row.graded_card as object), certificationNumber: values[1] };
+      row.updated_at = String(values[2]);
+      return { rows: [], rowCount: 1 };
+    }
     if (sql.includes("UPDATE marketplace_listing_pages") && sql.includes("SET status = 'active'")) {
       const row = this.listings.get(String(values[0]));
       if (!row) {
@@ -483,6 +490,27 @@ function event(
 }
 
 describe("marketplace listing projection", () => {
+  it("projects the new certification number without changing the grading company or grade", async () => {
+    const db = new ProjectionDb();
+    const gradedCard = {
+      gradingCompany: "PSA",
+      grade: "10",
+      certificationNumber: null,
+      population: null,
+      conditionDescriptors: [],
+    };
+    db.listings.set("lst_graded", listingPage({ listing_id: "lst_graded", graded_card: gradedCard }));
+    const handlers = buildMarketplaceListingProjectionHandlers(db);
+    await handlers["marketplace.listing.certification-number-set"]!(
+      event(
+        "marketplace.listing.certification-number-set",
+        { certificationNumber: "00123456" },
+        "marketplace.listing-lst_graded",
+        2,
+      ),
+    );
+    expect(db.listings.get("lst_graded")?.graded_card).toEqual({ ...gradedCard, certificationNumber: "00123456" });
+  });
   it("writes explicit capacity provenance and the durable recovery condition, clearing both on publication", async () => {
     const db = new ProjectionDb();
     db.listings.set("lst_capacity", listingPage({ listing_id: "lst_capacity" }));

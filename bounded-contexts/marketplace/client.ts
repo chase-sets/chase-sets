@@ -794,6 +794,18 @@ export function createMarketplaceApiClient({
         }),
       );
     },
+    async setListingCertificationNumber(
+      id: string,
+      body: MarketplaceListingAttemptInput & { certificationNumber: string },
+    ) {
+      return parseJsonResponse(
+        await client.account.listings[":id"]["certification-number"].$post({
+          param: { id },
+          json: await listingRequest("listing.set-certification-number", { ...body, listingId: id }),
+          header: headers,
+        }),
+      );
+    },
     async publishListing(id: string, body: Record<string, unknown> & MarketplaceListingAttemptInput) {
       return parseJsonResponse(
         await client.account.listings[":id"].publish.$post({

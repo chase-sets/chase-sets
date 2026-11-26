@@ -97,8 +97,8 @@ export const sellerAgreementPolicyArtifact: SellerAgreementPolicyArtifact = {
         productTruthRefs: [
           "bounded-contexts/marketplace/features/listing-evidence-policy/domain/policy.ts:535-646 (photo requirements for top raw conditions and graded listings; seller-trust price gating)",
           "bounded-contexts/marketplace/features/listings/domain/listing-evidence-readiness.test.ts (publication blocked until evidence/seller-trust requirements are satisfied)",
-          'bounded-contexts/marketplace/features/listings/api/runtime.ts:1927-1930 (start with createListingOnce: missing account-owned Inventory supply raises MarketplaceListingDomainError with code inventory-item-not-found and message "Inventory item not found.")',
-          "bounded-contexts/marketplace/features/listings/api/runtime.ts:1720-1750 (Inventory supply row upsert persists catalog_catalog_item_id from params.catalogItemId)",
+          'bounded-contexts/marketplace/features/listings/api/runtime.ts:1951-1954 (start with createListingOnce: missing account-owned Inventory supply raises MarketplaceListingDomainError with code inventory-item-not-found and message "Inventory item not found.")',
+          "bounded-contexts/marketplace/features/listings/api/runtime.ts:1735-1765 (Inventory supply row upsert persists catalog_catalog_item_id from params.catalogItemId)",
           "bounded-contexts/public-presence/features/help/domain/articles/condition-and-photo-standards.en.md",
         ],
         openQuestions: [],
@@ -106,7 +106,7 @@ export const sellerAgreementPolicyArtifact: SellerAgreementPolicyArtifact = {
           {
             assertion:
               "Listings can only be created against an existing catalog entry; there is no free-text or off-catalog listing path.",
-            evidenceRef: "bounded-contexts/marketplace/features/listings/api/runtime.ts:1927-1930,1720-1750",
+            evidenceRef: "bounded-contexts/marketplace/features/listings/api/runtime.ts:1951-1954,1735-1765",
           },
           {
             assertion:

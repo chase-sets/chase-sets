@@ -222,7 +222,7 @@ export function enumerateMarketplaceAttemptCallers(sources, listing = false, rev
         }
         if (
           listing &&
-          (/name=["']intent["']\s+value=["'](?:create-listing|create-and-publish-listing|list-at-price|bulk-pause-listings|bulk-withdraw-listings|update-quantity-cap|update-purchase-limits|schedule-away-window|cancel-away-window|set-order-capacity|clear-order-capacity|disable-listings|enable-listings)["']/.test(
+          (/name=["']intent["']\s+value=["'](?:create-listing|create-and-publish-listing|list-at-price|bulk-pause-listings|bulk-withdraw-listings|update-quantity-cap|update-purchase-limits|set-certification-number|schedule-away-window|cancel-away-window|set-order-capacity|clear-order-capacity|disable-listings|enable-listings)["']/.test(
             call,
           ) ||
             imports.some((name) => name.endsWith("/listing-command-form")))
@@ -289,6 +289,7 @@ const listingMethods = new Set([
   "updateListingPrice",
   "updateListingQuantityCap",
   "updateListingPurchaseLimits",
+  "setListingCertificationNumber",
   "disableSellerListingAvailability",
   "enableSellerListingAvailability",
   "scheduleSellerAwayWindow",
@@ -301,7 +302,7 @@ const listingMethods = new Set([
 const httpListingCommands = [
   [/\/account\/listings$/, "http-listing-create"],
   [
-    /\/account\/listings\/[^/]+\/(?:publish|pause|withdraw|price|quantity-cap|purchase-limits)$/,
+    /\/account\/listings\/[^/]+\/(?:publish|pause|withdraw|price|quantity-cap|purchase-limits|certification-number)$/,
     "http-listing-command",
   ],
   [/\/account\/listings\/(?:batch|prices\/bulk)$/, "http-listing-batch"],

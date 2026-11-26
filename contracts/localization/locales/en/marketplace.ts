@@ -139,6 +139,10 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.api.route.error.inventoryItemNotFound": "Inventory item not found.",
   "marketplace.features.listings.api.route.error.shippingMeasureMissing":
     "This product has no shipping measure yet, so it cannot be listed. Try again later.",
+  "marketplace.features.listings.api.route.error.certificationNumberRequired":
+    "Add a certification number before publishing this Listing.",
+  "marketplace.features.listings.api.route.error.certificationNumberInvalid":
+    "Enter a certification number in the format Chase Sets accepts for this grading company.",
   "marketplace.features.listings.api.route.error.commandRejected":
     "This listing change is not available. Check the listing details and try again.",
   "marketplace.features.listings.api.route.error.bulkPriceUpdateInvalid":
@@ -336,6 +340,10 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.ui.evidence.unclassified": "Not assigned to a required view",
   "marketplace.features.listings.ui.evidence.upload": "Upload evidence",
   "marketplace.features.listings.ui.evidence.view.ready": "This required view is ready.",
+  "marketplace.features.listings.ui.listingDetailPage.certification.number": "Certification number",
+  "marketplace.features.listings.ui.listingDetailPage.grading.company": "Grading company",
+  "marketplace.features.listings.ui.listingDetailPage.grade": "Grade",
+  "marketplace.features.listings.ui.listingDetailPage.save.certification.number": "Save certification number",
   "marketplace.features.listings.ui.listingDetailPage.listing.overview": "Listing Overview",
   "marketplace.features.listings.ui.listingDetailPage.manage.seller.listing.pricing.quantity.caps":
     "Manage seller listing pricing, quantity caps, and publication state.",

@@ -79,6 +79,7 @@ type OrderingMarketplaceSupplyProjectionEventPayloads = Pick<
   | "marketplace.listing.price-updated"
   | "marketplace.listing.quantity-cap-updated"
   | "marketplace.listing.purchase-limits-updated"
+  | "marketplace.listing.certification-number-set"
   | "marketplace.listing.published"
   | "marketplace.listing.paused"
   | "marketplace.listing.withdrawn"
@@ -363,6 +364,15 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
           data.purchaseLimits.maxUnitsPerCustomerAccount,
           event.timing.recordedAt,
         ],
+      );
+    },
+    "marketplace.listing.certification-number-set": async (event) => {
+      await db.query(
+        `UPDATE ordering_market_listing_inputs
+         SET graded_card = jsonb_set(graded_card, '{certificationNumber}', to_jsonb($2::text)),
+             updated_at = $3
+         WHERE listing_id = $1`,
+        [event.streamId.replace("marketplace.listing-", ""), event.data.certificationNumber, event.timing.recordedAt],
       );
     },
     "marketplace.listing.published": async (event) => {

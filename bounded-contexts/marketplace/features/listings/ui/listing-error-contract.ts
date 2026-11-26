@@ -67,6 +67,16 @@ export const listingErrorContract = {
     code: "listing_shipping_measure_missing",
     copy: "marketplace.features.listings.api.route.error.shippingMeasureMissing",
   },
+  "certification-number-required": {
+    status: 409,
+    code: "listing_certification_number_required",
+    copy: "marketplace.features.listings.api.route.error.certificationNumberRequired",
+  },
+  "certification-number-invalid": {
+    status: 400,
+    code: "listing_certification_number_invalid",
+    copy: "marketplace.features.listings.api.route.error.certificationNumberInvalid",
+  },
   "command-rejected": {
     status: 400,
     code: "listing_command_rejected",

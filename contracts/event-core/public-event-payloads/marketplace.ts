@@ -873,6 +873,7 @@ export type MarketplaceEventPayloads = Readonly<{
   "marketplace.listing.price-updated": MarketplaceListingPriceUpdatedPayload;
   "marketplace.listing.quantity-cap-updated": MarketplaceListingQuantityCapUpdatedPayload;
   "marketplace.listing.purchase-limits-updated": MarketplaceListingPurchaseLimitsUpdatedPayload;
+  "marketplace.listing.certification-number-set": Readonly<{ certificationNumber: string }>;
   "marketplace.listing.published": MarketplaceListingPublishedPayload;
   "marketplace.listing.paused": Readonly<{
     reason?: "seller" | "policy-input-missing" | "channel-inbound-dark" | "inventory-capacity";

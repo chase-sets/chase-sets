@@ -1182,6 +1182,7 @@ describe("marketplace listing runtime", () => {
       commercialTermsResolver: {
         resolveListingTerms,
       } as never,
+      inventoryItemGradedCardAuthority: rawInventoryItem,
     });
 
     const result = await services.createBatchDraftListingFromInventorySnapshot(
@@ -3904,18 +3905,160 @@ describe("a snapshot create takes Graded Item Details and the selection from Inv
     expect(connect).not.toHaveBeenCalled();
   });
 
-  it("leaves batch draft creation on the snapshot it is given, without asking Inventory", async () => {
-    const f = createFixture("absent");
+  const importDraft = {
+    ...snapshot,
+    selectedOptions: [psaOption],
+    importBatchId: "imb_1",
+    importRowId: "imr_1",
+    listingIdOverride: "lst_batch_graded" as never,
+  };
+
+  it.each([psa, null])(
+    "uses Inventory grading (%j) and the import message selection on the draft",
+    async (gradedCard) => {
+      const f = createFixture(async () => ({ gradedCard, selectedOptions: [aceOption] }));
+      const expected = gradedCard && { ...gradedCard, certificationNumber: null };
+      await expect(
+        f.services.createBatchDraftListingFromInventorySnapshot(importDraft, context),
+      ).resolves.toMatchObject({ version: 1 });
+      expect(f.resolve).toHaveBeenCalledExactlyOnceWith({ accountId: "acc_seller", inventoryItemId: "inv_1" });
+      expect(f.selectionWrites).toEqual([JSON.stringify([psaOption])]);
+      // The supply row is shared with the seller's own create path, so it keeps the number Inventory recorded.
+      expect(f.itemWrites).toEqual([gradedCard ? JSON.stringify(gradedCard) : null]);
+      expect(f.evaluate).toHaveBeenCalledWith(
+        expect.objectContaining({ gradedItem: gradedCard !== null, selectedOptions: [psaOption] }),
+        expect.any(String),
+      );
+      const [created] = await f.eventStore.readStream({
+        streamId: `marketplace.listing-${importDraft.listingIdOverride}`,
+      });
+      expect(created).toMatchObject({
+        eventType: "marketplace.listing.created",
+        payload: { gradedCard: expected, selectedOptions: [psaOption] },
+      });
+    },
+  );
+
+  it("stops import draft creation before writing when the Inventory authority cannot be read", async () => {
+    const f = createFixture(async () => {
+      throw new Error("Inventory unavailable");
+    });
+    await expect(f.services.createBatchDraftListingFromInventorySnapshot(importDraft, context)).rejects.toThrow(
+      "Inventory graded item details are unavailable.",
+    );
+    expect(f.query).not.toHaveBeenCalled();
+    expect(f.allEvents).toHaveLength(0);
+  });
+
+  it("validates the number with active Evidence Policy formats and keeps replay idempotent", async () => {
+    const f = createFixture(async () => ({ gradedCard: psa, selectedOptions: [psaOption] }));
+    await f.services.createBatchDraftListingFromInventorySnapshot(importDraft, context);
+    const listingId = importDraft.listingIdOverride;
+    const request = (certificationNumber: string) =>
+      listingTestCommand("listing.set-certification-number", {
+        listingId,
+        accountId: "acc_seller",
+        certificationNumber,
+      });
+    await expect(f.services.setListingCertificationNumber(request("123"), context)).rejects.toThrow("8 to 10 digits");
+    const valid = request("00123456");
+    const response = await f.services.setListingCertificationNumber(valid, context);
+    expect(await f.services.setListingCertificationNumber(valid, context)).toEqual(response);
+    const events = await f.eventStore.readStream({ streamId: `marketplace.listing-${listingId}` });
+    expect(events.map(({ eventType }) => eventType)).toEqual([
+      "marketplace.listing.created",
+      "marketplace.listing.certification-number-set",
+    ]);
+    expect(events[1]?.payload).toEqual({ certificationNumber: "00123456" });
+  });
+
+  it("answers a repeated send from its own receipt after the seller has corrected the number", async () => {
+    const f = createFixture(async () => ({ gradedCard: psa, selectedOptions: [psaOption] }));
+    await f.services.createBatchDraftListingFromInventorySnapshot(importDraft, context);
+    const listingId = importDraft.listingIdOverride;
+    const request = (certificationNumber: string) =>
+      listingTestCommand("listing.set-certification-number", {
+        listingId,
+        accountId: "acc_seller",
+        certificationNumber,
+      });
+    await f.services.setListingCertificationNumber(request("00123456"), context);
+    const sameNumberAgain = request("00123456");
+    const response = await f.services.setListingCertificationNumber(sameNumberAgain, context);
+    await f.services.setListingCertificationNumber(request("00876543"), context);
+
+    expect(await f.services.setListingCertificationNumber(sameNumberAgain, context)).toEqual(response);
+    const events = await f.eventStore.readStream({ streamId: `marketplace.listing-${listingId}` });
+    expect(events.map(({ payload }) => payload.certificationNumber).slice(1)).toEqual([
+      "00123456",
+      "00123456",
+      "00876543",
+    ]);
+  });
+
+  it("reads the Listing again when it changed while the formats were being resolved", async () => {
+    const f = createFixture(async () => ({ gradedCard: psa, selectedOptions: [psaOption] }));
+    await f.services.createBatchDraftListingFromInventorySnapshot(importDraft, context);
+    const listingId = importDraft.listingIdOverride;
+    const resolveFormats = f.evaluate.getMockImplementation()!;
+    f.evaluate.mockClear();
+    f.evaluate.mockImplementationOnce(async (facts) => {
+      await f.services.updateListingPurchaseLimits(
+        listingTestCommand("listing.update-purchase-limits", {
+          accountId: "acc_seller",
+          listingId,
+          purchaseLimits: { maxUnitsPerOrder: 1 },
+        }),
+        context,
+      );
+      return resolveFormats(facts);
+    });
 
     await expect(
-      f.services.createBatchDraftListingFromInventorySnapshot(
-        { ...snapshot, importBatchId: "imb_1", importRowId: "imr_1", listingIdOverride: "lst_batch_graded" as never },
+      f.services.setListingCertificationNumber(
+        listingTestCommand("listing.set-certification-number", {
+          listingId,
+          accountId: "acc_seller",
+          certificationNumber: "00123456",
+        }),
         context,
       ),
-    ).resolves.toMatchObject({ version: 1 });
+    ).resolves.toMatchObject({ listingId, version: 3 });
+    expect(f.evaluate).toHaveBeenCalledTimes(2);
+    const events = await f.eventStore.readStream({ streamId: `marketplace.listing-${listingId}` });
+    expect(events.map(({ eventType }) => eventType)).toEqual([
+      "marketplace.listing.created",
+      "marketplace.listing.purchase-limits-updated",
+      "marketplace.listing.certification-number-set",
+    ]);
+  });
 
-    expect(f.resolve).not.toHaveBeenCalled();
-    expect(f.itemWrites).toEqual([null]);
+  it("answers from the receipt without deciding again when the same send committed in the meantime", async () => {
+    const f = createFixture(async () => ({ gradedCard: psa, selectedOptions: [psaOption] }));
+    await f.services.createBatchDraftListingFromInventorySnapshot(importDraft, context);
+    const listingId = importDraft.listingIdOverride;
+    const send = listingTestCommand("listing.set-certification-number", {
+      listingId,
+      accountId: "acc_seller",
+      certificationNumber: "00123456",
+    });
+    const resolveFormats = f.evaluate.getMockImplementation()!;
+    f.evaluate.mockClear();
+    f.evaluate.mockImplementationOnce(async (facts) => {
+      await f.services.setListingCertificationNumber(send, context);
+      return resolveFormats(facts);
+    });
+
+    await expect(f.services.setListingCertificationNumber(send, context)).resolves.toMatchObject({
+      listingId,
+      version: 2,
+    });
+    expect(f.evaluate).toHaveBeenCalledTimes(2);
+    const events = await f.eventStore.readStream({ streamId: `marketplace.listing-${listingId}` });
+    expect(events.map(({ eventType }) => eventType)).toEqual([
+      "marketplace.listing.created",
+      "marketplace.listing.certification-number-set",
+    ]);
   });
 });
 

@@ -23,7 +23,11 @@ import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import { module as settlementModule } from "@chase-sets/settlement";
 import { createFilesystemObjectStorage, createS3ObjectStorage, type ObjectStorage } from "@chase-sets/object-storage";
 
-import { createInventoryStockAuthorityForPool, createStorageLocationAuthority } from "@chase-sets/inventory/server";
+import {
+  createInventoryItemGradedCardAuthority,
+  createInventoryStockAuthorityForPool,
+  createStorageLocationAuthority,
+} from "@chase-sets/inventory/server";
 import { type MarketplaceServices } from "@chase-sets/marketplace/server";
 import { createPlatformWorkerInventoryDraftListingConsumer } from "./inventory-draft-listing-consumer";
 import type { PricingServices } from "@chase-sets/pricing/server";
@@ -410,6 +414,14 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
           ? createStorageLocationAuthority(pools.inventory).resolveStorageLocationAuthority
           : async () => null,
       },
+      // The Inventory draft consumer reads an imported item's grading here before it creates the draft Listing.
+      ...(pools.inventory
+        ? {
+            inventoryItemGradedCardAuthority: {
+              resolve: createInventoryItemGradedCardAuthority(pools.inventory).resolveInventoryItemGradedCard,
+            },
+          }
+        : {}),
       searchEmbeddingConfig: config.discoverySearchEmbeddings,
       searchTelemetry: {
         recordSearchQuery: recordDiscoverySearchQuerySignal,
