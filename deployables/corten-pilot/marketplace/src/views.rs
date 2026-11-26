@@ -216,6 +216,7 @@ pub const CHECKOUT_START: &[Component] = &[CheckoutStartPage];
 /// when it cannot start (`checkout_start::buy_as_guest`).
 pub const ITEM: &[Component] = &[
     ItemDetail,
+    item_detail::book_choices::COMPONENT,
     platform::chart::TimeSeries,
     platform::ui::stats::Stats,
     platform::ui::segmented::Segmented,

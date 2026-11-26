@@ -38,7 +38,7 @@ use crate::{
 
 // The item page's and search's analytics (marketplace-web's `trackItemDetailRailEvent`).
 corten::script::script!(pub mod analytics = "rail_analytics.js");
-corten::script::script!(mod book_choices = "item_book_choices.js");
+corten::script::script!(pub mod book_choices = "item_book_choices.js");
 
 /// A rail form with one set of analytics labels, whichever button sends it.
 const ONE_WAY: [&str; 0] = [];

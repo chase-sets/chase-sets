@@ -129,10 +129,8 @@ export function registerMarketplaceInteractionTests() {
         await page.setViewportSize({ width: 1280, height: 640 });
         await open(page, itemPath);
         const conditionLabel = { name: "Condition", exact: true };
-        const form = page
-          .getByRole("region", { name: "Choose options" })
-          .locator("form")
-          .filter({ has: page.getByRole("combobox", conditionLabel) });
+        const choices = page.getByRole("region", { name: "Choose options" });
+        const form = choices.locator("form").filter({ has: page.getByRole("combobox", conditionLabel) });
         const condition = form.getByRole("combobox", conditionLabel);
         const apply = form.getByRole("button", { name: "Select", exact: true });
         const conditionKey = "dimension.dim_seed_condition";
@@ -160,7 +158,15 @@ export function registerMarketplaceInteractionTests() {
           .getByRole("link", { name: "Clear filters", exact: true });
         const previousY = await activateBelowFold(page, clear);
         await expect(clear).toHaveCount(0);
-        await expect(page).toHaveURL((url) => !url.searchParams.has(formKey) && !url.searchParams.has(conditionKey));
+        // The sentinel prevents the single available listing from auto-selecting its product again.
+        await expect(page).toHaveURL(
+          (url) =>
+            url.pathname === seed.itemDetail.routePath &&
+            !url.searchParams.has(formKey) &&
+            url.searchParams.get(conditionKey) === "any",
+        );
+        await expect(choices.getByRole("link", { name: "Any", exact: true })).toHaveAttribute("aria-current", "true");
+        await expect(condition).toHaveCount(0);
         await expect(bookLink(page, "Listings")).toBeFocused();
         await expectScrollRetained(page, previousY);
         expect(documents).toEqual([]);
