@@ -17192,7 +17192,7 @@ async fn keeps_withheld_credit_honest_when_terms_recovery_does_not_complete() {
         page.contains("Terms acceptance could not be confirmed. Review the Terms or continue without wallet balance."),
         "{page}"
     );
-    assert!(!html.contains("sk_live_marker") && !html.contains("upstream detail"), "{html}");
+    assert!(!html.contains("upstream-secret-marker") && !html.contains("upstream detail"), "{html}");
     assert!(page.contains("Wallet credit applied $0.00") && page.contains("Card charge $638.83"), "{page}");
     assert!(html.contains(">Review Terms of Service</a>") && html.contains(r#"name="intent" value="accept-terms""#), "{html}");
     assert_eq!(wallet_choices(&html), (true, true, true, true), "{html}");
@@ -17959,7 +17959,7 @@ fn terms_api(session: &str, method: &Method, uri: &Uri) -> Option<Response> {
         "payer" => committed(StatusCode::CREATED, "identity", "51", status),
         "terms_late" => committed(StatusCode::CREATED, "identity", "52", status),
         "terms_stuck" => committed(StatusCode::CREATED, "identity", "53", status),
-        "terms_broken" => (StatusCode::INTERNAL_SERVER_ERROR, "upstream detail sk_live_marker").into_response(),
+        "terms_broken" => (StatusCode::INTERNAL_SERVER_ERROR, "upstream detail upstream-secret-marker").into_response(),
         "terms_elsewhere" => committed(StatusCode::CREATED, "settlement", "51", status),
         "terms_unconfirmed" => Json(status).into_response(),
         "terms_inactive" => {
