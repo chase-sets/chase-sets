@@ -16712,9 +16712,10 @@ async fn starting_a_payment_shows_the_orders_quote_and_wallet_and_continue_start
         "{calls:?}"
     );
 
-    // A refusal is the page again with Payments' words and the choices kept.
+    // A refusal is the page again with Payments' words and the choices kept. The buyer has accepted
+    // the Terms, since a withheld buyer's wallet choices are off and would not be kept.
     let form = "order_ids=ord_pay&payment_method_category=bank-account&balance_credit_mode=custom&requested_balance_credit_amount=999.00";
-    let (status, _, html) = pilot.send(post("/account/payments/new", "payer", form, false)).await;
+    let (status, _, html) = pilot.send(post("/account/payments/new", "terms_accepted", form, false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(text(&html).contains("Requested balance credit exceeds the available wallet balance."), "{html}");
     assert!(html.contains(r#"<option value="custom" selected>"#) && html.contains(r#"value="999.00""#), "{html}");
