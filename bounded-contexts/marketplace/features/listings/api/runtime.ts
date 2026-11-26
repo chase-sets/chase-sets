@@ -2294,7 +2294,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       );
       const recorded = await resolveInventoryRecordedItem(params);
       const gradedCard = recorded.gradedCard && { ...recorded.gradedCard, certificationNumber: null };
-      await upsertBatchInventorySnapshot({ ...params, gradedCard });
+      await upsertBatchInventorySnapshot({ ...params, gradedCard: recorded.gradedCard });
       const result = await createListingWithSource(
         {
           idempotencyKey: createHash("sha256")
@@ -2809,14 +2809,13 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         { listingId: params.listingId, certificationNumber: params.certificationNumber },
         params.listingId,
       );
-      return runListingAttempt(
-        deps.eventStore,
-        attempt,
-        (receipt) => ({ listingId: params.listingId, version: receipt.version }),
-        async () => {
-          const streamId = `marketplace.listing-${params.listingId}`;
-          // The formats are resolved for the Listing as read, so a Listing that moved is read and decided again.
-          for (let attemptNumber = 0; ; attemptNumber += 1) {
+      const streamId = `marketplace.listing-${params.listingId}`;
+      const setOnce = () =>
+        runListingAttempt(
+          deps.eventStore,
+          attempt,
+          (receipt) => ({ listingId: params.listingId, version: receipt.version }),
+          async () => {
             const { state: listing, version } = await repository.load(streamId);
             if (listing.listingId === null || listing.accountId !== params.accountId) {
               throw new MarketplaceListingDomainError("listing-not-found", "Listing not found.");
@@ -2837,28 +2836,32 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
                 evaluatedAt: new Date().toISOString(),
               });
             }
-            try {
-              const result = await appendAttemptCommand(
-                listingOwner,
-                {
-                  streamId,
-                  expectedVersion: version,
-                  context,
-                  command: {
-                    type: "SetListingCertificationNumber",
-                    certificationNumber: params.certificationNumber,
-                    certificateNumberFormats: evaluation?.certificateNumberFormats ?? [],
-                  },
+            const result = await appendAttemptCommand(
+              listingOwner,
+              {
+                streamId,
+                expectedVersion: version,
+                context,
+                command: {
+                  type: "SetListingCertificationNumber",
+                  certificationNumber: params.certificationNumber,
+                  certificateNumberFormats: evaluation?.certificateNumberFormats ?? [],
                 },
-                attempt,
-              );
-              return { listingId: params.listingId, version: result.version };
-            } catch (error) {
-              if (!isConcurrencyConflict(error) || attemptNumber === 4) throw error;
-            }
-          }
-        },
-      );
+              },
+              attempt,
+            );
+            return { listingId: params.listingId, version: result.version };
+          },
+        );
+      // The formats are resolved for the Listing as read, so a Listing that moved is read and decided again.
+      // Each pass starts from the attempt's own receipt, so a send that already committed is answered, not repeated.
+      for (let pass = 0; ; pass += 1) {
+        try {
+          return await setOnce();
+        } catch (error) {
+          if (!isConcurrencyConflict(error) || pass === 4) throw error;
+        }
+      }
     },
     publishListing: async (params, context) => {
       // Repricing-engine keys keep their shipped already-active no-op and carry no attempt.

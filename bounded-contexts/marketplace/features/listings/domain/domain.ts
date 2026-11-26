@@ -985,7 +985,6 @@ export function decideMarketplaceListing(
         command.certificateNumberFormats,
         "certification-number-invalid",
       );
-      if (certificationNumber === state.gradedCard.certificationNumber) return [];
       return [{ type: "marketplace.listing.certification-number-set", data: { certificationNumber } }];
     }
     case "AddListingPhotos":
@@ -1665,9 +1664,13 @@ function normalizeCertificationNumber(
   const certificationNumber = (details.certificationNumber ?? "").replaceAll(/\s+/g, "");
   if (!certificationNumber)
     throw new MarketplaceListingDomainError(code, "Graded cards require a certification number.");
-  // With no matched format any text is accepted, so refuse what the event store cannot hold.
-  if (/\p{Cc}/u.test(certificationNumber))
-    throw new MarketplaceListingDomainError(code, "Certification numbers cannot contain control characters.");
+  // With no matched format any text is accepted, so refuse what the event store cannot hold: control
+  // characters, unpaired surrogates, and text longer than twice the longest format a policy can declare.
+  if (/[\p{Cc}\p{Cs}]/u.test(certificationNumber) || certificationNumber.length > 64)
+    throw new MarketplaceListingDomainError(
+      code,
+      "Certification numbers must be 64 characters or fewer with no control characters.",
+    );
   for (const { minimumDigits, maximumDigits } of certificateNumberFormats) {
     if (
       !/^\d+$/.test(certificationNumber) ||
@@ -1686,19 +1689,19 @@ function normalizeCertificationNumber(
 /**
  * `gradingCompany` and `grade` are Inventory's display copies and pass through as given. The certification number
  * must hold every Certificate Number Format the Listing Evidence Policy matched for the Listing. Only an Inventory
- * import draft may be created without one, and it cannot be published until the seller sets it.
+ * import draft is created without one, whatever the item's supply holds, and it cannot be published until the
+ * seller sets it.
  */
 function normalizeGradedCardDetails(
   details: MarketplaceGradedCardDetails | null,
   certificateNumberFormats: readonly CertificateNumberFormat[],
-  allowMissingCertificationNumber: boolean,
+  inventoryImportDraft: boolean,
 ): MarketplaceGradedCardDetails | null {
   if (!details) return null;
 
-  const certificationNumber =
-    allowMissingCertificationNumber && details.certificationNumber === null
-      ? null
-      : normalizeCertificationNumber(details, certificateNumberFormats, "command-rejected");
+  const certificationNumber = inventoryImportDraft
+    ? null
+    : normalizeCertificationNumber(details, certificateNumberFormats, "command-rejected");
 
   const population = details.population
     ? {

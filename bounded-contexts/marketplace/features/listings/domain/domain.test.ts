@@ -920,24 +920,43 @@ describe("marketplace Graded Item Details on a created Listing", () => {
     ).toThrow("PSA certification numbers must use 8 to 10 digits.");
   });
 
-  it("refuses control characters when no format matched, on the draft and on the seller's own create", () => {
-    const unstorable = "AB\u0000C";
+  it.each([
+    ["a control character", "AB\u0000C"],
+    ["an unpaired surrogate", "AB\uD800C"],
+    ["more than 64 characters", "A".repeat(65)],
+  ])("refuses %s when no format matched, on the draft and on the seller's own create", (_case, unstorable) => {
+    const refusal = "Certification numbers must be 64 characters or fewer with no control characters.";
     expect(() =>
       decideMarketplaceListing(importedGradedDraft(), {
         ...setCertification,
         certificationNumber: unstorable,
         certificateNumberFormats: [],
       }),
-    ).toThrow("Certification numbers cannot contain control characters.");
-    expect(() => createdGradedCard({ gradedCard: gradedCard({ certificationNumber: unstorable }) })).toThrow(
-      "Certification numbers cannot contain control characters.",
-    );
+    ).toThrow(refusal);
+    expect(() => createdGradedCard({ gradedCard: gradedCard({ certificationNumber: unstorable }) })).toThrow(refusal);
   });
 
-  it("records nothing when the number is the one the Listing already holds", () => {
-    const draft = importedGradedDraft();
-    const certified = decideMarketplaceListing(draft, setCertification).reduce(evolveMarketplaceListing, draft);
-    expect(decideMarketplaceListing(certified, { ...setCertification, certificationNumber: "12345678" })).toEqual([]);
+  it("accepts 64 characters and paired surrogates when no format matched", () => {
+    for (const certificationNumber of ["A".repeat(64), "AB\u{1F0CF}C"])
+      expect(
+        decideMarketplaceListing(importedGradedDraft(), {
+          ...setCertification,
+          certificationNumber,
+          certificateNumberFormats: [],
+        }),
+      ).toEqual([{ type: "marketplace.listing.certification-number-set", data: { certificationNumber } }]);
+  });
+
+  it("creates an import draft without a number even when the item's supply holds one", () => {
+    const [created] = decideMarketplaceListing(
+      initialMarketplaceListingState,
+      { ...createListingCommand, gradedCard: gradedCard({ certificationNumber: "12345678" }) },
+      "inventory-import-draft",
+    );
+    expect(created).toMatchObject({
+      type: "marketplace.listing.created",
+      data: { gradedCard: gradedCard({ certificationNumber: null }) },
+    });
   });
 
   it("refuses to set a certification number on an ungraded Listing", () => {

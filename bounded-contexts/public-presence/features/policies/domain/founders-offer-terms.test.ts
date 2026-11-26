@@ -288,7 +288,7 @@ const creationChain: Citation[] = [
   [`${listingDomain}:378-404`, /type: "CreateListing"/, /feeLock: MarketplaceListingFeeLock/, /quantityCap: number/],
   [`${listingDomain}:571-610`, /"marketplace.listing.created"/, /feeLocks: MarketplaceListingFeeLock\[\]/],
   [
-    `${listingDomain}:1175-1216`,
+    `${listingDomain}:1174-1215`,
     /catalogItemId: event.data.catalogItemId/,
     /selectedOptions: event.data.selectedOptions/,
     /feeLocks: event.data.feeLocks/,
@@ -468,7 +468,7 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
         /return \[\{ type: "marketplace.listing.purchase-limits-updated", data: \{ purchaseLimits \} \}\]/,
       ],
       [
-        `${listingDomain}:1258-1262`,
+        `${listingDomain}:1257-1261`,
         /case "marketplace.listing.purchase-limits-updated":\s*return \{\s*\.\.\.state,\s*purchaseLimits: event.data.purchaseLimits,/,
       ],
     ],
@@ -500,7 +500,7 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
   [
     "Withdrawal is terminal",
     [
-      [`${listingDomain}:1166-1169`, /case "WithdrawListing"/, /"marketplace.listing.withdrawn"/],
+      [`${listingDomain}:1165-1168`, /case "WithdrawListing"/, /"marketplace.listing.withdrawn"/],
       [
         `${listingTests}:476-496`,
         /Withdrawn listings cannot be published/,

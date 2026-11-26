@@ -3923,7 +3923,8 @@ describe("a snapshot create takes Graded Item Details and the selection from Inv
       ).resolves.toMatchObject({ version: 1 });
       expect(f.resolve).toHaveBeenCalledExactlyOnceWith({ accountId: "acc_seller", inventoryItemId: "inv_1" });
       expect(f.selectionWrites).toEqual([JSON.stringify([psaOption])]);
-      expect(f.itemWrites).toEqual([expected ? JSON.stringify(expected) : null]);
+      // The supply row is shared with the seller's own create path, so it keeps the number Inventory recorded.
+      expect(f.itemWrites).toEqual([gradedCard ? JSON.stringify(gradedCard) : null]);
       expect(f.evaluate).toHaveBeenCalledWith(
         expect.objectContaining({ gradedItem: gradedCard !== null, selectedOptions: [psaOption] }),
         expect.any(String),
@@ -3969,6 +3970,30 @@ describe("a snapshot create takes Graded Item Details and the selection from Inv
       "marketplace.listing.certification-number-set",
     ]);
     expect(events[1]?.payload).toEqual({ certificationNumber: "00123456" });
+  });
+
+  it("answers a repeated send from its own receipt after the seller has corrected the number", async () => {
+    const f = createFixture(async () => ({ gradedCard: psa, selectedOptions: [psaOption] }));
+    await f.services.createBatchDraftListingFromInventorySnapshot(importDraft, context);
+    const listingId = importDraft.listingIdOverride;
+    const request = (certificationNumber: string) =>
+      listingTestCommand("listing.set-certification-number", {
+        listingId,
+        accountId: "acc_seller",
+        certificationNumber,
+      });
+    await f.services.setListingCertificationNumber(request("00123456"), context);
+    const sameNumberAgain = request("00123456");
+    const response = await f.services.setListingCertificationNumber(sameNumberAgain, context);
+    await f.services.setListingCertificationNumber(request("00876543"), context);
+
+    expect(await f.services.setListingCertificationNumber(sameNumberAgain, context)).toEqual(response);
+    const events = await f.eventStore.readStream({ streamId: `marketplace.listing-${listingId}` });
+    expect(events.map(({ payload }) => payload.certificationNumber).slice(1)).toEqual([
+      "00123456",
+      "00123456",
+      "00876543",
+    ]);
   });
 
   it("reads the Listing again when it changed while the formats were being resolved", async () => {
