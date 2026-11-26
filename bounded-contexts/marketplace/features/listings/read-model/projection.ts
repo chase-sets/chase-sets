@@ -553,6 +553,18 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
       assertUpdatedListingRow(result, event.type, listingId);
       await emitListingPatch(db, event, listingId);
     },
+    "marketplace.listing.certification-number-set": async (event) => {
+      const listingId = event.streamId.replace("marketplace.listing-", "");
+      const result = await db.query(
+        `UPDATE marketplace_listing_pages
+         SET graded_card = jsonb_set(graded_card, '{certificationNumber}', to_jsonb($2::text)),
+             updated_at = $3
+         WHERE listing_id = $1`,
+        [listingId, event.data.certificationNumber, event.timing.recordedAt],
+      );
+      assertUpdatedListingRow(result, event.type, listingId);
+      await emitListingPatch(db, event, listingId);
+    },
     "marketplace.listing.published": async (event) => {
       const listingId = event.streamId.replace("marketplace.listing-", "");
 

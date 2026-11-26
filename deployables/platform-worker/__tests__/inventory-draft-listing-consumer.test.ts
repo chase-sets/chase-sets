@@ -94,4 +94,11 @@ describe("issue-7169-c4-consumer-rollout platform-worker", () => {
     expect(source).not.toContain("draftListingCreator");
     expect(source).not.toContain("createBatchDraftListingFromInventorySnapshot");
   });
+
+  it("gives Marketplace the Inventory grading read its draft consumer makes before creating a draft", () => {
+    const source = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
+    expect(source).toMatch(
+      /inventoryItemGradedCardAuthority: \{\s*resolve: createInventoryItemGradedCardAuthority\(pools\.inventory\)\.resolveInventoryItemGradedCard,/,
+    );
+  });
 });

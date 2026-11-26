@@ -6,6 +6,14 @@
 publication time (`publishedAt`). Historical empty and nested-only publications remain
 replayable. Repricing an already active listing does not emit another publication.
 
+## Listing Certification Number Set
+
+**Set Listing Certification Number** (`SetListingCertificationNumber`) validates a certification number against the
+active Listing Evidence Policy for a never-published graded Listing. **Listing Certification Number Set**
+(`marketplace.listing.certification-number-set`) records only the new `certificationNumber`; it does not change the
+grading company or grade. An Inventory import can create a graded draft with no number, but the seller must set one
+before the Listing can be published.
+
 ## Marketplace Mutation Attempt
 
 A **Marketplace Mutation Attempt** binds one opaque command identity to its actor, target and canonical request. Marketplace records its first result atomically with the business facts. An exact replay returns that result without another command; a changed request conflicts. Owner lookup is read-only and never treats connectivity or projection presence as command success.
@@ -106,12 +114,12 @@ A **Policy Rule** is one named selector-and-outcome clause in a Listing Evidence
 
 ## Certificate Number Format
 
-A **Certificate Number Format** is the minimum and maximum count of digits that a Policy Rule sets for the certification number of a graded Listing. Marketplace applies it once, when the Listing is created, for both Publication Scopes.
+A **Certificate Number Format** is the minimum and maximum count of digits that a Policy Rule sets for the certification number of a graded Listing. Marketplace applies it when either Publication Scope creates a graded Listing with a number, and when a seller sets a number before publication.
 
 Notes:
 
 - Only a Policy Rule that selects at least one Option can set one, so a format follows the selected Grading Company Option and never the `gradingCompany` text.
-- Every format set by a matching Policy Rule must hold. Where none matches, any non-empty certification number is accepted.
+- Every format set by a matching Policy Rule must hold. Where none matches, any non-empty certification number without control characters is accepted. A number a seller sets before publication is also at most 64 characters.
 - A format is not part of the Listing Evidence Requirement or its snapshot.
 
 ## Listing Evidence Requirement

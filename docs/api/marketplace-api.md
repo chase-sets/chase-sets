@@ -136,6 +136,8 @@ Listing publication:
 8. `GET /api/marketplace/account/listings/fee-lock-report`
 9. `GET /api/marketplace/account/listings/{id}/fee-history`
 
+For an imported graded draft, `POST /api/marketplace/account/listings/{id}/certification-number` accepts `certificationNumber` and an `idempotencyKey` (and an optional `requestHash`). It requires `listings.manage` and validates against the active Listing Evidence Policy. It returns `certification-number-set` with the Listing id and version. Invalid values return `400 listing_certification_number_invalid`; ungraded or previously published Listings refuse the command. Publishing a graded draft without a number returns `409 listing_certification_number_required`. Seller-initiated Listing creation still requires a number for graded items. Certification entry is HTTP-only; it has no MCP tool.
+
 Advanced inventory workflows may still call `GET /api/inventory/items` and `GET /api/marketplace/account/listing-inventory` before binding a Listing to a specific existing Inventory Item.
 
 High-dollar Listing publication can fail with `validation_failed` when Marketplace requires Listing Photo evidence or account trust before activation. Draft creation remains allowed; only buyer-visible publication is blocked until the Listing and account-risk policy clears.

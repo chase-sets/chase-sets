@@ -54,6 +54,7 @@ const classification = {
   UpdateListingPrice: "native",
   UpdateListingQuantityCap: "native",
   UpdateListingPurchaseLimits: "native",
+  SetListingCertificationNumber: "grading",
   AddListingPhotos: "evidence",
   ClassifyListingPhoto: "evidence",
   ReplaceListingPhoto: "evidence",

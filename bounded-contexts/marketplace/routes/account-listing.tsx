@@ -184,7 +184,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 async function handleAction(intent: string, { request, params, formData }: FormActionContext, recoverable = false) {
   const api = createMarketplaceRequestApiClient(request);
+  const settingCertification = intent === "set-certification-number";
   const preparation = await prepareListingAction(api, request, formData, params.listingId ?? null, recoverable);
+  const certificationNumber = String(formData.get("certificationNumber") ?? "");
   if ("recovery" in preparation) return { listingRecovery: preparation.recovery };
   const identity = preparation.reference;
   const attempt = { idempotencyKey: identity?.batchId ?? "" };
@@ -243,6 +245,16 @@ async function handleAction(intent: string, { request, params, formData }: FormA
                 maxUnitsPerDay: optionalLimit(formData.get("maxUnitsPerDay")),
                 maxUnitsPerCustomerAccount: optionalLimit(formData.get("maxUnitsPerCustomerAccount")),
               },
+            }),
+            pathname,
+          ),
+        );
+      case "set-certification-number":
+        return redirect(
+          await navigateToAccountListingAfterWrite(
+            await api.setListingCertificationNumber(params.listingId!, {
+              idempotencyKey: String(formData.get("idempotencyKey") ?? ""),
+              certificationNumber,
             }),
             pathname,
           ),
@@ -357,7 +369,13 @@ async function handleAction(intent: string, { request, params, formData }: FormA
             : intent === "add-photos" || intent === "replace-photo"
               ? ("upload_failed" as const)
               : null,
-        error: currentQuote ? t("marketplace.routes.accountListing.fee.quote.stale") : error.message,
+        certificationNumber: settingCertification ? certificationNumber : undefined,
+        certificationNumberError: settingCertification ? error.message : undefined,
+        error: settingCertification
+          ? null
+          : currentQuote
+            ? t("marketplace.routes.accountListing.fee.quote.stale")
+            : error.message,
       };
     }
 
@@ -372,6 +390,7 @@ export const action = defineFormAction({
     "update-price": (context) => handleAction("update-price", context, true),
     "update-quantity-cap": (context) => handleAction("update-quantity-cap", context, true),
     "update-purchase-limits": (context) => handleAction("update-purchase-limits", context, true),
+    "set-certification-number": (context) => handleAction("set-certification-number", context),
     "add-photos": (context) => handleAction("add-photos", context),
     "classify-photo": (context) => handleAction("classify-photo", context),
     "replace-photo": (context) => handleAction("replace-photo", context),
@@ -459,12 +478,15 @@ export default function MarketplaceAccountListingRoute() {
     >
       <ListingRecoveryNotice />
       <MarketplaceListingDetailPage
+        key={currentListing.listing_id}
         listing={currentListing as MarketplaceListingDetail}
         feeHistory={data.feeHistory.items as MarketplaceListingFeeHistoryEntry[]}
         priceDraftAmount={actionData?.priceDraftAmount ?? null}
         priceDraftCurrencyCode={actionData?.priceDraftCurrencyCode ?? null}
         pricePreview={actionData?.pricePreview as MarketplaceListingTermsPreview | null | undefined}
         errorMessage={actionData?.error ?? null}
+        certificationNumberDraft={actionData?.certificationNumber}
+        certificationNumberError={actionData?.certificationNumberError}
         evidenceAltTextRecovery={actionData?.evidenceAltTextRecovery ?? null}
       />
     </ListingRecoveryScope>

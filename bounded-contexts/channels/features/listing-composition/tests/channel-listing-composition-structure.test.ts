@@ -42,7 +42,7 @@ describe("channel-subscription-order-fence", () => {
     );
     expect(
       subscriptions.map((entry) => ("eventTypes" in entry && entry.eventTypes ? entry.eventTypes.length : 0)),
-    ).toEqual([9, 6, 9, 14, 0]);
+    ).toEqual([10, 6, 9, 14, 0]);
     expect(reactions.map((entry) => entry.eventTypes.length)).toEqual([9, 6, 9, 12]);
     expect(subscriptions.map((entry) => entry.subscriptionVersion)).toEqual([
       1,
@@ -62,7 +62,11 @@ describe("channel-subscription-order-fence", () => {
     );
     expect(subscriptions[4]).not.toHaveProperty("filterToEventTypes");
     expect(reactions.every((entry) => entry.filterToEventTypes)).toBe(true);
-    for (let index = 0; index < 3; index += 1) {
+    const certificationFact = "marketplace.listing.certification-number-set";
+    const marketplaceFacts = subscriptions[0]?.eventTypes;
+    expect(marketplaceFacts).toContain(certificationFact);
+    expect(reactions[0]!.eventTypes).toEqual(marketplaceFacts?.filter((eventType) => eventType !== certificationFact));
+    for (let index = 1; index < 3; index += 1) {
       expect(reactions[index]!.eventTypes).toEqual(subscriptions[index]!.eventTypes);
     }
     const channelListingOutcomeEvents = [
@@ -80,7 +84,7 @@ describe("channel-subscription-order-fence", () => {
     expect(
       new Set(subscriptions.flatMap((entry) => ("eventTypes" in entry && entry.eventTypes ? entry.eventTypes : [])))
         .size,
-    ).toBe(38);
+    ).toBe(39);
   });
 });
 

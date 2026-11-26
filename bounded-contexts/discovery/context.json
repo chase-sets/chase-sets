@@ -331,6 +331,7 @@
         "marketplace.listing.price-updated",
         "marketplace.listing.quantity-cap-updated",
         "marketplace.listing.purchase-limits-updated",
+        "marketplace.listing.certification-number-set",
         "marketplace.listing.published",
         "marketplace.listing.paused",
         "marketplace.listing.auto-unlisted",

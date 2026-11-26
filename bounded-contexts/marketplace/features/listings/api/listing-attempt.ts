@@ -74,6 +74,8 @@ function terminalEventTypes(kind: MarketplaceListingMutationKind): readonly stri
       return ["marketplace.listing.quantity-cap-updated"];
     case "listing.update-purchase-limits":
       return ["marketplace.listing.purchase-limits-updated"];
+    case "listing.set-certification-number":
+      return ["marketplace.listing.certification-number-set"];
     case "listing.pause":
       return ["marketplace.listing.paused"];
     case "listing.withdraw":

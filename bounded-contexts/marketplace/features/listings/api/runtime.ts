@@ -55,6 +55,7 @@ import type {
 } from "../ui/contracts";
 import {
   activeListingPhotos,
+  assertListingCertificationNumberForPublication,
   assertListingShippingMeasure,
   assertNativeListingCommand,
   decideMarketplaceListing,
@@ -173,7 +174,7 @@ const LISTING_PHOTO_JPEG_MAX_BYTES = 15_000_000;
  * snapshot with a different schema version is ignored -- load() falls back
  * to full replay, exactly as if no snapshot existed.
  */
-const MARKETPLACE_LISTING_SNAPSHOT_SCHEMA_VERSION = 9;
+const MARKETPLACE_LISTING_SNAPSHOT_SCHEMA_VERSION = 10;
 /**
  * Marketplace listings are m113's proven-hot aggregate: reprice-heavy
  * listings accumulate hundreds of `UpdateListingPrice` events, and every
@@ -362,7 +363,6 @@ type MarketplaceListingCoreServices = Readonly<{
       catalogItemId: string;
       productId: string;
       selectedOptions: readonly { dimensionId: string; optionId: string }[];
-      gradedCard?: MarketplaceListingState["gradedCard"];
       storageLocationId: string;
       storageLocationName: string;
       shipFromCode: string;
@@ -378,7 +378,12 @@ type MarketplaceListingCoreServices = Readonly<{
       listingPhotoUploads?: readonly MarketplaceListingPhotoUpload[] | null;
     }>,
     context: EventStoreContext,
-  ) => Promise<{ listingId: ListingId; version: number; feeQuoteFingerprint: string }>;
+  ) => Promise<{
+    listingId: ListingId;
+    version: number;
+    feeQuoteFingerprint: string;
+    recordedGradedCard?: NonNullable<MarketplaceListingState["gradedCard"]> & { certificationNumber: null };
+  }>;
   createListingFromInventorySnapshot: (
     params: MarketplaceListingAttemptParams &
       Readonly<{
@@ -598,6 +603,15 @@ type MarketplaceListingCoreServices = Readonly<{
         accountId: string;
         listingId: string;
         purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
+      }>,
+    context: EventStoreContext,
+  ) => Promise<{ listingId: string; version: number }>;
+  setListingCertificationNumber: (
+    params: MarketplaceListingAttemptParams &
+      Readonly<{
+        accountId: string;
+        listingId: string;
+        certificationNumber: string;
       }>,
     context: EventStoreContext,
   ) => Promise<{ listingId: string; version: number }>;
@@ -1043,6 +1057,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     command: Extract<MarketplaceListingCommand, { type: "CreateListing" }>,
     context: EventStoreContext,
     stamp: ListingAttempt | null = null,
+    creationSource?: "inventory-import-draft",
   ): Promise<{ version: number; state: MarketplaceListingState }> {
     const appendToStreams = deps.eventStore.appendToStreams;
     assert(appendToStreams, "Atomic inventory listing registration is unavailable.");
@@ -1063,7 +1078,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       }
       const discoveredListingIds =
         capacity.state.listingIds.length === 0 ? await discoverInventoryListingIds(inventoryItemId) : [];
-      const listingEvents = decideMarketplaceListing(listing.state, command);
+      const listingEvents = decideMarketplaceListing(listing.state, command, creationSource);
       const capacityEvents = decideInventoryListingCapacity(capacity.state, {
         type: "RegisterInventoryListings",
         inventoryItemId,
@@ -1838,6 +1853,14 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     params: Parameters<MarketplaceListingServices["createListing"]>[0],
     context: EventStoreContext,
   ): Promise<MarketplaceCreateListingResult> {
+    return createListingWithSource(params, context);
+  }
+
+  async function createListingWithSource(
+    params: MarketplaceCreateListingParams,
+    context: EventStoreContext,
+    creationSource?: "inventory-import-draft",
+  ): Promise<MarketplaceCreateListingResult> {
     const attempt = attemptFor(
       "listing.create",
       params,
@@ -1877,7 +1900,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
               "Marketplace attempt identity was already used for a different command.",
             );
         }
-        return createListingOnce(params, listingId, attempt, context);
+        return createListingOnce(params, listingId, attempt, context, creationSource);
       },
     );
   }
@@ -1887,6 +1910,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     listingId: ListingId,
     attempt: ListingAttempt | null,
     context: EventStoreContext,
+    creationSource?: "inventory-import-draft",
   ): Promise<MarketplaceCreateListingResult> {
     const streamId = `marketplace.listing-${listingId}`;
     const existing = await repository.load(streamId);
@@ -1991,6 +2015,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       },
       context,
       attempt,
+      creationSource,
     );
 
     return {
@@ -2267,8 +2292,10 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         params.quantityCap <= params.totalQuantity,
         "Listing quantity caps cannot exceed created available inventory.",
       );
-      await upsertBatchInventorySnapshot(params);
-      return createListing(
+      const recorded = await resolveInventoryRecordedItem(params);
+      const gradedCard = recorded.gradedCard && { ...recorded.gradedCard, certificationNumber: null };
+      await upsertBatchInventorySnapshot({ ...params, gradedCard: recorded.gradedCard });
+      const result = await createListingWithSource(
         {
           idempotencyKey: createHash("sha256")
             .update(JSON.stringify(["inventory-draft", params.accountId, params.importBatchId, params.importRowId]))
@@ -2283,7 +2310,15 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
           listingPhotoUploads: params.listingPhotoUploads,
         },
         context,
+        "inventory-import-draft",
       );
+      assert(result.feeQuoteFingerprint, "Listing fee quote fingerprint is missing.");
+      return {
+        listingId: result.listingId,
+        version: result.version,
+        feeQuoteFingerprint: result.feeQuoteFingerprint,
+        ...(gradedCard ? { recordedGradedCard: gradedCard } : {}),
+      };
     },
     createListingFromInventorySnapshot: async (params, context) => {
       attemptFor("listing.create", params, { ...params }, params.inventoryItemId, params.listingIdOverride);
@@ -2767,6 +2802,67 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         },
       );
     },
+    setListingCertificationNumber: async (params, context) => {
+      const attempt = attemptFor(
+        "listing.set-certification-number",
+        params,
+        { listingId: params.listingId, certificationNumber: params.certificationNumber },
+        params.listingId,
+      );
+      const streamId = `marketplace.listing-${params.listingId}`;
+      const setOnce = () =>
+        runListingAttempt(
+          deps.eventStore,
+          attempt,
+          (receipt) => ({ listingId: params.listingId, version: receipt.version }),
+          async () => {
+            const { state: listing, version } = await repository.load(streamId);
+            if (listing.listingId === null || listing.accountId !== params.accountId) {
+              throw new MarketplaceListingDomainError("listing-not-found", "Listing not found.");
+            }
+            let evaluation = null;
+            if (listing.gradedCard && !listing.hasBeenPublished && listing.status !== "withdrawn") {
+              assert(
+                listing.catalogItemId && listing.productId && listing.priceAmount,
+                "Listing evidence facts are missing.",
+              );
+              evaluation = await resolveListingEvidenceEvaluation(deps, {
+                accountId: params.accountId,
+                catalogItemId: listing.catalogItemId,
+                productId: listing.productId,
+                selectedOptions: listing.selectedOptions,
+                gradedItem: true,
+                priceAmount: listing.priceAmount,
+                evaluatedAt: new Date().toISOString(),
+              });
+            }
+            const result = await appendAttemptCommand(
+              listingOwner,
+              {
+                streamId,
+                expectedVersion: version,
+                context,
+                command: {
+                  type: "SetListingCertificationNumber",
+                  certificationNumber: params.certificationNumber,
+                  certificateNumberFormats: evaluation?.certificateNumberFormats ?? [],
+                },
+              },
+              attempt,
+            );
+            return { listingId: params.listingId, version: result.version };
+          },
+        );
+      // The formats are resolved for the Listing as read, so a Listing that moved is read and decided again.
+      // Each pass starts from the attempt's own receipt, so a send that already committed is answered, not repeated.
+      for (let pass = 0; ; pass += 1) {
+        try {
+          return await setOnce();
+        } catch (error) {
+          if (!isConcurrencyConflict(error) || pass === 4) throw error;
+        }
+      }
+    },
     publishListing: async (params, context) => {
       // Repricing-engine keys keep their shipped already-active no-op and carry no attempt.
       const repricing = isRepricingEngineKey(params.idempotencyKey);
@@ -2780,6 +2876,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         async () => {
           const listing = await loadOwnedListingState(params.listingId, params.accountId);
           assertNativeListingCommand(listing);
+          assertListingCertificationNumberForPublication(listing);
           assert(listing.inventoryItemId, "Listing inventory item is missing.");
           assert(listing.priceAmount, "Listing price is missing.");
           assert(listing.productMeasureSnapshot, "Listings require a resolved shipping measure before publication.");

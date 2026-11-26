@@ -465,6 +465,81 @@ describe("marketplace listing detail route", () => {
     expect(result).toMatchObject({ evidenceReadiness: currentEvidenceReadiness });
   });
 
+  const certificationForm = new URLSearchParams({
+    idempotencyKey: "test_form_attempt_12067",
+    intent: "set-certification-number",
+    certificationNumber: "001",
+  });
+  const certificationAction = (path: string) =>
+    listingAction({
+      request: new Request(`http://localhost${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: certificationForm.toString(),
+      }),
+      params: { listingId: "lst_1" },
+      context: undefined,
+    } as never);
+
+  it("sends a certification number under the form's own attempt and keeps a rejected entry", async () => {
+    const sent: Array<Record<string, unknown>> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/api/auth/session")) return Promise.resolve(jsonResponse({ actor: sellerActor }));
+        if (url.endsWith("/listings/lst_1/certification-number")) {
+          sent.push(JSON.parse(String(init?.body)));
+          return Promise.resolve(
+            jsonResponse(
+              { error: { code: "listing_certification_number_invalid", message: "Number does not match." } },
+              400,
+            ),
+          );
+        }
+        return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
+      }),
+    );
+
+    const result = await certificationAction("/account/listings/lst_1");
+
+    expect(sent).toEqual([
+      expect.objectContaining({ idempotencyKey: "test_form_attempt_12067", certificationNumber: "001" }),
+    ]);
+    expect(result).toMatchObject({
+      listingRecovery: null,
+      certificationNumber: "001",
+      certificationNumberError: "Number does not match.",
+      error: null,
+    });
+  });
+
+  it("sends no certification number while another seller action on the page is unresolved", async () => {
+    const retained = { batchId: "test_form_attempt_10923", mutationKind: "listing.publish", bulk: false };
+    const unresolved = { identity: retained, phase: "failed-safe", items: [], retryTargetIds: [] };
+    const requested: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        requested.push(url);
+        if (url.includes("/api/auth/session")) return Promise.resolve(jsonResponse({ actor: sellerActor }));
+        if (url.endsWith("/listings/batch/prepare")) {
+          expect(JSON.parse(String(init?.body))).toMatchObject({ intent: "set-certification-number", retained });
+          return Promise.resolve(jsonResponse({ recovery: unresolved }));
+        }
+        return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
+      }),
+    );
+
+    const result = await certificationAction(
+      `/account/listings/lst_1?listingRecovery=${encodeURIComponent(JSON.stringify(retained))}`,
+    );
+
+    expect(result).toEqual({ listingRecovery: unresolved });
+    expect(requested.some((url) => url.includes("certification-number"))).toBe(false);
+  });
+
   it("issue-5258-marketplace-ac4 keeps a rejected image description as closed field recovery", async () => {
     vi.stubGlobal(
       "fetch",
