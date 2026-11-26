@@ -108,7 +108,10 @@ test.describe.serial("catalog import job status filter", () => {
           importModule.locator("[data-catalog-import-job-row='true']").filter({ visible: true }),
         ).toHaveCount(0);
         await expect(importModule.getByText("No Queued found", { exact: true })).toBeVisible();
-        await expect(importModule.getByText("Try adjusting your filters.", { exact: true })).toBeVisible();
+        // The Corten admin draws each empty status's state up front and its stylesheet shows the chosen
+        // one, so the shared hint is there once per empty status; the visible one is the choice's.
+        const hint = importModule.getByText("Try adjusting your filters.", { exact: true });
+        await expect(onCortenAdmin ? hint.filter({ visible: true }) : hint).toBeVisible();
         await expect(importModule.getByText("No durable import jobs for this context", { exact: true })).toHaveCount(0);
         await expect(summaryRow(filter, "Recent jobs")).toHaveText(loadedTotal);
         await expect(summaryRow(filter, "Queued")).toHaveText("0");
