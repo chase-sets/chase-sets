@@ -75,6 +75,8 @@ validated files remain local to the runner until the separately reviewed publica
 
 ## Market-following journey package
 
+The package's only target below left with marketplace-web, so every run is now "absent or unenrolled" and produces no package. [#12101 [ci] Retarget or retire the market-following journey package, whose only target left with marketplace-web](https://github.com/chase-sets/chase-sets/issues/12101) retargets or retires it; until then this section describes the mechanism only.
+
 The `e2e-tests` job keeps a closed, trace-free package for one target: the test in
 `deployables/marketplace/e2e/market-following-offers.spec.ts` under `marketplace-chromium`. The target is enrolled only
 when its first attempt attaches a v1 `market-following-command-timeline` JSON timeline. Each capture is attached as
