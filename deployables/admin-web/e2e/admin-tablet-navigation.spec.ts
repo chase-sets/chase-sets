@@ -28,6 +28,8 @@ const sectionBar = (page: Page) => page.locator("[data-admin-section-bar]");
 const sectionTrail = (page: Page) => page.getByRole("navigation", { name: "Current section" });
 const sectionsTrigger = (page: Page) => page.getByRole("button", { name: "Sections" });
 const sectionsDrawer = (page: Page) => page.getByRole("dialog", { name: "Sections" });
+// admin-web's bottom nav is a `nav.fixed` (its Tailwind classes); the Corten admin's carries a hook.
+const phoneBottomNav = (page: Page) => page.locator(onCortenAdmin ? "[data-admin-bottom-nav]" : "nav.fixed");
 
 async function expectSectionBarPinnedUnderHeader(page: Page) {
   const bar = sectionBar(page);
@@ -52,10 +54,6 @@ test.describe("admin tablet navigation", () => {
   test("tablet operator reaches any catalog section in two taps with a persistent section trail @catalog-admin-integrations", async ({
     page,
   }) => {
-    test.skip(
-      onCortenAdmin,
-      "the Corten admin has no phone bottom navigation, tablet section bar, Sections control or current-section trail yet",
-    );
     test.setTimeout(180_000);
     test.skip(
       skipDeployedAdminE2e,
@@ -83,7 +81,7 @@ test.describe("admin tablet navigation", () => {
       await expect(trail.getByText("Import")).toHaveAttribute("aria-current", "page");
 
       // The phone bottom nav (and its More overflow) plays no part at tablet width.
-      await expect(page.locator("nav.fixed").getByText("More")).toBeHidden();
+      await expect(phoneBottomNav(page).getByText("More")).toBeHidden();
 
       // AC1: two taps to a different admin section — tap 1 opens the drawer.
       let taps = 0;
@@ -116,10 +114,6 @@ test.describe("admin tablet navigation", () => {
   });
 
   test("tablet operator keeps section orientation across a support workflow @admin-support", async ({ page }) => {
-    test.skip(
-      onCortenAdmin,
-      "the Corten admin has no phone bottom navigation, tablet section bar, Sections control or current-section trail yet",
-    );
     test.setTimeout(180_000);
     test.skip(
       skipDeployedAdminE2e,
@@ -151,10 +145,6 @@ test.describe("admin tablet navigation", () => {
   });
 
   test("phone and desktop admin navigation stay unchanged @catalog-admin-integrations", async ({ page }) => {
-    test.skip(
-      onCortenAdmin,
-      "the Corten admin has no phone bottom navigation, tablet section bar, Sections control or current-section trail yet",
-    );
     test.setTimeout(180_000);
     test.skip(
       skipDeployedAdminE2e,
@@ -174,7 +164,7 @@ test.describe("admin tablet navigation", () => {
     ).toBeVisible();
     await expectAdminWebHydrated(page);
     await expect(sectionsTrigger(page)).toBeHidden();
-    await expect(page.locator("nav.fixed").getByText("More")).toBeVisible();
+    await expect(phoneBottomNav(page).getByText("More")).toBeVisible();
     await expect(sectionTrail(page).getByText("Import")).toHaveAttribute("aria-current", "page");
     await page.screenshot({
       path: "artifacts/visual-evidence/issue-3430/catalog-integrations-390x844-phone.png",

@@ -1500,7 +1500,10 @@ async fn a_bearer_session_token_signs_in_as_the_session_cookie_does() {
     let (status, _, html) = pilot.send(request("Bearer staff")).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     let shell = html.split_once("<main ").unwrap().0;
-    assert!(shell.contains(r#"aria-label="Account menu""#) && shell.contains("Commerce"), "{shell}");
+    assert!(
+        shell.contains(r#"<span class="visually-hidden__visually-hidden">Account menu</span>"#) && shell.contains("Commerce"),
+        "{shell}"
+    );
     let calls = pilot.calls.lock().unwrap().clone();
     assert!(calls.iter().any(|c| c.path == "/api/auth/session"), "{calls:?}");
     assert!(calls.iter().all(|c| c.headers.get(header::AUTHORIZATION).is_some_and(|v| v == "Bearer staff")), "{calls:?}");
@@ -1520,7 +1523,11 @@ async fn the_account_menu_signs_out_and_the_cookies_go() {
     let pilot = Pilot::new().await;
     let (_, _, html) = pilot.send(get("/commerce/postage-policies", Some("staff"))).await;
     let shell = html.split_once("<main ").unwrap().0;
-    assert!(shell.contains(r#"aria-label="Account menu""#) && shell.contains(r#"action="/access/sign-out""#), "{shell}");
+    assert!(
+        shell.contains(r#"<span class="visually-hidden__visually-hidden">Account menu</span>"#)
+            && shell.contains(r#"action="/access/sign-out""#),
+        "{shell}"
+    );
     assert!(shell.contains("Switch account") && shell.contains("Sessions"), "{shell}");
     let (status, headers, _) = pilot.send(post_as("staff", "/access/sign-out", "", false)).await;
     assert_eq!(
@@ -2761,7 +2768,7 @@ async fn the_catalog_is_an_area_with_its_own_guard_and_stylesheet() {
     assert!(section.contains(".list-page__table") && section.contains(".catalog-dialog__form"), "{section}");
     assert!(!section.contains(".policy-table__"), "{section}");
     assert!(!shared.contains(".list-page__") && !shared.contains(".policy-table__"), "{shared}");
-    assert!(shared.contains(".nav-bar__bar") && shared.contains(".admin-nav__trigger"), "the frame is shared: {shared}");
+    assert!(shared.contains(".nav-bar__bar") && shared.contains(".admin-nav__account"), "the frame is shared: {shared}");
 }
 
 #[tokio::test]
@@ -2771,7 +2778,7 @@ async fn the_top_bar_is_the_kits_with_the_pages_section_current() {
     assert_eq!(status, StatusCode::OK, "{html}");
     let bar = &html[html.find("<header").unwrap()..html.find("</header>").unwrap()];
     // The kit's bar, which gives its links a row of their own on a phone.
-    assert!(bar.starts_with(r#"<header class="nav-bar__bar">"#), "{bar}");
+    assert!(bar.starts_with(r#"<header class="nav-bar__bar admin-nav__top">"#), "{bar}");
     assert!(bar.contains(r#"<nav class="nav-bar__sections""#), "{bar}");
     // The catalog's section is current (the kit draws it from `aria-current="page"`), marked by
     // Corten so the runtime moves the mark after a client navigation; the others are not.
@@ -2783,7 +2790,64 @@ async fn the_top_bar_is_the_kits_with_the_pages_section_current() {
     );
     assert!(bar.contains(r#"href="/commerce" data-nav="section""#), "{bar}");
     assert!(!html.contains("data-nav-path"), "no hand marks left: {html}");
-    assert!(bar.contains(r#"<div class="nav-bar__actions"><details class="admin-nav__account">"#), "{bar}");
+    // The account menu is corten-ui's MenuButton, named as admin-web's is.
+    assert!(bar.contains(r#"<div class="nav-bar__actions"><div class="admin-nav__account"><div"#), "{bar}");
+    assert!(
+        bar.contains(r#"aria-haspopup="menu""#) && bar.contains(r#"role="menu" aria-labelledby="account-menu-button""#),
+        "{bar}"
+    );
+    assert!(bar.contains(r#"<span class="visually-hidden__visually-hidden">Account menu</span>"#), "{bar}");
+    assert!(bar.contains(r#"<a role="menuitem" class="admin-nav__item" href="/access/sessions">Sessions</a>"#), "{bar}");
+    assert!(bar.contains(r#"<button type="submit" role="menuitem""#), "{bar}");
+}
+
+/// admin-web's shell at each width (`AdminShell`): the rail, the section bar with its Sections sheet
+/// and current-section trail, and the phone's bottom bar with More, each drawn from one nav, so a
+/// page is current in every copy; all of it inside the element a navigation replaces.
+#[tokio::test]
+async fn the_section_pages_are_a_rail_a_section_bar_a_sheet_and_a_phone_bar() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/integrations", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let pages = &html[html.find(r#"id="section-nav""#).unwrap()..html.find("<main ").unwrap()];
+    // The rail is first, so a link to a page is the rail's before any other copy.
+    assert!(pages.find(r#"<nav class="admin-nav__side""#).unwrap() < pages.find("data-admin-section-bar").unwrap(), "{pages}");
+    // The trail: the group, then the page.
+    assert!(
+        pages.contains(
+            r#"<nav class="admin-nav__trail" aria-label="Current section"><ol><li><span>Integrations</span></li><li><span aria-current="page">Import</span></li></ol></nav>"#
+        ),
+        "{pages}"
+    );
+    assert!(pages.contains(r#"command="show-modal" commandfor="admin-sections">Sections</button>"#), "{pages}");
+    assert!(pages.contains(r#"id="admin-sections" aria-labelledby="admin-sections-title" closedby="any""#), "{pages}");
+    assert!(pages.contains(r#"<h2 id="admin-sections-title">Sections</h2>"#), "{pages}");
+    // A client navigation patches the pages in place, so the sheet and More close themselves when
+    // one of their links is followed, or they would stay open over the next page.
+    let sheet = &pages[pages.find(r#"id="admin-sections""#).unwrap()..];
+    let sheet = &sheet[..sheet.find('>').unwrap()];
+    assert!(sheet.contains("click:section_nav.followed("), "{sheet}");
+    let list = &pages[pages.find(r#"id="admin-more""#).unwrap()..];
+    let list = &list[..list.find('>').unwrap()];
+    assert!(list.contains("click:section_nav.picked("), "{list}");
+    // The phone bar: the first two pages and the current one, the rest under More.
+    let bottom = &pages[pages.find("data-admin-bottom-nav").unwrap()..];
+    let (shown, more) = bottom.split_at(bottom.find(r#"popovertarget="admin-more""#).unwrap());
+    assert!(shown.contains(r#"href="/catalog/dimensions""#) && shown.contains(r#"href="/catalog/fields""#), "{shown}");
+    assert!(!shown.contains(r#"href="/catalog/components""#), "{shown}");
+    assert!(
+        more.contains(r#"<ul class="admin-nav__more" id="admin-more" popover data-on='click:section_nav.picked($e,$t)'>"#)
+            && more.contains(r#"href="/catalog/components""#),
+        "{more}"
+    );
+    // Import is current in the rail, the sheet and the phone bar.
+    assert_eq!(pages.matches(r#"href="/catalog/integrations" data-nav="section""#).count(), 3, "{pages}");
+    let marked = pages.matches(r#"href="/catalog/integrations" data-nav="section" data-nav-group=""#).count();
+    assert_eq!(marked, 3, "{pages}");
+    assert_eq!(pages.matches(r#"aria-current="page""#).count(), 4, "three links and the trail: {pages}");
+    // The home has none of it.
+    let (_, _, home) = pilot.send(get("/", Some("staff"))).await;
+    assert!(!home.contains("data-admin-section-bar") && !home.contains("data-admin-bottom-nav"), "{home}");
 }
 
 #[tokio::test]
@@ -2871,7 +2935,7 @@ async fn a_navigation_into_another_section_draws_that_sections_pages() {
     req.headers_mut().insert("corten", header::HeaderValue::from_static("nav"));
     let (status, _, body) = pilot.send(req).await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    assert!(!body.contains("<header class=\"nav-bar__bar\">"), "a navigation's answer has no top bar: {body}");
+    assert!(!body.contains("<header class=\"nav-bar__bar"), "a navigation's answer has no top bar: {body}");
     let side = &body[body.find(r#"aria-label="Commerce pages""#).expect("the section's pages")..];
     assert!(body.contains(r#"<nav class="admin-nav__side" aria-label="Commerce pages">"#), "{body}");
     assert!(marks_current(side, "/commerce/postage-policies") && !side.contains(r#"href="/catalog/dimensions""#), "{side}");
@@ -5677,7 +5741,7 @@ async fn projection_operations_draws_the_apis_console_and_triage() {
         html.contains(r#"href="/catalog/dimensions""#) && html.contains(r#"href="/access/accounts""#),
         "Catalog and Identity for who may see them, on the pilot"
     );
-    assert!(!html.contains("<dialog"), "nothing selected, no sheet");
+    assert!(!page_body(&html).contains("<dialog"), "nothing selected, no sheet");
     assert!(!pilot.projection_calls().iter().any(|c| c.path.contains("/blocked-streams")), "no detail read without a selection");
 
     // Staff who may only look: no Refresh, no Catalog.
@@ -5722,7 +5786,7 @@ async fn a_selected_record_opens_its_sheet_with_the_repairs_the_viewer_may_make(
     let pilot = Pilot::new().await;
     // A running operation: Cancel for staff who may operate.
     let (_, _, html) = pilot.send(get("/platform/projections?selected=op_run", Some("projections-operator"))).await;
-    assert!(html.contains("<dialog") && html.contains("rebuild-projection-group / running"), "{html}");
+    assert!(page_body(&html).contains("<dialog") && html.contains("rebuild-projection-group / running"), "{html}");
     assert!(html.contains("connect:ui.dialog.modalClosedBy($t,@back,$s)"), "Escape goes to the close link's address: {html}");
     assert!(
         html.contains(r#"action="/platform/projections/cancel?selected=op_run""#)
@@ -5732,7 +5796,7 @@ async fn a_selected_record_opens_its_sheet_with_the_repairs_the_viewer_may_make(
     assert!(html.contains(r#"href="/platform/projections" aria-label="Close projection detail""#), "closed by a link: {html}");
     let (_, _, html) = pilot.send(get("/platform/projections?selected=op_run", Some("ops"))).await;
     assert!(
-        html.contains("<dialog") && !html.contains("/platform/projections/cancel"),
+        page_body(&html).contains("<dialog") && !html.contains("/platform/projections/cancel"),
         "no Cancel for who may only look: {html}"
     );
     assert!(!pilot.projection_calls().iter().any(|c| c.path.contains("/blocked-streams")), "an operation needs no detail read");
@@ -5743,7 +5807,7 @@ async fn a_selected_record_opens_its_sheet_with_the_repairs_the_viewer_may_make(
     let (_, _, html) = pilot.send(get(group, Some("projections-operator"))).await;
     assert!(html.contains("settlement.settlement-fulfillment-source-projection"), "{html}");
     assert!(
-        html.contains(r#"command="show-modal""#)
+        page_body(&html).contains(r#"command="show-modal""#)
             && html.contains("Queue rebuild")
             && html.contains(r#"action="/platform/projections/rebuild-context"#),
         "{html}"
@@ -5764,13 +5828,13 @@ async fn a_selected_record_opens_its_sheet_with_the_repairs_the_viewer_may_make(
         "/platform/projections?selected=settlement-fulfillment-source-projection%3Afulfillment%3Av2%3Afulfillment.shipment-shp_1";
     let (_, _, html) = pilot.send(get(blocked, Some("projections-operator"))).await;
     assert!(
-        html.contains("<dialog")
+        page_body(&html).contains("<dialog")
             && html.contains(r#"name="projection_key" value="settlement-fulfillment-source-projection:fulfillment:v2""#),
         "{html}"
     );
     let (status, _, html) = pilot.send(get("/platform/projections?selected=gone", Some("projections-operator"))).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(!html.contains("<dialog"), "{html}");
+    assert!(!page_body(&html).contains("<dialog"), "{html}");
 }
 
 #[tokio::test]
@@ -5848,7 +5912,7 @@ async fn the_reference_page_lists_groups_subscriptions_workers_wake_signals_and_
         "{html}"
     );
     assert!(html.contains("<dt>Oldest queued at</dt><dd>Not recorded</dd>"), "{html}");
-    assert!(!html.contains("<dialog"), "nothing selected, no sheet");
+    assert!(!page_body(&html).contains("<dialog"), "nothing selected, no sheet");
 
     // The filters keep only what they choose, and their form and Clear stay on this page.
     let (_, _, html) = pilot.send(get("/platform/projections/reference?context_name=auth", Some("ops"))).await;
@@ -5875,7 +5939,10 @@ async fn a_repair_from_the_reference_page_comes_back_to_it() {
     let pilot = Pilot::new().await;
     let group = "/platform/projections/reference?selected=settlement%3Asettlement-fulfillment-source-projection";
     let (_, _, html) = pilot.send(get(group, Some("projections-operator"))).await;
-    assert!(html.contains("<dialog") && html.contains("settlement.settlement-fulfillment-source-projection"), "{html}");
+    assert!(
+        page_body(&html).contains("<dialog") && html.contains("settlement.settlement-fulfillment-source-projection"),
+        "{html}"
+    );
     assert!(
         html.contains(
             r#"action="/platform/projections/rebuild?selected=settlement%3Asettlement-fulfillment-source-projection&amp;via=reference""#
@@ -6694,7 +6761,7 @@ async fn support_requests_reads_the_queue_with_the_filters_admin_web_offers() {
     );
     assert!(html.contains(r#"aria-current="page">Ready for support</a>"#), "the status tab: {html}");
     assert!(marks_current(&html, "/support/requests"), "the nav serves it: {html}");
-    assert!(!html.contains("<dialog"), "no sheet without a request: {html}");
+    assert!(!page_body(&html).contains("<dialog"), "no sheet without a request: {html}");
     assert_eq!(pilot.send(get("/support/requests", Some("feedback-viewer"))).await.0, StatusCode::FORBIDDEN);
 }
 
@@ -6706,7 +6773,7 @@ async fn a_requests_sheet_shows_the_case_and_recommends_what_admin_web_would() {
     for text in
         ["<dialog", "Crushed corner.", "Called the carrier.", "Packed in a toploader.", "Ten back.", "acc_buyer / acc_seller"]
     {
-        assert!(html.contains(text), "{text}: {html}");
+        assert!(page_body(&html).contains(text), "{text}: {html}");
     }
     assert!(html.contains(r#"name="intent" value="resolve""#), "ready for support recommends Resolve: {html}");
     assert!(html.contains(r#"value="7.50""#), "the API's prefill: {html}");
@@ -6737,7 +6804,7 @@ async fn a_requests_sheet_shows_the_case_and_recommends_what_admin_web_would() {
 
     let (status, _, html) = pilot.send(get("/support/requests?requestId=req_none", Some("support-agent"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    assert!(!html.contains("<dialog") && html.contains(r#"role="alert""#), "{html}");
+    assert!(!page_body(&html).contains("<dialog") && html.contains(r#"role="alert""#), "{html}");
 }
 
 #[tokio::test]
@@ -6775,7 +6842,10 @@ async fn a_case_action_is_sent_and_the_sheet_is_read_after_it() {
         pilot.send(post_as("support-agent", at, "intent=resolve&summary=+&resolutionType=full-refund", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(headers.get(header::LOCATION).is_none());
-    assert!(html.contains("A resolution summary is required.") && html.contains("<dialog"), "the sheet says why: {html}");
+    assert!(
+        html.contains("A resolution summary is required.") && page_body(&html).contains("<dialog"),
+        "the sheet says why: {html}"
+    );
     let writes = pilot.calls_to(SUPPORT_REQUESTS).into_iter().filter(|c| c.method == Method::POST).count();
     let (status, headers, _) = pilot.send(post_as("support-agent", at, "intent=remedy-approve", false)).await;
     assert_eq!(
@@ -8059,7 +8129,7 @@ async fn commercial_terms_lists_the_published_schedule_and_the_active_and_schedu
     assert!(reads.iter().any(|p| p == "/api/commercial-terms/home"), "{reads:?}");
     assert!(!reads.iter().any(|p| p.contains("/schedules?") || p.contains("/agreements?")), "no list reads: {reads:?}");
     assert!(marks_current(&html, "/commerce/terms"), "the nav serves it: {html}");
-    assert!(!html.contains("<dialog"), "no sheet: {html}");
+    assert!(!page_body(&html).contains("<dialog"), "no sheet: {html}");
     assert_eq!(pilot.send(get(TERMS, Some("recovery-viewer"))).await.0, StatusCode::FORBIDDEN);
 }
 
@@ -8068,7 +8138,7 @@ async fn a_terms_sheet_compares_and_revises_and_the_old_addresses_open_it() {
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(get("/commerce/terms?schedule=cts_next", Some("terms-viewer"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    assert!(html.contains("<dialog") && html.contains("Compare with active schedule"), "{html}");
+    assert!(page_body(&html).contains("<dialog") && html.contains("Compare with active schedule"), "{html}");
     assert!(html.contains("Business 2026") && html.contains("6.5% + $0.30"), "compared with the home read's comparison: {html}");
     assert!(
         pilot.calls_to(TERMS_API).iter().any(|c| c.path == "/api/commercial-terms/home?schedule=cts_next"),
@@ -8143,7 +8213,7 @@ async fn the_create_sheets_start_from_the_schedule_in_effect_and_write_what_admi
     // The new override is not readable yet: the page says so and leaves its sheet closed.
     let (status, _, html) = pilot.send(get(&location, Some("terms-lag"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    assert!(html.contains("We are preparing your change.") && !html.contains("<dialog"), "{html}");
+    assert!(html.contains("We are preparing your change.") && !page_body(&html).contains("<dialog"), "{html}");
 
     // Review on the save form re-opens the sheet on the account chosen, writing nothing.
     let posts = pilot.calls_to(TERMS_API).into_iter().filter(|c| c.method == Method::POST).count();
@@ -8212,7 +8282,7 @@ async fn a_refused_terms_write_keeps_its_sheet_and_what_was_sent() {
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(html.contains("Change not saved") && html.contains("Effective until must be after effective from."), "{html}");
     assert!(
-        html.contains("<dialog") && html.contains(r#"value="Refused""#) && html.contains(r#"value="725""#),
+        page_body(&html).contains("<dialog") && html.contains(r#"value="Refused""#) && html.contains(r#"value="725""#),
         "the sheet keeps what was sent: {html}"
     );
     let call = pilot.calls_to(TERMS_API).into_iter().find(|c| c.method == Method::PUT).expect("the revision");
@@ -8594,11 +8664,14 @@ async fn the_promo_bar_previews_live_messages_and_shows_each_messages_status() {
         html.contains(r#"href="/growth/promo-bar?edit=pbm_live""#) && html.contains(r#"href="/growth/promo-bar?delete=pbm_off""#),
         "{html}"
     );
-    assert!(!html.contains("<dialog"), "{html}");
+    assert!(!page_body(&html).contains("<dialog"), "{html}");
 
     let (_, _, html) =
         pilot.send(get("/growth/promo-bar?edit=pbm_off", Some("growth-viewer; corten-zone=America/Chicago"))).await;
-    assert!(html.contains("<dialog") && html.contains(r#"value="2026-11-10T09:00""#), "the time in the operator's zone: {html}");
+    assert!(
+        page_body(&html).contains("<dialog") && html.contains(r#"value="2026-11-10T09:00""#),
+        "the time in the operator's zone: {html}"
+    );
     assert!(
         html.contains(r#"<input type="hidden" name="zone" value="America/Chicago">"#) && html.contains(">America/Chicago<"),
         "the form sends its zone back and names it: {html}"
@@ -11647,7 +11720,7 @@ async fn a_candidate_splits_and_is_edited_with_the_version_the_page_read_and_a_m
     );
     assert!(edit.contains("Remove tcgplayer:111") && edit.contains(r#"name="drop_catalog_ref" value="0""#), "{edit}");
     assert!(!edit.contains("data-patch"), "a refusal is the page again, not behind the dialog: {edit}");
-    assert!(html.contains(r#"command="show-modal""#), "Edit opens its dialog with no script: {html}");
+    assert!(page_body(&html).contains(r#"command="show-modal""#), "Edit opens its dialog with no script: {html}");
 
     let (status, _, html) = pilot.send(get(&format!("/catalog/integrations?{at}"), Some("catalog-reader"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
@@ -12432,7 +12505,10 @@ async fn the_wallet_workbench_shows_the_balance_the_history_with_its_commands_an
     // A viewer sees the wallet without the form or the commands.
     let (status, _, html) = pilot.send(get(WALLET_PAGE, Some("wallet-viewer"))).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(html.contains("Wallet Workbench") && !html.contains("Request preview") && !html.contains("show-modal"), "{html}");
+    assert!(
+        html.contains("Wallet Workbench") && !html.contains("Request preview") && !page_body(&html).contains("show-modal"),
+        "{html}"
+    );
     let (status, _, html) = pilot.send(get("/commerce/wallet-workbench/acc_none", Some("wallet-viewer"))).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert!(html.contains("Account wallet not found") && html.contains("acc_none"), "{html}");
@@ -12762,4 +12838,10 @@ async fn the_operator_session_pairs_once_with_the_browsers_origin_and_disconnect
 /// (a patch): where a page's own `role="status"` is looked for.
 fn main_of(html: &str) -> &str {
     html.split_once("</main>").map_or(html, |(main, _)| main)
+}
+
+/// What a page draws inside its `<main>`, without the shell's navigation, Sections sheet and menus.
+fn page_body(html: &str) -> &str {
+    let start = html.find("<main ").expect("a page has a <main>");
+    html[start..].split_once("</main>").map_or(&html[start..], |(main, _)| main)
 }

@@ -23,10 +23,6 @@ test.describe("admin auth shell and session", () => {
   }
 
   test("operator sees mobile shell navigation and account actions after sign-in @admin-auth", async ({ page }) => {
-    test.skip(
-      onCortenAdmin,
-      "the Corten admin has no phone bottom navigation, tablet section bar, Sections control or current-section trail yet",
-    );
     test.setTimeout(150_000);
     test.skip(
       skipDeployedAdminE2e,
@@ -128,10 +124,15 @@ async function expectMobileAdminShell(page: Page) {
     await expectAuthenticatedAdminShell(page);
   }
 
-  const mobileLocalNav = page.locator("nav.fixed.inset-x-0.bottom-0");
+  // admin-web's bottom nav is found by its Tailwind classes; the Corten admin's carries a hook.
+  const mobileLocalNav = page.locator(onCortenAdmin ? "[data-admin-bottom-nav]" : "nav.fixed.inset-x-0.bottom-0");
   await expect(mobileLocalNav.getByRole("link", { name: "Accounts" })).toBeVisible({ timeout: pageReadyTimeoutMs });
 
-  await page.getByLabel("Admin menu").click();
+  // admin-web folds the phone's section links into an Admin menu; the Corten admin's bar (the kit's
+  // NavBar) keeps them in a row of their own, so there is no menu to open.
+  if (!onCortenAdmin) {
+    await page.getByLabel("Admin menu").click();
+  }
 
   for (const sectionName of adminSectionNames) {
     await expect(page.getByRole("link", { name: sectionName }).first()).toBeVisible();

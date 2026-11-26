@@ -45,7 +45,8 @@ pub use status_badge::StatusBadge;
 /// stylesheets are `components.css`. The kit's `NavBar` is the top bar's, before `AdminNav`'s own rules,
 /// and its `Table` is every area's lists' (one stylesheet, so no area links another's), as its `Stats`
 /// is every dashboard's counts, its `Stack` most screens' columns, its `VisuallyHidden` every table's hidden caption, and its `Icon`
-/// in an `InputGroup` a search field's glyph (`platform::search`). The layout's
+/// in an `InputGroup` a search field's glyph (`platform::search`), its `Sheet` the Sections sheet and
+/// every area's side sheets, and corten-ui's `MenuButton` the account menu. The layout's
 /// toaster is the kit's `Toasts` around corten-ui's `Toaster`. The home's (`IndexPage`) is here
 /// because no area can be at `/`.
 pub const COMPONENTS: &[Component] = &[
@@ -59,9 +60,12 @@ pub const COMPONENTS: &[Component] = &[
     platform::ui::visually_hidden::VisuallyHidden,
     platform::ui::icon::Icon,
     platform::ui::input_group::InputGroup,
+    platform::ui::sheet::Sheet,
     platform::search::SearchBox,
+    corten_ui::MenuButton,
     Frame,
     AdminNav,
+    SectionNav,
     Section,
     IndexPage,
     Toasts,
@@ -218,12 +222,14 @@ fn Frame<'a, H: Render, T: Render, C: Render>(
                 if let Some(viewer) = viewer {
                     <AdminNav p={p} req={req} viewer={viewer} />
                 }
-                <div page id={SectionNavId}>
-                    if let Some(viewer) = viewer {
-                        <SectionNav p={p} req={req} viewer={viewer} />
-                    }
+                <div class={Body}>
+                    <div class={Pages} page id={SectionNavId}>
+                        if let Some(viewer) = viewer {
+                            <SectionNav p={p} req={req} viewer={viewer} />
+                        }
+                    </div>
+                    <main class={Main} id={MainContentId} tabindex="-1">{children}</main>
                 </div>
-                <main class={Main} id={MainContentId} tabindex="-1">{children}</main>
                 {toaster}
             </body>
         </html>
