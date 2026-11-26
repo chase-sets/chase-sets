@@ -200,7 +200,7 @@ variable "preview_node_pool_enabled" {
 
 variable "preview_node_pool_size" {
   type        = string
-  default     = "s-4vcpu-16gb-amd"
+  default     = "s-4vcpu-16gb-320gb-intel"
   description = "Droplet size slug for preview nodes, sized so one full preview platform stack (web, admin, api, worker, bootstrap, in-cluster Postgres) fits per node."
 }
 

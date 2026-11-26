@@ -12,10 +12,6 @@ const registeredCallers = new Map([
     ["priceCurrencyCode: review.fallbackListing.priceCurrencyCode"],
   ],
   [
-    "bounded-contexts/discovery/support/route-support/item-detail/action.ts",
-    ['const priceCurrencyCode = String(formData.get("priceCurrencyCode") ?? "")', "priceCurrencyCode,"],
-  ],
-  [
     "bounded-contexts/inventory/features/import-batches/api/runtime.ts",
     ["priceCurrencyCode: row.listing_price_currency_code"],
   ],
@@ -44,8 +40,6 @@ const registeredCallers = new Map([
       "assertNativeListingCommand(listing)",
     ],
   ],
-  ["bounded-contexts/marketplace/routes/account-listing.tsx", ["priceCurrencyCode: priceDraftCurrencyCode"]],
-  ["bounded-contexts/marketplace/routes/account-listings-new.tsx", ["priceCurrencyCode: createForm.priceCurrencyCode"]],
   ["bounded-contexts/marketplace/support/runtime-support/seed.ts", ["priceCurrencyCode: listing.priceCurrencyCode"]],
   [
     "bounded-contexts/pricing/features/bulk-reprice-ingestion/api/runtime.ts",
@@ -75,14 +69,6 @@ const registeredOfferCallers = new Map([
 
 const registeredBuyNowPriceHandoffs = new Map([
   [
-    "bounded-contexts/discovery/routes/public-listing.tsx",
-    ["priceAmount: listing.price_amount", 'priceCurrencyCode: listing.price_currency_code ?? ""'],
-  ],
-  [
-    "bounded-contexts/discovery/support/route-support/item-detail/action.ts",
-    ['priceAmount: lockedListing?.price_amount ?? ""', 'priceCurrencyCode: lockedListing?.price_currency_code ?? ""'],
-  ],
-  [
     "bounded-contexts/checkout/features/sessions/ui/checkout-start-page-types.ts",
     ["priceAmount: string | null", "priceCurrencyCode: string | null"],
   ],
@@ -105,14 +91,6 @@ const registeredBuyNowPriceHandoffs = new Map([
 
 const registeredSelectedListingSnapshotProducers = new Map([
   [
-    "bounded-contexts/discovery/support/route-support/item-detail/action.ts",
-    [
-      "function selectedListingSnapshotFromListing",
-      "priceCurrencyCode: listing.price_currency_code",
-      "listingStreamVersion: listing.listing_stream_version",
-    ],
-  ],
-  [
     "bounded-contexts/checkout/features/cart/api/mcp.ts",
     [
       "function readSelectedListingSnapshot",
@@ -134,7 +112,6 @@ const registeredSelectedListingSnapshotConsumers = new Set([
   "bounded-contexts/checkout/features/cart/read-model/schema.ts",
   "bounded-contexts/checkout/features/cart/ui/cart-page.tsx",
   "bounded-contexts/checkout/features/cart/ui/contracts.ts",
-  "bounded-contexts/discovery/support/route-support/item-detail/action.ts",
   "bounded-contexts/public-presence/features/developer-portal/domain/generated/mcp-tool-catalog.ts",
   "infrastructure/platform-runtime/mcp-contracts/catalog/checkout.ts",
 ]);

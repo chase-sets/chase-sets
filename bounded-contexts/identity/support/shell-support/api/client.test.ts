@@ -44,7 +44,8 @@ describe("Identity API account enforcement client", () => {
       "bounded-contexts/identity/support/shell-support/ui/user-preferences-account-menu.ts:updateUserPreferences",
       "deployables/admin-web/app/admin-root-shell.tsx:useUserPreferencesAccountMenu",
       "deployables/admin-web/app/admin-section-layout.tsx:useUserPreferencesAccountMenu",
-      "deployables/marketplace/app/routes/layout.tsx:useUserPreferencesAccountMenu",
+      // marketplace-web's layout caller left with that deployable; the Corten marketplace only reads Identity
+      // preferences, so it adds no writer.
     ].sort();
     const inspect = (input: Map<string, string>) => {
       const found: string[] = [];

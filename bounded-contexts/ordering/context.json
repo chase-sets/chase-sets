@@ -727,8 +727,7 @@
       "risk": "important",
       "strategy": "fresh-read",
       "surfaces": [
-        "post-form:bounded-contexts/ordering/features/orders/ui/order-detail-page.tsx:H2df726441e2a#1",
-        "route-action:bounded-contexts/ordering/routes/account-purchase.tsx"
+        "post-form:bounded-contexts/ordering/features/orders/ui/order-detail-page.tsx:H2df726441e2a#1"
       ],
       "visibleDestination": {
         "routeId": "account-purchase",
@@ -742,29 +741,8 @@
       },
       "proof": {
         "tests": [
-          "bounded-contexts/ordering/tests/account-purchase-route.test.tsx",
           "bounded-contexts/ordering/features/orders/ui/order-detail-page.test.tsx"
         ]
-      }
-    },
-    {
-      "id": "ordering.sale-cancel-fresh-read",
-      "owner": "ordering",
-      "risk": "important",
-      "strategy": "fresh-read",
-      "surfaces": ["route-action:bounded-contexts/ordering/routes/account-sale.tsx"],
-      "visibleDestination": {
-        "routeId": "account-sale",
-        "apiContextName": "ordering",
-        "apiRoutePath": "/account/sales/:id",
-        "readModelTables": ["ordering_order_pages", "ordering_order_line_pages", "ordering_order_hold_pages"],
-        "transientRecovery": {
-          "kinds": "refreshable-catching-up",
-          "behavior": "Sale cancellation redirects back to sale detail with afterWrite; the loader forwards the receipt to Ordering and retries fresh-write not-found until the order projection catches up or the token expires."
-        }
-      },
-      "proof": {
-        "tests": ["bounded-contexts/ordering/tests/account-sale-route.test.tsx"]
       }
     },
     {
@@ -887,7 +865,6 @@
         {
           "routeId": "account-purchase",
           "routePath": "account/purchases/:purchaseId",
-          "fileExport": "./routes/account-purchase",
           "routeType": "route",
           "sourceContext": "ordering",
           "delivery": "server-only",
@@ -902,7 +879,6 @@
             "web": true,
             "mobile": false
           },
-          "pageComponentExport": "default",
           "unsupportedMobile": {
             "owner": "ordering",
             "followUp": "#5238",
@@ -915,7 +891,6 @@
         {
           "routeId": "account-purchases",
           "routePath": "account/purchases",
-          "fileExport": "./routes/account-purchases",
           "routeType": "route",
           "sourceContext": "ordering",
           "delivery": "server-only",
@@ -931,7 +906,6 @@
             "web": true,
             "mobile": false
           },
-          "pageComponentExport": "default",
           "unsupportedMobile": {
             "owner": "ordering",
             "followUp": "#5238",
@@ -941,7 +915,6 @@
         {
           "routeId": "account-sale",
           "routePath": "account/sales/:orderId",
-          "fileExport": "./routes/account-sale",
           "routeType": "route",
           "sourceContext": "ordering",
           "delivery": "server-only",
@@ -956,7 +929,6 @@
             "web": true,
             "mobile": false
           },
-          "pageComponentExport": "default",
           "unsupportedMobile": {
             "owner": "ordering",
             "followUp": "#5238",
@@ -969,7 +941,6 @@
         {
           "routeId": "account-sales",
           "routePath": "account/sales",
-          "fileExport": "./routes/account-sales",
           "routeType": "route",
           "sourceContext": "ordering",
           "delivery": "server-only",
@@ -985,7 +956,6 @@
             "web": true,
             "mobile": false
           },
-          "pageComponentExport": "default",
           "unsupportedMobile": {
             "owner": "ordering",
             "followUp": "#5238",

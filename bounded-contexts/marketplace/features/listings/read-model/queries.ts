@@ -11,7 +11,12 @@ import {
   type ListingPauseReason,
   type InventoryCapacityRecoveryBlock,
 } from "../domain/domain";
-import { toPublicListingGallery, type MarketplaceListingPublicGalleryImage } from "../domain/evidence-gallery";
+import {
+  copyPublicListingGallery,
+  toPublicListingGallery,
+  type MarketplaceListingPublicGalleryImage,
+} from "../domain/evidence-gallery";
+import { isRecord, publicEntries, publicNumber, publicText, publicTextList } from "../domain/public-values";
 import type { ListingEvidenceRequirementSnapshot } from "../domain/evidence-requirement-snapshot";
 
 export type MarketplaceListingListRow = Readonly<{
@@ -54,18 +59,94 @@ export type MarketplaceListingListRow = Readonly<{
   updated_at: string;
 }>;
 
-export type MarketplaceItemListingRow = MarketplaceListingListRow &
-  Readonly<{
-    seller_display_name: string | null;
-    visible_quantity: number;
-    /**
-     * Buyer-safe evidence gallery. Public item-listing reads expose only this
-     * sanitized view; `evidence` is emptied on public rows so storage
-     * keys, source hashes, byte sizes, filenames, and non-active audit entries
-     * never leak.
-     */
-    public_gallery: readonly MarketplaceListingPublicGalleryImage[];
-  }>;
+/**
+ * A Listing as any caller may read it. It is declared key by key and extends no seller row, so a
+ * field reaches a public reader only by being named here.
+ */
+export type MarketplaceItemListingRow = Readonly<{
+  listing_id: string;
+  account_id: string;
+  catalog_catalog_item_id: string;
+  product_id: string;
+  item_title: string | null;
+  item_subtitle: string | null;
+  selected_options: readonly { dimensionId: string; optionId: string }[];
+  product_summary: string | null;
+  graded_card: MarketplaceGradedCardDetails | null;
+  ship_from_code: string | null;
+  price_amount: string;
+  price_currency_code: string | null;
+  listing_stream_version: number | null;
+  shipping_allowance_percentage_bps: number;
+  max_units_per_order: number | null;
+  max_units_per_day: number | null;
+  max_units_per_customer_account: number | null;
+  status: string;
+  seller_display_name: string | null;
+  visible_quantity: number;
+  /** Buyer-facing evidence gallery: active photos only, each image and asset holding only its declared keys. */
+  public_gallery: readonly MarketplaceListingPublicGalleryImage[];
+}>;
+
+/** A stored grade whose grading company and grade are not both text is not served. Neither label is branched on. */
+function copyGradedCard(card: unknown): MarketplaceGradedCardDetails | null {
+  if (!isRecord(card)) return null;
+  const labels = publicTextList([card.gradingCompany, card.grade]);
+  if (labels.length !== 2) return null;
+  const [companyLabel, gradeLabel] = labels as [string, string];
+  const population = card.population;
+  return {
+    gradingCompany: companyLabel,
+    grade: gradeLabel,
+    certificationNumber: publicText(card.certificationNumber),
+    population: isRecord(population)
+      ? {
+          populationAtGrade: publicNumber(population.populationAtGrade),
+          populationHigher: publicNumber(population.populationHigher),
+          source: publicText(population.source),
+          asOf: publicText(population.asOf),
+        }
+      : null,
+    conditionDescriptors: publicTextList(card.conditionDescriptors),
+  };
+}
+
+function copySelectedOption(option: Readonly<Record<string, unknown>>) {
+  const dimensionId = publicText(option.dimensionId);
+  const optionId = publicText(option.optionId);
+  return dimensionId === null || optionId === null ? null : { dimensionId, optionId };
+}
+
+/**
+ * Copies the public keys by name, nested values included, and checks each stored JSON value's type, so a
+ * wider row, grade, option or image passed in cannot carry another field out. A malformed option or image
+ * is dropped rather than failing the whole read.
+ */
+export function toMarketplaceItemListingRow(row: MarketplaceItemListingRow): MarketplaceItemListingRow {
+  return {
+    listing_id: row.listing_id,
+    account_id: row.account_id,
+    catalog_catalog_item_id: row.catalog_catalog_item_id,
+    product_id: row.product_id,
+    item_title: row.item_title,
+    item_subtitle: row.item_subtitle,
+    selected_options: publicEntries(row.selected_options, copySelectedOption),
+    product_summary: row.product_summary,
+    graded_card: copyGradedCard(row.graded_card),
+    ship_from_code: row.ship_from_code,
+    price_amount: row.price_amount,
+    price_currency_code: row.price_currency_code,
+    listing_stream_version: row.listing_stream_version,
+    shipping_allowance_percentage_bps: row.shipping_allowance_percentage_bps,
+    max_units_per_order: row.max_units_per_order,
+    max_units_per_day: row.max_units_per_day,
+    max_units_per_customer_account: row.max_units_per_customer_account,
+    status: row.status,
+    seller_display_name: row.seller_display_name,
+    visible_quantity: row.visible_quantity,
+    public_gallery: copyPublicListingGallery(row.public_gallery),
+  };
+}
 
 export type MarketplaceListingFeeLockReportRow = Readonly<{
   listing_id: string;
@@ -183,44 +264,30 @@ const activeSupplyHoldQuantityJoinSql = `
         AND supply_hold.status = 'active'
     ) AS active_holds ON TRUE`;
 
-const listingPageColumnSelectSql = `
-       listing.listing_id,
-       listing.account_id,
-       listing.inventory_item_id,
-       listing.catalog_catalog_item_id,
-       listing.product_id,
-       listing.item_language_code,
-       listing.item_title,
-       listing.item_subtitle,
-       listing.selected_options,
-       listing.product_summary,
-       listing.product_measure_snapshot,
-       listing.graded_card,
-       listing.storage_location_name,
-       listing.ship_from_code,
-       listing.ship_from_address,
-       listing.price_amount,
-       listing.price_currency_code,
-       listing.listing_stream_version,
-       listing.marketplace_sales_fee_unit_amount,
-       listing.seller_net_unit_amount,
-       listing.shipping_allowance_percentage_bps,
-       listing.terms_schedule_id,
-       listing.terms_agreement_id,
-       listing.terms_resolved_at,
-       listing.fee_quote_fingerprint,
-       listing.fee_locks,
-       listing.quantity_cap,
-       listing.max_units_per_order,
-       listing.max_units_per_day,
-       listing.max_units_per_customer_account,
-       listing.evidence_requirements,
-       listing.evidence,
-       listing.status,
-       listing.pause_reason,
-       listing.inventory_capacity_recovery_block,
-       listing.created_at,
-       listing.updated_at`;
+/** What the public Listing query reads: the public row's stored columns, plus the evidence its gallery is built from. */
+type MarketplacePublicListingQueryRow = Readonly<{
+  listing_id: string;
+  account_id: string;
+  catalog_catalog_item_id: string;
+  product_id: string;
+  item_title: string | null;
+  item_subtitle: string | null;
+  selected_options: unknown;
+  product_summary: string | null;
+  graded_card: unknown;
+  ship_from_code: string | null;
+  price_amount: string;
+  price_currency_code: string | null;
+  listing_stream_version: number | null;
+  shipping_allowance_percentage_bps: number;
+  max_units_per_order: number | null;
+  max_units_per_day: number | null;
+  max_units_per_customer_account: number | null;
+  status: string;
+  evidence: unknown;
+  seller_display_name: string | null;
+  visible_quantity: number;
+}>;
 
 function normalizeBadgeArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
@@ -1071,14 +1138,27 @@ export async function listItemListings(
     Math.min(params.limit ?? MARKETPLACE_ITEM_LISTINGS_DEFAULT_PAGE_SIZE, MARKETPLACE_ITEM_LISTINGS_MAX_PAGE_SIZE),
   );
   const offset = Math.max(0, params.offset ?? 0);
-  const result = await db.query<
-    MarketplaceListingPageRow & {
-      seller_display_name: string | null;
-      visible_quantity: number;
-    }
-  >(
+  const result = await db.query<MarketplacePublicListingQueryRow>(
     `SELECT
-${listingPageColumnSelectSql},
+       listing.listing_id,
+       listing.account_id,
+       listing.catalog_catalog_item_id,
+       listing.product_id,
+       listing.item_title,
+       listing.item_subtitle,
+       listing.selected_options,
+       listing.product_summary,
+       listing.graded_card,
+       listing.ship_from_code,
+       listing.price_amount,
+       listing.price_currency_code,
+       listing.listing_stream_version,
+       listing.shipping_allowance_percentage_bps,
+       listing.max_units_per_order,
+       listing.max_units_per_day,
+       listing.max_units_per_customer_account,
+       listing.status,
+       listing.evidence,
        account.display_name AS seller_display_name,
        LEAST(
          listing.quantity_cap,
@@ -1106,16 +1186,39 @@ ${listingPageColumnSelectSql},
     [productId, limit, offset],
   );
 
-  return result.rows.map((row) => {
-    const mapped = mapListingRow(row);
-    return {
-      ...mapped,
-      // Public rows never carry the raw evidence set; buyers consume
-      // `public_gallery` (buyer-safe metadata only).
-      evidence: [],
-      public_gallery: toPublicListingGallery(mapped.evidence),
+  return result.rows.map((row) =>
+    toMarketplaceItemListingRow({
+      listing_id: row.listing_id,
+      account_id: row.account_id,
+      catalog_catalog_item_id: row.catalog_catalog_item_id,
+      product_id: row.product_id,
+      item_title: row.item_title,
+      item_subtitle: row.item_subtitle,
+      selected_options: Array.isArray(row.selected_options)
+        ? (row.selected_options as MarketplaceItemListingRow["selected_options"])
+        : [],
+      product_summary: row.product_summary,
+      graded_card:
+        typeof row.graded_card === "object" && row.graded_card !== null
+          ? (row.graded_card as MarketplaceGradedCardDetails)
+          : null,
+      ship_from_code: row.ship_from_code,
+      price_amount: row.price_amount,
+      price_currency_code: row.price_currency_code,
+      listing_stream_version: row.listing_stream_version,
+      shipping_allowance_percentage_bps: row.shipping_allowance_percentage_bps,
+      max_units_per_order: row.max_units_per_order,
+      max_units_per_day: row.max_units_per_day,
+      max_units_per_customer_account: row.max_units_per_customer_account,
+      status: row.status,
       seller_display_name: row.seller_display_name,
       visible_quantity: row.visible_quantity,
-    };
-  });
+      // The stored evidence is read only to build the gallery; it never leaves on the row.
+      public_gallery: toPublicListingGallery(
+        Array.isArray(row.evidence)
+          ? (row.evidence as MarketplaceListingPhotoDraft[]).map(hydrateStoredListingPhoto)
+          : [],
+      ),
+    }),
+  );
 }

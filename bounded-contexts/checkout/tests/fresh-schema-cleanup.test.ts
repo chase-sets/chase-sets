@@ -380,17 +380,14 @@ describe("fresh checkout read-model schemas", () => {
         expect.objectContaining({
           routeId: "buy-checkout-readiness",
           routePath: "checkout/buy/readiness",
-          fileExport: "./routes/checkout-start",
         }),
         expect.objectContaining({
           routeId: "buy-checkout-session",
           routePath: "checkout/buy/session/:sessionId",
-          fileExport: "./routes/checkout-session",
         }),
         expect.objectContaining({
           routeId: "buy-checkout-confirmation",
           routePath: "checkout/buy/session/:sessionId/confirmation",
-          fileExport: "./routes/buy-checkout-confirmation",
         }),
         expect.objectContaining({
           routeId: "sell-checkout-session",
@@ -399,7 +396,6 @@ describe("fresh checkout read-model schemas", () => {
         expect.objectContaining({
           routeId: "sell-checkout-confirmation",
           routePath: "checkout/sell/session/:sessionId/confirmation",
-          fileExport: "./routes/sell-checkout-confirmation",
         }),
       ]),
     );

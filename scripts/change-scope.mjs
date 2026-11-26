@@ -175,11 +175,11 @@ const cortenAdminBrowserPatterns = [
   /^deployables\/corten-pilot\/e2e\/admin\//,
   /^scripts\/(?:dev-system|dev-system-config|platform-compose-ingress|browser-e2e-readiness)\.mjs$/,
 ];
-// The Corten pilot check (corten check) is required for the pilot's marketplace and platform code, its
-// Cargo files, its export and the action that runs it: the Corten marketplace serves production. Every other change runs it
-// advisory in corten-pilot.yml, whose pull_request paths-ignore names these same paths.
+// The Corten pilot check (corten check) is required for the pilot's admin, marketplace, platform and public
+// code, its Cargo files, its export and the action that runs it: all three Corten apps serve production. Every
+// other change runs it advisory in corten-pilot.yml, whose pull_request paths-ignore names these same paths.
 const cortenPilotCheckPatterns = [
-  /^deployables\/corten-pilot\/(?:marketplace|platform)\/(?!.*\.md$)/,
+  /^deployables\/corten-pilot\/(?:admin|marketplace|platform|public)\/(?!.*\.md$)/,
   /^deployables\/corten-pilot\/Cargo\.(?:toml|lock)$/,
   /^deployables\/corten-pilot\/scripts\/export\.mjs$/,
   /^\.github\/actions\/corten-pilot-check\//,

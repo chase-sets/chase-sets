@@ -8,7 +8,6 @@ const defaultCheckedPaths = [
   "contracts/localization/locales/en.ts",
   "contracts/localization/locales/en",
   "bounded-contexts",
-  "deployables/marketplace/app",
 ];
 
 const localizationOnlyPatterns = [

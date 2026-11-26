@@ -110,7 +110,7 @@ export const privacyPolicyArtifact: PublicPolicyArtifact<"privacy-policy", Priva
           "bounded-contexts/public-presence/features/waitlist/domain/domain.ts:77-85",
           "bounded-contexts/marketplace/GLOSSARY.md:82-91",
           "bounded-contexts/ordering/GLOSSARY.md:223-225",
-          "bounded-contexts/settlement/routes/marketplace/account-desk-money.tsx:63-75",
+          "deployables/corten-pilot/marketplace/src/money.rs:213-225",
           "bounded-contexts/platform-operations/features/support-requests/domain/common.ts:32-50",
           "bounded-contexts/public-presence/docs/landing-page-analytics.md:27-34",
           "docs/adr/0006-stripe-connect-custom-account-experience.md:58-64",
@@ -279,9 +279,8 @@ export const privacyPolicyArtifact: PublicPolicyArtifact<"privacy-policy", Priva
         productTruthRefs: [
           ...privacyProductTruthRefsForSection("cookies-and-analytics"),
           "bounded-contexts/auth/docs/security-lifetimes.md:13-25",
-          "bounded-contexts/discovery/routes/search.tsx:750-758",
-          "bounded-contexts/discovery/routes/search.tsx:834-839",
-          "bounded-contexts/discovery/routes/search.tsx:1378-1382",
+          "bounded-contexts/discovery/features/search/ui/search-scroll-restoration.ts:3",
+          "bounded-contexts/discovery/features/search/ui/search-loader-cache.ts:1",
           "bounded-contexts/public-presence/docs/landing-page-analytics.md:3-7",
           "bounded-contexts/public-presence/docs/landing-page-analytics.md:27-34",
           "bounded-contexts/public-presence/features/waitlist/domain/common.ts:42-50",
@@ -290,6 +289,7 @@ export const privacyPolicyArtifact: PublicPolicyArtifact<"privacy-policy", Priva
           "Cookie and tracking-technology classification (strictly necessary versus functional or analytics, and whether any consent banner or cookie-preference control is required in a launch jurisdiction) is a counsel judgment. Nothing in the derived inventory decides it.",
           "The provider-controlled storage that Stripe.js and Stripe Connect.js may set — its names, contents, durations, purposes, and cookie classification — is not entailed by Chase Sets source. It is a Stripe-documentation and counsel question, and the operative copy deliberately states only that those scripts load and may use provider-controlled client-side storage.",
           "Whether the marketplace service-worker cache chase-sets-marketplace-pwa-v1 is material to a privacy notice at all, and whether its credential-skipping and excluded-path behaviour needs describing, are counsel judgments; the operative copy states the technical facts without drawing a legal conclusion.",
+          "The Corten marketplace, which now serves the marketplace, sets none of chase-sets:marketplace:recent-searches, chase-sets-theme, discovery.search.restoration.v2, discovery.search.loader-cache.v1 or the agent-grant-revocation: family, and it sets session-storage keys this section does not name. Revising the operative copy is Todd's decision, tracked in https://github.com/chase-sets/chase-sets/issues/12097; the cache wording is tracked in https://github.com/chase-sets/chase-sets/issues/12095.",
           "(N9) Whether the operator-only browser-storage families — the Catalog primary-workbench working set in the catalog.primaryWorkbench.observationSelection. session-storage key family, and the Admin service-worker cache chase-sets-admin-pwa-v1 — belong in a consumer-facing notice is a counsel judgment. Both are derived and classified operator-only in the product-truth inventory and are deliberately kept out of the operative copy above.",
           "(N8) Whether to retain the campaign-start gate's canonical-subject locator against this section, or replace it with a different mechanism once this Slice has proved it fail-closed, is an open follow-up rather than a drafting question.",
           "If a third-party analytics or advertising provider is ever added behind the provider-neutral event bridge, this section and the sale/share section must be re-reviewed before that provider ships.",
@@ -308,11 +308,9 @@ export const privacyPolicyArtifact: PublicPolicyArtifact<"privacy-policy", Priva
           },
           {
             assertion:
-              "The public search route supplies session storage to the restoration and loader-cache modules, so their browser-side state exists on an unauthenticated surface.",
+              "The search restoration and loader-cache session-storage keys are defined by the discovery modules cited here. The Corten marketplace's search page sets neither, so the operative wording for them is tracked in https://github.com/chase-sets/chase-sets/issues/12097.",
             evidenceRef:
-              "bounded-contexts/discovery/routes/search.tsx:750-758; " +
-              "bounded-contexts/discovery/routes/search.tsx:834-839; " +
-              "bounded-contexts/discovery/routes/search.tsx:1378-1382",
+              "bounded-contexts/discovery/features/search/ui/search-scroll-restoration.ts:3; bounded-contexts/discovery/features/search/ui/search-loader-cache.ts:1",
           },
         ],
       },
@@ -354,7 +352,7 @@ export const privacyPolicyArtifact: PublicPolicyArtifact<"privacy-policy", Priva
         decisionRefs: [5677, 5679, 8668, 10299],
         productTruthRefs: [
           "bounded-contexts/platform-operations/features/support-requests/domain/common.ts:5-30",
-          "bounded-contexts/settlement/routes/marketplace/account-desk-money.tsx:63-75",
+          "deployables/corten-pilot/marketplace/src/money.rs:213-225",
           "https://github.com/chase-sets/chase-sets/issues/8668#issuecomment-6043970242",
           "https://github.com/chase-sets/chase-sets/issues/10299#issuecomment-6883088071",
         ],
@@ -368,7 +366,7 @@ export const privacyPolicyArtifact: PublicPolicyArtifact<"privacy-policy", Priva
           {
             assertion:
               "Account holders can already see their itemized Wallet ledger, payouts, and payout readiness in the account money area without filing a request.",
-            evidenceRef: "bounded-contexts/settlement/routes/marketplace/account-desk-money.tsx:63-75",
+            evidenceRef: "deployables/corten-pilot/marketplace/src/money.rs:213-225",
           },
         ],
       },

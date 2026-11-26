@@ -12,7 +12,7 @@ import {
   writeJsonAtomic,
 } from "./browser-e2e-evidence.mjs";
 import { sampleWindowsProcessTree } from "./browser-e2e-bootstrap-observation.mjs";
-import { resolveBrowserE2eSystemTarget } from "./dev-system-config.mjs";
+import { browserE2eCortenMarketplaceTarget, resolveBrowserE2eSystemTarget } from "./dev-system-config.mjs";
 import { buildMinimalProcessEnvironment, runCommand, spawnCommand, terminateProcessTree } from "./lib/process.mjs";
 import { repoRoot } from "./lib/repo.mjs";
 import { resolveWorktreeSandbox } from "./lib/sandbox.mjs";
@@ -135,10 +135,12 @@ function requestDevSystemShutdown(child) {
   return false;
 }
 
-function assertReadyEvidence({ lifecyclePath, readinessPath }) {
+function assertReadyEvidence({ lifecyclePath, readinessPath, target }) {
   const lifecycle = readJsonIfPresent(lifecyclePath);
   const readiness = readJsonIfPresent(readinessPath);
-  const requiredComponents = ["marketplace", "platform-api", "platform-worker"];
+  // The web host the target boots: the Corten marketplace target boots the marketplace, every other admin.
+  const web = target === browserE2eCortenMarketplaceTarget ? "marketplace" : "admin-web";
+  const requiredComponents = [web, "platform-api", "platform-worker"];
 
   for (const componentName of requiredComponents) {
     const service = lifecycle?.services?.find((candidate) => candidate.name === componentName);
@@ -337,7 +339,7 @@ export async function runBrowserE2eProbe({
       now,
       signal: cancellation.signal,
     });
-    assertReadyEvidence({ lifecyclePath, readinessPath });
+    assertReadyEvidence({ lifecyclePath, readinessPath, target });
     outcome = "ready";
   } catch (error) {
     errorMessage = error instanceof Error ? error.message : String(error);

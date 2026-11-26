@@ -57,8 +57,7 @@
     "surfaces": [
       "post-form:bounded-contexts/inventory/features/storage-locations/ui/storage-location-page.tsx:H44ef8e2f59ba#1",
       "post-form:bounded-contexts/inventory/features/storage-locations/ui/storage-location-page.tsx:H5134385a04e6#1",
-      "post-form:bounded-contexts/inventory/features/storage-locations/ui/storage-location-page.tsx:H80c8544a77bf#1",
-      "route-action:bounded-contexts/inventory/features/storage-locations/ui/routes/account-inventory-locations.tsx"
+      "post-form:bounded-contexts/inventory/features/storage-locations/ui/storage-location-page.tsx:H80c8544a77bf#1"
     ],
     "visibleDestination": {
       "routeId": "account-inventory-locations",
@@ -71,7 +70,7 @@
       }
     },
     "proof": {
-      "tests": ["bounded-contexts/inventory/tests/account-inventory-routes.test.ts"]
+      "tests": []
     }
   },
   "apiCommandSurfaces": [
@@ -81,7 +80,6 @@
   "marketplaceRoute": {
     "routeId": "account-inventory-locations",
     "routePath": "account/inventory/locations",
-    "fileExport": "./routes/marketplace/account-inventory-locations",
     "routeType": "route",
     "sourceContext": "inventory",
     "delivery": "server-only",
@@ -97,7 +95,6 @@
       "web": true,
       "mobile": false
     },
-    "pageComponentExport": "default",
     "unsupportedMobile": {
       "owner": "inventory",
       "followUp": "#5238",

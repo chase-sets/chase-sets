@@ -13,7 +13,7 @@ promiseTable:
     issues: ["#5693"]
     tests:
       [
-        "bounded-contexts/inventory/tests/account-inventory-routes.test.ts",
+        "bounded-contexts/inventory/features/inventory-items/api/route.test.ts",
         "bounded-contexts/marketplace/features/listings/api/runtime.test.ts",
       ]
   - claim: A listing cannot be published until the photo-evidence and seller-trust requirements resolved from the active listing-evidence policy are met.

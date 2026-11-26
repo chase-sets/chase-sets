@@ -103,7 +103,7 @@ The wrapper is instrumentation, **not an adversarial security sandbox**. It cann
 
 The moderator reads `run.json`, reobserves the actual outcome, and creates separate adjudication evidence. Each goal names required checks. For seller-away, check exact dates, canonical command/event and fresh read-model state, a clean-route revisit without receipt parameters, and restoration. A toast is not evidence of persistence. For buyer-shipment, reaching generic instructions is not reaching the correct report form. For policy answers, compare against the authoritative policy, not just the participant's first page. Preserve an environment-invalid result separately from a product failure.
 
-Use deterministic assertions when the outcome is machine-checkable; retain their output alongside screenshots. The CLI validates that required evidence is supplied, **not its semantics**. Never have the participant generate its own independent checks. Existing Playwright remains the deterministic regression layer, including seller clean-route read-back in `deployables/marketplace/e2e/seller-time-away-capacity.spec.ts`.
+Use deterministic assertions when the outcome is machine-checkable; retain their output alongside screenshots. The CLI validates that required evidence is supplied, **not its semantics**. Never have the participant generate its own independent checks. Existing Playwright remains the deterministic regression layer.
 
 Adjudication JSON shape:
 

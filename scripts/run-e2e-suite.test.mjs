@@ -899,9 +899,11 @@ describe("run e2e suite", () => {
     }
   });
 
-  it("owns the real Discovery analytics route without selecting tests or unclaimed siblings", async () => {
+  it("keeps the Discovery analytics route ownership without selecting tests or unclaimed siblings", async () => {
     const route = "bounded-contexts/discovery/routes/item-detail-rail-analytics.tsx";
-    expect(existsSync(route)).toBe(true);
+    // The route module was deleted with marketplace-web; the Corten marketplace serves the item page, and the
+    // ownership pattern still selects its browser tests if the module returns.
+    expect(existsSync(route)).toBe(false);
     expect(e2eSuiteIdsForChangedFile(route)).toEqual([]);
     expect(cortenMarketplaceBrowserSelectedByChangedFile(route)).toBe(true);
     expect(e2eNoSuiteExclusionForChangedFile(route)).toBeNull();

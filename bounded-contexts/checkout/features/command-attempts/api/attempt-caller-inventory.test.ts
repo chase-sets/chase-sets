@@ -33,6 +33,9 @@ const CART_WRITE_SHAPES: readonly Readonly<{ name: string; pattern: RegExp }>[] 
  * callers route every write through one Cart attempt; exemptions are proved
  * idempotent elsewhere (decision 7).
  */
+// marketplace-web's cart, search and item-detail route modules left with that deployable, and Discovery's
+// item-detail action left with them; the Corten marketplace's cart, bulk-add and item add-to-cart forms post
+// to the owner routes above.
 const EXPECTED_PARTITION: readonly CallerRow[] = [
   {
     path: "bounded-contexts/checkout/features/cart/api/mcp.ts",
@@ -55,26 +58,11 @@ const EXPECTED_PARTITION: readonly CallerRow[] = [
     classification: "attempt-producing",
     shapes: ["owner attempt"],
   },
-  {
-    path: "bounded-contexts/checkout/routes/account-cart.tsx",
-    classification: "attempt-producing",
-    shapes: ["client cart write"],
-  },
   // Seed reconciles from the authoritative stream by line id; boot-twice proof in cart-attempt.db.test.ts.
   {
     path: "bounded-contexts/checkout/support/runtime-support/seed.ts",
     classification: "exempt",
     shapes: ["direct cart aggregate write"],
-  },
-  {
-    path: "bounded-contexts/discovery/routes/search.tsx",
-    classification: "attempt-producing",
-    shapes: ["client cart write"],
-  },
-  {
-    path: "bounded-contexts/discovery/support/route-support/item-detail/action.ts",
-    classification: "attempt-producing",
-    shapes: ["client cart write"],
   },
 ];
 
@@ -178,11 +166,6 @@ const EXPECTED_ENTRY_PARTITION: readonly CallerRow[] = [
     classification: "attempt-producing",
     shapes: ["buy-now preparation"],
   },
-  {
-    path: "bounded-contexts/discovery/support/route-support/item-detail/action.ts",
-    classification: "attempt-producing",
-    shapes: ["client entry"],
-  },
 ];
 
 /** A key computed from what is being bought, rather than created once per deliberate submission. */
@@ -253,10 +236,7 @@ const SELL_LIST_CALLERS = [
   "bounded-contexts/checkout/features/command-attempts/api/sell-list-submission.ts",
   "bounded-contexts/checkout/features/sell-list/api/route.ts",
   "bounded-contexts/checkout/features/sell-list/api/runtime.ts",
-  "bounded-contexts/checkout/routes/account-sell-list.tsx",
   "bounded-contexts/checkout/support/runtime-support/seed.ts",
-  "bounded-contexts/discovery/support/route-support/item-detail/action.ts",
-  "bounded-contexts/discovery/support/route-support/item-detail/action-helpers.ts",
 ];
 
 function partitionSellListCallers(files: readonly SourceFile[]) {
@@ -315,7 +295,10 @@ describe("checkout attempt caller partition", () => {
       ).toHaveLength(1);
       expect(
         partitionSellListCallers([
-          { path: SELL_LIST_CALLERS.at(-1)!, content: "api.addGuestSellListLine(owner, line)" },
+          {
+            path: "bounded-contexts/checkout/features/sell-list/api/route.ts",
+            content: "api.addGuestSellListLine(owner, line)",
+          },
         ]),
       ).toHaveLength(1);
     },
@@ -428,13 +411,12 @@ describe("checkout attempt caller partition", () => {
     { timeout: TREE_SCAN_TIMEOUT_MS },
     () => {
       const tracked = gitLsFiles();
-      const generatedCopy = "deployables/marketplace/build/server/assets/search-synthetic.js";
+      const generatedCopy = "deployables/marketplace/build/server/assets/item-detail-synthetic.js";
       const contents = new Map(trackedSources().map((source) => [source.path, source.content]));
       // An unkeyed built copy that exists on disk but is not tracked: the read
       // function would serve it, yet the enumeration never asks for it.
-      const builtCopy = contents
-        .get("bounded-contexts/discovery/routes/search.tsx")!
-        .replace(/submitCheckoutCartAttempt/g, "x");
+      const builtCopy =
+        "export async function addToCart(checkout) {\n  return checkout.addCartLine({ quantity: 1 });\n}\n";
       const readWithBuiltCopy = (file: string) => (file === generatedCopy ? builtCopy : (contents.get(file) ?? ""));
 
       const sources = listTrackedProductionSources(() => tracked, readWithBuiltCopy);
@@ -489,9 +471,6 @@ describe("checkout attempt caller partition", () => {
           "mcp:checkout.remove-cart-line cart.remove-line",
           "mcp:checkout.update-cart-line cart.update-line",
           "route-action:account-cart cart.commands",
-          "route-action:item-detail add-to-cart cart.add-line",
-          "route-action:item-detail buy-best-match cart.add-line",
-          "route-action:search commit-bulk-add cart.add-lines",
           "session-order-cart-cleanup cart.session-cleanup",
         ].sort(),
       );

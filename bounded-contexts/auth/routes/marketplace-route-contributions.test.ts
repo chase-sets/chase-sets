@@ -122,17 +122,19 @@ function migratedRouteMounts() {
 }
 
 describe("Auth marketplace route contributions", () => {
+  it("keeps every Auth marketplace route as a metadata-only record", () => {
+    expect(marketplaceRoutes().length).toBeGreaterThan(0);
+    for (const route of marketplaceRoutes()) {
+      expect(route.fileExport, route.routeId).toBeUndefined();
+    }
+  });
+
   it("enumerates every route mount of the migrated auth page components", () => {
+    // The marketplace mounts left with marketplace-web; the Corten marketplace serves those pages.
     expect(migratedRouteMounts()).toEqual({
-      SignInPage: [
-        "routes/access-admin/sign-in.tsx",
-        "routes/catalog-admin/sign-in.tsx",
-        "routes/marketplace/sign-in.tsx",
-      ],
-      RegisterPage: ["routes/marketplace/register.tsx"],
-      AccountSelectionPage: ["routes/access-admin/account-select.tsx", "routes/marketplace/account-select.tsx"],
-      SessionDetailPage: ["routes/access-admin/sessions-detail.tsx", "routes/marketplace/account-sessions-detail.tsx"],
-      AgentGrantDetailPage: ["routes/marketplace/account-agents-detail.tsx"],
+      SignInPage: ["routes/access-admin/sign-in.tsx", "routes/catalog-admin/sign-in.tsx"],
+      AccountSelectionPage: ["routes/access-admin/account-select.tsx"],
+      SessionDetailPage: ["routes/access-admin/sessions-detail.tsx"],
     });
   });
 
@@ -142,7 +144,6 @@ describe("Auth marketplace route contributions", () => {
         expect.objectContaining({
           routeId: "guest-checkout-exit",
           routePath: "guest-checkout/exit",
-          fileExport: "./routes/marketplace/guest-checkout-exit",
           sourceContext: "auth",
         }),
       ]),
@@ -155,7 +156,6 @@ describe("Auth marketplace route contributions", () => {
         expect.objectContaining({
           routeId: "sign-in-magic",
           routePath: "sign-in/magic",
-          fileExport: "./routes/marketplace/sign-in-magic",
           sourceContext: "auth",
         }),
       ]),
@@ -168,7 +168,6 @@ describe("Auth marketplace route contributions", () => {
         expect.objectContaining({
           routeId: "invite",
           routePath: "invite/:invitationId",
-          fileExport: "./routes/marketplace/invite",
           sourceContext: "auth",
         }),
       ]),
@@ -181,13 +180,11 @@ describe("Auth marketplace route contributions", () => {
         expect.objectContaining({
           routeId: "account-agents",
           routePath: "account/agents",
-          fileExport: "./routes/marketplace/account-agents",
           sourceContext: "auth",
         }),
         expect.objectContaining({
           routeId: "account-agents-consent",
           routePath: "account/agents/consent",
-          fileExport: "./routes/marketplace/account-agents-consent",
           sourceContext: "auth",
           delivery: "server-only",
           authorization: { kind: "authenticated", requiredPermissions: [] },
@@ -195,7 +192,6 @@ describe("Auth marketplace route contributions", () => {
         expect.objectContaining({
           routeId: "account-agents-detail",
           routePath: "account/agents/:id",
-          fileExport: "./routes/marketplace/account-agents-detail",
           sourceContext: "auth",
         }),
       ]),

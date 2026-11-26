@@ -61,25 +61,6 @@ export function formatProductOptionsAriaLabel(
   return parts.length > 0 ? `Product options: ${parts.join(", ")}` : fallback;
 }
 
-export function formatProductImageAltText({
-  title,
-  options,
-  fallback = "Product image",
-}: {
-  title?: string | null;
-  options?: readonly ProductOptionDisplayValue[];
-  fallback?: string;
-}): string {
-  const optionText = options ? formatProductOptionsText(options, ", ") : "";
-  const titleText = title?.trim();
-
-  if (titleText && optionText) {
-    return `${titleText}, ${optionText}`;
-  }
-
-  return titleText || optionText || fallback;
-}
-
 export interface ProductOptionsProps {
   options?: readonly ProductOptionDisplayValue[];
   emptyLabel?: ReactNode;

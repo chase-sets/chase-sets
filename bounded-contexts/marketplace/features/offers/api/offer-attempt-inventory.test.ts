@@ -61,15 +61,10 @@ describe("offer attempt caller partition", () => {
     expect(callers.map((caller) => caller.method)).toEqual([method]);
     expect(unpartitionedMarketplaceOfferCallers(callers)).toHaveLength(1);
   });
-  it("partitions an HTTP caller only by the attempt field in its own request options", () => {
-    const path = "deployables/marketplace/e2e/accepted-offer-sales-handoff.spec.ts";
+  it("partitions a recorded caller only by the attempt field in its own call", () => {
+    const path = "contracts/catalog-seed/representative-commerce-state.ts";
     const callers = (data: string) =>
-      enumerateMarketplaceAttemptCallers([
-        {
-          path,
-          source: `page.request.post(\`/api/marketplace/account/offers/matches/\${id}/accept\`, { data: ${data} });`,
-        },
-      ]);
+      enumerateMarketplaceAttemptCallers([{ path, source: `await services.offers.acceptOffer(${data});` }]);
     expect(unpartitionedMarketplaceOfferCallers(callers("{ sourceActionKey: randomUUID() }"))).toEqual([]);
     expect(unpartitionedMarketplaceOfferCallers(callers("{ attemptId: randomUUID() }"))).toHaveLength(1);
   });
@@ -131,8 +126,6 @@ describe("offer attempt caller partition", () => {
     "deployables/platform-api/__tests__/mcp-sdk-agent-journey.e2e.test.ts",
     "deployables/platform-api/__tests__/seller-desk-journey.e2e.test.ts",
     "bounded-contexts/marketplace/features/offers/ui/offer-match-list-page.tsx",
-    "deployables/marketplace/e2e/accepted-offer-sales-handoff.spec.ts",
-    "deployables/marketplace/e2e/market-following-offers.spec.ts",
   ])("rejects main's missing-attempt caller: %s", (path) => {
     const source = execFileSync("git", ["show", `${mainBase}:${path}`], {
       cwd: root,

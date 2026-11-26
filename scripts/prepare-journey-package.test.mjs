@@ -1294,9 +1294,12 @@ describe("journey package workflow and boundaries", () => {
     expect(fence.status).toBe("pass");
     expect(fence.findings).toEqual([]);
 
-    // The contract names only the real target, and the producer config records it.
+    // The contract's only target was a marketplace-web spec, deleted with that deployable. No producer
+    // project matches it any more, so the package is dormant: the reporter enrolls nothing and the step
+    // publishes nothing until the contract names a Corten journey.
     const config = readFileSync(path.join(repoRoot, "playwright.config.ts"), "utf8");
-    expect(existsSync(path.join(repoRoot, journeyPackageTarget.file))).toBe(true);
+    expect(existsSync(path.join(repoRoot, journeyPackageTarget.file))).toBe(false);
+    expect(config).not.toContain('testMatch: "deployables/marketplace/');
     expect(config).toContain(`name: "${journeyPackageTarget.project}"`);
     expect(config).toContain('testMatch: "deployables/corten-pilot/e2e/*.spec.ts"');
     expect(config).toContain(`outputDir: "${rawRoot}"`);

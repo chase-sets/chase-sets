@@ -4,9 +4,6 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { redirect } from "react-router";
 import { AccountSelectionPage } from "./account-selection-page";
-import MarketplaceAccountSelectionRoute, {
-  loader as marketplaceLoader,
-} from "../../../routes/marketplace/account-select";
 import AccessAdminAccountSelectionRoute, { loader as adminLoader } from "../../../routes/access-admin/account-select";
 import { mockNativeRequestSubmit, renderAuthRoute } from "../../../tests/auth-form-route-test-support";
 
@@ -57,34 +54,6 @@ describe("account selection page", () => {
     expect(document.querySelectorAll(".rounded-tokenLg.overflow-hidden.shadow-tokenSm")).toHaveLength(
       memberships.length,
     );
-  });
-
-  it("marketplace mounts busy only the submitted form", async () => {
-    const route = await renderAuthRoute(
-      { path: "/account/select", Component: MarketplaceAccountSelectionRoute, loader: marketplaceLoader },
-      "/account/select",
-    );
-    const buttons = screen.getAllByRole("button", { name: "Continue" });
-    const forms = buttons.map((button) => button.closest("form")!);
-    fireEvent.click(buttons[1]);
-    await waitFor(() => expect(route.requests).toHaveBeenCalledOnce());
-    expect(forms[1].getAttribute("aria-busy")).toBe("true");
-    expect(buttons[1].getAttribute("aria-busy")).toBe("true");
-    expect(forms[0].getAttribute("aria-busy")).toBeNull();
-    expect(forms[2].getAttribute("aria-busy")).toBeNull();
-    expect(buttons[0].getAttribute("aria-busy")).toBeNull();
-    expect(buttons[2].getAttribute("aria-busy")).toBeNull();
-    expect((buttons[0] as HTMLButtonElement).disabled).toBe(false);
-    expect((buttons[2] as HTMLButtonElement).disabled).toBe(false);
-    fireEvent.click(buttons[1]);
-    expect(route.requests).toHaveBeenCalledOnce();
-    await route.settle({ error: "synthetic failure" });
-    await waitFor(() => expect(forms[1].getAttribute("aria-busy")).toBeNull());
-    expect(buttons[1].getAttribute("aria-busy")).toBeNull();
-    fireEvent.click(buttons[2]);
-    await waitFor(() => expect(route.requests).toHaveBeenCalledTimes(2));
-    await route.settle(redirect("/done"));
-    expect(route.router.state.location.pathname).toBe("/done");
   });
 
   it("admin mounts keep the document form transport", async () => {

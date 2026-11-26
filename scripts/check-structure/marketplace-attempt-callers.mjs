@@ -252,13 +252,11 @@ export const marketplaceReviewReportCallerPartition = new Map([
   ["bounded-contexts/marketplace/support/route-support/review-submission-route.tsx", "attempt-input"],
   ["bounded-contexts/marketplace/support/route-support/review-report-action.ts", "attempt-input"],
   ["bounded-contexts/marketplace/support/route-support/listing-report-action.ts", "attempt-input"],
-  ["bounded-contexts/marketplace/routes/marketplace/account-review.tsx", "attempt-input"],
   ["bounded-contexts/marketplace/support/request-support/reputation-client.ts", "typed-forwarding"],
   ["bounded-contexts/marketplace/client.ts", "typed-forwarding"],
   ["bounded-contexts/marketplace/features/reviews/ui/review-submission-page.tsx", "attempt-form"],
   ["bounded-contexts/marketplace/features/reviews/ui/review-detail-page.tsx", "attempt-form"],
   ["bounded-contexts/marketplace/features/reviews/ui/review-report-action.tsx", "attempt-form"],
-  ["bounded-contexts/discovery/routes/public-listing.tsx", "attempt-form"],
   ["bounded-contexts/marketplace/support/runtime-support/seed.ts", "fixed-review-stream-history"],
   ["deployables/corten-pilot/scripts/smoke-market-account.mjs", "invalid-report-probe"],
 ]);
@@ -324,7 +322,6 @@ export const marketplaceOfferCallerPartition = new Map([
     "bounded-contexts/platform-operations/features/support-requests/ui/support-request-detail-page.tsx::offer-command-form",
     "not a Marketplace command: Support Request offer response; identity owned by participant-client",
   ],
-  ["bounded-contexts/checkout/routes/account-sell-list.tsx::declineOfferMatch", "attemptId"],
   ["bounded-contexts/checkout/support/request-support/checkout-confirmation.ts::createSubmittedOffer", "attemptId"],
   [
     "bounded-contexts/checkout/features/sell-list/api/marketplace-handoff.ts::acceptOfferMatch",
@@ -346,23 +343,12 @@ export const marketplaceOfferCallerPartition = new Map([
   ["bounded-contexts/marketplace/features/offers/api/route.ts::updateOfferPrice", "attemptId"],
   ["bounded-contexts/marketplace/features/offers/api/route.ts::acceptOffer", "sourceActionKey"],
   ["bounded-contexts/marketplace/features/offers/api/route.ts::declineOfferMatch", "attemptId"],
-  ["bounded-contexts/marketplace/routes/account-offer-match.tsx::acceptOfferMatch", "sourceActionKey"],
-  ["bounded-contexts/marketplace/routes/account-offer-match.tsx::declineOfferMatch", "attemptId"],
-  [
-    "bounded-contexts/marketplace/routes/account-offers-submitted.tsx::commandBuyerOfferPolicy",
-    "typed client forwarding, no new identity",
-  ],
   [
     "bounded-contexts/marketplace/support/runtime-support/seed.ts::commandHandler",
     "deterministic exemption: reserved Offer stream; complete owner-history reconciliation before authoring",
   ],
   ["contracts/catalog-seed/representative-commerce-state.ts::submitOffer", "attemptId"],
   ["contracts/catalog-seed/representative-commerce-state.ts::acceptOffer", "sourceActionKey"],
-  ["deployables/marketplace/e2e/accepted-offer-sales-handoff.spec.ts::http-submit-offer", "attemptId"],
-  ["deployables/marketplace/e2e/accepted-offer-sales-handoff.spec.ts::http-accept-offer", "sourceActionKey"],
-  ["deployables/marketplace/e2e/market-following-offers.spec.ts::http-submit-offer", "attemptId"],
-  ["deployables/marketplace/e2e/market-following-offers.spec.ts::http-accept-offer", "sourceActionKey"],
-  ["deployables/marketplace/e2e/market-following-offers.spec.ts::http-offer-policy-command", "attemptId"],
 ]);
 
 export function unpartitionedMarketplaceOfferCallers(callers) {
@@ -383,7 +369,6 @@ export function unpartitionedMarketplaceOfferCallers(callers) {
 // Every tracked Listing command producer is assigned once; stream exemptions keep C2's complete-history proof.
 export const marketplaceListingCallerPartition = new Map([
   ["bounded-contexts/inventory/features/inventory-items/ui/list-from-inventory-drawer.tsx", "form-attempt"],
-  ["bounded-contexts/discovery/features/item-detail/ui/commerce/listing-submission-section.tsx", "form-attempt"],
   ["bounded-contexts/marketplace/features/listings/ui/listing-create-page.tsx", "form-attempt"],
   ["bounded-contexts/marketplace/features/listings/ui/listing-detail-page.tsx", "form-attempt"],
   ["bounded-contexts/marketplace/features/listings/ui/listing-list-page.tsx", "form-attempt"],
@@ -408,7 +393,6 @@ export const marketplaceListingCallerPartition = new Map([
     "Channels publication port, not Marketplace Listing commands",
   ],
   ["bounded-contexts/checkout/features/sell-list/api/marketplace-handoff.ts", "caller-identity"],
-  ["bounded-contexts/discovery/support/route-support/item-detail/action.ts", "form-attempt"],
   ["bounded-contexts/marketplace/features/channel-inbound-clamp/api/runtime.ts", "authoritative-stream"],
   [
     "bounded-contexts/marketplace/features/channel-inbound-clamp/tests/channel-inbound-clamp.db.test.ts",
@@ -444,12 +428,8 @@ export const marketplaceListingCallerPartition = new Map([
     "bounded-contexts/marketplace/features/listings/tests/seller-away-window-sweep-sql.db.test.ts",
     "typed-owner-fixture",
   ],
-  ["bounded-contexts/marketplace/routes/account-listing.tsx", "form-attempt"],
-  ["bounded-contexts/marketplace/routes/account-listings-new.tsx", "form-attempt"],
-  ["bounded-contexts/marketplace/routes/account-listings.tsx", "form-attempt"],
   ["bounded-contexts/marketplace/support/runtime-support/seed.ts", "authoritative-stream"],
   ["bounded-contexts/marketplace/tests/safe-listing-feedback.test.ts", "typed-owner-fixture"],
-  ["bounded-contexts/marketplace/tests/account-listings-recovery-route.test.tsx", "typed-owner-fixture"],
   ["bounded-contexts/pricing/features/bulk-reprice-ingestion/api/runtime.ts", "caller-identity"],
   ["bounded-contexts/pricing/features/bulk-reprice-ingestion/api/wave-outcomes.ts", "caller-identity"],
   ["bounded-contexts/pricing/features/recommendations/api/runtime.ts", "caller-identity"],
@@ -459,10 +439,6 @@ export const marketplaceListingCallerPartition = new Map([
   ["contracts/catalog-seed/representative-commerce-state.ts", "authoritative-stream"],
   ["deployables/marketplace-seed-testing/tests/representative-commerce-state.test.ts", "typed-owner-fixture"],
   ["deployables/marketplace-seed-testing/tests/marketplace-seed.test.ts", "typed-owner-fixture"],
-  ["deployables/marketplace/e2e/accepted-offer-sales-handoff.spec.ts", "transport-fixture"],
-  ["deployables/marketplace/e2e/channel-connection-connect.spec.ts", "transport-fixture"],
-  ["deployables/marketplace/e2e/manual-sync-recovery.spec.ts", "transport-fixture"],
-  ["deployables/marketplace/e2e/market-following-offers.spec.ts", "transport-fixture"],
   ["infrastructure/platform-runtime/mcp.test.ts", "mcp-transport-fixture"],
 ]);
 

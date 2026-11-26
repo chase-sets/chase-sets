@@ -3,7 +3,6 @@
   "accountPaymentRoute": {
     "routeId": "account-payment",
     "routePath": "account/payments/:paymentId",
-    "fileExport": "./routes/marketplace/account-payment",
     "routeType": "route",
     "sourceContext": "payments",
     "delivery": "server-only",
@@ -19,7 +18,6 @@
       "web": true,
       "mobile": false
     },
-    "pageComponentExport": "default",
     "unsupportedMobile": {
       "owner": "payments",
       "followUp": "#5238",
@@ -29,7 +27,6 @@
   "accountPaymentNewRoute": {
     "routeId": "account-payment-new",
     "routePath": "account/payments/new",
-    "fileExport": "./routes/marketplace/account-payment-new",
     "routeType": "route",
     "sourceContext": "payments",
     "delivery": "server-only",
@@ -45,7 +42,6 @@
       "web": true,
       "mobile": false
     },
-    "pageComponentExport": "default",
     "unsupportedMobile": {
       "owner": "payments",
       "followUp": "#5238",
@@ -55,7 +51,6 @@
   "accountPaymentMethodsRoute": {
     "routeId": "account-payment-methods",
     "routePath": "account/payment-methods",
-    "fileExport": "./routes/marketplace/account-payment-methods",
     "routeType": "route",
     "sourceContext": "payments",
     "delivery": "server-only",
@@ -71,7 +66,6 @@
       "web": true,
       "mobile": false
     },
-    "pageComponentExport": "default",
     "unsupportedMobile": {
       "owner": "payments",
       "followUp": "#5238",
@@ -81,7 +75,6 @@
   "checkoutPaymentRoute": {
     "routeId": "checkout-payment",
     "routePath": "checkout/payments/:paymentId",
-    "fileExport": "./routes/marketplace/checkout-payment",
     "routeType": "route",
     "sourceContext": "payments",
     "delivery": "server-only",
@@ -96,7 +89,6 @@
       "web": true,
       "mobile": false
     },
-    "pageComponentExport": "default",
     "unsupportedMobile": {
       "owner": "payments",
       "followUp": "#5238",
@@ -131,7 +123,7 @@
         }
       },
       "proof": {
-        "tests": ["bounded-contexts/payments/features/payments/ui/routes/account-payment-new-wallet-status.test.tsx"]
+        "tests": []
       }
     },
     {

@@ -51,16 +51,15 @@ export const marketplaceBrowserE2eSeedContract = {
     // reference to (bounded-contexts/catalog/features/catalog-items/api/seed.ts
     // externalProductReferences), so deep-linking it via the
     // readInitialSelectedOptions `dimension.<id>` query contract
-    // (bounded-contexts/discovery/support/route-support/item-detail/support.ts)
+    // (deployables/corten-pilot/marketplace/src/items.rs)
     // completes product selection deterministically without depending on UI
     // interaction order or unseeded dimension combinations.
     selectedProductRoutePath:
       "/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp?dimension.dim_seed_form=chc_seed_form_raw&dimension.dim_seed_condition=chc_seed_condition_near_mint",
   },
   // Pinned identity for the dock's no-product-selected state. It is not reachable on the
-  // charizard route: useItemDetailPageModel resolves selectedProductId implicitly from
-  // the best visible listing
-  // (bounded-contexts/discovery/features/item-detail/ui/use-item-detail-page-model.tsx),
+  // charizard route: the item page resolves its product implicitly from the first
+  // visible listing (deployables/corten-pilot/marketplace/src/items.rs),
   // so any item with seeded listings renders the product-selected Buy/Sell/Watch dock.
   // cat_seed_bulbasaur_base_set is the item the catalog seed maintains as the
   // "no-listings-and-no-offers case"

@@ -2652,3 +2652,191 @@ describe("marketplace listing routes", () => {
     );
   });
 });
+
+describe("public product Listings route", () => {
+  /** Every key a public Listing item may carry. Written out here so the production list cannot vouch for itself. */
+  const publicListingKeys = [
+    "listing_id",
+    "account_id",
+    "catalog_catalog_item_id",
+    "product_id",
+    "item_title",
+    "item_subtitle",
+    "selected_options",
+    "product_summary",
+    "graded_card",
+    "ship_from_code",
+    "price_amount",
+    "price_currency_code",
+    "listing_stream_version",
+    "shipping_allowance_percentage_bps",
+    "max_units_per_order",
+    "max_units_per_day",
+    "max_units_per_customer_account",
+    "status",
+    "seller_display_name",
+    "visible_quantity",
+    "public_gallery",
+  ] as const;
+
+  const publicRow = {
+    listing_id: "lst_public",
+    account_id: "acc_seller",
+    catalog_catalog_item_id: "cat_public",
+    product_id: "prod_1",
+    item_title: "Air Balloon",
+    item_subtitle: null,
+    selected_options: [{ dimensionId: "form", optionId: "raw" }],
+    product_summary: "Form: Raw",
+    graded_card: null,
+    ship_from_code: "home",
+    price_amount: "21.50",
+    price_currency_code: "USD",
+    listing_stream_version: 4,
+    shipping_allowance_percentage_bps: 0,
+    max_units_per_order: null,
+    max_units_per_day: null,
+    max_units_per_customer_account: null,
+    status: "active",
+    seller_display_name: "QA Seller",
+    visible_quantity: 2,
+    public_gallery: [],
+  };
+
+  /** What only the seller may read. A service that returned these on a row must not get them past the route. */
+  const fieldsOutsidePublicRow = {
+    inventory_item_id: "item_private",
+    storage_location_name: "Back room bin 7",
+    ship_from_address: {
+      name: "Private Seller Name",
+      line1: "742 Evergreen Terrace",
+      city: "Springfield",
+      state: "IL",
+      postalCode: "62704",
+      country: "US",
+      phone: "555-0142",
+      email: "seller.private@example.test",
+    },
+    marketplace_sales_fee_unit_amount: "2.37",
+    seller_net_unit_amount: "19.13",
+    fee_quote_fingerprint: "21.50|2.37|19.13|cts_private|agr_private",
+    fee_locks: [{ lockId: "lock_private" }],
+    terms_schedule_id: "cts_private",
+    terms_agreement_id: "agr_private",
+    terms_resolved_at: "2026-04-17T00:00:00.000Z",
+    evidence_requirements: { policyHash: "hash_private" },
+    evidence: [{ storageKey: "evidence/private-key.webp" }],
+    pause_reason: "inventory-capacity",
+    inventory_capacity_recovery_block: { reason: "blocked_private" },
+    quantity_cap: 9,
+  };
+
+  function appServing(rows: readonly unknown[]) {
+    const services = {
+      ...createServices(),
+      listItemListings: vi.fn(async () => rows),
+    } as unknown as MarketplaceListingServices;
+    return { app: buildApp({ actor: null, services }), services };
+  }
+
+  it("answers a caller who is not signed in with items that hold exactly the public keys", async () => {
+    const { app, services } = appServing([publicRow]);
+
+    const response = await app.fetch(new Request("http://marketplace.test/products/prod_1/listings"));
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { items: Record<string, unknown>[]; total: number; count: number };
+    expect(body.total).toBe(1);
+    expect(body.count).toBe(1);
+    expect(Object.keys(body.items[0] ?? {}).sort()).toEqual([...publicListingKeys].sort());
+    expect(body.items[0]).toEqual(publicRow);
+    expect(services.listItemListings).toHaveBeenCalledWith("prod_1");
+  });
+
+  it("serves no field outside the public row even when the service returns a row that carries them", async () => {
+    const { app } = appServing([{ ...publicRow, ...fieldsOutsidePublicRow }]);
+
+    const response = await app.fetch(new Request("http://marketplace.test/products/prod_1/listings"));
+
+    expect(response.status).toBe(200);
+    const text = await response.text();
+    const body = JSON.parse(text) as { items: Record<string, unknown>[] };
+    expect(Object.keys(body.items[0] ?? {}).sort()).toEqual([...publicListingKeys].sort());
+    for (const privateValue of [
+      "742 Evergreen Terrace",
+      "Private Seller Name",
+      "62704",
+      "555-0142",
+      "seller.private@example.test",
+      "Back room bin 7",
+      "item_private",
+      "2.37",
+      "19.13",
+      "cts_private",
+      "agr_private",
+      "lock_private",
+      "hash_private",
+      "private-key.webp",
+      "blocked_private",
+    ]) {
+      expect(text).not.toContain(privateValue);
+    }
+  });
+
+  it("serves a grade, an option and a gallery image key by key when the service returns them with other fields", async () => {
+    const gradedCard = {
+      gradingCompany: "PSA",
+      grade: "Gem Mint 10",
+      certificationNumber: "12345678",
+      population: { populationAtGrade: 10, populationHigher: 0, source: "census", asOf: "2026-01-01" },
+      conditionDescriptors: ["sharp corners"],
+    };
+    const asset = {
+      role: "catalog-detail",
+      publicUrl: "https://assets.test/photo_one/catalog-detail.webp",
+      width: 480,
+      height: 640,
+      density: 1,
+    };
+    const image = { photoId: "photo_one", slotId: "front", viewKind: "front", altText: "Front", sortOrder: 0 };
+    const { app } = appServing([
+      {
+        ...publicRow,
+        selected_options: [{ dimensionId: "form", optionId: "graded", internalRank: 7 }],
+        graded_card: {
+          ...gradedCard,
+          population: { ...gradedCard.population, fetchedBy: "usr_private" },
+          internalNote: "bought at a show",
+        },
+        public_gallery: [
+          {
+            ...image,
+            originalFilename: "secret-filename.png",
+            assets: [{ ...asset, storageKey: "private/key/photo_one", byteSize: 1234 }],
+          },
+        ],
+      },
+    ]);
+
+    const response = await app.fetch(new Request("http://marketplace.test/products/prod_1/listings"));
+
+    expect(response.status).toBe(200);
+    const text = await response.text();
+    expect((JSON.parse(text) as { items: unknown[] }).items[0]).toEqual({
+      ...publicRow,
+      selected_options: [{ dimensionId: "form", optionId: "graded" }],
+      graded_card: gradedCard,
+      public_gallery: [{ ...image, assets: [asset] }],
+    });
+    for (const privateText of [
+      "internalRank",
+      "internalNote",
+      "fetchedBy",
+      "secret-filename",
+      "private/key",
+      "byteSize",
+    ]) {
+      expect(text).not.toContain(privateText);
+    }
+  });
+});

@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -37,6 +38,24 @@ describe("canonical link intents", () => {
     const changed = JSON.parse(JSON.stringify(contexts));
     changed[0]!.manifest.deployableContributions![0]!.routes[0]!.sourceContext = "unknown-owner";
     expect(() => composeLinkIntents(changed)).toThrow(/owner/);
+  });
+
+  it("keeps the marketplace-web link catalog the Corten marketplace serves", async () => {
+    const { composeLinkIntents } = await import("./link-intents");
+    const catalog = composeLinkIntents(contexts);
+    const marketplace = {
+      intents: catalog.intents.filter((intent) => intent.host === "marketplace-web"),
+      partition: catalog.partition.filter((row) => row.host === "marketplace-web"),
+    };
+    // Notifications and agents keep building links to the pages the Corten
+    // marketplace serves from these metadata-only records. The hash is the
+    // catalog main composed while marketplace-web still had route modules, so
+    // a change here changes a published link or the route that wins a parse.
+    expect(marketplace.partition).toHaveLength(94);
+    expect(marketplace.intents).toHaveLength(20);
+    expect(createHash("sha256").update(JSON.stringify(marketplace)).digest("hex")).toBe(
+      "665ad8ff3604577e947307c4cc36b5d8c18bb9c71362c7812b2fdaf508408eb6",
+    );
   });
 
   it("link-intent-build-parse-closed-matrix", async () => {

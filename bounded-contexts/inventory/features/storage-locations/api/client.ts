@@ -1,5 +1,5 @@
 import type { ListResponse } from "@chase-sets/http/responses";
-import { parseJsonResponse, type InventoryClientTransport } from "../../../support/request-support/client";
+import { parseJsonResponse, type InventoryClientTransport } from "./transport";
 import type { InventoryStorageLocation } from "./contracts";
 
 export function createStorageLocationClient({ client, headers }: InventoryClientTransport) {

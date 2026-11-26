@@ -7,8 +7,6 @@ import { AuthApiError } from "../../client";
 import { AUTH_ACTION_INTENTS, authApiActionError, type AuthActionIntent } from "./auth-action-errors";
 import { defineAuthHost, toAuthActionError } from "./auth-host";
 import { SOCIAL_LOGIN_ERROR_MESSAGES, socialLoginErrorMessage } from "./social-login-errors";
-import { loader as signInLoader } from "../../routes/marketplace/sign-in";
-import { loader as registerLoader } from "../../routes/marketplace/register";
 
 const marker = "Bearer synthetic-source-partition-marker";
 afterEach(() => vi.unstubAllGlobals());
@@ -167,42 +165,4 @@ it("keeps the registration form's FORM copy for the coded existing-email 409 wit
   ] as const) {
     expect(authApiActionError(new AuthApiError(status, body), "password").classification).toBe("INDETERMINATE");
   }
-});
-
-it("rejects raw message and token markers at social destinations", () => {
-  const file = source("../api-support/social-login-routes.ts");
-  const routed = new Set<string>();
-  function visit(node: ts.Node) {
-    if (
-      ts.isCallExpression(node) &&
-      ts.isIdentifier(node.expression) &&
-      node.expression.text === "redirectToFallback"
-    ) {
-      const value = node.arguments[0];
-      if (value && ts.isStringLiteral(value)) routed.add(value.text);
-    }
-    ts.forEachChild(node, visit);
-  }
-  visit(file);
-  // Admission and link-conflict codes come from the existing typed branches.
-  routed.add("registration_admission_required");
-  routed.add("disposable_email_domain");
-  routed.add("provider_already_linked");
-  expect([...routed].sort()).toEqual(Object.keys(SOCIAL_LOGIN_ERROR_MESSAGES).sort());
-  for (const value of [
-    marker,
-    "constructor",
-    "__proto__",
-    "provider_failed ",
-    "Invalid email or password.",
-    ...routed,
-  ]) {
-    const request = new Request(`https://marketplace.test/sign-in?socialLoginError=${encodeURIComponent(value)}`);
-    for (const loader of [signInLoader, registerLoader]) {
-      const result = loader({ request, params: {}, context: {}, url: new URL(request.url), pattern: "/sign-in" });
-      expect(result.socialLoginError).toBe(socialLoginErrorMessage(value));
-      expect(JSON.stringify(result)).not.toContain(marker);
-    }
-  }
-  expect(socialLoginErrorMessage(null)).toBeNull();
 });

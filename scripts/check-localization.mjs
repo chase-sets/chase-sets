@@ -127,7 +127,6 @@ export function checkLocalization(options = {}) {
       normalized.includes("/support/api-support/") ||
       normalized.includes("/support/request-support/") ||
       normalized.includes("/support/shell-support/") ||
-      normalized.startsWith("deployables/marketplace/app/") ||
       normalized.startsWith("deployables/admin-web/app/")
     );
   }

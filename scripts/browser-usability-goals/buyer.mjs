@@ -1,18 +1,6 @@
 export default {
   id: "buyer",
-  routeScope: [
-    "^bounded-contexts/checkout/routes/(account-cart|checkout-session|checkout-start|buy-checkout-confirmation)\\.tsx$",
-    "^bounded-contexts/payments/routes/marketplace/",
-    "^bounded-contexts/ordering/routes/account-purchases?\\.tsx$",
-    "^bounded-contexts/fulfillment/routes/marketplace/account-shipments?\\.tsx$",
-    "^bounded-contexts/marketplace/routes/account-offers?-",
-    "^bounded-contexts/marketplace/routes/marketplace/(account-purchase-review|account-review|account-written-reviews|account-review-summary)\\.tsx$",
-    "^bounded-contexts/discovery/routes/account-product-alerts\\.tsx$",
-    "^bounded-contexts/notifications/routes/account-notifications\\.tsx$",
-    "^bounded-contexts/identity/routes/marketplace/(account|account-security|account-consents|account-shipping-addresses)\\.tsx$",
-    "^bounded-contexts/auth/routes/marketplace/account-",
-    "^bounded-contexts/platform-operations/routes/marketplace/",
-  ],
+  routeScope: [],
   goals: [
     {
       id: "find-card",
@@ -43,10 +31,7 @@ export default {
         "delivery-status-and-time": "Reobserve the actual delivery status and time against authoritative fixture data.",
         "problem-entry": "Reaching generic instructions is not reaching the correct report form.",
       },
-      routes: {
-        "bounded-contexts/fulfillment/routes/marketplace/account-shipments.tsx": "shipment-identity",
-        "bounded-contexts/fulfillment/routes/marketplace/account-shipment.tsx": "delivery-status-and-time",
-      },
+      routes: {},
       paths: ["bounded-contexts/fulfillment/", "bounded-contexts/ordering/", "bounded-contexts/platform-operations/"],
       selectOnSharedChange: true,
     },
@@ -68,10 +53,7 @@ export default {
         "cart-restored":
           "Before restoration, record the session and payment ids this run created. Restoration is the moderator's owned isolated sandbox refresh (pnpm run dev:db:refresh in the moderator's worktree: scripts/dev-system.mjs runRefresh destroys that sandbox's Postgres volume and re-runs bootstrap), never a shared or live seat. Afterwards read back both: the cart read model holds exactly the two seeded cart lines (checkoutSeedIds.cartLines), and each recorded run-created session and payment is absent or terminal, with no pending-confirmation payment left. Re-running the checkout seed alone reconciles only the seeded lines and the reserved bootstrap session; it closes nothing this run created and is not restoration.",
       },
-      routes: {
-        "bounded-contexts/checkout/routes/account-cart.tsx": "cart-contents",
-        "bounded-contexts/checkout/routes/checkout-session.tsx": "checkout-session",
-      },
+      routes: {},
       paths: [
         "bounded-contexts/checkout/features/cart/",
         "bounded-contexts/checkout/features/sessions/",
@@ -92,9 +74,7 @@ export default {
         "readiness-status":
           "Checkout cart readiness snapshot for the synthetic buyer (createCartReadinessSnapshot over the two seeded cart lines, checkoutSeedIds.cartLines): status ready, two lines, no customer-safe facts. Compare the readiness, item count and absence of warnings the participant reports. The readiness page is a read-only GET until its form is submitted, so the checkout session read model must show no session created by this run.",
       },
-      routes: {
-        "bounded-contexts/checkout/routes/checkout-start.tsx": "readiness-status",
-      },
+      routes: {},
       paths: [
         "bounded-contexts/checkout/features/sessions/ui/checkout-start",
         "bounded-contexts/checkout/support/route-support/buy-checkout-readiness/",
@@ -112,13 +92,8 @@ export default {
         "payment-record":
           "Bootstrap seed payment paymentsReservedSeedIds.payments.reviewEligibleCaptured (seedPaymentsDatabase, seedReservedPayments): status captured, captured 2026-03-20T11:35Z, amount equal to the covered order total in the payment read model, covering the review-eligible delivered order (reputationReservedSeedIds.orders.reviewEligibleDelivered). Compare status, captured time, total and covered purchase; the payments read model must show no payment command by this run. If the seeded payment is absent because bootstrap has not completed its passes, record environment-invalid.",
       },
-      routes: {
-        "bounded-contexts/payments/routes/marketplace/account-payment.tsx": "payment-record",
-      },
-      paths: [
-        "bounded-contexts/payments/features/payments/ui/account-payment/",
-        "bounded-contexts/payments/features/payments/ui/routes/account-payment.tsx",
-      ],
+      routes: {},
+      paths: ["bounded-contexts/payments/features/payments/ui/account-payment/"],
     },
     {
       id: "buyer-pending-purchase",
@@ -136,15 +111,8 @@ export default {
         "payment-start-screen":
           "Payments read model: no payment created by this run for the synthetic buyer. The final screenshot shows the payment start summary for that purchase, not a payment element or confirmation.",
       },
-      routes: {
-        "bounded-contexts/ordering/routes/account-purchases.tsx": "pending-count",
-        "bounded-contexts/ordering/routes/account-purchase.tsx": "amount-and-deadline",
-        "bounded-contexts/payments/routes/marketplace/account-payment-new.tsx": "payment-start-screen",
-      },
-      paths: [
-        "bounded-contexts/ordering/features/orders/",
-        "bounded-contexts/payments/features/payments/ui/routes/account-payment-new.tsx",
-      ],
+      routes: {},
+      paths: ["bounded-contexts/ordering/features/orders/"],
     },
     {
       id: "buyer-payment-methods",
@@ -158,13 +126,8 @@ export default {
         "saved-methods":
           "Bootstrap seed: payments_saved_checkout_instruments rows for the synthetic buyer written by seedPaymentsDatabase (sci_seed_collector_card is the default, sci_seed_collector_bank is not). Compare display names and the default flag.",
       },
-      routes: {
-        "bounded-contexts/payments/routes/marketplace/account-payment-methods.tsx": "saved-methods",
-      },
-      paths: [
-        "bounded-contexts/payments/routes/marketplace/account-payment-methods",
-        "bounded-contexts/payments/features/payments/ui/routes/account-payment-methods.tsx",
-      ],
+      routes: {},
+      paths: ["deployables/corten-pilot/marketplace/src/payment_methods.rs"],
     },
     {
       id: "buyer-offers",
@@ -180,10 +143,7 @@ export default {
         "offer-terms":
           "Bootstrap seed offer marketplaceReservedSeedIds.offers.charizardBaseSetNearMint: 350.00 USD for quantity 1. Reobserve on the submitted offer detail.",
       },
-      routes: {
-        "bounded-contexts/marketplace/routes/account-offers-submitted.tsx": "offer-status",
-        "bounded-contexts/marketplace/routes/account-offer-submitted.tsx": "offer-terms",
-      },
+      routes: {},
       paths: ["bounded-contexts/marketplace/features/offers/"],
     },
     {
@@ -202,11 +162,7 @@ export default {
         "received-summary":
           "Reputation summary read model for the synthetic buyer account: the only seller-to-buyer seed review (reputationReservedSeedIds.reviews.sellerToBuyerWithdrawn) is withdrawn, so no active received review should be reported.",
       },
-      routes: {
-        "bounded-contexts/marketplace/routes/marketplace/account-written-reviews.tsx": "written-review",
-        "bounded-contexts/marketplace/routes/marketplace/account-review.tsx": "review-purchase",
-        "bounded-contexts/marketplace/routes/marketplace/account-review-summary.tsx": "received-summary",
-      },
+      routes: {},
       paths: ["bounded-contexts/marketplace/features/reviews/"],
     },
     {
@@ -227,12 +183,7 @@ export default {
         "terms-consent":
           "Bootstrap seed consent identitySeedIds.collector.consentId: terms-of-service v1 recorded 2026-03-03.",
       },
-      routes: {
-        "bounded-contexts/identity/routes/marketplace/account.tsx": "display-name",
-        "bounded-contexts/identity/routes/marketplace/account-shipping-addresses.tsx": "default-address",
-        "bounded-contexts/identity/routes/marketplace/account-security.tsx": "sign-in-methods",
-        "bounded-contexts/identity/routes/marketplace/account-consents.tsx": "terms-consent",
-      },
+      routes: {},
       paths: [
         "bounded-contexts/identity/features/accounts/",
         "bounded-contexts/identity/features/shipping-addresses/",
@@ -256,11 +207,7 @@ export default {
         "connected-agents":
           "Agent grant read model for the collector: no bootstrap seed creates a grant, so the correct answer is none. The connected agents page must still have been reached.",
       },
-      routes: {
-        "bounded-contexts/auth/routes/marketplace/account-sessions.tsx": "active-sessions",
-        "bounded-contexts/auth/routes/marketplace/account-sessions-detail.tsx": "current-session-expiry",
-        "bounded-contexts/auth/routes/marketplace/account-agents.tsx": "connected-agents",
-      },
+      routes: {},
       paths: ["bounded-contexts/auth/features/sessions/", "bounded-contexts/auth/features/agent-grants/"],
     },
     {
@@ -279,10 +226,7 @@ export default {
         "refund-outcome":
           "Bootstrap seed support request supportSeedIds.supportRequests.resolvedPartialRefund: resolved with a 5.00 refund. Compare amount and outcome.",
       },
-      routes: {
-        "bounded-contexts/platform-operations/routes/marketplace/account-support.tsx": "request-status",
-        "bounded-contexts/platform-operations/routes/marketplace/account-support-detail.tsx": "request-evidence",
-      },
+      routes: {},
       paths: ["bounded-contexts/platform-operations/features/support-requests/"],
     },
     {
@@ -299,9 +243,7 @@ export default {
         "notification-settings":
           "Notification preference read model: notification_preferences holds no row for the collector (the notifications context has no seed), so the page shows defaultNotificationPreferences: web, email and product alerts on, sms and rcs off. No discovery seed creates a product alert for the collector, so the product alerts section is empty. Compare both; the preference and product alert read models must show no write by this run.",
       },
-      routes: {
-        "bounded-contexts/notifications/routes/account-notifications.tsx": "unread-notifications",
-      },
+      routes: {},
       paths: [
         "bounded-contexts/notifications/features/notification-center/",
         "bounded-contexts/notifications/features/preferences/",
@@ -309,42 +251,5 @@ export default {
       ],
     },
   ],
-  excludedRoutes: [
-    {
-      path: "bounded-contexts/auth/routes/marketplace/account-agents-consent.tsx",
-      reason:
-        "fixture-gap: unexpired OAuth consent request bound to the seeded buyer session; authorization must start from a synthetic agent client",
-    },
-    {
-      path: "bounded-contexts/auth/routes/marketplace/account-agents-detail.tsx",
-      reason: "fixture-gap: agent grant for the seeded buyer to open in detail; no bootstrap seed connects an agent",
-    },
-    {
-      path: "bounded-contexts/auth/routes/marketplace/account-select.tsx",
-      reason:
-        "fixture-gap: second account membership for the seeded buyer so sign-in issues an account selection step; the collector owns exactly one account",
-    },
-    { path: "bounded-contexts/checkout/routes/buy-checkout-confirmation.tsx", reason: "provider-step-only" },
-    { path: "bounded-contexts/discovery/routes/account-product-alerts.tsx", reason: "redirect-only" },
-    {
-      path: "bounded-contexts/marketplace/routes/account-offer-match.tsx",
-      reason:
-        "fixture-gap: active listing owned by the seeded buyer account; offer matches are shown against the viewer's own listings",
-    },
-    {
-      path: "bounded-contexts/marketplace/routes/account-offer-matches.tsx",
-      reason:
-        "fixture-gap: active listing owned by the seeded buyer account; offer matches are shown against the viewer's own listings",
-    },
-    {
-      path: "bounded-contexts/marketplace/routes/marketplace/account-purchase-review.tsx",
-      reason:
-        "fixture-gap: delivered purchase for the seeded buyer with an open, unreviewed review window; the seeded delivered orders are already reviewed or held by open support requests",
-    },
-    {
-      path: "bounded-contexts/payments/routes/marketplace/checkout-payment.tsx",
-      reason:
-        "fixture-gap: guest-buyer checkout session; the signed-in seeded buyer is routed to the account payment page instead",
-    },
-  ],
+  excludedRoutes: [],
 };

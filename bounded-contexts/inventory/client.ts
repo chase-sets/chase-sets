@@ -4,7 +4,7 @@ import {
   createInventoryClientTransport,
   parseJsonResponse,
   type InventoryApiClientOptions,
-} from "./support/request-support/client";
+} from "./features/storage-locations/api/transport";
 import type { InventoryMutationReceipt } from "./support/runtime-support/mutation-attempt";
 import type { InventoryCatalogItemSnapshot } from "./features/inventory-items/integrations/catalog/queries";
 import type {
@@ -57,8 +57,8 @@ import type {
 import type { InventoryRestockDecision, RecordRestockDecisionInput } from "./features/restock-decisions/api/contracts";
 import type { InventoryRecoveredItemRow } from "./features/recovered-items/read-model/queries";
 
-export { InventoryApiError } from "./support/request-support/client";
-export type { InventoryApiClientOptions } from "./support/request-support/client";
+export { InventoryApiError } from "./features/storage-locations/api/transport";
+export type { InventoryApiClientOptions } from "./features/storage-locations/api/transport";
 
 export function createInventoryApiClient(options: InventoryApiClientOptions = {}) {
   const transport = createInventoryClientTransport(options);
