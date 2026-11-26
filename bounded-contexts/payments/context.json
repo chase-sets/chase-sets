@@ -59,7 +59,6 @@
   "publicExports": [
     ".",
     "./context",
-    "./routes/*",
     "./seed-support/*",
     "./server",
     "./web"

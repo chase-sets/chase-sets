@@ -1,21 +1,12 @@
 // @vitest-environment jsdom
-
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ChaseRoot } from "@chase-sets/design-system";
 import { RouterLinkAdapter } from "@chase-sets/design-system/react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RegisterPage } from "./register-page";
 import { createPasskeyCredential } from "../../../support/ui-support/passkey-browser";
-import {
-  missingPhoneFailure,
-  renderAuthRoute,
-  expectDocumentNavigation,
-  safeFailure,
-  mockNativeRequestSubmit,
-  successfulPasskey,
-  pendingPasskey,
-} from "../../../tests/auth-form-route-test-support";
-import { createBrowserRouter, MemoryRouter, redirect, RouterProvider } from "react-router";
+import { expectDocumentNavigation, safeFailure } from "../../../tests/auth-form-route-test-support";
+import { MemoryRouter } from "react-router";
 
 vi.mock("../../../support/route-support/auth-host.server", async () => {
   const { defineAuthHost } = await import("../../../support/route-support/auth-host");
@@ -49,8 +40,6 @@ it.each(["Google", "Facebook"])("opens marketplace %s registration as a document
   );
   expectDocumentNavigation(link);
 });
-
-describe("routed registration errors", () => {});
 
 beforeEach(() => {
   createPasskeyCredentialMock.mockRejectedValue(new Error("Passkeys are not available in this browser."));

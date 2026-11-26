@@ -1480,6 +1480,17 @@ function isAllowedContextImporter(relativeFile) {
   );
 }
 
+// A context whose route contributions mount route modules must export ./routes/* publicly. A metadata-only
+// host's contributions name no route module, so they alone do not require the export.
+export function findRoutesExportViolation(manifest) {
+  const mountsRouteModules = (manifest.deployableContributions ?? []).some(
+    (contribution) => !METADATA_ONLY_WEB_HOSTS.includes(contribution?.deployable),
+  );
+  return mountsRouteModules && !(manifest.publicExports ?? []).includes("./routes/*")
+    ? "contexts with route contributions must export ./routes/* publicly"
+    : null;
+}
+
 export function findAuthOwnershipViolations(manifest) {
   if (manifest.contextName !== "auth") return [];
   return ["authentication", "session-journey", "account-selection"]
@@ -2325,9 +2336,8 @@ export async function runStructureCheck(options = {}) {
       }
     }
 
-    if ((manifest.deployableContributions?.length ?? 0) > 0 && !(manifest.publicExports ?? []).includes("./routes/*")) {
-      addPathViolation(`${root}/context.json`, "contexts with route contributions must export ./routes/* publicly");
-    }
+    const routesExportViolation = findRoutesExportViolation(manifest);
+    if (routesExportViolation) addPathViolation(`${root}/context.json`, routesExportViolation);
 
     if ((manifest.publicExports ?? []).includes("./integration/*")) {
       addPathViolation(

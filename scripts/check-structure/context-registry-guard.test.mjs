@@ -24,6 +24,7 @@ import {
   RETIRED_CONTEXT_REGISTRY_PATHS,
   validateContextRegistries,
 } from "./context-registry-guard.mjs";
+import { findRoutesExportViolation } from "./run.mjs";
 
 const apiPath = "deployables/platform-api/src/context-registry.ts";
 const workerPath = "deployables/platform-worker/src/context-registry.ts";
@@ -576,6 +577,22 @@ describe("retired registry paths", () => {
 });
 
 describe("metadata-only web hosts", () => {
+  it("requires ./routes/* only from contexts whose contributions mount route modules", () => {
+    const metadataOnly = { deployableContributions: [{ deployable: "marketplace-web", routes: [] }] };
+    expect(findRoutesExportViolation({ ...metadataOnly, publicExports: ["."] })).toBeNull();
+
+    const mounted = { deployableContributions: [{ deployable: "admin-web", routes: [] }] };
+    expect(findRoutesExportViolation({ ...mounted, publicExports: ["."] })).toBe(
+      "contexts with route contributions must export ./routes/* publicly",
+    );
+    expect(findRoutesExportViolation({ ...mounted, publicExports: [".", "./routes/*"] })).toBeNull();
+
+    const both = {
+      deployableContributions: [...metadataOnly.deployableContributions, ...mounted.deployableContributions],
+      publicExports: ["."],
+    };
+    expect(findRoutesExportViolation(both)).toBe("contexts with route contributions must export ./routes/* publicly");
+  });
   it("names marketplace-web as the only metadata-only host, matching the runtime list", () => {
     expect(METADATA_ONLY_WEB_HOSTS).toEqual(["marketplace-web"]);
     const runtimeSource = readFileSync(path.join(repoRoot, "infrastructure/platform-runtime/web.ts"), "utf8");

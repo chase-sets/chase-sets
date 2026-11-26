@@ -28,7 +28,7 @@ export const contextManifest = {
   apiBasePath: "/api/notifications",
   slices: ["notification-center", "preferences"],
   allowedSupportDirectories: ["runtime-support", "shell-support"],
-  publicExports: [".", "./context", "./routes/*", "./server", "./web"],
+  publicExports: [".", "./context", "./server", "./web"],
   allowedContextDependencies: [
     "@chase-sets/customer-feedback",
     "@chase-sets/fulfillment",

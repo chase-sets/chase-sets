@@ -40,7 +40,6 @@
   "publicExports": [
     ".",
     "./context",
-    "./routes/*",
     "./server",
     "./web"
   ],

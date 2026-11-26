@@ -14,7 +14,7 @@
     "ucp-support",
     "ui-support"
   ],
-  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./web"],
+  "publicExports": [".", "./context", "./seed-support/*", "./server", "./web"],
   "allowedContextDependencies": [
     "@chase-sets/auth",
     "@chase-sets/commercial-terms",

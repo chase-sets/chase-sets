@@ -1,17 +1,8 @@
 // @vitest-environment jsdom
-
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { InvitationAcceptancePage } from "./invitation-acceptance-page";
-import {
-  renderAuthRoute,
-  safeFailure,
-  mockNativeRequestSubmit,
-  successfulPasskey,
-  pendingPasskey,
-} from "../../../tests/auth-form-route-test-support";
 import { createPasskeyCredential } from "../../../support/ui-support/passkey-browser";
-import { redirect } from "react-router";
 
 vi.mock("../../../support/ui-support/passkey-browser", () => ({ createPasskeyCredential: vi.fn() }));
 vi.mock("../../../support/route-support/auth-host.server", async () => {
@@ -63,15 +54,4 @@ describe("invitation acceptance page", () => {
     expect(screen.queryByRole("button", { name: /accept/i })).toBeNull();
     expect(elevatedCardCount()).toBe(0);
   });
-});
-
-describe("routed invitation errors", () => {
-  const invitation = {
-    status: "pending" as const,
-    invitationId: "synthetic-invite",
-    email: "seller@example.com",
-    accountName: "Cards",
-    invitedByName: "Avery",
-    roleLabel: "Member",
-  };
 });

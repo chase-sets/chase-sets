@@ -132,9 +132,6 @@
       "@chase-sets/checkout/context": [
         "./bounded-contexts/checkout/context.json"
       ],
-      "@chase-sets/checkout/routes/*": [
-        "./bounded-contexts/checkout/routes/*.tsx"
-      ],
       "@chase-sets/checkout/seed-support/*": [
         "./bounded-contexts/checkout/support/seed-support/*.ts"
       ],
@@ -642,9 +639,6 @@
       "@chase-sets/notifications/context": [
         "./bounded-contexts/notifications/context.json"
       ],
-      "@chase-sets/notifications/routes/*": [
-        "./bounded-contexts/notifications/routes/*.tsx"
-      ],
       "@chase-sets/notifications/server": [
         "./bounded-contexts/notifications/server.ts"
       ],
@@ -695,9 +689,6 @@
       ],
       "@chase-sets/payments/context": [
         "./bounded-contexts/payments/context.json"
-      ],
-      "@chase-sets/payments/routes/*": [
-        "./bounded-contexts/payments/routes/*.tsx"
       ],
       "@chase-sets/payments/seed-support/*": [
         "./bounded-contexts/payments/support/seed-support/*.ts"

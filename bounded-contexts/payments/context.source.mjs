@@ -35,7 +35,7 @@ export const contextManifest = {
   apiBasePath: "/api/marketplace",
   slices: ["payments", "refunds", "wallet-funding"],
   allowedSupportDirectories: ["request-support", "runtime-support", "seed-support", "ucp-support", "ui-support"],
-  publicExports: [".", "./context", "./routes/*", "./seed-support/*", "./server", "./web"],
+  publicExports: [".", "./context", "./seed-support/*", "./server", "./web"],
   allowedContextDependencies: ["@chase-sets/marketplace", "@chase-sets/ordering"],
   seedRequirements: ["identity", "marketplace", "ordering"],
   eventSubscriptions: [
