@@ -109,7 +109,7 @@ const scrydexExpansionSelect = "id,name,code,total,release_date,language,languag
 const scrydexCardSelect =
   "id,name,number,printed_number,rarity,rarity_code,type,images,language,language_code,expansion,printings,variants";
 const scrydexLorcanaCardSelect =
-  "id,name,number,printed_number,rarity,rarity_code,type,ink,ink_color,images,language,language_code,expansion,printings,variants,tcgplayer_id";
+  "id,name,number,printed_number,rarity,rarity_code,supertype,ink_types,ink_type,images,language,language_code,expansion,printings,variants,tcgplayer_id";
 const scrydexSealedSelect = "id,name,type,images,language,language_code,expansion";
 const scrydexUsageLagDiagnostic =
   "Scrydex usage is account-level and may lag live imports by 20-30 minutes per provider policy.";
@@ -162,8 +162,9 @@ export type ScrydexOnePieceCard = Readonly<{
   rarity?: string;
   rarity_code?: string;
   type?: string;
-  ink?: string;
-  ink_color?: string;
+  supertype?: string;
+  ink_types?: readonly string[];
+  ink_type?: string;
   tcgplayer_id?: string | number;
   imageUrls?: readonly string[];
   language?: string;
@@ -303,8 +304,8 @@ const scrydexLorcanaProofCard: ScrydexOnePieceCard = {
   printed_number: "41/204",
   rarity: "Super Rare",
   rarity_code: "SR",
-  type: "Character",
-  ink: "Amethyst",
+  supertype: "Character",
+  ink_types: ["Amethyst"],
   language_code: "en",
   expansion: scrydexLorcanaProofExpansion,
   printings: ["TFC"],
@@ -911,6 +912,7 @@ function normalizeScrydexOnePieceProofPayload(
 
   if (envelope.payload.kind === "lorcana-card") {
     const card = envelope.payload.card;
+    const [firstInk, secondInk] = card.ink_types ?? [];
     return {
       unitKey: envelope.unitKey,
       providerKey: envelope.providerKey,
@@ -925,8 +927,8 @@ function normalizeScrydexOnePieceProofPayload(
         setCode: card.expansion?.code,
         setName: card.expansion?.name,
         rarity: card.rarity,
-        cardType: card.type,
-        inkColor: card.ink ?? card.ink_color,
+        cardType: card.supertype,
+        inkColor: firstInk && secondInk ? `${firstInk}-${secondInk}` : (firstInk ?? card.ink_type),
         tcgplayerProductId: stringOrNumberToString(card.tcgplayer_id),
       }),
       sourceUrl: envelope.provenance.sourceUrl,
@@ -1045,7 +1047,9 @@ async function listScrydexOnePieceOptions(
       );
     }
     return {
-      items: pages.flatMap((page) => page.items.map((card) => cardOptionItem(sanitizeScrydexCard(card), expansionId))),
+      items: pages.flatMap((page) =>
+        page.items.map((card) => cardOptionItem(sanitizeScrydexCard(card, productDomain), expansionId)),
+      ),
       validatedPagination,
     };
   }
@@ -1290,8 +1294,11 @@ async function cacheScrydexCardObservation(
   const expansionId = requireString(scope.values.expansionId, "Scrydex card observation requires expansionId.");
   const identity = await scrydexOptionCacheIdentity(scope, expansionId, options);
   if (!identity) return;
+  const productDomain = scrydexProductDomainForUnit(scope.unitKey);
   const records = scrydexCardOptionRecords(
-    pages.flatMap((page) => page.items.map((card) => cardOptionItem(sanitizeScrydexCard(card), expansionId))),
+    pages.flatMap((page) =>
+      page.items.map((card) => cardOptionItem(sanitizeScrydexCard(card, productDomain), expansionId)),
+    ),
     expansionId,
   );
   const items = await listCatalogProviderIntegrationOptionsFromProfiles({
@@ -2265,7 +2272,7 @@ function cardOptionItem(card: ScrydexOnePieceCard, expansionId: string): Provide
       printedNumber: card.printed_number,
       rarity: card.rarity,
       rarityCode: card.rarity_code,
-      type: card.type,
+      type: card.supertype ?? card.type,
       language: card.language,
       languageCode: card.language_code,
     }),
@@ -2293,7 +2300,7 @@ function mapScrydexImportCard(
   productDomain: ScrydexProductDomain,
   scope: ProviderImportScope,
 ): ScrydexOnePieceCard {
-  const card = sanitizeScrydexCard(value);
+  const card = sanitizeScrydexCard(value, productDomain);
   if (productDomain !== "lorcana" || card.language_code !== undefined || card.language?.toLowerCase() !== "english") {
     return card;
   }
@@ -2303,11 +2310,12 @@ function mapScrydexImportCard(
   };
 }
 
-function sanitizeScrydexCard(value: JsonValue): ScrydexOnePieceCard {
+function sanitizeScrydexCard(value: JsonValue, productDomain: ScrydexProductDomain): ScrydexOnePieceCard {
   const record = jsonRecord(value);
   const printings = stringArrayValue(record.printings);
   const variants = sanitizeScrydexCardVariants(record.variants);
   const imageUrls = scrydexImageUrls(record.images);
+  const inkTypes = productDomain === "lorcana" ? stringArrayValue(record.ink_types) : [];
   return compactRecord({
     id: stringValue(record.id),
     name: stringValue(record.name),
@@ -2315,9 +2323,10 @@ function sanitizeScrydexCard(value: JsonValue): ScrydexOnePieceCard {
     printed_number: stringValue(record.printed_number),
     rarity: stringValue(record.rarity),
     rarity_code: stringValue(record.rarity_code),
-    type: stringValue(record.type),
-    ink: stringValue(record.ink ?? record.ink_color),
-    ink_color: stringValue(record.ink_color ?? record.ink),
+    type: productDomain === "one-piece" ? stringValue(record.type) : null,
+    supertype: productDomain === "lorcana" ? stringValue(record.supertype) : null,
+    ink_types: inkTypes.length > 0 ? inkTypes : null,
+    ink_type: productDomain === "lorcana" ? stringValue(record.ink_type) : null,
     tcgplayer_id: stringOrNumberValue(record.tcgplayer_id ?? record.tcgplayerId),
     imageUrls: imageUrls.length > 0 ? imageUrls : null,
     language: stringValue(record.language),

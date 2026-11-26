@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
+import scrydexLorcanaCardResponse from "./__fixtures__/scrydex-lorcana-card-print/documented-card-response.json";
 import { EVENT_STORE_MAX_PAYLOAD_BYTES } from "@chase-sets/event-core-postgres";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { SourceObservationListRow } from "../read-model/queries";
@@ -2210,6 +2211,30 @@ describe("source observation runtime: provider integration jobs", () => {
         },
       })),
     );
+  });
+
+  it("records ink and card type from the documented Scrydex Lorcana response", async () => {
+    const { harness, transportCalls } = await runQueuedScrydexLorcanaCardPage(
+      "synthetic-ink-set",
+      scrydexLorcanaCardResponse.data,
+    );
+
+    const cardRequest = transportCalls
+      .map(([input]) => new URL(input instanceof Request ? input.url : input))
+      .find((url) => url.pathname === "/lorcana/v1/cards");
+    const select = cardRequest?.searchParams.get("select")?.split(",");
+    expect(select).toEqual(expect.arrayContaining(["ink_types", "ink_type", "supertype"]));
+    for (const legacyField of ["ink", "ink_color", "type"]) expect(select).not.toContain(legacyField);
+
+    expect(harness.job.result).toMatchObject({ observed: 4, failed: 0 });
+    const cards = harness.appendedSourceEvents.map(({ payload }) => payload.normalized);
+    expect(cards).toMatchObject([
+      { kind: "lorcana-card-print", inkColor: "Amber", cardType: "Character" },
+      { kind: "lorcana-card-print", inkColor: "Ruby-Amber", cardType: "Character" },
+      { kind: "lorcana-card-print", inkColor: "Steel", cardType: "Item" },
+      { kind: "lorcana-card-print", cardType: "Action" },
+    ]);
+    expect(cards[3]).not.toHaveProperty("inkColor");
   });
 
   it.each([
