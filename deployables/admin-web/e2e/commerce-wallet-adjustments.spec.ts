@@ -14,10 +14,6 @@ test.describe("commerce admin wallet adjustments", () => {
   test("operator previews exact balance consequences before explicit confirmation @admin-commerce", async ({
     page,
   }) => {
-    test.skip(
-      onCortenAdmin,
-      'the Corten wallet form labels its amount "Amount (USD)" in a text field, not a number field labelled "Amount"',
-    );
     test.setTimeout(180_000);
     test.skip(
       skipDeployedAdminE2e,

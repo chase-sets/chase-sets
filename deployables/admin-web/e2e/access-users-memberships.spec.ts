@@ -1,11 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import {
-  authenticateAdmin,
-  expectAdminPageReady,
-  expectPageOk,
-  skipDeployedAdminE2e,
-  onCortenAdmin,
-} from "./support/admin-e2e";
+import { authenticateAdmin, expectAdminPageReady, expectPageOk, skipDeployedAdminE2e } from "./support/admin-e2e";
 
 type CurrentActorDisplay = Readonly<{
   account: Readonly<{ account_id: string; display_name: string | null; name: string | null }>;
@@ -34,10 +28,6 @@ type MembershipSnapshot = Readonly<{
 
 test.describe("access admin users and memberships", () => {
   test("operator can review user and membership detail surfaces @admin-access", async ({ page }) => {
-    test.skip(
-      onCortenAdmin,
-      "the Corten admin does not yet select the user when /access/users/{id} opens the account's team tab",
-    );
     test.setTimeout(120_000);
     test.skip(
       skipDeployedAdminE2e,
