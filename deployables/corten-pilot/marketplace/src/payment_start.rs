@@ -76,6 +76,12 @@ fn terms_reason(quote: &PaymentPreview) -> Option<&ReasonDetail> {
     quote.unavailable_reason_details.iter().find(|reason| reason.code == TERMS_NOT_ACCEPTED)
 }
 
+/// Whether `quote` gives the wallet nothing: Payments says why it withholds it, or applies none of
+/// it. A wallet request at such a quote would be charged in full outside the wallet.
+fn withholds_wallet(quote: &PaymentPreview) -> bool {
+    !quote.unavailable_reason_details.is_empty() || cents(&quote.wallet_credit.applied_amount) == Some(0)
+}
+
 /// Continue to payment's form: the orders, the payment method, and how much of the wallet to use
 /// (`none`, `max` or `custom` with its amount), in marketplace's names. Accept Terms of
 /// Service's sends the orders and its `intent` alone.
@@ -309,8 +315,10 @@ async fn page_quote(
 
 /// Continue to payment: Payments' quote for the chosen method and wallet credit, then a payment at
 /// it, and the payment's page, read after it. A refusal is the page again with why. A quote that
-/// withholds the wallet the buyer chose to use starts nothing: the page again says why, as
-/// marketplace's action answers. Accept Terms of Service posts here too (`accept_terms`).
+/// withholds the wallet the buyer chose to use, for the terms or anything else, or applies none
+/// of it, starts nothing: the page again says why, so a wallet request is never charged in full
+/// outside the wallet without the buyer choosing that. Accept Terms of Service posts here too
+/// (`accept_terms`).
 pub(crate) async fn start(
     req: Req,
     Caller(PaymentBuyer(viewer)): Caller<PaymentBuyer>,
@@ -352,20 +360,26 @@ pub(crate) async fn start(
         if uses_wallet && terms_reason(&quote).is_some() {
             return Ok(Ok(None));
         }
+        if uses_wallet && withholds_wallet(&quote) {
+            return Ok(Ok(Some(None)));
+        }
         let fingerprint = quote.marketplace_checkout_fee.quote_fingerprint.clone();
-        caller.start_payment(&ids, credit.as_deref(), &method, &fingerprint).await.map(|started| Ok(Some(started)))
+        caller.start_payment(&ids, credit.as_deref(), &method, &fingerprint).await.map(|started| Ok(Some(Some(started))))
     };
     let refusal = match started.await {
         Ok(Err(read)) => {
             tracing::warn!("Payments' quote for Continue to payment has an amount that is not money");
             return read_answer(&req, &viewer, read);
         }
-        Ok(Ok(Some((payment, receipt)))) => {
+        Ok(Ok(Some(Some((payment, receipt))))) => {
             let place = Place { after_write: receipt.as_ref().map(Receipt::param) };
             return req.redirect(&url::BuyerPayment { id: &payment.payment_id, place });
         }
         // The page again says the wallet is withheld and why.
         Ok(Ok(None)) => None,
+        // Withheld for another reason, or none of it applied: the page again shows Payments'
+        // reasons and says to continue without the wallet.
+        Ok(Ok(Some(None))) => Some(t.wallet_external_only().to_owned()),
         Err(error) if error.status() == Some(StatusCode::UNAUTHORIZED) => {
             return read_failed(&req, Some(&viewer), error, None);
         }
