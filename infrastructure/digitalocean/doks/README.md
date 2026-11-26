@@ -19,7 +19,7 @@ Production starts with the issue-requested conservative runtime pool: 2 nodes of
 
 Staging keeps the same 1-node `s-2vcpu-4gb` primary pool so Terraform does not replace the cluster, and adds a 1-node `s-4vcpu-8gb` `runtime-xl` pool for platform workloads. The dedicated pool is enabled only when `environment=staging` and `runtime_xl_node_pool_enabled=true`. It has no taints, so existing platform workloads can migrate to it without chart changes.
 
-The staging-only `preview` pool defaults to `s-4vcpu-16gb-amd` and autoscales from 0 to 3 nodes. Production never hosts previews. Applying this size change is a host-owned staging DOKS foundation step after merge; the PR does not resize live nodes.
+The staging-only `preview` pool defaults to `s-4vcpu-16gb-320gb-intel` and autoscales from 0 to 3 nodes. Production never hosts previews. Applying this size change is a host-owned staging DOKS foundation step after merge; the PR does not resize live nodes.
 
 `kubernetes_version` is required instead of defaulted. Pick a currently supported DOKS version at live apply time and record it in the operator evidence; offline validation can use any well-formed DigitalOcean version slug.
 
