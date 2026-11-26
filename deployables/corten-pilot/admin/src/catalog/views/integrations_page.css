@@ -61,6 +61,10 @@
 .stack {
   min-width: 0;
 }
+/* Integration health's audit timeline, its modules still the page's own rows. */
+.audit {
+  display: contents;
+}
 .metrics {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));

@@ -14,10 +14,6 @@ test.describe("commerce admin wallet adjustments", () => {
   test("operator previews exact balance consequences before explicit confirmation @admin-commerce", async ({
     page,
   }) => {
-    test.skip(
-      onCortenAdmin,
-      'the Corten wallet form labels its amount "Amount (USD)" in a text field, not a number field labelled "Amount"',
-    );
     test.setTimeout(180_000);
     test.skip(
       skipDeployedAdminE2e,
@@ -28,9 +24,17 @@ test.describe("commerce admin wallet adjustments", () => {
     await expectPageOk(page, workbenchPath);
     await expectAdminPageReady(page, { heading: "Wallet for Demo Account" });
 
-    await page.getByRole("spinbutton", { name: "Amount", exact: true }).fill("1.00");
-    await page.getByRole("combobox", { name: "Reason", exact: true }).click();
-    await page.getByRole("option", { name: "Goodwill cash credit", exact: true }).click();
+    if (onCortenAdmin) {
+      // The Corten wallet form takes the amount as decimal text labelled with its currency, and its
+      // Reason is a native select inside its label, so each label's text runs on past its name.
+      const request = page.locator("form").filter({ has: page.getByRole("button", { name: "Request preview" }) });
+      await request.getByLabel(/^Amount/).fill("1.00");
+      await request.getByLabel(/^Reason/).selectOption({ label: "Goodwill cash credit" });
+    } else {
+      await page.getByRole("spinbutton", { name: "Amount", exact: true }).fill("1.00");
+      await page.getByRole("combobox", { name: "Reason", exact: true }).click();
+      await page.getByRole("option", { name: "Goodwill cash credit", exact: true }).click();
+    }
     await page.getByLabel("Explanation (optional)").fill("Browser acceptance preview");
     await page.getByRole("button", { name: "Request preview" }).click();
 

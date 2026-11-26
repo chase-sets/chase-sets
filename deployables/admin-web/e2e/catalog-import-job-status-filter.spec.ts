@@ -4,8 +4,8 @@ import {
   authenticatePlatformAdmin,
   expectAdminPageReady,
   expectPageOk,
-  skipDeployedAdminE2e,
   onCortenAdmin,
+  skipDeployedAdminE2e,
 } from "./support/admin-e2e";
 
 const SKIP_REASON = "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.";
@@ -38,7 +38,6 @@ test.describe.serial("catalog import job status filter", () => {
     test(`Scope detail filters TCGplayer import jobs by operator status at ${viewport.width}px @catalog-admin-integrations`, async ({
       page,
     }, testInfo) => {
-      test.skip(onCortenAdmin, "the Corten admin's Provider import operations has no import job Status filter yet");
       test.setTimeout(150_000);
       test.skip(skipDeployedAdminE2e, SKIP_REASON);
       test.skip(process.env.PLAYWRIGHT_SKIP_WEB_SERVER === "true", SEED_SKIP_REASON);
@@ -89,9 +88,7 @@ test.describe.serial("catalog import job status filter", () => {
 
         // Keyboard: All statuses -> Partial is five options down.
         await statusSelect.focus();
-        for (let step = 0; step < 5; step += 1) {
-          await page.keyboard.press("ArrowDown");
-        }
+        await chooseWithKeyboard(page, "ArrowDown", 5);
         await expect(statusSelect).toHaveValue("partial");
         await expect(filter).toHaveAttribute("data-catalog-import-job-status-filter", "partial");
         await expect(visibleJobRow(importModule, fixture.partialJobId)).toHaveCount(1);
@@ -102,9 +99,7 @@ test.describe.serial("catalog import job status filter", () => {
         await expectNoHorizontalOverflow(page);
 
         // Keyboard: Partial -> Queued is four options up; only terminal rows were seeded.
-        for (let step = 0; step < 4; step += 1) {
-          await page.keyboard.press("ArrowUp");
-        }
+        await chooseWithKeyboard(page, "ArrowUp", 4);
         await expect(statusSelect).toHaveValue("queued");
         await expect(statusSelect).toBeVisible();
         await expect(visibleJobRow(importModule, fixture.partialJobId)).toHaveCount(0);
@@ -113,14 +108,17 @@ test.describe.serial("catalog import job status filter", () => {
           importModule.locator("[data-catalog-import-job-row='true']").filter({ visible: true }),
         ).toHaveCount(0);
         await expect(importModule.getByText("No Queued found", { exact: true })).toBeVisible();
-        await expect(importModule.getByText("Try adjusting your filters.", { exact: true })).toBeVisible();
+        // The Corten admin draws each empty status's state up front and its stylesheet shows the chosen
+        // one, so the shared hint is there once per empty status; the visible one is the choice's.
+        const hint = importModule.getByText("Try adjusting your filters.", { exact: true });
+        await expect(onCortenAdmin ? hint.filter({ visible: true }) : hint).toBeVisible();
         await expect(importModule.getByText("No durable import jobs for this context", { exact: true })).toHaveCount(0);
         await expect(summaryRow(filter, "Recent jobs")).toHaveText(loadedTotal);
         await expect(summaryRow(filter, "Queued")).toHaveText("0");
         await expectNoHorizontalOverflow(page);
 
         // Keyboard: Queued -> All statuses restores every loaded row.
-        await page.keyboard.press("ArrowUp");
+        await chooseWithKeyboard(page, "ArrowUp", 1);
         await expect(statusSelect).toHaveValue("all");
         await expect(visibleJobRow(importModule, fixture.partialJobId)).toHaveCount(1);
         await expect(visibleJobRow(importModule, fixture.completedJobId)).toHaveCount(1);
@@ -276,6 +274,17 @@ async function expectEveryVisibleRowHasOperatorStatus(importModule: Locator, sta
   );
   expect(statuses.length).toBeGreaterThan(0);
   expect(new Set(statuses)).toEqual(new Set([status]));
+}
+
+// admin-web's native select changes its value on each arrow key. The Corten admin's select is the
+// customizable picker (appearance: base-select): the first arrow key opens the list, the next ones
+// move through it and Enter chooses, so it takes one more key at each end for the same choice.
+async function chooseWithKeyboard(page: Page, key: "ArrowDown" | "ArrowUp", steps: number): Promise<void> {
+  if (onCortenAdmin) await page.keyboard.press(key);
+  for (let step = 0; step < steps; step += 1) {
+    await page.keyboard.press(key);
+  }
+  if (onCortenAdmin) await page.keyboard.press("Enter");
 }
 
 function summaryRow(filter: Locator, label: string): Locator {

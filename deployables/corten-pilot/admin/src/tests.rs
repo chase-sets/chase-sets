@@ -10292,6 +10292,10 @@ async fn integration_health_draws_the_apis_composed_surface_for_its_address() {
     assert!(html.contains("Integration health triage") && html.contains("Audit timeline"), "both workspaces: {html}");
     let audit = html.find("Audit timeline").unwrap();
     assert!(audit < html.find("Integration health triage").unwrap(), "the audit timeline first, as admin-web: {html}");
+    let hook = html.find(r#"data-catalog-audit-evidence-workspace="true""#).expect("admin-web's workspace hook");
+    let wrapped = &html[hook..];
+    let (title, triage) = (wrapped.find("Audit timeline"), wrapped.find("Integration health triage"));
+    assert!(title.is_some() && title < triage, "around the audit timeline, not the triage: {html}");
     assert!(html.contains(">1/2<") && html.contains("Pokemon singles") && html.contains("tcgplayer / pokemon/card"), "{html}");
     assert!(html.contains("2 error(s), 1 warning(s), 0 info") && html.contains("12 Source Observation fact(s)"), "{html}");
     assert!(html.contains(">Preview promotion<"), "the unit's primary action: {html}");

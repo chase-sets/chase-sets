@@ -13,10 +13,6 @@ const commercialTermsProjectionName = "platform-policy-document-projection";
 
 test.describe("commerce admin commercial terms", () => {
   test("operator manages fee schedules and commercial agreements @admin-commerce", async ({ page }) => {
-    test.skip(
-      onCortenAdmin,
-      "the Corten agreement form wraps the Account select in its label, so the label's text includes the options and the exact Account label does not match",
-    );
     test.setTimeout(240_000);
     test.skip(
       skipDeployedAdminE2e,
@@ -107,7 +103,17 @@ async function createInactiveAgreementAndInspectHistory(page: Page, suffix: stri
   await openCommercialTermsHome(page);
 
   const form = await openCreateAgreementSheet(page);
-  await form.getByLabel("Account", { exact: true }).selectOption(demoAccountId);
+  if (onCortenAdmin) {
+    // The Corten agreement form wraps the Account select in its label, so the label's text runs on
+    // into the options. Choosing an account re-reads its starting terms, as the sheet's Review
+    // button does, and opens the sheet again at that account's address.
+    const account = form.getByLabel(/^Account/);
+    await account.selectOption(demoAccountId);
+    await expect(page).toHaveURL(new RegExp(`[?&]account=${demoAccountId}(&|$)`));
+    await expect(account).toHaveValue(demoAccountId);
+  } else {
+    await form.getByLabel("Account", { exact: true }).selectOption(demoAccountId);
+  }
   await form.getByLabel("Label").fill(label);
   await fillCommercialTermsFeeFields(form, {
     marketplaceSalesFeePercentageBps: "690",
