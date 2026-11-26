@@ -19,8 +19,10 @@ on:
       - "docs/**"
       - "**/*.md"
       # Selected by Platform PR's required Corten Pilot Check (scripts/change-scope.mjs).
+      - "deployables/corten-pilot/admin/**"
       - "deployables/corten-pilot/marketplace/**"
       - "deployables/corten-pilot/platform/**"
+      - "deployables/corten-pilot/public/**"
       - "deployables/corten-pilot/Cargo.toml"
       - "deployables/corten-pilot/Cargo.lock"
       - "deployables/corten-pilot/scripts/export.mjs"
