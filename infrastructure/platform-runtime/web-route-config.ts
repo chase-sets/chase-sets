@@ -1,5 +1,12 @@
 import type { RouteConfigEntry } from "@react-router/dev/routes";
-import { resolveWebHostRouteRecords, type WebContextRegistry, type WebHostName, type WebHostRouteRecord } from "./web";
+import {
+  metadataOnlyWebHosts,
+  requireRouteModule,
+  resolveWebHostRouteRecords,
+  type WebContextRegistry,
+  type WebHostName,
+  type WebHostRouteRecord,
+} from "./web";
 
 export type HostRouteConfigRecord = Readonly<
   WebHostRouteRecord & {
@@ -37,9 +44,12 @@ export function resolveWebHostRouteConfigRecords(
     repoRoot?: string;
   }> = {},
 ): readonly HostRouteConfigRecord[] {
+  if (metadataOnlyWebHosts.includes(hostName)) {
+    throw new Error(`${hostName} contributes route metadata only and has no React Router route config.`);
+  }
   return resolveWebHostRouteRecords(registry, hostName).map((route) => ({
     ...route,
-    file: toRouteSourceFile(route.contextName, route.fileExport),
+    file: toRouteSourceFile(route.contextName, requireRouteModule(route.contextName, hostName, route)),
   }));
 }
 

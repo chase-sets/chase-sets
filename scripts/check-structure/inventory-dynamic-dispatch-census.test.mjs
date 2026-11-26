@@ -1002,8 +1002,9 @@ export type InventoryServices = Existing & { syntheticNew: Existing["holds"] };`
       retained: retained.length,
       unrelated: partition.callers.length - retained.length,
     });
+    // marketplace-web's route modules held 21 retained callers; they left with that deployable.
     expect([partition.callers.length, retained.length, partition.callers.length - retained.length]).toEqual([
-      155, 137, 18,
+      134, 116, 18,
     ]);
     expect(built.diagnostics).toEqual(result.diagnostics);
     expect(built.scanned).toEqual(result.scanned);

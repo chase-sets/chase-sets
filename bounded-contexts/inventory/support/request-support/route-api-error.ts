@@ -1,5 +1,5 @@
 import { defineApiErrorAdapter } from "@chase-sets/platform-runtime/http";
-import { InventoryApiError } from "./client";
+import { InventoryApiError } from "../../features/storage-locations/api/transport";
 
 export const inventoryApiErrorAdapter = defineApiErrorAdapter({
   isError: (error): error is InventoryApiError =>

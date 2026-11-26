@@ -355,7 +355,7 @@
       "deployable": "marketplace-web",
       "family": "analytics",
       "owningContext": "discovery",
-      "purpose": "Discovery browser analytics ingestion via bounded-contexts/discovery/routes/item-detail-rail-analytics.tsx."
+      "purpose": "Discovery browser analytics ingestion."
     },
     {
       "deployable": "marketplace-web",

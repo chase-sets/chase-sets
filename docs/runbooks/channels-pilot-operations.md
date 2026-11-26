@@ -107,8 +107,7 @@ the extension's separately governed browser flow can do so.
 ### Connect And Confirm Activation
 
 Connector pairing itself is out of scope for this runbook (non-goal; owned by
-the connector-client slice). `/account/channels`
-(`bounded-contexts/channels/routes/marketplace/account-channels.tsx`) lists
+the connector-client slice). `/account/channels` lists
 every Channel Connection and its status. After pairing completes elsewhere,
 confirm activation here: the connection's status reads `active` in the list
 rendered by
@@ -121,8 +120,7 @@ this route or its API — do not look for one.
 
 ### Pilot Inventory Intake
 
-Go to `/account/inventory/imports`
-(`bounded-contexts/inventory/features/import-batches/ui/routes/account-inventory-imports.tsx`).
+Go to `/account/inventory/imports`.
 Submit the `create-batch` intent with:
 
 - `sourceKey` = `tcgplayer-csv` (profile defined in
@@ -145,8 +143,7 @@ any unresolved rows through the `resolve-row` intent before committing.
 
 ### Repricing Policy Activation
 
-Go to `/account/repricing`
-(`bounded-contexts/pricing/routes/marketplace/account-repricing.tsx`). The
+Go to `/account/repricing`. The
 available actions are `refresh-recommendations`, `apply-recommendations`, and
 `dismiss-recommendations`. Apply the recommendations covering pilot SKUs
 through `apply-recommendations`; the action redirects to

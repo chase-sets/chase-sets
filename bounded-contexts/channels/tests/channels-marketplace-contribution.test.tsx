@@ -43,19 +43,23 @@ describe("Channels marketplace route contributions", () => {
         expect.objectContaining({
           routeId: "channels-connections",
           routePath: "account/channels",
-          fileExport: "./routes/marketplace/account-channels",
           sourceContext: "channels",
           authorization: expect.objectContaining({ requiredPermissions: ["channels.view"] }),
         }),
         expect.objectContaining({
           routeId: "channels-connection-detail",
           routePath: "account/channels/:connectionId",
-          fileExport: "./routes/marketplace/account-channels-connection",
           sourceContext: "channels",
           authorization: expect.objectContaining({ requiredPermissions: ["channels.view"] }),
         }),
       ]),
     );
+  });
+
+  it("keeps the marketplace routes as metadata-only records, since the Corten marketplace serves them", () => {
+    const routes = marketplaceRoutes();
+    expect(routes.length).toBeGreaterThan(0);
+    expect(routes.filter((route) => route.fileExport !== undefined)).toEqual([]);
   });
 
   it("gates the single Channels top-nav entry on channels.view and points at the reachable connection list", () => {

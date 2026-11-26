@@ -40,9 +40,9 @@ const marketplaceSandbox = {
 function expectMarketplaceCliBinding(source) {
   expect(source).toContain("createMarketplaceDevProcessDefinition,");
   expect(source).toContain("createMarketplaceDevProcessDefinition(sandbox, sandboxEnv),");
-  expect(source).toContain('"browser-e2e": ["platform-api", "platform-worker", "admin-web", "marketplace"]');
-  expect(source).toContain('marketplace: ["marketplace"]');
-  expect(source).toContain("all: processes.map(({ name }) => name)");
+  expect(source).toContain('[browserE2eCortenMarketplaceTarget]: ["platform-api", "platform-worker", "marketplace"]');
+  expect(source).toContain('"browser-e2e": ["platform-api", "platform-worker", "admin-web"]');
+  expect(source).toContain('all: processes.filter(({ name }) => name !== "marketplace").map(({ name }) => name)');
   expect(source).toContain("applyDevTargetEnvOverrides(targetName, resolveProcessesForTarget(targetName))");
   expect(source).toContain("env: buildPlatformChildEnvironment(process.env, definition.env)");
 }
@@ -52,7 +52,7 @@ function expectMarketplaceOrigin(environment) {
 }
 
 describe("marketplace dev sandbox origin", () => {
-  it("binds the shared definition into the CLI process table and all three targets", () => {
+  it("binds the shared definition into the CLI process table and only the Corten marketplace target", () => {
     const source = readFileSync(new URL("./dev-system.mjs", import.meta.url), "utf8");
     expectMarketplaceCliBinding(source);
     expect(() =>
@@ -60,14 +60,16 @@ describe("marketplace dev sandbox origin", () => {
     ).toThrow();
   });
 
-  it.each(["browser-e2e", "marketplace", "all"])(
-    "resolves the sandbox API origin in the sanitized %s child",
-    (target) => {
+  it.each([[false], [true]])(
+    "resolves the sandbox API origin in the sanitized base definition, which names no workspace (ci %s)",
+    (ci) => {
       const definition = createMarketplaceDevProcessDefinition(marketplaceSandbox, {
         CHASE_SETS_SANDBOX_ID: "synthetic-marketplace-test",
         CHASE_SETS_INTERNAL_API_ORIGIN: "https://synthetic-inherited-api.invalid",
       });
-      const [resolved] = applyDevTargetEnvOverrides(target, [definition]);
+      const [resolved] = applyDevTargetEnvOverrides("browser-e2e", [definition], { ci });
+      expect(resolved).toBe(definition);
+      expect(resolved).not.toHaveProperty("workspace");
       const environment = buildPlatformChildEnvironment(
         {
           PATH: "C:\\tools",
@@ -80,7 +82,6 @@ describe("marketplace dev sandbox origin", () => {
       expectMarketplaceOrigin(environment);
       expect(resolved).toMatchObject({
         name: "marketplace",
-        workspace: "@chase-sets/app-marketplace-web",
         port: marketplaceSandbox.ports.marketplaceWeb,
         env: {
           CHASE_SETS_SANDBOX_ID: "synthetic-marketplace-test",
@@ -128,7 +129,7 @@ describe("dev system target env overrides", () => {
       { name: "marketplace", env: { PORT: "6173" } },
     ];
 
-    expect(applyDevTargetEnvOverrides("marketplace-full", processes, { ci: true })).toBe(processes);
+    expect(applyDevTargetEnvOverrides("public-web", processes, { ci: true })).toBe(processes);
 
     const browserE2eProcesses = applyDevTargetEnvOverrides("browser-e2e", processes, { ci: true });
     expect(browserE2eProcesses).not.toBe(processes);
@@ -215,9 +216,7 @@ describe("dev system target env overrides", () => {
       [browserE2eLifecyclePathEnv]: path.join(attemptDirectory, "lifecycle.json"),
     };
 
-    expect(applyDevTargetEnvOverrides("marketplace-full", [worker], { environment: evidenceEnvironment })).toEqual([
-      worker,
-    ]);
+    expect(applyDevTargetEnvOverrides("public-web", [worker], { environment: evidenceEnvironment })).toEqual([worker]);
     expect(applyDevTargetEnvOverrides("browser-e2e", [worker], { ci: false, environment: {} })[0].env).toEqual({
       PORT: "6183",
       ...browserE2ePlatformWorkerEnv,
@@ -344,7 +343,6 @@ describe("dev system target env overrides", () => {
       { name: "platform-api", env: { PORT: "6182" }, port: 6182 },
       {
         name: "marketplace",
-        workspace: "@chase-sets/app-marketplace-web",
         env: {
           PORT: "6173",
           PLATFORM_API_URL: "http://localhost:6182",
@@ -404,7 +402,7 @@ describe("dev system target env overrides", () => {
       /deployables[\\/]corten-pilot[\\/]target[\\/]debug[\\/]corten-pilot-marketplace$/,
     );
     expect(cortenMarketplaceBinaryPath({ CORTEN_MARKETPLACE_BINARY: "/opt/pilot" }, "linux")).toBe("/opt/pilot");
-    // The development target keeps the React marketplace and the API's own default capability.
+    // Any other target leaves the definition as it is, and the API keeps its own default capability.
     const [devApi, devMarketplace] = applyDevTargetEnvOverrides("browser-e2e", processes, { ci: true });
     expect(devApi.env).not.toHaveProperty("PLATFORM_INTERNAL_AUTH_SECRET");
     expect(devMarketplace).toBe(processes[1]);
@@ -419,11 +417,6 @@ describe("dev system target env overrides", () => {
         env: { PORT: "6174", PLATFORM_API_URL: "http://localhost:6182" },
         port: 6174,
       },
-      {
-        name: "marketplace",
-        env: { PORT: "6173", PLATFORM_API_URL: "http://localhost:6182" },
-        port: 6173,
-      },
     ];
 
     const productionProcesses = applyDevTargetEnvOverrides(browserE2eProductionTarget, processes, {
@@ -434,12 +427,7 @@ describe("dev system target env overrides", () => {
       ci: true,
       platform: "win32",
     });
-    const workspaces = [
-      "@chase-sets/app-platform-api",
-      "@chase-sets/app-platform-worker",
-      "@chase-sets/app-admin-web",
-      "@chase-sets/app-marketplace-web",
-    ];
+    const workspaces = ["@chase-sets/app-platform-api", "@chase-sets/app-platform-worker", "@chase-sets/app-admin-web"];
 
     productionProcesses.forEach((processDefinition, index) => {
       expect(processDefinition).toMatchObject({
@@ -466,19 +454,8 @@ describe("dev system target env overrides", () => {
         PORT: "6178",
       },
     });
-    expect(productionProcesses[3]).toMatchObject({
-      port: 6177,
-      publicPort: 6173,
-      env: {
-        ...browserE2eProductionIngressEnv,
-        CHASE_SETS_INTERNAL_API_ORIGIN: "http://localhost:6182",
-        PORT: "6177",
-      },
-    });
-    expect(browserE2eProductionBuilds).toEqual([
-      { name: "admin-web", workspace: "@chase-sets/app-admin-web" },
-      { name: "marketplace", workspace: "@chase-sets/app-marketplace-web" },
-    ]);
+    expect(productionProcesses).toHaveLength(3);
+    expect(browserE2eProductionBuilds).toEqual([{ name: "admin-web", workspace: "@chase-sets/app-admin-web" }]);
   });
 
   it("recognizes the browser e2e boot targets", () => {
@@ -486,7 +463,7 @@ describe("dev system target env overrides", () => {
     expect(isBrowserE2eTarget(browserE2eProductionTarget)).toBe(true);
     expect(isBrowserE2eTarget(browserE2eCortenMarketplaceTarget)).toBe(true);
     expect(isBrowserE2eTarget(browserE2eCortenAdminTarget)).toBe(true);
-    expect(isBrowserE2eTarget("marketplace-full")).toBe(false);
+    expect(isBrowserE2eTarget("public-web")).toBe(false);
   });
 
   it.each(["browser-e2e", browserE2eProductionTarget])(
@@ -507,7 +484,7 @@ describe("dev system target env overrides", () => {
     const acquisitions = [];
 
     expect(
-      acquireDevSystemHeavySlot("dev", "marketplace-full", (kind) => {
+      acquireDevSystemHeavySlot("dev", "public-web", (kind) => {
         acquisitions.push(kind);
         return true;
       }),
@@ -568,9 +545,9 @@ describe("dev system target env overrides", () => {
   it("fails before boot when a production web lacks its deployed internal API origin", () => {
     expect(() =>
       applyDevTargetEnvOverrides(browserE2eProductionTarget, [
-        { name: "marketplace", env: { PORT: "6173" }, port: 6173 },
+        { name: "admin-web", env: { PORT: "6174" }, port: 6174 },
       ]),
-    ).toThrow(/marketplace requires PLATFORM_API_URL/);
+    ).toThrow(/admin-web requires PLATFORM_API_URL/);
   });
 
   it("scrubs ambient database selectors and every Space credential from platform children", () => {

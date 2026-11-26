@@ -28,55 +28,51 @@ function marketplaceRoutes() {
 }
 
 describe("Checkout marketplace route contributions", () => {
-  it("declares the Checkout-owned cart, sell list, and checkout route map", () => {
+  it("keeps the Checkout-owned cart, sell list, and checkout routes as metadata-only records", () => {
+    for (const route of marketplaceRoutes()) {
+      expect(route.fileExport, route.routeId).toBeUndefined();
+    }
+
     expect(marketplaceRoutes()).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           routeId: "account-cart",
           routePath: "account/cart",
-          fileExport: "./routes/account-cart",
           sourceContext: "checkout",
         }),
         expect.objectContaining({
           routeId: "account-sell-list",
           routePath: "account/sell-list",
-          fileExport: "./routes/account-sell-list",
           sourceContext: "checkout",
         }),
         expect.objectContaining({
           routeId: "account-desk-offers",
           routePath: "account/desk/offers",
-          fileExport: "./routes/account-desk-offers",
           sourceContext: "checkout",
         }),
         expect.objectContaining({
           routeId: "sell-checkout-session",
           routePath: "checkout/sell/session/:sessionId",
-          fileExport: "./routes/sell-checkout-session",
           sourceContext: "checkout",
         }),
         expect.objectContaining({
           routeId: "sell-checkout-confirmation",
           routePath: "checkout/sell/session/:sessionId/confirmation",
-          fileExport: "./routes/sell-checkout-confirmation",
           sourceContext: "checkout",
         }),
         expect.objectContaining({
           routeId: "buy-checkout-readiness",
           routePath: "checkout/buy/readiness",
-          fileExport: "./routes/checkout-start",
           sourceContext: "checkout",
         }),
         expect.objectContaining({
           routeId: "buy-checkout-session",
           routePath: "checkout/buy/session/:sessionId",
-          fileExport: "./routes/checkout-session",
           sourceContext: "checkout",
         }),
         expect.objectContaining({
           routeId: "buy-checkout-confirmation",
           routePath: "checkout/buy/session/:sessionId/confirmation",
-          fileExport: "./routes/buy-checkout-confirmation",
           sourceContext: "checkout",
         }),
       ]),

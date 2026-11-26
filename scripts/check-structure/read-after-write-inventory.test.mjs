@@ -9,6 +9,7 @@ import {
   validateReadAfterWriteRouteInventory,
 } from "./read-after-write-inventory.mjs";
 import { findFeatureRouteReexports } from "./feature-route-reexports.mjs";
+import { METADATA_ONLY_WEB_HOSTS } from "../lib/repo.mjs";
 
 const tempRoots = [];
 
@@ -234,11 +235,14 @@ function createContextManifest(root, overrides = {}) {
   ]);
 }
 
+// The synthetic manifests contribute real route modules under marketplace-web,
+// so they validate with no metadata-only hosts unless a test opts in.
 async function validate(root, contextManifests, options = {}) {
   return validateReadAfterWriteRouteInventory({
     repoRoot: root,
     contextManifests,
     reportOutputPath: "artifacts/test-read-after-write-route-inventory.md",
+    metadataOnlyHosts: [],
     ...options,
   });
 }
@@ -1705,6 +1709,61 @@ describe("read-after-write route inventory guard", () => {
     expect(result.violations).toContain(
       "bounded-contexts/checkout/context.json readAfterWriteRouteInventory[0]: destination.helperUses claims 'loadFreshlyWrittenResource' on route 'buy-checkout-session' but no production route module for that route uses it",
     );
+  });
+
+  describe("metadata-only hosts", () => {
+    const metadataOnly = { metadataOnlyHosts: ["marketplace-web"] };
+
+    it("defaults to the shared metadata-only host list", () => {
+      expect(METADATA_ONLY_WEB_HOSTS).toEqual(["marketplace-web"]);
+      const root = createTempRepo();
+      const indexes = collectReadAfterWriteRouteIndexes(createContextManifest(root));
+      expect([...indexes.metadataOnlyRouteIds].sort()).toEqual(["buy-checkout-readiness", "buy-checkout-session"]);
+      expect(
+        collectReadAfterWriteRouteIndexes(createContextManifest(root), undefined, { metadataOnlyHosts: [] })
+          .metadataOnlyRouteIds.size,
+      ).toBe(0);
+    });
+
+    it("skips helper claims on routes only a metadata-only host contributes", async () => {
+      const root = createTempRepo();
+      for (const file of ["checkout-start.tsx", "checkout-session.tsx"]) {
+        writeFileSync(
+          path.join(root, "bounded-contexts", "checkout", "routes", file),
+          ["export async function loader() {", "  return { ok: true };", "}", ""].join("\n"),
+          "utf8",
+        );
+      }
+      const unclaimed = (violations) =>
+        violations.filter((violation) => violation.includes("but no production route module"));
+
+      const checked = await validate(root, createContextManifest(root));
+      const skipped = await validate(root, createContextManifest(root), metadataOnly);
+
+      expect(unclaimed(checked.violations).length).toBeGreaterThan(0);
+      expect(unclaimed(skipped.violations)).toEqual([]);
+    });
+    it("still checks helper claims on a route that another host serves with a module", async () => {
+      const root = createTempRepo();
+      writeRoute(root, "bounded-contexts/checkout/routes/checkout-start.tsx", ["appendFreshWriteToken"]);
+      writeFileSync(
+        path.join(root, "bounded-contexts", "checkout", "routes", "checkout-session.tsx"),
+        ["export async function loader() {", "  return { ok: true };", "}", ""].join("\n"),
+        "utf8",
+      );
+      const contextManifests = createContextManifest(root);
+      const { manifest } = contextManifests.get("bounded-contexts/checkout");
+      manifest.deployableContributions = [
+        { deployable: "marketplace-web", routes: [manifest.deployableContributions[0].routes[0]] },
+        { deployable: "admin-web", routes: [manifest.deployableContributions[0].routes[1]] },
+      ];
+
+      const result = await validate(root, contextManifests, metadataOnly);
+
+      expect(result.violations).toContain(
+        "bounded-contexts/checkout/context.json readAfterWriteRouteInventory[0]: destination.helperUses claims 'loadFreshlyWrittenResource' on route 'buy-checkout-session' but no production route module for that route uses it",
+      );
+    });
   });
 
   it("fails when a file-level exception claims a helper the file does not use", async () => {

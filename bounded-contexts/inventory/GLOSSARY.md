@@ -45,9 +45,8 @@ Notes:
 - `gradingCompany` and `grade` are display copies of the selected Options' labels, written only by Inventory from the selection.
 - No code validates `gradingCompany` or `grade` against a code table, and no new code branches on their text.
 
-Recorded exceptions:
+Recorded exception:
 
-- The registry link `switch` in Discovery's `bounded-contexts/discovery/features/item-detail/ui/commerce/purchase-section.tsx`.
 - The company match of `sellerComplianceCohortPolicy` in Platform Operations' `bounded-contexts/platform-operations/features/seller-compliance-cohorts/domain/cohort-window.ts`.
 
 Channels' mapping keys stay because they match operator-reviewed mappings.

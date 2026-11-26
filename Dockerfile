@@ -76,7 +76,8 @@ RUN find contracts infrastructure packages bounded-contexts deployables \
   && find contracts infrastructure packages bounded-contexts deployables \
     -type f \( -name "*.test.*" -o -name "*.spec.*" -o -name "vitest.config.*" \) -delete \
   && find deployables packages bounded-contexts contracts infrastructure \
-    -type f \( -name "vite.config.*" -o -name "react-router.config.*" \) -delete
+    -type f \( -name "vite.config.*" -o -name "react-router.config.*" \) -delete \
+  && rm -rf deployables/corten-pilot
 
 ENV NODE_ENV=production
 

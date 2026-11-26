@@ -20,6 +20,7 @@ import { createTranslator, type Translate } from "@chase-sets/localization/core"
 import { createWorkerHost, createWorkerRunnerLoop, type WorkerContextRegistry, type WorkerRunner } from "./worker";
 import {
   getWebHostSections,
+  metadataOnlyWebHosts,
   resolveWebHostActiveKey,
   resolveWebHostActiveKeyAcrossSlots,
   resolveWebHostNavItems,
@@ -206,27 +207,23 @@ const marketplaceRouteFixture = [
   {
     routeId: "category",
     routePath: "categories/:categorySlug",
-    fileExport: "./routes/search",
     routeType: "route",
     sourceContext: "marketplace",
     delivery: "portable",
     authorization: { kind: "public" },
     canonicalLink: { kind: "route-derived" },
     availability: { web: true, mobile: true },
-    pageComponentExport: "SearchPage",
     portableDataOperations: { load: true, mutation: false },
   },
   {
     routeId: "search",
     routePath: "search",
-    fileExport: "./routes/search",
     routeType: "route",
     sourceContext: "marketplace",
     delivery: "portable",
     authorization: { kind: "public" },
     canonicalLink: { kind: "route-derived" },
     availability: { web: true, mobile: true },
-    pageComponentExport: "SearchPage",
     portableDataOperations: { load: true, mutation: false },
   },
 ] as const satisfies readonly BcMarketplaceRouteModule[];
@@ -2263,7 +2260,29 @@ describe("platform host web registry", () => {
   });
 
   it("keeps route config ids unique when routes share a module file", () => {
-    const routeConfig = resolveWebHostRouteConfigRecords(webRegistry, "marketplace-web").map((routeRecord) =>
+    const sharedModuleRoute = (routeId: string, routePath: string) => ({
+      routeId,
+      routePath,
+      fileExport: "./routes/public/help",
+      routeType: "route" as const,
+      sourceContext: "public-presence",
+    });
+    const registry = [
+      {
+        contextName: "public-presence",
+        packageName: "@test/public-presence",
+        manifest: {
+          contextName: "public-presence",
+          deployableContributions: [
+            {
+              deployable: "public-web",
+              routes: [sharedModuleRoute("help", "help"), sharedModuleRoute("help-category", "help/:categorySlug")],
+            },
+          ],
+        },
+      },
+    ] satisfies WebContextRegistry;
+    const routeConfig = resolveWebHostRouteConfigRecords(registry, "public-web").map((routeRecord) =>
       toRouteConfigEntry(routeRecord, {
         index: (file, options) => ({ file, index: true, ...options }),
         route: (path, file, options) => ({ path: path ?? undefined, file, ...options }),
@@ -2272,16 +2291,80 @@ describe("platform host web registry", () => {
 
     expect(routeConfig).toEqual([
       expect.objectContaining({
-        id: "marketplace/category",
-        path: "categories/:categorySlug",
-        file: "../../../bounded-contexts/marketplace/routes/search.tsx",
+        id: "public-presence/help",
+        path: "help",
+        file: "../../../bounded-contexts/public-presence/routes/public/help.tsx",
       }),
       expect.objectContaining({
-        id: "marketplace/search",
-        path: "search",
-        file: "../../../bounded-contexts/marketplace/routes/search.tsx",
+        id: "public-presence/help-category",
+        path: "help/:categorySlug",
+        file: "../../../bounded-contexts/public-presence/routes/public/help.tsx",
       }),
     ]);
+  });
+
+  it("keeps marketplace-web route contributions metadata only", () => {
+    expect(metadataOnlyWebHosts).toEqual(["marketplace-web"]);
+    expect(resolveWebHostRouteRecords(webRegistry, "marketplace-web").map((route) => route.routeId)).toEqual([
+      "category",
+      "search",
+    ]);
+    expect(() => resolveWebHostRouteConfigRecords(webRegistry, "marketplace-web")).toThrow(
+      /marketplace-web contributes route metadata only/,
+    );
+    const withModule = (field: "fileExport" | "pageComponentExport") =>
+      [
+        {
+          contextName: "marketplace",
+          packageName: "@test/marketplace",
+          manifest: {
+            contextName: "marketplace",
+            deployableContributions: [
+              {
+                deployable: "marketplace-web",
+                routes: [{ ...marketplaceRouteFixture[1], [field]: "./routes/search" }],
+              },
+            ],
+          },
+        },
+      ] as unknown as WebContextRegistry;
+    for (const field of ["fileExport", "pageComponentExport"] as const) {
+      expect(() => resolveWebHostRouteRecords(withModule(field), "marketplace-web")).toThrow(
+        /'marketplace\/search' is metadata only/,
+      );
+    }
+  });
+
+  it("requires a route module on every host that is not metadata only", () => {
+    const withoutModule = (deployable: "admin-web" | "public-web") =>
+      [
+        {
+          contextName: "test-context",
+          packageName: "@test/context",
+          manifest: {
+            contextName: "test-context",
+            deployableContributions: [
+              {
+                deployable,
+                routes: [
+                  {
+                    routeId: "no-module",
+                    routePath: "no-module",
+                    routeType: "route",
+                    sourceContext: "test-context",
+                    section: "catalog",
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ] satisfies WebContextRegistry;
+    for (const host of ["admin-web", "public-web"] as const) {
+      expect(() => resolveWebHostRouteRecords(withoutModule(host), host)).toThrow(
+        new RegExp(`'test-context/no-module' contributed to ${host} must name its route module`),
+      );
+    }
   });
 });
 

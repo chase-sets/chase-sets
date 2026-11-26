@@ -1313,7 +1313,7 @@ function deriveWebStorage(index) {
 const cspScriptDirectives = ["script-src", "frame-src"];
 const externalOriginPattern = /https:\/\/[a-z0-9.*-]+\.[a-z]{2,}/gi;
 
-function deriveConsumerRouteGraph(index, repoRoot, trackedPaths, consumerDeployables) {
+function deriveConsumerRouteGraph(index, repoRoot, trackedPaths, consumerDeployables, metadataOnlyDeployables) {
   const importsOf = new Map();
   const externalPackagesOf = new Map();
 
@@ -1344,6 +1344,13 @@ function deriveConsumerRouteGraph(index, repoRoot, trackedPaths, consumerDeploya
       for (const route of contribution.routes ?? []) {
         const specifier = String(route.fileExport ?? "");
         const routePath = `/${String(route.routePath ?? "").replace(/^\//, "")}`;
+        // A metadata-only host's route records name no module: another app serves
+        // those pages. Any other host's route without a module is unresolved.
+        if (specifier === "" && metadataOnlyDeployables.includes(contribution.deployable)) continue;
+        if (specifier === "") {
+          unresolvedRoutes.push({ manifestPath, routePath, specifier });
+          continue;
+        }
         const resolved = index.resolveSpecifier(specifier.startsWith(".") ? specifier : `./${specifier}`, manifestPath);
         if (resolved.kind !== "internal") {
           unresolvedRoutes.push({ manifestPath, routePath, specifier });
@@ -1936,6 +1943,11 @@ function deriveSocialProviderProfiles(index) {
 
 export const defaultConsumerDeployables = ["marketplace-web", "public-web"];
 
+// Consumer hosts whose route records are metadata only (no route module); the
+// Corten pilot serves their pages. Mirrors metadataOnlyWebHosts in
+// infrastructure/platform-runtime/web.ts, which the inventory test pins.
+export const defaultMetadataOnlyConsumerDeployables = ["marketplace-web"];
+
 /**
  * Derives every fact family from an already-loaded set of source records. Pure
  * with respect to the working tree apart from reading tracked manifests, so
@@ -1950,6 +1962,7 @@ export function derivePrivacyProductTruthInventory(input) {
     repoRoot,
     externalPackageClassifications = {},
     consumerDeployables = defaultConsumerDeployables,
+    metadataOnlyDeployables = defaultMetadataOnlyConsumerDeployables,
   } = input;
 
   const workspacePackages = readWorkspacePackages(repoRoot, trackedPaths);
@@ -1959,7 +1972,7 @@ export function derivePrivacyProductTruthInventory(input) {
     .filter((record) => record.readError !== undefined)
     .map((record) => ({ relativePath: record.relativePath, reason: record.readError }));
 
-  const graph = deriveConsumerRouteGraph(index, repoRoot, trackedPaths, consumerDeployables);
+  const graph = deriveConsumerRouteGraph(index, repoRoot, trackedPaths, consumerDeployables, metadataOnlyDeployables);
 
   const cookies = deriveFirstPartyCookies(index);
   const webStorage = deriveWebStorage(index);
@@ -2049,11 +2062,13 @@ export function collectPrivacyProductTruthInventory({
   execGit,
   externalPackageClassifications,
   consumerDeployables,
+  metadataOnlyDeployables,
 } = {}) {
   return derivePrivacyProductTruthInventory({
     ...readPrivacyProductTruthSources({ repoRoot, execGit }),
     externalPackageClassifications,
     consumerDeployables,
+    metadataOnlyDeployables,
   });
 }
 

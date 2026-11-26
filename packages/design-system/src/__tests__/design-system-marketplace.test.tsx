@@ -38,7 +38,6 @@ import {
   TrustBadge,
   VerifiedAccountBadge,
   SecurePaymentCue,
-  AccountTrustCard,
   PriceBreakdown,
   OrderProtectionModule,
   FilterArea,
@@ -51,7 +50,6 @@ import {
   MarketplaceFilterBottomSheet,
   MarketplaceMobileFilterBar,
   MarketplaceCartLineItem,
-  ListingPurchasePanel,
   MarketingImageHero,
   OrderIntentSummary,
   OfferCard,
@@ -59,12 +57,10 @@ import {
   PaymentRecoveryPanel,
   ProductOptions,
   SearchControlBar,
-  AccountCredibilityHeader,
   Select,
   Table,
   Textarea,
   TextInput,
-  formatProductImageAltText,
   formatProductOptionsAriaLabel,
   productOptionsFromSummary,
   formatMarketplaceNumber,
@@ -113,12 +109,10 @@ describe("design system marketplace patterns", () => {
       "TrustBadge",
       "VerifiedAccountBadge",
       "AccountReputationSummary",
-      "AccountTrustCard",
       "ListingCard",
       "MarketplaceCartLineItem",
       "SearchFilterPanel",
       "PriceBreakdown",
-      "ListingPurchasePanel",
       "OrderProtectionModule",
       "OfferCard",
       "MarketplaceDashboardPanel",
@@ -1442,7 +1436,6 @@ describe("design system marketplace patterns", () => {
     expect(formatProductOptionsAriaLabel(options)).toBe(
       "Product options: Form Graded, Grading Company PSA, Grade 10 Gem Mint",
     );
-    expect(formatProductImageAltText({ title: "Pikachu", options })).toBe("Pikachu, Graded, PSA, 10 Gem Mint");
 
     render(<ProductOptions options={options} />);
 
@@ -1492,28 +1485,6 @@ describe("design system marketplace patterns", () => {
     expect(markup).toContain("line-clamp-2");
     expect(markup).toContain("grid-cols-2 md:grid-cols-1");
     expect(markup).not.toContain("min-[420px]");
-  });
-
-  it("renders listing purchase panels with one primary action region", () => {
-    const markup = renderToString(
-      <ListingPurchasePanel
-        title="Ready to buy this listing"
-        price="$42.00"
-        seller="Card Vault"
-        trust="Verified account"
-        availability="3 available"
-        fulfillment="Ships from TX"
-        policy="Return policy reviewed before payment"
-        protection="Order protected"
-        reassurance="Final totals appear before payment."
-        primaryAction={<Button>Buy now</Button>}
-        secondaryAction={<Button tone="secondary">Compare market</Button>}
-      />,
-    );
-
-    expect(markup).toContain("Ready to buy this listing");
-    expect(markup).toContain("3 available");
-    expect(markup).toContain('data-primary-action-count="1"');
   });
 
   it("renders checkout order intent before payment starts", () => {
@@ -2064,16 +2035,9 @@ describe("design system marketplace patterns", () => {
     expect(markup).not.toContain("space-y-2");
   });
 
-  it("renders seller credibility and payment recovery contracts", () => {
+  it("renders payment recovery contracts", () => {
     const markup = renderToString(
       <>
-        <AccountCredibilityHeader
-          name="Card Vault"
-          verification="Verified account"
-          facts={[{ label: "Response time", value: "Fast" }]}
-          policies={[{ label: "Order protection", value: "Included" }]}
-          contactAction={<Button>Contact seller</Button>}
-        />
         <PaymentRecoveryPanel
           statusLabel="Link unavailable"
           title="Payment link expired"
@@ -2085,7 +2049,6 @@ describe("design system marketplace patterns", () => {
       </>,
     );
 
-    expect(markup).toContain("Card Vault");
     expect(markup).toContain("No payment was charged.");
   });
 
@@ -2093,14 +2056,12 @@ describe("design system marketplace patterns", () => {
     const markup = renderToString(
       <div>
         <TrustBadge>Verified account</TrustBadge>
-        <AccountTrustCard name="Vaulted Collectibles" verified completedSales="1,248" responseTime="< 2 hours" />
         <OrderProtectionModule items={[{ title: "Secure payment", description: "Funds are held safely." }]} />
         <PriceBreakdown lines={[{ label: "Item price", value: "$1,250.00" }]} total="$1,420.78" totalLabel="Total" />
       </div>,
     );
 
     expect(markup).toContain("Verified account");
-    expect(markup).toContain("Vaulted Collectibles");
     expect(markup).toContain("Secure payment");
     expect(markup).toContain("$1,420.78");
     expect(markup).not.toContain("No surprise costs at payment.");

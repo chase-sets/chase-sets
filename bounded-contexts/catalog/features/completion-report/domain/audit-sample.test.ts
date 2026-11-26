@@ -338,11 +338,21 @@ describe("selectCatalogAuditSample", () => {
 });
 
 describe("catalogAuditSamplePublicPath", () => {
-  it("AC3: builds the public item path exactly as Discovery's set page does", () => {
-    const setRoute = readFileSync(new URL("../../../../discovery/routes/set.tsx", import.meta.url), "utf8");
-    const construction = /const href = `\/items\/\$\{item\.(\w+) \|\| item\.(\w+)\}`;/.exec(setRoute);
-    expect(construction?.slice(1)).toEqual(["slug", "catalog_item_id"]);
-    // The construction set.tsx pins above, applied to the same inputs.
+  it("AC3: builds the public item path exactly as the marketplace's set page does", () => {
+    // The Corten marketplace serves the set page; its item cards take the slug, or the id when the slug is empty,
+    // and address the item at /items/{slug}.
+    const marketplace = new URL("../../../../../deployables/corten-pilot/marketplace/src/", import.meta.url);
+    const itemCards = readFileSync(new URL("views/search_page.rs", marketplace), "utf8");
+    const construction =
+      /let slug = if card\.(\w+)\.is_empty\(\) \{ card\.(\w+)\.as_str\(\) \} else \{ card\.(\w+)\.as_str\(\) \};\s*let href = url::Item \{ slug,/.exec(
+        itemCards,
+      );
+    expect(construction?.slice(1)).toEqual(["slug", "catalog_item_id", "slug"]);
+    expect(readFileSync(new URL("views/set_page.rs", marketplace), "utf8")).toContain("<ItemCards ");
+    expect(readFileSync(new URL("app.rs", marketplace), "utf8")).toMatch(
+      /#\[route\("\/items\/\{slug\}"[^\n]*\]\s*pub struct Item<'a> \{/,
+    );
+    // The construction pinned above, applied to the same inputs.
     const discoveryHref = (item: { slug: string | null; catalog_item_id: string }) =>
       `/items/${item.slug || item.catalog_item_id}`;
     for (const slug of ["pikachu-base-set-cat_1", "", null]) {

@@ -13,6 +13,7 @@ import { ZodError } from "zod";
 import { listingRecoveryPreparationSchema, listingRecoveryReferenceSchema } from "../ui/contracts";
 import { listingRecoveryResult } from "./listing-recovery";
 import { MarketplaceListingDomainError } from "../domain/listing-error";
+import { toMarketplaceItemListingRow } from "../read-model/queries";
 import { authoredTextListingErrors, listingAttemptErrors, listingErrorResponse } from "./listing-errors";
 import { MarketplaceAttemptError } from "../../mutation-recovery/api/attempt";
 import { marketplaceAttemptIdSchema, recoveryHashSchema } from "../../mutation-recovery/domain/contracts";
@@ -2102,7 +2103,8 @@ export function createPublicListingRoutes(
 
   app.get("/products/:productId/listings", async (c) => {
     try {
-      const items = await services.listItemListings(c.req.param("productId"));
+      // Anyone may call this route, so each item is copied key by key: a wider row from the service cannot leave here.
+      const items = (await services.listItemListings(c.req.param("productId"))).map(toMarketplaceItemListingRow);
       return c.json({
         items,
         total: items.length,

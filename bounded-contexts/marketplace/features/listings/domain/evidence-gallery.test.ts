@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { MarketplaceListingPhoto, MarketplaceListingPhotoAssetRole } from "./domain";
-import { toPublicListingGallery } from "./evidence-gallery";
+import { copyPublicListingGallery, toPublicListingGallery } from "./evidence-gallery";
 
 function photo(overrides: Partial<MarketplaceListingPhoto> & { photoId: string }): MarketplaceListingPhoto {
   const sourceHash = `hash_${overrides.photoId}`;
@@ -69,5 +69,35 @@ describe("toPublicListingGallery", () => {
       photo({ photoId: "a", sortOrder: 0 }),
     ]);
     expect(gallery.map((image) => image.photoId)).toEqual(["a", "b"]);
+  });
+});
+
+describe("copyPublicListingGallery", () => {
+  it("drops an image or asset whose required value has the wrong type and nulls a mistyped optional value", () => {
+    const asset = { role: "catalog-detail", publicUrl: "https://assets.test/a.webp", width: 480, height: 640 };
+    const gallery = copyPublicListingGallery([
+      null,
+      { photoId: { storageKey: "private/key" }, sortOrder: 0, assets: [asset] },
+      {
+        photoId: "a",
+        sortOrder: 1,
+        altText: { originalFilename: "secret-filename.png" },
+        slotId: "front",
+        viewKind: "front",
+        assets: [{ ...asset, publicUrl: { storageKey: "private/key" } }, { ...asset, density: 3 }, "not an asset"],
+      },
+    ]);
+
+    expect(gallery).toEqual([
+      {
+        photoId: "a",
+        slotId: "front",
+        viewKind: "front",
+        altText: null,
+        sortOrder: 1,
+        assets: [{ ...asset, density: null }],
+      },
+    ]);
+    expect(JSON.stringify(gallery)).not.toMatch(/private\/key|secret-filename/);
   });
 });

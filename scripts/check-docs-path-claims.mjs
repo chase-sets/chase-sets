@@ -133,6 +133,71 @@ export const docsPathClaimsAllowlist = [
     reason:
       "Create-this-file instruction: the approval artifact must remain absent until the owner confirms the exact #4055 fingerprint.",
   },
+  {
+    file: "deployables/corten-pilot/marketplace/e2e-coverage.md",
+    token: "deployables/marketplace/e2e",
+    reason: "Retired artifact: this table records where marketplace-web's deleted browser specs went.",
+  },
+  {
+    file: "docs/adr/0013-checkout-payments-dependency-direction.md",
+    token: "bounded-contexts/checkout/routes/checkout-session.tsx",
+    reason:
+      "ADR 0013 records the Checkout and Payments package edges as they stood when it was decided; marketplace-web's route modules were deleted with that deployable.",
+  },
+  {
+    file: "docs/adr/0013-checkout-payments-dependency-direction.md",
+    token: "bounded-contexts/payments/routes/marketplace/account-payment.tsx",
+    reason:
+      "ADR 0013 records the Checkout and Payments package edges as they stood when it was decided; marketplace-web's route modules were deleted with that deployable.",
+  },
+  {
+    file: "docs/adr/0013-checkout-payments-dependency-direction.md",
+    token: "bounded-contexts/ordering/routes/account-purchase.tsx",
+    reason:
+      "ADR 0013 records the Checkout and Payments package edges as they stood when it was decided; marketplace-web's route modules were deleted with that deployable.",
+  },
+  {
+    file: "docs/adr/0013-checkout-payments-dependency-direction.md",
+    token: "bounded-contexts/ordering/routes/account-sale.tsx",
+    reason:
+      "ADR 0013 records the Checkout and Payments package edges as they stood when it was decided; marketplace-web's route modules were deleted with that deployable.",
+  },
+  {
+    file: "docs/adr/0013-checkout-payments-dependency-direction.md",
+    token: "bounded-contexts/marketplace/routes/account-listings.tsx",
+    reason:
+      "ADR 0013 records the Checkout and Payments package edges as they stood when it was decided; marketplace-web's route modules were deleted with that deployable.",
+  },
+  {
+    file: "docs/adr/0030-web-ssr-and-local-asset-mobile-clients.md",
+    token: "deployables/marketplace/react-router.config.ts",
+    reason:
+      "ADR 0030 records the web paths at its adoption anchor commit; marketplace-web and its route modules were deleted later.",
+  },
+  {
+    file: "docs/adr/0030-web-ssr-and-local-asset-mobile-clients.md",
+    token: "deployables/marketplace/app/routes.ts",
+    reason:
+      "ADR 0030 records the web paths at its adoption anchor commit; marketplace-web and its route modules were deleted later.",
+  },
+  {
+    file: "docs/adr/0030-web-ssr-and-local-asset-mobile-clients.md",
+    token: "bounded-contexts/discovery/routes/search.tsx",
+    reason:
+      "ADR 0030 records the web paths at its adoption anchor commit; marketplace-web and its route modules were deleted later.",
+  },
+  {
+    file: "docs/adr/0030-web-ssr-and-local-asset-mobile-clients.md",
+    token: "bounded-contexts/identity/routes/marketplace/account.tsx",
+    reason:
+      "ADR 0030 records the web paths at its adoption anchor commit; marketplace-web and its route modules were deleted later.",
+  },
+  {
+    file: "docs/runbooks/playwright-e2e.md",
+    token: "deployables/marketplace/e2e/market-following-offers.spec.ts",
+    reason:
+      "Retired artifact: the journey package's only target left with marketplace-web, and journey-package-contract.mjs still names it until the package is retargeted or retired.",
+  },
 ];
 
 const allowlistByFile = new Map();

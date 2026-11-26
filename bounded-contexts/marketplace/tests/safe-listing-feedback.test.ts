@@ -1,8 +1,6 @@
 import { inspect } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { t } from "@chase-sets/localization";
-import { action as listingsAction } from "../routes/account-listings";
-import { action as listingsNewAction } from "../routes/account-listings-new";
 import { createMarketplaceApiClient, MarketplaceApiError } from "../client";
 import { listingPreparationResponse } from "../features/listings/tests/listing-attempt-test-support";
 import { listingRecoveryResult } from "../features/listings/api/listing-recovery";
@@ -59,118 +57,6 @@ afterEach(() => {
 });
 
 describe("presents only allowlisted Listing feedback", () => {
-  it.each([
-    new Error("postgres password=secret"),
-    { body: { nested: "nested-secret-body" } },
-    json({ secret: "nested-secret-body" }, 500),
-    new MarketplaceApiError(409, { error: { code: "history_incomplete", message: "nested-secret-body" } }),
-  ])("redacts unknown action rejections while recovering possible-send loss: %s", async (failure) => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-        if (String(input).includes("/api/auth/session")) return json({ actor });
-        const recovery = recoveryResponse(input, init);
-        if (recovery) return recovery;
-        throw failure;
-      }),
-    );
-    const result = await listingsAction(actionArgs("set-order-capacity"));
-    expect(result).toMatchObject({ listingRecovery: { phase: "ambiguous", items: [{ outcome: "ambiguous" }] } });
-    expect(inspect(result, { depth: null })).not.toMatch(/password=secret|nested-secret-body/);
-  });
-  it.each([
-    [listingsAction, "set-order-capacity", 400, "order_capacity_invalid", "orderCapacityInvalid"],
-    [listingsNewAction, "create-listing", 400, "listing_command_rejected", "commandRejected"],
-    [listingsNewAction, "create-listing", 409, "listing_shipping_measure_missing", "shippingMeasureMissing"],
-    [
-      listingsNewAction,
-      "create-and-publish-listing",
-      409,
-      "listing_shipping_measure_missing",
-      "shippingMeasureMissing",
-    ],
-  ] as const)(
-    "presents only allowlisted Listing feedback for %s %s: %s %s",
-    async (action, intent, status, code, copy) => {
-      vi.stubGlobal(
-        "fetch",
-        vi.fn(async (input: string | URL | Request, init?: RequestInit) =>
-          String(input).includes("/api/auth/session")
-            ? json({ actor })
-            : (recoveryResponse(input, init) ?? json({ error: { code, message: "untrusted-copy-secret" } }, status)),
-        ),
-      );
-      const result = await action(actionArgs(intent));
-      expect(result).toMatchObject({ error: t(`marketplace.features.listings.api.route.error.${copy}`) });
-      expect(inspect(result)).not.toContain("untrusted-copy-secret");
-    },
-  );
-
-  it.each([
-    [listingsAction, "set-order-capacity"],
-    [listingsAction, "bulk-pause-listings"],
-    [listingsAction, "bulk-withdraw-listings"],
-    [listingsNewAction, "create-listing"],
-    [listingsNewAction, "create-and-publish-listing"],
-    [listingsNewAction, "preview-listing"],
-  ] as const)("keeps unknown 5xx private during recovery or boundary handling: %s %s", async (action, intent) => {
-    const log = vi.spyOn(console, "error").mockImplementation(() => {});
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: string | URL | Request, init?: RequestInit) =>
-        String(input).includes("/api/auth/session")
-          ? json({ actor })
-          : (recoveryResponse(input, init) ??
-            json(
-              {
-                error: {
-                  code: "internal_error",
-                  message: "postgres password=secret",
-                  nested: { body: "nested-secret-body" },
-                },
-              },
-              500,
-            )),
-      ),
-    );
-    let failure: unknown;
-    let result: unknown;
-    try {
-      result = await action(actionArgs(intent));
-    } catch (error) {
-      failure = error;
-    }
-    let feedback: string;
-    if (action === listingsAction) {
-      expect(failure).toBeUndefined();
-      expect(result).toMatchObject({ listingRecovery: { phase: "ambiguous", items: [{ outcome: "ambiguous" }] } });
-      feedback = inspect(result, { depth: null });
-    } else {
-      expect(failure).toBeInstanceOf(Response);
-      const response = failure as Response;
-      expect(response.status).toBe(500);
-      feedback = await response.text();
-    }
-    expect([feedback, inspect(log.mock.calls, { depth: null })].join()).not.toMatch(
-      /password=secret|nested-secret-body/,
-    );
-  });
-
-  it("keeps a non-admitted bulk 4xx as a redacted per-row outcome", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: string | URL | Request, init?: RequestInit) =>
-        String(input).includes("/api/auth/session")
-          ? json({ actor })
-          : (recoveryResponse(input, init, "unknown") ??
-            json({ error: { code: "validation_failed", message: "postgres password=secret" } }, 400)),
-      ),
-    );
-    const result = await listingsAction(actionArgs("bulk-pause-listings"));
-    expect(result).toMatchObject({ bulkActionOutcomes: [{ listingId: "lst_1", outcome: "error" }] });
-    expect(inspect(result, { depth: null })).not.toContain("password=secret");
-  });
-
   it("preserves the client status and code for safe Listing feedback", async () => {
     const client = createMarketplaceApiClient({
       baseUrl: "http://localhost/api/marketplace",

@@ -51,7 +51,6 @@ export const adminWebSections = new Set(["access", "catalog", "commerce", "growt
 // per-deployable entry points, not context-owned data.
 export const iaRouteConfigFiles = [
   { deployable: "admin-web", relativeFile: "deployables/admin-web/app/routes.ts" },
-  { deployable: "marketplace-web", relativeFile: "deployables/marketplace/app/routes.ts" },
   { deployable: "public-web", relativeFile: "deployables/public-web/app/routes.ts" },
 ];
 

@@ -1,6 +1,6 @@
 import type {
+  BcContributedRoute,
   BcDeployableContribution,
-  BcRouteModule,
   BcShellContribution,
   BcShellContributionItem,
   BcShellContributionSlot,
@@ -11,6 +11,13 @@ import type { NavigationItem } from "@chase-sets/design-system";
 import { assertMarketplaceRouteContract } from "./portable-route-contract";
 
 export type WebHostName = "admin-web" | "marketplace-web" | "public-web";
+
+/**
+ * Hosts whose route contributions are metadata only. The Corten marketplace
+ * serves marketplace-web's routes, so its records name no route module; they
+ * still publish the canonical links Notifications and agents build.
+ */
+export const metadataOnlyWebHosts: readonly WebHostName[] = Object.freeze(["marketplace-web"]);
 export type WebHostSection = "access" | "catalog" | "commerce" | "growth" | "support" | "platform";
 
 export type WebContextManifest = Readonly<{
@@ -39,7 +46,7 @@ type ShellActor =
   | undefined;
 
 export type WebHostRouteRecord = Readonly<
-  Omit<BcRouteModule, "section"> & {
+  Omit<BcContributedRoute, "section"> & {
     contextName: string;
     section?: WebHostSection;
   }
@@ -252,10 +259,19 @@ function toNavigationItem(
   };
 }
 
+/** The route module a contribution names; every host outside metadataOnlyWebHosts requires one. */
+export function requireRouteModule(contextName: string, hostName: WebHostName, route: BcContributedRoute): string {
+  if (route.fileExport === undefined) {
+    throw new Error(`Route '${contextName}/${route.routeId}' contributed to ${hostName} must name its route module.`);
+  }
+  return route.fileExport;
+}
+
 export function resolveWebHostRouteRecords(
   registry: WebContextRegistry,
   hostName: WebHostName,
 ): readonly WebHostRouteRecord[] {
+  const metadataOnly = metadataOnlyWebHosts.includes(hostName);
   return registry.flatMap((entry) => {
     const manifest = entry.manifest as WebContextManifest;
     const contributions = manifest.deployableContributions ?? [];
@@ -267,6 +283,7 @@ export function resolveWebHostRouteRecords(
           if (hostName === "marketplace-web") {
             assertMarketplaceRouteContract(entry.contextName, route);
           }
+          if (!metadataOnly) requireRouteModule(entry.contextName, hostName, route);
           const { section: explicitSection, ...routeRecord } = route;
 
           if (hostName !== "admin-web") {
@@ -276,7 +293,11 @@ export function resolveWebHostRouteRecords(
             } satisfies WebHostRouteRecord;
           }
 
-          const section = resolveAdminWebSection(entry.contextName, route.fileExport, explicitSection);
+          const section = resolveAdminWebSection(
+            entry.contextName,
+            requireRouteModule(entry.contextName, hostName, route),
+            explicitSection,
+          );
           const prefix = `/${section}`;
 
           return {

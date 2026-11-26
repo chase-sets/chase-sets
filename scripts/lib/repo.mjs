@@ -181,6 +181,12 @@ export const CONTEXT_REGISTRY_HOST_ARMS = Object.freeze(
   ].map((arm) => Object.freeze(arm)),
 );
 
+// Web hosts whose deployable contributions are metadata only: their route
+// records keep the canonical link catalog (Notifications and agent links), but
+// no route module, page component or context registry exists for them because
+// the Corten pilot serves those pages. Mirrors metadataOnlyWebHosts in
+// infrastructure/platform-runtime/web.ts.
+export const METADATA_ONLY_WEB_HOSTS = Object.freeze(["marketplace-web"]);
 function contextManifestArmMatches(arm, manifest, hostName) {
   const value = manifest?.[arm.field];
   if (!Array.isArray(value)) return false;

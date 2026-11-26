@@ -1532,8 +1532,7 @@
         "tests": [
           "bounded-contexts/marketplace/features/listings/api/route.test.ts",
           "bounded-contexts/marketplace/features/listings/api/listing-batch.test.ts",
-          "bounded-contexts/marketplace/features/listings/api/listing-recovery.test.ts",
-          "bounded-contexts/marketplace/tests/account-listings-recovery-route.test.tsx"
+          "bounded-contexts/marketplace/features/listings/api/listing-recovery.test.ts"
         ]
       }
     },
@@ -1553,8 +1552,7 @@
       "proof": {
         "authoritativeResponse": "Marketplace checks owner history, sends only targets whose outcome is unknown, and returns classified outcomes. A possible send is recovered through a read, not by repeating the command.",
         "tests": [
-          "bounded-contexts/marketplace/features/listings/api/route.test.ts",
-          "bounded-contexts/marketplace/tests/account-listings-recovery-route.test.tsx"
+          "bounded-contexts/marketplace/features/listings/api/route.test.ts"
         ]
       }
     },
@@ -1566,7 +1564,6 @@
       "surfaces": [
         "api-route:bounded-contexts/marketplace/features/offer-policy/api/route.ts:POST /:id/commands",
         "api-client:bounded-contexts/marketplace/client.ts:POST H2cf4506767d6#1",
-        "route-action:bounded-contexts/marketplace/routes/account-offers-submitted.tsx",
         "fetcher-submit:bounded-contexts/marketplace/features/offers/ui/submitted-offer-detail-page.tsx:H0093c9d7d3b9#1",
         "fetcher-submit:bounded-contexts/marketplace/features/offers/ui/submitted-offer-detail-page.tsx:Hd927c539992e#1"
       ],
@@ -1577,8 +1574,7 @@
         "authoritativeResponse": "The runtime retains the first command snapshot atomically with its completed attempt and replays that snapshot for an exact attempt retry. Detail reads load the owner stream; a recovery lookup resolves only the matching retained receipt and version. Lists remain projected summaries.",
         "tests": [
           "bounded-contexts/marketplace/features/offer-policy/api/route.test.ts",
-          "bounded-contexts/marketplace/features/offer-policy/api/runtime.test.ts",
-          "bounded-contexts/marketplace/tests/account-offers-route.test.ts"
+          "bounded-contexts/marketplace/features/offer-policy/api/runtime.test.ts"
         ]
       }
     },
@@ -1610,8 +1606,7 @@
       "proof": {
         "authoritativeResponse": "The client returns the API response body with non-enumerable command receipt metadata from attachResponseMetadata; listing drafts, listing commands, photo uploads, and fee previews are scoped to the command response and do not claim downstream projection freshness.",
         "tests": [
-          "bounded-contexts/marketplace/features/listings/api/route.test.ts",
-          "bounded-contexts/marketplace/tests/account-listings-web-route.test.ts"
+          "bounded-contexts/marketplace/features/listings/api/route.test.ts"
         ]
       }
     },
@@ -1659,9 +1654,7 @@
           "bounded-contexts/marketplace/features/listings/api/route.test.ts",
           "bounded-contexts/marketplace/features/listings/api/runtime.test.ts",
           "bounded-contexts/marketplace/features/listings/api/target-runtime.test.ts",
-          "bounded-contexts/marketplace/features/listings/api/listing-request.test.ts",
-          "bounded-contexts/marketplace/tests/account-listing-route.test.ts",
-          "bounded-contexts/marketplace/tests/account-listings-web-route.test.ts"
+          "bounded-contexts/marketplace/features/listings/api/listing-request.test.ts"
         ]
       }
     },
@@ -1731,8 +1724,7 @@
         "authoritativeResponse": "SubmitOffer returns id/version/status=submitted, UpdateOfferPrice returns id/version and the command result's status (a paused Offer stays paused), AcceptOffer returns id/version/status=accepted, and DeclineOfferMatch returns id/version/status=declined directly from the command result; stale fee quote failures return the current quote snapshot instead of rendering stale acceptance terms.",
         "tests": [
           "bounded-contexts/marketplace/features/offers/api/route.test.ts",
-          "bounded-contexts/marketplace/features/offers/api/runtime.test.ts",
-          "bounded-contexts/marketplace/tests/account-offers-route.test.ts"
+          "bounded-contexts/marketplace/features/offers/api/runtime.test.ts"
         ]
       }
     },
@@ -1755,8 +1747,7 @@
         "authoritativeResponse": "changeOfferLifecycle folds the decided lifecycle event into the loaded Offer aggregate and returns its status and version; rejected rows carry not_found, offer_transition_rejected or offer_conflict without a write. Until the host admits lifecycle changes, every producer refuses with 503 offer_lifecycle_closed before any write.",
         "tests": [
           "bounded-contexts/marketplace/features/offers/api/route.test.ts",
-          "bounded-contexts/marketplace/features/offers/api/runtime.test.ts",
-          "bounded-contexts/marketplace/tests/account-offers-route.test.ts"
+          "bounded-contexts/marketplace/features/offers/api/runtime.test.ts"
         ]
       }
     },
@@ -1783,9 +1774,7 @@
         "tests": [
           "bounded-contexts/marketplace/features/offers/api/route.test.ts",
           "bounded-contexts/marketplace/features/offers/api/runtime.test.ts",
-          "bounded-contexts/marketplace/features/offers/ui/offer-match-list-page.test.tsx",
-          "bounded-contexts/marketplace/tests/account-offer-match-recovery-route.test.tsx",
-          "bounded-contexts/marketplace/tests/account-offers-route.test.ts"
+          "bounded-contexts/marketplace/features/offers/ui/offer-match-list-page.test.tsx"
         ]
       }
     },
@@ -1807,9 +1796,7 @@
         "authoritativeResponse": "SubmitReview, UpdateReview, WithdrawReview, and SubmitReviewReply respond from the command result with review id (and replyId for the reply route), stream version, and status before any review read-model projection is consulted.",
         "tests": [
           "bounded-contexts/marketplace/features/reviews/api/route.test.ts",
-          "bounded-contexts/marketplace/features/reviews/api/runtime.test.ts",
-          "bounded-contexts/marketplace/tests/account-purchase-review-route.test.tsx",
-          "bounded-contexts/marketplace/tests/account-sale-review-route.test.tsx"
+          "bounded-contexts/marketplace/features/reviews/api/runtime.test.ts"
         ]
       }
     },
@@ -1831,8 +1818,7 @@
         "post-form:bounded-contexts/marketplace/features/listings/ui/listing-evidence-readiness.tsx:H1abed2c1c746#3",
         "post-form:bounded-contexts/marketplace/features/listings/ui/listing-evidence-readiness.tsx:H1abed2c1c746#4",
         "post-form:bounded-contexts/marketplace/features/listings/ui/listing-evidence-readiness.tsx:H1abed2c1c746#5",
-        "post-form:bounded-contexts/marketplace/features/listings/ui/listing-evidence-readiness.tsx:H1abed2c1c746#6",
-        "route-action:bounded-contexts/marketplace/routes/account-listing.tsx"
+        "post-form:bounded-contexts/marketplace/features/listings/ui/listing-evidence-readiness.tsx:H1abed2c1c746#6"
       ],
       "visibleDestination": {
         "routeId": "account-listing",
@@ -1847,8 +1833,7 @@
       "proof": {
         "tests": [
           "bounded-contexts/marketplace/features/listings/ui/listing-detail-page.test.tsx",
-          "bounded-contexts/marketplace/tests/account-listing-detail-error-boundary.test.tsx",
-          "bounded-contexts/marketplace/tests/account-listing-route.test.ts"
+          "bounded-contexts/marketplace/tests/account-listing-detail-error-boundary.test.tsx"
         ]
       }
     },
@@ -1861,8 +1846,7 @@
         "post-form:bounded-contexts/marketplace/features/listings/ui/time-away-capacity-card.tsx:H2df726441e2a#1",
         "post-form:bounded-contexts/marketplace/features/listings/ui/time-away-capacity-card.tsx:H2df726441e2a#2",
         "post-form:bounded-contexts/marketplace/features/listings/ui/time-away-capacity-card.tsx:H2df726441e2a#3",
-        "post-form:bounded-contexts/marketplace/features/listings/ui/time-away-capacity-card.tsx:H2df726441e2a#4",
-        "route-action:bounded-contexts/marketplace/routes/account-listings.tsx"
+        "post-form:bounded-contexts/marketplace/features/listings/ui/time-away-capacity-card.tsx:H2df726441e2a#4"
       ],
       "visibleDestination": {
         "routeId": "account-listings",
@@ -1877,9 +1861,7 @@
       "proof": {
         "tests": [
           "bounded-contexts/marketplace/features/listings/ui/time-away-capacity-card.test.tsx",
-          "bounded-contexts/marketplace/features/listings/ui/listing-list-page.test.tsx",
-          "bounded-contexts/marketplace/tests/account-listings-route.test.ts",
-          "bounded-contexts/marketplace/tests/account-listings-web-route.test.ts"
+          "bounded-contexts/marketplace/features/listings/ui/listing-list-page.test.tsx"
         ]
       }
     },
@@ -1903,8 +1885,7 @@
       },
       "proof": {
         "tests": [
-          "bounded-contexts/marketplace/features/listings/ui/time-away-capacity-card.test.tsx",
-          "bounded-contexts/marketplace/tests/account-listings-route.test.ts"
+          "bounded-contexts/marketplace/features/listings/ui/time-away-capacity-card.test.tsx"
         ]
       }
     },
@@ -1914,8 +1895,7 @@
       "risk": "important",
       "strategy": "fresh-read",
       "surfaces": [
-        "post-form:bounded-contexts/marketplace/features/listings/ui/listing-create-page.tsx:H569cfee4bbc9#1",
-        "route-action:bounded-contexts/marketplace/routes/account-listings-new.tsx"
+        "post-form:bounded-contexts/marketplace/features/listings/ui/listing-create-page.tsx:H569cfee4bbc9#1"
       ],
       "visibleDestination": {
         "routeId": "account-listing",
@@ -1930,9 +1910,7 @@
       "proof": {
         "tests": [
           "bounded-contexts/marketplace/features/listings/ui/listing-create-page.test.tsx",
-          "bounded-contexts/marketplace/tests/account-listing-detail-error-boundary.test.tsx",
-          "bounded-contexts/marketplace/tests/account-listings-new-web-route.test.ts",
-          "bounded-contexts/marketplace/tests/account-listing-route.test.ts"
+          "bounded-contexts/marketplace/tests/account-listing-detail-error-boundary.test.tsx"
         ]
       }
     },
@@ -1948,8 +1926,7 @@
       "proof": {
         "correction": "Each selected listing's outcome (succeeded or failed, with the command error message) renders inline immediately from the action response; if a succeeded row's status has not yet caught up in the revalidated table read, the outcome banner stays visible until the next projection-backed reload reflects the new status, and failed rows leave the listing's status and badge unchanged so the seller can retry.",
         "tests": [
-          "bounded-contexts/marketplace/features/listings/ui/listing-list-page.test.tsx",
-          "bounded-contexts/marketplace/tests/account-listings-web-route.test.ts"
+          "bounded-contexts/marketplace/features/listings/ui/listing-list-page.test.tsx"
         ]
       }
     },
@@ -1959,8 +1936,7 @@
       "risk": "important",
       "strategy": "fresh-read",
       "surfaces": [
-        "post-form:bounded-contexts/marketplace/features/offers/ui/offer-match-detail-page.tsx:H2df726441e2a#1",
-        "route-action:bounded-contexts/marketplace/routes/account-offer-match.tsx"
+        "post-form:bounded-contexts/marketplace/features/offers/ui/offer-match-detail-page.tsx:H2df726441e2a#1"
       ],
       "visibleDestination": {
         "routeId": "account-offer-match",
@@ -1974,8 +1950,7 @@
       },
       "proof": {
         "tests": [
-          "bounded-contexts/marketplace/features/offers/ui/offer-match-list-page.test.tsx",
-          "bounded-contexts/marketplace/tests/account-offers-route.test.ts"
+          "bounded-contexts/marketplace/features/offers/ui/offer-match-list-page.test.tsx"
         ]
       }
     },
@@ -2000,8 +1975,7 @@
       },
       "proof": {
         "tests": [
-          "bounded-contexts/marketplace/features/offers/ui/offer-match-list-page.test.tsx",
-          "bounded-contexts/checkout/routes/account-sell-list-route.test.ts"
+          "bounded-contexts/marketplace/features/offers/ui/offer-match-list-page.test.tsx"
         ]
       }
     },
@@ -2011,9 +1985,7 @@
       "risk": "important",
       "strategy": "fresh-read",
       "surfaces": [
-        "post-form:bounded-contexts/marketplace/features/reviews/ui/review-submission-page.tsx:H14b7ab8ab869#1",
-        "route-action:bounded-contexts/marketplace/routes/marketplace/account-purchase-review.tsx",
-        "route-action:bounded-contexts/marketplace/routes/marketplace/account-sale-review.tsx"
+        "post-form:bounded-contexts/marketplace/features/reviews/ui/review-submission-page.tsx:H14b7ab8ab869#1"
       ],
       "visibleDestination": {
         "routeId": "account-review",
@@ -2027,9 +1999,7 @@
       },
       "proof": {
         "tests": [
-          "bounded-contexts/marketplace/features/reviews/ui/review-submission-page.test.tsx",
-          "bounded-contexts/marketplace/tests/account-purchase-review-route.test.tsx",
-          "bounded-contexts/marketplace/tests/account-sale-review-route.test.tsx"
+          "bounded-contexts/marketplace/features/reviews/ui/review-submission-page.test.tsx"
         ]
       }
     },
@@ -2039,8 +2009,7 @@
       "risk": "important",
       "strategy": "fresh-read",
       "surfaces": [
-        "post-form:bounded-contexts/marketplace/features/reviews/ui/review-detail-page.tsx:H14b7ab8ab869#1",
-        "route-action:bounded-contexts/marketplace/routes/marketplace/account-review.tsx"
+        "post-form:bounded-contexts/marketplace/features/reviews/ui/review-detail-page.tsx:H14b7ab8ab869#1"
       ],
       "visibleDestination": {
         "routeId": "account-review",
@@ -2054,8 +2023,7 @@
       },
       "proof": {
         "tests": [
-          "bounded-contexts/marketplace/features/reviews/ui/review-detail-page.test.tsx",
-          "bounded-contexts/marketplace/tests/account-review-route.test.ts"
+          "bounded-contexts/marketplace/features/reviews/ui/review-detail-page.test.tsx"
         ]
       }
     },
@@ -2067,10 +2035,7 @@
       "surfaces": [
         "api-route:bounded-contexts/marketplace/features/reports/api/route.ts:POST /listings/:id/report",
         "api-route:bounded-contexts/marketplace/features/reports/api/route.ts:POST /reviews/:id/report",
-        "post-form:bounded-contexts/marketplace/features/reviews/ui/review-report-action.tsx:H14b7ab8ab869#1",
-        "route-action:bounded-contexts/marketplace/routes/marketplace/account-received-reviews.tsx",
-        "route-action:bounded-contexts/marketplace/routes/marketplace/account-review-summary.tsx",
-        "route-action:bounded-contexts/marketplace/routes/marketplace/account-written-reviews.tsx"
+        "post-form:bounded-contexts/marketplace/features/reviews/ui/review-report-action.tsx:H14b7ab8ab869#1"
       ],
       "visibleDestination": {
         "description": "Report Listing returns the command-owned report id, version, target, distinct report count, threshold, and auto-unlisted flag. The public listing action redirects with a static reported marker and does not depend on a just-written projection. Report Review (m108, #4269) returns the same command-owned report id/version/target shape, feeding the same reported-content moderation queue with no auto-unlist equivalent."
@@ -2078,8 +2043,7 @@
       "proof": {
         "authoritativeResponse": "Report listing writes return the report submission snapshot directly from the Marketplace report command and the immediate event-stream threshold count. Report review writes return the report submission snapshot directly from the same Marketplace report command.",
         "tests": [
-          "bounded-contexts/marketplace/features/reports/api/runtime.test.ts",
-          "bounded-contexts/marketplace/tests/account-review-route.test.ts"
+          "bounded-contexts/marketplace/features/reports/api/runtime.test.ts"
         ]
       }
     }
@@ -2117,7 +2081,6 @@
         {
           "routeId": "account-desk",
           "routePath": "account/desk",
-          "fileExport": "./routes/account-desk",
           "routeType": "route",
           "sourceContext": "marketplace",
           "delivery": "server-only",
@@ -2133,7 +2096,6 @@
             "web": true,
             "mobile": false
           },
-          "pageComponentExport": "default",
           "unsupportedMobile": {
             "owner": "marketplace",
             "followUp": "#5238",
@@ -2143,7 +2105,6 @@
         {
           "routeId": "account-listing",
           "routePath": "account/listings/:listingId",
-          "fileExport": "./routes/account-listing",
           "routeType": "route",
           "sourceContext": "marketplace",
           "delivery": "server-only",
@@ -2159,7 +2120,6 @@
             "web": true,
             "mobile": false
           },
-          "pageComponentExport": "default",
           "unsupportedMobile": {
             "owner": "marketplace",
             "followUp": "#5238",
@@ -2169,7 +2129,6 @@
         {
           "routeId": "account-listings",
           "routePath": "account/listings",
-          "fileExport": "./routes/account-listings",
           "routeType": "route",
           "sourceContext": "marketplace",
           "delivery": "server-only",
@@ -2184,7 +2143,6 @@
             "web": true,
             "mobile": false
           },
-          "pageComponentExport": "default",
           "unsupportedMobile": {
             "owner": "marketplace",
             "followUp": "#5238",
@@ -2197,7 +2155,6 @@
         {
           "routeId": "account-listings-new",
           "routePath": "account/listings/new",
-          "fileExport": "./routes/account-listings-new",
           "routeType": "route",
           "sourceContext": "marketplace",
           "delivery": "server-only",
@@ -2213,7 +2170,6 @@
             "web": true,
             "mobile": false
           },
-          "pageComponentExport": "default",
           "unsupportedMobile": {
             "owner": "marketplace",
             "followUp": "#5238",
@@ -2223,7 +2179,6 @@
         {
           "routeId": "account-offer-match",
           "routePath": "account/offers/matches/:offerId",
-          "fileExport": "./routes/account-offer-match",
           "routeType": "route",
           "sourceContext": "marketplace",
           "delivery": "server-only",
@@ -2239,7 +2194,6 @@
             "web": true,
             "mobile": false
           },
-          "pageComponentExport": "default",
           "unsupportedMobile": {
             "owner": "marketplace",
             "followUp": "#5238",
@@ -2249,7 +2203,6 @@
         {
           "routeId": "account-offer-matches",
           "routePath": "account/offers/matches",
-          "fileExport": "./routes/account-offer-matches",
           "routeType": "route",
           "sourceContext": "marketplace",
           "delivery": "server-only",
@@ -2265,7 +2218,6 @@
             "web": true,
             "mobile": false
           },
-          "pageComponentExport": "default",
           "unsupportedMobile": {
             "owner": "marketplace",
             "followUp": "#5238",
@@ -2275,7 +2227,6 @@
         {
           "routeId": "account-offer-submitted",
           "routePath": "account/offers/submitted/:offerId",
-          "fileExport": "./routes/account-offer-submitted",
           "routeType": "route",
           "sourceContext": "marketplace",
           "delivery": "server-only",
@@ -2291,7 +2242,6 @@
             "web": true,
             "mobile": false
           },
-          "pageComponentExport": "default",
           "unsupportedMobile": {
             "owner": "marketplace",
             "followUp": "#5238",
@@ -2301,7 +2251,6 @@
         {
           "routeId": "account-offers-submitted",
           "routePath": "account/offers/submitted",
-          "fileExport": "./routes/account-offers-submitted",
           "routeType": "route",
           "sourceContext": "marketplace",
           "delivery": "server-only",
@@ -2317,7 +2266,6 @@
             "web": true,
             "mobile": false
           },
-          "pageComponentExport": "default",
           "unsupportedMobile": {
             "owner": "marketplace",
             "followUp": "#5238",
@@ -2327,7 +2275,6 @@
         {
           "routeId": "account-purchase-review",
           "routePath": "account/purchases/:purchaseId/review",
-          "fileExport": "./routes/marketplace/account-purchase-review",
           "routeType": "route",
           "sourceContext": "marketplace",
           "delivery": "server-only",
@@ -2342,7 +2289,6 @@
             "web": true,
             "mobile": false
           },
-          "pageComponentExport": "default",
           "unsupportedMobile": {
             "owner": "marketplace",
             "followUp": "#5238",
@@ -2355,7 +2301,6 @@
         {
           "routeId": "account-received-reviews",
           "routePath": "account/reviews/received",
-          "fileExport": "./routes/marketplace/account-received-reviews",
           "routeType": "route",
           "sourceContext": "marketplace",
           "delivery": "server-only",
@@ -2371,7 +2316,6 @@
             "web": true,
             "mobile": false
           },
-          "pageComponentExport": "default",
           "unsupportedMobile": {
             "owner": "marketplace",
             "followUp": "#5238",
@@ -2381,7 +2325,6 @@
         {
           "routeId": "account-review-summary",
           "routePath": "account/reviews",
-          "fileExport": "./routes/marketplace/account-review-summary",
           "routeType": "route",
           "sourceContext": "marketplace",
           "delivery": "server-only",
@@ -2397,7 +2340,6 @@
             "web": true,
             "mobile": false
           },
-          "pageComponentExport": "default",
           "unsupportedMobile": {
             "owner": "marketplace",
             "followUp": "#5238",
@@ -2407,7 +2349,6 @@
         {
           "routeId": "account-review",
           "routePath": "account/reviews/:reviewId",
-          "fileExport": "./routes/marketplace/account-review",
           "routeType": "route",
           "sourceContext": "marketplace",
           "delivery": "server-only",
@@ -2422,7 +2363,6 @@
             "web": true,
             "mobile": false
           },
-          "pageComponentExport": "default",
           "unsupportedMobile": {
             "owner": "marketplace",
             "followUp": "#5238",
@@ -2435,7 +2375,6 @@
         {
           "routeId": "account-sale-review",
           "routePath": "account/sales/:orderId/review",
-          "fileExport": "./routes/marketplace/account-sale-review",
           "routeType": "route",
           "sourceContext": "marketplace",
           "delivery": "server-only",
@@ -2450,7 +2389,6 @@
             "web": true,
             "mobile": false
           },
-          "pageComponentExport": "default",
           "unsupportedMobile": {
             "owner": "marketplace",
             "followUp": "#5238",
@@ -2463,7 +2401,6 @@
         {
           "routeId": "account-written-reviews",
           "routePath": "account/reviews/written",
-          "fileExport": "./routes/marketplace/account-written-reviews",
           "routeType": "route",
           "sourceContext": "marketplace",
           "delivery": "server-only",
@@ -2479,7 +2416,6 @@
             "web": true,
             "mobile": false
           },
-          "pageComponentExport": "default",
           "unsupportedMobile": {
             "owner": "marketplace",
             "followUp": "#5238",

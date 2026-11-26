@@ -147,8 +147,32 @@ const canonicalReserveZeroConsumerExports = [
   reason: "canonical design-system reserve surface; no production consumer yet",
 }));
 
+// The item page was these exports' only consumer; it left with marketplace-web and the
+// Corten marketplace draws its own markup. They are queued for deletion with the
+// other React code only marketplace-web reached.
+const retiredConsumerZeroConsumerExports = [
+  "AccordionOptionTrigger",
+  "CommerceActionBar",
+  "CommerceBottomSheet",
+  "ComparisonList",
+  "ComparisonListCell",
+  "ComparisonListHeader",
+  "ComparisonListPrice",
+  "ComparisonListRow",
+  "ComparisonListRowGrid",
+  "FormPanel",
+  "MarketplaceMarketSummary",
+  "MarketplaceProductDetailLayout",
+  "OrderProtectionBadge",
+  "TrustBadge",
+].map((symbol) => ({
+  symbol,
+  reason: "only consumer was marketplace-web's item page, removed with that deployable; queued for deletion",
+}));
+
 const defaultAllowedZeroConsumerExports = [
   ...canonicalReserveZeroConsumerExports,
+  ...retiredConsumerZeroConsumerExports,
   {
     symbol: "Eyebrow",
     reason:

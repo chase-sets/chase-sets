@@ -12,7 +12,6 @@ import {
 } from "./graded-item-details-text.mjs";
 
 const readerFile = "bounded-contexts/ordering/features/orders/domain/domain.ts";
-const registryLinkFile = "bounded-contexts/discovery/features/item-detail/ui/commerce/purchase-section.tsx";
 const cohortWindowFile =
   "bounded-contexts/platform-operations/features/seller-compliance-cohorts/domain/cohort-window.ts";
 const schemaFile = "contracts/primitives/graded-card-snapshot.ts";
@@ -60,7 +59,12 @@ function bullets(lines) {
 describe("graded item details text guard", () => {
   it("guards TypeScript sources in bounded contexts, contracts, deployables and infrastructure", () => {
     expect(isGradedItemDetailsTextGuardedFile(readerFile, ".ts")).toBe(true);
-    expect(isGradedItemDetailsTextGuardedFile(registryLinkFile, ".tsx")).toBe(true);
+    expect(
+      isGradedItemDetailsTextGuardedFile(
+        "bounded-contexts/marketplace/features/listings/ui/listing-create-page.tsx",
+        ".tsx",
+      ),
+    ).toBe(true);
     expect(isGradedItemDetailsTextGuardedFile(schemaFile, ".ts")).toBe(true);
     expect(isGradedItemDetailsTextGuardedFile("deployables/platform-api/src/listing-target-authority.ts", ".ts")).toBe(
       true,
@@ -185,12 +189,11 @@ describe("graded item details text guard", () => {
 });
 
 describe("graded item details text exceptions", () => {
-  it("records exactly the registry link and the cohort company match", () => {
-    expect(gradedItemDetailsTextExceptions).toEqual([registryLinkFile, cohortWindowFile]);
+  it("records exactly the cohort company match", () => {
+    expect(gradedItemDetailsTextExceptions).toEqual([cohortWindowFile]);
   });
 
   it("allows each recorded exception while its current content still matches", () => {
-    expect(kindsIn(readRepoFile(registryLinkFile))).toEqual(["switches on gradingCompany"]);
     expect(kindsIn(readRepoFile(cohortWindowFile))).toEqual(["compares gradingCompany"]);
 
     for (const relativeFile of gradedItemDetailsTextExceptions) {
@@ -200,7 +203,6 @@ describe("graded item details text exceptions", () => {
   });
 
   it("reports the same content in a file that is not a recorded exception", () => {
-    expect(violationsIn(readerFile, readRepoFile(registryLinkFile))).not.toEqual([]);
     expect(violationsIn(readerFile, readRepoFile(cohortWindowFile))).not.toEqual([]);
   });
 
@@ -238,10 +240,9 @@ describe("graded item details rule", () => {
     expect(headings.filter((heading) => heading === "## Graded Item Details")).toHaveLength(1);
   });
 
-  it("states the rule and both recorded exceptions", () => {
+  it("states the rule and the recorded exception", () => {
     expect(bullets(entry).slice(0, rule.length)).toEqual(rule);
     expect(bullets(entry).slice(rule.length)).toEqual([
-      `- The registry link \`switch\` in Discovery's \`${registryLinkFile}\`.`,
       `- The company match of \`sellerComplianceCohortPolicy\` in Platform Operations' \`${cohortWindowFile}\`.`,
     ]);
     expect(entry).toContain("Channels' mapping keys stay because they match operator-reviewed mappings.");

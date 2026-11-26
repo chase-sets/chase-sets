@@ -9,9 +9,6 @@ import { ShipmentMutationBoundary } from "./shipment-mutation-boundary";
 import * as recovery from "./mutation-recovery";
 import type { ShipmentMutationRecoveryDescriptor } from "./mutation-recovery";
 import type { FulfillmentShipmentDetail } from "./contracts";
-import ShipmentsRoute from "../../../routes/marketplace/account-sale-shipments";
-import ShipmentRoute from "../../../routes/marketplace/account-sale-shipment";
-import PackingRoute from "../../../routes/marketplace/account-sale-shipment-packing";
 import { buildFulfillmentCommandCenter } from "../read-model/command-center";
 import { resolveShipmentActionPlan } from "../domain/shipment-action";
 
@@ -162,16 +159,6 @@ function shipment(): FulfillmentShipmentDetail {
     // The seller's detail read carries the plan the API resolves for a packing shipment.
     action_plan: resolveShipmentActionPlan({ status: "packing", labelStatus: "not-purchased", conflicts: [] }),
   };
-}
-
-function routePage(Route: typeof ShipmentsRoute | typeof ShipmentRoute | typeof PackingRoute) {
-  const value = shipment();
-  loaderData.mockReturnValue({
-    shipment: value,
-    recoveryScope: { tenantId: "tnt_test", sellerAccountId: "acc_seller" },
-    commandCenter: buildFulfillmentCommandCenter([{ ...value, status: "awaiting-label" }]),
-  });
-  return <Route />;
 }
 
 function assertFenced(container: HTMLElement) {
@@ -339,76 +326,6 @@ describe("ShipmentMutationBoundary", () => {
     expect(submit).toHaveBeenCalledTimes(path === "discovery" ? 0 : 1);
   });
 
-  describe.each([
-    ["shipment list", ShipmentsRoute],
-    ["shipment detail", ShipmentRoute],
-    ["packing", PackingRoute],
-  ] as const)("mounted %s caller", (_name, Route) => {
-    it("server-renders and mounts a fenced preparation state with active links", async () => {
-      const discovery = deferred<ShipmentMutationRecoveryDescriptor[]>();
-      vi.mocked(recovery.listShipmentMutationDescriptors).mockReturnValue(discovery.promise);
-      const container = document.createElement("div");
-      container.innerHTML = renderToString(routePage(Route));
-      assertFenced(container);
-      expect(container.textContent).toContain("Preparing shipment actions");
-      expect(container.textContent).not.toContain("Secure recovery storage");
-      const mounted = render(routePage(Route));
-      assertFenced(mounted.container);
-      for (const button of mounted.container.querySelectorAll<HTMLButtonElement>("button")) button.click();
-      expect(submit).not.toHaveBeenCalled();
-      expect(recovery.persistShipmentMutationDescriptor).not.toHaveBeenCalled();
-      await act(async () => discovery.resolve([]));
-      expect(mounted.container.querySelector("fieldset[disabled]")).toBeNull();
-    });
-
-    it.each([
-      ["ambiguous", "warning"],
-      ["partial", "warning"],
-      ["reauthentication-required", "info"],
-      ["provider-pending", "info"],
-      ["confirming", "info"],
-    ] as const)("fences %s discovered asynchronously, preserves %s, and does not replay", async (state, tone) => {
-      const response = deferred<Response>();
-      vi.mocked(recovery.listShipmentMutationDescriptors).mockResolvedValue([descriptor]);
-      vi.mocked(fetch).mockReturnValue(response.promise);
-      const { container } = render(routePage(Route));
-      await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
-      assertFenced(container);
-      await act(async () =>
-        response.resolve(
-          new Response(JSON.stringify({ status: state }), {
-            status: state === "reauthentication-required" ? 401 : 200,
-          }),
-        ),
-      );
-      await waitFor(() => expect(screen.getByText(new RegExp(state))).toBeTruthy());
-      assertFenced(container);
-      const notice = screen.getByText("Shipment action recovery").parentElement?.parentElement;
-      expect(notice?.classList.contains(`bg-${tone}-soft`)).toBe(true);
-      for (const button of container.querySelectorAll<HTMLButtonElement>("button")) button.click();
-      expect(submit).not.toHaveBeenCalled();
-      expect(recovery.persistShipmentMutationDescriptor).not.toHaveBeenCalled();
-      expect(vi.mocked(fetch).mock.calls.every(([, init]) => init?.method === "GET")).toBe(true);
-    });
-
-    it("keeps storage rejection dangerous and fenced, then restores editing on a clean reload", async () => {
-      vi.mocked(recovery.listShipmentMutationDescriptors).mockRejectedValueOnce(new Error("storage unavailable"));
-      const first = render(routePage(Route));
-      await waitFor(() => expect(screen.getByText("Secure shipment recovery required")).toBeTruthy());
-      assertFenced(first.container);
-      expect(
-        screen
-          .getByText("Secure shipment recovery required")
-          .parentElement?.parentElement?.classList.contains("bg-danger-soft"),
-      ).toBe(true);
-      first.unmount();
-      const second = render(routePage(Route));
-      await waitFor(() => expect(screen.queryByText("Preparing shipment actions")).toBeNull());
-      expect(second.container.querySelector("fieldset[disabled]")).toBeNull();
-      expect(submit).not.toHaveBeenCalled();
-    });
-  });
-
   it.each(["succeeded", "failed-safe", "conflict"] as const)(
     "restores steady editing after %s without replay",
     async (state) => {
@@ -439,25 +356,6 @@ describe("ShipmentMutationBoundary", () => {
     expect(submit).not.toHaveBeenCalled();
   });
 
-  it("rejects a wrong-shipment anchor with every fence and other URL field unchanged", () => {
-    const container = document.createElement("div");
-    container.innerHTML = renderToString(routePage(PackingRoute));
-    assertFenced(container);
-    const link = container.querySelector<HTMLAnchorElement>('a[href*="packing-slips"]')!;
-    const wrongTarget = new URL(link.href);
-    wrongTarget.searchParams.set("shipmentIds", "shp_wrong");
-    link.href = wrongTarget.href;
-    expect(() => assertFenced(container)).toThrow();
-  });
-
-  it("rejects a bypassed native fence with the caller and discovery state unchanged", () => {
-    const container = document.createElement("div");
-    container.innerHTML = renderToString(routePage(PackingRoute));
-    assertFenced(container);
-    container.querySelector<HTMLFieldSetElement>("fieldset[disabled]")!.disabled = false;
-    expect(() => assertFenced(container)).toThrow();
-  });
-
   it("stores the descriptor and sent marker before submitting an enabled form", async () => {
     const persisted = deferred<ShipmentMutationRecoveryDescriptor>();
     const marked = deferred<ShipmentMutationRecoveryDescriptor>();
@@ -483,55 +381,5 @@ describe("ShipmentMutationBoundary", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Dispatch" }).matches(":disabled")).toBe(true));
     expect(recovery.persistShipmentMutationDescriptor).toHaveBeenCalledTimes(1);
     expect(submit).not.toHaveBeenCalled();
-  });
-
-  it("includes the enabled form-associated packing footer fields only after persistence", async () => {
-    const persisted = deferred<ShipmentMutationRecoveryDescriptor>();
-    vi.mocked(recovery.persistShipmentMutationDescriptor).mockReturnValue(persisted.promise);
-    render(routePage(PackingRoute));
-    const finish = screen.getByRole("button", { name: "Finish packing" });
-    await waitFor(() => expect(finish.matches(":disabled")).toBe(false));
-    expect(finish.closest("form")).toBeNull();
-    expect(finish.getAttribute("form")).toBe("complete-packing-form");
-    await userEvent.click(finish);
-    await waitFor(() => expect(recovery.persistShipmentMutationDescriptor).toHaveBeenCalledTimes(1));
-    expect(submit).not.toHaveBeenCalled();
-    await act(async () => persisted.resolve(descriptor));
-    await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
-    const data = submit.mock.calls[0]![0];
-    expect(data.get("packageCount")).toBe("1");
-    expect(data.get("intent")).toBe("complete-packing");
-    expect(data.get("mutationAttemptId")).toBe(descriptor.mutationAttemptId);
-  });
-
-  it("fences direct quantity and scanner actions until ready, then permits explicit editing", async () => {
-    const discovery = deferred<ShipmentMutationRecoveryDescriptor[]>();
-    vi.mocked(recovery.listShipmentMutationDescriptors).mockReturnValue(discovery.promise);
-    routePage(PackingRoute);
-    const data = loaderData();
-    data.shipment.lines[0].packing_confirmed_quantity = 0;
-    vi.mocked(fetch).mockImplementation(async (_url, options) => {
-      const body = options?.body as FormData;
-      return new Response(
-        JSON.stringify({ lineId: "spl_test", confirmedQuantity: Number(body.get("confirmedQuantity")) }),
-      );
-    });
-    render(<PackingRoute />);
-    const increase = screen.getByRole("button", { name: "Increase packed quantity for Charizard" });
-    const scan = screen.getByRole("searchbox", { name: "Scan or search" });
-    await userEvent.click(increase);
-    await userEvent.type(scan, "spl_test{Enter}");
-    await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
-    expect(recovery.persistShipmentMutationDescriptor).not.toHaveBeenCalled();
-    expect(fetch).not.toHaveBeenCalled();
-    await act(async () => discovery.resolve([]));
-    await userEvent.click(increase);
-    await waitFor(() => expect(screen.getByText("1 of 2 packed")).toBeTruthy());
-    await waitFor(() => expect(increase.matches(":disabled")).toBe(false));
-    await userEvent.type(screen.getByRole("searchbox", { name: "Scan or search" }), "spl_test");
-    await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
-    await waitFor(() => expect(screen.getByText("2 of 2 packed")).toBeTruthy());
-    expect(fetch).toHaveBeenCalledTimes(2);
-    expect(recovery.completeShipmentMutationDescriptor).toHaveBeenCalledTimes(2);
   });
 });
