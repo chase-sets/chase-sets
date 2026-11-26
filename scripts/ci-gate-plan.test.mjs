@@ -1420,11 +1420,14 @@ describe("shared CI gate plan", () => {
     });
   });
 
-  it("selects Corten Pilot Check from the pilot's marketplace and platform code, its Cargo files, its export and its action", () => {
+  it("selects Corten Pilot Check from the pilot's admin, marketplace, platform and public code, its Cargo files, its export and its action", () => {
     const triggers = [
       "deployables/corten-pilot/marketplace/src/checkout.rs",
       "deployables/corten-pilot/marketplace/static/app.css",
       "deployables/corten-pilot/platform/src/api.rs",
+      "deployables/corten-pilot/admin/src/app.rs",
+      "deployables/corten-pilot/admin/static/style.css",
+      "deployables/corten-pilot/public/src/home.rs",
       "deployables/corten-pilot/Cargo.toml",
       "deployables/corten-pilot/Cargo.lock",
       "deployables/corten-pilot/scripts/export.mjs",
@@ -1434,8 +1437,9 @@ describe("shared CI gate plan", () => {
       "README.md",
       "deployables/corten-pilot/README.md",
       "deployables/corten-pilot/marketplace/NOTES.md",
-      "deployables/corten-pilot/admin/src/app.rs",
-      "deployables/corten-pilot/public/src/home.rs",
+      "deployables/corten-pilot/admin/NOTES.md",
+      "deployables/corten-pilot/public/NOTES.md",
+      "deployables/corten-pilot/workarounds/open/chase-sets-10245.md",
       "deployables/corten-pilot/scripts/other.mjs",
       "deployables/corten-pilot/e2e/critical-flows.spec.ts",
       "scripts/dev-system.mjs",
@@ -1481,8 +1485,10 @@ describe("shared CI gate plan", () => {
     expect(action).toContain("run: node --import=tsx deployables/corten-pilot/scripts/export.mjs --check");
     // The advisory check skips a pull request that touches only the paths this gate selects.
     for (const ignored of [
+      "deployables/corten-pilot/admin/**",
       "deployables/corten-pilot/marketplace/**",
       "deployables/corten-pilot/platform/**",
+      "deployables/corten-pilot/public/**",
       "deployables/corten-pilot/Cargo.toml",
       "deployables/corten-pilot/Cargo.lock",
       "deployables/corten-pilot/scripts/export.mjs",
