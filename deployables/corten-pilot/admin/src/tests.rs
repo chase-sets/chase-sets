@@ -1749,6 +1749,15 @@ const RULE_FLAGS: [&str; 3] =
 const FLAGS_NO_LONGER_OFFERED: &str = "This policy stores physical flags that are no longer offered";
 
 #[tokio::test]
+async fn a_policy_asks_before_it_activates_or_retires_in_an_alertdialog_as_admin_web_does() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/commerce/postage-policies?policy=opp_seed", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"role="alertdialog" aria-label="Activate "#), "{html}");
+    assert!(html.contains(r#"role="alertdialog" aria-label="Retire "#), "{html}");
+}
+
+#[tokio::test]
 async fn the_forms_offer_the_physical_properties_and_the_preview_starts_bendable() {
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(get("/commerce/postage-policies?policy=opp_seed", Some("staff"))).await;
@@ -2894,6 +2903,10 @@ async fn a_dimension_shows_its_options_and_the_changes_its_status_allows() {
     assert_eq!(status, StatusCode::OK);
     assert!(html.contains(r#"<h1 class="detail-page__title">Condition</h1>"#), "{html}");
     assert!(html.contains(r#"command="show-modal" commandfor="catalog-lifecycle-deprecate">Deprecate</button>"#), "{html}");
+    assert!(
+        html.contains(r#"id="catalog-lifecycle-deprecate" role="alertdialog""#),
+        "the confirmation is an alertdialog: {html}"
+    );
     assert!(!html.contains(r#"value="activate""#), "an active dimension is not activated: {html}");
     assert!(html.contains("2 option(s)") && html.contains(">NM<") && html.contains(">2.5<"), "{html}");
     assert!(html.contains(r#"name="action" value="deprecate">Deprecate</button>"#), "the active option: {html}");
@@ -12355,6 +12368,7 @@ async fn the_wallet_workbench_shows_the_balance_the_history_with_its_commands_an
     );
     assert!(html.contains("You requested this adjustment"), "{html}");
     assert!(html.contains(r#"command="show-modal" commandfor="wallet-approve-wad_mine" disabled"#), "{html}");
+    assert!(html.contains(r#"id="wallet-approve-wad_mine" role="alertdialog""#), "the confirmation is an alertdialog: {html}");
     assert!(html.contains(r#"commandfor="wallet-reverse-wad_post""#) && html.contains(r#"name="approvedByUserId""#), "{html}");
     // The filters and the pager keep the account's name.
     assert!(html.contains(r#"href="/commerce/wallet-workbench/acc_1?accountName=Card%20Vault&amp;status=posted""#), "{html}");

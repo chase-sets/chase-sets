@@ -20,9 +20,13 @@ try {
   await requiredBox(phoneTitle);
   assert.ok(await phoneTitle.evaluate((node) => node.scrollWidth <= node.clientWidth), "phone promo title is readable");
   for (const width of [320, 375]) {
-    await phone.setViewportSize({ width, height: 900 });
+    await phone.setViewportSize({ width, height: 667 });
     const promoLink = phonePromo.getByRole("link");
-    await requiredBox(promoLink);
+    assert.ok((await requiredBox(promoLink)).height >= 44, `${width}px: promo action is a phone touch target`);
+    for (const control of await phonePromo.getByRole("button").all()) {
+      const box = await requiredBox(control);
+      assert.ok(box.width >= 44 && box.height >= 44, `${width}px: promo controls are phone touch targets`);
+    }
     for (const label of ["Order protection", "CollectorShippingCredit"]) {
       const { link, parts, control } = await promoLink.evaluate(measurePromoLink, label);
       assert.ok(parts.length >= 2, "visible promo link text and its decorative glyph");
@@ -39,6 +43,10 @@ try {
           `${width}px: the ordinary link still shares the pager row`,
         );
       }
+    }
+    for (const colorScheme of ["light", "dark"]) {
+      await phone.emulateMedia({ colorScheme });
+      await mobileRhythm(phone, width);
     }
   }
   await phone.close();
@@ -131,6 +139,30 @@ async function requiredBox(locator) {
   const box = await locator.boundingBox();
   assert.ok(box && box.width > 0 && box.height > 0, `visible target: ${locator}`);
   return box;
+}
+
+// Check the visible controls, not just the nav/section wrappers: matching wrapper
+// edges can still conceal a second gutter or a CTA wrapped onto its own row.
+async function mobileRhythm(page, width) {
+  const nav = page.locator("nav").first();
+  const hero = page.locator('main section[data-section="hero"]');
+  const title = await requiredBox(hero.getByRole("heading", { level: 1 }).filter({ visible: true }));
+  const brand = await requiredBox(nav.getByRole("link").first());
+  const cta = await requiredBox(nav.locator('[data-cta="nav"]'));
+  assert.ok(Math.abs(brand.x - title.x) <= 1, `${width}px: brand and hero share the leading gutter`);
+  assert.ok(Math.abs(cta.x + cta.width - (width - title.x)) <= 1, `${width}px: nav CTA meets the trailing gutter`);
+  assert.ok(Math.abs(brand.y + brand.height / 2 - (cta.y + cta.height / 2)) <= 1, `${width}px: a single nav row`);
+  const heroTop = (await requiredBox(hero)).y;
+  const navBottom = brand.y + brand.height;
+  assert.ok(heroTop > navBottom && heroTop - navBottom <= title.x, `${width}px: only one gap before the hero`);
+  const panel = hero.locator('[data-panel="hero"]');
+  const email = await requiredBox(panel.locator('input[type="email"]'));
+  const submit = await requiredBox(panel.locator('button[type="submit"]'));
+  const inset = email.x - (await requiredBox(panel)).x;
+  const rowGap = submit.y - (email.y + email.height);
+  assert.ok(rowGap > 0 && inset >= rowGap * 2, `${width}px: outer card inset is distinct from its form-row gap`);
+  assert.ok(cta.height >= 44, `${width}px: nav CTA keeps a phone touch target`);
+  if (width === 375) assert.ok(submit.y + submit.height <= 667, "signup action fits the compact first viewport");
 }
 
 function measurePromoLink(link, label) {

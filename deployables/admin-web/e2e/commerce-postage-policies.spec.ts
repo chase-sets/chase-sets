@@ -192,9 +192,8 @@ test.describe("commerce admin postage policies", () => {
       await activationForm.getByLabel("Activation reason", { exact: true }).fill(activationReason);
       await expect(activationForm.getByLabel("Activation reason", { exact: true })).toHaveValue(activationReason);
       await activationForm.getByRole("button", { name: "Activate" }).click();
-      // The Corten admin's confirmation is a plain <dialog> (role dialog); admin-web's is an alertdialog.
       await page
-        .getByRole(onCortenAdmin ? "dialog" : "alertdialog", { name: `Activate ${label}?` })
+        .getByRole("alertdialog", { name: `Activate ${label}?` })
         .getByRole("button", { name: "Activate" })
         .click();
       await page.waitForURL(
