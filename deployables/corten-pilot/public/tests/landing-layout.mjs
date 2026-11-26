@@ -145,7 +145,7 @@ async function requiredBox(locator) {
 // edges can still conceal a second gutter or a CTA wrapped onto its own row.
 async function mobileRhythm(page, width) {
   const nav = page.locator("nav").first();
-  const hero = page.locator('[data-section="hero"]');
+  const hero = page.locator('main section[data-section="hero"]');
   const title = await requiredBox(hero.getByRole("heading", { level: 1 }).filter({ visible: true }));
   const brand = await requiredBox(nav.getByRole("link").first());
   const cta = await requiredBox(nav.locator('[data-cta="nav"]'));
