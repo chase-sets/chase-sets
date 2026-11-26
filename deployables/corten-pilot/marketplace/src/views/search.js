@@ -3,22 +3,80 @@
 // with it, a choice applies as soon as it changes, as marketplace's do. The form is marked
 // data-keep-place, so the navigation keeps the page's scroll position, the rail's own scroll, the
 // groups the user unfolded and the focus on the field.
+/** @import { ElementId } from "corten" */
 
 /**
  * A choice changed: send its form. The words box waits for Enter or its button, and a choice in
  * the filters dialog (a phone) waits for Show results, as the dialog would close.
  * @param {Event} event
+ * @param {ElementId} formId
  */
-export function apply(event) {
+export function apply(event, formId) {
   const field = event.target;
   if (!(field instanceof HTMLInputElement || field instanceof HTMLSelectElement)) return;
   const form = field.form;
-  if (!form || field.type === "search" || field.closest("dialog:modal")) return;
+  if (!form || form.id !== formId || field.type === "search" || field.closest("dialog:modal")) return;
   if (!form.checkValidity()) {
     form.reportValidity();
     return;
   }
   form.requestSubmit();
+}
+
+/**
+ * Let Corten keep focus on Sort except when the submitted fields would return to the
+ * landing, which has no Sort control. The outer change handler still sends the form.
+ * @param {HTMLSelectElement} sort
+ * @param {boolean} canLand
+ * @param {string} relevance
+ * @param {ElementId} fallback
+ */
+export function sortPlace(sort, canLand, relevance, fallback) {
+  if (!canLand || sort.value !== relevance || document.activeElement !== sort || !sort.form) return;
+  for (const [name, value] of new FormData(sort.form)) {
+    if (name !== sort.name && typeof value === "string" && value.trim() !== "") return;
+  }
+  document.getElementById(fallback)?.focus({ preventScroll: true });
+}
+
+/**
+ * A refinement link's default activation still navigates. Hand focus to a control that
+ * survives when the link disappears, so Corten can keep it along with scroll.
+ * @param {PointerEvent} event
+ * @param {HTMLAnchorElement} link
+ * @param {ElementId} fallback
+ */
+export function refine(event, link, fallback) {
+  if (event.defaultPrevented || event.button !== 0 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey)
+    return;
+  const dialog = link.closest("dialog:modal");
+  if (dialog instanceof HTMLDialogElement) dialog.close();
+  document.getElementById(fallback)?.focus({ preventScroll: true });
+}
+
+/**
+ * The desktop rail's clear link persists; on mobile it is going away with the dialog.
+ * @param {PointerEvent} event
+ * @param {HTMLAnchorElement} link
+ * @param {ElementId} fallback
+ */
+export function clearRail(event, link, fallback) {
+  if (link.closest("dialog:modal")) refine(event, link, fallback);
+}
+
+/**
+ * Close a mobile filter dialog only after a valid submission. Keep focus on its opener;
+ * the search form's normal GET and Corten's place restoration then take over.
+ * @param {SubmitEvent} event
+ * @param {HTMLFormElement} form
+ * @param {ElementId} trigger
+ */
+export function closeFilters(event, form, trigger) {
+  if (event.defaultPrevented) return;
+  const dialog = form.closest("dialog:modal");
+  if (!(dialog instanceof HTMLDialogElement)) return;
+  dialog.close();
+  document.getElementById(trigger)?.focus({ preventScroll: true });
 }
 
 /**

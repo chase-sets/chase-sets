@@ -10,7 +10,8 @@
 //! | `market=buy\|sell\|watch` | the side of the market (`buy` unless `sell` or `watch`) |
 //! | `listing=<id>`, `offer=<id>` | the listing or offer chosen in the market book (one value) |
 //! | `dimension.<dimensionId>=<optionId>` | a product option (kept only when given one value) |
-//! | `book=listings\|offers\|details` | the market book's tab; the pilot's own, marketplace keeps it in state |
+//! | `book=listings\|offers\|sales\|details` | the market book's tab; the pilot's own, marketplace keeps it in state |
+//! | `range=30d\|90d\|1y\|all` | the Sales chart's time range |
 //!
 //! Marketplace reads the same parameters (`readInitialSelectedOptions`, `readExplicitMarketSelectionId`)
 //! and keeps later choices in React state; the pilot reads every choice from the address. The
@@ -98,7 +99,7 @@ impl Book {
         }
     }
 
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Book::Listings => "listings",
             Book::Offers => "offers",

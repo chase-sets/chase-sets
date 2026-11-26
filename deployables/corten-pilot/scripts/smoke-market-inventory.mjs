@@ -124,6 +124,16 @@ async function landed(page, family, id, ok) {
 
 let firstId;
 let catalogTitle;
+let stockItem;
+const stepsOn = (ledger) => ledger.locator("ol > li:visible > p:first-child").allTextContents();
+
+// A shorter result cannot restore a position below the new bottom of the document.
+async function keptLedgerScroll(page, before) {
+  return page.evaluate((before) => {
+    const max = document.documentElement.scrollHeight - innerHeight;
+    return before > 24 && scrollY > 24 && Math.abs(scrollY - Math.min(before, max)) <= 8;
+  }, before);
+}
 // With JavaScript.
 {
   const { ctx, page, problems } = await context(true);
@@ -193,6 +203,7 @@ let catalogTitle;
   check(await create.isEnabled(), "Create inventory item is enabled once the item is ready");
   await Promise.all([page.waitForURL(/\/account\/inventory\/items\/[^/?]+/, { waitUntil: "commit" }), create.click()]);
   const created = decodeURIComponent(new URL(page.url()).pathname.split("/").pop());
+  stockItem = `${base}/account/inventory/items/${encodeURIComponent(created)}`;
   const fresh = await landed(page, "item-create", created, (i) => i.total_quantity === 1);
   check(
     fresh?.storage_location_id === data.locations[0].storage_location_id,
@@ -205,7 +216,7 @@ let catalogTitle;
   );
 
   // Adjust Quantity: one more unit found.
-  const adjust = page.locator('form[action$="/adjustments"]');
+  const adjust = page.locator('section[aria-labelledby="item-adjust-title"] form');
   await adjust.locator('input[name="quantityDelta"]').fill("1");
   await adjust.locator('select[name="reasonCode"]').selectOption("found");
   await adjust.locator('input[name="reason"]').fill("Corten pilot smoke");
@@ -226,24 +237,78 @@ let catalogTitle;
   check((await release.count()) === 1, "the active manual hold has Release hold");
   await Promise.all([page.waitForURL(/family=hold-release/), release.locator('button[type="submit"]').click()]);
   await landed(page, "hold-release", created, (i) => i.held_quantity === 0);
-  // The ledger, filtered to the adjustment.
+  // First filter from a receipt page: it has to read again to clear the receipt and its status.
   const ledger = page.locator('section[aria-labelledby="item-ledger-title"]');
   const filter = ledger.locator('nav a[href*="ledgerKind=adjusted"]');
   for (let i = 0; i < 40 && (await filter.count()) === 0; i += 1) {
     await page.waitForTimeout(250);
     await page.reload();
   }
-  await Promise.all([page.waitForURL(/ledgerKind=adjusted/), filter.click()]);
+  const reads = [];
+  const countRead = (r) => {
+    if (r.method() === "GET" && r.url().split("?")[0] === stockItem) reads.push(r.url());
+  };
+  page.on("request", countRead);
+  await filter.evaluate((link) => link.scrollIntoView({ block: "center", behavior: "instant" }));
+  await filter.focus();
+  const receiptScroll = await page.evaluate(() => scrollY);
+  await Promise.all([page.waitForURL(/ledgerKind=adjusted/), page.keyboard.press("Enter")]);
   await settled(page);
+  check(reads.includes(`${stockItem}?ledgerKind=adjusted`), "filtering from the receipt reads the canonical page");
+  check(
+    new URL(page.url()).search === "?ledgerKind=adjusted" &&
+      (await page.getByText(text.ready).count()) === 1 &&
+      (await page.getByText(text.confirmed).count()) === 0,
+    "filtering a receipt page clears its write status",
+  );
+  check(
+    await filter.evaluate((link) => link === document.activeElement),
+    "the receipt navigation restores filter focus",
+  );
+  check(await keptLedgerScroll(page, receiptScroll), "the receipt navigation restores the ledger scroll position");
+  // A plain item has all its movements. Switching filters must not send even a hover prefetch,
+  // refill the draft form or add a Back history entry.
+  await page.goto(stockItem);
+  await page.waitForFunction(() => /** @type {any} */ (window).__hydratedAt > 0);
+  const draft = adjust.locator('input[name="reason"]');
+  await draft.fill("Unsubmitted adjustment draft");
+  const before = await page.evaluate(() => history.length);
+  reads.length = 0;
+  await filter.hover();
+  await quiet(page);
+  await filter.focus();
+  const localScroll = await page.evaluate(() => scrollY);
+  await Promise.all([page.waitForURL(/ledgerKind=adjusted/), page.keyboard.press("Enter")]);
+  await quiet(page);
   check(
     (await ledger.locator('nav a[aria-current="page"]').textContent())?.trim() === "Adjusted",
     "the filter is selected",
   );
-  const steps = await ledger.locator("ol > li > p:first-child").allTextContents();
+  check(await filter.evaluate((link) => link === document.activeElement), "the filter keeps keyboard focus");
+  check(await keptLedgerScroll(page, localScroll), "the local filter keeps the ledger scroll position");
+  const steps = await stepsOn(ledger);
   check(
     steps.length > 0 && steps.every((s) => s.trim() === "Adjusted"),
     `only adjustments are listed (${steps.length})`,
   );
+  const all = ledger.getByRole("link", { name: "All movements" });
+  await Promise.all([page.waitForURL(stockItem), all.click()]);
+  await quiet(page);
+  check((await stepsOn(ledger)).length > steps.length, "All movements restores the rest of the ledger");
+  check(
+    (await draft.inputValue()) === "Unsubmitted adjustment draft" &&
+      (await page.evaluate(() => history.length)) === before,
+    "switching filters keeps the form and updates the current history entry",
+  );
+  page.off("request", countRead);
+  check(reads.length === 0, `ledger filters sent no item requests (${reads.join(" | ")})`);
+
+  const newTab = ctx.waitForEvent("page");
+  await filter.click({ modifiers: ["ControlOrMeta"] });
+  const tab = await newTab;
+  await tab.waitForURL(/ledgerKind=adjusted/);
+  check(page.url() === stockItem, "opening a filter in a new tab leaves this item view alone");
+  await tab.close();
   // Record sale of one unit from the item page.
   const pageSale = page.locator('form[action$="/sale"]');
   await pageSale.locator('input[name="quantity"]').fill("1");
@@ -345,32 +410,37 @@ let catalogTitle;
     "with what is wrong with each field",
   );
   // The item page: its writes are plain forms, and a refused adjustment is the page again.
-  await page.goto(`${base}/account/inventory/items/${encodeURIComponent(firstId)}`);
-  check(
-    (await page.locator('form[action$="/adjustments"]').count()) === 1,
-    "the item page draws Adjust Quantity without a script",
-  );
-  const attempt = await page
-    .locator('form[action$="/adjustments"] input[name="inventoryMutationAttemptId"]')
-    .getAttribute("value");
-  const adjusted = await page.request.post(
-    `${base}/account/inventory/items/${encodeURIComponent(firstId)}/adjustments`,
-    {
-      form: {
-        inventoryMutationAttemptId: attempt || randomUUID(),
-        quantityDelta: "0",
-        reasonCode: "found",
-        reason: "",
-      },
-      maxRedirects: 0,
+  const firstStockItem = `${base}/account/inventory/items/${encodeURIComponent(firstId)}`;
+  await page.goto(firstStockItem);
+  const adjust = page.locator('section[aria-labelledby="item-adjust-title"] form');
+  check((await adjust.count()) === 1, "the item page draws Adjust Quantity without a script");
+  const attempt = await adjust.locator('input[name="inventoryMutationAttemptId"]').getAttribute("value");
+  const adjusted = await page.request.post(firstStockItem, {
+    form: {
+      inventoryMutationAttemptId: attempt || randomUUID(),
+      quantityDelta: "0",
+      reasonCode: "found",
+      reason: "",
     },
-  );
+    maxRedirects: 0,
+  });
   const adjustedBody = await adjusted.text();
   check(adjusted.status() === 422, `an adjustment the pilot refuses is the page again (${adjusted.status()})`);
   check(
     adjustedBody.includes("Enter a whole number other than 0, like -1 or 5.") &&
       adjustedBody.includes("Enter a value."),
     "with what is wrong",
+  );
+  await page.goto(`${stockItem}?requested=2&applied=1&refused=1`);
+  const ledger = page.locator('section[aria-labelledby="item-ledger-title"]');
+  const filter = ledger.getByRole("link", { name: "Adjusted" });
+  await Promise.all([page.waitForURL(/ledgerKind=adjusted/), filter.click()]);
+  const steps = await stepsOn(ledger);
+  check(
+    new URL(page.url()).search === "?ledgerKind=adjusted" &&
+      steps.length > 0 &&
+      steps.every((step) => step.trim() === "Adjusted"),
+    "the ledger link clears the previous result and renders just the selected movements without JavaScript",
   );
   check(problems.length === 0, `no console errors (${problems.join(" | ")})`);
   await ctx.close();
