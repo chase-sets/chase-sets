@@ -278,10 +278,10 @@ export const privacyPilotEvidencedFacts: readonly PrivacyPilotEvidencedFact[] = 
     reason: "The Corten marketplace registers Corten's service worker, which leaves the private paths to the network.",
     followUp: "https://github.com/chase-sets/chase-sets/issues/12095",
     evidence: [
+      { ref: `${pilotMarketplace}/app.rs:56`, token: "/service-worker.js" },
       { ref: `${pilotMarketplace}/app.rs:1938-1949`, token: "const NETWORK_ONLY" },
       { ref: `${pilotMarketplace}/app.rs:1954`, token: "fn pwa() -> corten::pwa::Pwa" },
       { ref: `${pilotMarketplace}/app.rs:1986`, token: ".pwa(pwa())" },
-      { ref: `${pilotMarketplace}/tests.rs:23996`, token: 'get("/service-worker.js", None)' },
     ],
   },
 ];

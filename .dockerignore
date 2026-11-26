@@ -16,7 +16,6 @@ infrastructure/digitalocean
 # fails scripts/docker-build-context-cited-evidence.test.mjs.
 deployables/corten-pilot
 !deployables/corten-pilot/marketplace/src/app.rs
-!deployables/corten-pilot/marketplace/src/tests.rs
 !deployables/corten-pilot/marketplace/src/views/checkout_page.js
 !deployables/corten-pilot/marketplace/src/views/connect_surface.js
 !deployables/corten-pilot/marketplace/src/views/payment_entry.js
