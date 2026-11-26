@@ -70,20 +70,12 @@ describe("listing attempt caller partition", () => {
       unpartitionedListingAttemptCallers(enumerateListingAttemptCallers([{ path: file, source: mutant }])),
     ).toHaveLength(2);
   });
-  it("rejects an MCP forwarding and E2E identity-removal mutant", () => {
+  it("rejects an MCP forwarding mutant", () => {
     const file = "bounded-contexts/marketplace/features/listings/api/mcp.ts";
     const source = readFileSync(path.join(root, file), "utf8").replaceAll("...readListingAttempt(args),", "");
     expect(unpartitionedListingAttemptCallers(enumerateListingAttemptCallers([{ path: file, source }]))).toHaveLength(
       4,
     );
-    const e2e = "deployables/marketplace/e2e/accepted-offer-sales-handoff.spec.ts";
-    expect(
-      unpartitionedListingAttemptCallers(
-        enumerateListingAttemptCallers([
-          { path: e2e, source: 'request.post("/api/marketplace/account/listings", { data: {} });' },
-        ]),
-      ),
-    ).toHaveLength(1);
   });
   it("enumerates identical clean/built trees and exposes a working-tree-walk mutant", () => {
     const fixture = mkdtempSync(path.join(tmpdir(), "listing-caller-partition-"));

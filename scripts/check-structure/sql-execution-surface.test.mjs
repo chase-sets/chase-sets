@@ -21,7 +21,7 @@ const testOnlyDirectorySegments = ["__tests__", "e2e", "fixtures", "tests", "fix
 const exactRemovedModules = [
   "bounded-contexts/catalog/support/test-support/source-observation-fixtures.ts",
   "deployables/admin-web/src/test/setup.ts",
-  "deployables/marketplace/app/test-support/setup.ts",
+  // marketplace-web's test setup module left with the deleted deployable.
   "deployables/platform-api/src/test-support/provider-gateways.ts",
   "deployables/platform-worker/src/test-support/provider-gateways.ts",
 ];
@@ -975,7 +975,7 @@ describe("repository-wide SQL execution partition", () => {
       expect(JSON.stringify(mutant)).not.toBe(baseline);
   });
 
-  it("measures the exact five-module and enforcement-neutral partition transition", () => {
+  it("measures the exact four-module and enforcement-neutral partition transition", () => {
     const trackedFiles = execFileSync("git", ["ls-files", "-z", "--cached"], {
       cwd: repoRoot,
       encoding: "utf8",

@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { readdir } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import path from "node:path";
+import { METADATA_ONLY_WEB_HOSTS } from "../lib/repo.mjs";
 import { findFeatureRouteReexports } from "./feature-route-reexports.mjs";
 
 const sourceExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
@@ -124,12 +125,6 @@ const frozenMutationConsistencyBaselineSurfaces = new Set([
   "route-action:bounded-contexts/auth/routes/access-admin/sessions-detail.tsx",
   "route-action:bounded-contexts/auth/routes/access-admin/sign-in.tsx",
   "route-action:bounded-contexts/auth/routes/access-admin/sign-out.tsx",
-  "route-action:bounded-contexts/auth/routes/marketplace/account-select.tsx",
-  "route-action:bounded-contexts/auth/routes/marketplace/account-sessions-detail.tsx",
-  "route-action:bounded-contexts/auth/routes/marketplace/guest-checkout-exit.tsx",
-  "route-action:bounded-contexts/auth/routes/marketplace/register.tsx",
-  "route-action:bounded-contexts/auth/routes/marketplace/sign-in.tsx",
-  "route-action:bounded-contexts/auth/routes/marketplace/sign-out.tsx",
   "route-action:bounded-contexts/public-presence/routes/admin/promo-bar.tsx",
   "route-action:bounded-contexts/public-presence/routes/marketplace/home.tsx",
 ]);
@@ -529,8 +524,10 @@ async function walkSourceFiles(rootDir) {
   return files;
 }
 
-export function collectReadAfterWriteRouteIndexes(contextManifests, repoRoot) {
+export function collectReadAfterWriteRouteIndexes(contextManifests, repoRoot, options = {}) {
+  const metadataOnlyHosts = new Set(options.metadataOnlyHosts ?? METADATA_ONLY_WEB_HOSTS);
   const routesById = new Map();
+  const routeHostsById = new Map();
   const routeIdsByFile = new Map();
   const contextsByName = new Map();
   const projectionGroupsByContext = new Map();
@@ -588,6 +585,9 @@ export function collectReadAfterWriteRouteIndexes(contextManifests, repoRoot) {
           fileExport: route.fileExport,
         };
         routesById.set(route.routeId, record);
+        const hosts = routeHostsById.get(route.routeId) ?? new Set();
+        hosts.add(contribution.deployable);
+        routeHostsById.set(route.routeId, hosts);
 
         if (isNonEmptyString(route.fileExport)) {
           for (const candidate of manifestRouteFileCandidates(context.root, route.fileExport)) {
@@ -603,10 +603,19 @@ export function collectReadAfterWriteRouteIndexes(contextManifests, repoRoot) {
     }
   }
 
+  // A route contributed only by metadata-only hosts has no route module, so no
+  // helper use can be proven on it.
+  const metadataOnlyRouteIds = new Set(
+    [...routeHostsById]
+      .filter(([, hosts]) => [...hosts].every((host) => metadataOnlyHosts.has(host)))
+      .map(([id]) => id),
+  );
+
   return {
     contextsByName,
     apiRoutePathsByContext,
     freshnessRoutesByContext,
+    metadataOnlyRouteIds,
     projectionGroupsByContext,
     routeIdsByFile,
     routesById,
@@ -1094,7 +1103,8 @@ function collectHelperUsageIndexes(helperUsages) {
 }
 
 function validateHelperUseClaims(options) {
-  const { entry, entryLabel, helpersUsedByFile, helpersUsedByRoute, routesById, violations } = options;
+  const { entry, entryLabel, helpersUsedByFile, helpersUsedByRoute, metadataOnlyRouteIds, routesById, violations } =
+    options;
 
   for (const [sectionName, section] of Object.entries({
     source: entry.source,
@@ -1106,9 +1116,13 @@ function validateHelperUseClaims(options) {
     }
 
     const claimedHelpers = section.helperUses.filter((helperName) => freshWriteHelperNames.has(helperName));
-    const routeIds = [section.routeId, ...(section.routeIds ?? [])]
+    const declaredRouteIds = [section.routeId, ...(section.routeIds ?? [])]
       .filter(isNonEmptyString)
       .filter((routeId) => routesById.has(routeId));
+    // A metadata-only host's route has no module to inspect; its claims are
+    // checked wherever another host serves the route with a module.
+    const routeIds = declaredRouteIds.filter((routeId) => !metadataOnlyRouteIds?.has(routeId));
+    const files = (section.files ?? []).filter(isNonEmptyString);
 
     for (const routeId of routeIds) {
       const usedHelpers = helpersUsedByRoute.get(routeId) ?? new Set();
@@ -1121,10 +1135,7 @@ function validateHelperUseClaims(options) {
       }
     }
 
-    for (const file of section.files ?? []) {
-      if (!isNonEmptyString(file)) {
-        continue;
-      }
+    for (const file of files) {
       const usedHelpers = helpersUsedByFile.get(file) ?? new Set();
       for (const helperName of claimedHelpers) {
         if (!helperUseSatisfiesClaim(usedHelpers, helperName)) {
@@ -1773,8 +1784,9 @@ export async function validateReadAfterWriteRouteInventory(options) {
     contextManifests,
     reportOutputPath = "artifacts/read-after-write-route-inventory.md",
     frozenBaselineSurfaces = frozenMutationConsistencyBaselineSurfaces,
+    metadataOnlyHosts,
   } = options;
-  const indexes = collectReadAfterWriteRouteIndexes(contextManifests, repoRoot);
+  const indexes = collectReadAfterWriteRouteIndexes(contextManifests, repoRoot, { metadataOnlyHosts });
   const helperUsages = await collectFreshWriteHelperUsage({ repoRoot, contextManifests });
   const rawPostWriteHandoffMetadataUsages = await collectRawPostWriteHandoffMetadataUsage({ repoRoot });
   const mutationSurfaces = await collectMutationConsistencySurfaces({ repoRoot, contextManifests });
@@ -1845,6 +1857,7 @@ export async function validateReadAfterWriteRouteInventory(options) {
       entryLabel,
       helpersUsedByFile,
       helpersUsedByRoute,
+      metadataOnlyRouteIds: indexes.metadataOnlyRouteIds,
       routesById: indexes.routesById,
       violations,
     });

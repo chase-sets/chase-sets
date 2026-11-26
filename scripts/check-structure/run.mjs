@@ -57,7 +57,13 @@ import { validateChannelConnectionContractProvenance } from "./channel-connectio
 import { validateCancellationProducerUniqueness } from "./cancellation-producer-uniqueness.mjs";
 import { validateConnectorFakeGraph } from "./connector-fake-public-codecs.mjs";
 import { runSqlExecutionSurfaceGuard } from "./sql-execution-surface.mjs";
-import { listWorkspacePackages, loadContextSourceManifest, repoRoot, workspaceRoots } from "../lib/repo.mjs";
+import {
+  listWorkspacePackages,
+  loadContextSourceManifest,
+  METADATA_ONLY_WEB_HOSTS,
+  repoRoot,
+  workspaceRoots,
+} from "../lib/repo.mjs";
 import { defaultSkippedDirectories } from "../lib/files.mjs";
 import { checkDbDurationBaseline } from "./db-duration-baseline.mjs";
 import {
@@ -3067,6 +3073,23 @@ export async function runStructureCheck(options = {}) {
 
           if (route.placement !== undefined && route.placement !== "root" && route.placement !== "layout") {
             addPathViolation(routeLabel, "placement must be 'root' or 'layout' when provided");
+          }
+
+          if (METADATA_ONLY_WEB_HOSTS.includes(contribution.deployable)) {
+            // The host's pages are served elsewhere; the record keeps only its
+            // link-catalog identity and must not name a module.
+            if (route.fileExport !== undefined || route.pageComponentExport !== undefined) {
+              addPathViolation(
+                routeLabel,
+                `${contribution.deployable} is a metadata-only host; its routes must not name fileExport or pageComponentExport`,
+              );
+            }
+            routesByDeployable.get(contribution.deployable)?.push({
+              ...route,
+              packageName,
+              sourceContext: manifest.contextName,
+            });
+            continue;
           }
 
           if (typeof route.fileExport !== "string" || !route.fileExport.startsWith("./routes/")) {

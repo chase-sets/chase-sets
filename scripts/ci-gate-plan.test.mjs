@@ -817,8 +817,9 @@ describe("shared CI gate plan", () => {
         file,
       ).toBe(true);
     }
-    // Three synthetic families named marketplace-web route paths and left with it.
-    expect(selectionFixture.families.filter(({ synthetic }) => synthetic)).toHaveLength(3);
+    // Three synthetic families named marketplace-web route paths and left with it; 28 more named the
+    // bounded-context marketplace route modules deleted with marketplace-web and keep their ownership patterns.
+    expect(selectionFixture.families.filter(({ synthetic }) => synthetic)).toHaveLength(31);
   });
 
   it("selects identical executable E2E sets across modes, provenance and labels", () => {

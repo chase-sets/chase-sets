@@ -67,14 +67,6 @@ const standardizedReferenceInfoSurfaces = [
     scope: "bounded-contexts/catalog/features/catalog-items/ui",
   },
   {
-    name: "Discovery item reference data",
-    scope: "bounded-contexts/discovery/features/item-detail/ui",
-  },
-  {
-    name: "Discovery marketplace rail details",
-    scope: "bounded-contexts/discovery/features/item-detail/ui/commerce",
-  },
-  {
     name: "Checkout Sell List terms",
     scope: "bounded-contexts/checkout/features/sell-list/ui",
   },

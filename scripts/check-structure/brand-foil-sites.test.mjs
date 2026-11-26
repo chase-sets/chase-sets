@@ -339,11 +339,6 @@ function misplacedUses() {
       "literal",
     ],
     [
-      "deployables/marketplace/e2e/ink-foil-visual-identity.evidence.spec.ts",
-      '\nconst buttonColour = getComputedStyle(button).getPropertyValue("--chase-logo-start");\n',
-      "literal",
-    ],
-    [
       "scripts/check-structure/brand-mark-representations.test.mjs",
       '\nconst unrelatedArray = ["--chase-logo-start"];\n',
       "literal",
@@ -405,7 +400,6 @@ const requiredCarrierPaths = [
   "scripts/generate-brand-icons.mjs",
   "bounded-contexts/public-presence/features/waitlist/ui/assets/generate-og-images.mjs",
   "packages/design-system/src/__tests__/design-system-components.test.tsx",
-  "deployables/marketplace/e2e/ink-foil-visual-identity.evidence.spec.ts",
   "scripts/check-structure/brand-mark-representations.test.mjs",
   "packages/design-system/README.md",
   "scripts/check-structure/brand-foil-sites.mjs",
@@ -493,7 +487,7 @@ function ancestryFixture(name, change, check) {
     };
     proofRows.push(row);
     expect(result.ok).toBe(false);
-    expect(result.summary.allowed).toBe(13);
+    expect(result.summary.allowed).toBe(12);
     check({ discovered, carrier, result, row });
   } finally {
     write(canonical, name, original);
@@ -589,29 +583,29 @@ describe("occurrence owners and complete accounting", () => {
     console.log(JSON.stringify(result, null, 2));
     expect(result.violations).toEqual([]);
     expect(result.summary).toMatchObject({
-      tracked: 14,
-      scanned: 14,
-      literal: 11,
+      tracked: 13,
+      scanned: 13,
+      literal: 10,
       raw: 9,
       constructor: 3,
-      token: 12,
-      union: 14,
-      allowed: 14,
+      token: 11,
+      union: 13,
+      allowed: 13,
       violations: 0,
     });
     expect(result.summary.roles).toEqual({
       "value-authority": 3,
       wordmark: 2,
       "wordmark-raster-generator": 2,
-      verification: 4,
+      verification: 3,
       documentation: 1,
       "detector-definition": 2,
     });
   });
-  it("has exactly the issue's 14 mutation paths and rejects omission of any one row", () => {
+  it("has exactly the issue's 13 mutation paths and rejects omission of any one row", () => {
     const ids = misplacedUses().map(([name]) => name);
     const expected = requiredCarrierPaths;
-    expect(expected).toHaveLength(14);
+    expect(expected).toHaveLength(13);
     expect(brandFoilRegistry.map((entry) => entry.path)).toEqual(expected);
     expect(ids).toEqual(expected);
     expect(sameIds(ids, expected)).toBe(true);
@@ -741,11 +735,6 @@ describe("occurrence owners and complete accounting", () => {
   it.each([
     ["scripts/generate-brand-icons.mjs", '["start", "mid", "end"].map', '["start", "mid", "end", "width"].map'],
     [
-      "deployables/marketplace/e2e/ink-foil-visual-identity.evidence.spec.ts",
-      "hexToRgbString(fixture[mode][name]!.candidate)",
-      "button.style.background",
-    ],
-    [
       "scripts/check-structure/brand-mark-representations.test.mjs",
       "fixture.light[name].candidate",
       "button.style.background",
@@ -809,7 +798,7 @@ describe("occurrence owners and complete accounting", () => {
       expect(discovered.tracked).toBe(clean.tracked);
       const result = validateBrandFoilDiscovery(discovered);
       expect(result.ok).toBe(expectedOk);
-      expect(result.summary.allowed).toBe(expectedOk ? 14 : 13);
+      expect(result.summary.allowed).toBe(expectedOk ? 13 : 12);
       if (!expectedOk) {
         for (const stop of lexicalLaw.stops)
           expect(result.violations).toContain(
@@ -1195,11 +1184,10 @@ function registeredAncestry(index, ruleId) {
     if (i === 6)
       return [...variable("palette"), obj("initializer"), prop("gradient" + stop[0].toUpperCase() + stop.slice(1))];
     if (i === 7) return test(...title1);
-    if (i === 8) return [...block("foilCandidates"), s("ReturnStatement", "statements[]")];
-    if (i === 9) return p[0] === "parity" ? test(...title2) : [...variable(id), s("CallExpression", "initializer")];
-    if (i === 11) return variable("lexicalLaw");
-    if (i === 12) return fn(id.split(":")[1]);
-    if (i === 13) return [...variable("aggregateFixture"), s("StringLiteral", "initializer")];
+    if (i === 8) return p[0] === "parity" ? test(...title2) : [...variable(id), s("CallExpression", "initializer")];
+    if (i === 10) return variable("lexicalLaw");
+    if (i === 11) return fn(id.split(":")[1]);
+    if (i === 12) return [...variable("aggregateFixture"), s("StringLiteral", "initializer")];
     return null;
   }
 
@@ -1222,12 +1210,11 @@ const ancestryFamilies = [
   ["icon-declaration", 5, ["foil.map"]],
   ["og-palette", 6, stopIds("palette")],
   ["component-expectations", 7, ["svg.expectation", "component.expectation"]],
-  ["evidence-return", 8, ["foilCandidates.return"]],
-  ["representation-maps", 9, ["lightCandidateStops", "darkCandidateStops"]],
-  ["representation-expectations", 9, stopIds("parity")],
-  ["guard-definition", 11, ["variable:lexicalLaw"]],
-  ["test-definitions", 12, ["function:lexicalCases", "function:misplacedUses"]],
-  ["proof-initializer", 13, ["aggregateFixture"]],
+  ["representation-maps", 8, ["lightCandidateStops", "darkCandidateStops"]],
+  ["representation-expectations", 8, stopIds("parity")],
+  ["guard-definition", 10, ["variable:lexicalLaw"]],
+  ["test-definitions", 11, ["function:lexicalCases", "function:misplacedUses"]],
+  ["proof-initializer", 12, ["aggregateFixture"]],
   ["svg-export-gate", 3, [svgContainerId]],
   ["embedded-style-gate", 3, ["svg.style.container"]],
   ["standalone-style-gate", 4, ["svg.style.container"]],
@@ -1238,7 +1225,7 @@ const nonAstRules = [
     [...stopIds("light"), ...stopIds("dark"), ...stopIds("alias.0"), ...stopIds("alias.1"), "brandFoilText.gradient"],
   ],
   ...[3, 4].map((index) => [index, ["brand-law", ...stopIds("root.light"), ...stopIds("root.dark")]]),
-  [10, ["brand-foil-paragraph"]],
+  [9, ["brand-foil-paragraph"]],
 ];
 function maskSvg(source) {
   return source
@@ -1408,7 +1395,7 @@ function ancestryBypassRegistry() {
 }
 
 describe("finite compiler ancestry matrix", () => {
-  it("reconciles all 52 AST rules, three gates and 27 non-AST rules with independent contracts", () => {
+  it("reconciles all 51 AST rules, three gates and 27 non-AST rules with independent contracts", () => {
     const expectedRules = requiredCarrierPaths.map(() => []);
     for (const [, index, ids] of ancestryFamilies)
       for (const id of ids) {
@@ -1431,7 +1418,7 @@ describe("finite compiler ancestry matrix", () => {
         });
       }
     for (const [index, ids] of nonAstRules) expectedRules[index].push(...ids);
-    expect(expectedRules.flat()).toHaveLength(80);
+    expect(expectedRules.flat()).toHaveLength(79);
     expect(nonAstRules.flatMap(([, ids]) => ids)).toHaveLength(28);
     expect(ancestryFamilies.flatMap(([, , ids]) => ids).filter((id) => id.endsWith(".container"))).toHaveLength(3);
     for (const [index, entry] of brandFoilRegistry.entries()) {
@@ -1505,7 +1492,7 @@ describe("finite compiler ancestry matrix", () => {
         const reject = (report) => expect(report.ok).toBe(false);
         expect(() => reject(result)).not.toThrow();
         expect(falseGreen.violations).toEqual([]);
-        expect(falseGreen.summary.allowed).toBe(14);
+        expect(falseGreen.summary.allowed).toBe(13);
         expect(() => reject(falseGreen)).toThrow();
         row.ancestryBypass = { summary: falseGreen.summary, ordinaryAssertionFails: true };
       },

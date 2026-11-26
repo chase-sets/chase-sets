@@ -728,19 +728,14 @@ describe("channels-context-foundation", () => {
         "features/outbound-sync/api/runtime.ts",
         "features/outbound-sync/read-model/schema.ts",
         "features/outbound-sync/ui/operation-log-loader.ts",
-        "routes/marketplace/account-channels-connection.tsx",
         "features/outbound-sync/integrations/listing-composition.ts",
         "features/listing-composition/domain/compose.ts",
         "features/listing-composition/api/runtime.ts",
         "features/listing-composition/read-model/schema.ts",
-        "routes/marketplace/account-channels-publication.tsx",
-        "features/listing-composition/ui/routes/account-channels-publication.tsx",
-        "features/listing-composition/ui/routes/account-channels-publication-connection.tsx",
         "features/listing-composition/api/request-client.ts",
         "support/request-support/api-client.ts",
         "features/manual-sync/api/runtime.ts",
         "features/manual-sync/read-model/schema.ts",
-        "routes/marketplace/account-channel-connection-manual-sync-download.tsx",
         "tests/vitest.config.mjs",
       ]),
     );
@@ -819,7 +814,12 @@ describe("channels-foundation-deployable-registration", () => {
   it("registers Channels in API, worker, marketplace, and admin-web support hosts while excluding public-web", () => {
     const { violations, registries } = validateContextRegistries();
     expect(violations).toEqual([]);
-    expect(registries.map((registry) => [registry.path, registry.actual.includes("channels")])).toEqual([
+    // marketplace-web is a metadata-only host with no registry module, so its row reports the contexts whose
+    // manifests still contribute to it.
+    expect(registries.filter(({ metadataOnly }) => metadataOnly).map(({ path }) => path)).toEqual([registryPaths[3]]);
+    expect(
+      registries.map((registry) => [registry.path, (registry.actual ?? registry.expected).includes("channels")]),
+    ).toEqual([
       [registryPaths[0], true],
       [registryPaths[1], true],
       [registryPaths[2], true],

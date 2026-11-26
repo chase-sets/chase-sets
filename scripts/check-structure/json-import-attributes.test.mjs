@@ -644,11 +644,13 @@ describe("real repository execution membership", () => {
 
       expect(result.violations, result.violations.join("\n")).toEqual([]);
       expect(result.inventory.parserVersion).toBe("6.0.3");
-      expect(result.inventory.declarations).toHaveLength(137);
+      // marketplace-web's deletion removed 34 declarations, all in deleted route
+      // and test files (30 vite-excluded, 4 vitest-excluded); none were added.
+      expect(result.inventory.declarations).toHaveLength(103);
       expect(result.inventory.partition).toEqual({
         "node-enforced": 58,
-        "vite-excluded": 51,
-        "vitest-excluded": 28,
+        "vite-excluded": 21,
+        "vitest-excluded": 24,
         "manifest-only": 0,
         indeterminate: 0,
       });
@@ -678,86 +680,76 @@ describe("real repository execution membership", () => {
           disposition: "vitest-excluded",
         },
       ]);
+      // The marketplace-web route and test files these point checks once named
+      // left with the deployable; each check now names a surviving file of the
+      // same shape and disposition.
       expect(
         normalized.filter(
-          ({ relativeFile }) =>
-            relativeFile ===
-            "bounded-contexts/fulfillment/features/seller-checkout-readiness/ui/routes/seller-shipping-setup.test.tsx",
+          ({ relativeFile }) => relativeFile === "bounded-contexts/settlement/routes/admin/money-health-route.test.ts",
         ),
       ).toEqual([
         {
-          relativeFile:
-            "bounded-contexts/fulfillment/features/seller-checkout-readiness/ui/routes/seller-shipping-setup.test.tsx",
+          relativeFile: "bounded-contexts/settlement/routes/admin/money-health-route.test.ts",
           form: "import",
-          specifier: "../../../../context.json",
+          specifier: "../../context.json",
           attributeText: null,
-          resolved: "bounded-contexts/fulfillment/context.json",
+          resolved: "bounded-contexts/settlement/context.json",
           disposition: "vitest-excluded",
         },
       ]);
       expect(createHash("sha256").update(JSON.stringify(normalized)).digest("hex")).toBe(
-        "9410f1db9f338a283ca41f07300bd55b4c27a9582908f1b4c8241f4724f9a744",
+        "44aca81126afdab901bde3dcc449b788601afb75bba08c8c568007b4f99457e6",
       );
       expect(
         normalized.find(
           ({ relativeFile }) =>
-            relativeFile ===
-            "bounded-contexts/inventory/features/storage-locations/ui/routes/account-inventory-locations.tsx",
+            relativeFile === "bounded-contexts/ordering/features/postage-policies/ui/routes/postage-policies.tsx",
         ),
       ).toMatchObject({
         form: "import",
         specifier: "../../../../context.json",
         attributeText: null,
-        resolved: "bounded-contexts/inventory/context.json",
+        resolved: "bounded-contexts/ordering/context.json",
         disposition: "vite-excluded",
       });
       expect(
         normalized.filter(
           (entry) =>
-            entry.relativeFile ===
-            "bounded-contexts/pricing/features/pricing-health/tests/pricing-health-route.test.tsx",
+            entry.relativeFile === "bounded-contexts/identity/features/account-management/api/partition.test.ts",
         ),
       ).toEqual([
         {
-          relativeFile: "bounded-contexts/pricing/features/pricing-health/tests/pricing-health-route.test.tsx",
+          relativeFile: "bounded-contexts/identity/features/account-management/api/partition.test.ts",
           form: "import",
           specifier: "../../../context.json",
           attributeText: null,
-          resolved: "bounded-contexts/pricing/context.json",
+          resolved: "bounded-contexts/identity/context.json",
           disposition: "vitest-excluded",
         },
       ]);
       expect(
-        normalized.filter((entry) => entry.relativeFile.startsWith("bounded-contexts/pricing/routes/marketplace/")),
-      ).toEqual([
-        {
-          relativeFile: "bounded-contexts/pricing/routes/marketplace/account-desk-repricing-policy.tsx",
+        normalized.filter((entry) => entry.relativeFile.startsWith("bounded-contexts/identity/routes/admin/")),
+      ).toEqual(
+        ["accounts-detail.tsx", "api-keys-detail.tsx", "invitations-detail.tsx"].map((file) => ({
+          relativeFile: `bounded-contexts/identity/routes/admin/${file}`,
           form: "import",
           specifier: "../../context.json",
           attributeText: null,
-          resolved: "bounded-contexts/pricing/context.json",
+          resolved: "bounded-contexts/identity/context.json",
           disposition: "vite-excluded",
-        },
-        {
-          relativeFile: "bounded-contexts/pricing/routes/marketplace/account-desk-repricing.tsx",
-          form: "import",
-          specifier: "../../context.json",
-          attributeText: null,
-          resolved: "bounded-contexts/pricing/context.json",
-          disposition: "vite-excluded",
-        },
-      ]);
+        })),
+      );
       expect(
         normalized.filter(
-          (entry) => entry.relativeFile === "bounded-contexts/pricing/tests/account-repricing-route.test.ts",
+          (entry) => entry.relativeFile === "bounded-contexts/discovery/tests/search-index-contract.test.ts",
         ),
       ).toEqual([
         {
-          relativeFile: "bounded-contexts/pricing/tests/account-repricing-route.test.ts",
+          relativeFile: "bounded-contexts/discovery/tests/search-index-contract.test.ts",
           form: "import",
           specifier: "../context.json",
           attributeText: null,
-          resolved: "bounded-contexts/pricing/context.json",
+          resolved: "bounded-contexts/discovery/context.json",
           disposition: "vitest-excluded",
         },
       ]);
@@ -782,7 +774,7 @@ describe("real repository execution membership", () => {
       ]);
       expect(
         result.inventory.declarations.find(
-          (entry) => entry.relativeFile === "bounded-contexts/settlement/routes/marketplace/account-desk-payout.tsx",
+          (entry) => entry.relativeFile === "deployables/public-web/app/context-registry.ts",
         ),
       ).toMatchObject({ disposition: "vite-excluded" });
       expect(

@@ -2903,50 +2903,6 @@
       "reason": "Own non-stock aggregate only; stock children are separately enrolled at their physical Item, allocation or Hold append."
     },
     {
-      "file": "bounded-contexts/inventory/features/inventory-items/ui/routes/account-inventory-item.tsx",
-      "symbol": "\"adjust-item\"",
-      "sink": "createInventoryRequestApiClient(request, {\n        mutationAttemptId: String(formData.get(\"inventoryMutationAttemptId\") ?? \"\"),\n      }).adjustItem",
-      "ordinal": 1,
-      "keys": [],
-      "disposition": "excluded",
-      "sourceSymbol": "bounded-contexts/inventory/features/inventory-items/ui/routes/account-inventory-item.tsx::\"adjust-item\"",
-      "foldTest": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.test.ts::excludes projections and unrelated Inventory streams from canonical stock authority",
-      "reason": "Own non-stock aggregate only; stock children are separately enrolled at their physical Item, allocation or Hold append."
-    },
-    {
-      "file": "bounded-contexts/inventory/features/inventory-items/ui/routes/account-inventory-item.tsx",
-      "symbol": "\"create-hold\"",
-      "sink": "createInventoryRequestApiClient(request, {\n          mutationAttemptId: String(formData.get(\"inventoryMutationAttemptId\") ?? \"\"),\n        }).createHold",
-      "ordinal": 1,
-      "keys": [],
-      "disposition": "excluded",
-      "sourceSymbol": "bounded-contexts/inventory/features/inventory-items/ui/routes/account-inventory-item.tsx::\"create-hold\"",
-      "foldTest": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.test.ts::excludes projections and unrelated Inventory streams from canonical stock authority",
-      "reason": "Own non-stock aggregate only; stock children are separately enrolled at their physical Item, allocation or Hold append."
-    },
-    {
-      "file": "bounded-contexts/inventory/features/inventory-items/ui/routes/account-inventory-item.tsx",
-      "symbol": "\"release-hold\"",
-      "sink": "createInventoryRequestApiClient(request, {\n          mutationAttemptId: String(formData.get(\"inventoryMutationAttemptId\") ?? \"\"),\n        }).releaseHold",
-      "ordinal": 1,
-      "keys": [],
-      "disposition": "excluded",
-      "sourceSymbol": "bounded-contexts/inventory/features/inventory-items/ui/routes/account-inventory-item.tsx::\"release-hold\"",
-      "foldTest": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.test.ts::excludes projections and unrelated Inventory streams from canonical stock authority",
-      "reason": "Own non-stock aggregate only; stock children are separately enrolled at their physical Item, allocation or Hold append."
-    },
-    {
-      "file": "bounded-contexts/inventory/features/inventory-items/ui/routes/account-inventory.tsx",
-      "symbol": "\"create-item\"",
-      "sink": "createInventoryRequestApiClient(request, {\n        mutationAttemptId: String(formData.get(\"inventoryMutationAttemptId\") ?? \"\"),\n      }).createItem",
-      "ordinal": 1,
-      "keys": [],
-      "disposition": "excluded",
-      "sourceSymbol": "bounded-contexts/inventory/features/inventory-items/ui/routes/account-inventory.tsx::\"create-item\"",
-      "foldTest": "bounded-contexts/inventory/features/inventory-items/api/stock-reservations.test.ts::excludes projections and unrelated Inventory streams from canonical stock authority",
-      "reason": "Own non-stock aggregate only; stock children are separately enrolled at their physical Item, allocation or Hold append."
-    },
-    {
       "file": "bounded-contexts/inventory/support/runtime-support/recovery-services.ts",
       "symbol": "recoverInventoryHolds > createHold",
       "sink": "raw.createHold",

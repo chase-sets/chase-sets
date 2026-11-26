@@ -1,6 +1,7 @@
-// Generates the committed PWA icon PNGs for the marketplace and admin-web
-// deployables: four distinct images (standard and maskable at 192 and 512)
-// duplicated byte-for-byte across the two deployables' public/icons trees.
+// Generates the committed PWA icon PNGs for the Corten marketplace and
+// admin-web: four distinct images (standard and maskable at 192 and 512)
+// duplicated byte-for-byte across the marketplace's static/icons tree and
+// admin-web's public/icons tree.
 // The mark geometry is read from the shipped design-system vector source and
 // the brand-foil colours from the committed candidate-token fixture, so the
 // rasters can never silently desynchronise from the vector mark. Outputs are
@@ -130,7 +131,7 @@ function outputPaths(role, size) {
   const marketplaceName = role === "maskable" ? `chase-sets-maskable-${size}.png` : `chase-sets-${size}.png`;
   const adminName = role === "maskable" ? `chase-sets-admin-maskable-${size}.png` : `chase-sets-admin-${size}.png`;
   return [
-    path.join(repositoryRoot, "deployables", "marketplace", "public", "icons", marketplaceName),
+    path.join(repositoryRoot, "deployables", "corten-pilot", "marketplace", "static", "icons", marketplaceName),
     path.join(repositoryRoot, "deployables", "admin-web", "public", "icons", adminName),
   ];
 }
