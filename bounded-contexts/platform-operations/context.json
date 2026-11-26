@@ -1072,65 +1072,6 @@
   },
   "deployableContributions": [
     {
-      "deployable": "marketplace-web",
-      "routes": [
-        {
-          "routeId": "account-support",
-          "routePath": "account/support",
-          "fileExport": "./routes/marketplace/account-support",
-          "routeType": "route",
-          "sourceContext": "platform-operations",
-          "delivery": "server-only",
-          "authorization": {
-            "kind": "authenticated",
-            "requiredPermissions": []
-          },
-          "canonicalLink": {
-            "kind": "not-applicable",
-            "reason": "Canonical-link publication is deferred with mobile route extraction."
-          },
-          "availability": {
-            "web": true,
-            "mobile": false
-          },
-          "pageComponentExport": "default",
-          "unsupportedMobile": {
-            "owner": "platform-operations",
-            "followUp": "#5238",
-            "reason": "Portable data operations have not been extracted for this route."
-          }
-        },
-        {
-          "routeId": "account-support-detail",
-          "routePath": "account/support/:id",
-          "fileExport": "./routes/marketplace/account-support-detail",
-          "routeType": "route",
-          "sourceContext": "platform-operations",
-          "delivery": "server-only",
-          "authorization": {
-            "kind": "authenticated",
-            "requiredPermissions": []
-          },
-          "canonicalLink": {
-            "kind": "route-derived"
-          },
-          "availability": {
-            "web": true,
-            "mobile": false
-          },
-          "pageComponentExport": "default",
-          "unsupportedMobile": {
-            "owner": "platform-operations",
-            "followUp": "#5238",
-            "reason": "Portable data operations have not been extracted for this route."
-          },
-          "linkParameters": {
-            "query": {}
-          }
-        }
-      ]
-    },
-    {
       "deployable": "admin-web",
       "routes": [
         {
@@ -1293,18 +1234,6 @@
       "order": 6,
       "visibility": "signed-in",
       "requiredPermissions": ["provider-connections.view"]
-    },
-    {
-      "deployable": "marketplace-web",
-      "slot": "top-nav",
-      "key": "support",
-      "label": "Support",
-      "icon": "help",
-      "href": "/account/support",
-      "order": 200,
-      "visibility": "signed-in",
-      "requiredPermissions": ["support.view"],
-      "excludedRoleKeys": ["guest-buyer"]
     },
     {
       "deployable": "admin-web",

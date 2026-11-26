@@ -230,37 +230,6 @@
     }
   ],
   "deployableContributions": [
-    {
-      "deployable": "marketplace-web",
-      "routes": [
-        {
-          "routeId": "account-notifications",
-          "routePath": "account/notifications",
-          "fileExport": "./routes/account-notifications",
-          "routeType": "route",
-          "sourceContext": "notifications",
-          "delivery": "server-only",
-          "authorization": {
-            "kind": "authenticated",
-            "requiredPermissions": []
-          },
-          "canonicalLink": {
-            "kind": "not-applicable",
-            "reason": "Canonical-link publication is deferred with mobile route extraction."
-          },
-          "availability": {
-            "web": true,
-            "mobile": false
-          },
-          "pageComponentExport": "default",
-          "unsupportedMobile": {
-            "owner": "notifications",
-            "followUp": "#5238",
-            "reason": "Portable data operations have not been extracted for this route."
-          }
-        }
-      ]
-    }
   ],
   "mutationConsistencyInventory": [
     {
@@ -325,44 +294,6 @@
     }
   ],
   "shellContributions": [
-    {
-      "deployable": "marketplace-web",
-      "slot": "top-nav",
-      "key": "notifications",
-      "label": "Notifications",
-      "labelKey": "notifications.shell.notifications.label",
-      "icon": "bell",
-      "href": "/account/notifications",
-      "activation": "route",
-      "order": 90,
-      "visibility": "signed-in",
-      "requiredPermissions": [
-        "accounts.view"
-      ],
-      "excludedRoleKeys": [
-        "guest-buyer"
-      ],
-      "placement": "utility"
-    },
-    {
-      "deployable": "marketplace-web",
-      "slot": "bottom-nav",
-      "key": "notifications",
-      "label": "Alerts",
-      "icon": "bell",
-      "href": "/account/notifications",
-      "activation": "route",
-      "order": 90,
-      "visibility": "signed-in",
-      "requiredPermissions": [
-        "accounts.view"
-      ],
-      "excludedRoleKeys": [
-        "guest-buyer"
-      ],
-      "placement": "utility",
-      "packingPriority": 600
-    }
   ],
   "directoryIntent": {
     "notification-center": {
