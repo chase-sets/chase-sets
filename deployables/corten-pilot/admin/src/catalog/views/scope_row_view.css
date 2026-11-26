@@ -37,3 +37,10 @@
 .error p {
   margin: 0;
 }
+
+/* Stacked at phone width, the row's View is a 44px touch target, as admin-web's card action is. */
+@media not (--wide) {
+  .view {
+    min-height: 2.75rem;
+  }
+}

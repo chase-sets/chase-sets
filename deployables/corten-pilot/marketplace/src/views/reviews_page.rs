@@ -38,6 +38,9 @@ pub struct ReportReviewDialogId<'a>(pub &'a str);
 #[derive(Id)]
 pub struct ReplyFeedbackId;
 
+#[derive(Id)]
+struct ReviewRoleId<'a>(&'a str);
+
 /// A rating as the API writes it (`"4.50"`), when it is a number.
 fn rating(text: Option<&str>) -> Option<f64> {
     text.and_then(|r| r.trim().parse::<f64>().ok()).filter(|r| r.is_finite())
@@ -185,11 +188,12 @@ fn RoleFilter<'a>(t: ReviewsMsg, screen: &'a ReviewsScreen) -> impl Render {
     };
     let roles = [None, Some(Role::Seller), Some(Role::Buyer)];
     html! {
-        <ul class={Links}>
+        <ul class={Links} data-keep-place>
             for (role, word) in roles.into_iter().zip(words) {
                 <li>
                     <a
                         class={if screen.role == role { Primary } else { Secondary }}
+                        id={ReviewRoleId(role.map_or("all", Role::as_str))}
                         href={&screen.href(role, None)}
                         aria-current={(screen.role == role).then_some("page")}
                     >

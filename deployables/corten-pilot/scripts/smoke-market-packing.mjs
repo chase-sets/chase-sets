@@ -1,4 +1,6 @@
 // Packs a shipment in a browser, against the real platform API, as the auth seed's seller.
+// - Read-only packing slips: one copy of each sheet, local format and canonical URL, CSS paper size
+//   in the printed PDF for both formats, and the server-rendered GET fallback.
 // - Read, on a shipment awaiting its package: the shipment's page offers Start packing as
 //   marketplace's does, and the packing page says Ready to start; at 390 px nothing scrolls
 //   sideways and every control is at least 40 px tall.
@@ -7,16 +9,21 @@
 //   scanning its title change the line, the progress and Finish in place with no navigation;
 //   Finish records one package and loads the shipment's page. Without JavaScript, on another
 //   shipment, the same as pages. At 390 px Finish stays on screen. No console errors.
-// Usage: node scripts/smoke-market-packing.mjs [pilot-url] [marketplace-url] [seller-state] [api-url]
+// Usage: node scripts/smoke-market-packing.mjs [pilot-url] [marketplace-url] [seller-state] [api-url] [--slips-only]
+// To use a read-only fixture instead of the API's shipment list, pass --slips-only --shipment-ids=id1,id2.
 import { readFileSync } from "node:fs";
 import { chromium } from "@playwright/test";
 
+const args = process.argv.slice(2);
+const slipsOnly = args.includes("--slips-only");
+const fixedIds = args.find((arg) => arg.startsWith("--shipment-ids="))?.slice("--shipment-ids=".length);
+if (fixedIds !== undefined && !slipsOnly) throw new Error("--shipment-ids requires --slips-only");
 const [
   base = "http://localhost:7794",
   market = "http://localhost:7753",
   state = "../../artifacts/corten-pilot/marketplace-state.json",
   api = "http://localhost:7762",
-] = process.argv.slice(2);
+] = args.filter((arg) => arg !== "--slips-only" && !arg.startsWith("--shipment-ids="));
 let failures = 0;
 
 function check(ok, what) {
@@ -35,14 +42,13 @@ const read = async (path) => {
   return res.json();
 };
 
-const list = (await read("?limit=100&offset=0")).items;
-const open = list.filter((s) => s.status === "packing").concat(list.filter((s) => s.status === "awaiting-package"));
-console.log(`shipments to pack: ${open.map((s) => `${s.shipment_id} (${s.status})`).join(", ") || "none"}`);
-if (open.length === 0) {
-  console.log("SKIP the sandbox has no shipment awaiting its package; reseed to run the writes");
-  process.exit(0);
-}
-
+const list =
+  fixedIds === undefined
+    ? (await read("?limit=100&offset=0")).items
+    : fixedIds
+        .split(",")
+        .filter(Boolean)
+        .map((shipment_id) => ({ shipment_id }));
 const browser = await chromium.launch();
 async function context(options = {}) {
   const { javaScriptEnabled = true, viewport = { width: 1280, height: 900 } } = options;
@@ -62,6 +68,89 @@ const progress = (page) =>
     .innerText()
     .then((t) => t.replace(/\s+/g, " ").trim());
 const finish = (page) => page.getByRole("button", { name: "Finish packing" });
+
+async function checkSlips() {
+  const ids = list.slice(0, 2).map((shipment) => shipment.shipment_id);
+  check(ids.length > 0, "the sandbox has a shipment to print");
+  if (!ids.length) return;
+  const path = "/account/sales/shipments/packing-slips";
+  const initial = new URLSearchParams({ shipmentIds: ids.join(", "), format: "letter" });
+  initial.append("shipmentIds", ids[0]);
+  const initialUrl = `${base}${path}?${initial}`;
+  const paper = (page) => page.getByRole("combobox", { name: "Format" });
+  const sheets = (page) => page.locator("[data-packing-slip-page]");
+  const isFormat = (url, format) =>
+    url.pathname === path &&
+    url.searchParams.get("format") === format &&
+    JSON.stringify(url.searchParams.getAll("shipmentIds")) === JSON.stringify(ids);
+
+  const { ctx, page, problems } = await context();
+  const requests = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === path) requests.push(request);
+  });
+  await page.goto(initialUrl);
+  await page.getByRole("button", { name: "Print", exact: true }).waitFor();
+  check((await sheets(page).count()) === ids.length, "the document draws each requested shipment once");
+  const firstSheet = await sheets(page).first().elementHandle();
+  const historyLength = await page.evaluate(() => history.length);
+  const printSize = async (width, height, name) => {
+    // Chromium serializes the page boundaries in PDF points (72 per inch).
+    const pdf = await page.pdf({ preferCSSPageSize: true });
+    const boxes = [...pdf.toString("latin1").matchAll(/\/MediaBox\s*\[\s*0\s+0\s+([\d.]+)\s+([\d.]+)\s*\]/g)];
+    check(
+      boxes.length === ids.length &&
+        boxes.every(([, w, h]) => Math.abs(Number(w) - width) < 1 && Math.abs(Number(h) - height) < 1),
+      `${name} PDF has ${ids.length} ${width} × ${height} pt sheets (got ${boxes.map(([, w, h]) => `${w} × ${h}`).join(", ")})`,
+    );
+  };
+  await printSize(612, 792, "Letter");
+  await paper(page).focus();
+  await page.keyboard.press("ArrowDown");
+  await page.waitForURL((url) => isFormat(url, "thermal-4x6"));
+  await page.locator('[data-format="thermal-4x6"]').waitFor();
+  check(
+    await paper(page).evaluate((control) => document.activeElement === control),
+    "keyboard format change keeps focus",
+  );
+  check(
+    await firstSheet?.evaluate((sheet) => sheet === document.querySelector("[data-packing-slip-page]")),
+    "changing paper does not replace or duplicate the shipment markup",
+  );
+  await printSize(288, 432, "Thermal");
+  await paper(page).selectOption("letter");
+  await page.waitForURL((url) => isFormat(url, "letter"));
+  await page.locator('[data-format="letter"]').waitFor();
+  await printSize(612, 792, "Switched-back letter");
+  check(requests.length === 1, "both local switches make no additional packing-slip request");
+  check((await page.evaluate(() => history.length)) === historyLength, "local switches do not add history entries");
+  check(problems.length === 0, `no packing-slip console errors ${problems.join(" | ")}`);
+  await ctx.close();
+
+  const fallback = await context({ javaScriptEnabled: false });
+  await fallback.page.goto(initialUrl);
+  await paper(fallback.page).selectOption("thermal-4x6");
+  check(
+    !isFormat(new URL(fallback.page.url()), "thermal-4x6"),
+    "without JavaScript, selecting paper does not navigate",
+  );
+  await fallback.page.getByRole("button", { name: "Change format" }).click();
+  await fallback.page.waitForURL((url) => isFormat(url, "thermal-4x6"));
+  await fallback.page.locator('[data-format="thermal-4x6"]').waitFor();
+  check((await sheets(fallback.page).count()) === ids.length, "the no-JavaScript GET draws the thermal slips");
+  await fallback.ctx.close();
+}
+
+await checkSlips();
+const open = list.filter((s) => s.status === "packing").concat(list.filter((s) => s.status === "awaiting-package"));
+if (!slipsOnly)
+  console.log(`shipments to pack: ${open.map((s) => `${s.shipment_id} (${s.status})`).join(", ") || "none"}`);
+if (slipsOnly || open.length === 0) {
+  if (!slipsOnly) console.log("SKIP the sandbox has no shipment awaiting its package; reseed to run the writes");
+  await browser.close();
+  console.log(failures === 0 ? "all passed" : `${failures} failed`);
+  process.exit(failures === 0 ? 0 : 1);
+}
 
 /** Start packing from the shipment's page (or resume it, as the API says it stands), and wait
  * for the packing page: packing, or saying it could not confirm the start. */

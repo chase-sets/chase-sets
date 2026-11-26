@@ -33,6 +33,9 @@ pub struct PreferenceId<'a>(pub &'a str);
 #[derive(Id)]
 pub struct ProductAlertsId;
 
+#[derive(Id)]
+struct NotificationTabId<'a>(&'a str);
+
 /// The page.
 #[component(css)]
 pub fn NotificationPage<'a>(t: NotificationsMsg, p: Pilot, screen: &'a Screen, notice: Option<&'a Notice>) -> impl Render {
@@ -49,11 +52,21 @@ pub fn NotificationPage<'a>(t: NotificationsMsg, p: Pilot, screen: &'a Screen, n
                 <h1 class={Title}>{t.page_heading()}</h1>
                 <p class={Muted}>{t.route_description()}</p>
             </header>
-            <nav class={Tabs} aria-label={t.page_heading()}>
-                <a class={if feed { Primary } else { Secondary }} href={&feed_href} aria-current={feed.then_some("page")}>
+            <nav class={Tabs} aria-label={t.page_heading()} data-keep-place>
+                <a
+                    id={NotificationTabId("feed")}
+                    class={if feed { Primary } else { Secondary }}
+                    href={&feed_href}
+                    aria-current={feed.then_some("page")}
+                >
                     {t.page_feed_label()}
                 </a>
-                <a class={if feed { Secondary } else { Primary }} href={&settings_href} aria-current={(!feed).then_some("page")}>
+                <a
+                    id={NotificationTabId("settings")}
+                    class={if feed { Secondary } else { Primary }}
+                    href={&settings_href}
+                    aria-current={(!feed).then_some("page")}
+                >
                     <span aria-hidden="true">"\u{2699}"</span>" "{t.page_settings_label()}
                 </a>
             </nav>

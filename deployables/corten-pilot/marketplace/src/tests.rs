@@ -4556,6 +4556,8 @@ async fn a_dimension_with_many_options_is_a_get_form_that_keeps_the_others() {
     let (_, _, html) = pilot.send(get("/items/charizard?market=sell&dimension.dim_form=chc_graded", None)).await;
     let form = html.split(r#"<form class="#).nth(1).and_then(|f| f.split("</form>").next()).expect("the grade's form");
     assert!(form.contains(r#"method="get""#), "{form}");
+    assert!(form.contains(r#"action="/items/charizard""#), "{form}");
+    assert!(form.contains(r#"autocomplete="off" data-keep-place"#), "{form}");
     assert!(form.contains(r#"<input type="hidden" name="market" value="sell">"#), "{form}");
     assert!(form.contains(r#"<input type="hidden" name="dimension.dim_form" value="chc_graded">"#), "{form}");
     assert!(form.contains(r#"<select id="dim-dim_grade" name="dimension.dim_grade">"#), "{form}");
@@ -4563,6 +4565,28 @@ async fn a_dimension_with_many_options_is_a_get_form_that_keeps_the_others() {
     let (seven, one) = (form.find("Grade 7").unwrap(), form.find("Grade 1").unwrap());
     assert!(seven < one, "{form}");
     assert!(form.contains(r#"<option value="any" selected>Any</option>"#), "{form}");
+}
+
+#[tokio::test]
+async fn a_refused_item_post_keeps_the_picker_and_sales_retry_on_the_item_get() {
+    let pilot = Pilot::new().await;
+    let address = "book=sales&range=1y&dimension.dim_form=chc_graded";
+    let buy = buy_body("add-product", "0", "", "", address);
+    let (status, _, html) = pilot.send(post(ITEM_CART, "buyer", &buy, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    let form = html
+        .split_once(r#"<form class="item-detail__pick""#)
+        .and_then(|(_, rest)| rest.split_once("</form>"))
+        .map(|(form, _)| form)
+        .expect("the grade's GET form on the refused POST page");
+    assert!(form.contains(r#"action="/items/charizard""#), "{form}");
+    assert!(form.contains(r#"name="book" value="sales""#) && form.contains(r#"name="range" value="1y""#), "{form}");
+    let retry = crate::text::Pilot::default().item_sales_again();
+    assert_eq!(hrefs(&html, retry), ["/items/charizard?book=sales&amp;range=1y&amp;dimension.dim_form=chc_graded"]);
+    let retry_link = html.split("<a ").find(|link| link.split("</a>").next().is_some_and(|tag| tag.contains(retry)));
+    let retry_link = retry_link.expect("the Sales retry link").split_once("</a>").unwrap().0;
+    assert!(retry_link.contains("data-keep-place") && retry_link.contains("item-choice-book-sales"), "{retry_link}");
+    assert!(adds(&pilot).is_empty());
 }
 
 #[tokio::test]
@@ -4591,7 +4615,7 @@ async fn selling_shows_the_best_offer_first_and_the_viewers_own_as_theirs() {
     assert!(page.contains("$350.00 Your offer You"), "{page}");
     assert!(page.contains("You cannot accept your own offer."), "{page}");
     // The tabs keep the side; Listings is the sell side's other tab.
-    assert_eq!(hrefs(&html, "Listings")[0], "/items/charizard?market=sell&amp;book=listings");
+    assert_eq!(hrefs(&html, "Listings")[0], "/items/charizard?market=sell&amp;book=listings#market-book");
 }
 
 #[tokio::test]
@@ -6327,7 +6351,7 @@ async fn the_sales_tab_reads_the_products_market_history_with_the_page_and_draws
     let book = &html[at..at + html[at..].find("</section>").unwrap()];
     assert_eq!(
         hrefs(book, "Sales"),
-        ["/items/charizard?book=sales&amp;range=1y&amp;dimension.dim_form=chc_raw"],
+        ["/items/charizard?book=sales&amp;range=1y&amp;dimension.dim_form=chc_raw#market-book"],
         "the tab keeps the range: {book}"
     );
     let shown = text(book);
@@ -6348,7 +6372,8 @@ async fn the_sales_tab_reads_the_products_market_history_with_the_page_and_draws
     assert!(series.headers.get("chase-sets-read-after-write").is_none());
     // The range is links, the year chosen; the chart is a line, a band and one verified sale.
     assert!(book.contains(r#"aria-current="page">1 year</a>"#), "{book}");
-    assert_eq!(hrefs(book, "90 days"), ["/items/charizard?book=sales&amp;dimension.dim_form=chc_raw"]);
+    assert_eq!(hrefs(book, "90 days"), ["/items/charizard?book=sales&amp;dimension.dim_form=chc_raw#sales-ranges-usd"]);
+    assert!(book.contains(r#"id="sales-ranges-usd""#), "{book}");
     assert!(book.contains(r#"<svg viewBox="0 0 640 220" role="img" aria-label="Trade price history for Charizard""#), "{book}");
     assert!(book.contains(r#"class="time-series__chart-line" d="M12.00,"#), "{book}");
     assert_eq!(book.matches("time-series__chart-band").count(), 1, "{book}");
@@ -6723,7 +6748,10 @@ async fn search_sends_its_terms_and_draws_results_filters_and_load_more() {
     assert!(html.contains(">Japanese<"), "a result's language: {html}");
     // The filters are one GET form; the words box and the sort are in it by its id.
     assert!(html.contains(r#"<form id="search-form""#), "{html}");
-    assert!(html.contains(r#"<input class="input__input" type="search" name="q" form="search-form" value="pika""#), "{html}");
+    assert!(
+        html.contains(r#"<input id="search-words" class="input__input" type="search" name="q" form="search-form" value="pika""#),
+        "{html}"
+    );
     // The words box is the kit's input group, the design system's search glyph inside its border
     // and hidden from a screen reader, which reads the label's words.
     let words =
@@ -6736,7 +6764,7 @@ async fn search_sends_its_terms_and_draws_results_filters_and_load_more() {
         "{words}"
     );
     assert!(words.contains(r#"<span class="visually-hidden__visually-hidden">Marketplace search</span>"#), "{words}");
-    assert!(html.contains(r#"<select name="sort" form="search-form">"#), "{html}");
+    assert!(html.contains(r#"<select id="search-sort" name="sort" form="search-form""#), "{html}");
     assert!(html.contains(r#"<input type="checkbox" name="dimension.dim_grade" value="chc_10" checked>"#), "{html}");
     // Each chip is the address without its filter.
     assert!(html.contains("Minimum price: $12.50"), "{html}");
@@ -7409,6 +7437,7 @@ async fn the_reviews_role_and_page_are_read_from_the_api_and_written_back_into_t
     let (status, _, html) = pilot.send(get("/accounts/chase-sets?role=seller&page=2", None)).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert_eq!(account_reads(&pilot), ["/api/marketplace/accounts/chase-sets?limit=10&offset=10&role=seller"]);
+    assert!(html.contains(r#"id="feedback-role-buyer" href="/accounts/chase-sets?role=buyer#feedback""#), "{html}");
     assert!(html.contains(r#"href="/accounts/chase-sets?role=seller#feedback">Previous page</a>"#), "{html}");
     assert!(html.contains(r#"href="/accounts/chase-sets?role=seller&amp;page=3#feedback">Next page</a>"#), "{html}");
     assert!(html.contains(r#"href="/accounts/chase-sets?role=seller&amp;page=2#feedback" aria-current="page""#), "{html}");
@@ -7562,6 +7591,7 @@ async fn the_feed_shows_each_notification_its_source_and_time_and_open_stays_her
     );
     assert!(html.contains("<title>Notifications | Marketplace</title>"), "{html}");
     assert!(html.contains(r#"href="/account/notifications" aria-current="page""#), "{html}");
+    assert!(html.contains(r#"id="notification-tab-settings""#) && html.contains("data-keep-place"), "{html}");
     let page = text(&html);
     for words in
         ["Recent updates", "1 unread", "Order ORD-1 cancelled", "New", "Orders", "Product alerts", "Read", "Oct 25, 2026"]
@@ -8428,8 +8458,10 @@ async fn the_shipments_sign_in_and_need_fulfillment_view() {
 async fn the_packing_slips_print_each_shipment_named_once_in_the_format_chosen() {
     let pilot = Pilot::new().await;
     let page = "/account/sales/shipments/packing-slips?shipmentIds=shp_done,%20shp_two&shipmentIds=shp_done&shipmentIds=&shipmentIds=shp_gone&format=thermal-4x6";
-    let (status, _, html) = pilot.send(get(page, Some("shipper"))).await;
+    let (status, headers, html) = pilot.send(get(page, Some("shipper"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
+    let cache = headers[header::CACHE_CONTROL].to_str().unwrap();
+    assert!(cache.contains("private") || cache.contains("no-store"), "addresses must not be shared: {cache}");
     let paths: Vec<_> = shipment_calls(&pilot).into_iter().map(|c| c.path).collect();
     assert_eq!(
         paths,
@@ -8457,12 +8489,17 @@ async fn the_packing_slips_print_each_shipment_named_once_in_the_format_chosen()
     assert!(html.contains(r#"data-format="thermal-4x6""#), "{html}");
     assert!(html.contains(r#"<option value="thermal-4x6" selected>"#), "{html}");
     assert!(
-        html.contains(r#"<form class="#) && html.contains(r#"method="get" action="/account/sales/shipments/packing-slips""#),
+        html.contains(
+            r#"<form data-ref="form" class="packing-slips-page__chooser" method="get" action="/account/sales/shipments/packing-slips" "#,
+        ),
         "{html}"
     );
-    for id in ["shp_done", "shp_two"] {
+    // Both the local switch and the no-script GET preserve the normalized original selection.
+    assert_eq!(html.matches(r#"name="shipmentIds""#).count(), 3, "{html}");
+    for id in ["shp_done", "shp_two", "shp_gone"] {
         assert!(html.contains(&format!(r#"<input type="hidden" name="shipmentIds" value="{id}">"#)), "{id}: {html}");
     }
+    assert!(html.contains("packing_slips_page.choose(") && html.contains("packing_slips_page.apply("), "{html}");
     // Print is corten-ui's PrintButton: drawn hidden, its script shows it.
     assert!(html.contains("print_button.connect(") && html.contains("print_button.print()"), "{html}");
     // Anything else asked for is letter.
@@ -13465,6 +13502,7 @@ async fn the_status_filter_reads_that_status_and_an_unknown_one_reads_all() {
     let page = text(&html);
     assert!(page.contains("Charizard") && !page.contains("Pikachu"), "{page}");
     assert!(html.contains(r#"href="/account/offers/submitted?status=paused" aria-current="page""#), "{html}");
+    assert!(html.contains(r#"id="offer-filter-paused""#) && html.contains("data-keep-place"), "{html}");
     assert!(html.contains(r#"<corten-live src="/account/offers/submitted/live?status=paused"></corten-live>"#), "{html}");
     // A change keeps the status the list shows.
     assert!(html.contains(r#"action="/account/offers/submitted?status=paused""#), "{html}");
@@ -14069,15 +14107,47 @@ async fn the_item_page_shows_its_holds_and_ledger_and_data_clients_get_the_scree
 }
 
 #[tokio::test]
-async fn the_ledger_filter_shows_one_kind() {
+async fn the_ledger_filter_renders_the_address_and_keeps_the_other_movements_hidden() {
+    fn filters(html: &str) -> &str {
+        html.split_once(r#"id="item-ledger-title""#)
+            .expect("stock ledger")
+            .1
+            .split_once("<nav ")
+            .expect("ledger filters")
+            .1
+            .split_once("</nav>")
+            .expect("ledger filters end")
+            .0
+    }
+
     let pilot = Pilot::new().await;
     let (_, _, html) = pilot.send(get("/account/inventory/items/inv_1?ledgerKind=adjusted", Some("seller"))).await;
-    let page = text(&html);
-    assert!(page.contains("Found in box") && !page.contains("Card show table"), "{page}");
+    let ledger = html.split_once("inventory-item-page__timeline").expect("stock ledger").1;
+    let hidden = |words: &str| {
+        let row = ledger.split("<li ").skip(1).find(|row| row.contains(words)).expect("movement drawn");
+        row.split_once('>').expect("movement opening tag").0.split_whitespace().any(|attr| attr == "hidden")
+    };
+    assert!(!hidden("Found in box") && hidden("Card show table"), "{html}");
     assert!(html.contains(r#"href="/account/inventory/items/inv_1?ledgerKind=adjusted" aria-current="page""#), "{html}");
+    let local_filters = filters(&html);
+    assert!(local_filters.contains("data-no-prefetch"), "hovering a local filter never needs a page read: {html}");
+    for id in [r#"id="ledger-all""#, r#"id="ledger-kind-adjusted""#] {
+        assert!(local_filters.contains(id), "the filter keeps its stable focus id: {html}");
+    }
     let (_, _, html) = pilot.send(get("/account/inventory/items/inv_1?ledgerKind=hold-expired", Some("seller"))).await;
-    assert!(text(&html).contains("No stock movements match this filter."), "{html}");
-    assert!(html.contains(r#"surface__tinted" data-elevation-role="furniture">No stock movements"#), "{html}");
+    let empty = html.split_once("No stock movements match this filter.").expect("ledger empty message").0;
+    let tag = empty.rsplit_once("<p ").expect("empty panel").1;
+    assert!(tag.contains("surface__tinted") && !tag.contains(" hidden"), "{html}");
+    let (_, _, html) = pilot
+        .send(get("/account/inventory/items/inv_1?ledgerKind=adjusted&requested=2&applied=1&refused=1", Some("seller")))
+        .await;
+    assert!(text(&html).contains("Found in box") && !text(&html).contains("Card show table"), "{html}");
+    assert!(html.contains(r#"href="/account/inventory/items/inv_1" "#), "filter links clear the sale result: {html}");
+    let fallback_filters = filters(&html);
+    assert!(fallback_filters.contains("data-keep-place") && !fallback_filters.contains("data-no-prefetch"), "{html}");
+    for id in [r#"id="ledger-all""#, r#"id="ledger-kind-adjusted""#] {
+        assert!(fallback_filters.contains(id), "focus is restored by the same id on the next page: {html}");
+    }
 }
 
 #[tokio::test]
