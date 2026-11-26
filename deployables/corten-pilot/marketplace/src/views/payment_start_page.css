@@ -142,6 +142,15 @@
 .wide {
   width: 100%;
 }
+/* Review and Accept Terms of Service, side by side while they fit. */
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.actions form {
+  margin: 0;
+}
 
 /* The form: a label over its control and what it means. */
 .fields {
