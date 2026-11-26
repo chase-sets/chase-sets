@@ -1,23 +1,35 @@
 /* The bar, its brand and its section links are the kit's NavBar (platform/src/ui/nav_bar.css),
-   which gives the links a row of their own on a phone. */
-/* The account menu, at the bar's end (the kit's NavActions): its entries drop below it, over
-   the page. */
-.account {
-  position: relative;
+   which gives the links a row of their own on a phone. On a tablet it is held at the top, 4rem
+   tall (admin-web's h-16), with the section bar held under it. */
+@media (--wide) and (not (--lg)) {
+  .top {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    min-height: 4rem;
+  }
 }
-.account > summary {
-  min-height: var(--control-height);
+/* The account menu, at the bar's end (the kit's NavActions): corten-ui's MenuButton, its menu
+   dropping below it, over the page. */
+.account [aria-haspopup="menu"] {
+  display: inline-flex;
   align-items: center;
+  min-height: var(--control-height);
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-weight: 600;
   cursor: pointer;
-  list-style: none;
 }
-.account > summary::-webkit-details-marker {
-  display: none;
+.account [aria-haspopup="menu"]:hover,
+.account [aria-haspopup="menu"][aria-expanded="true"] {
+  background: var(--color-surface-2);
+  color: var(--color-text);
 }
-.menu {
-  position: absolute;
-  right: 0;
-  z-index: 10;
+.account [role="menu"]:popover-open {
   display: grid;
   gap: var(--space-1);
   min-width: 12rem;
@@ -26,51 +38,36 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--color-surface);
+  color: var(--color-text);
   box-shadow: var(--shadow-md);
-  list-style: none;
 }
-.menu form {
-  margin: 0;
+@supports (position-area: block-end) {
+  .account [role="menu"] {
+    inset: auto;
+    position-area: block-end span-inline-start;
+    position-try-fallbacks: flip-block, flip-inline;
+  }
 }
-.menu .item {
+.account form {
+  display: contents;
+}
+.account .item {
   display: flex;
   align-items: center;
   width: 100%;
   min-height: var(--control-height);
 }
 .plain {
-  width: 100%;
   border: 0;
   background: none;
   font: inherit;
   text-align: left;
   cursor: pointer;
 }
-.trigger {
-  display: inline-flex;
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-md);
-  color: var(--color-text-secondary);
-  font-weight: 600;
-}
-.trigger:hover {
-  background: var(--color-surface-2);
-  color: var(--color-text);
-}
-/* The section's pages, beside <main>, above it. */
-.side {
-  padding: var(--space-4) var(--space-6) 0;
-}
-.side ul {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
+/* A page link, wherever the section's pages are drawn. */
 .item {
   display: inline-flex;
+  align-items: center;
   padding: var(--space-1) var(--space-3);
   border-radius: var(--radius-md);
   color: var(--color-text-secondary);
@@ -89,4 +86,165 @@
   display: inline-flex;
   padding: var(--space-1) var(--space-3);
   color: var(--color-text-muted);
+}
+/* The pages as a list, in the rail and the Sections sheet: one a line, a group's pages under it. */
+:is(.side, .drawer) ul {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+:is(.side, .drawer) ul ul {
+  margin-top: var(--space-1);
+  padding-left: var(--space-3);
+}
+:is(.side, .drawer) .item {
+  display: flex;
+  min-height: var(--control-height);
+}
+/* From lg up, the rail beside <main> (the layout's grid, frame.css), held while the page scrolls. */
+.side {
+  display: none;
+}
+@media (--lg) {
+  .side {
+    display: block;
+    position: sticky;
+    top: 0;
+    align-self: start;
+    max-height: 100vh;
+    overflow-y: auto;
+    padding: var(--space-6) 0 var(--space-6) var(--space-6);
+  }
+}
+/* Below lg, the section bar: the Sections button (from wide up) and the current-section trail,
+   held under the top bar (at the top on a phone, where the top bar scrolls away). */
+.bar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 3rem;
+  padding: var(--space-1) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-background);
+}
+@media (--wide) {
+  .bar {
+    top: 4rem;
+  }
+}
+@media (--lg) {
+  .bar {
+    display: none;
+  }
+}
+.control {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  min-height: var(--control-height-sm);
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.control:hover {
+  background: var(--color-surface-2);
+}
+.open {
+  display: none;
+}
+@media (--wide) {
+  .open {
+    display: inline-flex;
+  }
+}
+.trail {
+  min-width: 0;
+}
+.trail ol {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--color-text-secondary);
+}
+.trail li + li::before {
+  content: "/";
+  margin-right: var(--space-2);
+  color: var(--color-text-muted);
+}
+.trail [aria-current="page"] {
+  color: var(--color-text);
+  font-weight: 600;
+}
+/* The Sections sheet's list fills its width. */
+.drawer nav {
+  display: block;
+}
+/* On a phone, the bar fixed at the bottom: the first pages and More, over the page's end
+   (frame.css leaves <main> room for it). */
+.bottom {
+  position: fixed;
+  inset: auto 0 0;
+  z-index: 20;
+  padding: var(--space-2) var(--space-3) max(var(--space-2), env(safe-area-inset-bottom));
+  border-top: 1px solid var(--color-border);
+  background: var(--color-background);
+  box-shadow: var(--shadow-md);
+}
+.bottom > ul {
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.bottom > ul > li > .item {
+  justify-content: center;
+  width: 100%;
+  min-height: var(--control-height);
+  text-align: center;
+}
+.bottom button.item {
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+@media (--wide) {
+  .bottom {
+    display: none;
+  }
+}
+/* More's pages, a list over the bar's end. */
+.more:popover-open {
+  display: grid;
+  gap: var(--space-1);
+  inset: auto var(--space-3) 5rem auto;
+  min-width: 12rem;
+  margin: 0;
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-md);
+  list-style: none;
+}
+.more .item {
+  display: flex;
+  min-height: var(--control-height);
 }

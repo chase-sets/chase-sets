@@ -1,7 +1,12 @@
 use std::collections::HashMap;
 
 use corten::{Local, NavLink, NavTo, prelude::*};
-use platform::ui::nav_bar::{NavActions, NavBar, NavBrand, NavSections};
+use corten_ui::MenuButton;
+use platform::ui::{
+    nav_bar::{NavActions, NavBar, NavBrand, NavSections},
+    sheet::{Sheet, SheetHeader, SheetWidth, Side as SheetSide},
+    visually_hidden::VisuallyHidden,
+};
 
 use super::{admin_web, link_to};
 use crate::{
@@ -38,6 +43,10 @@ pub fn section_label(p: Pilot, section: &str) -> &'static str {
     }
 }
 
+/// The account menu's id (`account-menu-button` is its trigger's).
+#[derive(Id)]
+struct AccountMenuId;
+
 /// admin-web's top bar: the sections the viewer can open, and the account menu (`SectionNav` is the
 /// pages of the section the page is in). An entry links to the pilot's page when the pilot serves
 /// its path, and to admin-web's otherwise; the brand is the pilot's home.
@@ -46,6 +55,10 @@ pub fn section_label(p: Pilot, section: &str) -> &'static str {
 /// Every section home is the pilot's (`crate::sections`), so Corten marks both bars
 /// (`req.nav_of`, each entry current on the pages under it); the top bar is outside `<main>`, so
 /// the runtime moves its mark after a client navigation. A page the pilot does not serve is a plain link to admin-web, never current.
+///
+/// The account menu is corten-ui's `MenuButton` (admin-web's `AdminAccountMenu`: a button named
+/// "Account menu" and a menu of its items). On a tablet the bar is held at the top, 4rem tall
+/// (admin-web's `h-16`), with the section bar (`SectionNav`) held under it.
 #[component(css)]
 pub fn AdminNav<'a>(p: Pilot, req: &'a Req, viewer: &'a Viewer) -> impl Render {
     let sections = auth::sections(viewer);
@@ -56,7 +69,7 @@ pub fn AdminNav<'a>(p: Pilot, req: &'a Req, viewer: &'a Viewer) -> impl Render {
     html! {
         let top_marks = req.nav_of(top_entries.iter().map(|(to, key)| (NavTo::section(to), *key)));
         let top: HashMap<&str, NavLink<'_>> = top_marks.links().map(|(link, key)| (*key, link)).collect();
-        <header class={NavBar {}}>
+        <header class={(NavBar {}, Top)}>
             <a class={NavBrand {}} href={link_to(req, "/").unwrap_or_default()}>
                 {p.shell_admin()}
             </a>
@@ -71,24 +84,25 @@ pub fn AdminNav<'a>(p: Pilot, req: &'a Req, viewer: &'a Viewer) -> impl Render {
             </nav>
             // admin-web's account menu (`AdminAccountMenu`): switch account, sessions and sign out.
             <div class={NavActions {}}>
-                <details class={Account}>
-                    <summary class={Trigger} aria-label={m.menu_account_menu()}>{m.menu_account()}</summary>
-                    <ul class={Menu}>
-                        <li>
-                            <a class={Item} href={link_to(req, "/access/account-select").unwrap_or_default()}>
-                                {m.menu_switch_account()}
-                            </a>
-                        </li>
-                        <li>
-                            <a class={Item} href={link_to(req, "/access/sessions").unwrap_or_default()}>{m.menu_sessions()}</a>
-                        </li>
-                        <li>
-                            <form method="post" action={sign_in::sign_out::SignOut}>
-                                <button type="submit" class={(Item, Plain)}>{m.menu_sign_out()}</button>
-                            </form>
-                        </li>
-                    </ul>
-                </details>
+                <div class={Account}>
+                    <MenuButton
+                        id={AccountMenuId}
+                        label={html! {
+                            <span aria-hidden="true">{m.menu_account()}</span>
+                            <span class={VisuallyHidden {}}>{m.menu_account_menu()}</span>
+                        }}
+                    >
+                        <a role="menuitem" class={Item} href={link_to(req, "/access/account-select").unwrap_or_default()}>
+                            {m.menu_switch_account()}
+                        </a>
+                        <a role="menuitem" class={Item} href={link_to(req, "/access/sessions").unwrap_or_default()}>
+                            {m.menu_sessions()}
+                        </a>
+                        <form method="post" action={sign_in::sign_out::SignOut}>
+                            <button type="submit" role="menuitem" class={(Item, Plain)}>{m.menu_sign_out()}</button>
+                        </form>
+                    </MenuButton>
+                </div>
             </div>
         </header>
     }
@@ -101,9 +115,51 @@ pub fn AdminNav<'a>(p: Pilot, req: &'a Req, viewer: &'a Viewer) -> impl Render {
 #[derive(Id)]
 pub struct SectionNavId;
 
+/// The Sections sheet, its heading, and the phone bar's More list.
+#[derive(Id)]
+struct AdminSectionsId;
+#[derive(Id)]
+struct AdminSectionsTitleId;
+#[derive(Id)]
+struct AdminMoreId;
+
+/// The entry the page is in: the deepest served entry holding it, the rule `req.nav_of` marks its
+/// current links by. `NavLinks` does not say which entry it marked, so the trail and the phone
+/// bar ask `req.is_current` for each.
+fn current<'k>(req: &Req, entries: &[(Local, &'k str)]) -> Option<&'k str> {
+    entries
+        .iter()
+        .filter(|(to, _)| req.is_current(to, true))
+        .max_by_key(|(to, _)| to.path().trim_end_matches('/').len())
+        .map(|(_, key)| *key)
+}
+
+/// admin-web's phone bar (`compactAdminMobileNavItems`): four entries or fewer as they are, else
+/// the first three (or the first two and the current one) with the rest under More.
+fn phone_bar<'a>(entries: &[&'a NavItem], current: Option<&str>) -> (Vec<&'a NavItem>, Vec<&'a NavItem>) {
+    if entries.len() <= 4 {
+        return (entries.to_vec(), Vec::new());
+    }
+    let active = entries.iter().copied().find(|e| Some(e.key.as_str()) == current);
+    let shown = match active {
+        Some(active) if !entries[..3].iter().any(|e| e.key == active.key) => vec![entries[0], entries[1], active],
+        _ => entries[..3].to_vec(),
+    };
+    let more = entries.iter().copied().filter(|e| !shown.iter().any(|s| s.key == e.key)).collect();
+    (shown, more)
+}
+
 /// The pages of the section the page is in, drawn in the layout's `SectionNavId` element beside
-/// `<main>` (`Frame`), where admin-web's shell has its side nav. The home (`/`) is admin-web's root
-/// shell, with no section pages.
+/// `<main>` (`Frame`), as admin-web's `AdminShell` draws them at each width:
+///
+/// - from `lg` up, a 16rem rail beside `<main>` (its `SideNav`);
+/// - below it, a bar held under the top bar with the "Current section" trail (`Breadcrumbs`) and,
+///   from `wide` up, a Sections button that opens every page in a sheet (`NavigationDrawer`);
+/// - on a phone, a bar fixed at the bottom with the first pages and More (`BottomNav`).
+///
+/// Each is drawn from one `req.nav_of`, so every copy of a link is marked alike. A navigation
+/// draws the element again, which closes the sheet. The home (`/`) is admin-web's root shell, with
+/// no section pages.
 #[component(css = AdminNav)]
 pub fn SectionNav<'a>(p: Pilot, req: &'a Req, viewer: &'a Viewer) -> impl Render {
     let here = section_of(req.path());
@@ -115,37 +171,136 @@ pub fn SectionNav<'a>(p: Pilot, req: &'a Req, viewer: &'a Viewer) -> impl Render
         .flat_map(|(item, children)| std::iter::once(*item).chain(children.iter().copied()))
         .filter_map(|item| Some((own(req, &format!("/{here}{}", item.href.as_deref()?))?, item.key.as_str())))
         .collect();
+    let now = current(req, &side_entries);
+    // The trail: the current page, after the entry that holds it when it is a child.
+    let trail: Vec<(&NavItem, bool)> = items
+        .iter()
+        .find_map(|(item, children)| {
+            if Some(item.key.as_str()) == now {
+                Some(vec![(*item, true)])
+            } else {
+                children.iter().find(|c| Some(c.key.as_str()) == now).map(|child| vec![(*item, false), (*child, true)])
+            }
+        })
+        .unwrap_or_default();
+    // The phone bar's entries: each page with an address, a group's pages in its place.
+    let served = |item: &NavItem| side_entries.iter().any(|(_, key)| *key == item.key);
+    let pages: Vec<&NavItem> = items
+        .iter()
+        .flat_map(|(item, children)| if children.is_empty() { vec![*item] } else { children.clone() })
+        .filter(|item| served(item) || link(req, here, item).is_some())
+        .collect();
+    let (shown, more) = phone_bar(&pages, now);
+    let label = p.shell_section_navigation(section_label(p, here)).to_string();
     html! {
         let side_marks = req.nav_of(side_entries.iter().map(|(to, key)| (NavTo::section(to), *key)));
         let side: HashMap<&str, NavLink<'_>> = side_marks.links().map(|(link, key)| (*key, link)).collect();
         if !home {
-            <nav class={Side} aria-label={p.shell_section_navigation(section_label(p, here))}>
-                <ul>
-                    for (item, children) in &items {
-                        let away = (!side.contains_key(item.key.as_str())).then(|| link(req, here, item)).flatten();
-                        <li>
-                            if let Some(marked) = side.get(item.key.as_str()) {
-                                <a class={Item} {..marked}>{&item.label}</a>
-                            } else if let Some(href) = &away {
-                                <a class={Item} href={href}>{&item.label}</a>
-                            } else {
-                                <span class={Group}>{&item.label}</span>
+            <nav class={Side} aria-label={&label}>
+                <PageList req={req} here={here} items={&items} side={&side} />
+            </nav>
+            <div class={Bar} data-admin-section-bar="true">
+                <button type="button" class={(Control, Open)} command="show-modal" commandfor={AdminSectionsId}>
+                    {p.shell_sections()}
+                </button>
+                if !trail.is_empty() {
+                    <nav class={Trail} aria-label={p.shell_current_section()}>
+                        <ol>
+                            for (item, at) in &trail {
+                                <li>
+                                    if *at {
+                                        <span aria-current="page">{&item.label}</span>
+                                    } else if let Some(href) = link(req, here, item) {
+                                        <a href={&href}>{&item.label}</a>
+                                    } else {
+                                        <span>{&item.label}</span>
+                                    }
+                                </li>
                             }
-                            if !children.is_empty() {
-                                <ul>
-                                    for child in children {
-                                        if let Some(marked) = side.get(child.key.as_str()) {
-                                            <li><a class={Item} {..marked}>{&child.label}</a></li>
-                                        } else if let Some(href) = link(req, here, child) {
-                                            <li><a class={Item} href={&href}>{&child.label}</a></li>
-                                        }
+                        </ol>
+                    </nav>
+                }
+            </div>
+            <dialog
+                class={(Sheet { side: SheetSide::Left(SheetWidth::Sm) }, Drawer)}
+                id={AdminSectionsId}
+                aria-labelledby={AdminSectionsTitleId}
+                closedby="any"
+            >
+                <div class={SheetHeader {}}>
+                    <h2 id={AdminSectionsTitleId}>{p.shell_sections()}</h2>
+                    <button type="button" class={Control} command="close" commandfor={AdminSectionsId}>
+                        {p.shell_close()}
+                    </button>
+                </div>
+                <nav aria-label={&label}>
+                    <PageList req={req} here={here} items={&items} side={&side} />
+                </nav>
+            </dialog>
+            if !shown.is_empty() {
+                <nav class={Bottom} aria-label={&label} data-admin-bottom-nav="true">
+                    <ul>
+                        for item in &shown {
+                            <li><PageLink req={req} here={here} item={item} side={&side} /></li>
+                        }
+                        if !more.is_empty() {
+                            <li>
+                                <button type="button" class={Item} popovertarget={AdminMoreId}>{p.shell_more()}</button>
+                                <ul class={More} id={AdminMoreId} popover>
+                                    for item in &more {
+                                        <li><PageLink req={req} here={here} item={item} side={&side} /></li>
                                     }
                                 </ul>
-                            }
-                        </li>
+                            </li>
+                        }
+                    </ul>
+                </nav>
+            }
+        }
+    }
+}
+
+/// The section's pages as admin-web's `SideNav` lists them: each entry, its children under it, and
+/// a group with no page of its own as its name.
+#[component(css = AdminNav)]
+fn PageList<'a>(
+    req: &'a Req,
+    here: &'a str,
+    items: &'a [(&'static NavItem, Vec<&'static NavItem>)],
+    side: &'a HashMap<&'a str, NavLink<'a>>,
+) -> impl Render {
+    html! {
+        <ul>
+            for (item, children) in items {
+                <li>
+                    if side.contains_key(item.key.as_str()) || link(req, here, item).is_some() {
+                        <PageLink req={req} here={here} item={item} side={side} />
+                    } else {
+                        <span class={Group}>{&item.label}</span>
                     }
-                </ul>
-            </nav>
+                    if !children.is_empty() {
+                        <ul>
+                            for child in children {
+                                if side.contains_key(child.key.as_str()) || link(req, here, child).is_some() {
+                                    <li><PageLink req={req} here={here} item={child} side={side} /></li>
+                                }
+                            }
+                        </ul>
+                    }
+                </li>
+            }
+        </ul>
+    }
+}
+
+/// One page's link: Corten's marked one when the pilot serves it, admin-web's otherwise.
+#[component(css = AdminNav)]
+fn PageLink<'a>(req: &'a Req, here: &'a str, item: &'a NavItem, side: &'a HashMap<&'a str, NavLink<'a>>) -> impl Render {
+    html! {
+        if let Some(marked) = side.get(item.key.as_str()) {
+            <a class={Item} {..marked}>{&item.label}</a>
+        } else if let Some(href) = link(req, here, item) {
+            <a class={Item} href={&href}>{&item.label}</a>
         }
     }
 }

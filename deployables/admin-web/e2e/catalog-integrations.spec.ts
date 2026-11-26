@@ -137,10 +137,6 @@ async function expectAliasReviewWorkspace(page: Page) {
 test("tablet operator navigates to import review and uses the bulk action bar @catalog-admin-integrations @tablet @browser-e2e-seed", async ({
   page,
 }, testInfo) => {
-  test.skip(
-    onCortenAdmin,
-    "the Corten admin has no phone bottom navigation, tablet section bar, Sections control or current-section trail yet",
-  );
   test.setTimeout(120_000);
   await authenticatePlatformAdmin(page, "/catalog/integrations", "/access/sign-in");
   await expectPageOk(page, "/catalog/integrations");
@@ -157,6 +153,10 @@ test("tablet operator navigates to import review and uses the bulk action bar @c
   const trail = page.getByRole("navigation", { name: "Current section" });
   await expect(trail.getByText("Import", { exact: true })).toHaveAttribute("aria-current", "page");
 
+  test.skip(
+    onCortenAdmin,
+    "the Corten workbench draws its import scope step as a details summary, not an aria-expanded button disclosure",
+  );
   const context = page.locator('[data-catalog-import-context-bar="true"]');
   const contextTrigger = context.getByRole("button", { name: /Step 0 · Choose import scope/ });
   await clickUntilDisclosureExpanded(contextTrigger, true);
@@ -268,10 +268,6 @@ async function expectIntegrationHealthTriage(page: Page) {
 }
 
 test("catalog operator can inspect integration health triage @catalog-admin-integrations @tablet", async ({ page }) => {
-  test.skip(
-    onCortenAdmin,
-    "the Corten admin has no phone bottom navigation, tablet section bar, Sections control or current-section trail yet",
-  );
   test.setTimeout(120_000);
 
   await openIntegrationHealthTriage(page);
