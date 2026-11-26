@@ -2704,7 +2704,7 @@ describe("public product Listings route", () => {
   };
 
   /** What only the seller may read. A service that returned these on a row must not get them past the route. */
-  const sellerOnlyFields = {
+  const fieldsOutsidePublicRow = {
     inventory_item_id: "item_private",
     storage_location_name: "Back room bin 7",
     ship_from_address: {
@@ -2753,8 +2753,8 @@ describe("public product Listings route", () => {
     expect(services.listItemListings).toHaveBeenCalledWith("prod_1");
   });
 
-  it("serves no seller-only field even when the service returns a row that carries them", async () => {
-    const { app } = appServing([{ ...publicRow, ...sellerOnlyFields }]);
+  it("serves no field outside the public row even when the service returns a row that carries them", async () => {
+    const { app } = appServing([{ ...publicRow, ...fieldsOutsidePublicRow }]);
 
     const response = await app.fetch(new Request("http://marketplace.test/products/prod_1/listings"));
 
